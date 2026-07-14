@@ -1,0 +1,96 @@
+{
+  "module": "52_scm_unique",
+  "side": "py",
+  "rows": [
+    {
+      "module": "52_scm_unique",
+      "side": "py",
+      "statistic": "avg_post_gap",
+      "estimate": 2.000000154681201,
+      "se": 2.159192001160468,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": {}
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "py",
+      "statistic": "pre_treatment_rmse",
+      "estimate": 0.0,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": {}
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "py",
+      "statistic": "weight_donor0",
+      "estimate": 0.4999999393328413,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": {}
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "py",
+      "statistic": "weight_donor1",
+      "estimate": 0.30000016682453623,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": {}
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "py",
+      "statistic": "weight_donor2",
+      "estimate": 0.19999989384262246,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": {}
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "py",
+      "statistic": "weight_donor3",
+      "estimate": 0.0,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": {}
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "py",
+      "statistic": "weight_donor4",
+      "estimate": 0.0,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "method": "classic",
+    "true_gap": 2.0,
+    "true_weights": [
+      0.5,
+      0.3,
+      0.2,
+      0.0,
+      0.0
+    ],
+    "dgp": "unique convex-hull SCM: treated_pre = 0.5*donor0 + 0.3*donor1 + 0.2*donor2 exactly; donors 3,4 are distractors; post-period adds tau=2.",
+    "certification_note": "Unique-solution counterpart to module 07. sp recovers the exact weights and gap (pre-RMSE ~ 0); Synth::synth agrees on the gap at machine-level point precision when run with fixed predictor weights and tightened ipop settings, while leaving sub-nanoscopic non-zero weights on the distractor donors. Certifies the classical SCM solver on an identified problem."
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "coefficients": {
+    "Intercept": 2.010150965713017,
+    "x": 0.30572652541261397,
+    "group": -0.41945271148391305
+  },
+  "log_scale": -0.18831317884671275,
+  "loglik": -274.5451399321941,
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "survival_version": "3.8.3",
+    "generated_by": "tests/reference_parity/_generate_aft_R.R"
+  }
+}

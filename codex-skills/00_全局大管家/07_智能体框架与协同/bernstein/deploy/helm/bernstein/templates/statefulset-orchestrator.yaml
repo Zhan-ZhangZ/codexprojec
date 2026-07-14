@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "bernstein.fullname" . }}-orchestrator
+  labels:
+    {{- include "bernstein.labels" . | nindent 4 }}
+    app.kubernetes.io/component: orchestrator
+spec:
+  serviceName: {{ include "bernstein.fullname" . }}-orchestrator
+  replicas: {{ .Values.orchestrator.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "bernstein.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      labels:
+        {{- include "bernstein.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: orchestrator
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: orchestrator
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - "python"
+            - "-m"
+            - "bernstein.core.orchestrator"
+          envFrom:
+            - configMapRef:
+                name: {{ include "bernstein.fullname" . }}-config
+          env:
+            - name: BERNSTEIN_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bernstein.authSecretName" . }}
+                  key: {{ .Values.auth.secretKey }}
+            {{- if .Values.providerKeys.existingSecret }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bernstein.providerKeysSecretName" . }}
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bernstein.providerKeysSecretName" . }}
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "bernstein.providerKeysSecretName" . }}
+                  key: GOOGLE_API_KEY
+                  optional: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.orchestrator.resources | nindent 12 }}
+          volumeMounts:
+            - name: orchestrator-state
+              mountPath: /workspace/.sdd/orchestrator
+      {{- if not .Values.orchestrator.persistence.enabled }}
+      volumes:
+        - name: orchestrator-state
+          emptyDir: {}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.orchestrator.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: orchestrator-state
+      spec:
+        accessModes:
+          - {{ .Values.orchestrator.persistence.accessMode }}
+        resources:
+          requests:
+            storage: {{ .Values.orchestrator.persistence.size }}
+        {{- if .Values.orchestrator.persistence.storageClass }}
+        storageClassName: {{ .Values.orchestrator.persistence.storageClass }}
+        {{- end }}
+  {{- end }}

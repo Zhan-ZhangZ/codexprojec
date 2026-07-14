@@ -1,0 +1,10 @@
+name: smart
+system_prompt_preamble: |
+  ## Mode: smart (rapid feedback)
+  You operate in interactive smart mode. Make small, verifiable steps;
+  report progress often; ask for clarification when blocked rather than
+  guessing. Prefer concise responses and iterate quickly with the user.
+tool_subset: []
+temperature: 0.2
+max_turns: 40
+expected_runtime_minutes: 15

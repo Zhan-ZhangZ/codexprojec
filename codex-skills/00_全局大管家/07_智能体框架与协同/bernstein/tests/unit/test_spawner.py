@@ -1,0 +1,1221 @@
+"""Tests for AgentSpawner - adapter is always mocked."""
+
+from __future__ import annotations
+
+import subprocess
+from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from bernstein.core.agency_loader import AgencyAgent
+from bernstein.core.models import (
+    AgentSession,
+    Complexity,
+    Scope,
+    Task,
+    TaskStatus,
+    TaskType,
+)
+from bernstein.core.router import (
+    ModelConfig as RouterModelConfig,
+)
+from bernstein.core.router import (
+    ProviderConfig,
+    Tier,
+    TierAwareRouter,
+)
+from bernstein.core.spawn_rate_limiter import SpawnRateLimitConfig, SpawnRateLimiter
+from bernstein.core.spawner import (
+    AgentSpawner,
+    _load_role_config,
+    _render_fallback,
+    _render_prompt,
+    _select_batch_config,
+)
+from bernstein.core.worktree import WorktreeError
+
+from bernstein.adapters.base import SpawnError
+
+# --- spawn_for_tasks ---
+
+
+class TestSpawnForTasks:
+    def test_spawns_single_task(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=100)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=False)
+
+        task = make_task()
+        session = spawner.spawn_for_tasks([task])
+
+        assert isinstance(session, AgentSession)
+        assert session.pid == 100
+        assert session.status == "working"
+        assert session.role == "backend"
+        assert session.task_ids == ["T-001"]
+        adapter.spawn.assert_called_once()
+
+    def test_spawns_batch_of_tasks(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=200)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=False)
+
+        tasks = [
+            make_task(id="T-001", role="backend"),
+            make_task(id="T-002", role="backend", title="Another task"),
+        ]
+        session = spawner.spawn_for_tasks(tasks)
+
+        assert session.task_ids == ["T-001", "T-002"]
+        assert session.pid == 200
+
+    def test_rejects_empty_task_list(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        with pytest.raises(ValueError, match="empty task list"):
+            spawner.spawn_for_tasks([])
+
+    def test_rejects_mixed_roles(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        tasks = [
+            make_task(id="T-001", role="backend"),
+            make_task(id="T-002", role="qa"),
+        ]
+        with pytest.raises(ValueError, match="same role"):
+            spawner.spawn_for_tasks(tasks)
+
+    def test_uses_highest_model_config_in_batch(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=False)
+
+        tasks = [
+            make_task(id="T-001", role="backend", complexity=Complexity.LOW),
+            make_task(
+                id="T-002",
+                role="backend",
+                scope=Scope.LARGE,
+                complexity=Complexity.HIGH,
+            ),
+        ]
+        session = spawner.spawn_for_tasks(tasks)
+
+        # The high-complexity large-scope task should route to opus
+        call_kwargs = adapter.spawn.call_args.kwargs
+        assert call_kwargs["model_config"].model == "opus"
+        assert session.model_config.model == "opus"
+
+    def test_session_id_contains_role(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=False)
+
+        task = make_task(role="qa")
+        session = spawner.spawn_for_tasks([task])
+
+        assert session.id.startswith("qa-")
+
+    def test_passes_workdir_to_adapter(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=False)
+
+        task = make_task()
+        spawner.spawn_for_tasks([task])
+
+        call_kwargs = adapter.spawn.call_args.kwargs
+        assert call_kwargs["workdir"] == tmp_path
+
+    def test_injects_skills_before_spawn(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """Skills are written to workdir/.claude/skills/ before adapter.spawn() is called."""
+        adapter = mock_adapter_factory()
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        # Create minimal skills templates so injection can succeed
+        skills_dir = tmp_path / "templates" / "skills"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "bernstein-completion-protocol.md").write_text(
+            "---\nname: bernstein-completion-protocol\n"
+            "description: Complete tasks\n"
+            "whenToUse: When done\n---\n{{COMPLETE_CMDS}}\n"
+        )
+        (skills_dir / "bernstein-signal-check.md").write_text(
+            "---\nname: bernstein-signal-check\n"
+            "description: Check signals\n"
+            "whenToUse: Periodically\n---\n{{SESSION_ID}}\n"
+        )
+
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=False)
+        task = make_task(role="backend")
+        spawner.spawn_for_tasks([task])
+
+        skills_dest = tmp_path / ".claude" / "skills"
+        assert skills_dest.is_dir()
+        assert (skills_dest / "bernstein-completion-protocol.md").exists()
+        assert (skills_dest / "bernstein-signal-check.md").exists()
+
+
+# --- check_alive / kill ---
+
+
+class TestLifecycle:
+    def test_check_alive_true(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        adapter.is_alive.return_value = True
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        session = AgentSession(id="test-1", role="backend", pid=42)
+        assert spawner.check_alive(session) is True
+        adapter.is_alive.assert_called_once_with(42)
+
+    def test_check_alive_false_when_no_pid(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        session = AgentSession(id="test-1", role="backend", pid=None)
+        assert spawner.check_alive(session) is False
+
+    def test_check_alive_dead_process(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        adapter.is_alive.return_value = False
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        session = AgentSession(id="test-1", role="backend", pid=99)
+        assert spawner.check_alive(session) is False
+
+    def test_kill_sends_kill_and_marks_dead(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        session = AgentSession(id="test-1", role="backend", pid=42)
+        spawner.kill(session)
+
+        adapter.kill.assert_called_once_with(42)
+        assert session.status == "dead"
+
+    def test_kill_no_pid_still_marks_dead(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        session = AgentSession(id="test-1", role="backend", pid=None)
+        spawner.kill(session)
+
+        adapter.kill.assert_not_called()
+        assert session.status == "dead"
+
+
+# --- Prompt rendering ---
+
+
+class TestRenderPrompt:
+    def test_includes_role_template(self, tmp_path: Path, make_task) -> None:
+        role_dir = tmp_path / "backend"
+        role_dir.mkdir()
+        (role_dir / "system_prompt.md").write_text("You are a backend engineer.")
+
+        task = make_task()
+        prompt = _render_prompt([task], tmp_path, tmp_path)
+
+        assert "You are a backend engineer." in prompt
+
+    def test_fallback_when_no_template(self, tmp_path: Path, make_task) -> None:
+        task = make_task(role="devops")
+        prompt = _render_prompt([task], tmp_path, tmp_path)
+
+        assert "devops specialist" in prompt
+
+    def test_includes_task_descriptions(self, tmp_path: Path, make_task) -> None:
+        tasks = [
+            make_task(id="T-001", title="Build API", description="Create REST endpoints."),
+            make_task(id="T-002", title="Write tests", description="Add unit tests."),
+        ]
+        prompt = _render_prompt(tasks, tmp_path, tmp_path)
+
+        assert "Task 1: Build API (id=T-001)" in prompt
+        assert "Create REST endpoints." in prompt
+        assert "Task 2: Write tests (id=T-002)" in prompt
+        assert "Add unit tests." in prompt
+
+    def test_includes_owned_files(self, tmp_path: Path, make_task) -> None:
+        task = make_task(owned_files=["src/foo.py", "src/bar.py"])
+        prompt = _render_prompt([task], tmp_path, tmp_path)
+
+        assert "src/foo.py" in prompt
+        assert "src/bar.py" in prompt
+
+    def test_includes_project_context_when_present(self, tmp_path: Path, make_task) -> None:
+        sdd = tmp_path / ".sdd"
+        sdd.mkdir()
+        (sdd / "project.md").write_text("This project uses FastAPI.")
+
+        task = make_task()
+        prompt = _render_prompt([task], tmp_path, tmp_path)
+
+        assert "This project uses FastAPI." in prompt
+
+    def test_no_project_context_when_absent(self, tmp_path: Path, make_task) -> None:
+        task = make_task()
+        prompt = _render_prompt([task], tmp_path, tmp_path)
+
+        assert "Project context" not in prompt
+
+    def test_includes_completion_instructions(self, tmp_path: Path, make_task) -> None:
+        tasks = [
+            make_task(id="T-010"),
+            make_task(id="T-011"),
+        ]
+        prompt = _render_prompt(tasks, tmp_path, tmp_path)
+
+        assert "T-010" in prompt
+        assert "T-011" in prompt
+        assert "curl" in prompt
+        assert "/complete" in prompt
+        assert "Step 3: Exit" in prompt
+
+
+# --- _select_batch_config ---
+
+
+class TestSelectBatchConfig:
+    def test_picks_opus_over_sonnet(self, make_task) -> None:
+        tasks = [
+            make_task(complexity=Complexity.LOW, scope=Scope.SMALL),
+            make_task(complexity=Complexity.HIGH, scope=Scope.LARGE),
+        ]
+        config = _select_batch_config(tasks)
+        assert config.model == "opus"
+
+    def test_picks_higher_effort(self, make_task) -> None:
+        tasks = [
+            make_task(role="manager"),  # routes to opus max
+            make_task(role="manager"),
+        ]
+        config = _select_batch_config(tasks)
+        assert config.effort == "max"
+
+    def test_single_task_returns_its_config(self, make_task) -> None:
+        # LOW+SMALL tasks hit the L1 fast-path → cheapest model (haiku/low)
+        task = make_task(complexity=Complexity.LOW, scope=Scope.SMALL)
+        config = _select_batch_config([task])
+        assert config.model == "sonnet"
+        assert config.effort == "normal"
+
+
+# --- TierAwareRouter integration ---
+
+
+def _make_router() -> TierAwareRouter:
+    """Create a TierAwareRouter with a test provider."""
+    router = TierAwareRouter()
+    router.register_provider(
+        ProviderConfig(
+            name="test_provider",
+            models={
+                "sonnet": RouterModelConfig("sonnet", "high"),
+                "opus": RouterModelConfig("opus", "max"),
+            },
+            tier=Tier.STANDARD,
+            cost_per_1k_tokens=0.003,
+        )
+    )
+    return router
+
+
+class TestSpawnerWithRouter:
+    def test_spawner_uses_router_when_configured(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=300)
+        adapter.name.return_value = "claude"  # Router arms are Claude-specific
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        router = _make_router()
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, router=router, use_worktrees=False)
+
+        task = make_task(scope=Scope.LARGE, complexity=Complexity.HIGH)
+        session = spawner.spawn_for_tasks([task])
+
+        assert session.provider == "test_provider"
+        assert session.pid == 300
+
+    def test_router_skipped_for_non_claude_adapter(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """Router is skipped when adapter is not Claude-compatible (e.g. qwen, gemini).
+
+        The router's arms (haiku/sonnet/opus) are Claude-specific and meaningless
+        for non-Claude adapters.  The spawner should bypass the router and use the
+        heuristic model config directly.
+        """
+        adapter = mock_adapter_factory(pid=301)
+        adapter.name.return_value = "qwen"  # Non-Claude adapter
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        router = _make_router()
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, router=router, use_worktrees=False)
+
+        task = make_task(scope=Scope.LARGE, complexity=Complexity.HIGH)
+        session = spawner.spawn_for_tasks([task])
+
+        # Router was not consulted - provider falls back to adapter name
+        assert session.provider != "test_provider"
+        assert session.pid == 301
+
+    def test_spawner_falls_back_without_router(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=400)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, router=None, use_worktrees=False)
+
+        task = make_task()
+        session = spawner.spawn_for_tasks([task])
+
+        assert session.provider is None
+        assert session.pid == 400
+
+    def test_spawner_falls_back_on_router_error(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=500)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        # Router with no providers will raise RouterError
+        router = TierAwareRouter()
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, router=router, use_worktrees=False)
+
+        task = make_task()
+        session = spawner.spawn_for_tasks([task])
+
+        # Should fall back gracefully
+        assert session.provider is None
+        assert session.pid == 500
+
+    def test_spawn_retries_with_alternate_provider_after_spawn_failure(
+        self, tmp_path: Path, make_task, mock_adapter_factory
+    ) -> None:
+        subprocess.run(["git", "init", str(tmp_path)], capture_output=True, check=True)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.email", "test@test.local"], capture_output=True, check=True
+        )
+        subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "Test"], capture_output=True, check=True)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "commit", "--allow-empty", "-m", "init"], capture_output=True, check=True
+        )
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        router = TierAwareRouter()
+        router.state.preferred_tier = Tier.FREE
+        router.register_provider(
+            ProviderConfig(
+                name="anthropic_primary",
+                models={"sonnet": RouterModelConfig("sonnet", "high")},
+                tier=Tier.FREE,
+                cost_per_1k_tokens=0.0,
+            )
+        )
+        router.register_provider(
+            ProviderConfig(
+                name="google_backup",
+                models={"sonnet": RouterModelConfig("sonnet", "high")},
+                tier=Tier.STANDARD,
+                cost_per_1k_tokens=0.003,
+            )
+        )
+
+        failing_adapter = mock_adapter_factory(pid=0)
+        failing_adapter.spawn.side_effect = RuntimeError("rate limit exceeded")
+        failing_adapter.name.return_value = "claude"
+
+        backup_adapter = mock_adapter_factory(pid=901)
+        backup_adapter.name.return_value = "gemini"
+
+        primary_adapter = mock_adapter_factory(pid=123)
+        primary_adapter.name.return_value = "claude"  # Router arms are Claude-specific
+        spawner = AgentSpawner(
+            primary_adapter,
+            templates_dir,
+            tmp_path,
+            router=router,
+            use_worktrees=False,
+        )
+        with patch.object(spawner, "_get_adapter_by_name", side_effect=[failing_adapter, backup_adapter]):
+            session = spawner.spawn_for_tasks([make_task()])
+
+        assert session.pid == 901
+        assert session.provider == "google_backup"
+        assert failing_adapter.spawn.call_count == 1
+        assert backup_adapter.spawn.call_count == 1
+
+    def test_role_model_policy_pins_provider_and_model(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        router = TierAwareRouter()
+        router.register_provider(
+            ProviderConfig(
+                name="codex",
+                models={"openai/gpt-5.4-mini": RouterModelConfig("openai/gpt-5.4-mini", "high")},
+                tier=Tier.STANDARD,
+                cost_per_1k_tokens=0.003,
+            )
+        )
+        router.register_provider(
+            ProviderConfig(
+                name="claude",
+                models={"sonnet": RouterModelConfig("sonnet", "high")},
+                tier=Tier.FREE,
+                cost_per_1k_tokens=0.0,
+            )
+        )
+
+        pinned_adapter = mock_adapter_factory(pid=777)
+        pinned_adapter.name.return_value = "codex"
+        spawner = AgentSpawner(
+            mock_adapter_factory(pid=123),
+            templates_dir,
+            tmp_path,
+            router=router,
+            role_model_policy={"backend": {"provider": "codex", "model": "openai/gpt-5.4-mini"}},
+            use_worktrees=False,
+        )
+
+        with patch.object(spawner, "_get_adapter_by_name", return_value=pinned_adapter):
+            session = spawner.spawn_for_tasks([make_task(role="backend")])
+
+        assert session.provider == "codex"
+        assert session.model_config.model == "openai/gpt-5.4-mini"
+        assert session.pid == 777
+
+    def test_per_step_cli_overrides_default_adapter(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """Task.cli (per-step `cli:` from plan YAML) drives adapter selection,
+        winning over the spawner's default adapter when no role policy is set."""
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        default_adapter = mock_adapter_factory(pid=100)
+        default_adapter.name.return_value = "claude"
+
+        opencode_adapter = mock_adapter_factory(pid=555)
+        opencode_adapter.name.return_value = "opencode"
+
+        spawner = AgentSpawner(
+            default_adapter,
+            templates_dir,
+            tmp_path,
+            use_worktrees=False,
+        )
+
+        task = make_task(role="backend")
+        task.cli = "opencode"
+
+        with patch.object(spawner, "_get_adapter_by_name", return_value=opencode_adapter):
+            session = spawner.spawn_for_tasks([task])
+
+        assert session.provider == "opencode"
+        assert session.pid == 555
+
+    def test_per_step_cli_beats_role_policy_provider(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """When both task.cli and role_model_policy.provider are set, the
+        per-step value wins - that's the whole point of the field."""
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        default_adapter = mock_adapter_factory(pid=100)
+        default_adapter.name.return_value = "claude"
+
+        opencode_adapter = mock_adapter_factory(pid=601)
+        opencode_adapter.name.return_value = "opencode"
+
+        spawner = AgentSpawner(
+            default_adapter,
+            templates_dir,
+            tmp_path,
+            role_model_policy={"backend": {"provider": "codex"}},
+            use_worktrees=False,
+        )
+
+        task = make_task(role="backend")
+        task.cli = "opencode"
+
+        with patch.object(spawner, "_get_adapter_by_name", return_value=opencode_adapter):
+            session = spawner.spawn_for_tasks([task])
+
+        assert session.provider == "opencode"
+
+    def test_spawn_rate_limiter_blocks_repeated_spawns(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=321)
+        adapter.name.return_value = "claude"
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        limiter = SpawnRateLimiter(SpawnRateLimitConfig(max_spawns=1, window_seconds=60.0))
+        spawner = AgentSpawner(
+            adapter,
+            templates_dir,
+            tmp_path,
+            use_worktrees=False,
+            spawn_rate_limiter=limiter,
+        )
+
+        spawner.spawn_for_tasks([make_task()])
+        with pytest.raises(SpawnError, match="Spawn rate limit exceeded"):
+            spawner.spawn_for_tasks([make_task(id="task-002")])
+
+        assert adapter.spawn.call_count == 1
+
+
+# --- _render_prompt with agency_catalog ---
+
+
+class TestRenderPromptWithAgencyCatalog:
+    def _make_agent(self, name: str = "ml-expert", role: str = "ml-engineer") -> AgencyAgent:
+        return AgencyAgent(
+            name=name,
+            description="ML specialist",
+            division="machine_learning",
+            role=role,
+            prompt_body="You are an ML engineer.",
+        )
+
+    def test_specialist_block_included_for_manager_role(self, tmp_path: Path, make_task) -> None:
+        catalog = {"ml-expert": self._make_agent()}
+        task = make_task(role="manager")
+        prompt = _render_prompt([task], tmp_path, tmp_path, agency_catalog=catalog)
+        assert "ml-expert" in prompt
+        assert "ML specialist" in prompt
+        assert "Available specialist agents" in prompt
+
+    def test_no_specialist_block_for_non_manager_role(self, tmp_path: Path, make_task) -> None:
+        catalog = {"ml-expert": self._make_agent()}
+        task = make_task(role="backend")
+        prompt = _render_prompt([task], tmp_path, tmp_path, agency_catalog=catalog)
+        assert "Available specialist agents" not in prompt
+
+    def test_no_specialist_block_when_catalog_is_none(self, tmp_path: Path, make_task) -> None:
+        task = make_task(role="manager")
+        prompt = _render_prompt([task], tmp_path, tmp_path, agency_catalog=None)
+        assert "Available specialist agents" not in prompt
+
+    def test_specialist_block_lists_role_and_description(self, tmp_path: Path, make_task) -> None:
+        catalog = {
+            "ml-expert": self._make_agent("ml-expert", "ml-engineer"),
+            "sec-agent": AgencyAgent(
+                name="sec-agent",
+                description="Security reviewer",
+                division="security",
+                role="security",
+                prompt_body="You review security.",
+            ),
+        }
+        task = make_task(role="manager")
+        prompt = _render_prompt([task], tmp_path, tmp_path, agency_catalog=catalog)
+        assert "ml-engineer" in prompt
+        assert "security" in prompt
+        assert "Security reviewer" in prompt
+
+
+# --- _render_fallback with agency_catalog ---
+
+
+class TestRenderFallback:
+    def test_exact_name_match_returns_prompt_body(self, tmp_path: Path) -> None:
+        agent = AgencyAgent(
+            name="data-eng",
+            description="Data engineering",
+            division="engineering",
+            role="backend",
+            prompt_body="You are a data engineer.",
+        )
+        result = _render_fallback("data-eng", tmp_path, agency_catalog={"data-eng": agent})
+        assert result == "You are a data engineer."
+
+    def test_role_based_fallback_uses_agent_prompt_body(self, tmp_path: Path) -> None:
+        agent = AgencyAgent(
+            name="some-agent",
+            description="DevOps agent",
+            division="devops",
+            role="devops",
+            prompt_body="You handle infrastructure.",
+        )
+        result = _render_fallback("devops", tmp_path, agency_catalog={"some-agent": agent})
+        assert result == "You handle infrastructure."
+
+    def test_template_takes_precedence_over_catalog(self, tmp_path: Path) -> None:
+        role_dir = tmp_path / "backend"
+        role_dir.mkdir()
+        (role_dir / "system_prompt.md").write_text("Template content.")
+        agent = AgencyAgent(
+            name="backend-agent",
+            description="Backend",
+            division="engineering",
+            role="backend",
+            prompt_body="Catalog content.",
+        )
+        result = _render_fallback("backend", tmp_path, agency_catalog={"backend-agent": agent})
+        assert result == "Template content."
+
+    def test_default_when_no_template_or_catalog(self, tmp_path: Path) -> None:
+        result = _render_fallback("unknown-role", tmp_path, agency_catalog=None)
+        assert result == "You are a unknown-role specialist."
+
+    def test_skips_agent_without_prompt_body(self, tmp_path: Path) -> None:
+        agent = AgencyAgent(
+            name="empty-agent",
+            description="Empty",
+            division="devops",
+            role="devops",
+            prompt_body="",
+        )
+        result = _render_fallback("devops", tmp_path, agency_catalog={"empty-agent": agent})
+        assert result == "You are a devops specialist."
+
+
+# --- _select_batch_config with config.yaml and task overrides ---
+
+
+class TestSelectBatchConfigExtended:
+    def test_role_config_yaml_overrides_heuristics(self, tmp_path: Path, make_task) -> None:
+        role_dir = tmp_path / "backend"
+        role_dir.mkdir()
+        (role_dir / "config.yaml").write_text("default_model: opus\ndefault_effort: max\n")
+
+        # Low-complexity task would normally route to sonnet
+        task = make_task(role="backend", complexity=Complexity.LOW, scope=Scope.SMALL)
+        config = _select_batch_config([task], templates_dir=tmp_path)
+        assert config.model == "opus"
+        assert config.effort == "max"
+
+    def test_heuristics_used_when_no_config_yaml(self, tmp_path: Path, make_task) -> None:
+        task = make_task(role="backend", complexity=Complexity.HIGH, scope=Scope.LARGE)
+        config = _select_batch_config([task], templates_dir=tmp_path)
+        assert config.model == "opus"
+
+    def test_task_model_override_respected(self, make_task) -> None:
+        task = Task(
+            id="T-001",
+            title="Override task",
+            description="desc",
+            role="backend",
+            scope=Scope.SMALL,
+            complexity=Complexity.LOW,
+            status=TaskStatus.OPEN,
+            task_type=TaskType.STANDARD,
+            priority=2,
+            owned_files=[],
+            model="opus",
+            effort=None,
+        )
+        config = _select_batch_config([task])
+        assert config.model == "opus"
+
+    def test_task_effort_override_respected(self, make_task) -> None:
+        task = Task(
+            id="T-001",
+            title="Override task",
+            description="desc",
+            role="backend",
+            scope=Scope.SMALL,
+            complexity=Complexity.LOW,
+            status=TaskStatus.OPEN,
+            task_type=TaskType.STANDARD,
+            priority=2,
+            owned_files=[],
+            model=None,
+            effort="max",
+        )
+        config = _select_batch_config([task])
+        assert config.effort == "max"
+
+    def test_both_model_and_effort_override(self) -> None:
+        task = Task(
+            id="T-001",
+            title="Full override",
+            description="desc",
+            role="backend",
+            scope=Scope.SMALL,
+            complexity=Complexity.LOW,
+            status=TaskStatus.OPEN,
+            task_type=TaskType.STANDARD,
+            priority=2,
+            owned_files=[],
+            model="opus",
+            effort="max",
+        )
+        config = _select_batch_config([task])
+        assert config.model == "opus"
+        assert config.effort == "max"
+
+
+# --- _load_role_config ---
+
+
+class TestLoadRoleConfig:
+    def test_returns_none_when_no_config_file(self, tmp_path: Path) -> None:
+        result = _load_role_config("backend", tmp_path)
+        assert result is None
+
+    def test_returns_model_config_from_valid_yaml(self, tmp_path: Path) -> None:
+        role_dir = tmp_path / "backend"
+        role_dir.mkdir()
+        (role_dir / "config.yaml").write_text("default_model: opus\ndefault_effort: max\n")
+        result = _load_role_config("backend", tmp_path)
+        assert result is not None
+        assert result.model == "opus"
+        assert result.effort == "max"
+
+    def test_returns_none_on_malformed_yaml(self, tmp_path: Path) -> None:
+        role_dir = tmp_path / "backend"
+        role_dir.mkdir()
+        (role_dir / "config.yaml").write_text(": invalid: yaml: [\n")
+        result = _load_role_config("backend", tmp_path)
+        assert result is None
+
+    def test_returns_none_when_yaml_is_not_a_mapping(self, tmp_path: Path) -> None:
+        role_dir = tmp_path / "backend"
+        role_dir.mkdir()
+        (role_dir / "config.yaml").write_text("- just a list\n- not a dict\n")
+        result = _load_role_config("backend", tmp_path)
+        assert result is None
+
+    def test_defaults_when_fields_missing(self, tmp_path: Path) -> None:
+        role_dir = tmp_path / "backend"
+        role_dir.mkdir()
+        (role_dir / "config.yaml").write_text("{}\n")
+        result = _load_role_config("backend", tmp_path)
+        assert result is not None
+        assert result.model == "sonnet"
+        assert result.effort == "high"
+
+
+# --- WorktreeManager integration ---
+
+
+class TestWorktreeIntegration:
+    def test_worktrees_enabled_by_default(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=100)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path)
+
+        assert spawner._use_worktrees is True
+        assert spawner._worktree_mgr is not None
+
+    def test_worktrees_enabled_creates_manager(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        assert spawner._use_worktrees is True
+        assert spawner._worktree_mgr is not None
+
+    def test_spawn_uses_worktree_path_as_cwd(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=200)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        worktree_path = tmp_path / ".sdd" / "worktrees" / "session-abc"
+        worktree_path.mkdir(parents=True)
+
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=True)
+        with patch.object(spawner._worktree_mgr, "create", return_value=worktree_path) as mock_create:
+            task = make_task()
+            session = spawner.spawn_for_tasks([task])
+
+            mock_create.assert_called_once_with(session.id)
+            call_kwargs = adapter.spawn.call_args.kwargs
+            assert call_kwargs["workdir"] == worktree_path
+
+    def test_spawn_writes_task_specific_claude_md_into_worktree(
+        self, tmp_path: Path, make_task, mock_adapter_factory
+    ) -> None:
+        """audit-095: task-specific CLAUDE.md must land at the worktree root."""
+        adapter = mock_adapter_factory(pid=250)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        worktree_path = tmp_path / ".sdd" / "worktrees" / "session-claude-md"
+        worktree_path.mkdir(parents=True)
+
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=True)
+        with patch.object(spawner._worktree_mgr, "create", return_value=worktree_path):
+            task = make_task(
+                id="T-AUDIT-095",
+                title="Fix worktree CLAUDE.md injection",
+                description="Ensure spawned agents get task-specific instructions.",
+                role="backend",
+                owned_files=["src/bernstein/core/agents/spawner_core.py"],
+            )
+            spawner.spawn_for_tasks([task])
+
+        claude_md = worktree_path / "CLAUDE.md"
+        assert claude_md.exists(), "write_claude_md should emit a CLAUDE.md at the worktree root"
+        content = claude_md.read_text(encoding="utf-8")
+        assert "Bernstein Agent: backend" in content
+        assert "T-AUDIT-095" in content
+        assert "Fix worktree CLAUDE.md injection" in content
+        assert "spawner_core.py" in content
+
+    def test_spawn_falls_back_on_worktree_error(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=300)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=True)
+        with patch.object(spawner._worktree_mgr, "create", side_effect=WorktreeError("git failed")):
+            task = make_task()
+            with pytest.raises(SpawnError, match="Cannot create workspace for agent"):
+                spawner.spawn_for_tasks([task])
+
+    def test_spawn_without_worktrees_uses_workdir(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory(pid=400)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, use_worktrees=False)
+
+        task = make_task()
+        spawner.spawn_for_tasks([task])
+
+        call_kwargs = adapter.spawn.call_args.kwargs
+        assert call_kwargs["workdir"] == tmp_path
+
+    def test_reap_merges_and_cleans_up_worktree(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        worktree_path = tmp_path / ".sdd" / "worktrees" / "sess"
+        session = AgentSession(id="backend-sess", role="backend", pid=42)
+        # Simulate a worktree path being tracked
+        spawner._worktree_paths[session.id] = worktree_path
+
+        mock_proc = MagicMock()
+        spawner._procs[session.id] = mock_proc
+
+        with (
+            patch.object(spawner, "_merge_worktree_branch") as mock_merge,
+            patch.object(spawner._worktree_mgr, "cleanup") as mock_cleanup,
+        ):
+            spawner.reap_completed_agent(session)
+
+            mock_merge.assert_called_once_with(session.id, repo_root=tmp_path.resolve())
+            mock_cleanup.assert_called_once_with(session.id)
+
+        assert session.id not in spawner._worktree_paths
+
+    def test_reap_skips_merge_when_no_worktree(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        session = AgentSession(id="backend-xyz", role="backend", pid=50)
+        mock_proc = MagicMock()
+        spawner._procs[session.id] = mock_proc
+
+        with patch.object(spawner, "_merge_worktree_branch") as mock_merge:
+            spawner.reap_completed_agent(session)
+            mock_merge.assert_not_called()
+
+
+# --- cleanup_worktree ---
+
+
+class TestCleanupWorktree:
+    def test_cleanup_worktree_delegates_to_manager(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        worktree_path = tmp_path / ".sdd" / "worktrees" / "dead-sess"
+        worktree_path.mkdir(parents=True)
+        spawner._worktree_paths["dead-sess"] = worktree_path
+        spawner._worktree_roots["dead-sess"] = tmp_path.resolve()
+
+        with patch.object(spawner._worktree_mgr, "cleanup") as mock_cleanup:
+            spawner.cleanup_worktree("dead-sess")
+
+            mock_cleanup.assert_called_once_with("dead-sess")
+
+        # Internal dicts should be cleared
+        assert "dead-sess" not in spawner._worktree_paths
+        assert "dead-sess" not in spawner._worktree_roots
+
+    def test_cleanup_worktree_idempotent_when_not_tracked(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        with patch.object(spawner._worktree_mgr, "cleanup") as mock_cleanup:
+            # Should not raise even when session was never tracked
+            spawner.cleanup_worktree("nonexistent-sess")
+            mock_cleanup.assert_called_once_with("nonexistent-sess")
+
+    def test_cleanup_worktree_without_manager_removes_dir(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=False)
+
+        worktree_path = tmp_path / ".sdd" / "worktrees" / "orphan-sess"
+        worktree_path.mkdir(parents=True)
+        spawner._worktree_paths["orphan-sess"] = worktree_path
+
+        spawner.cleanup_worktree("orphan-sess")
+
+        assert not worktree_path.exists()
+        assert "orphan-sess" not in spawner._worktree_paths
+
+
+class TestPruneOrphanWorktrees:
+    def test_prune_removes_orphan_directories(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        # Create orphan worktree dirs
+        orphan1 = tmp_path / ".sdd" / "worktrees" / "dead-1"
+        orphan2 = tmp_path / ".sdd" / "worktrees" / "dead-2"
+        active = tmp_path / ".sdd" / "worktrees" / "alive-1"
+        for d in (orphan1, orphan2, active):
+            d.mkdir(parents=True)
+
+        with (
+            patch.object(spawner._worktree_mgr, "cleanup") as mock_cleanup,
+            patch("subprocess.run"),
+        ):
+            cleaned = spawner.prune_orphan_worktrees({"alive-1"})
+
+        assert cleaned == 2
+        # cleanup should have been called for the two orphans but not the active one
+        cleanup_args = [call.args[0] for call in mock_cleanup.call_args_list]
+        assert "dead-1" in cleanup_args
+        assert "dead-2" in cleanup_args
+        assert "alive-1" not in cleanup_args
+
+    def test_prune_returns_zero_when_no_orphans(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        active = tmp_path / ".sdd" / "worktrees" / "alive-1"
+        active.mkdir(parents=True)
+
+        with (
+            patch.object(spawner._worktree_mgr, "cleanup") as mock_cleanup,
+            patch("subprocess.run"),
+        ):
+            cleaned = spawner.prune_orphan_worktrees({"alive-1"})
+
+        assert cleaned == 0
+        mock_cleanup.assert_not_called()
+
+    def test_prune_skips_locks_directory(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        locks_dir = tmp_path / ".sdd" / "worktrees" / ".locks"
+        locks_dir.mkdir(parents=True)
+
+        with (
+            patch.object(spawner._worktree_mgr, "cleanup") as mock_cleanup,
+            patch("subprocess.run"),
+        ):
+            cleaned = spawner.prune_orphan_worktrees(set())
+
+        assert cleaned == 0
+        mock_cleanup.assert_not_called()
+
+    def test_prune_pops_spawner_dicts(self, tmp_path: Path, mock_adapter_factory) -> None:
+        adapter = mock_adapter_factory()
+        spawner = AgentSpawner(adapter, tmp_path, tmp_path, use_worktrees=True)
+
+        orphan = tmp_path / ".sdd" / "worktrees" / "dead-x"
+        orphan.mkdir(parents=True)
+        spawner._worktree_paths["dead-x"] = orphan
+        spawner._worktree_roots["dead-x"] = tmp_path.resolve()
+
+        with (
+            patch.object(spawner._worktree_mgr, "cleanup"),
+            patch("subprocess.run"),
+        ):
+            spawner.prune_orphan_worktrees(set())
+
+        assert "dead-x" not in spawner._worktree_paths
+        assert "dead-x" not in spawner._worktree_roots
+
+
+# --- _render_prompt with catalog_system_prompt ---
+
+
+class TestRenderPromptWithCatalogSystemPrompt:
+    """_render_prompt uses catalog_system_prompt in place of the role template."""
+
+    def test_catalog_prompt_replaces_role_template(self, tmp_path: Path, make_task) -> None:
+        """When catalog_system_prompt is provided it appears in the rendered prompt."""
+        task = make_task(role="backend")
+        prompt = _render_prompt(
+            [task],
+            tmp_path,
+            tmp_path,
+            catalog_system_prompt="You are the Agency backend specialist.",
+        )
+        assert "You are the Agency backend specialist." in prompt
+
+    def test_catalog_prompt_none_falls_back_to_default(self, tmp_path: Path, make_task) -> None:
+        """When catalog_system_prompt is None, the agency prompt text is absent."""
+        task = make_task(role="backend")
+        prompt = _render_prompt([task], tmp_path, tmp_path, catalog_system_prompt=None)
+        assert "Agency backend specialist" not in prompt
+
+    def test_task_block_present_with_catalog_system_prompt(self, tmp_path: Path, make_task) -> None:
+        """Assigned tasks section is always included even when catalog prompt replaces template."""
+        task = make_task(role="backend", title="Add JWT endpoint", description="Implement JWT.")
+        prompt = _render_prompt(
+            [task],
+            tmp_path,
+            tmp_path,
+            catalog_system_prompt="Agency specialist prompt.",
+        )
+        assert "Assigned tasks" in prompt
+        assert "Add JWT endpoint" in prompt
+
+    def test_catalog_prompt_with_session_id_includes_signals(self, tmp_path: Path, make_task) -> None:
+        """Signal-check instructions are appended when session_id is provided."""
+        task = make_task(role="backend")
+        prompt = _render_prompt(
+            [task],
+            tmp_path,
+            tmp_path,
+            catalog_system_prompt="Agency prompt.",
+            session_id="backend-abc123",
+        )
+        assert "backend-abc123" in prompt
+        assert "SHUTDOWN" in prompt
+
+
+# --- AgentSpawner.spawn_for_tasks with CatalogRegistry ---
+
+
+class TestSpawnForTasksWithCatalog:
+    """AgentSpawner uses CatalogAgent system prompt and tools when a catalog match is found."""
+
+    def _make_catalog_agent(
+        self,
+        *,
+        name: str = "Auth Specialist",
+        role: str = "backend",
+        system_prompt: str = "You are the auth specialist agent.",
+        tools: list[str] | None = None,
+        capabilities: list[str] | None = None,
+    ):  # type: ignore[return]
+        from bernstein.agents.catalog import CatalogAgent
+
+        return CatalogAgent(
+            name=name,
+            role=role,
+            description="Specialist agent from Agency.",
+            system_prompt=system_prompt,
+            id=f"agency:{name.lower().replace(' ', '-')}",
+            tools=tools or [],
+            capabilities=capabilities or [],
+            source="agency",
+        )
+
+    def test_catalog_system_prompt_injected_into_spawn_prompt(
+        self, tmp_path: Path, make_task, mock_adapter_factory
+    ) -> None:
+        """Spawner passes catalog agent's system_prompt as the role section of the prompt."""
+        from bernstein.agents.catalog import CatalogRegistry
+
+        agent = self._make_catalog_agent(
+            system_prompt="You are the Agency JWT expert.",
+            capabilities=["authentication", "jwt"],
+        )
+        catalog = CatalogRegistry()
+        catalog.register_agent(agent)
+
+        adapter = mock_adapter_factory(pid=700)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, catalog=catalog, use_worktrees=False)
+
+        task = make_task(role="backend", description="Implement JWT authentication")
+        spawner.spawn_for_tasks([task])
+
+        prompt = adapter.spawn.call_args.kwargs["prompt"]
+        assert "You are the Agency JWT expert." in prompt
+
+    def test_catalog_tools_hint_appended_to_prompt(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """Tool preferences declared by the catalog agent appear in the prompt."""
+        from bernstein.agents.catalog import CatalogRegistry
+
+        agent = self._make_catalog_agent(
+            system_prompt="You are the code reviewer.",
+            tools=["ruff", "mypy", "pytest"],
+            capabilities=["code-review"],
+        )
+        catalog = CatalogRegistry()
+        catalog.register_agent(agent)
+
+        adapter = mock_adapter_factory(pid=701)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, catalog=catalog, use_worktrees=False)
+
+        task = make_task(role="backend", description="Review code quality")
+        spawner.spawn_for_tasks([task])
+
+        prompt = adapter.spawn.call_args.kwargs["prompt"]
+        assert "ruff" in prompt
+        assert "mypy" in prompt
+        assert "pytest" in prompt
+        assert "Preferred tools" in prompt
+
+    def test_no_catalog_does_not_inject_agency_prompt(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """When catalog=None, the spawner uses the built-in role template (no agency text)."""
+        adapter = mock_adapter_factory(pid=702)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, catalog=None, use_worktrees=False)
+
+        task = make_task(role="backend", description="Write some code")
+        spawner.spawn_for_tasks([task])
+
+        prompt = adapter.spawn.call_args.kwargs["prompt"]
+        assert "Agency JWT expert" not in prompt
+
+    def test_agent_source_set_to_catalog_source(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """AgentSession.agent_source reflects the matched catalog agent's source field."""
+        from bernstein.agents.catalog import CatalogRegistry
+
+        agent = self._make_catalog_agent(
+            capabilities=["authentication"],
+        )
+        catalog = CatalogRegistry()
+        catalog.register_agent(agent)
+
+        adapter = mock_adapter_factory(pid=703)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, catalog=catalog, use_worktrees=False)
+
+        task = make_task(role="backend", description="Implement JWT auth")
+        session = spawner.spawn_for_tasks([task])
+
+        assert session.agent_source == "agency"
+
+    def test_agent_source_builtin_when_no_catalog_match(self, tmp_path: Path, make_task, mock_adapter_factory) -> None:
+        """AgentSession.agent_source is 'built-in' when no catalog agent matches."""
+        from bernstein.agents.catalog import CatalogRegistry
+
+        # Register a qa agent; task role is backend - no match
+        agent = self._make_catalog_agent(role="qa", capabilities=["testing"])
+        catalog = CatalogRegistry()
+        catalog.register_agent(agent)
+
+        adapter = mock_adapter_factory(pid=704)
+        templates_dir = tmp_path / "templates" / "roles"
+        templates_dir.mkdir(parents=True)
+        spawner = AgentSpawner(adapter, templates_dir, tmp_path, catalog=catalog, use_worktrees=False)
+
+        task = make_task(role="backend", description="Write some backend code")
+        session = spawner.spawn_for_tasks([task])
+
+        assert session.agent_source == "built-in"

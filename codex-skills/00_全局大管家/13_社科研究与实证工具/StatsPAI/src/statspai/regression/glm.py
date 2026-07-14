@@ -1,0 +1,1742 @@
+"""
+Generalized Linear Model (GLM) implementation with IRLS estimation
+
+Supports binomial, poisson, gamma, gaussian, inverse_gaussian, and negative_binomial
+families with flexible link functions, robust/clustered standard errors, and
+marginal effects computation.
+
+References
+----------
+- McCullagh, P. and Nelder, J.A. (1989). Generalized Linear Models, 2nd ed.
+- Hardin, J.W. and Hilbe, J.M. (2007). Generalized Linear Models and Extensions.
+- Cameron, A.C. and Trivedi, P.K. (2005). Microeconometrics: Methods and Applications. [@mccullagh1989generalized]
+"""
+
+from typing import Optional, Union, Dict, Any, List, Type
+import pandas as pd
+import numpy as np
+from scipy import stats, optimize, special
+import warnings
+
+from ..core.base import BaseModel, BaseEstimator
+from ..core.results import EconometricResults
+from ..core.utils import create_design_matrices, _coerce_string_extension_dtypes
+from ..exceptions import DataInsufficient, MethodIncompatibility
+
+
+def _require_string(value: Any, name: str) -> str:
+    if not isinstance(value, str):
+        raise MethodIncompatibility(
+            f"`{name}` must be a string.",
+            diagnostics={name: repr(value)},
+        )
+    return value
+
+
+def _require_dataframe(value: Any, name: str) -> pd.DataFrame:
+    if not isinstance(value, pd.DataFrame):
+        raise MethodIncompatibility(
+            f"`{name}` must be a pandas DataFrame.",
+            diagnostics={name: value.__class__.__name__},
+        )
+    return value
+
+
+def _require_open_unit_float(value: Any, name: str) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise MethodIncompatibility(
+            f"`{name}` must be a number in (0, 1).",
+            diagnostics={name: repr(value)},
+        ) from exc
+    if not np.isfinite(out) or not 0.0 < out < 1.0:
+        raise MethodIncompatibility(
+            f"`{name}` must be in (0, 1).",
+            diagnostics={name: out},
+        )
+    return out
+
+
+def _require_positive_float(value: Any, name: str) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise MethodIncompatibility(
+            f"`{name}` must be a positive finite number.",
+            diagnostics={name: repr(value)},
+        ) from exc
+    if not np.isfinite(out) or out <= 0.0:
+        raise MethodIncompatibility(
+            f"`{name}` must be a positive finite number.",
+            diagnostics={name: out},
+        )
+    return out
+
+
+def _require_int_at_least(value: Any, name: str, minimum: int) -> int:
+    if isinstance(value, bool):
+        raise MethodIncompatibility(
+            f"`{name}` must be an integer >= {minimum}.",
+            diagnostics={name: repr(value), "minimum": minimum},
+        )
+    try:
+        out = int(value)
+    except (TypeError, ValueError) as exc:
+        raise MethodIncompatibility(
+            f"`{name}` must be an integer >= {minimum}.",
+            diagnostics={name: repr(value), "minimum": minimum},
+        ) from exc
+    if out != value or out < minimum:
+        raise MethodIncompatibility(
+            f"`{name}` must be an integer >= {minimum}.",
+            diagnostics={name: repr(value), "minimum": minimum},
+        )
+    return out
+
+
+def _coerce_column_list(value: Any, name: str) -> List[str]:
+    if isinstance(value, str):
+        cols = [value]
+    else:
+        try:
+            cols = list(value)
+        except TypeError as exc:
+            raise MethodIncompatibility(
+                f"`{name}` must be a column name or list of column names.",
+                diagnostics={name: repr(value)},
+            ) from exc
+    bad = [c for c in cols if not isinstance(c, str) or not c]
+    if bad:
+        raise MethodIncompatibility(
+            f"`{name}` must contain only non-empty string column names.",
+            diagnostics={name: cols, "invalid_columns": bad},
+        )
+    return cols
+
+
+def _as_float_array(value: Any) -> np.ndarray:
+    return np.asarray(value, dtype=float)
+
+
+# ---------------------------------------------------------------------------
+# Link functions
+# ---------------------------------------------------------------------------
+
+
+class LinkFunction:
+    """Base class for GLM link functions."""
+
+    name: str = "link"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        """d eta / d mu"""
+        raise NotImplementedError
+
+
+class IdentityLink(LinkFunction):
+    name = "identity"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        return mu
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        return eta
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        return np.ones_like(mu)
+
+
+class LogLink(LinkFunction):
+    name = "log"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        return _as_float_array(np.log(np.clip(mu, 1e-20, None)))
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        return _as_float_array(np.exp(np.clip(eta, -500, 500)))
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        return _as_float_array(1.0 / np.clip(mu, 1e-20, None))
+
+
+class LogitLink(LinkFunction):
+    name = "logit"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return _as_float_array(np.log(mu / (1 - mu)))
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        eta = np.clip(eta, -500, 500)
+        return _as_float_array(1.0 / (1.0 + np.exp(-eta)))
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return _as_float_array(1.0 / (mu * (1 - mu)))
+
+
+class ProbitLink(LinkFunction):
+    name = "probit"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return _as_float_array(stats.norm.ppf(mu))
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        return _as_float_array(stats.norm.cdf(eta))
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return _as_float_array(1.0 / stats.norm.pdf(stats.norm.ppf(mu)))
+
+
+class InverseLink(LinkFunction):
+    name = "inverse"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        return _as_float_array(1.0 / np.clip(mu, 1e-20, None))
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        return _as_float_array(1.0 / np.clip(eta, 1e-20, None))
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        return _as_float_array(-1.0 / np.clip(mu**2, 1e-40, None))
+
+
+class CLogLogLink(LinkFunction):
+    name = "cloglog"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return _as_float_array(np.log(-np.log(1 - mu)))
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        eta = np.clip(eta, -500, 500)
+        return _as_float_array(1.0 - np.exp(-np.exp(eta)))
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return _as_float_array(1.0 / ((1 - mu) * (-np.log(1 - mu))))
+
+
+class PowerLink(LinkFunction):
+    name = "power"
+
+    def __init__(self, power: float = 1.0):
+        self.power = power
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        if self.power == 0:
+            return _as_float_array(np.log(np.clip(mu, 1e-20, None)))
+        return _as_float_array(np.clip(mu, 1e-20, None) ** self.power)
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        if self.power == 0:
+            return _as_float_array(np.exp(np.clip(eta, -500, 500)))
+        return _as_float_array(np.clip(eta, 1e-20, None) ** (1.0 / self.power))
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        if self.power == 0:
+            return _as_float_array(1.0 / np.clip(mu, 1e-20, None))
+        return _as_float_array(
+            self.power * np.clip(mu, 1e-20, None) ** (self.power - 1)
+        )
+
+
+class SqrtLink(LinkFunction):
+    name = "sqrt"
+
+    def link(self, mu: np.ndarray) -> np.ndarray:
+        return _as_float_array(np.sqrt(np.clip(mu, 0, None)))
+
+    def inverse(self, eta: np.ndarray) -> np.ndarray:
+        return _as_float_array(np.clip(eta, 0, None) ** 2)
+
+    def deriv(self, mu: np.ndarray) -> np.ndarray:
+        return _as_float_array(0.5 / np.sqrt(np.clip(mu, 1e-20, None)))
+
+
+LINK_FUNCTIONS: Dict[str, Type[LinkFunction]] = {
+    "identity": IdentityLink,
+    "log": LogLink,
+    "logit": LogitLink,
+    "probit": ProbitLink,
+    "inverse": InverseLink,
+    "cloglog": CLogLogLink,
+    "power": PowerLink,
+    "sqrt": SqrtLink,
+}
+
+
+# ---------------------------------------------------------------------------
+# Family distributions
+# ---------------------------------------------------------------------------
+
+
+class Family:
+    """Base class for exponential family distributions."""
+
+    name: str = "family"
+    canonical_link: str = "identity"
+
+    def variance(self, mu: np.ndarray) -> np.ndarray:
+        """Variance function V(mu)."""
+        raise NotImplementedError
+
+    def deviance_residuals(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        """Unit deviance d(y, mu)."""
+        raise NotImplementedError
+
+    def deviance(self, y: np.ndarray, mu: np.ndarray, weights: np.ndarray) -> float:
+        """Total deviance = sum(w * d(y, mu))."""
+        d = self.deviance_residuals(y, mu, weights)
+        return float(np.sum(weights * d))
+
+    def log_likelihood(
+        self, y: np.ndarray, mu: np.ndarray, weights: np.ndarray, scale: float
+    ) -> float:
+        """Log-likelihood (may be overridden for exact form)."""
+        raise NotImplementedError
+
+    def initialize_mu(self, y: np.ndarray) -> np.ndarray:
+        """Starting values for mu."""
+        return y.copy()
+
+    def dispersion(
+        self, y: np.ndarray, mu: np.ndarray, weights: np.ndarray, df_resid: int
+    ) -> float:
+        """Estimate dispersion (phi). 1.0 for binomial/poisson."""
+        return float(self.deviance(y, mu, weights) / df_resid)
+
+
+class Gaussian(Family):
+    name = "gaussian"
+    canonical_link = "identity"
+
+    def variance(self, mu: np.ndarray) -> np.ndarray:
+        return np.ones_like(mu)
+
+    def deviance_residuals(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        return _as_float_array((y - mu) ** 2)
+
+    def log_likelihood(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        scale: float,
+    ) -> float:
+        n = len(y)
+        return float(
+            -0.5
+            * (n * np.log(2 * np.pi * scale) + np.sum(weights * (y - mu) ** 2) / scale)
+        )
+
+
+class Binomial(Family):
+    name = "binomial"
+    canonical_link = "logit"
+
+    def variance(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return _as_float_array(mu * (1 - mu))
+
+    def deviance_residuals(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        # Use safe log to avoid 0*log(0) warnings
+        y_safe = np.clip(y, 1e-15, None)
+        omy_safe = np.clip(1 - y, 1e-15, None)
+        d = np.where(y > 0, 2 * y * np.log(y_safe / mu), 0.0) + np.where(
+            y < 1, 2 * (1 - y) * np.log(omy_safe / (1 - mu)), 0.0
+        )
+        return _as_float_array(d)
+
+    def log_likelihood(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        scale: float,
+    ) -> float:
+        mu = np.clip(mu, 1e-15, 1 - 1e-15)
+        return float(np.sum(weights * (y * np.log(mu) + (1 - y) * np.log(1 - mu))))
+
+    def initialize_mu(self, y: np.ndarray) -> np.ndarray:
+        return np.clip((y + 0.5) / 2.0, 0.01, 0.99)
+
+    def dispersion(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        df_resid: int,
+    ) -> float:
+        return 1.0
+
+
+class Poisson(Family):
+    name = "poisson"
+    canonical_link = "log"
+
+    def variance(self, mu: np.ndarray) -> np.ndarray:
+        return np.clip(mu, 1e-20, None)
+
+    def deviance_residuals(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        mu = np.clip(mu, 1e-20, None)
+        y_safe = np.clip(y, 1e-20, None)
+        d = np.where(y > 0, 2 * (y * np.log(y_safe / mu) - (y - mu)), 2 * mu)
+        return d
+
+    def log_likelihood(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        scale: float,
+    ) -> float:
+        mu = np.clip(mu, 1e-20, None)
+        return float(np.sum(weights * (y * np.log(mu) - mu - special.gammaln(y + 1))))
+
+    def initialize_mu(self, y: np.ndarray) -> np.ndarray:
+        return np.clip(y, 0.1, None)
+
+    def dispersion(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        df_resid: int,
+    ) -> float:
+        return 1.0
+
+
+class Gamma(Family):
+    name = "gamma"
+    canonical_link = "inverse"
+
+    def variance(self, mu: np.ndarray) -> np.ndarray:
+        return np.clip(mu, 1e-20, None) ** 2
+
+    def deviance_residuals(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        mu = np.clip(mu, 1e-20, None)
+        y = np.clip(y, 1e-20, None)
+        return _as_float_array(2 * (-np.log(y / mu) + (y - mu) / mu))
+
+    def log_likelihood(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        scale: float,
+    ) -> float:
+        mu = np.clip(mu, 1e-20, None)
+        y = np.clip(y, 1e-20, None)
+        nu = 1.0 / scale  # shape parameter
+        return float(
+            np.sum(
+                weights
+                * (
+                    nu * np.log(nu)
+                    - special.gammaln(nu)
+                    + (nu - 1) * np.log(y)
+                    - nu * y / mu
+                    - nu * np.log(mu)
+                )
+            )
+        )
+
+    def initialize_mu(self, y: np.ndarray) -> np.ndarray:
+        return np.clip(y, 0.1, None)
+
+
+class InverseGaussian(Family):
+    name = "inverse_gaussian"
+    canonical_link = "inverse"
+
+    def variance(self, mu: np.ndarray) -> np.ndarray:
+        return np.clip(mu, 1e-20, None) ** 3
+
+    def deviance_residuals(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        mu = np.clip(mu, 1e-20, None)
+        y = np.clip(y, 1e-20, None)
+        return _as_float_array((y - mu) ** 2 / (y * mu**2))
+
+    def log_likelihood(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        scale: float,
+    ) -> float:
+        mu = np.clip(mu, 1e-20, None)
+        y = np.clip(y, 1e-20, None)
+        lam = 1.0 / scale
+        return float(
+            np.sum(
+                weights
+                * (
+                    0.5 * np.log(lam / (2 * np.pi * y**3))
+                    - lam * (y - mu) ** 2 / (2 * mu**2 * y)
+                )
+            )
+        )
+
+    def initialize_mu(self, y: np.ndarray) -> np.ndarray:
+        return np.clip(y, 0.1, None)
+
+
+class NegativeBinomial(Family):
+    """
+    Negative Binomial (NB2) family.
+
+    Variance = mu + alpha * mu^2 where alpha is the overdispersion parameter.
+    Alpha is estimated via MLE as part of the fitting procedure.
+    """
+
+    name = "negative_binomial"
+    canonical_link = "log"
+
+    def __init__(self, alpha: float = 1.0):
+        self.alpha = alpha
+
+    def variance(self, mu: np.ndarray) -> np.ndarray:
+        mu = np.clip(mu, 1e-20, None)
+        return mu + self.alpha * mu**2
+
+    def deviance_residuals(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        mu = np.clip(mu, 1e-20, None)
+        y_safe = np.clip(y, 1e-20, None)
+        alpha = self.alpha
+        if alpha < 1e-20:
+            # Degenerate to Poisson
+            return _as_float_array(
+                np.where(
+                    y > 0,
+                    2 * (y * np.log(y_safe / mu) - (y - mu)),
+                    2 * mu,
+                )
+            )
+        inv_alpha = 1.0 / alpha
+        d = 2 * (
+            np.where(y > 0, y * np.log(y_safe / mu), 0.0)
+            - (y + inv_alpha) * np.log((1 + alpha * y) / (1 + alpha * mu))
+        )
+        return _as_float_array(d)
+
+    def log_likelihood(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        scale: float,
+    ) -> float:
+        mu = np.clip(mu, 1e-20, None)
+        alpha = self.alpha
+        inv_alpha = 1.0 / alpha
+        ll = (
+            special.gammaln(y + inv_alpha)
+            - special.gammaln(inv_alpha)
+            - special.gammaln(y + 1)
+            + inv_alpha * np.log(inv_alpha / (inv_alpha + mu))
+            + y * np.log(mu / (inv_alpha + mu))
+        )
+        return float(np.sum(weights * ll))
+
+    def initialize_mu(self, y: np.ndarray) -> np.ndarray:
+        return np.clip(y, 0.1, None)
+
+    def dispersion(
+        self,
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        df_resid: int,
+    ) -> float:
+        return 1.0
+
+
+FAMILIES: Dict[str, Type[Family]] = {
+    "gaussian": Gaussian,
+    "binomial": Binomial,
+    "poisson": Poisson,
+    "gamma": Gamma,
+    "inverse_gaussian": InverseGaussian,
+    "negative_binomial": NegativeBinomial,
+}
+
+
+def _get_family(family: str) -> Family:
+    family = _require_string(family, "family")
+    key = family.lower().replace("-", "_").replace(" ", "_")
+    if key not in FAMILIES:
+        raise MethodIncompatibility(
+            f"Unknown family '{family}'. Choose from: {', '.join(FAMILIES.keys())}",
+            recovery_hint=(
+                "Use family='gaussian', 'binomial', 'poisson', 'gamma', "
+                "'inverse_gaussian', or 'negative_binomial'."
+            ),
+            diagnostics={"family": family, "valid": sorted(FAMILIES)},
+        )
+    return FAMILIES[key]()
+
+
+def _get_link(link: Optional[str], family: Family) -> LinkFunction:
+    if link is None:
+        link = family.canonical_link
+    link = _require_string(link, "link")
+    key = link.lower()
+    if key not in LINK_FUNCTIONS:
+        raise MethodIncompatibility(
+            f"Unknown link function '{link}'. Choose from: "
+            f"{', '.join(LINK_FUNCTIONS.keys())}",
+            recovery_hint=(
+                "Use one of the supported GLM link functions or omit link "
+                "to use the family default."
+            ),
+            diagnostics={"link": link, "valid": sorted(LINK_FUNCTIONS)},
+        )
+    return LINK_FUNCTIONS[key]()
+
+
+# ---------------------------------------------------------------------------
+# GLM Estimator
+# ---------------------------------------------------------------------------
+
+
+class GLMEstimator(BaseEstimator):
+    """
+    Generalized Linear Model estimator using IRLS
+
+    Implements Iteratively Reweighted Least Squares for maximum likelihood
+    estimation of GLM parameters.  This is the low-level engine that
+    operates on numpy arrays and ``Family`` / ``LinkFunction`` instances;
+    most users should call :func:`statspai.glm` or
+    :class:`statspai.GLMRegression`, which accept formulas / column names.
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np
+    >>> from statspai.regression.glm import GLMEstimator, Binomial, LogitLink
+    >>> rng = np.random.default_rng(0)
+    >>> n = 300
+    >>> X = np.column_stack([np.ones(n), rng.normal(size=n),
+    ...                      rng.normal(size=n)])
+    >>> eta = X @ np.array([-0.5, 1.2, -0.8])
+    >>> y = rng.binomial(1, 1 / (1 + np.exp(-eta)))
+    >>> est = GLMEstimator()
+    >>> res = est.estimate(y, X, family=Binomial(), link=LogitLink())
+    >>> np.asarray(res["params"]).shape
+    (3,)
+    >>> bool(res["converged"])
+    True
+    """
+
+    def estimate(
+        self,
+        y: np.ndarray,
+        X: np.ndarray,
+        family: Optional[Family] = None,
+        link: Optional[LinkFunction] = None,
+        robust: str = "nonrobust",
+        cluster: Optional[pd.Series] = None,
+        weights: Optional[np.ndarray] = None,
+        offset: Optional[np.ndarray] = None,
+        maxiter: int = 100,
+        tol: float = 1e-8,
+        alpha_nb: Optional[float] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """
+        Estimate GLM parameters via IRLS.
+
+        Parameters
+        ----------
+        y : np.ndarray
+            Response variable (n,).
+        X : np.ndarray
+            Design matrix (n, k) including intercept if desired.
+        family : Family
+            Distribution family instance.
+        link : LinkFunction
+            Link function instance.
+        robust : str
+            Standard-error type ('nonrobust', 'hc0', 'hc1', 'hc2', 'hc3', 'hac').
+        cluster : pd.Series, optional
+            Cluster variable.
+        weights : np.ndarray, optional
+            Prior / frequency weights.
+        offset : np.ndarray, optional
+            Known offset added to the linear predictor.
+        maxiter : int
+            Maximum IRLS iterations.
+        tol : float
+            Convergence tolerance on deviance.
+        alpha_nb : float, optional
+            If family is NB, initial alpha for joint estimation.
+
+        Returns
+        -------
+        Dict[str, Any]
+        """
+        maxiter = _require_int_at_least(maxiter, "maxiter", 1)
+        tol = _require_positive_float(tol, "tol")
+        robust = _require_string(robust, "robust").lower()
+        if family is None or link is None:
+            raise MethodIncompatibility(
+                "GLMEstimator requires family and link instances.",
+                diagnostics={
+                    "has_family": family is not None,
+                    "has_link": link is not None,
+                },
+            )
+        n, k = X.shape
+        if weights is None:
+            weights = np.ones(n)
+        if offset is None:
+            offset = np.zeros(n)
+
+        # --- initialise mu and eta ---
+        mu = family.initialize_mu(y)
+        eta = link.link(mu) + offset
+
+        dev_old = np.inf
+        params_old = None
+        converged = False
+
+        for iteration in range(maxiter):
+            # Variance and link derivative
+            V = family.variance(mu)
+            g_prime = link.deriv(mu)  # d eta / d mu
+
+            # Working weight and working response (IRLS)
+            W = weights / (V * g_prime**2)
+            W = np.clip(W, 1e-20, 1e20)
+            z = (eta - offset) + (y - mu) * g_prime  # working / pseudo response
+
+            # Weighted least squares: solve (X' W X) beta = X' W z
+            sqrt_W = np.sqrt(W)
+            Xw = X * sqrt_W[:, np.newaxis]
+            zw = z * sqrt_W
+
+            try:
+                # QR decomposition for numerical stability
+                Q, R = np.linalg.qr(Xw, mode="reduced")
+                params = np.linalg.solve(R, Q.T @ zw)
+            except np.linalg.LinAlgError:
+                warnings.warn("Singular matrix in IRLS; using pseudo-inverse")
+                params = np.linalg.lstsq(Xw, zw, rcond=None)[0]
+
+            # Update eta, mu
+            eta = X @ params + offset
+            mu = link.inverse(eta)
+
+            # Bound mu for safety (family-dependent)
+            if isinstance(family, Binomial):
+                mu = np.clip(mu, 1e-15, 1 - 1e-15)
+            elif isinstance(family, Gaussian):
+                pass  # Gaussian mu can be any real number
+            else:
+                # Poisson, Gamma, InverseGaussian, NB: mu must be positive
+                mu = np.clip(mu, 1e-15, 1e15)
+
+            dev_new = family.deviance(y, mu, weights)
+
+            # Check convergence: deviance criterion or parameter criterion
+            if np.isfinite(dev_old):
+                if np.abs(dev_new - dev_old) / (np.abs(dev_old) + 0.1) < tol:
+                    converged = True
+                    break
+            elif params_old is not None:
+                # Fallback: parameter convergence (useful when first deviance is inf)
+                param_change = np.max(np.abs(params - params_old)) / (
+                    np.max(np.abs(params)) + 1e-10
+                )
+                if param_change < tol:
+                    converged = True
+                    break
+
+            dev_old = dev_new
+            params_old = params.copy()
+
+            # --- NB2: update alpha via MLE profile ---
+            if (
+                isinstance(family, NegativeBinomial)
+                and iteration > 0
+                and iteration % 5 == 0
+            ):
+                family.alpha = self._estimate_nb_alpha(y, mu, weights, family.alpha)
+
+        if not converged:
+            warnings.warn(
+                f"IRLS did not converge after {maxiter} iterations. "
+                f"Last deviance change: {np.abs(dev_new - dev_old):.2e}"
+            )
+
+        # Final NB alpha update
+        if isinstance(family, NegativeBinomial):
+            family.alpha = self._estimate_nb_alpha(y, mu, weights, family.alpha)
+
+        # ----------------------------------------------------------------
+        # Variance-covariance matrix
+        # ----------------------------------------------------------------
+        V = family.variance(mu)
+        g_prime = link.deriv(mu)
+        W = weights / (V * g_prime**2)
+        W = np.clip(W, 1e-20, 1e20)
+
+        # (X' W X)^{-1}
+        XtWX = X.T @ (X * W[:, np.newaxis])
+        try:
+            XtWX_inv = np.linalg.inv(XtWX)
+        except np.linalg.LinAlgError:
+            XtWX_inv = np.linalg.pinv(XtWX)
+            warnings.warn("Singular X'WX, using pseudo-inverse for covariance")
+
+        # Pearson residuals
+        pearson_resid = (y - mu) / np.sqrt(V)
+
+        # Scale (dispersion)
+        df_resid = n - k
+        phi = family.dispersion(y, mu, weights, df_resid)
+
+        if cluster is not None:
+            var_cov = self._cluster_cov(
+                X, y, mu, V, g_prime, weights, XtWX_inv, cluster, n, k
+            )
+        elif robust == "nonrobust":
+            var_cov = phi * XtWX_inv
+        elif robust in ("hc0", "hc1", "hc2", "hc3"):
+            var_cov = self._robust_cov(
+                X, y, mu, V, g_prime, weights, XtWX_inv, robust, n, k
+            )
+        elif robust == "hac":
+            lags = kwargs.get("lags", None)
+            var_cov = self._hac_cov(X, y, mu, V, g_prime, weights, XtWX_inv, n, k, lags)
+        else:
+            raise MethodIncompatibility(
+                f"Unknown robust option: {robust}",
+                recovery_hint=(
+                    "Use robust='nonrobust', 'hc0', 'hc1', 'hc2', " "'hc3', or 'hac'."
+                ),
+                diagnostics={
+                    "robust": robust,
+                    "valid": ["nonrobust", "hc0", "hc1", "hc2", "hc3", "hac"],
+                },
+            )
+
+        std_errors = np.sqrt(np.diag(var_cov))
+
+        # Fitted values & residuals
+        fitted_values = mu
+        residuals = y - mu
+
+        # Deviance residuals (signed)
+        unit_dev = family.deviance_residuals(y, mu, weights)
+        deviance_resid = np.sign(y - mu) * np.sqrt(np.clip(unit_dev, 0, None))
+
+        # Deviance, log-likelihood, information criteria
+        deviance = family.deviance(y, mu, weights)
+        ll = family.log_likelihood(y, mu, weights, phi)
+        null_mu = np.full(n, np.average(y, weights=weights))
+        if isinstance(family, Binomial):
+            null_mu = np.clip(null_mu, 1e-15, 1 - 1e-15)
+        null_dev = family.deviance(y, null_mu, weights)
+        ll_null = family.log_likelihood(y, null_mu, weights, phi)
+
+        aic = -2 * ll + 2 * k
+        bic = -2 * ll + np.log(n) * k
+        pseudo_r2 = 1.0 - deviance / null_dev if null_dev > 0 else np.nan
+        pearson_chi2 = np.sum(weights * pearson_resid**2)
+
+        return {
+            "params": params,
+            "std_errors": std_errors,
+            "var_cov": var_cov,
+            "fitted_values": fitted_values,
+            "residuals": residuals,
+            "pearson_residuals": pearson_resid,
+            "deviance_residuals": deviance_resid,
+            "nobs": n,
+            "df_model": k - 1,
+            "df_resid": df_resid,
+            "deviance": deviance,
+            "null_deviance": null_dev,
+            "pearson_chi2": pearson_chi2,
+            "log_likelihood": ll,
+            "log_likelihood_null": ll_null,
+            "aic": aic,
+            "bic": bic,
+            "pseudo_r2": pseudo_r2,
+            "dispersion": phi,
+            "converged": converged,
+            "n_iter": iteration + 1,
+        }
+
+    # ------------------------------------------------------------------
+    # Robust / clustered covariance helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _score_obs(
+        X: np.ndarray,
+        y: np.ndarray,
+        mu: np.ndarray,
+        V: np.ndarray,
+        g_prime: np.ndarray,
+        weights: np.ndarray,
+    ) -> np.ndarray:
+        """Per-observation score contributions (n, k)."""
+        r = (y - mu) / V
+        w = weights / g_prime
+        return _as_float_array(X * (r * w)[:, np.newaxis])
+
+    def _robust_cov(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        mu: np.ndarray,
+        V: np.ndarray,
+        g_prime: np.ndarray,
+        weights: np.ndarray,
+        bread: np.ndarray,
+        robust_type: str,
+        n: int,
+        k: int,
+    ) -> np.ndarray:
+        """Sandwich HC0-HC3 covariance."""
+        S = self._score_obs(X, y, mu, V, g_prime, weights)
+
+        if robust_type == "hc0":
+            meat = S.T @ S
+        elif robust_type == "hc1":
+            meat = (n / (n - k)) * S.T @ S
+        elif robust_type == "hc2":
+            XtWX_inv = bread
+            W_diag = weights / (V * g_prime**2)
+            h = np.sum((X * W_diag[:, np.newaxis]) * (X @ XtWX_inv), axis=1)
+            S_adj = S / np.sqrt(np.clip(1 - h, 1e-10, None))[:, np.newaxis]
+            meat = S_adj.T @ S_adj
+        elif robust_type == "hc3":
+            XtWX_inv = bread
+            W_diag = weights / (V * g_prime**2)
+            h = np.sum((X * W_diag[:, np.newaxis]) * (X @ XtWX_inv), axis=1)
+            S_adj = S / np.clip(1 - h, 1e-10, None)[:, np.newaxis]
+            meat = S_adj.T @ S_adj
+        else:
+            raise MethodIncompatibility(
+                f"Unknown HC type: {robust_type}",
+                diagnostics={"robust_type": robust_type},
+            )
+
+        return _as_float_array(bread @ meat @ bread)
+
+    def _cluster_cov(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        mu: np.ndarray,
+        V: np.ndarray,
+        g_prime: np.ndarray,
+        weights: np.ndarray,
+        bread: np.ndarray,
+        cluster: pd.Series,
+        n: int,
+        k: int,
+    ) -> np.ndarray:
+        """Clustered (sandwich) covariance."""
+        S = self._score_obs(X, y, mu, V, g_prime, weights)
+        cluster_arr = np.asarray(cluster)
+        clusters = np.unique(cluster_arr)
+        n_clusters = len(clusters)
+
+        meat = np.zeros((k, k))
+        for cid in clusters:
+            idx = cluster_arr == cid
+            s_c = S[idx].sum(axis=0)
+            meat += np.outer(s_c, s_c)
+
+        correction = n_clusters / (n_clusters - 1) * (n - 1) / (n - k)
+        return _as_float_array(correction * bread @ meat @ bread)
+
+    def _hac_cov(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        mu: np.ndarray,
+        V: np.ndarray,
+        g_prime: np.ndarray,
+        weights: np.ndarray,
+        bread: np.ndarray,
+        n: int,
+        k: int,
+        lags: Optional[int] = None,
+    ) -> np.ndarray:
+        """Newey-West HAC covariance."""
+        S = self._score_obs(X, y, mu, V, g_prime, weights)
+        if lags is None:
+            lags = int(np.floor(4 * (n / 100) ** (2 / 9)))
+
+        gamma_0 = S.T @ S / n
+        gamma_sum = gamma_0.copy()
+        for j in range(1, lags + 1):
+            gamma_j = S[j:].T @ S[:-j] / n
+            w = 1 - j / (lags + 1)
+            gamma_sum += w * (gamma_j + gamma_j.T)
+
+        return _as_float_array(bread @ gamma_sum @ bread)
+
+    # ------------------------------------------------------------------
+    # NB alpha estimation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _estimate_nb_alpha(
+        y: np.ndarray,
+        mu: np.ndarray,
+        weights: np.ndarray,
+        alpha_init: float,
+    ) -> float:
+        """Profile MLE for NB2 overdispersion parameter alpha."""
+
+        def neg_ll(log_alpha: float) -> float:
+            alpha = np.exp(log_alpha)
+            inv_a = 1.0 / alpha
+            ll = np.sum(
+                weights
+                * (
+                    special.gammaln(y + inv_a)
+                    - special.gammaln(inv_a)
+                    - special.gammaln(y + 1)
+                    + inv_a * np.log(inv_a / (inv_a + mu))
+                    + y * np.log(mu / (inv_a + mu))
+                )
+            )
+            return float(-ll)
+
+        try:
+            res = optimize.minimize_scalar(
+                neg_ll,
+                bounds=(np.log(1e-6), np.log(1e4)),
+                method="bounded",
+            )
+            return float(np.exp(res.x))
+        except Exception:
+            return alpha_init
+
+
+# ---------------------------------------------------------------------------
+# GLM Model class
+# ---------------------------------------------------------------------------
+
+
+class GLMRegression(BaseModel):
+    """
+    Generalized Linear Model with IRLS estimation.
+
+    Parameters
+    ----------
+    formula : str, optional
+        Model formula (e.g. ``"y ~ x1 + x2"``).
+    data : pd.DataFrame, optional
+        Data frame containing the variables.
+    y : np.ndarray, optional
+        Response array (alternative to formula).
+    X : np.ndarray, optional
+        Design matrix (alternative to formula).
+    var_names : list of str, optional
+        Variable names when using ``y``/``X`` directly.
+    family : str
+        Distribution family.
+    link : str or None
+        Link function (``None`` selects canonical link).
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> n = 300
+    >>> x1 = rng.normal(size=n)
+    >>> x2 = rng.normal(size=n)
+    >>> eta = -0.5 + 1.2 * x1 - 0.8 * x2
+    >>> y = rng.binomial(1, 1 / (1 + np.exp(-eta)))
+    >>> df = pd.DataFrame({"y": y, "x1": x1, "x2": x2})
+    >>> model = sp.GLMRegression(formula="y ~ x1 + x2", data=df,
+    ...                          family="binomial")
+    >>> results = model.fit()
+    >>> len(results.params)   # intercept + x1 + x2
+    3
+    >>> print(results.summary())  # doctest: +SKIP
+    """
+
+    def __init__(
+        self,
+        formula: Optional[str] = None,
+        data: Optional[pd.DataFrame] = None,
+        y: Optional[np.ndarray] = None,
+        X: Optional[np.ndarray] = None,
+        var_names: Optional[List[str]] = None,
+        family: str = "gaussian",
+        link: Optional[str] = None,
+    ) -> None:
+        super().__init__()
+        if formula is not None:
+            formula = _require_string(formula, "formula")
+        if data is not None:
+            data = _require_dataframe(data, "data")
+        self.formula = formula
+        self.data = data
+        self.y = y
+        self.X = X
+        self.var_names = var_names
+        self.family_name = family
+        self.link_name = link
+        self.family = _get_family(family)
+        self.link = _get_link(link, self.family)
+        self.estimator = GLMEstimator()
+        self._design_info = None
+
+    def fit(
+        self,
+        robust: str = "nonrobust",
+        cluster: Optional[str] = None,
+        weights: Optional[str] = None,
+        offset: Optional[str] = None,
+        exposure: Optional[str] = None,
+        maxiter: int = 100,
+        tol: float = 1e-8,
+        alpha: float = 0.05,
+        **kwargs: Any,
+    ) -> EconometricResults:
+        """
+        Fit the GLM.
+
+        Parameters
+        ----------
+        robust : str
+            Standard-error type.
+        cluster : str, optional
+            Cluster variable name.
+        weights : str, optional
+            Weight variable name.
+        offset : str, optional
+            Offset variable name.
+        exposure : str, optional
+            Exposure variable name (log added as offset).
+        maxiter : int
+            Maximum IRLS iterations.
+        tol : float
+            Convergence tolerance.
+        alpha : float
+            Significance level for confidence intervals.
+
+        Returns
+        -------
+        EconometricResults
+        """
+        maxiter = _require_int_at_least(maxiter, "maxiter", 1)
+        tol = _require_positive_float(tol, "tol")
+        alpha = _require_open_unit_float(alpha, "alpha")
+        # --- prepare design matrices ---
+        design_index = None
+        if self.formula is not None and self.data is not None:
+            y_df, X_df = create_design_matrices(self.formula, self.data)
+            self._design_info = getattr(X_df, "design_info", None)
+            design_index = y_df.index
+            self.y = y_df.values.ravel()
+            self.X = X_df.values
+            self.var_names = list(X_df.columns)
+            self.dependent_var = y_df.columns[0]
+        elif self.y is not None and self.X is not None:
+            if self.var_names is None:
+                self.var_names = [f"x{i}" for i in range(self.X.shape[1])]
+            self.dependent_var = "y"
+        else:
+            raise MethodIncompatibility(
+                "Must provide either (formula, data) or (y, X).",
+                recovery_hint=(
+                    "Pass a model formula with a DataFrame, or pass both y "
+                    "and X arrays."
+                ),
+                diagnostics={
+                    "has_formula": self.formula is not None,
+                    "has_data": self.data is not None,
+                    "has_y": self.y is not None,
+                    "has_X": self.X is not None,
+                },
+            )
+
+        n = len(self.y)
+        if n == 0:
+            raise DataInsufficient(
+                "No rows remain for GLM estimation.",
+                recovery_hint="Provide at least one complete estimation row.",
+                diagnostics={"nobs": 0},
+            )
+
+        def _aligned_numeric_column(column: str, role: str) -> np.ndarray:
+            if self.data is None:
+                raise MethodIncompatibility(f"{role} requires data=.")
+            if column not in self.data.columns:
+                raise MethodIncompatibility(
+                    f"{role} column '{column}' is not in data.",
+                    diagnostics={"column": column, "role": role},
+                )
+            series = self.data[column]
+            if design_index is not None:
+                series = series.reindex(design_index)
+            if len(series) != n:
+                raise MethodIncompatibility(
+                    f"{role} length does not match the estimation sample.",
+                    diagnostics={
+                        "role": role,
+                        "length": int(len(series)),
+                        "nobs": int(n),
+                    },
+                )
+            if series.isna().any():
+                raise MethodIncompatibility(
+                    f"{role} contains missing values in the estimation sample.",
+                    recovery_hint=(
+                        "Drop or impute missing auxiliary values before "
+                        "fitting the GLM."
+                    ),
+                    diagnostics={"role": role, "column": column},
+                )
+            try:
+                values = series.to_numpy(dtype=float)
+            except (TypeError, ValueError) as exc:
+                raise MethodIncompatibility(
+                    f"{role} column '{column}' must be numeric.",
+                    diagnostics={"column": column, "role": role},
+                ) from exc
+            if not np.isfinite(values).all():
+                raise MethodIncompatibility(
+                    f"{role} column '{column}' must contain finite values.",
+                    diagnostics={"column": column, "role": role},
+                )
+            return np.asarray(values, dtype=float)
+
+        # Weights, offset, exposure
+        w = None
+        if weights:
+            w = _aligned_numeric_column(weights, "weights")
+            if (w < 0).any() or not (w > 0).any():
+                raise MethodIncompatibility(
+                    "weights must be non-negative with at least one positive " "value.",
+                    diagnostics={"column": weights},
+                )
+
+        off = np.zeros(n)
+        if offset:
+            off = _aligned_numeric_column(offset, "offset")
+        if exposure:
+            exposure_values = _aligned_numeric_column(exposure, "exposure")
+            if (exposure_values <= 0).any():
+                raise MethodIncompatibility(
+                    "exposure must be strictly positive.",
+                    diagnostics={"column": exposure},
+                )
+            off = off + np.log(exposure_values)
+
+        cluster_var = None
+        if cluster:
+            if self.data is None:
+                raise MethodIncompatibility("cluster requires data=.")
+            if cluster not in self.data.columns:
+                raise MethodIncompatibility(
+                    f"cluster column '{cluster}' is not in data.",
+                    diagnostics={"column": cluster},
+                )
+            cluster_var = self.data[cluster]
+            if design_index is not None:
+                cluster_var = cluster_var.reindex(design_index)
+            if len(cluster_var) != n:
+                raise MethodIncompatibility(
+                    "cluster length does not match the estimation sample.",
+                    diagnostics={"length": int(len(cluster_var)), "nobs": int(n)},
+                )
+            if cluster_var.isna().any():
+                raise MethodIncompatibility(
+                    "cluster contains missing labels in the estimation sample.",
+                    diagnostics={"column": cluster},
+                )
+            if len(pd.unique(cluster_var)) < 2:
+                raise MethodIncompatibility(
+                    "cluster-robust GLM inference requires at least two " "clusters.",
+                    diagnostics={"column": cluster},
+                )
+
+        # --- estimate ---
+        results = self.estimator.estimate(
+            y=self.y,
+            X=self.X,
+            family=self.family,
+            link=self.link,
+            robust=robust,
+            cluster=cluster_var,
+            weights=w,
+            offset=off,
+            maxiter=maxiter,
+            tol=tol,
+            **kwargs,
+        )
+
+        # --- marginal effects (AME) ---
+        marginal_effects = self._compute_marginal_effects(
+            results["params"], self.X, self.link, self.family
+        )
+        me_series = pd.Series(marginal_effects, index=self.var_names)
+
+        # --- build EconometricResults ---
+        params = pd.Series(results["params"], index=self.var_names)
+        std_errors = pd.Series(results["std_errors"], index=self.var_names)
+
+        se_label = (
+            robust if robust != "nonrobust" else ("cluster" if cluster else "nonrobust")
+        )
+
+        model_info = {
+            "model_type": "GLM",
+            "method": "IRLS (MLE)",
+            "family": self.family.name,
+            "link": self.link.name,
+            "robust": se_label,
+            "cluster": cluster,
+            "converged": results["converged"],
+            "n_iter": results["n_iter"],
+        }
+
+        data_info = {
+            "nobs": results["nobs"],
+            "df_model": results["df_model"],
+            "df_resid": results["df_resid"],
+            "dependent_var": self.dependent_var,
+            "fitted_values": results["fitted_values"],
+            "residuals": results["residuals"],
+            "pearson_residuals": results["pearson_residuals"],
+            "deviance_residuals": results["deviance_residuals"],
+            "X": self.X,
+            "y": self.y,
+            "var_cov": results["var_cov"],
+            "var_names": self.var_names,
+            "marginal_effects": me_series,
+            "family_obj": self.family,
+            "link_obj": self.link,
+        }
+
+        diagnostics = {
+            "Deviance": results["deviance"],
+            "Null deviance": results["null_deviance"],
+            "Pearson chi2": results["pearson_chi2"],
+            "Dispersion": results["dispersion"],
+            "Log-Likelihood": results["log_likelihood"],
+            "Log-Likelihood (null)": results["log_likelihood_null"],
+            "AIC": results["aic"],
+            "BIC": results["bic"],
+            "Pseudo R-squared": results["pseudo_r2"],
+        }
+
+        if isinstance(self.family, NegativeBinomial):
+            diagnostics["NB alpha"] = self.family.alpha
+
+        results_obj = EconometricResults(
+            params=params,
+            std_errors=std_errors,
+            model_info=model_info,
+            data_info=data_info,
+            diagnostics=diagnostics,
+        )
+
+        self._results = results_obj
+        self.is_fitted = True
+        return results_obj
+
+    def predict(
+        self,
+        data: Optional[pd.DataFrame] = None,
+        type: str = "response",
+        offset: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """
+        Generate predictions from the fitted model.
+
+        Parameters
+        ----------
+        data : pd.DataFrame, optional
+            New data for prediction. Uses training data if ``None``.
+        type : str
+            ``'response'`` (mean), ``'link'`` (linear predictor), or
+            ``'variance'`` (variance function evaluated at predicted mu).
+        offset : np.ndarray, optional
+            Offset for new data.
+
+        Returns
+        -------
+        np.ndarray
+        """
+        if not self.is_fitted:
+            raise MethodIncompatibility(
+                "Model must be fitted before prediction.",
+                recovery_hint="Call fit() before predict().",
+                diagnostics={"is_fitted": False},
+            )
+        assert self._results is not None  # guaranteed by is_fitted
+        valid_types = {"response", "link", "variance"}
+        if not isinstance(type, str) or type not in valid_types:
+            raise MethodIncompatibility(
+                "`type` must be 'response', 'link', or 'variance'; " f"got {type!r}.",
+                recovery_hint="Choose one of: response, link, variance.",
+                diagnostics={"type": repr(type), "valid": sorted(valid_types)},
+            )
+
+        if data is not None:
+            if self.formula is None:
+                raise MethodIncompatibility(
+                    "Out-of-sample prediction requires the model to have been "
+                    "fit with a formula (not raw y, X arrays).",
+                    recovery_hint=(
+                        "Fit GLMRegression with formula=... and data=..., or "
+                        "call predict() without new data for in-sample fitted "
+                        "values."
+                    ),
+                    diagnostics={"formula": None},
+                )
+            if not isinstance(data, pd.DataFrame):
+                raise MethodIncompatibility(
+                    "Out-of-sample GLM prediction requires a pandas DataFrame.",
+                    recovery_hint=(
+                        "Pass a DataFrame containing the fitted formula's "
+                        "right-hand-side variables."
+                    ),
+                    diagnostics={"data_type": data.__class__.__name__},
+                )
+            if self.var_names is None:
+                raise MethodIncompatibility(
+                    "Model variable names are unavailable; refit the model "
+                    "before out-of-sample prediction.",
+                    recovery_hint=(
+                        "Refit GLMRegression with a formula-backed design before "
+                        "calling predict(data=...)."
+                    ),
+                    diagnostics={"missing_state": "var_names"},
+                )
+
+            from patsy import PatsyError, build_design_matrices, dmatrix
+
+            # pandas >= 3.0 string columns are StringDtype, which patsy cannot
+            # sniff; coerce to object so prediction rebuilds the same design.
+            data = _coerce_string_extension_dtypes(data)
+
+            try:
+                if self._design_info is not None:
+                    X_new = build_design_matrices(
+                        [self._design_info],
+                        data,
+                        return_type="dataframe",
+                    )[0]
+                else:
+                    rhs = self.formula.split("~", 1)[1].strip()
+                    X_new = dmatrix(rhs, data, return_type="dataframe")
+            except (PatsyError, KeyError, ValueError) as exc:
+                raise MethodIncompatibility(
+                    "Could not build prediction design matrix from new data.",
+                    recovery_hint=(
+                        "Check that new data contains the formula regressors "
+                        "and only categorical levels seen during model fitting."
+                    ),
+                    diagnostics={"formula": self.formula, "error": str(exc)},
+                ) from exc
+            var_names = list(self.var_names)
+            missing = [nm for nm in var_names if nm not in X_new.columns]
+            if missing:
+                raise MethodIncompatibility(
+                    f"New data is missing columns produced by the formula: {missing}",
+                    recovery_hint=(
+                        "Use data compatible with the fitted formula design, "
+                        "or refit the model with the desired design."
+                    ),
+                    diagnostics={"missing_columns": missing},
+                )
+            X_pred = X_new[var_names].values
+        else:
+            if self.X is None:
+                raise MethodIncompatibility(
+                    "Prediction design matrix is unavailable.",
+                    recovery_hint="Refit the model before prediction.",
+                    diagnostics={"missing_state": "X"},
+                )
+            X_pred = self.X
+
+        params = np.asarray(self._results.params)
+        if X_pred.shape[1] != params.shape[0]:
+            raise MethodIncompatibility(
+                "Prediction design matrix shape does not match model " "parameters.",
+                recovery_hint="Refit the model or pass formula-compatible data.",
+                diagnostics={
+                    "n_columns": int(X_pred.shape[1]),
+                    "n_parameters": int(params.shape[0]),
+                },
+            )
+
+        eta = X_pred @ params
+        if offset is not None:
+            try:
+                offset_arr = np.asarray(offset, dtype=float).ravel()
+            except (TypeError, ValueError) as exc:
+                raise MethodIncompatibility(
+                    "Prediction offset must be numeric.",
+                    recovery_hint="Pass a numeric offset vector aligned to data.",
+                    diagnostics={"offset": repr(offset)},
+                ) from exc
+            if offset_arr.shape[0] == 1 and X_pred.shape[0] != 1:
+                offset_arr = np.full(X_pred.shape[0], offset_arr[0], dtype=float)
+            if offset_arr.shape[0] != X_pred.shape[0]:
+                raise MethodIncompatibility(
+                    "Prediction offset length does not match prediction rows.",
+                    recovery_hint=(
+                        "Pass one offset value for each row in the prediction " "data."
+                    ),
+                    diagnostics={
+                        "offset_length": int(offset_arr.shape[0]),
+                        "n_rows": int(X_pred.shape[0]),
+                    },
+                )
+            if not np.isfinite(offset_arr).all():
+                raise MethodIncompatibility(
+                    "Prediction offset must contain only finite values.",
+                    recovery_hint="Drop or impute non-finite offset values.",
+                    diagnostics={"offset": repr(offset)},
+                )
+            eta = eta + offset_arr
+
+        if type == "link":
+            return np.asarray(eta, dtype=float)
+        mu = self.link.inverse(eta)
+        if type == "response":
+            return np.asarray(mu, dtype=float)
+        if type == "variance":
+            return np.asarray(self.family.variance(mu), dtype=float)
+        raise MethodIncompatibility(
+            "Unknown prediction type.",
+            diagnostics={"type": type, "valid": sorted(valid_types)},
+        )
+
+    # ------------------------------------------------------------------
+    # Marginal effects
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_marginal_effects(
+        params: np.ndarray,
+        X: np.ndarray,
+        link: LinkFunction,
+        family: Family,
+    ) -> np.ndarray:
+        """
+        Average Marginal Effects (AME).
+
+        For each covariate j:  AME_j = (1/n) * sum_i [ d mu / d x_j ]_i
+        where  d mu / d x_j = beta_j / g'(mu_i)
+        """
+        eta = X @ params
+        mu = link.inverse(eta)
+        g_prime = link.deriv(mu)  # d eta / d mu
+        # d mu / d eta = 1 / g'(mu)
+        dmu_deta = 1.0 / g_prime
+        # AME_j = mean( beta_j * dmu_deta )
+        ame = params * np.mean(dmu_deta)
+        return np.asarray(ame, dtype=float)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def glm(
+    formula: Optional[str] = None,
+    data: Optional[pd.DataFrame] = None,
+    y: Optional[str] = None,
+    x: Optional[Union[str, List[str]]] = None,
+    family: str = "gaussian",
+    link: Optional[str] = None,
+    robust: str = "nonrobust",
+    cluster: Optional[str] = None,
+    weights: Optional[str] = None,
+    offset: Optional[str] = None,
+    exposure: Optional[str] = None,
+    maxiter: int = 100,
+    tol: float = 1e-8,
+    alpha: float = 0.05,
+) -> EconometricResults:
+    """
+    Fit a Generalized Linear Model.
+
+    Provides a Stata-like interface for GLM estimation with IRLS,
+    supporting robust and clustered standard errors.
+
+    Parameters
+    ----------
+    formula : str, optional
+        Model formula (e.g. ``"y ~ x1 + x2"``).
+    data : pd.DataFrame, optional
+        Data frame containing the variables.
+    y : str, optional
+        Name of the dependent variable (alternative to formula).
+    x : list of str, optional
+        Names of independent variables (alternative to formula).
+    family : str, default ``"gaussian"``
+        Distribution family. One of ``"gaussian"``, ``"binomial"``,
+        ``"poisson"``, ``"gamma"``, ``"inverse_gaussian"``,
+        ``"negative_binomial"``.
+    link : str or None
+        Link function. If ``None`` the canonical link for the chosen
+        family is used. Options: ``"identity"``, ``"log"``, ``"logit"``,
+        ``"probit"``, ``"inverse"``, ``"cloglog"``, ``"power"``,
+        ``"sqrt"``.
+    robust : str, default ``"nonrobust"``
+        Standard-error type (``"nonrobust"``, ``"hc0"``-``"hc3"``,
+        ``"hac"``).
+    cluster : str, optional
+        Variable name for clustered standard errors.
+    weights : str, optional
+        Variable name for observation weights.
+    offset : str, optional
+        Variable name for offset.
+    exposure : str, optional
+        Variable name for exposure (``log(exposure)`` is added as offset).
+    maxiter : int, default 100
+        Maximum number of IRLS iterations.
+    tol : float, default 1e-8
+        Convergence tolerance on the relative change in deviance.
+    alpha : float, default 0.05
+        Significance level for confidence intervals.
+
+    Returns
+    -------
+    EconometricResults
+        Fitted model results with coefficients, standard errors,
+        diagnostics, and marginal effects.
+
+    Examples
+    --------
+    Build a small frame with a binary, a count, and a positive outcome:
+
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> n = 400
+    >>> x1 = rng.normal(0, 1, n)
+    >>> x2 = rng.normal(0, 1, n)
+    >>> admit = (rng.uniform(size=n)
+    ...          < 1 / (1 + np.exp(-(0.5 * x1 + 0.3 * x2)))).astype(int)
+    >>> counts = rng.poisson(np.exp(0.2 + 0.3 * x1 + 0.1 * x2))
+    >>> cost = rng.gamma(2.0, np.exp(0.5 + 0.2 * x1))
+    >>> df = pd.DataFrame({'admit': admit, 'counts': counts,
+    ...                    'cost': cost, 'x1': x1, 'x2': x2})
+
+    Logistic regression:
+
+    >>> res = sp.glm("admit ~ x1 + x2", data=df, family="binomial")
+    >>> sorted(res.params.index)
+    ['Intercept', 'x1', 'x2']
+
+    Poisson with robust (HC1) standard errors:
+
+    >>> res = sp.glm("counts ~ x1 + x2", data=df, family="poisson",
+    ...              robust="hc1")
+    >>> bool(np.isfinite(res.params['x1']))
+    True
+
+    Negative binomial:
+
+    >>> res = sp.glm("counts ~ x1 + x2", data=df,
+    ...              family="negative_binomial")
+    >>> bool(np.isfinite(res.params['x1']))
+    True
+
+    Gamma with a log link:
+
+    >>> res = sp.glm("cost ~ x1 + x2", data=df, family="gamma", link="log")
+    >>> bool(np.isfinite(res.params['x1']))
+    True
+    """
+    # Handle y/x style specification
+    if data is not None:
+        data = _require_dataframe(data, "data")
+    if formula is None and y is not None and x is not None and data is not None:
+        y = _require_string(y, "y")
+        x_terms = _coerce_column_list(x, "x")
+        formula = f"{y} ~ {' + '.join(x_terms)}"
+
+    if formula is None or data is None:
+        raise MethodIncompatibility(
+            "Must provide (formula, data) or (y, x, data).",
+            recovery_hint=(
+                "Pass a Patsy formula and DataFrame, or pass y/x column "
+                "names with data."
+            ),
+            diagnostics={
+                "has_formula": formula is not None,
+                "has_data": data is not None,
+                "has_y": y is not None,
+                "has_x": x is not None,
+            },
+        )
+
+    model = GLMRegression(formula=formula, data=data, family=family, link=link)
+    return model.fit(
+        robust=robust,
+        cluster=cluster,
+        weights=weights,
+        offset=offset,
+        exposure=exposure,
+        maxiter=maxiter,
+        tol=tol,
+        alpha=alpha,
+    )

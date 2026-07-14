@@ -1,0 +1,22 @@
+{
+  "module": "03_basque_original",
+  "side": "py",
+  "rows": [
+    {
+      "module": "03_basque_original",
+      "side": "py",
+      "statistic": "avg_post_gap",
+      "estimate": -0.8945885558883541,
+      "se": 0.08994231861036121,
+      "n": 731,
+      "published": -0.855,
+      "citation": "Abadie-Gardeazabal (2003) Figure 2 / Synth vignette",
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "data_source": "Synth::basque",
+    "n_obs": 731,
+    "specification": "ADH/Synth canonical setup: each 1955-1969 pre-treatment outcome year is a special predictor and V is nested-optimized against pre-period SSR."
+  }
+}

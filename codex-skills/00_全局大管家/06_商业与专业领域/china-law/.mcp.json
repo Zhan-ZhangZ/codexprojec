@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pkulaw-law-search": {
+      "type": "http",
+      "url": "https://apim-gateway.pkulaw.com/mcp-law-search-service",
+      "description": "北大法宝 — 中国法律法规、司法案例、法学期刊检索。提供法条语义搜索和条文原文获取。覆盖所有中国现行法律、行政法规、司法解释、部门规章。",
+      "required": true
+    }
+  }
+}

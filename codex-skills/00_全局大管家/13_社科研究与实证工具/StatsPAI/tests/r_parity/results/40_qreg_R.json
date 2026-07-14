@@ -1,0 +1,63 @@
+{
+  "module": "40_qreg",
+  "side": "R",
+  "rows": [
+    {
+      "module": "40_qreg",
+      "side": "R",
+      "statistic": "beta_intercept",
+      "estimate": 0.999400914591039,
+      "se": 0.0702303117015553,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": []
+    },
+    {
+      "module": "40_qreg",
+      "side": "R",
+      "statistic": "beta_x1",
+      "estimate": 0.531078549291644,
+      "se": 0.0711291177499363,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": []
+    },
+    {
+      "module": "40_qreg",
+      "side": "R",
+      "statistic": "beta_x2",
+      "estimate": -0.357120881880993,
+      "se": 0.0651500944551048,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "quantile": [0.5],
+    "se_method": ["nid_Powell"],
+    "package": ["quantreg::rq"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "quantreg": "6.1",
+      "SparseM": "1.84-2",
+      "MASS": "7.3-65",
+      "compiler": "4.5.2",
+      "Matrix": "1.7-4",
+      "survival": "3.8-3",
+      "MatrixModels": "0.5-4",
+      "splines": "4.5.2",
+      "grid": "4.5.2",
+      "jsonlite": "2.0.0",
+      "lattice": "0.22-7"
+    }
+  }
+}

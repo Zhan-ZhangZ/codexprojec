@@ -1,0 +1,66 @@
+{
+  "name": "@smorky85/aurakit",
+  "version": "6.5.4",
+  "description": "All-in-one Claude Code skill: build, fix, review, deploy with one /aura command. 46 modes, 23 agents, 6-layer security, ~55% token savings.",
+  "bin": {
+    "aurakit": "bin/install.js",
+    "aurakit-repair": "bin/repair.js"
+  },
+  "scripts": {
+    "postinstall": "node bin/install.js"
+  },
+  "keywords": [
+    "claude-code",
+    "claude-code-skill",
+    "claude-code-plugin",
+    "claude-skill",
+    "agent-skill",
+    "agent-skills",
+    "SKILL.md",
+    "skill",
+    "fullstack",
+    "security",
+    "owasp",
+    "agentic",
+    "agentic-coding",
+    "hooks",
+    "claude",
+    "ai-coding",
+    "ai-agent",
+    "code-automation",
+    "developer-tools",
+    "code-review",
+    "code-generation",
+    "anthropic",
+    "slash-command",
+    "codex",
+    "cursor"
+  ],
+  "files": [
+    "skills/",
+    "hooks/",
+    "agents/",
+    "rules/",
+    "templates/",
+    "benchmarks/",
+    "Formula/",
+    "install.sh",
+    "bin/",
+    "README.md",
+    "CONTRIBUTING.md",
+    ".claude-plugin/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/smorky850612/Aurakit.git"
+  },
+  "homepage": "https://github.com/smorky850612/Aurakit#readme",
+  "bugs": {
+    "url": "https://github.com/smorky850612/Aurakit/issues"
+  },
+  "author": "smorky85",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

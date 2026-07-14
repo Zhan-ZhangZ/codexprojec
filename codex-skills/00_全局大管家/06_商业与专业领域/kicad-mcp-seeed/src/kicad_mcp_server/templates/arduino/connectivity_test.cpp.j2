@@ -1,0 +1,189 @@
+/**
+ * Arduino Connectivity Test for {{ project_name }}
+ * Generated from {{ schematic_path }}
+ *
+ * This sketch provides automated connectivity verification for
+ * Arduino-based projects based on schematic netlist.
+ */
+
+#include <Arduino.h>
+
+{% if target_mcu and target_mcu.startswith("esp") %}
+// ESP32/ESP8266 specific
+{% if target_mcu == "esp32" %}
+#include <WiFi.h>
+{% else %}
+#include <ESP8266WiFi.h>
+{% endif %}
+{% endif %}
+
+// Pin definitions from schematic
+{% for pin in test_pins %}
+#define {{ pin.name }} {{ pin.number }}
+{% endfor %}
+
+// Test configuration
+const unsigned long SERIAL_BAUD = 115200;
+const int TEST_DELAY_MS = 100;
+
+// Test point structure
+struct TestPoint {
+    const char* name;
+    int pin;
+    bool is_input;
+    bool expected_state;
+};
+
+// Test points based on schematic
+TestPoint test_points[] = {
+{% for test in tests %}
+    { "{{ test.name }}", {{ test.pin }}, {{ test.is_input | lower }}, {{ test.expected | lower }} },
+{% endfor %}
+};
+
+const int num_test_points = sizeof(test_points) / sizeof(TestPoint);
+
+void setup() {
+    // Initialize serial
+    Serial.begin(SERIAL_BAUD);
+    while (!Serial && millis() < 3000); {% if target_mcu and target_mcu.startswith("esp") %}{% else %} // Wait for serial (Leonardo, Zero){% endif %}
+
+    delay(1000);
+    Serial.println(F("{{ project_name }} - Connectivity Test"));
+    Serial.println(F("=" * 50));
+
+    // Initialize pins
+    Serial.println(F("Initializing test pins..."));
+    for (int i = 0; i < num_test_points; i++) {
+        if (test_points[i].is_input) {
+            pinMode(test_points[i].pin, INPUT_PULLUP);
+        } else {
+            pinMode(test_points[i].pin, OUTPUT);
+            digitalWrite(test_points[i].pin, test_points[i].expected_state ? HIGH : LOW);
+        }
+    }
+
+    Serial.println(F("Pins initialized"));
+    Serial.println();
+}
+
+void loop() {
+    static int test_count = 0;
+
+    Serial.println(F("Running connectivity tests..."));
+    Serial.println();
+
+    int passed = 0;
+    int failed = 0;
+
+    // Run tests
+    for (int i = 0; i < num_test_points; i++) {
+        TestPoint& tp = test_points[i];
+
+        if (tp.is_input) {
+            int reading = digitalRead(tp.pin);
+
+            Serial.print(F("Test: "));
+            Serial.print(tp.name);
+            Serial.print(F(" (Pin "));
+            Serial.print(tp.pin);
+            Serial.print(F(")... "));
+
+            // For pull-up inputs, expect HIGH unless externally pulled low
+            bool test_passed = (reading == tp.expected_state);
+
+            if (test_passed) {
+                Serial.println(F("PASS"));
+                passed++;
+            } else {
+                Serial.print(F("FAIL (expected "));
+                Serial.print(tp.expected_state ? F("HIGH") : F("LOW"));
+                Serial.print(F(", got "));
+                Serial.print(reading ? F("HIGH") : F("LOW"));
+                Serial.println(F(")"));
+                failed++;
+            }
+
+            delay(TEST_DELAY_MS);
+        }
+    }
+
+    // Print summary
+    Serial.println();
+    Serial.println(F("=" * 50));
+    Serial.print(F("Test Summary: "));
+    Serial.print(passed);
+    Serial.print(F(" passed, "));
+    Serial.print(failed);
+    Serial.print(F(" failed out of "));
+    Serial.print(num_test_points);
+    Serial.println(F(" tests"));
+
+    if (failed == 0) {
+        Serial.println(F("All tests PASSED!"));
+    } else {
+        Serial.println(F("Some tests FAILED!"));
+    }
+
+    Serial.println();
+    Serial.println(F("Press any key to run tests again..."));
+
+    // Wait for user input
+    while (!Serial.available()) {
+        delay(100);
+    }
+
+    // Clear serial buffer
+    while (Serial.available()) {
+        Serial.read();
+    }
+
+    test_count++;
+    Serial.println();
+    delay(1000);
+}
+
+{% if test_type == "functional" %}
+/**
+ * Additional functional tests
+ */
+void test_analog_inputs() {
+    Serial.println(F("Testing analog inputs..."));
+
+    // Read analog pins and report values
+    {% for pin in analog_pins %}
+    {
+        int raw = analogRead({{ pin }});
+        float voltage = raw * (3.3 / 4095.0); {% if target_mcu and "esp32" in target_mcu %}
+        Serial.print(F("{{ pin }}: "));
+        Serial.print(raw);
+        Serial.print(F(" ("));
+        Serial.print(voltage);
+        Serial.println(F("V)"));
+        delay(TEST_DELAY_MS);
+    }
+    {% endif %}
+
+    Serial.println();
+}
+
+void test_i2c_scan() {
+    Serial.println(F("Scanning I2C bus..."));
+
+    Wire.begin();
+
+    for (byte addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        byte error = Wire.endTransmission();
+
+        if (error == 0) {
+            Serial.print(F("I2C device found at 0x"));
+            if (addr < 16) Serial.print(F("0"));
+            Serial.println(addr, HEX);
+        }
+    }
+
+    Serial.println(F("I2C scan complete"));
+    Serial.println();
+}
+{% endif %}

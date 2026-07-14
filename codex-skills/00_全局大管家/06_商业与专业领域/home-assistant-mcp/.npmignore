@@ -1,0 +1,39 @@
+# Source code (since we're publishing compiled code)
+src/
+
+# Development files
+.git/
+.github/
+.vscode/
+.cursor/
+.DS_Store
+.eslintrc.json
+jest.config.js
+tsconfig.json
+coverage/
+test/
+inspect.sh
+test.sh
+install-global.sh
+
+# Documentation and notes
+IMPROVEMENTS.md
+REFACTORING.md
+todo.md
+prompts/
+CLAUDE.md
+
+# Environment and secrets - NEVER publish these
+.env
+.env.*
+.env.example
+
+# Logs
+logs/
+*.log
+
+# Temporary build artifacts
+*.tgz
+
+# Other unwanted files
+.gitignore

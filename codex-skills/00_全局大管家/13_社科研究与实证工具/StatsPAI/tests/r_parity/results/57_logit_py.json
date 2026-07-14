@@ -1,0 +1,43 @@
+{
+  "module": "57_logit",
+  "side": "py",
+  "rows": [
+    {
+      "module": "57_logit",
+      "side": "py",
+      "statistic": "beta_intercept",
+      "estimate": 0.5326722800999585,
+      "se": 0.09812316514215924,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "57_logit",
+      "side": "py",
+      "statistic": "beta_x1",
+      "estimate": 0.8565336728996321,
+      "se": 0.08032803148594908,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "57_logit",
+      "side": "py",
+      "statistic": "beta_x2",
+      "estimate": -0.8873122331628751,
+      "se": 0.13988969389105713,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "link": "logit",
+    "engine": "statsmodels"
+  }
+}

@@ -1,0 +1,85 @@
+# Installing MiniMax Skills for OpenCode
+
+## Prerequisites
+
+- [OpenCode.ai](https://opencode.ai) installed
+
+## Installation
+
+### macOS / Linux
+
+```bash
+git clone https://github.com/MiniMax-AI/skills.git ~/.minimax-skills
+
+mkdir -p ~/.config/opencode/skills
+for skill in ~/.minimax-skills/skills/*/; do
+    skill_name=$(basename "$skill")
+    ln -s "$skill" ~/.config/opencode/skills/minimax-"$skill_name"
+done
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/MiniMax-AI/skills.git "$env:USERPROFILE\.minimax-skills"
+
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.config\opencode\skills"
+Get-ChildItem "$env:USERPROFILE\.minimax-skills\skills" -Directory | ForEach-Object {
+    New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.config\opencode\skills\minimax-$($_.Name)" -Target $_.FullName
+}
+```
+
+> **Note:** Creating symbolic links on Windows may require administrator privileges or Developer Mode enabled.
+
+Restart OpenCode to discover the skills.
+
+Verify by asking: "List available skills"
+
+## Available Skills
+
+- **frontend-dev** — Frontend development with UI design, animations, AI-generated media assets
+- **fullstack-dev** — Full-stack backend architecture and frontend-backend integration
+- **android-native-dev** — Android native application development with Material Design 3
+- **ios-application-dev** — iOS application development with UIKit, SnapKit, and SwiftUI
+- **shader-dev** — GLSL shader techniques for stunning visual effects (ShaderToy-compatible)
+- **gif-sticker-maker** — Convert photos into animated GIF stickers (Funko Pop / Pop Mart style)
+- **minimax-pdf** — Generate, fill, and reformat PDF documents with a token-based design system
+- **pptx-generator** — Generate, edit, and read PowerPoint presentations
+- **minimax-xlsx** — Open, create, read, analyze, edit, or validate Excel/spreadsheet files
+- **minimax-docx** — Professional DOCX document creation, editing, and formatting using OpenXML SDK
+
+## Updating
+
+```bash
+cd ~/.minimax-skills && git pull
+```
+
+Symlinks will automatically point to the updated content — no need to re-link.
+
+## Uninstalling
+
+### macOS / Linux
+
+```bash
+rm -f ~/.config/opencode/skills/minimax-*
+rm -rf ~/.minimax-skills
+```
+
+### Windows (PowerShell)
+
+```powershell
+Get-ChildItem "$env:USERPROFILE\.config\opencode\skills\minimax-*" | Remove-Item -Force
+Remove-Item -Recurse -Force "$env:USERPROFILE\.minimax-skills"
+```
+
+## Troubleshooting
+
+### Skills not found
+
+1. Verify symlinks exist: `ls -la ~/.config/opencode/skills/`
+2. Each skill folder should contain a `SKILL.md` file
+3. Restart OpenCode after installation
+
+## Getting Help
+
+- Report issues: https://github.com/MiniMax-AI/skills/issues

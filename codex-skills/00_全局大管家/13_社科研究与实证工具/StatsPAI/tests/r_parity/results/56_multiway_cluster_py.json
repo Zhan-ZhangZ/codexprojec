@@ -1,0 +1,34 @@
+{
+  "module": "56_multiway_cluster",
+  "side": "py",
+  "rows": [
+    {
+      "module": "56_multiway_cluster",
+      "side": "py",
+      "statistic": "beta_(Intercept)",
+      "estimate": 1.1965653761605923,
+      "se": 0.28065839457372715,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 4000,
+      "extra": {}
+    },
+    {
+      "module": "56_multiway_cluster",
+      "side": "py",
+      "statistic": "beta_x",
+      "estimate": 0.5246458005638835,
+      "se": 0.03991355254005652,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 4000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "formula": "y ~ x",
+    "vcov": "three-way cluster (Cameron-Gelbach-Miller 2011)",
+    "cluster_vars": "g1 + g2 + g3",
+    "matches": "sandwich::vcovCL(cluster=~g1+g2+g3, type='HC1', cadjust=TRUE)"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "module": "58_poisson",
+  "side": "py",
+  "rows": [
+    {
+      "module": "58_poisson",
+      "side": "py",
+      "statistic": "beta_intercept",
+      "estimate": 0.1856884038194987,
+      "se": 0.04000861343317481,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "58_poisson",
+      "side": "py",
+      "statistic": "beta_x1",
+      "estimate": 0.4473965800162585,
+      "se": 0.02586857827376105,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "58_poisson",
+      "side": "py",
+      "statistic": "beta_x2",
+      "estimate": 0.3021363097029138,
+      "se": 0.05150284786301949,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "family": "poisson",
+    "engine": "statsmodels"
+  }
+}

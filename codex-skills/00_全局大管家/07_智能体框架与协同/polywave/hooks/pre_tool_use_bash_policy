@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+payload="$(cat)"
+
+deny() {
+  local reason="$1"
+  jq -n --arg reason "$reason" '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: $reason
+    }
+  }'
+}
+
+tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // .toolName // empty')"
+if [[ "$tool_name" != "Bash" ]]; then
+  exit 0
+fi
+
+command_text="$(printf '%s' "$payload" | jq -r '.tool_input.command // .toolInput.command // empty')"
+if [[ -z "$command_text" ]]; then
+  exit 0
+fi
+
+if [[ "$command_text" =~ (^|[[:space:];&|])git[[:space:]]+stash([[:space:]]|$) ]]; then
+  deny "Blocked: git stash hides work from Polywave ownership and completion gates"
+  exit 0
+fi
+
+assigned_worktree="${POLYWAVE_AGENT_WORKTREE:-}"
+if [[ -z "$assigned_worktree" ]]; then
+  assigned_worktree="$(printf '%s' "$payload" | jq -r '.polywave.assigned_worktree // .polywave.assignedWorktree // empty')"
+fi
+
+if [[ -n "$assigned_worktree" ]]; then
+  if [[ "$command_text" =~ (^|[[:space:];&|])cd[[:space:]]+(/[^[:space:];&|]+) ]]; then
+    cd_target="${BASH_REMATCH[2]}"
+    if [[ "$cd_target" != "$assigned_worktree" && "$cd_target" != "$assigned_worktree"/* ]]; then
+      deny "Blocked: command changes directory outside the assigned Polywave worktree"
+      exit 0
+    fi
+  fi
+
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    if [[ "$path" != "$assigned_worktree" && "$path" != "$assigned_worktree"/* ]]; then
+      if [[ "$command_text" =~ (^|[[:space:];&|>])(rm|rmdir|mv|cp|touch|mkdir|install|tee)[[:space:]] || "$command_text" =~ [[:space:]]\>[[:space:]]*/ ]]; then
+        deny "Blocked: command references an absolute path outside the assigned Polywave worktree"
+        exit 0
+      fi
+    fi
+  done < <(printf '%s\n' "$command_text" | grep -Eo "/[^[:space:];&|<>()\"']+" || true)
+fi
+
+exit 0

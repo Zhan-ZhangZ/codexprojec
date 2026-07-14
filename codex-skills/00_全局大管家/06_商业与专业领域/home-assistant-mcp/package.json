@@ -1,0 +1,50 @@
+{
+  "name": "home-assistant-mcp-server",
+  "module": "src/index.ts",
+  "type": "module",
+  "version": "1.0.2",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oleander/home-assistant-mcp-server"
+  },
+  "bin": {
+    "home-assistant-mcp-server": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "bun run --env-file .env src/index.ts",
+    "start": "bun run src/index.ts --stdio",
+    "prebuild": "rm -rf dist && bun build ./src/index.ts --outdir dist --target node --format esm",
+    "build": "bun build ./dist/index.js --outdir dist --target node --format esm",
+    "postbuild": "echo '#!/usr/bin/env node' | cat - dist/index.js > dist/temp && mv dist/temp dist/index.js && chmod +x ./dist/index.js",
+    "lint": "eslint . --ext .ts",
+    "check": "bun run lint && bun run build && bun run test",
+    "format": "prettier -c -w .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@types/bun": "latest",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.8",
+    "eslint": "^9.21.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.2",
+    "typescript-eslint": "^8.25.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@n8n/json-schema-to-zod": "^1.1.0",
+    "axios": "^1.8.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "home-assistant-js-websocket": "^9.4.0",
+    "home-assistant-mcp-server": "^1.0.1",
+    "json-schema-to-zod": "^2.6.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.24.2"
+  }
+}

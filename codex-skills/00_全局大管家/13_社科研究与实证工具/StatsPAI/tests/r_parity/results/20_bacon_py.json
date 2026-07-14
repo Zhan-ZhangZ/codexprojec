@@ -1,0 +1,143 @@
+{
+  "module": "20_bacon",
+  "side": "py",
+  "rows": [
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "beta_twfe",
+      "estimate": -0.037505076590874424,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "weighted_sum",
+      "estimate": -0.0375050765908744,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "negative_weight_share",
+      "estimate": 0.0,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2006_vs_2004_est",
+      "estimate": -0.03574823066500007,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2007_vs_2004_est",
+      "estimate": -0.04712838357730705,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2004_vs_2006_est",
+      "estimate": -0.03267507946904035,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2007_vs_2006_est",
+      "estimate": -0.04530338870914831,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2004_vs_2007_est",
+      "estimate": -0.04970140012107881,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2006_vs_2007_est",
+      "estimate": -0.04111916386370478,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2004_vs_never_est",
+      "estimate": -0.041908787447212624,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2006_vs_never_est",
+      "estimate": -0.030029608984841367,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "20_bacon",
+      "side": "py",
+      "statistic": "pair_2007_vs_never_est",
+      "estimate": -0.027461545258708055,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "n_comparisons": 9,
+    "already_treated_control_weight_share": 0.26666666666666666,
+    "decomposition_note": "StatsPAI follows R/Stata bacondecomp dyad windows and weighting for the uncontrolled Goodman-Bacon decomposition. The overall TWFE coefficient, weighted sum, negative-weight mass, and pairwise 2x2 estimates match the R reference to numerical precision; Stata's ado exports only the aggregate rows in the committed golden artifact."
+  }
+}

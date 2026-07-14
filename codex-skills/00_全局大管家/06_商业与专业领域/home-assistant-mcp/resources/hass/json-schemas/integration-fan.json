@@ -1,0 +1,3193 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/FanPlatformSchema" },
+    { "$ref": "#/definitions/OtherPlatform" },
+    { "type": "array", "items": { "$ref": "#/definitions/Item" } }
+  ],
+  "definitions": {
+    "FanPlatformSchema": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The template platform creates fans that combine integrations and provides the ability to run scripts or invoke services for each of the turn_on, turn_off, set_speed, set_oscillating, and set_direction commands of a fan.\nhttps://www.home-assistant.io/integrations/fan.template",
+          "type": "string",
+          "const": "template"
+        },
+        "fans": {
+          "description": "List of fans.\nhttps://www.home-assistant.io/integrations/fan.template/#fans",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "string", "pattern": "^!include_dir_named .*$" },
+              { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+              {
+                "type": "string",
+                "pattern": "^!include_dir_merge_named\u000b.*$"
+              },
+              { "$ref": "#/definitions/FanPlatformItem" }
+            ]
+          }
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["fans", "platform"]
+    },
+    "FanPlatformItem": {
+      "type": "object",
+      "properties": {
+        "availability_template": {
+          "description": "Defines a template to get the available state of the component. If the template returns true, the device is available.\nhttps://www.home-assistant.io/integrations/fan.template/#availability_template",
+          "type": "string"
+        },
+        "direction_template": {
+          "description": "Defines a template to get the direction of the fan. Valid value: ‘forward’/‘reverse’\nhttps://www.home-assistant.io/integrations/fan.template/#direction_template",
+          "type": "string"
+        },
+        "friendly_name": {
+          "description": "Name to use in the frontend.\nhttps://www.home-assistant.io/integrations/fan.template/#friendly_name",
+          "type": "string"
+        },
+        "oscillating_template": {
+          "description": "Defines a template to get the osc state of the fan. Valid value: true/false\nhttps://www.home-assistant.io/integrations/fan.template/#oscillating_template",
+          "type": "string"
+        },
+        "percentage_template": {
+          "description": "Defines a template to get the speed percentage of the fan.\nhttps://www.home-assistant.io/integrations/fan.template/#percentage_template",
+          "type": "string"
+        },
+        "preset_mode_template": {
+          "description": "Defines a template to get the preset mode of the fan.\nhttps://www.home-assistant.io/integrations/fan.template/#preset_mode_template",
+          "type": "string"
+        },
+        "preset_modes": {
+          "description": "List of preset modes the fan is capable of. This is an arbitrary list of strings and must not contain any speeds.\nhttps://www.home-assistant.io/integrations/fan.template/#preset_modes",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "set_direction": {
+          "description": "Defines an action to run when the fan is given a direction command.\nhttps://www.home-assistant.io/integrations/fan.template/#set_direction",
+          "anyOf": [
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        },
+        "set_oscillating": {
+          "description": "Defines an action to run when the fan is given an osc state command.\nhttps://www.home-assistant.io/integrations/fan.template/#set_oscillating",
+          "anyOf": [
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        },
+        "set_percentage": {
+          "description": "Defines an action to run when the fan is given a speed percentage command.\nhttps://www.home-assistant.io/integrations/fan.template/#set_percentage",
+          "anyOf": [
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        },
+        "set_preset_mode": {
+          "description": "Defines an action to run when the fan is given a preset command.\nhttps://www.home-assistant.io/integrations/fan.template/#set_preset_mode",
+          "anyOf": [
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        },
+        "speed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The number of speeds the fan supports. Used to calculate the percentage step for the fan.increase_speed and fan.decrease_speed services.\nhttps://www.home-assistant.io/integrations/fan.template/#speed_count"
+        },
+        "turn_off": {
+          "description": "Defines an action to run when the fan is turned off.\nhttps://www.home-assistant.io/integrations/fan.template/#turn_off",
+          "anyOf": [
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        },
+        "turn_on": {
+          "description": "Defines an action to run when the fan is turned on.\nhttps://www.home-assistant.io/integrations/fan.template/#turn_on",
+          "anyOf": [
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        },
+        "unique_id": {
+          "description": "An ID that uniquely identifies this fan. Set this to an unique value to allow customization trough the UI.\nhttps://www.home-assistant.io/integrations/fan.template/#unique_id",
+          "type": "string"
+        },
+        "value_template": {
+          "description": "Defines a template to get the state of the fan. Valid value: ‘on’/‘off’\nhttps://www.home-assistant.io/integrations/fan.template/#value_template",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["turn_off", "turn_on", "value_template"]
+    },
+    "AndCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the and condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "Test multiple conditions in one condition statement. Passes if all embedded conditions are valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#and-condition",
+          "type": "string",
+          "const": "and"
+        },
+        "conditions": {
+          "description": "Test multiple conditions in one condition statement. Passes if all embedded conditions are valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#and-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition", "conditions"]
+    },
+    "AndShorthandCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the and condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "and": {
+          "description": "Test multiple conditions in one condition statement. Passes if all embedded conditions are valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#and-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["and"]
+    },
+    "DeviceCondition": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the device condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "Device conditions encompass a set of properties that are defined by an integration.\nIn contrast to state conditions, device conditions are tied to a device and not necessarily an entity. To use a device trigger, set up an automation through the browser frontend.",
+          "const": "device",
+          "type": "string"
+        },
+        "device_id": {
+          "description": "The internal ID of the device to preform a conditional test on.",
+          "type": "string"
+        },
+        "domain": {
+          "description": "The integration domain this device condition is provided by.",
+          "type": "string"
+        }
+      },
+      "required": ["device_id", "domain"]
+    },
+    "NotCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the not condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "Test multiple conditions in one condition statement. Passes if all embedded conditions are not valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#not-condition",
+          "type": "string",
+          "const": "not"
+        },
+        "conditions": {
+          "description": "Test multiple conditions in one condition statement. Passes if all embedded conditions are not valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#not-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition", "conditions"]
+    },
+    "NotShorthandCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the not condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "not": {
+          "description": "Test multiple conditions in one condition statement. Passes if all embedded conditions are not valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#not-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["not"]
+    },
+    "NumericStateCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the numeric state condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "This type of condition attempts to parse the state of the specified entity as a number, and triggers if the value matches the thresholds.\nhttps://www.home-assistant.io/docs/scripts/conditions/#numeric-state-condition",
+          "type": "string",
+          "const": "numeric_state"
+        },
+        "above": {
+          "description": "Passes if the numeric state of the given entity (or entities) is above the given threshold.\nhttps://www.home-assistant.io/docs/scripts/conditions/#numeric-state-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^input_number..*$" },
+            { "type": "string", "pattern": "^number..*$" },
+            { "type": "string", "pattern": "^sensor..*$" },
+            { "type": "number" }
+          ]
+        },
+        "below": {
+          "description": "Passes if the numeric state of the given entity (or entities) is below the given threshold.\nhttps://www.home-assistant.io/docs/scripts/conditions/#numeric-state-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^input_number..*$" },
+            { "type": "string", "pattern": "^number..*$" },
+            { "type": "string", "pattern": "^sensor..*$" },
+            { "type": "number" }
+          ]
+        },
+        "entity_id": {
+          "$ref": "#/definitions/Entities",
+          "description": "The entity ID or list of entity IDs to test the numeric state against.\nhttps://www.home-assistant.io/docs/scripts/conditions/#numeric-state-condition"
+        },
+        "value_template": {
+          "description": "An optional value template to use as the numeric state value.\nhttps://www.home-assistant.io/docs/scripts/conditions/#numeric-state-condition",
+          "type": "string"
+        },
+        "attribute": {
+          "description": "Use the value of a specific entity attribute to test against, instead of the entity state.\nhttps://www.home-assistant.io/docs/scripts/conditions/#numeric-state-condition",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition", "entity_id"]
+    },
+    "Entities": {
+      "pattern": "^(?!.+__)(?!_)[\\da-z_]+(?<!_)\\.(?!_)[\\da-z_]+(?<!_)\\s?(?:,\\s?(?!.+__)(?!_)[\\da-z_]+(?<!_)\\.(?!_)[\\da-z_]+(?<!_))*$",
+      "items": {
+        "pattern": "^(?!.+__)(?!_)[\\da-z_]+(?<!_)\\.(?!_)[\\da-z_]+(?<!_)$"
+      },
+      "anyOf": [
+        { "type": "string", "pattern": "^.*..*$" },
+        { "type": "array", "items": { "type": "string", "pattern": "^.*..*$" } }
+      ]
+    },
+    "OrCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the or condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "Test multiple conditions in one condition statement. Passes if any embedded condition is valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#or-condition",
+          "type": "string",
+          "const": "or"
+        },
+        "conditions": {
+          "description": "Test multiple conditions in one condition statement. Passes if any embedded condition is valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#or-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition", "conditions"]
+    },
+    "OrShorthandCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the or condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "or": {
+          "description": "Test multiple conditions in one condition statement. Passes if any embedded condition is valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#or-condition",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["or"]
+    },
+    "ShorthandCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the and condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "The template condition has a shorthand notation that can be used to make your scripts and automations shorter.\nhttps://www.home-assistant.io/docs/scripts/conditions/#template-condition-shorthand-notation",
+          "pattern": "\\{(?:[%\\{#])",
+          "anyOf": [
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition"]
+    },
+    "StateCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the state condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "Tests if an entity (or entities) is in a specified state.\nhttps://www.home-assistant.io/docs/scripts/conditions/#state-condition",
+          "type": "string",
+          "const": "state"
+        },
+        "entity_id": {
+          "$ref": "#/definitions/Entities",
+          "description": "The entity ID or list of entity IDs to test the state against.\nhttps://www.home-assistant.io/docs/scripts/conditions/#state-condition"
+        },
+        "state": {
+          "description": "The state the entity (or entities) must have for this condition to pass.\nhttps://www.home-assistant.io/docs/scripts/conditions/#state-condition",
+          "anyOf": [
+            { "type": "array", "items": { "$ref": "#/definitions/State" } },
+            { "type": ["string", "number", "boolean"] }
+          ]
+        },
+        "for": {
+          "description": "The amount of time the entity (or entities) state must be held until this condition passes.\nhttps://www.home-assistant.io/docs/scripts/conditions/#state-condition",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "attribute": {
+          "description": "Use the value of a specific entity attribute to test against, instead of the entity state.\nhttps://www.home-assistant.io/docs/scripts/conditions/#state-condition",
+          "type": "string"
+        },
+        "match": {
+          "description": "How to match in case this condition has multiple entity listed: \"all\" all entities have to match the state, \"any\" if any of the entities match the state.\nhttps://www.home-assistant.io/docs/scripts/conditions/#state-condition",
+          "enum": ["all", "any"],
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition", "entity_id", "state"]
+    },
+    "State": { "type": ["string", "number", "boolean"] },
+    "TimePeriodMap": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "description": "Number of days. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "hours": {
+          "description": "Number of hours. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "milliseconds": {
+          "description": "Number of milliseconds. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "minutes": {
+          "description": "Number of minutes. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "seconds": {
+          "description": "Number of seconds. This must be a number.",
+          "type": ["string", "number"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "SunCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the sun condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "The sun state can be used to test if the sun has set or risen.\nhttps://www.home-assistant.io/docs/scripts/conditions/#sun-condition",
+          "type": "string",
+          "const": "sun"
+        },
+        "before": {
+          "description": "Conditionally test if is currently is before sunrise or sunset.\nNote that if only before key is used, the condition will be true from midnight until sunrise/sunset.\nhttps://www.home-assistant.io/docs/scripts/conditions/#sun-condition",
+          "enum": ["sunrise", "sunset"],
+          "type": "string"
+        },
+        "before_offset": {
+          "description": "Optional offset from the sunrise or sunset. For example \"-00:45:00\" will conditionally test 45 minutes before sunrise or sunset.\nhttps://www.home-assistant.io/docs/scripts/conditions/#sun-condition",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "after": {
+          "description": "Conditionally test if is currently is after sunrise or sunset.\nNote that if only after key is used, the condition will be true from sunset/sunrise until midnight.\nhttps://www.home-assistant.io/docs/scripts/conditions/#sun-condition",
+          "enum": ["sunrise", "sunset"],
+          "type": "string"
+        },
+        "after_offset": {
+          "description": "Optional offset from the sunrise or sunset. For example \"-00:45:00\" will conditionally test 45 minutes before sunrise or sunset.\nhttps://www.home-assistant.io/docs/scripts/conditions/#sun-condition",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition"]
+    },
+    "TemplateCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the template condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "The template condition tests if the given template renders a value equal to true. This is achieved by having the template result in a true boolean expression or by having the template render ‘true’.\nhttps://www.home-assistant.io/docs/scripts/conditions/#template-condition",
+          "type": "string",
+          "const": "template"
+        },
+        "value_template": {
+          "description": "The template to render for this condition. The condition will pass if the result is true.\nhttps://www.home-assistant.io/docs/scripts/conditions/#template-condition",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition"]
+    },
+    "TimeCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the time condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "The time condition can test if it is after a specified time, before a specified time or if it is a certain day of the week.\nhttps://www.home-assistant.io/docs/scripts/conditions/#time-condition",
+          "type": "string",
+          "const": "time"
+        },
+        "before": {
+          "description": "Conditionally check if it is currently before a certain time of day.\nNote that if only before key is used, the condition will be true from midnight until the specified time.\nhttps://www.home-assistant.io/docs/scripts/conditions/#time-condition",
+          "pattern": "^((input_datetime|sensor)\\.(?!_)[\\da-z_]+(?<!_)|(?:[01]\\d|2[0123]):(?:[012345]\\d)(:(?:[012345]\\d))?)$",
+          "anyOf": [
+            { "type": "string", "pattern": "^input_datetime..*$" },
+            { "type": "string", "pattern": "^sensor..*$" },
+            { "type": "string", "pattern": "^[0-9]*:[0-9]*:[0-9]*$" }
+          ]
+        },
+        "after": {
+          "description": "Conditionally check if it is currently after a certain time of day.\nNote that if only after key is used, the condition will be true from the specified time until midnight.\nhttps://www.home-assistant.io/docs/scripts/conditions/#time-condition",
+          "pattern": "^((input_datetime|sensor)\\.(?!_)[\\da-z_]+(?<!_)|(?:[01]\\d|2[0123]):(?:[012345]\\d)(:(?:[012345]\\d))?)$",
+          "anyOf": [
+            { "type": "string", "pattern": "^input_datetime..*$" },
+            { "type": "string", "pattern": "^sensor..*$" },
+            { "type": "string", "pattern": "^[0-9]*:[0-9]*:[0-9]*$" }
+          ]
+        },
+        "weekday": {
+          "description": "Days of the week this condition can be valid.\nhttps://www.home-assistant.io/docs/scripts/conditions/#time-condition",
+          "anyOf": [
+            { "type": "array", "items": { "$ref": "#/definitions/Weekday" } },
+            {
+              "enum": ["fri", "mon", "sat", "sun", "thu", "tue", "wed"],
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition"]
+    },
+    "Weekday": {
+      "enum": ["fri", "mon", "sat", "sun", "thu", "tue", "wed"],
+      "type": "string"
+    },
+    "TriggerCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the trigger condition.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "The trigger condition can test if this automation was triggered by a specific trigger.\nhttps://www.home-assistant.io/docs/scripts/conditions/#trigger-condition",
+          "type": "string",
+          "const": "trigger"
+        },
+        "id": {
+          "description": "The ID (or IDs) of the triggers to test against if they have triggered this automation.\nhttps://www.home-assistant.io/docs/scripts/conditions/#trigger-condition",
+          "anyOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "array", "items": { "type": "number" } },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition", "id"]
+    },
+    "ZoneCondition": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the zone condition.",
+          "type": "string"
+        },
+        "condition": { "type": "string", "const": "zone" },
+        "enabled": {
+          "description": "Every individual condition can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/conditions/#disabling-a-condition",
+          "type": "boolean"
+        },
+        "entity_id": {
+          "description": "The entity ID(s) of the device tracker(s).\nhttps://www.home-assistant.io/docs/scripts/conditions/#zone-condition",
+          "pattern": "^(device_tracker|person)\\.(?!_)[\\da-z_]+(?<!_)\\s?(?:,\\s?(device_tracker|person)\\.(?!_)[\\da-z_]+(?<!_))*$",
+          "items": {
+            "pattern": "^(device_tracker|person)\\.(?!_)[\\da-z_]+(?<!_)$"
+          },
+          "anyOf": [
+            { "type": "string", "pattern": "^device_tracker..*$" },
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^device_tracker..*$" }
+            },
+            { "type": "string", "pattern": "^person..*$" },
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^person..*$" }
+            }
+          ]
+        },
+        "zone": {
+          "$ref": "#/definitions/ZoneEntities",
+          "description": "The zone(s) conditionally check against for the given device tracker(s).\nhttps://www.home-assistant.io/docs/scripts/conditions/#zone-condition"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["condition", "entity_id", "zone"]
+    },
+    "ZoneEntities": {
+      "pattern": "^zone\\.(?!_)[\\da-z_]+(?<!_)\\s?(?:,\\s?zone\\.(?!_)[\\da-z_]+(?<!_))*$",
+      "items": { "pattern": "^zone\\.(?!_)[\\da-z_]+(?<!_)$" },
+      "anyOf": [
+        { "type": "string", "pattern": "^zone..*$" },
+        {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^zone..*$" }
+        }
+      ]
+    },
+    "Condition": {
+      "anyOf": [
+        { "type": "string", "pattern": "^{{.*$" },
+        { "type": "string", "pattern": "^{%.*$" },
+        { "type": "string", "pattern": "^{#.*$" },
+        { "$ref": "#/definitions/AndCondition" },
+        { "$ref": "#/definitions/AndShorthandCondition" },
+        { "$ref": "#/definitions/DeviceCondition" },
+        { "$ref": "#/definitions/NotCondition" },
+        { "$ref": "#/definitions/NotShorthandCondition" },
+        { "$ref": "#/definitions/NumericStateCondition" },
+        { "$ref": "#/definitions/OrCondition" },
+        { "$ref": "#/definitions/OrShorthandCondition" },
+        { "$ref": "#/definitions/ShorthandCondition" },
+        { "$ref": "#/definitions/StateCondition" },
+        { "$ref": "#/definitions/SunCondition" },
+        { "$ref": "#/definitions/TemplateCondition" },
+        { "$ref": "#/definitions/TimeCondition" },
+        { "$ref": "#/definitions/TriggerCondition" },
+        { "$ref": "#/definitions/ZoneCondition" }
+      ]
+    },
+    "ChooseAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the choose action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "choose": {
+          "description": "This action allows you to select a sequence of other actions from a list of sequences.\nhttps://www.home-assistant.io/docs/scripts/#choose-a-group-of-actions",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "$ref": "#/definitions/ChooseActionItem" },
+            {
+              "type": "array",
+              "items": { "$ref": "#/definitions/ChooseActionItem" }
+            }
+          ]
+        },
+        "default": {
+          "description": "An optional default sequence can be included which will be run if none of the sequences from the list are run.\nhttps://www.home-assistant.io/docs/scripts/#choose-a-group-of-actions",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["choose"]
+    },
+    "ChooseActionItem": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for this choose item.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "conditions": {
+          "description": "Only preform the sequence of actions if this condition/these conditions match.\nhttps://www.home-assistant.io/docs/scripts/#choose-a-group-of-actions",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        },
+        "sequence": {
+          "description": "The sequence of actions to be performed if the condition(s) match.\nhttps://www.home-assistant.io/docs/scripts/#choose-a-group-of-actions",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["conditions", "sequence"]
+    },
+    "DelayAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the delay action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "delay": {
+          "$ref": "#/definitions/TimePeriod",
+          "description": "Delays are useful for temporarily suspending your script and start it at a later moment.\nThe time period to delay the executing of the current action sequence for.\nhttps://www.home-assistant.io/docs/scripts/#delay"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["delay"]
+    },
+    "TimePeriod": {
+      "anyOf": [
+        { "$ref": "#/definitions/TimePeriodMap" },
+        { "type": ["string", "number"] }
+      ]
+    },
+    "DeviceAction": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the device action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "device_id": {
+          "description": "The internal ID of the device to execute an action on.\nDevice actions encompass a set of events that are defined by an integration.\nIn contrast to service calls, device actions are tied to a device and not necessarily an entity. To use a device action, set up an automation through the browser frontend.",
+          "type": "string"
+        },
+        "domain": {
+          "description": "The integration domain this device trigger is provided by.",
+          "type": "string"
+        }
+      },
+      "required": ["device_id", "domain"]
+    },
+    "EventAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the Event action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "event": {
+          "description": "The event name to fire.\nThis action allows you to fire an event. Events can be used for many things. It could trigger an automation or indicate to another integration that something is happening.\nhttps://www.home-assistant.io/docs/scripts/#fire-an-event",
+          "type": "string"
+        },
+        "event_data": {
+          "description": "The event data to pass along.\nhttps://www.home-assistant.io/docs/scripts/#fire-an-event",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "event_data_template": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "You can use templates directly in the event_data parameter, replace \"event_data_template\" with just \"event_data\".\nhttps://www.home-assistant.io/docs/scripts/#fire-an-event"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["event"]
+    },
+    "IfAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the if action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "if": {
+          "description": "This action allows you to select a sequence of other actions from a list of sequences.\nhttps://www.home-assistant.io/docs/scripts/#if-then",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "type": "array", "items": { "$ref": "#/definitions/Condition" } }
+          ]
+        },
+        "then": {
+          "description": "An optional default sequence can be included which will be run if none of the sequences from the list are run.\nhttps://www.home-assistant.io/docs/scripts/#if-then",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        },
+        "else": {
+          "description": "An optional default sequence can be included which will be run if none of the sequences from the list are run.\nhttps://www.home-assistant.io/docs/scripts/#if-then",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["if", "then"]
+    },
+    "ParallelAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the parallel action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "parallel": {
+          "description": "The sequence of actions to run in parallel.\nhttps://www.home-assistant.io/docs/scripts/#parallelizing-actions",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  { "type": "string", "pattern": "^!include_dir_list .*$" },
+                  { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+                  { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+                  { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+                  { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+                  {
+                    "type": "string",
+                    "pattern": "^!include_dir_list\u000b.*$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^!include_dir_merge_list .*$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^!include_dir_merge_list\r.*$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^!include_dir_merge_list\n.*$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^!include_dir_merge_list\t.*$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^!include_dir_merge_list\f.*$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^!include_dir_merge_list\u000b.*$"
+                  },
+                  { "type": "string", "pattern": "^{{.*$" },
+                  { "type": "string", "pattern": "^{%.*$" },
+                  { "type": "string", "pattern": "^{#.*$" },
+                  { "$ref": "#/definitions/AndCondition" },
+                  { "$ref": "#/definitions/AndShorthandCondition" },
+                  { "$ref": "#/definitions/DeviceCondition" },
+                  { "$ref": "#/definitions/NotCondition" },
+                  { "$ref": "#/definitions/NotShorthandCondition" },
+                  { "$ref": "#/definitions/NumericStateCondition" },
+                  { "$ref": "#/definitions/OrCondition" },
+                  { "$ref": "#/definitions/OrShorthandCondition" },
+                  { "$ref": "#/definitions/ShorthandCondition" },
+                  { "$ref": "#/definitions/StateCondition" },
+                  { "$ref": "#/definitions/SunCondition" },
+                  { "$ref": "#/definitions/TemplateCondition" },
+                  { "$ref": "#/definitions/TimeCondition" },
+                  { "$ref": "#/definitions/TriggerCondition" },
+                  { "$ref": "#/definitions/ZoneCondition" },
+                  { "$ref": "#/definitions/ChooseAction" },
+                  { "$ref": "#/definitions/DelayAction" },
+                  { "$ref": "#/definitions/DeviceAction" },
+                  { "$ref": "#/definitions/EventAction" },
+                  { "$ref": "#/definitions/IfAction" },
+                  { "$ref": "#/definitions/ParallelAction" },
+                  { "$ref": "#/definitions/RepeatAction" },
+                  { "$ref": "#/definitions/SceneAction" },
+                  { "$ref": "#/definitions/ServiceAction" },
+                  { "$ref": "#/definitions/SequenceAction" },
+                  { "$ref": "#/definitions/StopAction" },
+                  { "$ref": "#/definitions/WaitForTriggerAction" },
+                  { "$ref": "#/definitions/WaitTemplateAction" },
+                  { "$ref": "#/definitions/VariablesAction" },
+                  {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/Action" }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["parallel"]
+    },
+    "RepeatAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the repeat action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "repeat": {
+          "description": "This action allows you to repeat a sequence of other actions.\nhttps://www.home-assistant.io/docs/scripts/#repeat-a-group-of-actions",
+          "type": "object",
+          "properties": {
+            "count": {
+              "description": "This form accepts a count value. The value may be specified by a template, in which case the template is rendered when the repeat step is reached.\nhttps://www.home-assistant.io/docs/scripts/#counted-repeat",
+              "type": ["string", "number"]
+            },
+            "for_each": {
+              "description": "This repeat form accepts a list of items to iterate over. The list of items can be a pre-defined list, or a list created by a template.\nhttps://www.home-assistant.io/docs/scripts/#for-each",
+              "anyOf": [
+                { "type": "array", "items": { "type": "string" } },
+                { "type": "object", "additionalProperties": {} },
+                { "type": "string" }
+              ]
+            },
+            "sequence": {
+              "description": "The sequence of actions to be repeatedly performed in the script.\nhttps://www.home-assistant.io/integrations/script/#sequence",
+              "anyOf": [
+                { "type": "string", "pattern": "^!include_dir_list .*$" },
+                { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+                { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\r.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\n.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\t.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\f.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\u000b.*$"
+                },
+                { "type": "string", "pattern": "^{{.*$" },
+                { "type": "string", "pattern": "^{%.*$" },
+                { "type": "string", "pattern": "^{#.*$" },
+                { "$ref": "#/definitions/AndCondition" },
+                { "$ref": "#/definitions/AndShorthandCondition" },
+                { "$ref": "#/definitions/DeviceCondition" },
+                { "$ref": "#/definitions/NotCondition" },
+                { "$ref": "#/definitions/NotShorthandCondition" },
+                { "$ref": "#/definitions/NumericStateCondition" },
+                { "$ref": "#/definitions/OrCondition" },
+                { "$ref": "#/definitions/OrShorthandCondition" },
+                { "$ref": "#/definitions/ShorthandCondition" },
+                { "$ref": "#/definitions/StateCondition" },
+                { "$ref": "#/definitions/SunCondition" },
+                { "$ref": "#/definitions/TemplateCondition" },
+                { "$ref": "#/definitions/TimeCondition" },
+                { "$ref": "#/definitions/TriggerCondition" },
+                { "$ref": "#/definitions/ZoneCondition" },
+                { "$ref": "#/definitions/ChooseAction" },
+                { "$ref": "#/definitions/DelayAction" },
+                { "$ref": "#/definitions/DeviceAction" },
+                { "$ref": "#/definitions/EventAction" },
+                { "$ref": "#/definitions/IfAction" },
+                { "$ref": "#/definitions/ParallelAction" },
+                { "$ref": "#/definitions/RepeatAction" },
+                { "$ref": "#/definitions/SceneAction" },
+                { "$ref": "#/definitions/ServiceAction" },
+                { "$ref": "#/definitions/SequenceAction" },
+                { "$ref": "#/definitions/StopAction" },
+                { "$ref": "#/definitions/WaitForTriggerAction" },
+                { "$ref": "#/definitions/WaitTemplateAction" },
+                { "$ref": "#/definitions/VariablesAction" },
+                { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+              ]
+            },
+            "until": {
+              "description": "This form accepts a list of conditions that are evaluated after each time the sequence is run. Therefore the sequence will always run at least once. The sequence will be executed until the condition(s) evaluate to true.\nhttps://www.home-assistant.io/docs/scripts/#repeat-until",
+              "anyOf": [
+                { "type": "string", "pattern": "^!include_dir_list .*$" },
+                { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+                { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\r.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\n.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\t.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\f.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\u000b.*$"
+                },
+                { "type": "string", "pattern": "^{{.*$" },
+                { "type": "string", "pattern": "^{%.*$" },
+                { "type": "string", "pattern": "^{#.*$" },
+                { "$ref": "#/definitions/AndCondition" },
+                { "$ref": "#/definitions/AndShorthandCondition" },
+                { "$ref": "#/definitions/DeviceCondition" },
+                { "$ref": "#/definitions/NotCondition" },
+                { "$ref": "#/definitions/NotShorthandCondition" },
+                { "$ref": "#/definitions/NumericStateCondition" },
+                { "$ref": "#/definitions/OrCondition" },
+                { "$ref": "#/definitions/OrShorthandCondition" },
+                { "$ref": "#/definitions/ShorthandCondition" },
+                { "$ref": "#/definitions/StateCondition" },
+                { "$ref": "#/definitions/SunCondition" },
+                { "$ref": "#/definitions/TemplateCondition" },
+                { "$ref": "#/definitions/TimeCondition" },
+                { "$ref": "#/definitions/TriggerCondition" },
+                { "$ref": "#/definitions/ZoneCondition" },
+                {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/Condition" }
+                }
+              ]
+            },
+            "while": {
+              "description": "This form accepts a list of conditions that are evaluated before each time the sequence is run. The sequence will be repeated as long as the condition(s) evaluate to true.\nhttps://www.home-assistant.io/docs/scripts/#while-loop",
+              "anyOf": [
+                { "type": "string", "pattern": "^!include_dir_list .*$" },
+                { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+                { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+                { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\r.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\n.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\t.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\f.*$"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^!include_dir_merge_list\u000b.*$"
+                },
+                { "type": "string", "pattern": "^{{.*$" },
+                { "type": "string", "pattern": "^{%.*$" },
+                { "type": "string", "pattern": "^{#.*$" },
+                { "$ref": "#/definitions/AndCondition" },
+                { "$ref": "#/definitions/AndShorthandCondition" },
+                { "$ref": "#/definitions/DeviceCondition" },
+                { "$ref": "#/definitions/NotCondition" },
+                { "$ref": "#/definitions/NotShorthandCondition" },
+                { "$ref": "#/definitions/NumericStateCondition" },
+                { "$ref": "#/definitions/OrCondition" },
+                { "$ref": "#/definitions/OrShorthandCondition" },
+                { "$ref": "#/definitions/ShorthandCondition" },
+                { "$ref": "#/definitions/StateCondition" },
+                { "$ref": "#/definitions/SunCondition" },
+                { "$ref": "#/definitions/TemplateCondition" },
+                { "$ref": "#/definitions/TimeCondition" },
+                { "$ref": "#/definitions/TriggerCondition" },
+                { "$ref": "#/definitions/ZoneCondition" },
+                {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/Condition" }
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": ["sequence"]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["repeat"]
+    },
+    "SceneAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the scene action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "scene": {
+          "pattern": "^scene..*$",
+          "description": "Activate a scene.\nhttps://www.home-assistant.io/docs/scripts/#activate-a-scene",
+          "type": "string"
+        },
+        "metadata": {
+          "description": "Additional data for merely for use with the frontend. Has no functional effect."
+        }
+      },
+      "additionalProperties": false,
+      "required": ["scene"]
+    },
+    "ServiceAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Service call alias.\nhttps://www.home-assistant.io/docs/scripts/service-calls/",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "service": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"action\" instead."
+        },
+        "action": {
+          "description": "The most important action is to call an action.\nhttps://www.home-assistant.io/docs/scripts/service-calls/",
+          "type": "string"
+        },
+        "service_template": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "You can use templates directly in the service parameter, replace \"service_template\" with just \"service\".\nhttps://www.home-assistant.io/docs/scripts/service-calls/#use-templates-to-decide-which-service-to-call"
+        },
+        "data": {
+          "description": "Specify other parameters beside the entity to target. For example, the light turn on service allows specifying the brightness.\nhttps://www.home-assistant.io/docs/scripts/service-calls/#passing-data-to-the-service-call",
+          "anyOf": [
+            { "type": "object", "additionalProperties": {} },
+            { "type": "string" }
+          ]
+        },
+        "data_template": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "You can use templates directly in the data parameter, replace \"data_template\" with just \"data\".\nhttps://www.home-assistant.io/docs/scripts/service-calls/#use-templates-to-determine-the-attributes"
+        },
+        "entity_id": {
+          "description": "The entity (or entities) to execute this service call on.\nhttps://www.home-assistant.io/docs/scripts/service-calls",
+          "anyOf": [
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^.*..*$" }
+            },
+            { "type": ["null", "string"] }
+          ]
+        },
+        "target": {
+          "description": "Defines the target (area(s), device(s) and entitie(s)) to execute this service call on.\nhttps://www.home-assistant.io/docs/scripts/service-calls",
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "entity_id": {
+                  "description": "The entity (or entities) to execute this service call on.\nhttps://www.home-assistant.io/docs/scripts/service-calls",
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": { "type": "string", "pattern": "^.*..*$" }
+                    },
+                    { "type": ["null", "string"] }
+                  ]
+                },
+                "device_id": {
+                  "description": "The device (or devices) to execute this service call on.\nhttps://www.home-assistant.io/docs/scripts/service-calls",
+                  "anyOf": [
+                    { "type": "array", "items": { "type": "string" } },
+                    { "type": "string" }
+                  ]
+                },
+                "area_id": {
+                  "description": "The area (or areas) to execute this service call on.\nhttps://www.home-assistant.io/docs/scripts/service-calls",
+                  "anyOf": [
+                    { "type": "array", "items": { "type": "string" } },
+                    { "type": "string" }
+                  ]
+                },
+                "floor_id": {
+                  "description": "The floor (or floors) to execute this service call on.\nhttps://www.home-assistant.io/docs/scripts/service-calls",
+                  "anyOf": [
+                    { "type": "array", "items": { "type": "string" } },
+                    { "type": "string" }
+                  ]
+                },
+                "label_id": {
+                  "description": "The labels (or labels) to execute this service call on.\nhttps://www.home-assistant.io/docs/scripts/service-calls",
+                  "anyOf": [
+                    { "type": "array", "items": { "type": "string" } },
+                    { "type": "string" }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            { "type": "string" }
+          ]
+        },
+        "metadata": {
+          "description": "Additional data for merely for use with the frontend. Has no functional effect."
+        },
+        "response_variable": {
+          "description": "Add a response_variable to pass a variable of key/value pairs back to an automation or script.\nhttps://www.home-assistant.io/docs/scripts/service-calls/#use-templates-to-handle-response-data",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SequenceAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the sequence action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "sequence": {
+          "description": "The sequence of actions to run in serial\nhttps://www.home-assistant.io/docs/scripts/#grouping-actions",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "type": "string", "pattern": "^{{.*$" },
+            { "type": "string", "pattern": "^{%.*$" },
+            { "type": "string", "pattern": "^{#.*$" },
+            { "$ref": "#/definitions/AndCondition" },
+            { "$ref": "#/definitions/AndShorthandCondition" },
+            { "$ref": "#/definitions/DeviceCondition" },
+            { "$ref": "#/definitions/NotCondition" },
+            { "$ref": "#/definitions/NotShorthandCondition" },
+            { "$ref": "#/definitions/NumericStateCondition" },
+            { "$ref": "#/definitions/OrCondition" },
+            { "$ref": "#/definitions/OrShorthandCondition" },
+            { "$ref": "#/definitions/ShorthandCondition" },
+            { "$ref": "#/definitions/StateCondition" },
+            { "$ref": "#/definitions/SunCondition" },
+            { "$ref": "#/definitions/TemplateCondition" },
+            { "$ref": "#/definitions/TimeCondition" },
+            { "$ref": "#/definitions/TriggerCondition" },
+            { "$ref": "#/definitions/ZoneCondition" },
+            { "$ref": "#/definitions/ChooseAction" },
+            { "$ref": "#/definitions/DelayAction" },
+            { "$ref": "#/definitions/DeviceAction" },
+            { "$ref": "#/definitions/EventAction" },
+            { "$ref": "#/definitions/IfAction" },
+            { "$ref": "#/definitions/ParallelAction" },
+            { "$ref": "#/definitions/RepeatAction" },
+            { "$ref": "#/definitions/SceneAction" },
+            { "$ref": "#/definitions/ServiceAction" },
+            { "$ref": "#/definitions/SequenceAction" },
+            { "$ref": "#/definitions/StopAction" },
+            { "$ref": "#/definitions/WaitForTriggerAction" },
+            { "$ref": "#/definitions/WaitTemplateAction" },
+            { "$ref": "#/definitions/VariablesAction" },
+            { "type": "array", "items": { "$ref": "#/definitions/Action" } }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["sequence"]
+    },
+    "StopAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Stop call alias.\nhttps://www.home-assistant.io/docs/scripts/#stopping-a-script-sequence",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "stop": {
+          "description": "Stop a automation or script sequence. Provide a text with a reason for stopping.\nhttps://www.home-assistant.io/docs/scripts/#stopping-a-script-sequence",
+          "type": ["null", "string"]
+        },
+        "error": {
+          "description": "Set to true, if we are stopping with an error / because of unexpected behavior\nhttps://www.home-assistant.io/docs/scripts/#stopping-a-script-sequence",
+          "type": "boolean"
+        },
+        "response_variable": {
+          "description": "Add a response_variable to pass a variable of key/value pairs back to an automation or script\nhttps://www.home-assistant.io/docs/scripts/#stopping-a-script-sequence",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["stop"]
+    },
+    "WaitForTriggerAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the wait for trigger action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "wait_for_trigger": {
+          "description": "The trigger to wait for, before continuing execution of the script.\nhttps://www.home-assistant.io/docs/scripts/#wait-for-trigger",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_list\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_list\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_list\u000b.*$"
+            },
+            { "$ref": "#/definitions/CalendarTrigger" },
+            { "$ref": "#/definitions/ConversationTrigger" },
+            { "$ref": "#/definitions/DeviceTrigger" },
+            { "$ref": "#/definitions/EventTrigger" },
+            { "$ref": "#/definitions/GeolocationTrigger" },
+            { "$ref": "#/definitions/HomeAssistantTrigger" },
+            { "$ref": "#/definitions/MqttTrigger" },
+            { "$ref": "#/definitions/NumericStateTrigger" },
+            { "$ref": "#/definitions/PersistentNotificationTrigger" },
+            { "$ref": "#/definitions/StateTrigger" },
+            { "$ref": "#/definitions/SunTrigger" },
+            { "$ref": "#/definitions/TagTrigger" },
+            { "$ref": "#/definitions/TemplateTrigger" },
+            { "$ref": "#/definitions/TimeTrigger" },
+            { "$ref": "#/definitions/TimePatternTrigger" },
+            { "$ref": "#/definitions/WebhookTrigger" },
+            { "$ref": "#/definitions/ZoneTrigger" },
+            { "type": "array", "items": { "$ref": "#/definitions/Trigger" } }
+          ]
+        },
+        "timeout": {
+          "description": "Set a timeout after which the script will continue its execution if the trigger has not occurred.\nhttps://www.home-assistant.io/docs/scripts/#wait-for-trigger",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "continue_on_timeout": {
+          "description": "Continue the execute of the action sequence on time out or not.\nhttps://www.home-assistant.io/docs/scripts/#wait-for-trigger",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CalendarTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the calendar trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Calendar trigger fires when a Calendar event starts or ends.\nhttps://www.home-assistant.io/docs/automation/trigger/#calendar-trigger",
+          "const": "calendar",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: calendar\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "event": {
+          "description": "Trigger on start or end of the calendar event.\nhttps://www.home-assistant.io/docs/automation/trigger/#calendar-trigger",
+          "enum": ["end", "start"],
+          "type": "string"
+        },
+        "entity_id": {
+          "pattern": "^calendar..*$",
+          "description": "The entity ID to monitor the calendar events for.\nhttps://www.home-assistant.io/docs/automation/trigger/#calendar-trigger",
+          "type": "string"
+        },
+        "offset": {
+          "description": "Optional time offset to fire a set time before or after event start/end.\nhttps://www.home-assistant.io/docs/automation/trigger/#calendar-trigger",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#calendar-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["entity_id"]
+    },
+    "ConversationTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the conversation pattern trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "With the sentence trigger, you can match a sentence from a voice assistant.\nhttps://www.home-assistant.io/docs/automation/trigger/#sentence-trigger",
+          "const": "conversation",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: conversation\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "command": {
+          "description": "A sentence or a list of sentences for this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#sentence-trigger",
+          "anyOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "string" }
+          ]
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#sentence-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["command"]
+    },
+    "DeviceTrigger": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the device trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Device triggers encompass a set of events that are defined by an integration.\nIn contrast to state triggers, device triggers are tied to a device and not necessarily an entity. To use a device trigger, set up an automation through the browser frontend.\nhttps://www.home-assistant.io/docs/automation/trigger/#device-triggers",
+          "const": "device",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: device\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "device_id": {
+          "description": "The internal ID of the device to trigger on\nhttps://www.home-assistant.io/docs/automation/trigger/#device-triggers",
+          "type": "string"
+        },
+        "domain": {
+          "description": "The integration domain this device trigger is provided by.\nhttps://www.home-assistant.io/docs/automation/trigger/#device-triggers",
+          "type": "string"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#device-triggers",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": ["device_id", "domain"]
+    },
+    "EventTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the event trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Fires when an event is being received. Events are the raw building blocks of Home Assistant. You can match events on just the event name or also require specific event data to be present.\nhttps://www.home-assistant.io/docs/automation/trigger/#event-trigger",
+          "const": "event",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: event\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "context": {
+          "description": "Additional event context that has to match before triggering.\nhttps://www.home-assistant.io/docs/automation/trigger/#event-trigger",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "event_data": {
+          "description": "Additional event data that has to match before triggering.\nhttps://www.home-assistant.io/docs/automation/trigger/#event-trigger",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "event_type": {
+          "description": "The name of the event to listen for.\nhttps://www.home-assistant.io/docs/automation/trigger/#event-trigger",
+          "anyOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "array", "items": { "$ref": "#/definitions/EventType" } },
+            { "type": "string" }
+          ]
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#event-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["event_type"]
+    },
+    "EventType": {
+      "enum": [
+        "automation_reloaded",
+        "automation_triggered",
+        "call_service",
+        "component_loaded",
+        "deconz_event",
+        "homeassistant_started",
+        "homeassistant_stop",
+        "logbook_entry",
+        "platform_discovered",
+        "scene_reloaded",
+        "service_executed",
+        "service_registered",
+        "service_removed",
+        "state_changed",
+        "tag_scanned",
+        "themes_updates",
+        "time_changed",
+        "user_added",
+        "user_removed",
+        "zha_event"
+      ],
+      "type": "string"
+    },
+    "GeolocationTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the geolocation trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Geolocation trigger fires when an entity is appearing in or disappearing from a zone.\nhttps://www.home-assistant.io/docs/automation/trigger/#geolocation-trigger",
+          "const": "geo_location",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: geo_location\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "event": {
+          "description": "Trigger when the entity leaves or enters the zone defined.\nhttps://www.home-assistant.io/docs/automation/trigger/#geolocation-trigger",
+          "enum": ["enter", "leave"],
+          "type": "string"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#geolocation-trigger",
+          "type": "string"
+        },
+        "source": {
+          "description": "The source is directly linked to one of the Geolocation platforms.\nhttps://www.home-assistant.io/docs/automation/trigger/#geolocation-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "zone": {
+          "pattern": "^zone..*$",
+          "description": "The zone to trigger on when a entity is appearing in or disappearing from.\nhttps://www.home-assistant.io/docs/automation/trigger/#geolocation-trigger",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["event", "source", "zone"]
+    },
+    "HomeAssistantTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the home assistant trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "This trigger fires when Home Assistant has started up or going to shut down.\nhttps://www.home-assistant.io/docs/automation/trigger/#home-assistant-trigger",
+          "const": "homeassistant",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: homeassistant\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "event": {
+          "description": "Specified the event to listen to: Either the Home Assistant start or shutdown event.\nhttps://www.home-assistant.io/docs/automation/trigger/#home-assistant-trigger",
+          "enum": ["shutdown", "start"],
+          "type": "string"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#home-assistant-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["event"]
+    },
+    "MqttTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the mqtt trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Fires when a specific message is received on given MQTT topic\nhttps://www.home-assistant.io/docs/automation/trigger/#mqtt-trigger",
+          "const": "mqtt",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: mqtt\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "encoding": {
+          "description": "The default payload encoding is ‘utf-8’.\nFor images and other byte payloads use encoding: '' to disable payload decoding completely.\nhttps://www.home-assistant.io/docs/automation/trigger/#mqtt-trigger",
+          "type": "string"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#mqtt-trigger",
+          "type": "string"
+        },
+        "payload": {
+          "description": "The payload to match on before triggering.\nhttps://www.home-assistant.io/docs/automation/trigger/#mqtt-trigger",
+          "type": "string"
+        },
+        "qos": {
+          "description": "The matching QoS level of the state topic. Default is 0.\nhttps://www.home-assistant.io/docs/automation/trigger/#mqtt-trigger",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "topic": {
+          "description": "The MQTT topic to subscribe and listen to.\nhttps://www.home-assistant.io/docs/automation/trigger/#mqtt-trigger",
+          "type": "string"
+        },
+        "value_template": {
+          "description": "Value template allows, for example, picking out a JSON key from the incoming MQTT message.\nhttps://www.home-assistant.io/docs/automation/trigger/#mqtt-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["topic"]
+    },
+    "NumericStateTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the numeric state trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Fires when numeric value of an entity’s state crosses a given threshold.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger",
+          "const": "numeric_state",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: numeric_state\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "entity_id": {
+          "$ref": "#/definitions/Entities",
+          "description": "The entity ID or list of entity IDs to monitor the numeric state for.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger"
+        },
+        "below": {
+          "description": "Fire this trigger if the numeric state of the monitored entity (or entities) is changing from above to below the given threshold.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger",
+          "anyOf": [
+            { "type": "string", "pattern": "^input_number..*$" },
+            { "type": "string", "pattern": "^number..*$" },
+            { "type": "string", "pattern": "^sensor..*$" },
+            { "type": "number" }
+          ]
+        },
+        "above": {
+          "description": "Fire this trigger if the numeric state of the monitored entity (or entities) is changing from below to above the given threshold.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger",
+          "anyOf": [
+            { "type": "string", "pattern": "^input_number..*$" },
+            { "type": "string", "pattern": "^number..*$" },
+            { "type": "string", "pattern": "^sensor..*$" },
+            { "type": "number" }
+          ]
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger",
+          "type": "string"
+        },
+        "value_template": {
+          "description": "An optional value template to use as the numeric state value.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger",
+          "type": "string"
+        },
+        "for": {
+          "description": "The amount of time this threshold must be held until this trigger fires.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "attribute": {
+          "description": "Use the value of a specific entity attribute to trigger on, instead of the entity state.\nhttps://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["entity_id"]
+    },
+    "PersistentNotificationTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the persistent notification trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Persistent notification triggers are fired when a persistent_notification is added or removed that matches the configuration options.\nhttps://www.home-assistant.io/docs/automation/trigger/#persistent-notification-trigger",
+          "const": "persistent_notification",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: persistent_notification\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#persistent-notification-trigger",
+          "type": "string"
+        },
+        "update_type": {
+          "description": "Define the type of persistent notification to trigger on.\nhttps://www.home-assistant.io/docs/automation/trigger/#persistent-notification-trigger",
+          "type": "array",
+          "items": { "$ref": "#/definitions/PersistentNotificationUpdateType" }
+        },
+        "notification_id": {
+          "description": "The notification ID to trigger on.\nhttps://www.home-assistant.io/docs/automation/trigger/#persistent-notification-trigger",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PersistentNotificationUpdateType": {
+      "enum": ["added", "removed", "updated"],
+      "type": "string"
+    },
+    "StateTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the state trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "This trigger fires when the state of any of given entities changes.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger",
+          "const": "state",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: state\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "entity_id": {
+          "$ref": "#/definitions/Entities",
+          "description": "The entity ID or list of entity IDs to monitor the state for.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger"
+        },
+        "for": {
+          "description": "The amount of time the entity or entities state must be held until this trigger fires.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "from": {
+          "description": "The state the entity or entities had before changing to its new state.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger"
+        },
+        "not_from": {
+          "description": "The state the entity or entities NOT had before changing to its new state.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger"
+        },
+        "to": {
+          "description": "The state the entity or entities have changed to.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger"
+        },
+        "not_to": {
+          "description": "The state the entity or entities did NOT changed to.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger"
+        },
+        "attribute": {
+          "description": "Use the value of a specific entity attribute to trigger on, instead of the entity state.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger",
+          "type": "string"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#state-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["entity_id"]
+    },
+    "SunTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the sun trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "This trigger fires when the sun is setting or rising.\nhttps://www.home-assistant.io/docs/automation/trigger/#sun-trigger",
+          "const": "sun",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: device\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "event": {
+          "description": "The event to fire on, either on sunset or sunrise.\nhttps://www.home-assistant.io/docs/automation/trigger/#sun-trigger",
+          "enum": ["sunrise", "sunset"],
+          "type": "string"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#sun-trigger",
+          "type": "string"
+        },
+        "offset": {
+          "description": "Optional offset from the sunrise or sunset. For example \"-00:45:00\" will trigger 45 minutes before sunrise or sunset.\nhttps://www.home-assistant.io/docs/automation/trigger/#sun-trigger",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["event"]
+    },
+    "TagTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the tag trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "This trigger fired when a tag is scanned.\nhttps://www.home-assistant.io/docs/automation/trigger#tag-trigger",
+          "const": "tag",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: tag\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger#tag-trigger",
+          "type": "string"
+        },
+        "tag_id": {
+          "description": "Identifier of the tag. Use this to decide what to do.\nhttps://www.home-assistant.io/docs/automation/trigger#tag-trigger",
+          "anyOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "string" }
+          ]
+        },
+        "device_id": {
+          "description": "Device registry identifier of the device that scanned the tag. Use this to decide where to do it.\nhttps://www.home-assistant.io/docs/automation/trigger#tag-trigger",
+          "anyOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "string" }
+          ]
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["tag_id"]
+    },
+    "TemplateTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the template trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Template triggers work by evaluating a template on every state change for all of the recognized entities. The trigger will fire if the state change caused the template to render ‘true’.\nhttps://www.home-assistant.io/docs/automation/trigger/#template-trigger",
+          "const": "template",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: template\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#template-trigger",
+          "type": "string"
+        },
+        "value_template": {
+          "description": "The template to render for this trigger. The event will fire is the result is true.\nhttps://www.home-assistant.io/docs/automation/trigger/#template-trigger",
+          "type": "string"
+        },
+        "for": {
+          "description": "The amount of time the template must be resulting in true until this trigger fires.\nhttps://www.home-assistant.io/docs/automation/trigger/#template-trigger",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["value_template"]
+    },
+    "TimeTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the time trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "The time trigger is configured to fire once at a specific point in time each day.\nhttps://www.home-assistant.io/docs/automation/trigger/#time-trigger",
+          "const": "time",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: time\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "at": {
+          "description": "Time of day to trigger on, in HH:MM:SS, 24 hours clock format. For example: \"13:30:00\"\nAlso accepts input_datetime entities (e.g., input_datetime.start_of_day)",
+          "pattern": "^((input_datetime|sensor)\\.(?!_)[\\da-z_]+(?<!_)\\s?(?:,\\s?(input_datetime|sensor)\\.(?!_)[\\da-z_]+(?<!_))*|(?:[01]\\d|2[0123]):(?:[012345]\\d)(:(?:[012345]\\d))?)$",
+          "items": {
+            "pattern": "^((input_datetime|sensor)\\.(?!_)[\\da-z_]+(?<!_)|(?:[01]\\d|2[0123]):(?:[012345]\\d)(:(?:[012345]\\d))?)$"
+          },
+          "anyOf": [
+            { "type": "string", "pattern": "^input_datetime..*$" },
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^input_datetime..*$" }
+            },
+            { "type": "string", "pattern": "^sensor..*$" },
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^sensor..*$" }
+            },
+            { "type": "string", "pattern": "^[0-9]*:[0-9]*:[0-9]*$" },
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[0-9]*:[0-9]*:[0-9]*$" }
+            }
+          ]
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#time-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["at"]
+    },
+    "TimePatternTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the time pattern trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "With the time pattern trigger, you can match if the hour, minute or second of the current time matches a specific value.\nhttps://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger",
+          "const": "time_pattern",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: time_pattern\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger",
+          "type": "string"
+        },
+        "hours": {
+          "description": "The hour or hours to trigger on.\nYou can prefix the value with a / to match whenever the value is divisible by that number. You can specify * to match any value.\nhttps://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger",
+          "type": "string"
+        },
+        "minutes": {
+          "description": "The minute or minutes to trigger on.\nYou can prefix the value with a / to match whenever the value is divisible by that number. You can specify * to match any value.\nhttps://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger",
+          "type": ["string", "number"]
+        },
+        "seconds": {
+          "description": "The second or seconds to trigger on.\nYou can prefix the value with a / to match whenever the value is divisible by that number. You can specify * to match any value.\nhttps://www.home-assistant.io/docs/automation/trigger/#time-pattern-trigger",
+          "type": ["string", "number"]
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "WebhookTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the webhook trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Webhook trigger fires when a web request is made to the webhook endpoint.\nhttps://www.home-assistant.io/docs/automation/trigger/#webhook-trigger",
+          "const": "webhook",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: webhook\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#webhook-trigger",
+          "type": "string"
+        },
+        "webhook_id": {
+          "description": "The webhook ID to use, defines the endpoint: /api/webhook/<webhook_id>\nhttps://www.home-assistant.io/docs/automation/trigger/#webhook-trigger",
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "local_only": {
+          "description": "Controls to only allow local requests to trigger the webhook.\nhttps://www.home-assistant.io/docs/automation/trigger/#webhook-trigger",
+          "type": "boolean"
+        },
+        "allowed_methods": {
+          "description": "Controls to only allow requests with a valid API password to trigger the webhook.\nhttps://www.home-assistant.io/docs/automation/trigger/#webhook-trigger",
+          "type": "array",
+          "items": { "$ref": "#/definitions/AllowedMethods" }
+        }
+      },
+      "additionalProperties": false,
+      "required": ["allowed_methods", "webhook_id"]
+    },
+    "AllowedMethods": {
+      "enum": ["GET", "HEAD", "POST", "PUT"],
+      "type": "string"
+    },
+    "ZoneTrigger": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the zone trigger.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "Zone trigger fires when an entity is entering or leaving the zone. For zone automation to work, you need to have setup a device tracker platform that supports reporting GPS coordinates.\nhttps://www.home-assistant.io/docs/automation/trigger/#zone-trigger",
+          "const": "zone",
+          "type": "string"
+        },
+        "platform": {
+          "pattern": "LEGACY_SYNTAX^",
+          "items": { "pattern": "LEGACY_SYNTAX^" },
+          "description": "Legacy syntax, use \"trigger: zone\" instead."
+        },
+        "enabled": {
+          "description": "Every individual trigger in an automation can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/automation/trigger/#disabling-a-trigger",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "An personal identifier for this trigger, that is passed into the trigger\nvariables when the automation triggers using this trigger.\nhttps://www.home-assistant.io/docs/automation/trigger/#zone-trigger",
+          "type": "string"
+        },
+        "entity_id": {
+          "description": "The entity ID(s) of the device tracker(s) to monitor on a given zone.\nhttps://www.home-assistant.io/docs/automation/trigger/#zone-trigger",
+          "pattern": "^(device_tracker|person)\\.(?!_)[\\da-z_]+(?<!_)\\s?(?:,\\s?(device_tracker|person)\\.(?!_)[\\da-z_]+(?<!_))*$",
+          "items": {
+            "pattern": "^(device_tracker|person)\\.(?!_)[\\da-z_]+(?<!_)$"
+          },
+          "anyOf": [
+            { "type": "string", "pattern": "^device_tracker..*$" },
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^device_tracker..*$" }
+            },
+            { "type": "string", "pattern": "^person..*$" },
+            {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^person..*$" }
+            }
+          ]
+        },
+        "zone": {
+          "$ref": "#/definitions/ZoneEntities",
+          "description": "The zone(s) to monitor for the given device tracker(s).\nhttps://www.home-assistant.io/docs/automation/trigger/#zone-trigger"
+        },
+        "event": {
+          "description": "Trigger when the entity leaves or enters the zone(s) defined.\nhttps://www.home-assistant.io/docs/automation/trigger/#zone-trigger",
+          "enum": ["enter", "leave"],
+          "type": "string"
+        },
+        "variables": {
+          "description": "This allows you to define variables that will be set when the trigger fires.\nThese can be used in the automation actions or conditions. Templates\ncan be used in these variables.\nhttps://www.home-assistant.io/docs/automation/trigger#trigger-variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["entity_id", "event", "zone"]
+    },
+    "Trigger": {
+      "anyOf": [
+        { "$ref": "#/definitions/CalendarTrigger" },
+        { "$ref": "#/definitions/ConversationTrigger" },
+        { "$ref": "#/definitions/DeviceTrigger" },
+        { "$ref": "#/definitions/EventTrigger" },
+        { "$ref": "#/definitions/GeolocationTrigger" },
+        { "$ref": "#/definitions/HomeAssistantTrigger" },
+        { "$ref": "#/definitions/MqttTrigger" },
+        { "$ref": "#/definitions/NumericStateTrigger" },
+        { "$ref": "#/definitions/PersistentNotificationTrigger" },
+        { "$ref": "#/definitions/StateTrigger" },
+        { "$ref": "#/definitions/SunTrigger" },
+        { "$ref": "#/definitions/TagTrigger" },
+        { "$ref": "#/definitions/TemplateTrigger" },
+        { "$ref": "#/definitions/TimeTrigger" },
+        { "$ref": "#/definitions/TimePatternTrigger" },
+        { "$ref": "#/definitions/WebhookTrigger" },
+        { "$ref": "#/definitions/ZoneTrigger" }
+      ]
+    },
+    "WaitTemplateAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the wait action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "wait_template": {
+          "description": "Wait until some things are complete.\nhttps://www.home-assistant.io/docs/scripts/#wait",
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Set a timeout after which the script will continue its execution if the condition is not satisfied.\nhttps://www.home-assistant.io/docs/scripts/#wait",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "continue_on_timeout": {
+          "description": "Continue the execute of the action sequence on time out or not.\nhttps://www.home-assistant.io/docs/scripts/#wait",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["wait_template"]
+    },
+    "VariablesAction": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "Alias for the variables action.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Every individual action can be disabled, without removing it.\nhttps://www.home-assistant.io/docs/scripts/#disabling-an-action",
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "description": "Set it to true if you’d like to continue the action sequence, regardless of whether that action encounters an error.\nhttps://www.home-assistant.io/docs/scripts/#continuing-on-error",
+          "type": "boolean"
+        },
+        "variables": {
+          "description": "The variable command allows you to set/override variables that will be accessible by templates in actions after it.\nhttps://www.home-assistant.io/docs/scripts/#variables",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "additionalProperties": false,
+      "required": ["variables"]
+    },
+    "Action": {
+      "anyOf": [
+        { "type": "string", "pattern": "^{{.*$" },
+        { "type": "string", "pattern": "^{%.*$" },
+        { "type": "string", "pattern": "^{#.*$" },
+        { "$ref": "#/definitions/AndCondition" },
+        { "$ref": "#/definitions/AndShorthandCondition" },
+        { "$ref": "#/definitions/DeviceCondition" },
+        { "$ref": "#/definitions/NotCondition" },
+        { "$ref": "#/definitions/NotShorthandCondition" },
+        { "$ref": "#/definitions/NumericStateCondition" },
+        { "$ref": "#/definitions/OrCondition" },
+        { "$ref": "#/definitions/OrShorthandCondition" },
+        { "$ref": "#/definitions/ShorthandCondition" },
+        { "$ref": "#/definitions/StateCondition" },
+        { "$ref": "#/definitions/SunCondition" },
+        { "$ref": "#/definitions/TemplateCondition" },
+        { "$ref": "#/definitions/TimeCondition" },
+        { "$ref": "#/definitions/TriggerCondition" },
+        { "$ref": "#/definitions/ZoneCondition" },
+        { "$ref": "#/definitions/ChooseAction" },
+        { "$ref": "#/definitions/DelayAction" },
+        { "$ref": "#/definitions/DeviceAction" },
+        { "$ref": "#/definitions/EventAction" },
+        { "$ref": "#/definitions/IfAction" },
+        { "$ref": "#/definitions/ParallelAction" },
+        { "$ref": "#/definitions/RepeatAction" },
+        { "$ref": "#/definitions/SceneAction" },
+        { "$ref": "#/definitions/ServiceAction" },
+        { "$ref": "#/definitions/SequenceAction" },
+        { "$ref": "#/definitions/StopAction" },
+        { "$ref": "#/definitions/WaitForTriggerAction" },
+        { "$ref": "#/definitions/WaitTemplateAction" },
+        { "$ref": "#/definitions/VariablesAction" }
+      ]
+    },
+    "OtherPlatform": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "Platform domain",
+          "pattern": "^(?!(template|mqtt)$)\\w+$",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "required": ["platform"]
+    },
+    "Item": {
+      "anyOf": [
+        { "$ref": "#/definitions/FanPlatformSchema" },
+        { "$ref": "#/definitions/OtherPlatform" }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

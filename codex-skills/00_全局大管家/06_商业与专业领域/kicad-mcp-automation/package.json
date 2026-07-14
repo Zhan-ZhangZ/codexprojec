@@ -1,0 +1,64 @@
+{
+  "name": "@spark-apps/kicad-mcp",
+  "version": "1.0.0",
+  "description": "Model Context Protocol (MCP) server for automated KiCad PCB design",
+  "type": "module",
+  "private": false,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "bun run --bun build",
+    "dev": "bun run --bun dev",
+    "test": "bun test",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "type-check": "bun run --bun type-check",
+    "clean": "bun run --bun clean && rm -rf node_modules"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muammar-yacoob/kicad-mcp.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "kicad",
+    "pcb",
+    "mcp",
+    "model-context-protocol",
+    "automation",
+    "eda",
+    "circuit-design",
+    "pcb-automation"
+  ],
+  "author": "Muammar Yacoob <https://github.com/muammar-yacoob>",
+  "license": "MIT",
+  "devDependencies": {
+    "@biomejs/biome": "^1.8.0",
+    "@types/node": "^20.17.24",
+    "semantic-release": "^23.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  },
+  "packageManager": "bun@1.1.0",
+  "main": "eslint.config.js",
+  "dependencies": {
+    "eslint-scope": "^8.4.0",
+    "eslint-visitor-keys": "^4.2.1"
+  },
+  "bugs": {
+    "url": "https://github.com/muammar-yacoob/kicad-mcp/issues"
+  },
+  "homepage": "https://github.com/muammar-yacoob/kicad-mcp#readme"
+}

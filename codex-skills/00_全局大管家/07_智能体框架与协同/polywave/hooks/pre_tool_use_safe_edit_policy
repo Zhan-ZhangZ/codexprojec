@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+payload="$(cat)"
+
+deny() {
+  local reason="$1"
+  jq -n --arg reason "$reason" '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: $reason
+    }
+  }'
+}
+
+tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // .toolName // empty')"
+if [[ "$tool_name" != "mcp__lsp__safe_edit" && "$tool_name" != "mcp__lsp__apply_edit" && "$tool_name" != "mcp__lsp__safe_apply_edit" && "$tool_name" != "mcp__lsp__simulate_edit" && "$tool_name" != "mcp__lsp__replace_symbol_body" && "$tool_name" != "mcp__lsp__safe_delete_symbol" && "$tool_name" != "mcp__lsp__commit_session" ]]; then
+  exit 0
+fi
+
+if [[ "$tool_name" == "mcp__lsp__commit_session" ]]; then
+  apply_flag="$(printf '%s' "$payload" | jq -r '.tool_input.apply // .toolInput.apply // false')"
+  if [[ "$apply_flag" == "true" ]]; then
+    deny "Blocked: LSP commit_session with apply=true cannot be safely path-scoped by the current hook payload. Tool: ${tool_name}"
+  fi
+  exit 0
+fi
+
+target_path="$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .toolInput.file_path // .tool_input.filePath // .toolInput.filePath // empty')"
+if [[ -z "$target_path" ]]; then
+  exit 0
+fi
+
+assigned_worktree="${POLYWAVE_AGENT_WORKTREE:-}"
+if [[ -z "$assigned_worktree" ]]; then
+  assigned_worktree="$(printf '%s' "$payload" | jq -r '.polywave.assigned_worktree // .polywave.assignedWorktree // empty')"
+fi
+
+allowed_root="$assigned_worktree"
+if [[ -z "$allowed_root" ]]; then
+  allowed_root="$(printf '%s' "$payload" | jq -r '.cwd // empty')"
+fi
+
+if [[ -z "$allowed_root" ]]; then
+  exit 0
+fi
+
+allowed_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$allowed_root")"
+resolved_target="$(python3 - "$allowed_root" "$target_path" <<'PY2'
+import os
+import sys
+root = os.path.realpath(sys.argv[1])
+target = sys.argv[2]
+if os.path.isabs(target):
+    print(os.path.realpath(target))
+else:
+    print(os.path.realpath(os.path.join(root, target)))
+PY2
+)"
+
+if [[ "$resolved_target" != "$allowed_root" && "$resolved_target" != "$allowed_root"/* ]]; then
+  if [[ -n "$assigned_worktree" ]]; then
+    deny "Blocked: LSP file mutation targets a path outside the assigned Polywave worktree. Tool: ${tool_name}"
+  else
+    deny "Blocked: LSP file mutation targets a path outside the current Codex working tree. Tool: ${tool_name}"
+  fi
+  exit 0
+fi
+
+exit 0

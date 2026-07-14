@@ -1,0 +1,30 @@
+id: pr-review-security-focused
+name: Security-Focused PR Review
+description: Security-first PR review with SAST scanning, auth flow analysis, and dependency audit
+tags: [review, security, ci, github, sast]
+version: "1.0"
+tasks:
+  - title: SAST scan of changed files
+    description: Run static application security testing on modified files, flag injection, XSS, path traversal, and unsafe deserialization patterns
+    role: security
+    priority: 0
+    scope: medium
+    complexity: high
+  - title: Auth and authz flow review
+    description: Analyze authentication and authorization changes, verify principle of least privilege, check for privilege escalation paths
+    role: security
+    priority: 0
+    scope: medium
+    complexity: high
+  - title: Dependency vulnerability audit
+    description: Audit added or upgraded dependencies for known CVEs, license issues, and supply-chain risks
+    role: security
+    priority: 1
+    scope: small
+    complexity: medium
+  - title: Secrets and PII scan
+    description: Scan diff for hard-coded secrets, API keys, tokens, and PII leakage in logs or responses
+    role: security
+    priority: 0
+    scope: small
+    complexity: medium

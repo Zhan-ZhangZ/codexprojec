@@ -1,0 +1,43 @@
+{
+  "module": "42_nbreg",
+  "side": "py",
+  "rows": [
+    {
+      "module": "42_nbreg",
+      "side": "py",
+      "statistic": "beta_intercept",
+      "estimate": 0.834494088807412,
+      "se": 0.06774143935857853,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 600,
+      "extra": {}
+    },
+    {
+      "module": "42_nbreg",
+      "side": "py",
+      "statistic": "beta_x1",
+      "estimate": 0.5412558107729224,
+      "se": 0.05224088164445557,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 600,
+      "extra": {}
+    },
+    {
+      "module": "42_nbreg",
+      "side": "py",
+      "statistic": "beta_x2",
+      "estimate": -0.49623108683824124,
+      "se": 0.10049680255616757,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 600,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "dispersion": "mean",
+    "engine": "statsmodels"
+  }
+}

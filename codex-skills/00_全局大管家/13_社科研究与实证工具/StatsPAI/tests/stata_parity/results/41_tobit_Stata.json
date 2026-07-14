@@ -1,0 +1,53 @@
+{
+  "module": "41_tobit",
+  "side": "Stata",
+  "rows": [
+    {
+      "module": "41_tobit",
+      "side": "Stata",
+      "statistic": "beta_intercept",
+      "estimate": 0.51004976273256508,
+      "se": 0.047917585922046903,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    }
+,
+    {
+      "module": "41_tobit",
+      "side": "Stata",
+      "statistic": "beta_x",
+      "estimate": 0.75098301973501713,
+      "se": 0.051415034525087298,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    }
+,
+    {
+      "module": "41_tobit",
+      "side": "Stata",
+      "statistic": "sigma",
+      "estimate": 0.95407448931769578,
+      "se": 0.039340865522507297,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "left_censor": "0",
+    "stata_command": "tobit y x, ll(0)"
+  },
+  "provenance": {
+    "stata_version": 18,
+    "edition": "MP",
+    "os": "Unix",
+    "machine_type": "Mac (Apple Silicon)",
+    "born_date": "07 Jun 2023",
+    "captured_via": "tests/stata_parity/_common.do::stata_parity_close"
+  }
+}

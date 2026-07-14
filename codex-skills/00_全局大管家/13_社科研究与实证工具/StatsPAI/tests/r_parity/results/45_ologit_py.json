@@ -1,0 +1,42 @@
+{
+  "module": "45_ologit",
+  "side": "py",
+  "rows": [
+    {
+      "module": "45_ologit",
+      "side": "py",
+      "statistic": "beta_x",
+      "estimate": 0.7039221935425891,
+      "se": 0.06778172292791282,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "45_ologit",
+      "side": "py",
+      "statistic": "beta_cut1",
+      "estimate": -0.5422333603394369,
+      "se": 0.06824069033438357,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "45_ologit",
+      "side": "py",
+      "statistic": "beta_cut2",
+      "estimate": 0.43339894006380175,
+      "se": 0.06757441107327598,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "engine": "statsmodels"
+  }
+}

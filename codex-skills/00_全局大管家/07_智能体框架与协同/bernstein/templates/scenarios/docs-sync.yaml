@@ -1,0 +1,24 @@
+id: docs-sync
+name: Docs Sync
+description: Detect and fix drift between code, public APIs, and documentation
+tags: [docs, maintenance, schedule, quality]
+version: "1.0"
+tasks:
+  - title: Detect docs drift
+    description: Compare public API surface against README and docs/ for missing, stale, or contradictory entries
+    role: docs
+    priority: 0
+    scope: medium
+    complexity: medium
+  - title: Update API reference
+    description: Regenerate API reference for changed signatures and remove references to deleted symbols
+    role: docs
+    priority: 1
+    scope: medium
+    complexity: medium
+  - title: Refresh quickstart and examples
+    description: Verify quickstart commands still work, fix broken example snippets and outdated screenshots
+    role: docs
+    priority: 2
+    scope: small
+    complexity: low

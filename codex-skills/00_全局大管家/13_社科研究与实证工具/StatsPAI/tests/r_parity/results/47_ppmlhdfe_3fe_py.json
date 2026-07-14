@@ -1,0 +1,33 @@
+{
+  "module": "47_ppmlhdfe_3fe",
+  "side": "py",
+  "rows": [
+    {
+      "module": "47_ppmlhdfe_3fe",
+      "side": "py",
+      "statistic": "beta_log_dist",
+      "estimate": -0.807182046534623,
+      "se": 0.10988643065644557,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    },
+    {
+      "module": "47_ppmlhdfe_3fe",
+      "side": "py",
+      "statistic": "beta_contig",
+      "estimate": 0.44900644504179865,
+      "se": 0.11544448837369368,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "fe": "origin + dest + year",
+    "vcov": "HC1",
+    "n_obs": 500
+  }
+}

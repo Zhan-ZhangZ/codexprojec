@@ -1,0 +1,53 @@
+{
+  "module": "24_coxph",
+  "side": "Stata",
+  "rows": [
+    {
+      "module": "24_coxph",
+      "side": "Stata",
+      "statistic": "beta_x1",
+      "estimate": 0.46279635424307908,
+      "se": 0.0792368482480061,
+      "ci_lo": 0.30749498542852138,
+      "ci_hi": 0.61809772305763677,
+      "n": 300,
+      "extra": {}
+    }
+,
+    {
+      "module": "24_coxph",
+      "side": "Stata",
+      "statistic": "beta_x2",
+      "estimate": -0.58940366311335857,
+      "se": 0.14042445731134781,
+      "ci_lo": -0.86463054199218248,
+      "ci_hi": -0.3141767842345346,
+      "n": 300,
+      "extra": {}
+    }
+,
+    {
+      "module": "24_coxph",
+      "side": "Stata",
+      "statistic": "concordance",
+      "estimate": 0.64207422410198367,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 300,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "ties": "efron",
+    "stata_command": "stcox x1 x2, nohr (Efron default)"
+  },
+  "provenance": {
+    "stata_version": 18,
+    "edition": "MP",
+    "os": "Unix",
+    "machine_type": "Mac (Apple Silicon)",
+    "born_date": "07 Jun 2023",
+    "captured_via": "tests/stata_parity/_common.do::stata_parity_close"
+  }
+}

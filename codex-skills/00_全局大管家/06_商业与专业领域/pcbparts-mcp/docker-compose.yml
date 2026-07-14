@@ -1,0 +1,40 @@
+services:
+  pcbparts-mcp:
+    # Use GHCR image in production, or build locally with: docker compose build
+    image: ghcr.io/averyy/pcbparts-mcp:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pcbparts-mcp
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - web
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - HTTP_PORT=8080
+      - RATE_LIMIT_REQUESTS=100
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M  # DB is ~360MB + Python overhead
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  web:
+    external: true

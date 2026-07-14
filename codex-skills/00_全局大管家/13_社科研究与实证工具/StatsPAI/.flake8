@@ -1,0 +1,23 @@
+[flake8]
+# Mirror scripts/quality_gate.py — the AUTHORITATIVE flake8 ratchet (run in CI
+# via `python scripts/quality_gate.py flake8`). This file exists so the bare
+# `flake8 src tests` command documented in CLAUDE.md §14 reports the same
+# numbers as the gate, instead of falling back to the pycodestyle default of
+# max-line-length=79 (which produced ~9.5k spurious E501 hits).
+#
+# black owns line wrapping (line-length 88, see [tool.black] in pyproject.toml).
+# E203 (whitespace before ':') and W503 (line break before binary operator)
+# conflict with black's style and are disabled, matching the gate's --ignore.
+max-line-length = 88
+ignore = E203, W503
+extend-exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    .venv,
+    .eggs,
+    *.egg-info,
+    htmlcov,
+    rust,
+    docs,

@@ -1,0 +1,33 @@
+{
+  "module": "37_ppmlhdfe",
+  "side": "py",
+  "rows": [
+    {
+      "module": "37_ppmlhdfe",
+      "side": "py",
+      "statistic": "beta_x1",
+      "estimate": 0.23984685226295552,
+      "se": 0.03020426728233467,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    },
+    {
+      "module": "37_ppmlhdfe",
+      "side": "py",
+      "statistic": "beta_x2",
+      "estimate": -0.40293332493857364,
+      "se": 0.061678096549850014,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "fe": "origin",
+    "vcov": "HC1",
+    "n_obs": 500
+  }
+}

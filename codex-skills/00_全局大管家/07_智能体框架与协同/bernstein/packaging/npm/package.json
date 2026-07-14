@@ -1,0 +1,44 @@
+{
+  "name": "bernstein-orchestrator",
+  "version": "1.9.0",
+  "description": "Declarative agent orchestration for engineering teams. Spawn parallel AI coding agents, verify with tests, commit clean code.",
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestration",
+    "multi-agent",
+    "coding",
+    "cli",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "mcp"
+  ],
+  "license": "Apache-2.0",
+  "author": "Alex Chernysh <alex@alexchernysh.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sipyourdrink-ltd/bernstein.git"
+  },
+  "homepage": "https://github.com/sipyourdrink-ltd/bernstein",
+  "bin": {
+    "bernstein": "index.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "files": [
+    "index.js",
+    "install.js",
+    "README.md"
+  ],
+  "mcpName": "io.github.sipyourdrink-ltd/bernstein"
+}

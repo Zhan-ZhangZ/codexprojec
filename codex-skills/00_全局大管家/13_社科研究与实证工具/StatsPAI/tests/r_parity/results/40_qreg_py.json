@@ -1,0 +1,43 @@
+{
+  "module": "40_qreg",
+  "side": "py",
+  "rows": [
+    {
+      "module": "40_qreg",
+      "side": "py",
+      "statistic": "beta_intercept",
+      "estimate": 0.9994009145910392,
+      "se": 0.07122118665641534,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    },
+    {
+      "module": "40_qreg",
+      "side": "py",
+      "statistic": "beta_x1",
+      "estimate": 0.5310785492916436,
+      "se": 0.07419220431412975,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    },
+    {
+      "module": "40_qreg",
+      "side": "py",
+      "statistic": "beta_x2",
+      "estimate": -0.35712088188099417,
+      "se": 0.06993449036514897,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "quantile": 0.5,
+    "engine": "statsmodels"
+  }
+}

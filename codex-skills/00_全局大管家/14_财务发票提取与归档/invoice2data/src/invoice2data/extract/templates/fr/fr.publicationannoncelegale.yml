@@ -1,0 +1,23 @@
+issuer: NETPRESSE
+# date is extracted from an `area:` which pypdfium2 can't do; pin pdftotext.
+input_module: pdftotext
+fields:
+  amount: Total TTC\s+:\s+([\d ]+,\d{2})
+  amount_untaxed: Total HT\s+:\s+([\d ]+,\d{2})
+  date:
+    parser: regex
+    area: { f: 1, l: 1, x: 0, y: 155, r: 100, W: 825, H: 170 }
+    regex: (\d{2}/\d{2}/\d{4})
+    type: date
+  invoice_number: Facture\s+n°\s+(\d+)
+  static_siren: 530848134
+keywords:
+  - B 530 848 134
+  - €
+  - Facture
+  - NETPRESSE
+options:
+  currency: EUR
+  date_formats:
+    - "%d/%m/%Y"
+  decimal_separator: ","

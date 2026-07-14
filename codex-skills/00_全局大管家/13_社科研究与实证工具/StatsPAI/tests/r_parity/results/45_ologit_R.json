@@ -1,0 +1,56 @@
+{
+  "module": "45_ologit",
+  "side": "R",
+  "rows": [
+    {
+      "module": "45_ologit",
+      "side": "R",
+      "statistic": "beta_x",
+      "estimate": 0.70392217841668,
+      "se": 0.0677818258272449,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "45_ologit",
+      "side": "R",
+      "statistic": "beta_cut1",
+      "estimate": -0.542233407496837,
+      "se": 0.0682408241241993,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "45_ologit",
+      "side": "R",
+      "statistic": "beta_cut2",
+      "estimate": 0.433399016974461,
+      "se": 0.0675743807453511,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "package": ["MASS::polr"],
+    "method": ["logistic"],
+    "optim_reltol": [1e-14],
+    "optim_maxit": [10000]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "MASS": "7.3-65",
+      "compiler": "4.5.2",
+      "jsonlite": "2.0.0"
+    }
+  }
+}

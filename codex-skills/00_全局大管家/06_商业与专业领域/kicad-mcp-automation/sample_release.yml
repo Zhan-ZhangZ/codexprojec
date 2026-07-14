@@ -1,0 +1,86 @@
+name: Create Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs: {}
+
+jobs:
+  build:
+    # Run for release-triggering commits, including in merge commits
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(toJSON(github.event.commits.*.message), 'feat:') ||
+      contains(toJSON(github.event.commits.*.message), 'feat!:') ||
+      contains(toJSON(github.event.commits.*.message), 'fix:') ||
+      contains(toJSON(github.event.commits.*.message), 'perf:') ||
+      contains(toJSON(github.event.commits.*.message), 'BREAKING CHANGE')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          registry-url: "https://registry.npmjs.org"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Install semantic-release
+        run: npm install -g semantic-release @semantic-release/github @semantic-release/changelog @semantic-release/git @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/npm
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Semantic Release
+        id: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx semantic-release
+
+      - name: Create Distribution Package
+        if: steps.semantic-release.outputs.new_release_published == 'true'
+        run: |
+          # Create distribution directory
+          mkdir -p dist-package
+
+          # Copy essential files
+          cp package.json dist-package/
+          cp README.md dist-package/ 2>/dev/null || true
+          cp LICENSE dist-package/ 2>/dev/null || true
+
+          # Copy built distribution
+          cp -r dist dist-package/
+
+          # Update package.json version if new release
+          VERSION="${{ steps.semantic-release.outputs.new_release_version }}"
+          if [ ! -z "$VERSION" ]; then
+            cd dist-package
+            npm version "$VERSION" --no-git-tag-version
+            cd ..
+          fi
+
+      - name: Create Release Archive
+        if: steps.semantic-release.outputs.new_release_published == 'true'
+        run: |
+          cd dist-package
+          tar -czf ../gmail-manager-mcp-${{ steps.semantic-release.outputs.new_release_version }}.tar.gz *
+          cd ..

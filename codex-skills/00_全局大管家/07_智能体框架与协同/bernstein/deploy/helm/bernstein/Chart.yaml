@@ -1,0 +1,27 @@
+apiVersion: v2
+name: bernstein
+description: Declarative agent orchestration for engineering teams
+type: application
+version: 0.2.0
+appVersion: "1.6.3"
+icon: https://via.placeholder.com/256?text=Bernstein
+
+keywords:
+  - ai
+  - agents
+  - orchestration
+  - llm
+
+maintainers:
+  - name: Bernstein Contributors
+
+dependencies:
+  - name: postgresql
+    version: "15.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+
+  - name: redis
+    version: "25.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

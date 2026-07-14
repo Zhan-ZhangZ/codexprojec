@@ -1,0 +1,53 @@
+{
+  "module": "57_logit",
+  "side": "R",
+  "rows": [
+    {
+      "module": "57_logit",
+      "side": "R",
+      "statistic": "beta_intercept",
+      "estimate": 0.532672280110746,
+      "se": 0.0981231647843478,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "57_logit",
+      "side": "R",
+      "statistic": "beta_x1",
+      "estimate": 0.856533672922801,
+      "se": 0.0803280309064214,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "57_logit",
+      "side": "R",
+      "statistic": "beta_x2",
+      "estimate": -0.887312233181785,
+      "se": 0.139889693393588,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "link": ["logit"],
+    "package": ["stats::glm"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "compiler": "4.5.2",
+      "jsonlite": "2.0.0"
+    }
+  }
+}

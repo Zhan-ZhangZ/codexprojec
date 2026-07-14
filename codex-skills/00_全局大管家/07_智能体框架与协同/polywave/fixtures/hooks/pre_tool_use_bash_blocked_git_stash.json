@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git stash --include-untracked"
+  },
+  "polywave": {
+    "assigned_worktree": "/tmp/polywave-agent-1"
+  }
+}

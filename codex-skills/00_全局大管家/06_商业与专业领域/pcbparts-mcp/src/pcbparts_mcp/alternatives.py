@@ -1,0 +1,1562 @@
+"""Alternative component finding with spec-aware compatibility checking.
+
+This module provides intelligent alternative finding that:
+1. Matches parts by primary spec value (not just subcategory)
+2. Verifies compatibility using same_or_better rules
+3. Scores and ranks alternatives by usefulness
+4. Returns verified alternatives for supported categories, similar_parts for unsupported
+"""
+
+from typing import Any, Callable
+
+# Import shared parsers from the unified parsers module
+from pcbparts_mcp.parsers import (
+    parse_voltage,
+    parse_tolerance,
+    parse_ppm,
+    parse_forward_voltage,
+    parse_power,
+    parse_current,
+    parse_resistance,
+    parse_capacitance,
+    parse_inductance,
+    parse_frequency,
+    parse_decibels,
+    parse_impedance_at_freq,
+    impedance_at_freq_match,
+)
+
+
+# =============================================================================
+# SPEC PARSERS MAPPING
+# =============================================================================
+# Map spec names to their parser functions. "special" means use custom logic.
+
+SPEC_PARSERS: dict[str, Callable[[str], float | None] | str | None] = {
+    # Voltages
+    "Voltage Rating": parse_voltage,
+    "Voltage - DC Reverse(Vr)": parse_voltage,
+    "Drain to Source Voltage": parse_voltage,
+    "Collector - Emitter Voltage VCEO": parse_voltage,
+    "Reverse Stand-Off Voltage (Vrwm)": parse_voltage,
+    "Clamping Voltage": parse_voltage,
+    "Isolation Voltage(Vrms)": parse_voltage,
+    "Voltage - Max": parse_voltage,
+    "Output Voltage": parse_voltage,
+    "Voltage Dropout": parse_voltage,
+    "Zener Voltage(Nom)": parse_voltage,
+    "Voltage Rating (DC)": parse_voltage,
+    "Voltage Rating (Max)": parse_voltage,
+    "Reverse Voltage": parse_voltage,
+    "Voltage(AC)": parse_voltage,
+    "Voltage Rating (AC)": parse_voltage,
+    "Voltage Rating - DC": parse_voltage,
+    "Coil Voltage": parse_voltage,
+    "Switching Voltage(Max)": parse_voltage,
+    "Load Voltage": parse_voltage,
+    "Varistor Voltage": parse_voltage,
+    "Peak off - state voltage(Vdrm)": parse_voltage,
+    "Trigger Voltage": parse_voltage,
+    "Rated Voltage (Max)": parse_voltage,
+    "Collector-Emitter Breakdown Voltage (Vces)": parse_voltage,
+    "Vce Saturation(VCE(sat))": parse_voltage,
+    "Voltage - Forward(Vf@If)": parse_forward_voltage,
+    "Voltage - DC Spark Over": parse_voltage,
+    "Voltage - Supply": parse_voltage,  # For buzzers, etc.
+    "Gate Threshold Voltage (Vgs(th))": parse_voltage,  # MOSFETs: "4V", "4V@250uA"
+    "Gate Threshold Voltage": parse_voltage,  # Alternate name
+    # Tolerances (percentage-based)
+    "Tolerance": parse_tolerance,
+    "Frequency Stability": parse_ppm,  # ±20ppm format
+    # Power
+    "Power(Watts)": parse_power,
+    "Pd - Power Dissipation": parse_power,
+    "Peak Pulse Power": parse_power,
+    "Rated Power": parse_power,
+    # Currents
+    "Current - Continuous Drain(Id)": parse_current,
+    "Current - Collector(Ic)": parse_current,
+    "Current - Rectified": parse_current,
+    "Current Rating": parse_current,
+    "Current - Saturation(Isat)": parse_current,
+    "Current - Saturation (Isat)": parse_current,  # Variant with space
+    "Output Current": parse_current,
+    "Hold Current": parse_current,
+    "Trip Current": parse_current,
+    "Contact Current": parse_current,
+    "Contact Rating": parse_current,
+    "Switching Current(Max)": parse_current,
+    "Load Current": parse_current,
+    "Current - Average Rectified": parse_current,
+    "Drain Current (Idss)": parse_current,
+    "Output Current(Max)": parse_current,
+    "Impulse Discharge Current": parse_current,
+    "Peak Pulse Current-Ipp (10/1000us)": parse_current,
+    "Current Rating (Max)": parse_current,
+    "Average Rectified Current": parse_current,
+    # Resistance
+    "DC Resistance(DCR)": parse_resistance,
+    "RDS(on)": parse_resistance,
+    "Resistance": parse_resistance,
+    "Resistance @ 25℃": parse_resistance,
+    "Cell Resistance @ Illuminance": parse_resistance,
+    # Capacitance
+    "Capacitance": parse_capacitance,
+    "Load Capacitance": parse_capacitance,
+    # Inductance
+    "Inductance": parse_inductance,
+    # Frequency
+    "Frequency": parse_frequency,
+    # Special handling
+    "Impedance @ Frequency": "special",  # Uses impedance_at_freq_match()
+    # String-match specs (no parser - use exact match)
+    "Temperature Coefficient": None,
+    "Illumination Color": None,
+    "type": None,
+    "Type": None,
+    "Output Type": None,
+    "Peak Wavelength": None,
+    "FET Type": None,
+    "B Constant (25℃/100℃)": None,
+    "Number of Positions": None,
+    "Number of Pins": None,
+    "Number of Positions or Pins": None,
+    "Number of Rows": None,
+    "Pitch": None,
+    "Connector Type": None,
+    "Gender": None,
+    "Pins Structure": None,
+    "Circuit": None,
+    "Contact Form": None,
+    "Mounting Type": None,
+    "Self Lock / No Lock": None,
+    "Positions": None,
+    "Number of Poles Per Deck": None,
+    "Rated Functioning Temperature": None,
+    "Number of Resistors": None,
+    "Number of Capacitors": None,
+    "Number of Lines": None,
+    "Number of Forward Channels": None,
+    "Number of Reverse Channels": None,
+    "Number of Poles": None,
+    "Number of Turns": None,
+    "Number of Coils": None,
+    "Impedance": None,
+    "Driver Circuitry": None,
+    "Ratings": None,
+    "Data Rate": None,
+    "Data Rate(Max)": None,
+    "Color": None,
+    "Number of Segments": None,
+    "Direction": None,
+    "Encoder Type": None,
+    "Energy": None,
+    "Sound Pressure Level": parse_decibels,
+    # Battery Management
+    "Type of Battery": None,
+    "Number of Cells": None,
+    "Charge Current - Max": parse_current,
+    # Level Shifters
+    "Channel Type": None,
+    # Motor Drivers
+    "Number of H-bridges": None,
+    # Audio Amplifiers
+    "Class": None,  # Class D, Class AB, etc.
+    # Wireless Modules
+    "Output Power": parse_power,
+}
+
+# Specs that use exact string matching (case-insensitive)
+STRING_MATCH_SPECS = {
+    "Temperature Coefficient",
+    "Illumination Color",
+    "type",
+    "Type",
+    "Output Type",
+    "Peak Wavelength",
+    "FET Type",
+    "B Constant (25℃/100℃)",
+    # Connectors
+    "Number of Positions",
+    "Number of Pins",
+    "Number of Positions or Pins",
+    "Number of Rows",
+    "Pitch",
+    "Connector Type",
+    "Gender",
+    "Pins Structure",
+    # Switches
+    "Circuit",
+    "Contact Form",
+    "Mounting Type",
+    "Self Lock / No Lock",
+    "Positions",
+    "Number of Poles Per Deck",
+    # Fuses
+    "Rated Functioning Temperature",
+    # Arrays/Networks
+    "Number of Resistors",
+    "Number of Capacitors",
+    "Number of Lines",
+    "Number of Forward Channels",
+    "Number of Reverse Channels",
+    "Number of Poles",
+    "Number of Turns",
+    "Number of Coils",
+    # Audio/RF
+    "Impedance",
+    "Driver Circuitry",
+    # Capacitors
+    "Ratings",  # X1, X2, Y1, Y2 safety class
+    # Data rates (string format varies too much)
+    "Data Rate",
+    "Data Rate(Max)",
+    # Opto/misc
+    "Color",
+    "Number of Segments",
+    "Direction",
+    "Encoder Type",
+    # Battery Management
+    "Type of Battery",
+    "Number of Cells",
+    # Level Shifters
+    "Channel Type",
+    # Motor Drivers
+    "Number of H-bridges",
+    # Audio Amplifiers
+    "Class",
+}
+
+
+# =============================================================================
+# COMPATIBILITY RULES
+# =============================================================================
+# Defines what makes a part a valid alternative for each supported subcategory.
+# - primary: The main spec to search by
+# - must_match: Specs that must be exactly equal
+# - same_or_better: Specs where candidate must be >= or <= original
+
+COMPATIBILITY_RULES: dict[str, dict[str, Any]] = {
+    # ============== RESISTORS ==============
+    "Chip Resistor - Surface Mount": {
+        "primary": "Resistance",
+        "same_or_better": {
+            "Tolerance": "lower",  # ±1% can replace ±5%
+            "Power(Watts)": "higher",  # 1/4W can replace 1/10W
+        },
+    },
+    "Through Hole Resistors": {
+        "primary": "Resistance",
+        "same_or_better": {
+            "Tolerance": "lower",
+            "Power(Watts)": "higher",
+        },
+    },
+    "Current Sense Resistors / Shunt Resistors": {
+        "primary": "Resistance",
+        "same_or_better": {
+            "Tolerance": "lower",
+            "Power(Watts)": "higher",
+        },
+    },
+    "Resistor Networks, Arrays": {
+        "primary": "Resistance",
+        "must_match": ["Number of Resistors"],
+        "same_or_better": {
+            "Tolerance": "lower",
+            "Power(Watts)": "higher",
+        },
+    },
+    "Potentiometers, Variable Resistors": {
+        "primary": "Resistance",
+        "must_match": ["Number of Turns"],
+        "same_or_better": {
+            "Power(Watts)": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    # ============== CAPACITORS ==============
+    "Multilayer Ceramic Capacitors MLCC - SMD/SMT": {
+        "primary": "Capacitance",
+        "must_match": ["Temperature Coefficient"],  # X7R != X5R
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Multilayer Ceramic Capacitors MLCC - Leaded": {
+        "primary": "Capacitance",
+        "must_match": ["Temperature Coefficient"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Through Hole Ceramic Capacitors": {
+        "primary": "Capacitance",
+        "must_match": ["Temperature Coefficient"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Aluminum Electrolytic Capacitors - SMD": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+        },
+    },
+    "Aluminum Electrolytic Capacitors - Leaded": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+        },
+    },
+    "Aluminum Electrolytic Capacitors (Can - Screw Terminals)": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+        },
+    },
+    "Tantalum Capacitors": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Film Capacitors": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Polypropylene Film Capacitors (CBB)": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Polymer Aluminum Capacitors": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+        },
+    },
+    "Hybrid Aluminum Electrolytic Capacitors": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+        },
+    },
+    "Horn-Type Electrolytic Capacitors": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+        },
+    },
+    "Niobium Oxide Capacitors": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Mica and PTFE Capacitors": {
+        "primary": "Capacitance",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Safety Capacitors": {
+        "primary": "Capacitance",
+        "must_match": ["Ratings"],  # X1, X2, Y1, Y2 class
+        "same_or_better": {
+            "Voltage(AC)": "higher",
+            "Tolerance": "lower",
+        },
+    },
+    "Capacitor Networks, Arrays": {
+        "primary": "Capacitance",
+        "must_match": ["Number of Capacitors"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+        },
+    },
+    # ============== INDUCTORS ==============
+    "Inductors (SMD)": {
+        "primary": "Inductance",
+        "same_or_better": {
+            "Current Rating": "higher",
+            "Current - Saturation (Isat)": "higher",
+            "DC Resistance(DCR)": "lower",
+        },
+    },
+    "Power Inductors": {
+        "primary": "Inductance",
+        "same_or_better": {
+            "Current Rating": "higher",
+            "Current - Saturation(Isat)": "higher",
+            "DC Resistance(DCR)": "lower",
+        },
+    },
+    "Color Ring Inductors / Through Hole Inductors": {
+        "primary": "Inductance",
+        "same_or_better": {
+            "Current Rating": "higher",
+            "DC Resistance(DCR)": "lower",
+        },
+    },
+    "Wireless Charging Coils": {
+        "primary": "Inductance",
+        "must_match": ["Number of Coils"],
+        "same_or_better": {
+            "DC Resistance(DCR)": "lower",
+        },
+    },
+    # ============== FERRITE BEADS ==============
+    "Ferrite Beads": {
+        "primary": "Impedance @ Frequency",
+        "same_or_better": {
+            "Current Rating": "higher",
+            "DC Resistance(DCR)": "lower",
+        },
+    },
+    "Common Mode Filters": {
+        "primary": "Impedance @ Frequency",
+        "must_match": ["Number of Lines"],
+        "same_or_better": {
+            "Current Rating": "higher",
+            "Voltage Rating - DC": "higher",
+        },
+    },
+    # ============== MOSFETs ==============
+    "MOSFETs": {
+        "primary": "Drain to Source Voltage",
+        "same_or_better": {
+            "Drain to Source Voltage": "higher",
+            "Current - Continuous Drain(Id)": "higher",
+            "RDS(on)": "lower",
+        },
+    },
+    "Silicon Carbide Field Effect Transistor (MOSFET)": {
+        "primary": "Drain to Source Voltage",
+        "same_or_better": {
+            "Drain to Source Voltage": "higher",
+            "Current - Continuous Drain(Id)": "higher",
+            "RDS(on)": "lower",
+        },
+    },
+    # ============== JFETs ==============
+    "JFETs": {
+        "primary": "FET Type",
+        "must_match": ["FET Type"],
+        "same_or_better": {
+            "Drain Current (Idss)": "higher",
+            "RDS(on)": "lower",
+        },
+    },
+    # ============== BJTs ==============
+    "Bipolar (BJT)": {
+        "primary": "type",
+        "must_match": ["type"],
+        "same_or_better": {
+            "Collector - Emitter Voltage VCEO": "higher",
+            "Current - Collector(Ic)": "higher",
+        },
+    },
+    "Darlington Transistors": {
+        "primary": "Type",
+        "must_match": ["Type"],
+        "same_or_better": {
+            "Collector - Emitter Voltage VCEO": "higher",
+            "Current - Collector(Ic)": "higher",
+        },
+    },
+    "Digital Transistors": {
+        "primary": "type",
+        "must_match": ["type"],
+        "same_or_better": {
+            "Collector - Emitter Voltage VCEO": "higher",
+        },
+    },
+    "Phototransistors": {
+        "primary": "Peak Wavelength",
+        "must_match": ["Peak Wavelength"],
+        "same_or_better": {
+            "Collector - Emitter Voltage VCEO": "higher",
+            "Current - Collector(Ic)": "higher",
+        },
+    },
+    # ============== IGBTs ==============
+    "IGBT Transistors / Modules": {
+        "primary": "Collector-Emitter Breakdown Voltage (Vces)",
+        "same_or_better": {
+            "Collector-Emitter Breakdown Voltage (Vces)": "higher",
+            "Current - Collector(Ic)": "higher",
+            "Vce Saturation(VCE(sat))": "lower",
+        },
+    },
+    # ============== DIODES ==============
+    "Schottky Diodes": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+            "Voltage - Forward(Vf@If)": "lower",
+        },
+    },
+    "Switching Diodes": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+        },
+    },
+    "Zener Diodes": {
+        "primary": "Zener Voltage(Nom)",
+        "must_match": ["Zener Voltage(Nom)"],
+        "same_or_better": {
+            "Pd - Power Dissipation": "higher",
+        },
+    },
+    "Diodes - General Purpose": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+        },
+    },
+    "Diodes - Rectifiers - Fast Recovery": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Average Rectified": "higher",
+        },
+    },
+    "Fast Recovery / High Efficiency Diodes": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+        },
+    },
+    "Bridge Rectifiers": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+            "Voltage - Forward(Vf@If)": "lower",
+        },
+    },
+    "Super Barrier Rectifiers (SBR)": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+            "Voltage - Forward(Vf@If)": "lower",
+        },
+    },
+    "Avalanche Diodes": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+        },
+    },
+    "High Effic Rectifier": {
+        "primary": "Reverse Voltage",
+        "same_or_better": {
+            "Reverse Voltage": "higher",
+            "Average Rectified Current": "higher",
+        },
+    },
+    "SiC Diodes": {
+        "primary": "Voltage - DC Reverse(Vr)",
+        "same_or_better": {
+            "Voltage - DC Reverse(Vr)": "higher",
+            "Current - Rectified": "higher",
+        },
+    },
+    # ============== ESD/TVS PROTECTION ==============
+    "ESD and Surge Protection (TVS/ESD)": {
+        "primary": "Reverse Stand-Off Voltage (Vrwm)",
+        "same_or_better": {
+            "Clamping Voltage": "lower",
+            "Peak Pulse Power": "higher",
+        },
+    },
+    "Varistors": {
+        "primary": "Varistor Voltage",
+        "must_match": ["Varistor Voltage"],
+        "same_or_better": {
+            "Clamping Voltage": "lower",
+            "Energy": "higher",
+        },
+    },
+    "Gas Discharge Tube Arresters (GDT)": {
+        "primary": "Voltage - DC Spark Over",
+        "must_match": ["Number of Poles"],
+        "same_or_better": {
+            "Impulse Discharge Current": "higher",
+        },
+    },
+    "Semiconductor Discharge Tubes (TSS)": {
+        "primary": "Peak off - state voltage(Vdrm)",
+        "same_or_better": {
+            "Peak Pulse Current-Ipp (10/1000us)": "higher",
+        },
+    },
+    "LED Protection": {
+        "primary": "Trigger Voltage",
+        "must_match": ["Trigger Voltage"],
+        "same_or_better": {
+            "Hold Current": "higher",
+        },
+    },
+    # ============== FUSES ==============
+    "Resettable Fuses": {
+        "primary": "Hold Current",
+        "must_match": ["Hold Current", "Trip Current"],
+        "same_or_better": {
+            "Voltage - Max": "higher",
+        },
+    },
+    "Automotive Fuses": {
+        "primary": "Current Rating",
+        "must_match": ["Current Rating", "Type"],
+        "same_or_better": {
+            "Voltage Rating (DC)": "higher",
+        },
+    },
+    "Thermal Fuses (TCO)": {
+        "primary": "Rated Functioning Temperature",
+        "must_match": ["Rated Functioning Temperature"],
+        "same_or_better": {
+            "Current Rating": "higher",
+            "Voltage Rating": "higher",
+        },
+    },
+    "Disposable fuses": {
+        "primary": "Current Rating",
+        "must_match": ["Current Rating", "Type"],
+        "same_or_better": {
+            "Voltage Rating (AC)": "higher",
+        },
+    },
+    # ============== THERMISTORS ==============
+    "NTC Thermistors": {
+        "primary": "Resistance @ 25℃",
+        "must_match": ["Resistance @ 25℃", "B Constant (25℃/100℃)"],
+    },
+    "PTC Thermistors": {
+        "primary": "Resistance @ 25℃",
+        "must_match": ["Resistance @ 25℃"],
+    },
+    # ============== LEDs ==============
+    "LED Indication - Discrete": {
+        "primary": "Illumination Color",
+        "must_match": ["Illumination Color"],
+    },
+    "LED - High Brightness": {
+        "primary": "Illumination Color",
+        "must_match": ["Illumination Color"],
+    },
+    "Infrared (IR) LEDs": {
+        "primary": "Peak Wavelength",
+        "must_match": ["Peak Wavelength"],
+    },
+    "Ultraviolet LEDs (UVLED)": {
+        "primary": "Peak Wavelength",
+        "must_match": ["Peak Wavelength"],
+    },
+    "Light Bars, Arrays": {
+        "primary": "Color",
+        "must_match": ["Color", "Number of Segments"],
+    },
+    # ============== OPTOCOUPLERS ==============
+    "Transistor, Photovoltaic Output Optoisolators": {
+        "primary": "Isolation Voltage(Vrms)",
+        "same_or_better": {
+            "Isolation Voltage(Vrms)": "higher",
+        },
+    },
+    "Logic Output Optoisolators": {
+        "primary": "Isolation Voltage(Vrms)",
+        "same_or_better": {
+            "Isolation Voltage(Vrms)": "higher",
+            "Data Rate": "higher",
+        },
+    },
+    "Triac, SCR Output Optoisolators": {
+        "primary": "Load Voltage",
+        "same_or_better": {
+            "Load Voltage": "higher",
+            "Load Current": "higher",
+            "Isolation Voltage(Vrms)": "higher",
+        },
+    },
+    "Gate Drive Optocoupler": {
+        "primary": "Isolation Voltage(Vrms)",
+        "same_or_better": {
+            "Isolation Voltage(Vrms)": "higher",
+            "Output Current(Max)": "higher",
+        },
+    },
+    "Photointerrupters - Slot Type - Transistor Output": {
+        "primary": "Peak Wavelength",
+        "must_match": ["Peak Wavelength"],
+        "same_or_better": {
+            "Load Voltage": "higher",
+            "Output Current": "higher",
+        },
+    },
+    "Reflective Optical Interrupters": {
+        "primary": "Output Type",
+        "must_match": ["Output Type"],
+        "same_or_better": {
+            "Current - Collector(Ic)": "higher",
+        },
+    },
+    "Photoresistors": {
+        "primary": "Cell Resistance @ Illuminance",
+        "same_or_better": {
+            "Voltage - Max": "higher",
+        },
+    },
+    # ============== TIMING ==============
+    "Crystals": {
+        "primary": "Frequency",
+        "must_match": ["Frequency", "Load Capacitance"],
+        "same_or_better": {
+            "Frequency Stability": "lower",
+        },
+    },
+    "Crystal Oscillators": {
+        "primary": "Frequency",
+        "must_match": ["Frequency", "Output Type"],
+        "same_or_better": {
+            "Frequency Stability": "lower",
+        },
+    },
+    "Ceramic Resonators": {
+        "primary": "Frequency",
+        "must_match": ["Frequency"],
+    },
+    "SAW Resonators": {
+        "primary": "Frequency",
+        "must_match": ["Frequency"],
+    },
+    "Temperature Compensated Crystal Oscillators (TCXO)": {
+        "primary": "Frequency",
+        "must_match": ["Frequency", "Output Type"],
+        "same_or_better": {
+            "Frequency Stability": "lower",
+        },
+    },
+    "Voltage-Controlled Crystal Oscillators (VCXOs)": {
+        "primary": "Frequency",
+        "must_match": ["Frequency", "Output Type"],
+        "same_or_better": {
+            "Frequency Stability": "lower",
+        },
+    },
+    "Oven Controlled Crystal Oscillators (OCXOs)": {
+        "primary": "Frequency",
+        "must_match": ["Frequency", "Output Type"],
+        "same_or_better": {
+            "Frequency Stability": "lower",
+        },
+    },
+    # ============== VOLTAGE REGULATORS ==============
+    "Voltage Regulators - Linear, Low Drop Out (LDO) Regulators": {
+        "primary": "Output Voltage",
+        "must_match": ["Output Voltage"],
+        "same_or_better": {
+            "Output Current": "higher",
+            "Voltage Dropout": "lower",
+        },
+    },
+    "DC-DC Converters": {
+        "primary": "Output Voltage",
+        "must_match": ["Topology", "Output Voltage"],  # Buck, Boost, Buck-Boost must match
+        "same_or_better": {
+            "Output Current": "higher",
+        },
+    },
+    "Voltage Reference": {
+        "primary": "Output Voltage",
+        "must_match": ["Output Voltage"],
+        "same_or_better": {
+            "Tolerance": "lower",
+            "Temperature Coefficient": "lower",
+        },
+    },
+    # ============== DIGITAL ISOLATORS ==============
+    "Digital Isolators": {
+        "primary": "Number of Forward Channels",
+        "must_match": ["Number of Forward Channels", "Number of Reverse Channels"],
+        "same_or_better": {
+            "Isolation Voltage(Vrms)": "higher",
+            "Data Rate(Max)": "higher",
+        },
+    },
+    # ============== SWITCHES ==============
+    "Tactile Switches": {
+        "primary": "Mounting Type",
+        "must_match": ["Mounting Type"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Contact Current": "higher",
+        },
+    },
+    "DIP Switches": {
+        "primary": "Number of Positions",
+        "must_match": ["Number of Positions", "Type"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Slide Switches": {
+        "primary": "Circuit",
+        "must_match": ["Circuit", "Mounting Type"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Toggle Switches": {
+        "primary": "Circuit",
+        "must_match": ["Circuit"],
+        "same_or_better": {
+            "Voltage Rating (DC)": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Rocker Switches": {
+        "primary": "Circuit",
+        "must_match": ["Circuit"],
+        "same_or_better": {
+            "Voltage Rating (DC)": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Pushbutton Switches": {
+        "primary": "Self Lock / No Lock",
+        "must_match": ["Self Lock / No Lock"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Contact Current": "higher",
+        },
+    },
+    "Rotary Switches": {
+        "primary": "Positions",
+        "must_match": ["Positions", "Number of Poles Per Deck"],
+        "same_or_better": {
+            "Voltage Rating (DC)": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    # ============== RELAYS ==============
+    "Power Relays": {
+        "primary": "Coil Voltage",
+        "must_match": ["Coil Voltage", "Contact Form"],
+        "same_or_better": {
+            "Contact Rating": "higher",
+            "Switching Voltage(Max)": "higher",
+        },
+    },
+    "Signal Relays": {
+        "primary": "Coil Voltage",
+        "must_match": ["Coil Voltage", "Contact Form"],
+        "same_or_better": {
+            "Contact Rating": "higher",
+            "Switching Current(Max)": "higher",
+        },
+    },
+    "Automotive Relays": {
+        "primary": "Coil Voltage",
+        "must_match": ["Coil Voltage", "Contact Form"],
+        "same_or_better": {
+            "Contact Rating": "higher",
+            "Switching Voltage(Max)": "higher",
+        },
+    },
+    "Reed Relays": {
+        "primary": "Coil Voltage",
+        "must_match": ["Coil Voltage", "Contact Form"],
+        "same_or_better": {
+            "Switching Voltage(Max)": "higher",
+            "Switching Current(Max)": "higher",
+        },
+    },
+    "Solid State Relays (MOS Output)": {
+        "primary": "Load Voltage",
+        "same_or_better": {
+            "Load Voltage": "higher",
+            "Load Current": "higher",
+            "RDS(on)": "lower",
+        },
+    },
+    "Solid State Relays (Triac Output)": {
+        "primary": "Load Voltage",
+        "must_match": ["Contact Form"],
+        "same_or_better": {
+            "Load Voltage": "higher",
+            "Load Current": "higher",
+        },
+    },
+    # ============== CONNECTORS ==============
+    "Pin Headers": {
+        "primary": "Pitch",
+        "must_match": ["Pitch", "Number of Pins", "Number of Rows"],
+        "same_or_better": {
+            "Current Rating": "higher",
+        },
+    },
+    "Female Headers": {
+        "primary": "Pitch",
+        "must_match": ["Pitch", "Number of Positions", "Number of Rows"],
+        "same_or_better": {
+            "Current Rating": "higher",
+        },
+    },
+    "Screw Terminal Blocks": {
+        "primary": "Number of Positions or Pins",
+        "must_match": ["Number of Positions or Pins"],
+        "same_or_better": {
+            "Voltage Rating (Max)": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Barrier Terminal Blocks": {
+        "primary": "Number of Positions or Pins",
+        "must_match": ["Pitch", "Number of Positions or Pins"],
+        "same_or_better": {
+            "Voltage Rating (Max)": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Pluggable System Terminal Block": {
+        "primary": "Number of Positions or Pins",
+        "must_match": ["Pitch", "Number of Positions or Pins"],
+        "same_or_better": {
+            "Voltage Rating (Max)": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "USB Connectors": {
+        "primary": "Connector Type",
+        "must_match": ["Connector Type", "Gender"],
+    },
+    "HDMI Connectors": {
+        "primary": "Connector Type",
+        "must_match": ["Connector Type", "Gender"],
+    },
+    "DisplayPort (DP) Connector": {
+        "primary": "Connector Type",
+        "must_match": ["Connector Type"],
+    },
+    "Audio Connectors": {
+        "primary": "Connector Type",
+        "must_match": ["Connector Type"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Coaxial Connectors (RF)": {
+        "primary": "Connector Type",
+        "must_match": ["Connector Type", "Impedance"],
+    },
+    "IDC Connectors": {
+        "primary": "Number of Positions or Pins",
+        "must_match": ["Number of Positions or Pins", "Pitch"],
+        "same_or_better": {
+            "Current Rating": "higher",
+        },
+    },
+    "Wire To Board Connector": {
+        "primary": "Pitch",
+        "must_match": ["Pitch", "Pins Structure"],
+        "same_or_better": {
+            "Current Rating": "higher",
+            "Voltage Rating": "higher",
+        },
+    },
+    "Circular Connectors & Cable Connectors": {
+        "primary": "Number of Pins",
+        "must_match": ["Number of Pins", "Gender"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "XLR (Cannon) Connectors": {
+        "primary": "Number of Pins",
+        "must_match": ["Number of Pins", "Gender"],
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "DIN41612 Connectors": {
+        "primary": "Number of Pins",
+        "must_match": ["Pitch", "Number of Pins", "Number of Rows"],
+        "same_or_better": {
+            "Current Rating": "higher",
+        },
+    },
+    "Shunts, Jumpers": {
+        "primary": "Pitch",
+        "must_match": ["Pitch", "Number of Positions"],
+        "same_or_better": {
+            "Current Rating": "higher",
+        },
+    },
+    # ============== AUDIO ==============
+    "Speakers": {
+        "primary": "Impedance",
+        "must_match": ["Impedance"],
+        "same_or_better": {
+            "Rated Power": "higher",
+        },
+    },
+    "Buzzers": {
+        "primary": "Voltage - Supply",
+        "must_match": ["Driver Circuitry"],
+        "same_or_better": {
+            "Sound Pressure Level": "higher",
+        },
+    },
+    "Microphones": {
+        "primary": "Direction",
+        "must_match": ["Direction"],
+    },
+    "MEMS Microphones": {
+        "primary": "Output Type",
+        "must_match": ["Output Type"],
+    },
+    # ============== MISC ==============
+    "Vibration Motors": {
+        "primary": "Voltage Rating",
+        "same_or_better": {
+            "Voltage Rating": "higher",
+            "Current Rating": "higher",
+        },
+    },
+    "Rotary Encoders": {
+        "primary": "Encoder Type",
+        "must_match": ["Encoder Type"],
+        "same_or_better": {
+            "Rated Voltage (Max)": "higher",
+            "Current Rating (Max)": "higher",
+        },
+    },
+    # ============== BATTERY MANAGEMENT ==============
+    "Battery Management": {
+        "primary": "Type of Battery",
+        "must_match": ["Type of Battery", "Number of Cells"],
+        "same_or_better": {
+            "Charge Current - Max": "higher",
+        },
+    },
+    # ============== LEVEL SHIFTERS ==============
+    "Translators, Level Shifters": {
+        "primary": "Channel Type",
+        "must_match": ["Channel Type"],  # Bidirectional vs Unidirectional
+    },
+    # ============== WIRELESS MODULES ==============
+    "WiFi Modules": {
+        "primary": "Voltage - Supply",
+        "must_match": ["Voltage - Supply"],
+        "same_or_better": {
+            "Output Power": "higher",
+        },
+    },
+    "Bluetooth Modules": {
+        "primary": "Voltage - Supply",
+        "must_match": ["Voltage - Supply"],
+        "same_or_better": {
+            "Output Power": "higher",
+        },
+    },
+    "LoRa Modules": {
+        "primary": "Frequency",
+        "must_match": ["Frequency", "Voltage - Supply"],
+        "same_or_better": {
+            "Output Power": "higher",
+        },
+    },
+    # ============== MOTOR DRIVERS ==============
+    # Note: Many Motor Driver ICs have sparse specs in JLCPCB data.
+    # These rules apply when specs are available.
+    "Motor Driver ICs": {
+        "primary": "Output Current(Max)",
+        "same_or_better": {
+            "Output Current(Max)": "higher",
+            "Output Current": "higher",
+            "Voltage - Supply": "higher",
+        },
+    },
+    "Brushed DC Motor Drivers": {
+        "primary": "Output Current",
+        "must_match": ["Number of H-bridges"],  # Critical: 2-bridge can't replace 1-bridge
+        "same_or_better": {
+            "Output Current": "higher",
+            "Peak Current": "higher",
+            "RDS(on)": "lower",
+        },
+    },
+    # ============== AUDIO ==============
+    "Audio Amplifiers": {
+        "primary": "Class",  # Class D, Class AB, etc.
+        "must_match": ["Class"],
+        "same_or_better": {
+            "Output Power": "higher",
+        },
+    },
+}
+
+
+# =============================================================================
+# PIN COUNT NORMALIZATION (for connectors)
+# =============================================================================
+# Specs that represent pin/position counts needing normalization
+PIN_COUNT_SPECS = {
+    "Number of Pins",
+    "Number of Positions",
+    "Number of Positions or Pins",
+    "Pin Structure",
+    "Pins Structure",
+}
+
+
+def _normalize_pin_count(value: str) -> str:
+    """Normalize pin count values for comparison.
+
+    Examples:
+        '1x8P' -> '8'
+        '8P' -> '8'
+        '8' -> '8'
+        '2x10P' -> '20' (2 rows x 10 = 20 total pins)
+    """
+    import re
+
+    value = value.strip()
+
+    # Handle "NxMP" format (rows x pins per row) -> total
+    match = re.match(r"(\d+)\s*x\s*(\d+)\s*[Pp]?$", value)
+    if match:
+        rows = int(match.group(1))
+        pins_per_row = int(match.group(2))
+        return str(rows * pins_per_row)
+
+    # Handle "1xNP" format -> just N (single row)
+    match = re.match(r"1\s*x\s*(\d+)\s*[Pp]?$", value)
+    if match:
+        return match.group(1)
+
+    # Handle "NP" format -> N
+    match = re.match(r"(\d+)\s*[Pp]$", value)
+    if match:
+        return match.group(1)
+
+    # Handle plain number
+    match = re.match(r"(\d+)$", value)
+    if match:
+        return match.group(1)
+
+    return value
+
+
+# =============================================================================
+# COMPATIBILITY CHECKING FUNCTIONS
+# =============================================================================
+
+
+def _values_match(orig_val: str, cand_val: str, spec: str) -> bool:
+    """Check if two spec values match (for must_match rules)."""
+    # Special handler for complex formats
+    if spec == "Impedance @ Frequency":
+        return impedance_at_freq_match(orig_val, cand_val)
+
+    # Pin count specs: normalize before comparing (handles "8P" vs "1x8P" vs "8")
+    if spec in PIN_COUNT_SPECS:
+        return _normalize_pin_count(orig_val) == _normalize_pin_count(cand_val)
+
+    # String-based specs: exact match (case-insensitive)
+    if spec in STRING_MATCH_SPECS:
+        return orig_val.strip().lower() == cand_val.strip().lower()
+
+    # Numeric specs: parse and compare with tolerance
+    parser = SPEC_PARSERS.get(spec)
+    if parser and parser != "special" and callable(parser):
+        orig_parsed = parser(orig_val)
+        cand_parsed = parser(cand_val)
+        if orig_parsed is None or cand_parsed is None:
+            return True  # Can't parse, allow through
+        # 2% tolerance for matching (handles rounding differences in display)
+        if orig_parsed == 0:
+            return cand_parsed == 0
+        return abs(orig_parsed - cand_parsed) / abs(orig_parsed) < 0.02
+
+    # Fallback: string match
+    return orig_val.strip().lower() == cand_val.strip().lower()
+
+
+def _spec_ok(orig_val: str, cand_val: str, spec: str, direction: str) -> bool:
+    """Check if candidate spec meets same_or_better requirement."""
+    parser = SPEC_PARSERS.get(spec)
+    if not parser or parser == "special" or not callable(parser):
+        return True  # Can't parse, allow through
+
+    orig_parsed = parser(orig_val)
+    cand_parsed = parser(cand_val)
+
+    if orig_parsed is None or cand_parsed is None:
+        return True  # Can't parse, allow through
+
+    if direction == "higher":
+        return cand_parsed >= orig_parsed * 0.98  # 2% tolerance
+    elif direction == "lower":
+        return cand_parsed <= orig_parsed * 1.02  # 2% tolerance
+    else:
+        return True
+
+
+def is_compatible_alternative(
+    original: dict[str, Any], candidate: dict[str, Any], subcategory: str
+) -> tuple[bool, dict[str, Any]]:
+    """Check if candidate is a compatible alternative for original.
+
+    Returns (is_compatible, verification_info) tuple.
+    verification_info contains specs_verified and specs_unparseable lists.
+    """
+    rules = COMPATIBILITY_RULES.get(subcategory)
+    if not rules:
+        return True, {"specs_verified": [], "specs_unparseable": []}
+
+    orig_specs = original.get("specs", {})
+    cand_specs = candidate.get("specs", {})
+
+    specs_verified: list[str] = []
+    specs_unparseable: list[str] = []
+
+    # Check must_match specs (exact equality required)
+    for spec in rules.get("must_match", []):
+        orig_val = orig_specs.get(spec)
+        cand_val = cand_specs.get(spec)
+        if orig_val and cand_val:
+            if not _values_match(orig_val, cand_val, spec):
+                return False, {
+                    "specs_verified": specs_verified,
+                    "specs_unparseable": specs_unparseable,
+                }
+            specs_verified.append(spec)
+        elif orig_val or cand_val:
+            specs_unparseable.append(spec)  # One side missing
+
+    # Check same_or_better specs
+    for spec, direction in rules.get("same_or_better", {}).items():
+        orig_val = orig_specs.get(spec)
+        cand_val = cand_specs.get(spec)
+        if orig_val and cand_val:
+            parser = SPEC_PARSERS.get(spec)
+            if parser and parser != "special" and callable(parser):
+                if parser(orig_val) is not None and parser(cand_val) is not None:
+                    if not _spec_ok(orig_val, cand_val, spec, direction):
+                        return False, {
+                            "specs_verified": specs_verified,
+                            "specs_unparseable": specs_unparseable,
+                        }
+                    specs_verified.append(spec)
+                else:
+                    specs_unparseable.append(spec)  # Couldn't parse
+            else:
+                specs_unparseable.append(spec)  # No parser
+        elif orig_val or cand_val:
+            specs_unparseable.append(spec)  # One side missing
+
+    return True, {"specs_verified": specs_verified, "specs_unparseable": specs_unparseable}
+
+
+def verify_primary_spec_match(
+    original: dict[str, Any], candidate: dict[str, Any], primary_attr: str
+) -> bool:
+    """Verify candidate has same primary spec value as original."""
+    orig_value = original.get("specs", {}).get(primary_attr)
+    cand_value = candidate.get("specs", {}).get(primary_attr)
+
+    if not orig_value or not cand_value:
+        return True  # Can't verify, allow through
+
+    # Use _values_match for consistent comparison
+    return _values_match(orig_value, cand_value, primary_attr)
+
+
+# =============================================================================
+# SCORING AND RANKING
+# =============================================================================
+
+
+def score_alternative(
+    part: dict[str, Any],
+    original: dict[str, Any],
+    min_price_in_results: float | None,
+) -> tuple[int, dict[str, int]]:
+    """Score an alternative part for ranking.
+
+    Returns (total_score, breakdown_dict) tuple.
+    Higher score = better alternative.
+    """
+    score = 0
+    breakdown: dict[str, int] = {}
+
+    # Library type (biggest factor - $3 savings)
+    if part.get("library_type") in ("basic", "preferred"):
+        score += 1000
+        breakdown["library_type"] = 1000
+    else:
+        breakdown["library_type"] = 0
+
+    # Availability (user controls floor via min_stock param)
+    stock = part.get("stock", 0)
+    if stock >= 10000:
+        avail_score = 70  # Excellent availability
+    elif stock >= 1000:
+        avail_score = 50  # Good availability
+    elif stock >= 100:
+        avail_score = 30  # Acceptable
+    else:
+        avail_score = -10  # Minor penalty for <100
+    score += avail_score
+    breakdown["availability"] = avail_score
+
+    # EasyEDA footprint bonus (easier for users)
+    if part.get("has_easyeda_footprint"):
+        score += 20
+        breakdown["easyeda"] = 20
+    else:
+        breakdown["easyeda"] = 0
+
+    # Same manufacturer bonus (consistency)
+    if part.get("manufacturer") == original.get("manufacturer"):
+        score += 10
+        breakdown["same_manufacturer"] = 10
+    else:
+        breakdown["same_manufacturer"] = 0
+
+    # Price (minor factor, tiebreaker only)
+    part_price = part.get("price")
+    if part_price and part_price > 0 and min_price_in_results and min_price_in_results > 0:
+        price_ratio = min_price_in_results / part_price
+        price_score = min(10, int(10 * price_ratio))  # 0-10 points, capped
+        score += price_score
+        breakdown["price"] = price_score
+    else:
+        breakdown["price"] = 0
+
+    return score, breakdown
+
+
+# =============================================================================
+# RESPONSE BUILDING
+# =============================================================================
+
+
+def build_response(
+    original: dict[str, Any],
+    scored_alternatives: list[tuple[int, dict[str, Any], dict[str, int], dict[str, Any]]],
+    subcategory: str,
+    primary_attr: str | None,
+    primary_value: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    """Build the find_alternatives response for a supported subcategory."""
+    alternatives = scored_alternatives[:limit]
+
+    # Count basic/preferred alternatives
+    no_fee_count = sum(
+        1
+        for _, p, _, _ in alternatives
+        if p.get("library_type") in ("basic", "preferred")
+    )
+
+    # Determine confidence based on verification coverage
+    all_specs_verified = (
+        all(len(v["specs_unparseable"]) == 0 for _, _, _, v in alternatives)
+        if alternatives
+        else True
+    )
+    confidence = "high" if all_specs_verified else "medium"
+    confidence_reason = (
+        "All critical specs verified compatible"
+        if all_specs_verified
+        else "Some specs could not be parsed - verify manually"
+    )
+
+    # Build human-readable summary
+    if not alternatives:
+        if original.get("library_type") in ("basic", "preferred"):
+            message = (
+                "Original part is already basic/preferred - no assembly fee savings possible"
+            )
+        else:
+            message = f"No compatible alternatives found matching {primary_value}"
+    elif no_fee_count > 0:
+        message = (
+            f"Found {no_fee_count} basic/preferred alternative(s) that save $3 assembly fee"
+        )
+    else:
+        message = f"Found {len(alternatives)} alternative(s), but all are extended library"
+
+    # Calculate savings vs best alternative
+    best_part = alternatives[0][1] if alternatives else None
+    savings = None
+    if best_part:
+        assembly_savings = (
+            3.0
+            if (
+                original.get("library_type") == "extended"
+                and best_part.get("library_type") in ("basic", "preferred")
+            )
+            else 0.0
+        )
+        orig_price = original.get("price") or 0
+        best_price = best_part.get("price") or 0
+        price_diff = orig_price - best_price
+        savings = {
+            "assembly_fee": assembly_savings,
+            "unit_price_diff": round(price_diff, 4),
+            "total_per_unit": round(assembly_savings + price_diff, 4),
+        }
+
+    # Comparison helper
+    comparison = None
+    if best_part:
+        comparison = {
+            "original": {
+                "lcsc": original.get("lcsc"),
+                "library_type": original.get("library_type"),
+                "price": original.get("price"),
+                "stock": original.get("stock"),
+            },
+            "recommended": {
+                "lcsc": best_part.get("lcsc"),
+                "library_type": best_part.get("library_type"),
+                "price": best_part.get("price"),
+                "stock": best_part.get("stock"),
+            },
+            "savings": savings,
+        }
+
+    # Build alternatives list with verification info, MOQ warnings, and package warnings
+    original_pkg = original.get("package", "")
+    alternatives_output = []
+    for score, part, breakdown, verify_info in alternatives:
+        alt: dict[str, Any] = {
+            **part,
+            "score": score,
+            "score_breakdown": breakdown,
+            "specs_verified": verify_info["specs_verified"],
+            "specs_unparseable": verify_info["specs_unparseable"],
+        }
+        # Add MOQ warning if high
+        moq = part.get("min_order", 1)
+        if moq and moq > 100:
+            alt["moq_warning"] = f"High MOQ: {moq} units minimum"
+        # Add package warning if different from original
+        part_pkg = part.get("package", "")
+        if original_pkg and part_pkg and original_pkg != part_pkg:
+            alt["package_warning"] = f"Different package: {part_pkg} vs original {original_pkg}"
+        alternatives_output.append(alt)
+
+    return {
+        "original": original,
+        "alternatives": alternatives_output,
+        "summary": {
+            "found": len(alternatives),
+            "basic_preferred_count": no_fee_count,
+            "message": message,
+            "is_supported_category": True,
+            "price_note": "Prices shown are unit price at qty 1 tier",
+        },
+        "comparison": comparison,
+        "confidence": {
+            "level": confidence,
+            "reason": confidence_reason,
+        },
+        "search_criteria": {
+            "primary_attribute": primary_attr,
+            "matched_value": primary_value,
+            "subcategory": subcategory,
+            "compatibility_verified": True,
+        },
+    }
+
+
+def build_unsupported_response(
+    original: dict[str, Any],
+    scored_parts: list[tuple[int, dict[str, Any], dict[str, int], dict[str, Any]]],
+    subcategory: str,
+    primary_attr: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    """Build response for unsupported subcategories - similar parts, not alternatives."""
+    similar = scored_parts[:limit]
+
+    # Use attribute names from original part for verification guidance
+    specs_to_verify = list(original.get("specs", {}).keys())
+    original_pkg = original.get("package", "")
+
+    similar_parts_output = []
+    for score, part, breakdown, _ in similar:
+        item: dict[str, Any] = {
+            **part,
+            "score": score,
+            "score_breakdown": breakdown,
+        }
+        moq = part.get("min_order", 1)
+        if moq and moq > 100:
+            item["moq_warning"] = f"High MOQ: {moq} units minimum"
+        # Add package warning if different from original
+        part_pkg = part.get("package", "")
+        if original_pkg and part_pkg and original_pkg != part_pkg:
+            item["package_warning"] = f"Different package: {part_pkg} vs original {original_pkg}"
+        similar_parts_output.append(item)
+
+    primary_value = None
+    if primary_attr:
+        primary_value = original.get("specs", {}).get(primary_attr)
+
+    return {
+        "original": original,
+        "alternatives": [],  # Empty - we can't verify compatibility
+        "similar_parts": similar_parts_output,
+        "summary": {
+            "found": len(similar),
+            "message": "No compatibility rules for this category. Showing similar parts for manual comparison.",
+            "is_supported_category": False,
+            "price_note": "Prices shown are unit price at qty 1 tier",
+        },
+        "manual_comparison": {
+            "original_specs": original.get("specs", {}),
+            "specs_to_verify": specs_to_verify[:5],
+            "guidance": (
+                f"Compare these specs manually: {', '.join(specs_to_verify[:5])}"
+                if specs_to_verify
+                else "Review datasheets for compatibility"
+            ),
+        },
+        "search_criteria": {
+            "primary_attribute": primary_attr,
+            "matched_value": primary_value,
+            "subcategory": subcategory,
+            "compatibility_verified": False,
+        },
+    }

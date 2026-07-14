@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+.venv/
+*.raw
+*.log
+.env
+*.txt
+CONNECTOR_SUBMISSION_GUIDE.md
+security-audit/
+.mcp.json
+.claude/
+CLAUDE.md
+.omc/

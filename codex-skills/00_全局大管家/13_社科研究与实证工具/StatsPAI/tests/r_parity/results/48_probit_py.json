@@ -1,0 +1,32 @@
+{
+  "module": "48_probit",
+  "side": "py",
+  "rows": [
+    {
+      "module": "48_probit",
+      "side": "py",
+      "statistic": "beta_x1",
+      "estimate": 0.5663648988172437,
+      "se": 0.04752419595460538,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "48_probit",
+      "side": "py",
+      "statistic": "beta_x2",
+      "estimate": -0.3459868529110533,
+      "se": 0.0842728864144689,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "link": "probit",
+    "engine": "statsmodels"
+  }
+}

@@ -1,0 +1,39 @@
+# macOS
+.DS_Store
+.vscode
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.python-version
+
+# Local environments and caches
+.venv
+.cache
+.agents/
+.vite
+node_modules
+dist
+coverage
+
+# Production CAD Viewer runtime dist is committed on main. On dev,
+# skills/cad-viewer/scripts/viewer must stay a symlink to viewer/.
+!skills/cad-viewer/scripts/viewer/dist/
+!skills/cad-viewer/scripts/viewer/dist/**
+
+# Temporary files
+*.tmp
+*.swp
+*.step.glb.lock
+*.stp.glb.lock
+tmp/
+
+# Local printer credentials
+/bambu-printers.json

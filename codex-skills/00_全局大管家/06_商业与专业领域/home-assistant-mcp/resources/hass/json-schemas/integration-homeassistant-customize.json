@@ -1,0 +1,150 @@
+{
+  "type": "object",
+  "additionalProperties": {
+    "anyOf": [
+      { "type": "string", "pattern": "^!include_dir_named .*$" },
+      { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+      { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+      { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+      { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+      { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+      { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+      { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+      { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+      { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+      { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+      { "type": "string", "pattern": "^!include_dir_merge_named\u000b.*$" },
+      { "$ref": "#/definitions/CoreCustomizeItem" }
+    ]
+  },
+  "definitions": {
+    "CoreCustomizeItem": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "assumed_state": {
+          "description": "For switches with an assumed state two buttons are shown (turn off, turn on) instead of a switch.\nhttps://www.home-assistant.io/docs/configuration/customizing-devices/#assumed_state",
+          "type": "boolean"
+        },
+        "device_class": {
+          "description": "Sets the class of the device, changing the device state and icon that is displayed on the UI (see below).\nPlease note: It does not set the unit_of_measurement.\nhttps://www.home-assistant.io/docs/configuration/customizing-devices/#device_class",
+          "enum": [
+            "apparent_power",
+            "aqi",
+            "area",
+            "atmospheric_pressure",
+            "awning",
+            "battery",
+            "battery_charging",
+            "blind",
+            "blood_glucose_concentration",
+            "carbon_dioxide",
+            "carbon_monoxide",
+            "cold",
+            "conductivity",
+            "connectivity",
+            "current",
+            "curtain",
+            "damper",
+            "data_rate",
+            "data_size",
+            "date",
+            "distance",
+            "door",
+            "duration",
+            "energy",
+            "energy_distance",
+            "energy_storage",
+            "enum",
+            "frequency",
+            "garage",
+            "garage_door",
+            "gas",
+            "gate",
+            "heat",
+            "humidity",
+            "illuminance",
+            "irradiance",
+            "light",
+            "lock",
+            "moisture",
+            "monetary",
+            "motion",
+            "moving",
+            "nitrogen_dioxide",
+            "nitrogen_monoxide",
+            "nitrous_oxide",
+            "occupancy",
+            "opening",
+            "outlet",
+            "ozone",
+            "ph",
+            "plug",
+            "pm1",
+            "pm10",
+            "pm25",
+            "power",
+            "power_factor",
+            "precipitation",
+            "precipitation_intensity",
+            "presence",
+            "pressure",
+            "problem",
+            "reactive_power",
+            "receiver",
+            "running",
+            "safety",
+            "shade",
+            "shutter",
+            "signal_strength",
+            "smoke",
+            "sound",
+            "sound_pressure",
+            "speaker",
+            "speed",
+            "sulphur_dioxide",
+            "switch",
+            "tamper",
+            "temperature",
+            "timestamp",
+            "tv",
+            "update",
+            "vibration",
+            "volatile_organic_compounds",
+            "volatile_organic_compounds_parts",
+            "voltage",
+            "volume",
+            "volume_flow_rate",
+            "volume_storage",
+            "water",
+            "weight",
+            "wind_speed",
+            "window"
+          ],
+          "type": "string"
+        },
+        "entity_picture": {
+          "description": "URL to use as picture for entity.\nhttps://www.home-assistant.io/docs/configuration/customizing-devices/#entity_picture",
+          "type": "string"
+        },
+        "friendly_name": {
+          "description": "Name of the entity as displayed in the UI.\nPlease note that most of the time you can just rename the entity in the UI itself.\nhttps://www.home-assistant.io/docs/configuration/customizing-devices/#friendly_name",
+          "type": "string"
+        },
+        "icon": {
+          "description": "Any icon from MaterialDesignIcons.com. Prefix name with mdi:. For example: mdi:home.\nPlease note that most of the time you can just change the entity icon in the UI itself.\nhttps://www.home-assistant.io/docs/configuration/customizing-devices/#icon",
+          "type": "string"
+        },
+        "initial_state": {
+          "description": "Sets the initial state for automations, on (true) or off (false).\nhttps://www.home-assistant.io/docs/configuration/customizing-devices/#initial_state",
+          "type": "boolean"
+        },
+        "unit_of_measurement": {
+          "description": "Defines the units of measurement, if any. This will also influence the graphical presentation in the history visualization as continuous value. Sensors with missing unit_of_measurement are showing as discrete values.\nhttps://www.home-assistant.io/docs/configuration/customizing-devices/#unit_of_measurement",
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

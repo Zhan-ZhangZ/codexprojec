@@ -1,0 +1,124 @@
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  ReadResourceRequestSchema,
+  type GetPromptResult,
+  type Prompt,
+  type ReadResourceResult,
+  type Resource,
+} from '@modelcontextprotocol/sdk/types.js';
+import { MCPToolDefinition } from './types.js';
+import { convertToolDefinition } from './tool-schema.js';
+import { validateToolArguments } from './tools/argument-validation.js';
+import pkg from '../package.json' with { type: 'json' };
+
+/**
+ * Interface for the MCP server handler functions
+ */
+export interface MCPServerHandlers {
+  handleInitialize: () => Promise<{ tools: MCPToolDefinition[] }>;
+  handleRequest: (req: { name: string; args: unknown }) => Promise<unknown>;
+  listResources?: () => Promise<Resource[]>;
+  readResource?: (uri: string) => Promise<ReadResourceResult>;
+  listPrompts?: () => Promise<Prompt[]>;
+  getPrompt?: (name: string, args?: Record<string, string>) => Promise<GetPromptResult>;
+}
+
+/**
+ * Interface for the MCP server configuration
+ */
+export interface MCPServerConfig {
+  tools: MCPToolDefinition[];
+  handleInitialize: () => Promise<{ tools: MCPToolDefinition[] }>;
+  handleRequest: (req: { name: string; args: unknown }) => Promise<unknown>;
+  listResources?: () => Promise<Resource[]>;
+  readResource?: (uri: string) => Promise<ReadResourceResult>;
+  listPrompts?: () => Promise<Prompt[]>;
+  getPrompt?: (name: string, args?: Record<string, string>) => Promise<GetPromptResult>;
+}
+
+/**
+ * Runs an MCP server with the given configuration
+ */
+export async function runMCPServer(config: MCPServerConfig) {
+  const server = new Server(
+    {
+      name: 'linear',
+      version: pkg.version,
+    },
+    {
+      capabilities: {
+        tools: {},
+        resources: config.listResources && config.readResource ? {} : undefined,
+        prompts: config.listPrompts && config.getPrompt ? {} : undefined,
+      },
+    },
+  );
+
+  // Convert our tool definitions to the SDK format
+  const sdkTools = config.tools.map(convertToolDefinition);
+
+  // Handle list tools request
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: sdkTools,
+  }));
+
+  if (config.listResources && config.readResource) {
+    server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+      resources: await config.listResources!(),
+    }));
+
+    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      return await config.readResource!(request.params.uri);
+    });
+  }
+
+  if (config.listPrompts && config.getPrompt) {
+    server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+      prompts: await config.listPrompts!(),
+    }));
+
+    server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      return await config.getPrompt!(request.params.name, request.params.arguments ?? undefined);
+    });
+  }
+
+  // Handle call tool request
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    try {
+      const { name, arguments: args = null } = request.params;
+
+      validateToolArguments(config.tools, name, args);
+
+      // Call the handler
+      const result = await config.handleRequest({ name, args });
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        isError: false,
+      };
+    } catch (error) {
+      console.error('Error in tool handler:', error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  });
+
+  // Connect the server to stdio
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  return server;
+}

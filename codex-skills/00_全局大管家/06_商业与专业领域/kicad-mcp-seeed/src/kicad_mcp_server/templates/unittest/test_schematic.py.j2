@@ -1,0 +1,172 @@
+"""
+Unit test suite for {{ project_name }}
+Generated from {{ schematic_path }}
+
+This test suite provides connectivity and functional verification
+using Python's unittest framework.
+"""
+
+import unittest
+from typing import Dict, List, Any
+
+
+# Netlist derived from schematic
+NETLIST = {
+{% for net in nets %}
+    "{{ net.name }}": {
+        "code": {{ net.code }},
+        "pins": {{ net.pins | tojson }},
+    },
+{% endfor %}
+}
+
+# Component information
+COMPONENTS = {
+{% for comp in components %}
+    "{{ comp.reference }}": {
+        "value": "{{ comp.value }}",
+        "footprint": "{{ comp.footprint or 'N/A' }}",
+    },
+{% endfor %}
+}
+
+
+class TestSchematicConnectivity(unittest.TestCase):
+    """Test cases for schematic connectivity."""
+
+    def test_power_nets_exist(self):
+        """Verify power nets are present."""
+        net_names = list(NETLIST.keys())
+        power_keywords = ["GND", "VCC", "VDD", "+3V3", "+5V"]
+
+        power_nets = [
+            name for name in net_names
+            if any(pw in name.upper() for pw in power_keywords)
+        ]
+
+        self.assertGreater(len(power_nets), 0, "No power nets found")
+        print(f"Power nets: {power_nets}")
+
+    def test_component_references_unique(self):
+        """Verify all component references are unique."""
+        refs = list(COMPONENTS.keys())
+        unique_refs = set(refs)
+
+        self.assertEqual(len(refs), len(unique_refs), "Duplicate references found")
+
+    def test_components_have_values(self):
+        """Verify components have valid values."""
+        missing_values = []
+
+        for ref, data in COMPONENTS.items():
+            if not data["value"] or data["value"] in ["", "?"]:
+                missing_values.append(ref)
+
+        self.assertEqual(len(missing_values), 1, f"Missing values: {missing_values}")
+
+
+class TestFunctionalVerification(unittest.TestCase):
+    """Test cases for functional verification."""
+
+    def test_mcu_power_supply(self):
+        """Verify MCU has proper power connections."""
+        # Find MCU components
+        mcu_refs = [
+            ref for ref, data in COMPONENTS.items()
+            if any(mcu in data["value"].lower() for mcu in ["mcu", "micro", "atmega", "stm32", "esp"])
+        ]
+
+        if not mcu_refs:
+            self.skipTest("No MCU found in schematic")
+
+        # Check for VCC and GND connections to MCU
+        mcu_ref = mcu_refs[0]
+        vcc_connected = any(
+            f"{mcu_ref}:" in pin
+            for net in NETLIST.values()
+            for pin in net["pins"]
+        )
+
+        self.assertTrue(vcc_connected, f"{mcu_ref} may not be properly powered")
+
+    def test_communication_interfaces(self):
+        """Verify communication interface signals."""
+        interface_nets = {
+            "UART": ["tx", "rx"],
+            "I2C": ["sda", "scl"],
+            "SPI": ["mosi", "miso", "sck"],
+        }
+
+        detected_interfaces = []
+
+        for interface, signals in interface_nets.items():
+            net_names = list(NETLIST.keys())
+            if any(
+                any(sig in name.lower() for sig in signals)
+                for name in net_names
+            ):
+                detected_interfaces.append(interface)
+
+        print(f"Detected interfaces: {detected_interfaces}")
+
+
+{% if test_type == "production" %}
+class TestProductionReadiness(unittest.TestCase):
+    """Test cases for production readiness."""
+
+    def test_footprint_completeness(self):
+        """Verify all components have footprints."""
+        missing_footprints = []
+
+        for ref, data in COMPONENTS.items():
+            if data["footprint"] in ["N/A", "", None]:
+                missing_footprints.append(ref)
+
+        self.assertEqual(
+            len(missing_footprints), 0,
+            f"Components without footprints: {missing_footprints}"
+        )
+
+    def test_net_connectivity(self):
+        """Verify critical nets have proper connections."""
+        # Find nets with only one pin (possible unconnected pins)
+        single_pin_nets = [
+            name for name, data in NETLIST.items()
+            if len(data["pins"]) <= 1
+        ]
+
+        # Allow some single-pin nets (e.g., test points, no-connects)
+        self.assertLess(
+            len(single_pin_nets), 20,
+            f"Too many single-pin nets: {single_pin_nets[:10]}"
+        )
+{% endif %}
+
+
+def run_tests() -> None:
+    """Run all tests and print results."""
+    # Create test suite
+    loader = unittest.TestLoader()
+    suite = unittest.TestSuite()
+
+    # Add all test cases
+    suite.addTests(loader.loadTestsFromTestCase(TestSchematicConnectivity))
+    suite.addTests(loader.loadTestsFromTestCase(TestFunctionalVerification))
+    {% if test_type == "production" %}
+    suite.addTests(loader.loadTestsFromTestCase(TestProductionReadiness))
+    {% endif %}
+
+    # Run tests
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+
+    # Print summary
+    print("\n" + "=" * 70)
+    print(f"Tests run: {result.testsRun}")
+    print(f"Failures: {len(result.failures)}")
+    print(f"Errors: {len(result.errors)}")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    run_tests()

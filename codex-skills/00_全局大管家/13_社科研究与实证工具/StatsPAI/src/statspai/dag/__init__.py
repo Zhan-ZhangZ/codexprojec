@@ -1,0 +1,88 @@
+"""
+DAG (Directed Acyclic Graph) module for causal reasoning.
+
+Declare causal graphs, compute adjustment sets, check for collider bias,
+enumerate paths, detect bad controls, and visualize causal structures —
+the Python equivalent of R's ``dagitty`` and ``ggdag``.
+
+>>> import statspai as sp
+>>> g = sp.dag('X -> Y; Z -> X; Z -> Y')
+>>> g.adjustment_sets('X', 'Y')
+[{'Z'}]
+>>> g.backdoor_paths('X', 'Y')
+>>> g.bad_controls('X', 'Y')
+>>> g.summary('X', 'Y')
+>>> g.do('X')  # interventional graph
+>>> sp.dag_example('discrimination')  # classic textbook DAG
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from .graph import (
+    DAG,
+    dag,
+    dag_example,
+    dag_examples,
+    dag_example_positions,
+    dag_simulate,
+)
+from .identification import identify, IdentificationResult
+from .do_calculus import rule1, rule2, rule3, apply_rules, RuleCheck
+from .swig import swig, SWIGGraph
+from .counterfactual import SCM
+from .llm_dag import llm_dag, LLMDAGResult
+from .llm_evaluator import (
+    llm_causal_assess,
+    pairwise_causal_benchmark,
+    LLMCausalAssessResult,
+    PairwiseBenchmarkResult,
+)
+from .recommend import recommend_estimator, EstimatorRecommendation
+
+
+# Attach recommend_estimator as a DAG method for the fluent API.
+def _dag_recommend_estimator(
+    self: DAG,
+    exposure: str,
+    outcome: str,
+    candidate_instruments: Sequence[str] | None = None,
+) -> EstimatorRecommendation:
+    """See :func:`statspai.dag.recommend_estimator`."""
+    return recommend_estimator(
+        self,
+        exposure,
+        outcome,
+        candidate_instruments=candidate_instruments,
+    )
+
+
+setattr(DAG, "recommend_estimator", _dag_recommend_estimator)
+
+__all__ = [
+    "DAG",
+    "dag",
+    "dag_example",
+    "dag_examples",
+    "dag_example_positions",
+    "dag_simulate",
+    "identify",
+    "IdentificationResult",
+    "rule1",
+    "rule2",
+    "rule3",
+    "apply_rules",
+    "RuleCheck",
+    "swig",
+    "SWIGGraph",
+    "SCM",
+    "llm_dag",
+    "LLMDAGResult",
+    "llm_causal_assess",
+    "pairwise_causal_benchmark",
+    "LLMCausalAssessResult",
+    "PairwiseBenchmarkResult",
+    "recommend_estimator",
+    "EstimatorRecommendation",
+]

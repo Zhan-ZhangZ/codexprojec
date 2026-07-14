@@ -1,0 +1,38 @@
+{
+  "module": "03_hdfe",
+  "side": "py",
+  "rows": [
+    {
+      "module": "03_hdfe",
+      "side": "py",
+      "statistic": "beta_x1",
+      "estimate": 1.9995039795655203,
+      "se": 0.005078759290745758,
+      "ci_lo": 1.9895497942695104,
+      "ci_hi": 2.00945816486153,
+      "n": 10000,
+      "extra": {}
+    },
+    {
+      "module": "03_hdfe",
+      "side": "py",
+      "statistic": "beta_x2",
+      "estimate": -1.4999804870593578,
+      "se": 0.005069852859938727,
+      "ci_lo": -1.509917216071755,
+      "ci_hi": -1.4900437580469605,
+      "n": 10000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "formula": "y ~ x1 + x2 | firm + year",
+    "vcov": "iid",
+    "n_firms": 250,
+    "n_years": 20,
+    "df_resid": 9729,
+    "rss": 2455.3967447808036,
+    "ssc": "fixest",
+    "parity_note": "sp.fast.feols uses ssc='fixest' so the residual FE rank and IID standard errors match fixest::feols and reghdfe on this two-way HDFE fixture."
+  }
+}

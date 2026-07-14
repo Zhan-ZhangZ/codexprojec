@@ -1,0 +1,70 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/Schema" },
+    { "$ref": "#/definitions/Item" }
+  ],
+  "definitions": {
+    "Schema": {
+      "type": "object",
+      "additionalProperties": {
+        "anyOf": [
+          { "type": "string", "pattern": "^!include_dir_named .*$" },
+          { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\u000b.*$" },
+          { "$ref": "#/definitions/Item" },
+          { "type": "null" }
+        ]
+      }
+    },
+    "Item": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "description": "Show a \"slider\" or a input \"box\" in the UI frontend. Defaults to \"slider\".\nhttps://www.home-assistant.io/integrations/input_number#mode",
+          "enum": ["box", "slider"],
+          "type": "string"
+        },
+        "icon": {
+          "description": "The icon that shows in the frontend.\nhttps://www.home-assistant.io/integrations/input_number#icon",
+          "type": "string"
+        },
+        "initial": {
+          "description": "Initial value when Home Assistant starts.\nhttps://www.home-assistant.io/integrations/input_number#initial",
+          "type": "number"
+        },
+        "max": {
+          "description": "Maximum value of the number\nhttps://www.home-assistant.io/integrations/input_number#max",
+          "type": "number"
+        },
+        "min": {
+          "description": "Minimum value of the number\nhttps://www.home-assistant.io/integrations/input_number#min",
+          "type": "number"
+        },
+        "name": {
+          "description": "Name of the input number.\nhttps://www.home-assistant.io/integrations/input_number#name",
+          "type": "string"
+        },
+        "step": {
+          "description": "Step value. Smallest value 0.001.\nhttps://www.home-assistant.io/integrations/input_number#step",
+          "type": "number"
+        },
+        "unit_of_measurement": {
+          "description": "Unit of measurement in which the value of the slider is expressed in.\nhttps://www.home-assistant.io/integrations/input_number#unit_of_measurement",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["max", "min"]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

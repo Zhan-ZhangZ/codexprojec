@@ -1,0 +1,52 @@
+---
+description: Conventions for dealing with typescript types
+globs: src/types/**/*.ts
+alwaysApply: false
+---
+- File in `src/types` folder for modularity  
+- IMPORTANT: Namespace should match the path from `src/types` and the type the name of the file
+- Prefer single word type names over double
+  - When double or tripple, please split the name into namespaces + short type, i.e
+    - `ToolsLightAttributes` in `src/tools_light_attributes.types.ts` should be renamed to:
+    - `tools.light.Attributes` in `src/tools/light/attributes.types.ts` 
+- IMPORTANT: Do not mix logic with types. They MUST be split up between `src/types/` and `src/` 
+- Namespace tools encapsulates tool-related types  
+- Nested namespace light groups types specific to light tools  
+- Attributes interface defines properties (e.g. brightness, color, isOn)  
+- Incorporates advanced TypeScript features:
+  - Intersection, union, mapped, and conditional types  
+  - Utility types like Partial, Required, Record, Pick, and Omit  
+- Export declarations ensure types are accessible application-wide  
+- Types can be imported to enhance type safety and maintainability  
+- Verify types using `bun run lint --fix`
+- The file structure in `src/types` must match that of `src/` (except `types/`)
+- Changes should be done to the source types, not the type files (such as renaming types or classes)
+- In other words; the source code adapts to the types
+- The namespace + type should match the pathname
+
+## Example
+
+```typescript
+// src/types/tools/light.ts
+namespace tools {
+  export namespace light {
+    export interface Attributes {
+      brightness: number;
+      color: string;
+      isOn?: boolean;
+      mode?: Mode;
+      customAttributes?: Record<string, string | number>;
+    }
+    
+    export type Mode = "ambient" | "spotlight" | "flash";
+    
+    export type AdvancedAttributes = Attributes & {
+      transitionDuration: number;
+    };
+    
+    export type CheckBrightness<T> = T extends { brightness: number } ? "Valid" : "Invalid";
+  }
+}
+
+export = tools;
+```

@@ -1,0 +1,69 @@
+"""
+Bayesian causal inference (``statspai.bayes``).
+
+PyMC-backed Bayesian estimators for the canonical causal designs.
+PyMC and ArviZ are **optional** dependencies — importing this
+sub-package never imports them. Each estimator resolves PyMC at call
+time and raises :class:`ImportError` with the install recipe if the
+extras are missing.
+
+Install with:
+
+    pip install "statspai[bayes]"
+
+Available estimators:
+
+- :func:`bayes_did` — 2×2 and panel difference-in-differences with
+  optional hierarchical random effects on unit / time.
+- :func:`bayes_rd` — sharp regression discontinuity with local
+  polynomial + Normal prior on the jump.
+"""
+
+from __future__ import annotations
+
+from ._base import (
+    BayesianCausalResult,
+    BayesianDIDResult,
+    BayesianHTEIVResult,
+    BayesianIVResult,
+    BayesianMTEResult,
+)
+from .did import bayes_did
+from .rd import bayes_rd
+from .its import bayes_its
+from .synth import bayes_synth
+from .iv import bayes_iv
+from .fuzzy_rd import bayes_fuzzy_rd
+from .hte_iv import bayes_hte_iv
+from .mte import bayes_mte
+from .dml import bayes_dml, BayesianDMLResult
+from .policy_weights import (
+    policy_weight_ate,
+    policy_weight_subsidy,
+    policy_weight_prte,
+    policy_weight_marginal,
+    policy_weight_observed_prte,
+)
+
+__all__ = [
+    "bayes_did",
+    "bayes_rd",
+    "bayes_its",
+    "bayes_synth",
+    "bayes_iv",
+    "bayes_fuzzy_rd",
+    "bayes_hte_iv",
+    "bayes_mte",
+    "bayes_dml",
+    "BayesianDMLResult",
+    "BayesianCausalResult",
+    "BayesianDIDResult",
+    "BayesianHTEIVResult",
+    "BayesianIVResult",
+    "BayesianMTEResult",
+    "policy_weight_ate",
+    "policy_weight_subsidy",
+    "policy_weight_prte",
+    "policy_weight_marginal",
+    "policy_weight_observed_prte",
+]

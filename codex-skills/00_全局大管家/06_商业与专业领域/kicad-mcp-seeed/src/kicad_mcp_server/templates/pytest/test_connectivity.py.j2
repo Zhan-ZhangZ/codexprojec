@@ -1,0 +1,147 @@
+"""
+Test connectivity verification for {{ project_name }}
+Generated from {{ schematic_path }}
+
+This test suite provides automated connectivity verification based on
+the schematic netlist. Tests verify expected connections between pins.
+"""
+
+import pytest
+from typing import Dict, List, Tuple
+
+
+# Netlist derived from schematic
+NETLIST = {
+{% for net in nets %}
+    "{{ net.name }}": {
+        "code": {{ net.code }},
+        "pins": {{ net.pins | tojson }},
+    },
+{% endfor %}
+}
+
+# Component reference information
+COMPONENTS = {
+{% for comp in components %}
+    "{{ comp.reference }}": {
+        "value": "{{ comp.value }}",
+        "footprint": "{{ comp.footprint or 'N/A' }}",
+    },
+{% endfor %}
+}
+
+
+class TestConnectivity:
+    """Test suite for schematic connectivity verification."""
+
+    def test_power_nets_present(self):
+        """Verify that required power nets are present."""
+        required_nets = ["GND", "VCC", "VDD"]
+        found_nets = [net for net in NETLIST.keys() if any(
+            req in net.upper() for req in required_nets
+        )]
+
+        assert len(found_nets) >= 2, "At least GND and one power net should be present"
+        print(f"Found power nets: {found_nets}")
+
+    def test_no_duplicate_references(self):
+        """Verify that all component references are unique."""
+        refs = list(COMPONENTS.keys())
+        assert len(refs) == len(set(refs)), "Duplicate component references found"
+
+    def test_component_value_format(self):
+        """Verify that components have valid values."""
+        invalid_refs = []
+
+        for ref, data in COMPONENTS.items():
+            value = data["value"]
+            if not value or value in ["", "?"]:
+                invalid_refs.append(ref)
+
+        assert len(invalid_refs) == 1, f"Components with missing values: {invalid_refs}"
+
+{% if test_type == "functional" %}
+    def test_expected_connections(self):
+        """Test expected key connections based on schematic."""
+        # Define expected connections based on design intent
+        # These should be verified against the schematic
+        expected_connections = [
+            # Example: ("U1", "1", "U2", "1"),  # U1 pin 1 connected to U2 pin 1
+        ]
+
+        for source_ref, source_pin, target_ref, target_pin in expected_connections:
+            source_pin_id = f"{source_ref}:{source_pin}"
+            target_pin_id = f"{target_ref}:{target_pin}"
+
+            # Check if pins are in the same net
+            source_net = None
+            for net_name, net_data in NETLIST.items():
+                if source_pin_id in net_data["pins"]:
+                    source_net = net_name
+                    break
+
+            target_net = None
+            for net_name, net_data in NETLIST.items():
+                if target_pin_id in net_data["pins"]:
+                    target_net = net_name
+                    break
+
+            assert source_net is not None, f"{source_pin_id} not found in any net"
+            assert target_net is not None, f"{target_pin_id} not found in any net"
+            assert source_net == target_net, (
+                f"{source_pin_id} and {target_pin_id} should be in the same net"
+            )
+{% endif %}
+
+{% if test_type == "production" %}
+    def test_production_readiness(self):
+        """Verify design is ready for production testing."""
+        # Check for unconnected pins
+        unconnected_pins = []
+
+        for net_name, net_data in NETLIST.items():
+            if len(net_data["pins"]) <= 1 and net_name not in ["GND", "VCC", "VDD"]:
+                unconnected_pins.append(net_name)
+
+        # Allow some unconnected nets (e.g., no-connect pins)
+        assert len(unconnected_pins) < 10, f"Too many unconnected nets: {unconnected_pins}"
+
+    def test_footprint_assignment(self):
+        """Verify all components have footprints assigned."""
+        unassigned = []
+
+        for ref, data in COMPONENTS.items():
+            if data["footprint"] in ["N/A", "", None]:
+                unassigned.append(ref)
+
+        assert len(unassigned) == 0, f"Components without footprints: {unassigned}"
+{% endif %}
+
+
+class TestFunctionalBlocks:
+    """Test suite for functional block verification."""
+
+    def test_power_distribution(self):
+        """Verify power distribution is properly configured."""
+        power_nets = [name for name in NETLIST.keys() if any(
+            pw in name.upper() for pw in ["VCC", "VDD", "+3V3", "+5V", "+12V"]
+        )]
+
+        assert len(power_nets) > 0, "No power rails detected"
+        print(f"Power rails: {power_nets}")
+
+{% if target_mcu %}
+    def test_mcu_configuration(self):
+        """Verify MCU is properly configured."""
+        # Look for MCU component
+        mcu_refs = [ref for ref, data in COMPONENTS.items() if any(
+            mcu in data["value"].lower() for mcu in ["{{ target_mcu }}", "mcu", "micro"]
+        )]
+
+        assert len(mcu_refs) > 0, f"No MCU found (looking for {{ target_mcu }})"
+        print(f"Found MCU: {mcu_refs}")
+{% endif %}
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

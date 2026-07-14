@@ -1,0 +1,127 @@
+[project]
+name = "mcp-github-pr-issue-analyser"
+dynamic = ["version"]
+description = "MCP GitHub Issues Create/Update and PR Analyse"
+readme = "README.md"
+requires-python = ">=3.14"
+authors = [
+    { name = "saidsef" }
+]
+license = "Apache-2.0"
+keywords = ["mcp", "github", "llm", "pull-request", "issue-tracker", "model-context-protocol"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fastmcp-slim[server,apps,tasks]>=3.4.2",
+    "httpx>=0.28.1",
+    "redis>=8.0.0",
+]
+
+[project.scripts]
+mcp-github-pr-issue-analyser = "mcp_github.issues_pr_analyser:main"
+
+[project.urls]
+homepage = "https://github.com/saidsef/mcp-github-pr-issue-analyser"
+issues = "https://github.com/saidsef/mcp-github-pr-issue-analyser/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.pyright]
+pythonVersion = "3.14"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_github"]
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+fallback-version = "0.0.0"
+metadata = false
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.410",
+    "pytest>=9.1.0",
+    "ruff>=0.15.17",
+    "uv>=0.11.21",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["D", "PLR", "E", "F", "I", "N", "W", "ANN", "ASYNC", "B", "C4", "DTZ", "ICN", "PIE", "RET", "SLF", "T20", "UP", "YTT"]
+ignore = [
+    "ANN101",   # Missing type annotation for self in method
+    "ANN102",   # Missing type annotation for cls in classmethod
+    "ANN202",   # Missing return type annotation for private function
+    "ANN204",   # Missing return type annotation for special method __init__
+    "ANN401",   # Dynamically typed expressions (typing.Any) are disallowed
+    "ANN201",   # Missing return type annotation for public function
+    "D100",     # Missing docstring in public module
+    "D101",     # Missing docstring in public class
+    "D203",     # 1 blank line required before class docstring — conflicts with D211
+    "D211",     # No blank lines allowed before class docstring — conflicts with D203
+    "D212",     # Multi-line docstring summary should start at first line — conflicts with D213
+    "D213",     # Multi-line docstring summary should start at second line — conflicts with D212
+    "D107",     # Missing docstring in __init__
+    "D105",     # Missing docstring in magic method
+    "D102",     # Missing docstring in public method
+    "D209",     # Multi-line docstring closing quotes should be on a separate line
+    "D400",     # First line should end with a period (module docstring)
+    "D401",     # First line of docstring should be in imperative mood
+    "D415",     # First line should end with punctuation (module docstring)
+    "D205",     # 1 blank line required between summary line and description
+    "D407",     # Missing period after decorated function name
+    "D408",     # Inconsistent period after section header
+    "D409",     # Missing period after section header
+    "D410",     # Missing blank line after section
+    "D411",     # Missing blank line before section
+    "D413",     # Missing blank line after last section
+    "D202",     # No blank lines allowed after function docstring
+    "E501",     # Line too long
+    "PLR0913",  # Too many arguments in function definition
+    "PLR2004",  # Magic value used in comparison
+    "RET504",   # Unnecessary assignment before return
+    "RET505",   # Unnecessary else after return
+    "RET506",   # Unnecessary elif after raise
+    "SLF001",   # Private member accessed
+    "B006",     # Do not use mutable data structures for argument defaults
+    "PLR0912",  # Too many branches
+    "PLR0915",  # Too many statements
+    "D417",     # Missing argument description in docstring
+    "N814",     # CamelCase imported as constant
+]
+fixable = ["I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/mcp_github/__init__.py" = ["D100"]
+"tests/**" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN202"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+
+

@@ -1,0 +1,417 @@
+"""
+LLM client adapters for the :mod:`statspai.causal_llm` subpackage.
+
+Exposes a uniform :class:`LLMClient` protocol plus three concrete
+adapters so that :func:`sp.causal_llm.causal_mas` (and any future
+agent-driven causal-inference workflow) can swap in a real model with
+one keyword argument.
+
+::
+
+    import statspai as sp
+    client = sp.causal_llm.openai_client(
+        model="gpt-4o-mini", api_key="sk-...",
+    )
+    res = sp.causal_llm.causal_mas(variables=..., client=client)
+
+Design constraints
+------------------
+* **No core-package dependency** on ``openai`` / ``anthropic``.  Both
+  adapters lazily import their SDK inside ``__init__``, raising a clear
+  error message if the optional extra is missing.
+* **Deterministic-by-default** — temperatures default to ``0`` so unit
+  tests can pin outputs.
+* **Graceful retry** on transient network / rate-limit errors using
+  exponential backoff (up to ``max_retries`` attempts).
+* **Transcript-friendly** — every exchange is stored on the adapter
+  under ``.history`` for replay / logging.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
+
+__all__ = [
+    "LLMClient",
+    "openai_client",
+    "anthropic_client",
+    "echo_client",
+]
+
+
+# ---------------------------------------------------------------------------
+# Minimal protocol
+# ---------------------------------------------------------------------------
+
+
+class LLMClient:
+    """Minimal interface expected by :func:`causal_mas` and friends.
+
+    Subclasses / adapters must implement ``chat(role, prompt)`` — a
+    single-turn completion call that returns the model's plain-text
+    response.  Everything else (streaming, tools, JSON mode) is
+    deliberately out of scope because :func:`causal_mas` only needs a
+    bag of edge proposals or critiques.
+    """
+
+    name: str = "abstract"
+    history: List[Dict[str, Any]] = []
+
+    def chat(self, role: str, prompt: str) -> str:  # pragma: no cover
+        raise NotImplementedError
+
+    # So the client is ``callable(prompt)`` for the generic case.
+    def __call__(self, prompt: str) -> str:
+        return self.chat("user", prompt)
+
+    # Alias kept stable for ``llm_dag_propose`` / ``llm_dag_validate``
+    # / ``llm_dag_constrained`` and any third-party callers that
+    # follow the OpenAI-style ``client.complete(prompt)`` convention.
+    # Both ``__call__`` and ``complete`` route through ``chat()`` so
+    # subclasses only need to implement ``chat()``.
+    def complete(self, prompt: str) -> str:
+        return self.chat("user", prompt)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-style adapter (v1.x Python SDK)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _OpenAIClient(LLMClient):
+    """Thin adapter on top of the ``openai>=1.0`` Python SDK."""
+
+    model: str = "gpt-4o-mini"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    organization: Optional[str] = None
+    temperature: float = 0.0
+    max_tokens: int = 1024
+    max_retries: int = 3
+    system_prompt: str = (
+        "You are a careful scientific assistant helping with causal "
+        "inference.  Respond concisely and in the exact format requested."
+    )
+    name: str = "openai"
+    history: List[Dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        try:
+            from openai import OpenAI  # type: ignore
+        except ImportError as err:  # pragma: no cover
+            raise ImportError(
+                "openai_client requires `pip install openai>=1.0`."
+            ) from err
+        key = self.api_key or os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise ValueError(
+                "OpenAI API key missing — pass api_key=... or set "
+                "OPENAI_API_KEY in the environment."
+            )
+        kwargs: Dict[str, Any] = {"api_key": key}
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        if self.organization:
+            kwargs["organization"] = self.organization
+        self._client = OpenAI(**kwargs)
+
+    def chat(self, role: str, prompt: str) -> str:
+        """Run one chat-completion call and return the assistant string.
+
+        ``role`` is used only to label the transcript (the agent's
+        function — ``proposer``, ``critic``, ...).  OpenAI's own role
+        field is set to ``'user'`` for the prompt; the system prompt is
+        always our ``self.system_prompt``.
+        """
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": f"[{role}]\n{prompt}"},
+        ]
+        err = None
+        for attempt in range(self.max_retries):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+                text = resp.choices[0].message.content or ""
+                self.history.append(
+                    {
+                        "role": role,
+                        "prompt": prompt,
+                        "response": text,
+                        "model": self.model,
+                    }
+                )
+                return text
+            except Exception as e:  # pragma: no cover - network dependent
+                err = e
+                time.sleep(min(2**attempt, 8))
+        raise RuntimeError(
+            f"OpenAI chat failed after {self.max_retries} attempts: {err}"
+        )
+
+
+def openai_client(
+    model: str = "gpt-4o-mini",
+    *,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    organization: Optional[str] = None,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    max_retries: int = 3,
+    system_prompt: Optional[str] = None,
+) -> LLMClient:
+    """Construct an OpenAI-compatible :class:`LLMClient`.
+
+    Requires the optional ``openai>=1.0`` extra.  Accepts any
+    ``base_url`` override so you can point this at an OpenAI-compatible
+    endpoint (Azure OpenAI, vLLM, Ollama's OpenAI-compat mode, ...).
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> client = sp.causal_llm.openai_client(
+    ...     model="gpt-4o-mini", api_key="sk-...",
+    ... )   # doctest: +SKIP
+    >>> res = sp.causal_llm.causal_mas(
+    ...     variables=["age","treatment","outcome"], client=client,
+    ... )    # doctest: +SKIP
+    """
+    kwargs: Dict[str, Any] = dict(
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        organization=organization,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        max_retries=max_retries,
+    )
+    if system_prompt is not None:
+        kwargs["system_prompt"] = system_prompt
+    return _OpenAIClient(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic-style adapter (anthropic>=0.30 Python SDK)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _AnthropicClient(LLMClient):
+    """Adapter on top of the ``anthropic>=0.30`` Messages API.
+
+    Supports Claude's **extended thinking** mode on Claude 4.5 / Opus
+    4.7: set ``thinking_budget > 0`` to have the model reason
+    privately for up to that many tokens before answering.  The
+    reasoning text is returned on the :class:`LLMClient.history` entry
+    (``entry['thinking']``) for auditability but is *not* included in
+    the final answer string that :func:`causal_mas` parses.
+    """
+
+    model: str = "claude-opus-4-7"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    temperature: float = 0.0
+    max_tokens: int = 1024
+    max_retries: int = 3
+    thinking_budget: int = 0
+    system_prompt: str = (
+        "You are a careful scientific assistant helping with causal "
+        "inference.  Respond concisely and in the exact format requested."
+    )
+    name: str = "anthropic"
+    history: List[Dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        try:
+            import anthropic  # type: ignore
+        except ImportError as err:  # pragma: no cover
+            raise ImportError(
+                "anthropic_client requires `pip install anthropic>=0.30`."
+            ) from err
+        key = self.api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise ValueError(
+                "Anthropic API key missing — pass api_key=... or set "
+                "ANTHROPIC_API_KEY in the environment."
+            )
+        if self.thinking_budget and self.thinking_budget < 1024:
+            raise ValueError(
+                "thinking_budget must be 0 (off) or >= 1024 "
+                "(Anthropic minimum for extended thinking)."
+            )
+        if self.thinking_budget and self.thinking_budget >= self.max_tokens:
+            raise ValueError(
+                f"thinking_budget ({self.thinking_budget}) must be "
+                f"strictly less than max_tokens ({self.max_tokens}) — "
+                "the thinking budget is consumed from the same pool."
+            )
+        kwargs: Dict[str, Any] = {"api_key": key}
+        if self.base_url:
+            kwargs["base_url"] = self.base_url
+        self._client = anthropic.Anthropic(**kwargs)
+
+    def chat(self, role: str, prompt: str) -> str:
+        err = None
+        for attempt in range(self.max_retries):
+            try:
+                call_kwargs: Dict[str, Any] = dict(
+                    model=self.model,
+                    system=self.system_prompt,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"[{role}]\n{prompt}",
+                        }
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                )
+                if self.thinking_budget > 0:
+                    call_kwargs["thinking"] = {
+                        "type": "enabled",
+                        "budget_tokens": int(self.thinking_budget),
+                    }
+                resp = self._client.messages.create(**call_kwargs)
+                # Anthropic returns a list of content blocks.  In thinking
+                # mode the list includes ``thinking`` blocks *before* the
+                # final ``text`` blocks; the public answer is the
+                # concatenation of the text blocks only.
+                text_parts: List[str] = []
+                thinking_parts: List[str] = []
+                for block in resp.content:
+                    block_type = getattr(block, "type", None)
+                    if block_type == "thinking":
+                        thinking_parts.append(getattr(block, "thinking", ""))
+                    elif block_type == "redacted_thinking":
+                        thinking_parts.append("<redacted>")
+                    else:
+                        text_parts.append(getattr(block, "text", "") or "")
+                text = "".join(text_parts)
+                entry: Dict[str, Any] = {
+                    "role": role,
+                    "prompt": prompt,
+                    "response": text,
+                    "model": self.model,
+                }
+                if thinking_parts:
+                    entry["thinking"] = "\n".join(thinking_parts)
+                self.history.append(entry)
+                return text
+            except Exception as e:  # pragma: no cover - network dependent
+                err = e
+                time.sleep(min(2**attempt, 8))
+        raise RuntimeError(
+            f"Anthropic chat failed after {self.max_retries} attempts: {err}"
+        )
+
+
+def anthropic_client(
+    model: str = "claude-opus-4-7",
+    *,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    max_retries: int = 3,
+    thinking_budget: int = 0,
+    system_prompt: Optional[str] = None,
+) -> LLMClient:
+    """Construct an Anthropic-compatible :class:`LLMClient`.
+
+    Requires the optional ``anthropic>=0.30`` extra.  Defaults to
+    Claude Opus 4.7 (the latest generally-available model as of
+    StatsPAI v1.4).
+
+    Parameters
+    ----------
+    thinking_budget : int, default 0
+        Enable Claude **extended thinking** with this many reasoning
+        tokens.  Values ``>= 1024`` activate the feature; ``0`` disables
+        it (the legacy behaviour).  The budget is consumed from
+        ``max_tokens``, so set ``max_tokens`` comfortably above
+        ``thinking_budget + expected_answer_tokens``.  The reasoning
+        trace is captured on ``client.history[-1]['thinking']`` for
+        auditability but is *not* returned as part of the chat response.
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> client = sp.causal_llm.anthropic_client(
+    ...     model="claude-opus-4-7",
+    ...     thinking_budget=4096,
+    ...     max_tokens=8192,
+    ... )   # doctest: +SKIP
+    """
+    kwargs: Dict[str, Any] = dict(
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        max_retries=max_retries,
+        thinking_budget=thinking_budget,
+    )
+    if system_prompt is not None:
+        kwargs["system_prompt"] = system_prompt
+    return _AnthropicClient(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Echo client — for unit testing without any SDK
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _EchoClient(LLMClient):
+    """Deterministic dummy client that returns a scripted response.
+
+    The ``response_fn`` maps (role, prompt) → str.  Used by the test
+    suite to verify that :func:`causal_mas` correctly parses structured
+    LLM output without hitting the network.
+    """
+
+    response_fn: Callable[[str, str], str]
+    name: str = "echo"
+    history: List[Dict[str, Any]] = field(default_factory=list)
+
+    def chat(self, role: str, prompt: str) -> str:
+        text = self.response_fn(role, prompt)
+        self.history.append(
+            {"role": role, "prompt": prompt, "response": text, "model": "echo"}
+        )
+        return text
+
+
+def echo_client(response_fn: Callable[[str, str], str]) -> LLMClient:
+    """Deterministic scripted-response client for testing.
+
+    This is a network-free test double: ``response_fn`` maps
+    ``(role, prompt)`` to a canned string, so multi-agent causal
+    discovery runs deterministically without any LLM SDK or API key.
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> def scripted(role, prompt):
+    ...     if role == 'proposer':
+    ...         return 'age -> treatment\\ntreatment -> outcome'
+    ...     return ''
+    >>> client = sp.causal_llm.echo_client(scripted)
+    >>> type(client).__name__
+    '_EchoClient'
+    >>> res = sp.causal_llm.causal_mas(
+    ...     variables=['age', 'treatment', 'outcome'], client=client,
+    ... )
+    >>> ('treatment', 'outcome') in res.edges
+    True
+    """
+    return _EchoClient(response_fn=response_fn)

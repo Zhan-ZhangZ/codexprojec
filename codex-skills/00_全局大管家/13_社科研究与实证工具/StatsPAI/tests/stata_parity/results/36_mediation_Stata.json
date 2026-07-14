@@ -1,0 +1,67 @@
+{
+  "module": "36_mediation",
+  "side": "Stata",
+  "rows": [
+    {
+      "module": "36_mediation",
+      "side": "Stata",
+      "statistic": "acme",
+      "estimate": 0.1082254001090686,
+      "se": 0.0154454850191171,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 800,
+      "extra": {}
+    }
+,
+    {
+      "module": "36_mediation",
+      "side": "Stata",
+      "statistic": "ade",
+      "estimate": 0.4806053177499075,
+      "se": 0.029727017127060201,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 800,
+      "extra": {}
+    }
+,
+    {
+      "module": "36_mediation",
+      "side": "Stata",
+      "statistic": "total_effect",
+      "estimate": 0.58883071785897612,
+      "se": 0.031300023985457399,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 800,
+      "extra": {}
+    }
+,
+    {
+      "module": "36_mediation",
+      "side": "Stata",
+      "statistic": "prop_mediated",
+      "estimate": 0.18379713698120689,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 800,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "method": "paramed (Emsley-Liu)",
+    "se_method": "delta",
+    "stata_command": "paramed y, avar(treat) mvar(m) a0(0) a1(1) m(0) yreg(linear) mreg(linear) nointer",
+    "note": "nointer matches the R side's lm(y ~ treat + m) specification; with no AxM interaction, paramed's NIE = R's ACME, CDE = NDE = ADE. SEs differ because paramed uses the delta method while mediation::mediate bootstraps (sims=200)."
+  },
+  "provenance": {
+    "stata_version": 18,
+    "edition": "MP",
+    "os": "Unix",
+    "machine_type": "Mac (Apple Silicon)",
+    "born_date": "07 Jun 2023",
+    "captured_via": "tests/stata_parity/_common.do::stata_parity_close"
+  }
+}

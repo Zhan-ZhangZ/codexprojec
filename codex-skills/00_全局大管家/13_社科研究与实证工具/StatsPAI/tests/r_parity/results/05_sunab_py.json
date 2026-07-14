@@ -1,0 +1,111 @@
+{
+  "module": "05_sunab",
+  "side": "py",
+  "rows": [
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "weighted_avg_ATT",
+      "estimate": -0.032976513809441346,
+      "se": 0.0077786107734096645,
+      "ci_lo": -0.04822231077507955,
+      "ci_hi": -0.01773071684380315,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "event_time_avg_ATT",
+      "estimate": -0.033782519054575945,
+      "se": 0.00903168262118767,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "att_rel_-4",
+      "estimate": -0.004903082259877702,
+      "se": 0.014609775811520724,
+      "ci_lo": -0.03353771667266276,
+      "ci_hi": 0.023731552152907356,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "att_rel_-3",
+      "estimate": 0.009883454885052077,
+      "se": 0.010889474717079831,
+      "ci_lo": -0.011459523370983885,
+      "ci_hi": 0.03122643314108804,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "att_rel_-2",
+      "estimate": 0.007555373776527525,
+      "se": 0.008735309421660304,
+      "ci_lo": -0.009565518083740078,
+      "ci_hi": 0.024676265636795126,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "att_rel_0",
+      "estimate": -0.03383718991575552,
+      "se": 0.0074786248698610735,
+      "ci_lo": -0.04849502531456877,
+      "ci_hi": -0.019179354516942262,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "att_rel_1",
+      "estimate": -0.02803114061627461,
+      "se": 0.008854136749784296,
+      "ci_lo": -0.045384929760044365,
+      "ci_hi": -0.01067735147250486,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "att_rel_2",
+      "estimate": -0.04552790635952124,
+      "se": 0.014854925202914978,
+      "ci_lo": -0.07464302475027096,
+      "ci_hi": -0.016412787968771526,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "05_sunab",
+      "side": "py",
+      "statistic": "att_rel_3",
+      "estimate": -0.027733839326752413,
+      "se": 0.014438594707841233,
+      "ci_lo": -0.056032964941491854,
+      "ci_hi": 0.0005652862879870282,
+      "n": 2500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "control_group": "nevertreated",
+    "method": "Sun and Abraham (2021)",
+    "aggregation": "fixest_att",
+    "aggregation_parity_note": "The weighted_avg_ATT row uses sp.sun_abraham(..., aggregation='fixest_att'), which weights post-treatment cohort-time cells by treated cohort size and matches fixest::summary(..., agg='att') on the mpdta fixture. The historical equal-weighted post-event-time summary is retained as event_time_avg_ATT."
+  }
+}

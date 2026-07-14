@@ -1,0 +1,1477 @@
+"""Evaluation and benchmarking commands for Bernstein CLI.
+
+This module contains evaluation and benchmarking groups and commands:
+  benchmark_group (swe-bench, run, compare)
+  eval_group (run, report, failures)
+
+All commands and groups are registered with the main CLI group in main.py.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal, cast
+
+import click
+
+from bernstein.cli.helpers import (
+    console,
+)
+
+if TYPE_CHECKING:
+    from bernstein.eval.golden import Tier
+
+_NO_EVAL_RUNS_MSG = "[yellow]No eval runs found.[/yellow]"
+
+_STYLE_BOLD_CYAN = "bold cyan"
+
+
+@click.group("benchmark")
+def benchmark_group() -> None:
+    """Run the tiered golden benchmark suite."""
+
+
+def _run_swe_bench_command(
+    *,
+    subset: str,
+    sample: int | None,
+    instance_id: str | None,
+    dataset_path: str | None,
+    save: bool,
+) -> None:
+    """Run the SWE-Bench harness and print a report.
+
+    Args:
+        subset: Dataset subset name (for example ``"lite"``).
+        sample: Optional number of instances to sample.
+        instance_id: Optional single instance to evaluate.
+        dataset_path: Optional local JSONL path.
+        save: Whether to persist the results under ``.sdd/``.
+    """
+    from rich.table import Table
+
+    from bernstein.benchmark.swe_bench import InstanceResult, SWEBenchRunner, compute_report, save_results
+
+    workdir = Path()
+    subset_literal = cast("Literal['lite', 'full']", subset)
+    runner = SWEBenchRunner(workdir=workdir, sample=sample, instance_id=instance_id, subset=subset_literal)
+
+    dpath = Path(dataset_path) if dataset_path else None
+    instances = runner.load_dataset(dpath)
+
+    if not instances:
+        console.print(
+            "[yellow]No instances found. Pass --dataset <path.jsonl> or install the 'datasets' package.[/yellow]"
+        )
+        raise SystemExit(1)
+
+    console.print(f"[bold]SWE-Bench evaluation[/bold]: subset={subset} • {len(instances)} instance(s)")
+
+    table = Table(title="SWE-Bench Results", header_style=_STYLE_BOLD_CYAN, show_lines=False)
+    table.add_column("Instance", style="dim", min_width=30)
+    table.add_column("Model", min_width=14)
+    table.add_column("Resolved", min_width=10)
+    table.add_column("Cost (USD)", justify="right", min_width=12)
+    table.add_column("Time (s)", justify="right", min_width=10)
+    table.add_column("Agents", justify="right", min_width=8)
+
+    results: list[InstanceResult] = []
+    for inst in instances:
+        console.print(f"  Running [cyan]{inst.instance_id}[/cyan]…", end="")
+        result = runner.run_instance(inst)
+        results.append(result)
+        status_icon = "[green]✓[/green]" if result.resolved else "[red]✗[/red]"
+        console.print(f" {status_icon}")
+        table.add_row(
+            inst.instance_id,
+            result.model_name,
+            "[green]YES[/green]" if result.resolved else "[red]NO[/red]",
+            f"${result.cost_usd:.4f}",
+            f"{result.duration_seconds:.1f}",
+            str(result.agent_count),
+        )
+
+    report = compute_report(results)
+    console.print(table)
+    console.print(
+        f"\n[bold]Resolve rate:[/bold] {report.resolve_rate:.1%} "
+        f"({report.resolved}/{report.total})  "
+        f"[dim]cost/task ${report.cost_per_task:.4f}  "
+        f"time/task {report.time_per_task:.0f}s[/dim]"
+    )
+
+    if report.per_model_breakdown:
+        model_table = Table(title="Per-Model Breakdown", header_style="bold magenta", show_lines=False)
+        model_table.add_column("Model", min_width=16)
+        model_table.add_column("Resolved", min_width=12)
+        model_table.add_column("Resolve Rate", justify="right", min_width=12)
+        model_table.add_column("Cost/Task", justify="right", min_width=12)
+        model_table.add_column("Time/Task", justify="right", min_width=12)
+        for breakdown in report.per_model_breakdown:
+            model_table.add_row(
+                breakdown.model_name,
+                f"{breakdown.resolved}/{breakdown.total}",
+                f"{breakdown.resolve_rate:.1%}",
+                f"${breakdown.cost_per_task:.4f}",
+                f"{breakdown.time_per_task:.1f}s",
+            )
+        console.print(model_table)
+
+    if save:
+        sdd_dir = Path(".sdd")
+        save_results(report, sdd_dir)
+        console.print(f"[dim]Results saved → {sdd_dir / 'metrics' / 'swe_bench_results.jsonl'}[/dim]")
+
+
+@benchmark_group.command("swe-bench")
+@click.option(
+    "--subset",
+    type=click.Choice(["lite", "full"]),
+    default="lite",
+    show_default=True,
+    help="Which SWE-Bench subset to evaluate.",
+)
+@click.option("--lite", "force_lite", is_flag=True, default=False, help="Deprecated alias for --subset lite.")
+@click.option("--sample", "sample", type=int, default=None, help="Evaluate a random sample of N instances.")
+@click.option("--instance", "instance_id", default=None, help="Evaluate a single instance by ID.")
+@click.option("--dataset", "dataset_path", default=None, help="Path to local JSONL dataset file.")
+@click.option(
+    "--save/--no-save",
+    default=True,
+    show_default=True,
+    help="Persist results to .sdd/metrics/swe_bench_results.jsonl.",
+)
+def benchmark_swe_bench(
+    subset: str,
+    force_lite: bool,
+    sample: int | None,
+    instance_id: str | None,
+    dataset_path: str | None,
+    save: bool,
+) -> None:
+    """Run Bernstein against SWE-Bench instances and report resolve rate.
+
+    \b
+      bernstein benchmark swe-bench --subset lite       # all Lite instances
+      bernstein benchmark swe-bench --sample 20         # random 20-instance eval
+      bernstein benchmark swe-bench --instance django__django-11905
+    """
+    if force_lite:
+        subset = "lite"
+    _run_swe_bench_command(
+        subset=subset,
+        sample=sample,
+        instance_id=instance_id,
+        dataset_path=dataset_path,
+        save=save,
+    )
+
+
+def _run_programbench_command(
+    *,
+    adapter: str,
+    subset: str,
+    tasks_limit: int | None,
+    task_id: str | None,
+    dataset_path: str | None,
+    out_json: str | None,
+    save: bool,
+) -> None:
+    """Run the ProgramBench harness and print a report.
+
+    Args:
+        adapter: Adapter slug for invocation.
+        subset: Dataset subset slug.
+        tasks_limit: Optional sample size cap.
+        task_id: Optional single task id to evaluate.
+        dataset_path: Optional local JSONL path.
+        out_json: Optional path to write JSON output.
+        save: Whether to persist results under ``.sdd/``.
+    """
+    import json as _json
+
+    from rich.table import Table
+
+    from bernstein.benchmark.programbench import (
+        ProgramBenchHarness,
+        TaskResult,
+        compute_report,
+        report_to_dict,
+        save_results,
+    )
+
+    workdir = Path()
+    harness = ProgramBenchHarness(
+        workdir=workdir,
+        sample=tasks_limit,
+        task_id=task_id,
+        subset=subset,
+    )
+
+    dpath = Path(dataset_path) if dataset_path else None
+    tasks = harness.load_dataset(dpath)
+
+    if not tasks:
+        console.print(
+            "[yellow]No ProgramBench tasks found. Pass --dataset <path.jsonl>, "
+            "set BERNSTEIN_PROGRAMBENCH_DATASET, or install the 'datasets' package.[/yellow]"
+        )
+        raise SystemExit(1)
+
+    console.print(f"[bold]ProgramBench evaluation[/bold]: subset={subset} • adapter={adapter} • {len(tasks)} task(s)")
+
+    table = Table(title="ProgramBench Results", header_style=_STYLE_BOLD_CYAN, show_lines=False)
+    table.add_column("Task", style="dim", min_width=24)
+    table.add_column("Adapter", min_width=12)
+    table.add_column("Score", justify="right", min_width=10)
+    table.add_column("Asserts", justify="right", min_width=10)
+    table.add_column("Cost (USD)", justify="right", min_width=12)
+    table.add_column("Time (s)", justify="right", min_width=10)
+
+    results: list[TaskResult] = []
+    for task in tasks:
+        console.print(f"  Running [cyan]{task.task_id}[/cyan]…", end="")
+        result = harness.run_task(adapter, task)
+        results.append(result)
+        if result.fully_solved:
+            icon = "[green]100%[/green]"
+        elif result.score >= 0.5:
+            icon = f"[yellow]{result.score:.0%}[/yellow]"
+        else:
+            icon = f"[red]{result.score:.0%}[/red]"
+        console.print(f" {icon}")
+        table.add_row(
+            task.task_id,
+            result.adapter,
+            f"{result.score:.2f}",
+            f"{result.asserts_passed}/{result.asserts_total}",
+            f"${result.cost_usd:.4f}",
+            f"{result.duration_seconds:.1f}",
+        )
+
+    report = compute_report(results)
+    console.print(table)
+    console.print(
+        f"\n[bold]Mean partial credit:[/bold] {report.mean_partial_credit:.2%}  "
+        f"[green]{report.fully_solved} fully[/green]  "
+        f"[yellow]{report.near_solved} near[/yellow]  "
+        f"[red]{report.failed} failed[/red]  "
+        f"[dim]total cost ${report.total_cost_usd:.4f}[/dim]"
+    )
+
+    if report.per_adapter_breakdown:
+        adapter_table = Table(title="Per-Adapter Breakdown", header_style="bold magenta", show_lines=False)
+        adapter_table.add_column("Adapter", min_width=12)
+        adapter_table.add_column("Total", justify="right")
+        adapter_table.add_column("Fully", justify="right")
+        adapter_table.add_column("Near", justify="right")
+        adapter_table.add_column("Failed", justify="right")
+        adapter_table.add_column("Mean", justify="right")
+        adapter_table.add_column("Cost/Task", justify="right")
+        for b in report.per_adapter_breakdown:
+            adapter_table.add_row(
+                b.adapter,
+                str(b.total),
+                str(b.fully_solved),
+                str(b.near_solved),
+                str(b.failed),
+                f"{b.mean_partial_credit:.2%}",
+                f"${b.cost_per_task:.4f}",
+            )
+        console.print(adapter_table)
+
+    if out_json:
+        Path(out_json).write_text(_json.dumps(report_to_dict(report), indent=2), encoding="utf-8")
+        console.print(f"[dim]JSON report saved → {out_json}[/dim]")
+
+    if save:
+        sdd_dir = Path(".sdd")
+        save_results(report, sdd_dir)
+        console.print(f"[dim]Results saved → {sdd_dir / 'metrics' / 'programbench_results.jsonl'}[/dim]")
+
+
+@benchmark_group.command("programbench")
+@click.option(
+    "--adapter",
+    required=True,
+    help="Adapter slug (e.g. claude, codex, mock).",
+)
+@click.option(
+    "--subset",
+    default="lite",
+    show_default=True,
+    help="ProgramBench subset slug.",
+)
+@click.option(
+    "--tasks",
+    "tasks_limit",
+    type=int,
+    default=None,
+    help="Evaluate a random sample of N tasks.",
+)
+@click.option("--task", "task_id", default=None, help="Evaluate a single task by ID.")
+@click.option("--dataset", "dataset_path", default=None, help="Path to local JSONL dataset file.")
+@click.option(
+    "--out",
+    "out_json",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write JSON report to this path.",
+)
+@click.option(
+    "--save/--no-save",
+    default=True,
+    show_default=True,
+    help="Persist results to .sdd/metrics/programbench_results.jsonl.",
+)
+def benchmark_programbench(
+    adapter: str,
+    subset: str,
+    tasks_limit: int | None,
+    task_id: str | None,
+    dataset_path: str | None,
+    out_json: str | None,
+    save: bool,
+) -> None:
+    """Run Bernstein against ProgramBench tasks with partial-credit scoring.
+
+    \b
+      bernstein benchmark programbench --adapter claude
+      bernstein benchmark programbench --adapter mock --tasks 5
+      bernstein benchmark programbench --adapter claude --task programbench-001
+      bernstein benchmark programbench --adapter claude --out report.json
+    """
+    _run_programbench_command(
+        adapter=adapter,
+        subset=subset,
+        tasks_limit=tasks_limit,
+        task_id=task_id,
+        dataset_path=dataset_path,
+        out_json=out_json,
+        save=save,
+    )
+
+
+@benchmark_group.command("run")
+@click.option(
+    "--tier",
+    type=click.Choice(["smoke", "capability", "stretch", "all"]),
+    default="all",
+    show_default=True,
+    help="Which benchmark tier to run.",
+)
+@click.option(
+    "--benchmarks-dir",
+    default="tests/benchmarks",
+    show_default=True,
+    help="Root directory containing smoke/capability/stretch sub-dirs.",
+)
+@click.option(
+    "--save/--no-save",
+    default=True,
+    show_default=True,
+    help="Persist results to .sdd/benchmarks/YYYY-MM-DD.jsonl.",
+)
+def benchmark_run(tier: str, benchmarks_dir: str, save: bool) -> None:
+    """Run benchmark suite and report pass/fail per benchmark.
+
+    \b
+      bernstein benchmark run                  # run all tiers
+      bernstein benchmark run --tier smoke     # smoke only
+      bernstein benchmark run --tier stretch   # stretch only
+    """
+    from rich.table import Table
+
+    from bernstein.evolution.benchmark import (
+        run_all,
+        run_selected,
+        save_results,
+    )
+
+    bdir = Path(benchmarks_dir)
+    if not bdir.exists():
+        console.print(f"[red]Benchmarks directory not found:[/red] {bdir}")
+        raise SystemExit(1)
+
+    summary = run_all(bdir) if tier == "all" else run_selected(bdir, tier)  # type: ignore[arg-type]
+
+    # ---- Results table ----
+    table = Table(title=f"Benchmarks (tier={tier})", header_style=_STYLE_BOLD_CYAN, show_lines=False)
+    table.add_column("ID", style="dim", min_width=14)
+    table.add_column("Tier", min_width=12)
+    table.add_column("Goal", min_width=40)
+    table.add_column("Result", min_width=8)
+    table.add_column("Duration", justify="right", min_width=10)
+
+    for result in summary.results:
+        status_str = "[green]PASS[/green]" if result.passed else "[red]FAIL[/red]"
+        table.add_row(
+            result.benchmark_id,
+            result.tier,
+            result.goal,
+            status_str,
+            f"{result.duration_seconds:.2f}s",
+        )
+        if result.passed:
+            continue
+        for sig in result.signal_results:
+            if not sig.passed:
+                table.add_row("", "", f"  [dim]↳ {sig.signal_type}: {sig.message}[/dim]", "", "")
+
+    console.print(table)
+    console.print(
+        f"\n[bold]Total:[/bold] {summary.total}  "
+        f"[green]{summary.passed} passed[/green]  "
+        f"[red]{summary.failed} failed[/red]"
+    )
+
+    if save and summary.total > 0:
+        sdd_dir = Path(".sdd")
+        out = save_results(summary, sdd_dir)
+        console.print(f"[dim]Results saved → {out}[/dim]")
+
+    if summary.failed > 0:
+        raise SystemExit(1)
+
+
+@benchmark_group.command("compare")
+@click.option(
+    "--tasks-dir",
+    default="templates/benchmarks",
+    show_default=True,
+    help="Directory containing benchmark task YAML files.",
+)
+@click.option(
+    "--mode",
+    "modes",
+    multiple=True,
+    type=click.Choice(["single", "orchestrated"]),
+    default=("single", "orchestrated"),
+    show_default=True,
+    help="Execution modes to include in comparison.",
+)
+def benchmark_compare(tasks_dir: str, modes: tuple[str, ...]) -> None:
+    """Run comparative benchmark: single-agent vs orchestrated.
+
+    \b
+      bernstein benchmark compare                                   # default tasks
+      bernstein benchmark compare --tasks-dir path/to/tasks         # custom tasks
+      bernstein benchmark compare --mode single --mode orchestrated # explicit modes
+    """
+    from bernstein.benchmark.comparative import ComparativeBenchmark, load_benchmark_tasks
+
+    tdir = Path(tasks_dir)
+    if not tdir.is_dir():
+        console.print(f"[red]Tasks directory not found:[/red] {tdir}")
+        raise SystemExit(1)
+
+    tasks = load_benchmark_tasks(tdir)
+    if not tasks:
+        console.print("[yellow]No benchmark tasks found in directory.[/yellow]")
+        raise SystemExit(1)
+
+    console.print(f"[bold]Comparative benchmark[/bold]: {len(tasks)} task(s), modes: {', '.join(modes)}")
+
+    suite = ComparativeBenchmark(tasks=tasks, workdir=Path())
+    report = suite.run_suite(modes=list(modes))  # type: ignore[arg-type]
+
+    md = suite.generate_markdown_report(report)
+    from rich.markdown import Markdown
+
+    console.print(Markdown(md))
+
+
+@benchmark_group.command("simulate")
+@click.option(
+    "--tasks-dir",
+    default="templates/benchmarks",
+    show_default=True,
+    help="Directory containing benchmark task YAML files.",
+)
+@click.option(
+    "--seed",
+    type=int,
+    default=42,
+    show_default=True,
+    help="Random seed for reproducible results.",
+)
+@click.option(
+    "--task-id",
+    "task_ids",
+    multiple=True,
+    help="Run only these task IDs (repeatable). Default: all tasks.",
+)
+@click.option(
+    "--baseline",
+    "baseline_path",
+    default=None,
+    type=click.Path(),
+    help="Path to a prior benchmark_runs.jsonl for regression detection.",
+)
+@click.option(
+    "--save/--no-save",
+    default=True,
+    show_default=True,
+    help="Persist results to .sdd/benchmarks/benchmark_runs.jsonl.",
+)
+def benchmark_simulate(
+    tasks_dir: str,
+    seed: int,
+    task_ids: tuple[str, ...],
+    baseline_path: str | None,
+    save: bool,
+) -> None:
+    """Run reproducible benchmark: throughput, cost, quality across standard tasks.
+
+    Uses deterministic simulation (no live LLM calls) so results are
+    comparable across runs with the same seed.
+
+    \b
+      bernstein benchmark simulate                             # all tasks, seed=42
+      bernstein benchmark simulate --seed 1                   # different seed
+      bernstein benchmark simulate --task-id bugfix-1         # single task
+      bernstein benchmark simulate --baseline prior.jsonl     # detect regressions
+    """
+    from pathlib import Path as _Path
+
+    from rich.table import Table
+
+    from bernstein.benchmark.comparative import load_benchmark_tasks
+    from bernstein.benchmark.reproducible import BenchmarkConfig, ReproducibleBenchmark
+
+    tdir = _Path(tasks_dir)
+    if not tdir.is_dir():
+        console.print(f"[red]Tasks directory not found:[/red] {tdir}")
+        raise SystemExit(1)
+
+    tasks = load_benchmark_tasks(tdir)
+    if not tasks:
+        console.print("[yellow]No benchmark tasks found in directory.[/yellow]")
+        raise SystemExit(1)
+
+    sdd_dir = _Path(".sdd") / "benchmarks"
+    bline = _Path(baseline_path) if baseline_path else None
+    output_dir = sdd_dir if save else None
+
+    config = BenchmarkConfig(
+        seed=seed,
+        task_ids=list(task_ids),
+        baseline_path=bline,
+        output_dir=output_dir,
+    )
+    run, report = ReproducibleBenchmark(tasks=tasks, config=config).run_and_compare()
+
+    # --- Summary table ---
+    table = Table(title=f"Benchmark simulation (seed={seed})", header_style=_STYLE_BOLD_CYAN, show_lines=False)
+    table.add_column("Metric", min_width=22)
+    table.add_column("Value", justify="right", min_width=18)
+
+    t = run.throughput
+    c = run.cost
+    q = run.quality
+    table.add_row("Tasks run", str(run.task_count))
+    table.add_row("Tasks/hour", f"{t.tasks_per_hour:.1f}")
+    table.add_row("p50 latency", f"{t.p50_latency_s:.1f}s")
+    table.add_row("p95 latency", f"{t.p95_latency_s:.1f}s")
+    table.add_row("Pass rate", f"{q.pass_rate:.1%}")
+    table.add_row("Verification rate", f"{q.verification_rate:.1%}")
+    table.add_row("Cost/task", f"${c.per_task_usd:.5f}")
+    table.add_row("Total cost", f"${c.total_usd:.4f}")
+    table.add_row("Total tokens", f"{c.total_tokens:,}")
+
+    console.print(table)
+    console.print(f"[dim]Run ID: {run.run_id}[/dim]")
+
+    if report is not None:
+        if report.is_regression:
+            console.print("\n[bold red]Regression detected:[/bold red]")
+            for msg in report.regressions:
+                console.print(f"  [red]✗[/red] {msg}")
+            raise SystemExit(1)
+        else:
+            delta_tph = f"{report.throughput_delta_pct:+.1f}%"
+            delta_cost = f"{report.cost_delta_pct:+.1f}%"
+            delta_q = f"{report.quality_delta_pp:+.1f}pp"
+            console.print(
+                f"\n[green]No regression[/green] vs baseline {report.baseline_run_id}  "
+                f"[dim]throughput {delta_tph}  cost {delta_cost}  quality {delta_q}[/dim]"
+            )
+
+    if save:
+        out = sdd_dir / "benchmark_runs.jsonl"
+        console.print(f"[dim]Results saved → {out}[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# eval - multiplicative scoring harness
+# ---------------------------------------------------------------------------
+
+
+@click.group("eval")
+def eval_group() -> None:
+    """Evaluation harness with multiplicative scoring."""
+
+
+@eval_group.command("golden")
+@click.option("--workdir", default=".", help="Project root.", type=click.Path(exists=True))
+def eval_golden(workdir: str) -> None:
+    """Run the curated golden test suite to detect orchestrator regressions."""
+    import asyncio
+
+    from rich.table import Table
+
+    from bernstein.benchmark.golden import GoldenEvalRunner
+    from bernstein.cli.helpers import SERVER_URL
+
+    runner = GoldenEvalRunner(Path(workdir), SERVER_URL)
+
+    console.print("[bold]Running Golden Test Suite…[/bold]\n")
+
+    # We use asyncio.run because the CLI is synchronous but the runner might be async
+    summary = asyncio.run(runner.run_suite())
+
+    table = Table(title=f"Golden Results ({summary['timestamp']})", header_style=_STYLE_BOLD_CYAN)
+    table.add_column("Task ID", style="dim")
+    table.add_column("Title")
+    table.add_column("Status", justify="center")
+    table.add_column("Cost", justify="right")
+    table.add_column("Duration", justify="right")
+
+    for res in summary["tasks"]:
+        status = "[green]PASS[/green]" if res["passed"] else "[red]FAIL[/red]"
+        table.add_row(res["task_id"], res["title"], status, f"${res['cost_usd']:.4f}", f"{res['duration_s']}s")
+
+    console.print(table)
+
+    passed = summary["passed"]
+    total = summary["total_tasks"]
+    console.print(f"\n[bold]Score:[/bold] {passed}/{total} ({passed / total:.1%})")
+    cost_str = f"${summary['total_cost_usd']:.4f}"
+    dur_str = f"{summary['duration_s']:.1f}s"
+    console.print(f"[dim]Total cost: {cost_str}  Total duration: {dur_str}[/dim]")
+
+    if summary["failed"] > 0:
+        raise SystemExit(1)
+
+
+@eval_group.command("swe-bench")
+@click.option(
+    "--subset",
+    type=click.Choice(["lite", "full"]),
+    default="lite",
+    show_default=True,
+    help="Which SWE-Bench subset to evaluate.",
+)
+@click.option("--sample", "sample", type=int, default=None, help="Evaluate a random sample of N instances.")
+@click.option("--instance", "instance_id", default=None, help="Evaluate a single instance by ID.")
+@click.option("--dataset", "dataset_path", default=None, help="Path to local JSONL dataset file.")
+@click.option(
+    "--save/--no-save",
+    default=True,
+    show_default=True,
+    help="Persist results to .sdd/metrics/swe_bench_results.jsonl.",
+)
+def eval_swe_bench(
+    subset: str,
+    sample: int | None,
+    instance_id: str | None,
+    dataset_path: str | None,
+    save: bool,
+) -> None:
+    """Run Bernstein against SWE-Bench from the eval command group."""
+    _run_swe_bench_command(
+        subset=subset,
+        sample=sample,
+        instance_id=instance_id,
+        dataset_path=dataset_path,
+        save=save,
+    )
+
+
+@eval_group.command("run")
+@click.argument("spec", required=False, type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--tier",
+    type=click.Choice(["smoke", "standard", "stretch", "adversarial"]),
+    default=None,
+    help="Run only tasks from this tier.",
+)
+@click.option("--compare", "compare_prev", is_flag=True, default=False, help="Compare vs previous run.")
+@click.option("--save/--no-save", default=True, show_default=True, help="Persist results to disk.")
+@click.option(
+    "--output",
+    "output_json",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="When SPEC is given, also write the JSON report to this path.",
+)
+def eval_run(
+    spec: str | None,
+    tier: str | None,
+    compare_prev: bool,
+    save: bool,
+    output_json: str | None,
+) -> None:
+    """Run the golden benchmark suite or a YAML eval spec.
+
+    \b
+      bernstein eval run                       # run full golden suite
+      bernstein eval run --tier smoke          # smoke tier only
+      bernstein eval run --compare             # compare vs previous run
+      bernstein eval run path/to/eval.yaml     # YAML spec run
+    """
+    if spec is not None:
+        _run_yaml_spec(spec_path=spec, save=save, output_json=output_json)
+        return
+
+    from rich.table import Table
+
+    from bernstein.eval.harness import EvalHarness, TaskEvalResult
+
+    workdir = Path()
+    state_dir = workdir / ".sdd"
+    harness = EvalHarness(state_dir=state_dir, repo_root=workdir)
+
+    tier_filter: Tier | None = tier  # type: ignore[assignment]
+    tasks = harness.load_golden_tasks(tier_filter=tier_filter)
+
+    if not tasks:
+        console.print("[yellow]No golden tasks found.[/yellow]")
+        console.print(f"[dim]Expected at: {state_dir / 'eval' / 'golden'}/<tier>/*.md[/dim]")
+        raise SystemExit(1)
+
+    console.print(f"[bold]Eval harness[/bold]: {len(tasks)} golden task(s)")
+
+    # Evaluate each task (with empty telemetry for now - real runs
+    # would collect telemetry from actual agent execution)
+    task_results: list[TaskEvalResult] = []
+    for task in tasks:
+        result = harness.evaluate_task(task)
+        task_results.append(result)
+
+    run_result = harness.compute_multiplicative_score(task_results)
+
+    # Display results
+    table = Table(title="Eval Results", header_style=_STYLE_BOLD_CYAN, show_lines=False)
+    table.add_column("Component", min_width=15)
+    table.add_column("Score", justify="right", min_width=10)
+
+    mc = run_result.multiplicative_components
+    if mc:
+        table.add_row("Task Success", f"{mc.task_success:.2%}")
+        table.add_row("Code Quality", f"{mc.code_quality:.2%}")
+        table.add_row("Efficiency", f"{mc.efficiency:.2%}")
+        table.add_row("Reliability", f"{mc.reliability:.2%}")
+        table.add_row("Safety", f"{mc.safety:.2%}")
+        table.add_row("", "")
+        table.add_row("[bold]Final Score[/bold]", f"[bold]{mc.final_score:.4f}[/bold]")
+
+    console.print(table)
+
+    # Per-tier breakdown
+    pt = run_result.per_tier
+    if pt:
+        tier_table = Table(title="Per-Tier Scores", header_style=_STYLE_BOLD_CYAN)
+        tier_table.add_column("Tier", min_width=15)
+        tier_table.add_column("Score", justify="right", min_width=10)
+        tier_table.add_row("Smoke", f"{pt.smoke:.2%}")
+        tier_table.add_row("Standard", f"{pt.standard:.2%}")
+        tier_table.add_row("Stretch", f"{pt.stretch:.2%}")
+        tier_table.add_row("Adversarial", f"{pt.adversarial:.2%}")
+        console.print(tier_table)
+
+    # Compare with previous run
+    if compare_prev:
+        prev = harness.load_previous_run()
+        if prev:
+            delta = run_result.score - prev.score
+            color = "green" if delta >= 0 else "red"
+            console.print(f"\n[bold]vs previous:[/bold] [{color}]{delta:+.4f}[/{color}]")
+            console.print(f"[dim]Previous score: {prev.score:.4f}[/dim]")
+        else:
+            console.print("[dim]No previous run found for comparison.[/dim]")
+
+    # Save results
+    if save:
+        path = harness.save_run(run_result)
+        console.print(f"[dim]Results saved → {path}[/dim]")
+
+
+def _run_yaml_spec(*, spec_path: str, save: bool, output_json: str | None) -> None:
+    """Execute a YAML eval spec and surface a Rich-formatted summary."""
+    from rich.table import Table
+
+    from bernstein.eval.yaml_runner import (
+        YAMLRunner,
+        lineage_stub_for,
+        load_spec,
+        save_report,
+    )
+
+    path = Path(spec_path).resolve()
+    eval_spec = load_spec(path)
+    report = YAMLRunner().run(eval_spec, base_dir=path.parent)
+
+    console.print(f"[bold]YAML eval[/bold]: {eval_spec.name} (adapters={len(eval_spec.adapters)})")
+
+    table = Table(title="Per-adapter results", header_style=_STYLE_BOLD_CYAN, show_lines=False)
+    table.add_column("Adapter", min_width=14)
+    table.add_column("Prompts", justify="right")
+    table.add_column("Golden pass", justify="right")
+    table.add_column("Golden %", justify="right")
+    table.add_column("Judge mean", justify="right")
+    table.add_column("Overall", justify="right")
+
+    for agg in report.per_adapter:
+        table.add_row(
+            agg.adapter,
+            str(agg.prompt_count),
+            str(agg.golden_passed),
+            f"{agg.golden_pass_rate * 100:.1f}%",
+            f"{agg.judge_mean:.3f}",
+            f"{agg.overall_score:.3f}",
+        )
+
+    console.print(table)
+
+    if report.threshold_failures:
+        console.print("\n[bold red]Threshold failures:[/bold red]")
+        for failure in report.threshold_failures:
+            console.print(f"  [red]-[/red] {failure}")
+
+    if save:
+        state_dir = Path(".sdd")
+        json_path, md_path = save_report(report, state_dir=state_dir)
+        stub = lineage_stub_for(json_path, lineage_tag=report.lineage_tag)
+        lineage_path = json_path.with_suffix(".lineage.json")
+        lineage_path.write_text(
+            __import__("json").dumps(stub.to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        console.print(f"[dim]JSON  -> {json_path}[/dim]")
+        if md_path is not None:
+            console.print(f"[dim]MD    -> {md_path}[/dim]")
+        console.print(f"[dim]Lineage -> {lineage_path}[/dim]")
+
+    if output_json:
+        Path(output_json).write_text(report.to_json() + "\n", encoding="utf-8")
+        console.print(f"[dim]Wrote JSON report -> {output_json}[/dim]")
+
+    if not report.thresholds_passed:
+        raise SystemExit(1)
+
+
+@eval_group.command("list")
+@click.option(
+    "--state-dir",
+    "state_dir",
+    type=click.Path(file_okay=False),
+    default=".sdd",
+    show_default=True,
+    help="Bernstein state directory.",
+)
+def eval_list(state_dir: str) -> None:
+    """List persisted YAML eval runs (newest first).
+
+    \b
+      bernstein eval list
+    """
+    from bernstein.eval.yaml_runner import list_runs
+
+    runs = list_runs(Path(state_dir))
+    if not runs:
+        console.print("[yellow]No YAML eval runs found.[/yellow]")
+        return
+    for path in runs:
+        console.print(f"  {path}")
+
+
+@eval_group.command("diff")
+@click.argument("run_a", type=click.Path(exists=True, dir_okay=False))
+@click.argument("run_b", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--output",
+    "output_json",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write the diff JSON to this path (stdout if omitted).",
+)
+def eval_diff(run_a: str, run_b: str, output_json: str | None) -> None:
+    """Diff two persisted YAML eval runs.
+
+    \b
+      bernstein eval diff .sdd/eval/yaml_runs/yaml_run_A.json .sdd/eval/yaml_runs/yaml_run_B.json
+    """
+    import json as _json
+
+    from bernstein.eval.yaml_runner import diff_runs
+
+    diff = diff_runs(Path(run_a), Path(run_b))
+    payload = _json.dumps(diff.to_dict(), indent=2, sort_keys=True)
+    if output_json:
+        Path(output_json).write_text(payload + "\n", encoding="utf-8")
+        console.print(f"[dim]Wrote diff -> {output_json}  winner={diff.winner}[/dim]")
+    else:
+        click.echo(payload)
+
+
+@eval_group.command("report")
+def eval_report() -> None:
+    """Generate a markdown report from the most recent eval run."""
+    from bernstein.eval.harness import EvalHarness
+
+    workdir = Path()
+    state_dir = workdir / ".sdd"
+    prev = EvalHarness(state_dir=state_dir, repo_root=workdir).load_previous_run()
+    if not prev:
+        console.print(_NO_EVAL_RUNS_MSG)
+        raise SystemExit(1)
+
+    console.print(f"[bold]Eval report[/bold]: score: {prev.score:.4f}")
+
+    mc = prev.multiplicative_components
+    if mc:
+        console.print(f"  Task Success:  {mc.task_success:.2%}")
+        console.print(f"  Code Quality:  {mc.code_quality:.2%}")
+        console.print(f"  Efficiency:    {mc.efficiency:.2%}")
+        console.print(f"  Reliability:   {mc.reliability:.2%}")
+        console.print(f"  Safety:        {mc.safety:.2%}")
+
+    pt = prev.per_tier
+    if pt:
+        console.print(f"\n  Smoke:       {pt.smoke:.2%}")
+        console.print(f"  Standard:    {pt.standard:.2%}")
+        console.print(f"  Stretch:     {pt.stretch:.2%}")
+        console.print(f"  Adversarial: {pt.adversarial:.2%}")
+
+    if prev.cost_total > 0:
+        console.print(f"\n  Total cost: ${prev.cost_total:.2f}")
+
+    console.print(f"  Tasks evaluated: {prev.tasks_evaluated}")
+
+
+@eval_group.command("failures")
+def eval_failures() -> None:
+    """Show failure taxonomy breakdown from the most recent eval run."""
+    import json as json_mod
+
+    from rich.table import Table
+
+    workdir = Path()
+    runs_dir = workdir / ".sdd" / "eval" / "runs"
+
+    if not runs_dir.is_dir():
+        console.print(_NO_EVAL_RUNS_MSG)
+        raise SystemExit(1)
+
+    run_files = sorted(runs_dir.glob("eval_run_*.json"), reverse=True)
+    if not run_files:
+        console.print(_NO_EVAL_RUNS_MSG)
+        raise SystemExit(1)
+
+    failures = json_mod.loads(run_files[0].read_text(encoding="utf-8")).get("failures", [])
+
+    if not failures:
+        console.print("[green]No failures in the most recent run.[/green]")
+        return
+
+    table = Table(title="Failure Taxonomy", header_style="bold red", show_lines=True)
+    table.add_column("Task", min_width=20)
+    table.add_column("Category", min_width=18)
+    table.add_column("Details", min_width=40)
+
+    for f in failures:
+        table.add_row(
+            str(f.get("task", "")),
+            str(f.get("taxonomy", "")),
+            str(f.get("details", "")),
+        )
+
+    console.print(table)
+
+    # Category counts
+    counts: dict[str, int] = {}
+    for f in failures:
+        cat = str(f.get("taxonomy", "unknown"))
+        counts[cat] = counts.get(cat, 0) + 1
+
+    console.print(f"\n[bold]Total failures:[/bold] {len(failures)}")
+    for cat, count in sorted(counts.items(), key=lambda x: -x[1]):
+        console.print(f"  {cat}: {count}")
+
+
+@eval_group.command("sync-incidents")
+@click.option("--workdir", default=".", type=click.Path(exists=True), help="Project root.")
+@click.option("--dry-run", is_flag=True, default=False, help="Print what would be created without writing files.")
+def eval_sync_incidents(workdir: str, dry_run: bool) -> None:
+    """Convert dead-letter and post-mortem incidents into eval cases.
+
+    \b
+      bernstein eval sync-incidents              # write new YAML cases
+      bernstein eval sync-incidents --dry-run    # preview only
+    """
+    from bernstein.eval.incident_synthesizer import IncidentSynthesizer
+
+    root = Path(workdir).resolve()
+    result = IncidentSynthesizer(root).sync(dry_run=dry_run)
+
+    if dry_run:
+        console.print(f"[bold]Dry run[/bold]: {len(result.created)} case(s) would be created:")
+    else:
+        console.print(f"[bold]{len(result.created)} new incident eval case(s) emitted[/bold]")
+    for case in result.created:
+        sev_color = {"P0": "red", "P1": "yellow", "P2": "dim"}.get(case.severity, "white")
+        console.print(f"  [{sev_color}]{case.severity}[/{sev_color}] {case.id}  ← {case.source_incident}")
+    console.print(
+        f"[dim]skipped duplicates={result.skipped_duplicates} unredactable={result.skipped_unredactable}[/dim]",
+    )
+
+
+@eval_group.command("synth-list")
+def eval_synth_list() -> None:
+    """List the synthetic scenario registry with declared axes."""
+    from bernstein.eval.scenario_generator import is_disabled, list_scenarios
+
+    if is_disabled():
+        console.print("[yellow]Synthetic eval generator disabled via BERNSTEIN_SYNTHETIC_EVAL_OFF.[/yellow]")
+        return
+
+    rows = list_scenarios()
+    if not rows:
+        console.print("[yellow]No synthetic scenarios registered.[/yellow]")
+        return
+
+    from rich.table import Table
+
+    table = Table(title="Synthetic scenarios", header_style=_STYLE_BOLD_CYAN)
+    table.add_column("ID", min_width=18)
+    table.add_column("Severity", min_width=10)
+    table.add_column("Axes", min_width=40)
+    for row in rows:
+        axes_repr = ", ".join(f"{k}={list(v)}" for k, v in row["axes"].items())
+        table.add_row(row["id"], row["severity"], axes_repr)
+    console.print(table)
+
+
+@eval_group.command("synth-generate")
+@click.option("--scenario", "scenario_id", required=True, help="Scenario id from the registry.")
+@click.option("--params", "params_str", default="", show_default=False, help="Override axes (k=v,...).")
+@click.option("--count", "count", type=int, default=1, show_default=True, help="Number of cases to emit.")
+@click.option("--seed", "seed", type=int, default=42, show_default=True, help="Base seed for determinism.")
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Output directory (default: eval/golden_data/synthetic).",
+)
+def eval_synth_generate(
+    scenario_id: str,
+    params_str: str,
+    count: int,
+    seed: int,
+    out_dir: str | None,
+) -> None:
+    """Generate N synthetic eval cases for a single scenario.
+
+    \b
+      bernstein eval synth-generate --scenario large_diff --count 3
+      bernstein eval synth-generate --scenario flaky_tests --params flake_rate=0.3 --count 5
+    """
+    from bernstein.eval.scenario_generator import (
+        DEFAULT_OUT_DIR,
+        is_disabled,
+        materialise_and_write,
+        parse_param_string,
+    )
+
+    if is_disabled():
+        console.print("[yellow]Synthetic eval generator disabled via BERNSTEIN_SYNTHETIC_EVAL_OFF.[/yellow]")
+        return
+
+    try:
+        params = parse_param_string(params_str)
+    except ValueError as exc:
+        console.print(f"[red]Invalid --params:[/red] {exc}")
+        raise SystemExit(2) from exc
+
+    out_path = Path(out_dir) if out_dir else Path().joinpath(*DEFAULT_OUT_DIR)
+
+    try:
+        cases, written = materialise_and_write(
+            scenario_id,
+            params=params,
+            count=count,
+            seed=seed,
+            out_dir=out_path,
+        )
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]Generation failed:[/red] {exc}")
+        raise SystemExit(2) from exc
+
+    console.print(f"[bold]Synthetic eval[/bold]: {len(cases)} case(s) materialised, {len(written)} written")
+    for path in written:
+        console.print(f"  [green]wrote[/green] {path}")
+
+
+@eval_group.command("generate-scenarios")
+@click.option(
+    "--from-traces",
+    "from_traces",
+    type=int,
+    default=5,
+    show_default=True,
+    help="How many of the latest .sdd/traces/*.jsonl to scan.",
+)
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Output directory (default: eval/golden_data/synthetic).",
+)
+@click.option("--seed", "seed", type=int, default=42, show_default=True, help="Base seed for determinism.")
+def eval_generate_scenarios(from_traces: int, out_dir: str | None, seed: int) -> None:
+    """Generate synthetic scenarios from production trace patterns.
+
+    \b
+      bernstein eval generate-scenarios --from-traces 10
+      bernstein eval generate-scenarios --from-traces 5 --out eval/cases/synthetic
+    """
+    from bernstein.eval.scenario_generator import DEFAULT_OUT_DIR, generate_from_traces, is_disabled
+
+    if is_disabled():
+        console.print("[yellow]Synthetic eval generator disabled via BERNSTEIN_SYNTHETIC_EVAL_OFF.[/yellow]")
+        return
+
+    workdir = Path.cwd()
+    out_path = Path(out_dir) if out_dir else workdir.joinpath(*DEFAULT_OUT_DIR)
+
+    result = generate_from_traces(
+        workdir=workdir,
+        out_dir=out_path,
+        from_traces=from_traces,
+        seed=seed,
+    )
+
+    console.print(
+        f"[bold]Synthetic eval[/bold]: {len(result.created)} new case(s) "
+        f"[dim](skipped duplicates={result.skipped_duplicates}, "
+        f"invalid traces={result.skipped_invalid_traces})[/dim]"
+    )
+    for case in result.created:
+        sev_color = {"P0": "red", "P1": "yellow", "P2": "dim"}.get(case.severity, "white")
+        console.print(f"  [{sev_color}]{case.severity}[/{sev_color}] {case.id}  scenario={case.scenario}")
+
+
+@eval_group.command("ab")
+@click.option(
+    "--variant-a",
+    "variant_a_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="YAML file with the A variant (keys: name, prompt, [model], [metadata]).",
+)
+@click.option(
+    "--variant-b",
+    "variant_b_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="YAML file with the B variant.",
+)
+@click.option(
+    "--tasks",
+    "tasks_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="YAML file with a top-level 'tasks: [...]' list.",
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write comparison JSON here (stdout if omitted).",
+)
+@click.option(
+    "--scorer",
+    type=click.Choice(["exact", "none"]),
+    default="exact",
+    show_default=True,
+    help="Built-in scorer to apply (synthetic-friendly).",
+)
+def eval_ab(
+    variant_a_path: str,
+    variant_b_path: str,
+    tasks_path: str,
+    output_path: str | None,
+    scorer: str,
+) -> None:
+    """Run two prompt variants over a task set; emit a comparison JSON.
+
+    Synthetic-only slice: uses the deterministic ``echo_executor``
+    so this command runs offline with zero LLM cost. Real executors plug
+    in via the Python API (``bernstein.eval.ab_runner.run_ab``).
+
+    \b
+      bernstein eval ab --variant-a a.yaml --variant-b b.yaml --tasks tasks.yaml
+      bernstein eval ab --variant-a a.yaml --variant-b b.yaml --tasks t.yaml --output report.json
+    """
+    from bernstein.eval.ab_runner import (
+        echo_executor,
+        exact_match_scorer,
+        load_tasks_yaml,
+        load_variant_yaml,
+        run_ab,
+    )
+
+    variant_a = load_variant_yaml(Path(variant_a_path))
+    variant_b = load_variant_yaml(Path(variant_b_path))
+    tasks = load_tasks_yaml(Path(tasks_path))
+
+    chosen_scorer = exact_match_scorer if scorer == "exact" else None
+
+    comparison = run_ab(
+        variant_a,
+        variant_b,
+        tasks,
+        executor=echo_executor,
+        scorer=chosen_scorer,
+    )
+
+    payload = comparison.to_json()
+    if output_path:
+        Path(output_path).write_text(payload + "\n", encoding="utf-8")
+        console.print(f"[green]wrote[/green] {output_path}  winner={comparison.winner}")
+    else:
+        click.echo(payload)
+
+
+# ---------------------------------------------------------------------------
+# eval scenario - scenario-style evals (precision/recall, e.g. security-pentest)
+# ---------------------------------------------------------------------------
+
+
+_DEFAULT_EVAL_SCENARIOS_DIR = Path(__file__).resolve().parents[4] / "eval" / "scenarios"
+
+
+@eval_group.command("scenario")
+@click.argument("scenario_id")
+@click.option("--model", "model", default="mock", show_default=True, help="Model name passed to the adapter.")
+@click.option(
+    "--adapters",
+    "adapters_csv",
+    default=None,
+    help=(
+        "Comma-separated list of adapter slugs (e.g. 'a,b'). When supplied, "
+        "the scenario fans out across the listed adapters and the consensus "
+        "is reported alongside the per-adapter split."
+    ),
+)
+@click.option(
+    "--scenarios-dir",
+    "scenarios_dir",
+    type=click.Path(file_okay=False, exists=True),
+    default=None,
+    help="Override the eval scenarios directory (defaults to <repo>/eval/scenarios).",
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write the JSON result to this path (stdout if omitted).",
+)
+def eval_scenario(
+    scenario_id: str,
+    model: str,
+    adapters_csv: str | None,
+    scenarios_dir: str | None,
+    output_path: str | None,
+) -> None:
+    """Run a precision/recall eval scenario from ``eval/scenarios/``.
+
+    Currently supports the ``security-pentest`` scenario. The scenario
+    runs the configured adapter against the synthetic codebase and emits
+    a JSON precision/recall/F1 report. Exit code is 0 when all configured
+    thresholds are met and 1 otherwise.
+
+    \b
+      bernstein eval scenario security-pentest --model mock
+      bernstein eval scenario security-pentest --model sonnet --output run.json
+      bernstein eval scenario security-pentest --adapters mock,mock
+    """
+    import json as _json
+
+    from bernstein.eval.pentest_runner import (
+        PentestAdapter,
+        load_scenario_config,
+        mock_adapter,
+        run_multi_adapter,
+        run_scenario,
+    )
+    from bernstein.eval.pentest_scorer import PentestScorer
+
+    base_dir = Path(scenarios_dir) if scenarios_dir else _DEFAULT_EVAL_SCENARIOS_DIR
+    slug = scenario_id.replace("-", "_")
+    candidates = [
+        base_dir / f"{slug}.yaml",
+        base_dir / f"{scenario_id}.yaml",
+    ]
+    chosen: Path | None = next((c for c in candidates if c.exists()), None)
+    if chosen is None:
+        console.print(f"[red]Scenario not found:[/red] {scenario_id} (searched {base_dir})")
+        raise SystemExit(1)
+
+    config = load_scenario_config(chosen)
+
+    if adapters_csv:
+        # Multi-adapter fan-out path.
+        names = [n.strip() for n in adapters_csv.split(",") if n.strip()]
+        if not names:
+            console.print("[red]--adapters supplied but resolved to an empty list[/red]")
+            raise SystemExit(1)
+        # Resolve adapter slugs to callables. Today only ``mock`` is
+        # available out-of-the-box; production callers register their
+        # own slugs via plugin loading. Disambiguate duplicate slugs
+        # so the call_order tuple remains unique.
+        resolved: dict[str, PentestAdapter] = {}
+        slug_counts: dict[str, int] = {}
+        for slug_name in names:
+            base = slug_name
+            count = slug_counts.get(base, 0)
+            slug_counts[base] = count + 1
+            key = base if count == 0 else f"{base}-{count + 1}"
+            # All slugs currently map to the mock adapter; production
+            # registry wiring happens in a follow-up ticket.
+            resolved[key] = mock_adapter
+        multi = run_multi_adapter(adapters=resolved, config=config)
+        split = PentestScorer().score_multi(multi)
+        envelope: dict[str, object] = multi.to_dict()
+        envelope["per_adapter_score"] = {
+            name: {
+                "precision": round(score.precision, 6),
+                "recall": round(score.recall, 6),
+                "f1": round(score.f1, 6),
+            }
+            for name, score in split.per_adapter.items()
+        }
+        envelope["consensus_score"] = {
+            "precision": round(split.consensus.precision, 6),
+            "recall": round(split.consensus.recall, 6),
+            "f1": round(split.consensus.f1, 6),
+        }
+        payload = _json.dumps(envelope, indent=2, sort_keys=True)
+        if output_path:
+            Path(output_path).write_text(payload + "\n", encoding="utf-8")
+            console.print(
+                f"[green]wrote[/green] {output_path}  "
+                f"adapters={','.join(multi.call_order)}  "
+                f"consensus_p={split.consensus.precision:.2f} "
+                f"consensus_r={split.consensus.recall:.2f}"
+            )
+        else:
+            click.echo(payload)
+        return
+
+    result = run_scenario(config, model=model)
+    payload = _json.dumps(result.to_dict(), indent=2, sort_keys=True)
+    if output_path:
+        Path(output_path).write_text(payload + "\n", encoding="utf-8")
+        verdict = "PASS" if result.passed else "FAIL"
+        console.print(
+            f"[green]wrote[/green] {output_path}  {verdict}  "
+            f"p={result.score.precision:.2f} r={result.score.recall:.2f} f1={result.score.f1:.2f}"
+        )
+    else:
+        click.echo(payload)
+    if not result.passed:
+        raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# eval calibration - Brier + ECE report over the on-disk calibration log
+# ---------------------------------------------------------------------------
+
+
+@eval_group.group("calibration")
+def calibration_group() -> None:
+    """Inspect calibration of router/judge probability outputs."""
+
+
+@calibration_group.command("report")
+@click.option(
+    "--since",
+    "since",
+    default=None,
+    help="Restrict to records within this duration (e.g. '7d', '30m', '24h').",
+)
+@click.option(
+    "--kind",
+    "decision_kind",
+    default=None,
+    help="Filter records by decision_kind (e.g. 'model_route').",
+)
+@click.option(
+    "--log-path",
+    "log_path",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help="Override the calibration JSONL log path.",
+)
+@click.option(
+    "--bins",
+    "bin_count",
+    type=click.IntRange(min=1),
+    default=10,
+    show_default=True,
+    help="Number of reliability buckets.",
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Write report JSON to this file (stdout if omitted).",
+)
+def calibration_report(
+    since: str | None,
+    decision_kind: str | None,
+    log_path: str | None,
+    bin_count: int,
+    output_path: str | None,
+) -> None:
+    """Print a Brier + ECE + reliability report for the calibration log.
+
+    \b
+      bernstein eval calibration report --since 7d
+      bernstein eval calibration report --since 24h --kind model_route
+    """
+    import json as _json
+
+    from bernstein.eval.calibration import (
+        DEFAULT_LOG_PATH,
+        compute_report,
+        load_log,
+        parse_duration,
+    )
+
+    path = Path(log_path) if log_path else DEFAULT_LOG_PATH
+    since_seconds = parse_duration(since) if since else None
+    records = load_log(path, since_seconds=since_seconds, decision_kind=decision_kind)
+    report = compute_report(
+        records,
+        bin_count=bin_count,
+        decision_kind=decision_kind,
+        since=since,
+    )
+    payload = _json.dumps(report.to_dict(), indent=2, sort_keys=True)
+    if output_path:
+        Path(output_path).write_text(payload + "\n", encoding="utf-8")
+        console.print(f"[green]wrote[/green] {output_path}  decisions={report.decisions}")
+    else:
+        click.echo(payload)
+
+
+# ---------------------------------------------------------------------------
+# workspace - multi-repo workspace management

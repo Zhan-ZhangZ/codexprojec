@@ -1,0 +1,273 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/SensorPlatformSchema" },
+    { "$ref": "#/definitions/SensorPlatformSchema_1" },
+    { "$ref": "#/definitions/OtherPlatform" },
+    { "type": "array", "items": { "$ref": "#/definitions/Item" } }
+  ],
+  "definitions": {
+    "SensorPlatformSchema": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The template platform supports sensors which get their values from other entities.\nhttps://www.home-assistant.io/integrations/template",
+          "type": "string",
+          "const": "template"
+        },
+        "sensors": {
+          "description": "List of sensors.\nhttps://www.home-assistant.io/integrations/template#sensors",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "string", "pattern": "^!include_dir_named .*$" },
+              { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+              {
+                "type": "string",
+                "pattern": "^!include_dir_merge_named\u000b.*$"
+              },
+              { "$ref": "#/definitions/SensorPlatformItem" }
+            ]
+          }
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["platform", "sensors"]
+    },
+    "SensorPlatformItem": {
+      "type": "object",
+      "properties": {
+        "attribute_templates": {
+          "description": "Defines templates for attributes of the sensor.\nhttps://www.home-assistant.io/integrations/template#attribute_templates",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "availability_template": {
+          "description": "Defines a template to get the available state of the sensor. Return true if the device is available, false otherwise.\nhttps://www.home-assistant.io/integrations/template#availability_template",
+          "type": "string"
+        },
+        "device_class": {
+          "description": "Sets the class of the device, changing the device state and icon that is displayed on the frontend.\nhttps://www.home-assistant.io/integrations/template#device_class",
+          "enum": [
+            "apparent_power",
+            "aqi",
+            "area",
+            "atmospheric_pressure",
+            "battery",
+            "blood_glucose_concentration",
+            "carbon_dioxide",
+            "carbon_monoxide",
+            "conductivity",
+            "current",
+            "data_rate",
+            "data_size",
+            "date",
+            "distance",
+            "duration",
+            "energy",
+            "energy_distance",
+            "energy_storage",
+            "enum",
+            "frequency",
+            "gas",
+            "humidity",
+            "illuminance",
+            "irradiance",
+            "moisture",
+            "monetary",
+            "nitrogen_dioxide",
+            "nitrogen_monoxide",
+            "nitrous_oxide",
+            "ozone",
+            "ph",
+            "pm1",
+            "pm10",
+            "pm25",
+            "power",
+            "power_factor",
+            "precipitation",
+            "precipitation_intensity",
+            "pressure",
+            "reactive_power",
+            "signal_strength",
+            "sound_pressure",
+            "speed",
+            "sulphur_dioxide",
+            "temperature",
+            "timestamp",
+            "volatile_organic_compounds",
+            "volatile_organic_compounds_parts",
+            "voltage",
+            "volume",
+            "volume_flow_rate",
+            "volume_storage",
+            "water",
+            "weight",
+            "wind_speed"
+          ],
+          "type": "string"
+        },
+        "entity_picture_template": {
+          "description": "Defines a template for the entity picture of the sensor.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#entity_picture_template",
+          "type": "string"
+        },
+        "friendly_name": {
+          "description": "Name to use in the frontend.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#friendly_name",
+          "type": "string"
+        },
+        "friendly_name_template": {
+          "description": "Defines a template for the name to be used in the frontend (this overrides friendly_name).\nhttps://www.home-assistant.io/integrations/binary_sensor.template#friendly_name",
+          "type": "string"
+        },
+        "icon_template": {
+          "description": "Defines a template for the icon of the sensor.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#icon_template",
+          "type": "string"
+        },
+        "state_class": {
+          "description": "The State Class of the sensor.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#state_class",
+          "enum": ["measurement", "total", "total_increasing"],
+          "type": "string"
+        },
+        "unit_of_measurement": {
+          "description": "Defines the units of measurement of the sensor, if any. This will also influence the graphical presentation in the history visualization as a continuous value.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#unique_id",
+          "type": "string"
+        },
+        "unique_id": {
+          "description": "An ID that uniquely identifies this binary sensor. Set this to an unique value to allow customization through the UI.\nhttps://www.home-assistant.io/integrations/template#unique_id",
+          "type": "string"
+        },
+        "value_template": {
+          "description": "Defines a template to get the state of the sensor.\nhttps://www.home-assistant.io/integrations/template#value_template",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["value_template"]
+    },
+    "TimePeriodMap": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "description": "Number of days. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "hours": {
+          "description": "Number of hours. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "milliseconds": {
+          "description": "Number of milliseconds. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "minutes": {
+          "description": "Number of minutes. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "seconds": {
+          "description": "Number of seconds. This must be a number.",
+          "type": ["string", "number"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "SensorPlatformSchema_1": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The mqtt_room sensor platform allows you to detect the indoor location of devices using MQTT clients.\nhttps://www.home-assistant.io/integrations/sensor.mqtt",
+          "type": "string",
+          "const": "mqtt_room"
+        },
+        "device_id": {
+          "description": "The device id to track for this sensor.\nhttps://www.home-assistant.io/integrations/mqtt_room/#device_id",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of the MQTT sensor.\nhttps://www.home-assistant.io/integrations/sensor.mqtt#name",
+          "type": "string"
+        },
+        "state_topic": {
+          "description": "The MQTT topic subscribed to receive sensor values.\nhttps://www.home-assistant.io/integrations/sensor.mqtt#state_topic",
+          "type": "string"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The time in seconds after which a room presence state is considered old.\nhttps://www.home-assistant.io/integrations/mqtt_room/#timeout"
+        },
+        "away_timeout": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The time in seconds after which the state should be set to not_home if there were no updates. 0 disables the check.\nhttps://www.home-assistant.io/integrations/mqtt_room/#away_timeout"
+        },
+        "unique_id": {
+          "description": "An ID that uniquely identifies this room sensor. If two sensors have the same unique ID, Home Assistant will raise an exception.\nhttps://www.home-assistant.io/integrations/mqtt_room/#unique_id",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["device_id", "platform", "state_topic"]
+    },
+    "OtherPlatform": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "Platform domain",
+          "pattern": "^(?!(mqtt_room|template|mqtt)$)\\w+$",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "required": ["platform"]
+    },
+    "Item": {
+      "anyOf": [
+        { "$ref": "#/definitions/SensorPlatformSchema" },
+        { "$ref": "#/definitions/SensorPlatformSchema_1" },
+        { "$ref": "#/definitions/OtherPlatform" }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

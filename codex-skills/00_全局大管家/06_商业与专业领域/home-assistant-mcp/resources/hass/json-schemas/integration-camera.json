@@ -1,0 +1,58 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/OtherPlatform" },
+    { "type": "array", "items": { "$ref": "#/definitions/OtherPlatform" } }
+  ],
+  "definitions": {
+    "OtherPlatform": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "Platform domain",
+          "pattern": "^(?!(mqtt)$)\\w+$",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "required": ["platform"]
+    },
+    "TimePeriodMap": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "description": "Number of days. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "hours": {
+          "description": "Number of hours. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "milliseconds": {
+          "description": "Number of milliseconds. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "minutes": {
+          "description": "Number of minutes. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "seconds": {
+          "description": "Number of seconds. This must be a number.",
+          "type": ["string", "number"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

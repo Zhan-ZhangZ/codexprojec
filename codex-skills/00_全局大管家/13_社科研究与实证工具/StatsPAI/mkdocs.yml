@@ -1,0 +1,188 @@
+site_name: StatsPAI
+site_description: Python causal inference toolkit — econometrics, DiD, SDID, RD, IV, ML causal inference
+site_author: Biaoyue Wang and Scott Rozelle
+site_url: https://brycewang-stanford.github.io/StatsPAI/
+repo_url: https://github.com/brycewang-stanford/StatsPAI
+repo_name: brycewang-stanford/StatsPAI
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - scripts/gen_api_ref.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_if_no_docstring: false
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            filters: ["!^_"]
+            heading_level: 2
+
+# Several docs pages (and the symlinked root CHANGELOG) intentionally deep-link
+# to repo files that live OUTSIDE the docs/ tree — source modules, scripts,
+# tests, paper.bib, CLAUDE.md. mkdocs cannot resolve those as internal pages,
+# so `links.not_found` is relaxed to keep `mkdocs build --strict` green for the
+# documentation itself. Anchor / absolute / unrecognized-link checks stay
+# strict so genuine intra-doc breakage still fails the build.
+validation:
+  links:
+    not_found: ignore
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Cookbook: cookbook.md
+  - FAQ & troubleshooting: faq.md
+  - Ecosystem stats: stats.md
+  - JOSS reviewer guide: joss_reviewer_guide.md
+  - JOSS validation dossier: joss_validation_dossier.md
+  - "Design rationale & FAQ": joss_reviewer_qa.md
+  - JSS source-audit dossier: jss_source_audit_dossier.md
+  - "R/Stata parity tolerance registry": dev/r_parity_tolerances.md
+  - "Cross-language parity matrix": parity.md
+  - Guides:
+      - "Public health & epidemiology — overview & design→method map": guides/public_health.md
+      - "Reproducing Hernán-Robins *What If* on real NHEFS (g-methods parity certification)": guides/whatif_nhefs.md
+      - "Epidemiological measures (OR/RR/RD/IRR/NNT, Mantel–Haenszel, standardization, diagnostic accuracy)": guides/epi_measures.md
+      - "G-methods for time-varying confounding (g-formula / MSM / LTMLE / target-trial emulation)": guides/g_methods_ph.md
+      - "Survival analysis for public health (KM / Cox / AFT / IPCW / causal survival)": guides/survival_ph.md
+      - "Competing risks — cumulative incidence (Aalen-Johansen) + Fine-Gray + Gray's test": guides/competing_risks.md
+      - "Complex-survey analysis (NHANES / BRFSS / DHS — svydesign / svyglm / calibration)": guides/survey_ph.md
+      - "Power & sample size for epidemiological designs (two-proportion / log-rank / case-control)": guides/power_epi.md
+      - "Meta-analysis (fixed/random-effects, heterogeneity, Egger, forest/funnel)": guides/meta_analysis.md
+      - "Staggered DiD (Callaway–Sant'Anna)": guides/callaway_santanna.md
+      - "Report card: cs_report()": guides/cs_report.md
+      - "Repeated cross-sections": guides/repeated_cross_sections.md
+      - "Mixtape Ch. 9 DiD — full replication": guides/mixtape_ch09_did.md
+      - "Sensitivity analysis (Rambachan–Roth)": guides/honest_did.md
+      - "Choosing a DID estimator": guides/choosing_did_estimator.md
+      - "Choosing an RD estimator": guides/choosing_rd_estimator.md
+      - "Choosing an IV estimator": guides/choosing_iv_estimator.md
+      - "Choosing a matching estimator": guides/choosing_matching_estimator.md
+      - "PSM-DID and the Stata psmatch2 workflow": guides/psm_did.md
+      - "Choosing an ML causal estimator (DML / TMLE / metalearner / causal_forest)": guides/choosing_ml_causal_estimator.md
+      - "Panel data — FE / RE / Hausman / HDFE / dynamic GMM": guides/panel_data.md
+      - "Social network analysis (centrality / community / QAP / ERGM)": guides/social_network_analysis.md
+      - "Migrating from R to StatsPAI": guides/migration-from-r.md
+      - "sp.dml and the DoubleML reference implementation": guides/sp_dml_vs_doubleml.md
+      - "Rigorous (data-driven) Lasso — sp.rlasso and the hdm port": guides/rigorous_lasso_hdm.md
+      - "Case study: reproducing the DoubleML / hdm 401(k) result": guides/case_study_401k.md
+      - "Cross-engine validation (sp.cross_validate — StatsPAI vs R/Stata/pyfixest/DoubleML)": guides/cross_engine_validation.md
+      - "From a data MCP to an estimate (World Bank / FRED / OECD ingestion)": guides/data_mcp_ingestion.md
+      - "Robustness workflow": guides/robustness_workflow.md
+      - "Automatic diagnostics — what result.violations() / sp.audit() check": guides/diagnostics.md
+      - "Sensitivity analysis — which tool for which design": guides/sensitivity_analysis.md
+      - "Mediation & causal pathways (ACME/ADE, front-door, Gelbach)": guides/mediation.md
+      - "v1.2 frontier estimators (Gardner / Model-Averaging DML / Kernel IV / HAL-TMLE / Synth Survival)": guides/v1_2_frontier.md
+      - "Bridging theorems — when two methods target the same estimand (2025-2026)": guides/bridging_theorems.md
+      - "Synthetic control — 20 methods, one package": guides/synth.md
+      - "Quasi-experiments, one contract: counterfactuals / decisions / Bayesian-OLS switch": guides/unified_quasi_experiments.md
+      - "v1.3 frontier: Synthetic controls for experimental design (Abadie-Zhao 2025/2026)": guides/synth_experimental.md
+      - "v1.3 frontier: Harvesting DID + event-study designs (Borusyak et al. 2025)": guides/harvest_did.md
+      - "v1.3 frontier: Assimilative causal inference (Nature Comms 2026)": guides/assimilative_ci.md
+      - "v1.4 panel shift-share IV for political science (Park-Xu 2026 §4.2 + AKM 2019)": guides/shift_share_political_panel.md
+      - "v1.4 Causal MAS — multi-agent LLM causal discovery (arXiv:2509.00987)": guides/causal_mas.md
+      - "Family guide: Proximal causal inference (fortified / bidirectional / MTP / DNC / surrogate-PCI)": guides/proximal_family.md
+      - "Family guide: Quantile & distributional treatment effects (QTE / dist-IV / beyond-avg LATE / HD panel)": guides/qte_family.md
+      - "Family guide: Causal reinforcement learning (bandit / DQN / offline-safe / OPE)": guides/causal_rl_family.md
+      - "Family guide: Interference & spillover (partial / network / cluster-RCT / HTE)": guides/interference_family.md
+      - "Family guide: Conformal causal inference (CATE / ITE / density / debiased-ML / fair / dose-response / cluster)": guides/conformal_family.md
+      - "Family guide: Mendelian Randomization (IVW / Egger / median / mode / MR-PRESSO / MVMR / BMA)": guides/mendelian_family.md
+      - "v1.6 P1: LLM-assisted causal discovery — closed loop (constrained PC + CI validate)": guides/llm_dag_family.md
+      - "v1.6 P1: sp.paper() — data → publication-draft pipeline": guides/paper_pipeline.md
+      - "Methods and Formulas appendix — traceable estimand/formula/inference/citation per result": guides/methods_appendix.md
+      - "v1.6 P1: Causal text MVP (text-as-treatment / LLM-annotator MEC) — experimental": guides/causal_text_family.md
+      - "v1.7.2 export trinity: replication_pack + Provenance + Quarto + great_tables + CSL": guides/replication_workflow.md
+      - "v1.7.2 LLM-DAG setup: providers, env vars, configure_llm(), sp.paper(llm='auto')": guides/llm_dag_setup.md
+      - "v1.9.0 Agent-native API surface: detect_design / preflight / audit / brief / cite / examples / session / MCP prompts": guides/agent_api.md
+      - "Driving StatsPAI as an agent — end-to-end workflow": guides/agent_native_workflow.md
+      - "MCP workflow for empirical economists": guides/economist_mcp_workflow.md
+      - "面向实证经济学的 MCP 工作流": guides/economist_mcp_workflow_zh.md
+      - "v1.13 Stability tiers — parity-grade vs. frontier-grade (stable / experimental / deprecated + limitations)": guides/stability.md
+      - "v1.14 GPU acceleration — neural causal (PyTorch) + JAX feols + vmap'd bootstrap": guides/gpu_acceleration.md
+      - "Performance — honest cross-library HDFE benchmark": guides/performance.md
+      - "v1.15 Decomposition family — 19 estimators incl. Yu-Elwert (2025) + unified Excel/Word/cite exports": guides/decomposition_family.md
+      - "Exporting regression results — LaTeX/Word/Excel/HTML/Markdown/JSON + Stata/R cross-reference": guides/exporting-regression-tables.md
+  - Reference:
+      - "Overview": reference/index.md
+      - "Difference-in-differences": reference/did.md
+      - "Instrumental variables": reference/iv.md
+      - "Matching / balancing": reference/matching.md
+      - "Panel data": reference/panel.md
+      - "Regression discontinuity": reference/rd.md
+      - "Synthetic control": reference/synth.md
+      - "Decomposition analysis": reference/decomposition.md
+      - "Stochastic frontier": reference/frontier.md
+      - "Multilevel / mixed-effects": reference/multilevel.md
+      - "Double / debiased ML": reference/dml.md
+      - "Rigorous Lasso (hdm port)": reference/rlasso.md
+      - "Causal ML (forests, meta-learners, TMLE, neural)": reference/causal.md
+      - "G-methods (g-formula, front-door, MSM, interventional mediation)": reference/g_methods.md
+      - "Proximal causal inference": reference/proximal.md
+      - "Principal stratification": reference/principal_stratification.md
+      - "Sensitivity analysis": reference/sensitivity.md
+      - "Smart workflow": reference/smart.md
+      - "Spatial econometrics": reference/spatial.md
+      - "Time series": reference/timeseries.md
+      - "Survival analysis": reference/survival.md
+  - Full API reference: reference/api/
+  - Changelog: changelog.md

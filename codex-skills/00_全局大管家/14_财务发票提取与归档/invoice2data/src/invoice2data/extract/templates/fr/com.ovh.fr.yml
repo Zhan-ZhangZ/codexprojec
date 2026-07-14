@@ -1,0 +1,17 @@
+issuer: OVH.com
+fields:
+  amount: Total\s+TTC\s+([\d ]+,\d{2})
+  amount_untaxed: Total de la facture HT\s+([\d ]+,\d{2})
+  date: Date d'émission\s+:\s+(\d{1,2}\/\d{1,2}\/\d{4})
+  invoice_number: Facture\s+(FR\w+) du.+
+  static_vat: FR22424761419
+keywords:
+  - FR22424761419
+  - Facture
+options:
+  currency: EUR
+  date_formats:
+    - "%d %B %Y"
+  languages:
+    - fr
+  decimal_separator: ","

@@ -1,0 +1,125 @@
+"""
+Module for fetching and processing tender invitations data from the Hong Kong Monetary Authority (HKMA).
+
+This module provides functions to retrieve tender invitations and notices from the HKMA API with various filtering options.
+"""
+
+from datetime import datetime
+from typing import Dict, List, Optional, Annotated
+from pydantic import Field
+from hkopenai_common.json_utils import fetch_json_data
+
+
+def register(mcp):
+    """Registers the HKMA tender invitations tool with the FastMCP server."""
+
+    @mcp.tool(
+        description="Get information of Tender Invitation and Notice of Award of Contracts from Hong Kong Monetary Authority"
+    )
+    def get_hkma_tender_invitations(
+        lang: Annotated[
+            Optional[str],
+            Field(
+                description="Language (en/tc/sc)",
+                json_schema_extra={"enum": ["en", "tc", "sc"]},
+            ),
+        ] = "en",
+        segment: Annotated[
+            Optional[str],
+            Field(
+                description="Type of records (tender/notice)",
+                json_schema_extra={"enum": ["tender", "notice"]},
+            ),
+        ] = "tender",
+        pagesize: Annotated[
+            Optional[int], Field(description="Number of records per page")
+        ] = None,
+        offset: Annotated[
+            Optional[int], Field(description="Starting record offset")
+        ] = None,
+        from_date: Annotated[
+            Optional[str], Field(description="Filter records from date (YYYY-MM-DD)")
+        ] = None,
+        to_date: Annotated[
+            Optional[str], Field(description="Filter records to date (YYYY-MM-DD)")
+        ] = None,
+    ) -> Dict:
+        """Retrieve tender invitations and notices from HKMA."""
+        return _get_tender_invitations(
+            lang=lang if lang is not None else "en",
+            segment=segment if segment is not None else "tender",
+            pagesize=pagesize,
+            offset=offset,
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+
+def _get_tender_invitations(
+    lang: str = "en",
+    segment: str = "tender",
+    pagesize: Optional[int] = None,
+    offset: Optional[int] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+) -> List[Dict]:
+    """Fetch tender invitations from HKMA API
+
+    Args:
+        lang: Language (en/tc/sc)
+        segment: Type of records (tender/notice)
+        pagesize: Number of records per page
+        offset: Starting record offset
+        from_date: Filter records from date (YYYY-MM-DD)
+        to_date: Filter records to date (YYYY-MM-DD)
+
+    Returns:
+        List of tender records with title, link and date
+    """
+
+    # Use default values if parameters are empty or invalid
+    effective_lang = lang if lang in ["en", "tc", "sc"] else "en"
+    effective_segment = (
+        segment if segment and segment in ["tender", "notice"] else "tender"
+    )
+    params = [f"lang={effective_lang}", f"segment={effective_segment}"]
+
+    if pagesize:
+        params.append(f"pagesize={pagesize}")
+    if offset:
+        params.append(f"offset={offset}")
+    if from_date:
+        params.append(f"from={from_date}")
+    if to_date:
+        params.append(f"to={to_date}")
+
+    url = f"https://api.hkma.gov.hk/public/tender-invitations?{'&'.join(params)}"
+    records = fetch_json_data(url)
+    if "error" in records:
+        return {"type": "Error", "error": records["error"]}
+
+    # Ensure records is a dictionary before attempting to get 'result'
+    if not isinstance(records, dict):
+        return {"type": "Error", "error": "Invalid data format from API"}
+
+    filtered_records = []
+    for record in records.get("result", {}).get("records", []):
+        include_record = True
+
+        record_date_str = record.get("issue_date")
+        if record_date_str:
+            record_date = datetime.strptime(record_date_str, "%Y-%m-%d")
+
+            if from_date:
+                from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+                if record_date < from_dt:
+                    include_record = False
+            if include_record and to_date:
+                to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+                if record_date > to_dt:
+                    include_record = False
+
+        if include_record:
+            filtered_records.append(record)
+
+    return filtered_records

@@ -1,0 +1,142 @@
+{
+  "module": "21_honest_relmags",
+  "side": "Stata",
+  "rows": [
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_lower_Mbar_0",
+      "estimate": 0.30630630630630629,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_upper_Mbar_0",
+      "estimate": 0.6946946946946948,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_lower_Mbar_0.5",
+      "estimate": 0.28628628628628627,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_upper_Mbar_0.5",
+      "estimate": 0.7107107107107109,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_lower_Mbar_1",
+      "estimate": 0.25825825825825838,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_upper_Mbar_1",
+      "estimate": 0.74274274274274266,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_lower_Mbar_1.5",
+      "estimate": 0.21421421421421399,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_upper_Mbar_1.5",
+      "estimate": 0.7867867867867866,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_lower_Mbar_2",
+      "estimate": 0.1581581581581579,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+,
+    {
+      "module": "21_honest_relmags",
+      "side": "Stata",
+      "statistic": "ci_upper_Mbar_2",
+      "estimate": 0.84284284284284272,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "method": "relative_magnitudes",
+    "honestdid_method": "Conditional",
+    "alpha": "0.05",
+    "stata_command": "honestdid, b(b) vcov(V) numpre(3) mvec(...) delta(rm) method(Conditional) gridPoints(1000) grid_lb(-2) grid_ub(2)",
+    "stata_reference_package": "honestdid 1.3.0",
+    "stata_reference_max_abs_py_diff": 0,
+    "stata_precision_note": "R HonestDiD 0.2.8 and Stata honestdid 1.3.0 both use Conditional with grid_lb(-2), grid_ub(2), and gridPoints(1000), yielding exact finite-grid CI bounds on this fixture."
+  },
+  "provenance": {
+    "stata_version": 18,
+    "edition": "MP",
+    "os": "Unix",
+    "machine_type": "Mac (Apple Silicon)",
+    "born_date": "07 Jun 2023",
+    "captured_via": "tests/stata_parity/_common.do::stata_parity_close"
+  }
+}

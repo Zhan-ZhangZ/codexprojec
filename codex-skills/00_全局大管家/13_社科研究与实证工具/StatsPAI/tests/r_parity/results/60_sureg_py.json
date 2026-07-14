@@ -1,0 +1,76 @@
+{
+  "module": "60_sureg",
+  "side": "py",
+  "rows": [
+    {
+      "module": "60_sureg",
+      "side": "py",
+      "statistic": "beta_eq1_intercept",
+      "estimate": 1.013502176112065,
+      "se": 0.031086572168226353,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "60_sureg",
+      "side": "py",
+      "statistic": "beta_eq1_x1",
+      "estimate": 0.7564307229875086,
+      "se": 0.027547868450837242,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "60_sureg",
+      "side": "py",
+      "statistic": "beta_eq1_w",
+      "estimate": 0.3999299213761365,
+      "se": 0.030574491339298075,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "60_sureg",
+      "side": "py",
+      "statistic": "beta_eq2_intercept",
+      "estimate": -0.5089032625190945,
+      "se": 0.03826659045638648,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "60_sureg",
+      "side": "py",
+      "statistic": "beta_eq2_x2",
+      "estimate": 0.595670457659954,
+      "se": 0.032991765893695846,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "60_sureg",
+      "side": "py",
+      "statistic": "beta_eq2_w",
+      "estimate": -0.31641077031306714,
+      "se": 0.03755499647602034,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "method": "one-step FGLS",
+    "sigma_divisor": "n"
+  }
+}

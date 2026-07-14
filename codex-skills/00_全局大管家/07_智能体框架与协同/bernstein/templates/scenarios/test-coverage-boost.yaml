@@ -1,0 +1,24 @@
+id: test-coverage-boost
+name: Test Coverage Boost
+description: Find untested code paths and generate targeted unit tests
+tags: [qa, coverage, maintenance, tests]
+version: "1.0"
+tasks:
+  - title: Identify uncovered code
+    description: Run coverage and produce a ranked list of public functions and branches without tests
+    role: qa
+    priority: 0
+    scope: medium
+    complexity: medium
+  - title: Generate unit tests for high-value gaps
+    description: Write focused unit tests for the highest-priority uncovered code paths, including edge cases and error handling
+    role: qa
+    priority: 1
+    scope: medium
+    complexity: medium
+  - title: Verify new tests are deterministic
+    description: Run the new tests in isolation and in random order, confirm they pass deterministically and finish under the smoke threshold
+    role: qa
+    priority: 1
+    scope: small
+    complexity: low

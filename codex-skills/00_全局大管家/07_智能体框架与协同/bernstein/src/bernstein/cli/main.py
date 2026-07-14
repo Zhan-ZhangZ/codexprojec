@@ -1,0 +1,1169 @@
+"""CLI entry point for Bernstein -- declarative agent orchestration.
+
+This module defines the top-level click group and registers all
+subcommand modules from:
+
+  task_cmd.py       - task lifecycle commands (cancel, add_task, etc.)
+  workspace_cmd.py  - workspace & config commands
+  advanced_cmd.py   - advanced tools (trace, replay, eval, benchmark, etc.)
+
+And existing subcommand modules:
+  helpers.py    - shared constants and utility functions
+  run_cmd.py    - init, run, start, demo
+  stop_cmd.py   - stop (soft/hard)
+  status_cmd.py - status, ps
+  agents_cmd.py - agents group
+  evolve_cmd.py - evolve group
+  cost.py       - cost_cmd
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import click
+
+from bernstein.cli.adapter_cmd import adapters_group, test_adapter
+
+# Import commands from decomposed modules (NEW)
+from bernstein.cli.advanced_cmd import (
+    completions,
+    dashboard,
+    doctor,
+    github_group,
+    help_all,
+    ideate,
+    install_hooks,
+    live,
+    mcp_server,
+    plugins_cmd,
+    quarantine_group,
+    recap,
+    replay_cmd,
+    retro,
+    trace_cmd,
+)
+from bernstein.cli.agents_cmd import agents_group
+
+# New CLI commands
+from bernstein.cli.aliases import ALIASES, aliases_cmd
+from bernstein.cli.audit_cmd import audit_group
+from bernstein.cli.auth_cmd import auth_group, auth_login
+from bernstein.cli.cache_cmd import cache_group
+from bernstein.cli.changelog_cmd import changelog_cmd
+from bernstein.cli.chaos_cmd import chaos_group
+from bernstein.cli.checkpoint_cmd import checkpoint_cmd
+from bernstein.cli.ci_cmd import ci_group
+from bernstein.cli.cloud_cmd import cloud_group
+from bernstein.cli.commands.best_of_n_rank_cmd import best_of_n_group
+from bernstein.cli.commands.bom_cmd import bom_group
+from bernstein.cli.commands.bundle_cmd import bundle_group
+from bernstein.cli.commands.citation_cmd import quality_group as citation_quality_group
+from bernstein.cli.commands.consensus_cmd import consensus_group
+from bernstein.cli.commands.criterion_profile_cmd import criterion_profile_group
+from bernstein.cli.commands.decisions_cmd import decisions_group
+from bernstein.cli.commands.desktop_register_cmd import desktop_register_cmd
+from bernstein.cli.commands.export_cmd import export_cmd
+from bernstein.cli.commands.fleet_cmd import fleet_group
+from bernstein.cli.commands.integrations_cmd import integrations_group
+from bernstein.cli.commands.knowledge_cmd import knowledge_group
+from bernstein.cli.commands.resume_cmd import resume_cmd
+from bernstein.cli.commands.role_adapter_policy_cmd import security_group as _role_adapter_security_group
+from bernstein.cli.commands.run_names_cmd import run_lookup_cmd
+from bernstein.cli.commands.skills_cmd import skills_group
+from bernstein.cli.commands.spec_cmd import spec_group
+from bernstein.cli.commands.trackers_cmd import trackers_group
+from bernstein.cli.compliance_cmd import compliance_group
+from bernstein.cli.config_path_cmd import config_path_cmd
+from bernstein.cli.cost import cost_cmd, cost_envelopes_group, estimate_cmd
+from bernstein.cli.debug_bundle import debug_group
+from bernstein.cli.debug_cmd import debug_cmd
+from bernstein.cli.dep_impact_cmd import dep_impact_cmd
+from bernstein.cli.diff_cmd import diff_cmd
+from bernstein.cli.disaster_recovery_cmd import dr_group
+from bernstein.cli.dry_run_cmd import dry_run_cmd
+from bernstein.cli.eval_benchmark_cmd import (
+    benchmark_group,
+    eval_group,
+)
+from bernstein.cli.evolve_cmd import evolve
+from bernstein.cli.explain_help_cmd import explain_help_cmd
+from bernstein.cli.fingerprint_cmd import fingerprint_group
+from bernstein.cli.gateway_cmd import gateway_group
+from bernstein.cli.graph_cmd import graph_group
+from bernstein.cli.incident_cmd import incident_cmd
+from bernstein.cli.init_wizard_cmd import init_wizard_cmd
+from bernstein.cli.logs_group_cmd import logs_group
+from bernstein.cli.maintenance_cmd import cleanup_cmd, history_cmd
+from bernstein.cli.man_page import man_pages_cmd
+from bernstein.cli.manifest_cmd import manifest_group
+from bernstein.cli.memory_cmd import memory_group
+from bernstein.cli.merge_cmd import merge_cmd
+from bernstein.cli.migrate_cmd import migrate_cmd
+from bernstein.cli.plan_archive_cmd import plan_ls, plan_show
+from bernstein.cli.plan_dag_cmd import plan_dag
+from bernstein.cli.plan_generate_cmd import plan_generate
+from bernstein.cli.plan_validate_cmd import validate_plan
+from bernstein.cli.policy_cmd import policy_group
+from bernstein.cli.postmortem_cmd import postmortem_cmd
+from bernstein.cli.profile_cmd import profile_cmd
+from bernstein.cli.prompts_cmd import prompts_group
+from bernstein.cli.quickstart_cmd import quickstart_cmd
+from bernstein.cli.recipes_cmd import recipes_group
+from bernstein.cli.report_cmd import report_cmd
+from bernstein.cli.run_changelog_cmd import run_changelog_cmd
+from bernstein.cli.scaffold_cmd import scaffold_cmd
+from bernstein.cli.self_update_cmd import self_update_cmd
+from bernstein.cli.slo_cmd import slo_cmd
+from bernstein.cli.task_cmd import (
+    add_task,
+    approve,
+    backlog_group,
+    cancel,
+    list_tasks,
+    logs_cmd,
+    pending,
+    plan,
+    reject,
+    review_cmd,
+    sync,
+)
+from bernstein.cli.templates_cmd import templates_group
+from bernstein.cli.triggers_cmd import triggers_group
+from bernstein.cli.undo_cmd import undo_cmd
+from bernstein.cli.verbosity import apply_verbosity
+from bernstein.cli.verify_cmd import verify_cmd
+from bernstein.cli.voice_cmd import listen_cmd
+from bernstein.cli.watch_cmd import watch_cmd
+from bernstein.cli.wiki_cmd import wiki_group
+from bernstein.cli.worker_cmd import worker
+from bernstein.cli.workflow_cmd import workflow_group
+from bernstein.cli.workspace_cmd import config_group, workspace_group
+from bernstein.cli.worktrees_cmd import worktrees_group
+from bernstein.cli.wrap_up_cmd import wrap_up
+from bernstein.core.json_logging import setup_json_logging
+
+# ---------------------------------------------------------------------------
+# Re-export shared state so existing imports like
+#   from bernstein.cli.main import console, SERVER_URL
+# continue to work.
+# ---------------------------------------------------------------------------
+
+# Explicit __all__ so pyright knows these are intentional re-exports.
+__all__ = [
+    "BANNER",
+    "DEMO_TASKS",
+    "SDD_DIRS",
+    "SDD_PID_SERVER",
+    "SDD_PID_SPAWNER",
+    "SDD_PID_WATCHDOG",
+    "SERVER_URL",
+    "STATUS_COLORS",
+    # Commands from task_cmd
+    "adapters_group",
+    "add_task",
+    "approve",
+    "auth_group",
+    "auth_headers",
+    "auth_login",
+    # Groups and commands from advanced_cmd
+    "backlog_group",
+    "benchmark_group",
+    "cache_group",
+    "cancel",
+    "changelog_cmd",
+    "chaos_group",
+    "checkpoint_cmd",
+    "cleanup_cmd",
+    "cloud_group",
+    "completions",
+    # Groups and commands from workspace_cmd
+    "config_group",
+    "console",
+    "dashboard",
+    "debug_cmd",
+    "detect_available_adapter",
+    "diff_cmd",
+    "doctor",
+    "eval_group",
+    "find_seed_file",
+    "gateway_group",
+    "github_group",
+    "hard_stop",
+    "help_all",
+    "history_cmd",
+    "ideate",
+    "install_hooks",
+    "is_alive",
+    "is_process_alive",
+    "kill_pid",
+    "kill_pid_hard",
+    "list_tasks",
+    "listen_cmd",
+    "live",
+    "logs_cmd",
+    "mcp_server",
+    "merge_cmd",
+    "pending",
+    "plan",
+    "plugins_cmd",
+    "print_banner",
+    "print_dry_run_table",
+    "quarantine_group",
+    "quickstart_cmd",
+    "read_pid",
+    "recap",
+    "recover_orphaned_claims",
+    "register_sigint_handler",
+    "reject",
+    "replay_cmd",
+    "retro",
+    "return_claimed_to_open",
+    "review_cmd",
+    "run_changelog_cmd",
+    "save_session_on_stop",
+    "scaffold_cmd",
+    "server_get",
+    "server_post",
+    "setup_demo_project",
+    "sigint_handler",
+    "soft_stop",
+    "sync",
+    "templates_group",
+    "test_adapter",
+    "trace_cmd",
+    "watch_cmd",
+    "wiki_group",
+    "worker",
+    "workspace_group",
+    "worktrees_group",
+    "wrap_up",
+    "write_pid",
+    "write_shutdown_signals",
+]
+
+# Operator-experience commands (feat/operator-experience)
+from bernstein.cli.commands.approval_cmd import approve_tool_cmd, reject_tool_cmd
+from bernstein.cli.commands.autofix_cmd import autofix_group
+from bernstein.cli.commands.creds_cmd import connect_cmd, creds_group
+from bernstein.cli.commands.daemon_cmd import daemon_group
+from bernstein.cli.commands.hooks_cmd import hooks as hooks_group
+from bernstein.cli.commands.issue_to_pr_cmd import issue_to_pr_group
+from bernstein.cli.commands.pipeline_cmd import pipeline_group
+from bernstein.cli.commands.pr_cmd import pr_cmd
+from bernstein.cli.commands.preview_cmd import preview_group
+from bernstein.cli.commands.remote_cmd import remote_group
+from bernstein.cli.commands.review_responder_cmd import review_responder_group
+from bernstein.cli.commands.sandbox_cmd import sandbox_group
+from bernstein.cli.commands.schedule_cmd import schedule_group
+from bernstein.cli.commands.ticket_cmd import from_ticket, ticket_group
+from bernstein.cli.commands.tunnel_cmd import tunnel_group
+from bernstein.cli.helpers import (
+    BANNER,
+    SDD_DIRS,
+    SDD_PID_SERVER,
+    SDD_PID_SPAWNER,
+    SDD_PID_WATCHDOG,
+    SERVER_URL,
+    STATUS_COLORS,
+    auth_headers,
+    console,
+    find_seed_file,
+    is_alive,
+    is_process_alive,
+    kill_pid,
+    kill_pid_hard,
+    print_banner,
+    print_dry_run_table,
+    read_pid,
+    server_get,
+    server_post,
+    write_pid,
+)
+
+# Re-export run_cmd helpers used by tests
+from bernstein.cli.run_cmd import (
+    DEMO_TASKS,
+    cook,
+    demo,
+    detect_available_adapter,
+    init,
+    run,
+    setup_demo_project,
+    start,
+)
+from bernstein.cli.status_cmd import commit_stats_cmd, ps_cmd, status
+
+# Re-export stop_cmd helpers used by tests and other modules
+from bernstein.cli.stop_cmd import (
+    hard_stop,
+    recover_orphaned_claims,
+    register_sigint_handler,
+    return_claimed_to_open,
+    save_session_on_stop,
+    sigint_handler,
+    soft_stop,
+    stop,
+    write_shutdown_signals,
+)
+from bernstein.cli.test_cmd import test_cmd
+
+# ---------------------------------------------------------------------------
+# Error telemetry bootstrap
+# ---------------------------------------------------------------------------
+
+
+def _init_error_telemetry() -> None:
+    """Initialise the operator-managed error-telemetry sink, if configured.
+
+    Wires sentry-sdk to a Sentry-protocol-compatible error sink whose DSN is
+    supplied via the portable ``BERNSTEIN_TELEMETRY_DSN`` (preferred) or the
+    legacy ``GLITCHTIP_DSN``.  The portable variable is the single, host-
+    agnostic contract documented in ``docs/observability/side-channel.md``;
+    ``GLITCHTIP_DSN`` is honoured as a fallback for existing deployments.
+
+    The function is a no-op when:
+
+    * neither DSN variable is set (operator has not yet stood up the sink), or
+    * the ``sentry-sdk`` package is not importable (minimal install without
+      the ``observability`` extra).
+
+    Sample rates are set to zero, so no events fire on the happy path -- only
+    explicit ``sentry_sdk.capture_*`` calls and unhandled exceptions reach the
+    sink.  ``send_default_pii`` is disabled so no operator identifiers leave
+    the process unless captured explicitly.
+    """
+    import os
+
+    dsn = os.environ.get("BERNSTEIN_TELEMETRY_DSN") or os.environ.get("GLITCHTIP_DSN")
+    if not dsn:
+        return
+    try:
+        import sentry_sdk  # type: ignore[import-not-found]
+    except ImportError:
+        return
+    from bernstein import __version__
+
+    # ``sentry_sdk.init`` raises ``BadDsn`` for a malformed DSN. Telemetry
+    # is best-effort: a misconfigured DSN must not crash the CLI on import.
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            traces_sample_rate=0.0,
+            profiles_sample_rate=0.0,
+            send_default_pii=False,
+            release=__version__,
+        )
+    except Exception:
+        # Best-effort import-time telemetry init: never crash the CLI.
+        return
+
+
+_init_error_telemetry()
+
+
+# ---------------------------------------------------------------------------
+# Rich help
+# ---------------------------------------------------------------------------
+
+
+def print_rich_help() -> None:
+    """Print a grouped, color-coded help screen."""
+    from rich.panel import Panel
+    from rich.table import Table
+
+    c = console
+    c.print()
+    c.print(
+        Panel(
+            "[bold]bernstein[/bold]  deterministic Python scheduler for CLI coding agents.\n"
+            "  43 adapters, parallel git worktrees, HMAC-SHA256 audit chain (RFC 2104).",
+            border_style="blue",
+            padding=(0, 2),
+            expand=False,
+        )
+    )
+    c.print("\n  [bold cyan]quick start[/bold cyan]")
+    c.print('  [dim]$[/dim] bernstein -g [green]"Add JWT auth with tests"[/green]     [dim]# inline goal[/dim]')
+    c.print("  [dim]$[/dim] bernstein                                    [dim]# from bernstein.yaml[/dim]")
+    c.print("  [dim]$[/dim] bernstein run plan.yaml                      [dim]# execute a plan file[/dim]")
+    c.print("  [dim]$[/dim] bernstein init                               [dim]# set up a new project[/dim]")
+    c.print()
+
+    groups: list[tuple[str, list[tuple[str, str]]]] = [
+        (
+            "run & manage",
+            [
+                ("bernstein -g [dim]GOAL[/dim]", "orchestrate agents for an inline goal"),
+                ("bernstein", "run from bernstein.yaml or backlog"),
+                ("run [dim]plan.yaml[/dim]", "execute a plan file (stages + steps)"),
+                ("init", "initialize project (.sdd/ + bernstein.yaml)"),
+                ("stop", "graceful stop (agents save work first)"),
+                ("stop --force", "hard stop (kill immediately)"),
+                ("checkpoint", "save progress for later resume"),
+                ("wrap-up", "end session with summary + learnings"),
+            ],
+        ),
+        (
+            "monitor",
+            [
+                ("live", "interactive TUI dashboard (3 columns)"),
+                ("dashboard", "open web dashboard in browser"),
+                ("status", "task summary and agent health"),
+                ("ps", "running agent processes"),
+                ("cost", "spend breakdown by model and task"),
+                ("logs", "tail agent output"),
+            ],
+        ),
+        (
+            "diagnostics",
+            [
+                ("doctor", "pre-flight: adapters, API keys, ports"),
+                ("recap", "post-run: tasks, pass/fail, cost"),
+                ("retro", "detailed retrospective report"),
+                ("plan", "show task backlog"),
+                ("trace [dim]ID[/dim]", "step-by-step agent decision trace"),
+            ],
+        ),
+        (
+            "agents & evolution",
+            [
+                ("agents list", "available agents and capabilities"),
+                ("agents sync", "pull latest agent catalog"),
+                ("agents discover", "auto-detect installed CLI agents"),
+                ("worker", "join a cluster as a remote worker node"),
+                ("evolve", "self-improvement proposals"),
+                ("demo", "zero-to-running demo in 60 seconds"),
+                ("quickstart", "zero-config demo: 3 tasks on a Flask TODO API"),
+            ],
+        ),
+    ]
+    for group_name, commands in groups:
+        table = Table(show_header=False, box=None, padding=(0, 1), expand=False, pad_edge=False)
+        table.add_column("", width=2)  # left indent
+        table.add_column("Command", style="bold green", no_wrap=True, width=26)
+        table.add_column("Description", style="dim")
+        for cmd, desc in commands:
+            table.add_row("", cmd, desc)
+        c.print(f"  [bold]{group_name}[/bold]")
+        c.print(table)
+        c.print()
+
+    c.print("  [bold]options[/bold]")
+    opts = Table(show_header=False, box=None, padding=(0, 1), expand=False, pad_edge=False)
+    opts.add_column("", width=2)  # left indent
+    opts.add_column("Flag", style="yellow", no_wrap=True, width=26)
+    opts.add_column("", style="dim")
+    opts.add_row("", "--budget [dim]N[/dim]", "cost cap in USD (0 = unlimited)")
+    opts.add_row("", "--dry-run", "preview task plan without spawning")
+    opts.add_row("", "--plan-only", "show execution plan without running agents")
+    opts.add_row("", "--from-plan [dim]path[/dim]", "execute a saved plan file")
+    opts.add_row("", "--auto-approve", "skip confirmation prompt before execution")
+    opts.add_row("", "--approval [dim]auto|review|pr[/dim]", "gate before merge")
+    opts.add_row("", "--fresh", "ignore saved session, start clean")
+    opts.add_row("", "--version", "show version")
+    c.print(opts)
+    c.print("\n  [dim]docs:[/dim] https://chernistry.github.io/bernstein/")
+    c.print("  [dim]repo:[/dim] https://github.com/sipyourdrink-ltd/bernstein")
+    c.print("  [dim]audit chain:[/dim] docs/security/audit-log.md  (RFC 2104 HMAC-SHA256)\n")
+
+
+# ---------------------------------------------------------------------------
+# CLI group
+# ---------------------------------------------------------------------------
+
+
+class _RichGroup(click.Group):
+    """Click group that renders help with Rich instead of plain text.
+
+    Also resolves short aliases  so ``bernstein s`` maps to
+    ``bernstein status``, etc.
+    """
+
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        print_rich_help()
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        # Resolve alias first
+        resolved = ALIASES.get(cmd_name)
+        if resolved is not None:
+            return super().get_command(ctx, resolved)
+        return super().get_command(ctx, cmd_name)
+
+    def resolve_command(
+        self,
+        ctx: click.Context,
+        args: list[str],
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        if args:
+            resolved = ALIASES.get(args[0])
+            if resolved is not None:
+                args = [resolved, *args[1:]]
+        return super().resolve_command(ctx, args)
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Intercept ``--help-all`` so it works as both option and subcommand."""
+        if "--help-all" in args:
+            args = ["help-all"]
+        return super().parse_args(ctx, args)
+
+
+def _background_startup(workdir: Path) -> dict[str, object]:
+    """Run slow startup tasks + pre-import heavy modules in background thread."""
+    result: dict[str, object] = {"agents": [], "task_count": 0, "version": "", "goal": ""}
+    with suppress(Exception):
+        from bernstein.core.agent_discovery import discover_agents_cached
+
+        _disc = discover_agents_cached()
+        result["agents"] = [
+            {"name": a.name, "logged_in": a.logged_in, "default_model": a.default_model} for a in _disc.agents
+        ]
+    with suppress(Exception):
+        _open_dir = workdir / ".sdd" / "backlog" / "open"
+        if _open_dir.exists():
+            result["task_count"] = sum(1 for f in _open_dir.iterdir() if f.suffix in (".yaml", ".yml", ".md"))
+    with suppress(Exception):
+        import bernstein.cli.run_cmd  # pyright: ignore[reportUnusedImport]
+        import bernstein.core.bootstrap  # pyright: ignore[reportUnusedImport]
+        import bernstein.core.seed  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    with suppress(Exception):
+        from importlib.metadata import version as _get_version
+
+        result["version"] = _get_version("bernstein")
+    return result
+
+
+def _validate_evolve_mode(evolve: bool, budget: float, max_cycles: int, yes: bool) -> None:
+    """Validate evolve mode flags: require safety limit and user confirmation."""
+    if not evolve:
+        return
+    if budget <= 0 and max_cycles <= 0:
+        from bernstein.cli.errors import BernsteinError
+
+        BernsteinError(
+            what="Evolve mode requires a safety limit",
+            why="Evolve mode will autonomously modify code indefinitely",
+            fix="Add --budget 5.00 or --max-cycles 10",
+        ).print()
+        raise SystemExit(1)
+
+    if not yes:
+        budget_str = f"${budget:.2f}" if budget > 0 else "unlimited"
+        cycles_str = f"{max_cycles} cycles" if max_cycles > 0 else "unlimited"
+        console.print(f"\n[bold yellow]Evolve mode (safety limit: {budget_str} cost, {cycles_str})[/bold yellow]")
+        console.print(
+            "[dim]Bernstein will autonomously[/dim] "
+            "[bold]read your codebase, propose changes, and commit them to main[/bold][dim].\n"
+        )
+        if not click.confirm("Ready to enable self-improvement?"):
+            console.print("[dim]Cancelled.[/dim]")
+            raise SystemExit(0)
+
+
+@click.group(cls=_RichGroup, invoke_without_command=True)
+@click.version_option(package_name="bernstein")
+@click.option("--goal", "-g", default=None, help="Inline goal (no seed file needed).")
+@click.option("--json", "output_json", is_flag=True, default=False, help="Output in JSON format.")
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["json", "text"]),
+    default=None,
+    help="Output format: json for machine-readable, text for Rich (default).",
+)
+@click.option("--evolve", "-e", is_flag=True, default=False, hidden=True, help="Continuous self-improvement mode.")
+@click.option("--max-cycles", default=0, hidden=True, help="Stop after N evolve cycles (0=unlimited).")
+@click.option("--budget", default=0.0, help="Cost cap in USD; stop spawning agents when reached (0=unlimited).")
+@click.option("--interval", default=300, hidden=True, help="Seconds between evolve cycles (default 5min).")
+@click.option(
+    "--github", "github_sync", is_flag=True, default=False, hidden=True, help="Sync evolve proposals as GitHub Issues."
+)
+@click.option("--headless", is_flag=True, default=False, hidden=True, help="Run without dashboard (for overnight/CI).")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview task plan without spawning agents.")
+@click.option("--yes", "-y", is_flag=True, default=False, hidden=True, help="Skip cost confirmation prompt.")
+@click.option("--fresh", "force_fresh", is_flag=True, default=False, help="Ignore saved session; start from scratch.")
+@click.option("--plan-only", is_flag=True, default=False, help="Show execution plan without running agents.")
+@click.option(
+    "--from-plan",
+    "from_plan",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Execute a saved plan file (skips interactive planning).",
+)
+@click.option("--auto-approve", is_flag=True, default=False, help="Skip confirmation prompt before execution.")
+@click.option(
+    "--approval",
+    type=click.Choice(["auto", "review", "pr"]),
+    default="auto",
+    show_default=True,
+    help="Approval gate: auto=merge immediately, review=pause for human review, pr=open GitHub PR.",
+)
+@click.option(
+    "--merge",
+    "merge_strategy",
+    type=click.Choice(["pr", "direct"]),
+    default="pr",
+    show_default=True,
+    help="Merge strategy: pr=create GitHub PR (default), direct=push directly to main branch.",
+)
+@click.option(
+    "--cli",
+    "cli_override",
+    type=click.Choice(["claude", "codex", "gemini", "qwen", "auto"]),
+    default=None,
+    help="Force a specific agent (overrides auto-detection).",
+)
+@click.option(
+    "--model",
+    "model_override",
+    default=None,
+    metavar="MODEL",
+    help="Force a specific model (e.g. opus, sonnet, o3).",
+)
+@click.option(
+    "--workflow",
+    "workflow_mode",
+    type=click.Choice(["governed"], case_sensitive=False),
+    default=None,
+    help="Activate governed workflow mode (deterministic phase-based execution).",
+)
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show debug-level output.")
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress all non-error output.")
+@click.option(
+    "--task",
+    "-t",
+    "task_filter",
+    default=None,
+    metavar="PATTERN",
+    help="Run only backlog tasks matching PATTERN (e.g. 'gh-62' or 'mutant-fish').",
+)
+@click.option(
+    "--auto-pr",
+    is_flag=True,
+    default=False,
+    help="Automatically create a GitHub PR when all tasks complete.",
+)
+@click.option(
+    "--activity-log",
+    "activity_log_path",
+    is_flag=False,
+    flag_value=".sdd/logs/activity.log",
+    default=None,
+    help="Write activity to log file. Default: .sdd/logs/activity.log",
+)
+@click.option(
+    "--sandbox",
+    "sandbox_override",
+    default=None,
+    type=click.Choice(
+        ["docker", "podman", "worktree", "e2b", "modal", "daytona", "blaxel", "runloop", "vercel"],
+        case_sensitive=False,
+    ),
+    help=(
+        "Sandbox backend (overrides selector). Free: worktree, docker, podman. "
+        "Paid (require --allow-paid): e2b, modal, daytona, blaxel, runloop, vercel."
+    ),
+)
+@click.option(
+    "--allow-paid",
+    "allow_paid",
+    is_flag=True,
+    default=False,
+    help="Allow the sandbox selector to consider paid cloud backends.",
+)
+@click.option(
+    "--refine",
+    "refine_spec",
+    default=None,
+    metavar="SPEC",
+    help=(
+        "Iterative self-refinement loop (issue #1403). Format: 'rounds:N,critic:adversary,stop:plateau,threshold:0.9'."
+    ),
+)
+@click.option(
+    "--unsafe-allow-unicode-tags",
+    "unsafe_allow_unicode_tags",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help=(
+        "Disable the skill-pack invisible-Unicode sanitizer (DANGEROUS - only for "
+        "reproducing a poisoned-skill incident; see templates/skills/README.md)."
+    ),
+)
+@click.pass_context
+def cli(
+    ctx: click.Context,
+    goal: str | None,
+    output_json: bool,
+    output_format: str | None,
+    evolve: bool,
+    max_cycles: int,
+    budget: float,
+    interval: int,
+    github_sync: bool,
+    headless: bool,
+    dry_run: bool,
+    yes: bool,
+    force_fresh: bool,
+    approval: str,
+    merge_strategy: str,
+    cli_override: str | None,
+    model_override: str | None,
+    workflow_mode: str | None,
+    plan_only: bool,
+    from_plan: str | None,
+    auto_approve: bool,
+    verbose: bool,
+    quiet: bool,
+    task_filter: str | None,
+    auto_pr: bool,
+    activity_log_path: str | None,
+    sandbox_override: str | None,
+    allow_paid: bool,
+    refine_spec: str | None,
+    unsafe_allow_unicode_tags: bool,
+) -> None:
+    """Declarative agent orchestration for engineering teams."""
+    # The skill-pack invisible-Unicode sanitizer reads its opt-out from this
+    # env var; set it as early as possible so any later import that triggers a
+    # SkillLoader sees the operator's choice. Default is OFF (sanitize on).
+    if unsafe_allow_unicode_tags:
+        import os
+
+        os.environ["BERNSTEIN_UNSAFE_ALLOW_UNICODE_TAGS"] = "1"
+    setup_json_logging()
+    ctx.ensure_object(dict)
+    # --json flag or --output json both enable JSON output mode
+    ctx.obj["JSON"] = output_json or (output_format == "json")
+    # Apply --verbose / --quiet
+    if verbose and quiet:
+        raise click.UsageError("Cannot use --verbose and --quiet together.")
+    # Propagate the verbosity flag so the first-run hint guard can decide
+    # whether to render the original traceback below the hint panel.
+    ctx.obj["VERBOSE"] = verbose
+    apply_verbosity(verbose, quiet)
+
+    # Parse the iterative-refinement spec (issue #1403). Failing fast on a
+    # malformed value matches Click's other parser behaviours and surfaces
+    # operator typos before any agent invocation cost is incurred.
+    if refine_spec:
+        from bernstein.core.orchestration.refinement_loop import parse_refine_spec
+
+        try:
+            ctx.obj["REFINE_SPEC"] = parse_refine_spec(refine_spec)
+        except ValueError as exc:
+            raise click.UsageError(f"Invalid --refine spec: {exc}") from exc
+    else:
+        ctx.obj["REFINE_SPEC"] = None
+
+    if ctx.invoked_subcommand is not None:
+        return
+
+    import concurrent.futures
+
+    from bernstein.cli.splash_screen import splash
+
+    seed_path = find_seed_file()
+    workdir = Path.cwd()
+    port = 8052
+
+    # Start background work, then show splash concurrently.
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    _splash_future = executor.submit(_background_startup, workdir)
+
+    # Show splash immediately (gradient + logo) - no agent data needed for visuals.
+    splash(
+        console,
+        version="",
+        agents=[],
+        seed_file=str(seed_path) if seed_path else None,
+        goal_preview=goal or "",
+        budget=budget,
+        task_count=0,
+    )
+    # Mark that the premium splash has been shown so the inner ``run`` callback
+    # invoked below does not also print the compact banner (double-banner).
+    ctx.obj["_BANNER_PRINTED"] = True
+
+    # Show immediate feedback while background finishes - no black screen.
+    console.print("[dim]Preparing...[/dim]", end="\r")
+
+    # Collect background results (should be done by now - splash took 3.5 seconds).
+    _bg = _splash_future.result(timeout=10)
+    executor.shutdown(wait=False)
+
+    if dry_run:
+        print_dry_run_table(workdir)
+        return
+
+    # Recover orphaned claimed tickets from any prior crashed/stopped session
+    recovered = recover_orphaned_claims()
+    if recovered:
+        console.print(f"[yellow]Recovered {recovered} orphaned ticket(s).[/yellow]")
+
+    _validate_evolve_mode(evolve, budget, max_cycles, yes)
+
+    # Main orchestration flow - call run's callback directly with mapped params
+    assert run.callback is not None
+    run.callback(
+        plan_file=None,
+        goal=goal,
+        seed_file=str(seed_path) if seed_path else None,
+        port=port,
+        cells=1,
+        remote=False,
+        cli=cli_override,
+        model=model_override,
+        workflow=workflow_mode,
+        routing=None,
+        compliance=None,
+        container=False,
+        container_image=None,
+        sandbox=sandbox_override,
+        allow_paid=allow_paid,
+        two_phase_sandbox=False,
+        plan_only=plan_only,
+        from_plan=Path(from_plan) if from_plan else None,
+        auto_approve=auto_approve or yes,
+        quiet=False,
+        skip_gate=(),
+        skip_gate_reason=None,
+        audit=False,
+        ab_test=False,
+        dry_run=False,
+        cprofile=False,
+        run_profile=None,
+        allow_network=(),
+        task_filter=task_filter,
+        auto_pr=auto_pr,
+        activity_log_path=activity_log_path,
+        max_cost_usd=None,
+        idle=False,
+        budget_spec=None,
+        hard_budget_spec=None,
+        # Bot-added: drift autofix (regen_contract_drift.py)
+        permission_profile=None,
+        budget_cap=None,
+        retry_budget_spec=None,
+        # Bot-added: drift autofix (regen_contract_drift.py)
+        criterion_profile=None,
+        max_blast_radius=None,
+        # Bot-added: drift autofix (regen_contract_drift.py)
+        attach=(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Register commands and groups with main CLI
+# ---------------------------------------------------------------------------
+
+# From task_cmd module - all registered with @click.command()
+cli.add_command(cancel)
+cli.add_command(add_task, "add-task")
+cli.add_command(sync)
+cli.add_command(review_cmd, "review")
+cli.add_command(approve)
+cli.add_command(reject)
+cli.add_command(pending)
+plan.add_command(plan_generate)
+plan.add_command(plan_ls)
+plan.add_command(plan_show)
+plan.add_command(plan_dag)
+cli.add_command(plan)
+cli.add_command(plan, "tasks")
+cli.add_command(spec_group)
+cli.add_command(backlog_group, "backlog")
+cli.add_command(logs_group, "logs")
+cli.add_command(decisions_group, "decisions")
+cli.add_command(consensus_group, "consensus")
+cli.add_command(list_tasks, "list-tasks")
+
+# From workspace_cmd module - groups and commands
+cli.add_command(workspace_group)
+cli.add_command(config_group)
+
+# From advanced_cmd module - groups and commands
+cli.add_command(benchmark_group)
+cli.add_command(cache_group, "cache")
+cli.add_command(eval_group)
+cli.add_command(best_of_n_group)
+cli.add_command(dashboard)
+cli.add_command(live)
+# Web GUI subcommand. The group itself ships with core (so `bernstein gui --help`
+# always works); `bernstein gui serve` performs a runtime check for the [gui]
+# extra and exits with a friendly install hint when missing.
+from bernstein.gui.cli import gui_group as _gui_group  # noqa: E402
+
+cli.add_command(_gui_group)
+cli.add_command(trace_cmd, "trace")
+cli.add_command(replay_cmd, "replay")
+cli.add_command(github_group)
+cli.add_command(graph_group, "graph")
+cli.add_command(policy_group, "policy")
+cli.add_command(_role_adapter_security_group, "security")
+cli.add_command(mcp_server, "mcp")
+# Wire the release-1.9 community catalog as a subgroup of `bernstein mcp`.
+from bernstein.cli.commands.mcp_catalog_cmd import catalog_group as _catalog_group  # noqa: E402
+
+mcp_server.add_command(_catalog_group, "catalog")
+cli.add_command(completions)
+cli.add_command(quarantine_group)
+cli.add_command(ideate)
+cli.add_command(install_hooks, "install-hooks")
+cli.add_command(plugins_cmd, "plugins")
+cli.add_command(doctor)
+
+# Attach observability doctor subcommands (dt, code-scanning, observe)
+# to the doctor group. Sonar and glitchtip are wired up by their own
+# modules when present (sibling agents own those). See
+# docs/observability/unified-doctor.md.
+from bernstein.cli.commands.doctor.code_scanning import (  # noqa: E402
+    register as _register_doctor_code_scanning,
+)
+from bernstein.cli.commands.doctor.dt import (  # noqa: E402
+    register as _register_doctor_dt,
+)
+from bernstein.cli.commands.doctor.migrations import (  # noqa: E402
+    register as _register_doctor_migrations,
+)
+from bernstein.cli.commands.doctor.observe import (  # noqa: E402
+    register as _register_doctor_observe,
+)
+
+_register_doctor_dt(doctor)
+_register_doctor_code_scanning(doctor)
+_register_doctor_observe(doctor)
+_register_doctor_migrations(doctor)
+
+cli.add_command(recap)
+cli.add_command(retro)
+cli.add_command(help_all, "help-all")
+cli.add_command(cleanup_cmd, "cleanup")
+cli.add_command(history_cmd, "history")
+
+# Operator-experience commands (feat/operator-experience)
+cli.add_command(pr_cmd, "pr")
+cli.add_command(from_ticket, "from-ticket")
+cli.add_command(ticket_group, "ticket")
+cli.add_command(remote_group, "remote")
+cli.add_command(hooks_group, "hooks")
+cli.add_command(tunnel_group, "tunnel")
+cli.add_command(preview_group, "preview")
+cli.add_command(sandbox_group, "sandbox")
+cli.add_command(daemon_group, "daemon")
+cli.add_command(autofix_group, "autofix")
+cli.add_command(pipeline_group, "pipeline")
+cli.add_command(connect_cmd, "connect")
+cli.add_command(creds_group, "creds")
+cli.add_command(criterion_profile_group, "criterion-profile")
+cli.add_command(review_responder_group, "review-responder")
+cli.add_command(issue_to_pr_group, "issue-to-pr")
+
+# Already registered elsewhere
+cli.add_command(agents_group)
+cli.add_command(skills_group)
+# Wire the issue #1796 skill catalog as a subgroup of `bernstein skills`.
+from bernstein.cli.commands.skills_catalog_cmd import catalog_group as _skills_catalog_group  # noqa: E402
+
+skills_group.add_command(_skills_catalog_group, "catalog")
+cli.add_command(test_cmd, "test")
+cli.add_command(auth_group, "auth")
+cli.add_command(auth_login, "login")
+cli.add_command(evolve)
+cli.add_command(cost_cmd, "cost")
+cli.add_command(cost_envelopes_group, "cost-envelopes")
+cli.add_command(estimate_cmd, "estimate")
+cli.add_command(status)
+cli.add_command(ps_cmd, "ps")
+cli.add_command(commit_stats_cmd, "commit-stats")
+cli.add_command(stop)
+cli.add_command(test_adapter, "test-adapter")
+cli.add_command(adapters_group, "adapters")
+cli.add_command(integrations_group, "integrations")
+cli.add_command(trackers_group, "trackers")
+cli.add_command(run, "run")  # visible: `bernstein run [plan.yaml]`
+cli.add_command(cook, "cook")
+cli.add_command(init)
+cli.add_command(run, "run")
+cli.add_command(start)
+cli.add_command(demo)
+cli.add_command(checkpoint_cmd, "checkpoint")
+cli.add_command(resume_cmd, "resume")
+cli.add_command(wrap_up, "wrap-up")
+cli.add_command(audit_group, "audit")
+cli.add_command(bom_group, "bom")
+cli.add_command(bundle_group, "bundle")
+cli.add_command(compliance_group, "compliance")
+cli.add_command(verify_cmd, "verify")
+cli.add_command(chaos_group, "chaos")
+cli.add_command(manifest_group, "manifest")
+cli.add_command(memory_group, "memory")
+cli.add_command(prompts_group, "prompts")
+cli.add_command(ci_group, "ci")
+cli.add_command(cloud_group, "cloud")
+cli.add_command(gateway_group, "gateway")
+cli.add_command(export_cmd, "export")
+cli.add_command(report_cmd, "report")
+cli.add_command(postmortem_cmd, "postmortem")
+cli.add_command(slo_cmd, "slo")
+cli.add_command(man_pages_cmd, "man-pages")
+cli.add_command(workflow_group, "workflow")
+cli.add_command(recipes_group, "recipes")
+cli.add_command(knowledge_group, "knowledge")
+cli.add_command(quickstart_cmd, "quickstart")
+cli.add_command(scaffold_cmd, "scaffold")
+cli.add_command(watch_cmd, "watch")
+cli.add_command(wiki_group, "wiki")
+cli.add_command(listen_cmd, "listen")
+cli.add_command(self_update_cmd, "self-update")
+cli.add_command(undo_cmd, "undo")
+cli.add_command(worker, "worker")
+cli.add_command(worktrees_group, "worktrees")
+cli.add_command(diff_cmd, "diff")
+cli.add_command(merge_cmd, "merge")
+cli.add_command(migrate_cmd, "migrate")
+cli.add_command(changelog_cmd, "changelog")
+cli.add_command(run_changelog_cmd, "run-changelog")
+cli.add_command(run_lookup_cmd, "run-lookup")
+cli.add_command(dr_group, "dr")
+cli.add_command(incident_cmd, "incident")
+cli.add_command(profile_cmd, "profile")
+cli.add_command(templates_group, "templates")
+cli.add_command(validate_plan, "validate")
+cli.add_command(dep_impact_cmd, "dep-impact")
+cli.add_command(fingerprint_group, "fingerprint")
+cli.add_command(fleet_group, "fleet")
+cli.add_command(triggers_group, "triggers")
+cli.add_command(schedule_group, "schedule")
+
+# Operator supervisor surface (#1800)
+from bernstein.cli.commands.supervisor_cmd import supervisor_group  # noqa: E402
+
+cli.add_command(supervisor_group, "supervisor")
+
+# Citation/reference existence verifier (closes #1402)
+cli.add_command(citation_quality_group, "quality")
+
+# New CLI commands
+cli.add_command(dry_run_cmd, "dry-run")
+cli.add_command(explain_help_cmd, "explain")
+cli.add_command(config_path_cmd, "config-path")
+cli.add_command(desktop_register_cmd, "desktop-register")
+cli.add_command(init_wizard_cmd, "init-wizard")
+cli.add_command(aliases_cmd, "aliases")
+cli.add_command(debug_cmd, "debug-bundle")
+
+# op-002: interactive tool-call approval (approve-tool / reject-tool).
+# These are the tool-call resolvers; task-level ``approve``/``reject`` live in task_cmd.
+cli.add_command(approve_tool_cmd, "approve-tool")
+cli.add_command(reject_tool_cmd, "reject-tool")
+# ``bernstein debug`` is the structured diagnostics group; ``debug bundle``
+# exports a redacted ZIP for bug reports. The flat ``debug-bundle`` alias
+# above stays for back-compat with older issue templates.
+cli.add_command(debug_group, "debug")
+
+# Chat-control bridges (op-001)
+from bernstein.cli.commands.chat_cmd import chat_group  # noqa: E402
+
+cli.add_command(chat_group, "chat")
+
+# release/1.9: native Agent Client Protocol (ACP) bridge for IDE clients.
+from bernstein.cli.commands.acp_cmd import acp_group  # noqa: E402
+
+cli.add_command(acp_group, "acp")
+
+# Cross-organisation A2A interop: signed capability cards + lineage interop.
+from bernstein.cli.commands.interop_cmd import interop_group  # noqa: E402
+
+cli.add_command(interop_group, "interop")
+
+# release/1.9: outbound notification drivers (Telegram, Slack, Discord, Email, Webhook, Shell).
+from bernstein.cli.commands.notify_cmd import notify_group  # noqa: E402
+
+cli.add_command(notify_group, "notify")
+
+# Short-lived-token broker: per-task credentials minted from a backing store.
+from bernstein.cli.commands.secrets_cmd import secrets_group  # noqa: E402
+
+cli.add_command(secrets_group, "secrets")
+
+# Per-artifact lineage trail (output → producer + inputs).
+from bernstein.cli.commands.lineage_cmd import lineage_cmd  # noqa: E402
+
+cli.add_command(lineage_cmd, "lineage")
+
+# Per-tool-call snapshots + stacked agent branches.
+from bernstein.cli.commands.git_cmd import git_cmd  # noqa: E402
+
+cli.add_command(git_cmd, "git")
+
+# Canonical AGENTS.md generator + cross-CLI rewrite (cursor / claude / aider / goose).
+from bernstein.cli.commands.agents_md_cmd import agents_md_cmd  # noqa: E402
+from bernstein.cli.commands.analyze_cmd import analyze_cmd  # noqa: E402
+
+cli.add_command(agents_md_cmd, "agents-md")
+
+# Air-gap distribution: build / verify wheel bundle.
+from bernstein.cli.commands.wheelhouse_cmd import wheelhouse_group  # noqa: E402
+
+cli.add_command(wheelhouse_group, "wheelhouse")
+
+# rt-003: Claude Code Routine <-> scenario bridge.
+from bernstein.cli.commands.routine_cmd import routine_group  # noqa: E402
+
+cli.add_command(routine_group, "routine")
+
+# Cluster lifecycle helpers (mTLS bootstrap, etc.)
+from bernstein.cli.commands.cluster_cmd import cluster_group  # noqa: E402
+
+cli.add_command(cluster_group, "cluster")
+
+# op-005: cross-surface session handoff (terminal <-> chat <-> dashboard).
+from bernstein.cli.commands.handoff_cmd import handoff_group  # noqa: E402
+
+cli.add_command(handoff_group, "handoff")
+
+# Install-rev fingerprint operator helpers.
+from bernstein.cli.commands.identity_cmd import identity_group  # noqa: E402
+
+cli.add_command(identity_group, "identity")
+cli.add_command(analyze_cmd, "analyze")  # issue #768
+
+# Blast-radius scorer (issue #1322): inspect + ad-hoc score a change.
+from bernstein.cli.commands.blast_radius_cmd import blast_radius_group  # noqa: E402
+
+cli.add_command(blast_radius_group, "blast-radius")
+
+# Recorded run-session inspection + fork (#1222).
+from bernstein.cli.commands.session_cmd import session_group  # noqa: E402
+
+cli.add_command(session_group, "session")
+
+# Side-by-side adapter comparison (feat-cli-comparison-mode).
+from bernstein.cli.commands.compare_cmd import compare_cmd  # noqa: E402
+
+cli.add_command(compare_cmd, "compare")
+
+# Agent abandonment ledger (#1350).
+from bernstein.cli.commands.abandonments_cmd import abandonments_group  # noqa: E402
+
+cli.add_command(abandonments_group, "abandonments")
+
+# Digital-twin orchestration simulator (#1374).
+from bernstein.cli.commands.simulate_cmd import simulate_cmd  # noqa: E402
+
+cli.add_command(simulate_cmd, "simulate")
+
+# Opt-in operator observability (closes spec 2026-05-17).
+# Default off.  Precedence: DO_NOT_TRACK > BERNSTEIN_TELEMETRY > file > off.
+from contextlib import suppress  # noqa: E402
+
+from bernstein.cli.commands.telemetry_cmd import telemetry_group  # noqa: E402
+
+cli.add_command(telemetry_group, "telemetry")
+
+# Scheduled upstream-signal sweep (operator-reviewable rollup, no auto-filing).
+from bernstein.cli.commands.trend_scan_cmd import trend_scan_group  # noqa: E402
+
+cli.add_command(trend_scan_group, "trend-scan")

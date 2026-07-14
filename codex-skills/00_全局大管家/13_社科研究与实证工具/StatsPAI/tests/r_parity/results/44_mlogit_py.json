@@ -1,0 +1,76 @@
+{
+  "module": "44_mlogit",
+  "side": "py",
+  "rows": [
+    {
+      "module": "44_mlogit",
+      "side": "py",
+      "statistic": "class1_intercept",
+      "estimate": 0.229357075377104,
+      "se": 0.07965011649094932,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "44_mlogit",
+      "side": "py",
+      "statistic": "class1_x1",
+      "estimate": 0.3844852059649345,
+      "se": 0.08233602830317589,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "44_mlogit",
+      "side": "py",
+      "statistic": "class1_x2",
+      "estimate": -0.06324763560594766,
+      "se": 0.07783000485879052,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "44_mlogit",
+      "side": "py",
+      "statistic": "class2_intercept",
+      "estimate": -0.11585994249826419,
+      "se": 0.08779668258620615,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "44_mlogit",
+      "side": "py",
+      "statistic": "class2_x1",
+      "estimate": -0.37517344539081326,
+      "se": 0.08972644733065595,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "44_mlogit",
+      "side": "py",
+      "statistic": "class2_x2",
+      "estimate": 0.5036947668336906,
+      "se": 0.0873020700687755,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "base_class": 0,
+    "engine": "statsmodels"
+  }
+}

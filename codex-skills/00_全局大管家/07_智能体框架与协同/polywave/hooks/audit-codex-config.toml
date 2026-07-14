@@ -1,0 +1,17 @@
+[[hooks.PreToolUse]]
+matcher = "*"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "${CODEX_HOME:-$HOME/.codex}/polywave/hooks/pre_tool_use_audit"
+timeout = 5
+statusMessage = "Recording Polywave hook payload"
+
+[[hooks.PostToolUse]]
+matcher = "*"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "${CODEX_HOME:-$HOME/.codex}/polywave/hooks/pre_tool_use_audit"
+timeout = 5
+statusMessage = "Recording Polywave hook payload"

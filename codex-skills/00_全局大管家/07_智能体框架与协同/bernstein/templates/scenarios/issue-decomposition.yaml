@@ -1,0 +1,30 @@
+id: issue-decomposition
+name: Issue Decomposition
+description: Break a GitHub issue into actionable implementation tasks with acceptance criteria
+tags: [planning, github, decomposition, issues]
+version: "1.0"
+tasks:
+  - title: Analyze issue scope and constraints
+    description: Read the issue, related discussions, and linked code paths; identify scope boundaries and external dependencies
+    role: architect
+    priority: 0
+    scope: medium
+    complexity: medium
+  - title: Design implementation approach
+    description: Propose a concrete approach with module boundaries, data structures, and migration steps
+    role: architect
+    priority: 0
+    scope: medium
+    complexity: high
+  - title: Generate task breakdown
+    description: Emit a list of small, parallelizable subtasks each with role, priority, scope, and acceptance criteria
+    role: manager
+    priority: 1
+    scope: small
+    complexity: medium
+  - title: Risk and rollback notes
+    description: Document risks, monitoring hooks, and a rollback plan for the proposed changes
+    role: backend
+    priority: 2
+    scope: small
+    complexity: medium

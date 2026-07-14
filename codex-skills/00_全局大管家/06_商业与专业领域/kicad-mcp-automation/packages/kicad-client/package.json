@@ -1,0 +1,23 @@
+{
+  "name": "@spark-apps/kicad-client",
+  "version": "0.1.0",
+  "description": "KiCad client abstraction for MCP server",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "lint": "biome lint src",
+    "format": "biome format --write src",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.24"
+  }
+}

@@ -1,0 +1,195 @@
+# QuantDinger Docker Compose - One-Click Deployment
+# Usage:
+#   1. Copy env.example to .env and edit your settings
+#      cp backend_api_python/env.example backend_api_python/.env
+#   2. IMPORTANT: Generate and set a secure SECRET_KEY in backend_api_python/.env
+#      SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+#      Or edit backend_api_python/.env and replace SECRET_KEY value
+#   3. docker-compose up -d --build
+#   4. Open http://localhost:8888
+#
+# Backend is built from local source. Frontend is pulled from GHCR — its source
+# lives in the private QuantDinger-Vue repo, which publishes
+# `ghcr.io/<owner>/quantdinger-frontend` on every `v*` tag. Override the tag
+# or image path via FRONTEND_IMAGE / IMAGE_TAG in a project-root `.env`.
+#
+# Note: The container will NOT start if SECRET_KEY is using the default value.
+#       This is a security measure to prevent insecure deployments.
+#
+# Docker image sources:
+#   Default uses official Docker Hub images.
+#   To switch source globally, set a single `IMAGE_PREFIX` in project-root `.env`.
+#   Examples: empty (official), `docker.m.daocloud.io/library/`,
+#   `docker.xuanyuan.me/library/`.
+# Backend Dockerfile tries Aliyun apt/PyPI first and falls back to official (no extra env).
+# For slow pulls of base images, optionally set IMAGE_PREFIX or Docker Engine registry-mirrors.
+
+services:
+  # ========================
+  # PostgreSQL Database
+  # ========================
+  postgres:
+    image: ${IMAGE_PREFIX:-}postgres:16-alpine
+    container_name: quantdinger-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quantdinger}
+      POSTGRES_USER: ${POSTGRES_USER:-quantdinger}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantdinger123}
+      TZ: ${TZ:-Asia/Shanghai}
+    # Raise PostgreSQL's max_connections so the backend pool (default
+    # DB_POOL_MAX=50) plus psql/admin connections never exceed PG's own
+    # limit.  PG default is 100; 150 gives headroom for future scaling.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=${PG_MAX_CONNECTIONS:-150}"
+      - "-c"
+      - "shared_buffers=${PG_SHARED_BUFFERS:-256MB}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend_api_python/migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    ports:
+      - "${DB_PORT:-127.0.0.1:5432}:5432"
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quantdinger} -d ${POSTGRES_DB:-quantdinger}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================
+  # Redis (optional cache layer)
+  # ========================
+  redis:
+    image: ${IMAGE_PREFIX:-}redis:7-alpine
+    container_name: quantdinger-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-127.0.0.1:6379}:6379"
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================
+  # Backend API (Python/Flask)
+  # ========================
+  backend:
+    build:
+      context: ./backend_api_python
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${IMAGE_PREFIX:-}python:3.12-slim-bookworm
+        # cn (default): use Aliyun apt/PyPI mirrors with fallback to official.
+        # global: use official sources directly (recommended for overseas builds).
+        BUILD_REGION: ${BUILD_REGION:-cn}
+        # Release CI injects APP_VERSION from the Git tag. Local builds may set
+        # APP_VERSION explicitly, or GIT_TAG/IMAGE_TAG as a non-floating fallback.
+        APP_VERSION: ${APP_VERSION:-}
+        GIT_TAG: ${GIT_TAG:-${IMAGE_TAG:-}}
+    container_name: quantdinger-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-127.0.0.1:5000}:5000"
+    volumes:
+      - backend_logs:/app/logs
+      - backend_data:/app/data
+      # Mount .env for runtime config and admin-panel updates
+      - ./backend_api_python/.env:/app/.env
+    environment:
+      - PYTHON_API_HOST=0.0.0.0
+      - PYTHON_API_PORT=5000
+      - GIT_TAG=${GIT_TAG:-${IMAGE_TAG:-}}
+      - TZ=${TZ:-Asia/Shanghai}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-quantdinger}:${POSTGRES_PASSWORD:-quantdinger123}@postgres:5432/${POSTGRES_DB:-quantdinger}
+      - DB_TYPE=postgresql
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CACHE_ENABLED=true
+      # Database connection pool tuning (see app/utils/db_postgres.py).
+      # Defaults are safe for ~50 concurrent DB users; raise if you run many
+      # bots or see `connection pool exhausted` errors.
+      - DB_POOL_MIN=${DB_POOL_MIN:-5}
+      - DB_POOL_MAX=${DB_POOL_MAX:-50}
+      - DB_POOL_ACQUIRE_TIMEOUT=${DB_POOL_ACQUIRE_TIMEOUT:-10}
+      - DB_POOL_HEALTH_CHECK=${DB_POOL_HEALTH_CHECK:-true}
+      # Route-level executor tuning (each worker may use one DB connection).
+      - MARKET_EXECUTOR_WORKERS=${MARKET_EXECUTOR_WORKERS:-6}
+      - PORTFOLIO_EXECUTOR_WORKERS=${PORTFOLIO_EXECUTOR_WORKERS:-3}
+      # Gunicorn concurrency (threads within the single worker process).
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-1}
+      - GUNICORN_THREADS=${GUNICORN_THREADS:-8}
+      # IBKR/MT5 need local TWS or MT5 terminal; set false on SaaS cloud (see env.example).
+      - ALLOW_LOCAL_DESKTOP_BROKERS=${ALLOW_LOCAL_DESKTOP_BROKERS:-true}
+      # Spot full close / open fee buffer (Admin → Settings → Live Trading, or backend_api_python/.env)
+      - SPOT_CLOSE_SAFETY_RATIO=${SPOT_CLOSE_SAFETY_RATIO:-0.998}
+      - SPOT_OPEN_QUOTE_BUFFER=${SPOT_OPEN_QUOTE_BUFFER:-0.995}
+      # Takes precedence over mounted .env (run.py load_dotenv override=False).
+      # Include :8000 when using Vite dev server alongside this stack.
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8888,http://localhost:8000}
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ========================
+  # Frontend (Nginx serving prebuilt SPA)
+  # ========================
+  # Default behaviour: pull the prebuilt multi-arch image from GHCR.
+  # Local iteration: clone QuantDinger-Vue into `./QuantDinger-Vue/`
+  # (gitignored) and layer the build override on top:
+  #   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+  # The `build:` block lives in docker-compose.build.yml so users who only
+  # pull never need the `./QuantDinger-Vue/` directory to exist (Compose
+  # validates build context paths eagerly when `build:` is present).
+  frontend:
+    # Tag resolution (highest precedence wins):
+    #   FRONTEND_TAG   — per-side override, decouples FE from BE
+    #   IMAGE_TAG      — unified knob, sets both FE and BE (BE only relevant in ghcr.yml)
+    #   latest         — fallback; pin semver in project-root .env (e.g. IMAGE_TAG=3.0.10)
+    image: ${FRONTEND_IMAGE:-ghcr.io/brokermr810/quantdinger-frontend}:${FRONTEND_TAG:-${IMAGE_TAG:-latest}}
+    pull_policy: always
+    container_name: quantdinger-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8888}:80"
+    environment:
+      # nginx envsubst will inject this into the proxy_pass directive at start.
+      # Override with the backend's reachable URL when deploying outside compose
+      # (e.g. Railway: http://${{Backend.RAILWAY_PRIVATE_DOMAIN}}:5000).
+      - BACKEND_URL=${BACKEND_URL:-http://backend:5000}
+    depends_on:
+      - backend
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_data:
+    driver: local
+
+networks:
+  quantdinger-network:
+    driver: bridge

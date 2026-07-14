@@ -1,0 +1,313 @@
+/**
+ * STM32 HAL Test Suite for {{ project_name }}
+ * Generated from {{ schematic_path }}
+ *
+ * Connectivity and functional tests using STM32 HAL library.
+ */
+
+{% if target_mcu %}
+#ifdef {{ target_mcu.upper().replace('-', '_') }
+#include "stm32{{ target_mcu.lower().replace('stm32', '').replace('x', '') }}xx_hal.h"
+#else
+#include "stm32xxxx_hal.h"
+#endif
+{% endif %}
+
+#include <stdio.h>
+#include <stdint.h>
+
+/* Private defines */
+#define TEST_PASS 1
+#define TEST_FAIL 0
+
+/* Test statistics */
+static uint32_t g_tests_passed = 0;
+static uint32_t g_tests_failed = 0;
+
+/* UART handle for debug output */
+extern UART_HandleTypeDef huart2; /* Adjust to your UART */
+
+/* Private function prototypes */
+static void test_init(void);
+static void test_power_supply(void);
+static void test_gpio_connectivity(void);
+{% if test_type == "functional" %}
+static void test_i2c_scan(void);
+static void test_spi_loopback(void);
+{% endif %}
+static void print_summary(void);
+
+/* Helper functions */
+static void test_log(const char* message) {
+    HAL_UART_Transmit(&huart2, (uint8_t*)message, strlen(message), HAL_MAX_DELAY);
+}
+
+static void test_log_num(const char* prefix, int32_t num) {
+    char buffer[64];
+    snprintf(buffer, sizeof(buffer), "%s%ld\n", prefix, num);
+    test_log(buffer);
+}
+
+/**
+ * @brief Initialize test suite
+ */
+static void test_init(void) {
+    test_log("\r\n========================================\r\n");
+    test_log("{{ project_name }} - STM32 HAL Test Suite\r\n");
+    test_log("========================================\r\n\r\n");
+
+    /* Initialize HAL */
+    HAL_Init();
+
+    /* Configure system clock */
+    SystemClock_Config();
+
+    /* Initialize peripherals */
+    MX_GPIO_Init();
+    MX_USART2_UART_Init();
+    {% if test_type == "functional" %}
+    MX_I2C1_Init();
+    MX_SPI1_Init();
+    {% endif %}
+
+    test_log("Test initialization complete\r\n\r\n");
+}
+
+/**
+ * @brief Test power supply presence
+ */
+static void test_power_supply(void) {
+    test_log("[TEST] Power Supply Check\r\n");
+
+    {% if target_mcu and "stm32" in target_mcu %}
+    /* Use internal reference and ADC to check VDD */
+    ADC_HandleTypeDef hadc1;
+    ADC_ChannelConfTypeDef sConfig = {0};
+
+    /* Enable ADC clock */
+    __HAL_RCC_ADC1_CLK_ENABLE();
+
+    hadc1.Instance = ADC1;
+    hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+    hadc1.Init.ContinuousConvMode = DISABLE;
+    hadc1.Init.DiscontinuousConvMode = DISABLE;
+    hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+    hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+    hadc1.Init.NbrOfConversion = 1;
+    HAL_ADC_Init(&hadc1);
+
+    /* Configure VREFINT channel */
+    sConfig.Channel = ADC_CHANNEL_VREFINT;
+    sConfig.Rank = ADC_REGULAR_RANK_1;
+    sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
+    HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+
+    /* Start conversion */
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+    uint32_t adc_value = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+
+    /* Calculate VDD (simplified) */
+    float vdd = 1.2f * 4096.0f / adc_value;
+
+    test_log("VDD: ");
+    test_log_num("VDD = ", (int32_t)(vdd * 1000));
+    test_log(" mV\r\n");
+
+    if (vdd > 2.7f && vdd < 3.6f) {
+        test_log("[PASS] Power supply OK\r\n\r\n");
+        g_tests_passed++;
+    } else {
+        test_log("[FAIL] Power supply out of range\r\n\r\n");
+        g_tests_failed++;
+    }
+    {% else %}
+    test_log("[SKIP] Power test requires MCU-specific ADC\r\n\r\n");
+    {% endif %}
+}
+
+/**
+ * @brief Test GPIO connectivity
+ */
+static void test_gpio_connectivity(void) {
+    test_log("[TEST] GPIO Connectivity\r\n");
+
+    /* Test input pins */
+    GPIO_TypeDef* ports[] = {
+        {% for pin in test_pins %}
+        GPIO{{ pin.port }}, /* {{ pin.name }} */
+        {% endfor %}
+    };
+
+    const uint16_t pins[] = {
+        {% for pin in test_pins %}
+        GPIO_PIN_{{ pin.pin_number }}, /* {{ pin.name }} */
+        {% endfor %}
+    };
+
+    const char* pin_names[] = {
+        {% for pin in test_pins %}
+        "{{ pin.name }}",
+        {% endfor %}
+    };
+
+    for (size_t i = 0; i < sizeof(pins)/sizeof(pins[0]); i++) {
+        GPIO_PinState state = HAL_GPIO_ReadPin(ports[i], pins[i]);
+
+        test_log(pin_names[i]);
+        test_log(": ");
+        test_log(state == GPIO_PIN_SET ? "HIGH\r\n" : "LOW\r\n");
+    }
+
+    test_log("[PASS] GPIO connectivity test complete\r\n\r\n");
+    g_tests_passed++;
+}
+
+{% if test_type == "functional" %}
+/**
+ * @brief Scan I2C bus for devices
+ */
+static void test_i2c_scan(void) {
+    test_log("[TEST] I2C Device Scan\r\n");
+
+    /* I2C handle - adjust to your configuration */
+    I2C_HandleTypeDef hi2c1;
+
+    HAL_StatusTypeDef status;
+    uint8_t devices_found = 0;
+
+    for (uint8_t addr = 1; addr < 128; addr++) {
+        status = HAL_I2C_IsDeviceReady(&hi2c1, addr << 1, 1, 10);
+
+        if (status == HAL_OK) {
+            char buffer[64];
+            snprintf(buffer, sizeof(buffer), "Device found at 0x%02X\r\n", addr);
+            test_log(buffer);
+            devices_found++;
+        }
+    }
+
+    test_log_num("Total I2C devices: ", devices_found);
+    test_log("\r\n[PASS] I2C scan complete\r\n\r\n");
+    g_tests_passed++;
+}
+
+/**
+ * @brief SPI loopback test
+ */
+static void test_spi_loopback(void) {
+    test_log("[TEST] SPI Loopback Test\r\n");
+
+    /* SPI handle - adjust to your configuration */
+    SPI_HandleTypeDef hspi1;
+
+    uint8_t tx_data = 0xAA;
+    uint8_t rx_data = 0x00;
+
+    HAL_SPI_TransmitReceive(&hspi1, &tx_data, &rx_data, 1, 100);
+
+    test_log("TX: 0xAA, RX: ");
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "0x%02X\r\n", rx_data);
+    test_log(buffer);
+
+    /* Note: Loopback requires hardware connection */
+    test_log("[PASS] SPI test complete\r\n\r\n");
+    g_tests_passed++;
+}
+{% endif %}
+
+/**
+ * @brief Print test summary
+ */
+static void print_summary(void) {
+    test_log("\r\n========================================\r\n");
+    test_log("Test Summary\r\n");
+    test_log("========================================\r\n");
+
+    test_log("Passed: ");
+    test_log_num("", g_tests_passed);
+    test_log("Failed: ");
+    test_log_num("", g_tests_failed);
+    test_log("Total:  ");
+    test_log_num("", g_tests_passed + g_tests_failed);
+
+    test_log("\r\n========================================\r\n");
+}
+
+/**
+ * @brief Main test runner
+ */
+int main(void) {
+    /* Initialize test suite */
+    test_init();
+
+    /* Run tests */
+    test_power_supply();
+    test_gpio_connectivity();
+    {% if test_type == "functional" %}
+    test_i2c_scan();
+    test_spi_loopback();
+    {% endif %}
+
+    /* Print summary */
+    print_summary();
+
+    /* Loop forever */
+    while (1) {
+        HAL_Delay(1000);
+    }
+}
+
+/**
+ * @brief System Clock Configuration (stub)
+ */
+void SystemClock_Config(void) {
+    /* Implement based on your MCU and clock requirements */
+}
+
+/**
+ * @brief GPIO Initialization (stub)
+ */
+void MX_GPIO_Init(void) {
+    /* Enable GPIO clocks */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+
+    /* Configure GPIO pins based on schematic */
+    {% for pin in test_pins %}
+    /* {{ pin.name }}: PA{{ pin.pin_number }} */
+    {% endfor %}
+}
+
+/**
+ * @brief UART Initialization (stub)
+ */
+void MX_USART2_UART_Init(void) {
+    /* Implement UART initialization for debug output */
+}
+
+{% if test_type == "functional" %}
+/**
+ * @brief I2C Initialization (stub)
+ */
+void MX_I2C1_Init(void) {
+    /* Implement I2C initialization */
+}
+
+/**
+ * @brief SPI Initialization (stub)
+ */
+void MX_SPI1_Init(void) {
+    /* Implement SPI initialization */
+}
+{% endif %}
+
+/**
+ * @brief SysTick Handler
+ */
+void SysTick_Handler(void) {
+    HAL_IncTick();
+}

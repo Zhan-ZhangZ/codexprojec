@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "patch": "*** Begin Patch\n*** End Patch\n"
+  },
+  "polywave": {
+    "assigned_worktree": "/tmp/polywave-agent-1"
+  }
+}

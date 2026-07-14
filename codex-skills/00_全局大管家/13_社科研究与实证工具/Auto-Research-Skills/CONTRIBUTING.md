@@ -1,0 +1,112 @@
+# Contributing to Auto-Research-Skills
+
+Thanks for helping grow the toolbox! Two ways to contribute:
+
+## 1. Add a tool to the list
+
+Edit [`README.md`](README.md), put the project in the most fitting category, and keep the table format:
+
+```md
+| [owner/repo](https://github.com/owner/repo) | ~⭐ | Stack | One-line description. |
+```
+
+Keep descriptions to a single sentence. Sort within a category by relevance, not stars.
+
+## 2. Vendor a skill as a submodule
+
+If the project is a reusable *skill* (markdown skills, agent plugins, etc.), vendor it under `skills/`:
+
+```bash
+git submodule add --depth 1 https://github.com/owner/repo skills/<short-name>
+git commit -m "Add <short-name> skill submodule"
+```
+
+Then add a row to the **Bundled Skills** table in the README and regenerate the
+discovery catalog:
+
+```bash
+python3 tools/build_catalog.py
+```
+
+For systems, benchmarks, and lists, use the matching top-level folder:
+
+```bash
+git submodule add --depth 1 https://github.com/owner/repo systems/<short-name>
+git submodule add --depth 1 https://github.com/owner/repo benchmarks/<short-name>
+git submodule add --depth 1 https://github.com/owner/repo lists/<short-name>
+```
+
+## Curation bar
+
+- Keep the scope tight: autonomous research, research-oriented agent skills,
+  domain-science agents, evaluation benchmarks, and high-signal curated lists.
+- Prefer canonical GitHub repos with a clear license, active maintenance, useful
+  docs, and roughly 100+ stars. Exceptions are fine when install counts or
+  domain coverage make the project unusually valuable.
+- If a candidate is promising but uncertain, add it to [`CURATION.md`](CURATION.md)
+  first instead of vendoring it immediately.
+- Avoid adding broad skill dumps unless they have a clear reason to live in this
+  research-focused hub.
+- Prefer collections whose individual `SKILL.md` files declare a `license:`
+  frontmatter field. A top-level repo license is still required, but per-skill
+  license metadata helps users who copy one skill out of a larger collection.
+- Do not install every bundled collection into one agent profile by default.
+  Many upstream collections reuse the same skill names for different behavior;
+  inspect [`catalog/collisions.json`](catalog/collisions.json) or
+  [`site/collisions.html`](site/collisions.html) before combining collections.
+
+## Safety review
+
+Third-party skills can contain instructions and scripts that an agent may later
+execute. Before vendoring, read the candidate and check for:
+
+- destructive shell commands or install scripts that pipe remote code into a shell;
+- credential or environment-variable harvesting;
+- unexpected network calls or hidden binaries;
+- prompt-injection style instructions such as hiding behavior from the user;
+- unclear license or provenance.
+
+Use the local scanner as a review aid, not as an automatic verdict:
+
+```bash
+make safety-scan SAFETY_ROOTS=skills/<short-name>
+make safety-scan SAFETY_ROOTS=skills/<short-name> SAFETY_CONTEXT=skill,script,other
+```
+
+## Local checks
+
+Before opening a PR, run:
+
+```bash
+make check
+```
+
+Equivalent individual commands:
+
+```bash
+python3 -m py_compile scripts/check-repo.py tools/build_catalog.py tools/build_index.py tools/build_safety_report.py tools/check_docs.py tools/check_site.py scripts/scan-skill-safety.py scripts/update-stars.py
+bash -n setup.sh
+bash -n scripts/count-skills.sh
+python3 -m unittest discover -s tests
+python3 scripts/check-repo.py
+python3 tools/check_docs.py
+python3 tools/build_catalog.py --check
+python3 tools/build_index.py --check
+python3 tools/check_site.py
+node --check site/app.js
+node --check site/collisions.js
+python3 tools/build_safety_report.py --check
+./scripts/count-skills.sh
+```
+
+Run `python3 scripts/update-stars.py` only when intentionally refreshing
+[`STARS.md`](STARS.md); the scheduled GitHub Action also refreshes it weekly.
+
+## Guidelines
+
+- One project per PR keeps review easy.
+- Link to the canonical repo, not a mirror.
+- Star counts are approximate — no need to keep them perfectly current.
+- Update both [`README.md`](README.md) (简体中文) and [`README_EN.md`](README_EN.md) (English) when
+  changing the public index.
+- Be kind. This is a community list.

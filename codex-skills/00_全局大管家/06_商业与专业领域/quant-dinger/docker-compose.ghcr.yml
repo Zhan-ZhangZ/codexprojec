@@ -1,0 +1,159 @@
+# QuantDinger Docker Compose - GHCR prebuilt images (zero-repo deploy)
+#
+# Pulls both backend and frontend images from GitHub Container Registry. The
+# repository does NOT need to be cloned — only this file (plus a backend.env
+# for runtime config) is required.
+#
+# Minimal install (Linux / macOS):
+#
+#   curl -O https://raw.githubusercontent.com/brokermr810/QuantDinger/main/docker-compose.ghcr.yml
+#   curl -o backend.env https://raw.githubusercontent.com/brokermr810/QuantDinger/main/backend_api_python/env.example
+#   docker compose -f docker-compose.ghcr.yml up -d
+#   # open http://localhost:8888  (login: quantdinger / 123456)
+#
+# Two-file separation of concerns:
+#   - backend.env   — backend runtime config (SECRET_KEY, API keys, broker creds, ...);
+#                     bind-mounted into the backend container as /app/.env
+#   - .env (optional) — docker compose orchestration knobs (IMAGE_TAG, ports, mirrors);
+#                       read by `docker compose` itself for ${VAR} substitution
+#
+# Database schema is bootstrapped automatically: the backend re-applies
+# `migrations/init.sql` idempotently on every start, so no host-side SQL
+# mount is needed (unlike docker-compose.yml).
+#
+# Orchestration override knobs (project-root .env, all optional):
+#   IMAGE_TAG       - unified tag for backend AND frontend  (optional; see per-side defaults below)
+#   BACKEND_TAG     - per-side override: pins backend only  (default: $IMAGE_TAG)
+#   FRONTEND_TAG    - per-side override: pins frontend only (default: $IMAGE_TAG)
+#   BACKEND_IMAGE   - backend image path  (default: ghcr.io/brokermr810/quantdinger-backend)
+#   FRONTEND_IMAGE  - frontend image path (default: ghcr.io/brokermr810/quantdinger-frontend)
+#   IMAGE_PREFIX    - postgres/redis registry prefix (e.g. docker.m.daocloud.io/library/)
+#
+# Normal use: set IMAGE_TAG once and both services move in lockstep.
+# Per-side overrides only kick in when BACKEND_TAG / FRONTEND_TAG are
+# explicitly set — useful for testing a frontend hotfix against a
+# stable backend, or vice versa.
+
+services:
+  postgres:
+    image: ${IMAGE_PREFIX:-}postgres:16-alpine
+    container_name: quantdinger-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quantdinger}
+      POSTGRES_USER: ${POSTGRES_USER:-quantdinger}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantdinger123}
+      TZ: ${TZ:-Asia/Shanghai}
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=${PG_MAX_CONNECTIONS:-150}"
+      - "-c"
+      - "shared_buffers=${PG_SHARED_BUFFERS:-256MB}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-127.0.0.1:5432}:5432"
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quantdinger} -d ${POSTGRES_DB:-quantdinger}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: ${IMAGE_PREFIX:-}redis:7-alpine
+    container_name: quantdinger-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-127.0.0.1:6379}:6379"
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    # Tag resolution: BACKEND_TAG > IMAGE_TAG > latest. See header comment.
+    image: ${BACKEND_IMAGE:-ghcr.io/brokermr810/quantdinger-backend}:${BACKEND_TAG:-${IMAGE_TAG:-latest}}
+    pull_policy: always
+    container_name: quantdinger-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-127.0.0.1:5000}:5000"
+    volumes:
+      - backend_logs:/app/logs
+      - backend_data:/app/data
+      # Backend runtime config. Must exist as a *file* on the host — if missing,
+      # docker silently creates a directory at the mount target and shadows
+      # /app/.env. The entrypoint will auto-generate SECRET_KEY on first start
+      # and write it back through the bind mount, so the host file gets the
+      # generated key persistently.
+      - ./backend.env:/app/.env
+    environment:
+      - PYTHON_API_HOST=0.0.0.0
+      - PYTHON_API_PORT=5000
+      - GIT_TAG=${GIT_TAG:-${BACKEND_TAG:-${IMAGE_TAG:-}}}
+      - TZ=${TZ:-Asia/Shanghai}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-quantdinger}:${POSTGRES_PASSWORD:-quantdinger123}@postgres:5432/${POSTGRES_DB:-quantdinger}
+      - DB_TYPE=postgresql
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CACHE_ENABLED=true
+      - DB_POOL_MIN=${DB_POOL_MIN:-5}
+      - DB_POOL_MAX=${DB_POOL_MAX:-50}
+      - DB_POOL_ACQUIRE_TIMEOUT=${DB_POOL_ACQUIRE_TIMEOUT:-10}
+      - DB_POOL_HEALTH_CHECK=${DB_POOL_HEALTH_CHECK:-true}
+      - MARKET_EXECUTOR_WORKERS=${MARKET_EXECUTOR_WORKERS:-6}
+      - PORTFOLIO_EXECUTOR_WORKERS=${PORTFOLIO_EXECUTOR_WORKERS:-3}
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-1}
+      - GUNICORN_THREADS=${GUNICORN_THREADS:-8}
+      - ALLOW_LOCAL_DESKTOP_BROKERS=${ALLOW_LOCAL_DESKTOP_BROKERS:-true}
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    # Tag resolution: FRONTEND_TAG > IMAGE_TAG > latest. See header comment.
+    image: ${FRONTEND_IMAGE:-ghcr.io/brokermr810/quantdinger-frontend}:${FRONTEND_TAG:-${IMAGE_TAG:-latest}}
+    pull_policy: always
+    container_name: quantdinger-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8888}:80"
+    environment:
+      - BACKEND_URL=${BACKEND_URL:-http://backend:5000}
+    depends_on:
+      - backend
+    networks:
+      - quantdinger-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_data:
+    driver: local
+
+networks:
+  quantdinger-network:
+    driver: bridge

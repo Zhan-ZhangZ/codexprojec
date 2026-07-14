@@ -1,0 +1,77 @@
+{
+  "module": "31_dfl",
+  "side": "py",
+  "rows": [
+    {
+      "module": "31_dfl",
+      "side": "py",
+      "statistic": "gap",
+      "estimate": 0.2092254675332832,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1600,
+      "extra": {}
+    },
+    {
+      "module": "31_dfl",
+      "side": "py",
+      "statistic": "composition",
+      "estimate": 0.009867319690713305,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1600,
+      "extra": {}
+    },
+    {
+      "module": "31_dfl",
+      "side": "py",
+      "statistic": "structure",
+      "estimate": 0.1993581478425699,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1600,
+      "extra": {}
+    },
+    {
+      "module": "31_dfl",
+      "side": "py",
+      "statistic": "stat_a",
+      "estimate": 3.2346025978291255,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1600,
+      "extra": {}
+    },
+    {
+      "module": "31_dfl",
+      "side": "py",
+      "statistic": "stat_b",
+      "estimate": 3.0253771302958423,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1600,
+      "extra": {}
+    },
+    {
+      "module": "31_dfl",
+      "side": "py",
+      "statistic": "stat_cf",
+      "estimate": 3.224735278138412,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1600,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "reference": 1,
+    "stat": "mean",
+    "ddecompose_reference_mapping": "StatsPAI reference=1 matches ddecompose reference_0=TRUE because StatsPAI reference indexes the target covariate distribution."
+  }
+}

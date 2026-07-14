@@ -1,0 +1,57 @@
+{
+  "module": "24_coxph",
+  "side": "R",
+  "rows": [
+    {
+      "module": "24_coxph",
+      "side": "R",
+      "statistic": "beta_x1",
+      "estimate": 0.462796354285459,
+      "se": 0.079236848248006,
+      "ci_lo": 0.307494985470901,
+      "ci_hi": 0.618097723100016,
+      "n": 300,
+      "extra": []
+    },
+    {
+      "module": "24_coxph",
+      "side": "R",
+      "statistic": "beta_x2",
+      "estimate": -0.589403662989073,
+      "se": 0.140424457311348,
+      "ci_lo": -0.864630541867897,
+      "ci_hi": -0.31417678411025,
+      "n": 300,
+      "extra": []
+    },
+    {
+      "module": "24_coxph",
+      "side": "R",
+      "statistic": "concordance",
+      "estimate": 0.642074224101984,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 300,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "ties": ["efron"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "survival": "3.8-3",
+      "compiler": "4.5.2",
+      "Matrix": "1.7-4",
+      "splines": "4.5.2",
+      "grid": "4.5.2",
+      "jsonlite": "2.0.0",
+      "lattice": "0.22-7"
+    }
+  }
+}

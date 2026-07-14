@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: /tmp/polywave-agent-1/src/app.js\n@@\n-console.log('before');\n+console.log('after');\n*** End Patch\n"
+  },
+  "polywave": {
+    "assigned_worktree": "/tmp/polywave-agent-1"
+  }
+}

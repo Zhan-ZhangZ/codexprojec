@@ -1,0 +1,31 @@
+{
+  "name": "@spark-apps/cli",
+  "version": "0.1.0",
+  "description": "CLI tool for KiCad MCP automation",
+  "type": "module",
+  "bin": {
+    "kicad-mcp": "./dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "test": "jest --passWithNoTests"
+  },
+  "dependencies": {
+    "@spark-apps/kicad-client": "workspace:*",
+    "@spark-apps/mcp-server": "workspace:*",
+    "commander": "^12.1.0",
+    "chalk": "^5.4.1",
+    "ora": "^8.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.24"
+  }
+}

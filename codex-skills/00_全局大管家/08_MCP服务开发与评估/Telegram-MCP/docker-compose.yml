@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: telegram-mcp-postgres
+    environment:
+      POSTGRES_USER: telegram_mcp
+      POSTGRES_PASSWORD: telegram_mcp
+      POSTGRES_DB: telegram_mcp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telegram_mcp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  telegram-mcp:
+    image: aichishutiao/telegram-mcp:latest
+    container_name: telegram-account-mcp
+    env_file:
+      - ./.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://telegram_mcp:telegram_mcp@postgres:5432/telegram_mcp
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8000
+      MCP_HTTP_PATH: /mcp
+    ports:
+      - "18070:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uv run python -m tg_mcp serve --transport http --host 0.0.0.0 --port 8000 --path /mcp
+
+volumes:
+  pgdata:

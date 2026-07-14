@@ -1,0 +1,128 @@
+{
+  "meta": {
+    "R_version": "4.5.2",
+    "hdm_version": "0.3.2",
+    "generated": "deterministic; re-run only on contract change",
+    "sources": {
+      "growth": "Barro & Lee growth panel; hdm::GrowthData",
+      "ajr": "Acemoglu, Johnson & Robinson (2001) AER 91(5):1369-1401; hdm::AJR",
+      "cps2012": "U.S. CPS 2012 (March supplement); hdm::cps2012"
+    }
+  },
+  "growth": {
+    "n": 90,
+    "n_x": 60,
+    "partialling_out": {
+      "coef": -0.049811465300974918,
+      "se": 0.013936358419382176
+    },
+    "double_selection": {
+      "coef": -0.050005854514913135,
+      "se": 0.015791379869110386
+    }
+  },
+  "ajr": {
+    "n": 64,
+    "n_x": 21,
+    "coef": 0.84502657583168694,
+    "se": 0.26992605985550572
+  },
+  "cps2012": {
+    "full_sample": {
+      "n": 29217,
+      "n_x": 116,
+      "n_targets": 16,
+      "female_coef": -0.15492328126103191,
+      "female_se": 0.050162447102221654,
+      "note": "published full-sample gender gap; data not bundled (~27 MB expanded)"
+    },
+    "subsample": {
+      "n": 800,
+      "seed": 42,
+      "n_x": 110,
+      "n_targets": 16,
+      "targets": [
+        {
+          "name": "female",
+          "coef": -0.12541845173137617,
+          "se": 0.14701714656625547
+        },
+        {
+          "name": "female:widowed",
+          "coef": -0.10957146780083002,
+          "se": 0.28681662990419499
+        },
+        {
+          "name": "female:divorced",
+          "coef": 0.14130521638562896,
+          "se": 0.12382061122137988
+        },
+        {
+          "name": "female:separated",
+          "coef": -0.039414310287170747,
+          "se": 0.23449684509838042
+        },
+        {
+          "name": "female:nevermarried",
+          "coef": 0.055847414967113221,
+          "se": 0.12053073346864156
+        },
+        {
+          "name": "female:hsd08",
+          "coef": -47007395147477.398,
+          "se": 37517146768057.742
+        },
+        {
+          "name": "female:hsd911",
+          "coef": -0.6217290666801506,
+          "se": 0.21612483498599769
+        },
+        {
+          "name": "female:hsg",
+          "coef": 0.056784849359889727,
+          "se": 0.10439681263658138
+        },
+        {
+          "name": "female:cg",
+          "coef": -0.026939930080749859,
+          "se": 0.10215985960388242
+        },
+        {
+          "name": "female:ad",
+          "coef": -0.14776147778220677,
+          "se": 0.12648134657436219
+        },
+        {
+          "name": "female:mw",
+          "coef": -0.052335038911510263,
+          "se": 0.10822325378266411
+        },
+        {
+          "name": "female:so",
+          "coef": -0.021288664599334262,
+          "se": 0.10958571843334505
+        },
+        {
+          "name": "female:we",
+          "coef": -0.16688758488551686,
+          "se": 0.11946430872297717
+        },
+        {
+          "name": "female:exp1",
+          "coef": 0.0036694025338445705,
+          "se": 0.019767174511256612
+        },
+        {
+          "name": "female:exp2",
+          "coef": -0.0075855089985537158,
+          "se": 0.25659654016214745
+        },
+        {
+          "name": "female:exp3",
+          "coef": -0.024607259761965389,
+          "se": 0.017685495538644774
+        }
+      ]
+    }
+  }
+}

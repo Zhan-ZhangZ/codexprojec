@@ -1,0 +1,99 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+
+# Compiled scripts (should be in dist/)
+scripts/**/*.js
+scripts/**/*.d.ts
+scripts/**/*.js.map
+scripts/**/*.d.ts.map
+# Exception: ai-coder.js is a source file, not compiled
+!scripts/ai-coder.js
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# AI Assistant files (may contain code history/context)
+.aider*
+.cursor/
+.continue/
+
+# Local configuration (may contain API keys/tokens)
+.mcpregistry_github_token
+.mcpregistry_registry_token
+
+# Application-specific data directories
+.file-organizer-backups/
+.file-organizer-rollbacks/
+Cloud-Integration/
+
+# Test artifacts and temporary files
+test-*/
+test_*.txt
+*_test_output.txt
+*.test.log
+test-fixtures*/
+coverage/
+.hidden_test/
+lint_output.txt
+
+# Security gate outputs
+security-gate-output/
+security-report.json
+
+# Benchmark outputs
+benchmark-results/
+
+# Debug and verification scripts (may expose internal paths)
+verify_*.js
+debug_*.js
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Jest cache
+.jest-cache/
+
+# User Configs & Scripts
+.agent
+debug_output.txt
+*.bat
+.sisyphus
+
+# Development files
+mestuff/
+.temp/
+.temp
+
+# Windows artifacts
+nul

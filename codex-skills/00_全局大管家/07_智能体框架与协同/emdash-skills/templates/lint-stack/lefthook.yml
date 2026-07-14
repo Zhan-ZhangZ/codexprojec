@@ -1,0 +1,88 @@
+# lefthook — parallel autofix + commit hygiene
+# Source of truth: ~/.agentskills/templates/lint-stack/lefthook.yml
+# Install: lefthook install
+
+pre-commit:
+  parallel: true
+  commands:
+    oxlint:
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs}"
+      run: npx --no-install oxlint --fix {staged_files}
+      stage_fixed: true
+    eslint:
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs}"
+      run: npx --no-install eslint --fix --max-warnings=0 {staged_files}
+      stage_fixed: true
+    prettier:
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,md,yaml,yml,css,scss,html}"
+      run: npx --no-install prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+    stylelint:
+      glob: "*.{css,scss,sass,less}"
+      run: npx --no-install stylelint --fix {staged_files}
+      stage_fixed: true
+    markdownlint:
+      glob: "*.md"
+      run: npx --no-install markdownlint-cli2 --fix {staged_files}
+      stage_fixed: true
+    shellcheck:
+      glob: "*.{sh,bash}"
+      run: shellcheck -x -S warning {staged_files}
+    shfmt:
+      glob: "*.{sh,bash}"
+      run: shfmt -i 2 -ci -bn -w {staged_files}
+      stage_fixed: true
+    yamllint:
+      glob: "*.{yml,yaml}"
+      # Single-quoted scalar — inner double-quoted brace-mapping config string must
+      # not be parsed as flow-style YAML by yamllint when this file is itself linted.
+      run: 'yamllint -d "{extends: relaxed, rules: {line-length: disable, document-start: disable, truthy: disable}}" {staged_files}'
+    actionlint:
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: actionlint {staged_files}
+    hadolint:
+      glob: "Dockerfile*"
+      run: hadolint {staged_files}
+    ruff:
+      glob: "*.py"
+      run: ruff check --fix --select E,F,W,UP {staged_files} && ruff format {staged_files}
+      stage_fixed: true
+    gitleaks:
+      run: gitleaks protect --staged --redact --verbose
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx --no-install commitlint --edit {1}
+    gitmoji-enforce:
+      # Standalone script — see templates/lint-stack/scripts/gitmoji-enforce.sh
+      # Project may override by replacing this script at the same path.
+      run: bash ~/.agentskills/templates/lint-stack/scripts/gitmoji-enforce.sh {1}
+
+pre-push:
+  parallel: true
+  commands:
+    semgrep:
+      run: |
+        mkdir -p .lint-history
+        semgrep --config=auto --config=./.semgrep --error --quiet 2>&1 | tee ".lint-history/semgrep-$(date +%Y%m%d-%H%M%S).log"
+    jscpd:
+      run: |
+        mkdir -p .lint-history
+        npx --no-install jscpd --threshold 1 --silent 2>&1 | tee ".lint-history/jscpd-$(date +%Y%m%d-%H%M%S).log" || (echo "jscpd: duplicate code > 1% threshold" && exit 1)
+    knip:
+      run: |
+        mkdir -p .lint-history
+        npx --no-install knip --no-progress 2>&1 | tee ".lint-history/knip-$(date +%Y%m%d-%H%M%S).log" || true
+    trufflehog:
+      run: trufflehog git file://. --only-verified --fail
+    sha-pin-check:
+      # Supply-chain hardening per rules/ai-agent-security.md § Supply chain.
+      # Blocks push if any GitHub Action tag-ref unpinned.
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: node ~/.agentskills/scripts/sha-pin-actions.mjs --check {staged_files}
+    lint-auto-improve:
+      # Weekly AI-augmented loop — scans .lint-history/, surfaces recurring
+      # violation classes for codification per rules/lint-doctrine.md § Self-improving.
+      # Runs but never blocks the push (analysis-only).
+      run: bash ~/.agentskills/bin/lint-auto-improve.sh || true

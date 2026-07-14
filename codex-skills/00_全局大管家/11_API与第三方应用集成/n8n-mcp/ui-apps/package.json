@@ -1,0 +1,29 @@
+{
+  "name": "n8n-mcp-ui-apps",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "APP_NAME=operation-result vite build && APP_NAME=validation-summary vite build && APP_NAME=workflow-list vite build && APP_NAME=execution-history vite build && APP_NAME=health-dashboard vite build",
+    "build:operation-result": "APP_NAME=operation-result vite build",
+    "build:validation-summary": "APP_NAME=validation-summary vite build",
+    "build:workflow-list": "APP_NAME=workflow-list vite build",
+    "build:execution-history": "APP_NAME=execution-history vite build",
+    "build:health-dashboard": "APP_NAME=health-dashboard vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0",
+    "vite-plugin-singlefile": "^2.0.0"
+  }
+}

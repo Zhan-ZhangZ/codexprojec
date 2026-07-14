@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["hkopenai.hk_finance_mcp_server"]
+include-package-data = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["hkopenai"]
+
+[tool.bandit]
+exclude_dirs = ["venv", ".venv", "tests"]
+
+[project.urls]
+repository = "https://github.com/hkopenai/hk-finance-mcp-server.git"
+
+[project]
+name = "hkopenai.hk_finance_mcp_server"
+version = "0.1.7"
+description = "Hong Kong Finance MCP Server providing financial data tools"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Neo Chow", email = "neo@01man.com"}
+]
+license = "MIT"
+classifiers = [ "Programming Language :: Python :: 3", "Operating System :: OS Independent",]
+dependencies = [ "fastmcp>=2.10.2", "requests>=2.31.0", "pytest>=8.2.0", "pytest-cov>=6.1.1", "modelcontextprotocol", "hkopenai_common>=0.4.0",]
+
+[project.scripts]
+hk_finance_mcp_server = "hkopenai.hk_finance_mcp_server.__main__:cli_main"
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+markers = [
+    "live: marks tests as live (external API calls)",
+]

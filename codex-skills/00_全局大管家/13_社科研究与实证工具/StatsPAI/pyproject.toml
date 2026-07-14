@@ -1,0 +1,228 @@
+[build-system]
+requires = ["setuptools>=77.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "StatsPAI"
+version = "1.20.0"
+description = "Validation-tiered causal inference and econometrics workflows for Python"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Biaoyue Wang", email = "brycew6m@stanford.edu"},
+    {name = "Scott Rozelle", email = "rozelle@stanford.edu"},
+]
+maintainers = [
+    {name = "Biaoyue Wang", email = "brycew6m@stanford.edu"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Office/Business :: Financial",
+    "Typing :: Typed",
+]
+keywords = [
+    "econometrics", "statistics", "causal-inference",
+    "difference-in-differences", "regression-discontinuity",
+    "synthetic-control", "matching", "propensity-score",
+    "instrumental-variables", "panel-data", "double-ml",
+    "stata", "R", "machine-learning",
+    "tmle", "dragonnet", "causal-discovery", "policy-learning",
+    "conformal-inference", "bayesian-causal-forest",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+    "scipy>=1.7.0",
+    "statsmodels>=0.13.0",
+    "linearmodels>=4.25",
+    # Used directly by spatial regression formula parsing; declare it
+    # explicitly instead of relying on linearmodels' transitive deps.
+    "formulaic>=0.6.0",
+    "numba>=0.56.0",
+    "scikit-learn>=1.0.0",
+    "patsy>=0.5.0",
+    "openpyxl>=3.0.0",
+    "xlsxwriter>=3.0.0",
+    "python-docx>=1.0.0",
+    # Required by ``sp.causal(...).report(fmt='markdown'|'html')`` because
+    # pandas ``.to_markdown()`` dispatches to ``tabulate``.  Ship it as a
+    # core dep so published artifacts work on Linux/macOS/Windows without
+    # users having to discover the optional-dep pitfall at runtime.
+    "tabulate>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "pytest-xdist",
+    "hypothesis>=6.100",
+    "jsonschema>=4.0",
+    "build",
+    "black",
+    "isort",
+    "flake8",
+    "mypy>=1.10,<2.0",
+    "bandit",
+    "sphinx",
+    "sphinx-rtd-theme",
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+]
+performance = [
+    "jax[cpu]>=0.4.0",
+    "jaxlib>=0.4.0",
+]
+deepiv = [
+    "torch>=2.0.0",
+]
+neural = [
+    "torch>=2.0.0",
+]
+fixest = [
+    "pyfixest>=0.25.0",
+]
+plotting = [
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "plotly>=5.0.0",
+]
+bayes = [
+    "pymc>=5.0",
+    "arviz>=0.15",
+]
+text = [
+    "sentence-transformers>=2.2.0",
+]
+tune = [
+    "optuna>=3.0",
+]
+parity = [
+    # Opt-in external-parity pin: the canonical Python DoubleML reference
+    # (Bach, Chernozhukov, Kurz & Spindler, JMLR 23(53), 2022). Installing
+    # it makes tests/external_parity/test_dml_python_parity.py *run* instead
+    # of silently skipping, so ``sp.dml`` is checked against doubleml-for-py
+    # to machine precision under identical learners + folds. NOT a runtime
+    # dependency of StatsPAI; the R-side parity additionally needs a local
+    # R + DoubleML install (see docs/guides/sp_dml_vs_doubleml.md).
+    "doubleml>=0.7",
+]
+rd-cct = [
+    # Official Calonico-Cattaneo-Titiunik (2014) rdrobust port; opt-in
+    # via ``sp.rdrobust(..., bwselect='cct')`` to get bit-equal R parity
+    # for bandwidth selection + inference. >=2.0 is required: the 2.0.0
+    # port syncs the mserd bandwidth pipeline with R rdrobust 3.0.0, which
+    # the Track A 06_rd golden artifacts and the cov95 RD pins are
+    # generated against (1.3.0 differs at ~6e-6 on the Lee-2008 h).
+    "rdrobust>=2.0",
+]
+docs = [
+    # MkDocs Material site + mkdocstrings auto-API (scripts/gen_api_ref.py).
+    # Build with ``mkdocs build``; preview with ``mkdocs serve``.
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
+]
+notebooks = [
+    # Tier-B replication notebooks (Paper-JSS/replication/notebooks/*.ipynb):
+    # build them with scripts/build_replication_notebooks.py and execute them
+    # headless (reviewer reproduction + CI drift guard) via
+    # tests/test_replication_notebooks.py. All BSD-licensed (MIT-compatible).
+    "nbformat>=5.7",
+    "nbclient>=0.7",
+    "nbconvert>=7.0",
+    "ipykernel>=6.0",
+]
+
+[project.scripts]
+statspai = "statspai.cli:main"
+statspai-mcp = "statspai.agent.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/brycewang-stanford/statspai"
+Documentation = "https://brycewang-stanford.github.io/StatsPAI/"
+Repository = "https://github.com/brycewang-stanford/statspai"
+"Bug Reports" = "https://github.com/brycewang-stanford/statspai/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+"statspai" = ["py.typed", "*.pyi", "CITATION.cff", "schemas/*.json", "_parity_index.json"]
+"statspai.datasets" = ["data/*.csv"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+# Frozen test fixtures/contracts — black must NOT reformat these or their guards
+# break: tests/r_parity and tests/stata_parity files are SHA-locked by
+# scripts/tier_a_fixture_lock.py, and tests/external_parity/*.py have their
+# source text asserted verbatim by tests/test_ci_exact_parity_contract.py.
+# Keep them byte-stable.
+extend-exclude = '''
+/tests/(r_parity|stata_parity|external_parity)/
+'''
+
+[tool.isort]
+# ``profile = "black"`` makes isort's import wrapping byte-compatible with black
+# (multi_line_output=3, trailing comma, parens, line_length=88), so the two stop
+# fighting over multi-line imports — the recurring "black wants vertical, isort
+# wants hanging-indent" churn that kept re-modifying staged files (e.g.
+# policy_tree.py's sklearn import). This is the single source of truth for both
+# the pre-commit hook and a bare ``isort`` invocation.
+#
+# isort is enforced ONLY as a pre-commit auto-fixer on STAGED files — there is
+# no repo-wide ``isort --check`` in CI or scripts/ — so adopting the profile
+# reformats imports incrementally as files are touched; no mass reorder of the
+# existing tree is required (or wanted, during JOSS review).
+profile = "black"
+line_length = 88
+# Mirror black's extend-exclude: these trees are SHA-locked / verbatim-asserted
+# parity fixtures (scripts/tier_a_fixture_lock.py,
+# tests/test_ci_exact_parity_contract.py) — never let a formatter rewrite them.
+extend_skip_glob = ["tests/r_parity/*", "tests/stata_parity/*", "tests/external_parity/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Coverage is opt-in, NOT in default addopts: running the full ~11.5k-test suite
+# under coverage's tracer + HTML report exhausts memory (OOM / exit 137) on
+# developer machines. CI measures coverage by passing --cov explicitly (see the
+# ci-cd.yml coverage-report step); a bare local `pytest` runs fast without it.
+addopts = "-m 'not slow'"
+markers = [
+    "slow: Monte Carlo coverage suite and other long-running tests. Run with `pytest -m slow tests/coverage_monte_carlo/`. Excluded from default `pytest` run.",
+    "external_parity_runtime: run R/Stata parity scripts against local external software; excluded from default pytest because tests are marked slow.",
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+# Optional heavy deps (pymc / torch / jax / sklearn / statsmodels / pandas
+# / scipy …) are lazily imported and are NOT in the lean ``.[dev]`` install
+# CI uses for the mypy baseline gate. Without this, every unresolved import
+# raises ``import-not-found`` / ``import-untyped`` and the error COUNT becomes
+# a function of which packages happen to be installed — so CI (lean env) and a
+# local dev venv (deps present) disagreed by ~700 errors, breaking the
+# ``scripts/quality_gate.py mypy`` ratchet. Ignoring missing imports makes the
+# count depend only on our own typed code, so it is reproducible across envs.
+ignore_missing_imports = true

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+payload="$(cat)"
+audit_dir="${POLYWAVE_HOOK_AUDIT_DIR:-${CODEX_HOME:-$HOME/.codex}/polywave/audit}"
+
+mkdir -p "$audit_dir" 2>/dev/null || exit 0
+
+event_name="$(printf '%s' "$payload" | jq -r '.hook_event_name // .hookEventName // "unknown"' 2>/dev/null || printf 'unknown')"
+tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // .toolName // "unknown"' 2>/dev/null || printf 'unknown')"
+timestamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+safe_event="$(printf '%s' "$event_name" | tr -c 'A-Za-z0-9_.-' '_')"
+safe_tool="$(printf '%s' "$tool_name" | tr -c 'A-Za-z0-9_.-' '_')"
+target="$audit_dir/${timestamp}-${safe_event}-${safe_tool}-$$.json"
+
+printf '%s\n' "$payload" > "$target" 2>/dev/null || true
+
+exit 0

@@ -1,0 +1,87 @@
+{
+  "module": "11_psm",
+  "side": "R",
+  "rows": [
+    {
+      "module": "11_psm",
+      "side": "R",
+      "statistic": "att_psm",
+      "estimate": 2277.69072087685,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2675,
+      "extra": []
+    },
+    {
+      "module": "11_psm",
+      "side": "R",
+      "statistic": "se_matchit_lm",
+      "estimate": 1136.28411617373,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2675,
+      "extra": []
+    },
+    {
+      "module": "11_psm",
+      "side": "R",
+      "statistic": "n_treated",
+      "estimate": 185,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2675,
+      "extra": []
+    },
+    {
+      "module": "11_psm",
+      "side": "R",
+      "statistic": "n_control_full",
+      "estimate": 2490,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2675,
+      "extra": []
+    },
+    {
+      "module": "11_psm",
+      "side": "R",
+      "statistic": "n_control_matched",
+      "estimate": 20,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2675,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "distance": ["glm-logit"],
+    "method": ["nearest"],
+    "replace": [true],
+    "ratio": [1],
+    "count_note": ["n_control_full is the full untreated sample; n_control_matched is the MatchIt matched-data support count after matching with replacement."],
+    "se_reference": ["att_psm compares point estimates only; se_matchit_lm is a weighted-regression diagnostic because MatchIt does not define a canonical analytical matching SE."]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "MatchIt": "4.7.2",
+      "chk": "0.10.0",
+      "compiler": "4.5.2",
+      "backports": "1.5.0",
+      "cli": "3.6.5",
+      "tools": "4.5.2",
+      "Rcpp": "1.1.1-1.1",
+      "jsonlite": "2.0.0",
+      "lifecycle": "1.0.5",
+      "rlang": "1.1.7"
+    }
+  }
+}

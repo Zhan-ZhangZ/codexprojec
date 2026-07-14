@@ -1,0 +1,78 @@
+{
+  "module": "53_cr2",
+  "side": "py",
+  "rows": [
+    {
+      "module": "53_cr2",
+      "side": "py",
+      "statistic": "cr2_(Intercept)",
+      "estimate": -18.44895827245758,
+      "se": 5.069825075296079,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "53_cr2",
+      "side": "py",
+      "statistic": "cr3_(Intercept)",
+      "estimate": -18.44895827245758,
+      "se": 5.081371593842744,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "53_cr2",
+      "side": "py",
+      "statistic": "cr2_treat",
+      "estimate": -0.055949441417330145,
+      "se": 0.01223134020340872,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "53_cr2",
+      "side": "py",
+      "statistic": "cr3_treat",
+      "estimate": -0.055949441417330145,
+      "se": 0.012259498895237085,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "53_cr2",
+      "side": "py",
+      "statistic": "cr2_year",
+      "estimate": 0.01329986875699181,
+      "se": 0.0025308142399474106,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    },
+    {
+      "module": "53_cr2",
+      "side": "py",
+      "statistic": "cr3_year",
+      "estimate": 0.01329986875699181,
+      "se": 0.002536578678900027,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "formula": "lemp ~ treat + year",
+    "vcov": "CR2 (Bell-McCaffrey) + CR3 (clubSandwich analytic)",
+    "cluster_var": "countyreal",
+    "cr3_reference": "sp.fast.crve(type='cr3') matches clubSandwich type=CR3 analytic (I-H)^-1 adjustment. Exact delete-one-cluster jackknife remains available as sp.cr3_jackknife_vcov."
+  }
+}

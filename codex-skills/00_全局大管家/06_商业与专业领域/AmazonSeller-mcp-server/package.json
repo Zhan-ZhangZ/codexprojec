@@ -1,0 +1,28 @@
+{
+      "name": "amazon-sp-api-mcp-server",
+      "version": "1.0.0",
+      "description": "MCP Server for Amazon Selling Partner API",
+      "type": "module",
+      "main": "src/index.js",
+      "bin": {
+        "amazon-sp-api-mcp": "src/index.js"
+      },
+      "scripts": {
+        "start": "node src/index.js",
+        "dev": "node --watch src/index.js",
+        "inspect": "npx -y @modelcontextprotocol/inspector node src/index.js"
+      },
+      "keywords": [
+        "amazon",
+        "sp-api",
+        "mcp",
+        "selling-partner"
+      ],
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.0",
+        "axios": "^1.6.2",
+        "crypto-js": "^4.1.1",
+        "dotenv": "^16.3.1",
+        "zod": "^3.22.4"
+      }
+    }

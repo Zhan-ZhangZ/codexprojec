@@ -1,0 +1,119 @@
+{
+  "module": "05_sunab",
+  "side": "R",
+  "rows": [
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "weighted_avg_ATT",
+      "estimate": -0.0329765138096558,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    },
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "att_rel_-4",
+      "estimate": -0.00490308225974209,
+      "se": 0.0145980032264702,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    },
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "att_rel_-3",
+      "estimate": 0.00988345488514186,
+      "se": 0.0106340306035087,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    },
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "att_rel_-2",
+      "estimate": 0.00755537377651851,
+      "se": 0.0104875596633707,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    },
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "att_rel_0",
+      "estimate": -0.0338371899158973,
+      "se": 0.00820964985766173,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    },
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "att_rel_1",
+      "estimate": -0.0280311406164622,
+      "se": 0.0106741061819908,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    },
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "att_rel_2",
+      "estimate": -0.0455279063598638,
+      "se": 0.0148429550760216,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    },
+    {
+      "module": "05_sunab",
+      "side": "R",
+      "statistic": "att_rel_3",
+      "estimate": -0.0277338393271108,
+      "se": 0.0144269600608353,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 2500,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "cluster": ["countyreal"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "fixest": "0.14.0",
+      "zoo": "1.8-15",
+      "compiler": "4.5.2",
+      "sandwich": "3.1-1",
+      "tools": "4.5.2",
+      "dreamerr": "1.5.0",
+      "Rcpp": "1.1.1-1.1",
+      "nlme": "3.1-168",
+      "grid": "4.5.2",
+      "jsonlite": "2.0.0",
+      "Formula": "1.2-5",
+      "numDeriv": "2016.8-1.1",
+      "stringmagic": "1.2.0",
+      "lattice": "0.22-7"
+    }
+  }
+}

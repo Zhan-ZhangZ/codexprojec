@@ -1,0 +1,124 @@
+from fastmcp import FastMCP
+from fastmcp.prompts.prompt import Message
+from fastmcp.resources import ResourceTemplate
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from mqtt_mcp.mqtt_client import AsyncMQTTClient
+from mqtt_mcp.settings import Settings
+
+
+class MQTTMCP(FastMCP):
+    def __init__(self, **kwargs):
+        self.settings = Settings()
+
+        auth = None
+        if self.settings.auth.domain and self.settings.auth.url:
+            from fastmcp.server.auth.providers.workos import AuthKitProvider
+
+            auth = AuthKitProvider(
+                authkit_domain=self.settings.auth.domain,
+                base_url=self.settings.auth.url,
+            )
+
+        super().__init__(
+            name="MQTT MCP Server",
+            auth=auth,
+            **kwargs,
+        )
+
+        self.add_template(
+            ResourceTemplate.from_function(
+                fn=self.receive_message, uri_template="mqtt://{host}:{port}/{topic*}"
+            )
+        )
+
+        self.tool(
+            self.receive_message,
+            annotations={
+                "title": "Receive Message",
+                "readOnlyHint": True,
+                "openWorldHint": True,
+            },
+        )
+
+        self.tool(
+            self.publish_message,
+            annotations={
+                "title": "Publish Message",
+                "readOnlyHint": False,
+                "openWorldHint": True,
+            },
+        )
+
+        self.prompt(self.mqtt_error, name="mqtt_error", tags={"mqtt", "error"})
+        self.prompt(self.mqtt_help, name="mqtt_help", tags={"mqtt", "help"})
+
+        self.custom_route("/health", methods=["GET"])(self.health_check)
+
+    async def receive_message(
+        self,
+        topic: str,
+        host: str | None = None,
+        port: int | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        timeout: int = 60,
+    ) -> str:
+        """Receives a message published to the specified topic, if any."""
+        try:
+            async with AsyncMQTTClient(
+                host if host is not None else self.settings.mqtt.host,
+                port if port is not None else self.settings.mqtt.port,
+                username if username is not None else self.settings.mqtt.username,
+                password if password is not None else self.settings.mqtt.password,
+            ) as client:
+                return await client.receive(topic, timeout)
+        except Exception as e:
+            raise RuntimeError(f"{e}") from e
+
+    async def publish_message(
+        self,
+        topic: str,
+        message: str,
+        host: str | None = None,
+        port: int | None = None,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> str:
+        """Publishes a message to the specified topic."""
+        try:
+            async with AsyncMQTTClient(
+                host if host is not None else self.settings.mqtt.host,
+                port if port is not None else self.settings.mqtt.port,
+                username if username is not None else self.settings.mqtt.username,
+                password if password is not None else self.settings.mqtt.password,
+            ) as client:
+                await client.publish(topic, message)
+            return f"Publish to {topic} on {host}:{port} has succedeed"
+        except Exception as e:
+            raise RuntimeError(f"{e}") from e
+
+    def mqtt_help(self) -> list[Message]:
+        """Provides examples of how to use the MQTT MCP server."""
+        return [
+            Message("Here are examples of how to publish and receives messages:"),
+            Message('Publish {"foo":"bar"} to topic "devices/foo" on 127.0.0.1:1883.'),
+            Message(
+                'Receive a message from topic "devices/bar", waiting up to 30 seconds.'
+            ),
+        ]
+
+    def mqtt_error(self, error: str | None = None) -> list[Message]:
+        """Asks the user how to handle an error."""
+        return (
+            [
+                Message(f"ERROR: {error!r}"),
+                Message("Would you like to retry, change parameters, or abort?"),
+            ]
+            if error
+            else []
+        )
+
+    async def health_check(self, request: Request) -> JSONResponse:
+        return JSONResponse({"status": "ok"})

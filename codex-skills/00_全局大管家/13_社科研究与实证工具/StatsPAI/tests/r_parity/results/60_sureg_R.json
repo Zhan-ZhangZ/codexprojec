@@ -1,0 +1,99 @@
+{
+  "module": "60_sureg",
+  "side": "R",
+  "rows": [
+    {
+      "module": "60_sureg",
+      "side": "R",
+      "statistic": "beta_eq1_intercept",
+      "estimate": 1.01350217611207,
+      "se": 0.0310865721682264,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "60_sureg",
+      "side": "R",
+      "statistic": "beta_eq1_x1",
+      "estimate": 0.756430722987509,
+      "se": 0.0275478684508373,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "60_sureg",
+      "side": "R",
+      "statistic": "beta_eq1_w",
+      "estimate": 0.399929921376136,
+      "se": 0.0305744913392981,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "60_sureg",
+      "side": "R",
+      "statistic": "beta_eq2_intercept",
+      "estimate": -0.508903262519087,
+      "se": 0.0382665904563861,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "60_sureg",
+      "side": "R",
+      "statistic": "beta_eq2_x2",
+      "estimate": 0.595670457659955,
+      "se": 0.0329917658936958,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    },
+    {
+      "module": "60_sureg",
+      "side": "R",
+      "statistic": "beta_eq2_w",
+      "estimate": -0.316410770313067,
+      "se": 0.0375549964760203,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "package": ["systemfit::systemfit"],
+    "method": ["SUR one-step FGLS"],
+    "residCov": ["noDfCor (divisor n)"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "systemfit": "1.1-30",
+      "lmtest": "0.9-40",
+      "zoo": "1.8-15",
+      "car": "3.1-5",
+      "carData": "3.0-6",
+      "Matrix": "1.7-4",
+      "MASS": "7.3-65",
+      "compiler": "4.5.2",
+      "sandwich": "3.1-1",
+      "abind": "1.4-8",
+      "grid": "4.5.2",
+      "jsonlite": "2.0.0",
+      "Formula": "1.2-5",
+      "lattice": "0.22-7"
+    }
+  }
+}

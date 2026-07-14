@@ -1,0 +1,226 @@
+{
+  "module": "07_scm",
+  "side": "R",
+  "rows": [
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "avg_post_gap",
+      "estimate": -0.687789209705457,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "pre_treatment_rmse",
+      "estimate": 0.0793738251107324,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Andalucia",
+      "estimate": 5.14847352802307e-05,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Aragon",
+      "estimate": 0.000607099861324573,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Asturias",
+      "estimate": 0.00534789966622714,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Baleares",
+      "estimate": 3.53869240010854e-05,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Canarias",
+      "estimate": 0.000139201333093414,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Cantabria",
+      "estimate": 0.000345813579208595,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Castilla y Leon",
+      "estimate": 0.000211326915788392,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Castilla-La Mancha",
+      "estimate": 2.21712062521234e-05,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Cataluna",
+      "estimate": 0.451607661443648,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Extremadura",
+      "estimate": 4.43989242086343e-05,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Galicia",
+      "estimate": 0.000116581622399183,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Madrid",
+      "estimate": 0.537261302559207,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Murcia",
+      "estimate": 6.33968020428469e-05,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Navarra",
+      "estimate": 0.00351570233847603,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Rioja",
+      "estimate": 0.000158371090372659,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    },
+    {
+      "module": "07_scm",
+      "side": "R",
+      "statistic": "weight_Valencia",
+      "estimate": 0.000472200998467915,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 731,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "method": ["classic"],
+    "treatment_time": [1970],
+    "treated_unit": ["Basque Country"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "Synth": "1.1-10",
+      "compiler": "4.5.2",
+      "rgenoud": "5.9-0.11",
+      "jsonlite": "2.0.0",
+      "nloptr": "2.2.1",
+      "optimx": "2025-4.9",
+      "numDeriv": "2016.8-1.1",
+      "kernlab": "0.9-33",
+      "pracma": "2.4.6"
+    }
+  }
+}

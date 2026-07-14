@@ -1,0 +1,467 @@
+"""Comprehensive health-check command for Bernstein.
+
+``bernstein doctor`` comprehensive health checks.
+
+Checks: adapters installed, API keys set, config valid, disk space,
+git installed, server reachable, and more.  Delegates to the existing
+``status_cmd.doctor`` implementation and adds new checks for disk
+space and git availability.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import socket
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import click
+
+from bernstein.cli.helpers import SERVER_URL
+
+_TASK_SERVER_LABEL = "Task server"
+
+_CONFIG_FILE_LABEL = "Config file"
+
+# ---------------------------------------------------------------------------
+# Health check dataclass
+# ---------------------------------------------------------------------------
+
+_CHECK_PASS = "PASS"
+_CHECK_FAIL = "FAIL"
+_CHECK_WARN = "WARN"
+
+
+def _format_bytes(n: int) -> str:
+    """Format byte count as human-readable string."""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024:
+            return f"{n:.1f} {unit}"
+        n = int(n / 1024)
+    return f"{n:.1f} PB"
+
+
+# ---------------------------------------------------------------------------
+# Individual checks
+# ---------------------------------------------------------------------------
+
+
+def check_python_version() -> dict[str, Any]:
+    """Check Python version >= 3.12."""
+    major, minor = sys.version_info.major, sys.version_info.minor
+    ok = (major, minor) >= (3, 12)
+    return {
+        "name": "Python version",
+        "status": _CHECK_PASS if ok else _CHECK_FAIL,
+        "detail": f"{major}.{minor}",
+        "fix": "Install Python 3.12 or newer" if not ok else "",
+    }
+
+
+def check_adapters_installed() -> list[dict[str, Any]]:
+    """Check which CLI adapters are on PATH."""
+    results: list[dict[str, Any]] = []
+    for name in ("claude", "codex", "gemini", "qwen", "aider"):
+        found = shutil.which(name) is not None
+        results.append(
+            {
+                "name": f"Adapter: {name}",
+                "status": _CHECK_PASS if found else _CHECK_WARN,
+                "detail": "found in PATH" if found else "not in PATH",
+                "fix": f"Install {name} CLI" if not found else "",
+            }
+        )
+    return results
+
+
+def check_api_keys() -> list[dict[str, Any]]:
+    """Check environment variables for common API keys."""
+    results: list[dict[str, Any]] = []
+    keys = {
+        "ANTHROPIC_API_KEY": "Claude",
+        "OPENAI_API_KEY": "Codex / OpenAI",
+        "GOOGLE_API_KEY": "Gemini",
+    }
+    for env_var, label in keys.items():
+        present = bool(os.environ.get(env_var))
+        results.append(
+            {
+                "name": f"API key: {label}",
+                "status": _CHECK_PASS if present else _CHECK_WARN,
+                "detail": f"{env_var} set" if present else f"{env_var} not set",
+                "fix": f"export {env_var}=<your-key>" if not present else "",
+            }
+        )
+    return results
+
+
+def check_config_valid() -> dict[str, Any]:
+    """Check that bernstein.yaml (if present) is valid YAML."""
+    yaml_path = Path.cwd() / "bernstein.yaml"
+    if not yaml_path.exists():
+        return {
+            "name": _CONFIG_FILE_LABEL,
+            "status": _CHECK_WARN,
+            "detail": "bernstein.yaml not found",
+            "fix": "Run 'bernstein init' to create one",
+        }
+    try:
+        import yaml
+
+        with yaml_path.open() as f:
+            yaml.safe_load(f)
+        return {
+            "name": _CONFIG_FILE_LABEL,
+            "status": _CHECK_PASS,
+            "detail": f"bernstein.yaml valid ({yaml_path})",
+            "fix": "",
+        }
+    except Exception as exc:
+        return {
+            "name": _CONFIG_FILE_LABEL,
+            "status": _CHECK_FAIL,
+            "detail": f"bernstein.yaml parse error: {exc}",
+            "fix": "Fix YAML syntax in bernstein.yaml",
+        }
+
+
+def check_disk_space() -> dict[str, Any]:
+    """Check available disk space (warn if < 1 GB)."""
+    try:
+        usage = shutil.disk_usage(Path.cwd())
+        free_gb = usage.free / (1024**3)
+        ok = free_gb >= 1.0
+        return {
+            "name": "Disk space",
+            "status": _CHECK_PASS if ok else _CHECK_WARN,
+            "detail": f"{free_gb:.1f} GB free ({_format_bytes(usage.free)})",
+            "fix": "Free up disk space" if not ok else "",
+        }
+    except Exception as exc:
+        return {
+            "name": "Disk space",
+            "status": _CHECK_WARN,
+            "detail": f"could not check: {exc}",
+            "fix": "",
+        }
+
+
+def check_git_installed() -> dict[str, Any]:
+    """Check that git is installed and accessible."""
+    git_path = shutil.which("git")
+    if not git_path:
+        return {
+            "name": "Git",
+            "status": _CHECK_FAIL,
+            "detail": "git not found in PATH",
+            "fix": "Install git: https://git-scm.com/",
+        }
+    try:
+        result = subprocess.run(
+            ["git", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+        )
+        version = result.stdout.strip()
+        return {
+            "name": "Git",
+            "status": _CHECK_PASS,
+            "detail": version,
+            "fix": "",
+        }
+    except Exception as exc:
+        return {
+            "name": "Git",
+            "status": _CHECK_WARN,
+            "detail": f"git found but error: {exc}",
+            "fix": "",
+        }
+
+
+def check_server_reachable() -> dict[str, Any]:
+    """Check if the Bernstein task server is reachable."""
+    try:
+        import httpx
+
+        resp = httpx.get(f"{SERVER_URL}/health", timeout=2.0)
+        if resp.status_code == 200:
+            return {
+                "name": _TASK_SERVER_LABEL,
+                "status": _CHECK_PASS,
+                "detail": f"reachable at {SERVER_URL}",
+                "fix": "",
+            }
+        return {
+            "name": _TASK_SERVER_LABEL,
+            "status": _CHECK_WARN,
+            "detail": f"returned {resp.status_code}",
+            "fix": "Start with 'bernstein run'",
+        }
+    except Exception:
+        return {
+            "name": _TASK_SERVER_LABEL,
+            "status": _CHECK_WARN,
+            "detail": "not running",
+            "fix": "Start with 'bernstein run'",
+        }
+
+
+def check_port_available() -> dict[str, Any]:
+    """Check if port 8052 is available or already in use by Bernstein."""
+    port = 8052
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            result = s.connect_ex(("127.0.0.1", port))
+            in_use = result == 0
+    except Exception:
+        in_use = False
+
+    if in_use:
+        return {
+            "name": f"Port {port}",
+            "status": _CHECK_WARN,
+            "detail": "in use (server may already be running)",
+            "fix": "Run 'bernstein stop' to free the port",
+        }
+    return {
+        "name": f"Port {port}",
+        "status": _CHECK_PASS,
+        "detail": "available",
+        "fix": "",
+    }
+
+
+def check_sdd_workspace() -> dict[str, Any]:
+    """Check for .sdd/ workspace structure."""
+    workdir = Path.cwd()
+    required = [".sdd", ".sdd/backlog", ".sdd/runtime"]
+    missing = [d for d in required if not (workdir / d).exists()]
+    if missing:
+        return {
+            "name": ".sdd workspace",
+            "status": _CHECK_WARN,
+            "detail": f"missing: {', '.join(missing)}",
+            "fix": "Run 'bernstein init' to create workspace",
+        }
+    return {
+        "name": ".sdd workspace",
+        "status": _CHECK_PASS,
+        "detail": "present",
+        "fix": "",
+    }
+
+
+def check_schedule_supervisor() -> dict[str, Any]:
+    """Check the schedule supervisor liveness, last fire, next fire.
+
+    Surfaces #1798's doctor AC: confirm the supervisor is alive and
+    report the timestamps the operator needs to reason about the
+    recurring-goal subsystem.
+    """
+    workdir = Path.cwd()
+    sdd_dir = workdir / ".sdd"
+    if not sdd_dir.exists():
+        return {
+            "name": "Schedule supervisor",
+            "status": _CHECK_WARN,
+            "detail": "no .sdd workspace",
+            "fix": "Run 'bernstein init' first",
+        }
+    try:
+        from bernstein.core.orchestration.schedule_supervisor import ScheduleSupervisor
+        from bernstein.core.planning.schedule_store import ScheduleStore
+
+        store = ScheduleStore(sdd_dir)
+        supervisor = ScheduleSupervisor(store, lambda _e: None, None)
+        status = supervisor.status()
+    except Exception as exc:  # pragma: no cover - defensive
+        return {
+            "name": "Schedule supervisor",
+            "status": _CHECK_WARN,
+            "detail": f"unavailable: {exc}",
+            "fix": "Check src/bernstein/core/orchestration/schedule_supervisor.py imports",
+        }
+
+    if status.schedules_total == 0:
+        return {
+            "name": "Schedule supervisor",
+            "status": _CHECK_PASS,
+            "detail": "no schedules registered",
+            "fix": "",
+        }
+
+    import time as _time
+
+    parts = [f"{status.schedules_total} schedules"]
+    if status.last_fire_at:
+        parts.append(f"last fire {_time.strftime('%Y-%m-%dT%H:%M:%SZ', _time.gmtime(status.last_fire_at))}")
+    else:
+        parts.append("last fire (none)")
+    if status.next_fire_at:
+        parts.append(f"next fire {_time.strftime('%Y-%m-%dT%H:%M:%SZ', _time.gmtime(status.next_fire_at))}")
+    detail = "; ".join(parts)
+
+    # We cannot prove liveness from a single doctor invocation because
+    # the supervisor lives in a separate process. Report PASS when
+    # schedules exist + a next-fire is computable; surface a WARN only
+    # when computation itself failed (handled above).
+    return {
+        "name": "Schedule supervisor",
+        "status": _CHECK_PASS,
+        "detail": detail,
+        "fix": "",
+    }
+
+
+def run_all_checks() -> list[dict[str, Any]]:
+    """Run all health checks and return results."""
+    checks: list[dict[str, Any]] = []
+    checks.append(check_python_version())
+    checks.extend(check_adapters_installed())
+    checks.extend(check_api_keys())
+    checks.extend(
+        (
+            check_config_valid(),
+            check_disk_space(),
+            check_git_installed(),
+            check_server_reachable(),
+            check_port_available(),
+            check_sdd_workspace(),
+            check_schedule_supervisor(),
+        )
+    )
+    return checks
+
+
+# ---------------------------------------------------------------------------
+# CLI command
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Substrate health-check (``bernstein doctor --substrate``)
+# ---------------------------------------------------------------------------
+
+
+def _substrate_status_for(host: Any) -> dict[str, Any]:
+    """Return a doctor-style row describing one host's substrate state.
+
+    States:
+      - ``unsupported``: host is stubbed (we cannot register it yet)
+      - ``no_config_path``: host is supported but path is unavailable
+      - ``not_registered``: host config exists / could exist; no entry
+      - ``registered``: entry present and matches canonical command
+      - ``stale``: entry present but command/args differ from canonical
+    """
+    from bernstein.core.substrate import is_registered, is_stale
+
+    if not host.supported:
+        return {"host": host.name, "state": "unsupported", "config_path": None}
+    path = host.config_path()
+    if path is None:
+        return {"host": host.name, "state": "no_config_path", "config_path": None}
+    if not is_registered(host, path=path):
+        return {"host": host.name, "state": "not_registered", "config_path": str(path)}
+    if is_stale(host, path=path):
+        return {"host": host.name, "state": "stale", "config_path": str(path)}
+    return {"host": host.name, "state": "registered", "config_path": str(path)}
+
+
+def _run_substrate_checks() -> list[dict[str, Any]]:
+    """Build the substrate report for every host in the registry."""
+    from bernstein.core.substrate import HOST_REGISTRY, known_host_names
+
+    return [_substrate_status_for(HOST_REGISTRY[name]) for name in known_host_names()]
+
+
+def _render_substrate_report(  # NOSONAR python:S3516 - advisory surface, always exit 0 by design
+    rows: list[dict[str, Any]], *, as_json: bool
+) -> int:
+    """Render the substrate report and return the desired exit code.
+
+    The substrate report is advisory: it always returns ``0`` regardless
+    of the host states it renders. A non-zero exit code is reserved for a
+    future ``--gate`` flag and is intentionally not produced here (hence
+    the ``S3516`` invariant-return waiver).
+    """
+    import json as _json
+
+    from rich.table import Table
+
+    from bernstein.cli.helpers import console
+
+    if as_json:
+        console.print_json(_json.dumps({"substrate": rows}))
+        return 0
+
+    table = Table(title="Bernstein substrate state", show_lines=False)
+    table.add_column("Host", style="cyan", no_wrap=True)
+    table.add_column("State")
+    table.add_column("Config path", overflow="fold")
+
+    palette = {
+        "registered": "[green]registered[/green]",
+        "not_registered": "[yellow]not_registered[/yellow]",
+        "stale": "[red]stale[/red]",
+        "unsupported": "[dim]unsupported[/dim]",
+        "no_config_path": "[dim]no_config_path[/dim]",
+    }
+    for row in rows:
+        path = row["config_path"] or "[dim](n/a)[/dim]"
+        table.add_row(row["host"], palette.get(row["state"], row["state"]), str(path))
+
+    console.print(table)
+    return 0
+
+
+@click.command("doctor")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output raw JSON.")
+@click.option("--fix", "auto_fix", is_flag=True, default=False, help="Attempt to auto-fix issues.")
+@click.option(
+    "--substrate",
+    "substrate_only",
+    is_flag=True,
+    default=False,
+    help="Report which host applications have Bernstein registered.",
+)
+@click.pass_context
+def doctor_cmd(ctx: click.Context, as_json: bool, auto_fix: bool, substrate_only: bool) -> None:
+    """Run health checks on the Bernstein installation.
+
+    \b
+    Checks:
+      - Python version (>= 3.12)
+      - CLI adapters installed (claude, codex, gemini, qwen, aider)
+      - API keys set (ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY)
+      - Config file valid (bernstein.yaml)
+      - Disk space (>= 1 GB free)
+      - Git installed and accessible
+      - Task server reachable
+      - Port 8052 available
+      - .sdd workspace structure
+
+    \b
+    Examples:
+      bernstein doctor             # print diagnostic report
+      bernstein doctor --json      # machine-readable output
+      bernstein doctor --fix       # attempt to auto-fix issues
+      bernstein doctor --substrate # report host registration state only
+    """
+    if substrate_only:
+        rows = _run_substrate_checks()
+        exit_code = _render_substrate_report(rows, as_json=as_json)
+        if exit_code:
+            raise SystemExit(exit_code)
+        return
+
+    # Delegate to the existing full doctor implementation which has more checks
+    from bernstein.cli.status_cmd import doctor as _doctor_impl
+
+    ctx.invoke(_doctor_impl, as_json=as_json, auto_fix=auto_fix)

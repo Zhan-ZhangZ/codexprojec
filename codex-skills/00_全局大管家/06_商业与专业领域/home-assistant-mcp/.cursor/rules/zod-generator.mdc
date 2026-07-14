@@ -1,0 +1,34 @@
+---
+description: Turn JSON Schema into Zod Node Schema
+globs: resources/hass/json-schemas/*.json
+alwaysApply: false
+---
+### JSON Schema to Zod Conversion Prompt
+
+- Input: JSON Schema at `<path/to/json-schema.json>` and Zod docs [https://zod.dev](https://zod.dev)
+- Goal: Generate a complete Zod schema conversion of the JSON Schema where possible.
+- Instructions:
+  - Read and reference the Zod documentation.
+  - Convert the JSON Schema into a complete Zod schema that covers every field and validation.
+  - Output the Zod schema so it can be verified by the provided validator.
+- Validator Code:
+  ```ts
+  import { mySchema } from './generated-schema'
+
+  const testData = { /* your JSON data */ }
+  const result = mySchema.safeParse(testData)
+
+  if (!result.success) {
+    console.error(result.error)
+    process.exit(1)
+  }
+  console.log("Validation passed!")
+  ```
+- Process:
+  - Generate an initial Zod schema conversion.
+  - Use `npx ts-node validate.ts` to verify the output.
+  - If the validator returns errors, analyze the feedback, fix the issues, and generate an updated schema.
+  - Repeat the process until the validator outputs "Validation passed!" indicating no errors remain.
+- Completion Criteria:
+  - The Zod schema fully represents the JSON Schema.
+  - All validations pass with no errors reported by the validator.

@@ -1,0 +1,14 @@
+name: deep
+system_prompt_preamble: |
+  ## Mode: deep (long autonomous research)
+  You operate in deep autonomous mode. Plan thoroughly before acting,
+  minimise external chatter, and only surface findings when you have a
+  complete answer. Use tools sparingly and prefer reasoning.
+tool_subset:
+  - Read
+  - Grep
+  - Glob
+  - Bash
+temperature: 0.3
+max_turns: 120
+expected_runtime_minutes: 60

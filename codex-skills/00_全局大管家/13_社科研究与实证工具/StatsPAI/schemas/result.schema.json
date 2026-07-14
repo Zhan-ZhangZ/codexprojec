@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "next_step": {
+      "additionalProperties": true,
+      "description": "One ranked follow-up action.",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "priority": {
+          "type": [
+            "string",
+            "integer",
+            "number"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "suggest_function": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "violation": {
+      "additionalProperties": true,
+      "description": "One flagged assumption/diagnostic problem.",
+      "properties": {
+        "alternatives": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "recovery_hint": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "test": {
+          "type": "string"
+        },
+        "threshold": {
+          "type": [
+            "number",
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": [
+            "number",
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://statspai.org/schemas/result.agent.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "Shape of result.to_dict(detail='agent'). Covers the causal-effect payload (estimand/estimate/se/ci) and the regression payload (coefficients/glance). The shared agent envelope (violations, warnings, next_steps, suggested_functions) is what an agent reasons over to decide its next move.",
+  "properties": {
+    "alpha": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "ci": {
+      "description": "[low, high] confidence interval.",
+      "items": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "citation_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "coefficients": {
+      "additionalProperties": {
+        "type": "object"
+      },
+      "description": "Regression coefficient table (regression payloads).",
+      "type": "object"
+    },
+    "dependent_var": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detail_head": {
+      "type": "array"
+    },
+    "diagnostics": {
+      "type": "object"
+    },
+    "estimand": {
+      "description": "ATE / ATT / LATE / CATE / ... (causal payloads).",
+      "type": "string"
+    },
+    "estimate": {
+      "description": "Point estimate (causal payloads).",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "fit_stats": {
+      "type": "object"
+    },
+    "glance": {
+      "type": "object"
+    },
+    "method": {
+      "description": "Estimator / method name.",
+      "type": "string"
+    },
+    "model_type": {
+      "type": "string"
+    },
+    "n_obs": {
+      "type": [
+        "integer",
+        "number",
+        "null"
+      ]
+    },
+    "next_steps": {
+      "description": "Ranked, ready-to-run follow-up actions.",
+      "items": {
+        "$ref": "#/$defs/next_step"
+      },
+      "type": "array"
+    },
+    "pvalue": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "se": {
+      "description": "Standard error.",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "suggested_functions": {
+      "description": "Flat list of sp.* functions worth calling next.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "violations": {
+      "description": "Assumption / diagnostic violations flagged.",
+      "items": {
+        "$ref": "#/$defs/violation"
+      },
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "method"
+  ],
+  "title": "StatsPAI agent result payload",
+  "type": "object"
+}

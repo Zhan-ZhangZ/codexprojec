@@ -1,0 +1,340 @@
+/**
+ * ESP-IDF Test Suite for {{ project_name }}
+ * Generated from {{ schematic_path }}
+ *
+ * Connectivity and functional tests using ESP-IDF framework.
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_system.h"
+#include "esp_log.h"
+#include "esp_console.h"
+#include "argtable3/argtable3.h"
+#include "driver/gpio.h"
+#include "driver/adc.h"
+#include "driver/i2c.h"
+#include "driver/spi_master.h"
+#include "esp_adc_cal.h"
+#include "unity.h"
+
+/* Tag for logging */
+static const char *TAG = "{{ project_name }}_test";
+
+{% if target_mcu %}
+/* Target MCU: {{ target_mcu }} */
+{% endif %}
+
+/* Test statistics */
+static int g_tests_passed = 0;
+static int g_tests_failed = 0;
+
+/* GPIO pin definitions from schematic */
+#define GPIO_OUTPUT_IO_0    2
+#define GPIO_OUTPUT_IO_1    15
+#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0) | (1ULL<<GPIO_OUTPUT_IO_1))
+
+#define GPIO_INPUT_IO_0     4
+#define GPIO_INPUT_IO_1     5
+#define GPIO_INPUT_PIN_SEL  ((1ULL<<GPIO_INPUT_IO_0) | (1ULL<<GPIO_INPUT_IO_1))
+
+/* ADC configuration */
+#define ADC1_CHANNEL        ADC1_CHANNEL_0
+#define ATTENUATION         ADC_ATTEN_DB_11
+#define DEFAULT_VREF        1100
+
+/* I2C configuration */
+#define I2C_MASTER_SCL_IO   6
+#define I2C_MASTER_SDA_IO   7
+#define I2C_MASTER_NUM      I2C_NUM_0
+#define I2C_MASTER_FREQ_HZ  100000
+
+/* SPI configuration */
+#define SPI_MOSI_IO         11
+#define SPI_MISO_IO         12
+#define SPI_SCLK_IO         10
+#define SPI_CS_IO           13
+#define SPI_HOST            SPI2_HOST
+
+/**
+ * @brief Test setup - runs before each test
+ */
+static void test_setup(void) {
+    ESP_LOGI(TAG, "Test setup started");
+    g_tests_passed = 0;
+    g_tests_failed = 0;
+}
+
+/**
+ * @brief Test teardown - runs after each test
+ */
+static void test_teardown(void) {
+    ESP_LOGI(TAG, "Test teardown complete");
+    ESP_LOGI(TAG, "Tests passed: %d, failed: %d", g_tests_passed, g_tests_failed);
+}
+
+/**
+ * @brief Test power supply using internal ADC
+ */
+TEST(test_utilities, test_power_supply) {
+    ESP_LOGI(TAG, "Testing power supply...");
+
+    /* ADC calibration */
+    esp_adc_cal_characteristics_t *adc_chars = calloc(1, sizeof(esp_adc_cal_characteristics_t));
+    esp_adc_cal_characterize(ADC_UNIT_1, ATTENUATION, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
+
+    /* Configure ADC */
+    adc1_config_width(ADC_WIDTH_BIT_12);
+    adc1_config_channel_atten(ADC1_CHANNEL, ATTENUATION);
+
+    /* Read ADC value */
+    uint32_t adc_reading = 0;
+    for (int i = 0; i < 64; i++) {
+        adc_reading += adc1_get_raw(ADC1_CHANNEL);
+    }
+    adc_reading /= 64;
+
+    /* Convert to voltage */
+    uint32_t voltage = esp_adc_cal_raw_to_voltage(adc_reading, adc_chars);
+
+    ESP_LOGI(TAG, "ADC reading: %d mV", voltage);
+
+    /* Check if voltage is reasonable */
+    TEST_ASSERT_TRUE_MSG(voltage > 2700 && voltage < 3600, "Voltage out of range");
+
+    free(adc_chars);
+    g_tests_passed++;
+
+    ESP_LOGI(TAG, "[PASS] Power supply test");
+}
+
+/**
+ * @brief Test GPIO connectivity
+ */
+TEST(test_utilities, test_gpio_connectivity) {
+    ESP_LOGI(TAG, "Testing GPIO connectivity...");
+
+    /* Configure GPIO */
+    gpio_config_t io_conf = {
+        .pin_bit_mask = GPIO_OUTPUT_PIN_SEL,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+
+    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    io_conf.mode = GPIO_MODE_INPUT;
+    gpio_config(&io_conf);
+
+    /* Test output pins */
+    gpio_set_level(GPIO_OUTPUT_IO_0, 1);
+    ets_delay_us(100);
+    int level = gpio_get_level(GPIO_OUTPUT_IO_0);
+    TEST_ASSERT_EQUAL_INT(1, level);
+
+    gpio_set_level(GPIO_OUTPUT_IO_0, 0);
+    ets_delay_us(100);
+    level = gpio_get_level(GPIO_OUTPUT_IO_0);
+    TEST_ASSERT_EQUAL_INT(0, level);
+
+    /* Test input pins */
+    for (int i = 0; i < 10; i++) {
+        int input_level = gpio_get_level(GPIO_INPUT_IO_0);
+        ESP_LOGI(TAG, "Input level: %d", input_level);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    g_tests_passed++;
+    ESP_LOGI(TAG, "[PASS] GPIO connectivity test");
+}
+
+{% if test_type == "functional" %}
+/**
+ * @brief Scan I2C bus for devices
+ */
+TEST(test_utilities, test_i2c_scan) {
+    ESP_LOGI(TAG, "Scanning I2C bus...");
+
+    /* Configure I2C */
+    i2c_config_t conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = I2C_MASTER_FREQ_HZ,
+    };
+
+    i2c_param_config(I2C_MASTER_NUM, &conf);
+    i2c_driver_install(I2C_MASTER_NUM, I2C_MODE_MASTER, 0, 0, 0);
+
+    /* Scan for devices */
+    uint8_t devices_found = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, 1);
+        i2c_master_stop(cmd);
+
+        esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 10 / portTICK_PERIOD_MS);
+        i2c_cmd_link_delete(cmd);
+
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "I2C device found at 0x%02X", addr);
+            devices_found++;
+        }
+    }
+
+    ESP_LOGI(TAG, "Total I2C devices: %d", devices_found);
+
+    /* Cleanup */
+    i2c_driver_delete(I2C_MASTER_NUM);
+
+    g_tests_passed++;
+    ESP_LOGI(TAG, "[PASS] I2C scan complete");
+}
+
+/**
+ * @brief SPI loopback test
+ */
+TEST(test_utilities, test_spi_loopback) {
+    ESP_LOGI(TAG, "Testing SPI...");
+
+    /* SPI bus configuration */
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = SPI_MOSI_IO,
+        .miso_io_num = SPI_MISO_IO,
+        .sclk_io_num = SPI_SCLK_IO,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 32,
+    };
+
+    /* SPI device configuration */
+    spi_device_handle_t spi;
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = 1 * 1000 * 1000,
+        .mode = 0,
+        .spics_io_num = SPI_CS_IO,
+        .queue_size = 4,
+    };
+
+    /* Initialize SPI bus */
+    TEST_ASSERT_TRUE_MSG(spi_bus_initialize(SPI_HOST, &buscfg, 0) == ESP_OK,
+                         "SPI bus initialization failed");
+
+    TEST_ASSERT_TRUE_MSG(spi_bus_add_device(SPI_HOST, &devcfg, &spi) == ESP_OK,
+                         "SPI device add failed");
+
+    /* Test transaction */
+    spi_transaction_t t = {
+        .length = 8,
+        .tx_data = {0xAA},
+        .flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA,
+    };
+
+    TEST_ASSERT_TRUE_MSG(spi_device_transmit(spi, &t) == ESP_OK,
+                         "SPI transmit failed");
+
+    ESP_LOGI(TAG, "SPI TX: 0x%02X, RX: 0x%02X", t.tx_data[0], t.rx_data[0]);
+
+    /* Cleanup */
+    spi_bus_remove_device(spi);
+    spi_bus_free(SPI_HOST);
+
+    g_tests_passed++;
+    ESP_LOGI(TAG, "[PASS] SPI test complete");
+}
+{% endif %}
+
+{% if test_type == "production" %}
+/**
+ * @brief Production test - all pins
+ */
+TEST(test_utilities, test_all_pins) {
+    ESP_LOGI(TAG, "Running production pin test...");
+
+    /* Test output pins */
+    gpio_config_t io_conf = {
+        .pin_bit_mask = GPIO_OUTPUT_PIN_SEL,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+
+    /* Toggle each output pin */
+    for (int i = 0; i < 10; i++) {
+        gpio_set_level(GPIO_OUTPUT_IO_0, i % 2);
+        gpio_set_level(GPIO_OUTPUT_IO_1, (i + 1) % 2);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    /* Read input pins */
+    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    gpio_config(&io_conf);
+
+    for (int i = 0; i < 10; i++) {
+        int level0 = gpio_get_level(GPIO_INPUT_IO_0);
+        int level1 = gpio_get_level(GPIO_INPUT_IO_1);
+        ESP_LOGI(TAG, "Inputs: %d, %d", level0, level1);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
+    g_tests_passed++;
+    ESP_LOGI(TAG, "[PASS] Production test complete");
+}
+{% endif %}
+
+/**
+ * @brief Main test runner
+ */
+static void run_all_tests(void) {
+    UNITY_BEGIN();
+
+    /* Run tests */
+    RUN_TEST(test_utilities, test_power_supply);
+    RUN_TEST(test_utilities, test_gpio_connectivity);
+    {% if test_type == "functional" %}
+    RUN_TEST(test_utilities, test_i2c_scan);
+    RUN_TEST(test_utilities, test_spi_loopback);
+    {% endif %}
+    {% if test_type == "production" %}
+    RUN_TEST(test_utilities, test_all_pins);
+    {% endif %}
+
+    /* Finish */
+    int result = UNITY_END();
+
+    ESP_LOGI(TAG, "\n========================================");
+    ESP_LOGI(TAG, "Test Summary");
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "Passed: %d", g_tests_passed);
+    ESP_LOGI(TAG, "Failed: %d", g_tests_failed);
+    ESP_LOGI(TAG, "========================================\n");
+
+    if (result == 0) {
+        ESP_LOGI(TAG, "ALL TESTS PASSED!");
+    } else {
+        ESP_LOGE(TAG, "SOME TESTS FAILED!");
+    }
+}
+
+/**
+ * @brief Main application entry point
+ */
+void app_main(void) {
+    ESP_LOGI(TAG, "\n========================================");
+    ESP_LOGI(TAG, "{{ project_name }} - ESP-IDF Test Suite");
+    ESP_LOGI(TAG, "========================================\n");
+
+    /* Run tests */
+    run_all_tests();
+}

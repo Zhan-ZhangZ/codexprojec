@@ -1,0 +1,32 @@
+{
+  "mde": [
+    {
+      "n": 128,
+      "effect_size": 0.49525497644991806
+    },
+    {
+      "n": 200,
+      "effect_size": 0.39620398115993449
+    }
+  ],
+  "cluster": [
+    {
+      "nc": 40,
+      "m": 20,
+      "d": 0.29999999999999999,
+      "icc": 0.050000000000000003,
+      "power": 0.85953981637293397
+    },
+    {
+      "nc": 60,
+      "m": 15,
+      "d": 0.25,
+      "icc": 0.02,
+      "power": 0.9122273322007749
+    }
+  ],
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "generated_by": "tests/reference_parity/_generate_power_extra_R.R"
+  }
+}

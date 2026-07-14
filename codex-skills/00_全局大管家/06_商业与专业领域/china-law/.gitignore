@@ -1,0 +1,12 @@
+logs/*.log
+
+# Law text files (only index is tracked)
+laws/宪法/
+laws/法律/
+laws/行政法规/
+laws/司法解释/
+laws/监察法规/
+laws/修改、废止的决定/
+laws/有关法律问题和重大问题的决定/
+laws/法律解释/
+laws/修正案/

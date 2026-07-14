@@ -1,0 +1,342 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/BinarySensorPlatformSchema" },
+    { "$ref": "#/definitions/BinarySensorPlatformSchema_1" },
+    { "$ref": "#/definitions/BinarySensorPlatformSchema_2" },
+    { "$ref": "#/definitions/OtherPlatform" },
+    { "type": "array", "items": { "$ref": "#/definitions/Item" } }
+  ],
+  "definitions": {
+    "BinarySensorPlatformSchema": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The group binary_sensor platform lets you combine multiple binary_sensors into one entity.\nhttps://www.home-assistant.io/integrations/binary_sensor.group",
+          "type": "string",
+          "const": "group"
+        },
+        "all": {
+          "description": "Set this to true if the group state should only turn on if all grouped entities are on, false otherwise.\nhttps://www.home-assistant.io/integrations/binary_sensor.group/#entities",
+          "type": "boolean"
+        },
+        "device_class": {
+          "description": "Set this to true if the group state should only turn on if all grouped entities are on, false otherwise.\nhttps://www.home-assistant.io/integrations/binary_sensor.group#device_class",
+          "enum": [
+            "battery",
+            "battery_charging",
+            "carbon_monoxide",
+            "cold",
+            "connectivity",
+            "door",
+            "garage_door",
+            "gas",
+            "heat",
+            "light",
+            "lock",
+            "moisture",
+            "motion",
+            "moving",
+            "occupancy",
+            "opening",
+            "plug",
+            "power",
+            "presence",
+            "problem",
+            "running",
+            "safety",
+            "smoke",
+            "sound",
+            "tamper",
+            "update",
+            "vibration",
+            "window"
+          ],
+          "type": "string"
+        },
+        "entities": {
+          "$ref": "#/definitions/Entities",
+          "description": "A list of entities to be included in the binary sensor group.\nhttps://www.home-assistant.io/integrations/binary_sensor.group/#entities"
+        },
+        "name": {
+          "description": "The name of the binary sensor group. Defaults to \"Binary Sensor Group”.\nhttps://www.home-assistant.io/integrations/binary_sensor.group#name",
+          "type": "string"
+        },
+        "unique_id": {
+          "description": "An ID that uniquely identifies this binary sensor group. If two binary sensors have the same unique ID, Home Assistant will raise an error.\nhttps://www.home-assistant.io/integrations/binary_sensor.group#unique_id",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["entities", "platform"]
+    },
+    "Entities": {
+      "pattern": "^(?!.+__)(?!_)[\\da-z_]+(?<!_)\\.(?!_)[\\da-z_]+(?<!_)\\s?(?:,\\s?(?!.+__)(?!_)[\\da-z_]+(?<!_)\\.(?!_)[\\da-z_]+(?<!_))*$",
+      "items": {
+        "pattern": "^(?!.+__)(?!_)[\\da-z_]+(?<!_)\\.(?!_)[\\da-z_]+(?<!_)$"
+      },
+      "anyOf": [
+        { "type": "string", "pattern": "^.*..*$" },
+        { "type": "array", "items": { "type": "string", "pattern": "^.*..*$" } }
+      ]
+    },
+    "TimePeriodMap": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "description": "Number of days. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "hours": {
+          "description": "Number of hours. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "milliseconds": {
+          "description": "Number of milliseconds. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "minutes": {
+          "description": "Number of minutes. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "seconds": {
+          "description": "Number of seconds. This must be a number.",
+          "type": ["string", "number"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "BinarySensorPlatformSchema_1": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The template platform supports binary sensors which get their values from other entities. The state of a Template Binary Sensor can only be on or off.\nhttps://www.home-assistant.io/integrations/binary_sensor.template",
+          "type": "string",
+          "const": "template"
+        },
+        "sensors": {
+          "description": "List of sensors.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#sensors",
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "string", "pattern": "^!include_dir_named .*$" },
+              { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+              { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+              { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+              {
+                "type": "string",
+                "pattern": "^!include_dir_merge_named\u000b.*$"
+              },
+              { "$ref": "#/definitions/BinarySensorPlatformItem" }
+            ]
+          }
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["platform", "sensors"]
+    },
+    "BinarySensorPlatformItem": {
+      "type": "object",
+      "properties": {
+        "attribute_templates": {
+          "description": "Defines templates for attributes of the sensor.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#attribute_templates",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "availability_template": {
+          "description": "Defines a template to get the available state of the sensor. Return true if the device is available, false otherwise.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#availability_template",
+          "type": "string"
+        },
+        "delay_off": {
+          "description": "The amount of time the template state must be not met before this sensor will switch to off.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#delay_off",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "delay_on": {
+          "description": "The amount of time the template state must be met before this sensor will switch to on.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#delay_on",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "device_class": {
+          "description": "Sets the class of the device, changing the device state and icon that is displayed on the frontend.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#device_class",
+          "enum": [
+            "battery",
+            "battery_charging",
+            "carbon_monoxide",
+            "cold",
+            "connectivity",
+            "door",
+            "garage_door",
+            "gas",
+            "heat",
+            "light",
+            "lock",
+            "moisture",
+            "motion",
+            "moving",
+            "occupancy",
+            "opening",
+            "plug",
+            "power",
+            "presence",
+            "problem",
+            "running",
+            "safety",
+            "smoke",
+            "sound",
+            "tamper",
+            "update",
+            "vibration",
+            "window"
+          ],
+          "type": "string"
+        },
+        "entity_picture_template": {
+          "description": "Defines a template for the entity picture of the sensor.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#entity_picture_template",
+          "type": "string"
+        },
+        "friendly_name": {
+          "description": "Name to use in the frontend.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#friendly_name",
+          "type": "string"
+        },
+        "icon_template": {
+          "description": "Defines a template for the icon of the sensor.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#icon_template",
+          "type": "string"
+        },
+        "unique_id": {
+          "description": "An ID that uniquely identifies this binary sensor. Set this to an unique value to allow customization through the UI.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#unique_id",
+          "type": "string"
+        },
+        "value_template": {
+          "description": "The sensor is on if the template evaluates as True and off otherwise.\nhttps://www.home-assistant.io/integrations/binary_sensor.template#value_template",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["value_template"]
+    },
+    "BinarySensorPlatformSchema_2": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The tod platform supports binary sensors which get their values by checking if the current time is within defined time ranges.\nhttps://www.home-assistant.io/integrations/tod",
+          "type": "string",
+          "const": "tod"
+        },
+        "name": {
+          "description": "Name of the sensor\nhttps://www.home-assistant.io/integrations/tod/#name",
+          "type": "string"
+        },
+        "before": {
+          "description": "The absolute local time value or sun event for beginning of the time range.\nhttps://www.home-assistant.io/integrations/tod/#before",
+          "anyOf": [
+            { "type": "string", "pattern": "^[0-9]*:[0-9]*:[0-9]*$" },
+            { "enum": ["sunrise", "sunset"], "type": "string" }
+          ]
+        },
+        "before_offset": {
+          "description": "The time offset of the beginning time range.\nhttps://www.home-assistant.io/integrations/tod/#before_offset",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "after": {
+          "description": "The absolute local time value or sun event for ending of the time range.\nhttps://www.home-assistant.io/integrations/tod/#after",
+          "anyOf": [
+            { "type": "string", "pattern": "^[0-9]*:[0-9]*:[0-9]*$" },
+            { "enum": ["sunrise", "sunset"], "type": "string" }
+          ]
+        },
+        "after_offset": {
+          "description": "The time offset of the ending time range.\nhttps://www.home-assistant.io/integrations/tod/#after_offset",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        },
+        "unique_id": {
+          "description": "The unique ID for this config block. This will be prefixed to all unique IDs of all entities in this block.\nhttps://www.home-assistant.io/integrations/tod/#unique_id",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": ["after", "before", "name", "platform"]
+    },
+    "OtherPlatform": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "Platform domain",
+          "pattern": "^(?!(group|template|tod|mqtt)$)\\w+$",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "required": ["platform"]
+    },
+    "Item": {
+      "anyOf": [
+        { "$ref": "#/definitions/BinarySensorPlatformSchema" },
+        { "$ref": "#/definitions/BinarySensorPlatformSchema_1" },
+        { "$ref": "#/definitions/BinarySensorPlatformSchema_2" },
+        { "$ref": "#/definitions/OtherPlatform" }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

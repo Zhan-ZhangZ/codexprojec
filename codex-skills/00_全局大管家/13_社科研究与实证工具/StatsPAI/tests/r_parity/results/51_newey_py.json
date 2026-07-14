@@ -1,0 +1,32 @@
+{
+  "module": "51_newey",
+  "side": "py",
+  "rows": [
+    {
+      "module": "51_newey",
+      "side": "py",
+      "statistic": "beta_intercept",
+      "estimate": 0.02866181455414521,
+      "se": 0.12186937251377972,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 200,
+      "extra": {}
+    },
+    {
+      "module": "51_newey",
+      "side": "py",
+      "statistic": "beta_x",
+      "estimate": 0.30856526314850646,
+      "se": 0.10621066269537764,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 200,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "vcov": "HAC",
+    "lags": 4
+  }
+}

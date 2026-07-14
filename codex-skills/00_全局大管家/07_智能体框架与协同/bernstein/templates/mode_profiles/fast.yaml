@@ -1,0 +1,11 @@
+name: fast
+system_prompt_preamble: |
+  ## Mode: fast (terse, minimal tool use)
+  You operate in fast mode. Produce the shortest correct answer.
+  Avoid exploratory tool calls; prefer a single well-targeted action.
+tool_subset:
+  - Read
+  - Edit
+temperature: 0.0
+max_turns: 15
+expected_runtime_minutes: 5

@@ -1,0 +1,130 @@
+{
+  "module": "21_honest_relmags",
+  "side": "py",
+  "rows": [
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_lower_Mbar_0",
+      "estimate": 0.3063063063063063,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_upper_Mbar_0",
+      "estimate": 0.6946946946946948,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_lower_Mbar_0.5",
+      "estimate": 0.2862862862862863,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_upper_Mbar_0.5",
+      "estimate": 0.7107107107107109,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_lower_Mbar_1",
+      "estimate": 0.25825825825825843,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_upper_Mbar_1",
+      "estimate": 0.7427427427427427,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_lower_Mbar_1.5",
+      "estimate": 0.21421421421421405,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_upper_Mbar_1.5",
+      "estimate": 0.7867867867867866,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_lower_Mbar_2",
+      "estimate": 0.15815815815815792,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "21_honest_relmags",
+      "side": "py",
+      "statistic": "ci_upper_Mbar_2",
+      "estimate": 0.8428428428428427,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "method": "relative_magnitude",
+    "honestdid_method": "Conditional",
+    "backend": "HonestDiD",
+    "Mbar_grid": [
+      0.0,
+      0.5,
+      1.0,
+      1.5,
+      2.0
+    ],
+    "alpha": 0.05,
+    "reference_backend_note": "sp.honest_did(..., backend='honestdid') delegates the relative-magnitudes CI to the R HonestDiD Conditional reference implementation, giving exact compatibility with HonestDiD::createSensitivityResults_relativeMagnitudes(..., method='Conditional'). The default backend='native' path is retained as a dependency-light analytic sensitivity bound and is not the claim exercised by this parity row."
+  }
+}

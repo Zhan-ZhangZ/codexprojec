@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arduino-cli-mcp"
+version = "0.1.6"
+description = "Arduino CLI MCP Server for VSCode and GitHub Copilot integration - a LLM Machine Communication Protocol implementation"
+readme = "README.md"
+authors = [
+    {name = "Oliver0804", email = "icetzsr@gmail.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Intended Audience :: Developers",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.4.1",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/oliver0804/arduino-cli-mcp"
+"Bug Tracker" = "https://github.com/oliver0804/arduino-cli-mcp/issues"
+"Documentation" = "https://github.com/oliver0804/arduino-cli-mcp#readme"
+
+[project.scripts]
+arduino-cli-mcp = "arduino_cli_mcp.main:main"
+
+[tool.setuptools.packages.find]
+include = ["arduino_cli_mcp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

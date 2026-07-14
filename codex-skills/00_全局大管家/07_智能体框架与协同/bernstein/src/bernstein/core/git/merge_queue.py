@@ -1,0 +1,366 @@
+"""FIFO merge queue for serialized branch merging with conflict routing.
+
+Ensures only one git merge runs at a time and provides a queue structure
+for processing agent branches in completion order.  Conflict routing
+(creating resolver tasks) is handled by the orchestrator after dequeuing.
+
+Pre-merge conflict detection uses ``git merge-tree`` so the working tree and
+index are never touched during the check.
+"""
+
+from __future__ import annotations
+
+import collections
+import contextlib
+import logging
+import re
+import threading
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from bernstein.core.git.git_basic import run_git
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MergeJob:
+    """A pending merge job waiting in the queue.
+
+    Attributes:
+        session_id: The agent session whose branch should be merged.
+        task_id: The task the agent was working on.
+        task_title: Human-readable task title (used in conflict task body).
+        branch_name: Full branch name (agent/{session_id}).
+    """
+
+    session_id: str
+    task_id: str
+    task_title: str = ""
+    branch_name: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.branch_name = f"agent/{self.session_id}"
+
+
+@dataclass
+class ConflictCheckResult:
+    """Outcome of a pre-merge conflict check via ``git merge-tree``.
+
+    Attributes:
+        has_conflicts: True when merge-tree detected at least one conflict.
+        conflicting_files: File paths that would conflict (empty when clean).
+        branch: The feature branch that was checked.
+        base: The target branch being merged into.
+    """
+
+    has_conflicts: bool
+    conflicting_files: list[str]
+    branch: str
+    base: str
+
+
+# ---------------------------------------------------------------------------
+# merge-tree output parsing
+# ---------------------------------------------------------------------------
+
+_SECTION_HEADER_RE = re.compile(
+    r"^(changed in both|added in both|both added|both removed|removed in both)",
+    re.IGNORECASE,
+)
+_DESCRIPTOR_RE = re.compile(r"^[ \t]{1,20}(?:base|our|their)[ \t]{1,10}\d+[ \t]{1,10}[0-9a-f]+[ \t]{1,10}(.+)$")
+_CONFLICT_MARKER = "<<<<<<< "
+
+
+def _flush_conflicting_section(paths: set[str], seen: set[str], files: list[str]) -> None:
+    """Append paths from a conflicting section to the result list.
+
+    Args:
+        paths: Paths found in the current section.
+        seen: Already-recorded paths (updated in place).
+        files: Result list (updated in place).
+    """
+    for p in sorted(paths):
+        if p not in seen:
+            seen.add(p)
+            files.append(p)
+
+
+def _parse_merge_tree_conflicts(output: str) -> list[str]:
+    """Extract conflicting file paths from ``git merge-tree`` output.
+
+    The old-style ``git merge-tree <base> <ours> <theirs>`` command writes
+    sections for each changed file.  A section that contains a conflict
+    marker (``<<<<<<< .our``) has a real conflict.  File paths appear on the
+    ``base``/``our``/``their`` descriptor lines that open each section.
+
+    Args:
+        output: Raw stdout from ``git merge-tree <base> <ours> <theirs>``.
+
+    Returns:
+        Deduplicated list of file paths where conflicts were found.
+    """
+    if _CONFLICT_MARKER not in output:
+        return []
+
+    files: list[str] = []
+    seen: set[str] = set()
+    current_paths: set[str] = set()
+    current_has_conflict = False
+
+    for line in output.splitlines():
+        if _SECTION_HEADER_RE.match(line):
+            if current_has_conflict:
+                _flush_conflicting_section(current_paths, seen, files)
+            current_paths = set()
+            current_has_conflict = False
+        else:
+            m = _DESCRIPTOR_RE.match(line)
+            if m:
+                current_paths.add(m.group(1).strip())
+            elif _CONFLICT_MARKER in line:
+                current_has_conflict = True
+
+    if current_has_conflict:
+        _flush_conflicting_section(current_paths, seen, files)
+
+    return files
+
+
+# ---------------------------------------------------------------------------
+# Public conflict-detection API
+# ---------------------------------------------------------------------------
+
+
+def detect_merge_conflicts(branch: str, base: str, cwd: Path) -> ConflictCheckResult:
+    """Pre-flight conflict check using ``git merge-tree`` (no working-tree changes).
+
+    Simulates a 3-way merge without touching the working tree or index.
+    Returns which files would conflict if the merge were attempted now.
+
+    Steps:
+
+    1. ``git merge-base <base> <branch>`` - find the common ancestor.
+    2. ``git merge-tree <ancestor> <base> <branch>`` - simulate the merge.
+    3. Parse the output for conflict markers.
+
+    When ``merge-base`` fails (e.g. unrelated histories) the function returns
+    a clean result rather than blocking the queue.
+
+    Args:
+        branch: Feature branch to check (e.g. ``"agent/backend-abc123"``).
+        base: Target branch being merged into (e.g. ``"main"``).
+        cwd: Repository root.
+
+    Returns:
+        :class:`ConflictCheckResult` with conflict status and file list.
+    """
+    base_r = run_git(["merge-base", base, branch], cwd)
+    if not base_r.ok:
+        logger.warning(
+            "detect_merge_conflicts: merge-base failed for %s..%s: %s",
+            base,
+            branch,
+            base_r.stderr.strip(),
+        )
+        return ConflictCheckResult(has_conflicts=False, conflicting_files=[], branch=branch, base=base)
+
+    merge_base = base_r.stdout.strip()
+
+    tree_r = run_git(["merge-tree", merge_base, base, branch], cwd)
+    conflicting_files = _parse_merge_tree_conflicts(tree_r.stdout)
+
+    if conflicting_files:
+        logger.info(
+            "detect_merge_conflicts: %d conflict(s) in %s → %s: %s",
+            len(conflicting_files),
+            branch,
+            base,
+            ", ".join(conflicting_files),
+        )
+    else:
+        logger.debug(
+            "detect_merge_conflicts: no conflicts for %s → %s",
+            branch,
+            base,
+        )
+
+    return ConflictCheckResult(
+        has_conflicts=bool(conflicting_files),
+        conflicting_files=conflicting_files,
+        branch=branch,
+        base=base,
+    )
+
+
+class MergeQueue:
+    """Thread-safe FIFO queue for serializing branch merges.
+
+    Guarantees that only one git merge runs at a time, preventing
+    concurrent merges that could cause conflicts between agent branches.
+    Jobs are processed in FIFO order - first-completed agent merges first.
+
+    The queue also exposes a ``merge_lock`` that callers can acquire
+    directly when processing a job dequeued outside this class.
+
+    Usage::
+
+        queue = MergeQueue()
+        queue.enqueue("backend-abc123", task_id="t1", task_title="Fix auth")
+
+        with queue.merge_lock:
+            job = queue.dequeue()
+            if job:
+                result = spawner._merge_worktree_branch(job.session_id)
+                # handle result ...
+    """
+
+    def __init__(self) -> None:
+        # Condition guards the queue deque so enqueue/dequeue and head-of-line
+        # waits stay consistent.  ``merge_lock`` (below) is a separate coarse
+        # lock the caller holds while the git merge subprocess runs.
+        self._cond = threading.Condition()
+        self._queue: collections.deque[MergeJob] = collections.deque()
+        # Held during each git merge operation so concurrent callers block.
+        self.merge_lock = threading.Lock()
+
+    def enqueue(self, session_id: str, task_id: str, task_title: str = "") -> MergeJob:
+        """Add a merge job to the end of the queue.
+
+        Args:
+            session_id: The agent session whose branch to merge.
+            task_id: The task the agent was working on.
+            task_title: Human-readable task title (for conflict task body).
+
+        Returns:
+            The enqueued :class:`MergeJob` (identity used by ``submit`` to
+            match the job against the queue head).
+        """
+        job = MergeJob(session_id=session_id, task_id=task_id, task_title=task_title)
+        with self._cond:
+            self._queue.append(job)
+            self._cond.notify_all()
+        logger.debug(
+            "MergeQueue: enqueued session %s (task %s), depth=%d",
+            session_id,
+            task_id,
+            len(self),
+        )
+        return job
+
+    def dequeue(self) -> MergeJob | None:
+        """Remove and return the oldest job, or None if the queue is empty.
+
+        Returns:
+            The oldest MergeJob or None.
+        """
+        with self._cond:
+            job = self._queue.popleft() if self._queue else None
+            if job is not None:
+                self._cond.notify_all()
+            return job
+
+    def peek(self) -> MergeJob | None:
+        """Return the oldest job without removing it, or None if empty.
+
+        Returns:
+            The oldest MergeJob or None.
+        """
+        with self._cond:
+            return self._queue[0] if self._queue else None
+
+    @contextlib.contextmanager
+    def submit(
+        self,
+        session_id: str,
+        task_id: str,
+        task_title: str = "",
+    ) -> Iterator[MergeJob]:
+        """Enqueue a merge job and block until it's the caller's turn.
+
+        Serializes concurrent merges in strict FIFO order.  The job is
+        enqueued, then the caller blocks on a condition until it reaches
+        the head of the queue; at that point :attr:`merge_lock` is acquired
+        and the context manager yields the :class:`MergeJob`.  On exit the
+        job is dequeued, the lock is released, and other waiters are woken.
+
+        This is the intended entry point for production callers - it
+        guarantees ``enqueue`` is actually called (fixing ) and
+        keeps the ordering invariant even when multiple threads contend.
+
+        Usage::
+
+            with queue.submit(session_id, task_id="T-1", task_title="...") as job:
+                result = spawner._merge_worktree_branch(job.session_id)
+
+        Args:
+            session_id: The agent session whose branch to merge.
+            task_id: The task the agent was working on.
+            task_title: Human-readable task title (for conflict task body).
+
+        Yields:
+            The :class:`MergeJob` that was enqueued (now at the head of the
+            queue and still present until the ``with`` block exits).
+        """
+        job = self.enqueue(session_id, task_id=task_id, task_title=task_title)
+        # Wait until we're at the head of the queue, then grab merge_lock.
+        # The merge_lock acquisition happens *inside* the condition so a
+        # concurrent dequeue cannot race ahead of us.
+        with self._cond:
+            while self._queue and self._queue[0] is not job:
+                self._cond.wait()
+        # Acquire the coarse merge_lock outside the condition so long-running
+        # git operations don't block readers of snapshot()/peek()/len().
+        self.merge_lock.acquire()
+        try:
+            yield job
+        finally:
+            try:
+                with self._cond:
+                    # Remove our job from the head (tolerate drift if a test
+                    # or edge case already dequeued it).
+                    if self._queue and self._queue[0] is job:
+                        self._queue.popleft()
+                    else:
+                        with contextlib.suppress(ValueError):
+                            self._queue.remove(job)
+                    self._cond.notify_all()
+            finally:
+                self.merge_lock.release()
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return current queue state as a serialisable dict.
+
+        Includes all pending jobs, the current queue depth, and whether a
+        merge operation is currently in progress (``merge_lock`` is held).
+
+        Returns:
+            Dict with keys ``jobs`` (list[dict]), ``depth`` (int), and
+            ``is_merging`` (bool).
+        """
+        with self._cond:
+            jobs: list[dict[str, str]] = [
+                {
+                    "session_id": job.session_id,
+                    "task_id": job.task_id,
+                    "task_title": job.task_title,
+                    "branch_name": job.branch_name,
+                }
+                for job in self._queue
+            ]
+        return {
+            "jobs": jobs,
+            "depth": len(jobs),
+            "is_merging": self.merge_lock.locked(),
+        }
+
+    def __len__(self) -> int:
+        with self._cond:
+            return len(self._queue)
+
+    def __bool__(self) -> bool:
+        return len(self) > 0

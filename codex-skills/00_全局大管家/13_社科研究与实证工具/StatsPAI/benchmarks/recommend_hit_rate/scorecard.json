@@ -1,0 +1,1649 @@
+{
+  "corpus_version": "0.11.0-batch4",
+  "statspai_version": "1.20.0",
+  "n_entries": 32,
+  "n_core": 26,
+  "n_tier_a": 10,
+  "n_tier_b": 22,
+  "summary": {
+    "hit_rate_top1": 1.0,
+    "hit_rate_topk": 1.0,
+    "hard_miss_rate": 0.0,
+    "n_errors": 0,
+    "audit_catalog_mean_recall": 1.0,
+    "audit_dynamic_mean_recall": 1.0,
+    "n_audit_errors": 0
+  },
+  "frontier": {
+    "n_frontier": 6,
+    "n_hit": 6,
+    "coverage": 1.0,
+    "ids": [
+      "frontier_bunching_saez2010",
+      "frontier_rkd_card2015",
+      "frontier_ddd_gruber1994",
+      "frontier_bartik_gpss2020",
+      "frontier_decomposition_oaxaca1973",
+      "frontier_repeated_cross_sections_did"
+    ]
+  },
+  "citation_errors": [],
+  "recommend": [
+    {
+      "id": "callaway_santanna_2021_mpdta",
+      "design": "staggered_did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Callaway-Sant'Anna (2021) \u2014 staggered DID",
+        "Sun-Abraham (2021) \u2014 interaction-weighted",
+        "Event-study (dynamic treatment effects)"
+      ],
+      "ranked_tags": [
+        "callaway_santanna",
+        "sun_abraham",
+        "unknown:Event-study (dynamic treatment effects)"
+      ],
+      "top1_tag": "callaway_santanna",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "borusyak_jaravel_spiess",
+        "callaway_santanna",
+        "dcdh",
+        "did_imputation",
+        "drdid",
+        "gardner",
+        "stacked_did",
+        "sun_abraham"
+      ],
+      "disqualifying": [
+        "classic_2x2",
+        "twfe"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "angrist_krueger_1991_qob",
+      "design": "iv",
+      "status": "HIT",
+      "detected_design": "iv",
+      "ranked_labels": [
+        "2SLS (two-stage least squares)",
+        "LIML (robust to weak instruments)"
+      ],
+      "ranked_tags": [
+        "twosls",
+        "liml"
+      ],
+      "top1_tag": "twosls",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "anderson_rubin",
+        "jive",
+        "liml",
+        "twosls"
+      ],
+      "disqualifying": [
+        "ols"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "card_1995_proximity",
+      "design": "iv",
+      "status": "HIT",
+      "detected_design": "iv",
+      "ranked_labels": [
+        "2SLS (two-stage least squares)",
+        "LIML (robust to weak instruments)"
+      ],
+      "ranked_tags": [
+        "twosls",
+        "liml"
+      ],
+      "top1_tag": "twosls",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "anderson_rubin",
+        "jive",
+        "liml",
+        "twosls"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "lee_2008_senate_rd",
+      "design": "rd",
+      "status": "HIT",
+      "detected_design": "rd",
+      "ranked_labels": [
+        "Local polynomial RD (CCT 2014)"
+      ],
+      "ranked_tags": [
+        "local_polynomial_rd"
+      ],
+      "top1_tag": "local_polynomial_rd",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "cct",
+        "local_polynomial_rd",
+        "rdrobust"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "abadie_2010_prop99",
+      "design": "synth",
+      "status": "HIT",
+      "detected_design": "synth",
+      "ranked_labels": [
+        "Synthetic Control (Abadie, Diamond & Hainmueller 2010)",
+        "Augmented SCM (Ben-Michael, Feller & Rothstein 2021)",
+        "Synthetic DiD (Arkhangelsky et al. 2021)"
+      ],
+      "ranked_tags": [
+        "synth",
+        "augsynth",
+        "synthdid"
+      ],
+      "top1_tag": "synth",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "augsynth",
+        "gsynth",
+        "mc_panel",
+        "synth",
+        "synthdid"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "abadie_2003_basque",
+      "design": "synth",
+      "status": "HIT",
+      "detected_design": "synth",
+      "ranked_labels": [
+        "Synthetic Control (Abadie, Diamond & Hainmueller 2010)",
+        "Augmented SCM (Ben-Michael, Feller & Rothstein 2021)",
+        "Synthetic DiD (Arkhangelsky et al. 2021)"
+      ],
+      "ranked_tags": [
+        "synth",
+        "augsynth",
+        "synthdid"
+      ],
+      "top1_tag": "synth",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "augsynth",
+        "gsynth",
+        "mc_panel",
+        "synth",
+        "synthdid"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "abadie_2015_german",
+      "design": "synth",
+      "status": "HIT",
+      "detected_design": "synth",
+      "ranked_labels": [
+        "Synthetic Control (Abadie, Diamond & Hainmueller 2010)",
+        "Augmented SCM (Ben-Michael, Feller & Rothstein 2021)",
+        "Synthetic DiD (Arkhangelsky et al. 2021)"
+      ],
+      "ranked_tags": [
+        "synth",
+        "augsynth",
+        "synthdid"
+      ],
+      "top1_tag": "synth",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "augsynth",
+        "gsynth",
+        "mc_panel",
+        "synth",
+        "synthdid"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "dehejia_wahba_1999_nsw",
+      "design": "observational",
+      "status": "HIT",
+      "detected_design": "observational",
+      "ranked_labels": [
+        "Propensity Score Matching (selection on observables)",
+        "Double ML (high-dimensional controls)",
+        "OLS with robust SE (naive baseline \u2014 biased under confounding)",
+        "G-computation (ATE)"
+      ],
+      "ranked_tags": [
+        "psm",
+        "dml",
+        "ols",
+        "g_computation"
+      ],
+      "top1_tag": "psm",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "aipw",
+        "dml",
+        "drdid",
+        "entropy_balance",
+        "ipw",
+        "matching",
+        "ols",
+        "psm"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "trap_staggered_heterogeneous_twfe",
+      "design": "staggered_did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Callaway-Sant'Anna (2021) \u2014 staggered DID",
+        "Sun-Abraham (2021) \u2014 interaction-weighted",
+        "Event-study (dynamic treatment effects)"
+      ],
+      "ranked_tags": [
+        "callaway_santanna",
+        "sun_abraham",
+        "unknown:Event-study (dynamic treatment effects)"
+      ],
+      "top1_tag": "callaway_santanna",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "borusyak_jaravel_spiess",
+        "callaway_santanna",
+        "dcdh",
+        "did_imputation",
+        "drdid",
+        "gardner",
+        "stacked_did",
+        "sun_abraham"
+      ],
+      "disqualifying": [
+        "classic_2x2",
+        "twfe"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "trap_did_2x2_common_timing",
+      "design": "did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Classic 2\u00d72 DID"
+      ],
+      "ranked_tags": [
+        "classic_2x2"
+      ],
+      "top1_tag": "classic_2x2",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "callaway_santanna",
+        "classic_2x2",
+        "did",
+        "drdid",
+        "sun_abraham",
+        "twfe"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "trap_weak_instrument",
+      "design": "iv",
+      "status": "HIT",
+      "detected_design": "iv",
+      "ranked_labels": [
+        "LIML (robust to weak instruments)",
+        "Anderson-Rubin confidence interval (weak-IV robust inference)",
+        "2SLS (two-stage least squares)"
+      ],
+      "ranked_tags": [
+        "liml",
+        "anderson_rubin",
+        "twosls"
+      ],
+      "top1_tag": "liml",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "anderson_rubin",
+        "jive",
+        "liml",
+        "twosls"
+      ],
+      "disqualifying": [
+        "ols"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "archetype_strong_instrument",
+      "design": "iv",
+      "status": "HIT",
+      "detected_design": "iv",
+      "ranked_labels": [
+        "2SLS (two-stage least squares)",
+        "LIML (robust to weak instruments)"
+      ],
+      "ranked_tags": [
+        "twosls",
+        "liml"
+      ],
+      "top1_tag": "twosls",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "anderson_rubin",
+        "jive",
+        "liml",
+        "twosls"
+      ],
+      "disqualifying": [
+        "ols"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "archetype_sharp_rd",
+      "design": "rd",
+      "status": "HIT",
+      "detected_design": "rd",
+      "ranked_labels": [
+        "Local polynomial RD (CCT 2014)"
+      ],
+      "ranked_tags": [
+        "local_polynomial_rd"
+      ],
+      "top1_tag": "local_polynomial_rd",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "cct",
+        "local_polynomial_rd",
+        "rdrobust"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "trap_fuzzy_rd",
+      "design": "rd",
+      "status": "HIT",
+      "detected_design": "rd",
+      "ranked_labels": [
+        "Fuzzy RD (local polynomial, CCT 2014)"
+      ],
+      "ranked_tags": [
+        "local_polynomial_rd"
+      ],
+      "top1_tag": "local_polynomial_rd",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "cct",
+        "local_polynomial_rd",
+        "rdrobust"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "trap_observational_strong_confounding",
+      "design": "observational",
+      "status": "HIT",
+      "detected_design": "observational",
+      "ranked_labels": [
+        "Propensity Score Matching (selection on observables)",
+        "Double ML (high-dimensional controls)",
+        "OLS with robust SE (naive baseline \u2014 biased under confounding)",
+        "G-computation (ATE)"
+      ],
+      "ranked_tags": [
+        "psm",
+        "dml",
+        "ols",
+        "g_computation"
+      ],
+      "top1_tag": "psm",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "aipw",
+        "dml",
+        "drdid",
+        "entropy_balance",
+        "ipw",
+        "matching",
+        "psm"
+      ],
+      "disqualifying": [
+        "ols"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "lalonde_1986_nsw_experimental",
+      "design": "observational",
+      "status": "HIT",
+      "detected_design": "observational",
+      "ranked_labels": [
+        "Propensity Score Matching (selection on observables)",
+        "Double ML (high-dimensional controls)",
+        "OLS with robust SE (naive baseline \u2014 biased under confounding)",
+        "G-computation (ATE)"
+      ],
+      "ranked_tags": [
+        "psm",
+        "dml",
+        "ols",
+        "g_computation"
+      ],
+      "top1_tag": "psm",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "aipw",
+        "dml",
+        "drdid",
+        "ipw",
+        "matching",
+        "ols",
+        "psm"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "acemoglu_angrist_2001_ada",
+      "design": "did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Callaway-Sant'Anna (2021) \u2014 staggered DID",
+        "Sun-Abraham (2021) \u2014 interaction-weighted",
+        "Event-study (dynamic treatment effects)"
+      ],
+      "ranked_tags": [
+        "callaway_santanna",
+        "sun_abraham",
+        "unknown:Event-study (dynamic treatment effects)"
+      ],
+      "top1_tag": "callaway_santanna",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "callaway_santanna",
+        "classic_2x2",
+        "did",
+        "did_imputation",
+        "drdid",
+        "sun_abraham",
+        "twfe"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "card_krueger_1994_minwage",
+      "design": "did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Classic 2\u00d72 DID"
+      ],
+      "ranked_tags": [
+        "classic_2x2"
+      ],
+      "top1_tag": "classic_2x2",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "callaway_santanna",
+        "classic_2x2",
+        "did",
+        "drdid",
+        "sun_abraham",
+        "twfe"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "angrist_1990_draft_lottery",
+      "design": "iv",
+      "status": "HIT",
+      "detected_design": "iv",
+      "ranked_labels": [
+        "2SLS (two-stage least squares)",
+        "LIML (robust to weak instruments)"
+      ],
+      "ranked_tags": [
+        "twosls",
+        "liml"
+      ],
+      "top1_tag": "twosls",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "anderson_rubin",
+        "jive",
+        "liml",
+        "twosls"
+      ],
+      "disqualifying": [
+        "ols"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "acemoglu_2001_colonial_iv",
+      "design": "iv",
+      "status": "HIT",
+      "detected_design": "iv",
+      "ranked_labels": [
+        "2SLS (two-stage least squares)",
+        "LIML (robust to weak instruments)"
+      ],
+      "ranked_tags": [
+        "twosls",
+        "liml"
+      ],
+      "top1_tag": "twosls",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "anderson_rubin",
+        "jive",
+        "liml",
+        "twosls"
+      ],
+      "disqualifying": [
+        "ols"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "dell_2010_mining_mita_rd",
+      "design": "rd",
+      "status": "HIT",
+      "detected_design": "rd",
+      "ranked_labels": [
+        "Local polynomial RD (CCT 2014)"
+      ],
+      "ranked_tags": [
+        "local_polynomial_rd"
+      ],
+      "top1_tag": "local_polynomial_rd",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "cct",
+        "local_polynomial_rd",
+        "rdrobust"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "duflo_2001_school_construction_did",
+      "design": "did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Callaway-Sant'Anna (2021) \u2014 staggered DID",
+        "Sun-Abraham (2021) \u2014 interaction-weighted",
+        "Event-study (dynamic treatment effects)"
+      ],
+      "ranked_tags": [
+        "callaway_santanna",
+        "sun_abraham",
+        "unknown:Event-study (dynamic treatment effects)"
+      ],
+      "top1_tag": "callaway_santanna",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "callaway_santanna",
+        "classic_2x2",
+        "did",
+        "did_imputation",
+        "drdid",
+        "sun_abraham",
+        "twfe"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "carpenter_dobkin_2009_mlda_rd",
+      "design": "rd",
+      "status": "HIT",
+      "detected_design": "rd",
+      "ranked_labels": [
+        "Local polynomial RD (CCT 2014)"
+      ],
+      "ranked_tags": [
+        "local_polynomial_rd"
+      ],
+      "top1_tag": "local_polynomial_rd",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "cct",
+        "local_polynomial_rd",
+        "rdrobust"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "bertrand_mullainathan_2004_audit",
+      "design": "observational",
+      "status": "HIT",
+      "detected_design": "observational",
+      "ranked_labels": [
+        "Propensity Score Matching (selection on observables)",
+        "Double ML (high-dimensional controls)",
+        "OLS with robust SE (naive baseline \u2014 biased under confounding)",
+        "G-computation (ATE)"
+      ],
+      "ranked_tags": [
+        "psm",
+        "dml",
+        "ols",
+        "g_computation"
+      ],
+      "top1_tag": "psm",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "aipw",
+        "dml",
+        "ipw",
+        "matching",
+        "ols",
+        "psm"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "nunn_wantchekon_2011_slave_iv",
+      "design": "iv",
+      "status": "HIT",
+      "detected_design": "iv",
+      "ranked_labels": [
+        "2SLS (two-stage least squares)",
+        "LIML (robust to weak instruments)"
+      ],
+      "ranked_tags": [
+        "twosls",
+        "liml"
+      ],
+      "top1_tag": "twosls",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "anderson_rubin",
+        "jive",
+        "liml",
+        "twosls"
+      ],
+      "disqualifying": [
+        "ols"
+      ],
+      "gap_probe": false
+    },
+    {
+      "id": "meyer_viscusi_durbin_1995_did",
+      "design": "did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Classic 2\u00d72 DID"
+      ],
+      "ranked_tags": [
+        "classic_2x2"
+      ],
+      "top1_tag": "classic_2x2",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "callaway_santanna",
+        "classic_2x2",
+        "did",
+        "drdid",
+        "sun_abraham",
+        "twfe"
+      ],
+      "disqualifying": [],
+      "gap_probe": false
+    },
+    {
+      "id": "frontier_bunching_saez2010",
+      "design": "bunching",
+      "status": "HIT",
+      "detected_design": "bunching",
+      "ranked_labels": [
+        "Bunching estimator (Saez 2010; Kleven 2016)"
+      ],
+      "ranked_tags": [
+        "bunching"
+      ],
+      "top1_tag": "bunching",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "bunching",
+        "general_bunching"
+      ],
+      "disqualifying": [],
+      "gap_probe": true
+    },
+    {
+      "id": "frontier_rkd_card2015",
+      "design": "rkd",
+      "status": "HIT",
+      "detected_design": "rkd",
+      "ranked_labels": [
+        "Regression Kink Design (Card, Lee, Pei & Weber 2015)"
+      ],
+      "ranked_tags": [
+        "rkd"
+      ],
+      "top1_tag": "rkd",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "kink_unified",
+        "rkd"
+      ],
+      "disqualifying": [],
+      "gap_probe": true
+    },
+    {
+      "id": "frontier_ddd_gruber1994",
+      "design": "ddd",
+      "status": "HIT",
+      "detected_design": "ddd",
+      "ranked_labels": [
+        "Triple Difference (DDD)"
+      ],
+      "ranked_tags": [
+        "ddd"
+      ],
+      "top1_tag": "ddd",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "ddd"
+      ],
+      "disqualifying": [],
+      "gap_probe": true
+    },
+    {
+      "id": "frontier_bartik_gpss2020",
+      "design": "bartik",
+      "status": "HIT",
+      "detected_design": "bartik",
+      "ranked_labels": [
+        "Bartik / shift-share IV (Goldsmith-Pinkham et al. 2020)"
+      ],
+      "ranked_tags": [
+        "bartik"
+      ],
+      "top1_tag": "bartik",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "bartik"
+      ],
+      "disqualifying": [],
+      "gap_probe": true
+    },
+    {
+      "id": "frontier_decomposition_oaxaca1973",
+      "design": "decomposition",
+      "status": "HIT",
+      "detected_design": "decomposition",
+      "ranked_labels": [
+        "Oaxaca-Blinder decomposition (Oaxaca 1973; Blinder 1973)"
+      ],
+      "ranked_tags": [
+        "oaxaca"
+      ],
+      "top1_tag": "oaxaca",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "decompose",
+        "oaxaca"
+      ],
+      "disqualifying": [],
+      "gap_probe": true
+    },
+    {
+      "id": "frontier_repeated_cross_sections_did",
+      "design": "did",
+      "status": "HIT",
+      "detected_design": "did",
+      "ranked_labels": [
+        "Pooled DID (repeated cross-sections)"
+      ],
+      "ranked_tags": [
+        "classic_2x2"
+      ],
+      "top1_tag": "classic_2x2",
+      "hit_top1": true,
+      "hit_topk": true,
+      "hard_miss": false,
+      "acceptable": [
+        "classic_2x2",
+        "did",
+        "twfe"
+      ],
+      "disqualifying": [],
+      "gap_probe": true
+    }
+  ],
+  "audit_coverage": [
+    {
+      "id": "callaway_santanna_2021_mpdta",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends",
+        "bacon_decomposition",
+        "honest_did"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "angrist_krueger_1991_qob",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci",
+        "overid_test"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "card_1995_proximity",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "lee_2008_senate_rd",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity",
+        "placebo_cutoff"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "abadie_2010_prop99",
+      "audit_family": "synth",
+      "covered": [
+        "pretreatment_fit",
+        "placebo_inference"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "abadie_2003_basque",
+      "audit_family": "synth",
+      "covered": [
+        "pretreatment_fit",
+        "placebo_inference"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "abadie_2015_german",
+      "audit_family": "synth",
+      "covered": [
+        "pretreatment_fit",
+        "placebo_inference"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "dehejia_wahba_1999_nsw",
+      "audit_family": "matching",
+      "covered": [
+        "overlap",
+        "balance_after",
+        "ovb_sensitivity"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "trap_staggered_heterogeneous_twfe",
+      "audit_family": "did",
+      "covered": [
+        "bacon_decomposition",
+        "parallel_trends",
+        "honest_did"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "trap_did_2x2_common_timing",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "trap_weak_instrument",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "archetype_strong_instrument",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "archetype_sharp_rd",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity",
+        "placebo_cutoff"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "trap_fuzzy_rd",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "trap_observational_strong_confounding",
+      "audit_family": "matching",
+      "covered": [
+        "overlap",
+        "balance_after",
+        "ovb_sensitivity"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "lalonde_1986_nsw_experimental",
+      "audit_family": "matching",
+      "covered": [
+        "overlap",
+        "balance_after"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "acemoglu_angrist_2001_ada",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "card_krueger_1994_minwage",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "angrist_1990_draft_lottery",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "acemoglu_2001_colonial_iv",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "dell_2010_mining_mita_rd",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "duflo_2001_school_construction_did",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "carpenter_dobkin_2009_mlda_rd",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "bertrand_mullainathan_2004_audit",
+      "audit_family": "matching",
+      "covered": [
+        "balance_after"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "nunn_wantchekon_2011_slave_iv",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "meyer_viscusi_durbin_1995_did",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    },
+    {
+      "id": "frontier_bunching_saez2010",
+      "audit_family": "generic",
+      "covered": [],
+      "missing_from_catalog": [
+        "bunching_window"
+      ],
+      "catalog_recall": 0.0
+    },
+    {
+      "id": "frontier_rkd_card2015",
+      "audit_family": "generic",
+      "covered": [],
+      "missing_from_catalog": [
+        "bandwidth_sensitivity"
+      ],
+      "catalog_recall": 0.0
+    },
+    {
+      "id": "frontier_ddd_gruber1994",
+      "audit_family": "generic",
+      "covered": [],
+      "missing_from_catalog": [
+        "parallel_trends"
+      ],
+      "catalog_recall": 0.0
+    },
+    {
+      "id": "frontier_bartik_gpss2020",
+      "audit_family": "generic",
+      "covered": [],
+      "missing_from_catalog": [
+        "rotemberg_weights"
+      ],
+      "catalog_recall": 0.0
+    },
+    {
+      "id": "frontier_decomposition_oaxaca1973",
+      "audit_family": "generic",
+      "covered": [],
+      "missing_from_catalog": [
+        "detailed_contributions"
+      ],
+      "catalog_recall": 0.0
+    },
+    {
+      "id": "frontier_repeated_cross_sections_did",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "missing_from_catalog": [],
+      "catalog_recall": 1.0
+    }
+  ],
+  "audit_dynamic": [
+    {
+      "id": "callaway_santanna_2021_mpdta",
+      "status": "OK",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends",
+        "bacon_decomposition",
+        "honest_did"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bacon_decomposition",
+        "honest_did"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "angrist_krueger_1991_qob",
+      "status": "OK",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci",
+        "overid_test"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "anderson_rubin_ci",
+        "overid_test"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "card_1995_proximity",
+      "status": "OK",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "anderson_rubin_ci"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "lee_2008_senate_rd",
+      "status": "OK",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity",
+        "placebo_cutoff"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bandwidth_sensitivity",
+        "placebo_cutoff"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "abadie_2010_prop99",
+      "status": "OK",
+      "audit_family": "synth",
+      "covered": [
+        "pretreatment_fit",
+        "placebo_inference"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "placebo_inference"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "abadie_2003_basque",
+      "status": "OK",
+      "audit_family": "synth",
+      "covered": [
+        "pretreatment_fit",
+        "placebo_inference"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "placebo_inference"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "abadie_2015_german",
+      "status": "OK",
+      "audit_family": "synth",
+      "covered": [
+        "pretreatment_fit",
+        "placebo_inference"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "placebo_inference"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "dehejia_wahba_1999_nsw",
+      "status": "OK",
+      "audit_family": "matching",
+      "covered": [
+        "overlap",
+        "balance_after",
+        "ovb_sensitivity"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "overlap",
+        "balance_after",
+        "ovb_sensitivity"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "trap_staggered_heterogeneous_twfe",
+      "status": "OK",
+      "audit_family": "did",
+      "covered": [
+        "bacon_decomposition",
+        "parallel_trends",
+        "honest_did"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bacon_decomposition",
+        "honest_did"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "trap_did_2x2_common_timing",
+      "status": "OK",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "parallel_trends"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "trap_weak_instrument",
+      "status": "OK",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "anderson_rubin_ci"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "archetype_strong_instrument",
+      "status": "OK",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "archetype_sharp_rd",
+      "status": "OK",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity",
+        "placebo_cutoff"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bandwidth_sensitivity",
+        "placebo_cutoff"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "trap_fuzzy_rd",
+      "status": "OK",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bandwidth_sensitivity"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "trap_observational_strong_confounding",
+      "status": "OK",
+      "audit_family": "matching",
+      "covered": [
+        "overlap",
+        "balance_after",
+        "ovb_sensitivity"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "overlap",
+        "balance_after",
+        "ovb_sensitivity"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "lalonde_1986_nsw_experimental",
+      "status": "OK",
+      "audit_family": "matching",
+      "covered": [
+        "overlap",
+        "balance_after"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "overlap",
+        "balance_after"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "acemoglu_angrist_2001_ada",
+      "status": "OK",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "parallel_trends"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "card_krueger_1994_minwage",
+      "status": "OK",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "parallel_trends"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "angrist_1990_draft_lottery",
+      "status": "OK",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "anderson_rubin_ci"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "acemoglu_2001_colonial_iv",
+      "status": "OK",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "anderson_rubin_ci"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "dell_2010_mining_mita_rd",
+      "status": "OK",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bandwidth_sensitivity"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "duflo_2001_school_construction_did",
+      "status": "OK",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "parallel_trends"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "carpenter_dobkin_2009_mlda_rd",
+      "status": "OK",
+      "audit_family": "rd",
+      "covered": [
+        "mccrary_density",
+        "bandwidth_sensitivity"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bandwidth_sensitivity"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "bertrand_mullainathan_2004_audit",
+      "status": "OK",
+      "audit_family": "matching",
+      "covered": [
+        "balance_after"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "balance_after"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "nunn_wantchekon_2011_slave_iv",
+      "status": "OK",
+      "audit_family": "iv",
+      "covered": [
+        "weak_instrument",
+        "anderson_rubin_ci"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "anderson_rubin_ci"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "meyer_viscusi_durbin_1995_did",
+      "status": "OK",
+      "audit_family": "did",
+      "covered": [
+        "parallel_trends"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "parallel_trends"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "frontier_bunching_saez2010",
+      "status": "OK",
+      "audit_family": "rd",
+      "covered": [],
+      "not_emitted": [
+        "bunching_window"
+      ],
+      "actionable_next_steps": [],
+      "dynamic_recall": 0.0
+    },
+    {
+      "id": "frontier_rkd_card2015",
+      "status": "OK",
+      "audit_family": "rd",
+      "covered": [
+        "bandwidth_sensitivity"
+      ],
+      "not_emitted": [],
+      "actionable_next_steps": [
+        "bandwidth_sensitivity"
+      ],
+      "dynamic_recall": 1.0
+    },
+    {
+      "id": "frontier_ddd_gruber1994",
+      "status": "AUDIT_ERROR",
+      "error": "TypeError(\"ddd() missing 1 required positional argument: 'subgroup'\")",
+      "dynamic_recall": null
+    },
+    {
+      "id": "frontier_bartik_gpss2020",
+      "status": "AUDIT_ERROR",
+      "error": "TypeError(\"bartik() missing 2 required positional arguments: 'shares' and 'shocks'\")",
+      "dynamic_recall": null
+    },
+    {
+      "id": "frontier_decomposition_oaxaca1973",
+      "status": "OK",
+      "audit_family": "regression",
+      "covered": [],
+      "not_emitted": [
+        "detailed_contributions"
+      ],
+      "actionable_next_steps": [],
+      "dynamic_recall": 0.0
+    },
+    {
+      "id": "frontier_repeated_cross_sections_did",
+      "status": "AUDIT_ERROR",
+      "error": "MethodIncompatibility(\"Time variable 'time' must have exactly 2 values, got 4: [np.int64(0), np.int64(1), np.int64(2), np.int64(3)]\")",
+      "dynamic_recall": null
+    }
+  ]
+}

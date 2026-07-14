@@ -1,0 +1,16 @@
+interface:
+  display_name: "Xiaohongshu Hot Copywriter"
+  short_description: "调用本地小红书 MCP 获取热点、总结风向并生成营销推文"
+  default_prompt: "Use $xiaohongshu-hot-copywriter to run the local Xiaohongshu MCP flow, summarize today's hot directions, ask for the product and style, and draft the final post."
+
+# 本地小红书 MCP server 声明。
+# 该 MCP 由 skill 自带脚本 scripts/start_xhs_mcp.sh 启动，监听 127.0.0.1:${XHS_MCP_PORT}（默认 18060）。
+# 使用前需先确保 server 已启动（status 检查、install 下载二进制、login 登录、server 拉起）。
+mcp_servers:
+  - name: xiaohongshu
+    transport: http
+    url: "http://127.0.0.1:18060"
+    # 端口可通过环境变量 XHS_MCP_PORT 覆盖；如改了端口，同步修改上面 url 的端口。
+
+policy:
+  allow_implicit_invocation: true

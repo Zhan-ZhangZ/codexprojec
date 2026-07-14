@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+payload="$(cat)"
+
+deny() {
+  local reason="$1"
+  jq -n --arg reason "$reason" '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: $reason
+    }
+  }'
+}
+
+canonicalize_path() {
+  python3 - "$1" "$2" <<'PY2'
+import os
+import sys
+root = os.path.realpath(sys.argv[1])
+target = sys.argv[2]
+if os.path.isabs(target):
+    print(os.path.realpath(target))
+else:
+    print(os.path.realpath(os.path.join(root, target)))
+PY2
+}
+
+tool_name="$(printf '%s' "$payload" | jq -r '.tool_name // .toolName // empty')"
+if [[ "$tool_name" != "apply_patch" ]]; then
+  exit 0
+fi
+
+patch_text="$(printf '%s' "$payload" | jq -r '.tool_input.command // .toolInput.command // .tool_input.patch // .toolInput.patch // empty')"
+if [[ -z "$patch_text" ]]; then
+  exit 0
+fi
+
+assigned_worktree="${POLYWAVE_AGENT_WORKTREE:-}"
+if [[ -z "$assigned_worktree" ]]; then
+  assigned_worktree="$(printf '%s' "$payload" | jq -r '.polywave.assigned_worktree // .polywave.assignedWorktree // empty')"
+fi
+
+allowed_root="$assigned_worktree"
+if [[ -z "$allowed_root" ]]; then
+  allowed_root="$(printf '%s' "$payload" | jq -r '.cwd // empty')"
+fi
+
+if [[ -z "$allowed_root" ]]; then
+  exit 0
+fi
+
+allowed_root="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$allowed_root")"
+
+while IFS= read -r target; do
+  [[ -z "$target" ]] && continue
+  resolved_target="$(canonicalize_path "$allowed_root" "$target")"
+  if [[ "$resolved_target" != "$allowed_root" && "$resolved_target" != "$allowed_root"/* ]]; then
+    if [[ -n "$assigned_worktree" ]]; then
+      deny "Blocked: apply_patch targets a path outside the assigned Polywave worktree"
+    else
+      deny "Blocked: apply_patch targets a path outside the current Codex working tree"
+    fi
+    exit 0
+  fi
+done < <(printf '%s
+' "$patch_text" | sed -n 's/^\*\*\* [A-Za-z][A-Za-z]* File: //p')
+
+exit 0

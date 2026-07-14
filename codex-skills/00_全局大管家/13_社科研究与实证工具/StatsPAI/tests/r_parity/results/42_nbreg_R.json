@@ -1,0 +1,53 @@
+{
+  "module": "42_nbreg",
+  "side": "R",
+  "rows": [
+    {
+      "module": "42_nbreg",
+      "side": "R",
+      "statistic": "beta_intercept",
+      "estimate": 0.834494088923207,
+      "se": 0.0677414415659721,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 600,
+      "extra": []
+    },
+    {
+      "module": "42_nbreg",
+      "side": "R",
+      "statistic": "beta_x1",
+      "estimate": 0.54125581088993,
+      "se": 0.0522408833662176,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 600,
+      "extra": []
+    },
+    {
+      "module": "42_nbreg",
+      "side": "R",
+      "statistic": "beta_x2",
+      "estimate": -0.496231087135808,
+      "se": 0.100496805765588,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 600,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "package": ["MASS::glm.nb"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "MASS": "7.3-65",
+      "compiler": "4.5.2",
+      "jsonlite": "2.0.0"
+    }
+  }
+}

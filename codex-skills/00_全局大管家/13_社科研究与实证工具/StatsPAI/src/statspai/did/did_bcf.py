@@ -1,0 +1,256 @@
+"""DiD-BCF -- Forests for Differences.
+
+Souto & Neto (2025, arXiv 2505.09706). [@souto2025forests]
+
+Non-parametric DiD via Bayesian Causal Forests (Hahn-Murray-Carvalho
+2020) applied to the differenced outcome ΔY = Y_post - Y_pre.
+
+Identification: parallel trends conditional on covariates X. The
+Robinson decomposition splits the forest into a prognostic component
+μ(X) and a treatment component τ(X), giving conditional ATTs without
+parametric trend assumptions and naturally handling staggered timing
+through cohort-specific differences.
+
+Implementation
+--------------
+1. For each unit, compute pre/post outcome difference per cohort.
+2. Fit a BCF-style decomposition on (treat, X) → ΔY using existing
+   :class:`statspai.bcf.BayesianCausalForest`.
+3. Average the τ(X) predictions over the treated subsample → ATT;
+   subgroup means → CATTs.
+"""
+
+from __future__ import annotations
+
+from typing import Any, List, Optional
+
+import numpy as np
+from ..core._bootstrap import bootstrap_se as _bootstrap_se
+import pandas as pd
+
+from ..core.results import CausalResult
+
+
+def did_bcf(
+    data: pd.DataFrame,
+    y: str,
+    treat: str,
+    time: str,
+    id: str,
+    covariates: Optional[List[str]] = None,
+    n_trees: int = 50,
+    alpha: float = 0.05,
+    seed: int = 0,
+) -> CausalResult:
+    """
+    Forests for Differences DiD estimator.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Long-format panel.
+    y : str
+    treat : str
+        First-treatment-period column (0 = never-treated; otherwise
+        the calendar period of first treatment).
+    time : str
+    id : str
+    covariates : list of str, optional
+    n_trees : int, default 50
+    alpha : float, default 0.05
+    seed : int
+
+    Returns
+    -------
+    CausalResult
+        ATT plus per-cohort CATT in ``model_info['catt_by_cohort']``.
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> rows = []
+    >>> for i in range(30):
+    ...     g = 0 if i < 15 else 3
+    ...     for t in range(1, 6):
+    ...         post = int(g > 0 and t >= g)
+    ...         y = 1.0 + 0.2 * t + 1.5 * post + rng.normal(0, 0.5)
+    ...         rows.append({"id": i, "time": t, "g": g, "y": y})
+    >>> df = pd.DataFrame(rows)
+    >>> res = sp.did_bcf(df, y="y", treat="g", time="time", id="id", seed=0)
+    >>> res.estimand
+    'ATT'
+    >>> bool(np.isfinite(res.estimate))
+    True
+
+    References
+    ----------
+    Souto & Neto (2025). Forests for Differences: Robust Causal
+    Inference Beyond Parametric DiD. arXiv 2505.09706.
+    """
+    cov = list(covariates or [])
+    df = data[[y, treat, time, id] + cov].dropna().reset_index(drop=True)
+
+    # Determine pre/post per unit. For never-treated, use median time
+    # as a placebo split (forest will treat them as control regardless).
+    treat_vals = df[treat].to_numpy()
+    is_treated_unit = treat_vals > 0
+    median_t = float(df[time].median())
+    cohort = np.where(is_treated_unit, treat_vals.astype(float), median_t)
+    df["_cohort"] = cohort
+    df["_post"] = (df[time] >= df["_cohort"]).astype(int)
+
+    # Compute mean Y per (id, _post) and difference
+    agg = df.groupby([id, "_post", "_cohort"])[y].mean().unstack("_post")
+    agg.columns = ["y_pre", "y_post"]
+    agg["delta_y"] = agg["y_post"] - agg["y_pre"]
+    agg = agg.reset_index()
+    # Merge covariates (use unit-mean if time-varying)
+    if cov:
+        cov_means = df.groupby(id)[cov].mean().reset_index()
+        agg = agg.merge(cov_means, on=id, how="left")
+
+    # Treated indicator at the unit level
+    treat_per_unit = (df.groupby(id)[treat].max() > 0).astype(int)
+    agg = agg.merge(treat_per_unit.rename("_D").reset_index(), on=id, how="left")
+    agg = agg.dropna(subset=["delta_y"]).reset_index(drop=True)
+
+    Y = agg["delta_y"].to_numpy(float)
+    D = agg["_D"].to_numpy(int)
+    if cov:
+        X = agg[cov].to_numpy(float)
+    else:
+        X = np.zeros((len(agg), 0))
+    cohort_arr = agg["_cohort"].to_numpy(float)
+    n = len(agg)
+
+    # Fit BCF on the differenced outcome via the existing module
+    from ..bcf import bcf as bcf_fit
+
+    fallback_reason: Optional[str] = None
+    catt_by_cohort: dict[float, float] = {}
+    if X.shape[1] == 0:
+        # Degenerate: no covariates → ATT = mean(treated ΔY) - mean(control ΔY)
+        att = float(Y[D == 1].mean() - Y[D == 0].mean())
+        # Cluster bootstrap SE on units
+        rng = np.random.default_rng(seed)
+        boot = np.full(200, np.nan)
+        ids = np.arange(n)
+        for b in range(200):
+            sample = rng.choice(ids, size=n, replace=True)
+            try:
+                boot[b] = (
+                    Y[sample][D[sample] == 1].mean() - Y[sample][D[sample] == 0].mean()
+                )
+            except Exception:
+                pass
+        se = _bootstrap_se(boot, label="did.did_bcf")
+        for c in np.unique(cohort_arr[D == 1]):
+            mask = (cohort_arr == c) & (D == 1)
+            ctrl_mask = D == 0
+            if mask.sum() > 0:
+                catt_by_cohort[float(c)] = float(Y[mask].mean() - Y[ctrl_mask].mean())
+    else:
+        try:
+            # Build a minimal DataFrame for the bcf API
+            bcf_df = pd.DataFrame(X, columns=cov)
+            bcf_df["_dy"] = Y
+            bcf_df["_d"] = D
+            bcf_res = bcf_fit(
+                data=bcf_df,
+                y="_dy",
+                treat="_d",
+                covariates=cov,
+                n_trees_tau=n_trees,
+                n_bootstrap=100,
+                n_folds=3,
+                random_state=seed,
+            )
+            tau_hat = np.asarray(bcf_res.model_info.get("cate", []), dtype=float)
+            if tau_hat.size != n:
+                raise RuntimeError("BCF returned mismatched cate size")
+            att = float(tau_hat[D == 1].mean())
+            cate_sd = np.asarray(
+                bcf_res.model_info.get("cate_sd", np.zeros(n)), dtype=float
+            )
+            # ATT SE via average per-unit posterior SD on treated
+            treated_count = max((D == 1).sum(), 1)
+            se = (
+                float(np.sqrt((cate_sd[D == 1] ** 2).mean() / treated_count))
+                or float(bcf_res.se)
+                or 1e-6
+            )
+            for c in np.unique(cohort_arr[D == 1]):
+                mask = (cohort_arr == c) & (D == 1)
+                if mask.sum() > 0:
+                    catt_by_cohort[float(c)] = float(tau_hat[mask].mean())
+        except Exception as e:
+            # Fallback to OLS-style DiD per cohort
+            att = float(Y[D == 1].mean() - Y[D == 0].mean())
+            se = float(np.std(Y[D == 1], ddof=1) / np.sqrt(max((D == 1).sum(), 1)))
+            fallback_reason = f"{type(e).__name__}: {e}"
+
+    from scipy import stats
+
+    z_crit = float(stats.norm.ppf(1 - alpha / 2))
+    ci = (att - z_crit * se, att + z_crit * se)
+    z = att / se if se > 0 else 0.0
+    pvalue = float(2 * (1 - stats.norm.cdf(abs(z))))
+
+    model_info: dict[str, Any] = {
+        "estimator": "DiD-BCF",
+        "n_trees": n_trees,
+        "n_covariates": len(cov),
+        "catt_by_cohort": catt_by_cohort,
+        "reference": "Souto & Neto (2025), arXiv 2505.09706",
+    }
+    if fallback_reason is not None:
+        model_info["fallback_reason"] = fallback_reason
+
+    _result = CausalResult(
+        method="DiD-BCF (Forests for Differences)",
+        estimand="ATT",
+        estimate=att,
+        se=se,
+        pvalue=pvalue,
+        ci=ci,
+        alpha=alpha,
+        n_obs=n,
+        model_info=model_info,
+        _citation_key="did_bcf",
+    )
+    try:
+        from ..output._lineage import attach_provenance as _attach_prov
+
+        _attach_prov(
+            _result,
+            function="sp.did.did_bcf",
+            params={
+                "y": y,
+                "treat": treat,
+                "time": time,
+                "id": id,
+                "covariates": list(covariates) if covariates else None,
+                "n_trees": n_trees,
+                "alpha": alpha,
+                "seed": seed,
+            },
+            data=data,
+            overwrite=False,
+        )
+    except Exception:  # pragma: no cover
+        pass
+    return _result
+
+
+# Citation
+CausalResult._CITATIONS["did_bcf"] = (
+    "@article{souto2025forests,\n"
+    "  title={Forests for Differences: Robust Causal Inference Beyond "
+    "Parametric DiD},\n"
+    "  author={Souto, Hugo Gobato and Louzada Neto, Francisco},\n"
+    "  journal={arXiv preprint arXiv:2505.09706},\n"
+    "  year={2025}\n"
+    "}"
+)

@@ -1,0 +1,47 @@
+{
+  "module": "56_multiway_cluster",
+  "side": "R",
+  "rows": [
+    {
+      "module": "56_multiway_cluster",
+      "side": "R",
+      "statistic": "beta_(Intercept)",
+      "estimate": 1.19656537616059,
+      "se": 0.280658394573727,
+      "ci_lo": 0.646485030837255,
+      "ci_hi": 1.74664572148393,
+      "n": 4000,
+      "extra": []
+    },
+    {
+      "module": "56_multiway_cluster",
+      "side": "R",
+      "statistic": "beta_x",
+      "estimate": 0.524645800563883,
+      "se": 0.0399135525400566,
+      "ci_lo": 0.446416675090325,
+      "ci_hi": 0.602874926037441,
+      "n": 4000,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "formula": ["y ~ x"],
+    "vcov": ["three-way cluster (sandwich::vcovCL HC1 cadjust)"],
+    "cluster_vars": ["g1 + g2 + g3"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "sandwich": "3.1-1",
+      "zoo": "1.8-15",
+      "compiler": "4.5.2",
+      "grid": "4.5.2",
+      "jsonlite": "2.0.0",
+      "lattice": "0.22-7"
+    }
+  }
+}

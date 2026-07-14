@@ -1,0 +1,414 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "QuantDinger Agent Gateway",
+    "version": "1.0.0",
+    "description": "Versioned, scoped surface for AI agents. Distinct from the human web API (/api/...). All routes (except /health) require a Bearer agent token. See docs/agent/AI_INTEGRATION_DESIGN.md."
+  },
+  "servers": [
+    { "url": "http://localhost:8888" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "AgentToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "qd_agent_xxx"
+      },
+      "HumanJWT": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Envelope": {
+        "type": "object",
+        "properties": {
+          "code":    { "type": "integer", "description": "0 on success" },
+          "message": { "type": "string" },
+          "data":    {}
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code":      { "type": "integer" },
+          "message":   { "type": "string" },
+          "details":   {},
+          "retriable": { "type": "boolean" }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "properties": {
+          "job_id":      { "type": "string" },
+          "kind":        { "type": "string", "enum": ["backtest","experiment_pipeline","structured_tune","ai_optimize"] },
+          "status":      { "type": "string", "enum": ["queued","running","succeeded","failed","cancelled"] },
+          "request":     { "type": "object" },
+          "result":      { "type": "object" },
+          "error":       { "type": "string" },
+          "created_at":  { "type": "string", "format": "date-time" },
+          "started_at":  { "type": "string", "format": "date-time" },
+          "finished_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "TokenIssued": {
+        "type": "object",
+        "properties": {
+          "id":                   { "type": "integer" },
+          "name":                 { "type": "string" },
+          "token":                { "type": "string", "description": "Full token; shown ONCE — store securely" },
+          "token_prefix":         { "type": "string" },
+          "scopes":               { "type": "array", "items": { "type": "string", "enum": ["R","W","B","N","C","T"] } },
+          "markets":              { "type": "array", "items": { "type": "string" } },
+          "instruments":          { "type": "array", "items": { "type": "string" } },
+          "paper_only":           { "type": "boolean" },
+          "rate_limit_per_min":   { "type": "integer" },
+          "expires_at":           { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "BacktestRequest": {
+        "type": "object",
+        "required": ["code","market","symbol","timeframe","start_date","end_date"],
+        "properties": {
+          "code":             { "type": "string", "description": "Indicator code (Python)" },
+          "market":           { "type": "string", "example": "Crypto" },
+          "symbol":           { "type": "string", "example": "BTC/USDT" },
+          "timeframe":        { "type": "string", "example": "1D" },
+          "start_date":       { "type": "string", "example": "2024-01-01" },
+          "end_date":         { "type": "string", "example": "2024-12-31" },
+          "initial_capital":  { "type": "number", "default": 10000 },
+          "commission":       { "type": "number", "default": 0.001 },
+          "slippage":         { "type": "number", "nullable": true },
+          "leverage":         { "type": "integer", "default": 1 },
+          "trade_direction":  { "type": "string", "default": "long" },
+          "strictMode":       { "type": "boolean", "default": true, "description": "When true, signals execute on next bar open (live-aligned). When false, uses aggressive MTF/bar path." },
+          "strict_mode":      { "type": "boolean", "description": "Alias for strictMode" },
+          "strategy_config":  { "type": "object" },
+          "indicator_params": { "type": "object" }
+        }
+      },
+      "IndicatorValidateRequest": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code":             { "type": "string" },
+          "indicator_params": { "type": "object" }
+        }
+      },
+      "IndicatorSaveRequest": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code":             { "type": "string", "description": "Python indicator source (max 512 KiB)" },
+          "name":             { "type": "string" },
+          "description":      { "type": "string" },
+          "indicator_id":     { "type": "integer", "description": "Update existing row when set" },
+          "validate":         { "type": "boolean", "default": true }
+        }
+      },
+      "IndicatorSummary": {
+        "type": "object",
+        "properties": {
+          "id":          { "type": "integer" },
+          "name":        { "type": "string" },
+          "description": { "type": "string" },
+          "updated_at":  { "type": "string" }
+        }
+      },
+      "OrderRequest": {
+        "type": "object",
+        "required": ["market","symbol","side","qty"],
+        "properties": {
+          "market":      { "type": "string" },
+          "symbol":      { "type": "string" },
+          "side":        { "type": "string", "enum": ["buy","sell"] },
+          "qty":         { "type": "number" },
+          "order_type":  { "type": "string", "enum": ["market","limit"], "default": "market" },
+          "limit_price": { "type": "number", "nullable": true }
+        }
+      }
+    }
+  },
+  "security": [{ "AgentToken": [] }],
+  "paths": {
+    "/api/agent/v1/health": {
+      "get": {
+        "summary": "Public liveness (no token required)",
+        "security": [],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/whoami": {
+      "get": {
+        "summary": "Inspect calling token (scopes, allowlists, paper_only)",
+        "x-scope-class": "R",
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Envelope" } } } } }
+      }
+    },
+    "/api/agent/v1/markets": {
+      "get": {
+        "summary": "List markets the token is allowed to query",
+        "x-scope-class": "R",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/markets/{market}/symbols": {
+      "get": {
+        "summary": "Search symbols within a market",
+        "x-scope-class": "R",
+        "parameters": [
+          { "in": "path",  "name": "market",  "required": true, "schema": { "type": "string" } },
+          { "in": "query", "name": "keyword", "required": false, "schema": { "type": "string" } },
+          { "in": "query", "name": "limit",   "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }
+        ],
+        "responses": { "200": { "description": "OK" }, "403": { "description": "Market not in token allowlist" } }
+      }
+    },
+    "/api/agent/v1/klines": {
+      "get": {
+        "summary": "OHLCV bars",
+        "x-scope-class": "R",
+        "parameters": [
+          { "in": "query", "name": "market",      "required": true,  "schema": { "type": "string" } },
+          { "in": "query", "name": "symbol",      "required": true,  "schema": { "type": "string" } },
+          { "in": "query", "name": "timeframe",   "required": false, "schema": { "type": "string", "default": "1D" } },
+          { "in": "query", "name": "limit",       "required": false, "schema": { "type": "integer", "default": 300, "maximum": 2000 } },
+          { "in": "query", "name": "before_time", "required": false, "schema": { "type": "integer", "description": "unix seconds" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/price": {
+      "get": {
+        "summary": "Latest price",
+        "x-scope-class": "R",
+        "parameters": [
+          { "in": "query", "name": "market", "required": true, "schema": { "type": "string" } },
+          { "in": "query", "name": "symbol", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/strategies": {
+      "get":  {
+        "summary": "List strategies (tenant-scoped)",
+        "x-scope-class": "R",
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "summary": "Create a strategy (status defaults to 'stopped')",
+        "x-scope-class": "W",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Created" } }
+      }
+    },
+    "/api/agent/v1/strategies/{strategy_id}": {
+      "get": {
+        "summary": "Get a strategy",
+        "description": "Returns full strategy row for the tenant. Credential-like fields in exchange_config / notification_config are redacted (***) before the response leaves the Gateway.",
+        "x-scope-class": "R",
+        "parameters": [{ "in": "path", "name": "strategy_id", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } }
+      },
+      "patch": {
+        "summary": "Update a strategy (status='running' requires T scope)",
+        "x-scope-class": "W",
+        "parameters": [{ "in": "path", "name": "strategy_id", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/backtests": {
+      "post": {
+        "summary": "Submit a backtest job",
+        "x-scope-class": "B",
+        "parameters": [
+          { "in": "header", "name": "Idempotency-Key", "required": false, "schema": { "type": "string" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BacktestRequest" } } } },
+        "responses": { "202": { "description": "Queued" } }
+      }
+    },
+    "/api/agent/v1/indicators/authoring-contract": {
+      "get": {
+        "summary": "Indicator I/O contract + starter Python template",
+        "x-scope-class": "R",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/indicators": {
+      "get": {
+        "summary": "List tenant indicators (compact; no code bodies)",
+        "x-scope-class": "R",
+        "parameters": [
+          { "in": "query", "name": "limit", "required": false, "schema": { "type": "integer", "default": 50, "maximum": 200 } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "summary": "Save indicator into private library (qd_indicator_codes)",
+        "x-scope-class": "W",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IndicatorSaveRequest" } } }
+        },
+        "responses": { "200": { "description": "Saved" }, "400": { "description": "Validation failed or code too large" } }
+      }
+    },
+    "/api/agent/v1/indicators/validate": {
+      "post": {
+        "summary": "Sandbox-validate indicator code without persisting",
+        "x-scope-class": "R",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IndicatorValidateRequest" } } }
+        },
+        "responses": { "200": { "description": "Validation result" } }
+      }
+    },
+    "/api/agent/v1/indicators/link-config": {
+      "post": {
+        "summary": "Normalize indicator_config: auto-save embedded code + set indicator_id",
+        "x-scope-class": "W",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Linked config" } }
+      }
+    },
+    "/api/agent/v1/indicators/{indicator_id}": {
+      "get": {
+        "summary": "Fetch one indicator including Python source",
+        "x-scope-class": "R",
+        "parameters": [{ "in": "path", "name": "indicator_id", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/api/agent/v1/experiments/regime/detect": {
+      "post": {
+        "summary": "Detect market regime (sync)",
+        "x-scope-class": "B",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/experiments/pipeline": {
+      "post": {
+        "summary": "Submit grid pipeline job",
+        "x-scope-class": "B",
+        "parameters": [{ "in": "header", "name": "Idempotency-Key", "required": false, "schema": { "type": "string" } }],
+        "responses": { "202": { "description": "Queued" } }
+      }
+    },
+    "/api/agent/v1/experiments/structured-tune": {
+      "post": {
+        "summary": "Submit structured (grid/random) tune job",
+        "x-scope-class": "B",
+        "responses": { "202": { "description": "Queued" } }
+      }
+    },
+    "/api/agent/v1/experiments/ai-optimize": {
+      "post": {
+        "summary": "Submit LLM-driven multi-round optimization job (consumes provider quota)",
+        "x-scope-class": "B",
+        "responses": { "202": { "description": "Queued" } }
+      }
+    },
+    "/api/agent/v1/jobs": {
+      "get": {
+        "summary": "List recent jobs",
+        "x-scope-class": "R",
+        "parameters": [
+          { "in": "query", "name": "kind",  "required": false, "schema": { "type": "string" } },
+          { "in": "query", "name": "limit", "required": false, "schema": { "type": "integer", "default": 50 } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/jobs/{job_id}": {
+      "get": {
+        "summary": "Get a single job",
+        "x-scope-class": "R",
+        "parameters": [{ "in": "path", "name": "job_id", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/api/agent/v1/jobs/{job_id}/stream": {
+      "get": {
+        "summary": "Stream job progress as Server-Sent Events",
+        "description": "Long-lived SSE stream. Frame types: `snapshot` (current job row), `progress` (each on_progress emission, with monotonic `seq`), `ping` (~15s keepalive), `result` (final). Resume after disconnect via `?since=<seq>` or `Last-Event-ID` header. If the job has already terminated when the client connects, `snapshot` and `result` are emitted immediately and the stream closes.",
+        "x-scope-class": "R",
+        "parameters": [
+          { "in": "path", "name": "job_id", "required": true, "schema": { "type": "string" } },
+          { "in": "query", "name": "since", "required": false, "schema": { "type": "integer", "minimum": 0 }, "description": "Resume from this sequence number (exclusive)." },
+          { "in": "header", "name": "Last-Event-ID", "required": false, "schema": { "type": "string" }, "description": "Standard SSE resume header; alternative to `since`." }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          },
+          "404": { "description": "Job not found in this tenant" }
+        }
+      }
+    },
+    "/api/agent/v1/portfolio/positions": {
+      "get": {
+        "summary": "Manual portfolio positions",
+        "x-scope-class": "R",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/portfolio/paper-orders": {
+      "get": {
+        "summary": "Recent paper orders",
+        "x-scope-class": "R",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/quick-trade/orders": {
+      "post": {
+        "summary": "Place an order (paper-only by default)",
+        "x-scope-class": "T",
+        "parameters": [{ "in": "header", "name": "Idempotency-Key", "required": false, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrderRequest" } } } },
+        "responses": { "200": { "description": "OK (paper fill)" }, "403": { "description": "Scope/instrument denied" }, "501": { "description": "Live execution requested but not enabled" } }
+      }
+    },
+    "/api/agent/v1/quick-trade/kill-switch": {
+      "post": {
+        "summary": "Cancel all open paper orders for the calling tenant",
+        "x-scope-class": "T",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/admin/tokens": {
+      "post": {
+        "summary": "Issue a new agent token (admin only; full token shown ONCE)",
+        "security": [{ "HumanJWT": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Issued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenIssued" } } } } }
+      },
+      "get": {
+        "summary": "List tokens for tenant (admin only; no secrets)",
+        "security": [{ "HumanJWT": [] }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/agent/v1/admin/tokens/{token_id}": {
+      "delete": {
+        "summary": "Revoke a token (admin only)",
+        "security": [{ "HumanJWT": [] }],
+        "parameters": [{ "in": "path", "name": "token_id", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Revoked" } }
+      }
+    },
+    "/api/agent/v1/admin/audit": {
+      "get": {
+        "summary": "Recent agent audit log entries (admin only)",
+        "security": [{ "HumanJWT": [] }],
+        "parameters": [{ "in": "query", "name": "limit", "required": false, "schema": { "type": "integer", "default": 100 } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

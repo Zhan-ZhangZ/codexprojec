@@ -1,0 +1,69 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/Schema" },
+    { "$ref": "#/definitions/Item" }
+  ],
+  "definitions": {
+    "Schema": {
+      "type": "object",
+      "additionalProperties": {
+        "anyOf": [
+          { "type": "string", "pattern": "^!include_dir_named .*$" },
+          { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\u000b.*$" },
+          { "$ref": "#/definitions/Item" },
+          { "type": "null" }
+        ]
+      }
+    },
+    "Item": {
+      "type": "object",
+      "properties": {
+        "icon": {
+          "description": "The icon that shows in the frontend.\nhttps://www.home-assistant.io/integrations/input_text/#icon",
+          "type": "string"
+        },
+        "initial": {
+          "description": "Initial value when Home Assistant starts.\nhttps://www.home-assistant.io/integrations/input_text#initial",
+          "type": "string"
+        },
+        "max": {
+          "description": "Maximum length for the text value. 255 is the maximum number of characters allowed in an entity state.\nhttps://www.home-assistant.io/integrations/input_text#max",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
+        "min": {
+          "description": "Minimum length for the text value.\nhttps://www.home-assistant.io/integrations/input_text#min",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "mode": {
+          "description": "Can specify text or password. Elements of type “password” provide a way for the user to securely enter a value.\nhttps://www.home-assistant.io/integrations/input_text#mode",
+          "enum": ["password", "text"],
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of the input text.\nhttps://www.home-assistant.io/integrations/input_text/#name",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Regex pattern for client-side validation.\nhttps://www.home-assistant.io/integrations/input_text#pattern",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

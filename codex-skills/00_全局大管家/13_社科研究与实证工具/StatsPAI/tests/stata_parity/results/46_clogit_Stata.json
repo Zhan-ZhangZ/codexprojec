@@ -1,0 +1,29 @@
+{
+  "module": "46_clogit",
+  "side": "Stata",
+  "rows": [
+    {
+      "module": "46_clogit",
+      "side": "Stata",
+      "statistic": "beta_x",
+      "estimate": 0.92471041482833949,
+      "se": 0.1003612638753275,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 900,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "group_var": "group",
+    "stata_command": "clogit choice x, group(group)"
+  },
+  "provenance": {
+    "stata_version": 18,
+    "edition": "MP",
+    "os": "Unix",
+    "machine_type": "Mac (Apple Silicon)",
+    "born_date": "07 Jun 2023",
+    "captured_via": "tests/stata_parity/_common.do::stata_parity_close"
+  }
+}

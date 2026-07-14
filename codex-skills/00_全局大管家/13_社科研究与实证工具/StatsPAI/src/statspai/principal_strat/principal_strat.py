@@ -1,0 +1,1104 @@
+"""
+Principal Stratification estimators.
+
+Setting
+-------
+Treatment :math:`D \\in \\{0, 1\\}`, post-treatment variable
+:math:`S \\in \\{0, 1\\}` (often compliance or survival), outcome
+:math:`Y`. Principal strata classify units by the pair
+:math:`(S(0), S(1))`:
+
+* **always-taker / always-survivor**: (1, 1)
+* **complier / harmed**: (0, 1)
+* **defier / helped**: (1, 0)   — usually ruled out by monotonicity
+* **never-taker / dead-under-both**: (0, 0)
+
+Under Angrist-Imbens-Rubin (AIR) monotonicity (:math:`S(1) \\ge
+S(0)` a.s., no defiers), the three remaining strata have
+**observable** mixture decompositions that yield sharp bounds
+or point estimates on stratum-specific causal effects
+(principal causal effects, PCEs).
+
+Two methods are supported here:
+
+1. **Monotonicity bounds / Wald LATE**. Uses only D, S, Y to identify
+   stratum proportions and the complier PCE (= LATE). Zhang-Rubin
+   (2003) sharp bounds for always-survivor SACE. No covariates needed.
+2. **Principal score weighting** (Jo & Stuart 2009; Ding & Lu 2017).
+   Estimates :math:`e_s(X) = P(\\text{stratum} | X)` using the
+   observable-stratum logistic assignments and integrates to get
+   stratum-specific ATEs. Relies on *principal ignorability*:
+   :math:`Y(d) \\perp \\text{stratum} | X` within D=d.
+
+References
+----------
+Frangakis, C.E. and Rubin, D.B. (2002). "Principal Stratification in
+Causal Inference." *Biometrics*, 58(1), 21-29. [@frangakis2002principal]
+
+Zhang, J.L. and Rubin, D.B. (2003). "Estimation of Causal Effects via
+Principal Stratification When Some Outcomes Are Truncated by 'Death'."
+*Journal of Educational and Behavioral Statistics*, 28(4), 353-368.
+[@zhang2003estimation]
+
+Angrist, J.D., Imbens, G.W. and Rubin, D.B. (1996). "Identification of
+causal effects using instrumental variables." *JASA*, 91(434), 444-455.
+[@angrist1996identification]
+
+Ding, P. and Lu, J. (2017). "Principal stratification analysis using
+principal scores." *JRSS-B*, 79(3), 757-777. [@ding2017principal]
+
+Jo, B. and Stuart, E.A. (2009). "On the use of propensity scores in
+principal causal effect estimation." *Statistics in Medicine*, 28(23),
+2857-2875.
+"""
+
+import warnings
+from dataclasses import dataclass
+from typing import Optional, List, Dict, Any, Tuple
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+from ..core.results import CausalResult
+
+
+@dataclass
+class PrincipalStratResult:
+    """
+    Principal stratification result.
+
+    Attributes
+    ----------
+    method : str
+        'monotonicity' or 'principal_score'.
+    strata_proportions : dict
+        Estimated proportion in each stratum.
+    effects : pd.DataFrame
+        Point estimate / SE / CI for each stratum-specific causal effect.
+    bounds : pd.DataFrame or None
+        For 'monotonicity' method, sharp Zhang-Rubin bounds on SACE.
+    n_obs : int
+    alpha : float
+    model_info : dict
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> n = 400
+    >>> D = rng.integers(0, 2, n)
+    >>> S = (rng.uniform(size=n) < 0.4 + 0.3 * D).astype(int)
+    >>> Y = 1.0 + 0.5 * D + 0.8 * S + rng.normal(0, 1.0, n)
+    >>> df = pd.DataFrame({"y": Y, "treat": D, "surv": S})
+    >>> res = sp.principal_strat(
+    ...     df, y="y", treat="treat", strata="surv",
+    ...     method="monotonicity", n_boot=100, seed=0,
+    ... )
+    >>> isinstance(res, sp.PrincipalStratResult)
+    True
+    >>> res.n_obs
+    400
+    >>> bool("Principal Stratification" in res.summary())
+    True
+    """
+
+    method: str
+    strata_proportions: Dict[str, float]
+    effects: pd.DataFrame
+    bounds: Optional[pd.DataFrame]
+    n_obs: int
+    alpha: float
+    model_info: Dict[str, Any]
+
+    def summary(self) -> str:
+        lines = [
+            "=" * 72,
+            f"Principal Stratification ({self.method})",
+            "=" * 72,
+            f"N = {self.n_obs}    alpha = {self.alpha}",
+            "",
+            "Stratum proportions:",
+        ]
+        for s, p in self.strata_proportions.items():
+            lines.append(f"  {s:<25s}  {p:>7.4f}")
+        lines += ["", "Principal causal effects:"]
+        lines.append(self.effects.to_string(index=False, float_format="%.4f"))
+        if self.bounds is not None:
+            lines += ["", "Zhang-Rubin sharp bounds:"]
+            lines.append(self.bounds.to_string(index=False, float_format="%.4f"))
+        lines.append("=" * 72)
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return self.summary()
+
+
+def principal_strat(
+    data: pd.DataFrame,
+    y: str,
+    treat: str,
+    strata: str,
+    covariates: Optional[List[str]] = None,
+    method: str = "monotonicity",
+    instrument: Optional[str] = None,
+    alpha: float = 0.05,
+    n_boot: int = 500,
+    seed: Optional[int] = None,
+) -> PrincipalStratResult:
+    """
+    Principal stratification estimator.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+    y : str
+        Outcome variable.
+    treat : str
+        Binary treatment / actual uptake (0/1). When ``instrument`` is
+        supplied, this is the endogenous uptake variable ``D``.
+    strata : str
+        Binary post-treatment variable (0/1) defining the principal
+        strata (e.g. compliance, survival, employment).
+    covariates : list of str, optional
+        Baseline covariates. Required for ``method='principal_score'``.
+    method : {'monotonicity', 'principal_score'}, default 'monotonicity'
+        Identification strategy.
+    instrument : str, optional
+        Binary instrument (encouragement / lottery). When supplied,
+        ``treat`` is interpreted as actual uptake and the function
+        switches to the AIR / Wald LATE estimator (Angrist-Imbens-
+        Rubin 1996): under random Z, monotonicity D(1)>=D(0),
+        exclusion restriction, and SUTVA, two LATEs are reported
+        among Z-compliers — τ_Y for the effect of D on Y and τ_S
+        for the effect of D on the post-treatment stratum variable.
+        ``method`` is ignored on this path (identification comes
+        from Z, not from the post-treatment stratum decomposition).
+        Always-survivor SACE under encouragement design is partially
+        identified beyond this; we leave it to a future release.
+    alpha : float, default 0.05
+    n_boot : int, default 500
+        Bootstrap replications for SE/CI.
+    seed : int, optional
+
+    Returns
+    -------
+    PrincipalStratResult
+
+    References
+    ----------
+    frangakis2002principal, zhang2003estimation
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> n = 400
+    >>> D = rng.integers(0, 2, n)                         # treatment
+    >>> S = (rng.uniform(size=n) < 0.4 + 0.3 * D).astype(int)  # survival, monotone in D
+    >>> Y = 1.0 + 0.5 * D + 0.8 * S + rng.normal(0, 1.0, n)    # outcome
+    >>> df = pd.DataFrame({"y": Y, "treat": D, "surv": S})
+    >>> res = sp.principal_strat(
+    ...     df, y="y", treat="treat", strata="surv",
+    ...     method="monotonicity", n_boot=100, seed=0,
+    ... )
+    >>> isinstance(res, sp.PrincipalStratResult)
+    True
+    >>> res.method
+    'monotonicity'
+    >>> sorted(res.strata_proportions)
+    ['always-taker / always-survivor', 'complier', 'never-taker / never-survivor']
+    >>> res.bounds is not None  # Zhang-Rubin sharp bounds on the SACE
+    True
+    """
+    if method not in ("monotonicity", "principal_score"):
+        raise ValueError(
+            f"method must be 'monotonicity' or 'principal_score', got '{method}'"
+        )
+
+    covariates = list(covariates or [])
+    # When ``instrument`` is supplied we route to the AIR / Wald LATE
+    # path that pulls the instrument column too.  The columns we drop
+    # NaN over depend on the path, so we branch *before* assembling df.
+    cols = [y, treat, strata] + covariates
+    if instrument is not None:
+        cols = [instrument] + cols
+    df = data[cols].dropna().reset_index(drop=True)
+    n = len(df)
+
+    Y = df[y].values.astype(float)
+    D = df[treat].values.astype(float)
+    S = df[strata].values.astype(float)
+    X = df[covariates].values.astype(float) if covariates else None
+
+    if not set(np.unique(D)).issubset({0, 1}):
+        raise ValueError("treat must be binary (0/1).")
+    if not set(np.unique(S)).issubset({0, 1}):
+        raise ValueError("strata must be binary (0/1).")
+
+    # ------------------------------------------------------------------
+    # Encouragement-design path: AIR / Wald LATE for D -> Y and D -> S
+    # under (Z, D, S, Y).  Identifies the complier population w.r.t. the
+    # instrument Z, plus two Wald LATEs:
+    #   * τ_Y = E[Y(D=1) - Y(D=0) | complier]   — effect on outcome
+    #   * τ_S = E[S(D=1) - S(D=0) | complier]   — effect on the
+    #                                             post-treatment stratum
+    # ``method`` is ignored on this path because identification comes
+    # from the instrument, not from the post-treatment stratum
+    # decomposition.  Bounds beyond the Wald LATE (e.g. always-survivor
+    # SACE under encouragement) require additional assumptions and stay
+    # documented as a future extension in the function's
+    # ``limitations`` registry entry.
+    # ------------------------------------------------------------------
+    if instrument is not None:
+        Z = df[instrument].values.astype(float)
+        if not set(np.unique(Z)).issubset({0, 1}):
+            raise ValueError("instrument must be binary (0/1).")
+        return _fit_instrument_air(
+            Y,
+            D,
+            S,
+            Z,
+            n,
+            alpha,
+            n_boot,
+            seed,
+            method,
+        )
+
+    if method == "monotonicity":
+        return _fit_monotonicity(Y, D, S, n, alpha, n_boot, seed)
+    return _fit_principal_score(Y, D, S, X, covariates, n, alpha, n_boot, seed)
+
+
+def _fit_monotonicity(
+    Y: np.ndarray,
+    D: np.ndarray,
+    S: np.ndarray,
+    n: int,
+    alpha: float,
+    n_boot: int,
+    seed: Optional[int],
+) -> PrincipalStratResult:
+    """
+    Monotonicity / AIR decomposition, S(1) >= S(0).
+
+    Observable mixtures:
+      P(S=1 | D=1) = π_always + π_complier
+      P(S=1 | D=0) = π_always
+      P(S=0 | D=0) = π_never + π_complier
+      P(S=0 | D=1) = π_never
+
+    → π_complier = P(S=1|D=1) - P(S=1|D=0)    (monotonicity requires ≥ 0)
+      π_always   = P(S=1|D=0)
+      π_never    = P(S=0|D=1)
+
+    Complier PCE (LATE):
+      τ_C = [E(Y|D=1,S=1) · P(S=1|D=1) - E(Y|D=0,S=1) · P(S=1|D=0)] / π_C
+
+    Always-taker PCE on Y(1) - Y(0): under monotonicity + exclusion
+    restriction the always-taker outcome is observable only in the
+    (D=1, S=1) and (D=0, S=1) arms — specifically,
+        E[Y(0) | always] = E[Y | D=0, S=1]
+        E[Y(1) | always] is a mixture among (D=1, S=1) which contains
+        always-takers + compliers.
+
+    We report Zhang-Rubin (2003) sharp bounds for the always-survivor
+    SACE = E[Y(1) - Y(0) | S(0)=S(1)=1].
+    """
+
+    def _point(Y_: np.ndarray, D_: np.ndarray, S_: np.ndarray) -> Dict[str, float]:
+        # Cell probabilities and conditional means
+        p_s1_d1 = float(np.mean(S_[D_ == 1])) if np.any(D_ == 1) else 0.0
+        p_s1_d0 = float(np.mean(S_[D_ == 0])) if np.any(D_ == 0) else 0.0
+        pi_complier = max(p_s1_d1 - p_s1_d0, 0.0)
+        pi_always = p_s1_d0
+        pi_never = 1 - p_s1_d1
+
+        # Conditional means in the (D, S) cells
+        def _safe_mean(mask: np.ndarray, fallback: float = 0.0) -> float:
+            return float(np.mean(Y_[mask])) if np.any(mask) else fallback
+
+        mu_11 = _safe_mean((D_ == 1) & (S_ == 1))
+        mu_01 = _safe_mean((D_ == 0) & (S_ == 1))
+        mu_10 = _safe_mean((D_ == 1) & (S_ == 0))
+        mu_00 = _safe_mean((D_ == 0) & (S_ == 0))
+
+        # Complier LATE (Wald-like on S=1 arm)
+        if pi_complier > 1e-8:
+            tau_c = (mu_11 * p_s1_d1 - mu_01 * p_s1_d0) / pi_complier
+        else:
+            tau_c = np.nan
+
+        # Always-taker: Y(1) | always is the fraction of (D=1, S=1) that
+        # is always-takers. Under monotonicity the (D=1, S=1) cell is a
+        # mixture of compliers (fraction pi_complier/p_s1_d1) and always
+        # (fraction pi_always/p_s1_d1). Without further assumptions,
+        # point identification of E[Y(1)|always] needs principal
+        # ignorability — bounds only for this method.
+
+        # Zhang-Rubin sharp bounds on SACE.
+        # q = P(always | D=1, S=1) is the share of always-takers in the
+        # (D=1, S=1) cell; we extract the bottom/top q-slice to bound
+        # E[Y(1) | always] from below/above (Zhang & Rubin 2003 §4).
+        sace_lo, sace_hi = np.nan, np.nan
+        if np.any((D_ == 1) & (S_ == 1)):
+            y_11 = Y_[(D_ == 1) & (S_ == 1)]
+            n_11 = len(y_11)
+            if p_s1_d1 > 1e-8 and pi_always > 1e-8:
+                q = pi_always / p_s1_d1
+                q = float(np.clip(q, 0.0, 1.0))
+                k = int(round(q * n_11))
+                if k == 0:
+                    # Rounded to zero support → always-taker slice is
+                    # empty in this cell. Bounds collapse to the control-
+                    # arm always-taker mean (partial degeneracy); flag
+                    # with NaN so callers can detect it.
+                    sace_lo = float("nan")
+                    sace_hi = float("nan")
+                else:
+                    y_sorted = np.sort(y_11)
+                    # Lower bound on E[Y(1)|always]: bottom-k slice
+                    # (worst case: always-takers had the lowest outcomes)
+                    lb_mu1 = float(np.mean(y_sorted[:k]))
+                    # Upper bound on E[Y(1)|always]: top-k slice
+                    ub_mu1 = float(np.mean(y_sorted[-k:]))
+                    sace_lo = lb_mu1 - mu_01
+                    sace_hi = ub_mu1 - mu_01
+
+        return {
+            "pi_complier": pi_complier,
+            "pi_always": pi_always,
+            "pi_never": pi_never,
+            "tau_c": tau_c,
+            "mu_11": mu_11,
+            "mu_01": mu_01,
+            "mu_10": mu_10,
+            "mu_00": mu_00,
+            "sace_lo": sace_lo,
+            "sace_hi": sace_hi,
+        }
+
+    point = _point(Y, D, S)
+
+    # Bootstrap inference for the LATE (complier PCE) and bounds endpoints
+    rng = np.random.default_rng(seed)
+    boot_tau = np.full(n_boot, np.nan)
+    boot_lo = np.full(n_boot, np.nan)
+    boot_hi = np.full(n_boot, np.nan)
+    for b in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        try:
+            bp = _point(Y[idx], D[idx], S[idx])
+            boot_tau[b] = bp["tau_c"]
+            boot_lo[b] = bp["sace_lo"]
+            boot_hi[b] = bp["sace_hi"]
+        except Exception:
+            pass  # leave NaN — low volume of failures in practice
+
+    def _ci(
+        boot_arr: np.ndarray,
+        ppoint: float,
+    ) -> Tuple[float, Tuple[float, float], float]:
+        valid = ~np.isnan(boot_arr)
+        if valid.sum() < 2:
+            return float("nan"), (float("nan"), float("nan")), float("nan")
+        se = float(np.nanstd(boot_arr, ddof=1))
+        lo = float(np.nanpercentile(boot_arr, 100 * alpha / 2))
+        hi = float(np.nanpercentile(boot_arr, 100 * (1 - alpha / 2)))
+        if np.isnan(ppoint) or se == 0:
+            pv = float("nan")
+        else:
+            z = ppoint / se
+            pv = float(2 * (1 - stats.norm.cdf(abs(z))))
+        return se, (lo, hi), pv
+
+    se_tc, ci_tc, pv_tc = _ci(boot_tau, point["tau_c"])
+    se_lo, ci_lo, _ = _ci(boot_lo, point["sace_lo"])
+    se_hi, ci_hi, _ = _ci(boot_hi, point["sace_hi"])
+
+    effects = pd.DataFrame(
+        [
+            {
+                "stratum": "Complier (LATE)",
+                "estimate": point["tau_c"],
+                "se": se_tc,
+                "ci_lower": ci_tc[0],
+                "ci_upper": ci_tc[1],
+                "pvalue": pv_tc,
+            }
+        ]
+    )
+
+    bounds = pd.DataFrame(
+        [
+            {
+                "quantity": "SACE lower bound (always-survivor)",
+                "estimate": point["sace_lo"],
+                "se": se_lo,
+                "ci_lower": ci_lo[0],
+                "ci_upper": ci_lo[1],
+            },
+            {
+                "quantity": "SACE upper bound (always-survivor)",
+                "estimate": point["sace_hi"],
+                "se": se_hi,
+                "ci_lower": ci_hi[0],
+                "ci_upper": ci_hi[1],
+            },
+        ]
+    )
+
+    return PrincipalStratResult(
+        method="monotonicity",
+        strata_proportions={
+            "always-taker / always-survivor": point["pi_always"],
+            "complier": point["pi_complier"],
+            "never-taker / never-survivor": point["pi_never"],
+        },
+        effects=effects,
+        bounds=bounds,
+        n_obs=n,
+        alpha=alpha,
+        model_info={
+            "estimator": "Monotonicity + Zhang-Rubin bounds",
+            "n_boot": n_boot,
+            **{k: v for k, v in point.items() if k.startswith("mu_")},
+        },
+    )
+
+
+def _fit_instrument_air(
+    Y: np.ndarray,
+    D: np.ndarray,
+    S: np.ndarray,
+    Z: np.ndarray,
+    n: int,
+    alpha: float,
+    n_boot: int,
+    seed: Optional[int],
+    method: str,
+) -> PrincipalStratResult:
+    """
+    AIR / Wald LATE for the encouragement-design two-layer setup.
+
+    Setting
+    -------
+    Z is a randomly assigned binary instrument (e.g. random
+    encouragement / lottery), D is the actual binary treatment
+    (uptake), S is a binary post-treatment stratum variable
+    (e.g. compliance to a downstream protocol, survival, employment),
+    Y is the outcome.
+
+    Identification
+    --------------
+    Under (i) random assignment of Z, (ii) monotonicity D(1) >= D(0)
+    (no defiers w.r.t. Z), (iii) exclusion restriction (Z affects Y
+    only through D), and (iv) SUTVA, the complier proportion w.r.t.
+    Z is identified from the first stage:
+
+        π_C(Z) = P(D=1 | Z=1) - P(D=1 | Z=0)
+
+    The Wald estimators recover the LATEs among the Z-compliers:
+
+        τ_Y = (E[Y | Z=1] - E[Y | Z=0]) / π_C(Z)   — effect of D on Y
+        τ_S = (E[S | Z=1] - E[S | Z=0]) / π_C(Z)   — effect of D on
+                                                     the post-treatment
+                                                     stratum variable
+
+    The second LATE — D's effect on S — is the bridge to the
+    principal-stratum interpretation: it gives the share of compliers
+    who *would* end up in stratum S=1 because of the treatment.
+    Always-survivor SACE under encouragement design is partially
+    identified beyond this (Mealli & Pacini 2013); we leave that to a
+    future release rather than ship a half-correct point estimate.
+
+    The ``method`` argument is recorded in ``model_info`` for
+    traceability but does **not** alter the estimator on this path —
+    identification comes from the instrument, not from the
+    post-treatment-stratum decomposition that ``method`` selects in
+    the no-instrument code paths.
+
+    Parameters
+    ----------
+    Y, D, S, Z : np.ndarray, shape (n,)
+    n : int
+    alpha : float
+    n_boot : int
+    seed : int or None
+    method : str
+        Recorded in ``model_info`` only; identification comes from Z.
+
+    Returns
+    -------
+    PrincipalStratResult
+    """
+
+    def _point(
+        Y_: np.ndarray,
+        D_: np.ndarray,
+        S_: np.ndarray,
+        Z_: np.ndarray,
+    ) -> Dict[str, float]:
+        n_z1 = float(np.sum(Z_ == 1))
+        n_z0 = float(np.sum(Z_ == 0))
+        if n_z1 == 0 or n_z0 == 0:
+            return {
+                "pi_c_z": np.nan,
+                "first_stage": np.nan,
+                "tau_y": np.nan,
+                "tau_s": np.nan,
+                "d_z1": np.nan,
+                "d_z0": np.nan,
+                "y_z1": np.nan,
+                "y_z0": np.nan,
+                "s_z1": np.nan,
+                "s_z0": np.nan,
+            }
+        d_z1 = float(np.mean(D_[Z_ == 1]))
+        d_z0 = float(np.mean(D_[Z_ == 0]))
+        y_z1 = float(np.mean(Y_[Z_ == 1]))
+        y_z0 = float(np.mean(Y_[Z_ == 0]))
+        s_z1 = float(np.mean(S_[Z_ == 1]))
+        s_z0 = float(np.mean(S_[Z_ == 0]))
+        # First stage / complier share w.r.t. Z (monotonicity → ≥ 0)
+        first_stage = d_z1 - d_z0
+        pi_c_z = max(first_stage, 0.0)
+        if pi_c_z > 1e-8:
+            tau_y = (y_z1 - y_z0) / pi_c_z
+            tau_s = (s_z1 - s_z0) / pi_c_z
+        else:
+            tau_y = np.nan
+            tau_s = np.nan
+        return {
+            "pi_c_z": pi_c_z,
+            "first_stage": first_stage,
+            "tau_y": tau_y,
+            "tau_s": tau_s,
+            "d_z1": d_z1,
+            "d_z0": d_z0,
+            "y_z1": y_z1,
+            "y_z0": y_z0,
+            "s_z1": s_z1,
+            "s_z0": s_z0,
+        }
+
+    point = _point(Y, D, S, Z)
+
+    weak_first_stage_threshold = 0.02
+    if np.isfinite(point["first_stage"]) and point["first_stage"] < -1e-6:
+        warnings.warn(
+            "Negative first stage on the instrument: "
+            "P(D=1|Z=1) < P(D=1|Z=0). This violates monotonicity for "
+            "the supplied instrument coding (or Z is reversed). Recode "
+            "the instrument before reporting AIR / Wald LATEs.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    elif (
+        not np.isfinite(point["pi_c_z"]) or point["pi_c_z"] < weak_first_stage_threshold
+    ):
+        warnings.warn(
+            "Weak first stage on the instrument: π_C(Z) is near 0. "
+            "Wald LATEs (τ_Y, τ_S) are unreliable. Inspect "
+            "P(D=1|Z=1)-P(D=1|Z=0) before reporting.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
+    rng = np.random.default_rng(seed)
+    boot_y = np.full(n_boot, np.nan)
+    boot_s = np.full(n_boot, np.nan)
+    boot_pi = np.full(n_boot, np.nan)
+    for b in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        try:
+            bp = _point(Y[idx], D[idx], S[idx], Z[idx])
+            boot_y[b] = bp["tau_y"]
+            boot_s[b] = bp["tau_s"]
+            boot_pi[b] = bp["pi_c_z"]
+        except Exception:
+            pass
+
+    def _ci(
+        boot_arr: np.ndarray,
+        ppoint: float,
+    ) -> Tuple[float, Tuple[float, float], float]:
+        if not np.isfinite(ppoint):
+            return float("nan"), (float("nan"), float("nan")), float("nan")
+        valid = ~np.isnan(boot_arr)
+        if valid.sum() < 2:
+            return float("nan"), (float("nan"), float("nan")), float("nan")
+        se = float(np.nanstd(boot_arr, ddof=1))
+        lo = float(np.nanpercentile(boot_arr, 100 * alpha / 2))
+        hi = float(np.nanpercentile(boot_arr, 100 * (1 - alpha / 2)))
+        if np.isnan(ppoint) or se == 0:
+            pv = float("nan")
+        else:
+            z = ppoint / se
+            pv = float(2 * (1 - stats.norm.cdf(abs(z))))
+        return se, (lo, hi), pv
+
+    se_y, ci_y, pv_y = _ci(boot_y, point["tau_y"])
+    se_s, ci_s, pv_s = _ci(boot_s, point["tau_s"])
+    se_pi, ci_pi, _ = _ci(boot_pi, point["pi_c_z"])
+
+    effects = pd.DataFrame(
+        [
+            {
+                "stratum": "Complier (Z) — Wald LATE on Y",
+                "estimate": point["tau_y"],
+                "se": se_y,
+                "ci_lower": ci_y[0],
+                "ci_upper": ci_y[1],
+                "pvalue": pv_y,
+            },
+            {
+                "stratum": "Complier (Z) — Wald LATE on S",
+                "estimate": point["tau_s"],
+                "se": se_s,
+                "ci_lower": ci_s[0],
+                "ci_upper": ci_s[1],
+                "pvalue": pv_s,
+            },
+        ]
+    )
+
+    return PrincipalStratResult(
+        method=f"instrument_air ({method})",
+        strata_proportions={
+            "complier (w.r.t. Z)": point["pi_c_z"],
+            "first_stage (D|Z=1 - D|Z=0)": point["first_stage"],
+            "complier_se": se_pi,
+            # always-/never-taker decomposition w.r.t. Z is also
+            # available analytically but reported only as raw cell
+            # probabilities to keep the headline output focused on
+            # the two LATE estimands.
+            "P(D=1 | Z=1)": point["d_z1"],
+            "P(D=1 | Z=0)": point["d_z0"],
+        },
+        effects=effects,
+        bounds=None,
+        n_obs=n,
+        alpha=alpha,
+        model_info={
+            "estimator": "AIR / Wald LATE under encouragement design",
+            "method_arg": method,
+            "n_boot": n_boot,
+            "first_stage": point["first_stage"],
+            "weak_first_stage_threshold": weak_first_stage_threshold,
+            "cell_probs": {
+                "P(Y | Z=1)": point["y_z1"],
+                "P(Y | Z=0)": point["y_z0"],
+                "P(S=1 | Z=1)": point["s_z1"],
+                "P(S=1 | Z=0)": point["s_z0"],
+            },
+            "note": (
+                "Always-survivor SACE under encouragement design is "
+                "partially identified (Mealli & Pacini 2013); only the "
+                "Wald LATE point estimates are reported here."
+            ),
+        },
+    )
+
+
+def _fit_principal_score(
+    Y: np.ndarray,
+    D: np.ndarray,
+    S: np.ndarray,
+    X: Optional[np.ndarray],
+    covariates: List[str],
+    n: int,
+    alpha: float,
+    n_boot: int,
+    seed: Optional[int],
+) -> PrincipalStratResult:
+    """
+    Principal-score weighting (Ding & Lu 2017 style).
+
+    Under principal ignorability (PI) and monotonicity, the stratum
+    membership e_s(X) = P(stratum | X) can be recovered from observable
+    cell models:
+
+      p11(X) = P(S=1 | D=1, X)
+      p10(X) = P(S=1 | D=0, X)
+
+      e_always(X)   = p10(X)
+      e_complier(X) = p11(X) - p10(X)
+      e_never(X)    = 1 - p11(X)
+
+    The stratum-specific ATE is then estimated by weighting / slicing
+    the observed cells. For the complier:
+        τ_C = E[ W1 * Y | D=1, S=1 ] - E[ W0 * Y | D=0, S=0 ]
+    with appropriate IPW weights built from e_s(X).
+
+    We report complier, always-taker (Y(1) - Y(0)), never-taker PCE.
+    Principal ignorability is a strong assumption — results should be
+    paired with a sensitivity analysis (not yet shipped here).
+    """
+    if X is None or X.size == 0:
+        raise ValueError("method='principal_score' requires at least one covariate.")
+
+    def _fit_cell_probs(
+        Y_: np.ndarray,
+        D_: np.ndarray,
+        S_: np.ndarray,
+        X_: np.ndarray,
+        check_monotonicity: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, float, int]:
+        # p11(X) = P(S=1 | D=1, X)
+        mask1 = D_ == 1
+        mask0 = D_ == 0
+        p11_fit = _logit_safe(S_[mask1], X_[mask1])
+        p10_fit = _logit_safe(S_[mask0], X_[mask0])
+        # A failed principal-score logit silently reverts to the *unadjusted*
+        # marginal P(S=1); track it so the caller can warn rather than report
+        # a covariate-adjusted estimate that is not actually adjusted.
+        n_logit_fallback = int(p11_fit is None) + int(p10_fit is None)
+        p11 = _logit_predict(
+            p11_fit, X_, fallback=float(np.mean(S_[mask1])) if mask1.any() else 0.5
+        )
+        p10 = _logit_predict(
+            p10_fit, X_, fallback=float(np.mean(S_[mask0])) if mask0.any() else 0.5
+        )
+        # Raw complier share BEFORE clipping — diagnostics for
+        # monotonicity assumption. Under S(1) ≥ S(0), we expect
+        # p11(x) ≥ p10(x) for all x; negative raw e_complier flags
+        # a monotonicity violation in the data (or small-sample noise).
+        raw_complier = p11 - p10
+        violation_frac = (
+            float(np.mean(raw_complier < -1e-3)) if check_monotonicity else 0.0
+        )
+        min_raw = float(np.min(raw_complier)) if check_monotonicity else 0.0
+        # Enforce monotonicity e_complier ≥ 0 by clipping
+        e_always = np.clip(p10, 1e-4, 1 - 1e-4)
+        e_complier = np.clip(raw_complier, 1e-4, 1 - 1e-4)
+        e_never = np.clip(1 - p11, 1e-4, 1 - 1e-4)
+        # Normalize to sum to 1 (can drift from clipping)
+        tot = e_always + e_complier + e_never
+        e_always /= tot
+        e_complier /= tot
+        e_never /= tot
+        return (
+            e_always,
+            e_complier,
+            e_never,
+            violation_frac,
+            min_raw,
+            n_logit_fallback,
+        )
+
+    def _point(
+        Y_: np.ndarray,
+        D_: np.ndarray,
+        S_: np.ndarray,
+        X_: np.ndarray,
+        check_monotonicity: bool = False,
+    ) -> Dict[str, float]:
+        e_a, e_c, e_n, viol_frac, min_raw, n_logit_fallback = _fit_cell_probs(
+            Y_,
+            D_,
+            S_,
+            X_,
+            check_monotonicity=check_monotonicity,
+        )
+
+        # For the complier PCE under PI:
+        #   τ_C = E[Y(1) - Y(0) | complier]
+        # Y(1) | complier is identified from the mixture in (D=1, S=1)
+        # weighted by e_c / (e_a + e_c):
+        w1_c = e_c / np.clip(e_a + e_c, 1e-8, None)  # P(complier | D=1, S=1, X)
+        w0_c = e_c / np.clip(e_c + e_n, 1e-8, None)  # P(complier | D=0, S=0, X)
+
+        mask_11 = (D_ == 1) & (S_ == 1)
+        mask_00 = (D_ == 0) & (S_ == 0)
+
+        def _weighted_mean(
+            y_arr: np.ndarray,
+            w_arr: np.ndarray,
+            mask: np.ndarray,
+        ) -> float:
+            if not np.any(mask):
+                return float("nan")
+            y_sel = y_arr[mask]
+            w_sel = w_arr[mask]
+            tot = float(np.sum(w_sel))
+            if tot <= 0:
+                return float("nan")
+            return float(np.sum(y_sel * w_sel) / tot)
+
+        mu1_c = _weighted_mean(Y_, w1_c, mask_11)
+        mu0_c = _weighted_mean(Y_, w0_c, mask_00)
+        tau_c = mu1_c - mu0_c if not (np.isnan(mu1_c) or np.isnan(mu0_c)) else np.nan
+
+        # Always-taker: only (D=1, S=1) and (D=0, S=1) cells have always-takers.
+        w1_a = e_a / np.clip(e_a + e_c, 1e-8, None)  # P(always | D=1, S=1, X)
+        mu1_a = _weighted_mean(Y_, w1_a, mask_11)
+        # Y(0) | always identified directly from (D=0, S=1):
+        mask_01 = (D_ == 0) & (S_ == 1)
+        mu0_a = float(np.mean(Y_[mask_01])) if np.any(mask_01) else float("nan")
+        tau_a = mu1_a - mu0_a if not (np.isnan(mu1_a) or np.isnan(mu0_a)) else np.nan
+
+        # Never-taker: Y(1) | never from (D=1, S=0).
+        mask_10 = (D_ == 1) & (S_ == 0)
+        mu1_n = float(np.mean(Y_[mask_10])) if np.any(mask_10) else float("nan")
+        w0_n = e_n / np.clip(e_c + e_n, 1e-8, None)  # P(never | D=0, S=0, X)
+        mu0_n = _weighted_mean(Y_, w0_n, mask_00)
+        tau_n = mu1_n - mu0_n if not (np.isnan(mu1_n) or np.isnan(mu0_n)) else np.nan
+
+        return {
+            "tau_c": tau_c,
+            "tau_a": tau_a,
+            "tau_n": tau_n,
+            "pi_always": float(np.mean(e_a)),
+            "pi_complier": float(np.mean(e_c)),
+            "pi_never": float(np.mean(e_n)),
+            "mono_violation_frac": viol_frac,
+            "mono_min_raw_complier": min_raw,
+            "n_logit_fallback": n_logit_fallback,
+        }
+
+    point = _point(Y, D, S, X, check_monotonicity=True)
+    # Fire a RuntimeWarning if the fitted cell probabilities imply a
+    # meaningful monotonicity violation. Threshold 5% of units is
+    # conservative; smaller violations are likely small-sample noise
+    # and clipping absorbs them without damage.
+    if point["mono_violation_frac"] > 0.05:
+        warnings.warn(
+            f"Principal stratification: fitted p11(x) < p10(x) for "
+            f"{point['mono_violation_frac']:.1%} of units (min raw "
+            f"p11 - p10 = {point['mono_min_raw_complier']:+.3f}). "
+            f"This suggests the monotonicity assumption S(1) ≥ S(0) "
+            f"may be violated in the data. Clipping preserves valid "
+            f"arithmetic but downstream PCEs rely on monotonicity.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
+    # Surface a silent reversion to the *unadjusted* principal score on the
+    # main sample (CLAUDE.md §7): the reported PCEs would no longer use the
+    # covariate-adjusted principal score the user requested.
+    if point.get("n_logit_fallback", 0) > 0:
+        warnings.warn(
+            f"Principal stratification: the covariate-adjusted principal-score "
+            f"logit failed to fit on {point['n_logit_fallback']} of the 2 "
+            f"treatment arms (singular / separated design or non-convergence). "
+            f"The reported PCEs use the *unadjusted* marginal P(S=1) for the "
+            f"affected arm(s) and are no longer covariate-adjusted.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
+    rng = np.random.default_rng(seed)
+    boot = {k: np.full(n_boot, np.nan) for k in ("tau_c", "tau_a", "tau_n")}
+    n_boot_logit_fallback = 0
+    for b in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        try:
+            # Suppress per-bootstrap monotonicity warnings — we already
+            # fired one on the point estimate; repeating it 500 times
+            # is noise.
+            bp = _point(Y[idx], D[idx], S[idx], X[idx], check_monotonicity=False)
+            if bp.get("n_logit_fallback", 0) > 0:
+                n_boot_logit_fallback += 1
+            for k in boot:
+                if k in bp:
+                    boot[k][b] = bp[k]
+        except Exception:
+            pass
+
+    def _ci(
+        arr: np.ndarray,
+        ppoint: float,
+    ) -> Tuple[float, Tuple[float, float], float]:
+        valid = ~np.isnan(arr)
+        if valid.sum() < 2:
+            return float("nan"), (float("nan"), float("nan")), float("nan")
+        se = float(np.nanstd(arr, ddof=1))
+        lo = float(np.nanpercentile(arr, 100 * alpha / 2))
+        hi = float(np.nanpercentile(arr, 100 * (1 - alpha / 2)))
+        pv = (
+            float(2 * (1 - stats.norm.cdf(abs(ppoint / se))))
+            if se > 0 and not np.isnan(ppoint)
+            else float("nan")
+        )
+        return se, (lo, hi), pv
+
+    rows = []
+    for label, key in [
+        ("Complier PCE", "tau_c"),
+        ("Always-taker PCE", "tau_a"),
+        ("Never-taker PCE", "tau_n"),
+    ]:
+        se, ci, pv = _ci(boot[key], point[key])
+        rows.append(
+            {
+                "stratum": label,
+                "estimate": point[key],
+                "se": se,
+                "ci_lower": ci[0],
+                "ci_upper": ci[1],
+                "pvalue": pv,
+            }
+        )
+
+    effects = pd.DataFrame(rows)
+
+    return PrincipalStratResult(
+        method="principal_score",
+        strata_proportions={
+            "always-taker": point["pi_always"],
+            "complier": point["pi_complier"],
+            "never-taker": point["pi_never"],
+        },
+        effects=effects,
+        bounds=None,
+        n_obs=n,
+        alpha=alpha,
+        model_info={
+            "estimator": "Principal score weighting (Ding & Lu 2017)",
+            "n_boot": n_boot,
+            "covariates": covariates,
+            "assumption": "principal ignorability + monotonicity",
+            "mono_violation_frac": point["mono_violation_frac"],
+            "mono_min_raw_complier": point["mono_min_raw_complier"],
+            "principal_score_degraded": bool(point.get("n_logit_fallback", 0) > 0),
+            "principal_score_fallback_arms": int(point.get("n_logit_fallback", 0)),
+            "n_boot_principal_score_fallback": int(n_boot_logit_fallback),
+        },
+    )
+
+
+def survivor_average_causal_effect(
+    data: pd.DataFrame,
+    y: str,
+    treat: str,
+    survival: str,
+    alpha: float = 0.05,
+    n_boot: int = 500,
+    seed: Optional[int] = None,
+) -> CausalResult:
+    """
+    Zhang-Rubin (2003) sharp bounds on the Survivor Average Causal Effect.
+
+    Returns a :class:`CausalResult` with ``estimate`` set to the midpoint
+    of the SACE bounds and the endpoints stored in ``model_info``.
+
+    References
+    ----------
+    zhang2003estimation
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> n = 400
+    >>> D = rng.integers(0, 2, n)                              # treatment
+    >>> S = (rng.uniform(size=n) < 0.4 + 0.3 * D).astype(int)  # survival
+    >>> Y = 1.0 + 0.5 * D + 0.8 * S + rng.normal(0, 1.0, n)    # outcome
+    >>> df = pd.DataFrame({"y": Y, "treat": D, "surv": S})
+    >>> res = sp.survivor_average_causal_effect(
+    ...     df, y="y", treat="treat", survival="surv",
+    ...     n_boot=100, seed=0,
+    ... )
+    >>> res.estimand
+    'SACE'
+    >>> bool(res.model_info["sace_lower"] <= res.model_info["sace_upper"])
+    True
+    """
+    ps = principal_strat(
+        data=data,
+        y=y,
+        treat=treat,
+        strata=survival,
+        method="monotonicity",
+        alpha=alpha,
+        n_boot=n_boot,
+        seed=seed,
+    )
+    bounds = ps.bounds
+    if bounds is None:
+        raise RuntimeError(
+            "principal_strat(method='monotonicity') did not return SACE bounds."
+        )  # pragma: no cover
+    lo = float(bounds.loc[0, "estimate"])
+    hi = float(bounds.loc[1, "estimate"])
+    midpoint = (lo + hi) / 2
+    # Confidence-bound union of the two endpoints (Imbens & Manski style, simplified)
+    ci_lo = float(bounds.loc[0, "ci_lower"])
+    ci_hi = float(bounds.loc[1, "ci_upper"])
+    width_se = max((hi - lo) / 2, 0.0)
+
+    model_info = {
+        "estimator": "Zhang-Rubin SACE bounds",
+        "sace_lower": lo,
+        "sace_upper": hi,
+        "bounds_width": hi - lo,
+        **ps.model_info,
+    }
+    _result = CausalResult(
+        method="SACE (Zhang-Rubin sharp bounds)",
+        estimand="SACE",
+        estimate=midpoint,
+        se=width_se,  # half-width as a rough uncertainty surrogate
+        pvalue=float("nan"),  # partial identification — point-null p-value not defined
+        ci=(ci_lo, ci_hi),
+        alpha=alpha,
+        n_obs=ps.n_obs,
+        model_info=model_info,
+        _citation_key="principal_strat",
+    )
+    try:
+        from ..output._lineage import attach_provenance as _attach_prov
+
+        _attach_prov(
+            _result,
+            function="sp.principal_strat.survivor_average_causal_effect",
+            params={
+                "y": y,
+                "treat": treat,
+                "survival": survival,
+                "alpha": alpha,
+                "n_boot": n_boot,
+                "seed": seed,
+            },
+            data=data,
+            overwrite=False,
+        )
+    except Exception:  # pragma: no cover
+        pass
+    return _result
+
+
+# ---------------------------------------------------------------------
+# Small helpers: safe logit fit/predict for principal score method
+# ---------------------------------------------------------------------
+
+
+def _logit_safe(y: np.ndarray, X: np.ndarray) -> Any:
+    """Thin wrapper over the shared ``core._glm_fit.safe_logit_fit`` primitive
+    (kept as a module-level name so it stays mockable in tests)."""
+    from ..core._glm_fit import safe_logit_fit
+
+    return safe_logit_fit(y, X)
+
+
+def _logit_predict(fit: Any, X: np.ndarray, fallback: float) -> np.ndarray:
+    from ..core._glm_fit import safe_logit_predict
+
+    return np.asarray(safe_logit_predict(fit, X, fallback), dtype=float)
+
+
+CausalResult._CITATIONS["principal_strat"] = (
+    "@article{frangakis2002principal,\n"
+    "  title={Principal Stratification in Causal Inference},\n"
+    "  author={Frangakis, Constantine E. and Rubin, Donald B.},\n"
+    "  journal={Biometrics},\n"
+    "  volume={58},\n"
+    "  number={1},\n"
+    "  pages={21--29},\n"
+    "  year={2002}\n"
+    "}"
+)

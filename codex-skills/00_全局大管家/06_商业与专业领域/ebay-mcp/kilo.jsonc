@@ -1,0 +1,7 @@
+{
+  "instructions": [
+    ".kilo/rules/coding-standards.md",
+    ".kilo/rules/engineering-principles.md",
+    ".kilo/rules/deslop.md"
+  ]
+}

@@ -1,0 +1,187 @@
+# ── Bernstein Plan File ──
+#
+# A plan defines a multi-stage project as stages and steps.
+# Standard DevOps vocabulary - like Ansible playbooks or K8s manifests.
+#
+# Usage:
+#   bernstein run plan.yaml
+#
+# Bernstein reads the stages, creates tasks from each step,
+# wires up the dependency graph, and starts execution.
+# No manager agent needed - the plan IS the decomposition.
+
+# ---------------------------------------------------------------------------
+# Plan metadata (required)
+# ---------------------------------------------------------------------------
+
+# Short name for this plan. Used as the orchestration goal.
+name: "Your Plan Name"
+
+# Longer description of what the plan achieves.
+description: >
+  What this plan builds or changes, in one or two sentences.
+
+# ---------------------------------------------------------------------------
+# Orchestration config (optional - same fields as bernstein.yaml)
+# ---------------------------------------------------------------------------
+
+# Which CLI agent to use. auto detects installed agents.
+# cli: auto
+
+# ---------------------------------------------------------------------------
+# Artifact storage sink (optional, oai-003).
+# Selects where .sdd/ artifacts (WAL, audit logs, task outputs, metrics,
+# cost ledger) persist. Omit to keep the existing local-filesystem
+# behaviour (zero diff from prior releases).
+#
+# Built-in sinks: local_fs. Optional extras: s3, gcs, azure_blob, r2.
+# Plugin authors register more via the ``bernstein.storage_sinks``
+# entry-point group. See docs/architecture/storage.md.
+#
+# When `buffered: true`, writes are committed locally (preserving WAL
+# fsync semantics for crash safety) and asynchronously mirrored to the
+# remote sink - recommended for production deployments on ephemeral
+# compute where the host may die between restarts.
+# ---------------------------------------------------------------------------
+# storage:
+#   sink: local_fs              # default; no-op
+#   # sink: s3                  # optional extra: `pip install bernstein[s3]`
+#   # sink: gcs                 # optional extra: `pip install bernstein[gcs]`
+#   # sink: azure_blob          # optional extra: `pip install bernstein[azure]`
+#   # sink: r2                  # optional extra: `pip install bernstein[r2]`
+#   bucket: my-bernstein-runs   # provider-specific (S3/GCS/R2)
+#   # container: my-container   # Azure Blob container name
+#   prefix: runs/{run_id}       # {run_id} expanded at runtime
+#   # region: us-east-1         # S3-specific
+#   # account_id: abcd1234      # R2-specific (determines endpoint)
+#   buffered: true              # recommended for production
+#   # Credentials are picked up from env / IAM role by default.
+
+# Spending cap in USD. Accepts "$N", "$N.NN", or plain numbers.
+# budget: "$10"
+
+# Max concurrent agent processes.
+# max_agents: 4
+
+# Global constraints passed to every agent.
+# constraints:
+#   - "Python 3.12+"
+#   - "pytest for tests"
+
+# Extra files injected into agent context.
+# context_files:
+#   - "docs/spec.md"
+#   - "CLAUDE.md"
+
+# ---------------------------------------------------------------------------
+# Multi-repo orchestration (optional)
+# ---------------------------------------------------------------------------
+#
+# List the repositories involved when tasks span multiple codebases.
+# Each entry becomes a RepoRef; stages then use the 'repo' field to route
+# their steps to a specific repository working directory.
+#
+# repos:
+#   - path: ../backend          # relative or absolute path to the repo root
+#     branch: feat/my-feature   # branch to work on (default: main)
+#     name: backend             # optional logical name (auto-derived from path)
+#   - path: ../frontend
+#     branch: feat/my-feature
+#   - path: ../shared-types
+#     branch: feat/my-feature
+
+# ---------------------------------------------------------------------------
+# Stages (required)
+# ---------------------------------------------------------------------------
+#
+# Stages run sequentially by default. Steps within a stage run in parallel.
+# Use depends_on to express cross-stage dependencies.
+#
+# Each step maps to one task assigned to one agent.
+# In multi-repo plans, add 'repo' at the stage level to route all steps in
+# that stage to a specific repository. Individual steps can override with
+# their own 'repo' field.
+
+stages:
+  - name: "Stage Name"
+
+    # Optional description of what this stage accomplishes.
+    # description: "Set up the project skeleton"
+
+    # Stage names this stage depends on. All steps from those stages
+    # must complete before any step in this stage can start.
+    # depends_on: []
+
+    # Multi-repo: route all steps in this stage to a specific repository.
+    # Steps within the stage can override this with their own 'repo' field.
+    # repo: ../backend
+
+    # ------------------------------------------------------------------
+    # Sandbox backend (optional, oai-002).
+    # Selects the isolation backend for this stage. Omit to keep the
+    # existing worktree behaviour (zero diff from prior releases).
+    # Built-in backends: worktree, docker. Optional extras: e2b, modal.
+    # Plugin authors register more via the ``bernstein.sandbox_backends``
+    # entry-point group. See docs/architecture/sandbox.md.
+    # ------------------------------------------------------------------
+    # sandbox:
+    #   backend: worktree     # default; no-op
+    #   # backend: docker     # first-party, requires `pip install bernstein[docker]`
+    #   # backend: e2b        # optional extra: `pip install bernstein[e2b]`
+    #   # backend: modal      # optional extra: `pip install bernstein[modal]`
+    #   options:
+    #     # docker-specific
+    #     image: python:3.13-slim
+    #     memory_mb: 2048
+    #     cpu_quota: 200000
+    #     network_disabled: false
+    #     # e2b-specific
+    #     # template: code-interpreter-v1
+    #     # modal-specific
+    #     # gpu: "A10G"
+
+    steps:
+      - title: "Short step title"
+
+        # What the agent should do. Falls back to title when omitted.
+        description: >
+          Detailed instructions for the agent.
+
+        # Specialist role: backend | qa | frontend | security | devops | docs | architect
+        role: backend
+
+        # Duration estimate: small (<30min) | medium (30-90min) | large (90min+)
+        scope: medium
+
+        # Reasoning difficulty: low | medium | high
+        complexity: medium
+
+        # Model override (optional): auto | opus | sonnet | haiku
+        # model: auto
+
+        # Effort level (optional): low | normal | high | max
+        # effort: normal
+
+        # CLI adapter override (optional). Wins over role_model_policy and
+        # the top-level cli: setting. Use this when one stage needs a
+        # different runtime than the rest of the plan, e.g. opencode for
+        # red/green/refactor and claude for code review.
+        # cli: opencode
+
+        # Estimated minutes for the agent to complete.
+        # estimated_minutes: 30
+
+        # Files the agent will read or modify (sets ownership for conflict detection).
+        # files:
+        #   - "src/app.py"
+        #   - "tests/test_app.py"
+
+        # Janitor verification - machine-checkable completion criteria.
+        # completion_signals:
+        #   - type: path_exists
+        #     path: "src/app.py"
+        #   - type: test_passes
+        #     command: "pytest tests/test_app.py -x -q"
+        #   - type: file_contains
+        #     path: "src/app.py"
+        #     contains: "def create_app"

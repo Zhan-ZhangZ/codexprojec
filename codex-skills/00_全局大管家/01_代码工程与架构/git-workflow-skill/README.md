@@ -1,0 +1,246 @@
+# Git Workflow Skill
+
+Expert patterns for Git version control workflows including branching strategies, commit conventions, collaborative workflows, and CI/CD integration.
+
+## 🔌 Compatibility
+
+This is an **Agent Skill** following the [open standard](https://agentskills.io) originally developed by Anthropic and released for cross-platform use.
+
+**Supported Platforms:**
+- ✅ Claude Code (Anthropic)
+- ✅ Cursor
+- ✅ GitHub Copilot
+- ✅ Other skills-compatible AI agents
+
+> Skills are portable packages of procedural knowledge that work across any AI agent supporting the Agent Skills specification.
+
+
+## Features
+
+- **Branching Strategies**: Git Flow (feature/release/hotfix branches), GitHub Flow (simple feature branches), trunk-based development, release management patterns
+- **Commit Conventions**: Conventional Commits standard, semantic versioning integration, commit message best practices, atomic commit patterns
+- **Collaborative Workflows**: Pull request best practices, code review processes, merge strategies (merge, squash, rebase), conflict resolution patterns
+- **CI/CD Integration**: GitHub Actions workflows, GitLab CI patterns, branch protection rules, automated versioning
+- **Git Hooks**: Pre-commit hooks for linting and testing, commit message validation
+- **Advanced Operations**: Interactive rebase, cherry-picking, stashing, reflog recovery
+
+## Installation
+
+### Marketplace (Recommended)
+
+Add the [Netresearch marketplace](https://github.com/netresearch/claude-code-marketplace) once, then browse and install skills:
+
+```bash
+# Claude Code
+/plugin marketplace add netresearch/claude-code-marketplace
+```
+
+### npx ([skills.sh](https://skills.sh))
+
+Install with any [Agent Skills](https://agentskills.io)-compatible agent:
+
+```bash
+npx skills add https://github.com/netresearch/git-workflow-skill --skill git-workflow
+```
+
+### Download Release
+
+Download the [latest release](https://github.com/netresearch/git-workflow-skill/releases/latest) and extract to your agent's skills directory.
+
+### Git Clone
+
+```bash
+git clone https://github.com/netresearch/git-workflow-skill.git
+```
+
+### Composer (PHP Projects)
+
+```bash
+composer require netresearch/git-workflow-skill
+```
+
+Requires [netresearch/composer-agent-skill-plugin](https://github.com/netresearch/composer-agent-skill-plugin).
+
+### npm (Node Projects)
+
+```bash
+npm install --save-dev \
+  @netresearch/agent-skill-coordinator \
+  github:netresearch/git-workflow-skill
+```
+
+Requires [@netresearch/agent-skill-coordinator](https://github.com/netresearch/node-agent-skill-coordinator), which discovers the skill in `node_modules` and registers it in `AGENTS.md` via a `postinstall` hook. For pnpm, also allowlist the coordinator's postinstall:
+
+```json
+{
+  "pnpm": {
+    "onlyBuiltDependencies": ["@netresearch/agent-skill-coordinator"]
+  }
+}
+```
+
+## Usage
+
+This skill is automatically triggered when:
+
+- Establishing branching strategies (Git Flow, GitHub Flow, Trunk-based)
+- Implementing Conventional Commits for semantic versioning
+- Configuring pull request workflows
+- Integrating Git with CI/CD systems
+- Setting up Git hooks for quality gates
+- Resolving merge conflicts
+- Configuring branch protection rules
+
+Example queries:
+- "Set up Git Flow workflow"
+- "Configure conventional commits with semantic versioning"
+- "Create GitHub Actions workflow for CI/CD"
+- "Set up pre-commit hooks for linting"
+- "Configure branch protection rules"
+- "Implement pull request review process"
+
+### Commands
+
+- `/pr-finish [PR]` — drive a pull request to a fully-green, merged state:
+  preflight the merge gate in one block, rebase, fix CI locally, reply to and
+  resolve every review thread, update the title/description, and merge when
+  green. Operates on the named PR or the current branch's PR.
+
+## Structure
+
+```
+git-workflow-skill/                       # abbreviated — key files only
+├── skills/git-workflow/
+│   ├── SKILL.md                          # Skill metadata and core patterns
+│   ├── ...                               # checkpoints.yaml, evals/, hooks
+│   └── references/
+│       ├── branching-strategies.md       # Branch management patterns
+│       ├── commit-conventions.md         # Commit message standards
+│       ├── pull-request-workflow.md      # PR and review processes
+│       ├── ci-cd-integration.md          # Automation patterns
+│       └── advanced-git.md               # Advanced Git operations
+├── commands/
+│   └── pr-finish.md                      # /pr-finish slash command
+└── scripts/
+    └── verify-harness.sh                 # Harness verification script
+```
+
+## Expertise Areas
+
+### Branching Strategies
+- Git Flow (feature/release/hotfix branches)
+- GitHub Flow (simple feature branches)
+- Trunk-based development
+- Release management patterns
+
+### Commit Conventions
+- Conventional Commits standard
+- Semantic versioning integration
+- Commit message best practices
+- Atomic commit patterns
+
+### Collaborative Workflows
+- Pull request best practices
+- Code review processes
+- Merge strategies (merge, squash, rebase)
+- Conflict resolution patterns
+
+### CI/CD Integration
+- GitHub Actions workflows
+- GitLab CI patterns
+- Branch protection rules
+- Automated versioning
+
+## Conventional Commits Format
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types:**
+- `feat`: New feature (MINOR version bump)
+- `fix`: Bug fix (PATCH version bump)
+- `docs`: Documentation only
+- `style`: Code style (formatting, no logic change)
+- `refactor`: Code refactoring
+- `perf`: Performance improvements
+- `test`: Adding/updating tests
+- `build`: Build system changes
+- `ci`: CI configuration changes
+- `chore`: Maintenance tasks
+- `revert`: Reverting changes
+
+**Breaking Changes:**
+```
+feat!: remove deprecated API endpoints
+
+BREAKING CHANGE: The /api/v1/users endpoint has been removed.
+Use /api/v2/users instead.
+```
+
+## Quick Reference
+
+### Daily Workflow
+
+```bash
+# Start of day
+git checkout main && git pull
+git checkout -b feature/my-feature
+
+# During development
+git add -p                    # Stage hunks interactively
+git commit -m "feat: ..."     # Commit with conventional message
+
+# Ready for review
+git push -u origin HEAD
+gh pr create
+
+# After merge
+git checkout main && git pull
+git branch -d feature/my-feature
+```
+
+### Emergency Fixes
+
+```bash
+# Undo last commit (keep changes)
+git reset --soft HEAD~1
+
+# Undo last commit (discard changes)
+git reset --hard HEAD~1
+
+# Revert a specific commit
+git revert <commit-hash>
+
+# Fix last commit message
+git commit --amend -m "new message"
+
+# Fix last commit (add forgotten file)
+git add forgotten-file.txt
+git commit --amend --no-edit
+```
+
+## Related Skills
+
+- **enterprise-readiness-skill**: Git workflow is part of CI/CD maturity
+- **security-audit-skill**: Git hooks for security checks
+
+## License
+
+This project uses split licensing:
+
+- **Code** (scripts, workflows, configs): [MIT](LICENSE-MIT)
+- **Content** (skill definitions, documentation, references): [CC-BY-SA-4.0](LICENSE-CC-BY-SA-4.0)
+
+See the individual license files for full terms.
+## Credits
+
+Developed and maintained by [Netresearch DTT GmbH](https://www.netresearch.de/).
+
+---
+
+**Made with ❤️ for Open Source by [Netresearch](https://www.netresearch.de/)**

@@ -1,0 +1,217 @@
+"""
+Target trial emulation — end-to-end pipeline wiring a protocol to data.
+"""
+
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Callable, Literal, cast
+import numpy as np
+import pandas as pd
+
+from .protocol import TargetTrialProtocol
+from .._result_serialize import ResultProtocolMixin
+
+
+@dataclass
+class TargetTrialResult(ResultProtocolMixin):
+    """Result of target trial emulation.
+
+    Attributes
+    ----------
+    protocol : TargetTrialProtocol
+        The protocol that was emulated.
+    estimate : float
+        Point estimate of the causal contrast under the protocol.
+    se : float
+        Analytic standard error (IPW sandwich or bootstrap).
+    ci : tuple[float, float]
+        95% confidence interval.
+    n_eligible : int
+        Subjects passing the eligibility criterion at time zero.
+    n_excluded_immortal : int
+        Subjects excluded to prevent immortal time bias.
+    weights : np.ndarray
+        IP weights used (baseline + censoring combined).
+    method : str
+        Which analysis plan was executed.
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> proto = sp.target_trial_protocol(
+    ...     eligibility="age >= 40 and ldl > 130",
+    ...     treatment_strategies=["statin", "no statin"],
+    ...     assignment="observational emulation",
+    ...     time_zero="first eligible visit",
+    ...     followup_end="5 years",
+    ...     outcome="incident MI",
+    ... )
+    >>> rng = np.random.default_rng(0)
+    >>> n = 400
+    >>> df = pd.DataFrame({
+    ...     "age": rng.integers(40, 70, n),
+    ...     "ldl": rng.normal(150, 20, n),
+    ...     "statin": rng.integers(0, 2, n),
+    ... })
+    >>> df["mi"] = (rng.random(n) < 0.2).astype(int)
+    >>> res = sp.target_trial_emulate(
+    ...     proto, df, outcome_col="mi", treatment_col="statin")
+    >>> type(res).__name__
+    'TargetTrialResult'
+    >>> res.n_eligible
+    335
+    >>> res.n_excluded_immortal
+    65
+    """
+
+    protocol: TargetTrialProtocol
+    estimate: float
+    se: float
+    ci: tuple[float, float]
+    n_eligible: int
+    n_excluded_immortal: int
+    weights: np.ndarray
+    method: str
+
+    def summary(self) -> str:
+        return (
+            f"Target Trial Emulation -- {self.protocol.causal_contrast}\n"
+            f"  Estimate: {self.estimate:.4f}  SE: {self.se:.4f}  "
+            f"95% CI: [{self.ci[0]:.4f}, {self.ci[1]:.4f}]\n"
+            f"  n eligible: {self.n_eligible}  "
+            f"n excluded (immortal-time prevention): {self.n_excluded_immortal}\n"
+            f"  Method: {self.method}"
+        )
+
+    def to_paper(self, fmt: str = "markdown", title: str | None = None) -> str:
+        """Render a structured Methods/Results block.
+
+        See :func:`statspai.target_trial.to_paper` for details.
+        """
+        from .report import to_paper as _to_paper
+
+        fmt_lit = cast(
+            Literal["markdown", "latex", "text", "target", "jama", "bmj"],
+            fmt,
+        )
+        return _to_paper(self, fmt=fmt_lit, title=title)
+
+
+def emulate(
+    protocol: TargetTrialProtocol,
+    data: pd.DataFrame,
+    outcome_col: str,
+    treatment_col: str,
+    time_zero_filter: Callable[[pd.DataFrame], pd.Series] | None = None,
+    weights: np.ndarray | None = None,
+) -> TargetTrialResult:
+    """Emulate the target trial defined by ``protocol``.
+
+    Analysis-stage wrapper: enforces time-zero alignment, applies
+    eligibility, computes (or accepts) weights, and returns an
+    IPW-weighted mean-difference point estimate for the protocol-
+    defined contrast.
+
+    For more complex analysis plans (pooled logistic + IPCW, g-formula,
+    LTMLE), users should call those estimators directly and pass the
+    protocol as documentation.
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> proto = sp.target_trial_protocol(
+    ...     eligibility="age >= 40 and ldl > 130",
+    ...     treatment_strategies=["statin", "no statin"],
+    ...     assignment="observational emulation",
+    ...     time_zero="first eligible visit",
+    ...     followup_end="5 years",
+    ...     outcome="incident MI",
+    ... )
+    >>> rng = np.random.default_rng(0)
+    >>> n = 400
+    >>> df = pd.DataFrame({
+    ...     "age": rng.integers(40, 70, n),
+    ...     "ldl": rng.normal(150, 20, n),
+    ...     "statin": rng.integers(0, 2, n),
+    ... })
+    >>> df["mi"] = (rng.random(n) < 0.2).astype(int)
+    >>> res = sp.target_trial_emulate(
+    ...     proto, df, outcome_col="mi", treatment_col="statin")
+    >>> res.n_eligible  # eligibility filter applied at time zero
+    335
+    >>> bool(res.ci[0] <= res.estimate <= res.ci[1])
+    True
+
+    References
+    ----------
+    hernan2016using
+    """
+    n_total = len(data)
+
+    if time_zero_filter is not None:
+        mask_values = np.asarray(time_zero_filter(data), dtype=bool)
+    elif isinstance(protocol.eligibility, str):
+        subset = data.query(protocol.eligibility)
+        mask_values = data.index.isin(subset.index)
+    elif callable(protocol.eligibility):
+        mask_values = data.apply(protocol.eligibility, axis=1).to_numpy(dtype=bool)
+    else:
+        mask_values = np.ones(n_total, dtype=bool)
+
+    mask = pd.Series(mask_values, index=data.index)
+    eligible = data.loc[mask].copy()
+    n_eligible = int(len(eligible))
+    n_excluded = int(n_total - n_eligible)
+
+    if treatment_col not in eligible.columns or outcome_col not in eligible.columns:
+        raise KeyError("treatment_col / outcome_col must be in data")
+
+    a = eligible[treatment_col].to_numpy(dtype=float)
+    y = eligible[outcome_col].to_numpy(dtype=float)
+    if weights is None:
+        w = np.ones_like(a)
+    else:
+        w_full = np.asarray(weights, dtype=float)
+        w = w_full[mask_values]
+
+    sum_w1 = max(float(np.sum(w * a)), 1e-12)
+    sum_w0 = max(float(np.sum(w * (1 - a))), 1e-12)
+    m1 = float(np.sum(w * a * y) / sum_w1)
+    m0 = float(np.sum(w * (1 - a) * y) / sum_w0)
+    estimate = m1 - m0
+
+    v1 = float(np.sum(w * a * (y - m1) ** 2) / sum_w1**2)
+    v0 = float(np.sum(w * (1 - a) * (y - m0) ** 2) / sum_w0**2)
+    se = float(np.sqrt(v1 + v0))
+    ci = (estimate - 1.96 * se, estimate + 1.96 * se)
+
+    _result = TargetTrialResult(
+        protocol=protocol,
+        estimate=estimate,
+        se=se,
+        ci=(float(ci[0]), float(ci[1])),
+        n_eligible=n_eligible,
+        n_excluded_immortal=n_excluded,
+        weights=w,
+        method=protocol.analysis_plan,
+    )
+    try:
+        from ..output._lineage import attach_provenance as _attach_prov
+
+        _attach_prov(
+            _result,
+            function="sp.target_trial.emulate",
+            params={
+                "outcome_col": outcome_col,
+                "treatment_col": treatment_col,
+                "n_eligible": int(n_eligible),
+                "analysis_plan": str(protocol.analysis_plan),
+            },
+            data=data,
+            overwrite=False,
+        )
+    except Exception:  # pragma: no cover
+        pass
+    return _result

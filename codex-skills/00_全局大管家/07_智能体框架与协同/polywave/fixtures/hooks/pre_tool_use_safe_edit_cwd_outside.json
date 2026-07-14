@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__lsp__safe_edit",
+  "tool_input": {
+    "file_path": "/tmp/outside-scope/app.js",
+    "old_text": "console.log('before');",
+    "new_text": "console.log('after');"
+  },
+  "cwd": "/tmp/polywave-agent-1"
+}

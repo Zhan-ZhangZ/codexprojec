@@ -1,0 +1,1893 @@
+openapi: 3.1.0
+info:
+  title: Home Assistant REST API
+  version: 1.0.0
+  description: |
+    Official Home Assistant REST API specification based on documentation.
+
+    Authentication requires a Long-Lived Access Token that can be generated from the Home Assistant profile page.
+    All API calls must use the Bearer token in the Authorization header.
+
+    **CURL usage example:**
+    ```bash
+    curl -X GET \
+      -H "Authorization: Bearer LONG_LIVED_ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      http://localhost:8123/api/states
+    ```
+
+    **Note about timestamp path parameters**:
+    For endpoints with path parameters like `/history/period/{timestamp}` and `/logbook/{timestamp}`,
+    the API defaults to "1 day before the request time" if the parameter is omitted.
+    Since OpenAPI 3.1 doesn't support optional path parameters, we've included alternative routes
+    without the timestamp parameter (e.g., `/history/period` and `/logbook`).
+
+    **API Versioning Strategy**:
+
+    The Home Assistant REST API uses a versioning strategy based on the Home Assistant core version.
+    Breaking changes to the API are avoided when possible, but when necessary, they are communicated
+    in the release notes of the corresponding Home Assistant version.
+
+    While the API doesn't include explicit version numbers in the paths (like `/v1/states`), clients
+    should check the Home Assistant version through the `/config` endpoint to determine compatibility.
+
+    The current API specification is aligned with Home Assistant version 2023.3 and newer.
+  contact:
+    name: Home Assistant Developers
+    url: https://developers.home-assistant.io/docs/api/rest/
+  x-api-version: "1.0.0"
+  x-ha-min-version: "2023.3.0"
+servers:
+  - url: http://IP_ADDRESS:8123/api
+    description: Home Assistant API Server
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: token
+      description: |
+        Authentication uses a Long-Lived Access Token that can be generated from the Home Assistant profile page.
+
+        To create a token:
+        1. Log in to your Home Assistant instance
+        2. Click on your profile (bottom left)
+        3. Scroll to the bottom of the page
+        4. Under "Long-Lived Access Tokens", click "Create Token"
+        5. Give your token a name and click "OK"
+        6. Copy the token immediately (it won't be shown again)
+
+        Tokens have no expiration date but can be revoked from the same profile page.
+
+        All API requests must include this token in the Authorization header:
+        `Authorization: Bearer YOUR_TOKEN`
+
+        Requests without a valid token will receive a 401 Unauthorized response.
+
+    # Optional: For future OAuth 2.0 support (not currently implemented)
+    # oauth2Auth:
+    #   type: oauth2
+    #   flows:
+    #     authorizationCode:
+    #       authorizationUrl: https://your-instance.com/auth/authorize
+    #       tokenUrl: https://your-instance.com/auth/token
+    #       scopes:
+    #         read: Read access to Home Assistant
+    #         write: Write access to Home Assistant
+  parameters:
+    EntityIdParam:
+      name: entity_id
+      in: path
+      required: true
+      description: ID of the entity (format domain.entity, e.g. light.kitchen)
+      schema:
+        type: string
+        example: "light.living_room"
+
+    TimestampParam:
+      name: timestamp
+      in: path
+      required: true
+      description: ISO 8601 formatted timestamp (e.g., 2023-01-01T00:00:00Z)
+      schema:
+        type: string
+        format: date-time
+        example: "2023-01-01T00:00:00Z"
+
+    EndTimeParam:
+      name: end_time
+      in: query
+      required: false
+      description: The end of the period in ISO 8601 format. If not specified, the current time will be used.
+      schema:
+        type: string
+        format: date-time
+        example: "2023-01-01T23:59:59Z"
+
+    ReturnResponseParam:
+      name: return_response
+      in: query
+      required: false
+      description: When set to true, includes service response data in the result
+      schema:
+        type: boolean
+        default: false
+
+    PaginationLimitParam:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return in the response. Default varies by endpoint.
+      schema:
+        type: integer
+        minimum: 1
+        default: 100
+
+    PaginationOffsetParam:
+      name: offset
+      in: query
+      required: false
+      description: Number of items to skip before starting to collect the result set.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    FilterEntityIdParam:
+      name: filter_entity_id
+      in: query
+      required: false
+      description: One or more entity IDs to filter on, comma separated. If not specified, all entities are included.
+      schema:
+        type: string
+        example: "light.living_room,sensor.temperature"
+
+    EntityParam:
+      name: entity
+      in: query
+      required: false
+      description: Filter on one entity. If not specified, all entities are included.
+      schema:
+        type: string
+        example: "light.living_room"
+
+    PeriodParam:
+      name: period
+      in: query
+      required: false
+      description: Number of days to include in the response. Default is 1 day.
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+
+    EventTypeParam:
+      name: event_type
+      in: path
+      required: true
+      description: Type of the event to trigger
+      schema:
+        type: string
+        example: "call_service"
+
+  headers:
+    AcceptHeader:
+      description: Specifies the expected format of the response
+      schema:
+        type: string
+        enum:
+          - application/json
+          - text/plain
+      example: application/json
+
+    ContentTypeHeader:
+      description: Specifies the format of the request body
+      schema:
+        type: string
+        enum:
+          - application/json
+        default: application/json
+      example: application/json
+
+    AuthorizationHeader:
+      description: Contains the bearer token for authentication
+      schema:
+        type: string
+        pattern: '^Bearer [A-Za-z0-9-._~+/]+=*$'
+      example: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+  schemas:
+    State:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          description: ID of the entity
+        state:
+          type: string
+          description: Current state of the entity
+        attributes:
+          type: object
+          description: Entity attributes
+        last_changed:
+          type: string
+          format: date-time
+          description: Timestamp when the state was last changed
+        last_updated:
+          type: string
+          format: date-time
+          description: Timestamp when the state was last updated
+        context:
+          $ref: "#/components/schemas/Context"
+    ConfigResponse:
+      type: object
+      properties:
+        components:
+          type: array
+          description: List of loaded components
+          items:
+            type: string
+        config_dir:
+          type: string
+          description: Configuration directory path
+        elevation:
+          type: number
+          description: Elevation
+        latitude:
+          type: number
+          description: Latitude
+        longitude:
+          type: number
+          description: Longitude
+        location_name:
+          type: string
+          description: Name of the location
+        time_zone:
+          type: string
+          description: Time zone
+        unit_system:
+          type: object
+          properties:
+            length:
+              type: string
+            mass:
+              type: string
+            temperature:
+              type: string
+            volume:
+              type: string
+        version:
+          type: string
+          description: Home Assistant version
+    EventObject:
+      type: object
+      properties:
+        event:
+          type: string
+          description: Name of the event
+        listener_count:
+          type: integer
+          description: Number of event listeners
+    HistoryStateChange:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          description: Entity ID
+        state:
+          type: string
+          description: State value
+        attributes:
+          type: object
+          description: State attributes
+        last_changed:
+          type: string
+          format: date-time
+          description: Last time the state changed
+        last_updated:
+          type: string
+          format: date-time
+          description: Last time the state was updated
+    LogbookEntry:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          description: Entity ID
+        state:
+          type: string
+          description: State
+        when:
+          type: string
+          format: date-time
+          description: When the event occurred
+        name:
+          type: string
+          description: Name of the entity
+        message:
+          type: string
+          description: Message describing the event
+        domain:
+          type: string
+          description: Domain of the entity
+        icon:
+          type: string
+          description: Icon of the entity
+    Service:
+      type: object
+      properties:
+        domain:
+          type: string
+          description: Domain of the service
+        services:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              description:
+                type: string
+              fields:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    description:
+                      type: string
+                    example:
+                      type: string
+    CalendarObject:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          description: Entity ID
+        name:
+          type: string
+          description: Name of the calendar
+    CalendarEvent:
+      type: object
+      properties:
+        summary:
+          type: string
+          description: Summary of the event
+        start:
+          type: string
+          format: date-time
+          description: Start time of the event
+        end:
+          type: string
+          format: date-time
+          description: End time of the event
+        description:
+          type: string
+          description: Description of the event
+        location:
+          type: string
+          description: Location of the event
+        uid:
+          type: string
+          description: Unique ID of the event
+    ErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable error message explaining what went wrong
+        code:
+          type: string
+          description: Optional error code identifier that can be used for client-side error handling
+      examples:
+        unauthorized:
+          value:
+            message: "Unauthorized"
+        entity_not_found:
+          value:
+            message: "Entity not found."
+        invalid_state:
+          value:
+            message: "Invalid state specified."
+        service_not_found:
+          value:
+            message: "Service not found."
+            code: "not_found"
+    Context:
+      type: object
+      description: Context information for state changes and events
+      properties:
+        id:
+          type: string
+          description: Context ID
+        parent_id:
+          type: string
+          description: Parent context ID
+        user_id:
+          type: string
+          description: User ID
+    Error:
+      $ref: "#/components/schemas/ErrorResponse"
+    ServiceRequestBody:
+      type: object
+      description: Generic service call request body
+      properties:
+        entity_id:
+          type: string
+          description: Entity ID or comma-separated IDs to target
+      additionalProperties: true
+      examples:
+        turn_on_light:
+          value: {
+            "entity_id": "light.living_room",
+            "brightness": 255,
+            "color_name": "blue"
+          }
+        set_climate:
+          value: {
+            "entity_id": "climate.living_room",
+            "temperature": 22.5,
+            "hvac_mode": "heat"
+          }
+        reload_config:
+          value: {}
+    ServiceResponse:
+      type: object
+      description: Object containing changed states and service response (when return_response=true)
+      properties:
+        changed_states:
+          type: array
+          description: States that changed as a result of the service call
+          items:
+            $ref: "#/components/schemas/State"
+        service_response:
+          type: object
+          description: Response returned by the service
+          additionalProperties: true
+    MessageResponse:
+      type: object
+      description: Simple message response
+      properties:
+        message:
+          type: string
+          description: Response message
+paths:
+  /:
+    get:
+      summary: Check API status
+      description: |
+        Returns a message if the API is up and running. This endpoint serves as a basic health check
+        to verify that the Home Assistant API is accessible and responding to requests.
+
+        This is useful for:
+        - Verifying authentication token validity
+        - Checking if the Home Assistant instance is online
+        - Testing API connectivity before making more complex requests
+
+        No additional parameters are required for this endpoint.
+      operationId: APIStatus
+      responses:
+        200:
+          description: API is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: API running.
+              examples:
+                success:
+                  value:
+                    message: "API running."
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+  /config:
+    get:
+      summary: Retrieve current configuration
+      description: |
+        Returns the current configuration settings of your Home Assistant instance.
+
+        This endpoint provides essential details about how your Home Assistant instance is configured, including:
+        - Geographic location (latitude, longitude, elevation)
+        - Time zone settings
+        - Unit system preferences
+        - Home Assistant version
+        - List of loaded components
+        - Configuration directory path
+
+        This information is useful for clients that need to adapt their behavior based on system settings,
+        such as displaying temperature in the correct unit format or localizing time data.
+
+        **Version Compatibility Check**:
+        API clients should use this endpoint to check the Home Assistant version (`version` field)
+        to determine compatibility with their implementation. This is especially important after
+        Home Assistant upgrades, as some API behaviors may change between versions.
+
+        ```
+        // Example version compatibility check in JavaScript
+        fetch('/api/config')
+          .then(response => response.json())
+          .then(config => {
+            // Compare with minimum supported version
+            if (isVersionAtLeast(config.version, '2023.3.0')) {
+              // Use features available in 2023.3.0 and later
+            } else {
+              // Use legacy approach
+            }
+          });
+        ```
+
+        No request parameters are needed to access this endpoint.
+      operationId: APIConfig
+      responses:
+        200:
+          description: Current configuration details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigResponse"
+              examples:
+                success:
+                  value: {
+                    "components": ["automation", "config", "frontend", "history", "homeassistant", "light", "media_player", "sensor", "sun", "weather"],
+                    "config_dir": "/config",
+                    "elevation": 358,
+                    "latitude": 37.5485,
+                    "longitude": -121.9886,
+                    "location_name": "Home",
+                    "time_zone": "America/Los_Angeles",
+                    "unit_system": {
+                      "length": "km",
+                      "mass": "kg",
+                      "temperature": "°C",
+                      "volume": "L"
+                    },
+                    "version": "2023.3.6"
+                  }
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+  /states:
+    get:
+      summary: Retrieve all states
+      description: |
+        Returns the current state of all entities in Home Assistant.
+
+        This endpoint provides a complete snapshot of the current state of your home automation system,
+        including all entities (devices, sensors, automations, etc.) and their attributes.
+
+        Use cases include:
+        - Building dashboards that display the status of all entities
+        - Performing batch operations based on multiple entity states
+        - Synchronizing external systems with Home Assistant's state
+
+        The response is an array of state objects containing entity IDs, current states, attributes,
+        and timestamp information.
+
+        No request parameters are needed to access this endpoint.
+      operationId: GetAllStates
+      parameters:
+        - $ref: "#/components/parameters/PaginationLimitParam"
+        - $ref: "#/components/parameters/PaginationOffsetParam"
+      responses:
+        200:
+          description: List of all entity states
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/State"
+              examples:
+                success:
+                  value: [
+                    {
+                      "entity_id": "light.living_room",
+                      "state": "on",
+                      "attributes": {
+                        "brightness": 255,
+                        "friendly_name": "Living Room Light",
+                        "supported_features": 41
+                      },
+                      "last_changed": "2023-04-01T12:34:56.789Z",
+                      "last_updated": "2023-04-01T12:34:56.789Z",
+                      "context": {
+                        "id": "01EXAMPLEID1234567890",
+                        "parent_id": null,
+                        "user_id": "abcdefghijklmnopqrstuvwxyz"
+                      }
+                    },
+                    {
+                      "entity_id": "sensor.temperature",
+                      "state": "22.5",
+                      "attributes": {
+                        "unit_of_measurement": "°C",
+                        "friendly_name": "Temperature Sensor",
+                        "device_class": "temperature"
+                      },
+                      "last_changed": "2023-04-01T12:30:00.000Z",
+                      "last_updated": "2023-04-01T12:30:00.000Z",
+                      "context": {
+                        "id": "01EXAMPLEID1234567891",
+                        "parent_id": null,
+                        "user_id": null
+                      }
+                    }
+                  ]
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+  /states/{entity_id}:
+    get:
+      summary: Retrieve state of a specific entity
+      description: |
+        Returns the current state of a specific entity identified by its entity_id.
+
+        This endpoint provides detailed information about a single entity, including its:
+        - Current state value
+        - All attributes
+        - Last changed and updated timestamps
+        - Context information
+
+        This is useful when you need focused information about a specific entity rather than
+        the entire system state. Common use cases include:
+        - Checking if a specific device is on/off
+        - Reading sensor values
+        - Getting detailed attributes of a specific entity
+
+        If the entity doesn't exist, a 404 error is returned.
+      operationId: GetEntityState
+      parameters:
+        - $ref: "#/components/parameters/EntityIdParam"
+      responses:
+        200:
+          description: State details of the specified entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/State"
+              examples:
+                light:
+                  value: {
+                    "entity_id": "light.living_room",
+                    "state": "on",
+                    "attributes": {
+                      "brightness": 255,
+                      "friendly_name": "Living Room Light",
+                      "supported_features": 41
+                    },
+                    "last_changed": "2023-04-01T12:34:56.789Z",
+                    "last_updated": "2023-04-01T12:34:56.789Z",
+                    "context": {
+                      "id": "01EXAMPLEID1234567890",
+                      "parent_id": null,
+                      "user_id": "abcdefghijklmnopqrstuvwxyz"
+                    }
+                  }
+                sensor:
+                  value: {
+                    "entity_id": "sensor.temperature",
+                    "state": "22.5",
+                    "attributes": {
+                      "unit_of_measurement": "°C",
+                      "friendly_name": "Temperature Sensor",
+                      "device_class": "temperature"
+                    },
+                    "last_changed": "2023-04-01T12:30:00.000Z",
+                    "last_updated": "2023-04-01T12:30:00.000Z",
+                    "context": {
+                      "id": "01EXAMPLEID1234567891",
+                      "parent_id": null,
+                      "user_id": null
+                    }
+                  }
+        404:
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not_found:
+                  value:
+                    message: "Entity not found."
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+    post:
+      summary: Update or create state of a specific entity
+      description: |
+        Updates the state of an existing entity or creates a new entity with the specified state.
+
+        This endpoint allows you to:
+        - Set the state value of an entity
+        - Update entity attributes
+        - Force an update even when the state hasn't changed
+
+        This is particularly useful for:
+        - Creating custom entities not managed by integrations
+        - Updating states from external systems
+        - Setting virtual entities for UI or automation purposes
+
+        Note that creating entities this way does not register them with integrations or make them
+        controllable - they are primarily for state representation. For actual device control,
+        use the services API endpoints.
+
+        Returns 200 if the state was updated or 201 if a new entity was created.
+      operationId: UpdateEntityState
+      parameters:
+        - in: path
+          name: entity_id
+          required: true
+          description: ID of the entity to update or create
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                  description: The new state value
+                attributes:
+                  type: object
+                  description: State attributes to set
+                force_update:
+                  type: boolean
+                  description: Force an update even if the state hasn't changed
+              required:
+                - state
+            examples:
+              simple:
+                value: {
+                  "state": "on"
+                }
+              with_attributes:
+                value: {
+                  "state": "25.6",
+                  "attributes": {
+                    "unit_of_measurement": "°C",
+                    "friendly_name": "Outside Temperature"
+                  }
+                }
+              force_update:
+                value: {
+                  "state": "home",
+                  "attributes": {
+                    "friendly_name": "User Presence"
+                  },
+                  "force_update": true
+                }
+      responses:
+        200:
+          description: State updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/State"
+              examples:
+                updated:
+                  value: {
+                    "entity_id": "sensor.external_temp",
+                    "state": "25.6",
+                    "attributes": {
+                      "unit_of_measurement": "°C",
+                      "friendly_name": "Outside Temperature"
+                    },
+                    "last_changed": "2023-04-01T12:34:56.789Z",
+                    "last_updated": "2023-04-01T12:34:56.789Z",
+                    "context": {
+                      "id": "01EXAMPLEID1234567890",
+                      "parent_id": null,
+                      "user_id": "abcdefghijklmnopqrstuvwxyz"
+                    }
+                  }
+        201:
+          description: State created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/State"
+              examples:
+                created:
+                  value: {
+                    "entity_id": "input_boolean.custom_flag",
+                    "state": "on",
+                    "attributes": {
+                      "friendly_name": "Custom Flag"
+                    },
+                    "last_changed": "2023-04-01T12:34:56.789Z",
+                    "last_updated": "2023-04-01T12:34:56.789Z",
+                    "context": {
+                      "id": "01EXAMPLEID1234567890",
+                      "parent_id": null,
+                      "user_id": "abcdefghijklmnopqrstuvwxyz"
+                    }
+                  }
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                missing_state:
+                  value:
+                    message: "No state specified."
+                invalid_state:
+                  value:
+                    message: "Invalid state specified."
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+    delete:
+      summary: Delete an entity
+      description: |
+        Removes an entity from Home Assistant.
+
+        This endpoint allows you to delete entities that were created through the API.
+        Note that this only works for entities created via the API, not for entities registered
+        by integrations or components. Attempting to delete an integrated entity will result
+        in an error.
+
+        Use cases include:
+        - Cleaning up custom entities that are no longer needed
+        - Removing temporary entities created for specific purposes
+        - Managing virtual/custom entities lifecycle
+
+        If the entity doesn't exist, a 404 error is returned.
+      operationId: DeleteEntity
+      parameters:
+        - in: path
+          name: entity_id
+          required: true
+          description: ID of the entity to delete
+          schema:
+            type: string
+      responses:
+        200:
+          description: Entity removed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              examples:
+                success:
+                  value:
+                    message: "Entity removed."
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+        404:
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not_found:
+                  value:
+                    message: "Entity not found."
+      security:
+        - bearerAuth: []
+  /services/{domain}/{service}:
+    post:
+      summary: Call a service within a specific domain
+      description: |
+        Calls a service in Home Assistant with the specified parameters.
+
+        This endpoint is one of the most powerful in the Home Assistant API, as it allows
+        you to execute actions and control devices. Services are organized by domains, which
+        typically correspond to integrations or components.
+
+        Common use cases include:
+        - Turning devices on or off (e.g., domain: "light", service: "turn_on")
+        - Adjusting settings like brightness, temperature, or volume
+        - Triggering automations or scenes
+        - Running system operations like restarts or database cleanups
+
+        The request body typically includes an "entity_id" field to specify the target entity,
+        but can also include other service-specific parameters. You can find the available
+        services and their parameters in the Home Assistant Developer Tools > Services panel.
+
+        When calling a service, you can optionally request the service response using the
+        "return_response" query parameter. This is useful for services that return data.
+
+        The response will include states that changed as a result of the service call, and
+        optionally the service response if requested.
+      operationId: CallService
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          description: Domain of the service (e.g., light, switch, automation)
+          schema:
+            type: string
+        - name: service
+          in: path
+          required: true
+          description: Name of the service (e.g., turn_on, turn_off)
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ReturnResponseParam"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceRequestBody"
+      responses:
+        200:
+          description: Service called successfully
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    description: Array of changed states (when return_response is not used)
+                    items:
+                      $ref: "#/components/schemas/State"
+                  - $ref: "#/components/schemas/ServiceResponse"
+              examples:
+                changed_states:
+                  value: [
+                    {
+                      "entity_id": "light.living_room",
+                      "state": "on",
+                      "attributes": {
+                        "brightness": 255,
+                        "color_name": "blue",
+                        "friendly_name": "Living Room Light",
+                        "supported_features": 41
+                      },
+                      "last_changed": "2023-04-01T12:34:56.789Z",
+                      "last_updated": "2023-04-01T12:34:56.789Z",
+                      "context": {
+                        "id": "01EXAMPLEID1234567890",
+                        "parent_id": null,
+                        "user_id": "abcdefghijklmnopqrstuvwxyz"
+                      }
+                    }
+                  ]
+                with_response:
+                  value: {
+                    "changed_states": [
+                      {
+                        "entity_id": "climate.living_room",
+                        "state": "heat",
+                        "attributes": {
+                          "temperature": 22.5,
+                          "current_temperature": 20.0,
+                          "friendly_name": "Living Room Thermostat",
+                          "supported_features": 17
+                        },
+                        "last_changed": "2023-04-01T12:34:56.789Z",
+                        "last_updated": "2023-04-01T12:34:56.789Z",
+                        "context": {
+                          "id": "01EXAMPLEID1234567890",
+                          "parent_id": null,
+                          "user_id": "abcdefghijklmnopqrstuvwxyz"
+                        }
+                      }
+                    ],
+                    "service_response": {
+                      "status": "success",
+                      "processing_time": 0.23
+                    }
+                  }
+        400:
+          description: Bad request, invalid service or parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                invalid_parameters:
+                  value:
+                    message: "Invalid JSON specified."
+                schema_validation:
+                  value:
+                    message: "Invalid service parameter brightness: expected float for dictionary value @ data['brightness']"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+        404:
+          description: Service or domain not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                not_found:
+                  value:
+                    message: "Service not found."
+      security:
+        - bearerAuth: []
+  /events:
+    get:
+      summary: Get all event listeners
+      description: |
+        Returns a list of all event types and their listener counts in Home Assistant.
+
+        This endpoint provides information about the event system, which is one of the core
+        mechanisms in Home Assistant. Events are triggered by various components and can be
+        listened to by automations, scripts, and other components.
+
+        Use cases include:
+        - Debugging and troubleshooting event-driven automations
+        - Understanding which events are available in your system
+        - Monitoring the number of listeners for performance analysis
+
+        The response contains an array of event objects, each with the event name and the
+        number of registered listeners.
+
+        No request parameters are needed to access this endpoint.
+      operationId: Events
+      parameters:
+        - $ref: "#/components/parameters/PaginationLimitParam"
+        - $ref: "#/components/parameters/PaginationOffsetParam"
+      responses:
+        200:
+          description: List of event listeners
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventObject"
+              examples:
+                success:
+                  value: [
+                    {
+                      "event": "state_changed",
+                      "listener_count": 24
+                    },
+                    {
+                      "event": "homeassistant_start",
+                      "listener_count": 12
+                    },
+                    {
+                      "event": "automation_triggered",
+                      "listener_count": 3
+                    },
+                    {
+                      "event": "custom_event",
+                      "listener_count": 1
+                    }
+                  ]
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+  /history/period:
+    get:
+      summary: Get historical state changes with default time range
+      description: |
+        Returns historical state changes for the past day (by default).
+
+        This endpoint provides access to historical entity state data, which is useful for:
+        - Generating graphs and trends of sensor values over time
+        - Reviewing when devices were turned on/off
+        - Analyzing patterns in system behavior
+
+        By default, this endpoint returns data from 1 day before the request time to the current time.
+        The response is organized as an array of arrays, where each inner array contains state changes
+        for a specific entity.
+
+        You can filter the results to specific entities, modify the response format for optimization,
+        specify an end time, and control whether to include all changes or only significant ones.
+
+        Note: This endpoint requires the History integration to be enabled in Home Assistant.
+      operationId: HistoryPeriodDefault
+      parameters:
+        - $ref: "#/components/parameters/FilterEntityIdParam"
+        - $ref: "#/components/parameters/EndTimeParam"
+        - name: minimal_response
+          in: query
+          required: false
+          description: Only return last_changed and state for states other than the first and last state.
+          schema:
+            type: boolean
+            default: false
+        - name: no_attributes
+          in: query
+          required: false
+          description: Skip returning attributes from the database.
+          schema:
+            type: boolean
+            default: false
+        - name: significant_changes_only
+          in: query
+          required: false
+          description: Only return significant state changes.
+          schema:
+            type: boolean
+            default: true
+        - $ref: "#/components/parameters/PaginationLimitParam"
+      responses:
+        200:
+          description: Array of state changes in the past.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/HistoryStateChange"
+              examples:
+                success:
+                  value: [
+                    [
+                      {
+                        "entity_id": "sensor.temperature",
+                        "state": "21.5",
+                        "attributes": {
+                          "unit_of_measurement": "°C",
+                          "friendly_name": "Temperature"
+                        },
+                        "last_changed": "2023-04-01T10:00:00.000Z",
+                        "last_updated": "2023-04-01T10:00:00.000Z"
+                      },
+                      {
+                        "entity_id": "sensor.temperature",
+                        "state": "22.0",
+                        "attributes": {
+                          "unit_of_measurement": "°C",
+                          "friendly_name": "Temperature"
+                        },
+                        "last_changed": "2023-04-01T11:00:00.000Z",
+                        "last_updated": "2023-04-01T11:00:00.000Z"
+                      }
+                    ],
+                    [
+                      {
+                        "entity_id": "light.living_room",
+                        "state": "off",
+                        "attributes": {
+                          "friendly_name": "Living Room Light",
+                          "supported_features": 41
+                        },
+                        "last_changed": "2023-04-01T08:00:00.000Z",
+                        "last_updated": "2023-04-01T08:00:00.000Z"
+                      },
+                      {
+                        "entity_id": "light.living_room",
+                        "state": "on",
+                        "attributes": {
+                          "brightness": 255,
+                          "friendly_name": "Living Room Light",
+                          "supported_features": 41
+                        },
+                        "last_changed": "2023-04-01T18:00:00.000Z",
+                        "last_updated": "2023-04-01T18:00:00.000Z"
+                      }
+                    ]
+                  ]
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                invalid_datetime:
+                  value:
+                    message: "Invalid end_time"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+  /history/period/{timestamp}:
+    get:
+      summary: Get historical state changes with specific start time
+      description: |
+        Returns historical state changes starting from a specific timestamp.
+
+        This endpoint functions similarly to `/history/period` but allows you to specify
+        the exact start time instead of using the default 1-day lookback. This is useful for:
+        - Getting historical data from a specific date
+        - Creating reports for custom time ranges
+        - Analyzing data from a particular event onwards
+
+        The timestamp parameter specifies the beginning of the period in ISO 8601 format.
+
+        Like the default history endpoint, you can filter entities, specify an end time,
+        and optimize the response format using query parameters.
+
+        Note: This endpoint requires the History integration to be enabled in Home Assistant.
+      operationId: HistoryPeriod
+      parameters:
+        - $ref: "#/components/parameters/TimestampParam"
+        - $ref: "#/components/parameters/FilterEntityIdParam"
+        - $ref: "#/components/parameters/EndTimeParam"
+        - name: minimal_response
+          in: query
+          required: false
+          description: Only return last_changed and state for states other than the first and last state.
+          schema:
+            type: boolean
+            default: false
+        - name: no_attributes
+          in: query
+          required: false
+          description: Skip returning attributes from the database.
+          schema:
+            type: boolean
+            default: false
+        - name: significant_changes_only
+          in: query
+          required: false
+          description: Only return significant state changes.
+          schema:
+            type: boolean
+            default: true
+      responses:
+        200:
+          description: Array of state changes in the past.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/HistoryStateChange"
+              examples:
+                success:
+                  value: [
+                    [
+                      {
+                        "entity_id": "sensor.temperature",
+                        "state": "21.5",
+                        "attributes": {
+                          "unit_of_measurement": "°C",
+                          "friendly_name": "Temperature"
+                        },
+                        "last_changed": "2023-01-01T00:30:00.000Z",
+                        "last_updated": "2023-01-01T00:30:00.000Z"
+                      },
+                      {
+                        "entity_id": "sensor.temperature",
+                        "state": "22.0",
+                        "attributes": {
+                          "unit_of_measurement": "°C",
+                          "friendly_name": "Temperature"
+                        },
+                        "last_changed": "2023-01-01T01:15:00.000Z",
+                        "last_updated": "2023-01-01T01:15:00.000Z"
+                      }
+                    ],
+                    [
+                      {
+                        "entity_id": "light.living_room",
+                        "state": "off",
+                        "attributes": {
+                          "friendly_name": "Living Room Light",
+                          "supported_features": 41
+                        },
+                        "last_changed": "2023-01-01T00:00:00.000Z",
+                        "last_updated": "2023-01-01T00:00:00.000Z"
+                      },
+                      {
+                        "entity_id": "light.living_room",
+                        "state": "on",
+                        "attributes": {
+                          "brightness": 255,
+                          "friendly_name": "Living Room Light",
+                          "supported_features": 41
+                        },
+                        "last_changed": "2023-01-01T07:30:00.000Z",
+                        "last_updated": "2023-01-01T07:30:00.000Z"
+                      }
+                    ]
+                  ]
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                invalid_timestamp:
+                  value:
+                    message: "Invalid datetime"
+                invalid_end_time:
+                  value:
+                    message: "Invalid end_time"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unauthorized:
+                  value:
+                    message: "Unauthorized"
+      security:
+        - bearerAuth: []
+  /logbook:
+    get:
+      summary: Get logbook entries with default time range
+      description: |
+        Returns logbook entries for the past day (by default).
+
+        The logbook provides a chronological list of events and state changes that have occurred
+        in your Home Assistant instance. Unlike the history endpoint which focuses on state changes
+        for specific entities, the logbook provides a unified timeline
+      operationId: LogbookEntriesDefault
+      parameters:
+        - $ref: "#/components/parameters/EntityParam"
+        - $ref: "#/components/parameters/EndTimeParam"
+        - $ref: "#/components/parameters/PeriodParam"
+        - $ref: "#/components/parameters/PaginationLimitParam"
+      responses:
+        200:
+          description: Array of logbook entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogbookEntry"
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /logbook/{timestamp}:
+    get:
+      summary: Get logbook entries with specific start time
+      description: |
+        Returns an array of logbook entries starting from the specified timestamp.
+
+        **Example:**
+        ```bash
+        curl -X GET \
+          -H "Authorization: Bearer LONG_LIVED_ACCESS_TOKEN" \
+          http://localhost:8123/api/logbook/2023-01-01T00:00:00Z
+        ```
+      operationId: LogbookEntries
+      parameters:
+        - $ref: "#/components/parameters/TimestampParam"
+        - $ref: "#/components/parameters/EntityParam"
+        - $ref: "#/components/parameters/EndTimeParam"
+        - $ref: "#/components/parameters/PeriodParam"
+        - $ref: "#/components/parameters/PaginationLimitParam"
+      responses:
+        200:
+          description: Array of logbook entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogbookEntry"
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /error_log:
+    get:
+      summary: Get error log
+      description: Retrieve all errors logged during the current session of Home Assistant as a plaintext response.
+      operationId: GetErrorLog
+      responses:
+        200:
+          description: Plaintext response containing all logged errors.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  2024-02-29 12:34:56 ERROR (MainThread) [homeassistant.components.sensor] Unable to parse data from sensor
+                  2024-02-29 12:36:22 WARNING (MainThread) [homeassistant.loader] Failed to load component zwave_js
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /camera_proxy/{entity_id}:
+    get:
+      summary: Get camera image
+      description: Returns the data (image) from the specified camera entity_id.
+      operationId: GetCameraData
+      parameters:
+        - $ref: "#/components/parameters/EntityIdParam"
+        - name: width
+          in: query
+          required: false
+          description: Width of the image in pixels
+          schema:
+            type: integer
+        - name: height
+          in: query
+          required: false
+          description: Height of the image in pixels
+          schema:
+            type: integer
+      responses:
+        200:
+          description: Camera image data
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+                contentEncoding: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+                contentEncoding: binary
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: Camera not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /calendars:
+    get:
+      summary: Get list of calendars
+      description: Returns the list of calendar entities
+      operationId: GetCalendars
+      parameters:
+        - $ref: "#/components/parameters/PaginationLimitParam"
+        - $ref: "#/components/parameters/PaginationOffsetParam"
+      responses:
+        200:
+          description: List of calendar entities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarObject"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /calendars/{entity_id}:
+    get:
+      summary: Get calendar events
+      description: Returns the list of calendar events for the specified calendar entity_id between the start and end times (exclusive).
+      operationId: GetCalendarEvents
+      parameters:
+        - $ref: "#/components/parameters/EntityIdParam"
+        - name: start
+          in: query
+          required: true
+          description: Start time of the events in YYYY-MM-DDThh:mm:ssTZD format
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: true
+          description: End time of the events in YYYY-MM-DDThh:mm:ssTZD format
+          schema:
+            type: string
+            format: date-time
+      responses:
+        200:
+          description: List of calendar events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarEvent"
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: Calendar not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /events/{event_type}:
+    post:
+      summary: Fire event
+      description: |
+        Fires an event with event_type. Some events require specific data, while others accept optional event data.
+        Refer to the Home Assistant documentation for specific event requirements.
+      operationId: FireEvent
+      parameters:
+        - $ref: "#/components/parameters/EventTypeParam"
+      requestBody:
+        required: false
+        description: Event data (varies based on event type)
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        200:
+          description: Event fired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              examples:
+                success:
+                  value:
+                    message: "Event my_event fired."
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /template:
+    post:
+      summary: Render template
+      description: |
+        Render a Home Assistant template. See template docs for more information.
+
+        **Example:**
+        ```bash
+        curl -X POST \
+          -H "Authorization: Bearer LONG_LIVED_ACCESS_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"template": "{{ states(\"sensor.temperature\") }}"}' \
+          http://localhost:8123/api/template
+        ```
+      operationId: RenderTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template:
+                  type: string
+                  description: The template string to render
+                  example: '{{ states("sensor.temperature") }}'
+              required:
+                - template
+      responses:
+        200:
+          description: Returns the rendered template in plain text.
+          content:
+            text/plain:
+              schema:
+                type: string
+        400:
+          description: Bad request (invalid template)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /config/core/check_config:
+    post:
+      summary: Check configuration
+      description: Trigger a check of configuration.yaml. No additional data needs to be passed in with this request. Needs config integration enabled.
+      operationId: CheckConfig
+      responses:
+        200:
+          description: Configuration check results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors:
+                    description: Contains error information if validation failed, null if successful
+                    oneOf:
+                      - type: "null"
+                      - type: string
+                      - type: array
+                        items:
+                          type: string
+                  result:
+                    type: string
+                    enum:
+                      - valid
+                      - invalid
+                    description: Result of the configuration check
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /intent/handle:
+    post:
+      summary: Handle intent
+      description: Handle an intent.
+      operationId: HandleIntent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                intent:
+                  type: string
+                  description: The intent to handle
+                  example: "HassLightTurnOn"
+                slots:
+                  type: object
+                  description: Optional slots to fill intent parameters
+              required:
+                - intent
+      responses:
+        200:
+          description: Returns the response for the handled intent.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  speech:
+                    type: object
+                    properties:
+                      plain:
+                        type: string
+                        description: Speech response in plain text
+                  response_type:
+                    type: string
+                    description: Type of response
+                    enum:
+                      - action_done
+                      - error
+        400:
+          description: Bad request (invalid intent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /services:
+    get:
+      summary: Get all available services
+      description: Returns a list of available services
+      operationId: GetServices
+      responses:
+        200:
+          description: List of services
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/Service"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /components:
+    get:
+      summary: Get all loaded components
+      description: Returns a list of all loaded components
+      operationId: GetComponents
+      responses:
+        200:
+          description: List of loaded components
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+  /core/state:
+    get:
+      summary: Get core state
+      description: Returns the current state of the Home Assistant core
+      operationId: GetCoreState
+      responses:
+        200:
+          description: Core state information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    description: Current state of the Home Assistant core
+                    enum:
+                      - starting
+                      - running
+                      - stopping
+                      - final_write
+                      - stopped
+                  recorder_state:
+                    type: object
+                    properties:
+                      migration_in_progress:
+                        type: boolean
+                        description: Whether a database migration is in progress
+                      migration_is_live:
+                        type: boolean
+                        description: Whether the migration is affecting live data
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      security:
+        - bearerAuth: []
+

@@ -1,0 +1,960 @@
+"""
+High-Dimensional Fixed Effects (HDFE) absorber.
+
+Native Python/NumPy implementation of within-transformation (mean-sweep) for
+regressions absorbing many high-cardinality fixed effects. Functionally
+mirrors Stata's ``reghdfe`` (Correia 2017) and R's ``fixest::feols``
+(Bergé 2018) core routine.
+
+Algorithm
+---------
+The within-transformation on multiple FE groups ``G_1, ..., G_K`` is the
+orthogonal projection onto the complement of the span of K group-indicator
+matrices. When K = 1 this reduces to de-meaning; when K >= 2 no closed
+form exists and alternating projections (method of alternating
+projections, von Neumann 1933) are used:
+
+    repeat:
+        for k in 1..K:
+            x <- x - mean_{G_k}(x)
+    until ||dx|| < tol
+
+This converges linearly. To get industrial speed we use the Irons-Tuck /
+Aitken scalar acceleration (Δ²), which cuts iteration count by 3-10x for
+the typical panel case. See Correia (2017) §2.3 for details.
+
+Singleton detection
+-------------------
+Observations whose FE group has only one observation do not contribute to
+within-variation and bias degrees-of-freedom. Iterative singleton pruning
+(Correia 2015) removes them. We run a single-pass prune; subsequent rounds
+only matter for K > 3 in pathological data.
+
+Exported API
+------------
+``Absorber``: class that holds FE columns + weights, with ``demean`` /
+``residualize`` methods.
+``demean``: functional convenience wrapper.
+``absorb_ols``: solve an OLS with absorbed FEs in one call (returns
+coefs, SE, absorbed residuals, FE-adjusted R²).
+
+References
+----------
+Correia, S. (2015). "Singletons, Cluster-Robust Standard Errors and
+Fixed Effects." Working paper.
+Correia, S. (2017). "Linear Models with High-Dimensional Fixed Effects."
+Working paper. https://scorreia.com/research/hdfe.pdf
+Bergé, L. (2018). "Efficient estimation of maximum likelihood models
+with multiple fixed-effects: the R package FENmlm." CREA DP 13.
+Gaure, S. (2013). "OLS with multiple high dimensional category variables."
+Computational Statistics & Data Analysis, 66, 8-18.
+Guimarães, P. and Portugal, P. (2010). "A simple feasible procedure to
+fit models with high-dimensional fixed effects." Stata Journal, 10(4).
+"""
+
+from __future__ import annotations
+
+from typing import Any, List, Optional, Tuple, Union
+
+import numpy as np
+import pandas as pd
+
+_VALID_SOLVERS = ("map", "lsmr", "lsqr")
+
+
+def _hdfe_kernels() -> Any:
+    """Load Numba HDFE kernels on first HDFE use, not on package import."""
+    from . import _hdfe_kernels as _kernels
+
+    return _kernels
+
+
+# ======================================================================
+# Core demean kernel
+# ======================================================================
+
+
+def _factorize(fe: np.ndarray) -> Tuple[np.ndarray, int]:
+    """Return integer codes in [0, G) and the group count G.
+
+    Handles both numeric and object/string arrays. ``pd.factorize`` is
+    used for speed and NaN-safety.
+    """
+    codes, uniq = pd.factorize(fe, sort=False, use_na_sentinel=True)
+    if (codes < 0).any():
+        raise ValueError(
+            "HDFE: NaN values in fixed-effect column are not allowed."
+        )  # pragma: no cover
+    return codes.astype(np.int64), len(uniq)
+
+
+def _group_mean_sweep(
+    x: np.ndarray,
+    codes: np.ndarray,
+    counts: np.ndarray,
+    weights: Optional[np.ndarray] = None,
+    wsum: Optional[np.ndarray] = None,
+) -> None:
+    """In-place de-mean x by group codes. 2D x supported (column-wise).
+
+    Delegates the per-column pass to the Numba-accelerated kernels in
+    :mod:`_hdfe_kernels` when Numba is installed; otherwise falls back
+    to a pure-NumPy ``bincount`` path. Weighted and unweighted variants
+    share the same dispatch.
+    """
+    kernels = _hdfe_kernels()
+    if x.ndim == 1:
+        col = np.ascontiguousarray(x)
+        if weights is None:
+            kernels.sweep(col, codes, counts)
+        else:
+            kernels.sweep_weighted(col, weights, codes, wsum)
+        if col is not x:
+            x[:] = col
+    else:
+        if weights is None:
+            for j in range(x.shape[1]):
+                col = np.ascontiguousarray(x[:, j])
+                kernels.sweep(col, codes, counts)
+                x[:, j] = col
+        else:
+            for j in range(x.shape[1]):
+                col = np.ascontiguousarray(x[:, j])
+                kernels.sweep_weighted(col, weights, codes, wsum)
+                x[:, j] = col
+
+
+def _map_ap(
+    x: np.ndarray,
+    fe_codes: List[np.ndarray],
+    counts_list: List[np.ndarray],
+    weights: Optional[np.ndarray],
+    wsum_list: Optional[List[np.ndarray]],
+) -> None:
+    """One full alternating-projection sweep over all FE dimensions (in place)."""
+    K = len(fe_codes)
+    for k in range(K):
+        _group_mean_sweep(
+            x,
+            fe_codes[k],
+            counts_list[k],
+            weights=weights,
+            wsum=wsum_list[k] if wsum_list is not None else None,
+        )
+
+
+def _aitken_accelerate(x0: np.ndarray, x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
+    """Irons-Tuck / vector Aitken-like Δ² acceleration.
+
+    Given three successive iterates x0, x1, x2 of a contraction map
+    ``T``, return the accelerated value
+
+        x_acc = x0 - α · (x1 - x0)
+
+    where ``α = <dx1, d2> / <d2, d2>`` (the Minimum-Polynomial
+    Extrapolation / Irons-Tuck scalar, Smith-Ford-Sidi 1987). This is
+    numerically safer than element-wise Aitken (no per-element
+    division blow-up) and equivalent in the limit. See Varadhan-Roland
+    (2008) §3.
+
+    Falls back to x2 if the denominator is near-zero (no acceleration
+    signal).
+    """
+    dx1 = x1 - x0
+    d2 = x2 - 2.0 * x1 + x0
+    denom = float(d2 @ d2)
+    if denom < 1e-30:
+        return x2
+    alpha = float(dx1 @ d2) / denom
+    return np.asarray(x0 - alpha * dx1)
+
+
+# ======================================================================
+# Singleton pruning
+# ======================================================================
+
+
+def _detect_singletons(
+    fe: np.ndarray,
+    fe_codes_raw: List[np.ndarray],
+) -> np.ndarray:
+    """Iteratively drop singleton observations (groups of size 1).
+
+    Each pass: mark obs whose code in any dimension appears only once; if
+    any found, drop them and recount. Repeat until stable. Returns the
+    keep mask (True = keep).
+
+    Worst-case quadratic in number of passes but in practice converges in
+    <= 3 passes even on nested panels (Correia 2015).
+    """
+    n = fe.shape[0]
+    keep = np.ones(n, dtype=bool)
+    K = len(fe_codes_raw)
+
+    while True:
+        dropped = False
+        for k in range(K):
+            codes_k = fe_codes_raw[k][keep]
+            counts_k = np.bincount(codes_k)
+            single_groups = np.where(counts_k == 1)[0]
+            if single_groups.size == 0:
+                continue
+            single_mask_local = np.isin(codes_k, single_groups)
+            if single_mask_local.any():
+                # Map back to global indices
+                global_idx = np.where(keep)[0]
+                keep[global_idx[single_mask_local]] = False
+                dropped = True
+        if not dropped:
+            break
+    return keep
+
+
+# ======================================================================
+# Absorber class
+# ======================================================================
+
+
+class Absorber:
+    """Reusable HDFE demean operator.
+
+    Build once from a DataFrame's FE columns; reuse ``demean`` to sweep any
+    outcome / regressor vector or matrix. Useful when fitting many models
+    that share the same absorbing FEs (e.g. event-study coefficient paths).
+
+    Parameters
+    ----------
+    fe_data : DataFrame or ndarray (n, K)
+        FE columns. Must have no NaN.
+    weights : ndarray (n,), optional
+        Observation weights. If given, weighted means are used.
+    drop_singletons : bool, default True
+        If True, singleton observations (FE groups of size 1) are pruned
+        before building the absorber. ``keep_mask`` stores the surviving
+        rows.
+    tol : float, default 1e-8
+        Convergence threshold on max |dx| per iteration.
+    maxiter : int, default 10000
+        Maximum alternating-projection iterations.
+    accelerate : bool, default True
+        Enable Irons-Tuck Δ² acceleration.
+    solver : {"map", "lsmr", "lsqr"}, default "map"
+        Within-transformation backend. ``"map"`` uses alternating
+        projections with Irons-Tuck acceleration (default, typically
+        fastest on well-conditioned panels). ``"lsmr"`` / ``"lsqr"``
+        delegate to ``scipy.sparse.linalg.lsmr`` / ``lsqr`` on the
+        sparse FE design matrix — more robust for ill-conditioned or
+        highly nested FE structures. See the migration guide for how
+        this maps to ``pyreghdfe``.
+
+    Attributes
+    ----------
+    keep_mask : ndarray of bool
+        Rows retained after singleton pruning. Callers must apply this
+        mask to ``y``, ``X``, and any weights before passing to
+        ``demean``.
+    n_kept : int
+        Number of surviving observations.
+    n_dropped : int
+        Number of singleton observations removed.
+    n_fe : list of int
+        Number of groups per FE dimension (post-prune).
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(0)
+    >>> n = 300
+    >>> fe_data = pd.DataFrame({
+    ...     "firm": rng.integers(0, 20, n),
+    ...     "year": rng.integers(0, 5, n),
+    ... })
+    >>> y = (fe_data["firm"] * 0.5 + fe_data["year"] * 0.3
+    ...      + rng.normal(0, 1, n))
+    >>> absorber = sp.Absorber(fe_data)
+    >>> y_within = absorber.demean(y.to_numpy())  # keep_mask applied
+    >>> absorber.n_fe
+    [20, 5]
+    >>> bool(abs(y_within.mean()) < 1e-6)
+    True
+    """
+
+    __slots__ = (
+        "fe_codes",
+        "counts_list",
+        "wsum_list",
+        "weights",
+        "keep_mask",
+        "n_kept",
+        "n_dropped",
+        "n_fe",
+        "tol",
+        "maxiter",
+        "accelerate",
+        "solver",
+        "_converged",
+        "_iters",
+    )
+
+    def __init__(
+        self,
+        fe_data: Union[pd.DataFrame, np.ndarray],
+        weights: Optional[np.ndarray] = None,
+        drop_singletons: bool = True,
+        tol: float = 1e-8,
+        maxiter: int = 10_000,
+        accelerate: bool = True,
+        solver: str = "map",
+    ) -> None:
+        if solver not in _VALID_SOLVERS:
+            raise ValueError(
+                f"solver={solver!r} invalid; expected one of {_VALID_SOLVERS}."
+            )
+        if isinstance(fe_data, pd.DataFrame):
+            fe_arr = fe_data.values
+        else:
+            fe_arr = np.asarray(fe_data)
+            if fe_arr.ndim == 1:
+                fe_arr = fe_arr.reshape(-1, 1)
+
+        n, K = fe_arr.shape
+        if K == 0:
+            raise ValueError(
+                "HDFE: at least one fixed-effect column required."
+            )  # pragma: no cover
+
+        # Factorize each FE column
+        fe_codes_raw: List[np.ndarray] = []
+        for k in range(K):
+            codes_k, _ = _factorize(fe_arr[:, k])
+            fe_codes_raw.append(codes_k)
+
+        # Singleton pruning
+        if drop_singletons:
+            keep_mask = _detect_singletons(fe_arr, fe_codes_raw)
+        else:
+            keep_mask = np.ones(n, dtype=bool)
+        n_kept = int(keep_mask.sum())
+        n_dropped = n - n_kept
+
+        # Re-factorize on kept rows so codes are dense in [0, G)
+        fe_codes: List[np.ndarray] = []
+        counts_list: List[np.ndarray] = []
+        n_fe: List[int] = []
+        for codes_k in fe_codes_raw:
+            codes_kept = codes_k[keep_mask]
+            dense, uniq = pd.factorize(codes_kept, sort=False, use_na_sentinel=True)
+            dense = dense.astype(np.int64)
+            G = len(uniq)
+            counts = np.bincount(dense, minlength=G).astype(np.float64)
+            fe_codes.append(dense)
+            counts_list.append(counts)
+            n_fe.append(G)
+
+        # Weighted group sums, pre-compute wsum per group
+        wsum_list: Optional[List[np.ndarray]]
+        self.weights: Optional[np.ndarray]
+        if weights is not None:
+            w_kept = np.ascontiguousarray(weights[keep_mask], dtype=np.float64)
+            _wsum: List[np.ndarray] = []
+            for codes_k, G in zip(fe_codes, n_fe):
+                _wsum.append(np.bincount(codes_k, weights=w_kept, minlength=G))
+            wsum_list = _wsum
+            self.weights = w_kept
+        else:
+            wsum_list = None
+            self.weights = None
+
+        self.fe_codes = fe_codes
+        self.counts_list = counts_list
+        self.wsum_list = wsum_list
+        self.keep_mask = keep_mask
+        self.n_kept = n_kept
+        self.n_dropped = n_dropped
+        self.n_fe = n_fe
+        self.tol = tol
+        self.maxiter = maxiter
+        self.accelerate = accelerate
+        self.solver = solver
+        self._converged = False
+        self._iters = 0
+
+    # ------------------------------------------------------------------
+    # Demean
+    # ------------------------------------------------------------------
+
+    def demean(
+        self,
+        x: np.ndarray,
+        copy: bool = True,
+        already_masked: bool = False,
+    ) -> np.ndarray:
+        """Within-transform ``x`` by sweeping out all absorbed FEs.
+
+        Parameters
+        ----------
+        x : ndarray, shape (n,) or (n, p)
+            Variable(s) to residualize. ``n`` must equal either the full
+            input size (then ``keep_mask`` is applied) or ``n_kept``
+            (when ``already_masked=True``).
+        copy : bool, default True
+            If True, operate on a copy; if False, modify ``x`` in place.
+            Callers passing fresh arrays can set False to save memory.
+        already_masked : bool, default False
+            Skip application of ``keep_mask``.
+
+        Returns
+        -------
+        ndarray
+            Residualized ``x`` with shape ``(n_kept,)`` or ``(n_kept, p)``.
+        """
+        x = np.asarray(x, dtype=np.float64)
+        if not already_masked:
+            x = x[self.keep_mask]
+        if copy:
+            x = x.copy()
+        if x.ndim == 1:
+            x = x.reshape(-1, 1)
+            squeeze = True
+        else:
+            squeeze = False
+
+        fe_codes = self.fe_codes
+        counts_list = self.counts_list
+        wsum_list = self.wsum_list
+        weights = self.weights
+        K = len(fe_codes)
+
+        # K=1: closed-form
+        if K == 1:
+            _group_mean_sweep(
+                x,
+                fe_codes[0],
+                counts_list[0],
+                weights,
+                wsum_list[0] if wsum_list else None,
+            )
+            self._converged = True
+            self._iters = 1
+            return x.ravel() if squeeze else x
+
+        # K>=2: alternating projections with optional Irons-Tuck acceleration
+        tol = self.tol
+        maxiter = self.maxiter
+        accelerate = self.accelerate
+
+        # Krylov solvers (LSMR / LSQR) bypass the AP loop entirely: build the
+        # sparse FE design matrix once and delegate the within-projection to
+        # scipy. See ``_solve_krylov`` for the √w weight handling.
+        if self.solver != "map":
+            for j in range(x.shape[1]):
+                col = x[:, j]
+                r, iters, converged = _solve_krylov(
+                    col,
+                    fe_codes,
+                    weights,
+                    solver=self.solver,
+                    tol=tol,
+                    maxiter=maxiter,
+                )
+                x[:, j] = r
+                self._iters = max(self._iters, iters)
+                self._converged = self._converged or converged
+            return x.ravel() if squeeze else x
+
+        # Per-column AP loop
+        for j in range(x.shape[1]):
+            col = x[:, j].copy()  # work on a copy to avoid in-place surprises
+            base_scale = np.max(np.abs(col)) + 1e-30
+
+            # Standard AP loop with periodic Irons-Tuck acceleration.
+            # Every ACCEL_PERIOD sweeps, apply the vector-Aitken jump built
+            # from three consecutive iterates (classic SQUAREM layout).
+            accel_period = 5
+            col_hist: list = []
+            converged = False
+            for it in range(maxiter):
+                col_before = col.copy()
+                _group_mean_sweep_seq(col, fe_codes, counts_list, weights, wsum_list)
+                dx = np.max(np.abs(col - col_before)) / base_scale
+                if dx < tol:
+                    converged = True
+                    self._iters = max(self._iters, it + 1)
+                    break
+                if accelerate:
+                    col_hist.append(col.copy())
+                    if len(col_hist) >= 3 and (it + 1) % accel_period == 0:
+                        col_acc = _aitken_accelerate(
+                            col_hist[-3], col_hist[-2], col_hist[-1]
+                        )
+                        # Only accept the jump if it does not blow up
+                        if np.max(np.abs(col_acc)) < 10 * base_scale:
+                            col = col_acc
+                        col_hist = []
+            self._converged = self._converged or converged
+            if not converged:
+                self._iters = maxiter
+            x[:, j] = col
+
+        return x.ravel() if squeeze else x
+
+    # ------------------------------------------------------------------
+    # Residualize (alias + sanity)
+    # ------------------------------------------------------------------
+
+    def residualize(self, x: np.ndarray, copy: bool = True) -> np.ndarray:
+        """Alias for ``demean`` — returns FE-residualized version of x."""
+        return self.demean(x, copy=copy)
+
+    def __repr__(self) -> str:
+        return (
+            f"Absorber(K={len(self.fe_codes)}, n_kept={self.n_kept}, "
+            f"n_dropped={self.n_dropped}, groups={self.n_fe})"
+        )
+
+
+def _group_mean_sweep_seq(
+    col: np.ndarray,
+    fe_codes: List[np.ndarray],
+    counts_list: List[np.ndarray],
+    weights: Optional[np.ndarray],
+    wsum_list: Optional[List[np.ndarray]],
+) -> None:
+    """One full sequential sweep over all K dimensions (in place, 1D).
+
+    Dispatches to :mod:`_hdfe_kernels` for Numba-accelerated kernels.
+    """
+    kernels = _hdfe_kernels()
+    K = len(fe_codes)
+    if weights is None:
+        for k in range(K):
+            kernels.sweep(col, fe_codes[k], counts_list[k])
+    else:
+        assert wsum_list is not None
+        for k in range(K):
+            kernels.sweep_weighted(col, weights, fe_codes[k], wsum_list[k])
+
+
+# ======================================================================
+# Krylov solvers (LSMR / LSQR) — pyreghdfe-compatible path
+# ======================================================================
+
+
+def _build_fe_design(
+    fe_codes: List[np.ndarray],
+    n_rows: int,
+) -> Any:
+    """Horizontally stack one-hot FE indicator matrices into a sparse CSR.
+
+    Each FE dimension contributes an ``(n_rows, G_k)`` indicator block.
+    The concatenated ``D`` has shape ``(n_rows, sum_k G_k)`` and is the
+    design matrix of the fixed-effect dummies.
+    """
+    from scipy import sparse as _sp
+
+    blocks = []
+    rows = np.arange(n_rows)
+    for codes in fe_codes:
+        G = int(codes.max()) + 1
+        data = np.ones(n_rows, dtype=np.float64)
+        blocks.append(_sp.csr_matrix((data, (rows, codes)), shape=(n_rows, G)))
+    return _sp.hstack(blocks, format="csr")
+
+
+def _solve_krylov(
+    x: np.ndarray,
+    fe_codes: List[np.ndarray],
+    weights: Optional[np.ndarray],
+    solver: str,
+    tol: float,
+    maxiter: int,
+) -> Tuple[np.ndarray, int, bool]:
+    """One-column within-transformation via scipy.sparse.linalg.
+
+    Solves ``min_α ‖W^{1/2}(x − D α)‖₂`` and returns the residual
+    ``r = x − D α*`` in the **original (unweighted) scale** so that the
+    downstream FWL OLS matches the MAP path byte-for-byte.
+    """
+    from scipy.sparse.linalg import lsmr, lsqr
+
+    n = x.shape[0]
+    D = _build_fe_design(fe_codes, n)
+
+    if weights is not None:
+        sw = np.sqrt(weights)
+        # Row-scale D by sqrt(w); equivalent to left-multiplying by diag(sw).
+        D_solve = D.multiply(sw[:, None]).tocsr()
+        x_solve = sw * x
+    else:
+        D_solve = D
+        x_solve = x
+
+    if solver == "lsmr":
+        out = lsmr(D_solve, x_solve, atol=tol, btol=tol, maxiter=maxiter)
+        alpha = out[0]
+        istop = out[1]
+        iters = out[2]
+    elif solver == "lsqr":
+        out = lsqr(D_solve, x_solve, atol=tol, btol=tol, iter_lim=maxiter)
+        alpha = out[0]
+        istop = out[1]
+        iters = out[2]
+    else:  # pragma: no cover — Absorber.__init__ guards against this.
+        raise ValueError(f"solver={solver!r} invalid.")
+
+    # istop == 7 in both lsmr and lsqr means maxiter reached without convergence.
+    converged = istop != 7
+    # Residual in the ORIGINAL (unweighted) scale — this is what the caller
+    # feeds into OLS. Using the weighted residual here would double-apply √w.
+    r = x - D @ alpha
+    return r, int(iters), converged
+
+
+# ======================================================================
+# Functional API
+# ======================================================================
+
+
+def demean(
+    x: np.ndarray,
+    fe: Union[pd.DataFrame, np.ndarray],
+    weights: Optional[np.ndarray] = None,
+    drop_singletons: bool = True,
+    tol: float = 1e-8,
+    maxiter: int = 10_000,
+    solver: str = "map",
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return the within-transformed ``x`` and the singleton keep mask.
+
+    Convenience wrapper around :class:`Absorber`. See ``Absorber`` for
+    the ``solver`` kwarg semantics.
+
+    Examples
+    --------
+    Sweep firm and year fixed effects out of a column:
+
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> import statspai as sp
+    >>> rng = np.random.default_rng(0)
+    >>> n = 200
+    >>> fe = pd.DataFrame({"firm": rng.integers(0, 20, n),
+    ...                    "year": rng.integers(0, 5, n)})
+    >>> x = rng.normal(size=n) + 2.0 * fe["firm"].to_numpy()
+    >>> xw, keep = sp.demean(x, fe)
+    >>> print(xw.shape, int(keep.sum()))  # (200,) 200 — no singletons dropped
+    >>> print(abs(xw.mean()) < 1e-8)      # True — FE means swept out
+    """
+    ab = Absorber(
+        fe,
+        weights=weights,
+        drop_singletons=drop_singletons,
+        tol=tol,
+        maxiter=maxiter,
+        solver=solver,
+    )
+    xw = ab.demean(x)
+    return xw, ab.keep_mask
+
+
+# ======================================================================
+# High-level API: absorb_ols
+# ======================================================================
+
+
+def absorb_ols(
+    y: np.ndarray,
+    X: np.ndarray,
+    fe: Union[pd.DataFrame, np.ndarray],
+    weights: Optional[np.ndarray] = None,
+    cluster: Optional[Union[np.ndarray, List[np.ndarray]]] = None,
+    drop_singletons: bool = True,
+    tol: float = 1e-8,
+    maxiter: int = 10_000,
+    return_absorber: bool = False,
+    solver: str = "map",
+) -> dict:
+    """OLS with absorbed high-dimensional fixed effects (reghdfe-style).
+
+    Solves ``y = X β + Σ_k α_{g_k} + ε`` by sweeping out the FEs from
+    both y and X (Frisch-Waugh-Lovell) and running OLS on residuals.
+
+    Parameters
+    ----------
+    y : ndarray, shape (n,)
+    X : ndarray, shape (n, p)
+        Regressors *excluding* the absorbed FEs and the constant (the
+        constant is absorbed by any FE dimension).
+    fe : DataFrame or ndarray (n, K)
+        Fixed-effect columns.
+    weights : ndarray (n,), optional
+        Observation weights.
+    cluster : ndarray or list of ndarrays, optional
+        One-way or multi-way cluster variables for robust SEs. If
+        provided, returns cluster-robust SEs (one-way: Liang-Zeger
+        sandwich; multi-way: inclusion-exclusion Cameron-Gelbach-Miller).
+    drop_singletons : bool, default True
+    tol, maxiter : float, int
+        Demean convergence controls.
+    return_absorber : bool, default False
+        If True, also return the ``Absorber`` object for reuse.
+    solver : {"map", "lsmr", "lsqr"}, default "map"
+        Within-transformation backend. See :class:`Absorber`.
+
+    Returns
+    -------
+    dict with keys:
+        ``coef`` (p,), ``se`` (p,), ``vcov`` (p,p), ``resid`` (n_kept,),
+        ``n`` (n_kept), ``df_resid``, ``dof_fe``, ``r2_within``,
+        ``n_singletons_dropped``, ``converged``, ``iters``,
+        ``absorber`` (if requested)
+
+    Examples
+    --------
+    Two-way (firm + year) fixed effects with firm-clustered SEs:
+
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> import statspai as sp
+    >>> rng = np.random.default_rng(0)
+    >>> n = 500
+    >>> firm = rng.integers(0, 30, n)
+    >>> year = rng.integers(0, 10, n)
+    >>> X = rng.normal(size=(n, 2))
+    >>> y = (X @ np.array([1.5, -0.7]) + rng.normal(size=30)[firm]
+    ...      + rng.normal(size=10)[year] + rng.normal(0, 0.5, n))
+    >>> fe = pd.DataFrame({"firm": firm, "year": year})
+    >>> out = sp.absorb_ols(y, X, fe, cluster=firm)
+    >>> print(np.round(out["coef"], 2))   # [ 1.53 -0.71] — truth [1.5, -0.7]
+    >>> print(out["n"], out["converged"])  # 500 True
+    """
+    y = np.asarray(y, dtype=np.float64).ravel()
+    X = np.asarray(X, dtype=np.float64)
+    if X.ndim == 1:
+        X = X.reshape(-1, 1)
+    n, p = X.shape
+    if y.shape[0] != n:
+        raise ValueError("y and X length mismatch.")  # pragma: no cover
+
+    ab = Absorber(
+        fe,
+        weights=weights,
+        drop_singletons=drop_singletons,
+        tol=tol,
+        maxiter=maxiter,
+        solver=solver,
+    )
+    yw = ab.demean(y)
+    Xw = ab.demean(X)
+    w = ab.weights
+
+    # Weighted OLS on residuals
+    if w is None:
+        XtX = Xw.T @ Xw
+        Xty = Xw.T @ yw
+    else:
+        Xw_w = Xw * w[:, None]
+        XtX = Xw.T @ Xw_w
+        Xty = Xw.T @ (yw * w)
+    # Solve (use pinv fallback if near-singular)
+    try:
+        coef = np.linalg.solve(XtX, Xty)
+    except np.linalg.LinAlgError:  # pragma: no cover
+        coef = np.linalg.lstsq(XtX, Xty, rcond=None)[0]
+    resid = yw - Xw @ coef
+
+    # DOF: n - p - Σ(G_k - 1) - 1_if_first_fe (the "one lost for mean" already in
+    # each FE's G-1; common intercept overlap handled by subtracting (K-1))
+    dof_fe = _absorbed_fe_dof(ab.n_fe)
+    df_resid = ab.n_kept - p - dof_fe
+    if df_resid <= 0:
+        raise ValueError(  # pragma: no cover
+            f"Degrees of freedom exhausted: n_kept={ab.n_kept}, p={p}, dof_fe={dof_fe}. "
+            "Reduce regressors or drop a FE dimension."
+        )
+
+    # Within R² (FE already swept)
+    if w is None:
+        ss_res = float((resid**2).sum())
+        y_demeaned = yw - yw.mean()
+        ss_tot = float((y_demeaned**2).sum())
+    else:
+        ss_res = float((resid**2 * w).sum())
+        y_bar_w = (yw * w).sum() / w.sum()
+        ss_tot = float(((yw - y_bar_w) ** 2 * w).sum())
+    r2_within = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+
+    # Variance-covariance matrix
+    XtX_inv = np.linalg.inv(XtX)
+    if cluster is None:
+        # Classical (with DOF adjustment)
+        sigma2 = ss_res / df_resid
+        vcov = sigma2 * XtX_inv
+    else:
+        # Clip cluster arrays to the singleton-pruned subsample so shapes
+        # match the within-transformed X and residuals.
+        keep = ab.keep_mask
+        if isinstance(cluster, list):
+            cluster_sub = [np.asarray(c)[keep] for c in cluster]
+        else:
+            cluster_sub = np.asarray(cluster)[keep]
+        dof_fe_cluster, nested_fe_in_cluster = _cluster_effective_fe_dof(
+            ab.fe_codes,
+            ab.n_fe,
+            cluster_sub,
+        )
+        vcov = _cluster_sandwich(
+            Xw,
+            resid,
+            coef,
+            XtX_inv,
+            cluster_sub,
+            df_resid=df_resid,
+            weights=w,
+            n_absorbed=dof_fe_cluster + p,
+        )
+    if cluster is None:
+        dof_fe_cluster = dof_fe
+        nested_fe_in_cluster = [False] * len(ab.n_fe)
+    se = np.sqrt(np.maximum(np.diag(vcov), 0.0))
+
+    out = {
+        "coef": coef,
+        "se": se,
+        "vcov": vcov,
+        "resid": resid,
+        "fitted_within": Xw @ coef,  # within-prediction (excludes FE)
+        "n": ab.n_kept,
+        "df_resid": df_resid,
+        "dof_fe": dof_fe,
+        "dof_fe_cluster": dof_fe_cluster,
+        "nested_fe_in_cluster": nested_fe_in_cluster,
+        "r2_within": r2_within,
+        "n_singletons_dropped": ab.n_dropped,
+        "converged": ab._converged,
+        "iters": ab._iters,
+        "n_fe": ab.n_fe,
+    }
+    if return_absorber:
+        out["absorber"] = ab
+    return out
+
+
+# ======================================================================
+# Clustered sandwich (one-way + N-way inclusion-exclusion)
+# ======================================================================
+
+
+def _absorbed_fe_dof(fe_counts: List[int]) -> int:
+    """Return the absorbed-FE parameter count under native HDFE conventions."""
+    if not fe_counts:
+        return 0
+    return int(sum(int(G) for G in fe_counts) - (len(fe_counts) - 1))
+
+
+def _codes_nested_in_cluster(
+    fe_codes: np.ndarray,
+    cluster_codes: np.ndarray,
+    n_fe: int,
+) -> bool:
+    """True when every FE level maps to exactly one cluster level."""
+    first_cluster = np.full(int(n_fe), -1, dtype=np.int64)
+    for fe_code, cluster_code in zip(fe_codes, cluster_codes):
+        previous = first_cluster[fe_code]
+        if previous < 0:
+            first_cluster[fe_code] = cluster_code
+        elif previous != cluster_code:
+            return False
+    return True
+
+
+def _cluster_effective_fe_dof(
+    fe_codes: List[np.ndarray],
+    fe_counts: List[int],
+    cluster: Union[np.ndarray, List[np.ndarray]],
+) -> Tuple[int, List[bool]]:
+    """Return FE dof charged to CRV1 after omitting cluster-nested FEs."""
+    if not isinstance(cluster, list):
+        clusters_list = [np.asarray(cluster)]
+    else:
+        clusters_list = [np.asarray(c) for c in cluster]
+
+    cluster_codes_list = [_factorize(c)[0] for c in clusters_list]
+    nested: List[bool] = []
+    for codes, n_fe in zip(fe_codes, fe_counts):
+        nested.append(
+            any(
+                _codes_nested_in_cluster(codes, cluster_codes, int(n_fe))
+                for cluster_codes in cluster_codes_list
+            )
+        )
+
+    if not any(nested):
+        return _absorbed_fe_dof(fe_counts), nested
+    effective_counts = [
+        int(n_fe) for n_fe, is_nested in zip(fe_counts, nested) if not is_nested
+    ]
+    if not effective_counts:
+        return 1, nested
+    return _absorbed_fe_dof(effective_counts), nested
+
+
+def _cluster_sandwich(
+    X: np.ndarray,
+    resid: np.ndarray,
+    coef: np.ndarray,
+    XtX_inv: np.ndarray,
+    cluster: Union[np.ndarray, List[np.ndarray]],
+    df_resid: int,
+    weights: Optional[np.ndarray] = None,
+    n_absorbed: int = 0,
+) -> np.ndarray:
+    """Cluster-robust variance (one-way or multi-way, PSD-corrected)."""
+    if not isinstance(cluster, list):
+        clusters_list = [np.asarray(cluster)]
+    else:
+        clusters_list = [np.asarray(c) for c in cluster]
+
+    n, k = X.shape
+    scores = X * resid[:, None] if weights is None else X * (resid * weights)[:, None]
+
+    def _one_way(c: np.ndarray) -> np.ndarray:
+        codes, _ = _factorize(c)
+        G = int(codes.max()) + 1
+        # Aggregate scores by cluster
+        agg = np.zeros((G, k))
+        np.add.at(agg, codes, scores)
+        meat = agg.T @ agg
+        scale = (G / max(G - 1, 1)) * ((n - 1) / max(n - n_absorbed, 1))
+        return np.asarray(scale * XtX_inv @ meat @ XtX_inv)
+
+    if len(clusters_list) == 1:
+        V = _one_way(clusters_list[0])
+    else:
+        # N-way CGM via inclusion-exclusion over all non-empty subsets.
+        from itertools import combinations
+
+        V = np.zeros((k, k))
+        M = len(clusters_list)
+        for r in range(1, M + 1):
+            for combo in combinations(range(M), r):
+                # intersection cluster: tuple of labels
+                inter = np.stack([clusters_list[i] for i in combo], axis=1)
+                inter_codes, _ = _factorize(
+                    pd.DataFrame(inter).astype(str).agg("\0".join, axis=1).values
+                )
+                V += ((-1) ** (r + 1)) * _one_way(inter_codes)
+        # PSD correction
+        eigvals, eigvecs = np.linalg.eigh(V)
+        if (eigvals < 0).any():
+            eigvals = np.maximum(eigvals, 0.0)
+            V = eigvecs @ np.diag(eigvals) @ eigvecs.T
+    return V
+
+
+__all__ = [
+    "Absorber",
+    "demean",
+    "absorb_ols",
+]

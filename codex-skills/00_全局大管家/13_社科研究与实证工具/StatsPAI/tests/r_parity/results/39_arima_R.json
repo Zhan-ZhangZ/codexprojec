@@ -1,0 +1,65 @@
+{
+  "module": "39_arima",
+  "side": "R",
+  "rows": [
+    {
+      "module": "39_arima",
+      "side": "R",
+      "statistic": "ar1",
+      "estimate": 0.698166289862095,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 300,
+      "extra": []
+    },
+    {
+      "module": "39_arima",
+      "side": "R",
+      "statistic": "ar2",
+      "estimate": -0.341624723060161,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 300,
+      "extra": []
+    },
+    {
+      "module": "39_arima",
+      "side": "R",
+      "statistic": "sigma2",
+      "estimate": 0.410834660161583,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 300,
+      "extra": []
+    },
+    {
+      "module": "39_arima",
+      "side": "R",
+      "statistic": "logLik",
+      "estimate": -292.528900566953,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 300,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "order": ["(2,0,0)"],
+    "method": ["ML"],
+    "package": ["stats::arima"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "compiler": "4.5.2",
+      "jsonlite": "2.0.0"
+    }
+  }
+}

@@ -1,0 +1,215 @@
+# Bernstein MCP server
+
+Bernstein exposes its orchestration layer as MCP tools so any MCP client
+(Cursor, Claude Code, Cline, Windsurf, and others) can drive multi-agent work
+through Bernstein. This page describes the protocol surface and how to point a
+client at the server. For the per-tier tool catalogue see
+[`tool_tiers.md`](tool_tiers.md); for the full surface audit see
+[`server-audit-2026.md`](server-audit-2026.md).
+
+## Transports
+
+| Transport | Command | Use when |
+|-----------|---------|----------|
+| stdio (default) | `bernstein mcp` | Local IDE integration. |
+| SSE | `bernstein mcp --transport http` | Remote/web integration. |
+| Streamable HTTP | served on `/mcp` | Remote integration with session management and cancellation. |
+
+The streamable HTTP transport binds to loopback by default. Binding to a
+public interface requires a bearer token (see Auth) and is otherwise refused
+at startup.
+
+## Auth
+
+| Mode | How | Notes |
+|------|-----|-------|
+| Anonymous | default on loopback | Allowed only on `127.0.0.1` / `localhost` / `::1`. |
+| Static bearer | `BERNSTEIN_MCP_TOKEN` (or `BERNSTEIN_MCP_AUTH_TOKEN`) | Constant-time check; required on non-loopback binds. |
+
+OAuth-2 PKCE token issuance is delegated to an external IdP. Bernstein is
+the **resource server**: it does not host an authorization server and so
+does not publish RFC 8414 authorization-server metadata. When the operator
+sets `BERNSTEIN_MCP_OAUTH_ISSUER=https://idp.example.com`, the streamable
+HTTP transport serves a single discovery document so a host can locate
+the IdP:
+
+| Path | Document |
+|------|----------|
+| `/.well-known/oauth-protected-resource` | RFC 9728 / MCP-draft protected-resource metadata pointing at the issuer; the `resource` field is built from the request `Host` and `X-Forwarded-Proto` headers. |
+
+The discovery handshake is:
+
+1. Client fetches `/.well-known/oauth-protected-resource` from Bernstein.
+2. Client reads `authorization_servers[0]` (the configured issuer URL).
+3. Client fetches the IdP's own RFC 8414 metadata from the IdP, for
+   example `https://idp.example.com/.well-known/oauth-authorization-server`
+   or whatever path the IdP uses (Keycloak, Auth0, Okta all differ).
+4. Client completes the PKCE S256 authorization-code flow against the
+   IdP and presents the resulting bearer token to the streamable HTTP
+   transport.
+
+The protected-resource path is served without authentication, since a
+client probing discovery has no token yet. When the env var is unset,
+the path returns 404 and only anonymous (loopback) / static bearer are
+advertised. Bernstein never serves `/.well-known/oauth-authorization-server`;
+that document belongs to the IdP, not the resource server.
+
+`BERNSTEIN_MCP_OAUTH_SCOPES` (comma-separated) overrides the default
+`bernstein.read,bernstein.write` scope list in the document.
+
+The capability card reports the discovery state under `auth.oauth` so a
+client that has already fetched the card can locate the well-known path
+without probing. OIDC federation is still a follow-up.
+
+## Capability cards
+
+Beyond the static `capabilities` object on `initialize`, the server publishes
+a runtime capability card describing how it is actually running: reachable
+transports, configured auth modes, the active tool tier, the cost-meter
+state, and the targeted spec revision. The card is built from live process
+state on each read, so it reflects the current configuration without a
+restart.
+
+The card is available two ways:
+
+- as the `bernstein://capability` MCP resource (read it with the client's
+  resource API);
+- under the `capabilityCard` key on the streamable HTTP transport's
+  `initialize` result.
+
+## Built-in prompt catalogue
+
+The server ships three orchestration-focused prompt templates exposed via
+the MCP `prompts/list` and `prompts/get` routes. A host that auto-discovers
+MCP servers can populate a prompt picker without sending a tool call first.
+
+| Prompt | Arguments | Use when |
+|--------|-----------|----------|
+| `orchestrate_goal` | `goal` (required), `role`, `scope` | Planning a single Bernstein run from a free-form goal. |
+| `triage_failed_tasks` | `limit` (default 5) | Reviewing recent failed tasks and proposing next actions. |
+| `cost_recap` | `window` (default `today`) | Summarising cost-per-role across a labelled window. |
+
+Each prompt renders deterministically from its arguments and does not call
+the task server. The capability card lists the catalogue under
+`prompts.catalogue` so a client that has already fetched the card can pick a
+prompt without a second probe.
+
+## Per-call cost-meter envelope
+
+Every tool response is wrapped in a uniform envelope so observability is
+consistent across transports:
+
+```json
+{
+  "result": { "status": "ok" },
+  "_meter": {
+    "tool": "bernstein_health",
+    "call_id": "b1c2...",
+    "latency_ms": 12.4,
+    "cost_usd": 0.0,
+    "ok": true,
+    "ts": "2026-05-20T10:11:12.345Z"
+  }
+}
+```
+
+`cost_usd` is best-effort: the MCP server proxies to the task server and does
+not itself spend model tokens, so the per-call figure is `0.0` unless a
+handler attaches a cost. The field exists so the envelope shape is stable.
+
+To get the bare tool payload (the historical shape), disable the meter:
+
+```bash
+export BERNSTEIN_MCP_COST_METER=0
+```
+
+## Streaming cancel with partial-result preservation
+
+On the streamable HTTP transport, each `tools/call` runs as a cancellable
+task tracked by its JSON-RPC id. A client cancels an in-flight call by sending
+a `notifications/cancelled` notification carrying that `requestId`. The
+originating call then returns the work done before the stop rather than a bare
+error:
+
+```json
+{
+  "content": [{ "type": "text", "text": "{\"status\": \"running\", ...}" }],
+  "cancelled": true,
+  "partial": ["{\"status\": \"running\", \"tool\": \"bernstein_run\"}"],
+  "_meter": { "tool": "bernstein_run", "ok": false, "...": "..." }
+}
+```
+
+`isError` is not set: a cancel is a client-initiated stop, not a tool failure.
+Cancelling an unknown or already-settled id is a no-op.
+
+## Worked example: pointing a host at the server
+
+1. Start the server over the streamable HTTP transport on loopback:
+
+   ```bash
+   export BERNSTEIN_MCP_TOKEN=dev-token
+   bernstein mcp --transport http --host 127.0.0.1 --port 8053
+   ```
+
+2. Initialize and read the capability card:
+
+   ```bash
+   curl -s http://127.0.0.1:8053/mcp \
+     -H "Authorization: Bearer dev-token" \
+     -H "content-type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"example"}}}'
+   ```
+
+   The `result.capabilityCard` shows the active tier, auth modes, and
+   transports the client can use.
+
+3. Call a tool. The response carries the cost-meter envelope:
+
+   ```bash
+   curl -s http://127.0.0.1:8053/mcp \
+     -H "Authorization: Bearer dev-token" \
+     -H "content-type: application/json" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bernstein_status","arguments":{}}}'
+   ```
+
+4. List and fetch a built-in prompt:
+
+   ```bash
+   curl -s http://127.0.0.1:8053/mcp \
+     -H "Authorization: Bearer dev-token" \
+     -H "content-type: application/json" \
+     -d '{"jsonrpc":"2.0","id":3,"method":"prompts/list"}'
+
+   curl -s http://127.0.0.1:8053/mcp \
+     -H "Authorization: Bearer dev-token" \
+     -H "content-type: application/json" \
+     -d '{"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"orchestrate_goal","arguments":{"goal":"ship X","role":"qa"}}}'
+   ```
+
+5. (Optional) Probe OAuth-2 discovery before authenticating:
+
+   ```bash
+   export BERNSTEIN_MCP_OAUTH_ISSUER=https://idp.example.com
+   # restart the server to pick up the env var, then:
+   curl -s http://127.0.0.1:8053/.well-known/oauth-protected-resource
+   ```
+
+   The protected-resource document points at the IdP via
+   `authorization_servers[0]`. The client then fetches the IdP's own RFC
+   8414 metadata from the IdP (its path is IdP-specific) and completes
+   the PKCE flow there, presenting the resulting bearer token to the
+   streamable HTTP transport.
+
+6. Cancel a long-running call by its id (in a second request, while the call
+   is in flight):
+
+   ```bash
+   curl -s http://127.0.0.1:8053/mcp \
+     -H "Authorization: Bearer dev-token" \
+     -H "content-type: application/json" \
+     -d '{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}'
+   ```
+
+   The original call returns `cancelled: true` with its preserved `partial`
+   output.

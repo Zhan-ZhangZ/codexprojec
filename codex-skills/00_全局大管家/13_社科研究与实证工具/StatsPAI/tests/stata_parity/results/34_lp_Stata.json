@@ -1,0 +1,95 @@
+{
+  "module": "34_lp",
+  "side": "Stata",
+  "rows": [
+    {
+      "module": "34_lp",
+      "side": "Stata",
+      "statistic": "irf_direct_ols_h0",
+      "estimate": 0.13168247869200089,
+      "se": 0.051932635714802,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 199,
+      "extra": {}
+    }
+,
+    {
+      "module": "34_lp",
+      "side": "Stata",
+      "statistic": "irf_direct_ols_h1",
+      "estimate": 0.53422039764255802,
+      "se": 0.051678192937332897,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 198,
+      "extra": {}
+    }
+,
+    {
+      "module": "34_lp",
+      "side": "Stata",
+      "statistic": "irf_direct_ols_h2",
+      "estimate": 0.32675482104880682,
+      "se": 0.062793770622476194,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 197,
+      "extra": {}
+    }
+,
+    {
+      "module": "34_lp",
+      "side": "Stata",
+      "statistic": "irf_direct_ols_h3",
+      "estimate": 0.14922060925531411,
+      "se": 0.066298102017169902,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 196,
+      "extra": {}
+    }
+,
+    {
+      "module": "34_lp",
+      "side": "Stata",
+      "statistic": "irf_direct_ols_h4",
+      "estimate": -0.0145871020684762,
+      "se": 0.066917539589884195,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 195,
+      "extra": {}
+    }
+,
+    {
+      "module": "34_lp",
+      "side": "Stata",
+      "statistic": "irf_direct_ols_h5",
+      "estimate": -0.017336583133390399,
+      "se": 0.066686405623029896,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 194,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "lpirf_h1": -0.10057365485947579,
+    "lpirf_h2": -0.2326671003280763,
+    "lpirf_h3": -0.1620298840833532,
+    "lpirf_h4": -0.1181835040895184,
+    "lpirf_h5": -0.085929101047439393,
+    "method": "regress y_{t+h} on x_t + y_lag",
+    "stata_command": "for h=0/5: regress y_h# x y_lag; lpirf y x, step(5) lags(1)",
+    "stata_direct_ols_reference": "Rows named irf_direct_ols_h* record regress y_{t+h} x y_lag point estimates; Stata lpirf Cholesky coefficients are stored in extras as lpirf_h*."
+  },
+  "provenance": {
+    "stata_version": 18,
+    "edition": "MP",
+    "os": "Unix",
+    "machine_type": "Mac (Apple Silicon)",
+    "born_date": "07 Jun 2023",
+    "captured_via": "tests/stata_parity/_common.do::stata_parity_close"
+  }
+}

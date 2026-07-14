@@ -1,0 +1,11 @@
+{
+	"id": "vault-as-mcp",
+	"name": "Vault as MCP",
+	"version": "0.9.1",
+	"minAppVersion": "1.13.0",
+	"description": "MCP server connecting Open WebUI, Claude Desktop, and other LLMs to your vault.",
+	"author": "ebullient",
+	"authorUrl": "https://github.com/ebullient",
+  "fundingUrl": "https://buymeacoffee.com/ebullient",
+	"isDesktopOnly": true
+}

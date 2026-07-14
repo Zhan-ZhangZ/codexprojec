@@ -1,0 +1,19 @@
+---
+description: Working with typescript
+globs: src/**/*.ts,*.ts
+alwaysApply: true
+---
+
+* `bun run linter`
+* `bun run build`
+* Run `bun test` before and after making a change to ensure nothing breaks
+* Fox build problems before warnings and linting errors: use `bun run build` to verify
+
+## Linting
+
+1. `bun run lint`
+2. Fix problem
+3. `bun run build`
+4. Fix problem
+5. `bun run lint`
+6. Jump to step 2 if problem

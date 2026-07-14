@@ -1,0 +1,78 @@
+{
+  "module": "32_rif",
+  "side": "py",
+  "rows": [
+    {
+      "module": "32_rif",
+      "side": "py",
+      "statistic": "total_diff",
+      "estimate": -0.20115866875291744,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "32_rif",
+      "side": "py",
+      "statistic": "explained",
+      "estimate": 0.010959156977337244,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "32_rif",
+      "side": "py",
+      "statistic": "unexplained",
+      "estimate": -0.21211782573025467,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "32_rif",
+      "side": "py",
+      "statistic": "explained_Intercept",
+      "estimate": 0.0,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "32_rif",
+      "side": "py",
+      "statistic": "explained_educ",
+      "estimate": 0.027673251198548507,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    },
+    {
+      "module": "32_rif",
+      "side": "py",
+      "statistic": "explained_exper",
+      "estimate": -0.016714094221211263,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1000,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "statistic": "quantile",
+    "tau": 0.5,
+    "quantile_convention": "dineq",
+    "reference_backend_note": "Track-A parity uses quantile_convention='dineq', which mirrors R dineq::rif (Hmisc type-7 quantile, R stats::density binned Gaussian density, and I(y < q))."
+  }
+}

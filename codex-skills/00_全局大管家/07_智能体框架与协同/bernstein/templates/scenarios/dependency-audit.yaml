@@ -1,0 +1,30 @@
+id: dependency-audit
+name: Dependency Audit
+description: Full security audit of the dependency tree with upgrade recommendations
+tags: [security, maintenance, schedule, dependencies]
+version: "1.0"
+tasks:
+  - title: Inventory direct and transitive dependencies
+    description: Produce a snapshot of direct and transitive dependencies with versions and license info
+    role: security
+    priority: 1
+    scope: small
+    complexity: low
+  - title: Scan for known vulnerabilities
+    description: Cross-reference dependency versions with CVE feeds, flag any high or critical severity issues
+    role: security
+    priority: 0
+    scope: medium
+    complexity: medium
+  - title: Recommend upgrades
+    description: Group safe patch upgrades, breaking-change upgrades, and risky upgrades with migration notes
+    role: backend
+    priority: 1
+    scope: medium
+    complexity: medium
+  - title: Open issues for unresolved findings
+    description: For each unresolved CVE or stuck upgrade, file a tracked issue with reproduction context
+    role: devops
+    priority: 2
+    scope: small
+    complexity: low

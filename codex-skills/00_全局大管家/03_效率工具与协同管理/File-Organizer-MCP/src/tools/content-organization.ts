@@ -1,0 +1,400 @@
+/**
+ * File Organizer MCP Server v3.4.2
+ * organize_by_content Tool
+ *
+ * @module tools/content-organization
+ */
+
+import { z } from "zod";
+import fs from "fs/promises";
+import path from "path";
+import type { ToolDefinition, ToolResponse, RollbackAction } from "../types.js";
+import { validateStrictPath } from "../services/path-validator.service.js";
+import { FileScannerService } from "../services/file-scanner.service.js";
+import {
+  TopicExtractorService,
+  topicExtractorService,
+  type TopicMatch,
+} from "../services/topic-extractor.service.js";
+import { textExtractionService } from "../services/text-extraction.service.js";
+import { RollbackService } from "../services/rollback.service.js";
+import { createErrorResponse } from "../utils/error-handler.js";
+import { escapeMarkdown } from "../utils/index.js";
+import { CommonParamsSchema } from "../schemas/common.schemas.js";
+import {
+  OrganizeByContentInputSchema,
+  type OrganizeByContentInput,
+} from "../schemas/content.schemas.js";
+import { logger } from "../utils/logger.js";
+
+// Re-export for module consumers
+export { OrganizeByContentInputSchema };
+export type { OrganizeByContentInput };
+
+const DOCUMENT_EXTENSIONS = [
+  ".pdf",
+  ".docx",
+  ".doc",
+  ".txt",
+  ".md",
+  ".rtf",
+  ".odt",
+];
+
+interface DocumentOrganizationResult {
+  file: string;
+  topics: TopicMatch[];
+  primaryTopic: string;
+  targetPath: string;
+  shortcuts: string[];
+}
+
+interface OrganizationResult {
+  success: boolean;
+  organizedFiles: number;
+  skippedFiles: number;
+  errors: Array<{ file: string; error: string }>;
+  results: DocumentOrganizationResult[];
+  structure: Record<string, string[]>;
+}
+
+export const organizeByContentToolDefinition: ToolDefinition = {
+  name: "file_organizer_organize_by_content",
+  title: "Organize Documents by Content",
+  description:
+    "Organize document files into topic-based folders using content analysis. Supports PDF, DOCX, TXT, MD, RTF, ODT. Use dry_run=true to preview changes.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      source_dir: {
+        type: "string",
+        description: "Full path to the directory containing document files",
+      },
+      target_dir: {
+        type: "string",
+        description:
+          "Full path to the directory where organized documents will be placed",
+      },
+      dry_run: {
+        type: "boolean",
+        description: "Preview changes without moving files",
+        default: true,
+      },
+      create_shortcuts: {
+        type: "boolean",
+        description: "Create shortcuts/symlinks for multi-topic documents",
+        default: false,
+      },
+      recursive: {
+        type: "boolean",
+        description: "Scan subdirectories recursively",
+        default: true,
+      },
+      response_format: {
+        type: "string",
+        enum: ["json", "markdown"],
+        default: "markdown",
+      },
+    },
+    required: ["source_dir", "target_dir"],
+  },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
+};
+
+async function extractTextFromFile(filePath: string): Promise<string> {
+  try {
+    const result = await textExtractionService.extract(filePath);
+
+    if (result.truncated) {
+      logger.info(
+        `Text extraction truncated for ${filePath} via ${result.extractionMethod}`,
+      );
+    }
+
+    return result.text;
+  } catch (error) {
+    logger.warn(`Failed to extract text from ${filePath}: ${error}`);
+    return "";
+  }
+}
+
+export async function handleOrganizeByContent(
+  args: Record<string, unknown>,
+  services?: {
+    scanner?: FileScannerService;
+    topicExtractor?: TopicExtractorService;
+  },
+): Promise<ToolResponse> {
+  try {
+    const parsed = OrganizeByContentInputSchema.safeParse(args);
+    if (!parsed.success) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: ${parsed.error.issues.map((i) => i.message).join(", ")}`,
+          },
+        ],
+      };
+    }
+
+    const {
+      source_dir,
+      target_dir,
+      dry_run,
+      create_shortcuts,
+      recursive,
+      response_format,
+    } = parsed.data;
+
+    const validatedSourcePath = await validateStrictPath(source_dir);
+    if (!validatedSourcePath) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: Invalid or forbidden source path: ${source_dir}`,
+          },
+        ],
+      };
+    }
+    const validatedTargetPath = await validateStrictPath(target_dir);
+    if (!validatedTargetPath) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: Invalid or forbidden target path: ${target_dir}`,
+          },
+        ],
+      };
+    }
+
+    if (target_dir === source_dir) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Error: Source and target directories cannot be the same",
+          },
+        ],
+      };
+    }
+
+    const scanner = services?.scanner ?? new FileScannerService();
+
+    const files = await scanner.getAllFiles(validatedSourcePath, recursive);
+
+    if (files.length === 0) {
+      const emptyResult: OrganizationResult = {
+        success: true,
+        organizedFiles: 0,
+        skippedFiles: 0,
+        errors: [],
+        results: [],
+        structure: {},
+      };
+
+      if (response_format === "json") {
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(emptyResult, null, 2) },
+          ],
+          structuredContent: emptyResult as unknown as Record<string, unknown>,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: "No files found in the source directory.",
+          },
+        ],
+      };
+    }
+
+    const documentFiles = files.filter((f) =>
+      DOCUMENT_EXTENSIONS.includes(path.extname(f.path).toLowerCase()),
+    );
+
+    const result: OrganizationResult = {
+      success: true,
+      organizedFiles: 0,
+      skippedFiles: 0,
+      errors: [],
+      results: [],
+      structure: {},
+    };
+
+    // Track rollback actions for undo support
+    const rollbackActions: RollbackAction[] = [];
+
+    const topicExtractor =
+      services?.topicExtractor ?? new TopicExtractorService();
+
+    for (const file of documentFiles) {
+      try {
+        const text = await extractTextFromFile(file.path);
+
+        if (!text || text.trim().length < 50) {
+          result.skippedFiles++;
+          result.errors.push({
+            file: file.name,
+            error: "Insufficient text content for analysis",
+          });
+          continue;
+        }
+
+        const extractionResult = topicExtractor.extractTopics(text);
+
+        if (extractionResult.topics.length === 0) {
+          result.skippedFiles++;
+          result.errors.push({
+            file: file.name,
+            error: "No topics detected",
+          });
+          continue;
+        }
+
+        const primaryTopic = extractionResult.topics[0]!;
+        const topicFolder = primaryTopic.topic;
+        const targetFolder = path.join(validatedTargetPath, topicFolder);
+        const targetPath = path.join(targetFolder, file.name);
+
+        const docResult: DocumentOrganizationResult = {
+          file: file.name,
+          topics: extractionResult.topics,
+          primaryTopic: topicFolder,
+          targetPath,
+          shortcuts: [],
+        };
+
+        if (!result.structure[topicFolder]) {
+          result.structure[topicFolder] = [];
+        }
+        result.structure[topicFolder]!.push(file.name);
+
+        if (!dry_run) {
+          await fs.mkdir(targetFolder, { recursive: true });
+          await fs.rename(file.path, targetPath);
+
+          // Track rollback action for undo support
+          rollbackActions.push({
+            type: "move",
+            originalPath: file.path,
+            currentPath: targetPath,
+            timestamp: Date.now(),
+          });
+
+          if (create_shortcuts && extractionResult.topics.length > 1) {
+            for (const secondaryTopic of extractionResult.topics.slice(1)) {
+              const shortcutFolder = path.join(
+                validatedTargetPath,
+                secondaryTopic.topic,
+              );
+              await fs.mkdir(shortcutFolder, { recursive: true });
+              const shortcutPath = path.join(
+                shortcutFolder,
+                `${file.name}.lnk`,
+              );
+
+              try {
+                await fs.symlink(targetPath, shortcutPath);
+                docResult.shortcuts.push(shortcutPath);
+                // Track symlink for rollback cleanup (reuses "copy" undo = delete)
+                rollbackActions.push({
+                  type: "copy",
+                  originalPath: targetPath,
+                  currentPath: shortcutPath,
+                  timestamp: Date.now(),
+                });
+              } catch (symlinkError) {
+                logger.warn(
+                  `Failed to create symlink for ${file.name}: ${symlinkError}`,
+                );
+              }
+            }
+          }
+        }
+
+        result.results.push(docResult);
+        result.organizedFiles++;
+      } catch (error) {
+        result.errors.push({
+          file: file.name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // Save rollback manifest if any files were actually moved
+    if (!dry_run && rollbackActions.length > 0) {
+      try {
+        const rollbackService = new RollbackService();
+        await rollbackService.createManifest(
+          `Content organization from ${validatedSourcePath} to ${validatedTargetPath} (${rollbackActions.length} files)`,
+          rollbackActions,
+        );
+      } catch (manifestErr) {
+        logger.error(
+          `Failed to create rollback manifest: ${manifestErr instanceof Error ? manifestErr.message : String(manifestErr)}`,
+        );
+      }
+    }
+
+    if (response_format === "json") {
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        structuredContent: result as unknown as Record<string, unknown>,
+      };
+    }
+
+    const dryRunText = dry_run ? "(Dry Run - No files were moved)" : "";
+    const markdown = `### Content Organization Result ${dryRunText}
+
+**Source:** \`${validatedSourcePath}\`
+**Target:** \`${validatedTargetPath}\`
+**Recursive:** ${recursive}
+**Create Shortcuts:** ${create_shortcuts}
+
+**Summary:**
+- **Success:** ${result.success ? "✅" : "❌"}
+- **Organized Files:** ${result.organizedFiles}
+- **Skipped Files:** ${result.skippedFiles}
+- **Errors:** ${result.errors.length}
+
+**Organized by Topic:**
+${Object.entries(result.structure)
+  .map(
+    ([folder, files]) =>
+      `- **${escapeMarkdown(folder)}**: ${files.length} file(s)\n  ${files.map((f) => `  - \`${escapeMarkdown(f)}\``).join("\n")}`,
+  )
+  .join("\n")}
+
+${
+  result.results.length > 0
+    ? `**File Details:**
+${result.results
+  .map(
+    (r) =>
+      `- \`${escapeMarkdown(r.file)}\` → **${escapeMarkdown(r.primaryTopic)}** (${r.topics.map((t) => `${escapeMarkdown(t.topic)}: ${(t.confidence * 100).toFixed(0)}%`).join(", ")})`,
+  )
+  .join("\n")}`
+    : ""
+}
+
+${result.errors.length > 0 ? `**Errors:**\n${result.errors.map((e) => `- \`${escapeMarkdown(e.file)}\`: ${e.error}`).join("\n")}` : ""}`;
+
+    return {
+      content: [{ type: "text", text: markdown }],
+    };
+  } catch (error) {
+    return createErrorResponse(error);
+  }
+}

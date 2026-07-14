@@ -1,0 +1,37 @@
+name: core
+description: Always-loaded essentials. Tier-1 priority. ~12k tokens.
+members:
+  - 01-operating-system
+  - 04-preference-and-memory
+  - 06-build-and-slice-loop
+  - rules/brian-preferences
+  - rules/always
+  - rules/full-autonomy
+  - rules/autonomous-engineering
+  - rules/verification-loop
+  - rules/monitor-orchestration
+  - rules/prompt-as-training-signal
+  - rules/solo-builder-doctrine
+  - rules/main-only-branch
+  - rules/no-staging-doctrine
+  - rules/code-style
+  - rules/error-recovery
+  - rules/auto-meta-work
+  - rules/agent-selection
+  - rules/parallel-subagent-economy
+  - rules/feature-flags
+  - rules/drift-detection
+  - rules/extra-mile
+  - rules/proactive-improvements
+  - rules/auto-integrate-recs
+  - rules/context-spillover
+  - rules/delegate-when-saturated
+  - rules/god-tier-engineering
+  - rules/naming-no-transient-prefixes
+  - rules/package-preference-registry
+  - rules/solo-rituals-eliminated
+  - rules/supervisor-skills-index
+  - rules/todos-are-roadmap
+  - rules/lint-doctrine
+  - rules/uniform-json-output
+  - rules/audit-arc-maturity-ladder

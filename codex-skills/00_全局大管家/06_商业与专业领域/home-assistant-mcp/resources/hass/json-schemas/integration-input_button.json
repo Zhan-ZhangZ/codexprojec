@@ -1,0 +1,44 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/Schema" },
+    { "$ref": "#/definitions/Item" }
+  ],
+  "definitions": {
+    "Schema": {
+      "type": "object",
+      "additionalProperties": {
+        "anyOf": [
+          { "type": "string", "pattern": "^!include_dir_named .*$" },
+          { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+          { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+          { "type": "string", "pattern": "^!include_dir_merge_named\u000b.*$" },
+          { "$ref": "#/definitions/Item" },
+          { "type": "null" }
+        ]
+      }
+    },
+    "Item": {
+      "type": "object",
+      "properties": {
+        "icon": {
+          "description": "The icon that shows in the frontend.\nhttps://www.home-assistant.io/integrations/input_button#icon",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of the input button.\nhttps://www.home-assistant.io/integrations/input_button#name",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

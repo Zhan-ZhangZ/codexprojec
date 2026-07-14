@@ -1,0 +1,43 @@
+{
+  "module": "59_liml",
+  "side": "py",
+  "rows": [
+    {
+      "module": "59_liml",
+      "side": "py",
+      "statistic": "beta_x",
+      "estimate": 0.7362886943558312,
+      "se": 0.037759773923630516,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1500,
+      "extra": {}
+    },
+    {
+      "module": "59_liml",
+      "side": "py",
+      "statistic": "beta_w",
+      "estimate": 0.45548539624648493,
+      "se": 0.028274451906439246,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1500,
+      "extra": {}
+    },
+    {
+      "module": "59_liml",
+      "side": "py",
+      "statistic": "beta_intercept",
+      "estimate": 1.0147011978199831,
+      "se": 0.02571690951477724,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "n_instruments": 2,
+    "endog": "x"
+  }
+}

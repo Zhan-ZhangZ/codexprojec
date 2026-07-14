@@ -1,0 +1,35 @@
+---
+description: All markdown files
+globs: *.md
+alwaysApply: true
+---
+
+# Markdown Rule
+
+This rule defines guidelines for working with Markdown files in the MCP Home Assistant Server project.
+
+## Formatting Requirements
+
+- Always format Markdown files using Prettier:
+  ```bash
+  npx prettier -c -w .
+  ```
+
+## Style Guidelines
+
+- Do not use bold formatting (double asterisks `**`) in Markdown files
+- Use alternative emphasis methods when needed:
+  - Section headers (`#`, `##`, `###`) for structural emphasis
+  - Lists and indentation for organizing content
+  - Code blocks for technical content
+  - Inline code formatting (backticks) for references
+
+## Application
+
+This rule applies to all Markdown files in the project, including:
+- README.md
+- Documentation files
+- TODO.md
+- Any other .md files
+
+The markdown.mdc rule helps ensure consistent document formatting across the project.

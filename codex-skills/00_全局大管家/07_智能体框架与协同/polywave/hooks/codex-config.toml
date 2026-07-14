@@ -1,0 +1,29 @@
+[features]
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "${CODEX_HOME:-$HOME/.codex}/polywave/hooks/pre_tool_use_bash_policy"
+timeout = 10
+statusMessage = "Checking Polywave Bash policy"
+
+[[hooks.PreToolUse]]
+matcher = "^apply_patch$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "${CODEX_HOME:-$HOME/.codex}/polywave/hooks/pre_tool_use_apply_patch_policy"
+timeout = 10
+statusMessage = "Checking Polywave apply_patch policy"
+
+[[hooks.PreToolUse]]
+matcher = "^mcp__lsp__(safe_edit|apply_edit|safe_apply_edit|simulate_edit|replace_symbol_body|safe_delete_symbol|commit_session)$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "${CODEX_HOME:-$HOME/.codex}/polywave/hooks/pre_tool_use_safe_edit_policy"
+timeout = 10
+statusMessage = "Checking Polywave LSP file mutation policy"

@@ -1,0 +1,94 @@
+goal: 'Implement tickets from .sdd/backlog/open/ by priority (p0 first, then p1, p2).
+  Read each ticket file for requirements. Implement, write tests, run uv run ruff
+  check src/ and uv run pytest tests/unit/RELEVANT_FILE.py -x -q. Commit each completed
+  task. Do NOT invent new tickets or create tasks beyond what is in the backlog files.
+
+  '
+cli: claude
+max_agents: 7
+role_model_policy:
+  manager: {model: opus, effort: max}
+  architect: {model: opus, effort: max}
+  security: {model: sonnet, effort: high}
+  backend: {model: sonnet, effort: high}
+  frontend: {model: sonnet, effort: high}
+  qa: {model: sonnet, effort: high}
+  reviewer: {model: sonnet, effort: high}
+  docs: {model: sonnet, effort: high}
+  devops: {model: sonnet, effort: high}
+budget: $0
+internal_llm_provider: claude
+internal_llm_model: claude-sonnet-4-6
+evolution_enabled: false
+auto_decompose: false
+constraints:
+- Python 3.12+, strict typing (Pyright strict), Ruff linting
+- "File-based state in .sdd/ only - no databases"
+- "Short-lived agents only - no long-running sessions"
+- 'Run tests: uv run python scripts/run_tests.py -x (NOT pytest tests/ directly)'
+- Do NOT modify files outside your task scope
+- Commit with descriptive messages after completing each task
+- Move completed tickets to .sdd/backlog/closed/
+- "Default branch is main - never use any other default branch"
+quality_gates:
+  enabled: true
+  lint: true
+  lint_command: ruff check .
+  type_check: false
+  tests: false
+context_files:
+- docs/architecture/DESIGN.md
+- CLAUDE.md
+agency:
+  path: ${BERNSTEIN_AGENCY_PATH:-./external/agency-agents}  # replace with your agency-agents clone path
+# OTLP exporter with OpenTelemetry GenAI semantic conventions.
+# Spans are emitted only when ``endpoint`` is set (or the BERNSTEIN_OTEL_ENDPOINT
+# env var is exported); otherwise Bernstein keeps writing local JSONL traces.
+# Install the optional extras with: pip install 'bernstein[otel]'.
+observability:
+  otlp:
+    endpoint: ${BERNSTEIN_OTEL_ENDPOINT:-}        # e.g. http://otel-collector:4317
+    service_name: ${BERNSTEIN_OTEL_SERVICE_NAME:-bernstein}
+    insecure: true                                # skip TLS verify on local collectors
+
+# Autofix daemon - escalation ladder for self-driving CI repair.
+# The ladder is feature-flagged off until three PRs run clean; flip
+# autofix.ladder.enabled to true to opt in. cost_cap_per_pr is the
+# hard cap in USD the daemon will not exceed when picking a rung.
+autofix:
+  cost_cap_per_pr: 1.0
+  ladder:
+    enabled: false
+  # Telemetry-grounded autofix sources. Each entry wires one
+  # adapter (Sentry/GlitchTip, GitHub Actions failure, ...).
+  # Every source is opt-in - set enabled to true and configure
+  # secret_env before the receiver will dispatch.
+  # MVP: sentry and gha_failure ship with full dispatch wiring;
+  # datadog, loki, and custom_jsonl are stubbed (audit-only).
+  telemetry_sources:
+    - source: sentry
+      enabled: false
+      endpoint: /webhooks/telemetry/sentry/
+      secret_env: BERNSTEIN_SENTRY_WEBHOOK_SECRET
+      fingerprint_path: ""
+      cost_cap_usd: 0.20
+    - source: gha_failure
+      enabled: false
+      endpoint: /webhooks/telemetry/gha_failure/
+      secret_env: BERNSTEIN_GHA_WEBHOOK_SECRET
+      cost_cap_usd: 0.20
+    - source: datadog
+      enabled: false
+      endpoint: /webhooks/telemetry/datadog/
+      secret_env: BERNSTEIN_DATADOG_WEBHOOK_SECRET
+      cost_cap_usd: 0.20
+    - source: loki
+      enabled: false
+      endpoint: /webhooks/telemetry/loki/
+      secret_env: BERNSTEIN_LOKI_WEBHOOK_SECRET
+      cost_cap_usd: 0.20
+    - source: custom_jsonl
+      enabled: false
+      endpoint: /webhooks/telemetry/custom_jsonl/
+      secret_env: BERNSTEIN_CUSTOM_JSONL_WEBHOOK_SECRET
+      cost_cap_usd: 0.20

@@ -1,0 +1,100 @@
+{
+  "name": "buywhere-mcp",
+  "version": "1.0.4",
+  "mcpName": "io.github.BuyWhere/buywhere-mcp",
+  "description": "Product search API for AI agents via Model Context Protocol. Search & compare 11M+ products across Singapore, SEA, and US markets. Multi-currency pricing, inventory, and deal discovery — built for AI agent commerce, not store management. - Win the \"Build With BuyWhere\" Challenge: <a href=\"https://buywhere.ai/challenge\">buywhere.ai/challenge</a>",
+  "keywords": [
+    "buywhere",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "product-search",
+    "product-search-api",
+    "product-search-mcp",
+    "agent-product-search",
+    "mcp-commerce-search",
+    "ecommerce-api",
+    "ecommerce",
+    "shopping-api",
+    "shopping-agent",
+    "shopping",
+    "price-comparison",
+    "compare-prices",
+    "price-tracker",
+    "deal-finder",
+    "deal-discovery",
+    "catalog-search",
+    "product-catalog",
+    "cross-border",
+    "cross-border-shopping",
+    "cross-border-commerce",
+    "multi-currency",
+    "real-time-pricing",
+    "southeast-asia",
+    "singapore",
+    "sea-markets",
+    "us-markets",
+    "ai-agent",
+    "ai-commerce",
+    "agent-commerce",
+    "agent-shopping",
+    "agent-to-agent",
+    "a2a",
+    "google-a2a",
+    "llm",
+    "ai-tools",
+    "claude-desktop",
+    "cursor",
+    "cline",
+    "windsurf",
+    "open-code",
+    "codex",
+    "continue-dev",
+    "smithery",
+    "mcp-tools",
+    "typescript"
+  ],
+  "homepage": "https://buywhere.hashnode.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuyWhere/buywhere-mcp"
+  },
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "buywhere-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/BuyWhere"
+  },
+  "bugs": {
+    "url": "https://github.com/BuyWhere/buywhere-mcp/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

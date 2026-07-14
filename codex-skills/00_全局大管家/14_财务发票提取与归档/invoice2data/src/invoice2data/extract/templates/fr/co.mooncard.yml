@@ -1,0 +1,18 @@
+issuer: MoonGroup (mooncard.co)
+fields:
+  amount: Total\s+à\s+payer\s+(\d+,\d{2})\s+€
+  amount_untaxed: Total\s+HT\s+(\d+,\d{2})\s+€
+  date: Date\s+(\d{2}/\d{2}/\d{2})
+  date_start: (\d{2}/\d{2}/\d{2})\s+\-\s+\d{2}/\d{2}/\d{2}
+  date_end: \d{2}/\d{2}/\d{2}\s+\-\s+(\d{2}/\d{2}/\d{2})
+  invoice_number: Facture\s+(MOON\d+)
+  static_vat: FR65818620783
+keywords:
+  - 818 620 783
+  - €
+  - Facture
+options:
+  currency: EUR
+  date_formats:
+    - "%d/%m/%y"
+  decimal_separator: ","

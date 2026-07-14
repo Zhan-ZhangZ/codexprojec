@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CODEX_HOME:-$HOME/.codex}/polywave/hooks/pre_tool_use_audit",
+            "timeout": 5,
+            "statusMessage": "Recording Polywave hook payload"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CODEX_HOME:-$HOME/.codex}/polywave/hooks/pre_tool_use_audit",
+            "timeout": 5,
+            "statusMessage": "Recording Polywave hook payload"
+          }
+        ]
+      }
+    ]
+  }
+}

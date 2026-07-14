@@ -1,0 +1,109 @@
+{
+  "module": "52_scm_unique",
+  "side": "R",
+  "rows": [
+    {
+      "module": "52_scm_unique",
+      "side": "R",
+      "statistic": "avg_post_gap",
+      "estimate": 1.99999999917224,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": []
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "R",
+      "statistic": "pre_treatment_rmse",
+      "estimate": 3.71345852532885e-10,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": []
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "R",
+      "statistic": "weight_donor0",
+      "estimate": 0.499999999819016,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": []
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "R",
+      "statistic": "weight_donor1",
+      "estimate": 0.300000000192502,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": []
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "R",
+      "statistic": "weight_donor2",
+      "estimate": 0.199999999781587,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": []
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "R",
+      "statistic": "weight_donor3",
+      "estimate": 1.56684684138263e-10,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": []
+    },
+    {
+      "module": "52_scm_unique",
+      "side": "R",
+      "statistic": "weight_donor4",
+      "estimate": 5.02103084006272e-11,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 180,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "method": ["classic (per-period predictors)"],
+    "true_gap": [2],
+    "custom.v": ["uniform fixed predictor weights"],
+    "Sigf.ipop": [20],
+    "Margin.ipop": [1e-12],
+    "Bound.ipop": [10],
+    "optimizer_note": ["Fixed custom.v removes the unnecessary outer V-optimization on this exact convex-hull fixture; tightened ipop controls make the headline gap a machine-level point-estimate match. Tiny non-zero distractor weights remain diagnostic rows."]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "Synth": "1.1-10",
+      "compiler": "4.5.2",
+      "rgenoud": "5.9-0.11",
+      "jsonlite": "2.0.0",
+      "nloptr": "2.2.1",
+      "optimx": "2025-4.9",
+      "numDeriv": "2016.8-1.1",
+      "kernlab": "0.9-33",
+      "pracma": "2.4.6"
+    }
+  }
+}

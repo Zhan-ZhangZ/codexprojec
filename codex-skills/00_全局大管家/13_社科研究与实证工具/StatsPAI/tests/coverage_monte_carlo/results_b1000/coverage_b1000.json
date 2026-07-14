@@ -1,0 +1,51 @@
+[
+  {
+    "name": "sp.regress (HC1) on RCT",
+    "B": 1000,
+    "covered": 952,
+    "rate": 0.952,
+    "wall_s": 2.8
+  },
+  {
+    "name": "sp.regress 2x2 DiD",
+    "B": 1000,
+    "covered": 955,
+    "rate": 0.955,
+    "wall_s": 2.9
+  },
+  {
+    "name": "sp.ivreg (HC1) on strong-Z IV",
+    "B": 1000,
+    "covered": 962,
+    "rate": 0.962,
+    "wall_s": 2.5
+  },
+  {
+    "name": "sp.callaway_santanna simple ATT (staggered)",
+    "B": 1000,
+    "covered": 946,
+    "rate": 0.946,
+    "wall_s": 10.9
+  },
+  {
+    "name": "sp.ebalance (CIA, ATT)",
+    "B": 1000,
+    "covered": 1000,
+    "rate": 1.0,
+    "wall_s": 0.7
+  },
+  {
+    "name": "sp.causal_question(design='dml') IRM ATE",
+    "B": 1000,
+    "covered": 969,
+    "rate": 0.969,
+    "wall_s": 426.1
+  },
+  {
+    "name": "sp.causal_question(design='causal_forest') AIPW ATE",
+    "B": 1000,
+    "covered": 977,
+    "rate": 0.977,
+    "wall_s": 1404.3
+  }
+]

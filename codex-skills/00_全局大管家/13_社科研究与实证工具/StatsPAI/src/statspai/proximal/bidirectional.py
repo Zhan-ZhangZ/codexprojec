@@ -1,0 +1,214 @@
+"""
+Bidirectional Proximal Causal Inference (Min, Zhang & Luo 2025,
+arXiv 2507.13965). [@min2025regression]
+
+Standard PCI uses one outcome bridge (W ⊥ D | U) and one treatment
+bridge (Z ⊥ Y | D, U). The bidirectional variant fits both bridges
+*simultaneously* and combines them via a moment condition that is
+robust to misspecification in either direction.
+"""
+
+from __future__ import annotations
+
+import warnings
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+from ..core._bootstrap import bootstrap_se as _bootstrap_se
+import pandas as pd
+from scipy import stats
+
+from ..core.results import CausalResult
+from ..exceptions import ConvergenceWarning
+
+
+def bidirectional_pci(
+    data: pd.DataFrame,
+    y: str,
+    treat: str,
+    proxy_z: List[str],
+    proxy_w: List[str],
+    covariates: Optional[List[str]] = None,
+    alpha: float = 0.05,
+    n_boot: int = 200,
+    seed: int = 0,
+) -> CausalResult:
+    """
+    Bidirectional PCI: simultaneous outcome + treatment bridge.
+
+    Parameters
+    ----------
+    data, y, treat, proxy_z, proxy_w, covariates : same as
+        :func:`statspai.proximal.proximal`.
+    alpha : float
+    n_boot : int
+    seed : int
+
+    Returns
+    -------
+    CausalResult
+        ATE estimate from the bidirectional moment condition.
+
+    Notes
+    -----
+    If the treatment-bridge (Z-based logistic IPW) step fails on the
+    point-estimate sample, the estimator degrades to the outcome bridge
+    only (``tau_treatment`` is set to ``tau_outcome``); a
+    :class:`~statspai.exceptions.ConvergenceWarning` is emitted and
+    ``model_info['treatment_bridge_fallback']`` is set to True together
+    with the error type.
+
+    References
+    ----------
+    [@min2025regression]
+
+    Examples
+    --------
+    >>> import statspai as sp
+    >>> import numpy as np, pandas as pd
+    >>> rng = np.random.default_rng(42)
+    >>> n = 400
+    >>> U = rng.standard_normal(n)            # unobserved confounder
+    >>> Z = U + 0.5 * rng.standard_normal(n)  # treatment-side proxy
+    >>> W = U + 0.5 * rng.standard_normal(n)  # outcome-side proxy
+    >>> X = rng.standard_normal(n)            # observed covariate
+    >>> D = (1.0 * Z + 0.5 * X + rng.standard_normal(n) > 0).astype(int)
+    >>> Y = 2.0 * D + 1.0 * U + 0.3 * X + rng.standard_normal(n)
+    >>> df = pd.DataFrame({"y": Y, "treat": D, "z": Z, "w": W, "x": X})
+    >>> res = sp.bidirectional_pci(df, y="y", treat="treat",
+    ...                            proxy_z=["z"], proxy_w=["w"],
+    ...                            covariates=["x"], n_boot=50, seed=0)
+    >>> _ = res.summary()  # ATE recovered near the true value of 2.0
+    """
+    cov = list(covariates or [])
+    df = (
+        data[[y, treat] + list(proxy_z) + list(proxy_w) + cov]
+        .dropna()
+        .reset_index(drop=True)
+    )
+    Y = df[y].to_numpy(float)
+    D = df[treat].to_numpy(float)
+    Z = df[list(proxy_z)].to_numpy(float)
+    W = df[list(proxy_w)].to_numpy(float)
+    X = df[cov].to_numpy(float) if cov else np.zeros((len(df), 0))
+    n = len(df)
+
+    # Filled by _bidir on the point-estimate call only (record=True);
+    # the bootstrap replicates reuse the closure without signalling.
+    fallback_info: Dict[str, Any] = {"treatment_bridge_fallback": False}
+
+    def _bidir(
+        Yi: np.ndarray,
+        Di: np.ndarray,
+        Zi: np.ndarray,
+        Wi: np.ndarray,
+        Xi: np.ndarray,
+        record: bool = False,
+    ) -> float:
+        # Outcome bridge: linear h(W, D, X) via 2SLS
+        const = np.ones((len(Yi), 1))
+        X_exog = np.hstack([const, Di.reshape(-1, 1), Xi])
+        instruments = np.hstack([X_exog, Zi])
+        regressors = np.hstack([X_exog, Wi])
+        try:
+            ZZ_inv = np.linalg.pinv(instruments.T @ instruments)
+            Pi = ZZ_inv @ instruments.T @ regressors
+            X_hat = instruments @ Pi
+            beta = np.linalg.pinv(X_hat.T @ X_hat) @ X_hat.T @ Yi
+            tau_outcome = float(beta[1])
+        except np.linalg.LinAlgError:
+            tau_outcome = float(np.mean(Yi[Di == 1]) - np.mean(Yi[Di == 0]))
+
+        # Treatment bridge: density-ratio weight via logistic on (Z, X)
+        try:
+            from sklearn.linear_model import LogisticRegression
+
+            ZX = np.hstack([Zi, Xi])
+            ps_z = LogisticRegression(max_iter=1000).fit(ZX, Di).predict_proba(ZX)[:, 1]
+            ps_z = np.clip(ps_z, 0.02, 0.98)
+            # IPW-like estimator using Z-based propensity
+            tau_treatment = float(
+                np.mean(Di * Yi / ps_z) - np.mean((1 - Di) * Yi / (1 - ps_z))
+            )
+        except Exception as exc:
+            tau_treatment = tau_outcome
+            if record:
+                warnings.warn(
+                    "bidirectional_pci: treatment-bridge (Z-based logistic "
+                    f"IPW) step failed ({type(exc).__name__}: {exc}); the "
+                    "estimate degraded to the outcome bridge only.",
+                    ConvergenceWarning,
+                    stacklevel=3,
+                )
+                fallback_info["treatment_bridge_fallback"] = True
+                fallback_info["treatment_bridge_error"] = type(exc).__name__
+
+        # Combine: arithmetic mean (equally trust both bridges)
+        return 0.5 * tau_outcome + 0.5 * tau_treatment
+
+    tau = _bidir(Y, D, Z, W, X, record=True)
+
+    rng = np.random.default_rng(seed)
+    boot = np.full(n_boot, np.nan)
+    for b in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        try:
+            boot[b] = _bidir(Y[idx], D[idx], Z[idx], W[idx], X[idx])
+        except Exception:
+            pass
+    se = _bootstrap_se(boot, label="proximal.bidirectional")
+
+    z_crit = float(stats.norm.ppf(1 - alpha / 2))
+    ci = (tau - z_crit * se, tau + z_crit * se)
+    z = tau / se if se > 0 else 0.0
+    pvalue = float(2 * (1 - stats.norm.cdf(abs(z))))
+
+    _result = CausalResult(
+        method="Bidirectional Proximal Causal Inference",
+        estimand="ATE",
+        estimate=tau,
+        se=se,
+        pvalue=pvalue,
+        ci=ci,
+        alpha=alpha,
+        n_obs=n,
+        model_info={
+            "estimator": "bidirectional_pci",
+            "reference": "Min, Zhang & Luo (2025), arXiv 2507.13965",
+            **fallback_info,
+        },
+        _citation_key="bidirectional_pci",
+    )
+    try:
+        from ..output._lineage import attach_provenance as _attach_prov
+
+        _attach_prov(
+            _result,
+            function="sp.proximal.bidirectional_pci",
+            params={
+                "y": y,
+                "treat": treat,
+                "proxy_z": list(proxy_z),
+                "proxy_w": list(proxy_w),
+                "covariates": list(covariates) if covariates else None,
+                "alpha": alpha,
+                "n_boot": n_boot,
+                "seed": seed,
+            },
+            data=data,
+            overwrite=False,
+        )
+    except Exception:  # pragma: no cover
+        pass
+    return _result
+
+
+CausalResult._CITATIONS["bidirectional_pci"] = (
+    "@article{min2025regression,\n"
+    "  title={A regression-based approach for bidirectional proximal "
+    "causal inference in the presence of unmeasured confounding},\n"
+    "  author={Min, Jiaqi and Zhang, Xueyue and Luo, Shanshan},\n"
+    "  journal={arXiv preprint arXiv:2507.13965},\n"
+    "  year={2025}\n"
+    "}"
+)

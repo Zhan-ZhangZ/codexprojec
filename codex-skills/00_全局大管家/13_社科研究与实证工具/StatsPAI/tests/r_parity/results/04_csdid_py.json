@@ -1,0 +1,23 @@
+{
+  "module": "04_csdid",
+  "side": "py",
+  "rows": [
+    {
+      "module": "04_csdid",
+      "side": "py",
+      "statistic": "simple_ATT",
+      "estimate": -0.03297651380965374,
+      "se": 0.007739670051510768,
+      "ci_lo": -0.04814598836283811,
+      "ci_hi": -0.01780703925646937,
+      "n": 2500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "estimator": "reg",
+    "control_group": "nevertreated",
+    "method": "Callaway and Sant'Anna (2021)",
+    "se_note": "The simple-ATT point estimate matches R did::aggte and Stata csdid at rel < 1e-15. The analytic SE also matches the R/Stata no-bootstrap reference within the registered 1% tolerance after including the control-regression uncertainty in the outcome-regression IF."
+  }
+}

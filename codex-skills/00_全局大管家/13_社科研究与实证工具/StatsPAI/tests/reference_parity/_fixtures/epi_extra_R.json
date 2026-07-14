@@ -1,0 +1,16 @@
+{
+  "kappa": {
+    "estimate": 0.59999999999999987,
+    "observed_agreement": 0.73333333333333328,
+    "expected_agreement": 0.33333333333333331
+  },
+  "attributable_risk": {
+    "afe": 0.33333333333333326,
+    "paf": 0.1999999999999999,
+    "rr": 1.4999999999999998
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "generated_by": "tests/reference_parity/_generate_epi_extra_R.R"
+  }
+}

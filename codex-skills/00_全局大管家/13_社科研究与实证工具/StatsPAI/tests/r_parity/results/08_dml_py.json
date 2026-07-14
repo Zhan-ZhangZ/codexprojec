@@ -1,0 +1,27 @@
+{
+  "module": "08_dml",
+  "side": "py",
+  "rows": [
+    {
+      "module": "08_dml",
+      "side": "py",
+      "statistic": "theta_DML_PLR",
+      "estimate": 0.1102282601422521,
+      "se": 0.004133481614694871,
+      "ci_lo": 0.10212678504669168,
+      "ci_hi": 0.11832973523781251,
+      "n": 3010,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "dml_model": "PLR",
+    "n_folds": 5,
+    "ml_g": "LinearRegression",
+    "ml_m": "LinearRegression",
+    "seed": 42,
+    "fold_source": "user",
+    "fold_column": "fold_id",
+    "fold_parity_note": "Python and R read the same fold_id column and use explicit sample-splitting APIs before fitting the linear-nuisance PLR score."
+  }
+}

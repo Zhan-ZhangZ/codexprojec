@@ -1,0 +1,65 @@
+{
+  "module": "59_liml",
+  "side": "Stata",
+  "rows": [
+    {
+      "module": "59_liml",
+      "side": "Stata",
+      "statistic": "beta_x",
+      "estimate": 0.73628869435583144,
+      "se": 0.037759773923630398,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1500,
+      "extra": {}
+    }
+,
+    {
+      "module": "59_liml",
+      "side": "Stata",
+      "statistic": "beta_w",
+      "estimate": 0.45548539624648537,
+      "se": 0.028274451906439201,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1500,
+      "extra": {}
+    }
+,
+    {
+      "module": "59_liml",
+      "side": "Stata",
+      "statistic": "beta_intercept",
+      "estimate": 1.0147011978199829,
+      "se": 0.0257169095147772,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1500,
+      "extra": {}
+    }
+,
+    {
+      "module": "59_liml",
+      "side": "Stata",
+      "statistic": "kappa",
+      "estimate": 1.000570991632894,
+      "se": null,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 1500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "n_instruments": "2",
+    "stata_command": "ivregress liml y w (x = z1 z2), small"
+  },
+  "provenance": {
+    "stata_version": 18,
+    "edition": "MP",
+    "os": "Unix",
+    "machine_type": "Mac (Apple Silicon)",
+    "born_date": "07 Jun 2023",
+    "captured_via": "tests/stata_parity/_common.do::stata_parity_close"
+  }
+}

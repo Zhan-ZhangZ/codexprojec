@@ -1,0 +1,200 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/WeatherPlatformSchema" },
+    { "$ref": "#/definitions/OtherPlatform" },
+    { "type": "array", "items": { "$ref": "#/definitions/Item" } }
+  ],
+  "definitions": {
+    "WeatherPlatformSchema": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "The template integrations creates weather provider that combines integrations and an existing weather provider into a fused weather provider.\nhttps://www.home-assistant.io/integrations/weather.template",
+          "type": "string",
+          "const": "template"
+        },
+        "apparent_temperature_template": {
+          "description": "Defines a template for the current apparent temperature.\nhttps://www.home-assistant.io/integrations/weather.template#apparent_temperature_template",
+          "type": "string"
+        },
+        "attribution_template": {
+          "description": "The attribution to be shown in the frontend.\nhttps://www.home-assistant.io/integrations/weather.template#attribution_template",
+          "type": "string"
+        },
+        "cloud_coverage_template": {
+          "description": "Defines templates for the current cloud coverage.\nhttps://www.home-assistant.io/integrations/weather.template#cloud_coverage_template",
+          "type": "string"
+        },
+        "condition_template": {
+          "description": "Defines templates for the current weather condition.\nhttps://www.home-assistant.io/integrations/weather.template#condition_template",
+          "type": "string"
+        },
+        "dew_point_template": {
+          "description": "Defines templates for the current dew point.\nhttps://www.home-assistant.io/integrations/weather.template#dew_point_template",
+          "type": "string"
+        },
+        "forecast_daily_template": {
+          "description": "Defines templates for the daily forcast data.\nhttps://www.home-assistant.io/integrations/weather.template#forecast_template",
+          "type": "string"
+        },
+        "forecast_twice_daily_template": {
+          "description": "Defines templates for the twice daily forcast data.\nhttps://www.home-assistant.io/integrations/weather.template#forecast_template",
+          "type": "string"
+        },
+        "forecast_hourly_template": {
+          "description": "Defines templates for the hourly forcast data.\nhttps://www.home-assistant.io/integrations/weather.template#forecast_template",
+          "type": "string"
+        },
+        "humidity_template": {
+          "description": "Defines templates for the current humidity.\nhttps://www.home-assistant.io/integrations/weather.template#humidity_template",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name to use in the frontend.\nhttps://www.home-assistant.io/integrations/weather.template#name",
+          "type": "string"
+        },
+        "ozone_template": {
+          "description": "The current ozone level.\nhttps://www.home-assistant.io/integrations/weather.template#ozone_template",
+          "type": "string"
+        },
+        "precipitation_unit": {
+          "description": "The unit of measurement for the precipitation output.\nhttps://www.home-assistant.io/integrations/weather.template#precipitation_unit",
+          "type": "string"
+        },
+        "pressure_template": {
+          "description": "Defines templates for the current air pressure.\nhttps://www.home-assistant.io/integrations/weather.template#pressure_template",
+          "type": "string"
+        },
+        "pressure_unit": {
+          "description": "Unit for pressure_template output.\nhttps://www.home-assistant.io/integrations/weather.template#pressure_unit",
+          "enum": [
+            "Pa",
+            "bar",
+            "cbar",
+            "hPa",
+            "inHg",
+            "kPa",
+            "mbar",
+            "mmHg",
+            "psi"
+          ],
+          "type": "string"
+        },
+        "temperature_template": {
+          "description": "Defines templates for the current temperature.\nhttps://www.home-assistant.io/integrations/weather.template#temperature_template",
+          "type": "string"
+        },
+        "temperature_unit": {
+          "description": "Unit for temperature_template output.\nhttps://www.home-assistant.io/integrations/weather.template#temperature_unit",
+          "enum": ["K", "°C", "°F"],
+          "type": "string"
+        },
+        "unique_id": {
+          "description": "An ID that uniquely identifies this weather entity. Set this to a unique value to allow customization through the UI.\nhttps://www.home-assistant.io/integrations/weather.template#unique_id",
+          "type": "string"
+        },
+        "visibility_template": {
+          "description": "The current visibility.\nhttps://www.home-assistant.io/integrations/weather.template#visibility_template",
+          "type": "string"
+        },
+        "visibility_unit": {
+          "description": "Unit for visibility_template output.\nhttps://www.home-assistant.io/integrations/weather.template#visibility_unit",
+          "enum": ["cm", "ft", "in", "km", "m", "mi", "mm", "yd"],
+          "type": "string"
+        },
+        "wind_bearing_template": {
+          "description": "The current wind bearing.\nhttps://www.home-assistant.io/integrations/weather.template#wind_bearing_template",
+          "type": "string"
+        },
+        "wind_gust_speed_template": {
+          "description": "Defines templates for the current wind gust speed.\nhttps://www.home-assistant.io/integrations/weather.template#wind_gust_speed_template",
+          "type": "string"
+        },
+        "wind_speed_template": {
+          "description": "Defines templates for the current wind speed.\nhttps://www.home-assistant.io/integrations/weather.template#wind_speed_template",
+          "type": "string"
+        },
+        "wind_speed_unit": {
+          "description": "Unit for wind_speed_template output.\nhttps://www.home-assistant.io/integrations/weather.template#wind_speed_unit",
+          "enum": ["in/d", "in/h", "km/h", "m/s", "mm/d", "mph"],
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "condition_template",
+        "humidity_template",
+        "name",
+        "platform",
+        "temperature_template"
+      ]
+    },
+    "TimePeriodMap": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "description": "Number of days. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "hours": {
+          "description": "Number of hours. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "milliseconds": {
+          "description": "Number of milliseconds. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "minutes": {
+          "description": "Number of minutes. This must be a number.",
+          "type": ["string", "number"]
+        },
+        "seconds": {
+          "description": "Number of seconds. This must be a number.",
+          "type": ["string", "number"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "OtherPlatform": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "platform": {
+          "description": "Platform domain",
+          "pattern": "^(?!(template)$)\\w+$",
+          "type": "string"
+        },
+        "entity_namespace": {
+          "description": "By setting an entity namespace, all entities will be prefixed with that namespace.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#entity-namespace",
+          "type": "string"
+        },
+        "scan_interval": {
+          "description": "Allow to change the polling interval if the platform uses a polling mechanism.\nhttps://www.home-assistant.io/docs/configuration/platform_options/#scan-interval",
+          "anyOf": [
+            { "$ref": "#/definitions/TimePeriodMap" },
+            { "type": ["string", "number"] }
+          ]
+        }
+      },
+      "required": ["platform"]
+    },
+    "Item": {
+      "anyOf": [
+        { "$ref": "#/definitions/WeatherPlatformSchema" },
+        { "$ref": "#/definitions/OtherPlatform" }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

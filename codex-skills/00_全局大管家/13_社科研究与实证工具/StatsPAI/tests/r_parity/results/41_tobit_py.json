@@ -1,0 +1,43 @@
+{
+  "module": "41_tobit",
+  "side": "py",
+  "rows": [
+    {
+      "module": "41_tobit",
+      "side": "py",
+      "statistic": "beta_intercept",
+      "estimate": 0.5100497482480686,
+      "se": 0.04791767249613109,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    },
+    {
+      "module": "41_tobit",
+      "side": "py",
+      "statistic": "beta_x",
+      "estimate": 0.7509830220579756,
+      "se": 0.05141513600681873,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    },
+    {
+      "module": "41_tobit",
+      "side": "py",
+      "statistic": "sigma",
+      "estimate": 0.9540744952183599,
+      "se": 0.039340932819969046,
+      "ci_lo": null,
+      "ci_hi": null,
+      "n": 500,
+      "extra": {}
+    }
+  ],
+  "extra": {
+    "left_censor": 0.0,
+    "engine": "statsmodels"
+  }
+}

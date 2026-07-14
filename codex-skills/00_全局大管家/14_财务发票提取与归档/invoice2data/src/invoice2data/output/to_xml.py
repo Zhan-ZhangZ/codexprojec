@@ -1,0 +1,115 @@
+"""XML output module for invoice2data."""
+
+import datetime
+import importlib.util
+from typing import Any
+from xml.etree import ElementTree
+
+from . import open_output
+
+
+def defusedxml_available() -> bool:
+    """Checks if the defusedxml module is available.
+
+    Returns:
+        bool: True if defusedxml is available, False otherwise.
+    """
+    return importlib.util.find_spec("defusedxml") is not None
+
+
+def prettify(elem: ElementTree.Element) -> Any:
+    """Return a pretty-printed XML string for the Element.
+
+    Args:
+        elem (ElementTree.Element): The Element to be pretty-printed.
+
+    Returns:
+        Any: A pretty-printed XML string.
+    """
+    if defusedxml_available():
+        from defusedxml import minidom
+    else:
+        from xml.dom import minidom
+
+    rough_string = ElementTree.tostring(elem, "utf-8")
+    reparsed = minidom.parseString(rough_string)  # noqa S318
+    return reparsed.toprettyxml(indent="  ")
+
+
+def dict_to_tags(
+    parent: ElementTree.Element, data: dict[str, Any], date_format: str
+) -> None:
+    """Convert a dictionary to XML tags.
+
+    This function iterates through the dictionary and creates XML tags
+    for each key-value pair. It handles different data types and formats
+    dates according to the specified format.
+
+    Args:
+        parent (ElementTree.Element): The parent element.
+        data (dict[str, Any]): The dictionary to be converted.
+        date_format (str): The date format to use.
+    """
+    for k, v in data.items():
+        tag = ElementTree.SubElement(parent, k)
+        if isinstance(v, list):
+            # Scalar list elements (lines parsed without grouping, an
+            # `amounts:` list, ...) used to fall through to
+            # `dict_to_tags(item, e, ...)` which calls `e.items()` and blew up
+            # with `AttributeError: 'float' object has no attribute 'items'`.
+            # Type-dispatch on each element instead.
+            for e in v:
+                item = ElementTree.SubElement(tag, "item")
+                if isinstance(e, dict):
+                    dict_to_tags(item, e, date_format)
+                else:
+                    _set_scalar(item, e, date_format)
+        else:
+            _set_scalar(tag, v, date_format)
+
+
+def _set_scalar(tag: ElementTree.Element, value: Any, date_format: str) -> None:
+    """Set ``tag.text`` from a single scalar value (str/number/date)."""
+    if isinstance(value, str):
+        tag.text = value
+    elif isinstance(value, int | float):
+        tag.text = str(value)
+    elif isinstance(value, datetime.date):
+        tag.text = value.strftime(date_format)
+
+
+def write_to_file(
+    data: list[dict[str, Any]], path: str, date_format: str = "%Y-%m-%d"
+) -> None:
+    """Export extracted fields to xml.
+
+    Appends .xml to path if missing and generates xml file in specified directory,
+    if not then in root.
+
+    Args:
+        data (list[dict[str, Any]]): List of dictionaries containing extracted fields.
+        path (str): Path to save the generated XML file.
+        date_format (str, optional): Date format used in generated file.
+            Defaults to "%Y-%m-%d".
+
+    Notes:
+        Provide a filename to the `path` parameter.
+
+    Examples:
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> from invoice2data.output import to_xml
+        >>> data = [{'amount': 123.45, 'date': datetime.datetime(2024, 1, 1)}]
+        >>> path = Path(tempfile.mkdtemp()) / "invoice.xml"
+        >>> to_xml.write_to_file(data, str(path))
+        >>> path.exists()
+        True
+    """
+    tag_data = ElementTree.Element("data")
+    with open_output(path, ".xml") as xml_file:
+        for i, line in enumerate(data):
+            tag_item = ElementTree.SubElement(tag_data, "item")
+            tag_item.set("id", str(i + 1))
+            dict_to_tags(tag_item, line, date_format)
+
+        xml_file.write(prettify(tag_data))

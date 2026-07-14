@@ -1,0 +1,4 @@
+services:
+  telegram-mcp:
+    build: .
+    image: telegram-account-mcp:local

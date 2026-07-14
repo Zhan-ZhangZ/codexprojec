@@ -1,0 +1,8 @@
+*.log
+*.smcl
+logs/
+__pycache__/
+results/_repro_check/
+results/_repro_stata_full.log
+results/_stata_core.txt
+results/_stata_ado_versions.tsv

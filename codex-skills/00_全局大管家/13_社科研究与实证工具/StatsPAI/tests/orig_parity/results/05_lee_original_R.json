@@ -1,0 +1,40 @@
+{
+  "module": "05_lee_original",
+  "side": "R",
+  "rows": [
+    {
+      "module": "05_lee_original",
+      "side": "R",
+      "statistic": "rd_jump_conventional",
+      "estimate": 7.41413082294888,
+      "se": 1.4587160216775,
+      "n": 1390,
+      "published": 7.99,
+      "citation": "Lee (2008) Table 1; CCT (2014) Table 4 conventional sharp-RD jump",
+      "extra": {
+        "h_left": 17.7543972960561,
+        "h_right": 17.7543972960561
+      }
+    },
+    {
+      "module": "05_lee_original",
+      "side": "R",
+      "statistic": "rd_jump_robust",
+      "estimate": 7.50650248353038,
+      "se": 1.74125841386835,
+      "n": 1390,
+      "published": null,
+      "citation": "rdrobust::rdrobust bias-corrected robust point and SE",
+      "extra": {
+        "h_left": 17.7543972960561,
+        "h_right": 17.7543972960561
+      }
+    }
+  ],
+  "extra": {
+    "data_source": "rdrobust::rdrobust_RDsenate",
+    "n_obs": 1390,
+    "h_left": 17.7543972960561,
+    "h_right": 17.7543972960561
+  }
+}

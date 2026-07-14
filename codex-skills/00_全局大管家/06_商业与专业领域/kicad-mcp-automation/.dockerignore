@@ -1,0 +1,12 @@
+node_modules
+dist
+build
+coverage
+*.log
+.DS_Store
+.git
+.github
+.taskmaster
+.env
+.env.*
+*.md

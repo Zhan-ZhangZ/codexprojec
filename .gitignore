@@ -1,0 +1,67 @@
+# Large data / backup files
+*.zip
+incremental_packs/
+backups/
+增量包文件夹/
+备份包文件夹/
+
+# ============================================================
+# 🚫 仓库洁净度防线：只允许 codex-skills/ 目录上传云端
+# 除了以下白名单文件/目录外，其余一律禁止进入 Git 追踪。
+# ============================================================
+
+# 白名单（不被忽略的）：
+# - codex-skills/        (核心技能库)
+# - .gitignore           (Git 配置本身)
+# - README.md            (仓库说明，如有)
+
+# 黑名单：项目根目录下除白名单外的一切杂项
+scripts/
+其它项目归档/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Local environment configs
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node packages
+node_modules/
+
+# Local IDE configuration
+.agents/
+
+# Passwords
+密码区/
+
+# Untracked test and build files
+*.html
+*.zip
+ai-demo-miniprogram/
+config/
+*.png
+*.txt
+主图精修素材/
+

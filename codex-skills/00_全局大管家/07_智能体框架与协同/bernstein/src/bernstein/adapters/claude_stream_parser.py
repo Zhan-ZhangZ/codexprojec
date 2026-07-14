@@ -1,0 +1,376 @@
+"""Parse Claude Code --output-format stream-json events.
+
+Reads NDJSON lines from Claude Code's streaming output and extracts
+structured events for real-time TUI updates, tool-use tracking, and
+orchestrator dashboards.
+
+Event types handled:
+- assistant: text blocks and tool_use blocks
+- result: final result with cost/turn/duration metadata
+- system: system-level messages (init, error)
+
+See: https://docs.anthropic.com/en/docs/claude-code/cli-usage#output-formats
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
+
+# Block type constants from Claude Code stream-json format.
+_BLOCK_TEXT = "text"
+_BLOCK_TOOL_USE = "tool_use"
+_BLOCK_TOOL_RESULT = "tool_result"
+_BLOCK_THINKING = "thinking"
+
+# Top-level event type constants.
+_EVENT_ASSISTANT = "assistant"
+_EVENT_RESULT = "result"
+_EVENT_SYSTEM = "system"
+
+
+# Shared cast-type constants to avoid string duplication (Sonar S1192).
+_CAST_DICT_STR_ANY = "dict[str, Any]"
+
+# Maximum number of text blocks retained for deduplication.  Bounded LRU
+# prevents unbounded growth in long-running sessions.
+_SEEN_TEXT_MAX: int = 10_000
+
+
+class StreamEventType(StrEnum):
+    """Types of events extracted from Claude Code's stream-json output."""
+
+    TEXT = "text"
+    TOOL_USE_START = "tool_use_start"
+    TOOL_RESULT = "tool_result"
+    THINKING = "thinking"
+    RESULT = "result"
+    ERROR = "error"
+    SYSTEM = "system"
+
+
+@dataclass(frozen=True)
+class StreamEvent:
+    """A parsed event from Claude Code's NDJSON stream.
+
+    Attributes:
+        event_type: Categorised event type.
+        data: Event-specific payload.
+        raw: Original JSON dict for pass-through.
+    """
+
+    event_type: StreamEventType
+    data: dict[str, Any] = field(default_factory=dict[str, Any])
+    raw: dict[str, Any] = field(default_factory=dict[str, Any], repr=False)
+
+
+@dataclass
+class StreamParserState:
+    """Accumulated state from parsing a Claude Code stream.
+
+    Attributes:
+        text_blocks: All assistant text blocks seen.
+        tool_uses: All tool_use invocations with name and truncated input.
+        tool_results: All tool results with tool_use_id and content preview.
+        thinking_blocks: Extended thinking blocks.
+        result: Final result event data (None until stream ends).
+        total_cost_usd: Total cost from the result event.
+        num_turns: Number of turns from the result event.
+        duration_ms: Duration from the result event.
+        subtype: Result subtype (success, error_max_turns, etc.).
+        errors: Any error messages encountered.
+    """
+
+    text_blocks: list[str] = field(default_factory=list[str])
+    tool_uses: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
+    tool_results: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
+    thinking_blocks: list[str] = field(default_factory=list[str])
+    result: dict[str, Any] | None = None
+    total_cost_usd: float = 0.0
+    num_turns: int = 0
+    duration_ms: int = 0
+    subtype: str = ""
+    errors: list[str] = field(default_factory=list[str])
+
+
+class ClaudeStreamParser:
+    """Stateful parser for Claude Code's stream-json NDJSON output.
+
+    Processes one line at a time via :meth:`feed_line` and emits
+    :class:`StreamEvent` objects.  Accumulated state is available
+    via :attr:`state`.
+
+    Example::
+
+        parser = ClaudeStreamParser()
+        for line in stream:
+            events = parser.feed_line(line)
+            for event in events:
+                update_tui(event)
+    """
+
+    def __init__(self) -> None:
+        self.state = StreamParserState()
+        # Bounded LRU of recently-seen text blocks. OrderedDict
+        # gives O(1) membership test, O(1) move-to-end on hit, and O(1)
+        # FIFO eviction via popitem(last=False).
+        self._seen_text: OrderedDict[str, None] = OrderedDict()
+        # Partial-line buffer.  feed_line accumulates bytes/str here and
+        # only emits events once a complete NDJSON record (either a
+        # newline-terminated chunk or a string that parses as JSON) is
+        # available.  Handles byte-split chunks from streamed IO.
+        self._line_buffer: str = ""
+
+    def _remember_text(self, text: str) -> bool:
+        """Record a text block in the bounded LRU.
+
+        Returns True if the text was new (and therefore recorded);
+        False if it was already present (a duplicate).  Evicts the oldest
+        entry when capacity is exceeded.
+        """
+        if text in self._seen_text:
+            # Refresh recency so this block survives future evictions.
+            self._seen_text.move_to_end(text)
+            return False
+        self._seen_text[text] = None
+        if len(self._seen_text) > _SEEN_TEXT_MAX:
+            # Drop the oldest entry.  popitem(last=False) is O(1).
+            self._seen_text.popitem(last=False)
+        return True
+
+    def feed_line(self, line: str | bytes) -> list[StreamEvent]:
+        """Parse NDJSON input and return extracted events.
+
+        Accepts either a single complete NDJSON line or a partial chunk.
+        Input is appended to an internal buffer; events are only emitted
+        for complete records.  A record is considered complete when
+        terminated by ``\\n`` in the accumulated buffer, or when the
+        buffer alone parses as valid JSON (covers callers that pass one
+        full JSON line without a trailing newline).
+
+        Args:
+            line: A chunk (bytes or str) from Claude Code's stream-json
+                output.  May be partial - partial data is buffered until
+                a newline is seen or the buffer becomes parseable.
+
+        Returns:
+            List of StreamEvent objects extracted from any complete
+            records seen so far.  Empty if only partial data is buffered.
+        """
+        chunk = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else line
+        self._line_buffer += chunk
+        events: list[StreamEvent] = []
+
+        if "\n" in self._line_buffer:
+            # Split on newlines; keep the trailing remainder (post-last-\n)
+            # in the buffer for the next call.
+            parts = self._line_buffer.split("\n")
+            self._line_buffer = parts[-1]
+            for part in parts[:-1]:
+                events.extend(self._process_line(part))
+            return events
+
+        # No newline yet.  If the whole buffer parses as JSON, emit
+        # events and clear the buffer - this preserves back-compat with
+        # callers that feed one full record per call without a newline.
+        stripped = self._line_buffer.strip()
+        if stripped:
+            try:
+                json.loads(stripped)
+            except json.JSONDecodeError:
+                # Partial JSON - keep buffering.
+                return []
+            self._line_buffer = ""
+            events.extend(self._process_line(stripped))
+        return events
+
+    def _process_line(self, line: str) -> list[StreamEvent]:
+        """Parse a single already-complete NDJSON line into events."""
+        line = line.strip()
+        if not line:
+            return []
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError:
+            return []
+
+        if not isinstance(raw, dict):
+            return []
+
+        msg = cast(_CAST_DICT_STR_ANY, raw)
+        event_type = str(msg.get("type", ""))
+        events: list[StreamEvent] = []
+
+        match event_type:
+            case "assistant":
+                events.extend(self._parse_assistant(msg))
+            case "result":
+                events.extend(self._parse_result(msg))
+            case "system":
+                events.append(self._parse_system(msg))
+
+        return events
+
+    def feed_lines(self, lines: str) -> list[StreamEvent]:
+        """Parse multiple NDJSON lines (newline-separated) at once.
+
+        Args:
+            lines: Newline-separated NDJSON content.
+
+        Returns:
+            All StreamEvent objects extracted from the input.
+        """
+        all_events: list[StreamEvent] = []
+        for line in lines.splitlines():
+            all_events.extend(self._process_line(line))
+        return all_events
+
+    def _handle_text_block(self, block: dict[str, Any], msg: dict[str, Any]) -> StreamEvent | None:
+        """Handle a ``text`` content block, deduplicating by value."""
+        text = str(block.get("text", ""))
+        if not text:
+            return None
+        if not self._remember_text(text):
+            return None
+        self.state.text_blocks.append(text)
+        return StreamEvent(event_type=StreamEventType.TEXT, data={"text": text}, raw=msg)
+
+    def _handle_tool_use_block(self, block: dict[str, Any], msg: dict[str, Any]) -> StreamEvent:
+        """Handle a ``tool_use`` content block."""
+        tool_input = block.get("input", {})
+        record: dict[str, Any] = {
+            "name": str(block.get("name", "")),
+            "id": str(block.get("id", "")),
+            "input_preview": str(tool_input)[:200] if tool_input else "",
+        }
+        self.state.tool_uses.append(record)
+        return StreamEvent(event_type=StreamEventType.TOOL_USE_START, data=record, raw=msg)
+
+    def _handle_tool_result_block(self, block: dict[str, Any], msg: dict[str, Any]) -> StreamEvent:
+        """Handle a ``tool_result`` content block."""
+        result_content = str(block.get("content", ""))
+        record: dict[str, Any] = {
+            "tool_use_id": str(block.get("tool_use_id", "")),
+            "is_error": bool(block.get("is_error", False)),
+            "content_preview": result_content[:200] if result_content else "",
+        }
+        self.state.tool_results.append(record)
+        return StreamEvent(event_type=StreamEventType.TOOL_RESULT, data=record, raw=msg)
+
+    def _handle_thinking_block(self, block: dict[str, Any], msg: dict[str, Any]) -> StreamEvent | None:
+        """Handle a ``thinking`` content block."""
+        thinking_text = str(block.get("thinking", ""))
+        if not thinking_text:
+            return None
+        self.state.thinking_blocks.append(thinking_text)
+        return StreamEvent(event_type=StreamEventType.THINKING, data={"thinking": thinking_text}, raw=msg)
+
+    def _parse_assistant(self, msg: dict[str, Any]) -> list[StreamEvent]:
+        """Extract text and tool_use blocks from an assistant message.
+
+        Args:
+            msg: Parsed JSON dict with type="assistant".
+
+        Returns:
+            List of events from the content blocks.
+        """
+        message_raw = msg.get("message", {})
+        if not isinstance(message_raw, dict):
+            return []
+        content_raw = cast(_CAST_DICT_STR_ANY, message_raw).get("content", [])
+        if not isinstance(content_raw, list):
+            return []
+
+        _BLOCK_HANDLERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], StreamEvent | None]] = {
+            "text": self._handle_text_block,
+            "tool_use": self._handle_tool_use_block,
+            "tool_result": self._handle_tool_result_block,
+            "thinking": self._handle_thinking_block,
+        }
+
+        events: list[StreamEvent] = []
+        for block_raw in cast("list[Any]", content_raw):
+            if not isinstance(block_raw, dict):
+                continue
+            block = cast(_CAST_DICT_STR_ANY, block_raw)
+            handler = _BLOCK_HANDLERS.get(str(block.get("type", "")))
+            if handler is not None:
+                event = handler(block, msg)
+                if event is not None:
+                    events.append(event)
+        return events
+
+    def _parse_result(self, msg: dict[str, Any]) -> list[StreamEvent]:
+        """Extract result metadata from a result event.
+
+        Args:
+            msg: Parsed JSON dict with type="result".
+
+        Returns:
+            Single-element list with the result event.
+        """
+        result_text = str(msg.get("result", ""))
+        subtype = str(msg.get("subtype", "success"))
+        cost = float(msg.get("total_cost_usd", 0.0))
+        turns = int(msg.get("num_turns", 0))
+        duration = int(msg.get("duration_ms", 0))
+        is_error = bool(msg.get("is_error", False))
+
+        self.state.result = {
+            "result": result_text,
+            "subtype": subtype,
+            "total_cost_usd": cost,
+            "num_turns": turns,
+            "duration_ms": duration,
+            "is_error": is_error,
+        }
+        self.state.total_cost_usd = cost
+        self.state.num_turns = turns
+        self.state.duration_ms = duration
+        self.state.subtype = subtype
+
+        if is_error:
+            self.state.errors.append(result_text)
+
+        return [
+            StreamEvent(
+                event_type=StreamEventType.RESULT,
+                data=self.state.result,
+                raw=msg,
+            )
+        ]
+
+    def _parse_system(self, msg: dict[str, Any]) -> StreamEvent:
+        """Extract system-level messages.
+
+        Args:
+            msg: Parsed JSON dict with type="system".
+
+        Returns:
+            A system event.
+        """
+        message = str(msg.get("message", ""))
+        subtype = str(msg.get("subtype", ""))
+
+        if subtype == "error" or "error" in message.lower():
+            self.state.errors.append(message)
+            return StreamEvent(
+                event_type=StreamEventType.ERROR,
+                data={"message": message, "subtype": subtype},
+                raw=msg,
+            )
+
+        return StreamEvent(
+            event_type=StreamEventType.SYSTEM,
+            data={"message": message, "subtype": subtype},
+            raw=msg,
+        )

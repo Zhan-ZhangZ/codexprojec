@@ -1,0 +1,13 @@
+issuer: Apps4Rent LLC
+fields:
+  amount: Total\$(\d+.\d+)USD
+  date: InvoiceDate:(\d+/\d+/\d+)
+  invoice_number: 'Invoice#(\d+)'
+keywords:
+  - Apps4Rent
+  - Maplewood
+options:
+  date_formats:
+    - '%m/%d/%Y'
+  currency: USD
+  remove_whitespace: true

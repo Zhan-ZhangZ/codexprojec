@@ -1,0 +1,80 @@
+export interface PathACL {
+    forbidden: string[];
+    readOnly: string[];
+    writable: string[];
+}
+
+export interface CurrentSettings {
+    pathACL(): PathACL;
+    bearerToken(): string | undefined;
+    serverPort(): number;
+    serverHost(): string;
+    serverVersion(): string;
+    normalizeQuotes(): boolean;
+}
+
+export interface VaultAsMCPSettings {
+    serverPort: number;
+    serverHost: string;
+    autoStart: boolean;
+    debug: boolean;
+    bearerToken?: string;
+    pathACL: PathACL;
+    normalizeQuotes: boolean;
+}
+
+export type ServerStatus = "stopped" | "running" | "error";
+
+export interface Logger {
+    debug(message: string, ...params: unknown[]): void;
+    warn(message: string, ...params: unknown[]): void;
+    error(error: unknown, message?: string, ...params: unknown[]): string;
+}
+
+// From Fastify
+export interface ConnectionError extends Error {
+    code: string;
+}
+
+export interface MCPRequest {
+    jsonrpc: "2.0";
+    id?: string | number;
+    method: string;
+    params?: Record<string, unknown>;
+}
+
+export interface MCPResponse {
+    jsonrpc: "2.0";
+    id?: string | number;
+    result?: unknown;
+    error?: {
+        code: number;
+        message: string;
+        data?: unknown;
+    };
+}
+
+export interface MCPToolAnnotations {
+    /** If true, the tool does not modify its environment */
+    readOnlyHint?: boolean;
+    /** If true, the tool may perform destructive updates */
+    destructiveHint?: boolean;
+    /** If true, repeated calls with same args have no additional effect */
+    idempotentHint?: boolean;
+    /** If true, tool interacts with external entities */
+    openWorldHint?: boolean;
+}
+
+export interface MCPToolSchema {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+}
+
+export interface MCPTool {
+    name: string;
+    description: string;
+    inputSchema: MCPToolSchema;
+    outputSchema?: MCPToolSchema;
+    annotations?: MCPToolAnnotations;
+}

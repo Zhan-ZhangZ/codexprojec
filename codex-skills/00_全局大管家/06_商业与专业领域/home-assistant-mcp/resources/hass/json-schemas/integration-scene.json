@@ -1,0 +1,80 @@
+{
+  "anyOf": [
+    { "$ref": "#/definitions/Item" },
+    { "type": "array", "items": { "$ref": "#/definitions/Item" } }
+  ],
+  "definitions": {
+    "Item": {
+      "type": "object",
+      "properties": {
+        "entities": {
+          "description": "Entities to control and their desired state.\nhttps://www.home-assistant.io/integrations/scene#entities",
+          "anyOf": [
+            { "type": "string", "pattern": "^!include_dir_named .*$" },
+            { "type": "string", "pattern": "^!include_dir_named\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_named\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_named\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_named\f.*$" },
+            { "type": "string", "pattern": "^!include_dir_named\u000b.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_named .*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_named\r.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_named\n.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_named\t.*$" },
+            { "type": "string", "pattern": "^!include_dir_merge_named\f.*$" },
+            {
+              "type": "string",
+              "pattern": "^!include_dir_merge_named\u000b.*$"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  { "$ref": "#/definitions/ItemEntity" },
+                  { "type": ["string", "number", "boolean"] }
+                ]
+              }
+            }
+          ]
+        },
+        "icon": {
+          "description": "The icon that shows in the frontend.\nhttps://www.home-assistant.io/integrations/scene#icon",
+          "type": "string"
+        },
+        "id": {
+          "description": "A unique identifier for this automation.\nDo not use the same twice, ever!\nhttps://www.home-assistant.io/integrations/scene",
+          "type": "string"
+        },
+        "name": {
+          "description": "Friendly name of scene.\nhttps://www.home-assistant.io/integrations/scene#name",
+          "type": "string"
+        },
+        "metadata": {
+          "description": "Additional data for merely for use with the frontend. Has no functional effect."
+        }
+      },
+      "additionalProperties": false,
+      "required": ["entities", "name"]
+    },
+    "ItemEntity": {
+      "additionalProperties": true,
+      "type": "object",
+      "properties": {
+        "state": { "type": "string" },
+        "brightness": {
+          "minimum": 0,
+          "maximum": 255,
+          "type": ["string", "number"]
+        },
+        "source": { "type": "string" },
+        "color_temp": { "minimum": 1, "type": ["string", "number"] },
+        "xy_color": {},
+        "transition": {
+          "pattern": "DEPRECATED^",
+          "items": { "pattern": "DEPRECATED^" },
+          "description": "DEPRECATED.\n\nUsing transitions on scene using this property is no longer supported.\nAlternative: https://www.home-assistant.io/docs/scene/#using-scene-transitions"
+        }
+      }
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

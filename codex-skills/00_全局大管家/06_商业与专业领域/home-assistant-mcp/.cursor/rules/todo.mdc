@@ -1,0 +1,63 @@
+---
+description: Working with the TODO.md file
+globs: TODO.md
+alwaysApply: false
+---
+
+# Todo Rule
+
+This rule defines guidelines for working with TODO items in the MCP Home Assistant Server project.
+
+## Format Requirements
+
+- All TODO items should be written in markdown format using checkboxes
+- Each TODO item should be maximum 72 characters long
+- Use `- [ ]` for incomplete tasks and `- [x]` for completed tasks
+- Group related tasks under appropriate headers with ## or ### markdown syntax
+- Keep task descriptions concise but clear - summarize the task efficiently
+- Tasks should be ordered by dependency (items that depend on others come later)
+
+## Structure
+
+TODO lists should be structured as follows:
+
+```markdown
+# Project Name - TODO List
+
+## Main Category
+
+- [ ] Task 1 description (max 72 chars)
+- [ ] Task 2 description (max 72 chars)
+
+### Subcategory
+
+- [ ] More specific task 1
+- [ ] More specific task 2
+```
+
+## Complexity Guidelines
+
+- Each task should represent a single unit of work
+- Complex tasks should be broken down into subtasks
+- If a task requires multiple steps, create a subtask list beneath it
+- Avoid overly technical language in task descriptions
+
+## Interaction Rules
+
+When working with TODOs:
+
+1. Always maintain the maximum 72 character limit per task
+2. Keep the hierarchical structure intact
+3. Group similar tasks together under appropriate headers
+4. Mark tasks as complete with `- [x]` syntax when finished
+5. Do not delete completed tasks (mark them complete instead)
+6. Add new tasks at the appropriate section, not just at the end
+
+## Formatting
+
+Use Prettier to maintain consistent formatting:
+```bash
+npx prettier -c -w TODO.md
+```
+
+The todo.mdc rule helps ensure consistent TODO management across the project.

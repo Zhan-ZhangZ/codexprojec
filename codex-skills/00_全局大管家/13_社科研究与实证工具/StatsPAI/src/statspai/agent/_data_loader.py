@@ -1,0 +1,295 @@
+"""Data-file loading for the MCP layer.
+
+Pulled out of ``mcp_server.py`` so the JSON-RPC dispatch file stays
+focused on protocol concerns. Public surface mirrors what the server
+needs:
+
+* :func:`load_dataframe(path, columns=, sample_n=)` — entry point.
+* :func:`max_data_bytes` / :func:`is_remote_url` — config / predicate.
+
+Supported formats: ``.csv`` / ``.tsv`` / ``.txt`` / ``.parquet`` /
+``.pq`` / ``.feather`` / ``.arrow`` / ``.xlsx`` / ``.xls`` / ``.dta``
+(Stata) / ``.json`` / ``.jsonl``. Schemes: ``file://``, ``s3://``,
+``gs://``, ``https://``, ``http://``.
+
+Local loads are LRU-cached by ``(path, mtime, columns_key)`` so
+repeated tools/call invocations on the same file are O(1).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import functools
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from urllib.parse import unquote, urlparse, urlunparse
+
+from ..exceptions import MethodIncompatibility
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+
+#: Default max file size (bytes) the server will load. A misconfigured
+#: client pointing at a 50GB parquet will OOM the host otherwise.
+#: Override via ``STATSPAI_MCP_MAX_DATA_BYTES`` (e.g. ``5_000_000_000``);
+#: set to ``0`` to disable the check.
+DEFAULT_MAX_DATA_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
+
+
+def max_data_bytes() -> int:
+    raw = os.environ.get("STATSPAI_MCP_MAX_DATA_BYTES")
+    if raw is None:
+        return DEFAULT_MAX_DATA_BYTES
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_DATA_BYTES
+
+
+def is_remote_url(path: str) -> bool:
+    return path.startswith(("s3://", "gs://", "https://", "http://", "file://"))
+
+
+def _sanitize_url(url: str) -> str:
+    """Drop query/fragment tokens before echoing a remote URL to clients."""
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
+@functools.lru_cache(maxsize=8)
+def _sha256_file(path: str, mtime_ns: int, size: int) -> str:
+    # mtime_ns and size are cache keys; the reader only needs the path.
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def data_provenance(
+    path: str,
+    columns: Optional[List[str]] = None,
+    sample_n: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Return a compact provenance record for an MCP ``data_path``.
+
+    Local files get size, mtime, and a full SHA-256 hash. Remote URLs are
+    deliberately not hashed by StatsPAI because the bytes may require
+    provider-specific auth and repeated downloads; the sanitized URL is
+    still recorded so table notes can point back to the upstream source.
+    """
+    # Local vs remote must NOT be decided via urlparse's scheme detection:
+    # urlparse(r"C:\data\x.csv") reads the Windows drive letter as a
+    # single-char scheme ("c") and strips the drive from .path, which made
+    # data_provenance tag a local Windows file as remote and skip the
+    # SHA-256 (a real bug surfaced by the 2026-06-23 full-matrix run on
+    # windows-latest — local paths worked on POSIX only because an empty
+    # urlparse scheme falls back to "file"). Decide with the same prefix
+    # test load_dataframe uses; treat file:// as local since it is hashable.
+    if path.startswith(("s3://", "gs://", "https://", "http://")):
+        suffix_source = unquote(urlparse(path).path) or path
+        out: Dict[str, Any] = {
+            "source": _sanitize_url(path),
+            "scheme": urlparse(path).scheme,
+            "source_type": "remote",
+            "format": Path(suffix_source).suffix.lower().lstrip("."),
+        }
+        if columns:
+            out["columns_requested"] = list(columns)
+        if sample_n is not None:
+            out["sample_n"] = int(sample_n)
+            out["sample_seed"] = 0
+        out["hash_status"] = "not_hashed_remote"
+        return out
+
+    # Local: a bare absolute path (POSIX or Windows) or a file:// URL.
+    # Echo a bare caller path verbatim so provenance round-trips exactly
+    # (no drive-letter case folding); only file:// is unwrapped to a path.
+    if path.startswith("file://"):
+        local_path = unquote(urlparse(path).path)
+    else:
+        local_path = path
+    out = {
+        "source": local_path,
+        "scheme": "file",
+        "source_type": "local",
+        "format": Path(local_path).suffix.lower().lstrip("."),
+    }
+    if columns:
+        out["columns_requested"] = list(columns)
+    if sample_n is not None:
+        out["sample_n"] = int(sample_n)
+        out["sample_seed"] = 0
+
+    try:
+        stat = os.stat(local_path)
+        sha256 = _sha256_file(local_path, stat.st_mtime_ns, stat.st_size)
+    except OSError as e:
+        out["hash_status"] = f"unavailable: {type(e).__name__}"
+        return out
+
+    out["size_bytes"] = stat.st_size
+    out["mtime_ns"] = stat.st_mtime_ns
+    out["sha256"] = sha256
+    out["hash_status"] = "sha256"
+    return out
+
+
+def load_dataframe(
+    path: str, columns: Optional[List[str]] = None, sample_n: Optional[int] = None
+) -> "pd.DataFrame":
+    """Load a DataFrame from a local path or remote URL.
+
+    Parameters
+    ----------
+    path : str
+        Absolute filesystem path or one of: ``file://``, ``s3://``,
+        ``gs://``, ``https://``, ``http://``.
+    columns : list of str, optional
+        Column projection. Honoured by parquet / feather / stata
+        readers; for CSV we read all columns then sub-select (read_csv's
+        ``usecols`` would also work but mismatched names raise; we want
+        the server to be permissive and let the estimator surface
+        column-name errors with rich remediation).
+    sample_n : int, optional
+        Uniform random subsample size (seed=0, deterministic).
+        Applied AFTER the projection.
+
+    Notes
+    -----
+    Caches the materialised frame keyed by ``(path, mtime, columns)``
+    so repeated tool calls on the same file are O(1) after the first
+    load.
+    """
+    sample_size = None
+    if sample_n is not None:
+        try:
+            sample_size = int(sample_n)
+        except (TypeError, ValueError):
+            raise MethodIncompatibility(
+                f"data_sample_n must be a positive integer, got {sample_n!r}"
+            )
+        if sample_size < 1:
+            raise MethodIncompatibility(
+                f"data_sample_n must be a positive integer, got {sample_n!r}"
+            )
+
+    if is_remote_url(path):
+        # Remote — defer all guard rails to the underlying loader; we
+        # can't ``os.path.exists`` an s3 URL, and pandas/storage_options
+        # error messages are rich enough.
+        df = _load_remote(path, columns=columns)
+    else:
+        if not os.path.isabs(path):
+            raise MethodIncompatibility(
+                f"data_path must be absolute or a URL, got {path!r}"
+            )
+        try:
+            stat = os.stat(path)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"No such file: {path}")
+        except OSError as e:
+            raise MethodIncompatibility(
+                f"Could not read data file metadata: {path!r}: {e}"
+            ) from e
+        size = stat.st_size
+        cap = max_data_bytes()
+        if cap and size > cap:
+            raise MethodIncompatibility(
+                f"data file is {size:,} bytes; exceeds "
+                f"STATSPAI_MCP_MAX_DATA_BYTES={cap:,}. "
+                f"Pass data_sample_n=<N> for a random subsample, or "
+                f"raise the limit with the env var."
+            )
+        mtime = stat.st_mtime
+        df = _load_local_cached(path, mtime, tuple(columns or ()))
+
+    if columns:
+        keep = [c for c in columns if c in df.columns]
+        if keep:
+            df = df[keep]
+    if sample_size is not None and len(df) > sample_size:
+        df = df.sample(n=sample_size, random_state=0).reset_index(drop=True)
+    return df
+
+
+@functools.lru_cache(maxsize=8)
+def _load_local_cached(
+    path: str,
+    mtime: float,
+    columns_key: tuple,  # noqa: ARG001 — mtime invalidates
+) -> "pd.DataFrame":
+    """LRU-cached local loader. ``mtime`` busts the cache on file edits."""
+    import pandas as pd
+
+    lower = path.lower()
+    cols = list(columns_key) or None
+    if lower.endswith((".csv", ".tsv", ".txt")):
+        sep = "\t" if lower.endswith(".tsv") else ","
+        return pd.read_csv(path, sep=sep, usecols=cols)
+    if lower.endswith((".parquet", ".pq")):
+        return pd.read_parquet(path, columns=cols)
+    if lower.endswith((".feather", ".arrow")):
+        return pd.read_feather(path, columns=cols)
+    if lower.endswith((".xlsx", ".xls")):
+        return pd.read_excel(path, usecols=cols)
+    if lower.endswith(".dta"):
+        # Stata native — alignment with Stata is StatsPAI's tagline,
+        # so being able to read .dta is non-negotiable.
+        return pd.read_stata(path, columns=cols)
+    if lower.endswith(".jsonl"):
+        df = pd.read_json(path, lines=True)
+        return df[cols] if cols else df
+    if lower.endswith(".json"):
+        df = pd.read_json(path)
+        return df[cols] if cols else df
+    raise MethodIncompatibility(
+        f"Unsupported file extension: {path!r}. Supported: "
+        ".csv/.tsv/.txt/.parquet/.pq/.feather/.arrow/.xlsx/.xls/.dta/"
+        ".json/.jsonl"
+    )
+
+
+def _load_remote(url: str, columns: Optional[List[str]] = None) -> "pd.DataFrame":
+    """Load a DataFrame from a remote URL via pandas storage backends.
+
+    Pandas dispatches s3:// / gs:// / https:// to fsspec. Authentication
+    is configured by the host environment (e.g. AWS credentials chain);
+    we don't smuggle secrets through the MCP layer.
+    """
+    import pandas as pd
+
+    lower = url.split("?", 1)[0].lower()
+    cols = list(columns) if columns else None
+    if lower.endswith((".csv", ".tsv", ".txt")):
+        sep = "\t" if lower.endswith(".tsv") else ","
+        return pd.read_csv(url, sep=sep, usecols=cols)
+    if lower.endswith((".parquet", ".pq")):
+        return pd.read_parquet(url, columns=cols)
+    if lower.endswith((".feather", ".arrow")):
+        return pd.read_feather(url, columns=cols)
+    if lower.endswith(".dta"):
+        return pd.read_stata(url, columns=cols)
+    if lower.endswith(".jsonl"):
+        df = pd.read_json(url, lines=True)
+        return df[cols] if cols else df
+    if lower.endswith(".json"):
+        df = pd.read_json(url)
+        return df[cols] if cols else df
+    if lower.endswith((".xlsx", ".xls")):
+        return pd.read_excel(url, usecols=cols)
+    raise MethodIncompatibility(
+        f"Unsupported remote extension in {url!r}. "
+        f"See load_dataframe docs for supported formats."
+    )
+
+
+__all__ = [
+    "DEFAULT_MAX_DATA_BYTES",
+    "max_data_bytes",
+    "is_remote_url",
+    "data_provenance",
+    "load_dataframe",
+]

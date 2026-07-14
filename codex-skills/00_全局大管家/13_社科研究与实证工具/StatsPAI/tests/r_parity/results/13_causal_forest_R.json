@@ -1,0 +1,49 @@
+{
+  "module": "13_causal_forest",
+  "side": "R",
+  "rows": [
+    {
+      "module": "13_causal_forest",
+      "side": "R",
+      "statistic": "ate_causal_forest",
+      "estimate": 1.01174155159403,
+      "se": 0.0354464023023701,
+      "ci_lo": 0.942267879699866,
+      "ci_hi": 1.08121522348819,
+      "n": 4000,
+      "extra": []
+    },
+    {
+      "module": "13_causal_forest",
+      "side": "R",
+      "statistic": "att_causal_forest",
+      "estimate": 1.00588506749913,
+      "se": 0.0374379495509512,
+      "ci_lo": 0.932508034724242,
+      "ci_hi": 1.07926210027403,
+      "n": 4000,
+      "extra": []
+    }
+  ],
+  "extra": {
+    "num.trees": [2000],
+    "seed": [42],
+    "estimator": ["AIPW doubly-robust (grf)"]
+  },
+  "provenance": {
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "aarch64-apple-darwin20",
+    "running": "macOS Tahoe 26.5",
+    "captured_via": "tests/r_parity/_common.R::write_results",
+    "packages": {
+      "grf": "2.6.1",
+      "compiler": "4.5.2",
+      "Matrix": "1.7-4",
+      "tools": "4.5.2",
+      "Rcpp": "1.1.1-1.1",
+      "grid": "4.5.2",
+      "jsonlite": "2.0.0",
+      "lattice": "0.22-7"
+    }
+  }
+}
