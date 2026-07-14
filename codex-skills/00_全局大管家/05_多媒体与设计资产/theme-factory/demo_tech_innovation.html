@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tech Innovation 主题演示 - Codex Skill Pack</title>
+    <style>
+        :root {
+            --primary-accent: #0066ff;   /* Electric Blue */
+            --highlight: #00ffff;         /* Neon Cyan */
+            --bg-dark: #121212;           /* Deep backgrounds */
+            --card-bg: #1e1e1e;           /* Card background */
+            --text-main: #ffffff;         /* Clean text */
+            --text-muted: #a0a0a0;        /* Muted description */
+            --font-family: 'DejaVu Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: var(--font-family);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Ambient Glow Background */
+        .glow-sphere {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 102, 255, 0.15) 0%, rgba(0, 255, 255, 0.05) 50%, rgba(0,0,0,0) 100%);
+            top: 10%;
+            left: 15%;
+            z-index: -1;
+            filter: blur(40px);
+            animation: pulse 8s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(1.2); opacity: 1; }
+        }
+
+        /* Glassmorphism Container */
+        .container {
+            width: 85%;
+            max-width: 900px;
+            background: rgba(30, 30, 30, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 48px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+            box-sizing: border-box;
+        }
+
+        /* Title Style */
+        h1 {
+            font-size: 48px;
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--text-main) 30%, var(--highlight) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: var(--text-muted);
+            margin-bottom: 40px;
+            line-height: 1.6;
+        }
+
+        /* Theme Badges */
+        .badge-container {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            background: rgba(0, 102, 255, 0.1);
+            border: 1px solid rgba(0, 102, 255, 0.3);
+            color: var(--highlight);
+            padding: 8px 16px;
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        /* Feature Cards */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(0, 102, 255, 0.1), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(0, 255, 255, 0.3);
+            box-shadow: 0 10px 25px rgba(0, 255, 255, 0.1);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 12px;
+            color: var(--text-main);
+            position: relative;
+            z-index: 1;
+        }
+
+        .card-desc {
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.5;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Interactive Call-to-Action */
+        .cta-btn {
+            background: linear-gradient(135deg, var(--primary-accent), #0044bb);
+            color: var(--text-main);
+            border: none;
+            padding: 16px 36px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 102, 255, 0.3);
+            display: inline-block;
+            text-decoration: none;
+        }
+
+        .cta-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 255, 255, 0.4);
+            background: linear-gradient(135deg, #0077ff, var(--primary-accent));
+        }
+
+        .cta-btn:active {
+            transform: translateY(1px);
+        }
+    </style>
+</head>
+<body>
+    <div class="glow-sphere"></div>
+    <div class="container">
+        <div class="badge-container">
+            <div class="badge">Theme: Tech Innovation</div>
+            <div class="badge">Font: DejaVu Sans</div>
+            <div class="badge">Accent: Electric Blue</div>
+        </div>
+        <h1>科技创新与智能体界面</h1>
+        <p class="subtitle">
+            此界面由 <code>theme-factory</code> 技能的 <b>Tech Innovation</b> 设计规范所渲染。它继承了标志性的电光蓝主调与霓虹青微光，并通过磨砂玻璃拟态（Glassmorphism）与网格磁贴布局展现前沿科技质感，完美契合软件发布与大模型交互。
+        </p>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">🔌 智能模块加载</div>
+                <div class="card-desc">自动捕获 YAML 格式的 SKILL.md 定义，通过反射机制将业务方法编译进 LLM 上下文。</div>
+            </div>
+            <div class="card">
+                <div class="card-title">🧠 独立上下文绑定</div>
+                <div class="card-desc">在不依赖外部数据库的情况下，通过设计好的 Prompt Workflow 为智能体执行提供可靠边界。</div>
+            </div>
+            <div class="card">
+                <div class="card-title">⚡ 高速渲染引擎</div>
+                <div class="card-desc">利用 OS 原生指令和高级缓存管道，确保在执行多并发任务时极速响应不发生阻塞。</div>
+            </div>
+        </div>
+
+        <a href="#" class="cta-btn">触发测试完毕 · 主题完全激活</a>
+    </div>
+</body>
+</html>

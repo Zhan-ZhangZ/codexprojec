@@ -1,0 +1,36 @@
+Issue date: 2022-10-22
+Issuer: Lines Tests
+Invoice number: 9999/10/2022
+Total: 50.00 EUR
+
+Lines with multiple patterns
+
+
+Lines start
+
+Group: Mammals
+1. Hedgehog
+2. Squirrel
+
+Group: Birds
+Subgroup: Flying
+3. Raven
+4. Owl
+5. Crow
+Subgroup: Flightless
+6. Penguin
+7. Ostrich
+
+Lines end
+
+
+No  Angle [°]  Length [cm]
+1   30         30
+2   45         40
+3   90         60
+Count: 3
+
+No  Length [cm]  Angle [°]
+4   80           135
+5   100          180
+Count: 2

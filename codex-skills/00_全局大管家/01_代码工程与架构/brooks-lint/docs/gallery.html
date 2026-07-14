@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gallery — brooks-lint</title>
+<meta name="description" content="Real brooks-lint output across Python, TypeScript, Go, and Java — PR reviews, architecture audits with dependency graphs, tech debt assessments, and test quality reviews.">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<meta property="og:title" content="brooks-lint Gallery">
+<meta property="og:description" content="Real diagnostic output across four languages and four review modes.">
+<meta property="og:image" content="https://hyhmrright.github.io/brooks-lint/hero.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root{
+    --paper:#f7f1e4; --paper-2:#fbf6ec; --card:#fffdf8; --ink:#2a2520; --ink-soft:#5c5347;
+    --rule:#e3d8c2; --rule-soft:#ece2cf; --blue:#2d4a7c; --blue-soft:#e7edf5;
+    --green:#2b8a3e; --gold:#b07d2b; --red:#b23b3b; --ink-dark:#211d18;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"SF Mono","JetBrains Mono","Fira Code",Menlo,Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{font-family:var(--sans);color:var(--ink);background:var(--paper);line-height:1.65;-webkit-font-smoothing:antialiased;}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:radial-gradient(rgba(120,90,40,.04) 1px,transparent 1px);background-size:4px 4px;opacity:.6;}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px;position:relative;z-index:1;}
+  h1,h2,h3,.serif{font-family:var(--serif);font-weight:700;letter-spacing:-.01em;}
+  a{color:var(--blue);text-decoration:none;} a:hover{text-decoration:underline;}
+
+  nav{position:sticky;top:0;z-index:50;background:rgba(247,241,228,.85);backdrop-filter:saturate(140%) blur(10px);border-bottom:1px solid var(--rule);}
+  .nav-in{display:flex;align-items:center;gap:20px;height:64px;max-width:1000px;margin:0 auto;padding:0 24px;}
+  .brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-weight:700;font-size:19px;color:var(--ink);}
+  .brand img{width:30px;height:30px;border-radius:7px;}
+  .nav-links{display:flex;gap:22px;margin-left:auto;align-items:center;}
+  .nav-links a{color:var(--ink-soft);font-size:14.5px;}
+
+  header.hero{padding:60px 0 30px;text-align:center;}
+  header.hero h1{font-size:clamp(30px,4.6vw,46px);margin-bottom:14px;}
+  header.hero p{color:var(--ink-soft);font-size:17px;max-width:60ch;margin:0 auto;}
+  .meta-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:22px;}
+  .meta-pill{background:var(--card);border:1px solid var(--rule);border-radius:999px;padding:6px 14px;font-size:13px;color:var(--ink-soft);}
+  .meta-pill b{color:var(--ink);font-family:var(--serif);}
+
+  .filters{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:34px 0 8px;position:sticky;top:64px;z-index:40;
+    background:var(--paper);padding:12px 0;}
+  .filters button{font-family:var(--sans);font-size:14px;font-weight:600;cursor:pointer;border:1px solid var(--rule);
+    background:var(--card);color:var(--ink-soft);padding:8px 16px;border-radius:999px;}
+  .filters button.active{background:var(--ink);color:var(--paper-2);border-color:var(--ink);}
+
+  section.mode-group{padding:24px 0;}
+  .mode-title{font-family:var(--serif);font-size:24px;margin:18px 0 4px;display:flex;align-items:center;gap:10px;}
+  .mode-title .badge{font-family:var(--mono);font-size:12px;color:var(--gold);border:1px solid var(--rule);background:var(--card);padding:3px 10px;border-radius:999px;font-weight:400;}
+  .mode-sub{color:var(--ink-soft);font-size:14.5px;margin-bottom:18px;}
+
+  .case{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:24px 26px;margin-bottom:20px;
+    box-shadow:0 6px 20px rgba(80,55,15,.05);}
+  .case-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+  .lang{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 9px;border-radius:6px;color:#fff;}
+  .lang.ts{background:#2d4a7c;} .lang.py{background:#2b6a8a;} .lang.go{background:#1f8a9c;} .lang.java{background:#9c6b1f;}
+  .case-head h3{font-size:19px;flex:1;min-width:200px;}
+  .hs{font-family:var(--serif);font-weight:700;font-size:15px;padding:4px 12px;border-radius:999px;white-space:nowrap;}
+  .hs.bad{background:#f6dede;color:var(--red);} .hs.mid{background:#f6ecd4;color:var(--gold);} .hs.good{background:#def0e1;color:var(--green);}
+  .case-summary{font-style:italic;color:var(--ink-soft);font-size:14.5px;margin:8px 0 16px;}
+
+  details{margin:0 0 18px;border:1px solid var(--rule-soft);border-radius:10px;background:var(--paper-2);}
+  details summary{cursor:pointer;padding:11px 16px;font-size:13.5px;color:var(--ink-soft);font-weight:600;user-select:none;}
+  details[open] summary{border-bottom:1px solid var(--rule-soft);}
+  pre.code{margin:0;padding:18px;background:var(--ink-dark);color:#cfc7b6;border-radius:0 0 10px 10px;overflow-x:auto;
+    font-family:var(--mono);font-size:12.8px;line-height:1.6;}
+  pre.struct{background:var(--ink-dark);color:#cfc7b6;}
+
+  .finding{border-top:1px solid var(--rule-soft);padding-top:14px;margin-top:14px;}
+  .finding:first-of-type{border-top:none;padding-top:0;margin-top:0;}
+  .finding h4{font-family:var(--serif);font-size:16px;margin-bottom:8px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+  .finding h4 .pri{font-family:var(--mono);font-size:11px;color:var(--ink-soft);font-weight:400;}
+  .ln{font-size:13.5px;line-height:1.55;margin-bottom:5px;color:var(--ink-soft);}
+  .ln b{font-weight:700;}
+  .ln.sy b{color:var(--ink);} .ln.sr b{color:var(--blue);} .ln.cq b{color:var(--gold);} .ln.rx b{color:var(--green);}
+
+  .mermaid{background:var(--paper-2);border:1px solid var(--rule-soft);border-radius:10px;padding:16px;margin:4px 0 18px;text-align:center;}
+
+  table.dbt{width:100%;border-collapse:collapse;font-size:13.5px;margin:4px 0 16px;border:1px solid var(--rule-soft);border-radius:8px;overflow:hidden;}
+  table.dbt th,table.dbt td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--rule-soft);}
+  table.dbt th{font-family:var(--serif);background:var(--paper-2);}
+  table.dbt tr:last-child td{border-bottom:none;}
+
+  .note{background:var(--blue-soft);border-left:3px solid var(--blue);border-radius:8px;padding:11px 15px;font-size:13.5px;margin-top:6px;}
+  footer{border-top:1px solid var(--rule);padding:36px 0 56px;background:var(--paper-2);margin-top:30px;}
+  .foot-in{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;max-width:1000px;margin:0 auto;padding:0 24px;}
+  .foot-links{display:flex;gap:20px;flex-wrap:wrap;} .foot-links a{color:var(--ink-soft);font-size:14px;}
+  .foot-note{font-size:13px;color:var(--ink-soft);}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <a class="brand" href="index.html"><img src="logo.svg" alt="">brooks-lint</a>
+    <div class="nav-links">
+      <a href="index.html">← Home</a>
+      <a href="https://github.com/hyhmrright/brooks-lint" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>The Gallery</h1>
+    <p>Real diagnostic output from brooks-lint — generated by running the skill, then lightly abridged. Four languages, four review modes, every finding in the Iron Law form.</p>
+    <div class="meta-row">
+      <span class="meta-pill"><b>8</b> worked examples</span>
+      <span class="meta-pill"><b>4</b> review modes</span>
+      <span class="meta-pill"><b>4</b> languages</span>
+      <span class="meta-pill">Python · TypeScript · Go · Java</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="filters" id="filters">
+    <button data-filter="all" class="active">All</button>
+    <button data-filter="review">PR Review</button>
+    <button data-filter="audit">Architecture</button>
+    <button data-filter="debt">Tech Debt</button>
+    <button data-filter="test">Test Quality</button>
+  </div>
+</div>
+
+<main class="wrap">
+
+  <!-- ============ PR REVIEW ============ -->
+  <section class="mode-group" data-mode="review">
+    <h2 class="mode-title">PR Review <span class="badge">Mode 1</span></h2>
+    <p class="mode-sub">Diagnoses a diff against the six production decay risks (R1–R6).</p>
+
+    <article class="case">
+      <div class="case-head">
+        <span class="lang ts">TypeScript</span>
+        <h3>Seven-service payment processor</h3>
+        <span class="hs mid">55 / 100</span>
+      </div>
+      <p class="case-summary">A single method orchestrates seven services, creating a structural coupling trap where any change to payment, fraud, inventory, or notification touches the same method.</p>
+      <details>
+        <summary>▸ Input code</summary>
+<pre class="code">class PaymentProcessor {
+  constructor(
+    private db, private stripe, private mailer, private inventory,
+    private analytics, private taxCalc, private fraudDetection
+  ) {}
+
+  async processPayment(orderId, cardToken) {
+    const order = await this.db.orders.findById(orderId);
+    const tax = this.taxCalc.calculate(order.items, order.shippingAddress.state);
+    order.tax = tax;
+    const fraudScore = await this.fraudDetection.evaluate({ amount: order.total + tax, card: cardToken, ... });
+    if (fraudScore > 0.8) { await this.mailer.send(...); await this.analytics.track('fraud_hold', ...); return {...}; }
+    const charge = await this.stripe.charges.create({ amount: Math.round((order.total + tax) * 100), ... });
+    for (const item of order.items) {
+      await this.inventory.decrement(item.sku, item.quantity);
+      if (await this.inventory.getStock(item.sku) &lt; 10) { await this.mailer.send('warehouse@company.com', ...); }
+    }
+    order.status = 'paid'; order.chargeId = charge.id; await this.db.orders.save(order);
+    await this.mailer.send(order.customerEmail, 'Payment Received', `Charge: $${order.total + tax}`);
+    await this.analytics.track('payment_success', { orderId, amount: order.total + tax });
+    return { status: 'paid', chargeId: charge.id };
+  }
+}</pre>
+      </details>
+      <div class="finding">
+        <h4>🔴 Change Propagation — Seven-service constructor signals a God Class</h4>
+        <div class="ln sy"><b>Symptom:</b> One class injects seven dependencies; one method orchestrates all of them.</div>
+        <div class="ln sr"><b>Source:</b> Fowler — Refactoring — Divergent Change; Martin — Clean Architecture — SRP</div>
+        <div class="ln rx"><b>Remedy:</b> Decompose into FraudCheckService, InventoryDeductionService, PaymentNotifier — inject 3, not 7.</div>
+      </div>
+      <div class="finding">
+        <h4>🔴 Change Propagation — Inventory loop embeds warehouse notification policy</h4>
+        <div class="ln sy"><b>Symptom:</b> A low-stock check (<code>&lt; 10</code>) fires a warehouse email with hardcoded recipient inside the payment loop.</div>
+        <div class="ln sr"><b>Source:</b> Fowler — Refactoring — Shotgun Surgery; Hunt &amp; Thomas — Orthogonality</div>
+        <div class="ln rx"><b>Remedy:</b> Publish a <code>StockLevelChanged</code> domain event a separate notifier subscribes to.</div>
+      </div>
+      <div class="finding">
+        <h4>🟡 Knowledge Duplication — <code>order.total + tax</code> computed three times</h4>
+        <div class="ln sy"><b>Symptom:</b> The same expression appears on three lines with no shared name.</div>
+        <div class="ln sr"><b>Source:</b> Hunt &amp; Thomas — DRY; Fowler — Refactoring — Duplicate Code</div>
+        <div class="ln rx"><b>Remedy:</b> Expose a computed <code>order.grandTotal</code>.</div>
+      </div>
+      <div class="finding">
+        <h4>🟡 Domain Model Distortion — <code>Order</code> is a mutable data bag</h4>
+        <div class="ln sy"><b>Symptom:</b> <code>order.tax</code>, <code>order.status</code>, <code>order.chargeId</code> are all set externally; the object holds no behaviour.</div>
+        <div class="ln rx"><b>Remedy:</b> Give <code>Order</code> state-transition methods: <code>order.recordPayment(chargeId)</code>.</div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============ ARCHITECTURE ============ -->
+  <section class="mode-group" data-mode="audit">
+    <h2 class="mode-title">Architecture Audit <span class="badge">Mode 2</span></h2>
+    <p class="mode-sub">Maps module dependencies, renders a colour-coded graph, and flags layering and cycle violations.</p>
+
+    <article class="case">
+      <div class="case-head">
+        <span class="lang ts">TypeScript</span>
+        <h3>Dependency Inversion violation</h3>
+        <span class="hs mid">50 / 100</span>
+      </div>
+      <p class="case-summary">Domain entities import infrastructure directly, and a near-cycle forms between Product and PricingService.</p>
+      <pre class="mermaid">graph TD
+  subgraph API["API Layer"]
+    OrderController; UserController
+  end
+  subgraph Services["Service Layer"]
+    OrderService; PricingService; UserService
+  end
+  subgraph Domain["Domain Layer"]
+    Order; User; Product
+  end
+  subgraph Infra["Infrastructure Layer"]
+    PostgresClient; RedisCache; StripeClient
+  end
+  OrderController --> OrderService
+  UserController --> UserService
+  UserService --> OrderService
+  OrderService --> Order
+  OrderService --> PostgresClient
+  PricingService --> Product
+  PricingService --> StripeClient
+  Order --> PostgresClient
+  User --> RedisCache
+  Product --> PricingService
+  classDef critical fill:#ff6b6b,stroke:#c92a2a,color:#fff
+  classDef warning fill:#ffd43b,stroke:#e67700
+  classDef clean fill:#51cf66,stroke:#2b8a3e,color:#fff
+  class Order,User,Product critical
+  class OrderService,PricingService,UserService warning
+  class OrderController,UserController,PostgresClient,RedisCache,StripeClient clean</pre>
+      <div class="finding">
+        <h4>🔴 Dependency Disorder — Domain layer directly imports infrastructure</h4>
+        <div class="ln sy"><b>Symptom:</b> <code>Order.ts</code> imports <code>PostgresClient</code>; <code>User.ts</code> imports <code>RedisCache</code>.</div>
+        <div class="ln sr"><b>Source:</b> Martin — Clean Architecture — Dependency Inversion Principle</div>
+        <div class="ln rx"><b>Remedy:</b> Define <code>IOrderRepository</code>/<code>IUserRepository</code> in the domain; move infra refs to <code>infra/</code>.</div>
+      </div>
+      <div class="finding">
+        <h4>🔴 Dependency Disorder — Product → PricingService (upward dependency)</h4>
+        <div class="ln sy"><b>Symptom:</b> Near-cycle <code>PricingService → Product → PricingService</code>.</div>
+        <div class="ln sr"><b>Source:</b> Martin — Clean Architecture — Acyclic Dependencies Principle</div>
+        <div class="ln rx"><b>Remedy:</b> Pass pricing as a value object or define <code>IPricingPolicy</code> in the domain.</div>
+      </div>
+    </article>
+
+    <article class="case">
+      <div class="case-head">
+        <span class="lang go">Go</span>
+        <h3>Circular dependency across packages</h3>
+        <span class="hs bad">45 / 100</span>
+      </div>
+      <p class="case-summary"><code>auth → user → notification → auth</code> forms a strongly connected component — Go refuses to compile it.</p>
+      <pre class="mermaid">graph TD
+  subgraph pkg["pkg/"]
+    auth["auth"]; user["user"]; notification["notification"]; billing["billing"]
+  end
+  auth --> user
+  user --> notification
+  notification -.->|circular| auth
+  billing --> user
+  classDef critical fill:#ff6b6b,stroke:#c92a2a,color:#fff
+  classDef warning fill:#ffd43b,stroke:#e67700
+  class auth,user,notification critical
+  class billing warning</pre>
+      <div class="finding">
+        <h4>🔴 Dependency Disorder — Circular dependency auth → user → notification → auth</h4>
+        <div class="ln sy"><b>Symptom:</b> Three packages form a cycle; none compile, test, or deploy independently.</div>
+        <div class="ln sr"><b>Source:</b> Martin — Clean Architecture — Acyclic Dependencies Principle</div>
+        <div class="ln rx"><b>Remedy:</b> Extract interfaces into <code>pkg/contracts</code>; each package implements the interface its consumer defines.</div>
+      </div>
+      <div class="finding">
+        <h4>🟡 Domain Model Distortion — Bounded contexts crossed with no anti-corruption layer</h4>
+        <div class="ln sy"><b>Symptom:</b> Identity, profile, and notification contexts import each other with no translation layer.</div>
+        <div class="ln sr"><b>Source:</b> Evans — DDD — Bounded Context; Anti-Corruption Layer</div>
+        <div class="ln rx"><b>Remedy:</b> Define thin adapters at each context boundary.</div>
+      </div>
+    </article>
+
+    <article class="case">
+      <div class="case-head">
+        <span class="lang java">Java</span>
+        <h3>Textbook Clean Architecture</h3>
+        <span class="hs good">98 / 100</span>
+      </div>
+      <p class="case-summary">Dependencies flow inward, infra implements domain ports, no cycles. brooks-lint reports clean code as clean — and still offers one forward-looking suggestion.</p>
+      <pre class="mermaid">graph TD
+  subgraph API["API Layer"]
+    OrderController; UserController
+  end
+  subgraph Application["Application Layer"]
+    OrderService; UserService
+  end
+  subgraph Domain["Domain Layer"]
+    OrderModel["Order"]; UserModel["User"]; OrderRepository["OrderRepository (interface)"]; UserRepository["UserRepository (interface)"]
+  end
+  subgraph Infra["Infrastructure Layer"]
+    JpaOrderRepository; JpaUserRepository
+  end
+  OrderController --> OrderService
+  UserController --> UserService
+  OrderService --> OrderModel
+  OrderService --> OrderRepository
+  UserService --> UserModel
+  UserService --> UserRepository
+  JpaOrderRepository --> OrderRepository
+  JpaUserRepository --> UserRepository
+  classDef clean fill:#51cf66,stroke:#2b8a3e,color:#fff
+  class OrderController,UserController,OrderService,UserService,OrderModel,UserModel,OrderRepository,UserRepository,JpaOrderRepository,JpaUserRepository clean</pre>
+      <div class="finding">
+        <h4>🟢 Suggestion — Monitor application service growth</h4>
+        <div class="ln sy"><b>Symptom:</b> <code>OrderService</code> and <code>UserService</code> are symmetric siblings that may accrue responsibilities without a split policy.</div>
+        <div class="ln sr"><b>Source:</b> Brooks — The Mythical Man-Month — Conceptual Integrity</div>
+        <div class="ln rx"><b>Remedy:</b> Document a "one service per use-case cluster" rule now, before the pattern calcifies.</div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============ TECH DEBT ============ -->
+  <section class="mode-group" data-mode="debt">
+    <h2 class="mode-title">Tech Debt Assessment <span class="badge">Mode 3</span></h2>
+    <p class="mode-sub">Classifies debt across the decay risks and scores each finding by Pain × Spread priority.</p>
+
+    <article class="case">
+      <div class="case-head">
+        <span class="lang java">Java</span>
+        <h3>Shotgun Surgery across six files</h3>
+        <span class="hs mid">56 / 100</span>
+      </div>
+      <p class="case-summary">Adding a currency means editing six files in six unrelated layers — three Critical findings that share one root cause.</p>
+      <table class="dbt">
+        <thead><tr><th>Risk</th><th>Findings</th><th>Avg Priority</th><th>Classification</th></tr></thead>
+        <tbody>
+          <tr><td>Change Propagation</td><td>2</td><td>6.5</td><td>Mixed (1 Critical + 1 Scheduled)</td></tr>
+          <tr><td>Knowledge Duplication</td><td>1</td><td>9.0</td><td>Critical</td></tr>
+          <tr><td>Domain Model Distortion</td><td>1</td><td>9.0</td><td>Critical</td></tr>
+          <tr><td>Cognitive Overload</td><td>1</td><td>6.0</td><td>Scheduled</td></tr>
+        </tbody>
+      </table>
+      <div class="finding">
+        <h4>🔴 Change Propagation — Shotgun Surgery across six modules <span class="pri">Pain × Spread: 9</span></h4>
+        <div class="ln sy"><b>Symptom:</b> Adding EUR requires editing 6 files in 6 distinct layers with no architectural relationship.</div>
+        <div class="ln sr"><b>Source:</b> Fowler — Refactoring — Shotgun Surgery; Hunt &amp; Thomas — Orthogonality</div>
+        <div class="ln rx"><b>Remedy:</b> Introduce a <code>Money</code> value object and a <code>MoneyFormatter</code> service.</div>
+      </div>
+      <div class="finding">
+        <h4>🔴 Knowledge Duplication — <code>$</code> as a magic literal in five files <span class="pri">Pain × Spread: 9</span></h4>
+        <div class="ln sy"><b>Symptom:</b> The string <code>"$"</code> appears in 5 independent locations with no shared constant.</div>
+        <div class="ln sr"><b>Source:</b> Hunt &amp; Thomas — DRY; McConnell — Code Complete — Ch. 12</div>
+        <div class="ln rx"><b>Remedy:</b> Use <code>Currency.getSymbol(Locale)</code> in <code>MoneyFormatter</code>; remove all <code>"$"</code> literals.</div>
+      </div>
+      <div class="finding">
+        <h4>🔴 Domain Model Distortion — No <code>Money</code> type exists <span class="pri">Pain × Spread: 9</span></h4>
+        <div class="ln sy"><b>Symptom:</b> All price/amount fields are raw <code>double</code>.</div>
+        <div class="ln sr"><b>Source:</b> Evans — DDD — Domain Model; Fowler — Refactoring — Data Class</div>
+        <div class="ln rx"><b>Remedy:</b> Introduce <code>record Money(BigDecimal amount, Currency currency)</code>.</div>
+      </div>
+      <div class="note"><b>Recommended focus:</b> All three Critical findings share one root cause — the absence of a <code>Money</code> value object. One intervention collapses three findings.</div>
+    </article>
+  </section>
+
+  <!-- ============ TEST QUALITY ============ -->
+  <section class="mode-group" data-mode="test">
+    <h2 class="mode-title">Test Quality Review <span class="badge">Mode 4</span></h2>
+    <p class="mode-sub">Audits an existing suite against six test-space decay risks (T1–T6).</p>
+
+    <article class="case">
+      <div class="case-head">
+        <span class="lang ts">TypeScript</span>
+        <h3>Mock abuse</h3>
+        <span class="hs mid">60 / 100</span>
+      </div>
+      <p class="case-summary">Seven mocks per test, 14 lines of setup vs 6 of assertions — the service is never tested against a real collaborator, and the return value is never checked.</p>
+      <details>
+        <summary>▸ Input test</summary>
+<pre class="code">it('should place an order successfully', () => {
+  const mockDb = mock&lt;Database&gt;();
+  const mockPayment = mock&lt;PaymentGateway&gt;();
+  const mockInventory = mock&lt;InventoryService&gt;();
+  const mockMailer = mock&lt;MailService&gt;();
+  const mockAudit = mock&lt;AuditLogger&gt;();
+  const mockCache = mock&lt;CacheService&gt;();
+  const mockMetrics = mock&lt;MetricsCollector&gt;();
+  const service = new OrderService(mockDb, mockPayment, mockInventory, mockMailer, mockAudit, mockCache, mockMetrics);
+  const result = await service.placeOrder('1', 'item-1', 2);
+
+  expect(mockPayment.charge).toHaveBeenCalledWith('ch_1', 2000);
+  expect(mockInventory.check).toHaveBeenCalledWith('item-1', 2);
+  expect(mockMailer.send).toHaveBeenCalled();
+  expect(mockAudit.log).toHaveBeenCalledWith('ORDER_PLACED', expect.anything());
+  expect(mockCache.invalidate).toHaveBeenCalledWith('orders:1');
+  expect(mockMetrics.increment).toHaveBeenCalledWith('orders.placed');
+});</pre>
+      </details>
+      <div class="finding">
+        <h4>🔴 Mock Abuse — Seven mocks per test; setup dominates logic</h4>
+        <div class="ln sy"><b>Symptom:</b> 7 mock objects; 14 lines of setup vs 6 of assertions. No real collaborator is ever exercised.</div>
+        <div class="ln sr"><b>Source:</b> Osherove — The Art of Unit Testing (mock count > 3); Meszaros — xUnit Test Patterns</div>
+        <div class="ln rx"><b>Remedy:</b> Reduce mocks to ≤ 3, use in-memory fakes, assert on <code>result</code> first.</div>
+      </div>
+      <div class="finding">
+        <h4>🔴 Mock Abuse — All six assertions verify mock calls, not behaviour</h4>
+        <div class="ln sy"><b>Symptom:</b> Every assertion is <code>toHaveBeenCalledWith</code>; <code>result</code> is captured but never asserted.</div>
+        <div class="ln cq"><b>Consequence:</b> A <code>placeOrder</code> that calls every mock yet returns <code>null</code> or double-charges still passes.</div>
+        <div class="ln rx"><b>Remedy:</b> Assert observable output: <code>expect(result.status).toBe('confirmed')</code>.</div>
+      </div>
+    </article>
+
+    <article class="case">
+      <div class="case-head">
+        <span class="lang py">Python</span>
+        <h3>Inverted test pyramid</h3>
+        <span class="hs mid">55 / 100</span>
+      </div>
+      <p class="case-summary">Only 16% of tests are unit tests; an E2E-heavy suite takes ~9 minutes and blocks fast CI feedback.</p>
+      <details>
+        <summary>▸ Suite overview</summary>
+<pre class="code">tests/
+├── e2e/           47 tests, avg 8s each   (~6 min)
+├── integration/   83 tests, avg 2s each   (~3 min)
+└── unit/          24 tests, avg 10ms each (~0.2s)
+
+Total: 154 tests, ~9 min
+Actual  ratio:  Unit 16% : Integration 54% : E2E 30%
+Target  ratio:  Unit 70% : Integration 20% : E2E 10%</pre>
+      </details>
+      <div class="finding">
+        <h4>🔴 Architecture Mismatch — Fully inverted test pyramid</h4>
+        <div class="ln sy"><b>Symptom:</b> Only 24 of 154 tests (16%) are unit tests; E2E + integration = 84%.</div>
+        <div class="ln sr"><b>Source:</b> Google — How Google Tests Software — 70:20:10; Meszaros — xUnit Test Patterns</div>
+        <div class="ln rx"><b>Remedy:</b> Target 70% unit; reduce E2E to 5–8 critical smoke tests.</div>
+      </div>
+      <div class="finding">
+        <h4>🔴 Architecture Mismatch — 9-minute suite blocks CI fast-feedback</h4>
+        <div class="ln sy"><b>Symptom:</b> Full suite ~542s, dominated by 8s E2E tests.</div>
+        <div class="ln rx"><b>Remedy:</b> Split CI: (1) unit only, &lt; 60s, blocks merge; (2) integration + E2E async, non-blocking.</div>
+      </div>
+      <div class="finding">
+        <h4>🟡 Coverage Illusion — Core domain untested at unit level</h4>
+        <div class="ln sy"><b>Symptom:</b> <code>tests/unit/</code> covers only validators and formatters — no checkout, login, order, or payment.</div>
+        <div class="ln sr"><b>Source:</b> Feathers — Working Effectively with Legacy Code</div>
+        <div class="ln rx"><b>Remedy:</b> Start with <code>test_checkout_flow.py</code> and <code>test_payment_api.py</code>.</div>
+      </div>
+    </article>
+  </section>
+
+</main>
+
+<footer>
+  <div class="foot-in">
+    <div class="foot-links">
+      <a href="index.html">Home</a>
+      <a href="https://github.com/hyhmrright/brooks-lint" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/hyhmrright/brooks-lint/blob/main/docs/gallery.md" target="_blank" rel="noopener">Gallery source (Markdown)</a>
+    </div>
+    <div class="foot-note">MIT License — Built by hyhmrright</div>
+  </div>
+</footer>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: 'ui-monospace, Menlo, monospace',
+      primaryColor: '#fffdf8', primaryBorderColor: '#e3d8c2', primaryTextColor: '#2a2520',
+      lineColor: '#9c8f74', clusterBkg: '#f3ead8', clusterBorder: '#e3d8c2'
+    }
+  });
+</script>
+<script>
+  (function () {
+    var btns = document.querySelectorAll('#filters button');
+    var groups = document.querySelectorAll('.mode-group');
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        btns.forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        var f = b.getAttribute('data-filter');
+        groups.forEach(function (g) {
+          g.classList.toggle('hidden', f !== 'all' && g.getAttribute('data-mode') !== f);
+        });
+      });
+    });
+  })();
+</script>
+</body>
+</html>

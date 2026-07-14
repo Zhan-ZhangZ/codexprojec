@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+prompt="${1:-$(command cat)}"
+[[ -z "$prompt" ]] && exit 0
+
+skill_dir="${POLYWAVE_SKILL_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+injected_markers=""
+
+inject_file() {
+  local file="$1"
+  local ref_path="${skill_dir}/${file}"
+  local marker="<!-- injected: ${file} -->"
+  echo "$injected_markers" | grep -qF "$marker" && return 0
+  [[ -f "$ref_path" ]] || { echo "warn: not found: ${ref_path}" >&2; return 0; }
+  injected_markers+="$marker"$'\n'
+  printf '%s\n' "$marker"
+  command cat "$ref_path"
+  printf '\n\n'
+}
+
+matches() {
+  local pattern="$1"
+  echo "$prompt" | grep -qiE "$pattern"
+}
+
+if matches '(^|[[:space:]])(\$|/)?polywave[[:space:]]+program([[:space:]]|$)'; then
+  inject_file "references/program-flow.md"
+  inject_file "references/model-selection.md"
+fi
+
+if matches '(^|[[:space:]])(\$|/)?polywave[[:space:]]+amend([[:space:]]|$)'; then
+  inject_file "references/amend-flow.md"
+  inject_file "references/impl-targeting.md"
+fi
+
+if matches '(^|[[:space:]])(\$|/)?polywave[[:space:]]+wave([[:space:]]|$)'; then
+  inject_file "references/impl-targeting.md"
+  inject_file "references/pre-wave-validation.md"
+  inject_file "references/model-selection.md"
+  inject_file "references/wave-agent-contracts.md"
+fi
+
+if matches '(^|[[:space:]])(\$|/)?polywave[[:space:]]+status([[:space:]]|$)'; then
+  inject_file "references/impl-targeting.md"
+fi
+
+if matches '(baseline_verification_failed|needs_replan|integration gap|integration_gap|failure routing|failure-type|stub detection|wiring obligation)'; then
+  inject_file "references/failure-routing.md"
+fi

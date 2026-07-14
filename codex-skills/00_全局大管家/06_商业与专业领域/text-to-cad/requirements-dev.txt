@@ -1,0 +1,29 @@
+# Repo-source development environment.
+#
+# This is for running tests and tools from a source checkout. Skill runtime
+# requirements remain skill-local and should be installed from inside each
+# skill directory when validating packaged skill behavior.
+
+# Source packages shared by local viewer and skill runtimes.
+# These source installs intentionally stand in for the generated editable
+# packages referenced by:
+# - viewer/requirements.txt
+# - skills/cad/requirements.txt
+# - skills/cad-viewer/requirements.txt
+# - skills/urdf/requirements.txt
+# - skills/srdf/requirements.txt
+# - skills/sdf/requirements.txt
+--editable ./packages/cadpy
+--editable ./packages/cadpy_metadata
+--editable ./viewer/moveit2_server
+
+# Extra third-party requirements mirrored from skill-local runtime files.
+# - skills/cad/requirements.txt
+ezdxf
+playwright
+
+# Extra third-party requirements used by repo tests.
+networkx
+lxml
+pytest
+trimesh

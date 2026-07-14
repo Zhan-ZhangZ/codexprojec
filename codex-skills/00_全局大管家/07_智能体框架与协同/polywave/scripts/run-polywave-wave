@@ -1,0 +1,281 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/run-polywave-wave <manifest-path> --wave <N> [options]
+
+Required:
+  <manifest-path>             Absolute or relative IMPL manifest path
+  --wave <N>                  Wave number to execute
+
+Optional:
+  --repo-dir <path>           Target repository root (default: current directory)
+  --model <model>             Codex model override passed to each codex exec
+  --prepare-only              Stop after prepare-wave succeeds
+  --skip-finalize             Do not run finalize-wave after all agent runs succeed
+  --dry-run                   Print generated commands and exit
+  -h, --help                  Show this help
+
+This launcher is the current Codex wave path:
+  1. polywave-tools prepare-wave --json-only
+  2. one codex exec per prepared agent worktree
+  3. polywave-tools finalize-wave (unless --skip-finalize)
+USAGE
+}
+
+manifest_path=""
+wave=""
+repo_dir=""
+model=""
+prepare_only=false
+skip_finalize=false
+dry_run=false
+
+if [[ $# -gt 0 && "$1" != --* ]]; then
+  manifest_path="$1"
+  shift
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --wave)
+      wave="$2"
+      shift 2
+      ;;
+    --repo-dir)
+      repo_dir="$2"
+      shift 2
+      ;;
+    --model)
+      model="$2"
+      shift 2
+      ;;
+    --prepare-only)
+      prepare_only=true
+      shift
+      ;;
+    --skip-finalize)
+      skip_finalize=true
+      shift
+      ;;
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown option: %s
+' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$manifest_path" || -z "$wave" ]]; then
+  usage >&2
+  exit 2
+fi
+
+require_command() {
+  local name="$1"
+  command -v "$name" >/dev/null 2>&1 || {
+    printf 'Missing required command: %s
+' "$name" >&2
+    exit 1
+  }
+}
+
+require_command codex
+require_command polywave-tools
+require_command jq
+require_command python3
+
+if [[ -z "$repo_dir" ]]; then
+  repo_dir="$PWD"
+fi
+repo_dir="$(python3 - "$repo_dir" <<'PYABS'
+import os, sys
+print(os.path.abspath(sys.argv[1]))
+PYABS
+)"
+manifest_path="$(python3 - "$manifest_path" <<'PYABS2'
+import os, sys
+print(os.path.abspath(sys.argv[1]))
+PYABS2
+)"
+
+if [[ ! -f "$manifest_path" ]]; then
+  printf 'Manifest not found: %s
+' "$manifest_path" >&2
+  exit 1
+fi
+if [[ ! -d "$repo_dir" ]]; then
+  printf 'Repository directory not found: %s
+' "$repo_dir" >&2
+  exit 1
+fi
+
+prepare_cmd=(polywave-tools prepare-wave "$manifest_path" --wave "$wave" --repo-dir "$repo_dir" --json-only)
+finalize_cmd=(polywave-tools finalize-wave "$manifest_path" --wave "$wave" --repo-dir "$repo_dir")
+
+tmpdir="$(mktemp -d /tmp/polywave-codex-wave.XXXXXX)"
+prepare_output="$tmpdir/prepare-wave.out"
+prepare_json="$tmpdir/prepare-wave.json"
+summary_tsv="$tmpdir/agents.tsv"
+trap 'rm -rf "$tmpdir"' EXIT
+
+extract_prepare_json() {
+  python3 - "$1" "$2" <<'PYEXTRACT'
+import json
+import sys
+from pathlib import Path
+raw = Path(sys.argv[1]).read_text()
+out = Path(sys.argv[2])
+start = raw.find('{')
+while start != -1:
+    candidate = raw[start:].strip()
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        start = raw.find('{', start + 1)
+        continue
+    out.write_text(json.dumps(parsed, indent=2))
+    sys.exit(0)
+sys.exit(1)
+PYEXTRACT
+}
+
+if [[ "$dry_run" == true ]]; then
+  printf 'Prepare command:
+  %q' "${prepare_cmd[@]}"
+  printf '
+
+'
+  printf 'Agent launcher: codex exec --cd <worktree> <generated-prompt>
+
+'
+  if [[ "$skip_finalize" == false ]]; then
+    printf 'Finalize command:
+  %q' "${finalize_cmd[@]}"
+    printf '
+'
+  fi
+  exit 0
+fi
+
+printf 'Preparing wave %s
+' "$wave"
+printf 'Manifest: %s
+' "$manifest_path"
+printf 'Repository: %s
+
+' "$repo_dir"
+
+status=0
+if ! "${prepare_cmd[@]}" >"$prepare_output" 2>&1; then
+  status=$?
+fi
+cat "$prepare_output"
+if ! extract_prepare_json "$prepare_output" "$prepare_json"; then
+  printf '
+prepare-wave output did not contain a parseable JSON payload
+' >&2
+  exit ${status:-1}
+fi
+if [[ $status -ne 0 ]]; then
+  printf '
+prepare-wave failed with status %s
+' "$status" >&2
+  exit $status
+fi
+
+if [[ "$(jq -r '.success' "$prepare_json")" != "true" ]]; then
+  printf '
+prepare-wave returned success=false
+' >&2
+  exit 1
+fi
+
+jq -r '
+  . as $root
+  | .agent_briefs[]
+  | .agent as $agent
+  | ($root.worktrees[] | select(.agent == $agent)) as $wt
+  | [$agent, $wt.path, $wt.branch, .brief_path, (.journal_context_file // "")] | @tsv
+' "$prepare_json" >"$summary_tsv"
+
+if [[ "$prepare_only" == true ]]; then
+  printf '
+prepare-only complete. JSON saved at %s
+' "$prepare_json"
+  exit 0
+fi
+
+run_count=0
+while IFS=$'	' read -r agent_id worktree_path branch_name brief_path journal_context_file <&3; do
+  [[ -n "$agent_id" ]] || continue
+  run_count=$((run_count + 1))
+  output_file="$tmpdir/${agent_id}.last.txt"
+  skill_dir="${POLYWAVE_SKILL_DIR:-$HOME/.codex/skills/polywave}"
+  build_prompt_script="$skill_dir/scripts/build-wave-agent-prompt"
+  if [[ ! -x "$build_prompt_script" ]]; then
+    build_prompt_script="/Users/dayna.blackwell/code/polywave-codex/scripts/build-wave-agent-prompt"
+  fi
+  build_prompt_cmd=("$build_prompt_script" --agent-id "$agent_id" --worktree-path "$worktree_path" --branch "$branch_name" --brief-path "$brief_path" --repo-dir "$repo_dir")
+  if [[ -n "$journal_context_file" ]]; then
+    build_prompt_cmd+=(--journal-context-file "$journal_context_file")
+  fi
+  prompt="$("${build_prompt_cmd[@]}")"
+
+  codex_cmd=(codex exec --skip-git-repo-check --sandbox workspace-write --cd "$worktree_path" --output-last-message "$output_file")
+  if [[ -n "$model" ]]; then
+    codex_cmd+=(--model "$model")
+  fi
+
+  printf '
+=== Agent %s ===
+' "$agent_id"
+  printf 'Worktree: %s
+' "$worktree_path"
+  printf 'Brief: %s
+
+' "$brief_path"
+
+  agent_status=0
+  if ! "${codex_cmd[@]}" "$prompt" </dev/null; then
+    agent_status=$?
+  fi
+  if [[ $agent_status -ne 0 ]]; then
+    printf '
+Agent %s failed with status %s
+' "$agent_id" "$agent_status" >&2
+    printf 'Last message file: %s
+' "$output_file" >&2
+    exit $agent_status
+  fi
+
+done 3<"$summary_tsv"
+
+if [[ $run_count -eq 0 ]]; then
+  printf 'No prepared agents found in prepare-wave output
+' >&2
+  exit 1
+fi
+
+if [[ "$skip_finalize" == true ]]; then
+  printf '
+Wave agent runs complete. Finalize skipped by flag.
+'
+  exit 0
+fi
+
+printf '
+Finalizing wave %s
+
+' "$wave"
+"${finalize_cmd[@]}"

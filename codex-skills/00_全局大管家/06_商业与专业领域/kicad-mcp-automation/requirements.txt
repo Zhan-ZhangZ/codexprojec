@@ -1,0 +1,5 @@
+# Python dependencies for KiCad MCP Server
+# Install with: pip install -r requirements.txt
+
+# KiCad file format library
+kiutils>=1.2.0

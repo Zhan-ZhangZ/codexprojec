@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/build-scout-prompt --repo-dir <repo> --feature <text> --impl-output-path <path>
+
+Builds the fully injected Polywave Scout prompt for Codex delegation.
+USAGE
+}
+
+repo_dir=""
+feature=""
+impl_output_path=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-dir)
+      repo_dir="$2"
+      shift 2
+      ;;
+    --feature)
+      feature="$2"
+      shift 2
+      ;;
+    --impl-output-path)
+      impl_output_path="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$repo_dir" || -z "$feature" || -z "$impl_output_path" ]]; then
+  usage >&2
+  exit 2
+fi
+
+require_command() {
+  local name="$1"
+  command -v "$name" >/dev/null 2>&1 || {
+    printf 'Missing required command: %s\n' "$name" >&2
+    exit 1
+  }
+}
+
+require_command python3
+repo_dir="$(python3 - "$repo_dir" <<'PYABS'
+import os
+import sys
+print(os.path.abspath(sys.argv[1]))
+PYABS
+)"
+impl_output_path="$(python3 - "$impl_output_path" <<'PYABS2'
+import os
+import sys
+print(os.path.abspath(sys.argv[1]))
+PYABS2
+)"
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+skill_dir="${POLYWAVE_SKILL_DIR:-$(cd "$script_dir/.." && pwd)}"
+agent_path="$HOME/.codex/agents/polywave-scout.toml"
+if [[ ! -f "$agent_path" ]]; then
+  agent_path="$skill_dir/../../agents/polywave-scout.toml"
+fi
+
+prompt="$(python3 - "$feature" "$repo_dir" "$impl_output_path" "$agent_path" <<'PYBUILD'
+from pathlib import Path
+import sys
+import tomllib
+feature, repo_dir, impl_path, agent_path = sys.argv[1:5]
+with Path(agent_path).open('rb') as f:
+    data = tomllib.load(f)
+instructions = data['developer_instructions'].rstrip()
+print(f"""Use the following Polywave Scout agent instructions as your role. Follow them exactly.
+
+{instructions}
+
+## Execution Contract
+
+- Repository root: {repo_dir}
+- Feature description: {feature}
+- IMPL output path: {impl_path}
+
+Requirements:
+- Work inside the repository root above.
+- Write the IMPL manifest to the exact IMPL output path above.
+- Do not stop at analysis or a verbal plan. Produce the manifest file.
+- Keep the output as pure YAML in the IMPL manifest file.
+- Do not modify implementation source files while scouting.
+- When finished, report the IMPL path you wrote.
+""")
+PYBUILD
+)"
+
+inject_script="$skill_dir/scripts/inject-agent-context"
+if [[ -x "$inject_script" ]]; then
+  inject_content="$($inject_script --type scout --prompt "$prompt" 2>/dev/null)" || true
+  if [[ -n "$inject_content" ]]; then
+    printf '%s\n\n%s\n' "$inject_content" "$prompt"
+    exit 0
+  fi
+fi
+
+printf '%s\n' "$prompt"

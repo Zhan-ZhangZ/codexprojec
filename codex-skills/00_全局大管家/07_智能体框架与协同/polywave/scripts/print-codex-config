@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cat <<'MSG'
+Add one of these Codex hook configurations.
+
+Option A: inline ~/.codex/config.toml snippet
+---------------------------------------------
+MSG
+
+cat "$repo_root/hooks/codex-config.toml"
+
+cat <<'MSG'
+
+Option B: ~/.codex/hooks.json
+-----------------------------
+MSG
+
+cat "$repo_root/hooks/hooks.json"
+
+cat <<'MSG'
+
+Notes:
+- Do not configure both forms in the same Codex config layer.
+- Codex merges matching hooks across layers, so duplicate Polywave entries will run more than once.
+- Restart Codex after changing hook configuration.
+MSG
+
+cat <<'MSG'
+
+Optional payload audit snippet
+------------------------------
+Use this temporarily when validating real Codex hook payloads. It records raw
+PreToolUse and PostToolUse payloads under:
+
+  ${CODEX_HOME:-$HOME/.codex}/polywave/audit
+
+MSG
+
+cat "$repo_root/hooks/audit-codex-config.toml"

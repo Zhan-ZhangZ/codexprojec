@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+config_file="${CODEX_CONFIG_FILE:-$codex_home/config.toml}"
+polywave_home="$codex_home/polywave"
+skill_file="$codex_home/skills/polywave/SKILL.md"
+agent_files=(
+  "$codex_home/agents/polywave-scout.toml"
+  "$codex_home/agents/polywave-wave-agent.toml"
+  "$codex_home/agents/polywave-planner.toml"
+  "$codex_home/agents/polywave-scaffold-agent.toml"
+  "$codex_home/agents/polywave-critic-agent.toml"
+  "$codex_home/agents/polywave-integration-agent.toml"
+)
+
+pass_count=0
+warn_count=0
+
+pass() {
+  pass_count=$((pass_count + 1))
+  printf 'PASS %s
+' "$1"
+}
+
+warn() {
+  warn_count=$((warn_count + 1))
+  printf 'WARN %s
+' "$1"
+}
+
+fail() {
+  printf 'FAIL %s
+' "$1" >&2
+  exit 1
+}
+
+require_file() {
+  local path="$1"
+  [[ -f "$path" ]] || fail "missing file: $path"
+}
+
+require_executable() {
+  local path="$1"
+  [[ -x "$path" ]] || fail "missing executable file: $path"
+}
+
+require_grep() {
+  local pattern="$1"
+  local path="$2"
+  local label="$3"
+  if grep -Eq "$pattern" "$path"; then
+    pass "$label"
+  else
+    fail "$label"
+  fi
+}
+
+require_file "$skill_file"
+for agent_file in "${agent_files[@]}"; do
+  require_file "$agent_file"
+done
+require_executable "$polywave_home/hooks/pre_tool_use_bash_policy"
+require_executable "$polywave_home/hooks/pre_tool_use_apply_patch_policy"
+require_executable "$polywave_home/hooks/pre_tool_use_safe_edit_policy"
+require_executable "$polywave_home/hooks/pre_tool_use_audit"
+require_executable "$codex_home/skills/polywave/scripts/inject-context"
+require_executable "$codex_home/skills/polywave/scripts/inject-agent-context"
+require_executable "$codex_home/skills/polywave/scripts/build-scout-prompt"
+require_executable "$codex_home/skills/polywave/scripts/build-wave-agent-prompt"
+require_file "$codex_home/skills/polywave/references/program-flow.md"
+require_file "$codex_home/skills/polywave/references/amend-flow.md"
+require_file "$codex_home/skills/polywave/references/impl-targeting.md"
+require_file "$codex_home/skills/polywave/references/pre-wave-validation.md"
+require_file "$codex_home/skills/polywave/references/scout-program-contracts.md"
+require_file "$codex_home/skills/polywave/references/wave-agent-build-diagnosis.md"
+require_file "$codex_home/skills/polywave/references/wave-agent-program-contracts.md"
+require_file "$codex_home/skills/polywave/references/live-loop-playbook.md"
+require_file "$polywave_home/config/hooks.json"
+require_file "$polywave_home/config/codex-config.toml"
+require_file "$polywave_home/config/audit-hooks.json"
+require_file "$polywave_home/config/audit-codex-config.toml"
+pass "installed Polywave skill, disclosure assets, agents, hooks, and config templates exist"
+
+python3 - <<'PY2'
+import tomllib
+from pathlib import Path
+for path in sorted(Path('/Users/dayna.blackwell/code/polywave-codex/agents').glob('polywave-*.toml')):
+    with path.open('rb') as f:
+        tomllib.load(f)
+PY2
+pass "repository agent TOMLs parse cleanly"
+
+if [[ -f "$config_file" ]]; then
+  require_grep '^[[:space:]]*hooks[[:space:]]*=[[:space:]]*true[[:space:]]*$' "$config_file" "Codex hooks feature is enabled"
+  require_grep 'pre_tool_use_bash_policy' "$config_file" "Bash policy hook is referenced in Codex config"
+  require_grep 'pre_tool_use_apply_patch_policy' "$config_file" "apply_patch policy hook is referenced in Codex config"
+  require_grep 'pre_tool_use_safe_edit_policy' "$config_file" "shared LSP file-mutation hook is referenced in Codex config"
+  require_grep 'mcp__lsp__\(safe_edit\|apply_edit\|safe_apply_edit\|simulate_edit\|replace_symbol_body\|safe_delete_symbol\|commit_session\)' "$config_file" "shared LSP file-mutation matcher is present in Codex config"
+  if grep -Eq 'pre_tool_use:0:0' "$config_file" && grep -Eq 'pre_tool_use:1:0' "$config_file" && grep -Eq 'pre_tool_use:2:0' "$config_file" && grep -Eq 'pre_tool_use:3:0' "$config_file"; then
+    pass "trust-state entries exist for configured PreToolUse hooks"
+  else
+    warn "PreToolUse trust-state entries are incomplete; fresh runtime proof will require trusting the installed hooks"
+  fi
+else
+  warn "Codex config file not found at $config_file; install artifacts exist but runtime config has not been verified"
+fi
+
+printf 'Verified %s checks with %s warnings.
+' "$pass_count" "$warn_count"

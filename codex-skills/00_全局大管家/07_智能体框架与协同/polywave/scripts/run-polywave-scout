@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/run-polywave-scout --repo-dir <repo> --feature <text> [options]
+
+Required:
+  --repo-dir <path>           Target repository root
+  --feature <text>            Feature description for Scout
+
+Optional:
+  --impl-output-path <path>   Explicit IMPL output path
+  --model <model>             Codex model override passed to codex exec
+  --timeout <minutes>         Timeout for codex exec (default: 10)
+  --dry-run                   Print the generated commands and exit
+  -h, --help                  Show this help
+
+This launcher drives the installed Codex Scout path, then validates the
+produced IMPL manifest through polywave-tools finalize-scout.
+USAGE
+}
+
+repo_dir=""
+feature=""
+impl_output_path=""
+model=""
+timeout_min=10
+dry_run=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-dir)
+      repo_dir="$2"
+      shift 2
+      ;;
+    --feature)
+      feature="$2"
+      shift 2
+      ;;
+    --impl-output-path)
+      impl_output_path="$2"
+      shift 2
+      ;;
+    --model)
+      model="$2"
+      shift 2
+      ;;
+    --timeout)
+      timeout_min="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown option: %s
+' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$repo_dir" || -z "$feature" ]]; then
+  usage >&2
+  exit 2
+fi
+
+require_command() {
+  local name="$1"
+  command -v "$name" >/dev/null 2>&1 || {
+    printf 'Missing required command: %s
+' "$name" >&2
+    exit 1
+  }
+}
+
+require_command codex
+require_command polywave-tools
+require_command python3
+repo_dir="$(python3 - "$repo_dir" <<'PYABS'
+import os
+import sys
+print(os.path.abspath(sys.argv[1]))
+PYABS
+)"
+if [[ ! -d "$repo_dir" ]]; then
+  printf 'Repository directory does not exist: %s
+' "$repo_dir" >&2
+  exit 1
+fi
+
+if [[ -z "$impl_output_path" ]]; then
+  slug="$(python3 - "$feature" <<'PY2'
+import re
+import sys
+text = sys.argv[1].lower()
+text = re.sub(r'[^a-z0-9]+', '-', text).strip('-')
+print(text or 'feature')
+PY2
+)"
+  impl_output_path="$repo_dir/docs/IMPL/IMPL-$slug.yaml"
+fi
+impl_output_path="$(python3 - "$impl_output_path" <<'PYABS2'
+import os
+import sys
+print(os.path.abspath(sys.argv[1]))
+PYABS2
+)"
+mkdir -p "$(dirname "$impl_output_path")"
+
+skill_dir="${POLYWAVE_SKILL_DIR:-$HOME/.codex/skills/polywave}"
+build_prompt_script="$skill_dir/scripts/build-scout-prompt"
+if [[ ! -x "$build_prompt_script" ]]; then
+  build_prompt_script="/Users/dayna.blackwell/code/polywave-codex/scripts/build-scout-prompt"
+fi
+prompt="$($build_prompt_script --repo-dir "$repo_dir" --feature "$feature" --impl-output-path "$impl_output_path")"
+
+codex_cmd=(codex exec --skip-git-repo-check --sandbox workspace-write --cd "$repo_dir" --output-last-message /tmp/polywave-codex-scout-last-message.txt)
+if [[ -n "$model" ]]; then
+  codex_cmd+=(--model "$model")
+fi
+
+finalize_cmd=(polywave-tools finalize-scout "$impl_output_path" --repo-dir "$repo_dir" --injection-method manual-fallback)
+
+if [[ "$dry_run" == true ]]; then
+  printf 'Scout command:
+'
+  printf '  %q' "${codex_cmd[@]}"
+  printf ' %q
+' "$prompt"
+  printf 'Validation command:
+'
+  printf '  %q' "${finalize_cmd[@]}"
+  printf '
+'
+  exit 0
+fi
+
+printf 'Launching Codex Scout for: %s
+' "$feature"
+printf 'Repository: %s
+' "$repo_dir"
+printf 'IMPL output: %s
+
+' "$impl_output_path"
+
+run_with_timeout() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${timeout_min}m" "${codex_cmd[@]}" "$prompt"
+    return $?
+  fi
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "${timeout_min}m" "${codex_cmd[@]}" "$prompt"
+    return $?
+  fi
+  "${codex_cmd[@]}" "$prompt"
+}
+
+status=0
+if ! run_with_timeout; then
+  status=$?
+fi
+if [[ $status -ne 0 ]]; then
+  printf '
+Codex Scout execution failed with status %s
+' "$status" >&2
+  exit $status
+fi
+
+if [[ ! -f "$impl_output_path" ]]; then
+  printf 'Scout did not produce IMPL file at %s
+' "$impl_output_path" >&2
+  exit 1
+fi
+
+printf '
+Validating IMPL manifest...
+'
+"${finalize_cmd[@]}"
+
+printf '
+Scout complete. IMPL manifest: %s
+' "$impl_output_path"

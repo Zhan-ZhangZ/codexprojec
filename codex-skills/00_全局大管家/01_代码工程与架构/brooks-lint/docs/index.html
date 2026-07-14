@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="google-site-verification" content="899Jw4jb5ux928e2-cYHEoRy70zaMqWIXL-7YK1Nd2U" />
+<title>brooks-lint — AI code reviews grounded in twelve classic engineering books</title>
+<meta name="description" content="brooks-lint diagnoses your code against twelve classic software engineering books, producing structured Symptom → Source → Consequence → Remedy findings every time.">
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<!-- Open Graph -->
+<meta property="og:title" content="brooks-lint">
+<meta property="og:description" content="AI code reviews grounded in twelve classic engineering books. Consistent. Traceable. Actionable.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hyhmrright.github.io/brooks-lint/">
+<meta property="og:image" content="https://hyhmrright.github.io/brooks-lint/hero.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="brooks-lint — AI code reviews grounded in twelve engineering classics">
+<meta name="twitter:description" content="Decay-risk diagnostics with book citations, severity labels, and a 0–100 Health Score. Consistent. Traceable. Actionable.">
+<meta name="twitter:image" content="https://hyhmrright.github.io/brooks-lint/hero.png">
+<link rel="canonical" href="https://hyhmrright.github.io/brooks-lint/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "brooks-lint",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Claude Code, Gemini CLI, Codex CLI, GitHub Actions",
+  "description": "AI code reviews grounded in twelve classic software engineering books. Decay-risk diagnostics with book citations, severity labels, and six analysis modes including full-sweep auto-fix.",
+  "url": "https://hyhmrright.github.io/brooks-lint/",
+  "image": "https://hyhmrright.github.io/brooks-lint/hero.png",
+  "softwareVersion": "1.3.0",
+  "license": "https://github.com/hyhmrright/brooks-lint/blob/main/LICENSE",
+  "codeRepository": "https://github.com/hyhmrright/brooks-lint",
+  "keywords": "AI code review, code quality, tech debt, architecture audit, test quality, Claude Code plugin, refactoring, clean architecture",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<style>
+  :root {
+    --paper:      #f7f1e4;
+    --paper-2:    #fbf6ec;
+    --card:       #fffdf8;
+    --ink:        #2a2520;
+    --ink-soft:   #5c5347;
+    --rule:       #e3d8c2;
+    --rule-soft:  #ece2cf;
+    --blue:       #2d4a7c;
+    --blue-soft:  #e7edf5;
+    --green:      #2b8a3e;
+    --gold:       #b07d2b;
+    --red:        #b23b3b;
+    --ink-dark:   #211d18;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  h1, h2, h3, .serif { font-family: var(--serif); font-weight: 700; letter-spacing: -0.01em; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* paper grain overlay */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: radial-gradient(rgba(120,90,40,0.04) 1px, transparent 1px);
+    background-size: 4px 4px; opacity: .6;
+  }
+  main, nav, footer { position: relative; z-index: 1; }
+
+  /* ---- Nav ---- */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(247,241,228,0.85);
+    backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid var(--rule);
+  }
+  .nav-in { display: flex; align-items: center; gap: 20px; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--serif); font-weight: 700; font-size: 19px; color: var(--ink); }
+  .brand img { width: 30px; height: 30px; border-radius: 7px; }
+  .nav-links { display: flex; gap: 22px; margin-left: auto; align-items: center; }
+  .nav-links a { color: var(--ink-soft); font-size: 14.5px; }
+  .nav-links a:hover { color: var(--ink); text-decoration: none; }
+  .lang-toggle {
+    display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; overflow: hidden;
+    font-size: 13px; background: var(--card);
+  }
+  .lang-toggle button {
+    border: none; background: transparent; padding: 5px 12px; cursor: pointer;
+    color: var(--ink-soft); font-family: var(--sans); font-weight: 600;
+  }
+  .lang-toggle button.active { background: var(--ink); color: var(--paper-2); }
+  .btn {
+    display: inline-block; padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 15px;
+    border: 1px solid transparent; cursor: pointer; transition: transform .08s ease, box-shadow .15s ease;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn-primary { background: var(--ink); color: var(--paper-2); box-shadow: 0 2px 0 var(--gold); }
+  .btn-ghost { background: var(--card); color: var(--ink); border-color: var(--rule); }
+  @media (max-width: 720px) { .nav-links a.hide-sm { display: none; } }
+
+  /* ---- Hero ---- */
+  .hero { padding: 76px 0 56px; text-align: center; }
+  .eyebrow {
+    display: inline-block; font-family: var(--mono); font-size: 12.5px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--gold); border: 1px solid var(--rule);
+    padding: 5px 12px; border-radius: 999px; margin-bottom: 22px; background: var(--card);
+  }
+  .hero h1 { font-size: clamp(34px, 5.4vw, 56px); line-height: 1.08; max-width: 18ch; margin: 0 auto 18px; }
+  .hero .lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--ink-soft); max-width: 60ch; margin: 0 auto 14px; }
+  .quote {
+    max-width: 56ch; margin: 26px auto 8px; font-family: var(--serif); font-style: italic;
+    font-size: 18px; color: var(--ink); border-left: 3px solid var(--gold); padding-left: 18px; text-align: left;
+  }
+  .quote cite { display: block; font-style: normal; font-size: 14px; color: var(--ink-soft); margin-top: 6px; }
+  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 30px; }
+  .hero-shot { margin: 46px auto 0; max-width: 900px; }
+  .hero-shot img { width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--rule);
+    box-shadow: 0 18px 50px rgba(80,55,15,.16); display: block; }
+
+  /* ---- Stat strip ---- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule);
+    border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; margin-top: 52px; }
+  .stat { background: var(--card); padding: 22px 14px; text-align: center; }
+  .stat b { display: block; font-family: var(--serif); font-size: clamp(26px, 4vw, 36px); color: var(--blue); line-height: 1; }
+  .stat span { font-size: 13px; color: var(--ink-soft); display: block; margin-top: 8px; }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ---- Section scaffolding ---- */
+  section { padding: 64px 0; }
+  .section-head { text-align: center; max-width: 64ch; margin: 0 auto 44px; }
+  .section-head h2 { font-size: clamp(26px, 3.6vw, 38px); margin-bottom: 12px; }
+  .section-head p { color: var(--ink-soft); font-size: 17px; }
+  .alt { background: var(--paper-2); border-top: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); }
+
+  /* ---- Feature grid ---- */
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  @media (max-width: 900px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .grid-4 { grid-template-columns: 1fr; } }
+  .feature { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 24px; }
+  .feature .ic { font-size: 26px; margin-bottom: 12px; display: block; }
+  .feature h3 { font-size: 18px; margin-bottom: 8px; }
+  .feature p { font-size: 14.5px; color: var(--ink-soft); }
+
+  /* ---- Decay risks ---- */
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 860px) { .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 540px) { .grid-3 { grid-template-columns: 1fr; } }
+  .risk { background: var(--card); border: 1px solid var(--rule); border-left: 4px solid var(--blue);
+    border-radius: 10px; padding: 20px; }
+  .risk .code { font-family: var(--mono); font-size: 12px; color: var(--gold); font-weight: 700; letter-spacing: .06em; }
+  .risk h3 { font-size: 17px; margin: 4px 0 8px; }
+  .risk p { font-size: 14px; color: var(--ink-soft); }
+  .risk .src { font-size: 12px; color: var(--ink-soft); margin-top: 12px; font-style: italic; opacity: .85; }
+
+  /* ---- Sample finding ---- */
+  .sample { background: var(--ink-dark); border-radius: 14px; padding: 30px; color: #e9e2d3; font-size: 15px; }
+  .sample .score { font-family: var(--serif); font-size: 22px; color: #fff; margin-bottom: 6px; }
+  .sample .score b { color: var(--red); }
+  .sample .summary { color: #b9b0a0; font-style: italic; font-size: 14.5px; margin-bottom: 22px; }
+  .finding { border-top: 1px solid #3a342c; padding-top: 18px; margin-top: 18px; }
+  .finding h4 { font-family: var(--serif); font-size: 16px; color: #fff; margin-bottom: 10px; }
+  .finding .dot { color: var(--red); }
+  .finding .row { font-size: 14px; margin-bottom: 7px; line-height: 1.55; }
+  .finding .row b { color: var(--gold); font-weight: 700; }
+  .finding .row.src b { color: #7fa8e0; }
+  .finding .row.fix b { color: #6fcf83; }
+
+  /* ---- Benchmark table ---- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 460px; }
+  th, td { padding: 13px 18px; text-align: left; border-bottom: 1px solid var(--rule-soft); }
+  th { font-family: var(--serif); font-size: 15px; }
+  td.c, th.c { text-align: center; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:last-child { font-weight: 700; background: var(--blue-soft); }
+  .yes { color: var(--green); font-weight: 700; }
+  .no { color: var(--red); font-weight: 700; }
+
+  /* ---- Books ---- */
+  .books { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 880px; margin: 0 auto; }
+  .book-chip { background: var(--card); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 9px 14px; font-size: 14px; }
+  .book-chip b { font-family: var(--serif); }
+  .book-chip span { color: var(--ink-soft); font-size: 12.5px; }
+
+  /* ---- Install ---- */
+  .code-block { position: relative; background: var(--ink-dark); border-radius: 12px; padding: 22px 22px;
+    font-family: var(--mono); font-size: 14px; color: #e9e2d3; overflow-x: auto; margin-bottom: 16px; }
+  .code-block .cmt { color: #8a8170; }
+  .code-block .tok { color: #6fcf83; }
+  .copy-btn { position: absolute; top: 12px; right: 12px; background: #3a342c; color: #cfc7b6;
+    border: none; border-radius: 6px; padding: 5px 11px; font-size: 12px; cursor: pointer; font-family: var(--sans); }
+  .copy-btn:hover { background: #4a4338; }
+  .install-grid { display: grid; grid-template-columns: 1fr; gap: 0; max-width: 760px; margin: 0 auto; }
+  .install-label { font-family: var(--serif); font-size: 18px; margin: 18px 0 10px; }
+
+  /* ---- Footer ---- */
+  footer { border-top: 1px solid var(--rule); padding: 40px 0 56px; background: var(--paper-2); }
+  .foot-in { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
+  .foot-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  .foot-links a { color: var(--ink-soft); font-size: 14px; }
+  .foot-note { font-size: 13px; color: var(--ink-soft); }
+
+  [data-lang-hide] { display: none !important; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="#top"><img src="logo.svg" alt="brooks-lint logo">brooks-lint</a>
+    <div class="nav-links">
+      <a class="hide-sm" href="#risks" data-en="Decay Risks" data-zh="腐化风险">Decay Risks</a>
+      <a class="hide-sm" href="#sample" data-en="Example" data-zh="示例">Example</a>
+      <a class="hide-sm" href="#benchmark" data-en="Benchmark" data-zh="基准">Benchmark</a>
+      <a class="hide-sm" href="gallery.html" data-en="Gallery" data-zh="画廊">Gallery</a>
+      <a class="hide-sm" href="guide.html" data-en="Guide" data-zh="指南">Guide</a>
+      <a class="hide-sm" href="#install" data-en="Install" data-zh="安装">Install</a>
+      <span class="lang-toggle">
+        <button data-set-lang="en">EN</button>
+        <button data-set-lang="zh">中文</button>
+      </span>
+      <a href="https://github.com/hyhmrright/brooks-lint" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<main id="top">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="wrap">
+      <span class="eyebrow" data-en="Claude Code · Codex · Gemini plugin" data-zh="Claude Code · Codex · Gemini 插件">Claude Code · Codex · Gemini plugin</span>
+      <h1 data-en="AI code reviews grounded in twelve classic engineering books"
+          data-zh="扎根于十二本经典工程著作的 AI 代码审查">AI code reviews grounded in twelve classic engineering books</h1>
+      <p class="lede"
+         data-en="Most tools count lines and complexity. brooks-lint diagnoses your code against twelve decay risks synthesized from the classics — every finding cited, scored, and remedied."
+         data-zh="多数工具只统计行数和复杂度。brooks-lint 把你的代码对照从十二本经典提炼的腐化风险逐一诊断——每条结论都有出处、有评分、有修复方案。">
+        Most tools count lines and complexity. brooks-lint diagnoses your code against twelve decay risks synthesized from the classics — every finding cited, scored, and remedied.
+      </p>
+      <blockquote class="quote"
+        data-en="“The bearing of a child takes nine months, no matter how many women are assigned.”"
+        data-zh="“一个孩子的孕育需要九个月，无论你派多少人去。”">
+        “The bearing of a child takes nine months, no matter how many women are assigned.”
+        <cite data-en="— Frederick Brooks, The Mythical Man-Month (1975)" data-zh="—— 弗雷德里克·布鲁克斯，《人月神话》（1975）">— Frederick Brooks, The Mythical Man-Month (1975)</cite>
+      </blockquote>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#install" data-en="Get Started" data-zh="开始使用">Get Started</a>
+        <a class="btn btn-ghost" href="https://github.com/hyhmrright/brooks-lint" target="_blank" rel="noopener" data-en="View on GitHub" data-zh="GitHub 查看">View on GitHub</a>
+      </div>
+
+      <div class="hero-shot">
+        <img src="demo.gif" alt="brooks-lint reviewing code: a /brooks-review command produces a 28/100 health score and cited Symptom → Source → Consequence → Remedy findings" loading="eager">
+      </div>
+
+      <div class="stats">
+        <div class="stat"><b>12</b><span data-en="classic books" data-zh="本经典著作">classic books</span></div>
+        <div class="stat"><b>12</b><span data-en="decay risks (R1–R6 · T1–T6)" data-zh="腐化风险 (R1–R6 · T1–T6)">decay risks (R1–R6 · T1–T6)</span></div>
+        <div class="stat"><b>94%</b><span data-en="benchmark pass rate" data-zh="基准通过率">benchmark pass rate</span></div>
+        <div class="stat"><b>6</b><span data-en="independent skills" data-zh="个独立技能">independent skills</span></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- FEATURES -->
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <h2 data-en="Not a linter. A second opinion from the canon." data-zh="不是 linter，是来自经典的第二意见。">Not a linter. A second opinion from the canon.</h2>
+        <p data-en="Linters catch syntax. brooks-lint catches architectural drift, knowledge silos, and domain distortion — the slow problems that cost teams months."
+           data-zh="linter 抓语法。brooks-lint 抓架构漂移、知识孤岛和领域失真——那些拖垮团队数月却无人察觉的慢性病。">Linters catch syntax. brooks-lint catches architectural drift, knowledge silos, and domain distortion — the slow problems that cost teams months.</p>
+      </div>
+      <div class="grid-4">
+        <div class="feature">
+          <span class="ic">⚖️</span>
+          <h3 data-en="The Iron Law" data-zh="铁律格式">The Iron Law</h3>
+          <p data-en="Every finding follows one shape: Symptom → Source → Consequence → Remedy. No vague vibes, ever."
+             data-zh="每条结论遵循同一形态：症状 → 根源 → 后果 → 修复。绝不含糊其辞。">Every finding follows one shape: Symptom → Source → Consequence → Remedy. No vague vibes, ever.</p>
+        </div>
+        <div class="feature">
+          <span class="ic">📚</span>
+          <h3 data-en="Cited to the books" data-zh="书有出处">Cited to the books</h3>
+          <p data-en="Brooks, Fowler, Martin, Ousterhout, Evans, Feathers, Meszaros and more — each finding names the author and principle."
+             data-zh="布鲁克斯、Fowler、Martin、Ousterhout、Evans、Feathers、Meszaros 等——每条结论都点名作者与原则。">Brooks, Fowler, Martin, Ousterhout, Evans, Feathers, Meszaros and more — each finding names the author and principle.</p>
+        </div>
+        <div class="feature">
+          <span class="ic">🎯</span>
+          <h3 data-en="Six focused skills" data-zh="六个专注技能">Six focused skills</h3>
+          <p data-en="PR Review, Architecture Audit, Tech Debt, Test Quality, Health Dashboard, and a Full Sweep that auto-fixes."
+             data-zh="PR 审查、架构审计、技术债、测试质量、健康仪表盘，以及会自动修复的全面扫描。">PR Review, Architecture Audit, Tech Debt, Test Quality, Health Dashboard, and a Full Sweep that auto-fixes.</p>
+        </div>
+        <div class="feature">
+          <span class="ic">🔌</span>
+          <h3 data-en="Zero config, any language" data-zh="零配置·任意语言">Zero config, any language</h3>
+          <p data-en="Works in Claude Code, Codex CLI, and Gemini CLI. No plugins to wire up, no language limits."
+             data-zh="支持 Claude Code、Codex CLI、Gemini CLI。无需接线，不限语言。">Works in Claude Code, Codex CLI, and Gemini CLI. No plugins to wire up, no language limits.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DECAY RISKS -->
+  <section id="risks" class="alt">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 data-en="The Six Production Decay Risks" data-zh="六大生产代码腐化风险">The Six Production Decay Risks</h2>
+        <p data-en="Synthesized from the twelve books. Six more (T1–T6) cover test-suite decay."
+           data-zh="提炼自十二本经典。另有六项（T1–T6）覆盖测试套件的腐化。">Synthesized from the twelve books. Six more (T1–T6) cover test-suite decay.</p>
+      </div>
+      <div class="grid-3">
+        <div class="risk">
+          <span class="code">R1</span>
+          <h3>🧠 <span data-en="Cognitive Overload" data-zh="认知过载">Cognitive Overload</span></h3>
+          <p data-en="How much mental effort does it take to understand this?" data-zh="理解这段代码要耗费多少脑力？">How much mental effort does it take to understand this?</p>
+          <div class="src">Code Complete · Refactoring · DDD · Philosophy of SD</div>
+        </div>
+        <div class="risk">
+          <span class="code">R2</span>
+          <h3>🔗 <span data-en="Change Propagation" data-zh="变更扩散">Change Propagation</span></h3>
+          <p data-en="How many unrelated things break on one change?" data-zh="改一处会牵连多少无关之物崩坏？">How many unrelated things break on one change?</p>
+          <div class="src">Refactoring · Clean Architecture · Pragmatic · SE@Google</div>
+        </div>
+        <div class="risk">
+          <span class="code">R3</span>
+          <h3>📋 <span data-en="Knowledge Duplication" data-zh="知识重复">Knowledge Duplication</span></h3>
+          <p data-en="Is the same decision expressed in multiple places?" data-zh="同一个决策是否散落在多处表达？">Is the same decision expressed in multiple places?</p>
+          <div class="src">Pragmatic · Refactoring · DDD</div>
+        </div>
+        <div class="risk">
+          <span class="code">R4</span>
+          <h3>🌀 <span data-en="Accidental Complexity" data-zh="偶发复杂度">Accidental Complexity</span></h3>
+          <p data-en="Is the code more complex than the problem itself?" data-zh="代码是否比问题本身更复杂？">Is the code more complex than the problem itself?</p>
+          <div class="src">Refactoring · Code Complete · Brooks · Philosophy of SD</div>
+        </div>
+        <div class="risk">
+          <span class="code">R5</span>
+          <h3>🏗️ <span data-en="Dependency Disorder" data-zh="依赖失序">Dependency Disorder</span></h3>
+          <p data-en="Do dependencies flow in a consistent direction?" data-zh="依赖是否朝一致的方向流动？">Do dependencies flow in a consistent direction?</p>
+          <div class="src">Clean Architecture · Brooks · Pragmatic · SE@Google</div>
+        </div>
+        <div class="risk">
+          <span class="code">R6</span>
+          <h3>🗺️ <span data-en="Domain Model Distortion" data-zh="领域模型失真">Domain Model Distortion</span></h3>
+          <p data-en="Does the code faithfully represent the domain?" data-zh="代码是否忠实地表达了业务领域？">Does the code faithfully represent the domain?</p>
+          <div class="src">DDD · Refactoring</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SAMPLE -->
+  <section id="sample">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 data-en="What a finding looks like" data-zh="一条结论长什么样">What a finding looks like</h2>
+        <p data-en="Same messy method, two of the eight findings brooks-lint produces — each one cited and actionable."
+           data-zh="同一段混乱方法，brooks-lint 给出的八条结论中的两条——每条都有出处、可执行。">Same messy method, two of the eight findings brooks-lint produces — each one cited and actionable.</p>
+      </div>
+      <div class="sample">
+        <div class="score" data-en="Health Score: <b>28/100</b>" data-zh="健康分：<b>28/100</b>">Health Score: <b>28/100</b></div>
+        <div class="summary"
+          data-en="This method concentrates four unrelated business responsibilities, hides a logic bug that silently suppresses email notifications, and is wide open to SQL injection."
+          data-zh="这个方法把四项互不相关的业务职责堆在一起，藏着一个让邮件通知静默失效的逻辑 bug，并且对 SQL 注入门户大开。">
+          This method concentrates four unrelated business responsibilities, hides a logic bug that silently suppresses email notifications, and is wide open to SQL injection.
+        </div>
+
+        <div class="finding">
+          <h4><span class="dot">🔴</span> R2 — <span data-en="One method changes for four unrelated reasons" data-zh="一个方法因四个无关原因而改动">One method changes for four unrelated reasons</span></h4>
+          <div class="row"><b data-en="Symptom:" data-zh="症状：">Symptom:</b>
+            <span data-en="update_profile does field updates, email notifications, loyalty recalculation, and cache invalidation in one body."
+                  data-zh="update_profile 在一个方法体里同时做字段更新、邮件通知、积分重算和缓存失效。">update_profile does field updates, email notifications, loyalty recalculation, and cache invalidation in one body.</span></div>
+          <div class="row src"><b data-en="Source:" data-zh="根源：">Source:</b>
+            <span data-en="Fowler — Refactoring — Divergent Change; Hunt &amp; Thomas — Orthogonality"
+                  data-zh="Fowler《重构》——发散式变化；Hunt &amp; Thomas——正交性">Fowler — Refactoring — Divergent Change; Hunt &amp; Thomas — Orthogonality</span></div>
+          <div class="row"><b data-en="Consequence:" data-zh="后果：">Consequence:</b>
+            <span data-en="A change to the loyalty formula risks breaking email notifications. Every edit carries regression risk across four domains."
+                  data-zh="改一下积分公式就可能弄坏邮件通知。每次编辑都在四个领域同时承担回归风险。">A change to the loyalty formula risks breaking email notifications. Every edit carries regression risk across four domains.</span></div>
+          <div class="row fix"><b data-en="Remedy:" data-zh="修复：">Remedy:</b>
+            <span data-en="Extract NotificationService, LoyaltyService, UserCacheInvalidator. update_profile should orchestrate, not implement."
+                  data-zh="抽出 NotificationService、LoyaltyService、UserCacheInvalidator。update_profile 应当编排而非实现。">Extract NotificationService, LoyaltyService, UserCacheInvalidator. update_profile should orchestrate, not implement.</span></div>
+        </div>
+
+        <div class="finding">
+          <h4><span class="dot">🔴</span> R6 — <span data-en="Silent logic bug: notification never fires" data-zh="静默逻辑 bug：通知永不触发">Silent logic bug: notification never fires</span></h4>
+          <div class="row"><b data-en="Symptom:" data-zh="症状：">Symptom:</b>
+            <span data-en="user['email'] = email runs before if user['email'] != email — the condition is always False, the code is dead."
+                  data-zh="user['email'] = email 在 if user['email'] != email 之前执行——条件永远为 False，该分支是死代码。">user['email'] = email runs before if user['email'] != email — the condition is always False, the code is dead.</span></div>
+          <div class="row src"><b data-en="Source:" data-zh="根源：">Source:</b>
+            <span data-en="McConnell — Code Complete — Ch. 17: Unusual Control Structures"
+                  data-zh="McConnell《代码大全》——第 17 章：非常规控制结构">McConnell — Code Complete — Ch. 17: Unusual Control Structures</span></div>
+          <div class="row"><b data-en="Consequence:" data-zh="后果：">Consequence:</b>
+            <span data-en="Users are never notified when their email changes. A business rule is silently violated while the system looks fine."
+                  data-zh="用户改邮箱时永远收不到通知。系统看似正常，业务规则却被悄悄违反。">Users are never notified when their email changes. A business rule is silently violated while the system looks fine.</span></div>
+          <div class="row fix"><b data-en="Remedy:" data-zh="修复：">Remedy:</b>
+            <span data-en="Capture old_email before any mutation. Compare against old_email, not the already-overwritten value."
+                  data-zh="在任何修改前先捕获 old_email，与 old_email 比较，而非已被覆盖的值。">Capture old_email before any mutation. Compare against old_email, not the already-overwritten value.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BENCHMARK -->
+  <section id="benchmark" class="alt">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 data-en="Consistency is the point" data-zh="一致性才是重点">Consistency is the point</h2>
+        <p data-en="Tested across PR review, architecture audit, and tech debt scenarios. The gap isn't what Claude can find — it's what it finds every single time, with evidence."
+           data-zh="在 PR 审查、架构审计、技术债三类场景上测试。差距不在于 Claude 能找到什么，而在于它能否每一次都带着证据找到。">Tested across PR review, architecture audit, and tech debt scenarios. The gap isn't what Claude can find — it's what it finds every single time, with evidence.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-en="Criterion" data-zh="评判标准">Criterion</th>
+              <th class="c">brooks-lint</th>
+              <th class="c" data-en="Claude alone" data-zh="纯 Claude">Claude alone</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td data-en="Structured Symptom→Source→Consequence→Remedy" data-zh="结构化 症状→根源→后果→修复">Structured Symptom→Source→Consequence→Remedy</td><td class="c yes">100%</td><td class="c no">0%</td></tr>
+            <tr><td data-en="Book citation per finding" data-zh="每条结论附书目出处">Book citation per finding</td><td class="c yes">100%</td><td class="c no">0%</td></tr>
+            <tr><td data-en="Consistent severity labels 🔴🟡🟢" data-zh="一致的严重度标签 🔴🟡🟢">Consistent severity labels 🔴🟡🟢</td><td class="c yes">100%</td><td class="c no">0%</td></tr>
+            <tr><td data-en="Health Score (0–100)" data-zh="健康分（0–100）">Health Score (0–100)</td><td class="c yes">100%</td><td class="c no">0%</td></tr>
+            <tr><td data-en="Overall pass rate" data-zh="总体通过率">Overall pass rate</td><td class="c">94%</td><td class="c">16%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- BOOKS -->
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <h2 data-en="Standing on twelve giants" data-zh="站在十二位巨人的肩上">Standing on twelve giants</h2>
+        <p data-en="The decay risks are our synthesis of their ideas, applied to modern code quality."
+           data-zh="这些腐化风险是我们对他们思想的综合，应用于现代代码质量评估。">The decay risks are our synthesis of their ideas, applied to modern code quality.</p>
+      </div>
+      <div class="books">
+        <span class="book-chip"><b>The Mythical Man-Month</b> · <span>Brooks</span></span>
+        <span class="book-chip"><b>Code Complete</b> · <span>McConnell</span></span>
+        <span class="book-chip"><b>Refactoring</b> · <span>Fowler</span></span>
+        <span class="book-chip"><b>Clean Architecture</b> · <span>Martin</span></span>
+        <span class="book-chip"><b>The Pragmatic Programmer</b> · <span>Hunt &amp; Thomas</span></span>
+        <span class="book-chip"><b>Domain-Driven Design</b> · <span>Evans</span></span>
+        <span class="book-chip"><b>A Philosophy of Software Design</b> · <span>Ousterhout</span></span>
+        <span class="book-chip"><b>Software Engineering at Google</b> · <span>Winters et al.</span></span>
+        <span class="book-chip"><b>The Art of Unit Testing</b> · <span>Osherove</span></span>
+        <span class="book-chip"><b>How Google Tests Software</b> · <span>Whittaker et al.</span></span>
+        <span class="book-chip"><b>Working Effectively with Legacy Code</b> · <span>Feathers</span></span>
+        <span class="book-chip"><b>xUnit Test Patterns</b> · <span>Meszaros</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- INSTALL -->
+  <section id="install" class="alt">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 data-en="Get started in seconds" data-zh="几秒钟即可上手">Get started in seconds</h2>
+        <p data-en="Pick your tool. Then just ask it to review your code, audit your architecture, or assess tech debt."
+           data-zh="选择你的工具，然后让它审查代码、审计架构或评估技术债即可。">Pick your tool. Then just ask it to review your code, audit your architecture, or assess tech debt.</p>
+      </div>
+      <div class="install-grid">
+        <div class="install-label">Claude Code</div>
+        <div class="code-block">
+<button class="copy-btn" data-copy="/plugin marketplace add hyhmrright/brooks-lint
+/plugin install brooks-lint@brooks-lint-marketplace">Copy</button><span class="cmt"># add the marketplace, then install</span>
+<span class="tok">/plugin</span> marketplace add hyhmrright/brooks-lint
+<span class="tok">/plugin</span> install brooks-lint@brooks-lint-marketplace</div>
+
+        <div class="install-label">Gemini CLI</div>
+        <div class="code-block">
+<button class="copy-btn" data-copy="/extensions install https://github.com/hyhmrright/brooks-lint">Copy</button><span class="tok">/extensions</span> install https://github.com/hyhmrright/brooks-lint</div>
+
+        <div class="install-label">Codex CLI</div>
+        <div class="code-block">
+<button class="copy-btn" data-copy="Install the brooks-lint skill from hyhmrright/brooks-lint">Copy</button><span class="cmt"># just say this in a Codex session</span>
+Install the brooks-lint skill from hyhmrright/brooks-lint</div>
+
+        <div class="install-label" data-en="Then, in any session:" data-zh="然后，在任意会话里：">Then, in any session:</div>
+        <div class="code-block">
+<button class="copy-btn" data-copy="/brooks-review">Copy</button><span class="tok">/brooks-review</span>   <span class="cmt"># or /brooks-audit · /brooks-debt · /brooks-test · /brooks-health · /brooks-sweep</span></div>
+      </div>
+      <div style="text-align:center; margin-top:34px;">
+        <a class="btn btn-primary" href="https://github.com/hyhmrright/brooks-lint" target="_blank" rel="noopener" data-en="Star on GitHub ⭐" data-zh="去 GitHub 点个 Star ⭐">Star on GitHub ⭐</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <div class="foot-links">
+      <a href="https://github.com/hyhmrright/brooks-lint" target="_blank" rel="noopener">GitHub</a>
+      <a href="gallery.html" data-en="Gallery" data-zh="示例画廊">Gallery</a>
+      <a href="guide.html" data-en="Decay Risk Guide" data-zh="腐化风险指南">Decay Risk Guide</a>
+      <a href="https://github.com/hyhmrright/brooks-lint/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener" data-en="Contributing" data-zh="参与贡献">Contributing</a>
+      <a href="https://github.com/hyhmrright/brooks-lint/blob/main/CHANGELOG.md" target="_blank" rel="noopener" data-en="Changelog" data-zh="更新日志">Changelog</a>
+    </div>
+    <div class="foot-note" data-en="MIT License — Built by hyhmrright" data-zh="MIT 许可证 — 由 hyhmrright 构建">MIT License — Built by hyhmrright</div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var STORE = "brooks-lint-lang";
+  function apply(lang) {
+    document.documentElement.lang = (lang === "zh") ? "zh-CN" : "en";
+    document.querySelectorAll("[data-en]").forEach(function (el) {
+      var v = el.getAttribute("data-" + lang);
+      if (v != null) el.innerHTML = v;
+    });
+    document.querySelectorAll(".lang-toggle button").forEach(function (b) {
+      b.classList.toggle("active", b.getAttribute("data-set-lang") === lang);
+    });
+    try { localStorage.setItem(STORE, lang); } catch (e) {}
+  }
+  document.querySelectorAll("[data-set-lang]").forEach(function (b) {
+    b.addEventListener("click", function () { apply(b.getAttribute("data-set-lang")); });
+  });
+  var saved;
+  try { saved = localStorage.getItem(STORE); } catch (e) {}
+  if (!saved) saved = (navigator.language || "").toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+  apply(saved);
+
+  // copy buttons
+  document.querySelectorAll(".copy-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var text = btn.getAttribute("data-copy");
+      navigator.clipboard.writeText(text).then(function () {
+        var prev = btn.textContent;
+        btn.textContent = "✓";
+        setTimeout(function () { btn.textContent = prev; }, 1200);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

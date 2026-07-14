@@ -1,0 +1,63 @@
+# Emdash Skills System
+
+> 14 top-level skills, 94 reference docs, 18 agents, and 12 templates for Emdash’s product-building workflow.
+
+> For the full unabridged version, see [llms-full.txt](llms-full.txt).
+
+## Supporting Docs
+
+- [Router](_router.md) — route prompts to the smallest useful skill set
+- [Conventions](CONVENTIONS.md) — shared defaults, commands, breakpoints, CSP, integrations
+- [Skill Profiles](SKILL_PROFILES.md) — default bundles by product type
+- [Changelog](CHANGELOG.md) — package history
+
+## Core Skills
+
+- [01 Operating System](01-operating-system/SKILL.md) — policy, execution cadence, emphasis handling
+- [02 Goal and Brief](02-goal-and-brief/SKILL.md) — thesis, users, business model
+- [03 Planning and Research](03-planning-and-research/SKILL.md) — research, decomposition, competitive analysis
+- [04 Preference and Memory](04-preference-and-memory/SKILL.md) — preferences, VoC, decision models
+- [05 Architecture and Stack](05-architecture-and-stack/SKILL.md) — platform, auth, data, MCP, API design
+- [06 Build and Slice Loop](06-build-and-slice-loop/SKILL.md) — feature slices and product surface area
+- [07 Quality and Verification](07-quality-and-verification/SKILL.md) — tests, security, accessibility, performance, visual QA
+- [08 Deploy and Runtime Verification](08-deploy-and-runtime-verification/SKILL.md) — deploy, CI/CD, rollback, uptime
+- [09 Brand and Content System](09-brand-and-content-system/SKILL.md) — copy, SEO, trust, docs
+- [10 Experience and Design System](10-experience-and-design-system/SKILL.md) — tokens, layout, anti-slop UI
+- [11 Motion and Interaction System](11-motion-and-interaction-system/SKILL.md) — motion grammar and interaction affordances
+- [12 Media Orchestration](12-media-orchestration/SKILL.md) — image generation, OG images, optimization
+- [13 Observability and Growth](13-observability-and-growth/SKILL.md) — analytics, billing, feedback, experiments
+- [14 Independent Idea Engine](14-independent-idea-engine/SKILL.md) — evidence-backed improvement loops
+
+## Reference Highlights
+
+- OS: [autonomous-orchestrator](01-operating-system/autonomous-orchestrator.md), [context-engineering](01-operating-system/context-engineering.md)
+- Architecture: [api-design-and-documentation](05-architecture-and-stack/api-design-and-documentation.md), [auth-and-session-management](05-architecture-and-stack/auth-and-session-management.md), [drizzle-orm-and-migrations](05-architecture-and-stack/drizzle-orm-and-migrations.md), [enterprise-multi-tenancy](05-architecture-and-stack/enterprise-multi-tenancy.md), [mcp-and-cloud-integrations](05-architecture-and-stack/mcp-and-cloud-integrations.md)
+- Build: [contact-forms-and-endpoints](06-build-and-slice-loop/contact-forms-and-endpoints.md), [file-uploads-and-storage](06-build-and-slice-loop/file-uploads-and-storage.md), [onboarding-and-first-run](06-build-and-slice-loop/onboarding-and-first-run.md), [site-search](06-build-and-slice-loop/site-search.md), [webhook-system](06-build-and-slice-loop/webhook-system.md)
+- Quality: [accessibility-gate](07-quality-and-verification/accessibility-gate.md), [agentic-security](07-quality-and-verification/agentic-security.md), [performance-optimization](07-quality-and-verification/performance-optimization.md), [security-hardening](07-quality-and-verification/security-hardening.md), [spec-driven-development](07-quality-and-verification/spec-driven-development.md), [visual-regression](07-quality-and-verification/visual-regression.md)
+- Deploy: [backup-and-disaster-recovery](08-deploy-and-runtime-verification/backup-and-disaster-recovery.md), [ci-cd-pipeline](08-deploy-and-runtime-verification/ci-cd-pipeline.md), [launch-day-sequence](08-deploy-and-runtime-verification/launch-day-sequence.md), [uptime-and-health](08-deploy-and-runtime-verification/uptime-and-health.md)
+- Brand and growth: [documentation-and-codebase-hygiene](09-brand-and-content-system/documentation-and-codebase-hygiene.md), [seo-and-keywords](09-brand-and-content-system/seo-and-keywords.md), [analytics-configuration](13-observability-and-growth/analytics-configuration.md), [square-payments](13-observability-and-growth/square-payments.md) (donations/SMB default), [stripe-billing](13-observability-and-growth/stripe-billing.md) (SaaS subs/enterprise)
+
+## Agents
+
+- [architect](agents/architect.md)
+- [code-simplifier](agents/code-simplifier.md)
+- [completeness-checker](agents/completeness-checker.md)
+- [computer-use-operator](agents/computer-use-operator.md)
+- [deploy-verifier](agents/deploy-verifier.md)
+- [security-reviewer](agents/security-reviewer.md)
+- [seo-auditor](agents/seo-auditor.md)
+- [test-writer](agents/test-writer.md)
+- [visual-qa](agents/visual-qa.md)
+- [dependency-auditor](agents/dependency-auditor.md)
+- [meta-orchestrator](agents/meta-orchestrator.md)
+- [migration-agent](agents/migration-agent.md)
+- [content-writer](agents/content-writer.md)
+- [performance-profiler](agents/performance-profiler.md)
+- [incident-responder](agents/incident-responder.md)
+- [accessibility-auditor](agents/accessibility-auditor.md)
+- [cost-estimator](agents/cost-estimator.md)
+- [changelog-generator](agents/changelog-generator.md)
+
+## Validation
+
+- [validate-skills](scripts/validate-skills.sh) — frontmatter, links, router/profile refs, and `SKILL.md` size checks

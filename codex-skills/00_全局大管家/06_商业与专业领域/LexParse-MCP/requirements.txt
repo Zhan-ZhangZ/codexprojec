@@ -1,0 +1,11 @@
+anthropic>=0.95.0
+cryptography>=44.0.0
+fastapi>=0.115.0
+mcp>=1.17.0
+pdfplumber>=0.11.0
+pydantic>=2.10.0
+PyMuPDF>=1.24.0
+python-docx>=1.1.2
+python-multipart>=0.0.9
+structlog>=25.0.0
+uvicorn[standard]>=0.32.0

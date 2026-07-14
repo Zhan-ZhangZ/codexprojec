@@ -1,0 +1,607 @@
+{ SPDX-License-Identifier: Apache-2.0                                   }
+{ Copyright (c) 2026 George Saliba <george.saliba@salitronic.com>                                      }
+{..............................................................................}
+{ Application.pas - Application-level functions for the Altium integration bridge             }
+{..............................................................................}
+
+Function App_Ping(RequestId : String) : String;
+Begin
+    // Return the compiled-in SCRIPT_VERSION so Python can detect a stale
+    // Altium script cache. cast_errors surfaces the silent-cast counter
+    // (see RecordCastError), non-zero at session end indicates an
+    // interface mismatch worth investigating.
+    Result := BuildSuccessResponse(RequestId,
+        '{"pong":true,"script_version":"' + SCRIPT_VERSION +
+        '","protocol_version":' + IntToStr(PROTOCOL_VERSION) +
+        ',"cast_errors":' + IntToStr(CastErrorCount) + '}');
+End;
+
+Function App_GetVersion(RequestId : String) : String;
+Var
+    Data, Ver : String;
+Begin
+    Ver := '';
+    Try
+        Ver := Client.GetProductVersion;
+    Except
+        Ver := '';
+    End;
+    If Ver <> '' Then
+        Data := '{"version":"' + EscapeJsonString(Ver) + '","product_name":"Altium Designer"}'
+    Else
+        Data := '{"product_name":"Altium Designer","note":"Version API not available in DelphiScript"}';
+    Result := BuildSuccessResponse(RequestId, Data);
+End;
+
+Function App_GetOpenDocuments(RequestId : String) : String;
+Var
+    Workspace : IWorkspace;
+    Project : IProject;
+    Doc : IDocument;
+    I, J : Integer;
+    Data, DocInfo, FileName, FullPath, Kind, LoadedStr : String;
+    FirstItem, IsLoaded : Boolean;
+Begin
+    Workspace := GetWorkspace;
+    Data := '[';
+    FirstItem := True;
+    If Workspace <> Nil Then
+    Begin
+        For I := 0 To Workspace.DM_ProjectCount - 1 Do
+        Begin
+            Project := Workspace.DM_Projects(I);
+            If Project <> Nil Then
+            Begin
+                For J := 0 To Project.DM_LogicalDocumentCount - 1 Do
+                Begin
+                    Doc := Project.DM_LogicalDocuments(J);
+                    If Doc <> Nil Then
+                    Begin
+                        If Not FirstItem Then Data := Data + ',';
+                        FirstItem := False;
+                        FileName := Doc.DM_FileName;
+                        Kind := Doc.DM_DocumentKind;
+
+                        // "loaded" means the document is actually resident in
+                        // the editor server (SchServer/PCBServer/Client), not
+                        // just listed as a project member. Project-scope
+                        // queries and modifications only touch loaded sheets;
+                        // callers should call load_project_sheets first if
+                        // they need to hit every sheet in the project.
+                        FullPath := '';
+                        Try FullPath := Doc.DM_FullPath; Except FullPath := FileName; End;
+                        // Client.GetDocumentByPath resolves any resident doc
+                        // (SCH/PCB/OutJob/etc.) to an IServerDocument. nil
+                        // means the file is a project member on disk but
+                        // hasn't been loaded into the editor.
+                        IsLoaded := False;
+                        Try
+                            If Client.GetDocumentByPath(FullPath) <> Nil Then
+                                IsLoaded := True;
+                        Except IsLoaded := False; End;
+                        If IsLoaded Then LoadedStr := 'true' Else LoadedStr := 'false';
+
+                        DocInfo := '{"file_name":"' + EscapeJsonString(ExtractFileName(FileName)) + '"';
+                        DocInfo := DocInfo + ',"file_path":"' + EscapeJsonString(FullPath) + '"';
+                        DocInfo := DocInfo + ',"document_kind":"' + EscapeJsonString(Kind) + '"';
+                        DocInfo := DocInfo + ',"loaded":' + LoadedStr + '}';
+                        Data := Data + DocInfo;
+                    End;
+                End;
+            End;
+        End;
+    End;
+    Data := Data + ']';
+    Result := BuildSuccessResponse(RequestId, Data);
+End;
+
+Function App_GetActiveDocument(RequestId : String) : String;
+Var
+    Workspace : IWorkspace;
+    Doc : IDocument;
+    SchDoc : ISch_Document;
+    Board : IPCB_Board;
+    Data, FileName : String;
+Begin
+    Data := '';
+    Workspace := GetWorkspace;
+    If Workspace <> Nil Then
+    Begin
+        Doc := Workspace.DM_FocusedDocument;
+        If Doc <> Nil Then
+        Begin
+            FileName := Doc.DM_FileName;
+            Data := '{"file_name":"' + EscapeJsonString(ExtractFileName(FileName)) + '"';
+            Data := Data + ',"file_path":"' + EscapeJsonString(FileName) + '"';
+            Data := Data + ',"document_kind":"' + EscapeJsonString(Doc.DM_DocumentKind) + '"}';
+        End;
+    End;
+
+    // DM_FocusedDocument is UI-focus-dependent and returns Nil when no
+    // editor window holds focus (e.g. right after a programmatic
+    // create/place). Fall back to the SCH then PCB server module's
+    // current document, which track the last-shown sheet/board
+    // independent of workspace focus.
+    If Data = '' Then
+    Begin
+        SchDoc := Nil;
+        Try SchDoc := SchServer.GetCurrentSchDocument; Except SchDoc := Nil; End;
+        If SchDoc <> Nil Then
+        Begin
+            FileName := SchDoc.DocumentName;
+            Data := '{"file_name":"' + EscapeJsonString(ExtractFileName(FileName)) + '"';
+            Data := Data + ',"file_path":"' + EscapeJsonString(FileName) + '"';
+            Data := Data + ',"document_kind":"SCH"}';
+        End;
+    End;
+    If Data = '' Then
+    Begin
+        Board := Nil;
+        Try Board := GetPCBBoardAnywhere; Except Board := Nil; End;
+        If Board <> Nil Then
+        Begin
+            FileName := Board.FileName;
+            Data := '{"file_name":"' + EscapeJsonString(ExtractFileName(FileName)) + '"';
+            Data := Data + ',"file_path":"' + EscapeJsonString(FileName) + '"';
+            Data := Data + ',"document_kind":"PCB"}';
+        End;
+    End;
+
+    If Data = '' Then Data := '{}';
+    Result := BuildSuccessResponse(RequestId, Data);
+End;
+
+Function App_SetActiveDocument(Params : String; RequestId : String) : String;
+Var
+    FilePath, LowerInput, LowerDocPath, FullPath : String;
+    ServerDoc : IServerDocument;
+    Workspace : IWorkspace;
+    Project : IProject;
+    Doc : IDocument;
+    I : Integer;
+Begin
+    FilePath := ExtractJsonValue(Params, 'file_path');
+    FilePath := StringReplace(FilePath, '\\', '\', -1);
+
+    // Only switch focus to a document that is ALREADY loaded.
+    // RunProcess('WorkspaceManager:OpenObject') would load it but strip
+    // any project association, producing a "free document" in the UI
+    // (tab title shows the full absolute path instead of filename).
+    // Refuse the call if the doc isn't loaded, the caller must open
+    // it in Altium first.
+    ServerDoc := Client.GetDocumentByPath(FilePath);
+    If ServerDoc = Nil Then
+    Begin
+        // Fallback: many callers (the dashboard sheet picker, the
+        // project.get_documents list) only have the bare filename
+        // (e.g. "ESP32.SchDoc"). GetDocumentByPath needs an exact full
+        // path, so the first call returns Nil. Walk the focused
+        // project's logical docs (Client.GetDocumentCount is undeclared
+        // in DelphiScript -- the project DM enumeration is the right
+        // way) and match by filename suffix to recover the full path.
+        LowerInput := LowerCase(FilePath);
+        Try
+            Workspace := GetWorkspace;
+            If Workspace <> Nil Then Project := Workspace.DM_FocusedProject;
+        Except End;
+        If Project <> Nil Then
+        Begin
+            For I := 0 To Project.DM_LogicalDocumentCount - 1 Do
+            Begin
+                Try
+                    Doc := Project.DM_LogicalDocuments(I);
+                    If Doc = Nil Then Continue;
+                    FullPath := '';
+                    Try FullPath := Doc.DM_FullPath; Except FullPath := Doc.DM_FileName; End;
+                    If FullPath = '' Then Continue;
+                    LowerDocPath := LowerCase(FullPath);
+                    // Exact match OR endswith match: "ESP32.SchDoc"
+                    // should match "C:\path\to\ESP32.SchDoc".
+                    If (LowerDocPath = LowerInput)
+                        Or ((Length(LowerDocPath) > Length(LowerInput))
+                            And (Copy(LowerDocPath,
+                                      Length(LowerDocPath) - Length(LowerInput) + 1,
+                                      Length(LowerInput)) = LowerInput)) Then
+                    Begin
+                        Try ServerDoc := Client.GetDocumentByPath(FullPath); Except End;
+                        If ServerDoc <> Nil Then Break;
+                    End;
+                Except End;
+            End;
+        End;
+    End;
+
+    If ServerDoc = Nil Then
+    Begin
+        Result := BuildErrorResponse(RequestId, 'NOT_LOADED',
+            'Document not loaded: ' + FilePath +
+            '. Open it in Altium first (File > Open or via the project tree).');
+        Exit;
+    End;
+
+    // Make it the active/focused document.
+    Client.ShowDocument(ServerDoc);
+
+    Result := BuildSuccessResponse(RequestId, '{"success":true,"file_path":"' + EscapeJsonString(ServerDoc.FileName) + '"}');
+End;
+
+Function App_RunProcess(Params : String; RequestId : String) : String;
+Var
+    ProcessName, ProcessParams : String;
+    Remaining, Pair, Key, Val : String;
+    PipePos, EqPos : Integer;
+Begin
+    ProcessName := ExtractJsonValue(Params, 'process_name');
+    ProcessParams := ExtractJsonValue(Params, 'parameters');
+
+    If ProcessName <> '' Then
+    Begin
+        ResetParameters;
+        If ProcessParams <> '' Then
+        Begin
+            // Parse pipe-separated key=value parameters
+            Remaining := ProcessParams;
+            While Length(Remaining) > 0 Do
+            Begin
+                PipePos := Pos('|', Remaining);
+                If PipePos = 0 Then
+                Begin
+                    Pair := Remaining;
+                    Remaining := '';
+                End
+                Else
+                Begin
+                    Pair := Copy(Remaining, 1, PipePos - 1);
+                    Remaining := Copy(Remaining, PipePos + 1, Length(Remaining));
+                End;
+                EqPos := Pos('=', Pair);
+                If EqPos > 1 Then
+                Begin
+                    Key := Copy(Pair, 1, EqPos - 1);
+                    If Key <> '' Then
+                    Begin
+                        Val := Copy(Pair, EqPos + 1, Length(Pair));
+                        AddStringParameter(Key, Val);
+                    End;
+                End;
+            End;
+        End;
+        RunProcess(ProcessName);
+        Result := BuildSuccessResponse(RequestId, '{"success":true}');
+    End
+    Else
+        Result := BuildErrorResponse(RequestId, 'INVALID_PARAMETER', 'Process name is required');
+End;
+
+{..............................................................................}
+{ Get key Altium preferences (units, grid, snap)                              }
+{..............................................................................}
+
+Function App_GetPreferences(RequestId : String) : String;
+Var
+    Board : IPCB_Board;
+    SchDoc : ISch_Document;
+    Data : String;
+Begin
+    Data := '{';
+
+    { Try to get PCB preferences from the active board }
+    Try
+        Board := GetPCBBoardAnywhere;
+        If Board <> Nil Then
+        Begin
+            Data := Data + '"pcb":{';
+            Try Data := Data + '"snap_x_mils":' + IntToStr(CoordToMils(Board.SnapGridSizeX)); Except Data := Data + '"snap_x_mils":0'; End;
+            Try Data := Data + ',"snap_y_mils":' + IntToStr(CoordToMils(Board.SnapGridSizeY)); Except Data := Data + ',"snap_y_mils":0'; End;
+            Try Data := Data + ',"display_unit":"' + IntToStr(Board.DisplayUnit) + '"'; Except Data := Data + ',"display_unit":"unknown"'; End;
+            Data := Data + '}';
+        End
+        Else
+            Data := Data + '"pcb":null';
+    Except
+        Data := Data + '"pcb":null';
+    End;
+
+    { Try to get schematic preferences from active schematic }
+    Try
+        SchDoc := SchServer.GetCurrentSchDocument;
+        If SchDoc <> Nil Then
+        Begin
+            Data := Data + ',"schematic":{';
+            Try Data := Data + '"visible_grid_size":' + IntToStr(SchDoc.VisibleGridSize); Except Data := Data + '"visible_grid_size":0'; End;
+            Try Data := Data + ',"snap_grid_size":' + IntToStr(SchDoc.SnapGridSize); Except Data := Data + ',"snap_grid_size":0'; End;
+            Data := Data + '}';
+        End
+        Else
+            Data := Data + ',"schematic":null';
+    Except
+        Data := Data + ',"schematic":null';
+    End;
+
+    Data := Data + '}';
+    Result := BuildSuccessResponse(RequestId, Data);
+End;
+
+{..............................................................................}
+{ Execute a menu command by path (e.g., "File>Save All")                      }
+{ Params: menu_path (pipe-separated path like "File|Save All")                }
+{..............................................................................}
+
+Function App_ExecuteMenu(Params : String; RequestId : String) : String;
+Var
+    MenuPath, ProcessName : String;
+Begin
+    MenuPath := ExtractJsonValue(Params, 'menu_path');
+
+    If MenuPath = '' Then
+    Begin
+        Result := BuildErrorResponse(RequestId, 'MISSING_PARAMS', 'menu_path is required');
+        Exit;
+    End;
+
+    { Productive menu paths that have a dedicated handler -- delegate so   }
+    { the caller gets context-validation + violation counts back instead   }
+    { of a bare "success:true" that hides a silent no-op when there's no   }
+    { active PCB / SCH document. RunProcess never raises on missing        }
+    { context so the prior implementation reported success even when       }
+    { nothing actually ran.                                                 }
+    If MenuPath = 'Tools|Design Rule Check' Then
+    Begin
+        Result := PCB_RunDRC('{}', RequestId);
+        Exit;
+    End;
+    If MenuPath = 'Tools|Electrical Rules Check' Then
+    Begin
+        Result := Gen_RunERC('{}', RequestId);
+        Exit;
+    End;
+
+    { Map remaining common menu paths to their process equivalents.       }
+    { These are display-side commands where "did it fire" is the only     }
+    { reasonable success signal anyway.                                    }
+    If MenuPath = 'File|Save All' Then
+        ProcessName := 'WorkspaceManager:SaveAll'
+    Else If MenuPath = 'Project|Compile' Then
+        ProcessName := 'WorkspaceManager:Compile'
+    Else If MenuPath = 'Edit|Select All' Then
+        ProcessName := 'Sch:SelectAll'
+    Else If MenuPath = 'Edit|Deselect All' Then
+        ProcessName := 'Sch:DeSelectAll'
+    Else If MenuPath = 'View|Zoom Fit' Then
+        ProcessName := 'Sch:ZoomFit'
+    Else If MenuPath = 'Tools|Preferences' Then
+        ProcessName := 'Client:RunConfigurationDialog'
+    Else If MenuPath = 'Tools|Extensions and Updates' Then
+        ProcessName := 'Client:ManagePluginsAndUpdates'
+    Else
+    Begin
+        { For unknown paths, try Client.SendMessage with the menu path }
+        Try
+            Client.SendMessage('Client:RunMenu', 'MenuID=' + MenuPath, 1024, Nil);
+            Result := BuildSuccessResponse(RequestId, '{"success":true,"menu_path":"' + EscapeJsonString(MenuPath) + '","method":"SendMessage"}');
+            Exit;
+        Except
+            Result := BuildErrorResponse(RequestId, 'MENU_FAILED', 'Could not execute menu: ' + MenuPath + '. Use a known path or specify a process name via run_process instead.');
+            Exit;
+        End;
+    End;
+
+    ResetParameters;
+    RunProcess(ProcessName);
+
+    Result := BuildSuccessResponse(RequestId, '{"success":true,"menu_path":"' + EscapeJsonString(MenuPath) + '","process":"' + EscapeJsonString(ProcessName) + '"}');
+End;
+
+{..............................................................................}
+{ Get text content from the Windows clipboard                                  }
+{..............................................................................}
+
+Function App_GetClipboardText(RequestId : String) : String;
+Var
+    ClipText : String;
+Begin
+    Try
+        ClipText := Clipboard.AsText;
+        Result := BuildSuccessResponse(RequestId, '{"text":"' + EscapeJsonString(ClipText) + '"}');
+    Except
+        Result := BuildSuccessResponse(RequestId, '{"text":"","note":"Clipboard empty or contains non-text data"}');
+    End;
+End;
+
+{..............................................................................}
+{ Create a new blank document of a given kind (PCB, SCH, PCBLIB, SCHLIB,       }
+{ OUTPUTJOB, ...). Saves it to disk and optionally adds it to the focused      }
+{ project. Uses IClient.OpenNewDocument, the documented API for this.          }
+{                                                                               }
+{ Params: kind (required, e.g. 'PCB' or 'SCH'),                                }
+{         file_path (required, absolute path where the doc should live),       }
+{         name (optional display name, defaults to the filename),             }
+{         add_to_project (optional bool, defaults to true)                    }
+{..............................................................................}
+
+Function App_CreateDocument(Params : String; RequestId : String) : String;
+Var
+    FilePath, DocKind, DocName, AddStr : String;
+    ServerDoc : IServerDocument;
+    Workspace : IWorkspace;
+    Project : IProject;
+    AddToProject, Saved, Added : Boolean;
+Begin
+    DocKind := ExtractJsonValue(Params, 'kind');
+    FilePath := ExtractJsonValue(Params, 'file_path');
+    DocName := ExtractJsonValue(Params, 'name');
+    AddStr := ExtractJsonValue(Params, 'add_to_project');
+    AddToProject := (AddStr = '') Or (AddStr = 'true');
+
+    If DocKind = '' Then
+    Begin
+        Result := BuildErrorResponse(RequestId, 'MISSING_PARAMS', 'kind is required (e.g. PCB, SCH, PCBLIB, SCHLIB)');
+        Exit;
+    End;
+    If FilePath = '' Then
+    Begin
+        Result := BuildErrorResponse(RequestId, 'MISSING_PARAMS', 'file_path is required');
+        Exit;
+    End;
+    If DocName = '' Then DocName := ExtractFileName(FilePath);
+
+    { Client.OpenNewDocument creates a blank in-memory IServerDocument of the
+      given kind. Pass False for ReuseExisting so we don't accidentally grab
+      a stale load of the same path. }
+    ServerDoc := Client.OpenNewDocument(DocKind, FilePath, DocName, False);
+    If ServerDoc = Nil Then
+    Begin
+        Result := BuildErrorResponse(RequestId, 'CREATE_FAILED',
+            'Client.OpenNewDocument returned Nil for kind=' + DocKind);
+        Exit;
+    End;
+
+    { Persist to disk. For a brand-new in-memory doc Altium sometimes
+      doesn't know the target path from OpenNewDocument's AFileName arg,
+      so DoFileSave('') becomes a no-op. SetFileName forces the path;
+      ensure it's set before the save. If DoFileSave fails for any
+      reason, fall back to WorkspaceManager:SaveObject with an explicit
+      FileName, that path is effectively Save-As, which is what we
+      want for a previously-unsaved document. }
+    Saved := False;
+    Try ServerDoc.SetFileName(FilePath); Except End;
+    Try
+        ServerDoc.SetModified(True);
+        ServerDoc.DoFileSave('');
+        Saved := FileExists(FilePath);
+    Except Saved := False; End;
+    If Not Saved Then
+    Begin
+        Try
+            ServerDoc.Focus;
+            ResetParameters;
+            AddStringParameter('ObjectKind', 'Document');
+            AddStringParameter('FileName', FilePath);
+            RunProcess('WorkspaceManager:SaveObject');
+            Saved := FileExists(FilePath);
+        Except Saved := False; End;
+    End;
+
+    { Add to the focused project via IProject.DM_AddSourceDocument.            }
+    { The earlier RunProcess('WorkspaceManager:AddDocumentToProject') path     }
+    { silently no-ops in some workspace states, DM_AddSourceDocument is the  }
+    { documented project-side API and the approach that works reliably        }
+    { across workspace states.                                                }
+    Added := False;
+    If AddToProject Then
+    Begin
+        Workspace := GetWorkspace;
+        If Workspace <> Nil Then
+        Begin
+            Project := Workspace.DM_FocusedProject;
+            If Project <> Nil Then
+            Begin
+                Try
+                    Project.DM_AddSourceDocument(FilePath);
+                    Added := True;
+                Except Added := False; End;
+            End;
+        End;
+    End;
+
+    Result := BuildSuccessResponse(RequestId,
+        '{"success":true,"kind":"' + EscapeJsonString(DocKind) + '"' +
+        ',"file_path":"' + EscapeJsonString(FilePath) + '"' +
+        ',"saved":' + BoolToJsonStr(Saved) +
+        ',"added_to_project":' + BoolToJsonStr(Added) + '}');
+End;
+
+{..............................................................................}
+{ Command Handler - must be at end so all functions are declared               }
+{..............................................................................}
+
+Function App_SaveAll(RequestId : String) : String;
+Begin
+    Try
+        // Iterate every IServerDocument the editor has open and DoFileSave
+        // each modified one. This bypasses WorkspaceManager:SaveAll, which
+        // silently no-ops in some workspace states, and project-walk-based
+        // saves, which skip free documents.
+        SaveAllDirty;
+        Result := BuildSuccessResponse(RequestId, '{"saved":true}');
+    Except
+        Result := BuildErrorResponse(RequestId, 'SAVE_FAILED', 'SaveAllDirty raised an exception');
+    End;
+End;
+
+{..............................................................................}
+{ Diagnostic: enumerate the workspace via FindFirst with the given pattern.    }
+{ Reports the FindFirst return code, the count of matches, and the first few  }
+{ filenames so we can confirm whether DelphiScript's directory enumeration    }
+{ actually works with our request_*.json convention.                          }
+{..............................................................................}
+
+Function App_DiagWorkspace(Params : String; RequestId : String) : String;
+Var
+    Pattern, Names, RawPattern, ExceptionMsg : String;
+    Files : TStringList;
+    Count, I : Integer;
+    First : Boolean;
+Begin
+    RawPattern := ExtractJsonValue(Params, 'pattern');
+    If RawPattern = '' Then RawPattern := 'request_*.json';
+    Pattern := RawPattern;
+
+    Count := 0;
+    Names := '';
+    First := True;
+    ExceptionMsg := '';
+
+    Try
+        Files := TStringList.Create;
+        Try
+            // FindFiles is the documented Altium DelphiScript helper for
+            // enumerating files in a directory; FindFirst from SysUtils is
+            // not exposed to scripts.
+            // Signature: FindFiles(folder, pattern, attr, recurse, list)
+            // attr=63 ($3F) is the standard "match anything" mask.
+            FindFiles(WorkspaceDir, Pattern, 63, False, Files);
+            Count := Files.Count;
+            For I := 0 To Files.Count - 1 Do
+            Begin
+                If I >= 10 Then Break;
+                If Not First Then Names := Names + ',';
+                First := False;
+                Names := Names + '"' + EscapeJsonString(ExtractFileName(Files[I])) + '"';
+            End;
+        Finally
+            Files.Free;
+        End;
+    Except
+        ExceptionMsg := 'FindFiles raised an exception';
+    End;
+
+    Result := BuildSuccessResponse(RequestId,
+        '{"workspace_dir":"' + EscapeJsonString(WorkspaceDir) +
+        '","pattern":"' + EscapeJsonString(Pattern) +
+        '","function":"FindFiles' +
+        '","match_count":' + IntToStr(Count) +
+        ',"first_matches":[' + Names +
+        '],"exception":"' + EscapeJsonString(ExceptionMsg) + '"}');
+End;
+
+Function HandleApplicationCommand(Action : String; Params : String; RequestId : String) : String;
+Begin
+    Case Action Of
+        'ping':                Result := App_Ping(RequestId);
+        'get_version':         Result := App_GetVersion(RequestId);
+        'get_open_documents':  Result := App_GetOpenDocuments(RequestId);
+        'get_active_document': Result := App_GetActiveDocument(RequestId);
+        'set_active_document': Result := App_SetActiveDocument(Params, RequestId);
+        'run_process':         Result := App_RunProcess(Params, RequestId);
+        'get_preferences':     Result := App_GetPreferences(RequestId);
+        'execute_menu':        Result := App_ExecuteMenu(Params, RequestId);
+        'get_clipboard_text':  Result := App_GetClipboardText(RequestId);
+        'create_document':     Result := App_CreateDocument(Params, RequestId);
+        'save_all':            Result := App_SaveAll(RequestId);
+        'diag_workspace':      Result := App_DiagWorkspace(Params, RequestId);
+        'stop_server':         Begin SaveAllDirty; Running := False; Result := BuildSuccessResponse(RequestId, '{"stopped":true}'); End;
+    Else
+        Result := BuildErrorResponse(RequestId, 'UNKNOWN_ACTION', 'Unknown application action: ' + Action);
+    End;
+End;

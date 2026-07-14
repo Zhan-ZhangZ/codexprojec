@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+hook="$repo_root/hooks/pre_tool_use_bash_policy"
+apply_patch_hook="$repo_root/hooks/pre_tool_use_apply_patch_policy"
+safe_edit_hook="$repo_root/hooks/pre_tool_use_safe_edit_policy"
+audit_hook="$repo_root/hooks/pre_tool_use_audit"
+fixtures_dir="$repo_root/fixtures/hooks"
+
+pass_count=0
+
+run_case() {
+  local name="$1"
+  local hook_path="$2"
+  local fixture="$3"
+  local expected="$4"
+  local output
+
+  output="$("$hook_path" < "$fixture")"
+
+  case "$expected" in
+    allow)
+      if [[ -n "$output" ]]; then
+        printf 'FAIL %s: expected allow, got output: %s\n' "$name" "$output" >&2
+        exit 1
+      fi
+      ;;
+    deny)
+      local decision
+      decision="$(printf '%s' "$output" | jq -r '.hookSpecificOutput.permissionDecision // empty')"
+      if [[ "$decision" != "deny" ]]; then
+        printf 'FAIL %s: expected deny, got output: %s\n' "$name" "${output:-<empty>}" >&2
+        exit 1
+      fi
+      ;;
+    *)
+      printf 'Unknown expectation for %s: %s\n' "$name" "$expected" >&2
+      exit 1
+      ;;
+  esac
+
+  pass_count=$((pass_count + 1))
+  printf 'PASS %s\n' "$name"
+}
+
+run_case "allows command inside assigned worktree" "$hook" "$fixtures_dir/pre_tool_use_bash_allowed.json" allow
+run_case "blocks git stash" "$hook" "$fixtures_dir/pre_tool_use_bash_blocked_git_stash.json" deny
+run_case "blocks cd outside assigned worktree" "$hook" "$fixtures_dir/pre_tool_use_bash_outside_worktree.json" deny
+run_case "ignores non-Bash tools in Bash policy" "$hook" "$fixtures_dir/pre_tool_use_non_bash.json" allow
+run_case "allows apply_patch inside assigned worktree" "$apply_patch_hook" "$fixtures_dir/pre_tool_use_apply_patch_allowed.json" allow
+run_case "blocks apply_patch outside assigned worktree" "$apply_patch_hook" "$fixtures_dir/pre_tool_use_apply_patch_outside_worktree.json" deny
+run_case "allows safe_edit inside assigned worktree" "$safe_edit_hook" "$fixtures_dir/pre_tool_use_safe_edit_allowed.json" allow
+run_case "blocks safe_edit outside assigned worktree" "$safe_edit_hook" "$fixtures_dir/pre_tool_use_safe_edit_outside_worktree.json" deny
+run_case "allows safe_edit inside cwd fallback" "$safe_edit_hook" "$fixtures_dir/pre_tool_use_safe_edit_cwd_allowed.json" allow
+run_case "blocks safe_edit outside cwd fallback" "$safe_edit_hook" "$fixtures_dir/pre_tool_use_safe_edit_cwd_outside.json" deny
+
+audit_dir="$(mktemp -d)"
+POLYWAVE_HOOK_AUDIT_DIR="$audit_dir" "$audit_hook" < "$fixtures_dir/pre_tool_use_bash_allowed.json"
+audit_count="$(find "$audit_dir" -type f -name '*.json' | wc -l | tr -d ' ')"
+if [[ "$audit_count" != "1" ]]; then
+  printf 'FAIL audit hook: expected 1 payload file, found %s in %s\n' "$audit_count" "$audit_dir" >&2
+  exit 1
+fi
+pass_count=$((pass_count + 1))
+printf 'PASS records audit payload\n'
+
+printf 'All %s hook fixture cases passed.\n' "$pass_count"

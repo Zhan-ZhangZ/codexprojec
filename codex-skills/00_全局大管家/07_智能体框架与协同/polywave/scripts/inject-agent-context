@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_type=""
+prompt=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --type)
+      agent_type="$2"
+      shift 2
+      ;;
+    --prompt)
+      prompt="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+[[ -z "$agent_type" ]] && { echo "error: --type is required" >&2; exit 1; }
+
+skill_dir="${POLYWAVE_SKILL_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+inject_file() {
+  local file="$1"
+  local ref_path="${skill_dir}/${file}"
+  local marker="<!-- injected: ${file} -->"
+  echo "$prompt" | grep -qF "$marker" && return 0
+  [[ -f "$ref_path" ]] || { echo "warn: not found: ${ref_path}" >&2; return 0; }
+  printf '%s\n' "$marker"
+  command cat "$ref_path"
+  printf '\n\n'
+}
+
+case "$agent_type" in
+  scout)
+    if [[ "$prompt" =~ --program ]]; then
+      inject_file "references/scout-program-contracts.md"
+    fi
+    ;;
+  wave-agent)
+    if [[ "$prompt" =~ baseline_verification_failed ]]; then
+      inject_file "references/wave-agent-build-diagnosis.md"
+    fi
+    if [[ "$prompt" =~ frozen_contracts ]]; then
+      inject_file "references/wave-agent-program-contracts.md"
+    fi
+    ;;
+esac
