@@ -1181,5 +1181,12 @@
     "category": "04_内容创作与文档处理",
     "folder": "speak-human-tw",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/speak-human-tw"
+  },
+  {
+    "name": "oh-story-claudecode",
+    "description": "Oh Story 核心网文写作工作流套件。涵盖长短篇网络小说的扫榜、拆文、大纲构建、落笔写作及去 AI 味精修全链路。包含多维剧情模块化重组与人机协同。专供长篇或短篇网络小说的高效辅助创作。Leading Words: 网文写作工作流, 长短篇小说创作, 剧情大纲构建, 扫榜拆文逆向",
+    "category": "04_内容创作与文档处理",
+    "folder": "oh-story-claudecode",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/oh-story-claudecode"
   }
 ]
