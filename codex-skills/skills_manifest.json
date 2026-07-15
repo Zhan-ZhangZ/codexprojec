@@ -1188,5 +1188,12 @@
     "category": "04_内容创作与文档处理",
     "folder": "oh-story-claudecode",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/oh-story-claudecode"
+  },
+  {
+    "name": "ecom-details-image",
+    "description": "面向 claude code / Codex / OpenClaw 的跨境电商和国内电商通用视觉创作 Skill。生成电商主图、详情页图片、社媒推广图、直播间场景图等全套视觉素材。支持 Campaign Style Lock 机制，保证整套图视觉一致。Leading Words: 电商图片生成, 视觉创作, 主图详情页, 风格锁定, 转化诊断",
+    "category": "05_多媒体与设计资产",
+    "folder": "ecom-details-image",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ecom-details-image"
   }
 ]
