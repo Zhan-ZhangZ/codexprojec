@@ -1163,7 +1163,7 @@
   },
   {
     "name": "moore-wechat-article-downloader",
-    "description": "Moore 系微信内容情报库归档器。将微信公众号文章、评论和互动数据本地化为可搜索、可分析的资料库。支持历史订阅同步与微信收藏快照抓取。专供大模型做深度内容研究与选题拆解。Leading Words: 微信公众号文章下载, 本地内容情报库, 微信历史文章同步, 评论互动数据归档",
+    "description": "当用户要下载或管理微信公众号文章时使用本技能。支持订阅同步、微信收藏和链接导入；互动数据仅在用户微信短时会话有效时补充指标与精选评论。优先本地运行；不要扩展成内容改写、总结、SaaS 或云服务。",
     "category": "04_内容创作与文档处理",
     "folder": "moore-wechat-article-downloader",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/moore-wechat-article-downloader"
