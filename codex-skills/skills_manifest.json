@@ -1167,5 +1167,12 @@
     "category": "05_多媒体与设计资产",
     "folder": "guizang-material-illustration",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-material-illustration"
+  },
+  {
+    "name": "moore-wechat-article-downloader",
+    "description": "当用户要下载或管理微信公众号文章时使用本技能。支持订阅同步、微信收藏和链接导入；互动数据仅在用户微信短时会话有效时补充指标与精选评论。优先本地运行；不要扩展成内容改写、总结、SaaS 或云服务。",
+    "category": "04_内容创作与文档处理",
+    "folder": "moore-wechat-article-downloader",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/moore-wechat-article-downloader"
   }
 ]
