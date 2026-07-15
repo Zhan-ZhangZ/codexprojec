@@ -1160,5 +1160,12 @@
     "category": "14_财务发票提取与归档",
     "folder": "invoice-organizer",
     "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice-organizer"
+  },
+  {
+    "name": "guizang-material-illustration",
+    "description": "Guizang 系材质插画与带字解释图生成器。专注将抽象概念、流程机制、数据图表等转化为带中文标签的 3D 材质风格配图，作为社交卡片与 PPT 的核心视觉资产。Leading Words: 材质插画生成, 带字解释图, 图表美化重绘, 3D机制概念图",
+    "category": "05_多媒体与设计资产",
+    "folder": "guizang-material-illustration",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-material-illustration"
   }
 ]
