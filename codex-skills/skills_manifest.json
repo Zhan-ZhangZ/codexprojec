@@ -1163,7 +1163,7 @@
   },
   {
     "name": "guizang-material-illustration",
-    "description": "Guizang 系材质插画与带字解释图生成器。专注将抽象概念、流程机制、数据图表等转化为带中文标签的 3D 材质风格配图，作为社交卡片与 PPT 的核心视觉资产。Leading Words: 材质插画生成, 带字解释图, 图表美化重绘, 3D机制概念图",
+    "description": "Generate Guizang-style material illustrations, labeled explanatory visuals, material-styled chart illustrations, and data-first editorial images from articles, notes, product concepts, workplace reports, creator posts, tutorials, school materials, humanities topics, science explanations, screenshots, or chart data. Use when the user asks for 配图, 带字插图, 解释图, 图解插画, 概念拆解图, 图表美化, 数据图美化, 3D 图表, 汇报配图, 内容配图, 小学课文配图, 生物/化学/物理解释图, 人文类配图, process/loop/system diagrams, or wants GPT-Image / image generation to create supporting images that can sit inside social cards, docs, slides, PPTs, or posts.",
     "category": "05_多媒体与设计资产",
     "folder": "guizang-material-illustration",
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-material-illustration"
