@@ -1174,5 +1174,12 @@
     "category": "04_内容创作与文档处理",
     "folder": "moore-wechat-article-downloader",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/moore-wechat-article-downloader"
+  },
+  {
+    "name": "speak-human-tw",
+    "description": "「說人話」：繁體中文的去 AI 味改寫 skill。審查與改寫文字，去除 AI 味道、校正中國用語與半形標點，讓文字讀起來像真人寫的。觸發時機：用戶說「去 AI 味」「說人話」「這段好 AI」「改自然一點」「幫我潤稿去掉 AI 感」「校對一下再發」。Leading Words: 去AI味, 繁體中文潤稿, 校正中國用語, 人性化改寫",
+    "category": "04_内容创作与文档处理",
+    "folder": "speak-human-tw",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/speak-human-tw"
   }
 ]
