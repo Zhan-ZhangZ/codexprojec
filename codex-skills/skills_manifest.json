@@ -4,7 +4,7 @@
     "description": "全局技能库大管家（Librarian Router）。当你需要调用任何领域的专家技能（如代码、写作、科研、部署等）时，请唤醒此技能。它将自动为您寻址并加载最完美的专业子技能。",
     "category": "00_全局大管家",
     "folder": "00_全局大管家",
-    "relative_path": "./00_全局大管家"
+    "relative_path": "./"
   },
   {
     "name": "LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
