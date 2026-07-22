@@ -1223,5 +1223,12 @@
         "category": "05_多媒体与设计资产",
         "folder": "taste-skill",
         "relative_path": "./00_全局大管家/05_多媒体与设计资产/taste-skill"
+    },
+    {
+        "name": "drawio-scientific-illustrator",
+        "description": "在可见的 draw.io 桌面画布中实时重绘、追踪、修改和导出科学插图与示意图的 Codex 插件。通过 draw.io 自身的图模型 API 逐步驱动绘图，支持 PNG/SVG/PDF 导出，不使用系统鼠标键盘自动化。Leading Words: draw.io科研插图重绘, 实时画布绘图MCP, 可编辑科学示意图, draw.io图元逐步构建",
+        "category": "12_学术论文与科研图表",
+        "folder": "drawio-scientific-illustrator",
+        "relative_path": "./00_全局大管家/12_学术论文与科研图表/drawio-scientific-illustrator"
     }
 ]

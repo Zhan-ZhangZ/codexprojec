@@ -1,0 +1,15 @@
+{
+  "name": "drawio-scientific-illustrator-marketplace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Validation helpers for the Draw.io Scientific Illustrator Codex plugin marketplace.",
+  "type": "module",
+  "scripts": {
+    "check": "node --check plugins/drawio-scientific-illustrator/scripts/drawio-path.mjs && node --check plugins/drawio-scientific-illustrator/scripts/live-server.mjs && node --check plugins/drawio-scientific-illustrator/scripts/server.mjs && node scripts/validate-repo.mjs",
+    "test": "npm run check && node scripts/smoke-test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

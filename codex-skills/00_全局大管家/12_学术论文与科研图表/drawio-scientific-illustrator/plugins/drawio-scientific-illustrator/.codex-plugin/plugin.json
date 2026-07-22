@@ -1,0 +1,31 @@
+{
+  "name": "drawio-scientific-illustrator",
+  "version": "1.0.0",
+  "description": "Control the live draw.io canvas through draw.io's own graph API so users can watch scientific illustrations appear step by step, then save, validate, and export them.",
+  "author": {
+    "name": "icebird1998",
+    "url": "https://github.com/icebird1998"
+  },
+  "homepage": "https://github.com/icebird1998/drawio-scientific-illustrator#readme",
+  "repository": "https://github.com/icebird1998/drawio-scientific-illustrator",
+  "license": "MIT",
+  "keywords": ["drawio", "scientific-figure", "diagram", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Draw.io Scientific Illustrator",
+    "shortDescription": "Draw scientific figures live inside draw.io through MCP.",
+    "longDescription": "Connects a localhost-only MCP channel directly to draw.io's own graph API. Shapes, labels, connectors, styling, movement, resizing, and zoom changes appear immediately in the visible draw.io canvas with adjustable pacing. It does not control the operating-system mouse or keyboard and does not need to pre-generate XML before drawing. Afterward it can save, validate, and export editable deliverables.",
+    "developerName": "icebird1998",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/icebird1998/drawio-scientific-illustrator",
+    "privacyPolicyURL": "https://github.com/icebird1998/drawio-scientific-illustrator/blob/main/PRIVACY.md",
+    "defaultPrompt": [
+      "参考这张图，在可见的 draw.io 画布中逐步重绘科研插图。",
+      "Recreate this reference figure live in draw.io, step by step.",
+      "Inspect and refine the current live draw.io scientific figure."
+    ],
+    "brandColor": "#F08705"
+  }
+}

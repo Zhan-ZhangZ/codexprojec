@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "drawio-live": {
+      "command": "node",
+      "args": ["./scripts/live-server.mjs"],
+      "cwd": "."
+    },
+    "drawio-file-utils": {
+      "command": "node",
+      "args": ["./scripts/server.mjs"],
+      "cwd": "."
+    }
+  }
+}

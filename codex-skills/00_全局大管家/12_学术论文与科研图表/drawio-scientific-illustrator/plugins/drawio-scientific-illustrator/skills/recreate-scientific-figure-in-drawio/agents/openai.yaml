@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draw.io Scientific Figure"
+  short_description: "Recreate static scientific figures as editable draw.io diagrams"
+  default_prompt: "Recreate this reference figure as an editable draw.io diagram, export a preview, and refine it."

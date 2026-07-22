@@ -1,0 +1,20 @@
+{
+  "name": "drawio-scientific-tools",
+  "interface": {
+    "displayName": "Draw.io Scientific Tools"
+  },
+  "plugins": [
+    {
+      "name": "drawio-scientific-illustrator",
+      "source": {
+        "source": "local",
+        "path": "./plugins/drawio-scientific-illustrator"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
