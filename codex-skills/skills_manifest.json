@@ -1230,5 +1230,26 @@
         "category": "12_学术论文与科研图表",
         "folder": "drawio-scientific-illustrator",
         "relative_path": "./00_全局大管家/12_学术论文与科研图表/drawio-scientific-illustrator"
+    },
+    {
+        "name": "Seedream-MCP",
+        "description": "豆包即梦 (Doubao-Seedream) 生图 MCP 服务。基于火山引擎 Ark API，通过 uvx 一键启动。支持文生图、图文生图、多图融合与组图输出，覆盖 5.0 Pro/Lite/4.5/4.0 多模型。Leading Words: 豆包即梦文生图, Seedream MCP生图服务, 火山引擎Ark API, 图文生图多图融合",
+        "category": "05_多媒体与设计资产",
+        "folder": "Seedream-MCP",
+        "relative_path": "./00_全局大管家/05_多媒体与设计资产/Seedream-MCP"
+    },
+    {
+        "name": "cc2image",
+        "description": "中文内容交互式生图系统 Skill。认知锚点拆图、49 套内容风格 + 8 套 logo/图标模式，支持封面、正文配图、系列主视觉和批量生图提示词。Leading Words: 中文内容交互式生图, 认知锚点拆图, 49套内容风格, 封面正文配图批量生成",
+        "category": "05_多媒体与设计资产",
+        "folder": "cc2image",
+        "relative_path": "./00_全局大管家/05_多媒体与设计资产/cc2image"
+    },
+    {
+        "name": "hand-drawn-styles",
+        "description": "工具无关的手绘画风提示词配方。内置 19 种已验证手绘画风（含 2 个变体共 21 套配方），把内容套进内置画风配方产出可直接复制的生图 prompt。Leading Words: 手绘画风提示词配方, 儿童涂色极简线条蜡笔, 吉卜力小豆人涂鸦, 工具无关生图prompt",
+        "category": "05_多媒体与设计资产",
+        "folder": "hand-drawn-styles",
+        "relative_path": "./00_全局大管家/05_多媒体与设计资产/hand-drawn-styles"
     }
 ]
