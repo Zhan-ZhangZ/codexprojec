@@ -1258,5 +1258,19 @@
         "category": "05_多媒体与设计资产",
         "folder": "VideoClaw",
         "relative_path": "./00_全局大管家/05_多媒体与设计资产/VideoClaw"
+    },
+    {
+        "name": "OnlyShot",
+        "description": "AI短剧工业化流水线工具。全流程自动化生成（剧本编撰 -> 分镜设计 -> 画面生成 -> 视频生成 -> 后期剪辑），支持即梦、Seedance 等先进模型，专为短剧和视频流工业标准打造。Leading Words: AI短剧, 短剧流水线, 视频生成工作流, OnlyShot",
+        "category": "05_多媒体与设计资产",
+        "folder": "OnlyShot",
+        "relative_path": "./00_全局大管家/05_多媒体与设计资产/OnlyShot"
+    },
+    {
+        "name": "KrillinAI",
+        "description": "全链路 AI 视频翻译与配音工具。支持视频下载、ASR 语音识别、LLM 多语种翻译，并提供高保真克隆音色的 TTS 配音及横竖屏自适应剪辑，适用于跨语种视频出海与本地化。Leading Words: AI视频翻译, 视频配音, 语音克隆, KrillinAI",
+        "category": "05_多媒体与设计资产",
+        "folder": "KrillinAI",
+        "relative_path": "./00_全局大管家/05_多媒体与设计资产/KrillinAI"
     }
 ]

@@ -1,0 +1,103 @@
+version: 2
+
+builds:
+  - id: server
+    binary: KrillinAI
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    main: ./cmd/server/main.go
+  - id: cli
+    binary: krillinai-cli
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X krillin-ai/internal/cli.Version={{.Version}}
+    goos:
+      - darwin
+      - linux
+      - windows
+    main: ./cmd/cli/main.go
+
+# Docker 构建配置
+dockers:
+  - image_templates:
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:{{.Version}}-amd64"
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:latest-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{.ProjectName}}"
+  - image_templates:
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:{{.Version}}-arm64"
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:latest-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{.ProjectName}}"
+
+docker_manifests:
+  - name_template: "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:{{.Version}}"
+    image_templates:
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:{{.Version}}-amd64"
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:{{.Version}}-arm64"
+  - name_template: "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:latest"
+    image_templates:
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:latest-amd64"
+      - "{{ tolower .Env.DOCKER_USERNAME }}/{{ tolower .ProjectName }}:latest-arm64"
+
+archives:
+  - id: server
+    ids: ["server"]
+    formats: ["binary"]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- if eq .Os "darwin" }}macOS_{{ .Arch }}
+      {{- else if and (eq .Os "windows") (eq .Arch "amd64") }}{{ title .Os }}
+      {{- else }}{{ title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+      {{- end }}
+  - id: cli
+    ids: ["cli"]
+    formats: ["binary"]
+    name_template: >-
+      {{ .ProjectName }}-cli_
+      {{- .Version }}_
+      {{- if eq .Os "darwin" }}macOS_{{ .Arch }}
+      {{- else if and (eq .Os "windows") (eq .Arch "amd64") }}{{ title .Os }}
+      {{- else }}{{ title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+      {{- end }}
+
+release:
+  extra_files:
+    - glob: "build/*"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"

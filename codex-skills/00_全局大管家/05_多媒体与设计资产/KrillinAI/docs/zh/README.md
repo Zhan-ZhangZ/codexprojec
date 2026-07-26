@@ -1,0 +1,306 @@
+> **[Growth & Marketing Skills](https://github.com/krillinai/growth-skills)** — KrillinAI 的全部 Skills 已完整整合至 Growth & Marketing Skills 技能集合。
+
+<div align="center">
+  <img src="/docs/images/logo.jpg" alt="KrillinAI" height="90">
+
+# 面向人类 / AI Agent的视频翻译配音工具（含Skills集合）
+
+<a href="https://trendshift.io/repositories/13360" target="_blank"><img src="https://trendshift.io/api/badge/repositories/13360" alt="KrillinAI%2FKrillinAI | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
+**[English](/README.md)｜[简体中文](/docs/zh/README.md)｜[日本語](/docs/jp/README.md)｜[한국어](/docs/kr/README.md)｜[Tiếng Việt](/docs/vi/README.md)｜[Français](/docs/fr/README.md)｜[Deutsch](/docs/de/README.md)｜[Español](/docs/es/README.md)｜[Português](/docs/pt/README.md)｜[Русский](/docs/rus/README.md)｜[اللغة العربية](/docs/ar/README.md)**
+
+[![Twitter](https://img.shields.io/badge/Twitter-KrillinAI-orange?logo=twitter)](https://x.com/KrillinAI)
+[![QQ 群](https://img.shields.io/badge/QQ%20群-754069680-green?logo=tencent-qq)](https://jq.qq.com/?_wv=1027&k=754069680)
+[![Bilibili](https://img.shields.io/badge/dynamic/json?label=Bilibili&query=%24.data.follower&suffix=粉丝&url=https%3A%2F%2Fapi.bilibili.com%2Fx%2Frelation%2Fstat%3Fvmid%3D242124650&logo=bilibili&color=00A1D6&labelColor=FE7398&logoColor=FFFFFF)](https://space.bilibili.com/242124650)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/krillinai/KrillinAI)
+
+</div>
+
+## 项目介绍（[查看全部 Growth & Marketing Skills](https://github.com/krillinai/growth-skills)）
+[**快速开始**](#-quick-start)
+
+KrillinAI 是由 Krillin AI团队开发的多功能音视频本地化与增强解决方案，同时面向**人类用户**和 **AI Agent** 设计。工具覆盖视频下载、音频转录、字幕翻译、TTS 配音、竖屏转换、封面生成等完整链路，支持横屏与竖屏格式，确保在所有主要平台（Bilibili、小红书、抖音、微信视频、快手、YouTube、TikTok 等）上完美呈现。人类用户可通过客户端一键完成端到端内容本地化；每项能力也均可通过 CLI 独立调用，AI Agent 可按需编排单个或多个阶段，灵活组合成自动化工作流。
+
+## 2.0版本新增特性
+
+🤖 **支持CLI调用**：提供阶段化命令行接口，每个阶段独立执行并输出结构化结果，支持跨阶段产物复用。
+
+🧩 **Skills集合**：skills 目录下提供各阶段 Skills，AI Agent 可按稳定约定直接调用，无需自行解析 CLI 文档。
+
+🔗 **Pipeline 串联编排**：将多个阶段一键串联，实现从下载到渲染的全流程自动化。
+
+🖼️ **封面生成**：根据原视频封面与提示词模板自动生成平台封面图。
+
+## 主要特点和功能：
+
+📥 **视频获取**：支持 yt-dlp 下载或本地文件上传
+
+📜 **准确识别**：基于 Whisper 的高精度语音识别
+
+🧠 **智能分段**：使用 LLM 进行字幕分段和对齐
+
+🔄 **术语替换**：一键替换专业词汇
+
+🌍 **精准翻译**：基于上下文的 LLM 翻译，保持自然语义
+
+🎙️ **语音克隆**：提供 CosyVoice 中选择的语音音调或自定义语音克隆
+
+🎬 **视频合成**：自动处理横屏和竖屏视频及字幕布局
+
+💻 **多平台体验**：支持 Windows、Linux、macOS，提供桌面、服务器和 CLI 三种使用方式
+
+## 效果演示
+
+下图展示了在导入一段 46 分钟的本地视频并一键执行后生成的字幕文件效果，无需任何手动调整。没有遗漏或重叠，分段自然，翻译质量非常高。
+![对齐效果](/docs/images/alignment.png)
+
+<table>
+<tr>
+<td width="33%">
+
+### 字幕翻译
+
+---
+
+https://github.com/user-attachments/assets/bba1ac0a-fe6b-4947-b58d-ba99306d0339
+
+</td>
+<td width="33%">
+
+### 配音
+
+---
+
+https://github.com/user-attachments/assets/0b32fad3-c3ad-4b6a-abf0-0865f0dd2385
+
+</td>
+
+<td width="33%">
+
+### 竖屏模式
+
+---
+
+https://github.com/user-attachments/assets/c2c7b528-0ef8-4ba9-b8ac-f9f92f6d4e71
+
+</td>
+
+</tr>
+</table>
+
+## 🔍 支持的语音识别服务
+
+_**下表中的所有本地模型支持可执行文件 + 模型文件的自动安装；您只需选择，Klic 将为您准备一切。**_
+
+| 服务来源              | 支持的平台         | 模型选项                             | 本地/云      | 备注                       |
+|----------------------|---------------------|--------------------------------------|--------------|-----------------------------|
+| **OpenAI Whisper**   | 所有平台            | -                                    | 云           | 速度快，效果好            |
+| **FasterWhisper**    | Windows/Linux       | `tiny`/`medium`/`large-v2`（推荐 medium+） | 本地         | 速度更快，无云服务费用    |
+| **WhisperKit**       | macOS（仅限 M 系列） | `large-v2`                          | 本地         | 针对 Apple 芯片的本地优化 |
+| **WhisperCpp**       | 所有平台            | `large-v2`                          | 本地         | 支持所有平台               |
+| **Alibaba Cloud ASR**| 所有平台            | -                                    | 云           | 避免中国大陆的网络问题    |
+
+## 🚀 大语言模型支持
+
+✅ 兼容所有符合 **OpenAI API 规范** 的云/本地大语言模型服务，包括但不限于：
+
+- OpenAI
+- Gemini
+- DeepSeek
+- 通义千问
+- 本地部署的开源模型
+- 其他兼容 OpenAI 格式的 API 服务
+
+## 🎤 TTS 文本转语音支持
+
+- 阿里云语音服务
+- OpenAI TTS
+
+## 语言支持
+
+支持的输入语言：中文、英语、日语、德语、土耳其语、韩语、俄语、马来语（持续增加中）
+
+支持的翻译语言：英语、中文、俄语、西班牙语、法语及其他 101 种语言
+
+## 界面预览
+
+![界面预览](/docs/images/ui_desktop_light.png)
+![界面预览](/docs/images/ui_desktop_dark.png)
+
+## 🚀 快速开始
+
+您可以在 [KrillinAI 的 Deepwiki](https://deepwiki.com/krillinai/KrillinAI) 上提问。它会索引库中的文件，因此您可以快速找到答案。
+
+### 基本步骤
+
+首先，从 [Release](https://github.com/KrillinAI/KrillinAI/releases) 下载与您的设备系统匹配的可执行文件，然后按照下面的教程选择桌面版或非桌面版。将软件下载放在一个空文件夹中，因为运行它会生成一些目录，保持在空文件夹中会使管理更容易。
+
+【如果是桌面版，即带有“desktop”的发布文件，请查看这里】
+_桌面版是新发布的，旨在解决新用户在正确编辑配置文件时遇到的问题，并且有一些错误正在持续更新。_
+
+1. 双击文件开始使用（桌面版也需要在软件内进行配置）
+
+【如果是非桌面版，即不带“desktop”的发布文件，请查看这里】
+_非桌面版是初始版本，配置更复杂，但功能稳定，适合服务器部署，因为它以网页格式提供 UI。_
+
+1. 在文件夹内创建一个 `config` 文件夹，然后在 `config` 文件夹中创建一个 `config.toml` 文件。将源代码 `config` 目录中的 `config-example.toml` 文件内容复制到 `config.toml` 中，并根据注释填写您的配置信息。
+2. 双击或在终端中执行可执行文件以启动服务
+3. 打开浏览器并输入 `http://127.0.0.1:8888` 开始使用（将 8888 替换为您在配置文件中指定的端口）
+
+### 对于：macOS 用户
+
+【如果是桌面版，即带有“desktop”的发布文件，请查看这里】
+由于签名问题，桌面版目前无法双击运行或通过 dmg 安装；您需要手动信任该应用程序。方法如下：
+
+1. 在可执行文件所在目录打开终端（假设文件名为 KrillinAI_1.0.0_desktop_macOS_arm64）
+2. 按顺序执行以下命令：
+
+```
+sudo xattr -cr ./KrillinAI_1.0.0_desktop_macOS_arm64
+sudo chmod +x ./KrillinAI_1.0.0_desktop_macOS_arm64
+./KrillinAI_1.0.0_desktop_macOS_arm64
+```
+
+【如果是非桌面版，即不带“desktop”的发布文件，请查看这里】
+该软件未签名，因此在 macOS 上运行时，在完成“基本步骤”中的文件配置后，您还需要手动信任该应用程序。方法如下：
+
+1. 在可执行文件所在目录打开终端（假设文件名为 KrillinAI_1.0.0_macOS_arm64）
+2. 按顺序执行以下命令：
+   ```
+   sudo xattr -rd com.apple.quarantine ./KrillinAI_1.0.0_macOS_arm64
+   sudo chmod +x ./KrillinAI_1.0.0_macOS_arm64
+   ./KrillinAI_1.0.0_macOS_arm64
+   ```
+
+   这将启动服务
+
+### Docker 部署
+
+该项目支持 Docker 部署；请参阅 [Docker 部署说明](./docker.md)
+
+### CLI 用法
+
+KrillinAI 现在提供阶段化 CLI，适合脚本、自动化流水线和 AI Agent 调用。CLI 默认同步执行，完成后在 stdout 输出一行 JSON，并在工作目录写入 `krillinai_manifest.json`，方便后续阶段复用已有产物。
+
+从源码构建 CLI：
+
+```bash
+go build -o build/krillinai-cli ./cmd/cli
+```
+
+命令总览：
+
+| 命令 | 用途 | 常见产物 |
+|---|---|---|
+| `subtitle` | 从 YouTube / Bilibili 链接或本地视频生成字幕；优先下载平台字幕，失败时回退 Whisper 转录 | `origin_language_srt.srt`、`target_language_srt.srt`、`bilingual_srt.srt`、`short_origin_mixed_srt.srt` |
+| `tts` | 根据目标字幕生成目标语言配音 | `tts_final_audio.wav`、`video_with_tts.mp4` |
+| `render-horizontal` | 生成横屏视频：原视频 + 双语字幕，或配音视频 + 目标语言字幕 | `horizontal_bilingual.mp4` |
+| `render-vertical` | 生成竖屏视频：原视频转竖屏 + 短字幕，或配音视频 + 目标语言字幕 | `transferred_vertical_video.mp4`、`vertical_bilingual.mp4` |
+| `pipeline` | 按 outputs 串联多个阶段 | 由所选阶段决定 |
+| `cover` | 根据原视频封面和提示词模板生成封面 | `generated_cover.png` |
+
+典型工作流：
+
+```bash
+# 1. 生成字幕：源语言、目标语言、双语字幕、竖屏短字幕
+./build/krillinai-cli subtitle "https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
+  --origin-lang en \
+  --target-lang zh_cn \
+  --workdir tasks/demo \
+  --caption-source any
+
+# 2. 根据目标语言字幕生成配音
+./build/krillinai-cli tts \
+  --workdir tasks/demo \
+  --input-srt tasks/demo/target_language_srt.srt \
+  --line-mode target-only \
+  --video tasks/demo/origin_video.mp4
+
+# 3. 生成横屏双语字幕视频
+./build/krillinai-cli render-horizontal \
+  --workdir tasks/demo \
+  --video tasks/demo/origin_video.mp4 \
+  --subtitle tasks/demo/bilingual_srt.srt
+
+# 4. 生成竖屏双语短字幕视频
+./build/krillinai-cli render-vertical \
+  --workdir tasks/demo \
+  --video tasks/demo/origin_video.mp4 \
+  --subtitle tasks/demo/short_origin_mixed_srt.srt \
+  --major-title "今日话题" \
+  --minor-title "AI Video"
+```
+
+Agent 集成约定：
+
+- 优先解析 stdout 最后一行 JSON 和 `krillinai_manifest.json`，不要解析普通日志。
+- `outputs` 字段会记录阶段产物路径，后续命令可以只传 `--workdir` 复用 manifest。
+- 支持 `--dry-run` 校验参数并生成 manifest，不会下载视频或调用外部 AI 服务。
+- 根据 `error.kind` 处理错误：`usage` 修正参数，`retryable` 可重试，`dependency` 需要安装 `ffmpeg` / `ffprobe` / `yt-dlp`。
+
+更完整的参数说明请参考 [CLI 能力总结](./cli.md)。
+
+### Agent Skills
+
+仓库还在 `skills/` 目录下提供了可直接给 Agent 使用的 Skills，用于按稳定约定调用 CLI：
+
+- [`krillinai-cli`](../../skills/krillinai-cli/SKILL.md)：总入口 skill，用于选择字幕、TTS、渲染、pipeline 或封面工作流。
+- [`krillinai-subtitle`](../../skills/krillinai-subtitle/SKILL.md)、[`krillinai-tts`](../../skills/krillinai-tts/SKILL.md)、[`krillinai-render-horizontal`](../../skills/krillinai-render-horizontal/SKILL.md)、[`krillinai-render-vertical`](../../skills/krillinai-render-vertical/SKILL.md)：各阶段的调用指南。
+- [`krillinai-pipeline`](../../skills/krillinai-pipeline/SKILL.md) 和 [`krillinai-cover`](../../skills/krillinai-cover/SKILL.md)：pipeline 编排和封面生成的规划/预留指南，等对应执行路径完全接通后再用于真实执行。
+- [`cli-contract.md`](../../skills/krillinai-cli/references/cli-contract.md)：共享的 JSON、manifest、产物路径和错误处理约定。
+
+根据提供的配置文件，以下是您 README 文件中更新的“配置帮助（必读）”部分：
+
+### 配置帮助（必读）
+
+配置文件分为几个部分：`[app]`、`[server]`、`[llm]`、`[transcribe]` 和 `[tts]`。一个任务由语音识别（`transcribe`）+ 大模型翻译（`llm`）+ 可选的语音服务（`tts`）组成。理解这一点将帮助您更好地掌握配置文件。
+
+**最简单和最快的配置：**
+
+**仅用于字幕翻译：**
+   * 在 `[transcribe]` 部分，将 `provider.name` 设置为 `openai`。
+   * 然后，您只需在 `[llm]` 块中填写您的 OpenAI API 密钥即可开始进行字幕翻译。`app.proxy`、`model` 和 `openai.base_url` 可根据需要填写。
+
+**平衡成本、速度和质量（使用本地语音识别）：**
+
+* 在 `[transcribe]` 部分，将 `provider.name` 设置为 `fasterwhisper`。
+* 将 `transcribe.fasterwhisper.model` 设置为 `large-v2`。
+* 在 `[llm]` 块中填写您的大语言模型配置。
+* 所需的本地模型将自动下载和安装。
+
+**文本转语音（TTS）配置（可选）：**
+
+* TTS 配置是可选的。
+* 首先，在 `[tts]` 部分设置 `provider.name`（例如，`aliyun` 或 `openai`）。
+* 然后，填写所选提供商的相应配置块。例如，如果选择 `aliyun`，则必须填写 `[tts.aliyun]` 部分。
+* 用户界面中的语音代码应根据所选提供商的文档进行选择。
+* **注意：** 如果您计划使用语音克隆功能，则必须选择 `aliyun` 作为 TTS 提供商。
+
+**阿里云配置：**
+
+* 有关获取阿里云服务所需的 `AccessKey`、`Bucket` 和 `AppKey` 的详细信息，请参阅 [阿里云配置说明](https://www.google.com/search?q=./aliyun.md)。重复的 AccessKey 等字段旨在保持清晰的配置结构。
+
+**短字幕配置：**
+
+* `short_subtitle_max_chars`: 短字幕英文每行最大字符数，默认 20
+  - 适用于竖屏视频
+  - 中文保持完整，英文按此长度拆分
+  - 建议值：15-25
+
+## 常见问题
+
+请访问 [常见问题](./faq.md)
+
+## 贡献指南
+
+1. 请勿提交无用文件，如 .vscode、.idea 等；请使用 .gitignore 过滤它们。
+2. 请勿提交 config.toml；请提交 config-example.toml。
+
+## 联系我们
+
+1. 加入我们的 QQ 群以获取问题解答：754069680
+2. 关注我们的社交媒体账号，[Bilibili](https://space.bilibili.com/242124650)，我们每天分享 AI 技术领域的优质内容。
+
+## Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=KrillinAI/KrillinAI&type=Date)](https://star-history.com/#KrillinAI/KrillinAI&Date)
