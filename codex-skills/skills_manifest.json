@@ -1251,5 +1251,12 @@
         "category": "05_多媒体与设计资产",
         "folder": "hand-drawn-styles",
         "relative_path": "./00_全局大管家/05_多媒体与设计资产/hand-drawn-styles"
+    },
+    {
+        "name": "VideoClaw",
+        "description": "AI全自动化视频生成员工。基于 Chat an Idea, Get a Film 理念，通过自然语言对话一键生成视频短片，内置完整的视频流生成工作流（脚本、配音、画面、剪辑）。Leading Words: AI视频全自动生成, Chat to Film, 视频流工作流, 一键视频生成",
+        "category": "05_多媒体与设计资产",
+        "folder": "VideoClaw",
+        "relative_path": "./00_全局大管家/05_多媒体与设计资产/VideoClaw"
     }
 ]

@@ -3,27 +3,13 @@ name: ecom-details-image
 description: 面向 claude code / Codex / OpenClaw 的跨境电商和国内电商通用视觉创作 Skill。生成电商主图、详情页图片、社媒推广图、直播间场景图等全套视觉素材。支持 Campaign Style Lock 机制，保证整套图视觉一致。Leading Words: 电商图片生成, 视觉创作, 主图详情页, 风格锁定, 转化诊断
 ---
 
-# ECommerce Details Image Generator 技能指南
+# ECommerce Details Image Generator 路由入口
 
-## 1. 核心法则 (Golden Rules)
-* **强制前置阅读**：执行任何生图任务前，必须使用 `view_file` 查阅根目录下的 `README.md`，理解具体的环境变量配置（如 `IMG_BASE_URL` 和 `IMG_API_KEY`）及 25 种支持的场景模板。
-* **环境检测依赖**：生图前必须确认用户环境中是否已配置兼容 OpenAI 的图像生成 API（如并未配置，应仅向用户输出 Prompt 与视觉简报，让其手动生图）。
-* **Campaign Style Lock 原则**：在连续生成多张图片（如整套电商详情页）时，必须严格锁定色板、冷暖调、字体、背景等风格特征，确保整套图的视觉高度一致。
+由于该技能包采用了原生结构集成（Full Codebase Integration），核心的完整执行法则与逻辑（600+ 行原生指令）已被原作者内置于仓库中。
 
-## 2. 轨迹驱动执行引擎 (Execution Trajectory)
-当你接收到生成电商视觉素材的任务时，请依循以下状态机推进：
+为了避免指令冗余与冲突，作为路由层面的入口，请你**必须且仅需执行以下唯一动作**：
 
-* **[State: 意图定位与资源核对]**
-  * 使用 `view_file` 查阅 `README.md`。
-  * 确认用户提供的源文件（如产品实拍图），判断所属转化驱动类型（视觉驱动/痛点驱动/情感价值驱动）。
-* **[State: 视觉简报与 Prompt 编排]**
-  * 根据选定的模板（如白底主图、生活方式、对比图等），构建结构化的视觉简报。
-  * 根据简报自动撰写适用 GPT-Image 模型的英文或优化版 Prompt。
-* **[State: 交互与渲染执行]**
-  * 提示用户确认 API 配置，或确认是否直接输出 Prompt 文本。
-  * 若配置就绪，直接调用 API 执行全套图片的批量生成操作。
+👉 **立即使用 `view_file` 工具读取并严格遵循原生的核心 `SKILL.md` 文件：**
+`./.claude/skills/ecom-details-image/SKILL.md`
 
-## 3. 异常处理模式 (Exception Handling)
-* **API 密钥未配置**：若执行生图操作时发现环境变量缺失，立即回退至「仅输出 Prompt」模式，并向用户提供 `.env` 配置指引。
-* **缺少产品源图**：若用户要求基于某款产品生图但未提供参考图，退回 [State: 意图定位]，要求用户上传或描述产品的精确外观细节。
-* **风格漂移**：若在生成序列图中出现明显的风格或色调不一致，必须重新执行对应图层的生成，并强化 Prompt 中的 Style Lock 指令。
+在读取上述文件后，请完全按照该原生文件内的指令来推进任务流，本文件仅作元数据匹配与路由重定向使用。
