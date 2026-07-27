@@ -39,3 +39,21 @@ logs/
 .venv/
 env/
 venv/
+
+# Node.js
+node_modules/
+dist/
+build/
+out/
+coverage/
+
+# Python Cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# IDEs
+.vscode/
+.idea/
+.cursor/

@@ -1,0 +1,4 @@
+CI=1 pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run test
+pnpm run build

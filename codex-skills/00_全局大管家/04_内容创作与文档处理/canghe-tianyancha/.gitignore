@@ -1,7 +1,0 @@
-.DS_Store
-__pycache__/
-*.py[cod]
-
-# Generated local dashboards
-企业洞察看板_*.html
-行业洞察看板_*.html
