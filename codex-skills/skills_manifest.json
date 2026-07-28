@@ -540,7 +540,7 @@
     },
     {
         "name": "xiaohongshu-mcp",
-        "description": "小红书平台爆款网感文案自动克隆与重构机。底层调用 MCP 抓取当天垂类热门笔记的热梗，深度融合自家产品卖点，并采用高饱和度的 Emoji 与女性向语态重写原生营销推送。Leading Words: 小红书爆款文案克隆, MCP热榜抓取, 网感热梗融合, 高饱和Emoji语态营销",
+        "description": "小红书平台 MCP Server（Go 实现）。通过 go-rod 浏览器自动化提供 14 项 MCP 工具：扫码登录、图文/视频发布（支持定时）、Feed 推荐流、关键词搜索、笔记详情与评论抓取、评论/回复发送、点赞/收藏、用户主页获取。支持 Docker / 二进制 / 浏览器插件三种部署方式。Leading Words: 小红书MCP服务, 图文视频自动发布, Feed搜索与评论抓取, go-rod浏览器自动化",
         "category": "05_多媒体与设计资产",
         "folder": "xiaohongshu-mcp",
         "relative_path": "./00_全局大管家/05_多媒体与设计资产/xiaohongshu-mcp"

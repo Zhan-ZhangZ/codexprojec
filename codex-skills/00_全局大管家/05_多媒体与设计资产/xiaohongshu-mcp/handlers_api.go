@@ -89,7 +89,6 @@ func (s *AppServer) publishHandler(c *gin.Context) {
 		return
 	}
 
-	// 执行发布
 	result, err := s.xiaohongshuService.PublishContent(c.Request.Context(), &req)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "PUBLISH_FAILED",
@@ -109,7 +108,6 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
 		return
 	}
 
-	// 执行视频发布
 	result, err := s.xiaohongshuService.PublishVideo(c.Request.Context(), &req)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "PUBLISH_VIDEO_FAILED",
@@ -122,7 +120,6 @@ func (s *AppServer) publishVideoHandler(c *gin.Context) {
 
 // listFeedsHandler 获取Feeds列表
 func (s *AppServer) listFeedsHandler(c *gin.Context) {
-	// 获取 Feeds 列表
 	result, err := s.xiaohongshuService.ListFeeds(c.Request.Context())
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "LIST_FEEDS_FAILED",
@@ -160,7 +157,6 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
 		return
 	}
 
-	// 搜索 Feeds
 	result, err := s.xiaohongshuService.SearchFeeds(c.Request.Context(), keyword, filters)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "SEARCH_FEEDS_FAILED",
@@ -185,7 +181,6 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
 	var err error
 
 	if req.CommentConfig != nil {
-		// 使用配置参数
 		config := xiaohongshu.CommentLoadConfig{
 			ClickMoreReplies:    req.CommentConfig.ClickMoreReplies,
 			MaxRepliesThreshold: req.CommentConfig.MaxRepliesThreshold,
@@ -194,7 +189,6 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
 		}
 		result, err = s.xiaohongshuService.GetFeedDetailWithConfig(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments, config)
 	} else {
-		// 使用默认配置
 		result, err = s.xiaohongshuService.GetFeedDetail(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments)
 	}
 
@@ -217,7 +211,6 @@ func (s *AppServer) userProfileHandler(c *gin.Context) {
 		return
 	}
 
-	// 获取用户信息
 	result, err := s.xiaohongshuService.UserProfile(c.Request.Context(), req.UserID, req.XsecToken)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "GET_USER_PROFILE_FAILED",
@@ -270,11 +263,64 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
 	respondSuccess(c, result, result.Message)
 }
 
+// likeFeedHandler 点赞/取消点赞
+func (s *AppServer) likeFeedHandler(c *gin.Context) {
+	var req LikeFeedRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
+			"请求参数错误", err.Error())
+		return
+	}
+
+	var result *ActionResult
+	var err error
+	if req.Unlike {
+		result, err = s.xiaohongshuService.UnlikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+	} else {
+		result, err = s.xiaohongshuService.LikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+	}
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "LIKE_FEED_FAILED",
+			"点赞操作失败", err.Error())
+		return
+	}
+
+	c.Set("account", "ai-report")
+	respondSuccess(c, result, result.Message)
+}
+
+// favoriteFeedHandler 收藏/取消收藏
+func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
+	var req FavoriteFeedRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
+			"请求参数错误", err.Error())
+		return
+	}
+
+	var result *ActionResult
+	var err error
+	if req.Unfavorite {
+		result, err = s.xiaohongshuService.UnfavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+	} else {
+		result, err = s.xiaohongshuService.FavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+	}
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "FAVORITE_FEED_FAILED",
+			"收藏操作失败", err.Error())
+		return
+	}
+
+	c.Set("account", "ai-report")
+	respondSuccess(c, result, result.Message)
+}
+
 // healthHandler 健康检查
 func healthHandler(c *gin.Context) {
 	respondSuccess(c, map[string]any{
 		"status":    "healthy",
 		"service":   "xiaohongshu-mcp",
+		"version":   version,
 		"account":   "ai-report",
 		"timestamp": "now",
 	}, "服务正常")

@@ -19,7 +19,9 @@ import (
 )
 
 // XiaohongshuService 小红书业务服务
-type XiaohongshuService struct{}
+type XiaohongshuService struct {
+	logins loginSessions
+}
 
 // NewXiaohongshuService 创建小红书服务实例
 func NewXiaohongshuService() *XiaohongshuService {
@@ -41,7 +43,8 @@ type PublishRequest struct {
 // LoginStatusResponse 登录状态响应
 type LoginStatusResponse struct {
 	IsLoggedIn bool   `json:"is_logged_in"`
-	Username   string `json:"username,omitempty"`
+	Username   string `json:"username,omitempty"` // 当前登录账号的昵称
+	UserID     string `json:"user_id,omitempty"`  // 用户唯一标识（个人主页 URL 中的 ID）
 }
 
 // LoginQrcodeResponse 登录扫码二维码
@@ -117,7 +120,16 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
 
 	response := &LoginStatusResponse{
 		IsLoggedIn: isLoggedIn,
-		Username:   configs.Username,
+	}
+
+	// 已登录时从当前页读取真实账号信息；读不到只记 warn，不影响状态返回。
+	if isLoggedIn {
+		if user, err := loginAction.CurrentUser(ctx); err != nil {
+			logrus.Warnf("failed to get current user info: %v", err)
+		} else {
+			response.Username = user.Nickname
+			response.UserID = user.UserID
+		}
 	}
 
 	return response, nil
@@ -146,17 +158,7 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 	timeout := 4 * time.Minute
 
 	if !loggedIn {
-		go func() {
-			ctxTimeout, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			defer deferFunc()
-
-			if loginAction.WaitForLogin(ctxTimeout) {
-				if er := saveCookies(page); er != nil {
-					logrus.Errorf("failed to save cookies: %v", er)
-				}
-			}
-		}()
+		s.waitScanInBackground(loginAction, page, deferFunc, timeout)
 	}
 
 	return &LoginQrcodeResponse{
@@ -171,6 +173,36 @@ func (s *XiaohongshuService) GetLoginQrcode(ctx context.Context) (*LoginQrcodeRe
 	}, nil
 }
 
+// waitScanInBackground 在后台等用户扫码，扫上了就存 cookie。
+//
+// 浏览器必须一直活着才检测得到扫码，所以这里不能提前关；但也不能任由它堆积——
+// 再取一次二维码就会把上一个还在等的会话关掉，同一时刻只留一个。
+func (s *XiaohongshuService) waitScanInBackground(
+	loginAction *xiaohongshu.LoginAction, page *rod.Page, closeBrowser func(), timeout time.Duration,
+) {
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), timeout)
+	seq := s.logins.start(cancel)
+	logrus.Infof("等待扫码登录，会话 #%d，超时 %s", seq, timeout)
+
+	go func() {
+		defer closeBrowser()
+		defer cancel()
+		defer s.logins.finish(seq)
+
+		if loginAction.WaitForLogin(ctxTimeout) {
+			if err := saveCookies(page); err != nil {
+				logrus.Errorf("扫码成功但保存 cookies 失败，会话 #%d: %v", seq, err)
+				return
+			}
+			logrus.Infof("扫码登录成功，cookies 已保存，会话 #%d", seq)
+			return
+		}
+
+		// 没等到扫码：要么超时，要么被新取的二维码取代
+		logrus.Infof("登录会话 #%d 结束，未检测到扫码（超时或已被新的二维码取代）", seq)
+	}()
+}
+
 // PublishContent 发布内容
 func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishRequest) (*PublishResponse, error) {
 	// 验证标题长度（小红书限制：最大20个字）
@@ -178,13 +210,11 @@ func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishReq
 		return nil, fmt.Errorf("标题长度超过限制")
 	}
 
-	// 处理图片：下载URL图片或使用本地路径
 	imagePaths, err := s.processImages(req.Images)
 	if err != nil {
 		return nil, err
 	}
 
-	// 解析定时发布时间
 	var scheduleTime *time.Time
 	if req.ScheduleAt != "" {
 		t, err := time.Parse(time.RFC3339, req.ScheduleAt)
@@ -210,7 +240,6 @@ func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishReq
 		logrus.Infof("设置定时发布时间: %s", t.Format("2006-01-02 15:04"))
 	}
 
-	// 构建发布内容
 	content := xiaohongshu.PublishImageContent{
 		Title:        req.Title,
 		Content:      req.Content,
@@ -222,7 +251,6 @@ func (s *XiaohongshuService) PublishContent(ctx context.Context, req *PublishReq
 		Products:     req.Products,
 	}
 
-	// 执行发布
 	if err := s.publishContent(ctx, content); err != nil {
 		logrus.Errorf("发布内容失败: title=%s %v", content.Title, err)
 		return nil, err
@@ -257,7 +285,6 @@ func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohon
 		return err
 	}
 
-	// 执行发布
 	return action.Publish(ctx, content)
 }
 
@@ -276,7 +303,6 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
 		return nil, fmt.Errorf("视频文件不存在或不可访问: %v", err)
 	}
 
-	// 解析定时发布时间
 	var scheduleTime *time.Time
 	if req.ScheduleAt != "" {
 		t, err := time.Parse(time.RFC3339, req.ScheduleAt)
@@ -302,7 +328,6 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
 		logrus.Infof("设置定时发布时间: %s", t.Format("2006-01-02 15:04"))
 	}
 
-	// 构建发布内容
 	content := xiaohongshu.PublishVideoContent{
 		Title:        req.Title,
 		Content:      req.Content,
@@ -313,7 +338,6 @@ func (s *XiaohongshuService) PublishVideo(ctx context.Context, req *PublishVideo
 		Products:     req.Products,
 	}
 
-	// 执行发布
 	if err := s.publishVideo(ctx, content); err != nil {
 		return nil, err
 	}
@@ -351,10 +375,8 @@ func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse,
 	page := b.NewPage()
 	defer page.Close()
 
-	// 创建 Feeds 列表 action
 	action := xiaohongshu.NewFeedsListAction(page)
 
-	// 获取 Feeds 列表
 	feeds, err := action.GetFeedsList(ctx)
 	if err != nil {
 		logrus.Errorf("获取 Feeds 列表失败: %v", err)
@@ -404,10 +426,8 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
 	page := b.NewPage()
 	defer page.Close()
 
-	// 创建 Feed 详情 action
 	action := xiaohongshu.NewFeedDetailAction(page)
 
-	// 获取 Feed 详情
 	result, err := action.GetFeedDetailWithConfig(ctx, feedID, xsecToken, loadAllComments, config)
 	if err != nil {
 		return nil, err
@@ -546,7 +566,10 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
 }
 
 func newBrowser() *headless_browser.Browser {
-	return browser.NewBrowser(configs.IsHeadless(), browser.WithBinPath(configs.GetBinPath()))
+	return browser.NewBrowser(configs.IsHeadless(),
+		browser.WithFingerprintSeed(configs.FingerprintSeed()),
+		browser.WithProxy(configs.Proxy()),
+	)
 }
 
 func saveCookies(page *rod.Page) error {
