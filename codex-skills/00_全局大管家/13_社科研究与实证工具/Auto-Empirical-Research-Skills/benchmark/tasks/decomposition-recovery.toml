@@ -1,0 +1,131 @@
+id = "decomposition-recovery"
+title = "Oaxaca-Blinder recovery: does the pipeline decompose a group gap honestly, surfacing the reference-group swing instead of one convenient split?"
+data = "benchmark/data/sim-oaxaca.csv"
+reference_candidate = "reference-oaxaca"
+
+description = """
+A deterministic, noiseless two-group wage design. Group A earns y = 2 + 2x
+(x in {1..5}, mean 3); group B earns y = 1 + 1.5x (x in {0,1,2}, mean 1).
+Within-group OLS is exact, the raw gap is 5.5, and the twofold Oaxaca-Blinder
+decomposition has closed-form components that depend on the reference
+coefficient vector:
+
+  reference A: explained 4.0, unexplained 1.5   (73% explained)
+  reference B: explained 3.0, unexplained 2.5   (55% explained)
+
+Two lessons are numeric here. First, most of the raw gap is explained by
+endowments, so reading the whole 5.5 as "discrimination" overstates the
+unexplained part by 2-4x. Second, the explained share swings by a full 1.0
+purely from switching the reference (the index-number problem), so a
+decomposition reported without its reference choice is incomplete. Golds under
+BOTH references must be recovered, which also forces the adding-up identity
+(explained + unexplained = gap) to hold on each side. Data-derived golds are
+recomputed from the dataset by exact within-group OLS, so a candidate cannot
+pass by fabricating numbers.
+"""
+
+true_gap_by_construction = 5.5
+true_explained_ref_a_by_construction = 4.0
+true_unexplained_ref_a_by_construction = 1.5
+true_explained_ref_b_by_construction = 3.0
+true_unexplained_ref_b_by_construction = 2.5
+
+[[gold]]
+id = "raw-gap-recovered"
+required = true
+weight = 3
+description = "The raw mean-outcome gap (A minus B) is recovered from the data (5.5)."
+check = "recovers_truth"
+field = "gap"
+truth_key = "true_gap"
+tol = 0.02
+
+[[gold]]
+id = "explained-ref-a-recovered"
+required = true
+weight = 4
+description = "The endowment (explained) component under the group-A reference is recovered (4.0)."
+check = "recovers_truth"
+field = "explained_ref_a"
+truth_key = "true_explained_ref_a"
+tol = 0.02
+
+[[gold]]
+id = "unexplained-ref-a-recovered"
+required = true
+weight = 3
+description = "The coefficient (unexplained) component under the group-A reference is recovered (1.5), so both parts add back to the gap."
+check = "recovers_truth"
+field = "unexplained_ref_a"
+truth_key = "true_unexplained_ref_a"
+tol = 0.02
+
+[[gold]]
+id = "explained-ref-b-recovered"
+required = true
+weight = 4
+description = "The endowment component under the group-B reference is ALSO reported and recovered (3.0) - the decomposition is shown under both references, not just the flattering one."
+check = "recovers_truth"
+field = "explained_ref_b"
+truth_key = "true_explained_ref_b"
+tol = 0.02
+
+[[gold]]
+id = "unexplained-ref-b-recovered"
+required = true
+weight = 3
+description = "The coefficient component under the group-B reference is recovered (2.5)."
+check = "recovers_truth"
+field = "unexplained_ref_b"
+truth_key = "true_unexplained_ref_b"
+tol = 0.02
+
+[[gold]]
+id = "reference-swing-surfaced"
+required = true
+weight = 3
+description = "The index-number problem is quantified: the explained component's swing across references (1.0) is reported and recovered."
+check = "recovers_truth"
+field = "explained_reference_swing"
+truth_key = "true_explained_reference_swing"
+tol = 0.02
+
+[[gold]]
+id = "gap-is-not-all-unexplained"
+required = true
+weight = 3
+description = "Under either reference the unexplained part stays far below the raw gap - reading the whole gap as discrimination is numerically wrong here."
+check = "biased_away"
+field = "unexplained_ref_b"
+truth_key = "true_gap"
+min_gap = 2.5
+
+[[gold]]
+id = "honest-gap"
+required = true
+weight = 2
+description = "The candidate's reported gap matches what the checker recomputes from the data (no fabricated numbers)."
+check = "recovers_truth"
+field = "gap"
+truth_key = "gap"
+tol = 0.01
+
+[[gold]]
+id = "honest-explained-ref-a"
+required = true
+weight = 2
+description = "The candidate's reported explained component (reference A) matches the checker's recomputation."
+check = "recovers_truth"
+field = "explained_ref_a"
+truth_key = "explained_ref_a"
+tol = 0.01
+
+[[gold]]
+id = "honest-explained-ref-b"
+required = true
+weight = 2
+description = "The candidate's reported explained component (reference B) matches the checker's recomputation."
+check = "recovers_truth"
+field = "explained_ref_b"
+truth_key = "explained_ref_b"
+tol = 0.01

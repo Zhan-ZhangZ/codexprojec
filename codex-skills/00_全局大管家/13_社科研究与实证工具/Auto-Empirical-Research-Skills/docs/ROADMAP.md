@@ -2,6 +2,12 @@
 
 This roadmap is scoped to making AERS a high-quality, high-trust GitHub project rather than just a large link collection.
 
+> **Execution plans (status as of 2026-07-22):** the `PLAN-2026-MM` files are sprint plans whose calendar labels drifted — all three were authored 2026-07-01…04 and largely executed immediately.
+>
+> - [`PLAN-2026-07.md`](PLAN-2026-07.md) — **closed**, 14/15 done (the external AERS-vs-Econometrics-Agent comparison remains open, tracked in [`SCOREBOARD.md`](SCOREBOARD.md) / [`INTEROP.md`](INTEROP.md) Recipe C).
+> - [`PLAN-2026-08.md`](PLAN-2026-08.md) — headline deliverables **shipped** (Card–Krueger end-to-end replication, public benchmark scoreboard, bunching family, link-triage automation); see its status note.
+> - [`PLAN-2026-09.md`](PLAN-2026-09.md) — **current / not started**: opening the evidence chain to external agents.
+
 ## Now
 
 - Keep `catalog/skills.json` and `docs/SKILL_CATALOG.md` current.
@@ -9,16 +15,14 @@ This roadmap is scoped to making AERS a high-quality, high-trust GitHub project 
 - Keep README links and docs category links green.
 - Preserve the no-paid/proprietary-core scope rule for new listings.
 - Keep `catalog/provenance.json`, `docs/LICENSE_AUDIT.md`, and `docs/SKILL_AUDIT.md` current.
-- Use [`docs/search.html`](search.html) as the lightweight searchable catalog.
+- Use [`docs/search.html`](search.html) as the lightweight searchable catalog (now served on [GitHub Pages](https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/)).
 - Keep GitHub Actions passing `scripts/validate-workflows.py` and review OpenSSF Scorecard findings.
 
 ## Next
 
 - Enrich provenance metadata with exact vendored commits where upstream snapshots are known.
-- Add screenshots or rendered previews for the flagship demo pages.
 - Add scheduled external-link triage notes to releases when weekly checks fail.
 - Convert the flagship eval prompts into executable scorecards where artifacts can be generated in CI without paid APIs.
-- Replace manual release notes with a generated release snapshot once the catalog/eval metadata stabilizes.
 - Keep [`ECOSYSTEM.md`](ECOSYSTEM.md) and [`../ecosystem/ecosystem.json`](../ecosystem/ecosystem.json) current as the agentic-research ecosystem evolves, and expand the [`INTEROP.md`](INTEROP.md) pipeline recipes (e.g. a benchmarked AERS-vs-Econometrics-Agent comparison).
 
 ## Later

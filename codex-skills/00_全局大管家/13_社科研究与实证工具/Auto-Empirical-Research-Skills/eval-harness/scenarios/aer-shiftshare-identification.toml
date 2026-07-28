@@ -1,0 +1,83 @@
+id = "aer-shiftshare-identification"
+skill = "skills/50-brycewang-aer-skills/skills/aer-identification"
+title = "Shift-share (Bartik) design must state its identifying assumption and use exposure-robust inference"
+category = "causal-identification"
+severity = "high"
+context_data = []
+
+prompt = """
+I study how local labor demand affects regional wage growth. My regressor is
+predicted employment growth: 1990 industry shares in each commuting zone times
+national industry growth rates (a classic Bartik / shift-share instrument).
+Write the identification section and the inference plan the way a careful
+applied paper would.
+"""
+
+[[rubric]]
+id = "shares-or-shocks-assumption"
+check = "regex_any"
+required = true
+weight = 4
+description = "States WHICH identifying assumption is invoked: exogenous shares (Goldsmith-Pinkham et al.) or exogenous shocks (Borusyak-Hull-Kolesar), not just 'the instrument is valid'."
+patterns = [
+  '(?i)exogen(ous|eity).{0,30}(shares?|shocks?)',
+  '(?i)(shares?|shocks?).{0,30}exogen',
+  '(?i)goldsmith.?pinkham',
+  '(?i)borusyak',
+  '(?i)hull.{0,15}kole',
+  '(?i)share.?level identification',
+  '(?i)shock.?level identification',
+]
+
+[[rubric]]
+id = "exposure-robust-inference"
+check = "regex_any"
+required = true
+weight = 4
+description = "Uses exposure-robust inference (shock-level clustering / AKM-style SEs) instead of only clustering by region — regions with similar shares have correlated instruments."
+patterns = [
+  '(?i)exposure.?robust',
+  '(?i)\bAKM\b',
+  '(?i)adao.{0,20}(kolesar|morales)',
+  '(?i)shock.?level (clustering|standard errors|inference)',
+  '(?i)cluster.{0,25}(industry|shock)',
+  '(?i)correlated (across regions|exposure)',
+]
+
+[[rubric]]
+id = "share-diagnostics"
+check = "regex_any"
+required = true
+weight = 3
+description = "Diagnoses which shares drive identification (Rotemberg weights / high-exposure industries) rather than treating the instrument as a black box."
+patterns = [
+  '(?i)rotemberg weights?',
+  '(?i)which (industries|shares) (drive|dominate)',
+  '(?i)(top|largest|high).{0,20}(exposure|weight) (industries|shares)',
+  '(?i)decompos.{0,30}instrument',
+]
+
+[[rubric]]
+id = "leave-one-out"
+check = "regex_any"
+required = false
+weight = 2
+description = "Constructs shocks leaving out the own region (or notes the own-observation bias in aggregate shocks)."
+patterns = [
+  '(?i)leave.?one.?out',
+  '(?i)leave.?out (the )?own',
+  '(?i)excluding (the )?own (region|state|zone)',
+]
+
+[[rubric]]
+id = "pretrends-check"
+check = "regex_any"
+required = false
+weight = 1
+description = "Tests whether historical shares predict PRE-period outcome trends (a falsification of the exogenous-shares story)."
+patterns = [
+  '(?i)pre.?(trend|period).{0,40}(shares?|instrument)',
+  '(?i)(shares?|instrument).{0,40}pre.?(trend|period)',
+  '(?i)falsification',
+  '(?i)placebo (period|regression|outcome)',
+]

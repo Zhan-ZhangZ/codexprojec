@@ -1,0 +1,104 @@
+id = "bunching-recovery"
+title = "Bunching recovery: does the pipeline recover the excess mass at the kink and a counterfactual density, instead of quoting the unmodified baseline?"
+data = "benchmark/data/sim-bunching.csv"
+reference_candidate = "reference-bunching"
+
+description = """
+A deterministic, noiseless kink design with a known bunching mass. The
+baseline density is f(x) = 1 + 0.5*x on {0..20}; a marginal-return kink at
+x = K = 10 shifts alpha from 1.0 to 1.5, and a known share B = 0.20 of the
+population bunches exactly at K. The counterfactual density is the baseline
+with the K mass removed and the remaining support re-normalized to (1 - B).
+
+A faithful bunching pipeline recovers the excess mass at K (= B = 0.20),
+the counterfactual density at K (= 0), the depleted mass above K (less than
+the baseline share above K), and the elasticity implied by the bunching
+shape. The 'naive' answer is to quote the unmodified baseline everywhere -
+no kink recognized, no excess mass, no counterfactual. Golds are recomputed
+from the data so a candidate cannot pass by fabricating numbers.
+"""
+
+true_excess_mass_by_construction = 0.20
+true_observed_density_at_K = 0.20
+true_counterfactual_density_at_K = 0.0
+true_baseline_density_at_K = 0.0476  # 6 / (21*1.0 + 0.5*sum(0..20)) ~= 6 / 126
+
+[[gold]]
+id = "excess-mass-recovered"
+required = true
+weight = 5
+description = "The excess mass at the kink is recovered (B = 0.20)."
+check = "recovers_truth"
+field = "excess_mass"
+truth_key = "true_excess_mass"
+tol = 0.01
+
+[[gold]]
+id = "observed-density-at-kink"
+required = true
+weight = 3
+description = "The observed density at the kink matches the data recomputation (0.20)."
+check = "recovers_truth"
+field = "observed_at_K"
+truth_key = "true_observed_density_at_K"
+tol = 0.005
+
+[[gold]]
+id = "counterfactual-density-at-kink"
+required = true
+weight = 4
+description = "The counterfactual density at the kink is 0 - the agent cannot bunch at K under no-kink behavior."
+check = "recovers_truth"
+field = "counterfactual_at_K"
+truth_key = "true_counterfactual_density_at_K"
+tol = 0.001
+
+[[gold]]
+id = "naive-quotes-baseline"
+required = true
+weight = 3
+description = "Reporting the unmodified baseline density at K (0.0476) as the answer is exposed by a biased_away gold against the observed (0.20)."
+check = "biased_away"
+field = "naive_at_K"
+truth_key = "true_observed_density_at_K"
+min_gap = 0.05
+
+[[gold]]
+id = "above-kink-depleted"
+required = true
+weight = 3
+description = "The observed mass above the kink is strictly less than the baseline share above the kink (the depletion signal)."
+check = "biased_away"
+field = "observed_above_K"
+truth_key = "true_baseline_share_above_K"
+min_gap = 0.01
+
+[[gold]]
+id = "honest-observed"
+required = true
+weight = 2
+description = "The candidate's reported observed density at K matches the checker's recomputation (no fabricated numbers)."
+check = "recovers_truth"
+field = "observed_at_K"
+truth_key = "observed_at_K"
+tol = 0.001
+
+[[gold]]
+id = "honest-excess-mass"
+required = true
+weight = 2
+description = "The candidate's reported excess mass matches the checker's recomputation."
+check = "recovers_truth"
+field = "excess_mass"
+truth_key = "excess_mass"
+tol = 0.001
+
+[[gold]]
+id = "implied-elasticity-positive"
+required = false
+weight = 2
+description = "The implied elasticity is positive and finite (informational)."
+check = "value_near"
+field = "implied_elasticity"
+expected = 5.0
+tol = 10.0

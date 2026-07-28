@@ -7,9 +7,9 @@ description: Use when responding to a Revise & Resubmit decision from AER, AER:I
 
 ## Overview
 
-A Revise & Resubmit at AER is precious — most submissions never get one. The goal of the rebuttal is **not** to "defend the paper." It is to give the editor a credible package they can send back to the referees with confidence, ending in either acceptance or a single short final round.
+A Revise & Resubmit at AER is precious. The rebuttal goal is **not** to "defend the paper"; it is to give the editor a credible package they can send back to referees with confidence.
 
-The single most important rule: **revise the manuscript first; write the response letter against the revised manuscript, never against the old draft.**
+Rule: **revise the manuscript first; write the response letter against the revised manuscript, never the old draft.**
 
 ## When to Use
 
@@ -196,6 +196,14 @@ Assume the editor scans for three things on each comment:
 
 Write the first sentence of every response so all three answers are visible.
 
+### Per-Comment Action Ledger
+
+Keep one ledger row per comment:
+
+```text
+R2.3 | both | Table A.4 placebo: beta = 0.006, SE = 0.019, p = 0.74 | pp. 18-19
+```
+
 ## Tone
 
 Prefer:
@@ -251,6 +259,11 @@ If the editor wrote a summary letter with their own priorities (common at AER), 
 - [ ] Revision timeline within the editor's window
 
 ## Repository Resources
+
+Bundled with the installed skill, no repository checkout needed --- read it
+before the repo resources below:
+
+- `references/response-letter-patterns.md` --- comment taxonomy and concede / clarify / rebut / decline templates
 
 When working from the AER-skills repository or plugin bundle, read `examples/rebuttal-example.md` only when the user needs a complete response-letter model or a concrete triage example.
 

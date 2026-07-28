@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AERS Release Notes</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f4; --panel: #ffffff; --ink: #1f2933; --muted: #5f6b7a;
+      --line: #d8d8d0; --accent: #0f766e; --warn: #9a3412; --good: #15803d;
+      --chip: #eef2f1; --radius: 8px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111312; --panel: #181b1a; --ink: #edf2f0; --muted: #aab6b1;
+        --line: #343a38; --accent: #5eead4; --warn: #fdba74; --good: #86efac;
+        --chip: #20302c;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+    header, main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+    header { padding: 28px 0 18px; border-bottom: 1px solid var(--line); }
+    .page-nav { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; margin-top: 12px; font-size: 13.5px; color: var(--muted); }
+    .page-nav a { color: var(--accent); text-decoration: none; }
+    .page-nav a:hover { text-decoration: underline; }
+    .page-nav ul { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0; padding: 0; list-style: none; }
+    .page-nav li::before { content: "·"; margin-right: 8px; color: var(--line); }
+    .page-nav li:first-child::before { content: ""; margin: 0; }
+    h1 { margin: 0 0 6px; font-size: clamp(26px, 5vw, 42px); line-height: 1.05; }
+    h2 { margin: 28px 0 10px; font-size: 22px; line-height: 1.2; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+    h3 { margin: 20px 0 6px; font-size: 16px; color: var(--muted); }
+    p { margin: 0 0 10px; color: var(--ink); }
+    .lead { color: var(--muted); }
+    .meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    ul { padding-left: 22px; margin: 0 0 12px; }
+    li { margin: 2px 0; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin: 18px 0 6px; }
+    .stat-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+    .stat-value { font-size: 24px; font-weight: 600; line-height: 1.1; }
+    .stat-label { font-size: 13px; color: var(--muted); }
+    .stat-hint { font-size: 12px; color: var(--muted); }
+    .release-section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; margin: 18px 0; }
+    .release-section h2 { margin-top: 0; border-bottom: none; padding-bottom: 0; }
+    .release-section p:last-child, .release-section ul:last-child { margin-bottom: 0; }
+    footer { width: min(1180px, calc(100% - 32px)); margin: 24px auto 36px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 720px) { .page-nav ul { width: 100%; } }
+    </style>
+</head>
+<body>
+  <header>
+    <h1>AERS Release Notes</h1>
+    <p class="lead">Machine-generated snapshot of the catalog, eval, and benchmark state at every release. Paste this view into the GitHub release body and add a hand-written Highlights section on top.</p>
+    <div class="page-nav">
+      <span><a href="../search.html">&larr; Back to catalog</a></span>
+      <span><a href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/releases">GitHub releases &rarr;</a></span>
+    </div>
+    <nav class="page-nav" aria-label="Section navigation"><ul>
+        <li><a href="#sec-catalog">Catalog</a></li>
+        <li><a href="#sec-methodological-rigor">Methodological rigor</a></li>
+        <li><a href="#sec-license-buckets">License buckets</a></li>
+        <li><a href="#sec-quality-gates">Quality gates</a></li>
+    </ul></nav>
+  </header>
+  <main>
+<section class="stat-grid" aria-label="Snapshot at a glance">
+<div class="stat-card"><div class="stat-value">75</div><div class="stat-label">Collections</div><div class="stat-hint">Top-level skill folders</div></div>
+<div class="stat-card"><div class="stat-value">1095</div><div class="stat-label">Skills</div><div class="stat-hint">SKILL.md entries</div></div>
+<div class="stat-card"><div class="stat-value">16</div><div class="stat-label">Method families</div><div class="stat-hint">Distinct causal-inference families</div></div>
+<div class="stat-card"><div class="stat-value">37</div><div class="stat-label">Eval scenarios</div><div class="stat-hint">167 auto-checkable rubric items</div></div>
+<div class="stat-card"><div class="stat-value">17</div><div class="stat-label">Benchmark tasks</div><div class="stat-hint">87 required gold checks</div></div>
+<div class="stat-card"><div class="stat-value">334</div><div class="stat-label">Tools</div><div class="stat-hint">Agent tools cataloged</div></div>
+<div class="stat-card"><div class="stat-value">173</div><div class="stat-label">Method-skills</div><div class="stat-hint">Skills tagged with a method family</div></div>
+</section>
+<section class="release-section" id="sec-catalog">
+<h2>Catalog</h2>
+<ul>
+<li>Top-level collections: <strong>75</strong></li>
+<li><code>SKILL.md</code> files: <strong>1095</strong></li>
+<li>Cataloged agent tools: <strong>334</strong> (<a href="../tools/CATALOG.md"><code>tools/CATALOG.md</code></a>)</li>
+</ul>
+</section>
+<section class="release-section" id="sec-methodological-rigor">
+<h2>Methodological rigor</h2>
+<ul>
+<li>Method families in the coverage map: <strong>16</strong> (<a href="RIGOR_COVERAGE.md"><code>RIGOR_COVERAGE.md</code></a>)</li>
+<li>Eval scenarios: <strong>37</strong> (183 rubric items, 167 auto-checkable) (<a href="../eval-harness/README.md"><code>../eval-harness/</code></a>)</li>
+<li>Benchmark tasks: <strong>17</strong> (102 gold checks, 87 required) (<a href="../benchmark/README.md"><code>../benchmark/</code></a>)</li>
+</ul>
+<h3>Method families (skills tagged)</h3>
+<ul>
+<li><code>iv</code>: 28</li>
+<li><code>rdd</code>: 25</li>
+<li><code>panel-fe</code>: 19</li>
+<li><code>staggered-did</code>: 17</li>
+<li><code>bayesian</code>: 13</li>
+<li><code>did</code>: 10</li>
+<li><code>event-study</code>: 10</li>
+<li><code>matching</code>: 10</li>
+<li><code>synthetic-control</code>: 10</li>
+<li><code>cate</code>: 8</li>
+<li><code>dml</code>: 8</li>
+<li><code>mediation</code>: 8</li>
+<li><code>survival</code>: 3</li>
+<li><code>quantile</code>: 2</li>
+<li><code>decomposition</code>: 1</li>
+<li><code>shift-share</code>: 1</li>
+</ul>
+<h3>Eval scenarios by category</h3>
+<ul>
+<li><code>causal-identification</code>: 18</li>
+<li><code>citation-hygiene</code>: 3</li>
+<li><code>reproducibility</code>: 3</li>
+<li><code>research-integrity</code>: 2</li>
+<li><code>runtime-safety</code>: 1</li>
+<li><code>statistical-validity</code>: 5</li>
+<li><code>writing-compliance</code>: 3</li>
+<li><code>writing-style</code>: 2</li>
+</ul>
+</section>
+<section class="release-section" id="sec-license-buckets">
+<h2>License buckets</h2>
+<ul>
+<li>AGPL-3.0: 1</li>
+<li>Apache-2.0: 1</li>
+<li>CC-BY-NC-4.0 (non-commercial): 1</li>
+<li>CC-BY-SA-4.0: 1</li>
+<li>CC-BY-SA-4.0 (repository default): 5</li>
+<li>CC0-1.0: 1</li>
+<li>GPL-3.0: 1</li>
+<li>MIT: 36</li>
+<li>MIT Non-Commercial: 1</li>
+<li>Mixed (per-skill; see folder): 2</li>
+<li>UNKNOWN - check upstream: 25</li>
+</ul>
+</section>
+<section class="release-section" id="sec-quality-gates">
+<h2>Quality gates</h2>
+<ul>
+<li><code>make check</code> — catalog/provenance/audit/eval freshness, repo hygiene, Paper-WorkFlow gates, stdlib unit tests, eval-harness lint + graded smoke, and the strict numeric benchmark (reference-gold drift fails the build).</li>
+<li>External links and OpenSSF Scorecard run on their scheduled workflows.</li>
+</ul>
+</section>
+  </main>
+  <footer>
+    <p>Generated by <code>scripts/build-release-notes.py --html</code>. Refresh with <code>make catalog</code>. Markdown source: <a href="../RELEASE_NOTES.md">docs/RELEASE_NOTES.md</a>.</p>
+  </footer>
+</body>
+</html>

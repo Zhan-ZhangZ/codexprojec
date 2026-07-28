@@ -7,9 +7,9 @@ description: Use when selecting, implementing, or stress-testing the causal iden
 
 ## Overview
 
-In modern AER-track empirical economics, **identification is the paper**. A weak design cannot be rescued by clever writing, more controls, or a larger sample. This skill walks through the five canonical design-based strategies, the modern defaults that have replaced naive textbook implementations, and the referee-anticipating tests each demands.
+In AER-track empirical economics, **identification is the paper**. This skill routes among canonical designs, modern defaults, and referee-facing diagnostics.
 
-If the identification strategy is fragile, return to `aer-topic-selection`. There is no point polishing an indefensible empirical strategy.
+If the design is fragile, return to `aer-topic-selection`; writing cannot save it.
 
 ## When to Use
 
@@ -77,9 +77,9 @@ A flat pre-trend is necessary but not sufficient. Report:
 
 The first-stage F > 10 rule is **obsolete**. Modern conventions:
 
-- For just-identified models: report **Anderson-Rubin (AR) confidence sets** as the primary inference. AR has correct size regardless of instrument strength.
+- Just-identified models: report **Anderson-Rubin (AR) confidence sets** as primary inference; AR keeps size under weak instruments.
 - For F < 50: 2SLS confidence intervals are unreliable; AR is required, not optional.
-- Stock-Yogo critical values for TSLS bias assume homoskedasticity and are rarely valid in modern clustered settings.
+- Stock-Yogo TSLS-bias critical values assume homoskedasticity and rarely fit clustered settings.
 
 Use `weakivtest` (Stata), `ivDiag` (R), or the Olea-Pflueger effective F statistic.
 
@@ -167,15 +167,42 @@ A common confusion: **identification answers whether X causes Y; mechanism answe
 - IV exclusion restriction defended only by "we control for X"
 - Quoting an Angrist-Pischke citation as a substitute for showing the diagnostic
 
+## StatsPAI Tool Bindings
+
+<!-- tool-bindings -->
+When a StatsPAI MCP server is connected, **select the validated tool, then let it
+run the estimator** — do not hand-roll the design. The methodological *choice*
+still comes from the decision tree above; this table is only the execution
+surface. The full registry and chained workflow live in
+`skills/aer-statspai/SKILL.md`.
+
+| Design / diagnostic | Call (StatsPAI) | Do not hand-roll |
+|---|---|---|
+| Staggered DiD ATT(g,t) | `callaway_santanna` then `aggte` | a pooled two-way fixed-effects regression |
+| Imputation / dCDH variants | `did_imputation`, `sun_abraham`, `did_multiplegt` | event-study leads and lags assembled by hand on staggered data |
+| Forbidden-comparison weight | `bacon_decomposition` | eyeballing whether TWFE is "probably fine" |
+| Pre-trends (joint, not visual) | `event_study`, `pretrends_test` | declaring parallel trends from a plot alone |
+| IV under weak instruments | `ivreg` with `anderson_rubin_ci`, `effective_f_test` | a first-stage-F-only 2SLS table |
+| Shift-share / Bartik | `bartik` | a Bartik IV with no Rotemberg-weight report |
+| RDD (local-linear, RBC) | `rdrobust`, `rdbwselect`, `rdplot`, `rddensity` | a high-order global-polynomial RDD |
+| Synthetic control | `synth`, `augsynth`, `gsynth`, `sdid`, `synth_time_placebo`, `synth_loo` | SCM with no placebo or leave-one-out inference |
+| Design / estimator selection | `detect_design`, `preflight`, `recommend` | guessing the estimator before profiling the data |
+<!-- /tool-bindings -->
+
 ## Repository Resources
 
-When working from the AER-skills repository or plugin bundle, load only the relevant resource:
+Bundled with the installed skill, no repository checkout needed --- read it
+before the repo resources below:
+
+- `references/estimator-playbook.md` --- per-design estimands, modern defaults, diagnostics, and referee-objection response scripts
+
+When working from the repo or plugin bundle, load only the relevant resource:
 
 - Estimator defaults, package calls, diagnostics, and citations: `docs/methods-reference.md`
 - Staggered DiD implementation: `templates/stata/03_main_did.do`, `templates/r/03_main_did.R`, or `templates/python/main_did.py`
 - Worked empirical examples: `examples/aer-exemplars.md` and `examples/modern-aer-exemplars.md`
 
-Use the methods reference before drafting prose: it fixes the estimand,
+Use the methods reference before prose: it fixes the estimand,
 diagnostic, inference method, and citation that the manuscript must report.
 
 ## Identification Gate
@@ -187,6 +214,18 @@ Do not advance to robustness or writing until, for the chosen design, **all** ar
 - [ ] Inference matches the design — cluster-robust / AR / wild bootstrap / permutation, not default OLS SEs by reflex
 - [ ] The identifying assumption is stated in one sentence, ready to drop into the introduction
 - [ ] No item in "Red Flags for Referees" is present
+
+### Gate Record Mini-Example
+
+Write the gate decision before routing onward:
+
+```text
+STRATEGY: IV
+FIRST STAGE: effective F = 7.8; 2SLS CI is not primary
+ROBUST INFERENCE: AR 95% CI = [-0.14, 0.52]
+PLACEBO: beta = 0.003 (p = 0.71)
+DECISION: advance with directional headline only
+```
 
 ## Handoff
 

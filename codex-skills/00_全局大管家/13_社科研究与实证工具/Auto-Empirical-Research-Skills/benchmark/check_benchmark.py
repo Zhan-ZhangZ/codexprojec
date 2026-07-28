@@ -41,6 +41,12 @@ import dml  # noqa: E402
 import survival  # noqa: E402
 import bayesian  # noqa: E402
 import synth  # noqa: E402
+import cate  # noqa: E402
+import qte  # noqa: E402
+import bartik  # noqa: E402
+import mediation  # noqa: E402
+import oaxaca  # noqa: E402
+import bunching  # noqa: E402
 
 TASKS_DIR = Path(__file__).resolve().parent / "tasks"
 CANDIDATES_DIR = Path(__file__).resolve().parent / "candidates"
@@ -48,8 +54,14 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 SUPPORTED_TASK_IDS = {
     "bad-control-recovery",
+    "bartik-recovery",
+    "bunching-recovery",
+    "decomposition-recovery",
     "bayesian-recovery",
     "card-iv-recovery",
+    "cate-recovery",
+    "mediation-recovery",
+    "qte-recovery",
     "did-staggered-recovery",
     "dml-recovery",
     "event-study-recovery",
@@ -133,6 +145,18 @@ CANDIDATE_NUMERIC_FIELDS = {
     ),
     "bayesian-recovery": ("data_mean", "posterior_weak", "posterior_strong"),
     "synthetic-control-recovery": ("true_effect", "sc_effect", "naive_effect"),
+    "cate-recovery": ("cate_low", "cate_high", "cate_gap", "ate_stratified", "naive_ate"),
+    "qte-recovery": ("qte_50", "qte_90", "ate"),
+    "bartik-recovery": ("bartik_beta", "ols_beta", "first_stage_coef"),
+    "mediation-recovery": ("total_effect", "nde", "nie", "naive_direct"),
+    "decomposition-recovery": (
+        "gap", "explained_ref_a", "unexplained_ref_a",
+        "explained_ref_b", "unexplained_ref_b", "explained_reference_swing",
+    ),
+    "bunching-recovery": (
+        "excess_mass", "observed_at_K", "counterfactual_at_K",
+        "naive_at_K", "observed_above_K", "implied_elasticity",
+    ),
 }
 CANDIDATE_NUMERIC_MAP_FIELDS = {
     "lalonde-recovery": ("balance",),
@@ -431,6 +455,93 @@ def compute_truth(task: dict) -> dict:
             "true_effect": synth.true_effect(rows),
             "sc_effect": synth.sc_effect(rows),
             "naive_effect": synth.naive_effect(rows),
+        }
+    if task["id"] == "cate-recovery":
+        data = ROOT / task["data"]
+        rows = cate.load(data)
+        return {
+            "n": len(rows),
+            "true_cate_low": cate.true_cate(rows, 0),
+            "true_cate_high": cate.true_cate(rows, 1),
+            "true_cate_gap": cate.true_cate_gap(rows),
+            "true_ate": cate.true_ate(rows),
+            "cate_low": cate.cate_hat(rows, 0),
+            "cate_high": cate.cate_hat(rows, 1),
+            "cate_gap": cate.cate_gap(rows),
+            "ate_stratified": cate.ate_stratified(rows),
+            "naive_ate": cate.naive_ate(rows),
+        }
+    if task["id"] == "qte-recovery":
+        data = ROOT / task["data"]
+        rows = qte.load(data)
+        return {
+            "n": len(rows),
+            "true_qte_50": qte.true_qte_at(rows, 0.5),
+            "true_qte_90": qte.true_qte_at(rows, 0.9),
+            "true_ate": qte.true_ate(rows),
+            "qte_50": qte.qte_at(rows, 0.5),
+            "qte_90": qte.qte_at(rows, 0.9),
+            "ate": qte.ate(rows),
+        }
+    if task["id"] == "bartik-recovery":
+        data = ROOT / task["data"]
+        rows = bartik.load(data)
+        return {
+            "n": len(rows),
+            "true_beta": bartik.true_beta(rows),
+            "bartik_beta": bartik.bartik_beta(rows),
+            "ols_beta": bartik.ols_beta(rows),
+            "first_stage_coef": bartik.first_stage_coef(rows),
+        }
+    if task["id"] == "mediation-recovery":
+        data = ROOT / task["data"]
+        rows = mediation.load(data)
+        return {
+            "n": len(rows),
+            "true_total": mediation.true_total(rows),
+            "true_nde": mediation.true_nde(rows),
+            "true_nie": mediation.true_nie(rows),
+            "total_effect": mediation.total_effect(rows),
+            "nde": mediation.nde_hat(rows),
+            "nie": mediation.nie_hat(rows),
+            "naive_direct": mediation.naive_direct(rows),
+        }
+    if task["id"] == "decomposition-recovery":
+        data = ROOT / task["data"]
+        rows = oaxaca.load(data)
+        return {
+            "n": len(rows),
+            "true_gap": oaxaca.gap(rows),
+            "true_explained_ref_a": oaxaca.explained(rows, "A"),
+            "true_unexplained_ref_a": oaxaca.unexplained(rows, "A"),
+            "true_explained_ref_b": oaxaca.explained(rows, "B"),
+            "true_unexplained_ref_b": oaxaca.unexplained(rows, "B"),
+            "true_explained_reference_swing": oaxaca.explained_reference_swing(rows),
+            "gap": oaxaca.gap(rows),
+            "explained_ref_a": oaxaca.explained(rows, "A"),
+            "unexplained_ref_a": oaxaca.unexplained(rows, "A"),
+            "explained_ref_b": oaxaca.explained(rows, "B"),
+            "unexplained_ref_b": oaxaca.unexplained(rows, "B"),
+            "explained_reference_swing": oaxaca.explained_reference_swing(rows),
+        }
+    if task["id"] == "bunching-recovery":
+        data = ROOT / task["data"]
+        rows = bunching.load(data)
+        baseline_share_above = sum(
+            bunching.naive_density_at(rows, x) for x in bunching.SUPPORT if x > bunching.K
+        )
+        return {
+            "n": len(rows),
+            "true_excess_mass": bunching.excess_mass(rows),
+            "true_observed_density_at_K": bunching.observed_density_at(rows, bunching.K),
+            "true_counterfactual_density_at_K": bunching.counterfactual_density_at(rows, bunching.K),
+            "true_baseline_share_above_K": baseline_share_above,
+            "excess_mass": bunching.excess_mass(rows),
+            "observed_at_K": bunching.observed_density_at(rows, bunching.K),
+            "counterfactual_at_K": bunching.counterfactual_density_at(rows, bunching.K),
+            "naive_at_K": bunching.naive_density_at(rows, bunching.K),
+            "observed_above_K": bunching.observed_density_above(rows),
+            "implied_elasticity": bunching.implied_elasticity(rows),
         }
     raise ValueError(f"unknown task {task['id']}")
 

@@ -1,4 +1,22 @@
-.PHONY: catalog validate paper-workflow-check check audit hygiene clean external-links external-links-dry tools-links tools-links-dry evals eval-harness eval-smoke benchmark-lint benchmark benchmark-refresh test python-compat
+.PHONY: catalog validate paper-workflow-check check check-fast check-full quickstart audit hygiene clean external-links external-links-dry tools-links tools-links-dry evals eval-harness eval-smoke benchmark-lint benchmark benchmark-refresh test python-compat
+
+# Newcomers: five-minute tour of what the repo is, what the catalog router
+# routes to, and which entry point to open. Stdlib only; does not mutate the
+# catalog or any vendored skill. Pair with: `make quickstart-markdown` to
+# also emit docs/QUICKSTART_REPORT.md.
+quickstart:
+	python3 scripts/quickstart.py
+
+quickstart-markdown:
+	python3 scripts/quickstart.py --markdown
+
+# Fast local gate — catalog + validate + python-compat + test. Use for the
+# inner PR feedback loop; full `make check` adds the slow eval/benchmark
+# lanes on top.
+check-fast: validate python-compat test
+
+# Full local gate — everything `make check` does. Use before tagging a release.
+check-full: check
 
 catalog:
 	python3 scripts/build-provenance.py
@@ -8,6 +26,9 @@ catalog:
 	python3 scripts/build-catalog-enrich.py
 	python3 scripts/build-tools-catalog.py
 	python3 scripts/build-coverage-map.py
+	python3 scripts/build-release-notes.py
+	python3 scripts/build-release-notes.py --html
+	python3 scripts/build-benchmark-scoreboard.py
 
 # Catalog/provenance/audit/eval freshness + repo link & frontmatter validation.
 validate:
@@ -15,6 +36,10 @@ validate:
 	python3 scripts/check-repo-hygiene.py
 	python3 scripts/validate-workflows.py
 	python3 scripts/check-ecosystem.py
+	python3 scripts/check-readme-stats.py
+	python3 scripts/check-catalog-coverage.py
+	python3 scripts/check-plugin-source-location.py
+	python3 scripts/check-mirror-sync.py
 	$(MAKE) paper-workflow-check
 	python3 scripts/build-provenance.py --check
 	python3 scripts/build-skill-audit.py --check
@@ -23,6 +48,9 @@ validate:
 	python3 scripts/build-catalog-enrich.py --check
 	python3 scripts/build-tools-catalog.py --check
 	python3 scripts/build-coverage-map.py --check
+	python3 scripts/build-release-notes.py --check
+	python3 scripts/build-release-notes.py --check --html
+	python3 scripts/build-benchmark-scoreboard.py --check
 
 paper-workflow-check:
 	@if [ ! -f skills/69-Paper-WorkFlow/validate_skill.py ]; then \
@@ -39,7 +67,7 @@ evals:
 # Distinct from `make evals` (the declarative flagship-evals prompt matrix).
 eval-harness:
 	python3 eval-harness/run_evals.py \
-		--min-scenarios 18 --min-auto-checks 86 \
+		--min-scenarios 24 --min-auto-checks 116 \
 		--expect-categories causal-identification,reproducibility,citation-hygiene,runtime-safety,research-integrity,writing-compliance,writing-style
 
 # Grade fixture candidates as a smoke test. The fixture set intentionally

@@ -1,0 +1,10 @@
+{
+  "task": "cate-recovery",
+  "method": "Stratified conditional effects (CATE by x) vs naive pooled difference in means",
+  "n": 200,
+  "cate_low": -1.0,
+  "cate_high": 3.0,
+  "cate_gap": 4.0,
+  "ate_stratified": 1.0,
+  "naive_ate": 3.0
+}

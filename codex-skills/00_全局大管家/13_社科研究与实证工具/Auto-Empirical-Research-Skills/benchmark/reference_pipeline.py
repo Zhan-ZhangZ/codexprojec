@@ -25,6 +25,12 @@ import dml  # noqa: E402
 import survival  # noqa: E402
 import bayesian  # noqa: E402
 import synth  # noqa: E402
+import cate  # noqa: E402
+import qte  # noqa: E402
+import bartik  # noqa: E402
+import oaxaca  # noqa: E402
+import bunching  # noqa: E402
+import mediation  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CAND = Path(__file__).resolve().parent / "candidates"
@@ -234,6 +240,121 @@ def synth_candidate(write_missing_data: bool = True) -> dict:
     }
 
 
+def cate_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-cate.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        cate.write_csv(data_path)
+    rows = cate.load(data_path)
+    return {
+        "task": "cate-recovery",
+        "method": "Stratified conditional effects (CATE by x) vs naive pooled difference in means",
+        "n": len(rows),
+        "cate_low": round(cate.cate_hat(rows, 0), 4),
+        "cate_high": round(cate.cate_hat(rows, 1), 4),
+        "cate_gap": round(cate.cate_gap(rows), 4),
+        "ate_stratified": round(cate.ate_stratified(rows), 4),
+        "naive_ate": round(cate.naive_ate(rows), 4),
+    }
+
+
+def qte_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-qte.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        qte.write_csv(data_path)
+    rows = qte.load(data_path)
+    return {
+        "task": "qte-recovery",
+        "method": "Quantile treatment effects (q50, q90) alongside the mean effect in a randomized paired design",
+        "n": len(rows),
+        "qte_50": round(qte.qte_at(rows, 0.5), 4),
+        "qte_90": round(qte.qte_at(rows, 0.9), 4),
+        "ate": round(qte.ate(rows), 4),
+    }
+
+
+def bartik_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-bartik.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        bartik.write_csv(data_path)
+    rows = bartik.load(data_path)
+    return {
+        "task": "bartik-recovery",
+        "method": "Shift-share (Bartik) IV built from industry shares x national shocks vs naive OLS",
+        "n": len(rows),
+        "bartik_beta": round(bartik.bartik_beta(rows), 4),
+        "ols_beta": round(bartik.ols_beta(rows), 4),
+        "first_stage_coef": round(bartik.first_stage_coef(rows), 4),
+    }
+
+
+def mediation_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-mediation.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        mediation.write_csv(data_path)
+    rows = mediation.load(data_path)
+    return {
+        "task": "mediation-recovery",
+        "method": "NDE/NIE decomposition adjusting the mediator-outcome confounder vs naive Y~T+M",
+        "n": len(rows),
+        "total_effect": round(mediation.total_effect(rows), 4),
+        "nde": round(mediation.nde_hat(rows), 4),
+        "nie": round(mediation.nie_hat(rows), 4),
+        "naive_direct": round(mediation.naive_direct(rows), 4),
+    }
+
+
+def oaxaca_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-oaxaca.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        oaxaca.write_csv(data_path)
+    rows = oaxaca.load(data_path)
+    return {
+        "task": "decomposition-recovery",
+        "method": "Twofold Oaxaca-Blinder under BOTH references (index-number problem surfaced) via exact within-group OLS",
+        "n": len(rows),
+        "gap": round(oaxaca.gap(rows), 4),
+        "explained_ref_a": round(oaxaca.explained(rows, "A"), 4),
+        "unexplained_ref_a": round(oaxaca.unexplained(rows, "A"), 4),
+        "explained_ref_b": round(oaxaca.explained(rows, "B"), 4),
+        "unexplained_ref_b": round(oaxaca.unexplained(rows, "B"), 4),
+        "explained_reference_swing": round(oaxaca.explained_reference_swing(rows), 4),
+    }
+
+
+def bunching_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-bunching.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        bunching.write_csv(data_path)
+    rows = bunching.load(data_path)
+    naive_above_K_total = sum(
+        bunching.naive_density_at(rows, x) for x in bunching.SUPPORT if x > bunching.K
+    )
+    return {
+        "task": "bunching-recovery",
+        "method": "Excess mass at kink K=10 with counterfactual re-normalization of the baseline density (B=0.20)",
+        "n": len(rows),
+        "excess_mass": round(bunching.excess_mass(rows), 4),
+        "observed_at_K": round(bunching.observed_density_at(rows, bunching.K), 4),
+        "counterfactual_at_K": round(bunching.counterfactual_density_at(rows, bunching.K), 4),
+        "naive_at_K": round(bunching.naive_density_at(rows, bunching.K), 4),
+        "observed_above_K": round(bunching.observed_density_above(rows), 4),
+        "implied_elasticity": round(bunching.implied_elasticity(rows), 4),
+        "naive_above_K_total": round(naive_above_K_total, 4),
+    }
+
+
 def reference_candidates(write_missing_data: bool = True) -> list[tuple[Path, dict]]:
     return [
         (CAND / "reference-ols" / "results.json", lalonde_candidate()),
@@ -247,6 +368,12 @@ def reference_candidates(write_missing_data: bool = True) -> list[tuple[Path, di
         (CAND / "reference-survival" / "results.json", survival_candidate(write_missing_data)),
         (CAND / "reference-bayesian" / "results.json", bayesian_candidate(write_missing_data)),
         (CAND / "reference-synth" / "results.json", synth_candidate(write_missing_data)),
+        (CAND / "reference-cate" / "results.json", cate_candidate(write_missing_data)),
+        (CAND / "reference-qte" / "results.json", qte_candidate(write_missing_data)),
+        (CAND / "reference-bartik" / "results.json", bartik_candidate(write_missing_data)),
+        (CAND / "reference-mediation" / "results.json", mediation_candidate(write_missing_data)),
+        (CAND / "reference-oaxaca" / "results.json", oaxaca_candidate(write_missing_data)),
+        (CAND / "reference-bunching" / "results.json", bunching_candidate(write_missing_data)),
     ]
 
 
@@ -303,6 +430,31 @@ def print_summary(payloads: list[tuple[Path, dict]]) -> None:
     print(
         f"  synthetic control: naive {sc['naive_effect']} -> SC {sc['sc_effect']} "
         f"(true {sc['true_effect']})"
+    )
+    ct = by_task["cate-recovery"]
+    print(
+        f"  CATE: naive pooled {ct['naive_ate']} -> stratified {ct['ate_stratified']} "
+        f"(low {ct['cate_low']}, high {ct['cate_high']})"
+    )
+    qt = by_task["qte-recovery"]
+    print(
+        f"  QTE: mean {qt['ate']} vs q50 {qt['qte_50']} / q90 {qt['qte_90']} "
+        f"(gains concentrate in the tail)"
+    )
+    bk = by_task["bartik-recovery"]
+    print(
+        f"  bartik: OLS {bk['ols_beta']} -> shift-share IV {bk['bartik_beta']} "
+        f"(first stage {bk['first_stage_coef']})"
+    )
+    md = by_task["mediation-recovery"]
+    print(
+        f"  mediation: naive Y~T+M {md['naive_direct']} -> NDE {md['nde']} + NIE {md['nie']} "
+        f"(total {md['total_effect']})"
+    )
+    ox = by_task["decomposition-recovery"]
+    print(
+        f"  oaxaca: gap {ox['gap']} = explained {ox['explained_ref_a']} + unexplained "
+        f"{ox['unexplained_ref_a']} (ref A; explained swings to {ox['explained_ref_b']} under ref B)"
     )
 
 

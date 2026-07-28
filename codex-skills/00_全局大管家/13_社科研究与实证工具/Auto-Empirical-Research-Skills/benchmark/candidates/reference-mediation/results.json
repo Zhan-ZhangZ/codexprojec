@@ -1,0 +1,9 @@
+{
+  "task": "mediation-recovery",
+  "method": "NDE/NIE decomposition adjusting the mediator-outcome confounder vs naive Y~T+M",
+  "n": 200,
+  "total_effect": 4.0,
+  "nde": 1.0,
+  "nie": 3.0,
+  "naive_direct": -2.7576
+}

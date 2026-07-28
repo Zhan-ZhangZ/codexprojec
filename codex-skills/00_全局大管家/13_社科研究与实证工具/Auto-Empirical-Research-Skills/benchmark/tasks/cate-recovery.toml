@@ -1,0 +1,114 @@
+id = "cate-recovery"
+title = "Heterogeneous-effects recovery: does the pipeline surface opposite-signed subgroup effects instead of one pooled number?"
+data = "benchmark/data/sim-cate.csv"
+reference_candidate = "reference-cate"
+
+description = """
+A deterministic, noiseless stratified design (two strata of 100 units) whose
+treatment effect is NEGATIVE for low-type units (tau = -1) and POSITIVE for
+high-type units (tau = +3), with true equal-weighted ATE = +1. Treatment
+probability differs by stratum (25% low, 75% high), so the naive pooled
+difference in means (= 3.0) is confounded by stratum composition on top of
+hiding the heterogeneity.
+
+The lesson: (1) a pooled difference in means is biased when assignment depends
+on x, and (2) even a correct average hides that the program HARMS one subgroup
+while helping the other. A stratified (conditional) estimator recovers both
+subgroup effects and the correct average. Data-derived golds are recomputed
+from the dataset (the untreated potential outcome y0 ships as a column the
+estimators never read), so a candidate cannot pass by fabricating numbers.
+"""
+
+true_tau_low_by_construction = -1.0
+true_tau_high_by_construction = 3.0
+true_ate_by_construction = 1.0
+
+[[gold]]
+id = "cate-low-recovered"
+required = true
+weight = 4
+description = "The low-type conditional effect estimate recovers the true NEGATIVE effect (tau_low = -1)."
+check = "recovers_truth"
+field = "cate_low"
+truth_key = "true_cate_low"
+tol = 0.05
+
+[[gold]]
+id = "cate-high-recovered"
+required = true
+weight = 4
+description = "The high-type conditional effect estimate recovers the true positive effect (tau_high = +3)."
+check = "recovers_truth"
+field = "cate_high"
+truth_key = "true_cate_high"
+tol = 0.05
+
+[[gold]]
+id = "stratified-ate-recovers"
+required = true
+weight = 3
+description = "The stratum-weighted average effect recovers the true ATE (the pooled contrast does not)."
+check = "recovers_truth"
+field = "ate_stratified"
+truth_key = "true_ate"
+tol = 0.05
+
+[[gold]]
+id = "naive-pooled-biased"
+required = true
+weight = 3
+description = "The naive pooled difference in means is far from the true ATE, surfacing the composition bias rather than hiding it."
+check = "biased_away"
+field = "naive_ate"
+truth_key = "true_ate"
+min_gap = 1.0
+
+[[gold]]
+id = "heterogeneity-gap-recovered"
+required = true
+weight = 3
+description = "The estimated high-minus-low effect gap recovers the true heterogeneity spread (4.0), proving the sign flip was detected."
+check = "recovers_truth"
+field = "cate_gap"
+truth_key = "true_cate_gap"
+tol = 0.05
+
+[[gold]]
+id = "stratified-beats-naive"
+required = false
+weight = 2
+description = "The stratified average is closer to the truth than the pooled contrast is (informational)."
+check = "closer_to_truth"
+near_field = "ate_stratified"
+far_field = "naive_ate"
+truth_key = "true_ate"
+
+[[gold]]
+id = "honest-cate-low"
+required = true
+weight = 2
+description = "The candidate's reported low-type effect matches what the checker recomputes from the data (no fabricated numbers)."
+check = "recovers_truth"
+field = "cate_low"
+truth_key = "cate_low"
+tol = 0.01
+
+[[gold]]
+id = "honest-cate-high"
+required = true
+weight = 2
+description = "The candidate's reported high-type effect matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "cate_high"
+truth_key = "cate_high"
+tol = 0.01
+
+[[gold]]
+id = "honest-naive"
+required = true
+weight = 2
+description = "The candidate's reported pooled contrast matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "naive_ate"
+truth_key = "naive_ate"
+tol = 0.01

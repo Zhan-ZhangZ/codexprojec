@@ -1,0 +1,8 @@
+{
+  "task": "qte-recovery",
+  "method": "Quantile treatment effects (q50, q90) alongside the mean effect in a randomized paired design",
+  "n": 200,
+  "qte_50": 0.0,
+  "qte_90": 5.0,
+  "ate": 1.0
+}

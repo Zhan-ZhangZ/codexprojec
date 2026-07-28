@@ -1,0 +1,83 @@
+id = "statspai-quantile-effects"
+skill = "skills/00-Full-empirical-analysis-skill_StatsPAI"
+title = "Distributional analysis must report quantile treatment effects correctly, not just a mean, and not oversell rank invariance"
+category = "causal-identification"
+severity = "high"
+context_data = []
+
+prompt = """
+We are evaluating a minimum-wage increase's effect on the earnings distribution
+of affected workers (clean difference-in-differences setting, big sample). The
+policy debate is about whether low-wage workers gain and whether gains reach the
+bottom of the distribution, not about the average. Analyze the distributional
+effects the way a careful applied paper would.
+"""
+
+[[rubric]]
+id = "beyond-the-mean"
+check = "regex_any"
+required = true
+weight = 4
+description = "Estimates effects at multiple quantiles (QTE / distribution regression / RIF) instead of stopping at the mean effect."
+patterns = [
+  '(?i)quantile treatment effect',
+  '(?i)\bQTEs?\b',
+  '(?i)quantile regression',
+  '(?i)distribution(al)? regression',
+  '(?i)\bRIF\b',
+  '(?i)(deciles?|percentiles?|quantiles?) of the (earnings|wage|outcome) distribution',
+]
+
+[[rubric]]
+id = "qte-vs-individual-effects"
+check = "regex_any"
+required = true
+weight = 4
+description = "States the key caveat: QTEs are differences between marginal quantiles, not effects for individual units, unless rank invariance/similarity is assumed."
+patterns = [
+  '(?i)rank (invariance|similarity|preservation)',
+  '(?i)not the effect for (an individual|the same (person|worker|unit))',
+  '(?i)marginal (distributions|quantiles)',
+  '(?i)quantiles? of the (treated|counterfactual) distribution, not',
+  '(?i)does not (identify|tell us) who (gains|benefits)',
+]
+
+[[rubric]]
+id = "conditional-vs-unconditional"
+check = "regex_any"
+required = true
+weight = 3
+description = "Distinguishes conditional quantile effects from unconditional (population) quantile effects and picks the one matching the policy question."
+patterns = [
+  '(?i)unconditional quantile',
+  '(?i)conditional quantile',
+  '(?i)firpo',
+  '(?i)recentered influence function',
+  '(?i)population quantile',
+]
+
+[[rubric]]
+id = "distributional-inference"
+check = "regex_any"
+required = false
+weight = 2
+description = "Uses appropriate inference for quantile estimates (bootstrap, uniform confidence bands) rather than none."
+patterns = [
+  '(?i)bootstrap',
+  '(?i)uniform (confidence )?bands?',
+  '(?i)pointwise (vs\\.? )?uniform',
+  '(?i)standard errors? for (the )?quantile',
+]
+
+[[rubric]]
+id = "did-quantile-assumptions"
+check = "regex_any"
+required = false
+weight = 1
+description = "Notes that distributional DiD needs stronger assumptions than mean DiD (distributional parallel trends / changes-in-changes)."
+patterns = [
+  '(?i)changes.?in.?changes',
+  '(?i)distributional (parallel trends|assumption)',
+  '(?i)parallel trends (in|for) (the )?(distribution|quantiles)',
+  '(?i)athey.{0,10}imbens',
+]

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auto-Empirical Research Skills (AERS)</title>
+  <meta name="description" content="1,093 vendored agent skills for empirical social-science research, with an executable rigor layer: numeric benchmarks, behavioral evals, and published-replication golds.">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f7f4; --panel: #ffffff; --ink: #1f2933; --muted: #5f6b7a;
+      --line: #d8d8d0; --accent: #0f766e; --good: #15803d;
+      --chip: #eef2f1; --radius: 10px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111312; --panel: #181b1a; --ink: #edf2f0; --muted: #aab6b1;
+        --line: #343a38; --accent: #5eead4; --good: #86efac;
+        --chip: #20302c;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+    main { width: min(980px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 64px; }
+    h1 { margin: 0 0 10px; font-size: clamp(30px, 6vw, 52px); line-height: 1.05; }
+    .sub { color: var(--muted); font-size: 17px; max-width: 46em; }
+    .stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 26px 0 6px; }
+    .stat { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; background: var(--panel); }
+    .stat b { font-size: 20px; display: block; }
+    .stat span { color: var(--muted); font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 30px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: block; color: inherit; text-decoration: none; transition: border-color .15s; }
+    .card:hover { border-color: var(--accent); }
+    .card h2 { margin: 0 0 6px; font-size: 17px; }
+    .card p { margin: 0; color: var(--muted); font-size: 14px; }
+    .card .go { color: var(--accent); font-size: 13px; margin-top: 10px; display: inline-block; }
+    footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13.5px; }
+    a { color: var(--accent); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Auto-Empirical Research Skills</h1>
+  <p class="sub">
+    实证社科研究的 Agent 技能库 —— 全部 vendored、许可审计、安全扫描，并配备<strong>可执行的严谨性层</strong>：
+    数值恢复基准、方法陷阱评测、已发表论文复现 gold。<br>
+    Vendored agent skills for empirical social science, with an <strong>executable rigor layer</strong>:
+    numeric recovery benchmarks, behavioral evals, and published-replication golds.
+  </p>
+
+  <div class="stats" id="stats" hidden>
+    <div class="stat"><b id="n-skills">–</b><span>skills · 技能</span></div>
+    <div class="stat"><b id="n-collections">–</b><span>collections · 合集</span></div>
+    <div class="stat"><b id="n-rigor">–</b><span>rigor surface · 严谨层</span></div>
+  </div>
+
+  <div class="grid">
+    <a class="card" href="docs/search.html">
+      <h2>🔎 Skill Search · 技能搜索</h2>
+      <p>Full-text + facet search over every cataloged skill: method, stage, language, license, commercial use.</p>
+      <span class="go">docs/search.html →</span>
+    </a>
+    <a class="card" href="docs/tools-search.html">
+      <h2>🧰 Tools Search · 工具搜索</h2>
+      <p>Causal/econometrics libraries, autonomous research agents, MCP servers, causal discovery, datasets.</p>
+      <span class="go">docs/tools-search.html →</span>
+    </a>
+    <a class="card" href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/blob/main/docs/RIGOR_COVERAGE.md">
+      <h2>🛡️ Rigor Coverage · 严谨性覆盖</h2>
+      <p>16 method families, each closed by an eval scenario and a deterministic numeric benchmark.</p>
+      <span class="go">docs/RIGOR_COVERAGE.md →</span>
+    </a>
+    <a class="card" href="https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/docs/BENCHMARK_SCOREBOARD.md">
+      <h2>🪶 Benchmark Scoreboard · 公开基准榜</h2>
+      <p>Reference vs naive baseline on every shared exam task — the rigor-layer gap, scored.</p>
+      <span class="go">docs/BENCHMARK_SCOREBOARD.md →</span>
+    </a>
+    <a class="card" href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/blob/main/docs/INTEROP.md">
+      <h2>⚖️ Grade Your Agent · 外部评分协议</h2>
+      <p>Point any agent (or a human with Stata) at the benchmark tasks and get an apples-to-apples score.</p>
+      <span class="go">docs/INTEROP.md →</span>
+    </a>
+    <a class="card" href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills">
+      <h2>📦 Repository · 仓库</h2>
+      <p>README (中文默认 / <a href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/blob/main/README-en.md">English</a>), install guide, plugin marketplace, releases.</p>
+      <span class="go">github.com →</span>
+    </a>
+    <a class="card" href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/discussions">
+      <h2>💬 Discussions · 社区</h2>
+      <p>Q&amp;A, show-and-tell, and skill submissions. New here? Start with the welcome thread.</p>
+      <span class="go">discussions →</span>
+    </a>
+  </div>
+
+  <footer>
+    Stanford REAP × <a href="https://copaper.ai">CoPaper.AI</a> ·
+    <a href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/releases">Releases</a> ·
+    CC BY-SA 4.0 (curation) — individual skills carry their own licenses.
+  </footer>
+</main>
+<script>
+  (async () => {
+    try {
+      const cat = await fetch("catalog/skills.json").then(r => r.json());
+      const s = cat.summary || {};
+      document.getElementById("n-skills").textContent = (s.skill_files ?? "–").toLocaleString?.() ?? s.skill_files;
+      document.getElementById("n-collections").textContent = s.top_level_collections ?? "–";
+      try {
+        const badge = await fetch("docs/badges/rigor-coverage.json").then(r => r.json());
+        document.getElementById("n-rigor").textContent = badge.message ?? "–";
+      } catch { document.getElementById("n-rigor").textContent = "16 families"; }
+      document.getElementById("stats").hidden = false;
+    } catch { /* stats stay hidden on file:// */ }
+  })();
+</script>
+</body>
+</html>

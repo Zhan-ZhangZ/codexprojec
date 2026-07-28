@@ -1,6 +1,6 @@
 ---
 name: aer-workflow
-description: Use when deciding which AER-skills sub-skill to use next, or when sequencing manuscript work from topic selection through rebuttal for the American Economic Review, AER:Insights, or AEJ journals. Routes — does not replace — the specialized skills.
+description: Use when deciding which AER-skills sub-skill to use next, before choosing a specialized skill or after a user asks how to sequence manuscript work from topic selection through rebuttal for AER, AER:Insights, or AEJ journals. Routes — does not replace — the specialized skills.
 ---
 
 # AER Workflow
@@ -26,6 +26,7 @@ Use:
 - `aer-topic-selection` when the project is new, when the user is undecided between AER / Insights / an AEJ, or when the contribution sentence cannot be written in one line
 - `aer-literature` when the closest papers must be mapped (novelty scan, antecedents paragraph) or when any citation needs verifying — for AI-drafted manuscripts, every citation
 - `aer-identification` when the empirical design is the bottleneck — DiD, IV, RDD, SCM, shift-share, event study, RCT analysis
+- `aer-preregistration` when the study runs a field/lab/survey experiment or collects primary data — write the pre-analysis plan, size the sample from a power/MDE calculation, and register with the AEA RCT Registry *before* the intervention
 - `aer-robustness` when the main results exist but referee-anticipating checks (placebo, heterogeneity, mechanism, alternative samples) are missing or weak
 - `aer-paper-body` when drafting or repairing the body sections — background, data, empirical strategy, results narration, magnitude interpretation, mechanisms, conclusion
 - `aer-introduction` when drafting or rewriting the introduction, or when the abstract is over 100 words
@@ -44,6 +45,7 @@ For most empirical AER-track manuscripts, prefer this order:
 1. `aer-topic-selection` — fix the contribution sentence and the target venue *before* anything else
 2. `aer-literature` — map the 3-6 closest papers; kill the project now if it is scooped
 3. `aer-identification` — stress-test the design; if it fails here, no later skill saves the paper
+   - *Experimental / primary-data branch:* if the design randomizes treatment or collects new data, detour to `aer-preregistration` **before** the intervention — pre-analysis plan, power/MDE-justified sample size, AEA RCT Registry timestamp. Skip this branch for observational data already realized.
 4. `aer-robustness` — anticipate the three robustness checks the median referee will demand (run the empirics via `templates/` or `aer-statspai`)
 5. `aer-paper-body` — draft background, data, strategy, results, mechanisms, conclusion
 6. `aer-introduction` — only now write the five-paragraph intro and the 100-word abstract, summarizing a body that exists
@@ -73,6 +75,7 @@ If the user says...
 - *"Has someone already done this?"* / *"Are these references real?"* → `aer-literature`
 - *"My DiD has staggered treatment"* → `aer-identification`
 - *"My first stage F is 8"* → `aer-identification` (weak-IV branch)
+- *"I'm about to run a field experiment"* / *"What sample size do I need?"* / *"Where do I register the RCT?"* → `aer-preregistration`
 - *"The referee said the result might be driven by X"* → `aer-robustness`
 - *"My results section just walks through the tables"* → `aer-paper-body`
 - *"What does a 0.042 coefficient on log wages mean?"* → `aer-paper-body` (magnitude rules)
@@ -106,6 +109,11 @@ If the user says...
 - Treating `aer-referee-sim` praise as evidence of quality; its only export is the revise list
 
 ## Repository Resources
+
+Bundled with the installed skill, no repository checkout needed --- read it
+before the repo resources below:
+
+- `references/gate-map.md` --- the 12-step lifecycle with entry criteria, gates, and artifacts per step
 
 When working from the AER-skills repository or plugin bundle, load only the
 relevant resource:

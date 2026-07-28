@@ -1,0 +1,96 @@
+id = "statspai-bunching"
+skill = "skills/00-Full-empirical-analysis-skill_StatsPAI"
+title = "Bunching analysis must use an exclusion window, report excess mass AND the counterfactual density, and not equate bunching to threshold responses alone"
+category = "causal-identification"
+severity = "high"
+context_data = []
+
+prompt = """
+A taxable-income distribution shows a sharp spike exactly at the top of the
+first k-bucket of a new kink in the tax schedule. Standard practice is to
+estimate the elasticity of taxable income by fitting a counterfactual density
+to the surrounding support, integrating the difference at the kink, and
+mapping it to an elasticity. Do the bunching analysis the way a careful
+applied paper would.
+"""
+
+[[rubric]]
+id = "excess-mass-defined"
+check = "regex_any"
+required = true
+weight = 4
+description = "Defines excess mass (B - B_counterfactual, or the integrated density gap at the kink) as the headline quantity, not just the spike height."
+patterns = [
+  '(?i)excess mass',
+  '(?i)\\bbunching mass\\b',
+  '(?i)integrated (density )?gap',
+  '(?i)b0?\\s*-\\s*b0?\\^[c]',
+]
+
+[[rubric]]
+id = "counterfactual-density"
+check = "regex_any"
+required = true
+weight = 4
+description = "Estimates the counterfactual density at the kink from neighboring support (polynomial fit / re-normalization / KDE) - never quotes the observed spike as the answer."
+patterns = [
+  '(?i)counterfactual density',
+  '(?i)counter.?factual',
+  '(?i)polynomial fit',
+  '(?i)kde|kernel (density )?estimate',
+  '(?i)re[- ]?normaliz(e|ed|ation)',
+  '(?i)neighboring support|surrounding (support|points)',
+]
+
+[[rubric]]
+id = "exclusion-window"
+check = "regex_any"
+required = true
+weight = 3
+description = "Uses an exclusion window around the kink for the counterfactual fit, not the full support, so the spike does not contaminate the fit."
+patterns = [
+  '(?i)exclusion window',
+  '(?i)inner.{0,30}exclud(ed|e)',
+  '(?i)don.?t include (the bunching|kink|the spike) in (the fit|the regression)',
+  '(?i)drop the (bunching|kink|spike) (from|when fitting)',
+]
+
+[[rubric]]
+id = "not-just-kink-vs-notch"
+check = "regex_any"
+required = false
+weight = 2
+description = "Distinguishes bunching at a kink (continuous agent response) from bunching at a notch (discrete-jump agent response) - the elasticity identification differs."
+patterns = [
+  '(?i)\\bkink\\b.{0,80}\\bnotch\\b',
+  '(?i)\\bnotch\\b.{0,80}\\bkink\\b',
+  '(?i)discrete jump|continuous response',
+  '(?i)chetty.{0,20}2009|saez.{0,20}2010|saez.{0,20}2012',
+]
+
+[[rubric]]
+id = "inference-and-binning"
+check = "regex_any"
+required = false
+weight = 2
+description = "Notes binning choices (bin width, support bounds) and how they affect the elasticity estimate, and uses bootstrap or other nonparametric inference."
+patterns = [
+  '(?i)bin(ning|s| width)',
+  '(?i)support (cutoff|bound|choice)',
+  '(?i)bootstrap',
+  '(?i)(nonparametric|kernel) (inference|standard error)',
+  '(?i)sensitivity to (the bin|support|polynomial degree|order)',
+]
+
+[[rubric]]
+id = "elasticity-identification"
+check = "regex_any"
+required = false
+weight = 1
+description = "Names the identification assumption linking excess mass to an elasticity: a frictional/optimization-error model around the kink."
+patterns = [
+  '(?i)friction|optimization (error|error|cost)',
+  '(?i)\\bsalience\\b',
+  '(?i)compliers.{0,30}(at the kink|in (the )?neighborhood)',
+  '(?i)2SLS.{0,40}tax(kink|notch)',
+]

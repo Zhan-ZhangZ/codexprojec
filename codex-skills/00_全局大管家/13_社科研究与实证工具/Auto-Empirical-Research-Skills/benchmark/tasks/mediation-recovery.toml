@@ -1,0 +1,106 @@
+id = "mediation-recovery"
+title = "Mediation recovery: does the pipeline decompose direct/indirect effects instead of naively controlling for the mediator?"
+data = "benchmark/data/sim-mediation.csv"
+reference_candidate = "reference-mediation"
+
+description = """
+A deterministic randomized design (100 per arm) with a MEASURED
+mediator-outcome confounder w: treatment raises the mediator (a = 2), the
+mediator raises the outcome (b = 1.5), and the direct effect is c = 1, so the
+total effect is c + a*b = 4 with NDE = 1 and NIE = 3.
+
+The trap: the folk move of regressing Y on T and M "to get the direct effect"
+conditions on the mediator without its confounder and here estimates -2.76 —
+it flips the SIGN of the true +1 direct effect. Adjusting for w as well
+recovers the NDE exactly, and the product method recovers the NIE exactly.
+
+The lesson: mediator adjustment requires the mediator-outcome confounders
+(sequential ignorability); controlling for M alone is not a mediation
+analysis. Data-derived golds are recomputed from the dataset (two
+potential-outcome columns, y0 and y_m0, ship unread by the estimators), so a
+candidate cannot pass by fabricating numbers.
+"""
+
+true_total_by_construction = 4.0
+true_nde_by_construction = 1.0
+true_nie_by_construction = 3.0
+
+[[gold]]
+id = "total-effect-recovered"
+required = true
+weight = 3
+description = "The total effect estimate recovers the true c + a*b = 4 recomputed from the data."
+check = "recovers_truth"
+field = "total_effect"
+truth_key = "true_total"
+tol = 0.05
+
+[[gold]]
+id = "nde-recovered"
+required = true
+weight = 4
+description = "The direct-effect estimate (adjusting for the mediator AND its confounder) recovers the true NDE = 1."
+check = "recovers_truth"
+field = "nde"
+truth_key = "true_nde"
+tol = 0.05
+
+[[gold]]
+id = "nie-recovered"
+required = true
+weight = 4
+description = "The indirect-effect estimate (product method with the confounder adjusted) recovers the true NIE = 3."
+check = "recovers_truth"
+field = "nie"
+truth_key = "true_nie"
+tol = 0.05
+
+[[gold]]
+id = "naive-mediator-control-biased"
+required = true
+weight = 3
+description = "The naive Y ~ T + M coefficient is far from the true direct effect (here it flips sign), surfacing the mediator-outcome confounding rather than hiding it."
+check = "biased_away"
+field = "naive_direct"
+truth_key = "true_nde"
+min_gap = 2.0
+
+[[gold]]
+id = "decomposition-adds-up"
+required = false
+weight = 2
+description = "The reported NDE + NIE is closer to the total effect than the naive direct estimate is (informational)."
+check = "closer_to_truth"
+near_field = "nde"
+far_field = "naive_direct"
+truth_key = "true_nde"
+
+[[gold]]
+id = "honest-nde"
+required = true
+weight = 2
+description = "The candidate's reported NDE matches what the checker recomputes from the data (no fabricated numbers)."
+check = "recovers_truth"
+field = "nde"
+truth_key = "nde"
+tol = 0.01
+
+[[gold]]
+id = "honest-nie"
+required = true
+weight = 2
+description = "The candidate's reported NIE matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "nie"
+truth_key = "nie"
+tol = 0.01
+
+[[gold]]
+id = "honest-naive"
+required = true
+weight = 2
+description = "The candidate's reported naive Y ~ T + M coefficient matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "naive_direct"
+truth_key = "naive_direct"
+tol = 0.01

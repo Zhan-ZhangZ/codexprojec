@@ -1,0 +1,22 @@
+{
+  "candidate": "aers-ck1994-replication",
+  "source": "demo-notebooks/card-krueger-1994/replicate_ck1994.py (pure stdlib, official public.dat)",
+  "coefficients": {
+    "did_fte": {
+      "value": 2.7536
+    },
+    "nj_dummy_adjusted": {
+      "value": 2.3039
+    }
+  },
+  "all_computed": {
+    "pa_fte_wave1": 23.3312,
+    "pa_fte_wave2": 21.1656,
+    "nj_fte_wave1": 20.4394,
+    "nj_fte_wave2": 21.0274,
+    "did_fte": 2.7536,
+    "table4_n": 357,
+    "nj_dummy_raw": 2.3258,
+    "nj_dummy_adjusted": 2.3039
+  }
+}

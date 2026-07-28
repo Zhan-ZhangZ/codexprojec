@@ -879,27 +879,6 @@
     {
       "automation_level": "library",
       "category": "causal-inference-library",
-      "description": "Pure-Python port of Google's CausalImpact (statsmodels-based BSTS) for estimating intervention effects on time series.",
-      "homepage": null,
-      "id": "causalimpact-python",
-      "languages": [
-        "python"
-      ],
-      "last_activity": "2023-01",
-      "license": "MIT",
-      "maintained": "maintained",
-      "name": "causalimpact (Python)",
-      "owner_repo": "jamalsenouci/causalimpact",
-      "stars_approx": null,
-      "subcategory": [
-        "bayesian-causal"
-      ],
-      "url": "https://github.com/jamalsenouci/causalimpact",
-      "verified": true
-    },
-    {
-      "automation_level": "library",
-      "category": "causal-inference-library",
       "description": "Classic Python package for treatment-effect estimation via propensity-score estimation, trimming, subclassification, matching, weighting, and least-squares.",
       "homepage": "https://causalinferenceinpython.org/",
       "id": "causalinference",

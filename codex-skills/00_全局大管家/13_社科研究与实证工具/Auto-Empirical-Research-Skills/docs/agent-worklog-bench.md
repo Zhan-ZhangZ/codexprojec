@@ -23,7 +23,7 @@ citation hygiene, and runtime safety**.
 
 - `skills/00-*` and `skills/50-*` (high-conflict flagship skills)
 - Generated docs: `docs/SKILL_CATALOG.md`, `docs/LICENSE_AUDIT.md`,
-  `docs/SKILL_AUDIT.md`, `docs/EVALS.md`, `docs/SKILL_QUALITY.md`, `docs/TAXONOMY.md`
+  `docs/SKILL_AUDIT.md`, `docs/EVALS.md`, `docs/SKILL_HYGIENE.md`, `docs/TAXONOMY.md`
 - `catalog/*.json`, `demo-notebooks/`, anything distribution/marketplace
 
 ## Handoff invariant

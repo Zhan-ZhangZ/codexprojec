@@ -1,0 +1,15 @@
+# Pinned scientific stack for the CI / Paper-WorkFlow demo gate.
+# Three workflows (validate-catalog.yml, sync-aer-skills.yml,
+# sync-statspai-skill.yml) used to inline `python3 -m pip install numpy
+# pandas matplotlib statsmodels linearmodels` verbatim; pinning the
+# versions here lets Dependabot track upstream security/bug-fix releases
+# and makes the CI environment reproducible.
+#
+# Lower bounds chosen to match the versions known to work with the
+# 69-Paper-WorkFlow demo gate as of v2026.07. Upper bounds leave room
+# for upstream API changes and are not strict pins.
+numpy>=1.26,<3
+pandas>=2.0,<3
+matplotlib>=3.11.1,<4
+statsmodels>=0.14,<1
+linearmodels>=4.27,<6

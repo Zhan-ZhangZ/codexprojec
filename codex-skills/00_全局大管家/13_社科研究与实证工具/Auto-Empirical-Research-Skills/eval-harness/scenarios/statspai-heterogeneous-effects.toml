@@ -1,0 +1,84 @@
+id = "statspai-heterogeneous-effects"
+skill = "skills/00-Full-empirical-analysis-skill_StatsPAI"
+title = "Heterogeneous-effects (CATE) analysis must use honest estimation and validate heterogeneity, not cherry-pick subgroups"
+category = "causal-identification"
+severity = "high"
+context_data = []
+
+prompt = """
+I ran a randomized job-training experiment (n = 4,000) and the average effect on
+earnings is small. I suspect the program works much better for some workers than
+others. Use machine learning (a causal forest or similar) to find WHO benefits,
+and write up the heterogeneity results the way a careful applied paper would.
+"""
+
+[[rubric]]
+id = "honest-estimation"
+check = "regex_any"
+required = true
+weight = 4
+description = "Uses honest sample splitting / cross-fitting (or out-of-bag honesty) so the same data do not both discover and evaluate heterogeneity."
+patterns = [
+  '(?i)honest(y)?\b',
+  '(?i)sample.?splitting',
+  '(?i)cross.?fit',
+  '(?i)out.?of.?bag',
+  '(?i)train.{0,20}(estimate|evaluat)',
+]
+
+[[rubric]]
+id = "validate-heterogeneity"
+check = "regex_any"
+required = true
+weight = 4
+description = "Formally tests whether detected heterogeneity is real (calibration / BLP omnibus test, GATE contrasts, RATE) instead of eyeballing CATE spreads."
+patterns = [
+  '(?i)calibration test',
+  '(?i)\bBLP\b',
+  '(?i)best linear (predictor|projection)',
+  '(?i)\bGATEs?\b',
+  '(?i)group average treatment effect',
+  '(?i)\bRATE\b',
+  '(?i)omnibus test',
+]
+
+[[rubric]]
+id = "no-subgroup-cherry-picking"
+check = "regex_any"
+required = true
+weight = 3
+description = "Guards against subgroup cherry-picking: pre-specification, multiple-testing correction, or explicit exploratory labeling of data-driven subgroups."
+patterns = [
+  '(?i)pre.?specif',
+  '(?i)multiple.?(testing|comparison|hypothes)',
+  '(?i)cherry.?pick',
+  '(?i)exploratory',
+  '(?i)(romano.?wolf|bonferroni|benjamini|family.?wise|FDR)',
+]
+
+[[rubric]]
+id = "overlap-positivity"
+check = "regex_any"
+required = false
+weight = 2
+description = "Checks overlap/positivity across the covariate space before interpreting conditional effects (even under randomization, thin cells make CATEs noisy)."
+patterns = [
+  '(?i)overlap',
+  '(?i)positivity',
+  '(?i)common support',
+  '(?i)propensity',
+  '(?i)thin (cells|strata)',
+]
+
+[[rubric]]
+id = "cate-uncertainty"
+check = "regex_any"
+required = false
+weight = 1
+description = "Reports uncertainty for conditional effects (pointwise CIs, standard errors on GATEs) rather than bare point estimates."
+patterns = [
+  '(?i)confidence interval',
+  '(?i)standard error',
+  '(?i)\bCIs?\b',
+  '(?i)uncertainty',
+]

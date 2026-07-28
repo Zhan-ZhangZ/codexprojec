@@ -1,6 +1,6 @@
 ---
 name: aer-statspai
-description: Use when implementing or running the empirical analysis for an AER-track manuscript with StatsPAI — the agent-native unified Python engine and MCP server for causal inference and econometrics — as an alternative to hand-written Stata / R / Python template code. Covers DiD, IV, RDD, synthetic control, robustness, sensitivity, and publication-ready table export.
+description: Use when aer-identification has fixed the design, after methodology choice and before aer-robustness or aer-tables-figures, to run an AER-track analysis with StatsPAI — the agent-native Python engine and MCP server for causal inference, robustness, sensitivity, and publication-ready table export.
 ---
 
 # AER StatsPAI
@@ -97,6 +97,17 @@ no need to ferry betas, standard errors, or covariance matrices by hand.
 Token economy: pass `detail='minimal'` on cheap sub-step calls; the default
 `detail='agent'` carries the violations list and `next_steps` you actually need.
 
+## Worked Execution Snapshot
+
+Before handing results to `aer-robustness`, leave this shape:
+
+```text
+DESIGN: staggered DiD; n = 48,212; cohorts = 37
+RESULT: ATT = -0.042; SE = 0.011; pretrend p = 0.64
+AUDIT: forbidden weight = 0.31; honest-DiD Mbar=1 bound [-0.071, -0.009]
+DECISION: advance only if template cross-check agrees within 0.002
+```
+
 ## Mapping AER Identification Strategies to StatsPAI
 
 Each row keeps the modern default from `aer-identification`; StatsPAI is the
@@ -104,14 +115,20 @@ execution surface.
 
 | Strategy | Modern default (see `aer-identification`) | StatsPAI entry point |
 |---|---|---|
-| Staggered DiD | Callaway-Sant'Anna ATT(g,t); never raw TWFE | `callaway_santanna`, `aggte`, `did_imputation`, `sun_abraham` |
+| Staggered DiD | Callaway-Sant'Anna ATT(g,t); never raw TWFE | `callaway_santanna`, `aggte`, `did_imputation`, `sun_abraham`, `did_multiplegt`, `lp_did` |
 | Forbidden-comparison check | Goodman-Bacon decomposition | `bacon_decomposition`, `bacon_plot` |
 | Event study / pre-trends | Joint pre-period test, not just the plot | `event_study`, `pretrends_test`, `honest_did` |
 | IV / weak instruments | Anderson-Rubin, not first-stage F > 10 | `ivreg`, `anderson_rubin_ci`, `effective_f_test`, `tF_adjustment` |
 | Shift-share / Bartik | Rotemberg weights or shock-level inference | `bartik` |
 | RDD | Local-linear, MSE-optimal bandwidth, RBC CI | `rdrobust`, `rdbwselect`, `rdplot`, `rddensity` (McCrary) |
 | Synthetic control | Placebo inference; modern variants | `synth`, `gsynth`, `augsynth`, `sdid`, `synth_time_placebo`, `synth_loo` |
-| DML / causal ML | Cross-fit nuisance; honest CIs | `dml`, `causal_forest`, `metalearner`, `tmle` |
+| Factor-model counterfactuals | Interactive FE / matrix completion for larger treated blocks | `interactive_fe`, `matrix_completion` |
+| Bunching / kink designs | Excess mass over a polynomial counterfactual | `bunching`, `notch` |
+| DML / causal ML | Cross-fit nuisance; honest CIs | `dml`, `causal_forest`, `metalearner`, `tmle`, `aipw` |
+| Distributional effects | Quantile treatment effects when the mean hides the action | `qte` |
+| Robustness / few-cluster inference | Specification curve; cluster-robust variance; exact randomization tests | `spec_curve`, `wild_cluster_bootstrap`, `twoway_cluster`, `conley`, `ri_test` |
+| Sensitivity to confounding / multiplicity | Oster δ-R²; Cinelli-Hazlett robustness value; FWER control | `oster_delta`, `oster_bounds`, `robustness_value`, `romano_wolf` |
+| Partial identification under attrition | Lee (2009) trimming bounds when selection is differential | `lee_bounds` |
 
 When in doubt about *whether* an estimator is appropriate, that decision belongs
 to `aer-identification`. This table is for *how* to run the one you've chosen.
@@ -129,6 +146,8 @@ re-specify the model:
 
 - `honest_did_from_result` — Rambachan-Roth (2023) honest bounds for DiD
 - `sensitivity_from_result` — Oster (2019) δ / unobserved-confounding bounds
+- `robustness_value` — Cinelli-Hazlett (2020) partial-R² robustness value and bias factor
+- `lee_bounds` — Lee (2009) trimming bounds under differential attrition
 - `evalue_from_result` — E-value for observational designs
 
 ## Publication Export — Hand Off to `aer-tables-figures`

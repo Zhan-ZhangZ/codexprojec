@@ -1,0 +1,83 @@
+id = "bartik-recovery"
+title = "Shift-share (Bartik) recovery: does the pipeline instrument local growth instead of regressing through the local demand shock?"
+data = "benchmark/data/sim-bartik.csv"
+reference_candidate = "reference-bartik"
+
+description = """
+A deterministic 12-region design. Each region's employment growth x is the sum
+of a shift-share component (industry shares times three national industry
+shocks, shipped per-region) and a local demand shock that ALSO moves wages
+directly. OLS of wage growth on employment growth is therefore biased upward
+(1.157 vs true 0.5), while the Bartik instrument z = sum_i share_i * shock_i
+isolates the share-weighted national shocks and recovers the true effect
+exactly (the local shock is orthogonal to z in-sample by construction, so the
+exclusion restriction holds and the recovery is exact, not approximate).
+
+The lesson: with a demand-confounded regressor, build the instrument from
+shares and shocks — don't regress y on x and call the coefficient causal.
+Data-derived golds are recomputed from the dataset (the untreated potential
+outcome y0 ships as a column the estimators never read), so a candidate cannot
+pass by fabricating numbers.
+"""
+
+true_beta_by_construction = 0.5
+
+[[gold]]
+id = "bartik-recovers-true"
+required = true
+weight = 4
+description = "The shift-share IV estimate recovers the true effect (0.5) recomputed from the data."
+check = "recovers_truth"
+field = "bartik_beta"
+truth_key = "true_beta"
+tol = 0.05
+
+[[gold]]
+id = "ols-is-biased"
+required = true
+weight = 3
+description = "The OLS estimate is far from the truth, surfacing the local-demand-shock endogeneity rather than hiding it."
+check = "biased_away"
+field = "ols_beta"
+truth_key = "true_beta"
+min_gap = 0.5
+
+[[gold]]
+id = "bartik-beats-ols"
+required = false
+weight = 2
+description = "The IV estimate is closer to the truth than OLS is (informational)."
+check = "closer_to_truth"
+near_field = "bartik_beta"
+far_field = "ols_beta"
+truth_key = "true_beta"
+
+[[gold]]
+id = "first-stage-reported"
+required = true
+weight = 2
+description = "The candidate reports a first stage and it matches the data (the instrument actually predicts x; here the slope is 1 by construction)."
+check = "recovers_truth"
+field = "first_stage_coef"
+truth_key = "first_stage_coef"
+tol = 0.01
+
+[[gold]]
+id = "honest-bartik"
+required = true
+weight = 2
+description = "The candidate's reported IV estimate matches what the checker recomputes by building the instrument from shares and shocks (no fabricated numbers)."
+check = "recovers_truth"
+field = "bartik_beta"
+truth_key = "bartik_beta"
+tol = 0.01
+
+[[gold]]
+id = "honest-ols"
+required = true
+weight = 2
+description = "The candidate's reported OLS estimate matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "ols_beta"
+truth_key = "ols_beta"
+tol = 0.01

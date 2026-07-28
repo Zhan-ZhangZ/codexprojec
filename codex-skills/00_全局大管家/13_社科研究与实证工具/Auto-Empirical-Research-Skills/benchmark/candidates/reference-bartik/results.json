@@ -1,0 +1,8 @@
+{
+  "task": "bartik-recovery",
+  "method": "Shift-share (Bartik) IV built from industry shares x national shocks vs naive OLS",
+  "n": 12,
+  "bartik_beta": 0.5,
+  "ols_beta": 1.1568,
+  "first_stage_coef": 1.0
+}

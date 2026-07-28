@@ -37,24 +37,25 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Validate catalog](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/actions/workflows/validate-catalog.yml/badge.svg)](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/actions/workflows/validate-catalog.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/brycewang-stanford/Auto-Empirical-Research-Skills/badge)](https://scorecard.dev/viewer/?uri=github.com/brycewang-stanford/Auto-Empirical-Research-Skills)
-[![Security audit: 52/52 CLEAN](https://img.shields.io/badge/security%20audit-52%2F52%20CLEAN-brightgreen)](SECURITY-SCAN-REPORT.md)
+[![Security audit: baseline 52/52 CLEAN](https://img.shields.io/badge/security%20audit-baseline%2052%2F52%20CLEAN-brightgreen)](SECURITY-SCAN-REPORT.md)
+[![Rigor coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbrycewang-stanford%2FAuto-Empirical-Research-Skills%2Fmain%2Fdocs%2Fbadges%2Frigor-coverage.json)](docs/RIGOR_COVERAGE.md)
 [![Powered by StatsPAI](https://img.shields.io/badge/powered%20by-StatsPAI-orange)](https://github.com/brycewang-stanford/StatsPAI)
 
 ---
 
 ## 先看這裡：整倉是一個 AERS Router Skill
 
-本倉庫支援把倉庫根目錄作為一個整體 skill 匯入 Codex、CodeBuddy、Claude Code 或類似 IDE。根目錄的 [`SKILL.md`](SKILL.md) 會註冊為 `auto-empirical-research-skills`，用途是依照研究任務路由到合適的 vendored 子 skill，而不是把 69 個合集、1,145 個 skill 一次性載入上下文。
+本倉庫支援把倉庫根目錄作為一個整體 skill 匯入 Codex、CodeBuddy、Claude Code 或類似 IDE。根目錄的 [`SKILL.md`](SKILL.md) 會註冊為 `auto-empirical-research-skills`，用途是依照研究任務路由到合適的 vendored 子 skill，而不是把 75 個合集、1,095 個 skill 一次性載入上下文。
 
 - **推薦整倉匯入**：選擇倉庫根目錄，使用 [`agents/openai.yaml`](agents/openai.yaml) 和根 [`SKILL.md`](SKILL.md) 註冊一個 catalog router；後續由 agent 先查 [`catalog/skills.json`](catalog/skills.json) 或 [`docs/SKILL_CATALOG.md`](docs/SKILL_CATALOG.md)，再只讀取目標子 skill。
-- **推薦單 skill 匯入**：如果 IDE 要求「一目錄一個 skill」，請複製那個直接包含 `SKILL.md` 的子目錄，例如 `skills/50-brycewang-aer-skills/skills/aer-workflow/`，不要把整倉誤當成 1,145 個獨立 skill 遞迴註冊。
+- **推薦單 skill 匯入**：如果 IDE 要求「一目錄一個 skill」，請複製那個直接包含 `SKILL.md` 的子目錄，例如 `skills/50-brycewang-aer-skills/skills/aer-workflow/`，不要把整倉誤當成 1,095 個獨立 skill 遞迴註冊。
 - **安裝細節**：見 [`docs/INSTALL.md`](docs/INSTALL.md)。簡體中文 README 是預設入口；英文入口保留在 [`README-en.md`](README-en.md)。
 
 ---
 
-## 全部 69 個 skill 合集一覽
+## 全部 75 個 skill 合集一覽
 
-> **打開倉庫 → 看見整座資料庫。** 全部 **69 個合集 · 1,145 個 skill**，編號 `00 → 69`，每一個都**自有進本倉庫**（不只是對外連結），並在 [`catalog/skills.json`](catalog/skills.json) 裡追蹤。**點任一列即可打開其資料夾。** **⭐ = 由 Stanford REAP × CoPaper.AI 團隊自研的旗艦 skill**；其餘皆為精選、經安全稽核的社群成果。
+> **打開倉庫 → 看見整座資料庫。** 全部 **75 個合集 · 1,095 個 skill**，編號 `00 → 71`，每一個都**自有進本倉庫**（不只是對外連結），並在 [`catalog/skills.json`](catalog/skills.json) 裡追蹤。**點任一列即可打開其資料夾。** **⭐ = 由 Stanford REAP × CoPaper.AI 團隊自研的旗艦 skill**；其餘皆為精選、經安全稽核的社群成果。
 >
 > **主題對照 ——** 🚀 全流程與調度器 · 🎯 因果推斷與計量 · 📚 文獻與研究設計 · ✍️ 寫作、編修與去 AIGC · 📑 引用、重現與同儕審稿 · 🛠️ 資料、工具與基礎設施
 
@@ -82,7 +83,9 @@
 | **16** | [clo-author](skills/16-hsantanna88-clo-author/) | 多代理資料分析（R / Stata / Python） | 🎯 | 10 |
 | **17** | [DAAF](skills/17-DAAF-Contribution-Community-daaf/) | 安全意識代理框架（32 條 deny 規則） | 🛠️ | 35 |
 | **18** | [stata-accounting](skills/18-jusi-aalto-stata-accounting-research/) | 取自 126 篇 *JAR* 論文的實測 Stata 範式 | 🎯 | 1 |
+| **19** | [vera-economic-intelligence](skills/19-CuellarC05-vera-economic-intelligence/) | 經濟情報 / 政策研究情報工作流 | 🎯 | 5 |
 | **20** | [python-econ-skill](skills/20-wenddymacro-python-econ-skill/) | DSGE / HANK 與量化經濟計算 | 🎯 | 1 |
+| **21** | [AI-research-feedback](skills/21-claesbackman-AI-research-feedback/) | 用 AI 同行評審生成結構化回饋 | 📑 | 5 |
 | **22** | [christopherkenny-skills](skills/22-christopherkenny-skills/) | Quarto（`.qmd`）的 APSA 風格檢查器 | ✍️ | 11 |
 | **23** | [baygent](skills/23-Learning-Bayesian-Statistics-baygent-skills/) | 帶護欄的 PyMC / ArviZ 貝氏工作流 | 🎯 | 2 |
 | **24** | [academic-research-skills](skills/24-Imbad0202-academic-research-skills/) | 5 審稿人多視角論文審查 | 📑 | 4 |
@@ -91,17 +94,19 @@
 | **27** | [my_claude_skills](skills/27-dariia-m-my_claude_skills/) | 經濟學摘要寫作指南 | ✍️ | 6 |
 | **28** | [paper-replicate-agent](skills/28-maxwell2732-paper-replicate-agent-demo/) | 論文重現代理 demo | 📑 | 11 |
 | **29** | [project20XXy](skills/29-quarcs-lab-project20XXy/) | 可重現的手稿 + notebook 專案 | 📑 | 24 |
+| **30** | [zirui-song-claude-skills](skills/30-zirui-song-claude-skills/) | Zirui Song 的研究輔助 Claude 技能集 | 🛠️ | 6 |
 | **31** | [claude-code-skills](skills/31-thalysandratos-claude-code-skills/) | Python 面板資料分析 | 🎯 | 13 |
 | **32** | [stata-skill](skills/32-dylantmoore-stata-skill/) | 高效能 Stata C/C++ plugin | 🛠️ | 3 |
 | **33** | [claude-scholar](skills/33-Galaxy-Dawn-claude-scholar/) | 研究全生命週期：選題 → 審查 → 實驗 → 回覆 | 🚀 | 47 |
 | **34** | [research-companion](skills/34-andrehuang-research-companion/) | 腦力激盪、評估與決定研究方向 | 📚 | 1 |
 | **35** | [academic-writing-skills](skills/35-bahayonghang-academic-writing-skills/) | 場景感知的工業 AI 文獻研究 | 📚 | 5 |
 | **36** | [literature-review-skill](skills/36-taoyunudt-literature-review-skill/) | 完整文獻綜述工作流（中文） | 📚 | 1 |
+| **37** | [IlanStrauss-ai-skills](skills/37-IlanStrauss-ai-skills/) | Ilan Strauss 經濟學研究 AI 工作流 | 🎯 | 1 |
 | **38** | [academic-proofreader](skills/38-peternka-academic-proofreader/) | 學術校對 | ✍️ | 1 |
 | **39** | [marginaleffects](skills/39-vincentarelbundock-marginaleffects/) | 預測、斜率與比較（R / Python） | 🎯 | 1 |
 | **40** | [pyfixest](skills/40-py-econometrics-pyfixest/) | Python 中的快速固定效應估計 | 🎯 | 1 |
 | **41** | [sewage-econometrics-check](skills/41-sticerd-eee-sewage-econometrics-check/) | 10 項檢查的重現包稽核 | 📑 | 22 |
-| **42** | [ARIS](skills/42-wanshuiyin-ARIS/) | 自主「睡眠中做研究」代理，端到端 | 🚀 | 104 |
+| **42** | [ARIS](skills/42-wanshuiyin-ARIS/) | 自主「睡眠中做研究」代理，端到端 | 🚀 | 42 |
 | **43** | [research-plugins](skills/43-wentorai-research-plugins/) | 478 個研究外掛：資料視覺化、領域、基礎設施 | 🛠️ | 478 |
 | **44** | [humanizer_academic](skills/44-matsuikentaro1-humanizer_academic/) | 去 AI 化醫學/學術手稿（23 種模式） | ✍️ | 1 |
 | **45** | [deslop](skills/45-stephenturner-skill-deslop/) | 移除 AI 寫作模式（5 維評分） | ✍️ | 1 |
@@ -127,14 +132,16 @@
 | **65** | [game-theory-paper-writer](skills/65-game-theory-paper-writer/) | 生成並壓力測試賽局理論論文 | ✍️ | 1 |
 | **66** | [empirical-research-skills](skills/66-zheng-siyao-empirical-research-skills/) | 大型面板的 R 效能最佳化 | 🛠️ | 7 |
 | **67** | [econfin-workflow-toolkit](skills/67-econfin-workflow-toolkit/) | 中國公司金融實證工作流，提案 → 論文 | 🚀 | 46 |
-| **68** | [research-productivity-skills](skills/68-research-productivity-skills/) | 論文檢索、SSRN、DOI 查詢、下載 | 🛠️ | 18 |
+| **68** | [research-productivity-skills](skills/68-research-productivity-skills/) | 論文檢索、SSRN、DOI 查詢、下載 | 🛠️ | 5 |
 | ⭐ **69** | **[Paper-WorkFlow](skills/69-Paper-WorkFlow/)** 🧭 | 串起整條社會科學流水線的元調度器 | 🚀 | 1 |
+| **70** | [ssci-polish](skills/70-ssci-polish/) | SSCI/SCI 英文論文語言潤色（語法、可讀性、學術語氣） | ✍️ | 1 |
+| ⭐ **71** | **[lit-review-agent-tools](skills/71-brycewang-lit-review-agent-tools/)** 🔍 | 文獻綜述工具選型 + 一鍵安裝執行（MinerU / PaperQA2 / ASReview / STORM / MCP 伺服器） | 📚 | 1 |
 
-> ⭐ **我們親手打造的主幹：** [StatsPAI](skills/00-Full-empirical-analysis-skill_StatsPAI/)（因果引擎） · 顯式的 [Python](skills/00.1-Full-empirical-analysis-skill_Python/) / [Stata](skills/00.2-Full-empirical-analysis-skill_Stata/) / [R](skills/00.3-Full-empirical-analysis-skill_R/) 全流程移植 · [AER-skills](skills/50-brycewang-aer-skills/)（Top-5 投稿棧） · [chinese-de-aigc](skills/48-copaper-ai-chinese-de-aigc/) · [Paper-WorkFlow](skills/69-Paper-WorkFlow/)（元調度器）。這些就是 AERS 的主幹 —— 完整對比見 [旗艦流水線 skills ↓](#旗艦流水線-skills)。想按用途瀏覽？參見 [同樣這 69 個、按用途分組 ↓](#69-個合集--按用途分組)。
+> ⭐ **我們親手打造的主幹：** [StatsPAI](skills/00-Full-empirical-analysis-skill_StatsPAI/)（因果引擎） · 顯式的 [Python](skills/00.1-Full-empirical-analysis-skill_Python/) / [Stata](skills/00.2-Full-empirical-analysis-skill_Stata/) / [R](skills/00.3-Full-empirical-analysis-skill_R/) 全流程移植 · [AER-skills](skills/50-brycewang-aer-skills/)（Top-5 投稿棧） · [chinese-de-aigc](skills/48-copaper-ai-chinese-de-aigc/) · [Paper-WorkFlow](skills/69-Paper-WorkFlow/)（元調度器）。這些就是 AERS 的主幹 —— 完整對比見 [旗艦流水線 skills ↓](#旗艦流水線-skills)。想按用途瀏覽？參見 [同樣這 75 個、按用途分組 ↓](#75-個合集--按用途分組)。
 
 ---
 
-**面向實證研究的專業級 Agent Skills 發行版。** 不是一份行銷清單 —— 本倉庫**自有並已編目 1,145 個 skill**，外加一套**數值基準 + 評測套件 + 安全稽核 + CI** 把品質焊死，再疊加一張涵蓋**生態 23,000+ skill / 119 個倉庫**的精選地圖。
+**面向實證研究的專業級 Agent Skills 發行版。** 不是一份行銷清單 —— 本倉庫**自有並已編目 1,095 個 skill**，外加一套**數值基準 + 評測套件 + 安全稽核 + CI** 把品質焊死，再疊加一張涵蓋**生態 23,000+ skill / 119 個倉庫**的精選地圖。
 
 AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完整實證流水線 —— 資料清洗 → 識別 → 估計 → 穩健性 → 表格圖形 → 可投稿初稿；(2) 一份**精選、安全可控的目錄**，按研究流程階段組織整個實證研究 skill 生態。我們的差異化不在數量，而在於：旗艦 skill 的行為是**對著已知答案驗證過的**，而不是嘴上聲稱的。
 
@@ -148,8 +155,8 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 
 ## 目錄
 
-- [**全部 69 個 skill 合集一覽**（完整 `00 → 69` 索引）](#全部-69-個-skill-合集一覽)
-  - [69 個合集，按用途分組](#69-個合集--按用途分組)
+- [**全部 75 個 skill 合集一覽**（完整 `00 → 71` 索引）](#全部-75-個-skill-合集一覽)
+  - [75 個合集，按用途分組](#75-個合集--按用途分組)
 - [你究竟得到什麼（精確數字）](#你究竟得到什麼精確數字)
 - [2 分鐘自行驗證](#2-分鐘自行驗證)
 - [為什麼值得信任 —— 三層信用錨點](#為什麼值得信任--三層信用錨點)
@@ -168,9 +175,9 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 
 ---
 
-## 69 個合集 · 按用途分組
+## 75 個合集 · 按用途分組
 
-> 與[頂部的順序索引 ↑](#全部-69-個-skill-合集一覽)相同的 **69 個合集 · 1,145 個 skill** —— 這裡**按研究用途**重新排序，方便你直接掃到正在進行的階段。**⭐ = 自研**（Stanford REAP × CoPaper.AI）；其餘皆為精選、經安全稽核的社群成果。
+> 與[頂部的順序索引 ↑](#全部-75-個-skill-合集一覽)相同的 **75 個合集 · 1,095 個 skill** —— 這裡**按研究用途**重新排序，方便你直接掃到正在進行的階段。**⭐ = 自研**（Stanford REAP × CoPaper.AI）；其餘皆為精選、經安全稽核的社群成果。
 
 **🚀 全流程旗艦與調度器** —— *一次呼叫，跑完整個實證閉環*
 
@@ -181,7 +188,7 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 | ⭐ **[`00.2` · Stata](skills/00.2-Full-empirical-analysis-skill_Stata/)** 📊 | `reghdfe` · `ivreg2` · `csdid` · `sdid` · `rdrobust` 重現包 | 1 |
 | ⭐ **[`00.3` · R](skills/00.3-Full-empirical-analysis-skill_R/)** 📗 | tidyverse · `fixest` · `did` · `HonestDiD`，透過 Quarto 算繪 | 1 |
 | [`33` · claude-scholar](skills/33-Galaxy-Dawn-claude-scholar/) | 研究全生命週期：選題 → 審查 → 實驗 → 回覆 | 47 |
-| [`42` · ARIS](skills/42-wanshuiyin-ARIS/) | 自主「睡眠中做研究」代理，端到端 | 104 |
+| [`42` · ARIS](skills/42-wanshuiyin-ARIS/) | 自主「睡眠中做研究」代理，端到端 | 42 |
 | ⭐ **[`50` · AER-skills](skills/50-brycewang-aer-skills/)** 📕 | Top-5 經濟學投稿棧：識別 → 穩健性 → R&R | 9 |
 | [`67` · econfin-workflow-toolkit](skills/67-econfin-workflow-toolkit/) | 中國公司金融實證工作流，提案 → 論文 | 46 |
 | ⭐ **[`69` · Paper-WorkFlow](skills/69-Paper-WorkFlow/)** | 串起整條社會科學流水線的元調度器 | 1 |
@@ -198,10 +205,12 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 | [`15` · social-science-research](skills/15-Felpix-Studios-social-science-research/) | R 或 Python 端到端資料分析 | 12 |
 | [`16` · clo-author](skills/16-hsantanna88-clo-author/) | 多代理資料分析（R / Stata / Python） | 10 |
 | [`18` · stata-accounting](skills/18-jusi-aalto-stata-accounting-research/) | 取自 126 篇 *JAR* 論文的實測 Stata 範式 | 1 |
+| [`19` · vera-economic-intelligence](skills/19-CuellarC05-vera-economic-intelligence/) | 經濟情報 / 政策研究情報工作流 | 5 |
 | [`20` · python-econ-skill](skills/20-wenddymacro-python-econ-skill/) | DSGE / HANK 與量化經濟計算 | 1 |
 | [`23` · baygent](skills/23-Learning-Bayesian-Statistics-baygent-skills/) | 帶護欄的 PyMC / ArviZ 貝氏工作流 | 2 |
 | [`26` · scholar](skills/26-Data-Wise-scholar/) | 統計演算法設計與文件化 | 17 |
 | [`31` · claude-code-skills](skills/31-thalysandratos-claude-code-skills/) | Python 面板資料分析 | 13 |
+| [`37` · IlanStrauss-ai-skills](skills/37-IlanStrauss-ai-skills/) | Ilan Strauss 經濟學研究 AI 工作流 | 1 |
 | [`39` · marginaleffects](skills/39-vincentarelbundock-marginaleffects/) | 預測、斜率與比較（R / Python） | 1 |
 | [`40` · pyfixest](skills/40-py-econometrics-pyfixest/) | Python 中的快速固定效應估計 | 1 |
 | [`51` · CausalPy](skills/51-pymc-labs-CausalPy/) | 貝氏準實驗（PyMC Labs） | 3 |
@@ -225,6 +234,7 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 | [`53` · thematic-analysis](skills/53-keemanxp-thematic-analysis-skill/) | Braun & Clarke 六階段質性主題分析 | 1 |
 | [`59` · openalex-skill](skills/59-shiquda-openalex-skill/) | 透過 OpenAlex 查詢 2.4 億+ 學術成果 | 1 |
 | [`60` · superpapers](skills/60-regisely-superpapers/) | 全面的實證研究支援套件 | 16 |
+| ⭐ **[`71` · lit-review-agent-tools](skills/71-brycewang-lit-review-agent-tools/)** 🔍 | 文獻綜述工具選型與一鍵執行（MinerU / PaperQA2 / ASReview / STORM / MCP） | 1 |
 
 **✍️ 寫作、編修與去 AIGC** —— *起草、潤色，並通過 AI 偵測*
 
@@ -241,6 +251,7 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 | [`46` · stop-slop](skills/46-hardikpandya-stop-slop/) | 3 層 AI 痕跡偵測與改寫 | 1 |
 | [`47` · avoid-ai-writing](skills/47-conorbronsdon-avoid-ai-writing/) | 稽核 → 改寫 → 複稽 AI 腔（留痕） | 1 |
 | ⭐ **[`48` · chinese-de-aigc](skills/48-copaper-ai-chinese-de-aigc/)** 🇨🇳 | 面向知網 / 萬方 / Turnitin 中文版的中文去 AIGC | 1 |
+| [`70` · ssci-polish](skills/70-ssci-polish/) | SSCI/SCI 英文論文語言潤色 | 1 |
 | [`49` · humanize-chinese](skills/49-voidborne-d-humanize-chinese/) | 偵測並擬人化 AI 生成的中文文字 | 1 |
 | [`56` · econ-writing-skill](skills/56-hanlulong-econ-writing-skill/) | 綜合 50+ 頂級指南的經濟學寫作 | 1 |
 | [`58` · econstack](skills/58-charlescoverdale-econstack/) | 政策簡報（UK GES / AU Treasury） | 7 |
@@ -250,6 +261,7 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 
 | 合集 | 它能做什麼 | Skills |
 |---|---|---:|
+| [`21` · AI-research-feedback](skills/21-claesbackman-AI-research-feedback/) | 用 AI 同行評審生成結構化回饋 | 5 |
 | [`24` · academic-research-skills](skills/24-Imbad0202-academic-research-skills/) | 5 審稿人多視角論文審查 | 4 |
 | [`28` · paper-replicate-agent](skills/28-maxwell2732-paper-replicate-agent-demo/) | 論文重現代理 demo | 11 |
 | [`29` · project20XXy](skills/29-quarcs-lab-project20XXy/) | 可重現的手稿 + notebook 專案 | 24 |
@@ -265,11 +277,12 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 | [`08` · latex-document-skill](skills/08-ndpvt-web-latex-document-skill/) | 建立 / 編譯任意 LaTeX 文件為 PDF | 1 |
 | [`12` · claude-code-my-workflow](skills/12-pedrohcgs-claude-code-my-workflow/) | Commit → PR → merge 研究工作流（Emory） | 22 |
 | [`17` · DAAF](skills/17-DAAF-Contribution-Community-daaf/) | 安全意識代理框架（32 條 deny 規則） | 35 |
+| [`30` · zirui-song-claude-skills](skills/30-zirui-song-claude-skills/) | Zirui Song 的研究輔助 Claude 技能集 | 6 |
 | [`32` · stata-skill](skills/32-dylantmoore-stata-skill/) | 高效能 Stata C/C++ plugin | 3 |
 | [`43` · research-plugins](skills/43-wentorai-research-plugins/) | 478 個研究外掛：資料視覺化、領域、基礎設施 | 478 |
 | [`57` · edgartools](skills/57-dgunning-edgartools/) | 查詢與分析 SEC 申報文件 | 1 |
 | [`66` · empirical-research-skills](skills/66-zheng-siyao-empirical-research-skills/) | 大型面板的 R 效能最佳化 | 7 |
-| [`68` · research-productivity-skills](skills/68-research-productivity-skills/) | 論文檢索、SSRN、DOI 查詢、下載 | 18 |
+| [`68` · research-productivity-skills](skills/68-research-productivity-skills/) | 論文檢索、SSRN、DOI 查詢、下載 | 5 |
 
 ---
 
@@ -279,16 +292,16 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 
 | 它是什麼 | 數量 | 事實來源 |
 |---|---:|---|
-| **本倉庫自有**並已編目的 skill | **1,145** | [`catalog/skills.json`](catalog/skills.json) |
-| 自有 **合集（collections）** | **69** | [`catalog/skills.json`](catalog/skills.json) · [全部 69 個一覽 ↑](#全部-69-個-skill-合集一覽) |
+| **本倉庫自有**並已編目的 skill | **1,095** | [`catalog/skills.json`](catalog/skills.json) |
+| 自有 **合集（collections）** | **75** | [`catalog/skills.json`](catalog/skills.json) · [全部 75 個一覽 ↑](#全部-75-個-skill-合集一覽) |
 | **自研旗艦**全流程 skill（StatsPAI DSL + 顯式 Python/Stata/R） | **4** | [`skills/00*`](skills/) |
-| 每次執行從資料**重算 gold 值**的數值基準任務 | **5** | [`benchmark/`](benchmark/) |
-| 行為級**評測場景 / rubric 條目** | **17 / 95** | [`eval-harness/`](eval-harness/) |
+| 每次執行從資料**重算 gold 值**的數值基準任務 | **17** | [`benchmark/`](benchmark/) |
+| 行為級**評測場景 / rubric 條目** | **37 / 183** | [`eval-harness/`](eval-harness/) |
 | **原始基線**安全稽核（合集 / 檔案） | **52 / 2,940+**，52/52 CLEAN | [`SECURITY-SCAN-REPORT.md`](SECURITY-SCAN-REPORT.md) |
 | 涵蓋**更廣生態**的精選地圖 | **23,000+ skill / 119 倉庫** | 本 README · [`docs/SKILL_CATALOG.md`](docs/SKILL_CATALOG.md) |
-| **工具目錄**（`tools/`）：因果/計量庫、自動化研究 Agent、MCP 服務、因果發現、基準資料集 | **335 工具 / 6 類** | [`tools/tools.json`](tools/tools.json) · [`tools/CATALOG.md`](tools/CATALOG.md) |
+| **工具目錄**（`tools/`）：因果/計量庫、自動化研究 Agent、MCP 服務、因果發現、基準資料集 | **334 工具 / 6 類** | [`tools/tools.json`](tools/tools.json) · [`tools/CATALOG.md`](tools/CATALOG.md) |
 
-> 安全稽核涵蓋的是**原始 52 合集 / 2,940 檔案的基線（52/52 CLEAN）**。在該基線之後新增的 vendor skill 由 [`catalog/provenance.json`](catalog/provenance.json)、[`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md)、[`docs/SKILL_AUDIT.md`](docs/SKILL_AUDIT.md) 追蹤；高信任場景使用前請先 `make audit` 複核。
+> 安全稽核涵蓋的是**原始 52 合集 / 2,940 檔案的基線（52/52 CLEAN）**。在該基線之後新增的 vendor skill 由 [`catalog/provenance.json`](catalog/provenance.json)、[`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md)、[`docs/SKILL_AUDIT.md`](docs/SKILL_AUDIT.md) 追蹤；高信任場景使用前請先 `make audit` 複核。針對 49–70 號合集的增量模式掃描（2026-07-15）未發現惡意內容 —— 見 [`SECURITY-SCAN-REPORT.md`](SECURITY-SCAN-REPORT.md) 增補章節。
 
 ---
 
@@ -297,7 +310,7 @@ AERS 同時是兩樣東西：(1) 一小撮**自研旗艦 skill**，能跑通完�
 這裡最有說服力的不是某個數字，而是：旗艦流水線的行為**不需要 API key、不需要付費模型就能複核**。只要 Python 3：
 
 ```bash
-git clone https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills.git
+git clone --recurse-submodules https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills.git
 cd Auto-Empirical-Research-Skills
 make check        # 仓库校验 + 单元测试 + eval lint + 数值基准
 ```
@@ -340,6 +353,18 @@ make check        # 仓库校验 + 单元测试 + eval lint + 数值基准
 
 > **為什麼既要 DSL 又要顯式三件套？** 信任一鍵 DSL 時用 StatsPAI；做教學、稽核、或要逐個替換診斷時用 00.1/00.2/00.3。AER-skills 再把一份正確的分析推到錄取門檻 —— 它們解決的是*不同*問題，可以組合。
 
+### 眼見為實 —— 旗艦流水線的真實產出
+
+下面三張圖直接來自倉庫內已提交的 [Card 教育報酬復現示範](demo-StatsPAI-skill/)（StatsPAI 一條流水線跑出，含 notebook、資料、表格與復現包）；LaLonde 的 Python/R/Stata/StatsPAI 四棧對照示範見 [`demo-notebooks/`](demo-notebooks/)。
+
+| 主估計係數圖 | 規格曲線 | 敏感性儀表板 |
+|---|---|---|
+| ![主估計係數圖](demo-StatsPAI-skill/figures/fig3_coefplot_main.png) | ![規格曲線](demo-StatsPAI-skill/figures/fig5_spec_curve.png) | ![敏感性儀表板](demo-StatsPAI-skill/figures/fig6_sensitivity_dashboard.png) |
+
+> 🧪 **端到端復現實證**：一條零依賴命令從 Card & Krueger (1994) 官方原始資料復現最低工資 DiD —— 波次均值逐位命中、Table 4 係數精確一致，復現評分器判定 **PERFECT**（三檔命中率 100%）。見 [`demo-notebooks/card-krueger-1994/`](demo-notebooks/card-krueger-1994/)。
+>
+> 🔎 線上目錄站（GitHub Pages，零建置）：**[技能搜尋](https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/docs/search.html)** · [工具搜尋](https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/docs/tools-search.html) · [站點首頁](https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/)
+
 ---
 
 ## 從這裡開始 —— 30 秒選一個 skill
@@ -369,11 +394,11 @@ make check        # 仓库校验 + 单元测试 + eval lint + 数值基准
 
 | 層 | 它能擋住什麼 | 在哪 |
 |---|---|---|
-| **數值基準** | 報告數字與真實資料重算真值不符 —— 樸素 DID 符號陷阱、缺第一階段 F 的弱 IV、交錯時點下的 TWFE 偏誤、RDD 趨勢混淆、後處理壞控制 | [`benchmark/`](benchmark/) · 5 任務 |
-| **評測套件** | 散文級失誤：弱 IV 假性安心、交錯 DID 誤用 TWFE、編造引用、不安全的 `curl \| bash` 安裝、多重檢驗濫用、AER 合規缺口 | [`eval-harness/`](eval-harness/) · 17 場景 / 95 rubric |
+| **數值基準** | 報告數字與真實資料重算真值不符 —— 樸素 DID 符號陷阱、缺第一階段 F 的弱 IV、交錯時點下的 TWFE 偏誤、RDD 趨勢混淆、後處理壞控制、被合併均值掩蓋的異質效應（CATE）、只看均值漏掉尾部的分位數效應、本地衝擊混淆的移位份額（Bartik）IV、把中介當控制變數導致直接效應翻號、依賴參照組的 Oaxaca 分解拆分、kink 處超額質量被樸素密度掩蓋的 bunching | [`benchmark/`](benchmark/) · 17 任務 |
+| **評測套件** | 散文級失誤：弱 IV 假性安心、交錯 DID 誤用 TWFE、編造引用、不安全的 `curl \| bash` 安裝、多重檢驗濫用、AER 合規缺口 | [`eval-harness/`](eval-harness/) · 37 場景 / 183 rubric |
 | **安全稽核** | pipe-to-shell、反向 shell、憑據外洩、prompt 注入等 13 類風險 —— 六階段，40+ hook 腳本人工核查 | [`SECURITY-SCAN-REPORT.md`](SECURITY-SCAN-REPORT.md) |
-| **來源與授權** | 未聲明來源、授權風險、1,145 個編目 skill 的衛生度漂移 | [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md) · [`docs/SKILL_QUALITY.md`](docs/SKILL_QUALITY.md) |
-| **CI 與相容性** | catalog 新鮮度、本機死連、GitHub Actions 政策、Python 3.9 **與** 3.12 語法基線 | [`.github/workflows/`](.github/workflows/) · 6 條 workflow |
+| **來源與授權** | 未聲明來源、授權風險、1,095 個編目 skill 的衛生度漂移 | [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md) · [`docs/SKILL_HYGIENE.md`](docs/SKILL_HYGIENE.md) |
+| **CI 與相容性** | catalog 新鮮度、本機死連、GitHub Actions 政策、Python 3.9 **與** 3.12 語法基線 | [`.github/workflows/`](.github/workflows/) · 7 條 workflow |
 
 ```bash
 make catalog     # 重新生成 catalog、provenance、audit、enrichment
@@ -387,7 +412,7 @@ make check       # 完整 gate：validate + Python 编译 + 单元测试 + eval 
 
 ## 瀏覽全景
 
-> 📚 完整的 **[69 個合集目錄 ↑](#全部-69-個-skill-合集一覽)** 在本 README 頂部 —— 本節按主題深入這個生態。
+> 📚 完整的 **[75 個合集目錄 ↑](#全部-75-個-skill-合集一覽)** 在本 README 頂部 —— 本節按主題深入這個生態。
 
 ### 按研究流程
 
@@ -485,7 +510,7 @@ make check       # 完整 gate：validate + Python 编译 + 单元测试 + eval 
 
 > 與上面的 skill 不同，[`tools/`](tools/) 收錄的是 agent / 研究者**實際呼叫的軟體與服務**——已結構化編目、核實過 license 與維護狀態，並接入 `make validate`。事實源 [`tools/tools.json`](tools/tools.json)，可瀏覽清單 [`tools/CATALOG.md`](tools/CATALOG.md)。
 
-**335 個工具 / 6 類**（2026-06 收錄）：
+**334 個工具 / 6 類**（2026-06 收錄）：
 
 - **因果推斷 / 處理效應庫（32）** — DoWhy · EconML · CausalML · DoubleML · CausalPy · causallib · grf · CATENets · TMLE 系列 · 孟德爾隨機化 …
 - **計量 / 準實驗庫（170）** — 面板FE · DiD（含現代/staggered）· 事件研究 · RDD · IV · 合成控制/SDID · 匹配加權 · 敏感性分析（fixest · did · HonestDiD · rdrobust · synthdid · reghdfe · csdid · sdid · pyfixest · linearmodels …）；**新增**空間計量（spdep · PySAL/spreg · GeoDa）· 局部投影/IRF & (S)VAR（lpirfs · vars · svars）· 調查加權/MRP/raking（survey · samplics · balance）· 元分析（metafor · meta · netmeta · metan）；橫跨 R/Python/Stata/Julia。
@@ -545,6 +570,7 @@ make check       # 完整 gate：validate + Python 编译 + 单元测试 + eval 
 
 敘事版更新日誌已遷至 [**CHANGELOG.md**](CHANGELOG.md)。近期要點：
 
+- **2026-07** —— 發布首個 tagged release **v2026.07**；方法嚴謹性覆蓋圖擴到 **16 個方法族全閉環**（新增 CATE、分位數效應、Bartik 移位份額、因果中介、Oaxaca 分解，每族 eval 場景 + 數值基準雙覆蓋），基準擴到 **16 任務**、評測套件擴到 **29 場景 / 159 rubric**；上線機器生成的發布快照、rigor 覆蓋徽章與六語 README 數字一致性門。
 - **2026-05** —— 收錄 **AER-skills**（Top-5 經濟學投稿套件，9 個 skill）並設週更上游同步；數值基準擴到 **5 個因果復原任務**、評測套件擴到 **17 場景 / 95 rubric**。
 - **2026-04** —— 完成 **52/52 安全基線**；交付四個全流程旗艦（**StatsPAI** + 顯式 **Python / Stata / R**）；上線原創 **chinese-de-aigc** skill。
 - **更早** —— 從 43 個合集成長為涵蓋 **119 倉庫 / 23,000+ skill** 的精選地圖；新增雙語 README、學術資料 MCP 伺服器與多代理系統。

@@ -4,13 +4,37 @@
   "title": "AERS benchmark task",
   "description": "Schema for a benchmark task authored as TOML in benchmark/tasks/<id>.toml. benchmark/check_benchmark.py is the authoritative validator; this JSON Schema documents the parsed shape for editors and review.",
   "type": "object",
-  "required": ["id", "title", "data", "reference_candidate", "gold"],
+  "required": [
+    "id",
+    "title",
+    "data",
+    "reference_candidate",
+    "gold"
+  ],
   "additionalProperties": true,
   "properties": {
     "id": {
       "type": "string",
       "description": "Stable benchmark id. It must equal the TOML file stem.",
-      "enum": ["bad-control-recovery", "bayesian-recovery", "card-iv-recovery", "did-staggered-recovery", "dml-recovery", "event-study-recovery", "lalonde-recovery", "panel-fe-recovery", "rdd-recovery", "survival-recovery", "synthetic-control-recovery"]
+      "enum": [
+        "bad-control-recovery",
+        "bartik-recovery",
+        "bunching-recovery",
+        "bayesian-recovery",
+        "card-iv-recovery",
+        "cate-recovery",
+        "decomposition-recovery",
+        "did-staggered-recovery",
+        "dml-recovery",
+        "event-study-recovery",
+        "lalonde-recovery",
+        "mediation-recovery",
+        "panel-fe-recovery",
+        "qte-recovery",
+        "rdd-recovery",
+        "survival-recovery",
+        "synthetic-control-recovery"
+      ]
     },
     "title": {
       "type": "string",
@@ -63,7 +87,13 @@
   "definitions": {
     "gold": {
       "type": "object",
-      "required": ["id", "description", "check", "required", "weight"],
+      "required": [
+        "id",
+        "description",
+        "check",
+        "required",
+        "weight"
+      ],
       "additionalProperties": true,
       "properties": {
         "id": {
@@ -115,7 +145,10 @@
         },
         "expected_sign": {
           "type": "string",
-          "enum": ["negative", "positive"]
+          "enum": [
+            "negative",
+            "positive"
+          ]
         },
         "tol": {
           "type": "number"

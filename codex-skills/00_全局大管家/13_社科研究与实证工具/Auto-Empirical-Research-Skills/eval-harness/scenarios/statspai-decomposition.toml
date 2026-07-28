@@ -1,0 +1,86 @@
+id = "statspai-decomposition"
+skill = "skills/00-Full-empirical-analysis-skill_StatsPAI"
+title = "Gap decompositions must state the reference group, refuse to equate the unexplained part with discrimination, and check support"
+category = "statistical-validity"
+severity = "high"
+context_data = []
+
+prompt = """
+We have a large linked employer-employee dataset and want to explain the raw
+gender wage gap: how much of it is accounted for by education, experience,
+occupation, and industry, and how much remains? Leadership wants one headline
+number for "the discrimination component". Do the decomposition the way a
+careful applied paper would, and write up what the components do and do not
+mean.
+"""
+
+[[rubric]]
+id = "reference-group-choice"
+check = "regex_any"
+required = true
+weight = 4
+description = "Names the reference-coefficient choice (index-number problem) and either reports both references or a pooled/Neumark reference, rather than silently picking one."
+patterns = [
+  '(?i)reference (group|coefficients?|structure)',
+  '(?i)index.?number problem',
+  '(?i)(both|either) reference',
+  '(?i)pooled (model|coefficients|reference)',
+  '(?i)neumark',
+  '(?i)oaxaca.{0,40}(weight|reference)',
+]
+
+[[rubric]]
+id = "unexplained-is-not-discrimination"
+check = "regex_any"
+required = true
+weight = 4
+description = "States the key caveat: the unexplained component bundles unobserved productivity, selection, and measurement error - it is an upper bound on, not a measure of, discrimination."
+patterns = [
+  '(?i)unexplained (component|part|portion).{0,120}(not|cannot|isn.t).{0,60}(discrimination|causal)',
+  '(?i)(not|cannot).{0,60}interpret.{0,60}(unexplained|residual).{0,40}(as )?discrimination',
+  '(?i)unobserv(ed|able).{0,60}(productivity|characteristics|skill)',
+  '(?i)omitted variables?.{0,80}(unexplained|residual)',
+  '(?i)selection (into|bias)',
+]
+
+[[rubric]]
+id = "detailed-decomposition-base-category"
+check = "regex_any"
+required = true
+weight = 3
+description = "Flags that detailed (variable-by-variable) unexplained contributions depend on the omitted base category of dummy variables."
+patterns = [
+  '(?i)base (category|group|level)',
+  '(?i)omitted (category|group|dummy)',
+  '(?i)categor(y|ical).{0,60}(normali[sz]ation|identification)',
+  '(?i)detailed decomposition.{0,80}(sensitive|depends|arbitrary)',
+  '(?i)(gardeazabal|jann|yun)',
+]
+
+[[rubric]]
+id = "common-support-and-composition"
+check = "regex_any"
+required = false
+weight = 2
+description = "Checks overlap/common support of covariate distributions (or proposes a reweighting decomposition such as DFL/Kitagawa) before trusting the linear counterfactual."
+patterns = [
+  '(?i)common support',
+  '(?i)overlap',
+  '(?i)dinardo|fortin|lemieux|\bDFL\b',
+  '(?i)kitagawa',
+  '(?i)reweight(ing|ed)',
+]
+
+[[rubric]]
+id = "distribution-beyond-the-mean"
+check = "regex_any"
+required = false
+weight = 1
+description = "Notes the mean decomposition can hide different gaps across the distribution (RIF / quantile decomposition as an extension)."
+patterns = [
+  '(?i)\bRIF\b',
+  '(?i)recentered influence function',
+  '(?i)quantile.{0,40}decomposition',
+  '(?i)(top|bottom|across the) (of the )?(wage )?distribution',
+  '(?i)glass ceiling|sticky floor',
+]

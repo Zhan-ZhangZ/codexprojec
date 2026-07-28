@@ -1,6 +1,6 @@
 ---
 name: aer-tables-figures
-description: Use when constructing or revising regression tables, descriptive statistics tables, or figures for an AER, AER:Insights, or AEJ manuscript. Implements AER booktabs house style, the standard regression-table layout, and the figure-notes convention.
+description: Use when constructing or revising regression tables, descriptive statistics tables, or figures after results are estimated and before submission for an AER, AER:Insights, or AEJ manuscript. Implements AER booktabs house style, regression-table layout, and figure-note conventions.
 ---
 
 # AER Tables and Figures
@@ -163,6 +163,11 @@ AER convention: `*** p<0.01, ** p<0.05, * p<0.1`. Some authors and Angrist-Pisch
 - [ ] Coefficient row order is consistent across tables
 
 ## Repository Resources
+
+Bundled with the installed skill, no repository checkout needed --- read it
+before the repo resources below:
+
+- `references/exhibit-cookbook.md` --- booktabs anatomy, export snippets, notes template, figure rules
 
 When working from the AER-skills repository or plugin bundle, load only the relevant table/figure scaffold:
 

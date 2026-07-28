@@ -1,0 +1,116 @@
+<!-- Hand-curated link hub. This page deliberately carries NO copied
+numbers: every count lives in exactly one generated artifact, linked
+below, so this page cannot go stale. -->
+
+# AERS Central Scoreboard
+
+This is the **one-page trust dashboard** for the AERS catalog. It links
+out to each underlying scoreboard for detail and lets a reviewer answer
+"is this repo trustworthy enough to embed in my workflow?" in 60 seconds.
+
+The four canonical trust signals are:
+
+1. **Hygiene** — *is each skill well-formed?* → [`SKILL_HYGIENE.md`](SKILL_HYGIENE.md)
+2. **Rigor coverage** — *is every methodological family defended by an eval + a numeric benchmark?* → [`RIGOR_COVERAGE.md`](RIGOR_COVERAGE.md)
+3. **Numeric benchmark** — *does the reference pipeline actually recover the gold values?* → [`BENCHMARK_SCOREBOARD.md`](BENCHMARK_SCOREBOARD.md)
+4. **Runtime trust** — *do the workflows, scripts, and security scans stay clean?* → [`TRUST.md`](TRUST.md) and [`SECURITY-SCAN-REPORT.md`](../SECURITY-SCAN-REPORT.md)
+
+If any of these break, the catalog loses its claim to *correctness*, not
+just *completeness*.
+
+---
+
+## Headline (live sources — no copied numbers)
+
+Earlier revisions of this page copied a snapshot of each number into a
+table here; the snapshot drifted from the generated artifacts within
+weeks (a former revision claimed 69 collections / 1,150 skills). The
+numbers now live only at their source of truth:
+
+| Signal | Source of truth |
+|---|---|
+| Skill collections & total skills | [`catalog/skills.json`](../catalog/skills.json) (`summary` block) |
+| Structural hygiene score & eval coverage | [`SKILL_HYGIENE.md`](SKILL_HYGIENE.md) |
+| Method-families with closed rigor coverage | [`RIGOR_COVERAGE.md`](RIGOR_COVERAGE.md) |
+| Numeric benchmark tasks & pass rates | [`BENCHMARK_SCOREBOARD.md`](BENCHMARK_SCOREBOARD.md) |
+| Security scan (baseline 52/52 CLEAN + 49–70 incremental addendum) | [`SECURITY-SCAN-REPORT.md`](../SECURITY-SCAN-REPORT.md) |
+| OpenSSF Scorecard | badge in the repo root README |
+| AERS-vs-Econometrics-Agent comparison | *not yet run* — see [`INTEROP.md` Recipe C](INTEROP.md) |
+
+---
+
+## How to read this dashboard
+
+The repo is honest about what each number *can* and *cannot* claim:
+
+- **Hygiene score** is a **structural** measure (frontmatter, description, length). It says *form*, not *truth*. The skill can still be wrong in its econometrics.
+- **Eval coverage** is a **behavioural** count: how many [`eval-harness/scenarios/`](../eval-harness/scenarios/) target the skill. Empty here is a strong signal — not a verdict.
+- **Rigor coverage** is a *family*-level claim: "for the IV family, both `statspai-weak-iv` and `card-iv-recovery` exist." It does not say *every* skill in the family has been tested.
+- **Numeric benchmark** is the **only** column that proves an end-to-end pipeline gets a real number right. Its 17/17 reference pass rate is the strongest signal in the repo.
+
+If a reviewer only has time to look at one of these, look at
+**Numeric benchmark** — it is the only column that takes a
+data-derived number and demands the pipeline reproduce it.
+
+---
+
+## AERS-vs-Econometrics-Agent comparison (planned)
+
+The roadmap calls for an external benchmark of AERS skills against
+[Econometrics-Agent](https://github.com/FromCSUZhou/Econometrics-Agent)
+on the same 17 numeric tasks. The candidate grading protocol is in
+[`INTEROP.md` Recipe C](INTEROP.md); submissions go to
+`benchmark/candidates/`. Until that comparison is run, the
+BENCHMARK_SCOREBOARD column is the *only* published candidate-to-reference
+score.
+
+---
+
+## What this dashboard is *not*
+
+- **Not a quality judge.** The mean hygiene score is **not** a verdict on
+  whether the skill produces correct econometrics. The mean is dominated
+  by structural checks (frontmatter, length). A high score is
+  necessary, not sufficient.
+- **Not a leaderboard.** The naive baseline in `BENCHMARK_SCOREBOARD.md`
+  is a *teaching artifact* — it shows the trap each task is designed to
+  catch. It is **not** a fair score for any particular tool.
+- **Not a self-driving system.** All four signals are *checks humans set
+  up and look at*. None of them will email a reviewer when something
+  breaks; the workflow in [`TRUST.md`](TRUST.md) and the
+  `make check` / `make check-fast` ladder is what you run locally.
+
+---
+
+## Refreshing this page
+
+This file is *hand-curated* — it links to scoreboards that the catalog
+generators refresh automatically. To bring a number up to date, run the
+generator that owns it:
+
+| Section | Refresh command |
+|---|---|
+| Skill hygiene, eval coverage | `make catalog` (then read `docs/SKILL_HYGIENE.md`) |
+| Rigor coverage | `make catalog` (then read `docs/RIGOR_COVERAGE.md`) |
+| Benchmark scoreboard | `make catalog` (then read `docs/BENCHMARK_SCOREBOARD.md`) |
+| Vendored commit SHAs | `python3 scripts/sync-vendored-commit.py` |
+| Security audit | regenerated by the security scan; tracked in [`SECURITY-SCAN-REPORT.md`](../SECURITY-SCAN-REPORT.md) |
+
+This page itself never needs a numeric refresh: it is intentionally a
+thin *view* of existing artifacts, not a parallel set of metrics, so
+the canonical numbers stay single-sourced.
+
+---
+
+## Cross-reference
+
+| Question you have | Read this |
+|---|---|
+| "Is the catalog well-formed?" | [`SKILL_HYGIENE.md`](SKILL_HYGIENE.md) |
+| "Are the right methods tested?" | [`RIGOR_COVERAGE.md`](RIGOR_COVERAGE.md) |
+| "Do the numbers actually work?" | [`BENCHMARK_SCOREBOARD.md`](BENCHMARK_SCOREBOARD.md) |
+| "Is the repo safe to load in an agent?" | [`TRUST.md`](TRUST.md) + [`SECURITY-SCAN-REPORT.md`](../SECURITY-SCAN-REPORT.md) |
+| "How do I grade my own agent against AERS?" | [`INTEROP.md` Recipe C](INTEROP.md) |
+| "How do I run the local gate?" | [`CONTRIBUTING.md`](../CONTRIBUTING.md) + `make check` |
+| "Which skills are long, and what do I do about them?" | [`LONG_SKILL_STATUS.md`](LONG_SKILL_STATUS.md) |
+| "Where did this mirror come from?" | [`provenance.json`](../catalog/provenance.json) (run `python3 scripts/sync-vendored-commit.py`) |

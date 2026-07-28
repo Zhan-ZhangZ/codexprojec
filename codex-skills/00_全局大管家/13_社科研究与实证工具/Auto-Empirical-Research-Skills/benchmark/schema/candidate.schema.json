@@ -4,12 +4,32 @@
   "title": "AERS benchmark candidate results",
   "description": "Schema for benchmark/candidates/<run-name>/results.json. benchmark/check_benchmark.py is the authoritative validator; this schema documents the task-specific numeric fields expected from candidate pipelines.",
   "type": "object",
-  "required": ["task"],
+  "required": [
+    "task"
+  ],
   "additionalProperties": true,
   "properties": {
     "task": {
       "type": "string",
-      "enum": ["bad-control-recovery", "bayesian-recovery", "card-iv-recovery", "did-staggered-recovery", "dml-recovery", "event-study-recovery", "lalonde-recovery", "panel-fe-recovery", "rdd-recovery", "survival-recovery", "synthetic-control-recovery"]
+      "enum": [
+        "bad-control-recovery",
+        "bartik-recovery",
+        "bunching-recovery",
+        "bayesian-recovery",
+        "card-iv-recovery",
+        "cate-recovery",
+        "decomposition-recovery",
+        "did-staggered-recovery",
+        "dml-recovery",
+        "event-study-recovery",
+        "lalonde-recovery",
+        "mediation-recovery",
+        "panel-fe-recovery",
+        "qte-recovery",
+        "rdd-recovery",
+        "survival-recovery",
+        "synthetic-control-recovery"
+      ]
     },
     "method": {
       "type": "string"
@@ -134,7 +154,28 @@
     "sc_effect": {
       "type": "number"
     },
-    "naive_effect": {
+    "cate_low": {
+      "type": "number"
+    },
+    "cate_high": {
+      "type": "number"
+    },
+    "cate_gap": {
+      "type": "number"
+    },
+    "ate_stratified": {
+      "type": "number"
+    },
+    "naive_ate": {
+      "type": "number"
+    },
+    "qte_50": {
+      "type": "number"
+    },
+    "qte_90": {
+      "type": "number"
+    },
+    "ate": {
       "type": "number"
     },
     "balance": {
@@ -142,6 +183,63 @@
       "additionalProperties": {
         "type": "number"
       }
+    },
+    "bartik_beta": {
+      "type": "number"
+    },
+    "ols_beta": {
+      "type": "number"
+    },
+    "total_effect": {
+      "type": "number"
+    },
+    "nde": {
+      "type": "number"
+    },
+    "nie": {
+      "type": "number"
+    },
+    "naive_direct": {
+      "type": "number"
+    },
+    "gap": {
+      "type": "number"
+    },
+    "explained_ref_a": {
+      "type": "number"
+    },
+    "unexplained_ref_a": {
+      "type": "number"
+    },
+    "explained_ref_b": {
+      "type": "number"
+    },
+    "unexplained_ref_b": {
+      "type": "number"
+    },
+    "explained_reference_swing": {
+      "type": "number"
+    },
+    "excess_mass": {
+      "type": "number"
+    },
+    "observed_at_K": {
+      "type": "number"
+    },
+    "counterfactual_at_K": {
+      "type": "number"
+    },
+    "naive_at_K": {
+      "type": "number"
+    },
+    "observed_above_K": {
+      "type": "number"
+    },
+    "implied_elasticity": {
+      "type": "number"
+    },
+    "naive_above_K_total": {
+      "type": "number"
     }
   },
   "allOf": [
@@ -154,7 +252,12 @@
         }
       },
       "then": {
-        "required": ["ols_return", "iv_return", "first_stage_F", "first_stage_coef"]
+        "required": [
+          "ols_return",
+          "iv_return",
+          "first_stage_F",
+          "first_stage_coef"
+        ]
       }
     },
     {
@@ -166,7 +269,11 @@
         }
       },
       "then": {
-        "required": ["true_att", "twfe_att", "cs_att"]
+        "required": [
+          "true_att",
+          "twfe_att",
+          "cs_att"
+        ]
       }
     },
     {
@@ -178,7 +285,11 @@
         }
       },
       "then": {
-        "required": ["naive_att", "adjusted_att", "balance"]
+        "required": [
+          "naive_att",
+          "adjusted_att",
+          "balance"
+        ]
       }
     },
     {
@@ -190,7 +301,12 @@
         }
       },
       "then": {
-        "required": ["true_tau", "naive_jump", "global_att", "local_att"]
+        "required": [
+          "true_tau",
+          "naive_jump",
+          "global_att",
+          "local_att"
+        ]
       }
     },
     {
@@ -202,7 +318,12 @@
         }
       },
       "then": {
-        "required": ["true_total", "naive_effect", "good_control_effect", "bad_control_effect"]
+        "required": [
+          "true_total",
+          "naive_effect",
+          "good_control_effect",
+          "bad_control_effect"
+        ]
       }
     },
     {
@@ -214,7 +335,11 @@
         }
       },
       "then": {
-        "required": ["true_att", "twoway_fe_att", "pooled_att"]
+        "required": [
+          "true_att",
+          "twoway_fe_att",
+          "pooled_att"
+        ]
       }
     },
     {
@@ -226,7 +351,12 @@
         }
       },
       "then": {
-        "required": ["true_att", "es_att", "es_pre_max", "naive_before_after"]
+        "required": [
+          "true_att",
+          "es_att",
+          "es_pre_max",
+          "naive_before_after"
+        ]
       }
     },
     {
@@ -238,7 +368,11 @@
         }
       },
       "then": {
-        "required": ["true_theta", "dml_theta", "naive_theta"]
+        "required": [
+          "true_theta",
+          "dml_theta",
+          "naive_theta"
+        ]
       }
     },
     {
@@ -250,7 +384,14 @@
         }
       },
       "then": {
-        "required": ["true_surv_treat", "true_surv_control", "km_surv_treat", "km_surv_control", "naive_surv_treat", "naive_surv_control"]
+        "required": [
+          "true_surv_treat",
+          "true_surv_control",
+          "km_surv_treat",
+          "km_surv_control",
+          "naive_surv_treat",
+          "naive_surv_control"
+        ]
       }
     },
     {
@@ -262,7 +403,11 @@
         }
       },
       "then": {
-        "required": ["data_mean", "posterior_weak", "posterior_strong"]
+        "required": [
+          "data_mean",
+          "posterior_weak",
+          "posterior_strong"
+        ]
       }
     },
     {
@@ -274,7 +419,116 @@
         }
       },
       "then": {
-        "required": ["true_effect", "sc_effect", "naive_effect"]
+        "required": [
+          "true_effect",
+          "sc_effect",
+          "naive_effect"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "const": "cate-recovery"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "cate_low",
+          "cate_high",
+          "cate_gap",
+          "ate_stratified",
+          "naive_ate"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "const": "qte-recovery"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "qte_50",
+          "qte_90",
+          "ate"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "const": "bartik-recovery"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "bartik_beta",
+          "ols_beta",
+          "first_stage_coef"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "const": "mediation-recovery"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "total_effect",
+          "nde",
+          "nie",
+          "naive_direct"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "const": "decomposition-recovery"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "gap",
+          "explained_ref_a",
+          "unexplained_ref_a",
+          "explained_ref_b",
+          "unexplained_ref_b",
+          "explained_reference_swing"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "task": {
+            "const": "bunching-recovery"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "excess_mass",
+          "observed_at_K",
+          "counterfactual_at_K",
+          "naive_at_K",
+          "observed_above_K",
+          "implied_elasticity"
+        ]
       }
     }
   ]

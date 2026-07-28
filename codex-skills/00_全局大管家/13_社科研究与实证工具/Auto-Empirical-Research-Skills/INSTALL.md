@@ -7,6 +7,10 @@ There are four ways to use the skills in this collection, from "one command" to
 > **v2.1+** (the `/plugin` marketplace commands). Run `claude --version` to check, and
 > `claude` itself to upgrade if `/plugin` is missing.
 
+> **Cloning the repo?** `skills/69-Paper-WorkFlow/` is a **git submodule**. Clone with
+> `git clone --recurse-submodules`, or run `git submodule update --init` inside an
+> existing clone — otherwise that folder is empty and `make validate` fails.
+
 ---
 
 ## 1. One-command install — first-party plugins (recommended)
@@ -64,7 +68,7 @@ claude plugin details aer-skills    # shows the skills + token cost of any insta
 
 Some IDEs ask you to pick a folder and validate it as one skill. This repo now
 supports that path with the root [`SKILL.md`](SKILL.md): importing the repository
-root registers **one lightweight AERS catalog router**, not 1,145 separate child
+root registers **one lightweight AERS catalog router**, not 1,150 separate child
 skills. The router chooses the right vendored skill and then reads only that
 child skill's `SKILL.md`.
 
@@ -153,6 +157,8 @@ tables) with the same methodology these skills encode.
 - **Marketplace add failed** — confirm the repo slug is exact:
   `brycewang-stanford/Auto-Empirical-Research-Skills`. You can also add from a local clone:
   `claude plugin marketplace add /path/to/Auto-Empirical-Research-Skills`.
+- **`skills/69-Paper-WorkFlow/` is empty / `make validate` fails on it** — the
+  clone skipped submodules. Run `git submodule update --init` from the repo root.
 - **Whole-repo import failed in Codex / CodeBuddy** — import the repository root
   as `auto-empirical-research-skills` so the root `SKILL.md` is the selected
   skill folder. Do not point a single-skill importer at `skills/` itself.

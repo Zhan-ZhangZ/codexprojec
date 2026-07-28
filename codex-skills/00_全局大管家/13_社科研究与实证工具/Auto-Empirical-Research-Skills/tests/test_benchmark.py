@@ -16,6 +16,12 @@ card = load_module("benchmark/lib/card.py", "aers_card")
 simdid = load_module("benchmark/lib/simdid.py", "aers_simdid")
 rdd = load_module("benchmark/lib/rdd.py", "aers_rdd")
 badcontrol = load_module("benchmark/lib/badcontrol.py", "aers_badcontrol")
+cate = load_module("benchmark/lib/cate.py", "aers_cate")
+qte = load_module("benchmark/lib/qte.py", "aers_qte")
+bartik = load_module("benchmark/lib/bartik.py", "aers_bartik")
+mediation = load_module("benchmark/lib/mediation.py", "aers_mediation")
+oaxaca = load_module("benchmark/lib/oaxaca.py", "aers_oaxaca")
+bunching = load_module("benchmark/lib/bunching.py", "aers_bunching")
 check_benchmark = load_module("benchmark/check_benchmark.py", "aers_check_benchmark")
 reference_pipeline = load_module("benchmark/reference_pipeline.py", "aers_reference_pipeline")
 toml_compat = load_module("scripts/toml_compat.py", "aers_toml_compat")
@@ -25,6 +31,12 @@ CARD_DATA = ROOT / "demo-StatsPAI-skill" / "data" / "card.csv"
 SIMDID_DATA = ROOT / "benchmark" / "data" / "sim-staggered-did.csv"
 RDD_DATA = ROOT / "benchmark" / "data" / "sim-rdd.csv"
 BADCONTROL_DATA = ROOT / "benchmark" / "data" / "sim-badcontrol.csv"
+CATE_DATA = ROOT / "benchmark" / "data" / "sim-cate.csv"
+QTE_DATA = ROOT / "benchmark" / "data" / "sim-qte.csv"
+BARTIK_DATA = ROOT / "benchmark" / "data" / "sim-bartik.csv"
+MEDIATION_DATA = ROOT / "benchmark" / "data" / "sim-mediation.csv"
+OAXACA_DATA = ROOT / "benchmark" / "data" / "sim-oaxaca.csv"
+BUNCHING_DATA = ROOT / "benchmark" / "data" / "sim-bunching.csv"
 
 
 class TestLalondeNumbers(unittest.TestCase):
@@ -601,6 +613,411 @@ class TestBadControlGrading(unittest.TestCase):
         req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
         self.assertIn("good-control-recovers-total", req_fail)
         self.assertIn("honest-reported-numbers", req_fail)
+
+
+class TestCateNumbers(unittest.TestCase):
+    """Construction invariants for the heterogeneous-effects simulation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = cate.load(CATE_DATA)
+
+    def test_true_conditional_effects_by_construction(self):
+        self.assertAlmostEqual(cate.true_cate(self.rows, 0), -1.0, delta=1e-9)
+        self.assertAlmostEqual(cate.true_cate(self.rows, 1), 3.0, delta=1e-9)
+        self.assertAlmostEqual(cate.true_ate(self.rows), 1.0, delta=1e-9)
+
+    def test_stratified_estimator_recovers_truth_from_observed_y_only(self):
+        self.assertAlmostEqual(cate.cate_hat(self.rows, 0), -1.0, delta=1e-9)
+        self.assertAlmostEqual(cate.cate_hat(self.rows, 1), 3.0, delta=1e-9)
+        self.assertAlmostEqual(cate.ate_stratified(self.rows), 1.0, delta=1e-9)
+
+    def test_naive_pooled_contrast_is_composition_biased(self):
+        # Treatment share differs by stratum, so the pooled contrast lands on
+        # 3.0, far from the true ATE of 1.0.
+        self.assertAlmostEqual(cate.naive_ate(self.rows), 3.0, delta=1e-9)
+
+    def test_heterogeneity_gap_detects_the_sign_flip(self):
+        self.assertAlmostEqual(cate.cate_gap(self.rows), 4.0, delta=1e-9)
+        self.assertLess(cate.cate_hat(self.rows, 0), 0)
+        self.assertGreater(cate.cate_hat(self.rows, 1), 0)
+
+
+class TestCateGrading(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with (ROOT / "benchmark" / "tasks" / "cate-recovery.toml").open("rb") as fh:
+            cls.task = toml_compat.load(fh)
+        cls.truth = check_benchmark.compute_truth(cls.task)
+
+    def _good(self):
+        rows = cate.load(CATE_DATA)
+        return {
+            "cate_low": round(cate.cate_hat(rows, 0), 4),
+            "cate_high": round(cate.cate_hat(rows, 1), 4),
+            "cate_gap": round(cate.cate_gap(rows), 4),
+            "ate_stratified": round(cate.ate_stratified(rows), 4),
+            "naive_ate": round(cate.naive_ate(rows), 4),
+        }
+
+    def test_reference_passes(self):
+        graded = check_benchmark.grade(self.task, self._good(), self.truth)
+        self.assertEqual([g["id"] for g in graded if g["required"] and not g["passed"]], [])
+
+    def test_headlining_pooled_number_as_average_fails(self):
+        # A candidate that reports the pooled contrast as its stratified average
+        # (the one-number-hides-everything failure) is caught by recomputation.
+        cand = self._good()
+        cand["ate_stratified"] = cand["naive_ate"]
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("stratified-ate-recovers", req_fail)
+
+    def test_fabricated_subgroup_effect_fails_honesty_check(self):
+        cand = self._good()
+        cand["cate_low"] = 0.5  # claims the program helps the low type; data say -1
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("cate-low-recovered", req_fail)
+        self.assertIn("honest-cate-low", req_fail)
+
+
+class TestQteNumbers(unittest.TestCase):
+    """Construction invariants for the quantile-treatment-effect simulation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = qte.load(QTE_DATA)
+
+    def test_arms_share_untreated_distribution(self):
+        t = sorted(float(r["y0"]) for r in self.rows if round(float(r["treat"])) == 1)
+        c = sorted(float(r["y0"]) for r in self.rows if round(float(r["treat"])) == 0)
+        self.assertEqual(t, c)
+
+    def test_true_quantile_effects_by_construction(self):
+        self.assertAlmostEqual(qte.true_qte_at(self.rows, 0.5), 0.0, delta=1e-6)
+        self.assertAlmostEqual(qte.true_qte_at(self.rows, 0.9), 5.0, delta=1e-6)
+        self.assertAlmostEqual(qte.true_ate(self.rows), 1.0, delta=1e-9)
+
+    def test_estimators_recover_truth_from_observed_y_only(self):
+        self.assertAlmostEqual(qte.qte_at(self.rows, 0.5), 0.0, delta=1e-6)
+        self.assertAlmostEqual(qte.qte_at(self.rows, 0.9), 5.0, delta=1e-6)
+        self.assertAlmostEqual(qte.ate(self.rows), 1.0, delta=1e-9)
+
+    def test_mean_hides_the_tail(self):
+        # The whole point of the task: the q90 effect is 5x the mean effect.
+        self.assertGreaterEqual(qte.qte_at(self.rows, 0.9) - qte.ate(self.rows), 3.0)
+
+
+class TestQteGrading(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with (ROOT / "benchmark" / "tasks" / "qte-recovery.toml").open("rb") as fh:
+            cls.task = toml_compat.load(fh)
+        cls.truth = check_benchmark.compute_truth(cls.task)
+
+    def _good(self):
+        rows = qte.load(QTE_DATA)
+        return {
+            "qte_50": round(qte.qte_at(rows, 0.5), 4),
+            "qte_90": round(qte.qte_at(rows, 0.9), 4),
+            "ate": round(qte.ate(rows), 4),
+        }
+
+    def test_reference_passes(self):
+        graded = check_benchmark.grade(self.task, self._good(), self.truth)
+        self.assertEqual([g["id"] for g in graded if g["required"] and not g["passed"]], [])
+
+    def test_mean_only_report_projected_onto_quantiles_fails(self):
+        # A candidate that pretends the effect is uniform (reports the mean at
+        # every quantile) contradicts the recomputed quantile effects.
+        cand = self._good()
+        cand["qte_50"] = cand["ate"]
+        cand["qte_90"] = cand["ate"]
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("median-qte-is-zero", req_fail)
+        self.assertIn("upper-tail-qte-recovered", req_fail)
+        self.assertIn("mean-hides-tail", req_fail)
+
+
+class TestBartikNumbers(unittest.TestCase):
+    """Construction invariants for the shift-share simulation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = bartik.load(BARTIK_DATA)
+
+    def test_exclusion_holds_in_sample(self):
+        # The local shock (x - z) is exactly orthogonal to the instrument.
+        z = bartik.instrument(self.rows)
+        eta = [float(r["x"]) - zi for r, zi in zip(self.rows, z)]
+        mz, me = sum(z) / len(z), sum(eta) / len(eta)
+        cov = sum((a - mz) * (b - me) for a, b in zip(z, eta)) / len(z)
+        self.assertAlmostEqual(cov, 0.0, delta=1e-9)
+
+    def test_true_beta_from_unread_column(self):
+        self.assertAlmostEqual(bartik.true_beta(self.rows), 0.5, delta=1e-9)
+
+    def test_iv_recovers_and_ols_is_biased(self):
+        self.assertAlmostEqual(bartik.bartik_beta(self.rows), 0.5, delta=1e-6)
+        self.assertGreater(abs(bartik.ols_beta(self.rows) - 0.5), 0.5)
+
+    def test_first_stage_is_unit_slope(self):
+        self.assertAlmostEqual(bartik.first_stage_coef(self.rows), 1.0, delta=1e-6)
+
+
+class TestBartikGrading(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with (ROOT / "benchmark" / "tasks" / "bartik-recovery.toml").open("rb") as fh:
+            cls.task = toml_compat.load(fh)
+        cls.truth = check_benchmark.compute_truth(cls.task)
+
+    def _good(self):
+        rows = bartik.load(BARTIK_DATA)
+        return {
+            "bartik_beta": round(bartik.bartik_beta(rows), 4),
+            "ols_beta": round(bartik.ols_beta(rows), 4),
+            "first_stage_coef": round(bartik.first_stage_coef(rows), 4),
+        }
+
+    def test_reference_passes(self):
+        graded = check_benchmark.grade(self.task, self._good(), self.truth)
+        self.assertEqual([g["id"] for g in graded if g["required"] and not g["passed"]], [])
+
+    def test_headlining_ols_as_iv_fails(self):
+        # A candidate that skips instrument construction and reports OLS as the
+        # causal estimate is caught by the data recomputation.
+        cand = self._good()
+        cand["bartik_beta"] = cand["ols_beta"]
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("bartik-recovers-true", req_fail)
+        self.assertIn("honest-bartik", req_fail)
+
+
+class TestMediationNumbers(unittest.TestCase):
+    """Construction invariants for the causal-mediation simulation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = mediation.load(MEDIATION_DATA)
+
+    def test_true_decomposition_by_construction(self):
+        self.assertAlmostEqual(mediation.true_total(self.rows), 4.0, delta=1e-9)
+        self.assertAlmostEqual(mediation.true_nde(self.rows), 1.0, delta=1e-9)
+        self.assertAlmostEqual(mediation.true_nie(self.rows), 3.0, delta=1e-9)
+
+    def test_decomposition_adds_up(self):
+        total = mediation.true_nde(self.rows) + mediation.true_nie(self.rows)
+        self.assertAlmostEqual(total, mediation.true_total(self.rows), delta=1e-9)
+
+    def test_estimators_recover_truth_from_observed_columns_only(self):
+        self.assertAlmostEqual(mediation.total_effect(self.rows), 4.0, delta=1e-6)
+        self.assertAlmostEqual(mediation.nde_hat(self.rows), 1.0, delta=1e-6)
+        self.assertAlmostEqual(mediation.nie_hat(self.rows), 3.0, delta=1e-6)
+
+    def test_naive_mediator_control_flips_the_sign(self):
+        naive = mediation.naive_direct(self.rows)
+        self.assertLess(naive, 0)  # true direct effect is +1
+        self.assertGreater(abs(naive - 1.0), 2.0)
+
+
+class TestMediationGrading(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with (ROOT / "benchmark" / "tasks" / "mediation-recovery.toml").open("rb") as fh:
+            cls.task = toml_compat.load(fh)
+        cls.truth = check_benchmark.compute_truth(cls.task)
+
+    def _good(self):
+        rows = mediation.load(MEDIATION_DATA)
+        return {
+            "total_effect": round(mediation.total_effect(rows), 4),
+            "nde": round(mediation.nde_hat(rows), 4),
+            "nie": round(mediation.nie_hat(rows), 4),
+            "naive_direct": round(mediation.naive_direct(rows), 4),
+        }
+
+    def test_reference_passes(self):
+        graded = check_benchmark.grade(self.task, self._good(), self.truth)
+        self.assertEqual([g["id"] for g in graded if g["required"] and not g["passed"]], [])
+
+    def test_headlining_naive_direct_as_nde_fails(self):
+        # A candidate that reports the Y~T+M coefficient as its direct effect
+        # (the folk move) is caught by the recomputation.
+        cand = self._good()
+        cand["nde"] = cand["naive_direct"]
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("nde-recovered", req_fail)
+        self.assertIn("honest-nde", req_fail)
+
+
+class TestOaxacaNumbers(unittest.TestCase):
+    """Construction invariants for the Oaxaca-Blinder decomposition simulation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = oaxaca.load(OAXACA_DATA)
+
+    def test_within_group_ols_is_exact(self):
+        # The design is noiseless and linear, so group OLS recovers the
+        # structural coefficients with zero error.
+        b0_a, b1_a = oaxaca.coefs(self.rows, "A")
+        b0_b, b1_b = oaxaca.coefs(self.rows, "B")
+        self.assertAlmostEqual(b0_a, 2.0, delta=1e-9)
+        self.assertAlmostEqual(b1_a, 2.0, delta=1e-9)
+        self.assertAlmostEqual(b0_b, 1.0, delta=1e-9)
+        self.assertAlmostEqual(b1_b, 1.5, delta=1e-9)
+
+    def test_gap_and_components_by_construction(self):
+        self.assertAlmostEqual(oaxaca.gap(self.rows), 5.5, delta=1e-9)
+        self.assertAlmostEqual(oaxaca.explained(self.rows, "A"), 4.0, delta=1e-9)
+        self.assertAlmostEqual(oaxaca.unexplained(self.rows, "A"), 1.5, delta=1e-9)
+        self.assertAlmostEqual(oaxaca.explained(self.rows, "B"), 3.0, delta=1e-9)
+        self.assertAlmostEqual(oaxaca.unexplained(self.rows, "B"), 2.5, delta=1e-9)
+
+    def test_adding_up_identity_holds_under_both_references(self):
+        for ref in ("A", "B"):
+            self.assertAlmostEqual(
+                oaxaca.explained(self.rows, ref) + oaxaca.unexplained(self.rows, ref),
+                oaxaca.gap(self.rows),
+                delta=1e-9,
+            )
+
+    def test_reference_swing_quantifies_index_number_problem(self):
+        self.assertAlmostEqual(oaxaca.explained_reference_swing(self.rows), 1.0, delta=1e-9)
+
+    def test_unexplained_is_well_below_the_raw_gap(self):
+        # Reading the whole gap as "discrimination" would be off by 2-4x here.
+        for ref in ("A", "B"):
+            self.assertLess(oaxaca.unexplained(self.rows, ref), oaxaca.gap(self.rows) - 2.5)
+
+
+class TestOaxacaGrading(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with (ROOT / "benchmark" / "tasks" / "decomposition-recovery.toml").open("rb") as fh:
+            cls.task = toml_compat.load(fh)
+        cls.truth = check_benchmark.compute_truth(cls.task)
+
+    def _good(self):
+        rows = oaxaca.load(OAXACA_DATA)
+        return {
+            "gap": round(oaxaca.gap(rows), 4),
+            "explained_ref_a": round(oaxaca.explained(rows, "A"), 4),
+            "unexplained_ref_a": round(oaxaca.unexplained(rows, "A"), 4),
+            "explained_ref_b": round(oaxaca.explained(rows, "B"), 4),
+            "unexplained_ref_b": round(oaxaca.unexplained(rows, "B"), 4),
+            "explained_reference_swing": round(oaxaca.explained_reference_swing(rows), 4),
+        }
+
+    def test_reference_passes(self):
+        graded = check_benchmark.grade(self.task, self._good(), self.truth)
+        self.assertEqual([g["id"] for g in graded if g["required"] and not g["passed"]], [])
+
+    def test_single_reference_report_fails(self):
+        # A candidate that only computes the flattering reference and mirrors
+        # it into the other reference's fields is caught by the recomputation.
+        cand = self._good()
+        cand["explained_ref_b"] = cand["explained_ref_a"]
+        cand["unexplained_ref_b"] = cand["unexplained_ref_a"]
+        cand["explained_reference_swing"] = 0.0
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("explained-ref-b-recovered", req_fail)
+        self.assertIn("reference-swing-surfaced", req_fail)
+        self.assertIn("honest-explained-ref-b", req_fail)
+
+    def test_calling_the_whole_gap_discrimination_fails(self):
+        # A candidate that reports the raw gap as the unexplained component
+        # trips both the recovery gold and the biased_away gold.
+        cand = self._good()
+        cand["unexplained_ref_b"] = cand["gap"]
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("unexplained-ref-b-recovered", req_fail)
+        self.assertIn("gap-is-not-all-unexplained", req_fail)
+
+
+class TestBunchingNumbers(unittest.TestCase):
+    """Construction invariants for the kink-bunching simulation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = bunching.load(BUNCHING_DATA)
+
+    def test_excess_mass_matches_known_bunch(self):
+        self.assertAlmostEqual(bunching.excess_mass(self.rows), 0.20, delta=1e-9)
+
+    def test_counterfactual_is_zero_at_kink(self):
+        self.assertAlmostEqual(bunching.counterfactual_density_at(self.rows, bunching.K), 0.0)
+
+    def test_observed_density_matches_data(self):
+        self.assertAlmostEqual(bunching.observed_density_at(self.rows, bunching.K), 0.20, delta=1e-9)
+
+    def test_observed_above_kink_is_depleted(self):
+        baseline_above = sum(
+            bunching.naive_density_at(self.rows, x)
+            for x in bunching.SUPPORT if x > bunching.K
+        )
+        # The counterfactual mass above K is below the baseline by at least
+        # the bunching share; the gold's min_gap of 0.01 requires that
+        # strict margin.
+        self.assertLess(bunching.observed_density_above(self.rows), baseline_above - 0.01)
+
+    def test_naive_quoting_baseline_is_wrong(self):
+        # The naive (no-kink) answer at K should be far from the observed mass.
+        naive = bunching.naive_density_at(self.rows, bunching.K)
+        obs = bunching.observed_density_at(self.rows, bunching.K)
+        self.assertGreater(abs(naive - obs), 0.1)
+
+
+class TestBunchingGrading(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with (ROOT / "benchmark" / "tasks" / "bunching-recovery.toml").open("rb") as fh:
+            cls.task = toml_compat.load(fh)
+        cls.truth = check_benchmark.compute_truth(cls.task)
+
+    def _good(self):
+        rows = bunching.load(BUNCHING_DATA)
+        return {
+            "excess_mass": round(bunching.excess_mass(rows), 4),
+            "observed_at_K": round(bunching.observed_density_at(rows, bunching.K), 4),
+            "counterfactual_at_K": round(bunching.counterfactual_density_at(rows, bunching.K), 4),
+            "naive_at_K": round(bunching.naive_density_at(rows, bunching.K), 4),
+            "observed_above_K": round(bunching.observed_density_above(rows), 4),
+            "implied_elasticity": round(bunching.implied_elasticity(rows), 4),
+        }
+
+    def test_reference_passes(self):
+        graded = check_benchmark.grade(self.task, self._good(), self.truth)
+        self.assertEqual([g["id"] for g in graded if g["required"] and not g["passed"]], [])
+
+    def test_naive_quoting_baseline_fails(self):
+        # A candidate that quotes the unmodified baseline everywhere cannot
+        # recover the excess mass, the observed density at K, the zero
+        # counterfactual at K, or the depleted mass above K.
+        cand = {
+            "excess_mass": 0.0,
+            "observed_at_K": 0.0476,
+            "counterfactual_at_K": 0.0476,
+            "naive_at_K": 0.0476,
+            "observed_above_K": 0.6944,
+            "implied_elasticity": 0.0,
+        }
+        graded = check_benchmark.grade(self.task, cand, self.truth)
+        req_fail = [g["id"] for g in graded if g["required"] and not g["passed"]]
+        self.assertIn("excess-mass-recovered", req_fail)
+        self.assertIn("observed-density-at-kink", req_fail)
+        self.assertIn("counterfactual-density-at-kink", req_fail)
+        self.assertIn("above-kink-depleted", req_fail)
+        # Reporting the counterfactual density at K equal to the observed
+        # spike is the diagnostic error the gold catches.
+        self.assertNotIn("counterfactual-density-at-kink", [g["id"] for g in graded if g["passed"]])
 
 
 if __name__ == "__main__":

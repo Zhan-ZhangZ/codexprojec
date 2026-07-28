@@ -36,27 +36,17 @@ Then review:
 - [`catalog/skills.json`](../catalog/skills.json)
 - [`catalog/provenance.json`](../catalog/provenance.json)
 
-## Release Notes Template
+## Release Notes
+
+The stats section is machine-generated: [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
+(built by `scripts/build-release-notes.py` via `make catalog`; freshness is
+enforced by `make validate`). At release time, paste that snapshot into the
+GitHub release body and add the two hand-written sections on top:
 
 ```markdown
 ## Highlights
 
 - 
-
-## Catalog Stats
-
-- Top-level collections:
-- SKILL.md files:
-- License buckets:
-
-## Quality Checks
-
-- `make check`:
-- `make python-compat`:
-- `git diff --check`:
-- `make hygiene`:
-- External-link workflow:
-- OpenSSF Scorecard:
 
 ## Known Follow-Ups
 

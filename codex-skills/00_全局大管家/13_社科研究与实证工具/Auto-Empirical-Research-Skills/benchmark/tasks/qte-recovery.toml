@@ -1,0 +1,92 @@
+id = "qte-recovery"
+title = "Quantile-treatment-effect recovery: does the pipeline see that gains concentrate in the upper tail?"
+data = "benchmark/data/sim-qte.csv"
+reference_candidate = "reference-qte"
+
+description = """
+A deterministic paired design: 100 distinct baseline outcome levels (1..100),
+each appearing once per arm, so both arms share the SAME untreated outcome
+distribution by construction. Treatment shifts ONLY the top quintile
+(y0 > 80 gains +5): the mean effect is a modest +1.0 while the median QTE is
+exactly 0 and the 90th-percentile QTE is 5.0.
+
+The lesson: a mean-only analysis reports "+1" and misses that the median unit
+gains NOTHING and all gains concentrate at the top. Quantile treatment effects
+make the distributional incidence legible. Data-derived golds are recomputed
+from the dataset (the untreated potential outcome y0 ships as a column the
+estimators never read), so a candidate cannot pass by fabricating numbers.
+"""
+
+true_ate_by_construction = 1.0
+true_qte50_by_construction = 0.0
+true_qte90_by_construction = 5.0
+
+[[gold]]
+id = "median-qte-is-zero"
+required = true
+weight = 4
+description = "The median (q50) quantile treatment effect recovers the true value of 0 — the median unit gains nothing."
+check = "recovers_truth"
+field = "qte_50"
+truth_key = "true_qte_50"
+tol = 0.05
+
+[[gold]]
+id = "upper-tail-qte-recovered"
+required = true
+weight = 4
+description = "The 90th-percentile quantile treatment effect recovers the true tail gain of +5."
+check = "recovers_truth"
+field = "qte_90"
+truth_key = "true_qte_90"
+tol = 0.05
+
+[[gold]]
+id = "mean-effect-recovered"
+required = true
+weight = 3
+description = "The mean (average) effect recovers the true +1.0 — correct but distributionally incomplete on its own."
+check = "recovers_truth"
+field = "ate"
+truth_key = "true_ate"
+tol = 0.05
+
+[[gold]]
+id = "mean-hides-tail"
+required = true
+weight = 3
+description = "The reported q90 effect is far from the mean effect, surfacing that gains concentrate in the tail (a mean-only report would hide this)."
+check = "biased_away"
+field = "qte_90"
+truth_key = "true_ate"
+min_gap = 3.0
+
+[[gold]]
+id = "honest-qte50"
+required = true
+weight = 2
+description = "The candidate's reported median QTE matches what the checker recomputes from the data (no fabricated numbers)."
+check = "recovers_truth"
+field = "qte_50"
+truth_key = "qte_50"
+tol = 0.01
+
+[[gold]]
+id = "honest-qte90"
+required = true
+weight = 2
+description = "The candidate's reported q90 QTE matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "qte_90"
+truth_key = "qte_90"
+tol = 0.01
+
+[[gold]]
+id = "honest-ate"
+required = true
+weight = 2
+description = "The candidate's reported mean effect matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "ate"
+truth_key = "ate"
+tol = 0.01

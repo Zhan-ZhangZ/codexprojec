@@ -1,0 +1,12 @@
+{
+  "task": "bunching-recovery",
+  "method": "Excess mass at kink K=10 with counterfactual re-normalization of the baseline density (B=0.20)",
+  "n": 21,
+  "excess_mass": 0.2,
+  "observed_at_K": 0.2,
+  "counterfactual_at_K": 0.0,
+  "naive_at_K": 0.0476,
+  "observed_above_K": 0.5833,
+  "implied_elasticity": 5.0,
+  "naive_above_K_total": 0.6944
+}

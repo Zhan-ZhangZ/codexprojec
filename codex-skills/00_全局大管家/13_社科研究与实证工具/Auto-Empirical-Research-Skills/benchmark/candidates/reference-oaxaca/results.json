@@ -1,0 +1,11 @@
+{
+  "task": "decomposition-recovery",
+  "method": "Twofold Oaxaca-Blinder under BOTH references (index-number problem surfaced) via exact within-group OLS",
+  "n": 200,
+  "gap": 5.5,
+  "explained_ref_a": 4.0,
+  "unexplained_ref_a": 1.5,
+  "explained_ref_b": 3.0,
+  "unexplained_ref_b": 2.5,
+  "explained_reference_swing": 1.0
+}

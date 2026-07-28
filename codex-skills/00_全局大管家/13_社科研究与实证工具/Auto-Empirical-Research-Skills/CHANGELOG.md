@@ -5,6 +5,90 @@ This is the project's narrative changelog. `README.md` keeps only a short
 
 ## Unreleased
 
+- Hardened the whole-repo skill encapsulation. The root router
+  [`SKILL.md`](SKILL.md) now declares its `license` in frontmatter, warns
+  that the two catalog JSON files are ~1 MB each and shows a copy-paste
+  query one-liner instead of inviting a full read, and adds ten
+  previously-unrouted method rows to the routing table (matching/propensity
+  scores, structural estimation, time series, text-as-data/NLP, spatial/GIS,
+  RCT design, survey design, open science, grant proposals, and conference
+  posters — each verified against `catalog/skills.json`). A new
+  `validate_root_skill_stats` check in `scripts/validate-repo.py` (wired
+  into `make validate`) keeps the router's hardcoded numbers honest: the
+  "N skills across M vendored collections" line, the duplicate bare-name
+  count, and the legacy-collections list are now all cross-checked against
+  the committed catalog, so a catalog refresh can no longer strand the
+  router with stale stats.
+- Added a generated **rigor coverage badge** (shields.io endpoint JSON at
+  [`docs/badges/rigor-coverage.json`](docs/badges/rigor-coverage.json), built
+  by `scripts/build-release-notes.py` and freshness-checked in `make
+  validate`) and wired it into all six locale READMEs. The badge and the
+  release snapshot now source the method-family roster from
+  `build-coverage-map.py`'s METHOD_ORDER, so they can never disagree with
+  [`docs/RIGOR_COVERAGE.md`](docs/RIGOR_COVERAGE.md).
+- Documented the **candidate grading protocol** in
+  [`docs/INTEROP.md`](docs/INTEROP.md) (Recipe C): step-by-step instructions
+  for grading any external agent against the numeric benchmark by dropping a
+  `results.json` into `benchmark/candidates/`, with the honesty checks
+  explained — groundwork for the AERS-vs-Econometrics-Agent comparison.
+- Expanded the methodological rigor coverage map from 13 to **15 method
+  families**, adding end-to-end closure (taxonomy tag + eval scenario +
+  numeric benchmark task) for **shift-share / Bartik IV**
+  (`aer-shiftshare-identification` + `bartik-recovery`: a 12-region design
+  where OLS through the local demand shock is biased 1.157 vs true 0.5 and
+  only the share-times-shock instrument recovers it — the exclusion
+  restriction holds exactly in-sample by construction) and **causal
+  mediation** (`statspai-mediation-assumptions` + `mediation-recovery`: the
+  folk "control for the mediator" move flips the sign of the true +1 direct
+  effect to -2.76 under mediator-outcome confounding, while the
+  confounder-adjusted NDE/NIE decomposition recovers 1 + 3 = 4 exactly).
+  Eval/CI ratchet floors raised to lock in the coverage (28 scenarios /
+  132 auto-checks, 15 benchmark tasks), with construction-invariant unit
+  tests for both simulations and README stats synced across all six locales
+  (enforced by the rigor-stats gate).
+
+## 2026-07-02 — v2026.07 (first tagged release)
+
+Everything below this line up to the 2026-06-04 section shipped in
+[`v2026.07`](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/releases/tag/v2026.07),
+the project's first tagged release. Additional v2026.07 changes not itemized
+below: CI installs the scientific stack for the Paper-WorkFlow demo gate
+(validate-catalog had been red on `main` since 2026-06-26); both weekly
+upstream sync PRs were unblocked and merged (the StatsPAI sync restores the
+SkillOpt execution-gate card that upstream had condensed away); the
+Paper-WorkFlow submodule's competitive-rigor layer (29/29 executable gates)
+merged to its `main` with a drift-gated README rigor badge; headline counts
+were reconciled to **1,150 skills / 69 collections**; and debugging scratch
+files were removed from `demo-notebooks/`.
+
+- Expanded the methodological rigor coverage map from 11 to **13 method
+  families**, adding end-to-end closure (taxonomy tag + eval scenario +
+  numeric benchmark task) for **heterogeneous treatment effects (CATE)**
+  (`statspai-heterogeneous-effects` + `cate-recovery`: opposite-signed
+  subgroup effects with a composition-biased pooled contrast) and
+  **quantile / distributional effects** (`statspai-quantile-effects` +
+  `qte-recovery`: a tail-only shift where the median QTE is 0 and the q90
+  QTE is 5x the mean effect). Eval-harness and CI ratchet floors were raised
+  to lock in the new coverage (26 scenarios / 122 auto-checks, 13 benchmark
+  tasks), with construction-invariant unit tests for both simulations.
+- Added a machine-generated release snapshot
+  ([`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md), built by
+  `scripts/build-release-notes.py` via `make catalog`, freshness-checked in
+  `make validate`), replacing the hand-filled stats template in
+  [`docs/RELEASE.md`](docs/RELEASE.md).
+- Added a six-locale README rigor-stats consistency gate
+  (`scripts/check-readme-stats.py`, wired into `make validate` with unit
+  tests): the benchmark-task and eval-scenario counts in every README's
+  numbers table and trust-surface table must now match the committed TOMLs,
+  so rigor expansions can no longer ship with stale marketing numbers. The
+  gate immediately caught drift in all six locales (trust-surface rows still
+  said 5/11 tasks and 17/95 scenarios) — now fixed.
+- Added a feature-request issue template scoped to rigor coverage, catalog
+  tooling, docs, and CI (skill collections keep their own submission
+  template).
+- Published the July 2026 execution plan
+  ([`docs/PLAN-2026-07.md`](docs/PLAN-2026-07.md)) with week-by-week
+  milestones, linked from the roadmap.
 - Added two community-contributed collections (PRs #21/#22), bringing the repo to
   **1,144 vendored & cataloged skills / 68 collections**:
   [`67-econfin-workflow-toolkit`](skills/67-econfin-workflow-toolkit/) — an
@@ -65,7 +149,7 @@ This is the project's narrative changelog. `README.md` keeps only a short
   ([`docs/tools-search.html`](docs/tools-search.html)).
 - Every entry was verified against its upstream repo/CRAN/SSC page (license + activity
   snapshot). No third-party executable code is vendored — `tools/` is a metadata index.
-- Curation notes, method, and backlog: [`docs/EMPIRICAL_TOOLS_2026-06.md`](docs/EMPIRICAL_TOOLS_2026-06.md).
+- Curation notes, method, and backlog: [`docs/archive/EMPIRICAL_TOOLS_2026-06.md`](docs/archive/EMPIRICAL_TOOLS_2026-06.md).
 - Linked the module from both READMEs (numbers table + a dedicated "Browse the
   landscape" subsection).
 

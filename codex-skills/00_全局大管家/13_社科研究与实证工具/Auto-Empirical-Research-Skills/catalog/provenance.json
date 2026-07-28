@@ -3,7 +3,7 @@
     {
       "commercial_use": "allowed",
       "id": "00-Full-empirical-analysis-skill_StatsPAI",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "first-party upstream mirror",
@@ -18,7 +18,7 @@
     {
       "commercial_use": "share-alike",
       "id": "00.1-Full-empirical-analysis-skill_Python",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "CC-BY-SA-4.0 (repository default)",
       "license_file": null,
       "origin": "first-party AERS skill",
@@ -33,7 +33,7 @@
     {
       "commercial_use": "share-alike",
       "id": "00.2-Full-empirical-analysis-skill_Stata",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "CC-BY-SA-4.0 (repository default)",
       "license_file": null,
       "origin": "first-party AERS skill",
@@ -48,7 +48,7 @@
     {
       "commercial_use": "share-alike",
       "id": "00.3-Full-empirical-analysis-skill_R",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "CC-BY-SA-4.0 (repository default)",
       "license_file": null,
       "origin": "first-party AERS skill",
@@ -63,7 +63,7 @@
     {
       "commercial_use": "allowed",
       "id": "01-lishix520-academic-paper-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -78,7 +78,7 @@
     {
       "commercial_use": "allowed",
       "id": "02-luwill-research-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -93,7 +93,7 @@
     {
       "commercial_use": "allowed",
       "id": "03-K-Dense-AI-claude-scientific-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -108,7 +108,7 @@
     {
       "commercial_use": "allowed",
       "id": "04-K-Dense-AI-claude-scientific-writer",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -123,7 +123,7 @@
     {
       "commercial_use": "allowed",
       "id": "05-kthorn-research-superpower",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -138,7 +138,7 @@
     {
       "commercial_use": "allowed",
       "id": "06-fuhaoda-stats-paper-writing",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -153,7 +153,7 @@
     {
       "commercial_use": "allowed",
       "id": "07-Orchestra-Research-AI-Research-SKILLs",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -168,7 +168,7 @@
     {
       "commercial_use": "allowed",
       "id": "08-ndpvt-web-latex-document-skill",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -183,7 +183,7 @@
     {
       "commercial_use": "unknown",
       "id": "09-meleantonio-awesome-econ-ai-stuff",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -198,7 +198,7 @@
     {
       "commercial_use": "unknown",
       "id": "10-Jill0099-causal-inference-mixtape",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -213,7 +213,7 @@
     {
       "commercial_use": "unknown",
       "id": "11-James-Traina-compound-science",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -228,7 +228,7 @@
     {
       "commercial_use": "unknown",
       "id": "12-pedrohcgs-claude-code-my-workflow",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -243,7 +243,7 @@
     {
       "commercial_use": "unknown",
       "id": "13-scunning1975-MixtapeTools",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -258,7 +258,7 @@
     {
       "commercial_use": "unknown",
       "id": "14-luischanci-claude-code-research-starter",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -273,7 +273,7 @@
     {
       "commercial_use": "allowed",
       "id": "15-Felpix-Studios-social-science-research",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -288,7 +288,7 @@
     {
       "commercial_use": "allowed",
       "id": "16-hsantanna88-clo-author",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -303,7 +303,7 @@
     {
       "commercial_use": "unknown",
       "id": "17-DAAF-Contribution-Community-daaf",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -318,7 +318,7 @@
     {
       "commercial_use": "unknown",
       "id": "18-jusi-aalto-stata-accounting-research",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
@@ -332,8 +332,23 @@
     },
     {
       "commercial_use": "unknown",
+      "id": "19-CuellarC05-vera-economic-intelligence",
+      "last_aers_review": "2026-07-22",
+      "license": "UNKNOWN - check upstream",
+      "license_file": null,
+      "origin": "vendored upstream snapshot; layout normalized to <name>/SKILL.md 2026-07-22",
+      "path": "skills/19-CuellarC05-vera-economic-intelligence",
+      "security_review": "SECURITY-SCAN-REPORT.md",
+      "skill_count": 5,
+      "source_confidence": "low",
+      "source_url": "https://github.com/CuellarC05/vera-economic-intelligence",
+      "sync": "manual vendor snapshot",
+      "vendored_commit": null
+    },
+    {
+      "commercial_use": "unknown",
       "id": "20-wenddymacro-python-econ-skill",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -346,9 +361,24 @@
       "vendored_commit": null
     },
     {
+      "commercial_use": "unknown",
+      "id": "21-claesbackman-AI-research-feedback",
+      "last_aers_review": "2026-07-22",
+      "license": "UNKNOWN - check upstream",
+      "license_file": null,
+      "origin": "vendored upstream snapshot; layout normalized to <name>/SKILL.md 2026-07-22",
+      "path": "skills/21-claesbackman-AI-research-feedback",
+      "security_review": "SECURITY-SCAN-REPORT.md",
+      "skill_count": 5,
+      "source_confidence": "low",
+      "source_url": "https://github.com/claesbackman/AI-research-feedback",
+      "sync": "manual vendor snapshot",
+      "vendored_commit": null
+    },
+    {
       "commercial_use": "allowed",
       "id": "22-christopherkenny-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -363,7 +393,7 @@
     {
       "commercial_use": "unknown",
       "id": "23-Learning-Bayesian-Statistics-baygent-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -378,7 +408,7 @@
     {
       "commercial_use": "unknown",
       "id": "24-Imbad0202-academic-research-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -393,7 +423,7 @@
     {
       "commercial_use": "allowed",
       "id": "25-HosungYou-Diverga",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -408,7 +438,7 @@
     {
       "commercial_use": "allowed",
       "id": "26-Data-Wise-scholar",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -423,7 +453,7 @@
     {
       "commercial_use": "unknown",
       "id": "27-dariia-m-my_claude_skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -438,7 +468,7 @@
     {
       "commercial_use": "allowed",
       "id": "28-maxwell2732-paper-replicate-agent-demo",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -453,7 +483,7 @@
     {
       "commercial_use": "unknown",
       "id": "29-quarcs-lab-project20XXy",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
@@ -466,9 +496,24 @@
       "vendored_commit": null
     },
     {
+      "commercial_use": "allowed",
+      "id": "30-zirui-song-claude-skills",
+      "last_aers_review": "2026-07-22",
+      "license": "MIT",
+      "license_file": null,
+      "origin": "vendored upstream snapshot; layout normalized to <name>/SKILL.md 2026-07-22",
+      "path": "skills/30-zirui-song-claude-skills",
+      "security_review": "SECURITY-SCAN-REPORT.md",
+      "skill_count": 6,
+      "source_confidence": "low",
+      "source_url": "https://github.com/zirui-song/claude-skills",
+      "sync": "manual vendor snapshot",
+      "vendored_commit": null
+    },
+    {
       "commercial_use": "unknown",
       "id": "31-thalysandratos-claude-code-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -483,7 +528,7 @@
     {
       "commercial_use": "unknown",
       "id": "32-dylantmoore-stata-skill",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -498,7 +543,7 @@
     {
       "commercial_use": "allowed",
       "id": "33-Galaxy-Dawn-claude-scholar",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -513,7 +558,7 @@
     {
       "commercial_use": "unknown",
       "id": "34-andrehuang-research-companion",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -528,7 +573,7 @@
     {
       "commercial_use": "unknown",
       "id": "35-bahayonghang-academic-writing-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -543,7 +588,7 @@
     {
       "commercial_use": "allowed",
       "id": "36-taoyunudt-literature-review-skill",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -557,8 +602,23 @@
     },
     {
       "commercial_use": "unknown",
+      "id": "37-IlanStrauss-ai-skills",
+      "last_aers_review": "2026-07-22",
+      "license": "UNKNOWN - check upstream",
+      "license_file": null,
+      "origin": "vendored upstream snapshot; layout normalized to <name>/SKILL.md 2026-07-22",
+      "path": "skills/37-IlanStrauss-ai-skills",
+      "security_review": "SECURITY-SCAN-REPORT.md",
+      "skill_count": 1,
+      "source_confidence": "low",
+      "source_url": "https://github.com/IlanStrauss/ai-skills",
+      "sync": "manual vendor snapshot",
+      "vendored_commit": null
+    },
+    {
+      "commercial_use": "unknown",
       "id": "38-peternka-academic-proofreader",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
@@ -573,7 +633,7 @@
     {
       "commercial_use": "unknown",
       "id": "39-vincentarelbundock-marginaleffects",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -588,7 +648,7 @@
     {
       "commercial_use": "unknown",
       "id": "40-py-econometrics-pyfixest",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -603,7 +663,7 @@
     {
       "commercial_use": "unknown",
       "id": "41-sticerd-eee-sewage-econometrics-check",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
       "origin": "vendored upstream",
@@ -618,13 +678,13 @@
     {
       "commercial_use": "unknown",
       "id": "42-wanshuiyin-ARIS",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "UNKNOWN - check upstream",
       "license_file": null,
-      "origin": "vendored upstream",
+      "origin": "vendored upstream snapshot. The upstream skills-codex / skills-codex-*-review runtime ports (OpenAI Codex CLI variants of the same skills) remain on disk but are excluded from skill discovery since 2026-07-22 (see scripts/skill_discovery.py).",
       "path": "skills/42-wanshuiyin-ARIS",
       "security_review": "SECURITY-SCAN-REPORT.md",
-      "skill_count": 104,
+      "skill_count": 42,
       "source_confidence": "medium",
       "source_url": "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep",
       "sync": "manual vendor snapshot",
@@ -633,7 +693,7 @@
     {
       "commercial_use": "allowed",
       "id": "43-wentorai-research-plugins",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored upstream",
@@ -648,7 +708,7 @@
     {
       "commercial_use": "allowed",
       "id": "44-matsuikentaro1-humanizer_academic",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/44-matsuikentaro1-humanizer_academic/LICENSE",
       "origin": "vendored upstream",
@@ -663,7 +723,7 @@
     {
       "commercial_use": "allowed",
       "id": "45-stephenturner-skill-deslop",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/45-stephenturner-skill-deslop/LICENSE",
       "origin": "vendored upstream",
@@ -678,7 +738,7 @@
     {
       "commercial_use": "allowed",
       "id": "46-hardikpandya-stop-slop",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/46-hardikpandya-stop-slop/LICENSE",
       "origin": "vendored upstream",
@@ -693,7 +753,7 @@
     {
       "commercial_use": "allowed",
       "id": "47-conorbronsdon-avoid-ai-writing",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/47-conorbronsdon-avoid-ai-writing/LICENSE",
       "origin": "vendored upstream",
@@ -708,7 +768,7 @@
     {
       "commercial_use": "share-alike",
       "id": "48-copaper-ai-chinese-de-aigc",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "CC-BY-SA-4.0 (repository default)",
       "license_file": null,
       "origin": "first-party AERS skill",
@@ -723,7 +783,7 @@
     {
       "commercial_use": "restricted",
       "id": "49-voidborne-d-humanize-chinese",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT Non-Commercial",
       "license_file": "skills/49-voidborne-d-humanize-chinese/LICENSE",
       "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
@@ -738,13 +798,13 @@
     {
       "commercial_use": "allowed",
       "id": "50-brycewang-aer-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/50-brycewang-aer-skills/LICENSE",
       "origin": "first-party upstream mirror",
       "path": "skills/50-brycewang-aer-skills",
       "security_review": "SECURITY-SCAN-REPORT.md",
-      "skill_count": 14,
+      "skill_count": 15,
       "source_confidence": "high",
       "source_url": "https://github.com/brycewang-stanford/AER-skills",
       "sync": "weekly GitHub Actions sync",
@@ -753,7 +813,7 @@
     {
       "commercial_use": "allowed",
       "id": "51-pymc-labs-CausalPy",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "Apache-2.0",
       "license_file": "skills/51-pymc-labs-CausalPy/LICENSE",
       "origin": "vendored upstream snapshot (causalpy/skills component) 2026-06-01",
@@ -768,7 +828,7 @@
     {
       "commercial_use": "allowed",
       "id": "52-keemanxp-slr-prisma",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/52-keemanxp-slr-prisma/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01",
@@ -783,7 +843,7 @@
     {
       "commercial_use": "allowed",
       "id": "53-keemanxp-thematic-analysis-skill",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/53-keemanxp-thematic-analysis-skill/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01",
@@ -798,7 +858,7 @@
     {
       "commercial_use": "restricted",
       "id": "54-scdenney-open-science-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "CC-BY-NC-4.0 (non-commercial)",
       "license_file": "skills/54-scdenney-open-science-skills/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01 (Claude-native skills only; -codex variants and presubmit excluded)",
@@ -813,7 +873,7 @@
     {
       "commercial_use": "allowed",
       "id": "55-ab604-claude-code-r-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/55-ab604-claude-code-r-skills/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01",
@@ -828,7 +888,7 @@
     {
       "commercial_use": "allowed",
       "id": "56-hanlulong-econ-writing-skill",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/56-hanlulong-econ-writing-skill/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01",
@@ -843,7 +903,7 @@
     {
       "commercial_use": "allowed",
       "id": "57-dgunning-edgartools",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/57-dgunning-edgartools/LICENSE",
       "origin": "vendored upstream snapshot (edgar/ai/skills component) 2026-06-01",
@@ -858,7 +918,7 @@
     {
       "commercial_use": "allowed",
       "id": "58-charlescoverdale-econstack",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored snapshot 2026-06-01; MIT declared in upstream README (badge + License section), no separate LICENSE file upstream",
@@ -873,7 +933,7 @@
     {
       "commercial_use": "allowed",
       "id": "59-shiquda-openalex-skill",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/59-shiquda-openalex-skill/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01",
@@ -888,7 +948,7 @@
     {
       "commercial_use": "allowed",
       "id": "60-regisely-superpapers",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/60-regisely-superpapers/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01",
@@ -903,7 +963,7 @@
     {
       "commercial_use": "allowed",
       "id": "61-phdemotions-research-methods",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/61-phdemotions-research-methods/LICENSE",
       "origin": "vendored upstream snapshot 2026-06-01",
@@ -918,7 +978,7 @@
     {
       "commercial_use": "allowed",
       "id": "62-PHY041-claude-skill-citation-checker",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": null,
       "origin": "vendored snapshot 2026-06-01; MIT declared in upstream README (## License), no separate LICENSE file upstream",
@@ -933,7 +993,7 @@
     {
       "commercial_use": "allowed",
       "id": "63-tondevrel-scientific-agent-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/63-tondevrel-scientific-agent-skills/LICENSE",
       "origin": "vendored upstream snapshot (dowhy + lifelines subset; dowhy SKILL.MD renamed to SKILL.md) 2026-06-01",
@@ -948,7 +1008,7 @@
     {
       "commercial_use": "share-alike",
       "id": "64-tmonk-mcp-stata",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "AGPL-3.0",
       "license_file": "skills/64-tmonk-mcp-stata/LICENSE",
       "origin": "vendored upstream snapshot (plugin/skills component only — 20 SKILL.md skills + LICENSE; Python/Rust MCP server, installers, tests excluded) 2026-06-03. AGPL-3.0 retained as a separately-licensed aggregate; not relicensed under the repo default.",
@@ -963,7 +1023,7 @@
     {
       "commercial_use": "share-alike",
       "id": "65-game-theory-paper-writer",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "CC-BY-SA-4.0",
       "license_file": null,
       "origin": "original community contribution via PR #17 (game-theory paper-writing skill); no external upstream — repo-default license applies",
@@ -978,7 +1038,7 @@
     {
       "commercial_use": "share-alike",
       "id": "66-zheng-siyao-empirical-research-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "GPL-3.0",
       "license_file": null,
       "origin": "vendored upstream snapshot (7 SKILL.md skills) from SiyaoZheng/ai4ss-skills (郑思尧 / AI4SS) 2026-06-15; contributed via PR #18",
@@ -993,7 +1053,7 @@
     {
       "commercial_use": "unknown",
       "id": "67-econfin-workflow-toolkit",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "Mixed (per-skill; see folder)",
       "license_file": null,
       "origin": "community contribution via PR #22 (econ/finance research workflow toolkit). Proprietary Anthropic office skills (docx/pdf/pptx/xlsx) and general-purpose UI skills (frontend-design, ui-ux-pro-max) removed before vendoring 2026-06-18.",
@@ -1008,13 +1068,13 @@
     {
       "commercial_use": "unknown",
       "id": "68-research-productivity-skills",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "Mixed (per-skill; see folder)",
       "license_file": null,
-      "origin": "community contribution via PR #21 (research productivity skills). Proprietary Anthropic office skills (docx/pdf/pptx/xlsx) and general-purpose UI skills (frontend-design, ui-ux-pro-max) removed before vendoring 2026-06-18.",
+      "origin": "community contribution via PR #21 (research productivity skills). Proprietary Anthropic office skills (docx/pdf/pptx/xlsx) and general-purpose UI skills (frontend-design, ui-ux-pro-max) removed before vendoring 2026-06-18. 13 skills byte-identical to copies in 67-econfin-workflow-toolkit removed 2026-07-22 (67 is canonical; see collection README).",
       "path": "skills/68-research-productivity-skills",
       "security_review": "SECURITY-SCAN-REPORT.md",
-      "skill_count": 18,
+      "skill_count": 5,
       "source_confidence": "medium",
       "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/pull/21",
       "sync": "manual vendor snapshot",
@@ -1023,7 +1083,7 @@
     {
       "commercial_use": "allowed",
       "id": "69-Paper-WorkFlow",
-      "last_aers_review": "2026-05-31",
+      "last_aers_review": "2026-07-22",
       "license": "MIT",
       "license_file": "skills/69-Paper-WorkFlow/LICENSE",
       "origin": "vendored upstream",
@@ -1031,37 +1091,68 @@
       "security_review": "SECURITY-SCAN-REPORT.md",
       "skill_count": 1,
       "source_confidence": "medium",
-      "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
+      "source_url": "https://github.com/brycewang-stanford/Paper-WorkFlow",
       "sync": "manual vendor snapshot",
+      "vendored_commit": null
+    },
+    {
+      "commercial_use": "share-alike",
+      "id": "70-ssci-polish",
+      "last_aers_review": "2026-07-22",
+      "license": "CC-BY-SA-4.0 (repository default)",
+      "license_file": null,
+      "origin": "direct community contribution",
+      "path": "skills/70-ssci-polish",
+      "security_review": "SECURITY-SCAN-REPORT.md",
+      "skill_count": 1,
+      "source_confidence": "high",
+      "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
+      "sync": "manual",
+      "vendored_commit": null
+    },
+    {
+      "commercial_use": "allowed",
+      "id": "71-brycewang-lit-review-agent-tools",
+      "last_aers_review": "2026-07-22",
+      "license": "CC0-1.0",
+      "license_file": "skills/71-brycewang-lit-review-agent-tools/LICENSE",
+      "origin": "first-party team repo; vendored snapshot of skills/literature-review-tools",
+      "path": "skills/71-brycewang-lit-review-agent-tools",
+      "security_review": "SECURITY-SCAN-REPORT.md",
+      "skill_count": 1,
+      "source_confidence": "high",
+      "source_url": "https://github.com/brycewang-stanford/lit-review-agent-tools",
+      "sync": "manual",
       "vendored_commit": null
     }
   ],
   "generated_by": "scripts/build-provenance.py",
-  "scan_date": "2026-05-31",
+  "scan_date": "2026-07-22",
   "schema_version": "1.0",
   "summary": {
-    "collections": 69,
+    "collections": 75,
     "commercial_use": {
-      "allowed": 36,
+      "allowed": 38,
       "restricted": 2,
-      "share-alike": 7,
-      "unknown": 24
+      "share-alike": 8,
+      "unknown": 27
     },
     "licenses": {
       "AGPL-3.0": 1,
       "Apache-2.0": 1,
       "CC-BY-NC-4.0 (non-commercial)": 1,
       "CC-BY-SA-4.0": 1,
-      "CC-BY-SA-4.0 (repository default)": 4,
+      "CC-BY-SA-4.0 (repository default)": 5,
+      "CC0-1.0": 1,
       "GPL-3.0": 1,
-      "MIT": 35,
+      "MIT": 36,
       "MIT Non-Commercial": 1,
       "Mixed (per-skill; see folder)": 2,
-      "UNKNOWN - check upstream": 22
+      "UNKNOWN - check upstream": 25
     },
     "source_confidence": {
-      "high": 38,
-      "low": 6,
+      "high": 40,
+      "low": 10,
       "medium": 21,
       "unresolved": 4
     }

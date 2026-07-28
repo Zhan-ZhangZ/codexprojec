@@ -89,7 +89,66 @@ The **Econometrics AI Agent** is a sibling, so treat it as a peer to measure, no
 This produces an apples-to-apples comparison on correctness, not vibes — and surfaces where
 each project is strong.
 
+### The candidate protocol, step by step
+
+Any agent (Econometrics-Agent, a Claude Code session, a LangGraph pipeline, a
+human with Stata) is graded the same way. The whole exchange is one JSON file;
+nothing about the harness assumes which runtime produced it.
+
+1. **Pick tasks.** Every task spec in [`benchmark/tasks/`](../benchmark/tasks/) is a
+   self-contained TOML: the dataset path, the story to hand your agent as a
+   prompt (the `description`), and the graded fields. The datasets are small
+   CSVs committed in [`benchmark/data/`](../benchmark/data/).
+2. **Run your agent on the data.** Give it the dataset and the task story —
+   *not* the gold values. It must produce the numeric fields named in the
+   task's `gold` entries (e.g. `bartik_beta`, `ols_beta`, `first_stage_coef`
+   for `bartik-recovery`).
+3. **Drop a results file.** Write
+   `benchmark/candidates/<your-agent-name>/results.json`:
+
+   ```json
+   {
+     "task": "bartik-recovery",
+     "method": "one line describing what your pipeline did",
+     "bartik_beta": 0.5,
+     "ols_beta": 1.1568,
+     "first_stage_coef": 1.0
+   }
+   ```
+
+   One directory per run; one results.json per task (use one directory per
+   task, or grade task by task with `--task`).
+4. **Grade.** `python3 benchmark/check_benchmark.py --task <task-id>` grades
+   every candidate directory that declares that task. The checker recomputes
+   all data-derived golds from the CSV itself, so reported numbers that don't
+   match the data fail the `honest-*` checks — an agent cannot pass by
+   guessing plausible values.
+5. **Report both columns.** Pair the numeric score with the prose-side eval
+   (`eval-harness/run_evals.py --grade <dir>`) so the comparison covers both
+   "got the right number" and "reasoned about the right pitfalls".
+
+The reference implementations in
+[`benchmark/reference_pipeline.py`](../benchmark/reference_pipeline.py) are the
+floor, not the ceiling: they are deliberately simple stdlib pipelines that any
+competent agent should match exactly on the deterministic tasks.
+
+## Live scoreboard
+
+The same harness that grades *your* agent grades the reference pipeline and a
+constructed "naive baseline" (the folk move on each task) every time the
+catalog regenerates:
+
+- [`BENCHMARK_SCOREBOARD.md`](BENCHMARK_SCOREBOARD.md) — per-task
+  required-gold counts for reference vs naive, with the naive move each
+  task is designed to catch.
+
+  Latest commit on `main`: reference 16/16 tasks pass every required gold;
+  the naive baseline fails required golds on 16/16 tasks. That is the gap
+  your agent is expected to stay inside (or close further).
+
 ## MCP wiring note
+
+
 
 [Open Deep Research](https://github.com/langchain-ai/open_deep_research) has full MCP
 support, and several AERS data sources are exposed as MCP servers (e.g. FRED, OpenAlex via

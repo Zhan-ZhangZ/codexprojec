@@ -1,0 +1,82 @@
+id = "statspai-mediation-assumptions"
+skill = "skills/00-Full-empirical-analysis-skill_StatsPAI"
+title = "Mediation analysis must state sequential ignorability, adjust mediator-outcome confounders, and run sensitivity analysis"
+category = "causal-identification"
+severity = "high"
+context_data = []
+
+prompt = """
+In my randomized job-training experiment, training raised earnings. I want to
+know HOW MUCH of that effect runs through obtaining an occupational
+certification (the mediator) versus other channels. Plan and write up the
+mediation analysis the way a careful applied paper would.
+"""
+
+[[rubric]]
+id = "sequential-ignorability"
+check = "regex_any"
+required = true
+weight = 4
+description = "States that mediation needs an extra, untestable assumption beyond randomization (sequential ignorability: no unmeasured mediator-outcome confounding)."
+patterns = [
+  '(?i)sequential ignorability',
+  '(?i)mediator.{0,40}(confound|not randomized|as.?if random)',
+  '(?i)randomiz(ation|ed).{0,60}not.{0,30}mediator',
+  '(?i)unmeasured.{0,30}(mediator|confound)',
+  '(?i)untestable assumption',
+]
+
+[[rubric]]
+id = "no-naive-mediator-control"
+check = "regex_any"
+required = true
+weight = 4
+description = "Does NOT treat 'regress Y on T and M' as the direct effect without confounder adjustment — flags that conditioning on the mediator opens bias (collider / mediator-outcome confounding)."
+patterns = [
+  '(?i)(conditioning|controlling) (on|for) (the )?mediator.{0,60}(bias|collider|confound)',
+  '(?i)collider',
+  '(?i)mediator.?outcome confound',
+  '(?i)post.?treatment (variable|conditioning)',
+  '(?i)not (simply|just).{0,30}(control|adjust).{0,20}mediator',
+]
+
+[[rubric]]
+id = "nde-nie-decomposition"
+check = "regex_any"
+required = true
+weight = 3
+description = "Defines the estimands: natural direct/indirect effects (or ACME/ADE) that decompose the total effect, rather than vague 'mechanism' language."
+patterns = [
+  '(?i)natural (direct|indirect) effect',
+  '(?i)\bNDE\b',
+  '(?i)\bNIE\b',
+  '(?i)\bACME\b',
+  '(?i)\bADE\b',
+  '(?i)(total effect|decompos).{0,40}(direct|indirect)',
+]
+
+[[rubric]]
+id = "sensitivity-analysis"
+check = "regex_any"
+required = true
+weight = 3
+description = "Plans a sensitivity analysis for the unconfoundedness of the mediator (rho / Imai-Keele-Yamamoto style or e-value reasoning) instead of asserting the assumption."
+patterns = [
+  '(?i)sensitivity analysis',
+  '(?i)\brho\b.{0,40}(sensitivity|correlation of errors)',
+  '(?i)imai.{0,25}(keele|yamamoto)',
+  '(?i)how (strong|large).{0,40}confound.{0,40}(overturn|explain away)',
+  '(?i)e.?value',
+]
+
+[[rubric]]
+id = "interaction-allowed"
+check = "regex_any"
+required = false
+weight = 1
+description = "Allows (or tests for) exposure-mediator interaction rather than assuming the product method's constant-effects world."
+patterns = [
+  '(?i)(exposure|treatment).?mediator interaction',
+  '(?i)interaction (between|of).{0,30}(treatment|mediator)',
+  '(?i)product method.{0,50}(assum|only valid)',
+]
