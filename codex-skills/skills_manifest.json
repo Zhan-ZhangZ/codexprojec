@@ -1265,5 +1265,12 @@
         "category": "05_多媒体与设计资产",
         "folder": "KrillinAI",
         "relative_path": "./00_全局大管家/05_多媒体与设计资产/KrillinAI"
+    },
+    {
+        "name": "nuwa-skill",
+        "description": "女娲造人：输入人名/主题/模糊需求，自动深度调研、提炼思维框架，生成可运行的人物数字分身 Skill。Leading Words: 人物思维蒸馏, 认知框架提取, 数字分身造人, 决策顾问Agent",
+        "category": "07_智能体框架与协同",
+        "folder": "nuwa-skill",
+        "relative_path": "./00_全局大管家/07_智能体框架与协同/nuwa-skill"
     }
 ]
