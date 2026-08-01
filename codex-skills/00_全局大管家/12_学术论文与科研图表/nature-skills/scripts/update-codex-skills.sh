@@ -3,8 +3,8 @@
 # update-codex-skills.sh — install / update Nature Skills into Codex.
 #
 # Codex loads skills from ~/.codex/skills/. This script copies every top-level
-# skill folder shipped in this repository's skills/ directory, plus the shared
-# _shared/ dir, into that location.
+# skill folder shipped in this repository's skills/ directory, including the
+# nature-shared support package, into that location.
 #
 # It is intended for users who install the skills by manual copy rather than
 # via the Codex plugin marketplace. Running it again later updates an existing
@@ -77,6 +77,9 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -gt 0 ] || die "--dest requires a directory"
       DST="$1"
       ;;
+    --dest=*)
+      DST="${1#*=}"
+      ;;
     --help|-h)
       usage
       exit 0
@@ -112,7 +115,7 @@ trap 'rm -f "$SKILL_LIST" "$DIFF_OUT"' EXIT
 for path in "$SRC"/*/; do
   [ -d "$path" ] || continue
   name="$(basename "$path")"
-  if [ "$name" != "_shared" ] && [ ! -f "$path/SKILL.md" ]; then
+  if [ ! -f "$path/SKILL.md" ]; then
     die "unexpected skills/$name directory without SKILL.md"
   fi
   printf '%s\n' "$name" >> "$SKILL_LIST"
@@ -150,6 +153,11 @@ print_dependency_notes() {
   if [ -f "$SRC/nature-paper-to-patent/requirements.txt" ]; then
     notes=1
     echo "    python -m pip install -r $SRC/nature-paper-to-patent/requirements.txt"
+    if [ -f "$SRC/nature-paper-to-patent/scripts/disclosure/requirements-cnipa.txt" ]; then
+      echo "    # optional: CNIPA published-patent search"
+      echo "    python -m pip install -r $SRC/nature-paper-to-patent/scripts/disclosure/requirements-cnipa.txt"
+      echo "    python -m playwright install chromium"
+    fi
   fi
   if [ -f "$SRC/nature-academic-search/mcp-server/requirements.txt" ]; then
     notes=1
