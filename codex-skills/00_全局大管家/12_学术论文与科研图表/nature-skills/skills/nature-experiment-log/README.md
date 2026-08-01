@@ -1,62 +1,48 @@
-# experiment-log
+# `nature-experiment-log` 技能
 
-标准化实验日志记录工具。接收图片、语音、文字等原始材料，自动生成带 YAML frontmatter 的结构化日志。
+[English](README_EN.md)
 
-## 这是什么
-
-不是"帮我记实验"——它是一套标准化的日志管线：接收原始材料 → 提取结构化信息 → 生成唯一 ID → 写出标准格式日志 → 归档原始文件。
-
-适用于任何需要规范实验记录的研究领域。
-
-## 安装
-
-```bash
-git clone https://github.com/Jiahao8595/research-pipeline.git
-cp -r research-pipeline/experiment-log ~/.hermes/skills/
-```
-
-安装后 `/reload-skills`。
-
-**前置依赖：**
-
-```bash
-hermes skills install feishu-cli-integration   # 飞书消息接收（路径 B）
-hermes skills install obsidian                 # vault 文件管理
-```
+`nature-experiment-log` 用于把实验图片、语音、文字和零散观察整理成可追溯的结构化实验日志，并写入 Obsidian 或普通 Markdown 工作流。
 
 ## 使用方式
 
-**路径 A — CLI 直接提交：**
-```
-"记录一个实验：今天在 500°C 做了 316L 的氯盐腐蚀，300h，Ar 气氛，失重 0.0032g"
-```
-附上图片，agent 会 vision_analyze 提取信息并生成标准日志。
+- 在当前会话直接上传图片、音频、语音转录或文字。
+- 提供本地文件或文件夹路径，由 agent 读取并整理。
+- 可选使用 `feishu-cli-integration` 从飞书群获取消息和附件。
+- 输出可以保存到普通本地文件夹，也可以写入 Obsidian vault；未指定目录时，先返回可保存的 Markdown。
 
-**路径 B — 飞书提交：**
-把实验照片和语音发到配置好的飞书群，agent 自动扫描并处理。
+## 适合用它做什么
 
-## 文件结构
+- 将当天实验记录整理成带 YAML frontmatter 的标准日志。
+- 从照片、显微图、称量记录、仪器截图或语音转写中提取实验要素。
+- 为样品、条件、观察、异常、下一步动作和原始附件建立稳定链接。
+- 把飞书、聊天记录或 CLI 输入中的原始材料归档为同一套实验记录格式。
 
-```
-experiment-log/
-├── SKILL.md                    ← 技能入口
-├── README.md                   ← 本文件
-└── references/
-    └── example-log.md          ← 完整日志示例
-```
+## 典型请求
 
-## 核心设计
+- “记录一个实验：316L 在 500°C 氯盐腐蚀 300 h，Ar 气氛，失重 0.0032 g。”
+- “把这几张实验照片整理成今天的 Obsidian 实验日志。”
+- “根据这段语音转写补一条标准实验记录，并列出缺失信息。”
 
-- **统一 ID 体系** — 体系代码 + 设备代码 + 日期 + 序号，跨实验可追踪
-- **样品批次追踪** — 同一批样品 ID 一致，dataview 可查
-- **YAML frontmatter** — 结构化数据 + 自由文本，既人可读又机器可查
-- **飞书 CLI 集成** — 手机拍照发群 → 自动入 vault
-- **异常追踪** — 自动检测异常并追加到异常记录
+## 你需要提供
 
-## 自定义
+- 实验日期、样品、条件、处理步骤、观察结果或原始附件。
+- 目标 vault / 输出目录；如果没有指定，技能会先生成可保存的 Markdown。
+- 需要固定的命名规则、项目编号或样品编号。
 
-设备代码、体系代码、实验类型目录全部可按你的实验室配置。详见 SKILL.md 中的「自定义指南」。
+## 产出
 
-## 作者
+- 一条带 YAML frontmatter 的实验日志。
+- 对原始图片、音频、表格或聊天记录的附件索引。
+- 缺失字段清单和后续实验动作建议。
 
-十五 (JL Lab)
+## 边界
+
+- 不会替作者编造温度、时间、配比、设备型号或实验结果。
+- 对无法从材料中确认的信息，会保留 `AUTHOR_INPUT_NEEDED` 或中文确认项。
+- 核心流程不依赖飞书或 Obsidian；只有使用相应集成时，才需要本机 CLI、bot 权限或 vault 目录权限。
+
+## 相关技能
+
+- `nature-data`：把实验数据整理成投稿用 Data Availability 与 FAIR 清单。
+- `nature-figure`：把实验数据或图像进一步做成投稿级图件。
