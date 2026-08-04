@@ -1,0 +1,16 @@
+* text=auto eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+LICENSE text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf

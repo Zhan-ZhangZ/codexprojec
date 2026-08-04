@@ -1272,5 +1272,19 @@
         "category": "07_智能体框架与协同",
         "folder": "nuwa-skill",
         "relative_path": "./00_全局大管家/07_智能体框架与协同/nuwa-skill"
+    },
+    {
+        "name": "technical-proposal-expert-writing-skill",
+        "description": "软件工程常用文档模板及示例，包含项目计划、需求分析、概要设计等各类技术文档范本，用于辅助编写技术标书与相关文档。",
+        "category": "06_商业与专业领域",
+        "folder": "technical-proposal-expert-writing-skill",
+        "relative_path": "./00_全局大管家/06_商业与专业领域/technical-proposal-expert-writing-skill"
+    },
+    {
+        "name": "engineering-tender-writer",
+        "description": "Draft, restructure, review, and refine Chinese technical tender proposals for engineering and science projects. Use when working on 技术标书、服务方案、研究内容、建设方案、技术路线、模型或算法方案、性能验收、技术参数响应表、点对点响应，or when extracting requirements from DOCX/Markdown tender materials and checking clause coverage, indicator consistency, task boundaries, unsupported commitments, and formal bid-writing style.",
+        "category": "06_商业与专业领域",
+        "folder": "engineering-tender-writer",
+        "relative_path": "./00_全局大管家/06_商业与专业领域/engineering-tender-writer"
     }
 ]

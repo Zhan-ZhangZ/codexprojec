@@ -1,0 +1,4 @@
+interface:
+  display_name: "理工科技术标书撰写"
+  short_description: "系统编制、核查和优化理工科技术标书及点对点响应文案"
+  default_prompt: "使用 $engineering-tender-writer 分析招标要求并编制可核查的技术标书文案。"
