@@ -1,1290 +1,1479 @@
 [
-    {
-        "name": "00_codex_skills",
-        "description": "全局技能库大管家（Librarian Router）。当你需要调用任何领域的专家技能（如代码、写作、科研、部署等）时，请唤醒此技能。它将自动为您寻址并加载最完美的专业子技能。",
-        "category": "00_全局大管家",
-        "folder": "00_全局大管家",
-        "relative_path": "./"
-    },
-    {
-        "name": "LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
-        "description": "提供陈光剑编写的关于 LLM-based Multi-Agent 系统的理论基础、架构模式与项目实战指南。涵盖大语言模型特性、多智能体协作、Prompt工程，以及架构落地。当需要设计复杂的Agent协同系统或查阅MAS理论时使用。Leading Words: MAS架构设计, 多智能体协同, Prompt工程, LLM基础理论, 系统架构设计",
-        "category": "01_代码工程与架构",
-        "folder": "LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice"
-    },
-    {
-        "name": "sentry-triage",
-        "description": "Sentry 线上错误实时诊断与修复助手。免去了人工复制堆栈的繁琐，利用 Composio CLI 直连 Sentry 获取异常明细、用户行为面包屑（Breadcrumbs）及嫌疑 Commit，自动将报错调用栈映射到本地源码，并输出热修复（Hotfix）方案。Leading Words: Sentry错误日志分析, 线上异常诊断, 调用栈映射, 自动Hotfix定位, 行为面包屑排查",
-        "category": "01_代码工程与架构",
-        "folder": "sentry-triage",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/sentry-triage"
-    },
-    {
-        "name": "brooks-lint",
-        "description": "深度的架构与代码防退化审查工具（Linter）。融合六大软件工程经典名著理念，用于发起重量级的 PR 评审（Code Review）、架构坏味道诊断（Architecture Audit）、技术债评估与单元测试质量审查。当需要对关键组件进行严格的重构或质量把控时调用。Leading Words: 深度代码审查, PR Review, 架构退化审计, 技术债评估, 测试用例质量, 软件工程规范",
-        "category": "01_代码工程与架构",
-        "folder": "brooks-lint",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/brooks-lint"
-    },
-    {
-        "name": "codebase-recon",
-        "description": "陌生代码库快速摸底与侦查工具。接手新项目前必用，通过解析 Git 提交历史，秒级生成代码热点地图、高风险变更区域（Risk Areas）、团队开发结构与项目演进动能，从而在未深入阅读源码前建立全局视角与代码健康度认知。Leading Words: 代码库侦查, Git历史分析, 变更热点地图, 项目健康度评估, 陌生代码上手, 依赖拓扑",
-        "category": "01_代码工程与架构",
-        "folder": "codebase-recon",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/codebase-recon"
-    },
-    {
-        "name": "git-workflow-skill",
-        "description": "标准的 Git 工作流与最佳实践约束器。接管并规范所有的 Git 操作：强制执行语义化分支命名（Branching）、规范化提交信息（Conventional Commits）、冲突解决原则以及标准化的 PR（Pull Request）生命周期管理。兼容 Claude Code 环境。Leading Words: Git工作流规范, 语义化提交, 分支管理策略, 冲突解决机制, PR流程自动化",
-        "category": "01_代码工程与架构",
-        "folder": "git-workflow-skill",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/git-workflow-skill"
-    },
-    {
-        "name": "planning-with-files",
-        "description": "长线任务记忆与文件级进度规划引擎。让 Codex 通过读写本地 Markdown 文件来结构化地记录开发计划、执行进度和上下文状态。专为复杂的大型长期项目设计，彻底解决对话过长导致的“遗忘”和“偏离路线”问题。Leading Words: 文件级进度规划, 长期项目跟踪, Markdown任务记忆, 状态上下文留存, 长线任务执行",
-        "category": "01_代码工程与架构",
-        "folder": "planning-with-files",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/planning-with-files"
-    },
-    {
-        "name": "superpowers",
-        "description": "严格模式工程素养约束器。强制 Agent 遵循测试驱动开发（TDD）理念：在改动代码前必须先写测试用例，并在编写完后主动触发边界条件检测和代码自省（Linter），根绝“看起来能跑但有暗坑”的随性修改。Leading Words: 测试驱动开发 TDD, 严格代码质量约束, 边界用例覆盖, 主动Linter检查, 零隐患开发",
-        "category": "01_代码工程与架构",
-        "folder": "superpowers",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/superpowers"
-    },
-    {
-        "name": "vercel-agent-skills",
-        "description": "Vercel 官方标准的前端项目质检探针。专门针对 React / Next.js 等 Web 应用进行深度体检，全面覆盖页面性能优化（Web Vitals）、DOM结构合理性、无障碍访问（Accessibility/a11y）以及现代前端工程最佳实践规范。Leading Words: Vercel前端规范, React性能优化, 网页可访问性 a11y, Web Vitals, Next.js最佳实践",
-        "category": "01_代码工程与架构",
-        "folder": "vercel-agent-skills",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/vercel-agent-skills"
-    },
-    {
-        "name": "codebase-migrate",
-        "description": "执行超大规模代码库迁移与多文件批量重构的自动化管家。深度集成 Composio CLI，通过自动化 Issue 追踪、分批次提交 PR 以及 CI 自动化校验，实现在本地安全、稳定地跨越数百个文件执行代码 AST 转换或重构操作。Leading Words: 大规模代码重构, 批量文件迁移, AST转换, Composio CI/CD集成, 自动化PR管理",
-        "category": "01_代码工程与架构",
-        "folder": "codebase-migrate",
-        "relative_path": "./00_全局大管家/01_代码工程与架构/codebase-migrate"
-    },
-    {
-        "name": "datadog-logs",
-        "description": "Datadog 终端日志分析与检索专家。利用 Composio CLI 穿透系统壳层查询和过滤 Datadog 日志，支持跨服务/环境的范围检索，并将结构化 JSON 导出供下游代理使用，彻底告别在 Datadog UI 中的繁琐点击。Leading Words: Datadog日志查询, Composio集成, 跨环境日志检索, JSON日志导出, 自动化监控追踪",
-        "category": "02_DevOps与自动化",
-        "folder": "datadog-logs",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/datadog-logs"
-    },
-    {
-        "name": "gh-fix-ci",
-        "description": "基于 GitHub CLI 的 CI 修复专家。自动拉取失败的 GitHub Actions 运行日志，总结报错上下文，生成修复计划并在授权后直接将修复代码提交至远程 PR。Leading Words: GitHub Actions排错, CI流水线修复, 自动提取错误日志, PR热修复补丁",
-        "category": "02_DevOps与自动化",
-        "folder": "gh-fix-ci",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/gh-fix-ci"
-    },
-    {
-        "name": "gh-address-comments",
-        "description": "GitHub PR Code Review 自动回复与代码整改助手。读取 PR 下的评审意见，对问题进行自动归类并询问用户确认，随后结合上下文生成修复补丁，自动解决 Review 阻碍。Leading Words: GitHub PR评审回复, Code Review问题整改, 自动修复审查意见, PR交互式排障",
-        "category": "02_DevOps与自动化",
-        "folder": "gh-address-comments",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/gh-address-comments"
-    },
-    {
-        "name": "langsmith-fetch",
-        "description": "LangSmith 智能体执行轨迹抓取与调试分析器。用于诊断 LangChain 或 LangGraph 的内部行为。自动从 LangSmith Studio 抓取执行 Trace、分析工具调用耗时与记忆操作模式。调试 Agent 幻觉或执行链断裂时必用。Leading Words: LangSmith轨迹抓取, LangGraph行为调试, Agent执行Trace分析, 工具调用监控",
-        "category": "02_DevOps与自动化",
-        "folder": "langsmith-fetch",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/langsmith-fetch"
-    },
-    {
-        "name": "pr-review-ci-fix",
-        "description": "跨平台自动 PR 评审与 CI 修复闭环工具。利用 Composio CLI 兼容 GitHub 与 GitLab。拉取 Diff、捕获失败流水线日志、自动发布 Review 评论，并通过自回归提交（Loop fix commits）直至所有 CI 状态变绿。Leading Words: Github/Gitlab兼容, 自动PR评审, CI失败闭环修复, 自回归代码修复",
-        "category": "02_DevOps与自动化",
-        "folder": "pr-review-ci-fix",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/pr-review-ci-fix"
-    },
-    {
-        "name": "mcp-github-pr-issue-analyser",
-        "description": "基于 MCP 协议的 GitHub PR 审查与 Issue 管理服务器。将复杂的 PR Diff 抓取、Issue 生命周期流转封装为标准工具协议。Leading Words: MCP协议服务, GitHub PR深度分析, Issue生命周期自动化管理, MCP工具集成",
-        "category": "02_DevOps与自动化",
-        "folder": "mcp-github-pr-issue-analyser",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/mcp-github-pr-issue-analyser"
-    },
-    {
-        "name": "webapp-testing",
-        "description": "本地 Web 应用 Playwright 自动化测试与调试套件。支持原生 Python 编写端到端测试用例，验证前端交互逻辑，并自动管理测试服务器生命周期及页面状态快照。Leading Words: Playwright端到端测试, Web前端自动化验证, UI交互调试, 本地测试服务器挂载",
-        "category": "02_DevOps与自动化",
-        "folder": "webapp-testing",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/webapp-testing"
-    },
-    {
-        "name": "deploy-pipeline",
-        "description": "端到端跨平台部署流水线大管家。深度集成 Composio CLI，一键拉起跨 Stripe、Supabase 和 Vercel 的协同发布：同步推送 Stripe 产品配置、执行 Supabase 数据库迁移、发布 Vercel 静态/SSR 资源，并执行自动化部署后校验（Post-deploy checks）。Leading Words: 端到端部署, CI/CD流水线, Stripe配置同步, Supabase数据迁移, Vercel发布",
-        "category": "02_DevOps与自动化",
-        "folder": "deploy-pipeline",
-        "relative_path": "./00_全局大管家/02_DevOps与自动化/deploy-pipeline"
-    },
-    {
-        "name": "File-Organizer-MCP",
-        "description": "基于 MCP 协议的本地文件自动化整理服务器。支持 Claude、Cursor、Gemini CLI 等多端挂载，提供跨系统的文件搬运、分类和重命名底层工具支持。Leading Words: MCP文件整理服务, 跨端MCP挂载, 目录自动化重构, 文件分类API",
-        "category": "03_效率工具与协同管理",
-        "folder": "File-Organizer-MCP",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/File-Organizer-MCP"
-    },
-    {
-        "name": "notion-meeting-intelligence",
-        "description": "Notion 智能会议管家。提取 Notion 上下文并进行前置调研，自动起草会议议程、会前必读材料，并根据参会者量身定制沟通策略。Leading Words: Notion会议助手, 自动起草议程, 会前调研材料, 会议上下文检索",
-        "category": "03_效率工具与协同管理",
-        "folder": "notion-meeting-intelligence",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-meeting-intelligence"
-    },
-    {
-        "name": "notion-research-documentation",
-        "description": "Notion 跨库文献调研与文档合成器。从多个 Notion 数据库/页面采集信息，提取要点并整合为带有准确引用来源的结构化报告、竞品分析或简报。Leading Words: Notion文献调研, 跨数据库检索, 结构化报告合成, 知识提取引用",
-        "category": "03_效率工具与协同管理",
-        "folder": "notion-research-documentation",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-research-documentation"
-    },
-    {
-        "name": "notion-knowledge-capture",
-        "description": "Notion 会话级知识沉淀器。将零散的聊天记录或头脑风暴草稿，自动转化为具备良好双向链接（Bi-directional linking）、结构清晰的 Notion Wiki 百科词条、SOP 教程或 FAQ。Leading Words: Notion双链Wiki沉淀, 聊天碎片化梳理, SOP流程文档化, 知识库捕获",
-        "category": "03_效率工具与协同管理",
-        "folder": "notion-knowledge-capture",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-knowledge-capture"
-    },
-    {
-        "name": "notion-spec-to-implementation",
-        "description": "Notion PRD 规格转换为研发排期执行工具。自动解析 Notion 产品需求文档（PRDs / Feature Specs），并切分为可操作的实施计划、任务拆解大纲，同时同步更新 Notion 任务板进度。Leading Words: Notion PRD拆解, 需求规格转任务, 实施计划生成, 任务跟踪同步",
-        "category": "03_效率工具与协同管理",
-        "folder": "notion-spec-to-implementation",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-spec-to-implementation"
-    },
-    {
-        "name": "ai-news-radar",
-        "description": "AI 前沿资讯雷达。自动抓取并总结最新的 AI 行业新闻、模型发布动态及前沿研究论文，提供一手的科技情报摘要。Leading Words: AI资讯抓取, 前沿技术雷达, 科技新闻摘要, 模型动态跟踪",
-        "category": "03_效率工具与协同管理",
-        "folder": "ai-news-radar",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/ai-news-radar"
-    },
-    {
-        "name": "browser-skill",
-        "description": "让智能体静默接管本地已登录浏览器的自动化扩展 (BrowserSkill)。由腾讯开源，允许 Agent 操作本地浏览器执行复杂网页任务而不打断用户工作流程。自带人机接管 (Human-in-loop) 支持。",
-        "category": "03_效率工具与协同管理",
-        "folder": "browser-skill",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/browser-skill"
-    },
-    {
-        "name": "browser-use",
-        "description": "基于 Browser-Use 的本地浏览器接管工具。为大语言模型提供通用浏览器控制能力，自动执行网页导航、表单填写和信息抓取等繁琐任务。Leading Words: 浏览器自动化接管, 网页导航控制, 表单自动填写, 通用Web操作",
-        "category": "03_效率工具与协同管理",
-        "folder": "browser-use",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/browser-use"
-    },
-    {
-        "name": "hk-finance-mcp-server",
-        "description": "香港金融市场数据中心 MCP 服务器。通过 FastMCP 接口提供实时或历史的 HK 金融衍生品、股票行情及财经指标数据接入。Leading Words: 香港金融数据接口, MCP行情服务器, 港股财经数据抓取, FastMCP挂载",
-        "category": "03_效率工具与协同管理",
-        "folder": "hk-finance-mcp-server",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/hk-finance-mcp-server"
-    },
-    {
-        "name": "mcp-linear",
-        "description": "基于 MCP 协议的 Linear 服务。将 Linear 的底层 API 包装为自然语言可调用的 MCP 工具集，适用于解耦的智能体挂载使用。Leading Words: MCP Linear接口, 自然语言项目流转, MCP状态管理",
-        "category": "03_效率工具与协同管理",
-        "folder": "mcp-linear",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/mcp-linear"
-    },
-    {
-        "name": "obsidian-vault-mcp",
-        "description": "基于 MCP 协议的 Obsidian Vault 文件检索挂载服务。专供 Open WebUI 或 Claude Desktop 穿透读取本地 Vault 笔记流。Leading Words: Obsidian MCP检索, 跨端Vault读取, 知识流提取, 本地笔记挂载",
-        "category": "03_效率工具与协同管理",
-        "folder": "obsidian-vault-mcp",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/obsidian-vault-mcp"
-    },
-    {
-        "name": "playwright-mcp",
-        "description": "微软官方 Playwright 浏览器自动化操控引擎 (MCP)。赋予智能体开启无头/有头浏览器、执行页面元素审查、点击输入及端到端 UI 测试的能力。作为物理世界的视觉交互之手。Leading Words: Playwright浏览器自动化操控, 微软官方端到端UI测试, 无头浏览器元素审查交互, MCP代理服务页面点击",
-        "category": "03_效率工具与协同管理",
-        "folder": "playwright-mcp",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/playwright-mcp"
-    },
-    {
-        "name": "meeting-notes-and-actions",
-        "description": "标准化会议纪要与行动项（Action Items）提炼器。将 Zoom/Teams 长语音转文字稿浓缩为结构化的大纲，精准圈出最终决议（Decisions）、风险预警（Risks）及绑定到特定负责人的执行项。Leading Words: 会议纪要浓缩, Action Items提取, 风险决策捕获, 结构化会议提要",
-        "category": "03_效率工具与协同管理",
-        "folder": "meeting-notes-and-actions",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/meeting-notes-and-actions"
-    },
-    {
-        "name": "meeting-insights-analyzer",
-        "description": "会议录音心理与沟通模式深度洞察器。剖析会议逐字稿，提取人类行为特征（如回避冲突、语气词滥用、话语霸权等），提供可落地的高管沟通与领导力复盘建议。Leading Words: 沟通行为心理学分析, 会议话语霸权诊断, 领导力表达复盘, 语气词纠正",
-        "category": "03_效率工具与协同管理",
-        "folder": "meeting-insights-analyzer",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/meeting-insights-analyzer"
-    },
-    {
-        "name": "internal-comms",
-        "description": "内部沟通规范文案撰写器。按照企业既定的格式偏好撰写内部状态报告、高管更新、项目通报及事件复盘（Incident reports）等规范化文档。Leading Words: 内部规范文案撰写, 项目进度状态报告, 结构化Incident报告起草, 团队公文",
-        "category": "03_效率工具与协同管理",
-        "folder": "internal-comms",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/internal-comms"
-    },
-    {
-        "name": "support-ticket-triage",
-        "description": "全渠道客服工单智能分类与自动化回复分诊台。处理 Zendesk、Intercom 等导出的原始报文，进行意图分类、定级（Priority），并起草包含复现步骤的标准话术回复。Leading Words: Zendesk工单分诊, 客服报文分类, Intercom优先级定级, 标准化话术起草",
-        "category": "03_效率工具与协同管理",
-        "folder": "support-ticket-triage",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/support-ticket-triage"
-    },
-    {
-        "name": "issue-triage",
-        "description": "Linear / Jira 敏捷看板工单分流清道夫。通过 Composio CLI 在后台批量获取缺陷积压（Bug sweeps）、执行去重、重新打标（Relabel）、指派处理人并生成工单分流汇总报告。Leading Words: Jira工单分流, Linear敏捷看板清理, Bug去重分析, Composio任务指派",
-        "category": "03_效率工具与协同管理",
-        "folder": "issue-triage",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/issue-triage"
-    },
-    {
-        "name": "skill-share",
-        "description": "Agent 技能创建与 Slack 自动分发广播器。自动将你在本地新编写的 Claude 技能打包，并通过 Rube 协议一键推送到企业 Slack 频道中共享，实现团队协作与技能发现发现。Leading Words: 技能自动打包分发, Slack广播协同, Rube推送, Agent生态共享",
-        "category": "03_效率工具与协同管理",
-        "folder": "skill-share",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/skill-share"
-    },
-    {
-        "name": "agent-deep-links",
-        "description": "跨 IDE 协议深层跳转链接 (Deep Links) 构建与强验工具。专用于将晦涩的终端路径转化为能在 Slack / Discord 一键唤醒的超链接URI。支持 Cursor、VS Code 及 Codex 原生协议，并包含协议头可用性兜底诊断。Leading Words: 跨IDE协议Deep Links构建, Slack超链接快速唤醒, Cursor/VSCode协议头, 终端路径状态验证诊断",
-        "category": "03_效率工具与协同管理",
-        "folder": "agent-deep-links",
-        "relative_path": "./00_全局大管家/03_效率工具与协同管理/agent-deep-links"
-    },
-    {
-        "name": "paperjsx",
-        "description": "PaperJSX 结构化跨格式报表编译发布系统。以 JSON 为统一输入源，通过 JSX 语法模板自动生成高度定制的 PPTX 幻灯片、DOCX 报告、XLSX 数据表及 PDF。一键多端发布输出。Leading Words: PaperJSX渲染引擎, JSON驱动报表生成, 多格式自动化排版, JSX幻灯片编译",
-        "category": "04_内容创作与文档处理",
-        "folder": "paperjsx",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/paperjsx"
-    },
-    {
-        "name": "anysearch-skill",
-        "description": "全网聚合检索能力接口。支持多平台文献、百科与开源信息库并发查询，专为需要深度前置调研与多方信源交叉验证的内容创作工作流设计。Leading Words: 全网多态检索, 跨源聚合查询, 前置内容调研",
-        "category": "04_内容创作与文档处理",
-        "folder": "anysearch-skill",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/anysearch-skill"
-    },
-    {
-        "name": "canghe-tianyancha",
-        "description": "企业全维背调与商业情报看板生成器。输入公司/行业名，并行抓取并生成单文件 HTML 仪表板（Dashboard），一览无余地呈现工商变更、司法风险、知识产权及在招岗位数据。Leading Words: 天眼查工商背调, 商业情报抓取, 司法风险预警, 单文件HTML看板",
-        "category": "04_内容创作与文档处理",
-        "folder": "canghe-tianyancha",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/canghe-tianyancha"
-    },
-    {
-        "name": "dbskill",
-        "description": "中文自媒体爆款选题与标题诊断剖析专家。专精于小红书标题、商业短图文表达、开篇 Hook 设计及爆款对标拆解。Leading Words: 自媒体爆款拆解, 小红书标题诊断, 商业内容表达, 流量选题剖析",
-        "category": "04_内容创作与文档处理",
-        "folder": "dbskill",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/dbskill"
-    },
-    {
-        "name": "diasporic-intelligence",
-        "description": "离散情报学 (Diasporic Intelligence) 与非裔时间主义文化引文溯源与审查框架。在涉及该文化内容生成时，严守信源溯源、同意管治及谱系边界，防止生物特征提取及祖先伪造。Leading Words: Diasporic Intelligence审查, 文化信源溯源保护, Afrotemporalism, 防止生物提取",
-        "category": "04_内容创作与文档处理",
-        "folder": "diasporic-intelligence",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/diasporic-intelligence"
-    },
-    {
-        "name": "humanize-text",
-        "description": "AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除",
-        "category": "04_内容创作与文档处理",
-        "folder": "humanize-text",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/humanize-text"
-    },
-    {
-        "name": "khazix-skills",
-        "description": "万字深度长文与重型研究报告架构师。内置复杂的写作推理流，专攻科技热点分析、万字长文拆解重构与极具深度的硬核观点输出（如微信公众号科技评论）。Leading Words: 万字长文架构, 重型写作流, 科技热点深度评论, 硬核观点拆解",
-        "category": "04_内容创作与文档处理",
-        "folder": "khazix-skills",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/khazix-skills"
-    },
-    {
-        "name": "markitdown",
-        "description": "文档与图文跨模态转换至 Markdown 格式的编译神器。可以将任何复杂的 Office 格式文档、带有数学公式的 PDF 及图文混排文章完美清洗并逆向还原为干净、纯粹的 Markdown。Leading Words: Office转Markdown, 复杂图文提取, 文档格式清洗与逆向",
-        "category": "04_内容创作与文档处理",
-        "folder": "markitdown",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/markitdown"
-    },
-    {
-        "name": "notebooklm",
-        "description": "Google NotebookLM 跨端检索与反幻觉引用源交互器。在 CLI 端直连 NotebookLM 的底层引擎，仅依赖你的私有语料库进行溯源问答（基于 Gemini），彻底切断外部大模型幻觉，并支持持久化认证与浏览器库管理。Leading Words: NotebookLM穿透查询, 反幻觉溯源问答, 零幻觉私有语料检索, 持久化认证挂载",
-        "category": "04_内容创作与文档处理",
-        "folder": "notebooklm-skill",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/notebooklm-skill"
-    },
-    {
-        "name": "novel-writing",
-        "description": "虚构文学与长篇小说创作统筹沙盘。囊括世界观架构、主线章节大纲起草、场景分镜续写与文学级别的文字表现力修改评审。Leading Words: 长篇虚构文学架构, 场景分镜续写, 世界观大纲起草, 文学表现力评审",
-        "category": "04_内容创作与文档处理",
-        "folder": "novel-writing",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/novel-writing"
-    },
-    {
-        "name": "paddleocr-doc-parsing",
-        "description": "基于 PaddleOCR 的全版面复杂文档解构引擎。不仅提取文本，更针对复杂研报与论文进行版面还原：完美识别带行列跨度的 HTML 表格、独立还原数学公式及抽离核心图表排版位置。Leading Words: PaddleOCR版面解构, 复杂研报提取, 跨列表格还原, 数学公式提取",
-        "category": "04_内容创作与文档处理",
-        "folder": "paddleocr-doc-parsing",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/paddleocr-doc-parsing"
-    },
-    {
-        "name": "qiaomu-anything-to-notebooklm",
-        "description": "万物皆可转存 Google NotebookLM 的知识桥梁。自动捕获任意格式的外部资料库（网页摘要、社群对话流或本地零散文档），并无缝推送为 NotebookLM 可消费的基础源。Leading Words: 万物转NotebookLM, 跨格式私有化注入, 外部资料库无缝推流",
-        "category": "04_内容创作与文档处理",
-        "folder": "qiaomu-anything-to-notebooklm",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/qiaomu-anything-to-notebooklm"
-    },
-    {
-        "name": "stop-slop",
-        "description": "AI 文本去机甲化 (Stop Slop)。专用于剔除 AI 生成文本中的套话、可预测的短语结构与模式，强制模型抛弃“AI味”的写作习惯，让行文恢复真实人类质感。附带丰富的违禁词参考库。",
-        "category": "04_内容创作与文档处理",
-        "folder": "stop-slop",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/stop-slop"
-    },
-    {
-        "name": "unslop",
-        "description": "自动化反俗套与去注水内容洗稿引擎。深度检测过度营销、刻意煽情及冗长拖沓的 AI 味文案，精准削去无用长句，还原紧凑扎实的文本信息密度。Leading Words: 去AI味文本清洗, 反冗长注水, 紧凑高信息密度提炼, 洗稿去营销感",
-        "category": "04_内容创作与文档处理",
-        "folder": "unslop",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/unslop"
-    },
-    {
-        "name": "tailored-resume-generator",
-        "description": "职位描述精准打击型 (JD-Tailored) 简历重塑专家。通过对齐 JD 核心要求，将过往杂乱的经验提炼为量化成就（Achievements）与高匹配度技能点，最大化简历投递过筛率。Leading Words: JD精准打击提炼, 简历经验量化重塑, 高匹配度简历生成, 面试过筛率优化",
-        "category": "04_内容创作与文档处理",
-        "folder": "tailored-resume-generator",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/tailored-resume-generator"
-    },
-    {
-        "name": "changelog-generator",
-        "description": "面向用户的 Git 更新日志 (Changelog) 自动化提炼翻译器。分析生硬枯燥的代码 Commit History，按新特性、修复等分类，转化为极具人类可读性、高大上的 Release Notes 发布公告。Leading Words: 自动化Changelog生成, Commit历史翻译, 客户友好型发布公告, Git Release Notes",
-        "category": "04_内容创作与文档处理",
-        "folder": "changelog-generator",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/changelog-generator"
-    },
-    {
-        "name": "spreadsheet-formula-helper",
-        "description": "极客级电子表格函数大师与跨方言调试专家。精通 Excel 与 Google Sheets 之间的公式翻译。自动编写嵌套数组公式、复杂数据透视表规则，并生成带边界用例（Edge-case checks）的数据验证测试台。Leading Words: 嵌套数组公式调试, 复杂数据透视表, Excel与Sheets方言翻译, 表格边界用例测试",
-        "category": "04_内容创作与文档处理",
-        "folder": "spreadsheet-formula-helper",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/spreadsheet-formula-helper"
-    },
-    {
-        "name": "email-draft-polish",
-        "description": "职场与商业级邮件语料润色起草专家。精细调节冷启动触达（Cold Outreach）、项目状态汇报或危机升级（Escalations）类邮件的语气与长短，确保高信噪比与职场专业度。Leading Words: 商业邮件冷触达起草, 职场危机沟通升维, 语气长短调节, 高信噪比汇报",
-        "category": "04_内容创作与文档处理",
-        "folder": "email-draft-polish",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/email-draft-polish"
-    },
-    {
-        "name": "mediacrawler",
-        "description": "全矩阵跨平台社交媒体高匿爬虫引擎 (MediaCrawler)。采用 Playwright 挂载、扫码 / Cookie 会话保持，成功规避小红书、抖音、B站等平台的严厉风控反爬策略，合法合规提取帖子及评论区舆情。Leading Words: 全矩阵社交媒体爬虫, Playwright防反爬绕过, 评论区舆情提取, 小红书抖音帖子抓取",
-        "category": "05_多媒体与设计资产",
-        "folder": "MediaCrawler",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/MediaCrawler"
-    },
-    {
-        "name": "slack-gif-creator",
-        "description": "面向企业 Slack 团队沟通的企业级表情包与 GIF 动态图生成器。内置严格的体积与尺寸验证器，以代码或文字组合生成搞怪、夸张的动效短片，极大提升团队破冰与沟通乐趣。Leading Words: Slack动图生成, 企业表情包自动化, 搞怪动效渲染",
-        "category": "05_多媒体与设计资产",
-        "folder": "slack-gif-creator",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/slack-gif-creator"
-    },
-    {
-        "name": "theme-factory",
-        "description": "全能型 UI 主题与调色板构建工坊。内嵌数十种现代前沿设计风格（如玻璃拟物化、赛博朋克、极简瑞士风），自动为各类报告、HTML 落地页、组件库推演计算出具有高级美感的色阶与排版参数。Leading Words: 现代UI调色板推演, 设计系统主题切换, 玻璃拟物化CSS, 极简高雅配色",
-        "category": "05_多媒体与设计资产",
-        "folder": "theme-factory",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/theme-factory"
-    },
-    {
-        "name": "baoyu-skills",
-        "description": "自媒体高保真知识图解与全能视觉资产包装车间。专注公众号长图、封面图及逻辑结构可视化。将抽象观点与长文提炼为精美的信息图（Infographics）和图解，极致增强中文内容传播力。Leading Words: 高保真图解可视化, 抽象逻辑制图, 公众号视觉资产包装, 信息图Infographics生成",
-        "category": "05_多媒体与设计资产",
-        "folder": "baoyu-skills",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/baoyu-skills"
-    },
-    {
-        "name": "canghe-douyin-downloader",
-        "description": "抖音短视频无水印下载与语音切片提取器。支持解析抖音链接、剥离水印，并可结合硅基流动（SiliconFlow）API 将短视频背景音轨或旁白一键转录为高准确度的文字稿。Leading Words: 抖音无水印提取, 视频音轨分离, 硅基流动语音转录, 短视频文案抓取",
-        "category": "05_多媒体与设计资产",
-        "folder": "canghe-douyin-downloader",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/canghe-douyin-downloader"
-    },
-    {
-        "name": "canghe-manga-style-video",
-        "description": "多语境漫画风格视频渲染生成引擎。基于火山引擎 Ark API，支持将提示词或原视频渲染为 8 种专业漫画风格（涵盖日漫、国风水墨、美式漫威卡通等）。Leading Words: 漫画风格视频渲染, 火山引擎Ark集成, 国风水墨转换, 动漫视频生成",
-        "category": "05_多媒体与设计资产",
-        "folder": "canghe-manga-style-video",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/canghe-manga-style-video"
-    },
-    {
-        "name": "cinema-manager",
-        "description": "私人 NAS 影音媒体库刮削整理大管家。全自动排查本地或网盘影视资源，支持根据分辨率/音轨多维筛选、通过夸克网盘转存，并严格按照 Plex/Infuse 媒体库标准执行刮削重命名。Leading Words: NAS影音库刮削, Plex标准重命名, 影视资源筛选分类, 夸克网盘转存",
-        "category": "05_多媒体与设计资产",
-        "folder": "cinema-manager",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/cinema-manager"
-    },
-    {
-        "name": "claude-real-video",
-        "description": "一款能够让大语言模型（LLM）“看懂”视频的本地视觉增强技能。它通过自动场景检测、滑动窗口去重提取出最关键的视频帧，并结合 Whisper 提取双语字幕与时间轴，最终输出让智能体可以原生阅读的纯本地视频内容清单。",
-        "category": "05_多媒体与设计资产",
-        "folder": "claude-real-video",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/claude-real-video"
-    },
-    {
-        "name": "frontend-slides",
-        "description": "极客型前端代码驱动幻灯片引擎。将 React/Vue 或纯 HTML 结构化数据编译为极具交互性与全屏视觉冲击力的高清展示文稿，专供研发团队架构分享使用。Leading Words: 代码驱动幻灯片, 前端交互式演讲, 极客级演示文稿生成",
-        "category": "05_多媒体与设计资产",
-        "folder": "frontend-slides",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/frontend-slides"
-    },
-    {
-        "name": "generative-media-skills",
-        "description": "全模态 AI 媒体生成工坊 (AIGC Toolbox)。通过集成 MuAPI 提供跨图像、视频与音频的生成能力。专攻产品宣传片、高互动 UGC 视频及社交短片制作。注意：强依赖底层 API 计费。Leading Words: 全模态视频生成, 产品宣传片AIGC, UGC短片制作, MuAPI媒体调用",
-        "category": "05_多媒体与设计资产",
-        "folder": "generative-media-skills",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/generative-media-skills"
-    },
-    {
-        "name": "guizang-ppt-skill",
-        "description": "顶级网页级 HTML 交互幻灯片生成架构师。专精渲染横向滚动、带 WebGL 流体背景的单文件网页 PPT。提供极具视觉冲击力的「电子杂志风」与「瑞士国际主义（Swiss Style）」双主题，彻底颠覆传统 PPT 体验。Leading Words: 单文件网页PPT, WebGL流体背景, Swiss Style瑞士国际风格, 杂志风幻灯片排版",
-        "category": "05_多媒体与设计资产",
-        "folder": "guizang-ppt-skill",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-ppt-skill"
-    },
-    {
-        "name": "guizang-social-card-skill",
-        "description": "Guizang 系社交网络裂变卡片与双封面矩阵生成器。针对小红书图文（3:4）、微信公众号（21:9+1:1 首尾封面），自动将长文文案解构重组为瑞士杂志风格的高格调轮播图集。Leading Words: 小红书高逼格图文卡片, 公众号双封面生成, Swiss Style杂志排版, 社交裂变卡片",
-        "category": "05_多媒体与设计资产",
-        "folder": "guizang-social-card-skill",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-social-card-skill"
-    },
-    {
-        "name": "html-anything",
-        "description": "Markdown 至高保真 HTML 渲染及截图生成器。通过纯代码将枯燥的纯文本降维打击，直接转换为带高阶 CSS 样式的单页面杂志、知识分享长图和小红书卡片 PNG。Leading Words: Markdown转HTML卡片, 高阶CSS排版, 知识分享长图生成, 纯代码海报渲染",
-        "category": "05_多媒体与设计资产",
-        "folder": "html-anything",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/html-anything"
-    },
-    {
-        "name": "html-ppt-skill",
-        "description": "纯文本极速渲染 HTML 演示文稿生成器。跳过繁琐的 Office 排版，直接将脑暴思路映射为轻量级、跨终端响应式、支持浏览器一键开启的 HTML 格式 PPT。Leading Words: HTML轻量级PPT, 跨终端响应式演示, 思路直出排版",
-        "category": "05_多媒体与设计资产",
-        "folder": "html-ppt-skill",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/html-ppt-skill"
-    },
-    {
-        "name": "huashu-design",
-        "description": "高维视觉冲击力信息图谱设计室（huashu-design）。通过提炼干瘪的长篇文本逻辑，重新规划为带高阶透视、空间感与复杂版面调配的 infographic，打造一图胜千言的视觉资产。Leading Words: 高维透视信息图谱, 空间感图解渲染, 复杂版面重构, Infographic资产",
-        "category": "05_多媒体与设计资产",
-        "folder": "huashu-design",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/huashu-design"
-    },
-    {
-        "name": "hyperframes",
-        "description": "高阶线框图（Wireframe）与极简视觉框架生成引擎。专为产品早起脑暴与交互探讨而生，以极具克制力的高反差黑白灰和工业感线条，极速出图，直击核心需求逻辑。Leading Words: 工业级高反差线框图, 产品早期交互脑暴, 极简克制风视觉推演",
-        "category": "05_多媒体与设计资产",
-        "folder": "hyperframes",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/hyperframes"
-    },
-    {
-        "name": "lottie",
-        "description": "工业生产级 Lottie 矢量动效编码引擎。接受人类设计的意图描述，直接生成极度轻量级、可通过 JSON 文件部署至前端 Web/App 的交互式矢量动画 (Lottie)。Leading Words: 工业级Lottie JSON生成, 前端矢量交互动效, App UI动态设计, Web交互无损动画",
-        "category": "05_多媒体与设计资产",
-        "folder": "lottie",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/lottie"
-    },
-    {
-        "name": "ppt-master",
-        "description": "企业级沉浸式商业 PPT 大师。不只做版式堆砌，而是构建以商业画布、SWOT、增长漏斗为底层骨架的重型幻灯片。强视觉冲击与深商业逻辑完美融合。Leading Words: 重型商业PPT构建, 漏斗模型排版可视化, 沉浸式宣发幻灯片",
-        "category": "05_多媒体与设计资产",
-        "folder": "ppt-master",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/ppt-master"
-    },
-    {
-        "name": "remotion-skills",
-        "description": "Remotion 官方前端代码级视频编排引擎。赋予 Agent 利用 React.js 框架精细控制每一帧动画与时间轴的能力。专为生成数据排行榜赛马视频、财报周报与可编程的视频工业化生产而生。Leading Words: React编排生成视频, Remotion时间轴控制, 数据排行榜视频生产, 前端代码级视频渲染",
-        "category": "05_多媒体与设计资产",
-        "folder": "remotion-skills",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/remotion-skills"
-    },
-    {
-        "name": "ui-ux-pro-max-skill",
-        "description": "Pro Max 级现代 UI/UX 工业设计系统与美学法则宪章。内含数百条原子化 (Atomic Design) 交互审查原则，强制规范大模型产出 Tailwind/CSS 时的间距、色彩与排版，并植入用户心智模型与无障碍 (a11y) 规范。Leading Words: UI/UX工业设计系统审查, AtomicDesign美学法则, a11y无障碍交互排版, Tailwind/CSS间距色彩强制规范",
-        "category": "05_多媒体与设计资产",
-        "folder": "ui-ux-pro-max-skill",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/ui-ux-pro-max-skill"
-    },
-    {
-        "name": "video-use",
-        "description": "对话式非线性视频全功能剪辑工作流 (Video-use)。利用自然语言完成极度复杂的音视频任务：包括语音转录对齐、硬核粗剪切、色彩调色（Color Grade）、内嵌字幕烧录以及叠加层渲染。Leading Words: 对话式非线性剪辑, 音视频时间轴粗剪, 色彩校正Color Grade, 烧录内嵌字幕",
-        "category": "05_多媒体与设计资产",
-        "folder": "video-use",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/video-use"
-    },
-    {
-        "name": "videocut-skills",
-        "description": "中文语境原生短视频矩阵量产编导助手。让大模型深刻理解国内短视频（快手 / 视频号 / 抖音）制作标准，完成本地素材分拣、字幕精准踩点及批量化剪辑流水线架构设计。Leading Words: 中文短视频矩阵编导, 字幕踩点对齐, 本地剪辑素材分拣, 视频号流水线架构",
-        "category": "05_多媒体与设计资产",
-        "folder": "videocut-skills",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/videocut-skills"
-    },
-    {
-        "name": "xiaohongshu-mcp",
-        "description": "小红书平台 MCP Server（Go 实现）。通过 go-rod 浏览器自动化提供 14 项 MCP 工具：扫码登录、图文/视频发布（支持定时）、Feed 推荐流、关键词搜索、笔记详情与评论抓取、评论/回复发送、点赞/收藏、用户主页获取。支持 Docker / 二进制 / 浏览器插件三种部署方式。Leading Words: 小红书MCP服务, 图文视频自动发布, Feed搜索与评论抓取, go-rod浏览器自动化",
-        "category": "05_多媒体与设计资产",
-        "folder": "xiaohongshu-mcp",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/xiaohongshu-mcp"
-    },
-    {
-        "name": "competitive-ads-extractor",
-        "description": "竞品投放广告库爬取与转化漏斗分析器。穿透 Facebook / LinkedIn Ad Libraries，自动提炼竞品的营销核心诉求、痛点话术和创意素材模板，用于反向推演并优化己方广告转化（ROAS）。Leading Words: 竞品广告库提取, FB广告投放拆解, 营销转化漏斗分析, 痛点话术提炼",
-        "category": "05_多媒体与设计资产",
-        "folder": "competitive-ads-extractor",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/competitive-ads-extractor"
-    },
-    {
-        "name": "Amazon-Skills",
-        "description": "亚马逊 A9 算法电商精细化运营操盘手。系统级涵盖 Listing 白帽埋词优化、FBA 仓储成本测算、PPC 广告竞价防守架构，以及竞品 Review 的真实性穿透审计，助力跨境大卖。Leading Words: 亚马逊A9算法埋词, FBA成本核算, PPC广告防守架构, 跨境电商Listing优化",
-        "category": "06_商业与专业领域",
-        "folder": "Amazon-Skills",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/Amazon-Skills"
-    },
-    {
-        "name": "AmazonSeller-mcp-server",
-        "description": "亚马逊官方卖家后台 (Seller Central) 库存与刊登 MCP 桥接器。提供安全接口实现店铺多仓库存盘点、ASIN 刊登自动化流转及跨平台的库存安全警戒水位同步。Leading Words: 亚马逊卖家后台MCP集成, ASIN刊登自动化, FBA多仓库存盘点, 跨境店铺库存对齐",
-        "category": "06_商业与专业领域",
-        "folder": "AmazonSeller-mcp-server",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/AmazonSeller-mcp-server"
-    },
-    {
-        "name": "CAD-MCP",
-        "description": "2D 平面工程制图 MCP 服务。作为通用翻译器，允许 AI 通过自然语言直接操控 AutoCAD、中望 CAD (ZWCAD) 和浩辰 CAD (GstarCAD) 进行绘图、图层管理和尺寸标注。仅支持 Windows 系统。",
-        "category": "06_商业与专业领域",
-        "folder": "CAD-MCP",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/CAD-MCP"
-    },
-    {
-        "name": "LexParse-MCP",
-        "description": "LexParse MCP | Claude 法律文书结构化 MCP 服务。支持中国大陆与香港法律体系，一键把判决书、合同、起诉状等法律文件（PDF/Word/文本）转为结构化 JSON，自动提取当事人、案情事实、法律依据、判决结果和风险条款，并进行风险比对。",
-        "category": "06_商业与专业领域",
-        "folder": "LexParse-MCP",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/LexParse-MCP"
-    },
-    {
-        "name": "MODBUS-MCP",
-        "description": "工业 Modbus 协议通讯控制 MCP。支持通过 Modbus TCP、UDP 或 Serial/RTU 串口方式与工业设备建立连接，执行读取/写入线圈和寄存器操作以控制 PLC、传感器和执行机构。",
-        "category": "06_商业与专业领域",
-        "folder": "MODBUS-MCP",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/MODBUS-MCP"
-    },
-    {
-        "name": "OPCUA-MCP",
-        "description": "标准工业 OPC UA 客户端 MCP。支持自动浏览现场设备节点命名空间，高频读取/写入设备数据项，并可直接调用 OPC UA 服务器内部暴露的方法进行状态切换。",
-        "category": "06_商业与专业领域",
-        "folder": "OPCUA-MCP",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/OPCUA-MCP"
-    },
-    {
-        "name": "Vibe-Lawyering",
-        "description": "⚖️ 法律人的 AI 工具箱。聚合中国法律领域优质 Agent Skills、法律数据库 MCP 工具与 AI 教育资源的开源社区项目。",
-        "category": "06_商业与专业领域",
-        "folder": "Vibe-Lawyering",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/Vibe-Lawyering"
-    },
-    {
-        "name": "altium-designer-mcp",
-        "description": "Altium Designer 元器件库智能化管理 MCP。辅助管理 AD 库中的封装、原理图符号并进行参数校验，提升硬件设计的元器件建库效率。",
-        "category": "06_商业与专业领域",
-        "folder": "altium-designer-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/altium-designer-mcp"
-    },
-    {
-        "name": "altium-eda-agent",
-        "description": "Altium Designer 深度自动化与智能协作 MCP。内置 300 多个开发工具，通过 DelphiScript 桥接与 Altium 交互，支持自然语言触发设计走线、器件网表分析与连接驱动的智能布局。",
-        "category": "06_商业与专业领域",
-        "folder": "altium-eda-agent",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/altium-eda-agent"
-    },
-    {
-        "name": "amazon_sp_mcp",
-        "description": "亚马逊 Selling Partner API (SP-API) 销售与运营数据集成 MCP。支持读取店铺每日销售额、财务报告、买家退货分析及订单列表，辅助进行多维度的店铺数据盘点与经营状况分析。",
-        "category": "06_商业与专业领域",
-        "folder": "amazon_sp_mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/amazon_sp_mcp"
-    },
-    {
-        "name": "arduino-cli-mcp",
-        "description": "Arduino CLI 官方硬件级嵌入式编译与烧录网关 (MCP)。支持解析并编译本地工程、管理第三方开发板包与库依赖，可自动化完成固件（ESP8266/ESP32/Arduino）烧录及串口通信调试。Leading Words: 嵌入式固件编译烧录, Arduino CLI集成MCP, ESP32开发板调试, 硬件串口通信",
-        "category": "06_商业与专业领域",
-        "folder": "arduino-cli-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/arduino-cli-mcp"
-    },
-    {
-        "name": "buywhere-mcp",
-        "description": "东南亚本土电商生态 (Shopee/Lazada) 跨平台竞品与定价侦察兵 (MCP)。自动化爬取并横向对比同款 SKU 在全网的阶梯定价、实时库存及买家负面评价，精准辅助爆款选品及卡位定价策略。Leading Words: 东南亚跨境电商选品, Shopee/Lazada竞品监控, SKU全网比价侦察, 爆款卡位定价策略",
-        "category": "06_商业与专业领域",
-        "folder": "buywhere-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/buywhere-mcp"
-    },
-    {
-        "name": "china-law",
-        "description": "中国大陆司法管辖区全案由法律实务大脑。底层直连北大法宝 MCP 及 2,190 部本地成文法核心库。覆盖 45 项业务流，从起诉状代写、法条溯源检索到裁判文书胜诉率统计无缝衔接。Leading Words: 中国法律实务办理, 北大法宝MCP集成, 裁判文书胜诉率分析, 诉状代写与法条溯源",
-        "category": "06_商业与专业领域",
-        "folder": "china-law",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/china-law"
-    },
-    {
-        "name": "digikey_mcp",
-        "description": "DigiKey 官方全球电子元器件供应链寻源雷达 (MCP)。支持根据规格参数或特定 MPN 反查实时全球库存水位、阶梯报价，以及自动化寻找同规 (Drop-in) 替代料型号。Leading Words: DigiKey元器件寻源, 全球电子供应链库存, 替代料型号反查, 阶梯报价多维检索",
-        "category": "06_商业与专业领域",
-        "folder": "digikey_mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/digikey_mcp"
-    },
-    {
-        "name": "eCommerce-Skills",
-        "description": "跨境电商泛平台 (Amazon/Shopify/TikTok) 全链路运营智囊库。提供 140+ 工业级原生 Prompt 与业务流模板。横扫独立站选品、本土化客服话术、广告投放优化及跨平台财务对账业务。Leading Words: 跨境电商全链路运营, 独立站Shopify选品, TikTok Shop营销话术, 泛平台财务对账",
-        "category": "06_商业与专业领域",
-        "folder": "eCommerce-Skills",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/eCommerce-Skills"
-    },
-    {
-        "name": "ebay-mcp",
-        "description": "eBay 官方店群自动化运营中枢 (MCP)。深度封装 300+ 个底层 Sell API 端点。能够完全托管 SKU 在线刊登、海外仓发货面单流转、自动打折促销活动 (Promotions) 及全景销量盘点。Leading Words: eBay自动化店群运营, Sell API深度封装, SKU在线刊登流转, 面单打印与促销折扣",
-        "category": "06_商业与专业领域",
-        "folder": "ebay-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/ebay-mcp"
-    },
-    {
-        "name": "embedded-debugger-mcp",
-        "description": "底层探针级 (probe-rs) 硬件在线断点调试控制台 (MCP)。无缝挂载 J-Link / ST-Link 等仿真器，直连 ARM Cortex-M 与 RISC-V 内核芯片，实现汇编级单步执行、寄存器穿透与裸机固件热烧录。Leading Words: 底层硬件断点单步调试, probe-rs仿真器直连, 寄存器读写与热烧录, ARM/RISC-V内核级控制",
-        "category": "06_商业与专业领域",
-        "folder": "embedded-debugger-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/embedded-debugger-mcp"
-    },
-    {
-        "name": "freecad-mcp",
-        "description": "FreeCAD 3D 机械图纸参数化建模拓扑生成器 (MCP)。完全舍弃 GUI，使用自然语言驱动底层的拓扑特征引擎完成拉伸、布尔打孔、倒角倒圆角操作，并支持无头环境大批量转换 STEP/STL 制造级模型。Leading Words: 3D机械参数化建模, FreeCAD拓扑特征引擎, 自然语言驱动布尔打孔, STEP/STL无头批量生成",
-        "category": "06_商业与专业领域",
-        "folder": "freecad-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/freecad-mcp"
-    },
-    {
-        "name": "ha-mcp-python",
-        "description": "Home Assistant 极客版智能家居自动化 YAML 注入引擎 (MCP)。赋予大模型接管全局设备的权限。可读取异构传感器状态，全自动编排与调试复杂的智能场景 YAML 剧本。Leading Words: HA智能家居全局接管, 异构传感器状态读取, 自动化YAML剧本编排, 智能场景调试网关",
-        "category": "06_商业与专业领域",
-        "folder": "ha-mcp-python",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/ha-mcp-python"
-    },
-    {
-        "name": "home-assistant-mcp",
-        "description": "Home Assistant 官方原生 IoT 硬件反向代理控制面板 (MCP)。支持基于 stdio 或高并发 SSE 连接，用自然语言下发指令至局域网开关、恒温器，快速验证硬件状态与自动化规则的触发点。Leading Words: HA官方IoT硬件控制, SSE远程状态代理, 自然语言执行家居指令, 自动化规则触发验证",
-        "category": "06_商业与专业领域",
-        "folder": "home-assistant-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/home-assistant-mcp"
-    },
-    {
-        "name": "jlcpcb-parts-mcp",
-        "description": "嘉立创 SMT (PCBA) 供应链可制造性查询雷达 (MCP)。在前置硬件设计期（Schematic 阶段）穿透检索立创库实时贴片库存、阶梯加工费与基础库匹配，避免后续制造时因缺件导致的换板成本。Leading Words: 嘉立创SMT贴片寻源, 可制造性前置校验, PCBA阶梯加工费, 基础库/扩展库选型",
-        "category": "06_商业与专业领域",
-        "folder": "jlcpcb-parts-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/jlcpcb-parts-mcp"
-    },
-    {
-        "name": "kicad-mcp-automation",
-        "description": "KiCad 工业级硬件工程全生命周期流水线管控台 (MCP)。无需开启 IDE 即可基于 CLI 运行高强度的 ERC / DRC 刚性规则拦截。全自动组装标准 BMO 表单并无损导出合规的 Gerber 制造文件投板。Leading Words: KiCad硬件工程自动化, ERC/DRC刚性拦截, 制造级Gerber导出, BOM表单自动生成",
-        "category": "06_商业与专业领域",
-        "folder": "kicad-mcp-automation",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-automation"
-    },
-    {
-        "name": "kicad-mcp-seeed",
-        "description": "Seeed Studio 官方 KiCad 拓扑分析与驱动代码跨界生成器 (MCP)。针对 KiCad 9.0+ 内核，深度追踪 PCB 信号互连（Netlist）关系，并据此反向自动推演、生成对应的底层 C/C++ 嵌入式驱动头文件。Leading Words: Seeed官方KiCad助手, Netlist信号互连追踪, 底层驱动代码反推, PCB拓扑关系分析",
-        "category": "06_商业与专业领域",
-        "folder": "kicad-mcp-seeed",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-seeed"
-    },
-    {
-        "name": "mcp2serial",
-        "description": "TTY / COM 物理串口穿透式数据监听与控制台桥接器 (MCP)。赋予大模型直接操作宿主机裸串口的能力，通过波特率握手实现与树莓派 Pico、ESP32 或工业级 PLC 的双向字节流通信与 REPL 会话。Leading Words: 物理串口穿透监听, TTY/COM底层通信, REPL双向字节流, 裸板卡控制台桥接",
-        "category": "06_商业与专业领域",
-        "folder": "mcp2serial",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/mcp2serial"
-    },
-    {
-        "name": "mqtt-mcp",
-        "description": "工业级 MQTT 协议栈代理抓包与收发中继站 (MCP)。允许智能体作为合法 Client 连接局域网 / 公网 Broker。提供 QoS 等级控制，实时订阅或发布物联网传感器遥测数据与异构设备的控制报文。Leading Words: 工业级MQTT协议栈, Broker节点代理连接, 遥测数据流发布订阅, QoS异构控制报文",
-        "category": "06_商业与专业领域",
-        "folder": "mqtt-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/mqtt-mcp"
-    },
-    {
-        "name": "nexar-mcp",
-        "description": "Octopart / Nexar 官方电子供应链全局搜索引擎 (MCP)。跨越独立分销商壁垒，聚合搜索全球元器件实时库存水位与多渠道阶梯报价，并提供技术选型参数对比及 PDF 数据手册直达。Leading Words: Octopart/Nexar API集成, 全球元器件库存搜索, 多渠道阶梯报价, PDF数据手册Datasheet",
-        "category": "06_商业与专业领域",
-        "folder": "nexar-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/nexar-mcp"
-    },
-    {
-        "name": "openscad-mcp",
-        "description": "OpenSCAD 纯代码驱动参数化 3D 建模与视觉纠错闭环引擎 (MCP)。极大发挥大模型的代码生成优势，通过自动后台编译输出 PNG 预览图，实现生成、渲染、视觉验证及自动纠错迭代的全链路覆盖。Leading Words: OpenSCAD代码3D建模, 纯代码参数化渲染, 视觉验证纠错闭环, PNG预览图生成",
-        "category": "06_商业与专业领域",
-        "folder": "openscad-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/openscad-mcp"
-    },
-    {
-        "name": "pcbparts-mcp",
-        "description": "全网多源 EDA 元器件与引脚封装跨界检索引擎 (MCP)。底层桥接嘉立创、Mouser 及 DigiKey 数据库，一键打通供应链选型与底层工程设计，支持深度拉取立创 EDA 原理图符号及引脚网表定义。Leading Words: 跨平台EDA元器件检索, 嘉立创/Mouser/DigiKey, 原理图符号引脚定义, 供应链选型数据拉取",
-        "category": "06_商业与专业领域",
-        "folder": "pcbparts-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/pcbparts-mcp"
-    },
-    {
-        "name": "quantdinger",
-        "description": "量化金融宽客 (Quant) 策略全生命周期研发工作台。覆盖因子脑暴、算法代码生成、回测 (Backtest) 调优与模拟盘全栈流程。助力进阶投研人员将投资逻辑直接落地为高容错的实盘交易信号监控。Leading Words: AI宽客量化投研, 交易策略代码生成, Backtest行情回测, 实盘交易信号监控",
-        "category": "06_商业与专业领域",
-        "folder": "quant-dinger",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/quant-dinger"
-    },
-    {
-        "name": "rigol-dho824-mcp",
-        "description": "普源 Rigol DHO824 数字示波器 LXI 远程实验室总线控制台 (MCP)。突破物理测试台限制，允许 AI 经以太网 LXI 协议直连示波器，执行状态轮询、通道波形截图采集并对离线测量数据进行自动化分析。Leading Words: 普源Rigol示波器控制, LXI以太网仪器通信, 多通道波形截图采集, 远程实验室总线分析",
-        "category": "06_商业与专业领域",
-        "folder": "rigol-dho824-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/rigol-dho824-mcp"
-    },
-    {
-        "name": "serenity-skill",
-        "description": "Serenity 范式硬核产业链瓶颈与卡脖子节点狩猎器。将投资智能体转化为极度理性的研究员。专攻 A股/港股/美股 AI 及半导体硬科技赛道的价值链图谱拆解。执行基于证据链的深度调研与逻辑压力测试。无交易功能，纯投研支撑。Leading Words: Serenity产业链研究, 半导体卡点瓶颈狩猎, 价值链图谱拆解, 投资逻辑压力测试",
-        "category": "06_商业与专业领域",
-        "folder": "serenity-skill",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/serenity-skill"
-    },
-    {
-        "name": "shopify-mcp",
-        "description": "Shopify 独立站 GraphQL 核心数据库级超级管家 (MCP)。彻底穿透官方 Admin API，提供对 Product、Order 及 Customer 的增删改查全生命周期统治。支持扩展字段 (Metafields) 深度注入与全站库存锁定。Leading Words: Shopify独立站后台管理, GraphQL Admin API全封装, Metafields扩展属性, 订单全生命周期统治",
-        "category": "06_商业与专业领域",
-        "folder": "shopify-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/shopify-mcp"
-    },
-    {
-        "name": "spicebridge",
-        "description": "基于 ngspice 的电路设计与仿真分析 MCP。支持使用自然语言描述电路结构，自动生成标准 SPICE 网表并运行 AC、DC 或瞬态仿真，可分析提取波形数据甚至导出为 KiCad 格式。Leading Words: ngspice电路设计仿真, SPICE网表自动生成, AC/DC瞬态仿真, 波形数据分析提取",
-        "category": "06_商业与专业领域",
-        "folder": "spicebridge",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/spicebridge"
-    },
-    {
-        "name": "text-to-cad",
-        "description": "Build123d 引擎级拓扑 Python CAD 参数化建型编译器。跳过传统几何约束 GUI，直接利用 Python 脚本进行工业级实体渲染与装配。支持全自动导出 STEP/STL/GLB 及机器人专用的 URDF 工业图纸。Leading Words: Build123d引擎拓扑建模, Python CAD参数化脚本, URDF机器人图纸导出, 工业级STEP渲染",
-        "category": "06_商业与专业领域",
-        "folder": "text-to-cad",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/text-to-cad"
-    },
-    {
-        "name": "tradingagents",
-        "description": "机构级 AI 金融投研多智能体协同攻防沙盘 (TradingAgents)。以高度模块化架构解构专业基金工作流：基本面定性、技术面量化、情绪面降噪及风控阻断多 Agent 角色博弈，搭建全真环境下的数字投研编队。Leading Words: 多智能体投研协同沙盘, 机构级量化风控博弈, AI金融交易员矩阵, 基本面与情绪面降噪",
-        "category": "06_商业与专业领域",
-        "folder": "trading-agents",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/trading-agents"
-    },
-    {
-        "name": "uzi-skill",
-        "description": "Uzi 中文区量化投研与大中华市场 (A股/港股) 靶向狙击库。内置 180 条红线级量化审计规则与 22 个基本面剖析维度。覆盖游资龙虎榜异动追踪、机构深度估值排雷，并加载特有的「多风格投资大佬评审团」交叉验证。Leading Words: 大中华A股港股量化投研, 龙虎榜异动追踪审计, 180条量化红线排雷, 投资大佬交叉评审闭环",
-        "category": "06_商业与专业领域",
-        "folder": "uzi-skill",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/uzi-skill"
-    },
-    {
-        "name": "yuandian-mcp-server",
-        "description": "华宇元典官方泛法律与政企信用数据合规网关 (MCP)。赋予智能体直连国内最高级别法条库、裁判文书网与企业工商征信信息的能力。作为权威的司法数据检索引擎，保障商业背调与合规审核的法理强健性。Leading Words: 华宇元典权威法律网关, 裁判文书政企信用背调, 企业工商信息获取, 泛法律合规数据检索引擎",
-        "category": "06_商业与专业领域",
-        "folder": "yuandian-mcp-server",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/yuandian-mcp-server"
-    },
-    {
-        "name": "domain-name-brainstormer",
-        "description": "跨顶级域 (TLD) 品牌命名与可用性批量探测机。结合项目语义脑暴数百个谐音/合成词级的高溢价前缀，并多线程穿透 .com / .ai / .io / .dev 的注册局接口确认实时未注册状态。Leading Words: 跨顶级域名可用性探测, 品牌命名语义脑暴, 多线程未注册查询, 高溢价域名挖掘",
-        "category": "06_商业与专业领域",
-        "folder": "domain-name-brainstormer",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/domain-name-brainstormer"
-    },
-    {
-        "name": "developer-growth-analysis",
-        "description": "全天候 IDE 会话数据穿透式开发者成长教练。深度分析你在 Codex 中的历史对话与报错日志，精准定位技术栈短板与思维盲区，跨端爬取 HackerNews 资料库并自动投递至 Slack。Leading Words: 开发者成长图谱分析, 代码报错盲区定位, HackerNews资料爬取, Slack自动化报告",
-        "category": "06_商业与专业领域",
-        "folder": "developer-growth-analysis",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/developer-growth-analysis"
-    },
-    {
-        "name": "raffle-winner-picker",
-        "description": "防作弊跨平台透明抽奖与随机选人器。直接从普通文本列表、Excel 或 Google Sheets 中执行密码学安全的真随机抽取，适用于社群裂变 Giveaway、锦鲤抽奖，确保过程的绝对公正与透明。Leading Words: 透明防作弊抽奖器, GoogleSheets数据抽取, 真随机Giveaway选人, 密码学安全随机",
-        "category": "06_商业与专业领域",
-        "folder": "raffle-winner-picker",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/raffle-winner-picker"
-    },
-    {
-        "name": "lead-research-assistant",
-        "description": "B2B 销售线索（Leads）多维穿透侦查与拓客专家。不仅寻找潜在客户企业，更结合己方产品优势对线索进行评分过滤，构建定制化破冰（Ice-breaker）策略，赋能销售团队缩短成单周期。Leading Words: B2B高质量销售线索, 潜在客户多维评级, 破冰Ice-breaker话术, 拓客转化周期优化",
-        "category": "06_商业与专业领域",
-        "folder": "lead-research-assistant",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/lead-research-assistant"
-    },
-    {
-        "name": "agent-reach",
-        "description": "免 API 密钥的 16+ 平台数据抓取与 Exa 搜索工具。支持获取推特、小红书、微博、YouTube等媒体的内容与字幕。Leading Words: 免API密钥数据抓取, Exa平台内容获取, 推特小红书搜索, YouTube字幕提取",
-        "category": "07_智能体框架与协同",
-        "folder": "agent-reach",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/agent-reach"
-    },
-    {
-        "name": "aurakit",
-        "description": "AuraKit 企业级超重载智能体生命周期编排框架。提供高达 46 种并发工作范式、23 个专项子 Agent。内置严苛的 6 层 OWASP 代码安全护栏与 10 个钩子函数 (Hooks)，通过上下文压缩引擎极限削减 55% Token。Leading Words: 企业级Agent生命周期编排, 46种并发工作范式, OWASP代码安全护栏, Token压缩引擎节省",
-        "category": "07_智能体框架与协同",
-        "folder": "aurakit",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/aurakit"
-    },
-    {
-        "name": "bernstein",
-        "description": "Bernstein 确定性 CLI 多智能体编排引擎。支持编排与调度命令行代码助手组（如 Aider / GitHub Copilot CLI），以极其确定性的方式执行多步骤代码任务。Leading Words: 确定性Agent编排, CLI多智能体调度, Aider代码助手协同, 任务流状态机",
-        "category": "07_智能体框架与协同",
-        "folder": "bernstein",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/bernstein"
-    },
-    {
-        "name": "context-engineering-collection",
-        "description": "工业级上下文工程 (Context Engineering) 与多智能体架构脚手架集。专攻生产环境 Agent 系统的底层通讯建设。提供针对 Context 管理、循环收敛、评测调试以及复杂 Harness 注入的标准范式与工具链。Leading Words: 上下文工程Context优化, 多智能体架构脚手架, 生产级Agent通讯建设, Harness注入测试范式",
-        "category": "07_智能体框架与协同",
-        "folder": "context-engineering-skills",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/context-engineering-skills"
-    },
-    {
-        "name": "emdash-skills",
-        "description": "包含 14 个分类的自主产品构建 OS：支持 Cloudflare Workers + Hono + Angular + D1 + Stripe。只需一行 Prompt 即可快速部署包含 94 篇参考文档、18 个智能体且原生支持 .agents/skills/ 的 SaaS 应用。Leading Words: SaaS全栈OS脚手架, CloudflareWorkers部署, Hono+Angular架构, 一键Prompt产品构建",
-        "category": "07_智能体框架与协同",
-        "folder": "emdash-skills",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/emdash-skills"
-    },
-    {
-        "name": "polywave",
-        "description": "Polywave 多线程波浪式 (Wave-flows) 并发任务调度与状态机协调器。强制执行「斥候侦测 (Scout) -> 实施蓝图制定 (IMPL) -> 带边界防护的波浪执行」三段式安全开发范式，彻底杜绝单节点越权修改代码。Leading Words: 波浪式并发任务调度, 斥候侦测安全开发范式, 带边界防护的执行引擎, IMPL实施蓝图制定",
-        "category": "07_智能体框架与协同",
-        "folder": "polywave",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/polywave"
-    },
-    {
-        "name": "superclaude-framework",
-        "description": "SuperClaude 框架：为底层大语言模型注入 CLI 式速成指令拦截菜单。将冗长的自然语言交互降维为极简命令别名 (Aliases)，快速触发高频任务，如项目分析重构、断点排错调试、或者文档逆向生成。Leading Words: 智能体CLI指令菜单注入, 极简命令Aliases映射, 项目高频重构分析, 断点排错与文档逆向",
-        "category": "07_智能体框架与协同",
-        "folder": "superclaude-framework",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/superclaude-framework"
-    },
-    {
-        "name": "vibe",
-        "description": "Vibe Code Orchestrator (VCO) 企业级状态封存与执行时限流器。在修改代码前强制冻结需求池 (Freezes requirements)，执行基于超大模型 (XL-first) 的全局统筹规划，并在周期末尾挂载强制的代码核验与阶段性清理卡点。Leading Words: 状态封存需求冻结器, XL-first全局统筹规划, 周期性代码强制核验, 运行时限流管控VCO",
-        "category": "07_智能体框架与协同",
-        "folder": "vibe-skills",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/vibe-skills"
-    },
-    {
-        "name": "GoogleDrive-MCP",
-        "description": "官方 Google Drive MCP 接入技能。允许智能体通过 OAuth 授权，在本地直接读取、搜索、管理您的谷歌云端硬盘文件，并将 Google Docs/Sheets 自动转换为可供分析的文本格式。Leading Words: 谷歌云盘接入, OAuth授权读取, GoogleDocs转换, 云端硬盘文件管理",
-        "category": "08_MCP服务开发与评估",
-        "folder": "GoogleDrive-MCP",
-        "relative_path": "./00_全局大管家/08_MCP服务开发与评估/GoogleDrive-MCP"
-    },
-    {
-        "name": "mcp-builder",
-        "description": "高质量 MCP (Model Context Protocol) 服务构建指南与脚手架。为智能体接入外部 API 或本地系统提供标准化开发路径，全面支持 Python (FastMCP) 及 Node/TypeScript (MCP SDK) 开发环境。Leading Words: 高质量MCP构建指南, 智能体外部API集成, PythonFastMCP开发, NodeTypeScriptSDK",
-        "category": "08_MCP服务开发与评估",
-        "folder": "mcp-builder",
-        "relative_path": "./00_全局大管家/08_MCP服务开发与评估/mcp-builder"
-    },
-    {
-        "name": "telegram-mcp",
-        "description": "个人 Telegram 账号自动化 MCP 服务封装器。赋予智能体穿透式接管权限，支持静默读取会话、关键词检索、发送/转发及消息编辑删除等个人级底层操作。Leading Words: 个人Telegram账号封装, Agent会话读取, 穿透式消息检索, 消息发送删除底层控制",
-        "category": "08_MCP服务开发与评估",
-        "folder": "Telegram-MCP",
-        "relative_path": "./00_全局大管家/08_MCP服务开发与评估/Telegram-MCP"
-    },
-    {
-        "name": "connect",
-        "description": "Composio CLI 终端集成矩阵发射器 (Terminal Integration Hub)。打破 IDE 沙盒，通过命令行授权 Agent 调度 Gmail 邮件、Slack 消息投递、GitHub Issue 追踪及 1000+ 第三方 SaaS 的自动化真实写操作。Leading Words: Composio终端CLI集成, IDE沙盒打破与真实写操作, GitHub/Slack/SaaS自动化, 跨平台消息投递引擎",
-        "category": "09_Composio集成服务",
-        "folder": "connect",
-        "relative_path": "./00_全局大管家/09_Composio集成服务/connect"
-    },
-    {
-        "name": "connect-apps",
-        "description": "Composio App 自动化多端执行管家。基于 CLI 后台接口授权模型横向操控超过 1000 款云端应用。专门应对跨应用复杂编排场景（例如：Notion 监控变更 -> GitHub 抛出 Issue -> Slack 警报触达的全链路自动化）。Leading Words: 跨云应用复杂全链路编排, Composio后台授权接入, Notion/GitHub/Slack联动, 多端SaaS事件触发",
-        "category": "09_Composio集成服务",
-        "folder": "connect-apps",
-        "relative_path": "./00_全局大管家/09_Composio集成服务/connect-apps"
-    },
-    {
-        "name": "antfu-skills",
-        "description": "Vue 核心团队大佬 Antfu 个人定制版高阶 Agent 技能库解剖标本。提供从野生黑客脚本到工业级复用工作流演进的设计哲学。适合高阶开发者进行「降维拆解」，克隆顶尖开发者的内隐编码逻辑与范式。Leading Words: Antfu定制技能标本, 顶尖开发者逻辑克隆, 工业级复用工作流设计, 高阶Agent范式降维拆解",
-        "category": "10_Skill开发脚手架与安装器",
-        "folder": "antfu-skills",
-        "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/antfu-skills"
-    },
-    {
-        "name": "anthropic-official-skills",
-        "description": "Anthropic 官方金牌原厂 Agent Skills 开发骨架模板 (Boilerplate)。全方位剖析官方对于意图解析、安全护栏构建与 LLM 提示词工程的最佳实践 (Best Practices)。供开发者克隆并低成本复刻至个人专属业务流。Leading Words: Anthropic原厂Skills模板, 官方大模型最佳实践开发, 安全护栏与提示词脚手架, 低成本复刻专属业务流",
-        "category": "10_Skill开发脚手架与安装器",
-        "folder": "anthropic-skills",
-        "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/anthropic-skills"
-    },
-    {
-        "name": "google-skills",
-        "description": "Google 官方企业级 Agent 技能库与云端原生 (Cloud-native) Recipe 范本。以极其严苛的工程标准，展示如何将 Google Cloud (BigQuery/Firebase/GKE) 深度包装为智能体技能。作为大型团队制定企业级扩展标准的红宝书。Leading Words: Google官方技能范本, Cloud-native原生架构, 企业级Agent拓展标准, 谷歌云BigQuery/GKE桥接",
-        "category": "10_Skill开发脚手架与安装器",
-        "folder": "google-skills",
-        "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/google-skills"
-    },
-    {
-        "name": "mattpocock-skills",
-        "description": "Matt Pocock 纯正 Agentic Skills 元级构造套件与生态范本。专注入侵大模型思维的「软件工程心智」：强制应用 TDD 驱动、/grill 需求严苛反问与鲁棒的元技能 (Writing-great-skills) 生成规范。作为终极向导大幅抑制 Agent 鲁莽跳跃。Leading Words: Matt Pocock元技能构造规范, TDD驱动软件工程心智, /grill需求反向严苛拷问, 抑制鲁莽行为预测性护栏",
-        "category": "10_Skill开发脚手架与安装器",
-        "folder": "mattpocock-skills",
-        "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/mattpocock-skills"
-    },
-    {
-        "name": "minimax-skills",
-        "description": "MiniMax 零基础全栈开发指令流模板合集 (Cookbook)。开箱即用的傻瓜式工作流封装，覆盖前端 UI、移动端开发、全栈架构及文档撰写。通过预置结构化 Prompt，大幅降低新手驾驭代码大模型的门槛。Leading Words: MiniMax指令流模板Cookbook, 零基础前端全栈工作流, 开箱即用Prompt封装, 傻瓜式代码大模型驾驭",
-        "category": "10_Skill开发脚手架与安装器",
-        "folder": "minimax-skills",
-        "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/minimax-skills"
-    },
-    {
-        "name": "skill-creator",
-        "description": "自定义技能向导与极速开发脚手架 (Skill Creator)。详细说明如何为 Codex 定制扩展能力，涵盖专门领域知识与自定义工具链集成的开发规范。Leading Words: 自定义扩展技能定制, 极速开发脚手架范式, 专属工具链集成指导, Codex专属能力外挂",
-        "category": "10_Skill开发脚手架与安装器",
-        "folder": "skill-creator",
-        "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skill-creator"
-    },
-    {
-        "name": "skill-installer",
-        "description": "全网技能包雷达搜寻与极速部署挂载器 (Skill Installer)。具备兜底安装逻辑：当用户指派的任务或搜索的技能不在本地池时，必须自动触发本工具，从官方精选库或 GitHub远端热拉取解析并安全挂载到本地。Leading Words: 技能雷达搜寻部署, 远端GitHub热拉取挂载, 兜底缺失技能安装, 自动触发池外Skill下载",
-        "category": "10_Skill开发脚手架与安装器",
-        "folder": "skill-installer",
-        "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skill-installer"
-    },
-    {
-        "name": "composio-generated-skills",
-        "description": "Composio 自动生成的海量第三方应用集成大宽表技能库。包含超过 800+ 平台的底层集成配置与元数据，专门用于 Agent 高频触发外部 SaaS 的自动化任务。请使用单入口路由通过此全量库动态查找所需集成。Leading Words: Composio海量自动集成, 第三方应用API宽表, 800+SaaS平台互联, 外部事件动态挂载",
-        "category": "11_API与第三方应用集成",
-        "folder": "composio-generated-skills",
-        "relative_path": "./00_全局大管家/11_API与第三方应用集成/composio-generated-skills"
-    },
-    {
-        "name": "cloudbase",
-        "description": "为小程序和 Web/H5 提供一体化运行与部署环境（腾讯云开发 TCB）。包括 NoSQL 文档数据库、云函数（Serverless）、云存储、身份权限控制和静态 Web 托管。内置大模型能力。Leading Words: 腾讯云开发, 小程序后端, Serverless云函数, 静态Web托管, 一体化部署",
-        "category": "11_API与第三方应用集成",
-        "folder": "cloudbase",
-        "relative_path": "./00_全局大管家/11_API与第三方应用集成/cloudbase"
-    },
-    {
-        "name": "codex-sms-verification",
-        "description": "VirtualSMS 全球虚拟验证码截获与穿透 MCP 插件。赋予无头浏览器 Agent 直连 145+ 国家的实体 SIM 卡网关池能力，瞬间越过 2000+ 平台的手机注册防火墙。支持 StdIO 与云端挂载，自动化填槽短信验证码。Leading Words: 全球短信验证码拦截, 实体SIM网关穿透代理, 无头浏览器免登录绕过, 验证码自动化填槽",
-        "category": "11_API与第三方应用集成",
-        "folder": "codex-sms-verification",
-        "relative_path": "./00_全局大管家/11_API与第三方应用集成/codex-sms-verification"
-    },
-    {
-        "name": "wechat-miniprogram-development",
-        "description": "微信小程序 AI 协同开发全链路指南。完整记录了从环境依赖安装、大模型接入配置、具体避坑指南（如 lazyCodeLoading 与 Babel 报错解决）到 CLI 自动化预览和代码上传的实战开发工作流。Leading Words: 微信小程序开发, miniprogram, WXML/WXSS, 微信开发者工具CLI, 小程序提审, CloudBase MCP, hunyuan-v3, lazyCodeLoading",
-        "category": "11_API与第三方应用集成",
-        "folder": "wechat-miniprogram-development",
-        "relative_path": "./00_全局大管家/11_API与第三方应用集成/wechat-miniprogram-development"
-    },
-    {
-        "name": "academic-mcp",
-        "description": "19+ 全球顶尖学术论文库统一联邦检索与解析网关 (MCP)。跨越数据库壁垒，一键聚合 arXiv、IEEE Xplore、PubMed 等巨头。支持极速跨源论文搜寻、高维元数据解析及 PDF 强制脱壳阅读，扫平文献综述第一公里。Leading Words: 19+学术库联邦检索, 跨源论文元数据解析, IEEE/PubMed/arXiv聚合, PDF强制脱壳阅读",
-        "category": "12_学术论文与科研图表",
-        "folder": "academic-mcp",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/academic-mcp"
-    },
-    {
-        "name": "arxiv-latex-reader",
-        "description": "arXiv 论文 LaTeX 原生源码剥离与精准公式还原器。直接穿透服务端下载、解压多文件包。彻底解决 PDF 复制产生的数学符号乱码及排版塌陷，精准抽取定理段落与公式矩阵，专为强数理学术任务设计。Leading Words: arXiv原生LaTeX剥离, 精准数学公式矩阵还原, PDF乱码与排版塌陷解决, 定理源码级别抽取",
-        "category": "12_学术论文与科研图表",
-        "folder": "arxiv-latex-reader",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/arxiv-latex-reader"
-    },
-    {
-        "name": "google-scholar-mcp",
-        "description": "Google Scholar 纯净联邦检索引擎与 H-index 学者追踪器 (MCP)。深耕谷歌学术池，精准解析论文引证图谱 (Citation Graph)、作者学术画像及被引爆发趋势。专供高并发学者动态监视与开题定标。Leading Words: GoogleScholar联邦检索, 学者H-index画像追踪, 纯净引证图谱CitationGraph, 学术开题定标与爆发趋势",
-        "category": "12_学术论文与科研图表",
-        "folder": "google-scholar-mcp",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/google-scholar-mcp"
-    },
-    {
-        "name": "nature-skills",
-        "description": "面向全球学者的科研大航海全家桶 (nature-skills)。汇集 16+ 个强力学术 Agent 技能，全面覆盖文献检索、论文精读、引用审计、科研写作至审稿模拟的全链路周期，直接赋能科研攻坚与核心痛点。Leading Words: 全栈科研学术全家桶, 文献检索与精读, Nature级论文写作, 引用审计与审稿模拟",
-        "category": "12_学术论文与科研图表",
-        "folder": "nature-skills",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/nature-skills"
-    },
-    {
-        "name": "paper-search",
-        "description": "轻量级学术文献双源检索引擎。原生接入 arXiv 与 PubMed 两大学术数据库，支持极速反查并提取论文的标题、作者、来源、摘要等核心元数据，并可一键渲染为结构化的 Markdown 参考列表。Leading Words: 轻量学术文献双源检索, arXiv/PubMed元数据提取, Markdown规范参考列表, 快速学术定标器",
-        "category": "12_学术论文与科研图表",
-        "folder": "paper-search",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/paper-search"
-    },
-    {
-        "name": "paper-search-mcp",
-        "description": "7+ 巨头学术数据库并发洪流搜索与自动降噪收敛引擎 (MCP)。横跨生医 (PubMed/medRxiv)、计算机与数理领域。毫秒级并发查询、智能去重及 LLM 强格式化对齐，输出高度聚合的纯净学术搜索摘要。Leading Words: 7+核心学术库并发搜索, bioRxiv/IACR跨学科收敛, 洪流检索自动去重降噪, LLM强格式化学术摘要",
-        "category": "12_学术论文与科研图表",
-        "folder": "paper-search-mcp",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/paper-search-mcp"
-    },
-    {
-        "name": "sci-hub-mcp",
-        "description": "Sci-Hub 闭源文献 PDF 强行破壁与全文接管引擎 (MCP)。依托 DOI 或精准书目元信息，越过出版商付费墙瞬间拉取学术论文原本。解决文献综述阶段「查得到、拿不到」的科研最后一公里痛点。Leading Words: Sci-Hub出版商破壁, 闭源学术PDF强行拉取, DOI精准文献原本接管, 科研综述最后一公里",
-        "category": "12_学术论文与科研图表",
-        "folder": "sci-hub-mcp",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/sci-hub-mcp"
-    },
-    {
-        "name": "scientific-schematics",
-        "description": "Nano Banana 引擎驱动的高精学术原理图与信号通路制图矩阵。配合大模型质检进行拓扑纠偏，专注生成满足 CNS 顶刊排版级要求的网络架构、生化通路图及高度复杂的实验范式设计流程图。Leading Words: 高精学术原理通路制图, NanoBanana/CNS顶刊排版级, 复杂生化通路与实验范式, 大模型拓扑纠偏与质检",
-        "category": "12_学术论文与科研图表",
-        "folder": "scientific-schematics",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/scientific-schematics"
-    },
-    {
-        "name": "scientific-visualization",
-        "description": "Matplotlib/Seaborn/Plotly 三引擎驱动的高维数据可视化学术作图器。严格对齐 Nature/Science 严苛的单双栏排版、DPI 及色盲友好 (CVD) 调色规范。具备极差线/显著性标记自动化绘制与矢量图极清输出。Leading Words: Matplotlib/Plotly数据可视化, Nature/Science级图表规范, CVD色盲友好与单双栏排版, 误差显著性标记极清矢量导出",
-        "category": "12_学术论文与科研图表",
-        "folder": "scientific-visualization",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/scientific-visualization"
-    },
-    {
-        "name": "semantic-scholar-mcp",
-        "description": "Semantic Scholar 2亿级语料引文网络神经穿透器 (MCP)。通过智能引文图谱遍历技术追根溯源学术脉络。精准抽取文献影响度、同侪作者网络特征，是深潜科学技术史及前沿爆发预测的神级探测器。Leading Words: SemanticScholar两亿语料穿透, 神经引文图谱遍历溯源, 前沿爆发预测与影响度抽取, 同侪作者网络H-index画像",
-        "category": "12_学术论文与科研图表",
-        "folder": "semantic-scholar-mcp",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/semantic-scholar-mcp"
-    },
-    {
-        "name": "sympy-solver",
-        "description": "纯本地 Python SymPy 符号代数超算沙盒引擎。通过硬编码数学公理法则处理微积分、拓扑矩阵与高阶极限定理，输出可直接渲染的 LaTeX 证明。物理隔离语言模型的数学幻觉，提供绝对保真的数理推导。Leading Words: 纯本地SymPy符号代数超算, 物理隔离大模型数学幻觉, 高阶极限微积分方程求解, LaTeX证明绝对保真推导",
-        "category": "12_学术论文与科研图表",
-        "folder": "sympy-solver",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/sympy-solver"
-    },
-    {
-        "name": "zotero-connector",
-        "description": "个人私域 Zotero 文献库 (SQLite/Web API) 深层同步与萃取桥梁。赋予 Agent 打穿个人十年学术积淀的能力，极速倒排索引本地论文标签、笔记摘要及引证元数据，实现“第二大脑”科研知识内化调用。Leading Words: 私域Zotero文献库同步萃取, 个人学术第二大脑内化调用, SQLite/Web API穿透倒排索引, 论文标签笔记元数据打穿",
-        "category": "12_学术论文与科研图表",
-        "folder": "zotero-connector",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/zotero-connector"
-    },
-    {
-        "name": "AER-Skills",
-        "description": "AER/AEJ 系顶级经济学期刊强审稿逻辑与体例专用套件。针对《美国经济评论》特有的理论数推深度与实证检验完备度进行交叉审查。嵌入顶刊评审人的苛刻挑刺标准，提供经济学专属论证沙盘。Leading Words: AER/AEJ顶级经济学期刊套件, 美国经济评论体例排版, 理论推导与实证检验交叉审查, 经济学专属论证沙盘挑刺",
-        "category": "13_社科研究与实证工具",
-        "folder": "AER-Skills",
-        "relative_path": "./00_全局大管家/13_社科研究与实证工具/AER-Skills"
-    },
-    {
-        "name": "Auto-Empirical-Research-Skills",
-        "description": "斯坦福 23k+ 超大规模实证经济学/社会科学 Agent Skills 工具列阵。专门应对高维度面板数据清理、内生性检验及 IV 工具变量挖掘，为量化社科研究提供航母级算法支持。Leading Words: 斯坦福社科实证经济学研究, 高维面板数据内生性检验, IV工具变量挖掘算法, 23k+超大规模量化工具列阵",
-        "category": "13_社科研究与实证工具",
-        "folder": "Auto-Empirical-Research-Skills",
-        "relative_path": "./00_全局大管家/13_社科研究与实证工具/Auto-Empirical-Research-Skills"
-    },
-    {
-        "name": "Auto-Research-Skills",
-        "description": "Autonomic Research 强自驱全生命周期科研流水线精选库。收敛从无脑开题、定性调研到文献剥丝抽茧的复杂脉络，部署自底向上的自动化科研实验流程与探索协议。Leading Words: 强自驱科研探索协议流水线, 全生命周期学术自动部署, 自底向上文献开题定性调研, 无脑实验复杂脉络剥丝抽茧",
-        "category": "13_社科研究与实证工具",
-        "folder": "Auto-Research-Skills",
-        "relative_path": "./00_全局大管家/13_社科研究与实证工具/Auto-Research-Skills"
-    },
-    {
-        "name": "Awesome-Journal-Skills",
-        "description": "Top Journals (AER/QJE/Nature 等) 顶刊定制化投稿格式降维重塑器。预置全球顶级期刊极为严苛的排版规则、引用规范及图表阈值，一键接管原稿并暴力转换为可直接 Submission 的终稿。Leading Words: Nature/AER/QJE顶刊投稿降维重塑, 严苛期刊排版引用规范预置, 暴力转换Submission终稿生成, 学术投稿格式强制校验",
-        "category": "13_社科研究与实证工具",
-        "folder": "Awesome-Journal-Skills",
-        "relative_path": "./00_全局大管家/13_社科研究与实证工具/Awesome-Journal-Skills"
-    },
-    {
-        "name": "StatsPAI",
-        "description": "因果推断 (Causal Inference) 与高阶计量经济学 Agent-native Python 引擎 (StatsPAI)。将双重差分 (DID)、断点回归 (RDD) 融合成强制结构化 API 输出，实现智能体驱动的自动化政策评估体系。Leading Words: StatsPAI因果推断计量经济学, DID双重差分RDD断点回归, 智能体自动化政策评估, 结构化API因果挖掘",
-        "category": "13_社科研究与实证工具",
-        "folder": "StatsPAI",
-        "relative_path": "./00_全局大管家/13_社科研究与实证工具/StatsPAI"
-    },
-    {
-        "name": "EasyAccounts",
-        "description": "搭载 AI 助手的开源智能记账与极速财务查询终端。通过会话式交互打通复式记账全链路，提供自然语言流水录入、多维财务报表实时聚合与高阶账单审计分析。专为 Agent 接管对账及资金流监控设计。Leading Words: AI开源智能记账终端, 复式记账会话式流转, 自然语言流水录入聚合, 对账及资金流自动化监控",
-        "category": "14_财务发票提取与归档",
-        "folder": "EasyAccounts",
-        "relative_path": "./00_全局大管家/14_财务发票提取与归档/EasyAccounts"
-    },
-    {
-        "name": "Invoice_LLM",
-        "description": "基于 Qwen-VL 多模态大模型底座的端到端智能发票识别引擎。具备高度泛化的图像理解力，穿透各类发票/收据的扭曲、阴影与混排版式，实现结构化字段精准抽取与防伪校验，打造极速报销流水线。Leading Words: Qwen-VL多模态大模型底座, 泛化发票影像扭曲穿透, 收据防伪校验与字段抽取, 端到端结构化报销流水线",
-        "category": "14_财务发票提取与归档",
-        "folder": "Invoice_LLM",
-        "relative_path": "./00_全局大管家/14_财务发票提取与归档/Invoice_LLM"
-    },
-    {
-        "name": "invoice2data",
-        "description": "基于正则模板与高精 OCR 的工业级发票收据提取、分类与归档中枢 (invoice2data)。以轻量化的规则引擎覆盖主流报销单据，实现 PDF/图像层自动化切片提取，提供无缝对接企业 ERP 系统的高效通道。Leading Words: 工业级规则发票提取, 高精OCR报销单据切片, PDF账单自动化归类中枢, 企业ERP无缝对接通道",
-        "category": "14_财务发票提取与归档",
-        "folder": "invoice2data",
-        "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice2data"
-    },
-    {
-        "name": "invoice-organizer",
-        "description": "纯 Agent 架构驱动的智能零依赖发票集散整理器。摒弃复杂 Python OCR 库依赖，完全依靠大模型原生视觉能力进行全盘扫描、票面特征挖掘与重命名归档。极速将混乱碎票重构为结构化 CSV 报表与整洁目录。Leading Words: 纯Agent架构零依赖驱动, 大模型原生视觉特征挖掘, 混乱发票重构结构化归档, 自动化CSV报表集散中枢",
-        "category": "14_财务发票提取与归档",
-        "folder": "invoice-organizer",
-        "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice-organizer"
-    },
-    {
-        "name": "guizang-material-illustration",
-        "description": "Generate Guizang-style material illustrations, labeled explanatory visuals, material-styled chart illustrations, and data-first editorial images from articles, notes, product concepts, workplace reports, creator posts, tutorials, school materials, humanities topics, science explanations, screenshots, or chart data. Use when the user asks for 配图, 带字插图, 解释图, 图解插画, 概念拆解图, 图表美化, 数据图美化, 3D 图表, 汇报配图, 内容配图, 小学课文配图, 生物/化学/物理解释图, 人文类配图, process/loop/system diagrams, or wants GPT-Image / image generation to create supporting images that can sit inside social cards, docs, slides, PPTs, or posts.",
-        "category": "05_多媒体与设计资产",
-        "folder": "guizang-material-illustration",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-material-illustration"
-    },
-    {
-        "name": "moore-wechat-article-downloader",
-        "description": "当用户要下载或管理微信公众号文章时使用本技能。支持订阅同步、微信收藏和链接导入；互动数据仅在用户微信短时会话有效时补充指标与精选评论。优先本地运行；不要扩展成内容改写、总结、SaaS 或云服务。",
-        "category": "04_内容创作与文档处理",
-        "folder": "moore-wechat-article-downloader",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/moore-wechat-article-downloader"
-    },
-    {
-        "name": "speak-human-tw",
-        "description": "「說人話」：繁體中文的去 AI 味改寫 skill。審查與改寫文字，去除 AI 味道、校正中國用語與半形標點，讓文字讀起來像真人寫的。觸發時機：用戶說「去 AI 味」「說人話」「這段好 AI」「改自然一點」「幫我潤稿去掉 AI 感」「校對一下再發」。Leading Words: 去AI味, 繁體中文潤稿, 校正中國用語, 人性化改寫",
-        "category": "04_内容创作与文档处理",
-        "folder": "speak-human-tw",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/speak-human-tw"
-    },
-    {
-        "name": "oh-story-claudecode",
-        "description": "Oh Story 核心网文写作工作流套件。涵盖长短篇网络小说的扫榜、拆文、大纲构建、落笔写作及去 AI 味精修全链路。包含多维剧情模块化重组与人机协同。专供长篇或短篇网络小说的高效辅助创作。Leading Words: 网文写作工作流, 长短篇小说创作, 剧情大纲构建, 扫榜拆文逆向",
-        "category": "04_内容创作与文档处理",
-        "folder": "oh-story-claudecode",
-        "relative_path": "./00_全局大管家/04_内容创作与文档处理/oh-story-claudecode"
-    },
-    {
-        "name": "ecom-details-image",
-        "description": "面向 claude code / Codex / OpenClaw 的跨境电商和国内电商通用视觉创作 Skill。生成电商主图、详情页图片、社媒推广图、直播间场景图等全套视觉素材。支持 Campaign Style Lock 机制，保证整套图视觉一致。Leading Words: 电商图片生成, 视觉创作, 主图详情页, 风格锁定, 转化诊断",
-        "category": "05_多媒体与设计资产",
-        "folder": "ecom-details-image",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/ecom-details-image"
-    },
-    {
-        "name": "Financial-API",
-        "description": "同花顺官方 A股金融数据服务，提供股票实时行情、历史行情、财务报表、指数、板块、涨停等数据，支持 API、MCP、CLI 和 Python SDK。适用于 AI Agent、量化研究和应用开发。Leading Words: 同花顺A股数据, 实时行情查询, 财务报表API, MCP金融数据, 量化研究数据源",
-        "category": "06_商业与专业领域",
-        "folder": "Financial-API",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/Financial-API"
-    },
-    {
-        "name": "stock-data-mcp",
-        "description": "基于 FastMCP 框架的多市场股票数据聚合 MCP 服务器，为 AI Agent 提供统一的股票/加密货币市场数据接口。支持 A 股、港股、美股、加密货币，采用多源数据供应商自动故障转移架构。Leading Words: 股票数据MCP服务, 多市场行情聚合, A股港股美股加密货币, FastMCP数据接口, 多源故障转移",
-        "category": "06_商业与专业领域",
-        "folder": "stock-data-mcp",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/stock-data-mcp"
-    },
-    {
-        "name": "tickdb-unified-realtime-marketdata-api",
-        "description": "TickDB AI 原生实时行情数据统一 API，覆盖外汇、贵金属、指数、美股、港股、A 股、加密货币。支持 Skill、CLI、MCP、REST API 和 WebSocket 接入，提供实时行情、K线、订单簿、资金流向等数据。Leading Words: TickDB实时行情API, 全球多市场数据, AI原生金融接口, WebSocket行情流, MCP行情服务",
-        "category": "06_商业与专业领域",
-        "folder": "tickdb-unified-realtime-marketdata-api",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/tickdb-unified-realtime-marketdata-api"
-    },
-    {
-        "name": "taste-skill",
-        "description": "专为 AI 打造的反平庸前端框架与审美提升技能 (Taste-Skill)。通过强制约束布局设计、排版、动效与留白间距，赋予模型高级前端品味。内含代码审查法则与情绪板生图技能。Leading Words: 前端审美提升, 布局排版约束, 动效留白高级感, Anti-Slop框架, 情绪板生图",
-        "category": "05_多媒体与设计资产",
-        "folder": "taste-skill",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/taste-skill"
-    },
-    {
-        "name": "drawio-scientific-illustrator",
-        "description": "在可见的 draw.io 桌面画布中实时重绘、追踪、修改和导出科学插图与示意图的 Codex 插件。通过 draw.io 自身的图模型 API 逐步驱动绘图，支持 PNG/SVG/PDF 导出，不使用系统鼠标键盘自动化。Leading Words: draw.io科研插图重绘, 实时画布绘图MCP, 可编辑科学示意图, draw.io图元逐步构建",
-        "category": "12_学术论文与科研图表",
-        "folder": "drawio-scientific-illustrator",
-        "relative_path": "./00_全局大管家/12_学术论文与科研图表/drawio-scientific-illustrator"
-    },
-    {
-        "name": "Seedream-MCP",
-        "description": "豆包即梦 (Doubao-Seedream) 生图 MCP 服务。基于火山引擎 Ark API，通过 uvx 一键启动。支持文生图、图文生图、多图融合与组图输出，覆盖 5.0 Pro/Lite/4.5/4.0 多模型。Leading Words: 豆包即梦文生图, Seedream MCP生图服务, 火山引擎Ark API, 图文生图多图融合",
-        "category": "05_多媒体与设计资产",
-        "folder": "Seedream-MCP",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/Seedream-MCP"
-    },
-    {
-        "name": "cc2image",
-        "description": "中文内容交互式生图系统 Skill。认知锚点拆图、49 套内容风格 + 8 套 logo/图标模式，支持封面、正文配图、系列主视觉和批量生图提示词。Leading Words: 中文内容交互式生图, 认知锚点拆图, 49套内容风格, 封面正文配图批量生成",
-        "category": "05_多媒体与设计资产",
-        "folder": "cc2image",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/cc2image"
-    },
-    {
-        "name": "hand-drawn-styles",
-        "description": "工具无关的手绘画风提示词配方。内置 19 种已验证手绘画风（含 2 个变体共 21 套配方），把内容套进内置画风配方产出可直接复制的生图 prompt。Leading Words: 手绘画风提示词配方, 儿童涂色极简线条蜡笔, 吉卜力小豆人涂鸦, 工具无关生图prompt",
-        "category": "05_多媒体与设计资产",
-        "folder": "hand-drawn-styles",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/hand-drawn-styles"
-    },
-    {
-        "name": "VideoClaw",
-        "description": "AI全自动化视频生成员工。基于 Chat an Idea, Get a Film 理念，通过自然语言对话一键生成视频短片，内置完整的视频流生成工作流（脚本、配音、画面、剪辑）。Leading Words: AI视频全自动生成, Chat to Film, 视频流工作流, 一键视频生成",
-        "category": "05_多媒体与设计资产",
-        "folder": "VideoClaw",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/VideoClaw"
-    },
-    {
-        "name": "OnlyShot",
-        "description": "AI短剧工业化流水线工具。全流程自动化生成（剧本编撰 -> 分镜设计 -> 画面生成 -> 视频生成 -> 后期剪辑），支持即梦、Seedance 等先进模型，专为短剧和视频流工业标准打造。Leading Words: AI短剧, 短剧流水线, 视频生成工作流, OnlyShot",
-        "category": "05_多媒体与设计资产",
-        "folder": "OnlyShot",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/OnlyShot"
-    },
-    {
-        "name": "KrillinAI",
-        "description": "全链路 AI 视频翻译与配音工具。支持视频下载、ASR 语音识别、LLM 多语种翻译，并提供高保真克隆音色的 TTS 配音及横竖屏自适应剪辑，适用于跨语种视频出海与本地化。Leading Words: AI视频翻译, 视频配音, 语音克隆, KrillinAI",
-        "category": "05_多媒体与设计资产",
-        "folder": "KrillinAI",
-        "relative_path": "./00_全局大管家/05_多媒体与设计资产/KrillinAI"
-    },
-    {
-        "name": "nuwa-skill",
-        "description": "女娲造人：输入人名/主题/模糊需求，自动深度调研、提炼思维框架，生成可运行的人物数字分身 Skill。Leading Words: 人物思维蒸馏, 认知框架提取, 数字分身造人, 决策顾问Agent",
-        "category": "07_智能体框架与协同",
-        "folder": "nuwa-skill",
-        "relative_path": "./00_全局大管家/07_智能体框架与协同/nuwa-skill"
-    },
-    {
-        "name": "technical-proposal-expert-writing-skill",
-        "description": "软件工程常用文档模板及示例，包含项目计划、需求分析、概要设计等各类技术文档范本，用于辅助编写技术标书与相关文档。",
-        "category": "06_商业与专业领域",
-        "folder": "technical-proposal-expert-writing-skill",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/technical-proposal-expert-writing-skill"
-    },
-    {
-        "name": "engineering-tender-writer",
-        "description": "Draft, restructure, review, and refine Chinese technical tender proposals for engineering and science projects. Use when working on 技术标书、服务方案、研究内容、建设方案、技术路线、模型或算法方案、性能验收、技术参数响应表、点对点响应，or when extracting requirements from DOCX/Markdown tender materials and checking clause coverage, indicator consistency, task boundaries, unsupported commitments, and formal bid-writing style.",
-        "category": "06_商业与专业领域",
-        "folder": "engineering-tender-writer",
-        "relative_path": "./00_全局大管家/06_商业与专业领域/engineering-tender-writer"
-    }
+  {
+    "name": "00_codex_skills",
+    "description": "全局技能库大管家（Librarian Router）。当你需要调用任何领域的专家技能（如代码、写作、科研、部署等）时，请唤醒此技能。它将自动为您寻址并加载最完美的专业子技能。",
+    "category": "00_全局大管家",
+    "folder": "00_全局大管家",
+    "relative_path": "./"
+  },
+  {
+    "name": "LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
+    "description": "提供陈光剑编写的关于 LLM-based Multi-Agent 系统的理论基础、架构模式与项目实战指南。涵盖大语言模型特性、多智能体协作、Prompt工程，以及架构落地。当需要设计复杂的Agent协同系统或查阅MAS理论时使用。Leading Words: MAS架构设计, 多智能体协同, Prompt工程, LLM基础理论, 系统架构设计",
+    "category": "01_代码工程与架构",
+    "folder": "LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/LLM-based-Multi-Agent-System-Architecture-Design-and-Project-Code-Practice"
+  },
+  {
+    "name": "sentry-triage",
+    "description": "Sentry 线上错误实时诊断与修复助手。免去了人工复制堆栈的繁琐，利用 Composio CLI 直连 Sentry 获取异常明细、用户行为面包屑（Breadcrumbs）及嫌疑 Commit，自动将报错调用栈映射到本地源码，并输出热修复（Hotfix）方案。Leading Words: Sentry错误日志分析, 线上异常诊断, 调用栈映射, 自动Hotfix定位, 行为面包屑排查",
+    "category": "01_代码工程与架构",
+    "folder": "sentry-triage",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/sentry-triage"
+  },
+  {
+    "name": "brooks-lint",
+    "description": "深度的架构与代码防退化审查工具（Linter）。融合六大软件工程经典名著理念，用于发起重量级的 PR 评审（Code Review）、架构坏味道诊断（Architecture Audit）、技术债评估与单元测试质量审查。当需要对关键组件进行严格的重构或质量把控时调用。Leading Words: 深度代码审查, PR Review, 架构退化审计, 技术债评估, 测试用例质量, 软件工程规范",
+    "category": "01_代码工程与架构",
+    "folder": "brooks-lint",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/brooks-lint"
+  },
+  {
+    "name": "codebase-recon",
+    "description": "陌生代码库快速摸底与侦查工具。接手新项目前必用，通过解析 Git 提交历史，秒级生成代码热点地图、高风险变更区域（Risk Areas）、团队开发结构与项目演进动能，从而在未深入阅读源码前建立全局视角与代码健康度认知。Leading Words: 代码库侦查, Git历史分析, 变更热点地图, 项目健康度评估, 陌生代码上手, 依赖拓扑",
+    "category": "01_代码工程与架构",
+    "folder": "codebase-recon",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/codebase-recon"
+  },
+  {
+    "name": "git-workflow-skill",
+    "description": "标准的 Git 工作流与最佳实践约束器。接管并规范所有的 Git 操作：强制执行语义化分支命名（Branching）、规范化提交信息（Conventional Commits）、冲突解决原则以及标准化的 PR（Pull Request）生命周期管理。兼容 Claude Code 环境。Leading Words: Git工作流规范, 语义化提交, 分支管理策略, 冲突解决机制, PR流程自动化",
+    "category": "01_代码工程与架构",
+    "folder": "git-workflow-skill",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/git-workflow-skill"
+  },
+  {
+    "name": "planning-with-files",
+    "description": "长线任务记忆与文件级进度规划引擎。让 Codex 通过读写本地 Markdown 文件来结构化地记录开发计划、执行进度和上下文状态。专为复杂的大型长期项目设计，彻底解决对话过长导致的“遗忘”和“偏离路线”问题。Leading Words: 文件级进度规划, 长期项目跟踪, Markdown任务记忆, 状态上下文留存, 长线任务执行",
+    "category": "01_代码工程与架构",
+    "folder": "planning-with-files",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/planning-with-files"
+  },
+  {
+    "name": "superpowers",
+    "description": "严格模式工程素养约束器。强制 Agent 遵循测试驱动开发（TDD）理念：在改动代码前必须先写测试用例，并在编写完后主动触发边界条件检测和代码自省（Linter），根绝“看起来能跑但有暗坑”的随性修改。Leading Words: 测试驱动开发 TDD, 严格代码质量约束, 边界用例覆盖, 主动Linter检查, 零隐患开发",
+    "category": "01_代码工程与架构",
+    "folder": "superpowers",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/superpowers"
+  },
+  {
+    "name": "vercel-agent-skills",
+    "description": "Vercel 官方标准的前端项目质检探针。专门针对 React / Next.js 等 Web 应用进行深度体检，全面覆盖页面性能优化（Web Vitals）、DOM结构合理性、无障碍访问（Accessibility/a11y）以及现代前端工程最佳实践规范。Leading Words: Vercel前端规范, React性能优化, 网页可访问性 a11y, Web Vitals, Next.js最佳实践",
+    "category": "01_代码工程与架构",
+    "folder": "vercel-agent-skills",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/vercel-agent-skills"
+  },
+  {
+    "name": "codebase-migrate",
+    "description": "执行超大规模代码库迁移与多文件批量重构的自动化管家。深度集成 Composio CLI，通过自动化 Issue 追踪、分批次提交 PR 以及 CI 自动化校验，实现在本地安全、稳定地跨越数百个文件执行代码 AST 转换或重构操作。Leading Words: 大规模代码重构, 批量文件迁移, AST转换, Composio CI/CD集成, 自动化PR管理",
+    "category": "01_代码工程与架构",
+    "folder": "codebase-migrate",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/codebase-migrate"
+  },
+  {
+    "name": "datadog-logs",
+    "description": "Datadog 终端日志分析与检索专家。利用 Composio CLI 穿透系统壳层查询和过滤 Datadog 日志，支持跨服务/环境的范围检索，并将结构化 JSON 导出供下游代理使用，彻底告别在 Datadog UI 中的繁琐点击。Leading Words: Datadog日志查询, Composio集成, 跨环境日志检索, JSON日志导出, 自动化监控追踪",
+    "category": "02_DevOps与自动化",
+    "folder": "datadog-logs",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/datadog-logs"
+  },
+  {
+    "name": "gh-fix-ci",
+    "description": "基于 GitHub CLI 的 CI 修复专家。自动拉取失败的 GitHub Actions 运行日志，总结报错上下文，生成修复计划并在授权后直接将修复代码提交至远程 PR。Leading Words: GitHub Actions排错, CI流水线修复, 自动提取错误日志, PR热修复补丁",
+    "category": "02_DevOps与自动化",
+    "folder": "gh-fix-ci",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/gh-fix-ci"
+  },
+  {
+    "name": "gh-address-comments",
+    "description": "GitHub PR Code Review 自动回复与代码整改助手。读取 PR 下的评审意见，对问题进行自动归类并询问用户确认，随后结合上下文生成修复补丁，自动解决 Review 阻碍。Leading Words: GitHub PR评审回复, Code Review问题整改, 自动修复审查意见, PR交互式排障",
+    "category": "02_DevOps与自动化",
+    "folder": "gh-address-comments",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/gh-address-comments"
+  },
+  {
+    "name": "langsmith-fetch",
+    "description": "LangSmith 智能体执行轨迹抓取与调试分析器。用于诊断 LangChain 或 LangGraph 的内部行为。自动从 LangSmith Studio 抓取执行 Trace、分析工具调用耗时与记忆操作模式。调试 Agent 幻觉或执行链断裂时必用。Leading Words: LangSmith轨迹抓取, LangGraph行为调试, Agent执行Trace分析, 工具调用监控",
+    "category": "02_DevOps与自动化",
+    "folder": "langsmith-fetch",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/langsmith-fetch"
+  },
+  {
+    "name": "pr-review-ci-fix",
+    "description": "跨平台自动 PR 评审与 CI 修复闭环工具。利用 Composio CLI 兼容 GitHub 与 GitLab。拉取 Diff、捕获失败流水线日志、自动发布 Review 评论，并通过自回归提交（Loop fix commits）直至所有 CI 状态变绿。Leading Words: Github/Gitlab兼容, 自动PR评审, CI失败闭环修复, 自回归代码修复",
+    "category": "02_DevOps与自动化",
+    "folder": "pr-review-ci-fix",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/pr-review-ci-fix"
+  },
+  {
+    "name": "mcp-github-pr-issue-analyser",
+    "description": "基于 MCP 协议的 GitHub PR 审查与 Issue 管理服务器。将复杂的 PR Diff 抓取、Issue 生命周期流转封装为标准工具协议。Leading Words: MCP协议服务, GitHub PR深度分析, Issue生命周期自动化管理, MCP工具集成",
+    "category": "02_DevOps与自动化",
+    "folder": "mcp-github-pr-issue-analyser",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/mcp-github-pr-issue-analyser"
+  },
+  {
+    "name": "webapp-testing",
+    "description": "本地 Web 应用 Playwright 自动化测试与调试套件。支持原生 Python 编写端到端测试用例，验证前端交互逻辑，并自动管理测试服务器生命周期及页面状态快照。Leading Words: Playwright端到端测试, Web前端自动化验证, UI交互调试, 本地测试服务器挂载",
+    "category": "02_DevOps与自动化",
+    "folder": "webapp-testing",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/webapp-testing"
+  },
+  {
+    "name": "deploy-pipeline",
+    "description": "端到端跨平台部署流水线大管家。深度集成 Composio CLI，一键拉起跨 Stripe、Supabase 和 Vercel 的协同发布：同步推送 Stripe 产品配置、执行 Supabase 数据库迁移、发布 Vercel 静态/SSR 资源，并执行自动化部署后校验（Post-deploy checks）。Leading Words: 端到端部署, CI/CD流水线, Stripe配置同步, Supabase数据迁移, Vercel发布",
+    "category": "02_DevOps与自动化",
+    "folder": "deploy-pipeline",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/deploy-pipeline"
+  },
+  {
+    "name": "File-Organizer-MCP",
+    "description": "基于 MCP 协议的本地文件自动化整理服务器。支持 Claude、Cursor、Gemini CLI 等多端挂载，提供跨系统的文件搬运、分类和重命名底层工具支持。Leading Words: MCP文件整理服务, 跨端MCP挂载, 目录自动化重构, 文件分类API",
+    "category": "03_效率工具与协同管理",
+    "folder": "File-Organizer-MCP",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/File-Organizer-MCP"
+  },
+  {
+    "name": "notion-meeting-intelligence",
+    "description": "Notion 智能会议管家。提取 Notion 上下文并进行前置调研，自动起草会议议程、会前必读材料，并根据参会者量身定制沟通策略。Leading Words: Notion会议助手, 自动起草议程, 会前调研材料, 会议上下文检索",
+    "category": "03_效率工具与协同管理",
+    "folder": "notion-meeting-intelligence",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-meeting-intelligence"
+  },
+  {
+    "name": "notion-research-documentation",
+    "description": "Notion 跨库文献调研与文档合成器。从多个 Notion 数据库/页面采集信息，提取要点并整合为带有准确引用来源的结构化报告、竞品分析或简报。Leading Words: Notion文献调研, 跨数据库检索, 结构化报告合成, 知识提取引用",
+    "category": "03_效率工具与协同管理",
+    "folder": "notion-research-documentation",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-research-documentation"
+  },
+  {
+    "name": "notion-knowledge-capture",
+    "description": "Notion 会话级知识沉淀器。将零散的聊天记录或头脑风暴草稿，自动转化为具备良好双向链接（Bi-directional linking）、结构清晰的 Notion Wiki 百科词条、SOP 教程或 FAQ。Leading Words: Notion双链Wiki沉淀, 聊天碎片化梳理, SOP流程文档化, 知识库捕获",
+    "category": "03_效率工具与协同管理",
+    "folder": "notion-knowledge-capture",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-knowledge-capture"
+  },
+  {
+    "name": "notion-spec-to-implementation",
+    "description": "Notion PRD 规格转换为研发排期执行工具。自动解析 Notion 产品需求文档（PRDs / Feature Specs），并切分为可操作的实施计划、任务拆解大纲，同时同步更新 Notion 任务板进度。Leading Words: Notion PRD拆解, 需求规格转任务, 实施计划生成, 任务跟踪同步",
+    "category": "03_效率工具与协同管理",
+    "folder": "notion-spec-to-implementation",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/notion-spec-to-implementation"
+  },
+  {
+    "name": "ai-news-radar",
+    "description": "AI 前沿资讯雷达。自动抓取并总结最新的 AI 行业新闻、模型发布动态及前沿研究论文，提供一手的科技情报摘要。Leading Words: AI资讯抓取, 前沿技术雷达, 科技新闻摘要, 模型动态跟踪",
+    "category": "03_效率工具与协同管理",
+    "folder": "ai-news-radar",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/ai-news-radar"
+  },
+  {
+    "name": "browser-skill",
+    "description": "让智能体静默接管本地已登录浏览器的自动化扩展 (BrowserSkill)。由腾讯开源，允许 Agent 操作本地浏览器执行复杂网页任务而不打断用户工作流程。自带人机接管 (Human-in-loop) 支持。",
+    "category": "03_效率工具与协同管理",
+    "folder": "browser-skill",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/browser-skill"
+  },
+  {
+    "name": "browser-use",
+    "description": "基于 Browser-Use 的本地浏览器接管工具。为大语言模型提供通用浏览器控制能力，自动执行网页导航、表单填写和信息抓取等繁琐任务。Leading Words: 浏览器自动化接管, 网页导航控制, 表单自动填写, 通用Web操作",
+    "category": "03_效率工具与协同管理",
+    "folder": "browser-use",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/browser-use"
+  },
+  {
+    "name": "hk-finance-mcp-server",
+    "description": "香港金融市场数据中心 MCP 服务器。通过 FastMCP 接口提供实时或历史的 HK 金融衍生品、股票行情及财经指标数据接入。Leading Words: 香港金融数据接口, MCP行情服务器, 港股财经数据抓取, FastMCP挂载",
+    "category": "03_效率工具与协同管理",
+    "folder": "hk-finance-mcp-server",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/hk-finance-mcp-server"
+  },
+  {
+    "name": "mcp-linear",
+    "description": "基于 MCP 协议的 Linear 服务。将 Linear 的底层 API 包装为自然语言可调用的 MCP 工具集，适用于解耦的智能体挂载使用。Leading Words: MCP Linear接口, 自然语言项目流转, MCP状态管理",
+    "category": "03_效率工具与协同管理",
+    "folder": "mcp-linear",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/mcp-linear"
+  },
+  {
+    "name": "obsidian-vault-mcp",
+    "description": "基于 MCP 协议的 Obsidian Vault 文件检索挂载服务。专供 Open WebUI 或 Claude Desktop 穿透读取本地 Vault 笔记流。Leading Words: Obsidian MCP检索, 跨端Vault读取, 知识流提取, 本地笔记挂载",
+    "category": "03_效率工具与协同管理",
+    "folder": "obsidian-vault-mcp",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/obsidian-vault-mcp"
+  },
+  {
+    "name": "playwright-mcp",
+    "description": "微软官方 Playwright 浏览器自动化操控引擎 (MCP)。赋予智能体开启无头/有头浏览器、执行页面元素审查、点击输入及端到端 UI 测试的能力。作为物理世界的视觉交互之手。Leading Words: Playwright浏览器自动化操控, 微软官方端到端UI测试, 无头浏览器元素审查交互, MCP代理服务页面点击",
+    "category": "03_效率工具与协同管理",
+    "folder": "playwright-mcp",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/playwright-mcp"
+  },
+  {
+    "name": "meeting-notes-and-actions",
+    "description": "标准化会议纪要与行动项（Action Items）提炼器。将 Zoom/Teams 长语音转文字稿浓缩为结构化的大纲，精准圈出最终决议（Decisions）、风险预警（Risks）及绑定到特定负责人的执行项。Leading Words: 会议纪要浓缩, Action Items提取, 风险决策捕获, 结构化会议提要",
+    "category": "03_效率工具与协同管理",
+    "folder": "meeting-notes-and-actions",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/meeting-notes-and-actions"
+  },
+  {
+    "name": "meeting-insights-analyzer",
+    "description": "会议录音心理与沟通模式深度洞察器。剖析会议逐字稿，提取人类行为特征（如回避冲突、语气词滥用、话语霸权等），提供可落地的高管沟通与领导力复盘建议。Leading Words: 沟通行为心理学分析, 会议话语霸权诊断, 领导力表达复盘, 语气词纠正",
+    "category": "03_效率工具与协同管理",
+    "folder": "meeting-insights-analyzer",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/meeting-insights-analyzer"
+  },
+  {
+    "name": "internal-comms",
+    "description": "内部沟通规范文案撰写器。按照企业既定的格式偏好撰写内部状态报告、高管更新、项目通报及事件复盘（Incident reports）等规范化文档。Leading Words: 内部规范文案撰写, 项目进度状态报告, 结构化Incident报告起草, 团队公文",
+    "category": "03_效率工具与协同管理",
+    "folder": "internal-comms",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/internal-comms"
+  },
+  {
+    "name": "support-ticket-triage",
+    "description": "全渠道客服工单智能分类与自动化回复分诊台。处理 Zendesk、Intercom 等导出的原始报文，进行意图分类、定级（Priority），并起草包含复现步骤的标准话术回复。Leading Words: Zendesk工单分诊, 客服报文分类, Intercom优先级定级, 标准化话术起草",
+    "category": "03_效率工具与协同管理",
+    "folder": "support-ticket-triage",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/support-ticket-triage"
+  },
+  {
+    "name": "issue-triage",
+    "description": "Linear / Jira 敏捷看板工单分流清道夫。通过 Composio CLI 在后台批量获取缺陷积压（Bug sweeps）、执行去重、重新打标（Relabel）、指派处理人并生成工单分流汇总报告。Leading Words: Jira工单分流, Linear敏捷看板清理, Bug去重分析, Composio任务指派",
+    "category": "03_效率工具与协同管理",
+    "folder": "issue-triage",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/issue-triage"
+  },
+  {
+    "name": "skill-share",
+    "description": "Agent 技能创建与 Slack 自动分发广播器。自动将你在本地新编写的 Claude 技能打包，并通过 Rube 协议一键推送到企业 Slack 频道中共享，实现团队协作与技能发现发现。Leading Words: 技能自动打包分发, Slack广播协同, Rube推送, Agent生态共享",
+    "category": "03_效率工具与协同管理",
+    "folder": "skill-share",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/skill-share"
+  },
+  {
+    "name": "agent-deep-links",
+    "description": "跨 IDE 协议深层跳转链接 (Deep Links) 构建与强验工具。专用于将晦涩的终端路径转化为能在 Slack / Discord 一键唤醒的超链接URI。支持 Cursor、VS Code 及 Codex 原生协议，并包含协议头可用性兜底诊断。Leading Words: 跨IDE协议Deep Links构建, Slack超链接快速唤醒, Cursor/VSCode协议头, 终端路径状态验证诊断",
+    "category": "03_效率工具与协同管理",
+    "folder": "agent-deep-links",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/agent-deep-links"
+  },
+  {
+    "name": "paperjsx",
+    "description": "PaperJSX 结构化跨格式报表编译发布系统。以 JSON 为统一输入源，通过 JSX 语法模板自动生成高度定制的 PPTX 幻灯片、DOCX 报告、XLSX 数据表及 PDF。一键多端发布输出。Leading Words: PaperJSX渲染引擎, JSON驱动报表生成, 多格式自动化排版, JSX幻灯片编译",
+    "category": "04_内容创作与文档处理",
+    "folder": "paperjsx",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/paperjsx"
+  },
+  {
+    "name": "anysearch-skill",
+    "description": "全网聚合检索能力接口。支持多平台文献、百科与开源信息库并发查询，专为需要深度前置调研与多方信源交叉验证的内容创作工作流设计。Leading Words: 全网多态检索, 跨源聚合查询, 前置内容调研",
+    "category": "04_内容创作与文档处理",
+    "folder": "anysearch-skill",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/anysearch-skill"
+  },
+  {
+    "name": "canghe-tianyancha",
+    "description": "企业全维背调与商业情报看板生成器。输入公司/行业名，并行抓取并生成单文件 HTML 仪表板（Dashboard），一览无余地呈现工商变更、司法风险、知识产权及在招岗位数据。Leading Words: 天眼查工商背调, 商业情报抓取, 司法风险预警, 单文件HTML看板",
+    "category": "04_内容创作与文档处理",
+    "folder": "canghe-tianyancha",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/canghe-tianyancha"
+  },
+  {
+    "name": "dbskill",
+    "description": "中文自媒体爆款选题与标题诊断剖析专家。专精于小红书标题、商业短图文表达、开篇 Hook 设计及爆款对标拆解。Leading Words: 自媒体爆款拆解, 小红书标题诊断, 商业内容表达, 流量选题剖析",
+    "category": "04_内容创作与文档处理",
+    "folder": "dbskill",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/dbskill"
+  },
+  {
+    "name": "diasporic-intelligence",
+    "description": "离散情报学 (Diasporic Intelligence) 与非裔时间主义文化引文溯源与审查框架。在涉及该文化内容生成时，严守信源溯源、同意管治及谱系边界，防止生物特征提取及祖先伪造。Leading Words: Diasporic Intelligence审查, 文化信源溯源保护, Afrotemporalism, 防止生物提取",
+    "category": "04_内容创作与文档处理",
+    "folder": "diasporic-intelligence",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/diasporic-intelligence"
+  },
+  {
+    "name": "humanize-text",
+    "description": "AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除",
+    "category": "04_内容创作与文档处理",
+    "folder": "humanize-text",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/humanize-text"
+  },
+  {
+    "name": "khazix-skills",
+    "description": "万字深度长文与重型研究报告架构师。内置复杂的写作推理流，专攻科技热点分析、万字长文拆解重构与极具深度的硬核观点输出（如微信公众号科技评论）。Leading Words: 万字长文架构, 重型写作流, 科技热点深度评论, 硬核观点拆解",
+    "category": "04_内容创作与文档处理",
+    "folder": "khazix-skills",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/khazix-skills"
+  },
+  {
+    "name": "markitdown",
+    "description": "文档与图文跨模态转换至 Markdown 格式的编译神器。可以将任何复杂的 Office 格式文档、带有数学公式的 PDF 及图文混排文章完美清洗并逆向还原为干净、纯粹的 Markdown。Leading Words: Office转Markdown, 复杂图文提取, 文档格式清洗与逆向",
+    "category": "04_内容创作与文档处理",
+    "folder": "markitdown",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/markitdown"
+  },
+  {
+    "name": "notebooklm",
+    "description": "Google NotebookLM 跨端检索与反幻觉引用源交互器。在 CLI 端直连 NotebookLM 的底层引擎，仅依赖你的私有语料库进行溯源问答（基于 Gemini），彻底切断外部大模型幻觉，并支持持久化认证与浏览器库管理。Leading Words: NotebookLM穿透查询, 反幻觉溯源问答, 零幻觉私有语料检索, 持久化认证挂载",
+    "category": "04_内容创作与文档处理",
+    "folder": "notebooklm-skill",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/notebooklm-skill"
+  },
+  {
+    "name": "novel-writing",
+    "description": "虚构文学与长篇小说创作统筹沙盘。囊括世界观架构、主线章节大纲起草、场景分镜续写与文学级别的文字表现力修改评审。Leading Words: 长篇虚构文学架构, 场景分镜续写, 世界观大纲起草, 文学表现力评审",
+    "category": "04_内容创作与文档处理",
+    "folder": "novel-writing",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/novel-writing"
+  },
+  {
+    "name": "paddleocr-doc-parsing",
+    "description": "基于 PaddleOCR 的全版面复杂文档解构引擎。不仅提取文本，更针对复杂研报与论文进行版面还原：完美识别带行列跨度的 HTML 表格、独立还原数学公式及抽离核心图表排版位置。Leading Words: PaddleOCR版面解构, 复杂研报提取, 跨列表格还原, 数学公式提取",
+    "category": "04_内容创作与文档处理",
+    "folder": "paddleocr-doc-parsing",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/paddleocr-doc-parsing"
+  },
+  {
+    "name": "qiaomu-anything-to-notebooklm",
+    "description": "万物皆可转存 Google NotebookLM 的知识桥梁。自动捕获任意格式的外部资料库（网页摘要、社群对话流或本地零散文档），并无缝推送为 NotebookLM 可消费的基础源。Leading Words: 万物转NotebookLM, 跨格式私有化注入, 外部资料库无缝推流",
+    "category": "04_内容创作与文档处理",
+    "folder": "qiaomu-anything-to-notebooklm",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/qiaomu-anything-to-notebooklm"
+  },
+  {
+    "name": "stop-slop",
+    "description": "AI 文本去机甲化 (Stop Slop)。专用于剔除 AI 生成文本中的套话、可预测的短语结构与模式，强制模型抛弃“AI味”的写作习惯，让行文恢复真实人类质感。附带丰富的违禁词参考库。",
+    "category": "04_内容创作与文档处理",
+    "folder": "stop-slop",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/stop-slop"
+  },
+  {
+    "name": "unslop",
+    "description": "自动化反俗套与去注水内容洗稿引擎。深度检测过度营销、刻意煽情及冗长拖沓的 AI 味文案，精准削去无用长句，还原紧凑扎实的文本信息密度。Leading Words: 去AI味文本清洗, 反冗长注水, 紧凑高信息密度提炼, 洗稿去营销感",
+    "category": "04_内容创作与文档处理",
+    "folder": "unslop",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/unslop"
+  },
+  {
+    "name": "tailored-resume-generator",
+    "description": "职位描述精准打击型 (JD-Tailored) 简历重塑专家。通过对齐 JD 核心要求，将过往杂乱的经验提炼为量化成就（Achievements）与高匹配度技能点，最大化简历投递过筛率。Leading Words: JD精准打击提炼, 简历经验量化重塑, 高匹配度简历生成, 面试过筛率优化",
+    "category": "04_内容创作与文档处理",
+    "folder": "tailored-resume-generator",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/tailored-resume-generator"
+  },
+  {
+    "name": "changelog-generator",
+    "description": "面向用户的 Git 更新日志 (Changelog) 自动化提炼翻译器。分析生硬枯燥的代码 Commit History，按新特性、修复等分类，转化为极具人类可读性、高大上的 Release Notes 发布公告。Leading Words: 自动化Changelog生成, Commit历史翻译, 客户友好型发布公告, Git Release Notes",
+    "category": "04_内容创作与文档处理",
+    "folder": "changelog-generator",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/changelog-generator"
+  },
+  {
+    "name": "spreadsheet-formula-helper",
+    "description": "极客级电子表格函数大师与跨方言调试专家。精通 Excel 与 Google Sheets 之间的公式翻译。自动编写嵌套数组公式、复杂数据透视表规则，并生成带边界用例（Edge-case checks）的数据验证测试台。Leading Words: 嵌套数组公式调试, 复杂数据透视表, Excel与Sheets方言翻译, 表格边界用例测试",
+    "category": "04_内容创作与文档处理",
+    "folder": "spreadsheet-formula-helper",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/spreadsheet-formula-helper"
+  },
+  {
+    "name": "email-draft-polish",
+    "description": "职场与商业级邮件语料润色起草专家。精细调节冷启动触达（Cold Outreach）、项目状态汇报或危机升级（Escalations）类邮件的语气与长短，确保高信噪比与职场专业度。Leading Words: 商业邮件冷触达起草, 职场危机沟通升维, 语气长短调节, 高信噪比汇报",
+    "category": "04_内容创作与文档处理",
+    "folder": "email-draft-polish",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/email-draft-polish"
+  },
+  {
+    "name": "mediacrawler",
+    "description": "全矩阵跨平台社交媒体高匿爬虫引擎 (MediaCrawler)。采用 Playwright 挂载、扫码 / Cookie 会话保持，成功规避小红书、抖音、B站等平台的严厉风控反爬策略，合法合规提取帖子及评论区舆情。Leading Words: 全矩阵社交媒体爬虫, Playwright防反爬绕过, 评论区舆情提取, 小红书抖音帖子抓取",
+    "category": "05_多媒体与设计资产",
+    "folder": "MediaCrawler",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/MediaCrawler"
+  },
+  {
+    "name": "slack-gif-creator",
+    "description": "面向企业 Slack 团队沟通的企业级表情包与 GIF 动态图生成器。内置严格的体积与尺寸验证器，以代码或文字组合生成搞怪、夸张的动效短片，极大提升团队破冰与沟通乐趣。Leading Words: Slack动图生成, 企业表情包自动化, 搞怪动效渲染",
+    "category": "05_多媒体与设计资产",
+    "folder": "slack-gif-creator",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/slack-gif-creator"
+  },
+  {
+    "name": "theme-factory",
+    "description": "全能型 UI 主题与调色板构建工坊。内嵌数十种现代前沿设计风格（如玻璃拟物化、赛博朋克、极简瑞士风），自动为各类报告、HTML 落地页、组件库推演计算出具有高级美感的色阶与排版参数。Leading Words: 现代UI调色板推演, 设计系统主题切换, 玻璃拟物化CSS, 极简高雅配色",
+    "category": "05_多媒体与设计资产",
+    "folder": "theme-factory",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/theme-factory"
+  },
+  {
+    "name": "baoyu-skills",
+    "description": "自媒体高保真知识图解与全能视觉资产包装车间。专注公众号长图、封面图及逻辑结构可视化。将抽象观点与长文提炼为精美的信息图（Infographics）和图解，极致增强中文内容传播力。Leading Words: 高保真图解可视化, 抽象逻辑制图, 公众号视觉资产包装, 信息图Infographics生成",
+    "category": "05_多媒体与设计资产",
+    "folder": "baoyu-skills",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/baoyu-skills"
+  },
+  {
+    "name": "canghe-douyin-downloader",
+    "description": "抖音短视频无水印下载与语音切片提取器。支持解析抖音链接、剥离水印，并可结合硅基流动（SiliconFlow）API 将短视频背景音轨或旁白一键转录为高准确度的文字稿。Leading Words: 抖音无水印提取, 视频音轨分离, 硅基流动语音转录, 短视频文案抓取",
+    "category": "05_多媒体与设计资产",
+    "folder": "canghe-douyin-downloader",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/canghe-douyin-downloader"
+  },
+  {
+    "name": "canghe-manga-style-video",
+    "description": "多语境漫画风格视频渲染生成引擎。基于火山引擎 Ark API，支持将提示词或原视频渲染为 8 种专业漫画风格（涵盖日漫、国风水墨、美式漫威卡通等）。Leading Words: 漫画风格视频渲染, 火山引擎Ark集成, 国风水墨转换, 动漫视频生成",
+    "category": "05_多媒体与设计资产",
+    "folder": "canghe-manga-style-video",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/canghe-manga-style-video"
+  },
+  {
+    "name": "cinema-manager",
+    "description": "私人 NAS 影音媒体库刮削整理大管家。全自动排查本地或网盘影视资源，支持根据分辨率/音轨多维筛选、通过夸克网盘转存，并严格按照 Plex/Infuse 媒体库标准执行刮削重命名。Leading Words: NAS影音库刮削, Plex标准重命名, 影视资源筛选分类, 夸克网盘转存",
+    "category": "05_多媒体与设计资产",
+    "folder": "cinema-manager",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/cinema-manager"
+  },
+  {
+    "name": "claude-real-video",
+    "description": "一款能够让大语言模型（LLM）“看懂”视频的本地视觉增强技能。它通过自动场景检测、滑动窗口去重提取出最关键的视频帧，并结合 Whisper 提取双语字幕与时间轴，最终输出让智能体可以原生阅读的纯本地视频内容清单。",
+    "category": "05_多媒体与设计资产",
+    "folder": "claude-real-video",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/claude-real-video"
+  },
+  {
+    "name": "frontend-slides",
+    "description": "极客型前端代码驱动幻灯片引擎。将 React/Vue 或纯 HTML 结构化数据编译为极具交互性与全屏视觉冲击力的高清展示文稿，专供研发团队架构分享使用。Leading Words: 代码驱动幻灯片, 前端交互式演讲, 极客级演示文稿生成",
+    "category": "05_多媒体与设计资产",
+    "folder": "frontend-slides",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/frontend-slides"
+  },
+  {
+    "name": "generative-media-skills",
+    "description": "全模态 AI 媒体生成工坊 (AIGC Toolbox)。通过集成 MuAPI 提供跨图像、视频与音频的生成能力。专攻产品宣传片、高互动 UGC 视频及社交短片制作。注意：强依赖底层 API 计费。Leading Words: 全模态视频生成, 产品宣传片AIGC, UGC短片制作, MuAPI媒体调用",
+    "category": "05_多媒体与设计资产",
+    "folder": "generative-media-skills",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/generative-media-skills"
+  },
+  {
+    "name": "guizang-ppt-skill",
+    "description": "顶级网页级 HTML 交互幻灯片生成架构师。专精渲染横向滚动、带 WebGL 流体背景的单文件网页 PPT。提供极具视觉冲击力的「电子杂志风」与「瑞士国际主义（Swiss Style）」双主题，彻底颠覆传统 PPT 体验。Leading Words: 单文件网页PPT, WebGL流体背景, Swiss Style瑞士国际风格, 杂志风幻灯片排版",
+    "category": "05_多媒体与设计资产",
+    "folder": "guizang-ppt-skill",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-ppt-skill"
+  },
+  {
+    "name": "guizang-social-card-skill",
+    "description": "Guizang 系社交网络裂变卡片与双封面矩阵生成器。针对小红书图文（3:4）、微信公众号（21:9+1:1 首尾封面），自动将长文文案解构重组为瑞士杂志风格的高格调轮播图集。Leading Words: 小红书高逼格图文卡片, 公众号双封面生成, Swiss Style杂志排版, 社交裂变卡片",
+    "category": "05_多媒体与设计资产",
+    "folder": "guizang-social-card-skill",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-social-card-skill"
+  },
+  {
+    "name": "html-anything",
+    "description": "Markdown 至高保真 HTML 渲染及截图生成器。通过纯代码将枯燥的纯文本降维打击，直接转换为带高阶 CSS 样式的单页面杂志、知识分享长图和小红书卡片 PNG。Leading Words: Markdown转HTML卡片, 高阶CSS排版, 知识分享长图生成, 纯代码海报渲染",
+    "category": "05_多媒体与设计资产",
+    "folder": "html-anything",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/html-anything"
+  },
+  {
+    "name": "html-ppt-skill",
+    "description": "纯文本极速渲染 HTML 演示文稿生成器。跳过繁琐的 Office 排版，直接将脑暴思路映射为轻量级、跨终端响应式、支持浏览器一键开启的 HTML 格式 PPT。Leading Words: HTML轻量级PPT, 跨终端响应式演示, 思路直出排版",
+    "category": "05_多媒体与设计资产",
+    "folder": "html-ppt-skill",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/html-ppt-skill"
+  },
+  {
+    "name": "huashu-design",
+    "description": "高维视觉冲击力信息图谱设计室（huashu-design）。通过提炼干瘪的长篇文本逻辑，重新规划为带高阶透视、空间感与复杂版面调配的 infographic，打造一图胜千言的视觉资产。Leading Words: 高维透视信息图谱, 空间感图解渲染, 复杂版面重构, Infographic资产",
+    "category": "05_多媒体与设计资产",
+    "folder": "huashu-design",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/huashu-design"
+  },
+  {
+    "name": "hyperframes",
+    "description": "高阶线框图（Wireframe）与极简视觉框架生成引擎。专为产品早起脑暴与交互探讨而生，以极具克制力的高反差黑白灰和工业感线条，极速出图，直击核心需求逻辑。Leading Words: 工业级高反差线框图, 产品早期交互脑暴, 极简克制风视觉推演",
+    "category": "05_多媒体与设计资产",
+    "folder": "hyperframes",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/hyperframes"
+  },
+  {
+    "name": "lottie",
+    "description": "工业生产级 Lottie 矢量动效编码引擎。接受人类设计的意图描述，直接生成极度轻量级、可通过 JSON 文件部署至前端 Web/App 的交互式矢量动画 (Lottie)。Leading Words: 工业级Lottie JSON生成, 前端矢量交互动效, App UI动态设计, Web交互无损动画",
+    "category": "05_多媒体与设计资产",
+    "folder": "lottie",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/lottie"
+  },
+  {
+    "name": "ppt-master",
+    "description": "企业级沉浸式商业 PPT 大师。不只做版式堆砌，而是构建以商业画布、SWOT、增长漏斗为底层骨架的重型幻灯片。强视觉冲击与深商业逻辑完美融合。Leading Words: 重型商业PPT构建, 漏斗模型排版可视化, 沉浸式宣发幻灯片",
+    "category": "05_多媒体与设计资产",
+    "folder": "ppt-master",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ppt-master"
+  },
+  {
+    "name": "remotion-skills",
+    "description": "Remotion 官方前端代码级视频编排引擎。赋予 Agent 利用 React.js 框架精细控制每一帧动画与时间轴的能力。专为生成数据排行榜赛马视频、财报周报与可编程的视频工业化生产而生。Leading Words: React编排生成视频, Remotion时间轴控制, 数据排行榜视频生产, 前端代码级视频渲染",
+    "category": "05_多媒体与设计资产",
+    "folder": "remotion-skills",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/remotion-skills"
+  },
+  {
+    "name": "ui-ux-pro-max-skill",
+    "description": "Pro Max 级现代 UI/UX 工业设计系统与美学法则宪章。内含数百条原子化 (Atomic Design) 交互审查原则，强制规范大模型产出 Tailwind/CSS 时的间距、色彩与排版，并植入用户心智模型与无障碍 (a11y) 规范。Leading Words: UI/UX工业设计系统审查, AtomicDesign美学法则, a11y无障碍交互排版, Tailwind/CSS间距色彩强制规范",
+    "category": "05_多媒体与设计资产",
+    "folder": "ui-ux-pro-max-skill",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ui-ux-pro-max-skill"
+  },
+  {
+    "name": "video-use",
+    "description": "对话式非线性视频全功能剪辑工作流 (Video-use)。利用自然语言完成极度复杂的音视频任务：包括语音转录对齐、硬核粗剪切、色彩调色（Color Grade）、内嵌字幕烧录以及叠加层渲染。Leading Words: 对话式非线性剪辑, 音视频时间轴粗剪, 色彩校正Color Grade, 烧录内嵌字幕",
+    "category": "05_多媒体与设计资产",
+    "folder": "video-use",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/video-use"
+  },
+  {
+    "name": "videocut-skills",
+    "description": "中文语境原生短视频矩阵量产编导助手。让大模型深刻理解国内短视频（快手 / 视频号 / 抖音）制作标准，完成本地素材分拣、字幕精准踩点及批量化剪辑流水线架构设计。Leading Words: 中文短视频矩阵编导, 字幕踩点对齐, 本地剪辑素材分拣, 视频号流水线架构",
+    "category": "05_多媒体与设计资产",
+    "folder": "videocut-skills",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/videocut-skills"
+  },
+  {
+    "name": "xiaohongshu-mcp",
+    "description": "小红书平台 MCP Server（Go 实现）。通过 go-rod 浏览器自动化提供 14 项 MCP 工具：扫码登录、图文/视频发布（支持定时）、Feed 推荐流、关键词搜索、笔记详情与评论抓取、评论/回复发送、点赞/收藏、用户主页获取。支持 Docker / 二进制 / 浏览器插件三种部署方式。Leading Words: 小红书MCP服务, 图文视频自动发布, Feed搜索与评论抓取, go-rod浏览器自动化",
+    "category": "05_多媒体与设计资产",
+    "folder": "xiaohongshu-mcp",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/xiaohongshu-mcp"
+  },
+  {
+    "name": "competitive-ads-extractor",
+    "description": "竞品投放广告库爬取与转化漏斗分析器。穿透 Facebook / LinkedIn Ad Libraries，自动提炼竞品的营销核心诉求、痛点话术和创意素材模板，用于反向推演并优化己方广告转化（ROAS）。Leading Words: 竞品广告库提取, FB广告投放拆解, 营销转化漏斗分析, 痛点话术提炼",
+    "category": "05_多媒体与设计资产",
+    "folder": "competitive-ads-extractor",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/competitive-ads-extractor"
+  },
+  {
+    "name": "Amazon-Skills",
+    "description": "亚马逊 A9 算法电商精细化运营操盘手。系统级涵盖 Listing 白帽埋词优化、FBA 仓储成本测算、PPC 广告竞价防守架构，以及竞品 Review 的真实性穿透审计，助力跨境大卖。Leading Words: 亚马逊A9算法埋词, FBA成本核算, PPC广告防守架构, 跨境电商Listing优化",
+    "category": "06_商业与专业领域",
+    "folder": "Amazon-Skills",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/Amazon-Skills"
+  },
+  {
+    "name": "AmazonSeller-mcp-server",
+    "description": "亚马逊官方卖家后台 (Seller Central) 库存与刊登 MCP 桥接器。提供安全接口实现店铺多仓库存盘点、ASIN 刊登自动化流转及跨平台的库存安全警戒水位同步。Leading Words: 亚马逊卖家后台MCP集成, ASIN刊登自动化, FBA多仓库存盘点, 跨境店铺库存对齐",
+    "category": "06_商业与专业领域",
+    "folder": "AmazonSeller-mcp-server",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/AmazonSeller-mcp-server"
+  },
+  {
+    "name": "CAD-MCP",
+    "description": "2D 平面工程制图 MCP 服务。作为通用翻译器，允许 AI 通过自然语言直接操控 AutoCAD、中望 CAD (ZWCAD) 和浩辰 CAD (GstarCAD) 进行绘图、图层管理和尺寸标注。仅支持 Windows 系统。",
+    "category": "06_商业与专业领域",
+    "folder": "CAD-MCP",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/CAD-MCP"
+  },
+  {
+    "name": "LexParse-MCP",
+    "description": "LexParse MCP | Claude 法律文书结构化 MCP 服务。支持中国大陆与香港法律体系，一键把判决书、合同、起诉状等法律文件（PDF/Word/文本）转为结构化 JSON，自动提取当事人、案情事实、法律依据、判决结果和风险条款，并进行风险比对。",
+    "category": "06_商业与专业领域",
+    "folder": "LexParse-MCP",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/LexParse-MCP"
+  },
+  {
+    "name": "MODBUS-MCP",
+    "description": "工业 Modbus 协议通讯控制 MCP。支持通过 Modbus TCP、UDP 或 Serial/RTU 串口方式与工业设备建立连接，执行读取/写入线圈和寄存器操作以控制 PLC、传感器和执行机构。",
+    "category": "06_商业与专业领域",
+    "folder": "MODBUS-MCP",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/MODBUS-MCP"
+  },
+  {
+    "name": "OPCUA-MCP",
+    "description": "标准工业 OPC UA 客户端 MCP。支持自动浏览现场设备节点命名空间，高频读取/写入设备数据项，并可直接调用 OPC UA 服务器内部暴露的方法进行状态切换。",
+    "category": "06_商业与专业领域",
+    "folder": "OPCUA-MCP",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/OPCUA-MCP"
+  },
+  {
+    "name": "Vibe-Lawyering",
+    "description": "⚖️ 法律人的 AI 工具箱。聚合中国法律领域优质 Agent Skills、法律数据库 MCP 工具与 AI 教育资源的开源社区项目。",
+    "category": "06_商业与专业领域",
+    "folder": "Vibe-Lawyering",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/Vibe-Lawyering"
+  },
+  {
+    "name": "altium-designer-mcp",
+    "description": "Altium Designer 元器件库智能化管理 MCP。辅助管理 AD 库中的封装、原理图符号并进行参数校验，提升硬件设计的元器件建库效率。",
+    "category": "06_商业与专业领域",
+    "folder": "altium-designer-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/altium-designer-mcp"
+  },
+  {
+    "name": "altium-eda-agent",
+    "description": "Altium Designer 深度自动化与智能协作 MCP。内置 300 多个开发工具，通过 DelphiScript 桥接与 Altium 交互，支持自然语言触发设计走线、器件网表分析与连接驱动的智能布局。",
+    "category": "06_商业与专业领域",
+    "folder": "altium-eda-agent",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/altium-eda-agent"
+  },
+  {
+    "name": "amazon_sp_mcp",
+    "description": "亚马逊 Selling Partner API (SP-API) 销售与运营数据集成 MCP。支持读取店铺每日销售额、财务报告、买家退货分析及订单列表，辅助进行多维度的店铺数据盘点与经营状况分析。",
+    "category": "06_商业与专业领域",
+    "folder": "amazon_sp_mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/amazon_sp_mcp"
+  },
+  {
+    "name": "arduino-cli-mcp",
+    "description": "Arduino CLI 官方硬件级嵌入式编译与烧录网关 (MCP)。支持解析并编译本地工程、管理第三方开发板包与库依赖，可自动化完成固件（ESP8266/ESP32/Arduino）烧录及串口通信调试。Leading Words: 嵌入式固件编译烧录, Arduino CLI集成MCP, ESP32开发板调试, 硬件串口通信",
+    "category": "06_商业与专业领域",
+    "folder": "arduino-cli-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/arduino-cli-mcp"
+  },
+  {
+    "name": "buywhere-mcp",
+    "description": "东南亚本土电商生态 (Shopee/Lazada) 跨平台竞品与定价侦察兵 (MCP)。自动化爬取并横向对比同款 SKU 在全网的阶梯定价、实时库存及买家负面评价，精准辅助爆款选品及卡位定价策略。Leading Words: 东南亚跨境电商选品, Shopee/Lazada竞品监控, SKU全网比价侦察, 爆款卡位定价策略",
+    "category": "06_商业与专业领域",
+    "folder": "buywhere-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/buywhere-mcp"
+  },
+  {
+    "name": "china-law",
+    "description": "中国大陆司法管辖区全案由法律实务大脑。底层直连北大法宝 MCP 及 2,190 部本地成文法核心库。覆盖 45 项业务流，从起诉状代写、法条溯源检索到裁判文书胜诉率统计无缝衔接。Leading Words: 中国法律实务办理, 北大法宝MCP集成, 裁判文书胜诉率分析, 诉状代写与法条溯源",
+    "category": "06_商业与专业领域",
+    "folder": "china-law",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/china-law"
+  },
+  {
+    "name": "digikey_mcp",
+    "description": "DigiKey 官方全球电子元器件供应链寻源雷达 (MCP)。支持根据规格参数或特定 MPN 反查实时全球库存水位、阶梯报价，以及自动化寻找同规 (Drop-in) 替代料型号。Leading Words: DigiKey元器件寻源, 全球电子供应链库存, 替代料型号反查, 阶梯报价多维检索",
+    "category": "06_商业与专业领域",
+    "folder": "digikey_mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/digikey_mcp"
+  },
+  {
+    "name": "eCommerce-Skills",
+    "description": "跨境电商泛平台 (Amazon/Shopify/TikTok) 全链路运营智囊库。提供 140+ 工业级原生 Prompt 与业务流模板。横扫独立站选品、本土化客服话术、广告投放优化及跨平台财务对账业务。Leading Words: 跨境电商全链路运营, 独立站Shopify选品, TikTok Shop营销话术, 泛平台财务对账",
+    "category": "06_商业与专业领域",
+    "folder": "eCommerce-Skills",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/eCommerce-Skills"
+  },
+  {
+    "name": "ebay-mcp",
+    "description": "eBay 官方店群自动化运营中枢 (MCP)。深度封装 300+ 个底层 Sell API 端点。能够完全托管 SKU 在线刊登、海外仓发货面单流转、自动打折促销活动 (Promotions) 及全景销量盘点。Leading Words: eBay自动化店群运营, Sell API深度封装, SKU在线刊登流转, 面单打印与促销折扣",
+    "category": "06_商业与专业领域",
+    "folder": "ebay-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/ebay-mcp"
+  },
+  {
+    "name": "embedded-debugger-mcp",
+    "description": "底层探针级 (probe-rs) 硬件在线断点调试控制台 (MCP)。无缝挂载 J-Link / ST-Link 等仿真器，直连 ARM Cortex-M 与 RISC-V 内核芯片，实现汇编级单步执行、寄存器穿透与裸机固件热烧录。Leading Words: 底层硬件断点单步调试, probe-rs仿真器直连, 寄存器读写与热烧录, ARM/RISC-V内核级控制",
+    "category": "06_商业与专业领域",
+    "folder": "embedded-debugger-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/embedded-debugger-mcp"
+  },
+  {
+    "name": "freecad-mcp",
+    "description": "FreeCAD 3D 机械图纸参数化建模拓扑生成器 (MCP)。完全舍弃 GUI，使用自然语言驱动底层的拓扑特征引擎完成拉伸、布尔打孔、倒角倒圆角操作，并支持无头环境大批量转换 STEP/STL 制造级模型。Leading Words: 3D机械参数化建模, FreeCAD拓扑特征引擎, 自然语言驱动布尔打孔, STEP/STL无头批量生成",
+    "category": "06_商业与专业领域",
+    "folder": "freecad-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/freecad-mcp"
+  },
+  {
+    "name": "ha-mcp-python",
+    "description": "Home Assistant 极客版智能家居自动化 YAML 注入引擎 (MCP)。赋予大模型接管全局设备的权限。可读取异构传感器状态，全自动编排与调试复杂的智能场景 YAML 剧本。Leading Words: HA智能家居全局接管, 异构传感器状态读取, 自动化YAML剧本编排, 智能场景调试网关",
+    "category": "06_商业与专业领域",
+    "folder": "ha-mcp-python",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/ha-mcp-python"
+  },
+  {
+    "name": "home-assistant-mcp",
+    "description": "Home Assistant 官方原生 IoT 硬件反向代理控制面板 (MCP)。支持基于 stdio 或高并发 SSE 连接，用自然语言下发指令至局域网开关、恒温器，快速验证硬件状态与自动化规则的触发点。Leading Words: HA官方IoT硬件控制, SSE远程状态代理, 自然语言执行家居指令, 自动化规则触发验证",
+    "category": "06_商业与专业领域",
+    "folder": "home-assistant-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/home-assistant-mcp"
+  },
+  {
+    "name": "jlcpcb-parts-mcp",
+    "description": "嘉立创 SMT (PCBA) 供应链可制造性查询雷达 (MCP)。在前置硬件设计期（Schematic 阶段）穿透检索立创库实时贴片库存、阶梯加工费与基础库匹配，避免后续制造时因缺件导致的换板成本。Leading Words: 嘉立创SMT贴片寻源, 可制造性前置校验, PCBA阶梯加工费, 基础库/扩展库选型",
+    "category": "06_商业与专业领域",
+    "folder": "jlcpcb-parts-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/jlcpcb-parts-mcp"
+  },
+  {
+    "name": "kicad-mcp-automation",
+    "description": "KiCad 工业级硬件工程全生命周期流水线管控台 (MCP)。无需开启 IDE 即可基于 CLI 运行高强度的 ERC / DRC 刚性规则拦截。全自动组装标准 BMO 表单并无损导出合规的 Gerber 制造文件投板。Leading Words: KiCad硬件工程自动化, ERC/DRC刚性拦截, 制造级Gerber导出, BOM表单自动生成",
+    "category": "06_商业与专业领域",
+    "folder": "kicad-mcp-automation",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-automation"
+  },
+  {
+    "name": "kicad-mcp-seeed",
+    "description": "Seeed Studio 官方 KiCad 拓扑分析与驱动代码跨界生成器 (MCP)。针对 KiCad 9.0+ 内核，深度追踪 PCB 信号互连（Netlist）关系，并据此反向自动推演、生成对应的底层 C/C++ 嵌入式驱动头文件。Leading Words: Seeed官方KiCad助手, Netlist信号互连追踪, 底层驱动代码反推, PCB拓扑关系分析",
+    "category": "06_商业与专业领域",
+    "folder": "kicad-mcp-seeed",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/kicad-mcp-seeed"
+  },
+  {
+    "name": "mcp2serial",
+    "description": "TTY / COM 物理串口穿透式数据监听与控制台桥接器 (MCP)。赋予大模型直接操作宿主机裸串口的能力，通过波特率握手实现与树莓派 Pico、ESP32 或工业级 PLC 的双向字节流通信与 REPL 会话。Leading Words: 物理串口穿透监听, TTY/COM底层通信, REPL双向字节流, 裸板卡控制台桥接",
+    "category": "06_商业与专业领域",
+    "folder": "mcp2serial",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/mcp2serial"
+  },
+  {
+    "name": "mqtt-mcp",
+    "description": "工业级 MQTT 协议栈代理抓包与收发中继站 (MCP)。允许智能体作为合法 Client 连接局域网 / 公网 Broker。提供 QoS 等级控制，实时订阅或发布物联网传感器遥测数据与异构设备的控制报文。Leading Words: 工业级MQTT协议栈, Broker节点代理连接, 遥测数据流发布订阅, QoS异构控制报文",
+    "category": "06_商业与专业领域",
+    "folder": "mqtt-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/mqtt-mcp"
+  },
+  {
+    "name": "nexar-mcp",
+    "description": "Octopart / Nexar 官方电子供应链全局搜索引擎 (MCP)。跨越独立分销商壁垒，聚合搜索全球元器件实时库存水位与多渠道阶梯报价，并提供技术选型参数对比及 PDF 数据手册直达。Leading Words: Octopart/Nexar API集成, 全球元器件库存搜索, 多渠道阶梯报价, PDF数据手册Datasheet",
+    "category": "06_商业与专业领域",
+    "folder": "nexar-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/nexar-mcp"
+  },
+  {
+    "name": "openscad-mcp",
+    "description": "OpenSCAD 纯代码驱动参数化 3D 建模与视觉纠错闭环引擎 (MCP)。极大发挥大模型的代码生成优势，通过自动后台编译输出 PNG 预览图，实现生成、渲染、视觉验证及自动纠错迭代的全链路覆盖。Leading Words: OpenSCAD代码3D建模, 纯代码参数化渲染, 视觉验证纠错闭环, PNG预览图生成",
+    "category": "06_商业与专业领域",
+    "folder": "openscad-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/openscad-mcp"
+  },
+  {
+    "name": "pcbparts-mcp",
+    "description": "全网多源 EDA 元器件与引脚封装跨界检索引擎 (MCP)。底层桥接嘉立创、Mouser 及 DigiKey 数据库，一键打通供应链选型与底层工程设计，支持深度拉取立创 EDA 原理图符号及引脚网表定义。Leading Words: 跨平台EDA元器件检索, 嘉立创/Mouser/DigiKey, 原理图符号引脚定义, 供应链选型数据拉取",
+    "category": "06_商业与专业领域",
+    "folder": "pcbparts-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/pcbparts-mcp"
+  },
+  {
+    "name": "quantdinger",
+    "description": "量化金融宽客 (Quant) 策略全生命周期研发工作台。覆盖因子脑暴、算法代码生成、回测 (Backtest) 调优与模拟盘全栈流程。助力进阶投研人员将投资逻辑直接落地为高容错的实盘交易信号监控。Leading Words: AI宽客量化投研, 交易策略代码生成, Backtest行情回测, 实盘交易信号监控",
+    "category": "06_商业与专业领域",
+    "folder": "quant-dinger",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/quant-dinger"
+  },
+  {
+    "name": "rigol-dho824-mcp",
+    "description": "普源 Rigol DHO824 数字示波器 LXI 远程实验室总线控制台 (MCP)。突破物理测试台限制，允许 AI 经以太网 LXI 协议直连示波器，执行状态轮询、通道波形截图采集并对离线测量数据进行自动化分析。Leading Words: 普源Rigol示波器控制, LXI以太网仪器通信, 多通道波形截图采集, 远程实验室总线分析",
+    "category": "06_商业与专业领域",
+    "folder": "rigol-dho824-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/rigol-dho824-mcp"
+  },
+  {
+    "name": "serenity-skill",
+    "description": "Serenity 范式硬核产业链瓶颈与卡脖子节点狩猎器。将投资智能体转化为极度理性的研究员。专攻 A股/港股/美股 AI 及半导体硬科技赛道的价值链图谱拆解。执行基于证据链的深度调研与逻辑压力测试。无交易功能，纯投研支撑。Leading Words: Serenity产业链研究, 半导体卡点瓶颈狩猎, 价值链图谱拆解, 投资逻辑压力测试",
+    "category": "06_商业与专业领域",
+    "folder": "serenity-skill",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/serenity-skill"
+  },
+  {
+    "name": "shopify-mcp",
+    "description": "Shopify 独立站 GraphQL 核心数据库级超级管家 (MCP)。彻底穿透官方 Admin API，提供对 Product、Order 及 Customer 的增删改查全生命周期统治。支持扩展字段 (Metafields) 深度注入与全站库存锁定。Leading Words: Shopify独立站后台管理, GraphQL Admin API全封装, Metafields扩展属性, 订单全生命周期统治",
+    "category": "06_商业与专业领域",
+    "folder": "shopify-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/shopify-mcp"
+  },
+  {
+    "name": "spicebridge",
+    "description": "基于 ngspice 的电路设计与仿真分析 MCP。支持使用自然语言描述电路结构，自动生成标准 SPICE 网表并运行 AC、DC 或瞬态仿真，可分析提取波形数据甚至导出为 KiCad 格式。Leading Words: ngspice电路设计仿真, SPICE网表自动生成, AC/DC瞬态仿真, 波形数据分析提取",
+    "category": "06_商业与专业领域",
+    "folder": "spicebridge",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/spicebridge"
+  },
+  {
+    "name": "text-to-cad",
+    "description": "Build123d 引擎级拓扑 Python CAD 参数化建型编译器。跳过传统几何约束 GUI，直接利用 Python 脚本进行工业级实体渲染与装配。支持全自动导出 STEP/STL/GLB 及机器人专用的 URDF 工业图纸。Leading Words: Build123d引擎拓扑建模, Python CAD参数化脚本, URDF机器人图纸导出, 工业级STEP渲染",
+    "category": "06_商业与专业领域",
+    "folder": "text-to-cad",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/text-to-cad"
+  },
+  {
+    "name": "tradingagents",
+    "description": "机构级 AI 金融投研多智能体协同攻防沙盘 (TradingAgents)。以高度模块化架构解构专业基金工作流：基本面定性、技术面量化、情绪面降噪及风控阻断多 Agent 角色博弈，搭建全真环境下的数字投研编队。Leading Words: 多智能体投研协同沙盘, 机构级量化风控博弈, AI金融交易员矩阵, 基本面与情绪面降噪",
+    "category": "06_商业与专业领域",
+    "folder": "trading-agents",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/trading-agents"
+  },
+  {
+    "name": "uzi-skill",
+    "description": "Uzi 中文区量化投研与大中华市场 (A股/港股) 靶向狙击库。内置 180 条红线级量化审计规则与 22 个基本面剖析维度。覆盖游资龙虎榜异动追踪、机构深度估值排雷，并加载特有的「多风格投资大佬评审团」交叉验证。Leading Words: 大中华A股港股量化投研, 龙虎榜异动追踪审计, 180条量化红线排雷, 投资大佬交叉评审闭环",
+    "category": "06_商业与专业领域",
+    "folder": "uzi-skill",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/uzi-skill"
+  },
+  {
+    "name": "yuandian-mcp-server",
+    "description": "华宇元典官方泛法律与政企信用数据合规网关 (MCP)。赋予智能体直连国内最高级别法条库、裁判文书网与企业工商征信信息的能力。作为权威的司法数据检索引擎，保障商业背调与合规审核的法理强健性。Leading Words: 华宇元典权威法律网关, 裁判文书政企信用背调, 企业工商信息获取, 泛法律合规数据检索引擎",
+    "category": "06_商业与专业领域",
+    "folder": "yuandian-mcp-server",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/yuandian-mcp-server"
+  },
+  {
+    "name": "domain-name-brainstormer",
+    "description": "跨顶级域 (TLD) 品牌命名与可用性批量探测机。结合项目语义脑暴数百个谐音/合成词级的高溢价前缀，并多线程穿透 .com / .ai / .io / .dev 的注册局接口确认实时未注册状态。Leading Words: 跨顶级域名可用性探测, 品牌命名语义脑暴, 多线程未注册查询, 高溢价域名挖掘",
+    "category": "06_商业与专业领域",
+    "folder": "domain-name-brainstormer",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/domain-name-brainstormer"
+  },
+  {
+    "name": "developer-growth-analysis",
+    "description": "全天候 IDE 会话数据穿透式开发者成长教练。深度分析你在 Codex 中的历史对话与报错日志，精准定位技术栈短板与思维盲区，跨端爬取 HackerNews 资料库并自动投递至 Slack。Leading Words: 开发者成长图谱分析, 代码报错盲区定位, HackerNews资料爬取, Slack自动化报告",
+    "category": "06_商业与专业领域",
+    "folder": "developer-growth-analysis",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/developer-growth-analysis"
+  },
+  {
+    "name": "raffle-winner-picker",
+    "description": "防作弊跨平台透明抽奖与随机选人器。直接从普通文本列表、Excel 或 Google Sheets 中执行密码学安全的真随机抽取，适用于社群裂变 Giveaway、锦鲤抽奖，确保过程的绝对公正与透明。Leading Words: 透明防作弊抽奖器, GoogleSheets数据抽取, 真随机Giveaway选人, 密码学安全随机",
+    "category": "06_商业与专业领域",
+    "folder": "raffle-winner-picker",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/raffle-winner-picker"
+  },
+  {
+    "name": "lead-research-assistant",
+    "description": "B2B 销售线索（Leads）多维穿透侦查与拓客专家。不仅寻找潜在客户企业，更结合己方产品优势对线索进行评分过滤，构建定制化破冰（Ice-breaker）策略，赋能销售团队缩短成单周期。Leading Words: B2B高质量销售线索, 潜在客户多维评级, 破冰Ice-breaker话术, 拓客转化周期优化",
+    "category": "06_商业与专业领域",
+    "folder": "lead-research-assistant",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/lead-research-assistant"
+  },
+  {
+    "name": "agent-reach",
+    "description": "免 API 密钥的 16+ 平台数据抓取与 Exa 搜索工具。支持获取推特、小红书、微博、YouTube等媒体的内容与字幕。Leading Words: 免API密钥数据抓取, Exa平台内容获取, 推特小红书搜索, YouTube字幕提取",
+    "category": "07_智能体框架与协同",
+    "folder": "agent-reach",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/agent-reach"
+  },
+  {
+    "name": "aurakit",
+    "description": "AuraKit 企业级超重载智能体生命周期编排框架。提供高达 46 种并发工作范式、23 个专项子 Agent。内置严苛的 6 层 OWASP 代码安全护栏与 10 个钩子函数 (Hooks)，通过上下文压缩引擎极限削减 55% Token。Leading Words: 企业级Agent生命周期编排, 46种并发工作范式, OWASP代码安全护栏, Token压缩引擎节省",
+    "category": "07_智能体框架与协同",
+    "folder": "aurakit",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/aurakit"
+  },
+  {
+    "name": "bernstein",
+    "description": "Bernstein 确定性 CLI 多智能体编排引擎。支持编排与调度命令行代码助手组（如 Aider / GitHub Copilot CLI），以极其确定性的方式执行多步骤代码任务。Leading Words: 确定性Agent编排, CLI多智能体调度, Aider代码助手协同, 任务流状态机",
+    "category": "07_智能体框架与协同",
+    "folder": "bernstein",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/bernstein"
+  },
+  {
+    "name": "context-engineering-collection",
+    "description": "工业级上下文工程 (Context Engineering) 与多智能体架构脚手架集。专攻生产环境 Agent 系统的底层通讯建设。提供针对 Context 管理、循环收敛、评测调试以及复杂 Harness 注入的标准范式与工具链。Leading Words: 上下文工程Context优化, 多智能体架构脚手架, 生产级Agent通讯建设, Harness注入测试范式",
+    "category": "07_智能体框架与协同",
+    "folder": "context-engineering-skills",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/context-engineering-skills"
+  },
+  {
+    "name": "emdash-skills",
+    "description": "包含 14 个分类的自主产品构建 OS：支持 Cloudflare Workers + Hono + Angular + D1 + Stripe。只需一行 Prompt 即可快速部署包含 94 篇参考文档、18 个智能体且原生支持 .agents/skills/ 的 SaaS 应用。Leading Words: SaaS全栈OS脚手架, CloudflareWorkers部署, Hono+Angular架构, 一键Prompt产品构建",
+    "category": "07_智能体框架与协同",
+    "folder": "emdash-skills",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/emdash-skills"
+  },
+  {
+    "name": "polywave",
+    "description": "Polywave 多线程波浪式 (Wave-flows) 并发任务调度与状态机协调器。强制执行「斥候侦测 (Scout) -> 实施蓝图制定 (IMPL) -> 带边界防护的波浪执行」三段式安全开发范式，彻底杜绝单节点越权修改代码。Leading Words: 波浪式并发任务调度, 斥候侦测安全开发范式, 带边界防护的执行引擎, IMPL实施蓝图制定",
+    "category": "07_智能体框架与协同",
+    "folder": "polywave",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/polywave"
+  },
+  {
+    "name": "superclaude-framework",
+    "description": "SuperClaude 框架：为底层大语言模型注入 CLI 式速成指令拦截菜单。将冗长的自然语言交互降维为极简命令别名 (Aliases)，快速触发高频任务，如项目分析重构、断点排错调试、或者文档逆向生成。Leading Words: 智能体CLI指令菜单注入, 极简命令Aliases映射, 项目高频重构分析, 断点排错与文档逆向",
+    "category": "07_智能体框架与协同",
+    "folder": "superclaude-framework",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/superclaude-framework"
+  },
+  {
+    "name": "vibe",
+    "description": "Vibe Code Orchestrator (VCO) 企业级状态封存与执行时限流器。在修改代码前强制冻结需求池 (Freezes requirements)，执行基于超大模型 (XL-first) 的全局统筹规划，并在周期末尾挂载强制的代码核验与阶段性清理卡点。Leading Words: 状态封存需求冻结器, XL-first全局统筹规划, 周期性代码强制核验, 运行时限流管控VCO",
+    "category": "07_智能体框架与协同",
+    "folder": "vibe-skills",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/vibe-skills"
+  },
+  {
+    "name": "GoogleDrive-MCP",
+    "description": "官方 Google Drive MCP 接入技能。允许智能体通过 OAuth 授权，在本地直接读取、搜索、管理您的谷歌云端硬盘文件，并将 Google Docs/Sheets 自动转换为可供分析的文本格式。Leading Words: 谷歌云盘接入, OAuth授权读取, GoogleDocs转换, 云端硬盘文件管理",
+    "category": "08_MCP服务开发与评估",
+    "folder": "GoogleDrive-MCP",
+    "relative_path": "./00_全局大管家/08_MCP服务开发与评估/GoogleDrive-MCP"
+  },
+  {
+    "name": "mcp-builder",
+    "description": "高质量 MCP (Model Context Protocol) 服务构建指南与脚手架。为智能体接入外部 API 或本地系统提供标准化开发路径，全面支持 Python (FastMCP) 及 Node/TypeScript (MCP SDK) 开发环境。Leading Words: 高质量MCP构建指南, 智能体外部API集成, PythonFastMCP开发, NodeTypeScriptSDK",
+    "category": "08_MCP服务开发与评估",
+    "folder": "mcp-builder",
+    "relative_path": "./00_全局大管家/08_MCP服务开发与评估/mcp-builder"
+  },
+  {
+    "name": "telegram-mcp",
+    "description": "个人 Telegram 账号自动化 MCP 服务封装器。赋予智能体穿透式接管权限，支持静默读取会话、关键词检索、发送/转发及消息编辑删除等个人级底层操作。Leading Words: 个人Telegram账号封装, Agent会话读取, 穿透式消息检索, 消息发送删除底层控制",
+    "category": "08_MCP服务开发与评估",
+    "folder": "Telegram-MCP",
+    "relative_path": "./00_全局大管家/08_MCP服务开发与评估/Telegram-MCP"
+  },
+  {
+    "name": "connect",
+    "description": "Composio CLI 终端集成矩阵发射器 (Terminal Integration Hub)。打破 IDE 沙盒，通过命令行授权 Agent 调度 Gmail 邮件、Slack 消息投递、GitHub Issue 追踪及 1000+ 第三方 SaaS 的自动化真实写操作。Leading Words: Composio终端CLI集成, IDE沙盒打破与真实写操作, GitHub/Slack/SaaS自动化, 跨平台消息投递引擎",
+    "category": "09_Composio集成服务",
+    "folder": "connect",
+    "relative_path": "./00_全局大管家/09_Composio集成服务/connect"
+  },
+  {
+    "name": "connect-apps",
+    "description": "Composio App 自动化多端执行管家。基于 CLI 后台接口授权模型横向操控超过 1000 款云端应用。专门应对跨应用复杂编排场景（例如：Notion 监控变更 -> GitHub 抛出 Issue -> Slack 警报触达的全链路自动化）。Leading Words: 跨云应用复杂全链路编排, Composio后台授权接入, Notion/GitHub/Slack联动, 多端SaaS事件触发",
+    "category": "09_Composio集成服务",
+    "folder": "connect-apps",
+    "relative_path": "./00_全局大管家/09_Composio集成服务/connect-apps"
+  },
+  {
+    "name": "antfu-skills",
+    "description": "Vue 核心团队大佬 Antfu 个人定制版高阶 Agent 技能库解剖标本。提供从野生黑客脚本到工业级复用工作流演进的设计哲学。适合高阶开发者进行「降维拆解」，克隆顶尖开发者的内隐编码逻辑与范式。Leading Words: Antfu定制技能标本, 顶尖开发者逻辑克隆, 工业级复用工作流设计, 高阶Agent范式降维拆解",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "antfu-skills",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/antfu-skills"
+  },
+  {
+    "name": "anthropic-official-skills",
+    "description": "Anthropic 官方金牌原厂 Agent Skills 开发骨架模板 (Boilerplate)。全方位剖析官方对于意图解析、安全护栏构建与 LLM 提示词工程的最佳实践 (Best Practices)。供开发者克隆并低成本复刻至个人专属业务流。Leading Words: Anthropic原厂Skills模板, 官方大模型最佳实践开发, 安全护栏与提示词脚手架, 低成本复刻专属业务流",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "anthropic-skills",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/anthropic-skills"
+  },
+  {
+    "name": "google-skills",
+    "description": "Google 官方企业级 Agent 技能库与云端原生 (Cloud-native) Recipe 范本。以极其严苛的工程标准，展示如何将 Google Cloud (BigQuery/Firebase/GKE) 深度包装为智能体技能。作为大型团队制定企业级扩展标准的红宝书。Leading Words: Google官方技能范本, Cloud-native原生架构, 企业级Agent拓展标准, 谷歌云BigQuery/GKE桥接",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "google-skills",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/google-skills"
+  },
+  {
+    "name": "mattpocock-skills",
+    "description": "Matt Pocock 纯正 Agentic Skills 元级构造套件与生态范本。专注入侵大模型思维的「软件工程心智」：强制应用 TDD 驱动、/grill 需求严苛反问与鲁棒的元技能 (Writing-great-skills) 生成规范。作为终极向导大幅抑制 Agent 鲁莽跳跃。Leading Words: Matt Pocock元技能构造规范, TDD驱动软件工程心智, /grill需求反向严苛拷问, 抑制鲁莽行为预测性护栏",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "mattpocock-skills",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/mattpocock-skills"
+  },
+  {
+    "name": "minimax-skills",
+    "description": "MiniMax 零基础全栈开发指令流模板合集 (Cookbook)。开箱即用的傻瓜式工作流封装，覆盖前端 UI、移动端开发、全栈架构及文档撰写。通过预置结构化 Prompt，大幅降低新手驾驭代码大模型的门槛。Leading Words: MiniMax指令流模板Cookbook, 零基础前端全栈工作流, 开箱即用Prompt封装, 傻瓜式代码大模型驾驭",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "minimax-skills",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/minimax-skills"
+  },
+  {
+    "name": "skill-creator",
+    "description": "自定义技能向导与极速开发脚手架 (Skill Creator)。详细说明如何为 Codex 定制扩展能力，涵盖专门领域知识与自定义工具链集成的开发规范。Leading Words: 自定义扩展技能定制, 极速开发脚手架范式, 专属工具链集成指导, Codex专属能力外挂",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "skill-creator",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skill-creator"
+  },
+  {
+    "name": "skill-installer",
+    "description": "全网技能包雷达搜寻与极速部署挂载器 (Skill Installer)。具备兜底安装逻辑：当用户指派的任务或搜索的技能不在本地池时，必须自动触发本工具，从官方精选库或 GitHub远端热拉取解析并安全挂载到本地。Leading Words: 技能雷达搜寻部署, 远端GitHub热拉取挂载, 兜底缺失技能安装, 自动触发池外Skill下载",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "skill-installer",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skill-installer"
+  },
+  {
+    "name": "composio-generated-skills",
+    "description": "Composio 自动生成的海量第三方应用集成大宽表技能库。包含超过 800+ 平台的底层集成配置与元数据，专门用于 Agent 高频触发外部 SaaS 的自动化任务。请使用单入口路由通过此全量库动态查找所需集成。Leading Words: Composio海量自动集成, 第三方应用API宽表, 800+SaaS平台互联, 外部事件动态挂载",
+    "category": "11_API与第三方应用集成",
+    "folder": "composio-generated-skills",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/composio-generated-skills"
+  },
+  {
+    "name": "cloudbase",
+    "description": "为小程序和 Web/H5 提供一体化运行与部署环境（腾讯云开发 TCB）。包括 NoSQL 文档数据库、云函数（Serverless）、云存储、身份权限控制和静态 Web 托管。内置大模型能力。Leading Words: 腾讯云开发, 小程序后端, Serverless云函数, 静态Web托管, 一体化部署",
+    "category": "11_API与第三方应用集成",
+    "folder": "cloudbase",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/cloudbase"
+  },
+  {
+    "name": "codex-sms-verification",
+    "description": "VirtualSMS 全球虚拟验证码截获与穿透 MCP 插件。赋予无头浏览器 Agent 直连 145+ 国家的实体 SIM 卡网关池能力，瞬间越过 2000+ 平台的手机注册防火墙。支持 StdIO 与云端挂载，自动化填槽短信验证码。Leading Words: 全球短信验证码拦截, 实体SIM网关穿透代理, 无头浏览器免登录绕过, 验证码自动化填槽",
+    "category": "11_API与第三方应用集成",
+    "folder": "codex-sms-verification",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/codex-sms-verification"
+  },
+  {
+    "name": "wechat-miniprogram-development",
+    "description": "微信小程序 AI 协同开发全链路指南。完整记录了从环境依赖安装、大模型接入配置、具体避坑指南（如 lazyCodeLoading 与 Babel 报错解决）到 CLI 自动化预览和代码上传的实战开发工作流。Leading Words: 微信小程序开发, miniprogram, WXML/WXSS, 微信开发者工具CLI, 小程序提审, CloudBase MCP, hunyuan-v3, lazyCodeLoading",
+    "category": "11_API与第三方应用集成",
+    "folder": "wechat-miniprogram-development",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/wechat-miniprogram-development"
+  },
+  {
+    "name": "academic-mcp",
+    "description": "19+ 全球顶尖学术论文库统一联邦检索与解析网关 (MCP)。跨越数据库壁垒，一键聚合 arXiv、IEEE Xplore、PubMed 等巨头。支持极速跨源论文搜寻、高维元数据解析及 PDF 强制脱壳阅读，扫平文献综述第一公里。Leading Words: 19+学术库联邦检索, 跨源论文元数据解析, IEEE/PubMed/arXiv聚合, PDF强制脱壳阅读",
+    "category": "12_学术论文与科研图表",
+    "folder": "academic-mcp",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/academic-mcp",
+    "aliases": [
+      "学术论文检索",
+      "论文下载阅读",
+      "多库论文搜索",
+      "学术网关"
+    ],
+    "tags": [
+      "MCP",
+      "联邦检索",
+      "IEEE Xplore",
+      "PDF阅读",
+      "元数据解析",
+      "学术数据库"
+    ]
+  },
+  {
+    "name": "arxiv-latex-reader",
+    "description": "arXiv 论文 LaTeX 原生源码剥离与精准公式还原器。直接穿透服务端下载、解压多文件包。彻底解决 PDF 复制产生的数学符号乱码及排版塌陷，精准抽取定理段落与公式矩阵，专为强数理学术任务设计。Leading Words: arXiv原生LaTeX剥离, 精准数学公式矩阵还原, PDF乱码与排版塌陷解决, 定理源码级别抽取",
+    "category": "12_学术论文与科研图表",
+    "folder": "arxiv-latex-reader",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/arxiv-latex-reader",
+    "aliases": [
+      "LaTeX源码下载",
+      "论文公式提取",
+      "数学公式还原",
+      "TeX源码解析",
+      "公式乱码修复"
+    ],
+    "tags": [
+      "arXiv",
+      "LaTeX",
+      "数学公式",
+      "PDF",
+      "源码解析",
+      "论文阅读"
+    ]
+  },
+  {
+    "name": "google-scholar-mcp",
+    "description": "Google Scholar 纯净联邦检索引擎与 H-index 学者追踪器 (MCP)。深耕谷歌学术池，精准解析论文引证图谱 (Citation Graph)、作者学术画像及被引爆发趋势。专供高并发学者动态监视与开题定标。Leading Words: GoogleScholar联邦检索, 学者H-index画像追踪, 纯净引证图谱CitationGraph, 学术开题定标与爆发趋势",
+    "category": "12_学术论文与科研图表",
+    "folder": "google-scholar-mcp",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/google-scholar-mcp",
+    "aliases": [
+      "谷歌学术搜索",
+      "学者检索",
+      "H指数查询",
+      "引用查询"
+    ],
+    "tags": [
+      "Google Scholar",
+      "谷歌学术",
+      "H-index",
+      "学者画像",
+      "引文图谱",
+      "学术检索"
+    ]
+  },
+  {
+    "name": "nature-skills",
+    "description": "面向全球学者的科研大航海全家桶 (nature-skills)。汇集 16+ 个强力学术 Agent 技能，全面覆盖文献检索、论文精读、引用审计、科研写作至审稿模拟的全链路周期，直接赋能科研攻坚与核心痛点。Leading Words: 全栈科研学术全家桶, 文献检索与精读, Nature级论文写作, 引用审计与审稿模拟",
+    "category": "12_学术论文与科研图表",
+    "folder": "nature-skills",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/nature-skills",
+    "aliases": [
+      "学术写作",
+      "科研工作流",
+      "文献综述助手",
+      "学术出版"
+    ],
+    "tags": [
+      "科研全流程",
+      "论文写作",
+      "文献检索",
+      "引用审计",
+      "审稿模拟",
+      "学术Agent"
+    ]
+  },
+  {
+    "name": "paper-search",
+    "description": "轻量级学术文献双源检索引擎。原生接入 arXiv 与 PubMed 两大学术数据库，支持极速反查并提取论文的标题、作者、来源、摘要等核心元数据，并可一键渲染为结构化的 Markdown 参考列表。Leading Words: 轻量学术文献双源检索, arXiv/PubMed元数据提取, Markdown规范参考列表, 快速学术定标器",
+    "category": "12_学术论文与科研图表",
+    "folder": "paper-search",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/paper-search",
+    "aliases": [
+      "文献检索",
+      "论文搜索",
+      "学术文献查询",
+      "arxiv检索"
+    ],
+    "tags": [
+      "arXiv",
+      "PubMed",
+      "文献检索",
+      "论文元数据",
+      "参考列表",
+      "文献综述"
+    ]
+  },
+  {
+    "name": "paper-search-mcp",
+    "description": "7+ 巨头学术数据库并发洪流搜索与自动降噪收敛引擎 (MCP)。横跨生医 (PubMed/medRxiv)、计算机与数理领域。毫秒级并发查询、智能去重及 LLM 强格式化对齐，输出高度聚合的纯净学术搜索摘要。Leading Words: 7+核心学术库并发搜索, bioRxiv/IACR跨学科收敛, 洪流检索自动去重降噪, LLM强格式化学术摘要",
+    "category": "12_学术论文与科研图表",
+    "folder": "paper-search-mcp",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/paper-search-mcp",
+    "aliases": [
+      "跨库论文检索",
+      "论文搜索MCP",
+      "学术文献搜索",
+      "多库检索"
+    ],
+    "tags": [
+      "MCP",
+      "多源检索",
+      "论文去重",
+      "PDF下载",
+      "学术摘要",
+      "免费数据源"
+    ]
+  },
+  {
+    "name": "sci-hub-mcp",
+    "description": "Sci-Hub 闭源文献 PDF 强行破壁与全文接管引擎 (MCP)。依托 DOI 或精准书目元信息，越过出版商付费墙瞬间拉取学术论文原本。解决文献综述阶段「查得到、拿不到」的科研最后一公里痛点。Leading Words: Sci-Hub出版商破壁, 闭源学术PDF强行拉取, DOI精准文献原本接管, 科研综述最后一公里",
+    "category": "12_学术论文与科研图表",
+    "folder": "sci-hub-mcp",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/sci-hub-mcp",
+    "aliases": [
+      "论文下载",
+      "全文获取",
+      "免费下载论文",
+      "DOI下载",
+      "文献获取"
+    ],
+    "tags": [
+      "Sci-Hub",
+      "DOI",
+      "论文全文",
+      "PDF获取",
+      "开放获取",
+      "学术文献"
+    ]
+  },
+  {
+    "name": "scientific-schematics",
+    "description": "Nano Banana 引擎驱动的高精学术原理图与信号通路制图矩阵。配合大模型质检进行拓扑纠偏，专注生成满足 CNS 顶刊排版级要求的网络架构、生化通路图及高度复杂的实验范式设计流程图。Leading Words: 高精学术原理通路制图, NanoBanana/CNS顶刊排版级, 复杂生化通路与实验范式, 大模型拓扑纠偏与质检",
+    "category": "12_学术论文与科研图表",
+    "folder": "scientific-schematics",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/scientific-schematics",
+    "aliases": [
+      "科研原理图",
+      "信号通路图",
+      "论文示意图",
+      "架构图生成",
+      "学术图表生成"
+    ],
+    "tags": [
+      "示意图",
+      "原理图",
+      "信号通路",
+      "Nano Banana",
+      "论文配图",
+      "CNS顶刊"
+    ]
+  },
+  {
+    "name": "scientific-visualization",
+    "description": "Matplotlib/Seaborn/Plotly 三引擎驱动的高维数据可视化学术作图器。严格对齐 Nature/Science 严苛的单双栏排版、DPI 及色盲友好 (CVD) 调色规范。具备极差线/显著性标记自动化绘制与矢量图极清输出。Leading Words: Matplotlib/Plotly数据可视化, Nature/Science级图表规范, CVD色盲友好与单双栏排版, 误差显著性标记极清矢量导出",
+    "category": "12_学术论文与科研图表",
+    "folder": "scientific-visualization",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/scientific-visualization",
+    "aliases": [
+      "学术图表",
+      "科研绘图",
+      "论文配图",
+      "数据可视化图表",
+      "期刊配图"
+    ],
+    "tags": [
+      "Matplotlib",
+      "Seaborn",
+      "Plotly",
+      "学术图表",
+      "色盲友好",
+      "矢量图"
+    ]
+  },
+  {
+    "name": "semantic-scholar-mcp",
+    "description": "Semantic Scholar 2亿级语料引文网络神经穿透器 (MCP)。通过智能引文图谱遍历技术追根溯源学术脉络。精准抽取文献影响度、同侪作者网络特征，是深潜科学技术史及前沿爆发预测的神级探测器。Leading Words: SemanticScholar两亿语料穿透, 神经引文图谱遍历溯源, 前沿爆发预测与影响度抽取, 同侪作者网络H-index画像",
+    "category": "12_学术论文与科研图表",
+    "folder": "semantic-scholar-mcp",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/semantic-scholar-mcp",
+    "aliases": [
+      "语义学者",
+      "引文追踪",
+      "论文影响力查询",
+      "引用网络分析",
+      "学者画像查询"
+    ],
+    "tags": [
+      "Semantic Scholar",
+      "引文网络",
+      "引用追踪",
+      "影响力评估",
+      "作者画像",
+      "Open Access"
+    ]
+  },
+  {
+    "name": "sympy-solver",
+    "description": "纯本地 Python SymPy 符号代数超算沙盒引擎。通过硬编码数学公理法则处理微积分、拓扑矩阵与高阶极限定理，输出可直接渲染的 LaTeX 证明。物理隔离语言模型的数学幻觉，提供绝对保真的数理推导。Leading Words: 纯本地SymPy符号代数超算, 物理隔离大模型数学幻觉, 高阶极限微积分方程求解, LaTeX证明绝对保真推导",
+    "category": "12_学术论文与科研图表",
+    "folder": "sympy-solver",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/sympy-solver",
+    "aliases": [
+      "符号计算",
+      "数学求解器",
+      "微积分计算",
+      "矩阵运算",
+      "导数积分"
+    ],
+    "tags": [
+      "SymPy",
+      "符号代数",
+      "微积分",
+      "线性代数",
+      "LaTeX",
+      "数学验证"
+    ]
+  },
+  {
+    "name": "zotero-connector",
+    "description": "个人私域 Zotero 文献库 (SQLite/Web API) 深层同步与萃取桥梁。赋予 Agent 打穿个人十年学术积淀的能力，极速倒排索引本地论文标签、笔记摘要及引证元数据，实现“第二大脑”科研知识内化调用。Leading Words: 私域Zotero文献库同步萃取, 个人学术第二大脑内化调用, SQLite/Web API穿透倒排索引, 论文标签笔记元数据打穿",
+    "category": "12_学术论文与科研图表",
+    "folder": "zotero-connector",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/zotero-connector",
+    "aliases": [
+      "文献管理",
+      "Zotero查询",
+      "个人文献库",
+      "文献库检索",
+      "参考文献管理"
+    ],
+    "tags": [
+      "Zotero",
+      "文献管理",
+      "SQLite",
+      "引用管理",
+      "个人文献库",
+      "BibTeX"
+    ]
+  },
+  {
+    "name": "AER-Skills",
+    "description": "AER/AEJ 系顶级经济学期刊强审稿逻辑与体例专用套件。针对《美国经济评论》特有的理论数推深度与实证检验完备度进行交叉审查。嵌入顶刊评审人的苛刻挑刺标准，提供经济学专属论证沙盘。Leading Words: AER/AEJ顶级经济学期刊套件, 美国经济评论体例排版, 理论推导与实证检验交叉审查, 经济学专属论证沙盘挑刺",
+    "category": "13_社科研究与实证工具",
+    "folder": "AER-Skills",
+    "relative_path": "./00_全局大管家/13_社科研究与实证工具/AER-Skills"
+  },
+  {
+    "name": "Auto-Empirical-Research-Skills",
+    "description": "斯坦福 23k+ 超大规模实证经济学/社会科学 Agent Skills 工具列阵。专门应对高维度面板数据清理、内生性检验及 IV 工具变量挖掘，为量化社科研究提供航母级算法支持。Leading Words: 斯坦福社科实证经济学研究, 高维面板数据内生性检验, IV工具变量挖掘算法, 23k+超大规模量化工具列阵",
+    "category": "13_社科研究与实证工具",
+    "folder": "Auto-Empirical-Research-Skills",
+    "relative_path": "./00_全局大管家/13_社科研究与实证工具/Auto-Empirical-Research-Skills"
+  },
+  {
+    "name": "Auto-Research-Skills",
+    "description": "Autonomic Research 强自驱全生命周期科研流水线精选库。收敛从无脑开题、定性调研到文献剥丝抽茧的复杂脉络，部署自底向上的自动化科研实验流程与探索协议。Leading Words: 强自驱科研探索协议流水线, 全生命周期学术自动部署, 自底向上文献开题定性调研, 无脑实验复杂脉络剥丝抽茧",
+    "category": "13_社科研究与实证工具",
+    "folder": "Auto-Research-Skills",
+    "relative_path": "./00_全局大管家/13_社科研究与实证工具/Auto-Research-Skills"
+  },
+  {
+    "name": "Awesome-Journal-Skills",
+    "description": "Top Journals (AER/QJE/Nature 等) 顶刊定制化投稿格式降维重塑器。预置全球顶级期刊极为严苛的排版规则、引用规范及图表阈值，一键接管原稿并暴力转换为可直接 Submission 的终稿。Leading Words: Nature/AER/QJE顶刊投稿降维重塑, 严苛期刊排版引用规范预置, 暴力转换Submission终稿生成, 学术投稿格式强制校验",
+    "category": "13_社科研究与实证工具",
+    "folder": "Awesome-Journal-Skills",
+    "relative_path": "./00_全局大管家/13_社科研究与实证工具/Awesome-Journal-Skills"
+  },
+  {
+    "name": "StatsPAI",
+    "description": "因果推断 (Causal Inference) 与高阶计量经济学 Agent-native Python 引擎 (StatsPAI)。将双重差分 (DID)、断点回归 (RDD) 融合成强制结构化 API 输出，实现智能体驱动的自动化政策评估体系。Leading Words: StatsPAI因果推断计量经济学, DID双重差分RDD断点回归, 智能体自动化政策评估, 结构化API因果挖掘",
+    "category": "13_社科研究与实证工具",
+    "folder": "StatsPAI",
+    "relative_path": "./00_全局大管家/13_社科研究与实证工具/StatsPAI"
+  },
+  {
+    "name": "EasyAccounts",
+    "description": "搭载 AI 助手的开源智能记账与极速财务查询终端。通过会话式交互打通复式记账全链路，提供自然语言流水录入、多维财务报表实时聚合与高阶账单审计分析。专为 Agent 接管对账及资金流监控设计。Leading Words: AI开源智能记账终端, 复式记账会话式流转, 自然语言流水录入聚合, 对账及资金流自动化监控",
+    "category": "14_财务发票提取与归档",
+    "folder": "EasyAccounts",
+    "relative_path": "./00_全局大管家/14_财务发票提取与归档/EasyAccounts"
+  },
+  {
+    "name": "Invoice_LLM",
+    "description": "基于 Qwen-VL 多模态大模型底座的端到端智能发票识别引擎。具备高度泛化的图像理解力，穿透各类发票/收据的扭曲、阴影与混排版式，实现结构化字段精准抽取与防伪校验，打造极速报销流水线。Leading Words: Qwen-VL多模态大模型底座, 泛化发票影像扭曲穿透, 收据防伪校验与字段抽取, 端到端结构化报销流水线",
+    "category": "14_财务发票提取与归档",
+    "folder": "Invoice_LLM",
+    "relative_path": "./00_全局大管家/14_财务发票提取与归档/Invoice_LLM"
+  },
+  {
+    "name": "invoice2data",
+    "description": "基于正则模板与高精 OCR 的工业级发票收据提取、分类与归档中枢 (invoice2data)。以轻量化的规则引擎覆盖主流报销单据，实现 PDF/图像层自动化切片提取，提供无缝对接企业 ERP 系统的高效通道。Leading Words: 工业级规则发票提取, 高精OCR报销单据切片, PDF账单自动化归类中枢, 企业ERP无缝对接通道",
+    "category": "14_财务发票提取与归档",
+    "folder": "invoice2data",
+    "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice2data"
+  },
+  {
+    "name": "invoice-organizer",
+    "description": "纯 Agent 架构驱动的智能零依赖发票集散整理器。摒弃复杂 Python OCR 库依赖，完全依靠大模型原生视觉能力进行全盘扫描、票面特征挖掘与重命名归档。极速将混乱碎票重构为结构化 CSV 报表与整洁目录。Leading Words: 纯Agent架构零依赖驱动, 大模型原生视觉特征挖掘, 混乱发票重构结构化归档, 自动化CSV报表集散中枢",
+    "category": "14_财务发票提取与归档",
+    "folder": "invoice-organizer",
+    "relative_path": "./00_全局大管家/14_财务发票提取与归档/invoice-organizer"
+  },
+  {
+    "name": "guizang-material-illustration",
+    "description": "Generate Guizang-style material illustrations, labeled explanatory visuals, material-styled chart illustrations, and data-first editorial images from articles, notes, product concepts, workplace reports, creator posts, tutorials, school materials, humanities topics, science explanations, screenshots, or chart data. Use when the user asks for 配图, 带字插图, 解释图, 图解插画, 概念拆解图, 图表美化, 数据图美化, 3D 图表, 汇报配图, 内容配图, 小学课文配图, 生物/化学/物理解释图, 人文类配图, process/loop/system diagrams, or wants GPT-Image / image generation to create supporting images that can sit inside social cards, docs, slides, PPTs, or posts.",
+    "category": "05_多媒体与设计资产",
+    "folder": "guizang-material-illustration",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/guizang-material-illustration"
+  },
+  {
+    "name": "moore-wechat-article-downloader",
+    "description": "当用户要下载或管理微信公众号文章时使用本技能。支持订阅同步、微信收藏和链接导入；互动数据仅在用户微信短时会话有效时补充指标与精选评论。优先本地运行；不要扩展成内容改写、总结、SaaS 或云服务。",
+    "category": "04_内容创作与文档处理",
+    "folder": "moore-wechat-article-downloader",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/moore-wechat-article-downloader"
+  },
+  {
+    "name": "speak-human-tw",
+    "description": "「說人話」：繁體中文的去 AI 味改寫 skill。審查與改寫文字，去除 AI 味道、校正中國用語與半形標點，讓文字讀起來像真人寫的。觸發時機：用戶說「去 AI 味」「說人話」「這段好 AI」「改自然一點」「幫我潤稿去掉 AI 感」「校對一下再發」。Leading Words: 去AI味, 繁體中文潤稿, 校正中國用語, 人性化改寫",
+    "category": "04_内容创作与文档处理",
+    "folder": "speak-human-tw",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/speak-human-tw"
+  },
+  {
+    "name": "oh-story-claudecode",
+    "description": "Oh Story 核心网文写作工作流套件。涵盖长短篇网络小说的扫榜、拆文、大纲构建、落笔写作及去 AI 味精修全链路。包含多维剧情模块化重组与人机协同。专供长篇或短篇网络小说的高效辅助创作。Leading Words: 网文写作工作流, 长短篇小说创作, 剧情大纲构建, 扫榜拆文逆向",
+    "category": "04_内容创作与文档处理",
+    "folder": "oh-story-claudecode",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/oh-story-claudecode"
+  },
+  {
+    "name": "ecom-details-image",
+    "description": "面向 claude code / Codex / OpenClaw 的跨境电商和国内电商通用视觉创作 Skill。生成电商主图、详情页图片、社媒推广图、直播间场景图等全套视觉素材。支持 Campaign Style Lock 机制，保证整套图视觉一致。Leading Words: 电商图片生成, 视觉创作, 主图详情页, 风格锁定, 转化诊断",
+    "category": "05_多媒体与设计资产",
+    "folder": "ecom-details-image",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ecom-details-image"
+  },
+  {
+    "name": "Financial-API",
+    "description": "同花顺官方 A股金融数据服务，提供股票实时行情、历史行情、财务报表、指数、板块、涨停等数据，支持 API、MCP、CLI 和 Python SDK。适用于 AI Agent、量化研究和应用开发。Leading Words: 同花顺A股数据, 实时行情查询, 财务报表API, MCP金融数据, 量化研究数据源",
+    "category": "06_商业与专业领域",
+    "folder": "Financial-API",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/Financial-API"
+  },
+  {
+    "name": "stock-data-mcp",
+    "description": "基于 FastMCP 框架的多市场股票数据聚合 MCP 服务器，为 AI Agent 提供统一的股票/加密货币市场数据接口。支持 A 股、港股、美股、加密货币，采用多源数据供应商自动故障转移架构。Leading Words: 股票数据MCP服务, 多市场行情聚合, A股港股美股加密货币, FastMCP数据接口, 多源故障转移",
+    "category": "06_商业与专业领域",
+    "folder": "stock-data-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/stock-data-mcp"
+  },
+  {
+    "name": "tickdb-unified-realtime-marketdata-api",
+    "description": "TickDB AI 原生实时行情数据统一 API，覆盖外汇、贵金属、指数、美股、港股、A 股、加密货币。支持 Skill、CLI、MCP、REST API 和 WebSocket 接入，提供实时行情、K线、订单簿、资金流向等数据。Leading Words: TickDB实时行情API, 全球多市场数据, AI原生金融接口, WebSocket行情流, MCP行情服务",
+    "category": "06_商业与专业领域",
+    "folder": "tickdb-unified-realtime-marketdata-api",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/tickdb-unified-realtime-marketdata-api"
+  },
+  {
+    "name": "taste-skill",
+    "description": "专为 AI 打造的反平庸前端框架与审美提升技能 (Taste-Skill)。通过强制约束布局设计、排版、动效与留白间距，赋予模型高级前端品味。内含代码审查法则与情绪板生图技能。Leading Words: 前端审美提升, 布局排版约束, 动效留白高级感, Anti-Slop框架, 情绪板生图",
+    "category": "05_多媒体与设计资产",
+    "folder": "taste-skill",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/taste-skill"
+  },
+  {
+    "name": "drawio-scientific-illustrator",
+    "description": "在可见的 draw.io 桌面画布中实时重绘、追踪、修改和导出科学插图与示意图的 Codex 插件。通过 draw.io 自身的图模型 API 逐步驱动绘图，支持 PNG/SVG/PDF 导出，不使用系统鼠标键盘自动化。Leading Words: draw.io科研插图重绘, 实时画布绘图MCP, 可编辑科学示意图, draw.io图元逐步构建",
+    "category": "12_学术论文与科研图表",
+    "folder": "drawio-scientific-illustrator",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/drawio-scientific-illustrator",
+    "aliases": [
+      "示意图重绘",
+      "drawio绘图",
+      "可编辑插图",
+      "论文插图"
+    ],
+    "tags": [
+      "draw.io",
+      "科研插图",
+      "SVG",
+      "PNG",
+      "PDF",
+      "矢量图"
+    ]
+  },
+  {
+    "name": "Seedream-MCP",
+    "description": "豆包即梦 (Doubao-Seedream) 生图 MCP 服务。基于火山引擎 Ark API，通过 uvx 一键启动。支持文生图、图文生图、多图融合与组图输出，覆盖 5.0 Pro/Lite/4.5/4.0 多模型。Leading Words: 豆包即梦文生图, Seedream MCP生图服务, 火山引擎Ark API, 图文生图多图融合",
+    "category": "05_多媒体与设计资产",
+    "folder": "Seedream-MCP",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/Seedream-MCP"
+  },
+  {
+    "name": "cc2image",
+    "description": "中文内容交互式生图系统 Skill。认知锚点拆图、49 套内容风格 + 8 套 logo/图标模式，支持封面、正文配图、系列主视觉和批量生图提示词。Leading Words: 中文内容交互式生图, 认知锚点拆图, 49套内容风格, 封面正文配图批量生成",
+    "category": "05_多媒体与设计资产",
+    "folder": "cc2image",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/cc2image"
+  },
+  {
+    "name": "hand-drawn-styles",
+    "description": "工具无关的手绘画风提示词配方。内置 19 种已验证手绘画风（含 2 个变体共 21 套配方），把内容套进内置画风配方产出可直接复制的生图 prompt。Leading Words: 手绘画风提示词配方, 儿童涂色极简线条蜡笔, 吉卜力小豆人涂鸦, 工具无关生图prompt",
+    "category": "05_多媒体与设计资产",
+    "folder": "hand-drawn-styles",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/hand-drawn-styles"
+  },
+  {
+    "name": "VideoClaw",
+    "description": "AI全自动化视频生成员工。基于 Chat an Idea, Get a Film 理念，通过自然语言对话一键生成视频短片，内置完整的视频流生成工作流（脚本、配音、画面、剪辑）。Leading Words: AI视频全自动生成, Chat to Film, 视频流工作流, 一键视频生成",
+    "category": "05_多媒体与设计资产",
+    "folder": "VideoClaw",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/VideoClaw"
+  },
+  {
+    "name": "OnlyShot",
+    "description": "AI短剧工业化流水线工具。全流程自动化生成（剧本编撰 -> 分镜设计 -> 画面生成 -> 视频生成 -> 后期剪辑），支持即梦、Seedance 等先进模型，专为短剧和视频流工业标准打造。Leading Words: AI短剧, 短剧流水线, 视频生成工作流, OnlyShot",
+    "category": "05_多媒体与设计资产",
+    "folder": "OnlyShot",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/OnlyShot"
+  },
+  {
+    "name": "KrillinAI",
+    "description": "全链路 AI 视频翻译与配音工具。支持视频下载、ASR 语音识别、LLM 多语种翻译，并提供高保真克隆音色的 TTS 配音及横竖屏自适应剪辑，适用于跨语种视频出海与本地化。Leading Words: AI视频翻译, 视频配音, 语音克隆, KrillinAI",
+    "category": "05_多媒体与设计资产",
+    "folder": "KrillinAI",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/KrillinAI"
+  },
+  {
+    "name": "nuwa-skill",
+    "description": "女娲造人：输入人名/主题/模糊需求，自动深度调研、提炼思维框架，生成可运行的人物数字分身 Skill。Leading Words: 人物思维蒸馏, 认知框架提取, 数字分身造人, 决策顾问Agent",
+    "category": "07_智能体框架与协同",
+    "folder": "nuwa-skill",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/nuwa-skill"
+  },
+  {
+    "name": "technical-proposal-expert-writing-skill",
+    "description": "软件工程常用文档模板及示例，包含项目计划、需求分析、概要设计等各类技术文档范本，用于辅助编写技术标书与相关文档。",
+    "category": "06_商业与专业领域",
+    "folder": "technical-proposal-expert-writing-skill",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/technical-proposal-expert-writing-skill"
+  },
+  {
+    "name": "engineering-tender-writer",
+    "description": "Draft, restructure, review, and refine Chinese technical tender proposals for engineering and science projects. Use when working on 技术标书、服务方案、研究内容、建设方案、技术路线、模型或算法方案、性能验收、技术参数响应表、点对点响应，or when extracting requirements from DOCX/Markdown tender materials and checking clause coverage, indicator consistency, task boundaries, unsupported commitments, and formal bid-writing style.",
+    "category": "06_商业与专业领域",
+    "folder": "engineering-tender-writer",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/engineering-tender-writer"
+  }
 ]
