@@ -57,3 +57,6 @@ coverage/
 .vscode/
 .idea/
 .cursor/
+
+# MCP Caches
+.codex-skills-cache/
