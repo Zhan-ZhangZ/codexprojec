@@ -60,3 +60,6 @@ coverage/
 
 # MCP Caches
 .codex-skills-cache/
+
+# MediaCrawler browser profile / runtime data
+codex-skills/00_全局大管家/05_多媒体与设计资产/MediaCrawler/browser_data/
