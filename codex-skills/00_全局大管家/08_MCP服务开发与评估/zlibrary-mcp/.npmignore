@@ -1,0 +1,15 @@
+.git/
+.github/
+.vscode/
+node_modules/
+venv/
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+.env
+*.log
+.DS_Store
+.gitignore
+.roo/

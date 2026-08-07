@@ -1515,5 +1515,19 @@
     "category": "13_社科研究与实证工具",
     "folder": "scientific-agent-skills",
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/scientific-agent-skills"
+  },
+  {
+    "name": "zlibrary-mcp",
+    "description": "Z-Library 图书检索与下载 MCP 服务。提供基于 Z-Library 的电子书资源搜索与下载能力。",
+    "category": "08_MCP服务开发与评估",
+    "folder": "zlibrary-mcp",
+    "relative_path": "./00_全局大管家/08_MCP服务开发与评估/zlibrary-mcp"
+  },
+  {
+    "name": "qiaomu-libgen-downloader",
+    "description": "从 LibGen.li 搜索和下载电子书。Use when user wants to download ebooks via LibGen, search for books on LibGen, or mentions \"从libgen下载\", \"libgen下载\", \"用libgen抓取\". Triggers when qiao-epub-bot fails or user explicitly asks for LibGen.",
+    "category": "11_API与第三方应用集成",
+    "folder": "qiaomu-libgen-downloader",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/qiaomu-libgen-downloader"
   }
 ]

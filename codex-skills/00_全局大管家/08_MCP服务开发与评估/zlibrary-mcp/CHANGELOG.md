@@ -1,0 +1,265 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+
+- README Docker instructions now lead with the published GHCR image (verified
+  end-to-end: SSE handshake and `initialize` against the released container);
+  building from source via compose is the secondary path.
+- Removed GSD-era `.claude/commands/` (referencing the deleted `ROADMAP.md`
+  workflow) and the empty `.claude/settings.json`.
+
+## [1.3.2] - 2026-07-24
+
+### Fixed
+
+- **`uv sync` failed inside the npm-installed package**, breaking the README
+  quickstart's Python setup step for every npm user of v1.3.0/v1.3.1. The root
+  pyproject had always relied on an accident: the repo's `src/` directory flips
+  setuptools to src-layout package discovery (which finds no Python packages and
+  builds an empty dist), but the published package ships no `src/`, so flat-layout
+  discovery found `['lib', 'zlibrary', 'node_modules']` and refused to build.
+  The root project is dependency-management-only and is now declared
+  `[tool.uv] package = false`, which is layout-independent. CI's pack-check job
+  now extracts the actual npm tarball and runs `uv sync` plus bridge-import
+  checks inside it, so a repo-works/package-breaks split cannot ship again.
+  Verified end-to-end against the fixed layout: global install → bin symlink →
+  MCP `initialize` → live authenticated `search_books` returns results.
+
+## [1.3.1] - 2026-07-24
+
+### Changed
+
+- Upstream contract check now distinguishes network-level blocks from drift: a
+  DiamWall wall or bare 403 (what GitHub-hosted runners get from every Z-Library
+  domain) reports as `BLOCK` instead of `FAIL`, does not file the rolling drift
+  issue, and skips the credentialed live suite rather than burning login
+  attempts (~10/hour/IP) against a wall. Only a probe from an unblocked network
+  can distinguish IP blocking from a global outage — `npm run doctor` says so
+  explicitly.
+
+### Fixed
+
+- **`zlibrary-mcp` bin never started under a global npm install**: npm installs the
+  bin as a symlink into `<prefix>/bin`, so `argv[1]` is the link path while
+  `import.meta.url` is the real file — the ESM entry guard's lexical path
+  comparison never matched and the server exited silently, making
+  `"command": "zlibrary-mcp"` in an MCP client config a no-op. The guard now
+  canonicalises both sides with `realpathSync` (falling back to lexical
+  resolution for paths that do not exist). Verified end-to-end: a symlinked
+  invocation now answers `initialize` over stdio.
+- **Footnote detection was non-deterministic across a full test run**: the PyMuPDF
+  textpage cache keyed entries by `id(page)` without holding a reference; CPython
+  recycles a freed page's address (~90% of back-to-back loads), so page N's cached
+  text blocks could be served for page M. Entries now pin the page object and
+  verify identity on read. This was the cause of the long-standing
+  full-suite-ordering test flakes.
+- Tests no longer leak `MagicMock/` and `dummy_output*/` directories into the
+  repository root (mocked argparse args now route `output_dir` through pytest
+  `tmp_path`); removed the orphaned `test_data/` fixtures (referenced by nothing)
+  and untracked per-developer `.serena/` tool state.
+- **Resilient EAPI domain fallback and probing** (ISSUE-API-002): the single default
+  EAPI domain `z-library.sk` is fronted by the DiamWall anti-bot wall (HTTP 307
+  self-redirect setting a `__diamwall` cookie, then 513/517 Access Denied), which
+  killed login and every tool with default settings. The default is now a probed
+  fallback list (`z-library.ec`, `z-library.sk`, `1lib.sk`): each candidate is
+  validated with a cheap unauthenticated `GET /eapi/info/domains` — never the
+  rate-limited login endpoint — and the first healthy one is used. Hydra-mode
+  domain discovery also probes advertised domains before switching, since
+  `/eapi/info/domains` still advertises the walled domain first; if nothing
+  advertised is usable the client keeps its working domain. An explicit
+  `ZLIBRARY_EAPI_DOMAIN` is honoured verbatim with no probing and no silent
+  switching. DiamWall HTML where JSON was expected now raises a dedicated
+  `DiamWallError` naming the wall and the remedy; the health check classifies it
+  as `diamwall_blocked` and `npm run doctor` reports it explicitly.
+
+## [1.3.0] - 2026-07-24
+
+### Security
+
+- **Path traversal in the download flow**: `Content-Disposition` filenames come from a
+  server-controlled header and were joined directly onto the output directory, so
+  `filename="../../etc/passwd"` wrote outside it. Filenames are now reduced to a bare
+  basename, using both posixpath and ntpath since `os.path.basename` on POSIX does not
+  treat a backslash as a separator.
+
+### Fixed
+
+- **`search_advanced` tool restored** (issue #16): the Phase 7 EAPI migration deleted
+  the Python implementation and its dispatch branch while the Node tool stayed
+  registered, so every live call since February raised `Unknown function`.
+  Reimplemented on EAPI: a strict `e=1` search supplies `exact_matches` and a
+  default-mode search (typo-tolerant) minus those ids supplies `fuzzy_matches`. A new
+  contract test asserts every function name Node sends has a dispatch branch, so a
+  registration/dispatch mismatch can no longer ship silently.
+- **Windows support** (incorporates PR #13 by @ltspace): the ESM entry guard compared
+  `import.meta.url` against a concatenated `file://` string, which never matches a
+  backslash `argv[1]`, so the server never auto-started; `venv-manager` hardcoded
+  `.venv/bin/python` where UV places `.venv\Scripts\python.exe`; and RFC 6266 extended
+  `filename*=UTF-8''` headers were parsed as percent-encoded bytes. Platform-dependent
+  behaviour is now parameterised so a Linux runner exercises the Windows branch.
+- **MCP stdio protocol violation**: all diagnostics now write to stderr via a new
+  `src/lib/logger.ts`. Thirteen `console.log` calls wrote to stdout — the JSON-RPC
+  channel — causing strict clients to disconnect (issue #11). Four of them fired on
+  every search, corrupting active streams. Guarded by `__tests__/stdio-purity.test.js`.
+- **npm publish pipeline**: removed `npm install -g npm@latest`, which failed on every
+  release from v1.2 through v1.2.1 and was never needed (`--provenance` ships in npm
+  9.5+; Node 22 bundles npm 10.x). npm had only ever served 1.0.0.
+- **Dependency audit gate**: security constraint floors refreshed, taking pip-audit from
+  74 advisories across 15 packages to 1 (`nltk`, no fix published). Includes pytest 8→9
+  and cryptography 46→49.
+- **macOS setup**: `setup-uv.sh` and `scripts/validate-readme-tools.sh` no longer use
+  `grep -oP`, which BSD grep rejects (issue #14).
+- Tests using Git LFS PDF fixtures now skip with an actionable message instead of failing
+  with assertions that resemble detection regressions.
+- README: duplicate "Option B" heading; npm install path now warns when the registry
+  version trails the repository.
+
+### Added
+
+- Scheduled **Upstream Contract Check** workflow: probes Z-Library, Anna's Archive, and
+  LibGen response shapes daily, runs the credentialed integration suite, and files a
+  rolling `upstream-drift` issue on failure.
+- `npm run doctor` — the same probe for users, to distinguish an upstream outage from a
+  bug in this server before filing an issue.
+- GHCR container image publishing on release tags (requested in PR #9).
+- Tag/`package.json` version verification before publish.
+- Dependabot for npm, uv, GitHub Actions, and Docker.
+- `SECURITY.md` with private reporting, the dependency-audit policy, and the
+  `LOG_LEVEL=debug` disclosure caveat.
+- Issue templates (bug, RAG quality) and a PR template.
+- `LOG_LEVEL` environment variable (`silent`|`error`|`warn`|`info`|`debug`).
+
+### Changed
+
+- Coverage thresholds ratcheted to just under actual measurements (Jest 66→84
+  statements, pytest 52→60), converting them from decoration into a real gate.
+- CI smoke test no longer filters stdout through `grep '^{'`, a workaround that had been
+  masking the protocol violation above.
+
+## [1.2.1] - 2026-04-16
+
+### Added
+
+- Canonical `.metadata.json` sidecar for structured RAG output bundles, with relative links to sibling bundle files
+- Structured output fixtures and API documentation covering the new file-based bundle contract
+
+### Changed
+
+- `process_document_for_rag` and `download_book_to_file` now expose additive sibling bundle paths while preserving `processed_file_path` for compatibility
+- Node and Python bridge layers now describe the same structured output contract end to end
+
+## [1.2.0] - 2026-04-02
+
+### Added
+
+- 326 new tests across 15 files (Jest: 93→163, Pytest: 719→979)
+- pip-audit in CI for Python dependency vulnerability scanning
+- Global pytest textpage cache clearing via conftest autouse fixture
+- Startup credential validation with actionable error messages
+- Jest and pytest coverage thresholds to prevent regressions
+- ESLint with TypeScript-aware rules and Prettier formatting
+- lint-staged pre-commit hooks (ESLint, Prettier, TypeScript type-check)
+- CI pipeline split into fast (push/PR) and full (push-to-master) workflows
+- API reference documentation for all 13 MCP tools
+
+### Changed
+
+- Python environment management migrated from pip/venv to UV (77% code reduction)
+- Test infrastructure modernized: strict pytest markers, benchmark integration
+- Jest coverage: 71% → 86% statements, 61% → 83% branches
+- Python coverage: 58% → 67% total
+- Dependency security patches: cryptography, nltk, pillow, requests, ujson
+- PyMuPDF pinned to 1.26.5 for cross-platform footnote extraction stability
+- Package version synced with milestone versioning
+
+### Fixed
+
+- CI audit job: pip-audit added as dev dependency (was missing)
+- Pytest coverage threshold adjusted (publish was failing at 52.96% < 53%)
+- Flaky footnote tests: non-deterministic detection from stale textpage cache
+- 6 tech debt items from v1.2 audit
+- Jest test compatibility with Node 22
+- Pytest collection errors from scripts in test discovery path
+- Cleaned compiled `.js` artifacts from source tree
+- Purged large blobs (74MB+) from git history
+
+### Removed
+
+- Legacy pip/venv-based Python environment management
+- Deprecated AsyncZlib download client code
+
+## [1.1.0] - 2026-02-04
+
+### Added
+
+- Margin content detection for scholarly PDFs (Stephanus numbering, Bekker numbering, line numbers, marginal glosses)
+- Adaptive resolution pipeline with page-level DPI selection (150-400 based on content analysis)
+- Region-level DPI targeting for mixed-quality PDF pages
+- Unified body text detection pipeline with confidence scoring
+- Non-body content separation (headers, footers, footnotes isolated from body text)
+- Anna's Archive integration as alternative book source with automatic LibGen fallback
+- `search_multi_source` tool for cross-source searching (Anna's Archive and LibGen)
+- Source attribution in multi-source search results
+
+### Changed
+
+- EAPI booklist browsing improved with pagination support
+- EAPI full-text search enhanced with phrase and word matching modes
+- Docker configuration updated for Alpine compatibility (opencv-python-headless)
+
+### Fixed
+
+- Node 22 LTS compatibility issues
+- Docker numpy/Alpine compilation errors
+- env-paths updated to v4.0 for proper Node 22 support
+
+### Removed
+
+- AsyncZlib legacy download client (fully replaced by EAPI)
+
+## [1.0.0] - 2026-02-01
+
+### Added
+
+- 13 MCP tools: `search_books`, `full_text_search`, `search_by_term`, `search_by_author`, `search_advanced`, `search_multi_source`, `get_recent_books`, `get_book_metadata`, `fetch_booklist`, `download_book_to_file`, `process_document_for_rag`, `get_download_limits`, `get_download_history`
+- EAPI migration for all Z-Library operations (replacing web scraping)
+- MCP SDK upgrade to 1.25.3 with `McpServer` API
+- Python bridge decomposition (4968-line monolith split into 31 focused modules)
+- RAG processing pipeline for EPUB, PDF, and TXT documents
+- Enhanced metadata extraction with terms, booklists, IPFS CIDs, and ratings
+- Book download with automatic filename generation from metadata
+- Cloudflare detection and domain discovery for EAPI endpoints
+- Integration test harness with 11 tool coverage
+- CI pipeline with npm audit and Python version checks
+- Pre-commit hooks via Husky
+- Zod schema validation for all tool parameters
+
+### Changed
+
+- Migrated from web scraping to Z-Library EAPI for all operations
+- Upgraded to MCP SDK 1.25.x with new `McpServer` registration API
+- Python monolith `rag_processing.py` decomposed into `lib/rag/` module tree with facade re-exports
+- Bare `except` clauses replaced with specific exception handling throughout Python codebase
+
+### Fixed
+
+- 15 npm security vulnerabilities resolved
+- BeautifulSoup4 parser specification (explicit `lxml` to avoid warnings)
+- BUG-X/FIX comments cleaned from production code
+- Debug print statements converted to proper logging
+
+[Unreleased]: https://github.com/loganrooks/zlibrary-mcp/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/loganrooks/zlibrary-mcp/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/loganrooks/zlibrary-mcp/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/loganrooks/zlibrary-mcp/compare/v1.2.1...v1.3.0
+[1.2.1]: https://github.com/loganrooks/zlibrary-mcp/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/loganrooks/zlibrary-mcp/compare/v1.1...v1.2.0
+[1.1.0]: https://github.com/loganrooks/zlibrary-mcp/compare/v1.0...v1.1
+[1.0.0]: https://github.com/loganrooks/zlibrary-mcp/releases/tag/v1.0
