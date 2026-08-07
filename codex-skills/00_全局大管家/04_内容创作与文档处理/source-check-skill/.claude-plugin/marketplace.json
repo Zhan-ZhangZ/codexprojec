@@ -1,0 +1,39 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "source-check-skill",
+  "description": "Catch fabricated citations and silently stale info from AI agents — multi-criteria scientific verification skills, packaged as Claude Code plugins for Cowork.",
+  "owner": {
+    "name": "Mercer8964",
+    "url": "https://github.com/Mercer8964"
+  },
+  "plugins": [
+    {
+      "name": "source-check",
+      "description": "Verify every external claim in your output via multi-criteria scientific verification routed by claim type. Six claim types each route to a type-specific verifier subagent. Verifiers fetch live sources before reading the claim, require verbatim quotes that mechanically substring-match, and at least one tool call to a domain not in the cited URLs.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Mercer8964",
+        "url": "https://github.com/Mercer8964"
+      },
+      "source": "./plugins/source-check",
+      "category": "verification",
+      "strict": false,
+      "homepage": "https://github.com/Mercer8964/source-check-skill",
+      "license": "MIT"
+    },
+    {
+      "name": "source-check-max",
+      "description": "High-stakes dual-verifier extension to source-check. For each factual citation, spawns TWO independent verifiers — V1 fetches the URL the agent cited; V2 receives only author+year+title and must independently rediscover the source. Catches wrong-URL citations and fabricated papers. Use for legal / medical / financial / regulatory citations. REQUIRES source-check plugin installed alongside.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Mercer8964",
+        "url": "https://github.com/Mercer8964"
+      },
+      "source": "./plugins/source-check-max",
+      "category": "verification",
+      "strict": false,
+      "homepage": "https://github.com/Mercer8964/source-check-skill",
+      "license": "MIT"
+    }
+  ]
+}

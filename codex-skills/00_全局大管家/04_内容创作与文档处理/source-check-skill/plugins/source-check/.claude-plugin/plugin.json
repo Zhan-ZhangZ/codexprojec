@@ -1,0 +1,11 @@
+{
+  "name": "source-check",
+  "version": "1.0.0",
+  "description": "Multi-criteria scientific verification of every external claim. Catches fabricated citations and silently stale info from AI agents. Spawns an independent verifier subagent that reads the source before the claim, requires verbatim quotes that mechanically substring-match the fetched page, and forces at least one tool call to a domain outside the claim's own URLs.",
+  "author": {
+    "name": "Mercer8964",
+    "url": "https://github.com/Mercer8964"
+  },
+  "repository": "https://github.com/Mercer8964/source-check-skill",
+  "license": "MIT"
+}

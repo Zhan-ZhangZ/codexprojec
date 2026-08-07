@@ -1494,5 +1494,26 @@
     "category": "06_商业与专业领域",
     "folder": "engineering-tender-writer",
     "relative_path": "./00_全局大管家/06_商业与专业领域/engineering-tender-writer"
+  },
+  {
+    "name": "academic-research-suite",
+    "description": "ARS-Codex workflows for research, academic writing, manuscript review, research-to-paper pipelines, and experiment planning. Use when the user asks for deep research, literature review, systematic review, meta-analysis, research question refinement, academic paper drafting, paper revision, citation or integrity checks, reviewer simulation, peer review, editorial decision letters, research-to-paper workflows, experiment execution planning, statistical interpretation, or human study protocol support. Korean triggers: 논문 심사, 논문 수정, 초록 작성, 체계적 문헌고찰, 연구부터 논문까지. Also use for Claude-style ARS command aliases such as /ars-plan, ars-plan, /ars-outline, /ars-abstract, /ars-lit-review, /ars-citation-check, /ars-disclosure, /ars-format-convert, /ars-3w, /ars-revision-coach, /ars-revision, /ars-reviewer, /ars-mark-read, /ars-unmark-read, /ars-cache-invalidate, /ars-rebuttal-audit, and /ars-full. This skill vendors ARS role prompts, references, templates, and shared handoff schemas under ars/.",
+    "category": "12_学术论文与科研图表",
+    "folder": "academic-research-skills-codex",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/academic-research-skills-codex"
+  },
+  {
+    "name": "source-check",
+    "description": "Verify every external claim in your output via multi-criteria scientific verification routed by claim type. NO skip mechanism (which would constitute Hansson pseudoscience pathology #4 \"unwillingness to test\" + #6 \"built-in subterfuge\"). Six claim types — factual-citation / time-sensitive / subjective / future / private / scientific — each route to a type-specific verifier subagent with the criteria appropriate to that claim type per philosophy-of-science consensus (single-criterion demarcation a la Popper alone is known to fail; Hansson SEP 2025, Pigliucci & Boudry 2013). Verifiers MUST use web tools, return verbatim quotes with ≥200 chars surrounding context, perform negative-control searches, make at least one tool call to a domain not appearing in the candidate claim, and produce strict JSON output checkable downstream by substring-match.",
+    "category": "04_内容创作与文档处理",
+    "folder": "source-check-skill",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/source-check-skill"
+  },
+  {
+    "name": "Scientific Agent Skills",
+    "description": "这是一个极其庞大的开源领域技能库，旨在将通用 AI 助手转变为“AI 科学家”。包含超过 170 个专门针对跨学科科研（生物、化学、医学、物理等）的子技能。",
+    "category": "13_社科研究与实证工具",
+    "folder": "scientific-agent-skills",
+    "relative_path": "./00_全局大管家/13_社科研究与实证工具/scientific-agent-skills"
   }
 ]

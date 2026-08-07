@@ -1,0 +1,45 @@
+{
+  "name": "ars-codex",
+  "version": "0.1.24",
+  "description": "ARS-Codex is the Codex-native sibling of Academic Research Skills for deep research, academic writing, manuscript review, research pipelines, and experiment planning.",
+  "author": {
+    "name": "Imbad0202",
+    "url": "https://github.com/Imbad0202"
+  },
+  "homepage": "https://github.com/Imbad0202/academic-research-skills-codex",
+  "repository": "https://github.com/Imbad0202/academic-research-skills-codex",
+  "license": "CC-BY-NC-4.0",
+  "keywords": [
+    "academic",
+    "research",
+    "paper",
+    "writing",
+    "peer-review",
+    "literature-review",
+    "manuscript",
+    "citation",
+    "deep-research"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ARS-Codex",
+    "shortDescription": "Codex-native research, writing, review, and experiment workflows.",
+    "longDescription": "ARS-Codex is the Codex-native sibling of Academic Research Skills. It supports Socratic research scoping, literature and systematic reviews, IMRaD paper planning and drafting, manuscript revision coaching, peer-review simulation, citation and integrity checks, experiment planning, and staged research-to-paper workflows.",
+    "developerName": "Imbad0202",
+    "category": "Research",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/Imbad0202/academic-research-skills-codex",
+    "privacyPolicyURL": "https://github.com/Imbad0202/academic-research-skills-codex/blob/main/SECURITY.md",
+    "termsOfServiceURL": "https://github.com/Imbad0202/academic-research-skills-codex/blob/main/LICENSE",
+    "defaultPrompt": [
+      "Plan my academic paper from rough research notes.",
+      "Review my manuscript like a journal reviewer.",
+      "Build a literature review and identify research gaps."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

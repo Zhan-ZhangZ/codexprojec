@@ -1,0 +1,20 @@
+{
+  "name": "ars-codex",
+  "interface": {
+    "displayName": "ARS-Codex"
+  },
+  "plugins": [
+    {
+      "name": "ars-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/ars-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Research"
+    }
+  ]
+}
