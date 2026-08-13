@@ -36,17 +36,17 @@ BIN_7Z   = _SYS_7Z
 
 # 压缩排除规则（7z exclude 语法）
 EXCLUDE_PATTERNS = [
-    '-x!*.DS_Store',
-    '-x!._*',
-    '-x!.git',
-    '-x!.github',
-    '-x!__pycache__',
-    '-x!node_modules',
-    '-x!.venv',
-    '-x!.env',
-    '-x!__MACOSX',
-    '-x!.vscode',
-    '-x!.idea',
+    '-xr!*.DS_Store',
+    '-xr!._*',
+    '-xr!.git',
+    '-xr!.github',
+    '-xr!__pycache__',
+    '-xr!node_modules',
+    '-xr!.venv',
+    '-xr!.env',
+    '-xr!__MACOSX',
+    '-xr!.vscode',
+    '-xr!.idea',
 ]
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
