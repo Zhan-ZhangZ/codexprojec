@@ -1,0 +1,1032 @@
+"""数据类 tools。
+
+让 AI 能导入数据、理解工作表结构、设置列语义。
+
+包含:
+    import_csv: 导入 CSV 文件到工作表
+    import_excel: 导入 Excel 文件到工作表
+    import_data_from_text: 从文本数据创建工作表
+    list_worksheets: 列出所有工作表
+    get_worksheet_info: 返回工作表结构信息
+    get_worksheet_data: 返回工作表样本数据
+    set_column_designations: 设置列角色
+    set_column_labels: 设置列标签
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from originlab_mcp.exceptions import (
+    ColumnIndexError,
+    ToolError,
+)
+from originlab_mcp.utils.constants import (
+    DEFAULT_HAS_HEADER,
+    DEFAULT_MAX_PREVIEW_ROWS,
+    DEFAULT_SEPARATOR,
+    ColumnDesignation,
+)
+from originlab_mcp.utils.helpers import (
+    find_worksheet as _find_worksheet,
+)
+from originlab_mcp.utils.helpers import (
+    get_column_info as _get_column_info,
+)
+from originlab_mcp.utils.helpers import (
+    get_column_label as _get_column_label,
+)
+from originlab_mcp.utils.helpers import (
+    resolve_worksheet_name as _resolve_worksheet_name,
+)
+from originlab_mcp.utils.helpers import (
+    tool_error_handler,
+)
+from originlab_mcp.utils.validators import (
+    error_response,
+    success_response,
+    validate_file_path,
+)
+
+# 注: _resolve_worksheet_name 和 _find_worksheet 从 utils.helpers 导入
+
+
+def _get_column_display_name(wks: Any, index: int) -> str:
+    """返回用于预览输出的列名。"""
+    long_name = _get_column_label(wks, index, "L")
+    if long_name:
+        return long_name
+
+    short_name = _get_column_label(wks, index, "G")
+    if short_name:
+        return short_name
+
+    return f"Col{index + 1}"
+
+
+def _make_unique_column_name(name: str, used: set[str]) -> str:
+    """为重复列名追加稳定后缀，避免 records 键冲突。"""
+    if name not in used:
+        used.add(name)
+        return name
+
+    suffix = 2
+    while f"{name}_{suffix}" in used:
+        suffix += 1
+    unique_name = f"{name}_{suffix}"
+    used.add(unique_name)
+    return unique_name
+
+
+def _normalize_designations(spec: str) -> str:
+    """将用户输入的列角色字符串归一化为 Origin 接受的单字符格式。"""
+    normalized: list[str] = []
+    valid_chars = {
+        ColumnDesignation.X.value,
+        ColumnDesignation.Y.value,
+        ColumnDesignation.Z.value,
+        ColumnDesignation.Y_ERROR.value,
+        ColumnDesignation.LABEL.value,
+        ColumnDesignation.DISREGARD.value,
+    }
+
+    i = 0
+    while i < len(spec):
+        if spec[i].isspace():
+            i += 1
+            continue
+
+        if spec[i:i + 4].lower() == "yerr":
+            normalized.append(ColumnDesignation.Y_ERROR.value)
+            i += 4
+            continue
+
+        token = spec[i].upper()
+        if token in valid_chars:
+            normalized.append(token)
+            i += 1
+            continue
+
+        raise ToolError(
+            f"Unsupported designation '{spec[i:]}'",
+            error_type="invalid_input",
+            target="designations",
+            value=spec,
+            hint="请提供列角色字符串。支持: X, Y, Z, E(误差), L, N；兼容旧写法 YErr。",
+        )
+
+    return "".join(normalized)
+
+
+def register_data_tools(mcp: Any, manager: Any) -> None:
+    """注册数据类 tools 到 MCP Server。
+
+    Args:
+        mcp: FastMCP 实例。
+        manager: OriginManager 实例（依赖注入）。
+    """
+
+    # =================================================================
+    # import_csv
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("导入CSV", "请检查文件格式是否为有效的 CSV。")
+    def import_csv(file_path: str, sheet_name: str | None = None) -> dict:
+        """Import a CSV file into a worksheet.
+
+        When to use: To import a local CSV file into an Origin worksheet.
+        When not to use: For Excel files use import_excel; for inline text
+        data use import_data_from_text.
+
+        Default behavior:
+        - sheet_name omitted: creates a new worksheet
+
+        Examples:
+        - import_csv(file_path="C:\\data\\exp.csv")
+        - import_csv(file_path="C:\\data\\exp.csv", sheet_name="RawData")
+        """
+        err = validate_file_path(file_path)
+        if err:
+            return error_response(
+                message=err,
+                error_type="invalid_input",
+                target="file_path",
+                value=file_path,
+                hint="文件不存在，请检查文件路径。",
+            )
+
+        def _import(op: Any) -> dict[str, Any]:
+            created_new = False
+            if sheet_name:
+                wks = op.find_sheet("w", sheet_name)
+                if wks is None:
+                    wks = op.new_sheet(lname=sheet_name)
+                    created_new = True
+            else:
+                wks = op.new_sheet()
+                created_new = True
+
+            wks.from_file(file_path)
+            book_name = wks.get_book().name
+            actual_name = wks.name
+            full_name = f"[{book_name}]{actual_name}"
+            manager.active_worksheet = full_name
+
+            return {
+                "sheet_name": full_name,
+                "rows": wks.rows,
+                "cols": wks.cols,
+                "created_new_sheet": created_new,
+                "source_file": file_path,
+            }
+
+        result = manager.execute(_import)
+
+        return success_response(
+            message=(
+                f"CSV 已导入到工作表 '{result['sheet_name']}'，"
+                f"共 {result['rows']} 行 {result['cols']} 列。"
+            ),
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=[
+                "get_worksheet_info",
+                "set_column_designations",
+                "create_plot",
+            ],
+        )
+
+    # =================================================================
+    # import_excel
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("导入Excel", "请检查文件格式是否为有效的 Excel 文件。")
+    def import_excel(file_path: str, sheet_name: str | None = None) -> dict:
+        """Import an Excel file into a worksheet.
+
+        When to use: To import a local Excel (.xlsx/.xls) file into an
+        Origin worksheet.
+        When not to use: For CSV files use import_csv.
+
+        Default behavior:
+        - sheet_name omitted: creates a new worksheet
+        - Imports the first sheet of the Excel file by default
+
+        Examples:
+        - import_excel(file_path="C:\\data\\results.xlsx")
+        """
+        err = validate_file_path(file_path)
+        if err:
+            return error_response(
+                message=err,
+                error_type="invalid_input",
+                target="file_path",
+                value=file_path,
+                hint="文件不存在，请检查文件路径。",
+            )
+
+        def _import(op: Any) -> dict[str, Any]:
+            if sheet_name:
+                wks = op.find_sheet("w", sheet_name)
+                if wks is None:
+                    wks = op.new_sheet(lname=sheet_name)
+            else:
+                wks = op.new_sheet()
+
+            wks.from_file(file_path)
+            book_name = wks.get_book().name
+            actual_name = wks.name
+            full_name = f"[{book_name}]{actual_name}"
+            manager.active_worksheet = full_name
+
+            return {
+                "sheet_name": full_name,
+                "rows": wks.rows,
+                "cols": wks.cols,
+                "source_file": file_path,
+            }
+
+        result = manager.execute(_import)
+
+        return success_response(
+            message=(
+                f"Excel 已导入到工作表 '{result['sheet_name']}'，"
+                f"共 {result['rows']} 行 {result['cols']} 列。"
+            ),
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=[
+                "get_worksheet_info",
+                "set_column_designations",
+                "create_plot",
+            ],
+        )
+
+    # =================================================================
+    # import_data_from_text
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("导入文本数据", "请检查数据格式。数据应以换行符分行，以指定的分隔符分列。")
+    def import_data_from_text(
+        data: str,
+        separator: str = DEFAULT_SEPARATOR,
+        sheet_name: str | None = None,
+        has_header: bool = DEFAULT_HAS_HEADER,
+    ) -> dict:
+        """Create a worksheet from inline text data. Suitable for user-pasted
+        data or AI-generated sample data.
+
+        When to use: When the user provides data text directly in chat,
+        or when AI needs to quickly create sample data.
+        When not to use: For data in local files, use import_csv or
+        import_excel.
+
+        Default behavior:
+        - separator defaults to ","
+        - has_header defaults to true (first row as column names)
+        - sheet_name omitted: auto-named
+
+        Examples:
+        - import_data_from_text(data="Name,Value\\nA,1\\nB,2\\nC,3")
+        - import_data_from_text(data="X\\tY\\n1\\t10\\n2\\t20", separator="\\t")
+        """
+        if not data or not data.strip():
+            return error_response(
+                message="data 不能为空",
+                error_type="invalid_input",
+                target="data",
+                hint="请提供以换行符分行、以分隔符分列的文本数据。",
+            )
+
+        lines = data.strip().split("\n")
+        if len(lines) < 1:
+            return error_response(
+                message="data 至少需要包含一行",
+                error_type="invalid_input",
+                target="data",
+                hint="请提供至少一行数据。",
+            )
+
+        # 解析表头和数据行
+        header = None
+        start_row = 0
+        if has_header and len(lines) > 1:
+            header = [h.strip() for h in lines[0].split(separator)]
+            start_row = 1
+
+        rows_data = []
+        for line in lines[start_row:]:
+            row = [cell.strip() for cell in line.split(separator)]
+            rows_data.append(row)
+
+        num_cols = max(
+            (len(row) for row in rows_data),
+            default=0,
+        )
+        if header:
+            num_cols = max(num_cols, len(header))
+
+        def _import(op: Any) -> dict[str, Any]:
+            wks = (
+                op.new_sheet(lname=sheet_name) if sheet_name
+                else op.new_sheet()
+            )
+
+            for col_idx in range(num_cols):
+                col_data: list[Any] = []
+                for row in rows_data:
+                    parsed_value: Any = row[col_idx] if col_idx < len(row) else ""
+                    try:
+                        parsed_value = float(parsed_value)
+                        if parsed_value == int(parsed_value):
+                            parsed_value = int(parsed_value)
+                    except (ValueError, TypeError):
+                        pass
+                    col_data.append(parsed_value)
+
+                lname = (
+                    header[col_idx]
+                    if header and col_idx < len(header)
+                    else None
+                )
+                wks.from_list(col_idx, col_data, lname=lname)
+
+            book_name = wks.get_book().name
+            actual_name = wks.name
+            full_name = f"[{book_name}]{actual_name}"
+            manager.active_worksheet = full_name
+            return {
+                "sheet_name": full_name,
+                "rows": len(rows_data),
+                "cols": num_cols,
+                "separator_used": separator,
+                "has_header": has_header,
+            }
+
+        result = manager.execute(_import)
+
+        return success_response(
+            message=(
+                f"文本数据已导入到工作表 '{result['sheet_name']}'，"
+                f"共 {result['rows']} 行 {result['cols']} 列。"
+            ),
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=[
+                "get_worksheet_info",
+                "set_column_designations",
+                "create_plot",
+            ],
+        )
+
+    # =================================================================
+    # list_worksheets
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("列出工作表", "请确认 Origin 已连接。可调用 get_origin_info 检查状态。")
+    def list_worksheets() -> dict:
+        """List all worksheets in the current project.
+
+        When to use: To see available worksheets or confirm worksheet names.
+        When not to use: If worksheet name is already known.
+
+        Examples:
+        - list_worksheets()
+        """
+        def _list(op: Any) -> list[dict[str, Any]]:
+            worksheets = []
+            for book in op.pages("Book"):
+                for sheet in book:
+                    worksheets.append({
+                        "book_name": book.name,
+                        "sheet_name": sheet.name,
+                        "full_name": f"[{book.name}]{sheet.name}",
+                        "rows": sheet.rows,
+                        "cols": sheet.cols,
+                    })
+            return worksheets
+
+        sheets = manager.execute(_list)
+
+        return success_response(
+            message=f"当前项目共有 {len(sheets)} 个工作表。",
+            data={"worksheets": sheets, "count": len(sheets)},
+            resource=manager.get_resource_context(),
+            next_suggestions=["get_worksheet_info", "import_csv"],
+        )
+
+    # =================================================================
+    # get_worksheet_info
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("获取工作表信息", "请确认工作表名称正确。调用 list_worksheets 查看可用工作表。")
+    def get_worksheet_info(sheet_name: str | None = None) -> dict:
+        """Return worksheet structure info (column names, designations, row/col counts).
+
+        When to use: To understand how many columns, their names, and their
+        designation roles.
+        When not to use: To view actual data content, use get_worksheet_data.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+
+        Examples:
+        - get_worksheet_info()
+        - get_worksheet_info(sheet_name="Sheet1")
+        """
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _info(op: Any) -> dict[str, Any]:
+            wks = _find_worksheet(op, target_name)
+
+            columns = []
+            for i in range(wks.cols):
+                columns.append(_get_column_info(wks, i))
+
+            # 获取列角色
+            try:
+                designations = wks.get_labels("D")
+                for i, d in enumerate(designations):
+                    if i < len(columns):
+                        columns[i]["designation"] = d
+            except Exception:
+                pass
+
+            return {
+                "sheet_name": target_name,
+                "rows": wks.rows,
+                "cols": wks.cols,
+                "columns": columns,
+            }
+
+        result = manager.execute(_info)
+
+        return success_response(
+            message=(
+                f"工作表 '{target_name}' "
+                f"共 {result['rows']} 行 {result['cols']} 列。"
+            ),
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=[
+                "set_column_designations",
+                "get_worksheet_data",
+                "create_plot",
+            ],
+        )
+
+    # =================================================================
+    # get_worksheet_data
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("获取工作表数据", "请确认工作表名称正确。")
+    def get_worksheet_data(
+        sheet_name: str | None = None,
+        max_rows: int = DEFAULT_MAX_PREVIEW_ROWS,
+    ) -> dict:
+        """Return sample data from a worksheet (for preview).
+
+        When to use: To view actual data content in the worksheet.
+        When not to use: To only view column structure and designations,
+        use get_worksheet_info.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+        - max_rows defaults to 20; returns at most the specified number of rows
+
+        Examples:
+        - get_worksheet_data()
+        - get_worksheet_data(sheet_name="Sheet1", max_rows=10)
+        """
+        if max_rows < 0:
+            return error_response(
+                message="max_rows 不能小于 0",
+                error_type="invalid_input",
+                target="max_rows",
+                value=max_rows,
+                hint="请传入 0 或正整数。",
+            )
+
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _data(op: Any) -> dict[str, Any]:
+            wks = _find_worksheet(op, target_name)
+            total_cols = wks.cols
+            used_names: set[str] = set()
+            col_names: list[str] = []
+            col_values: list[list[Any]] = []
+            for ci in range(total_cols):
+                base_name = _get_column_display_name(wks, ci)
+                col_name = _make_unique_column_name(base_name, used_names)
+                col_names.append(col_name)
+                col_values.append(list(wks.to_list(ci)))
+
+            total_rows = max((len(values) for values in col_values), default=0)
+            truncated = total_rows > max_rows
+            rows_to_return = min(total_rows, max_rows)
+
+            data_records = []
+            for ri in range(rows_to_return):
+                record = {
+                    col_names[ci]: (
+                        col_values[ci][ri] if ri < len(col_values[ci]) else None
+                    )
+                    for ci in range(total_cols)
+                }
+                data_records.append(record)
+
+            return {
+                "sheet_name": target_name,
+                "total_rows": total_rows,
+                "returned_rows": rows_to_return,
+                "truncated": truncated,
+                "columns": col_names,
+                "data": data_records,
+            }
+
+        result = manager.execute(_data)
+
+        msg = f"返回 {result['returned_rows']} 行数据"
+        if result["truncated"]:
+            msg += f"（共 {result['total_rows']} 行，已截断）"
+        msg += "。"
+
+        return success_response(
+            message=msg,
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=["set_column_designations", "create_plot"],
+        )
+
+    # =================================================================
+    # set_column_designations
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("设置列角色", "请检查角色字符串长度是否与列数匹配，且仅使用 X/Y/Z/E/L/N 或兼容写法 YErr。")
+    def set_column_designations(
+        designations: str,
+        sheet_name: str | None = None,
+    ) -> dict:
+        """Set column designation roles for a worksheet.
+
+        When to use: To specify which columns are X, Y, Z, or error columns.
+        When not to use: To only view designations, use get_worksheet_info.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+
+        Parameter notes:
+        - designations: designation string, e.g. "XYY" means first column
+          is X, next two are Y
+
+        Examples:
+        - set_column_designations(designations="XYY")
+        - set_column_designations(designations="XYYY", sheet_name="Sheet1")
+        """
+        if not designations:
+            return error_response(
+                message="designations 不能为空",
+                error_type="invalid_input",
+                target="designations",
+                hint="请提供列角色字符串。支持: X, Y, Z, E(误差), L, N；兼容旧写法 YErr。",
+            )
+
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+        normalized_designations = _normalize_designations(designations)
+
+        def _set(op: Any) -> list[dict[str, Any]]:
+            wks = _find_worksheet(op, target_name)
+            wks.cols_axis(normalized_designations)
+
+            # 从 Origin 读取更新后的实际角色
+            updated = []
+            try:
+                actual_desigs = wks.get_labels("D")
+            except Exception:
+                actual_desigs = []
+
+            for i in range(wks.cols):
+                col_info: dict[str, Any] = {
+                    "index": i,
+                    "name": _get_column_label(wks, i, "G") or f"Col{i+1}",
+                }
+                if i < len(actual_desigs):
+                    col_info["designation"] = actual_desigs[i]
+                updated.append(col_info)
+
+            return updated
+
+        columns = manager.execute(_set)
+
+        return success_response(
+            message=f"列角色已更新为 '{normalized_designations}'。",
+            data={
+                "sheet_name": target_name,
+                "designations": normalized_designations,
+                "requested_designations": designations,
+                "columns": columns,
+            },
+            resource=manager.get_resource_context(),
+            next_suggestions=["create_plot", "get_worksheet_info"],
+        )
+
+    # =================================================================
+    # set_column_labels
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("设置列标签", "请检查列索引和参数值。")
+    def set_column_labels(
+        col: int,
+        sheet_name: str | None = None,
+        lname: str | None = None,
+        units: str | None = None,
+        comments: str | None = None,
+    ) -> dict:
+        """Set long name, units, and comments for a specified column.
+
+        When to use: To set descriptive Long Name, Units, or Comments
+        for a column.
+        When not to use: To set X/Y designation roles,
+        use set_column_designations.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+        - Labels not provided will not be modified
+
+        Examples:
+        - set_column_labels(col=1, lname="Voltage", units="mV")
+        - set_column_labels(col=0, lname="Time", units="s", comments="elapsed time")
+        """
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _set_labels(op: Any) -> dict[str, str]:
+            wks = _find_worksheet(op, target_name)
+
+            if col < 0 or col >= wks.cols:
+                raise ColumnIndexError(col, wks.cols)
+
+            changes: dict[str, str] = {}
+            if lname is not None:
+                wks.set_label(col, lname, "L")
+                changes["long_name"] = lname
+            if units is not None:
+                wks.set_label(col, units, "U")
+                changes["units"] = units
+            if comments is not None:
+                wks.set_label(col, comments, "C")
+                changes["comments"] = comments
+
+            return changes
+
+        result = manager.execute(_set_labels)
+
+        return success_response(
+            message=f"列 {col} 的标签已更新。",
+            data={
+                "sheet_name": target_name,
+                "col": col,
+                "changes": result,
+            },
+            resource=manager.get_resource_context(),
+            next_suggestions=["get_worksheet_info", "create_plot"],
+        )
+
+    # =================================================================
+    # sort_worksheet
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("排序工作表", "请检查列索引是否正确。")
+    def sort_worksheet(
+        col: int,
+        descending: bool = False,
+        sheet_name: str | None = None,
+    ) -> dict:
+        """Sort worksheet data by a specified column.
+
+        When to use: To sort worksheet data in ascending or descending
+        order by a column.
+        When not to use: To only view data, use get_worksheet_data.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+        - descending defaults to False (ascending)
+
+        Examples:
+        - sort_worksheet(col=0)
+        - sort_worksheet(col=1, descending=True)
+        """
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _sort(op: Any) -> dict[str, Any]:
+            wks = _find_worksheet(op, target_name)
+            if col < 0 or col >= wks.cols:
+                raise ColumnIndexError(col, wks.cols)
+
+            # originpro sort 使用 1-offset 索引
+            wks.sort(col + 1, descending)
+            return {
+                "sheet_name": target_name,
+                "sort_col": col,
+                "descending": descending,
+            }
+
+        result = manager.execute(_sort)
+        order = "降序" if descending else "升序"
+
+        return success_response(
+            message=f"工作表已按列 {col} {order}排序。",
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=["get_worksheet_data", "create_plot"],
+        )
+
+    # =================================================================
+    # clear_worksheet
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("清除工作表", "请检查工作表名称和列索引。")
+    def clear_worksheet(
+        sheet_name: str | None = None,
+        start_col: int | None = None,
+        end_col: int | None = None,
+    ) -> dict:
+        """Clear worksheet data.
+
+        When to use: To clear all or partial column data from a worksheet.
+        When not to use: To delete entire columns (including structure),
+        use delete_columns.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+        - Without start_col and end_col, clears all data
+
+        Examples:
+        - clear_worksheet()
+        - clear_worksheet(start_col=1, end_col=3)
+        """
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _clear(op: Any) -> dict[str, Any]:
+            wks = _find_worksheet(op, target_name)
+            if start_col is not None and end_col is not None:
+                wks.clear(start_col, c2=end_col)
+            elif start_col is not None:
+                wks.clear(start_col)
+            else:
+                wks.clear()
+            return {
+                "sheet_name": target_name,
+                "start_col": start_col,
+                "end_col": end_col,
+            }
+
+        result = manager.execute(_clear)
+
+        if start_col is not None:
+            msg = f"已清除列 {start_col}"
+            if end_col is not None:
+                msg += f" 至 {end_col}"
+            msg += " 的数据。"
+        else:
+            msg = "已清除工作表全部数据。"
+
+        return success_response(
+            message=msg,
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=["import_csv", "import_data_from_text"],
+        )
+
+    # =================================================================
+    # set_column_formula
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("设置列公式", "请检查公式语法是否正确。公式中可引用列名（如 A, B, C）。")
+    def set_column_formula(
+        col: int | str,
+        formula: str,
+        sheet_name: str | None = None,
+    ) -> dict:
+        """Set a calculation formula for a worksheet column.
+
+        When to use: To compute column data via formula (e.g. math
+        operations based on other columns).
+        When not to use: To import data directly, use import_csv or
+        import_data_from_text.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+
+        Parameter notes:
+        - formula: Origin column formula expression referencing column
+          names (e.g. "A+1", "sin(A)*2", "B/C")
+
+        Examples:
+        - set_column_formula(col=1, formula="A+1")
+        - set_column_formula(col="C", formula="sin(A)*B")
+        """
+        if not formula:
+            return error_response(
+                message="formula 不能为空",
+                error_type="invalid_input",
+                target="formula",
+                hint="请提供 Origin 列公式表达式，如 'A+1'。",
+            )
+
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _set_formula(op: Any) -> dict[str, Any]:
+            wks = _find_worksheet(op, target_name)
+            wks.set_formula(col, formula)
+            return {
+                "sheet_name": target_name,
+                "col": col,
+                "formula": formula,
+            }
+
+        result = manager.execute(_set_formula)
+
+        return success_response(
+            message=f"列 {col} 的公式已设置为 '{formula}'。",
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=["get_worksheet_data", "create_plot"],
+        )
+
+    # =================================================================
+    # get_cell_value
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("读取单元格", "请检查行列索引是否在范围内。")
+    def get_cell_value(
+        row: int,
+        col: int | str,
+        sheet_name: str | None = None,
+    ) -> dict:
+        """Read the value of a specific cell in a worksheet.
+
+        When to use: To precisely read a single cell value.
+        When not to use: To view multiple rows, use get_worksheet_data.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+
+        Examples:
+        - get_cell_value(row=0, col=0)
+        - get_cell_value(row=5, col="B")
+        """
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _get_cell(op: Any) -> dict[str, Any]:
+            wks = _find_worksheet(op, target_name)
+            value = wks.cell(row, col)
+            return {
+                "sheet_name": target_name,
+                "row": row,
+                "col": col,
+                "value": value,
+            }
+
+        result = manager.execute(_get_cell)
+
+        return success_response(
+            message=f"单元格 ({row}, {col}) 的值为 '{result['value']}'。",
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=["get_worksheet_data"],
+        )
+
+    # =================================================================
+    # delete_columns
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("删除列", "请检查列索引是否正确。")
+    def delete_columns(
+        col: int | str,
+        count: int = 1,
+        sheet_name: str | None = None,
+    ) -> dict:
+        """Delete columns from a worksheet.
+
+        When to use: To remove unneeded columns from a worksheet.
+        When not to use: To only clear column data (keep structure),
+        use clear_worksheet.
+
+        Default behavior:
+        - sheet_name omitted: uses current active worksheet
+        - count defaults to 1 (delete one column)
+
+        Examples:
+        - delete_columns(col=0)
+        - delete_columns(col=2, count=3)
+        """
+        target_name = _resolve_worksheet_name(sheet_name, manager)
+
+        def _del(op: Any) -> dict[str, Any]:
+            wks = _find_worksheet(op, target_name)
+            wks.del_col(col, count)
+            return {
+                "sheet_name": target_name,
+                "deleted_from": col,
+                "count": count,
+                "remaining_cols": wks.cols,
+            }
+
+        result = manager.execute(_del)
+
+        return success_response(
+            message=f"已删除 {count} 列，剩余 {result['remaining_cols']} 列。",
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=["get_worksheet_info"],
+        )
+
+    # =================================================================
+    # add_worksheet
+    # =================================================================
+
+    @mcp.tool()
+    @tool_error_handler("添加工作表", "请检查工作簿名称是否正确。")
+    def add_worksheet(
+        sheet_name: str | None = None,
+        book_name: str | None = None,
+    ) -> dict:
+        """Add a new worksheet to a workbook.
+
+        When to use: To create a new worksheet in an existing workbook.
+        When not to use: Data import automatically creates worksheets;
+        no need to call manually.
+
+        Default behavior:
+        - book_name omitted: uses the workbook of current active worksheet
+        - sheet_name omitted: auto-named
+
+        Examples:
+        - add_worksheet(sheet_name="Results")
+        - add_worksheet(sheet_name="Summary", book_name="Book1")
+        """
+        def _add(op: Any) -> dict[str, Any]:
+            if book_name:
+                # 查找指定的工作簿
+                target_book = None
+                for book in op.pages("Book"):
+                    if book.name == book_name:
+                        target_book = book
+                        break
+                if target_book is None:
+                    raise ToolError(
+                        f"工作簿 '{book_name}' 不存在",
+                        error_type="not_found",
+                        target="book_name",
+                        value=book_name,
+                        hint="请调用 list_worksheets 查看可用的工作簿。",
+                    )
+                new_wks = target_book.add_sheet(sheet_name or "")
+            else:
+                # 使用活动工作表所在的工作簿
+                active_name = manager.active_worksheet
+                if active_name:
+                    wks = op.find_sheet("w", active_name)
+                    if wks:
+                        target_book = wks.get_book()
+                        new_wks = target_book.add_sheet(sheet_name or "")
+                    else:
+                        new_wks = op.new_sheet(lname=sheet_name)
+                else:
+                    new_wks = op.new_sheet(lname=sheet_name)
+
+            actual_book = new_wks.get_book().name
+            actual_name = new_wks.name
+            full_name = f"[{actual_book}]{actual_name}"
+            manager.active_worksheet = full_name
+
+            return {
+                "book_name": actual_book,
+                "sheet_name": actual_name,
+                "full_name": full_name,
+            }
+
+        result = manager.execute(_add)
+
+        return success_response(
+            message=f"新工作表 '{result['full_name']}' 已创建。",
+            data=result,
+            resource=manager.get_resource_context(),
+            next_suggestions=[
+                "import_data_from_text",
+                "set_column_designations",
+            ],
+        )

@@ -1529,5 +1529,12 @@
     "category": "11_API与第三方应用集成",
     "folder": "qiaomu-libgen-downloader",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/qiaomu-libgen-downloader"
+  },
+  {
+    "name": "originlab-mcp",
+    "description": "OriginLab/OriginPro MCP 服务器。基于 originpro 库和 COM 自动化技术，允许 AI 通过自然语言直接控制 Origin 进行数据导入、工作表操作、高阶数据分析（线性/非线性拟合）及高质量科研图表绘制和导出。当需要操作 Origin 软件自动处理数据和绘图时使用。Leading Words: OriginLab MCP, OriginPro自动化绘图, 科研数据处理拟合, COM接口控制, 论文配图生成",
+    "category": "12_学术论文与科研图表",
+    "folder": "originlab-mcp",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/originlab-mcp"
   }
 ]
