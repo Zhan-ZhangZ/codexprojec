@@ -1,0 +1,48 @@
+{
+  "name": "dsh-plugin-cas-kb",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness bundle: Chinese accounting standards (CAS / ASSE) and tax law lookup with article-level citations, plus a verification-discipline skill.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "accounting",
+    "chinese-accounting-standards",
+    "cas",
+    "tax"
+  ],
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "skill/china-accounting-standards.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "license": "MIT",
+  "homepage": "https://open.accountingllm.site",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/niuniu-869/dsh-plugin-cas-kb.git"
+  },
+  "bugs": {
+    "url": "https://github.com/niuniu-869/dsh-plugin-cas-kb/issues"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  }
+}

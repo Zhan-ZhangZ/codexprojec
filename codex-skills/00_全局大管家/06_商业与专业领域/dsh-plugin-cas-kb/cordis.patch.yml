@@ -1,0 +1,26 @@
+# dsh-plugin-cas-kb —— 中国会计准则与税法知识库组合包。
+#
+# 两行：一行把开放知识库的 MCP 服务器挂成工具，一行注册配套的查证纪律 skill。
+# 两者共用 serverName —— skill 正文里要写出工具的完整名字（mcp__<serverName>__*），
+# 改了上面不改下面，skill 就会教模型去调一个不存在的工具。
+#
+# 用户可以在自己 profile 的 cordis.patch.yml 里按 id 覆盖任意一行（例如指向自建
+# 镜像）。注意 patch 是整段替换 config，不是逐键深合并：覆盖时要把该行需要的键写全。
+
+- insert:
+    - id: quaesto-kb-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: quaesto_kb
+        transport: streamable-http
+        url: https://api.accountingllm.site/mcp
+        # 检索类调用（search_kb）在冷缓存时可能到秒级，默认 60s 足够；
+        # 这里收到 30s，让偶发的上游不可用更快暴露成一次失败而不是一次长挂起。
+        toolCallTimeoutMs: 30000
+        # 服务不可用不该拖垮整个 agent 启动：连不上就是没有这几个工具。
+        failOnStartupError: false
+
+    - id: quaesto-kb-skill
+      name: dsh-plugin-cas-kb
+      config:
+        serverName: quaesto_kb

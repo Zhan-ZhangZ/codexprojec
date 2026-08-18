@@ -1536,5 +1536,12 @@
     "category": "12_学术论文与科研图表",
     "folder": "originlab-mcp",
     "relative_path": "./00_全局大管家/12_学术论文与科研图表/originlab-mcp"
+  },
+  {
+    "name": "dsh-plugin-cas-kb",
+    "description": "中国企业会计准则、小企业会计准则、税法与注册会计师审计准则知识库与判断决策程序（账面 Quaesto / dsh-plugin-cas-kb）。提供条级结构化原文与条号锚定决策程序，支持适用性判定、税会差异与审计准则应用指南查询。回答中国会计、审计或税务问题前先查库。Leading Words: 中国会计准则 CAS, 小企业会计准则 ASSE, 注册会计师审计准则 CSA, 税会差异, 税法扣除, 账面Quaesto",
+    "category": "06_商业与专业领域",
+    "folder": "dsh-plugin-cas-kb",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/dsh-plugin-cas-kb"
   }
 ]
