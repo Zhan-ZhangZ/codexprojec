@@ -1,0 +1,4 @@
+interface:
+  display_name: "内容数据复盘"
+  short_description: "读取平台数据并完成归因、基线比较、实验设计与复盘沉淀"
+  default_prompt: "使用 $self-media-content-analytics 分析这些内容数据并输出可执行复盘。"

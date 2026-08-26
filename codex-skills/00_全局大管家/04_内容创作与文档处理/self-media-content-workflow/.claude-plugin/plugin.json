@@ -1,0 +1,24 @@
+{
+  "name": "self-media-suite",
+  "displayName": "自媒体内容工作流",
+  "version": "0.1.0",
+  "description": "九个 Skill 覆盖内容生产闭环：创作简报、账号策略、热点与竞品研究、平台原生文案、短视频方案（含数字人视频）、公众号排版发布、数据复盘和交付归档，由总控 Skill 编排。工具无关，人工在环，证据优先。",
+  "author": {
+    "name": "yanhua",
+    "url": "https://github.com/yanhua1010"
+  },
+  "homepage": "https://github.com/yanhua1010/self-media-content-workflow",
+  "repository": "https://github.com/yanhua1010/self-media-content-workflow",
+  "license": "MIT",
+  "keywords": [
+    "自媒体",
+    "内容创作",
+    "小红书",
+    "公众号",
+    "短视频",
+    "文案",
+    "content-creation",
+    "copywriting",
+    "social-media"
+  ]
+}

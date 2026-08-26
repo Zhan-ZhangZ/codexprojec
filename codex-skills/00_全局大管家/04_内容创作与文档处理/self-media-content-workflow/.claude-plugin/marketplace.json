@@ -1,0 +1,42 @@
+{
+  "name": "self-media",
+  "description": "通用、模块化的自媒体内容生产与经营 Skills",
+  "version": "0.1.0",
+  "owner": {
+    "name": "yanhua",
+    "url": "https://github.com/yanhua1010"
+  },
+  "plugins": [
+    {
+      "name": "self-media-suite",
+      "source": "./",
+      "displayName": "自媒体内容工作流",
+      "description": "九个 Skill 覆盖内容生产闭环：创作简报、账号策略、热点与竞品研究、平台原生文案、短视频方案（含数字人视频）、公众号排版发布、数据复盘和交付归档，由总控 Skill 编排。",
+      "version": "0.1.0",
+      "author": {
+        "name": "yanhua",
+        "url": "https://github.com/yanhua1010"
+      },
+      "homepage": "https://github.com/yanhua1010/self-media-content-workflow",
+      "repository": "https://github.com/yanhua1010/self-media-content-workflow",
+      "license": "MIT",
+      "category": "content",
+      "keywords": [
+        "自媒体",
+        "内容创作",
+        "小红书",
+        "公众号",
+        "短视频",
+        "文案",
+        "content-creation",
+        "copywriting",
+        "social-media"
+      ],
+      "tags": [
+        "自媒体",
+        "内容创作",
+        "copywriting"
+      ]
+    }
+  ]
+}

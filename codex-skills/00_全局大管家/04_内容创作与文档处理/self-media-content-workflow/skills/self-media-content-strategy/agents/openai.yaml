@@ -1,0 +1,4 @@
+interface:
+  display_name: "内容策略"
+  short_description: "把账号定位和业务目标转成内容配比、选题池与内容日历"
+  default_prompt: "使用 $self-media-content-strategy 为我的账号制定内容策略、选题池和内容日历。"

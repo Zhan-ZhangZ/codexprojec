@@ -1,0 +1,4 @@
+interface:
+  display_name: "热点与竞品雷达"
+  short_description: "安全追踪热点并拆解竞品结构，输出原创选题与验证窗口"
+  default_prompt: "使用 $self-media-trend-radar 研究这个热点或竞品，并给出可原创表达的选题。"
