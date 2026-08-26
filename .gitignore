@@ -58,8 +58,14 @@ coverage/
 .idea/
 .cursor/
 
-# MCP Caches
+# MCP Caches & Usage Metrics
 .codex-skills-cache/
+usage.json
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
 
 # MediaCrawler browser profile / runtime data
 codex-skills/00_全局大管家/05_多媒体与设计资产/MediaCrawler/browser_data/
+
