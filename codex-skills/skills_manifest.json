@@ -1546,189 +1546,28 @@
   },
   {
     "name": "self-media-content-workflow",
-    "description": "通用自媒体内容生产与经营工作流。用于自媒体内容创作、选题策划、热点或竞品研究、多平台改写、短视频脚本、数字人视频、发布包、公众号草稿、内容数据分析、周复盘、月复盘和继续未完成任务。负责识别请求类型，调用创作简报、内容策略、热点竞品、平台文案、短视频、数据复盘和交付归档模块，并管理方向确认、标题确认、终稿确认和发布授权。",
+    "description": "通用自媒体内容生产与经营全流程工作流集成套件。覆盖从需求澄清（创作简报）、账号策略（选题池/内容日历）、热点竞品雷达、多平台原生文案（微信公众号/小红书/X等）、短视频脚本与数字人制片、公众号智能排版草稿发布、数据复盘及交付归档的完整闭环。Leading Words: 自媒体工作流, 爆款文案生成, 多平台改写, 小红书文案, 公众号排版, 短视频脚本分镜, 数字人制片, 热点竞品雷达, 内容数据复盘",
     "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-content-workflow",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-content-workflow",
+    "folder": "self-media-content-workflow",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow",
     "aliases": [
       "自媒体工作流",
-      "自媒体生产闭环",
       "自媒体全流程",
-      "自媒体内容编排"
+      "自媒体内容生产",
+      "自媒体运营套件",
+      "小红书公众号文案",
+      "短视频脚本制作"
     ],
     "tags": [
       "自媒体",
       "工作流",
       "内容创作",
       "多平台",
-      "编排",
-      "自媒体运营"
-    ]
-  },
-  {
-    "name": "self-media-content-brief",
-    "description": "为单篇或多平台自媒体创作澄清需求并生成可确认的创作简报。用于用户只给一句话选题、一个链接、一份素材、一个产品或模糊创作要求，需要确认目标受众、内容目标、核心判断、角度、深度、调性、证据、禁区和平台差异时。纯数据分析、已确认方向后的改稿和细节微调不使用此 Skill。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-content-brief",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-content-brief",
-    "aliases": [
-      "创作简报",
-      "自媒体需求澄清",
-      "内容简报",
-      "自媒体brief"
-    ],
-    "tags": [
-      "简报",
-      "需求澄清",
-      "受众定位",
-      "内容目标",
-      "创作准备"
-    ]
-  },
-  {
-    "name": "self-media-content-strategy",
-    "description": "把账号定位和业务目标转成可执行的自媒体内容策略。用于账号冷启动、重新定位、制定内容配比、规划系列栏目、建立选题池、安排周度或月度内容日历、评估产能和确定平台分工。单篇内容写作或纯数据复盘不使用此 Skill。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-content-strategy",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-content-strategy",
-    "aliases": [
-      "内容策略",
-      "账号定位",
-      "自媒体选题池",
-      "内容日历",
-      "账号冷启动"
-    ],
-    "tags": [
-      "账号策略",
-      "选题规划",
-      "内容排期",
-      "栏目规划",
-      "自媒体运营"
-    ]
-  },
-  {
-    "name": "self-media-trend-radar",
-    "description": "安全追踪热点、研究关键词和拆解竞品内容，并将结果转成原创选题和证据包。用于用户要求找热点、看趋势、分析爆款、研究竞品账号、拆标题或开头、比较内容结构、发现评论需求和判断时效窗口。只做公开信息研究和只读采集，不自动互动、发布或使用主账号登录态抓取竞品。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-trend-radar",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-trend-radar",
-    "aliases": [
-      "热点雷达",
-      "竞品拆解",
-      "热点追踪",
-      "自媒体爆款研究",
-      "趋势分析"
-    ],
-    "tags": [
-      "热点",
-      "竞品分析",
-      "趋势追踪",
-      "选题研究",
-      "流量密码"
-    ]
-  },
-  {
-    "name": "self-media-platform-copywriting",
-    "description": "将已确认的母题、证据和创作简报写成平台原生内容。用于 X 短帖、长帖或线程，小红书图文，微信公众号文章，视频号或抖音发布文案，以及同一母题的多平台适配。强调各平台独立设计标题、开头、证据顺序、结构和行动，不做机械缩写或共享正文式的一稿多发。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-platform-copywriting",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-platform-copywriting",
-    "aliases": [
-      "平台文案",
-      "自媒体文案",
-      "小红书文案",
-      "公众号文章撰写",
-      "X长帖"
-    ],
-    "tags": [
+      "微信公众号",
       "小红书",
-      "微信公众号",
-      "X/Twitter",
-      "文案创作",
-      "多平台适配",
-      "视觉风格"
-    ]
-  },
-  {
-    "name": "self-media-short-video",
-    "description": "把已确认的母题或文案转成可直接拍摄、录屏或交给视频工具制作的短视频方案，也支持在用户确认肖像与声音权利并完成平台手动上传后制作数字人视频。用于视频号、抖音、小红书视频和其他竖屏短视频的口播稿、前 3 秒钩子、分镜、字幕、录屏清单、封面、话题、BGM 建议、数字人制片包和发布文案。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-short-video",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-short-video",
-    "aliases": [
-      "短视频脚本",
-      "短视频分镜",
-      "数字人视频",
-      "口播稿",
-      "短视频方案"
-    ],
-    "tags": [
       "短视频",
-      "分镜脚本",
-      "数字人",
-      "口播文案",
-      "视频号",
-      "抖音"
-    ]
-  },
-  {
-    "name": "self-media-content-analytics",
-    "description": "分析单篇、系列、周度或月度自媒体数据并形成可执行复盘。用于读取平台后台截图、CSV、表格、公开链接或用户提供的数据，计算关注效率和深度互动，比较同平台基线，归因选题、标题、封面、开头、结构、发布时间、标签和行动，并输出加码、改包装、再适配、停止或继续收集样本的决策。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-content-analytics",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-content-analytics",
-    "aliases": [
-      "自媒体数据复盘",
-      "内容复盘",
-      "周复盘月复盘",
-      "自媒体数据分析"
-    ],
-    "tags": [
-      "数据分析",
-      "内容复盘",
-      "归因分析",
-      "指标评估",
-      "自媒体运营"
-    ]
-  },
-  {
-    "name": "self-media-content-delivery",
-    "description": "将自媒体创作里程碑保存成文件，管理版本、核验路径、生成完整发布包并更新内容索引。用于保存平台第一版完整成稿、多平台合集、短视频脚本、分镜、定稿、发布包和复盘报告，或用户说“保存一下、整理交付、归档、生成发布清单”时。标题微调、删一句和临时候选不单独保存新版本。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-content-delivery",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-content-delivery",
-    "aliases": [
-      "内容交付",
-      "发布包生成",
-      "自媒体归档",
-      "版本管理"
-    ],
-    "tags": [
-      "交付归档",
-      "发布包",
-      "版本管理",
-      "内容索引"
-    ]
-  },
-  {
-    "name": "self-media-wechat-publisher",
-    "description": "把已确认的公众号终稿 Markdown 排版并写入微信公众号草稿箱。用于用户说\"发布到公众号、写入草稿箱、公众号排版、换个排版主题、发小绿书图片消息\"等场景。自动上传封面与文内图片，支持多主题与自定义 CSS、多账号和 server 模式。只创建草稿不群发，凭据只通过环境变量提供，未安装适配工具时交付手动发布包。",
-    "category": "04_内容创作与文档处理",
-    "folder": "self-media-content-workflow/skills/self-media-wechat-publisher",
-    "relative_path": "./00_全局大管家/04_内容创作与文档处理/self-media-content-workflow/skills/self-media-wechat-publisher",
-    "aliases": [
-      "微信公众号发布",
-      "公众号排版",
-      "写入草稿箱",
-      "小绿书发布",
-      "公众号排版助手"
-    ],
-    "tags": [
-      "微信公众号",
-      "草稿箱",
-      "文章排版",
-      "小绿书",
-      "内容发布"
+      "数据复盘",
+      "数字人"
     ]
   }
 ]
