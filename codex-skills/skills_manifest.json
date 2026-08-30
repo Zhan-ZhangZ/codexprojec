@@ -1594,5 +1594,33 @@
       "排版配图",
       "自媒体运营"
     ]
+  },
+  {
+    "name": "ComfyUI_Skills_OpenClaw",
+    "description": "ComfyUI 高性能工作流执行与官方 MCP 编排管线。通过极速 CLI 调度本地/云端已注册的 ComfyUI 生图与生视频工作流，同时集成官方 Comfy MCP 实现动态模板探针、节点/模型实时发现、工作流合法性校验与算力编排。支持一键文生图/图生图/文生视频/图生视频、参数映射抽象、依赖自动探测与批量无头渲染。Leading Words: ComfyUI工作流调度, 官方Comfy MCP编排, 视频与图像生成管线, 文生图图生图, 节点依赖检测, 自动化生图渲染",
+    "category": "05_多媒体与设计资产",
+    "folder": "ComfyUI_Skills_OpenClaw",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ComfyUI_Skills_OpenClaw",
+    "aliases": [
+      "ComfyUI",
+      "ComfyUI工作流",
+      "ComfyUI生图",
+      "ComfyUI生视频",
+      "ComfyUI API",
+      "ComfyUI CLI",
+      "comfyui-skill",
+      "Comfy MCP"
+    ],
+    "tags": [
+      "ComfyUI",
+      "AIGC",
+      "生图",
+      "生视频",
+      "Stable Diffusion",
+      "FLUX",
+      "MCP",
+      "工作流编排",
+      "多媒体"
+    ]
   }
 ]

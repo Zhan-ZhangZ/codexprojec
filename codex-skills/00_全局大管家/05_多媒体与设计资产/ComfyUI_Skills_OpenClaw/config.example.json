@@ -1,0 +1,20 @@
+{
+    "servers": [
+        {
+            "id": "local",
+            "name": "Local",
+            "url": "http://127.0.0.1:8188",
+            "auth": "",
+            "enabled": true,
+            "output_dir": "./outputs",
+            "mcp_command": "comfy-mcp",
+            "mcp_args": [],
+            "mcp_python": "",
+            "mcp_cwd": "",
+            "mcp_env": {
+                "COMFY_BIN": "comfy"
+            }
+        }
+    ],
+    "default_server": "local"
+}
