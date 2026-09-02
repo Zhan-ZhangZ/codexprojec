@@ -37,7 +37,7 @@ A typical Kubernetes Jobs orchestration:
 2. **Per-chunk** Jobs (one per chunk index) download the planDir, call `renderChunk(planDir, i, output)`, upload the output. Argo Workflows' `withSequence` is a natural fit.
 3. **Assembler** Job downloads the planDir + every chunk output, calls `assemble(...)`, uploads the final mp4 / mov.
 
-The AWS Lambda implementation in `packages/aws-lambda/src/handler.ts` is one concrete adapter — read it as a reference for the per-activity event shape.
+The AWS Lambda implementation in `https://github.com/heygen-com/hyperframes/blob/v0.8.25/packages/aws-lambda/src/handler.ts` is one concrete adapter — read it as a reference for the per-activity event shape.
 
 ## Lambda?
 
