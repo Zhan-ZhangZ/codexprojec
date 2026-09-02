@@ -1,0 +1,80 @@
+# Task artifacts and chain-computed progress
+
+A worker in the middle of a run can attach the substance of its work to its own
+task, and every task carries a progress number that cannot be inflated, only
+earned. Both signals come out of the run's own chained records, never out of the
+agent's account of itself.
+
+## Two surfaces
+
+| Surface | What it is | How it is trusted |
+|---|---|---|
+| Artifact channel | Agent-posted reports, tables, and links | Content-addressed, spine-sealed, journal-anchored, audit-mirrored |
+| Progress vector | How far along a task is | A pure projection of journaled work; never postable |
+
+## Artifact channel
+
+A worker posts an artifact with the `bernstein_post_artifact` MCP tool, scoped so
+it can attach artifacts only to a task whose claim it holds. Artifacts are typed:
+
+- `report` -- a markdown body.
+- `table` -- columns plus rows.
+- `link` -- a URL with a declared kind (`preview`, `dashboard`, `document`).
+
+Posting stores the payload content-addressed in the evidence store, appends an
+`artifact_posted` row to the task's Merkle-chained journal carrying the content
+hash and key, seals the canonical record into the lineage spine, and mirrors it
+into the HMAC audit chain. The artifact's identity is its spine entry hash; the
+record is the receipt.
+
+Reposting an existing key appends a new version whose record references the prior
+version's hash, so history is a chain, never an overwrite. Rendering always
+re-checks the stored blob hash against the journal row: a tampered blob displays
+as tampered, not as content.
+
+That proves the exact artifact bytes and their row/spine binding; it does not
+prove that the task journal has every row it ever held. Task journals do not
+currently have an external terminal-head seal, so verification outputs carry
+`journal_identity: "unverifiable"` rather than laundering chain consistency
+into a whole-journal completeness claim.
+
+```bash
+bernstein artifact list <task>            # every version + verify state
+bernstein artifact list <task> --output-json  # the same three states as JSON
+bernstein artifact show <task> <key>      # latest version + history
+bernstein audit verify                    # recompute every artifact offline
+```
+
+`bernstein artifact list` with no task argument answers a different question --
+the artifact keys the local lineage spines carry -- so the two listings stay
+distinct under one name.
+
+The plural `bernstein artifacts list|show` spelling still works and takes the
+same arguments, but it prints a deprecation warning on stderr and is removed in
+v4.0.0. See [deprecated command names](https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/operations/commands.md#deprecated-command-names).
+
+`bernstein audit verify` walks every artifact row, recomputes the stored blob
+hash, the spine anchor, and the chain mirror. Flipping one byte in a stored blob
+or its journal row fails verification, naming the artifact key and the exact
+journal position.
+
+## Progress vector
+
+There is deliberately no progress artifact type and no input that sets a
+percentage. Progress is a pure projection folded from rows that only real work
+produces: checkpoint references in the journal, evidence producers declared
+versus passed, diff and gate attempts, and task transitions in the work ledger.
+
+The projection excludes wall clock, has canonical bytes and a stable hash, and is
+exposed on the task detail API, over SSE, and inside the MCP task handle
+projection. Projecting the same run twice -- including on a second host after a
+ledger resume -- yields byte-identical canonical bytes and the same hash. A
+worker moves the number only by doing journaled work: posting fifty reports while
+checkpointing nothing leaves the vector unchanged.
+
+## Delivery
+
+New `task.artifact` and `task.progress` SSE event types stream over the existing
+bus, and an Artifacts panel plus a progress strip render on the task detail
+screen. A posted artifact appears without a reload, bound to the exact run
+position that produced it.
