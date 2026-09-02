@@ -1,4 +1,4 @@
-[
+﻿[
   {"name":"constitution","slash_command":"/speckit.constitution","status":"direct-map","codex_flow":"/vibe governance setup","codex_skills":["vibe"],"notes":"Define project principles before specification."},
   {"name":"specify","slash_command":"/speckit.specify","status":"direct-map","codex_flow":"/vibe requirement specification","codex_skills":["vibe"],"notes":"Create feature specification from natural language."},
   {"name":"clarify","slash_command":"/speckit.clarify","status":"direct-map","codex_flow":"/vibe ambiguity clarification","codex_skills":["vibe"],"notes":"Resolve unclear requirements before planning."},

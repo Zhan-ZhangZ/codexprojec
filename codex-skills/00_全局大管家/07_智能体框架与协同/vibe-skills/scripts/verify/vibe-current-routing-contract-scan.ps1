@@ -34,6 +34,7 @@ $currentSurfaceFiles = @(
     'SKILL.md',
     'README.md',
     'docs/governance/current-routing-contract.md',
+    'docs/governance/README.md',
     'scripts/runtime/Write-RequirementDoc.ps1',
     'scripts/runtime/Write-XlPlan.ps1',
     'scripts/runtime/invoke-vibe-runtime.ps1'
@@ -48,8 +49,6 @@ $currentRuntimeFiles = @(
 )
 
 $legacyAllowedFiles = @(
-    'scripts/runtime/VibeConsultation.Common.ps1',
-    'tests/runtime_neutral/test_vibe_specialist_consultation.py',
     'tests/runtime_neutral/test_active_consultation_simplification.py'
 )
 
@@ -78,12 +77,49 @@ $oldFormatFallbackPatterns = @(
 )
 
 $allowedCurrentExecutionPhrases = @(
-    'derived_from_skill_routing_selected',
-    'source = ''skill_routing.selected''',
+    'derived_from_module_assignments',
+    'source = ''module_assignments.units[*].bound_skill''',
     'no_specialist_recommendations'
 )
 
+function Test-CurrentRoutingEntrypointGuidance {
+    param([Parameter(Mandatory)] [string]$RepoRoot)
+
+    $guidanceFindings = New-Object System.Collections.Generic.List[object]
+    $currentRoutingPath = Join-Path $RepoRoot 'docs/governance/current-routing-contract.md'
+    $governanceReadmePath = Join-Path $RepoRoot 'docs/governance/README.md'
+
+    $currentRoutingText = if (Test-Path -LiteralPath $currentRoutingPath) {
+        Get-Content -LiteralPath $currentRoutingPath -Raw -Encoding UTF8
+    } else {
+        ''
+    }
+    if ([string]::IsNullOrWhiteSpace($currentRoutingText) -or $currentRoutingText.IndexOf('current-runtime-field-contract.md', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        $guidanceFindings.Add((New-Finding -Category 'current_entrypoint_guidance_violation' -Path 'docs/governance/current-routing-contract.md' -Line 1 -Pattern 'current-runtime-field-contract.md' -Text 'current routing contract must redirect readers to current runtime field contract first')) | Out-Null
+    }
+    if ([string]::IsNullOrWhiteSpace($currentRoutingText) -or $currentRoutingText.IndexOf('compatibility', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        $guidanceFindings.Add((New-Finding -Category 'current_entrypoint_guidance_violation' -Path 'docs/governance/current-routing-contract.md' -Line 1 -Pattern 'compatibility' -Text 'current routing contract must describe itself as a compatibility surface')) | Out-Null
+    }
+
+    $governanceReadmeText = if (Test-Path -LiteralPath $governanceReadmePath) {
+        Get-Content -LiteralPath $governanceReadmePath -Raw -Encoding UTF8
+    } else {
+        ''
+    }
+    $runtimeFieldIndex = $governanceReadmeText.IndexOf('[`current-runtime-field-contract.md`](current-runtime-field-contract.md)', [System.StringComparison]::OrdinalIgnoreCase)
+    $routingIndex = $governanceReadmeText.IndexOf('[`current-routing-contract.md`](current-routing-contract.md)', [System.StringComparison]::OrdinalIgnoreCase)
+    if ($runtimeFieldIndex -lt 0 -or $routingIndex -lt 0 -or $runtimeFieldIndex -ge $routingIndex) {
+        $guidanceFindings.Add((New-Finding -Category 'current_entrypoint_guidance_violation' -Path 'docs/governance/README.md' -Line 1 -Pattern 'current-runtime-field-contract-first' -Text 'governance README must point to current runtime field contract before current routing contract')) | Out-Null
+    }
+
+    return [object[]]$guidanceFindings.ToArray()
+}
+
 $findings = New-Object System.Collections.Generic.List[object]
+$entrypointGuidanceFindings = @(Test-CurrentRoutingEntrypointGuidance -RepoRoot $RepoRoot)
+foreach ($finding in $entrypointGuidanceFindings) {
+    $findings.Add($finding) | Out-Null
+}
 
 foreach ($relative in $currentSurfaceFiles) {
     $fullPath = Join-Path $RepoRoot $relative
@@ -179,6 +215,7 @@ function Get-HardCleanupCount {
 }
 
 $summary = [pscustomobject]@{
+    current_entrypoint_guidance_violation_count = @($findings | Where-Object { $_.category -eq 'current_entrypoint_guidance_violation' }).Count
     current_surface_violation_count = @($findings | Where-Object { $_.category -eq 'current_surface_violation' }).Count
     current_runtime_old_format_fallback_count = @($findings | Where-Object { $_.category -eq 'current_runtime_old_format_fallback' }).Count
     retired_old_format_reference_count = [int]$legacyReferenceCount
@@ -209,6 +246,7 @@ if ($Json) {
     $summary | ConvertTo-Json -Depth 20
 } else {
     '=== VCO Current Routing Contract Scan ==='
+    ('Current entrypoint guidance violations: {0}' -f [int]$summary.current_entrypoint_guidance_violation_count)
     ('Current surface violations: {0}' -f [int]$summary.current_surface_violation_count)
     ('Current runtime old-format fallbacks: {0}' -f [int]$summary.current_runtime_old_format_fallback_count)
     ('Retired old-format references: {0}' -f [int]$summary.retired_old_format_reference_count)
@@ -226,6 +264,7 @@ if ($Json) {
         '[FAIL] {0}:{1} [{2}] {3}' -f $finding.path, $finding.line, $finding.pattern, $finding.text
     }
     if (
+        [int]$summary.current_entrypoint_guidance_violation_count -eq 0 -and
         [int]$summary.current_surface_violation_count -eq 0 -and
         [int]$summary.current_runtime_old_format_fallback_count -eq 0 -and
         [int]$hardCleanupBlockingViolationCount -eq 0
@@ -237,6 +276,7 @@ if ($Json) {
 }
 
 if (
+    [int]$summary.current_entrypoint_guidance_violation_count -gt 0 -or
     [int]$summary.current_surface_violation_count -gt 0 -or
     [int]$summary.current_runtime_old_format_fallback_count -gt 0 -or
     [int]$hardCleanupBlockingViolationCount -gt 0

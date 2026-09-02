@@ -7,8 +7,7 @@
     "routing_integration": "post_route_topk_rerank",
     "scope": {
         "grade_allow": ["M", "L", "XL"],
-        "task_allow": ["planning", "coding", "review", "debug", "research"],
-        "route_mode_allow": ["legacy_fallback", "confirm_required", "pack_overlay"]
+        "task_allow": ["planning", "coding", "review", "debug", "research"]
     },
     "trigger": {
         "top_k": 3,

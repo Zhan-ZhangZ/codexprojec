@@ -244,6 +244,7 @@ function Get-DeepDiscoveryInterviewAdvice {
     return [pscustomobject]@{
         enabled = [bool]$scope.enabled
         mode = $mode
+        clarification_only = $true
         scope_applicable = $scopeApplicable
         scope_reasons = @($scope.reasons)
         preserve_routing_assignment = [bool]$scope.preserve_routing_assignment
@@ -264,4 +265,3 @@ function Get-DeepDiscoveryInterviewAdvice {
         should_apply_hook = [bool]$interviewRequired
     }
 }
-

@@ -5,7 +5,6 @@ from typing import Any
 
 
 DEFAULT_CANONICAL_TARGET_ID = "canonical"
-DEFAULT_BUNDLED_ROOT = "bundled/skills/vibe"
 DEFAULT_NESTED_MATERIALIZATION_MODE = "release_install_only"
 
 
@@ -78,6 +77,8 @@ def resolve_generated_nested_compatibility_suffix(governance: dict[str, Any]) ->
     nested_runtime = generated.get("nested_runtime_root") or {}
     relative_path = _normalize_relpath(nested_runtime.get("relative_path"))
     materialization_mode = str(nested_runtime.get("materialization_mode") or "").strip()
+    if materialization_mode == "disabled":
+        return None
     if relative_path:
         if not materialization_mode:
             materialization_mode = "install_only"
@@ -100,11 +101,11 @@ def resolve_generated_nested_compatibility_suffix(governance: dict[str, Any]) ->
 
     source = governance.get("source_of_truth") or {}
     if not bundled_path:
-        bundled_path = _normalize_relpath(source.get("bundled_root"), default=DEFAULT_BUNDLED_ROOT)
+        bundled_path = _normalize_relpath(source.get("bundled_root"))
     if not nested_path:
         nested_path = _normalize_relpath(source.get("nested_bundled_root"))
-    if not nested_path:
-        nested_path = f"{bundled_path}/{bundled_path}"
+    if not bundled_path or not nested_path:
+        return None
     if not nested_materialization_mode:
         nested_materialization_mode = DEFAULT_NESTED_MATERIALIZATION_MODE
     if nested_materialization_mode != DEFAULT_NESTED_MATERIALIZATION_MODE:

@@ -18,12 +18,7 @@
                                      "review",
                                      "debug",
                                      "research"
-                                 ],
-                  "route_mode_allow":  [
-                                           "legacy_fallback",
-                                           "confirm_required",
-                                           "pack_overlay"
-                                       ]
+                                 ]
               },
     "trigger":  {
                     "require_prompt_signal":  true,

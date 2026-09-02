@@ -1,4 +1,4 @@
-{
+﻿{
     "report_id":  "CER-SMOKE-CURR",
     "trigger_signals":  {
                             "fallback_rate":  0.12,

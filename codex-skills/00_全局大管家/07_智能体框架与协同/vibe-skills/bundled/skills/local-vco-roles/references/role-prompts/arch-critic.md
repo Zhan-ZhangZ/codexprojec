@@ -1,4 +1,4 @@
-# arch-critic Prompt
+﻿# arch-critic Prompt
 
 Role goal:
 Evaluate complexity vs value and propose simplification with minimal capability loss.

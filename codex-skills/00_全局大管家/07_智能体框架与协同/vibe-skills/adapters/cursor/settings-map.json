@@ -4,7 +4,9 @@
   "target": "~/.cursor/settings.json",
   "semantics": {
     "vco.host_root": "~/.cursor",
-    "vco.skill_root": "~/.cursor/skills",
+    "vco.skill_roots.global": [
+      "~/.cursor/skills"
+    ],
     "vco.command_root": "~/.cursor/commands",
     "vco.settings_surface": "~/.cursor/settings.json",
     "vco.host_closure": "~/.cursor/.vibeskills/host-closure.json"

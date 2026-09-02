@@ -38,6 +38,16 @@ $releaseUpdated = [string]$governance.release.updated
 $maintenanceFiles = @($governance.version_markers.maintenance_files)
 $changelogPath = Join-Path $repoRoot ([string]$governance.version_markers.changelog_path)
 $ledgerPath = Join-Path $repoRoot ([string]$governance.logs.release_ledger_jsonl)
+$liveContractPath = Join-Path $repoRoot 'config\live-document-contract.json'
+$legacyWriteMode = 'unknown'
+if (Test-Path -LiteralPath $liveContractPath -PathType Leaf) {
+    $liveContract = Get-Content -LiteralPath $liveContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -ne $liveContract.artifact_sink -and
+        $liveContract.artifact_sink.PSObject.Properties.Name -contains 'legacy_write_mode') {
+        $legacyWriteMode = [string]$liveContract.artifact_sink.legacy_write_mode
+    }
+}
+$changelogRequired = ($legacyWriteMode -ne 'disabled')
 
 $assertions = @()
 $details = [ordered]@{
@@ -46,7 +56,9 @@ $details = [ordered]@{
         updated = $releaseUpdated
     }
     maintenance = @()
-    changelog = [ordered]@{}
+    changelog = [ordered]@{
+        mode = if ($changelogRequired) { 'compatibility' } else { 'externalized' }
+    }
     ledger = [ordered]@{}
 }
 
@@ -85,12 +97,21 @@ if ($changelogExists) {
     # Accept both LF and CRLF line endings to avoid false negatives across platforms.
     $changelogHeadOk = $changelog -match ("(?m)^" + [regex]::Escape($expectedHeader) + "\r?$")
 }
-$assertions += Assert-True -Condition $changelogExists -Message "[changelog] exists"
-$assertions += Assert-True -Condition $changelogHeadOk -Message "[changelog] release header exists"
+$changelogRetired = -not $changelogExists
+if ($changelogRequired) {
+    $assertions += Assert-True -Condition $changelogExists -Message "[changelog] exists"
+    $assertions += Assert-True -Condition $changelogHeadOk -Message "[changelog] release header exists"
+} else {
+    $assertions += Assert-True -Condition $changelogRetired -Message "[changelog] retired from the live release surface"
+    $changelogHeadOk = $changelogRetired
+}
 $details.changelog = [ordered]@{
     path = [string]$governance.version_markers.changelog_path
+    mode = if ($changelogRequired) { 'compatibility' } else { 'externalized' }
     exists = $changelogExists
     header_match = $changelogHeadOk
+    required = $changelogRequired
+    legacy_write_mode = $legacyWriteMode
 }
 
 $ledgerExists = Test-Path -LiteralPath $ledgerPath

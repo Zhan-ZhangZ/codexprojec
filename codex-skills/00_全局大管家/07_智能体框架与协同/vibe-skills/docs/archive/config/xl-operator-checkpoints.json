@@ -1,4 +1,4 @@
-{
+﻿{
   "version": 1,
   "updated": "2026-03-07",
   "purpose": "Wave17 XL operator checkpoints for unattended multi-agent execution. These checkpoints formalize control, verification, and rollback expectations before new absorption surface is considered.",

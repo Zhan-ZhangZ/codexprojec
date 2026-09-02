@@ -1,4 +1,4 @@
-{
+﻿{
   "report_id": "CER-SMOKE-BASE",
   "trigger_signals": {
     "fallback_rate": 0.30,

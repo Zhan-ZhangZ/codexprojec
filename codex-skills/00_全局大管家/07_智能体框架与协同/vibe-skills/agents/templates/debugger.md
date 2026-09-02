@@ -1,4 +1,4 @@
-# Debugger Agent Template
+﻿# Debugger Agent Template
 
 Goal: isolate root cause and verify the fix.
 

@@ -2,9 +2,10 @@
   "version": 1,
   "updated_at": "2026-03-17",
   "enabled": true,
-  "plan_root": "docs/plans",
+  "artifact_sink": "config/live-document-contract.json",
+  "plan_root": ".vibeskills/runs",
   "template_path": "templates/plans/governed-execution-plan-template.md",
-  "filename_contract": "{date}-{slug}-execution-plan.md",
+  "filename_contract": "{run_id}/plan.md",
   "execution_grade_policy": {
     "user_selects_grade": false,
     "allow_internal_grades": [

@@ -85,6 +85,12 @@ try {
 
     Set-PromptAssetBoostPolicyStage -ConfigPath $policyPath -Stage "soft" -MockResponsePath $mockPath
 
+    $currentPolicy = Get-Content -LiteralPath $policyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $results += Assert-True -Condition (-not ($currentPolicy.scope.PSObject.Properties.Name -contains "route_mode_allow")) -Message "[policy] route_mode_allow removed"
+
+    $moduleText = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\router\modules\49-prompt-asset-boost.ps1") -Raw -Encoding UTF8
+    $results += Assert-True -Condition (-not ($moduleText -match "route_mode_allow")) -Message "[module] route_mode_allow residue removed"
+
     $routeNoPrefix = Invoke-Route -Prompt "prompts.chat code review prompt template" -Grade "M" -TaskType "coding"
     $results += Assert-True -Condition ($null -ne $routeNoPrefix.prompt_asset_boost_advice) -Message "[no /vibe] prompt_asset_boost_advice exists"
     $results += Assert-True -Condition ($routeNoPrefix.prompt_asset_boost_advice.scope_applicable -eq $false) -Message "[no /vibe] explicit_vibe_only blocks scope"
@@ -122,4 +128,3 @@ if ($failCount -gt 0) {
 
 Write-Host "Prompt asset boost gate passed."
 exit 0
-

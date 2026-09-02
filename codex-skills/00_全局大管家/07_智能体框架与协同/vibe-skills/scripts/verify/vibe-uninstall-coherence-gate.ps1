@@ -43,8 +43,7 @@ function Write-Artifacts {
         '',
         ('- Gate Result: **{0}**' -f $Artifact.gate_result),
         ('- Repo Root: `{0}`' -f $Artifact.repo_root),
-        ('- Uninstall Entry: `{0}` / `{1}`' -f $Artifact.contract.uninstall_ps1, $Artifact.contract.uninstall_sh),
-        ('- Documentation: `{0}`' -f $Artifact.contract.docs),
+        ('- Removal Documentation: `{0}`' -f $Artifact.contract.docs),
         ('- Assertion Failures: {0}' -f $Artifact.summary.failures),
         ('- Warnings: {0}' -f $Artifact.summary.warnings),
         ''
@@ -83,22 +82,9 @@ $repoRoot = [string]$context.repoRoot
 $uninstallPs1 = [System.IO.Path]::Combine($repoRoot, 'uninstall.ps1')
 $uninstallSh = [System.IO.Path]::Combine($repoRoot, 'uninstall.sh')
 $docPath = [System.IO.Path]::Combine($repoRoot, 'docs', 'uninstall-governance.md')
-$adapterRegistryPath = [System.IO.Path]::Combine($repoRoot, 'config', 'adapter-registry.json')
-$adapterClosures = @()
-
-if (Test-Path -LiteralPath $adapterRegistryPath) {
-    try {
-        $adapterRegistry = Get-Content -LiteralPath $adapterRegistryPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        $adapterClosures = @($adapterRegistry.adapters | ForEach-Object {
-            [pscustomobject]@{
-                adapter_id = [string]$_.id
-                closure_path = [System.IO.Path]::Combine($repoRoot, ([string]$_.closure -replace '/', [System.IO.Path]::DirectorySeparatorChar))
-            }
-        })
-    } catch {
-        $adapterClosures = @()
-    }
-}
+$installGuideEn = [System.IO.Path]::Combine($repoRoot, 'docs', 'install', 'README.en.md')
+$installGuideZh = [System.IO.Path]::Combine($repoRoot, 'docs', 'install', 'README.md')
+$troubleshootingPath = [System.IO.Path]::Combine($repoRoot, 'docs', 'troubleshooting.md')
 
 $results = [ordered]@{
     gate = 'vibe-uninstall-coherence-gate'
@@ -112,8 +98,9 @@ $results = [ordered]@{
         uninstall_ps1 = $uninstallPs1
         uninstall_sh = $uninstallSh
         docs = $docPath
-        adapter_registry = $adapterRegistryPath
-        adapter_closures = @()
+        install_guide_en = $installGuideEn
+        install_guide_zh = $installGuideZh
+        troubleshooting = $troubleshootingPath
     }
     summary = [ordered]@{
         failures = 0
@@ -128,39 +115,20 @@ Write-Host ''
 
 Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $uninstallPs1) -Message '[repo] uninstall.ps1 entrypoint exists'
 Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $uninstallSh) -Message '[repo] uninstall.sh entrypoint exists'
-Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $docPath) -Message '[docs] uninstall governance doc exists'
-Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $adapterRegistryPath) -Message '[config] adapter-registry.json exists'
+Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $docPath) -Message '[docs] removal doc exists'
+Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $installGuideEn) -Message '[docs] English install guide exists'
+Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $installGuideZh) -Message '[docs] Chinese install guide exists'
+Add-Assertion -Collection $assertions -Condition (Test-Path -LiteralPath $troubleshootingPath) -Message '[docs] troubleshooting guide exists'
 
-if (Test-Path -LiteralPath $docPath) {
-    Add-Assertion -Collection $assertions -Condition (Select-String -LiteralPath $docPath -Pattern 'owned-only' -SimpleMatch -Quiet) -Message '[docs] governance doc states owned-only uninstall'
-    Add-Assertion -Collection $assertions -Condition (Select-String -LiteralPath $docPath -Pattern 'ledger-first' -SimpleMatch -Quiet) -Message '[docs] governance doc mentions ledger-first ownership'
-} else {
-    Add-Assertion -Collection $assertions -Condition $false -Message '[docs] governance doc states owned-only uninstall'
-    Add-Assertion -Collection $assertions -Condition $false -Message '[docs] governance doc mentions ledger-first ownership'
-}
-
-if ($adapterClosures.Count -eq 0) {
-    Add-Assertion -Collection $assertions -Condition $false -Message '[config] adapter-registry.json yielded adapter closures'
-} else {
-    Add-Assertion -Collection $assertions -Condition $true -Message '[config] adapter-registry.json yielded adapter closures'
-}
-
-$results.contract.adapter_closures = @($adapterClosures | ForEach-Object { [string]$_.closure_path })
-
-foreach ($adapterEntry in $adapterClosures) {
-    $adapterId = [string]$adapterEntry.adapter_id
-    $adapterPath = [string]$adapterEntry.closure_path
-    if (-not (Test-Path -LiteralPath $adapterPath)) {
-        Add-Assertion -Collection $assertions -Condition $false -Message ("[closure] {0} adapter closure file exists" -f $adapterId)
+$publicDocs = @($docPath, $installGuideEn, $installGuideZh, $troubleshootingPath)
+foreach ($path in $publicDocs) {
+    if (-not (Test-Path -LiteralPath $path)) {
         continue
     }
 
-    $adapterJson = Get-Content -LiteralPath $adapterPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $contract = $adapterJson.uninstall_contract
-    Add-Assertion -Collection $assertions -Condition ($null -ne $contract) -Message ("[closure] {0} declares uninstall_contract" -f $adapterId)
-    if ($null -ne $contract) {
-        Add-Assertion -Collection $assertions -Condition ($contract.ledger_first -eq $true) -Message ("[closure] {0} requests ledger_first" -f $adapterId)
-        Add-Assertion -Collection $assertions -Condition ([string]::IsNullOrWhiteSpace($contract.documentation_reference) -eq $false) -Message ("[closure] {0} points to docs/uninstall-governance.md" -f $adapterId)
+    Add-Assertion -Collection $assertions -Condition (Select-String -LiteralPath $path -Pattern '<SkillsDir>/vibe' -SimpleMatch -Quiet) -Message ("[docs] {0} points to the installed vibe folder" -f ([System.IO.Path]::GetFileName($path)))
+    foreach ($retiredTerm in @('uninstall.ps1', 'uninstall.sh', '-HostId', '-Profile', '-StrictOffline', '-Deep', 'install-ledger.json', 'host-closure.json')) {
+        Add-Assertion -Collection $assertions -Condition (-not (Select-String -LiteralPath $path -Pattern $retiredTerm -SimpleMatch -Quiet)) -Message ("[docs] {0} omits retired term {1}" -f ([System.IO.Path]::GetFileName($path)), $retiredTerm)
     }
 }
 

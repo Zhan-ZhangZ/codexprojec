@@ -33,6 +33,21 @@ except ImportError:  # pragma: no cover - standalone module loading in file-base
     spec.loader.exec_module(module)
     load_json = module.load_json
 
+try:
+    from .profile_inventory import allowlisted_bundled_skill_names
+except ImportError:  # pragma: no cover - standalone module loading in file-based tests
+    profile_inventory_path = Path(__file__).with_name('profile_inventory.py')
+    profile_inventory_spec = importlib.util.spec_from_file_location(
+        'vgo_installer_runtime_packaging_profile_inventory',
+        profile_inventory_path,
+    )
+    if profile_inventory_spec is None or profile_inventory_spec.loader is None:
+        raise
+    profile_inventory_module = importlib.util.module_from_spec(profile_inventory_spec)
+    sys.modules.setdefault(profile_inventory_spec.name, profile_inventory_module)
+    profile_inventory_spec.loader.exec_module(profile_inventory_module)
+    allowlisted_bundled_skill_names = profile_inventory_module.allowlisted_bundled_skill_names
+
 
 RUNTIME_CORE_BASE_MANIFEST = Path('config/runtime-core-packaging.json')
 
@@ -49,25 +64,6 @@ def _deep_merge(base: Any, overlay: Any) -> Any:
 
 def load_runtime_core_packaging_base(repo_root: Path) -> dict[str, Any]:
     return load_json((repo_root / RUNTIME_CORE_BASE_MANIFEST).resolve())
-
-
-def _internal_skill_corpus_enabled(packaging: dict[str, Any]) -> bool:
-    corpus = packaging.get('internal_skill_corpus') or {}
-    return bool(corpus.get('enabled') and str(corpus.get('target_relpath') or '').strip())
-
-
-def _compatibility_projection_names(packaging: dict[str, Any]) -> list[str]:
-    projections = packaging.get('compatibility_skill_projections') or {}
-    names = projections.get('projected_skill_names') or []
-    seen: set[str] = set()
-    result: list[str] = []
-    for raw in names:
-        name = str(raw).strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        result.append(name)
-    return result
 
 
 def public_skill_projection_names(packaging: dict[str, Any]) -> list[str]:
@@ -95,7 +91,7 @@ def public_skill_projection_names(packaging: dict[str, Any]) -> list[str]:
 def internal_skill_corpus_target_relpath(packaging: dict[str, Any]) -> str:
     corpus = packaging.get('internal_skill_corpus') or {}
     target = str(corpus.get('target_relpath') or '').strip()
-    return target or 'skills/vibe/bundled/skills'
+    return target
 
 
 def resolve_runtime_core_projection_path(repo_root: Path, profile: str) -> Path:
@@ -118,18 +114,9 @@ def resolve_runtime_core_packaging(repo_root: Path, profile: str) -> dict[str, A
         merged = _deep_merge(merged, profile_overlay)
         merged.setdefault('profile', profile)
         merged['_repo_root'] = str(repo_root)
-        merged.setdefault('bundled_skills_source', 'bundled/skills')
-        merged.setdefault('skills_allowlist', [])
         merged.setdefault('public_skill_surface', {})
         merged.setdefault('internal_skill_corpus', {})
         merged.setdefault('compatibility_skill_projections', {'projection_mode': 'explicit_projection_only', 'projected_skill_names': []})
-        merged.setdefault(
-            'copy_bundled_skills',
-            _internal_skill_corpus_enabled(merged)
-            or any(str(entry.get('source') or '').strip() == 'bundled/skills' for entry in merged.get('copy_directories') or []),
-        )
-        if not merged.get('skills_allowlist'):
-            merged['skills_allowlist'] = _compatibility_projection_names(merged)
         discoverable_surface = str((merged.get('public_skill_surface') or {}).get('discoverable_entry_surface') or '').strip()
         if discoverable_surface:
             try:
@@ -142,18 +129,9 @@ def resolve_runtime_core_packaging(repo_root: Path, profile: str) -> dict[str, A
     packaging = load_json(projection_path)
     packaging.setdefault('profile', profile)
     packaging['_repo_root'] = str(repo_root)
-    packaging.setdefault('bundled_skills_source', 'bundled/skills')
-    packaging.setdefault('skills_allowlist', [])
     packaging.setdefault('public_skill_surface', {})
     packaging.setdefault('internal_skill_corpus', {})
     packaging.setdefault('compatibility_skill_projections', {'projection_mode': 'explicit_projection_only', 'projected_skill_names': []})
-    packaging.setdefault(
-        'copy_bundled_skills',
-        _internal_skill_corpus_enabled(packaging)
-        or any(str(entry.get('source') or '').strip() == 'bundled/skills' for entry in packaging.get('copy_directories') or []),
-    )
-    if not packaging.get('skills_allowlist'):
-        packaging['skills_allowlist'] = _compatibility_projection_names(packaging)
     discoverable_surface = str((packaging.get('public_skill_surface') or {}).get('discoverable_entry_surface') or '').strip()
     if discoverable_surface:
         try:

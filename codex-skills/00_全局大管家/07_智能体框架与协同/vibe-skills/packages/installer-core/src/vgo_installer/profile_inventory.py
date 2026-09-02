@@ -6,17 +6,17 @@ from pathlib import Path
 
 @dataclass(frozen=True, slots=True)
 class ManagedSkillInventory:
-    required_runtime_skills: tuple[str, ...]
-    required_workflow_skills: tuple[str, ...]
-    optional_workflow_skills: tuple[str, ...]
+    public_entry_skills: tuple[str, ...]
+    starter_skill_names: tuple[str, ...]
+    optional_skill_names: tuple[str, ...]
 
     @property
-    def required_skill_names(self) -> tuple[str, ...]:
-        return self.required_runtime_skills + self.required_workflow_skills
+    def default_managed_skill_names(self) -> tuple[str, ...]:
+        return self.public_entry_skills + self.starter_skill_names
 
     @property
     def desired_managed_skill_names(self) -> tuple[str, ...]:
-        return self.required_skill_names + self.optional_workflow_skills
+        return self.default_managed_skill_names + self.optional_skill_names
 
 
 def canonical_vibe_skill_name(packaging: dict) -> str:
@@ -46,22 +46,43 @@ def load_managed_skill_inventory(packaging: dict) -> ManagedSkillInventory:
         raise SystemExit('Runtime-core packaging manifest missing managed_skill_inventory contract.')
 
     canonical_vibe = canonical_vibe_skill_name(packaging)
-    required_runtime = list(_normalize_skill_names(inventory.get('required_runtime_skills')))
-    if canonical_vibe not in required_runtime:
-        required_runtime.insert(0, canonical_vibe)
+    public_entries = list(_normalize_skill_names(inventory.get('public_entry_skills')))
+    if canonical_vibe not in public_entries:
+        public_entries.insert(0, canonical_vibe)
 
-    required_runtime_tuple = tuple(required_runtime)
-    required_workflow_tuple = tuple(
-        name for name in _normalize_skill_names(inventory.get('required_workflow_skills'))
-        if name not in required_runtime_tuple
+    public_entry_tuple = tuple(public_entries)
+    starter_skill_tuple = tuple(
+        name for name in _normalize_skill_names(inventory.get('starter_skill_names'))
+        if name not in public_entry_tuple
     )
-    optional_workflow_tuple = tuple(
-        name for name in _normalize_skill_names(inventory.get('optional_workflow_skills'))
-        if name not in required_runtime_tuple and name not in required_workflow_tuple
+    optional_skill_tuple = tuple(
+        name for name in _normalize_skill_names(inventory.get('optional_skill_names'))
+        if name not in public_entry_tuple and name not in starter_skill_tuple
     )
 
     return ManagedSkillInventory(
-        required_runtime_skills=required_runtime_tuple,
-        required_workflow_skills=required_workflow_tuple,
-        optional_workflow_skills=optional_workflow_tuple,
+        public_entry_skills=public_entry_tuple,
+        starter_skill_names=starter_skill_tuple,
+        optional_skill_names=optional_skill_tuple,
+    )
+
+
+def allowlisted_bundled_skill_names(packaging: dict) -> tuple[str, ...]:
+    canonical_vibe = canonical_vibe_skill_name(packaging)
+    return tuple(
+        name
+        for name in load_managed_skill_inventory(packaging).desired_managed_skill_names
+        if name != canonical_vibe
+    )
+
+
+def internal_corpus_resident_skill_names(packaging: dict) -> tuple[str, ...]:
+    corpus = packaging.get('internal_skill_corpus')
+    if not isinstance(corpus, dict):
+        return ()
+    canonical_vibe = canonical_vibe_skill_name(packaging)
+    return tuple(
+        name
+        for name in _normalize_skill_names(corpus.get('resident_skill_names'))
+        if name != canonical_vibe
     )

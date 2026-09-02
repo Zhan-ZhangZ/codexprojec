@@ -3,7 +3,6 @@
     "updated": "2026-02-27",
     "enabled": true,
     "mode": "soft",
-    "preserve_routing_assignment": true,
     "routing_integration": "post_route_retrieval_overlay",
     "task_allow": [
         "planning",
@@ -16,11 +15,6 @@
         "M",
         "L",
         "XL"
-    ],
-    "route_mode_allow": [
-        "legacy_fallback",
-        "confirm_required",
-        "pack_overlay"
     ],
     "profile_selection": {
         "min_profile_confidence": 0.42,

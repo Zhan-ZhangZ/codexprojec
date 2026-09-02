@@ -6,7 +6,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$HostId,
   [ValidateSet("minimal", "full")]
-  [string]$Profile = "full",
+  [string]$Profile = "minimal",
   [switch]$Preview,
   [switch]$PurgeEmptyDirs,
   [switch]$StrictOwnedOnly

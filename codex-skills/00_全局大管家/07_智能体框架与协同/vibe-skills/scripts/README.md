@@ -23,7 +23,8 @@
 
 ## Cross-Layer Handoff
 
-- closure proof contract: [`../docs/status/non-regression-proof-bundle.md`](../docs/status/non-regression-proof-bundle.md)
+- closure proof and current checks: [`verify/README.md`](verify/README.md) and
+  [`../config/live-document-contract.json`](../config/live-document-contract.json)
 - long-lived contracts and ledgers: [`../references/index.md`](../references/index.md)
 
 ## Rules

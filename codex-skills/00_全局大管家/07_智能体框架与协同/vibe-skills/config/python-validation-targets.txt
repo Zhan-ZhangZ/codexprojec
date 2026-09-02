@@ -1,14 +1,21 @@
-# Canonical Python validation surface for CI and local gate-parity runs.
-# Keep this list aligned with architecture, contract, and hygiene invariants.
-tests/contract/test_repo_layout_contract.py
-tests/integration/test_runtime_surface_contract_cutover.py
-tests/runtime_neutral/test_apps_surface_hygiene.py
-tests/runtime_neutral/test_bundled_stage_assistant_freeze.py
-tests/runtime_neutral/test_bundled_skill_governance_gate.py
-tests/runtime_neutral/test_custom_admission_bridge.py
-tests/runtime_neutral/test_docs_readme_encoding.py
-tests/runtime_neutral/test_governed_runtime_bridge.py
+# Small always-on Python validation surface for CI and local gate-parity runs.
+# Keep this list to one or two anchors per default capability plus policy contracts.
+
+# Default install lifecycle.
 tests/runtime_neutral/test_install_profile_differentiation.py
-tests/runtime_neutral/test_memory_progressive_disclosure.py
-tests/runtime_neutral/test_runtime_contract_goldens.py
+
+# Default runtime entry truth.
+tests/runtime_neutral/test_governed_runtime_bridge.py
+tests/runtime_neutral/test_runtime_delivery_acceptance.py
+
+# Default routing mainline.
+tests/runtime_neutral/test_custom_admission_bridge.py
+tests/runtime_neutral/test_router_authority_safe_fallback.py
+
+# Executable live-document and shared run-artifact contracts.
+tests/runtime_neutral/test_live_document_contract_gate.py
+tests/integration/test_shared_run_artifact_contract.py
+
+# Validation contract coverage.
+tests/runtime_neutral/test_test_baseline_audit.py
 tests/runtime_neutral/test_python_validation_contract.py

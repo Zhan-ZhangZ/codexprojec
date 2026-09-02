@@ -1,4 +1,4 @@
-Upstream dependencies may use different licenses. Refer to:
+﻿Upstream dependencies may use different licenses. Refer to:
 
 - `THIRD_PARTY_LICENSES.md` for repository-level third-party license and boundary policy
 - `config/upstream-lock.json` for source mapping

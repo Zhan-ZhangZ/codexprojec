@@ -1,4 +1,4 @@
-{
+﻿{
   "version": 1,
   "updated": "2026-03-21",
   "enabled": true,
@@ -8,8 +8,7 @@
   },
   "scope": {
     "grade_allow": ["M", "L", "XL"],
-    "task_allow": ["planning", "coding", "review", "debug", "research"],
-    "route_mode_allow": ["legacy_fallback", "confirm_required", "pack_overlay"]
+    "task_allow": ["planning", "coding", "review", "debug", "research"]
   },
   "trigger": {
     "top_k": 5,
@@ -104,7 +103,6 @@
     "max_live_apply_rate": 1.0
   }
 }
-
 
 
 

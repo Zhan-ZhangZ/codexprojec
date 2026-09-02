@@ -133,9 +133,6 @@ function Write-DoctorArtifacts {
         ('- Manual Actions Pending: `{0}`' -f $Artifact.summary.manual_action_count),
         ('- Warnings: `{0}`' -f $Artifact.summary.warning_count),
         ('- Target Root: `{0}`' -f $Artifact.target_root),
-        ('- MCP Profile: `{0}`' -f $Artifact.mcp.profile),
-        ('- MCP Auto-Provision Attempted: `{0}`' -f $Artifact.mcp.auto_provision_attempted),
-        ('- MCP Active File Exists: `{0}`' -f $Artifact.mcp.active_file_exists),
         ''
     )
 
@@ -172,15 +169,6 @@ function Write-DoctorArtifacts {
         $lines += ''
     }
 
-    if ($Artifact.mcp.servers.Count -gt 0) {
-        $lines += '## MCP Servers'
-        $lines += ''
-        foreach ($server in $Artifact.mcp.servers) {
-            $lines += ('- `{0}`: mode=`{1}` status=`{2}` next_step=`{3}`' -f $server.name, $server.mode, $server.status, $server.next_step)
-        }
-        $lines += ''
-    }
-
     if ($Artifact.integration_surfaces.Count -gt 0) {
         $lines += '## External Integration Surfaces'
         $lines += ''
@@ -207,7 +195,6 @@ $repoRoot = $context.repoRoot
 
 $settingsPath = Join-Path $TargetRoot 'settings.json'
 $pluginsManifestPath = Join-Path $repoRoot 'config\plugins-manifest.codex.json'
-$serversTemplatePath = Join-Path $repoRoot 'mcp\servers.template.json'
 $secretsPolicyPath = Join-Path $repoRoot 'config\secrets-policy.json'
 $toolRegistryPath = Join-Path $repoRoot 'config\tool-registry.json'
 $memoryGovernancePath = Join-Path $repoRoot 'config\memory-governance.json'
@@ -221,33 +208,9 @@ if (Test-Path -LiteralPath $settingsPath) {
     }
 }
 
-$profile = 'full'
-if ($null -ne $settings -and $settings.PSObject.Properties.Name -contains 'vco' -and $null -ne $settings.vco) {
-    if ($settings.vco.PSObject.Properties.Name -contains 'mcp_profile' -and -not [string]::IsNullOrWhiteSpace([string]$settings.vco.mcp_profile)) {
-        $profile = [string]$settings.vco.mcp_profile
-    }
-}
-
-$activeMcpPath = Join-Path $TargetRoot 'mcp\servers.active.json'
-$mcpReceiptPath = Join-Path $TargetRoot '.vibeskills\mcp-auto-provision.json'
-$mcpReceipt = if (Test-Path -LiteralPath $mcpReceiptPath) {
-    Get-Content -LiteralPath $mcpReceiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
-} else {
-    $null
-}
 $pluginsManifest = Get-Content -LiteralPath $pluginsManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$serversTemplate = Get-Content -LiteralPath $serversTemplatePath -Raw -Encoding UTF8 | ConvertFrom-Json
 $toolRegistry = Get-Content -LiteralPath $toolRegistryPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $memoryGovernance = Get-Content -LiteralPath $memoryGovernancePath -Raw -Encoding UTF8 | ConvertFrom-Json
-$profilePath = Join-Path $repoRoot ("mcp\profiles\{0}.json" -f $profile)
-$profileObject = if (Test-Path -LiteralPath $profilePath) {
-    Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 | ConvertFrom-Json
-} else {
-    [pscustomobject]@{
-        profile = $profile
-        enabled_servers = @()
-    }
-}
 $secretsPolicy = Get-Content -LiteralPath $secretsPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
 $pluginResults = @()
@@ -257,13 +220,7 @@ foreach ($plugin in @($pluginsManifest.core) + @($pluginsManifest.optional)) {
     $installMode = if ($plugin.PSObject.Properties.Name -contains 'install_mode') { [string]$plugin.install_mode } else { 'unknown' }
     $status = switch ($installMode) {
         'manual-codex' { 'platform_plugin_required' }
-        'scripted' {
-            if ($plugin.PSObject.Properties.Name -contains 'install' -and ([string]$plugin.install) -match 'claude-flow') {
-                if (Test-CommandPresent -Name 'claude-flow') { 'ready' } else { 'auto_installable_missing' }
-            } else {
-                'scripted_unknown_probe'
-            }
-        }
+        'scripted' { 'scripted_unknown_probe' }
         default { 'unknown' }
     }
 
@@ -286,69 +243,10 @@ foreach ($plugin in @($pluginsManifest.core) + @($pluginsManifest.optional)) {
 
 $externalTools = @(
     [pscustomobject]@{ name = 'git'; present = [bool](Test-CommandPresent -Name 'git'); required_for = @('bootstrap') },
-    [pscustomobject]@{ name = 'npm'; present = [bool](Test-CommandPresent -Name 'npm'); required_for = @('claude-flow', 'ralph-wiggum') },
-    [pscustomobject]@{ name = 'python'; present = [bool]((Test-CommandPresent -Name 'python') -or (Test-CommandPresent -Name 'python3')); required_for = @('default-mcp:scrapling', 'ivy') },
-    [pscustomobject]@{ name = 'claude-flow'; present = [bool](Test-CommandPresent -Name 'claude-flow'); required_for = @('mcp:claude-flow') },
-    [pscustomobject]@{ name = 'scrapling'; present = [bool](Test-CommandPresent -Name 'scrapling'); required_for = @('default-full-profile-mcp:scrapling') },
+    [pscustomobject]@{ name = 'npm'; present = [bool](Test-CommandPresent -Name 'npm'); required_for = @('ralph-wiggum') },
+    [pscustomobject]@{ name = 'python'; present = [bool]((Test-CommandPresent -Name 'python') -or (Test-CommandPresent -Name 'python3')); required_for = @('ivy') },
     [pscustomobject]@{ name = 'xan'; present = [bool](Test-CommandPresent -Name 'xan'); required_for = @('csv-acceleration') }
 )
-
-$mcpServers = @()
-if ($null -ne $mcpReceipt -and $mcpReceipt.PSObject.Properties.Name -contains 'mcp_results') {
-    foreach ($server in @($mcpReceipt.mcp_results)) {
-        if ($null -eq $server) { continue }
-        $mcpServers += [pscustomobject]@{
-            name = [string]$server.name
-            mode = if ($server.PSObject.Properties.Name -contains 'provision_path') { [string]$server.provision_path } else { 'unknown' }
-            status = if ($server.PSObject.Properties.Name -contains 'status') { [string]$server.status } else { 'unknown' }
-            next_step = if ($server.PSObject.Properties.Name -contains 'next_step') { [string]$server.next_step } else { 'none' }
-        }
-    }
-} else {
-    foreach ($serverName in @($profileObject.enabled_servers)) {
-        $serverConfig = if ($serversTemplate.servers.PSObject.Properties.Name -contains $serverName) {
-            $serversTemplate.servers.$serverName
-        } else {
-            $null
-        }
-
-        if ($null -eq $serverConfig) {
-            $mcpServers += [pscustomobject]@{
-                name = [string]$serverName
-                mode = 'unknown'
-                status = 'missing_from_template'
-                next_step = 'Fix mcp/profile definition mismatch.'
-            }
-            continue
-        }
-
-        $mode = [string]$serverConfig.mode
-        $status = 'ready'
-        $nextStep = 'none'
-
-        if ($mode -eq 'plugin') {
-            $status = 'platform_plugin_required'
-            $nextStep = 'Provision the corresponding Codex plugin in the host runtime.'
-        } elseif ($mode -eq 'stdio') {
-            $commandName = [string]$serverConfig.command
-            if (-not (Test-CommandPresent -Name $commandName)) {
-                $status = 'manual_action_required'
-                $nextStep = if ($serverConfig.PSObject.Properties.Name -contains 'note' -and -not [string]::IsNullOrWhiteSpace([string]$serverConfig.note)) {
-                    [string]$serverConfig.note
-                } else {
-                    ("Install command '{0}' and register the MCP server in the host." -f $commandName)
-                }
-            }
-        }
-
-        $mcpServers += [pscustomobject]@{
-            name = [string]$serverName
-            mode = $mode
-            status = $status
-            next_step = $nextStep
-        }
-    }
-}
 
 $secretSurfaces = @()
 foreach ($secret in @($secretsPolicy.allowed_secret_refs)) {
@@ -443,16 +341,10 @@ $warnings = New-Object System.Collections.Generic.List[string]
 if (-not (Test-Path -LiteralPath $settingsPath)) {
     $blockingIssues.Add('settings.json is missing in target root.') | Out-Null
 }
-if (-not (Test-Path -LiteralPath $activeMcpPath)) {
-    $manualActions.Add('MCP active profile has not been materialized yet (servers.active.json missing).') | Out-Null
-}
 foreach ($plugin in $pluginResults | Where-Object { $_.status -eq 'platform_plugin_required' -and $_.required }) {
     $manualActions.Add(("Required host plugin pending: {0}" -f $plugin.name)) | Out-Null
 }
-foreach ($server in $mcpServers | Where-Object { $_.status -ne 'ready' }) {
-    $manualActions.Add(("MCP server pending: {0}" -f $server.name)) | Out-Null
-}
-foreach ($tool in $externalTools | Where-Object { -not $_.present -and $_.name -in @('npm', 'claude-flow') }) {
+foreach ($tool in $externalTools | Where-Object { -not $_.present -and $_.name -eq 'npm' }) {
     $warnings.Add(("Optional external tool missing: {0}" -f $tool.name)) | Out-Null
 }
 
@@ -469,7 +361,7 @@ $artifact = [ordered]@{
     generated_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     repo_root = $repoRoot
     target_root = [System.IO.Path]::GetFullPath($TargetRoot)
-    install_state = if ($null -ne $mcpReceipt -and $mcpReceipt.PSObject.Properties.Name -contains 'install_state') { [string]$mcpReceipt.install_state } else { 'unknown' }
+    install_state = if (Test-Path -LiteralPath $settingsPath) { 'installed_locally' } else { 'unknown' }
     gate_result = if ($blockingIssues.Count -eq 0) { 'PASS' } else { 'FAIL' }
     settings = [ordered]@{
         path = $settingsPath
@@ -479,16 +371,6 @@ $artifact = [ordered]@{
     plugins = @($pluginResults)
     external_tools = @($externalTools)
     enhancement_surfaces = @($enhancementSurfaces)
-    mcp = [ordered]@{
-        profile = $profile
-        profile_path = if (Test-Path -LiteralPath $profilePath) { (Get-VgoRelativePathPortable -BasePath $repoRoot -TargetPath $profilePath) } else { $null }
-        active_file_path = $activeMcpPath
-        active_file_exists = [bool](Test-Path -LiteralPath $activeMcpPath)
-        auto_provision_attempted = [bool]($null -ne $mcpReceipt -and $mcpReceipt.PSObject.Properties.Name -contains 'mcp_auto_provision_attempted' -and $mcpReceipt.mcp_auto_provision_attempted)
-        receipt_path = $mcpReceiptPath
-        receipt_exists = [bool](Test-Path -LiteralPath $mcpReceiptPath)
-        servers = @($mcpServers)
-    }
     integration_surfaces = @($integrationSurfaces)
     secret_surfaces = @($secretSurfaces)
     summary = [ordered]@{

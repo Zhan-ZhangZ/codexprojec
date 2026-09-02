@@ -127,6 +127,12 @@ def write_artifacts(artifact: dict[str, Any], output_directory: Path) -> None:
             lines.append(f"- Considered research source: {item}")
         for item in coverage.get("missing_research_augmentation_sources") or []:
             lines.append(f"- Missing research source: {item}")
+    if artifact.get("completed_module_work"):
+        lines += ["", "## Completed Module Work", ""]
+        for item in artifact["completed_module_work"]:
+            lines.append(
+                f"- Module `{item['module_id']}` used `{item['skill_id']}` in unit `{item['unit_id']}`."
+            )
     if artifact["manual_spot_checks"]:
         lines += ["", "## Manual Spot Checks", ""]
         for item in artifact["manual_spot_checks"]:

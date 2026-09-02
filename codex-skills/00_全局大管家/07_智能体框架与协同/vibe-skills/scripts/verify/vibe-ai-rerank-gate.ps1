@@ -73,7 +73,6 @@ function Set-AiRerankStage {
     $policy.preserve_routing_assignment = $PreserveRoutingAssignment
     $policy.scope.grade_allow = @("M", "L", "XL")
     $policy.scope.task_allow = @("planning", "coding", "review", "debug", "research")
-    $policy.scope.route_mode_allow = @("legacy_fallback", "confirm_required", "pack_overlay")
 
     $policy.trigger.top_k = 10
     $policy.trigger.max_top1_top2_gap = 1.0
@@ -114,6 +113,12 @@ try {
     Write-Host "=== VCO AI Rerank Gate ==="
 
     Set-AiRerankStage -ConfigPath $policyPath -Stage "off" -PreserveRoutingAssignment $true
+    $currentPolicy = Get-Content -LiteralPath $policyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $results += Assert-True -Condition (-not ($currentPolicy.scope.PSObject.Properties.Name -contains "route_mode_allow")) -Message "[policy] route_mode_allow removed"
+
+    $moduleText = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\router\modules\42-ai-rerank-overlay.ps1") -Raw -Encoding UTF8
+    $results += Assert-True -Condition (-not ($moduleText -match "route_mode_allow")) -Message "[module] route_mode_allow residue removed"
+
     $routeOffBaseline = Invoke-Route -Prompt $prompt -Grade "M" -TaskType "review" -RequestedSkill $null
     $results += Assert-True -Condition ($routeOffBaseline.ai_rerank_advice.enabled -eq $false) -Message "[off] ai rerank disabled"
 

@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)] [string]$Task,
     [string]$Mode = 'interactive_governed',
     [string]$RunId = '',
-    [string]$ArtifactRoot = ''
+    [string]$ArtifactRoot = '',
+    [AllowEmptyString()] [string]$WorkspaceRoot = ''
 )
 
 Set-StrictMode -Version Latest
@@ -15,8 +16,23 @@ if ([string]::IsNullOrWhiteSpace($RunId)) {
     $RunId = New-VibeRunId
 }
 
-$sessionRoot = Ensure-VibeSessionRoot -RepoRoot $runtime.repo_root -RunId $RunId -Runtime $runtime -ArtifactRoot $ArtifactRoot
-$artifactBaseRoot = Get-VibeArtifactRoot -RepoRoot $runtime.repo_root -Runtime $runtime -ArtifactRoot $ArtifactRoot
+$artifactContract = Get-VibeArtifactContractDescriptor -RepoRoot $runtime.repo_root -RunId $RunId -WorkspaceRoot $WorkspaceRoot -ArtifactRoot $ArtifactRoot
+$sessionRoot = Ensure-VibeSessionRoot -RepoRoot $runtime.repo_root -RunId $RunId -Runtime $runtime -WorkspaceRoot $WorkspaceRoot -ArtifactRoot $ArtifactRoot
+$runSinkRoot = [System.IO.Path]::GetDirectoryName([string]$artifactContract.artifact_root)
+$existingRequirementDocs = @()
+$existingPlanDocs = @()
+if (-not [string]::IsNullOrWhiteSpace($runSinkRoot) -and (Test-Path -LiteralPath $runSinkRoot -PathType Container)) {
+    $existingRequirementDocs = @(
+        Get-ChildItem -LiteralPath $runSinkRoot -Recurse -Filter 'requirement.md' -File |
+            ForEach-Object { Get-VibeRelativePathCompat -BasePath ([string]$artifactContract.workspace_root) -TargetPath ([string]$_.FullName) } |
+            Sort-Object
+    )
+    $existingPlanDocs = @(
+        Get-ChildItem -LiteralPath $runSinkRoot -Recurse -Filter 'plan.md' -File |
+            ForEach-Object { Get-VibeRelativePathCompat -BasePath ([string]$artifactContract.workspace_root) -TargetPath ([string]$_.FullName) } |
+            Sort-Object
+    )
+}
 $requiredPaths = @(
     'SKILL.md',
     'protocols/runtime.md',
@@ -61,16 +77,8 @@ $receipt = [pscustomobject]@{
     git_branch = $gitBranch
     git_status = @($gitStatus)
     required_paths = @($pathChecks)
-    existing_requirement_docs = @(
-        if (Test-Path -LiteralPath (Join-Path $artifactBaseRoot 'docs\requirements')) {
-            Get-ChildItem -LiteralPath (Join-Path $artifactBaseRoot 'docs\requirements') -Filter *.md -File | Select-Object -ExpandProperty Name
-        }
-    )
-    existing_plan_docs = @(
-        if (Test-Path -LiteralPath (Join-Path $artifactBaseRoot 'docs\plans')) {
-            Get-ChildItem -LiteralPath (Join-Path $artifactBaseRoot 'docs\plans') -Filter *.md -File | Select-Object -ExpandProperty Name
-        }
-    )
+    existing_requirement_docs = @($existingRequirementDocs)
+    existing_plan_docs = @($existingPlanDocs)
 }
 
 $receiptPath = Join-Path $sessionRoot 'skeleton-receipt.json'

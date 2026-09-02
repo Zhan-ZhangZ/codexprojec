@@ -1,7 +1,8 @@
 # Overlay Suggestion Scripts
 
 - Scripts root: [`../README.md`](../README.md)
-- Overlay references: [`../../references/overlays/index.md`](../../references/overlays/index.md)
+- Overlay references are selected from the bundled/provider contracts owned by
+  each overlay script.
 
 ## What Lives Here
 
@@ -17,4 +18,5 @@
 ## Rule
 
 - overlay suggestion 是 advisory surface，不是第二路由器；
-- 若脚本需要新的 overlay reference，先更新 `references/overlays/index.md`。
+- 若脚本需要新的 overlay reference，先更新对应的 executable provider
+  contract 和本目录说明。

@@ -12,7 +12,7 @@ before making a change.
 
 > **TL;DR — Three safe contribution paths for most contributors:**
 >
-> 1. **Add or improve documentation** → work in `docs/**`, `references/**`, or `templates/**`. These are always safe to edit.
+> 1. **Improve documentation** → update a document registered in [`config/live-document-contract.json`](config/live-document-contract.json). New governed Markdown must fit the 30-document budget.
 > 2. **Add governance guidance or verification scripts** → work in `scripts/governance/**` or `scripts/verify/**`.
 > 3. **Anything else** → read the zone table and proof matrix before touching any files. If uncertain, open an Issue first.
 
@@ -27,13 +27,15 @@ before making a change.
 3. Read the formal change-control rules if your change is not obviously
    docs-only:
    [`docs/developer-change-governance.md`](docs/developer-change-governance.md)
-4. If your change touches a frozen or guarded surface, stop and write or attach
-   a plan before editing:
-   [`docs/plans/2026-03-13-post-upstream-governance-developer-entry-plan.md`](docs/plans/2026-03-13-post-upstream-governance-developer-entry-plan.md)
+4. If your change touches a frozen or guarded surface, associate the change
+   with an Issue and create the run-specific requirement and execution plan in
+   `.vibeskills/runs/<run_id>` according to the
+   [`live document contract`](config/live-document-contract.json).
 
 ## Default Safe Contribution Path
 
-If you are not sure where to work, stay in the additive contributor-safe zones:
+If you are not sure where to work, stay within the registered contributor-safe
+documents and verification surfaces:
 
 - `docs/**`
 - `references/**`, except `references/fixtures/**`
@@ -41,14 +43,16 @@ If you are not sure where to work, stay in the additive contributor-safe zones:
 - `scripts/verify/**`
 - `templates/**`
 
-These surfaces are the preferred place to add documentation, governance
-contracts, verification gates, and operator guidance without changing runtime
-behavior.
+These surfaces are the preferred place to improve governance contracts,
+verification gates, and operator guidance without changing runtime behavior.
+The live-document registry applies to new root, `docs/**`, and `references/**`
+Markdown. At the 30-document limit, adding an entry requires merging or removing
+another maintained document in the same change.
 
 ## Do Not Edit These Surfaces Casually
 
 Do not directly edit these paths unless your change explicitly owns the plan and
-proof burden (see "When a Plan Is Mandatory" below):
+proof burden (see "When a Governed Run Is Mandatory" below):
 
 - `install.ps1`
 - `install.sh`
@@ -93,7 +97,7 @@ contributor zone table to recognize a new file category.
 Always read:
 
 - [`docs/developer-change-governance.md`](docs/developer-change-governance.md)
-- [`docs/distribution-governance.md`](docs/distribution-governance.md)
+- [`docs/governance/distribution-governance.md`](docs/governance/distribution-governance.md)
 - [`docs/repo-cleanliness-governance.md`](docs/repo-cleanliness-governance.md)
 
 ### Mirror, Fixture, Provenance, or Compliance
@@ -122,10 +126,10 @@ or packaged behavior.
 **Examples**: Editing `SKILL.md` to add a new stage, modifying `install.ps1`,
 changing routing logic in `scripts/router/**`.
 
-These changes require a plan before implementation and a stronger proof bundle
-before completion (see below).
+These changes require a governed run before implementation and a stronger proof
+bundle before completion (see below).
 
-## When a Plan Is Mandatory
+## When a Governed Run Is Mandatory
 
 > **"Frozen surface"**: A file is "frozen" or "guarded" when it is a direct
 > control point for the runtime — install scripts, routing rules, protocol
@@ -139,7 +143,8 @@ before completion (see below).
 > runtime-affecting changes, the proof bundle is more extensive (see the
 > change-proof-matrix for details).
 
-Write or attach a plan before editing if any of the following are true:
+Associate an Issue and create a run artifact set before editing if any of the
+following are true:
 
 - you are changing a **Z0 frozen control-plane file** (install scripts,
   routing, protocols, `SKILL.md`)
@@ -148,9 +153,9 @@ Write or attach a plan before editing if any of the following are true:
 - you are changing vendored, mirrored, provenance, or disclosure surfaces
 - you cannot explain the required proof set before you start editing
 
-The current program plan for developer entry is:
+The executable contract for run artifacts and maintained documents is:
 
-- [`docs/plans/2026-03-13-post-upstream-governance-developer-entry-plan.md`](docs/plans/2026-03-13-post-upstream-governance-developer-entry-plan.md)
+- [`config/live-document-contract.json`](config/live-document-contract.json)
 
 ## Minimum Proof Expectation
 
@@ -192,8 +197,8 @@ following are true — do not guess your way through these situations:
   [`references/change-proof-matrix.md`](references/change-proof-matrix.md)
 - developer entry baseline:
   [`references/developer-entry-contract.md`](references/developer-entry-contract.md)
-- current docs cleanup governance:
-  [`docs/requirements/2026-04-05-github-visible-docs-worklog-purge.md`](docs/requirements/2026-04-05-github-visible-docs-worklog-purge.md)
+- live document and artifact contract:
+  [`config/live-document-contract.json`](config/live-document-contract.json)
 
 ## Scope Note
 

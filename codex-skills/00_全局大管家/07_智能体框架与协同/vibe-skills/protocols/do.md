@@ -38,9 +38,13 @@ The governed runtime path remains:
 - a frozen requirement document
 - an execution plan
 - an internal execution grade
+- a confirmed user-facing workflow level for L/XL work
+- approved selected skills when bounded skill help will be used
 - a frozen downstream delivery-acceptance contract
 
 The job here is to execute, verify, and hand off cleanly to `phase_cleanup`.
+It must not use execution work to bypass an earlier workflow-level, skill-use,
+requirement, or plan confirmation stop.
 
 ## Runtime Mode Behavior
 
@@ -128,8 +132,9 @@ Defer to vibe-team protocol (wave-sequential orchestration + step-level bounded 
 
 ## Browser Testing
 When UI testing is needed:
-- Primary: Claude-code-settings Chrome MCP (chrome-devtools-mcp)
-- Alternative: Playwright MCP (if available)
+- Use only host-native tools that are already available and allowed by the
+  current host policy.
+- Do not install or recommend MCP servers as part of Vibe execution.
 
 ## Quality Injection: Core Tier (L/XL Default)
 

@@ -1,853 +1,510 @@
 <div align="right">
-  <a href="./README.md">🇬🇧 English</a> &nbsp;|&nbsp; <b>🇨🇳 中文</b>
+  <a href="./README.md">English</a> | <strong>中文</strong>
 </div>
-
-<br/>
 
 <div align="center">
 
-<a href="https://github.com/foryourhealth111-pixel/Vibe-Skills">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=700&size=45&pause=1000&color=7B61FF&center=true&vCenter=true&width=700&height=100&lines=Vibe+Skills;Super+Skill+Harness;Agent+Orchestration+Layer" alt="VibeSkills Typing Logo" />
-</a>
+<img src="./logo.png" width="124" alt="VibeSkills Logo">
 
-<br/>
-
-<img src="./logo.png" width="260px" alt="VibeSkills Logo"/>
-
-<br/><br/>
-
-### 让 AI Agent 真正会推进任务
-
-#### 安装 VibeSkills，输入 `vibe`，把繁琐流程交给 harness：理解任务、拆分阶段、调用合适的专家 Skills、检查结果，并把上下文留给下一次。它也为未来扩展而生，新的领域 Skills 可以接入同一套流程，不用每个领域都从零开始。
-
-&nbsp;
-*你只需要带来目标。VibeSkills 帮 AI 从想法走到计划，从计划走到执行，再从执行走到有证据的交付。这就是 Super Skill 的意义：不是更多按钮，而是让 AI 更会把事情做完。*
-
-
-<table align="center">
-<tr>
-<td align="left">
-<pre><code>&gt; vibe
-  intent.freeze()        -> requirement_doc
-  plan.stage()           -> xl_plan
-  skills.orchestrate()   -> expert Skills by phase
-  evidence.verify()      -> tests, checks, artifacts
-  memory.preserve()      -> next-session context</code></pre>
-</td>
-</tr>
-</table>
-
-<br/>
-
-<a href="https://github.com/foryourhealth111-pixel/Vibe-Skills/stargazers">
-  <img src="https://img.shields.io/github/stars/foryourhealth111-pixel/Vibe-Skills?style=for-the-badge&logo=github&color=7B61FF&label=STARS" alt="stars">
-</a>
-<a href="https://github.com/foryourhealth111-pixel/Vibe-Skills/network/members">
-  <img src="https://img.shields.io/github/forks/foryourhealth111-pixel/Vibe-Skills?style=for-the-badge&logo=git&color=45a1ff&label=FORKS" alt="forks">
-</a>
-<a href="https://github.com/foryourhealth111-pixel/Vibe-Skills/pulse">
-  <img src="https://img.shields.io/github/last-commit/foryourhealth111-pixel/Vibe-Skills?style=for-the-badge&logo=git-lfs&color=32CD32&label=MOMENTUM" alt="last commit">
-</a>
-<img src="https://komarev.com/ghpvc/?username=vibe-skills-foryourhealth&label=NODES+ACTIVE&color=0078d7&style=for-the-badge" alt="Visitors">
-&nbsp;
-<img src="https://img.shields.io/badge/Architecture-VCO_Runtime-orange?style=for-the-badge" alt="Arch">
-&nbsp;
-<img src="https://img.shields.io/badge/Skills-340%2B-blueviolet?style=for-the-badge" alt="Skills Count">
-&nbsp;
-<img src="https://img.shields.io/badge/Harness-Automatic_Orchestration-32CD32?style=for-the-badge" alt="Automatic Orchestration">
-&nbsp;
-<img src="https://img.shields.io/badge/Package-Portable_Skills_Bundle-45a1ff?style=for-the-badge" alt="Portable Skills Bundle">
-&nbsp;
-<img src="https://img.shields.io/badge/Extensible-Any_Domain_Skills-ff5f87?style=for-the-badge" alt="Any Domain Skills">
-
-<br/><br/>
-
-🧠 规划 · 🛠️ 工程 · 🤖 AI · 🔬 科研 · 🎨 创作
-
-<br/><br/>
-
-<a href="docs/install/one-click-install-release-copy.md">
-  <img src="docs/assets/install-cta-cn.svg" width="214" height="56" alt="点击立即安装">
-</a>
-
-<br/><br/>
-
-<a href="docs/quick-start.md">
-  <img src="https://img.shields.io/badge/📖_快速上手-2d3748?style=for-the-badge" alt="文档">
-</a>
-&nbsp;
-<a href="./README.md">
-  <img src="https://img.shields.io/badge/🇬🇧_English-45a1ff?style=for-the-badge" alt="English">
-</a>
-
-<br/><br/>
-
-<kbd>安装</kbd> &nbsp;→&nbsp;
-<kbd>vibe | vibe-upgrade</kbd> &nbsp;→&nbsp;
-<kbd>受管流程</kbd> &nbsp;→&nbsp;
-<kbd>阶段 Skills</kbd> &nbsp;→&nbsp;
-<kbd>TDD / 验证</kbd> &nbsp;→&nbsp;
-<kbd>持续上下文</kbd>
-
-</div>
-
-## 📋 目录
-
-- [运行时一眼看懂](#-运行时一眼看懂)
-- [实践演示](#-实践演示看得见的真实任务)
-- [一种新的 Super Skill 范式](#-一种新的-super-skill-范式)
-- [为什么与众不同](#-为什么它与众不同)
-- [适合你吗](#-适用人群)
-- [智能路由](#-智能路由机制340-技能如何协同而不冲突)
-- [记忆系统](#-记忆系统让-ai-在同一工作区里持续接上上下文)
-- [全景能力地图](#-全景能力地图你的全能工作台)
-- [安装与管理](#️-安装与-skills-管理)
-- [开始使用](#-开启你的-vibe-体验)
-
-
-<details>
-<summary><b>🔑 初次使用？点击展开关键概念说明</b></summary>
-
-<br/>
-
-| 术语 | 通俗解释 |
-|:---|:---|
-| **Harness** | 包在 AI Agent 外层的工作流层。它判断下一步、调用合适的 Skills、检查结果，并保存有用上下文。 |
-| **Skill** | 一个聚焦的专家能力，例如 `tdd-guide`、`code-review`、数据分析、文档处理、科研写作等。 |
-| **Vibe / VCO** | 运行这套 harness 的 canonical runtime。公开入口是 `vibe` 和 `vibe-upgrade`。 |
-| **自动编排** | harness 在不同步骤调用不同 Skills：需求、规划、实现、评审、验证、清理，各司其职。 |
-| **开放 Skill 平面** | 新领域 Skills 可以接入同一套流程，让 VibeSkills 从软件工程扩展到科研、设计、教育、金融、法律和更多方向。 |
-| **TDD / 验证交付** | 完成不能只靠模型一句“做好了”，而要有测试、检查、产物证据，或明确的人工复核状态。 |
-| **工作区记忆** | 结构化保存需求、计划、决策和证据，让后续会话不用从零开始。 |
-
-</details>
-
-> [!IMPORTANT]
-> ### 🎯 核心愿景
->
-> VibeSkills 的出发点很直接：Skills 很强，但一长串工具列表还不够好用。
->
-> 真正好用的 AI Agent，应该知道什么时候该问清需求，什么时候该写计划，什么时候该调用专家 Skill，什么时候必须测试和验证。用户不应该一直当调度员。
->
-> VibeSkills 把这套节奏封装成一个即插即用的 Skills 包。它给 AI 一条清楚的工作路径，把任务推向测试和证据，并把有用上下文留给下一次会话。
->
-> **安装后调用 `vibe`，AI Agent 就有了更好的推进方式。**
-> 今天它能组织内置 Skills；未来任何领域的新 Skills，也可以接入同一个 harness。
-
-<br/>
-
-<img width="1376" height="768" alt="Generated Image April 21, 2026 - 8_51PM" src="https://github.com/user-attachments/assets/de9f1d20-3976-40b9-bc7c-37bb308a3591" />
-
-
----
-
-## 🛰️ 运行时一眼看懂
-
-VibeSkills 好上手，是因为 `vibe` 接管了流程。你给出目标，harness 把目标变成阶段化工作，在合适位置调用专家 Skills，检查结果，并把上下文留给下一次。
-
-```mermaid
-flowchart LR
-    accTitle: VibeSkills Harness Flow
-    accDescr: User intent enters the vibe harness. The harness freezes intent, plans stages, routes expert Skills, verifies evidence, and preserves workspace context.
-
-    user["User Intent"]
-    vibe["vibe<br/>Super Skill Harness"]
-    freeze["Freeze<br/>Requirement"]
-    plan["Plan<br/>Stages"]
-    route["Route<br/>Expert Skills"]
-    skills["340+ Skills<br/>bounded by phase"]
-    future["Future Domain Skills<br/>research / finance / law / education / more"]
-    verify["Verify<br/>Tests + Evidence"]
-    memory["Remember<br/>Workspace Context"]
-
-    user --> vibe --> freeze --> plan --> route --> verify --> memory
-    route --> skills --> verify
-    route --> future --> verify
-
-    classDef core fill:#ede9fe,stroke:#7B61FF,stroke-width:2px,color:#1f1147
-    classDef stage fill:#e0f2fe,stroke:#0284c7,stroke-width:1.5px,color:#0c4a6e
-    classDef proof fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
-    classDef user fill:#fff7ed,stroke:#f97316,stroke-width:1.5px,color:#7c2d12
-
-    class vibe core
-    class freeze,plan,route,skills,future stage
-    class verify,memory proof
-    class user user
-```
-
-<div align="center">
-
-| 信号 | 它代表什么 |
-|:---|:---|
-| `one entry` | 从 `vibe` 开始，用 `vibe-upgrade` 更新。 |
-| `stage router` | 在合适步骤调用合适 Skills。 |
-| `open skill plane` | 新领域 Skills 可以接入同一套流程，不需要每个领域重新发明一套 workflow。 |
-| `proof trail` | 测试、检查、产物证据或人工复核状态支撑交付声明。 |
-| `memory plane` | 需求、计划、决策和证据不会随着聊天窗口消失。 |
-
-</div>
-
----
-
-## 🎬 实践演示：看得见的真实任务
-
-_社区里有人问：VibeSkills 实际用起来是什么样？下面这些案例比功能清单更容易判断。它们都从一个普通目标出发，经过一次受管的 `vibe` 流程，最后落到能打开、能检查、能复现的东西。_
-
-<div align="center">
-
-| 演示 | 起点 | `vibe` 如何推进 |
-|:---|:---|:---|
-| **图像生成工作台** | 做一个能对话改提示词、上传参考图、调用真实生图接口的 GPT-image 工作台。 | 把想法拆成产品范围、UI/API 任务、流程检查和截图复核。 | 
-| **视频剪辑流水线** | 把火箭登月历史素材剪成短视频节奏。 | 拆出字幕、配乐、节奏、渲染和复核几轮工作，并把粗糙点直接记下来。 | 
-| **机器学习实验 + 论文** | 做一个人脸识别 ML 演示，并把实验整理成论文。 | 推进数据集与模型选择、训练、评估、图表生成和 LaTeX 编译。 | 
-
-</div>
-
-好演示不只展示最终截图，也要让任务推进过程看得见：
-
-```mermaid
-flowchart LR
-    accTitle: VibeSkills 实践演示流程
-    accDescr: 一个用户目标经过范围确认、计划拆分、Skill 调用、执行检查，最后交付可打开的结果。
-
-    goal["一句话目标"]
-    freeze["确认范围"]
-    plan["拆成计划"]
-    route["调用 Skills"]
-    work["构建 / 分析 / 渲染"]
-    proof["检查 + 证据"]
-    show["可打开的结果"]
-
-    goal --> freeze --> plan --> route --> work --> proof --> show
-
-    classDef goal fill:#fff7ed,stroke:#f97316,stroke-width:1.5px,color:#7c2d12
-    classDef flow fill:#e0f2fe,stroke:#0284c7,stroke-width:1.5px,color:#0c4a6e
-    classDef proof fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
-
-    class goal goal
-    class freeze,plan,route,work flow
-    class proof,show proof
-```
-
-> 这些例子参考了 [VibeSkills 3.1.0 社区实践案例](https://linux.do/t/topic/2061161)：GPT-image 工作台、视频剪辑流程，以及直出论文的机器学习实验。README 里最好链接到具体东西：可运行应用、渲染视频、编译论文，或产生它们的命令和证据。
-
----
-
-## 🧬 一种新的 Super Skill 范式
-
-AI Skills 的发展，正在从“给模型更多工具”，走向“让模型更会推进工作”。
-
-像 **[Superpowers](https://github.com/obra/superpowers)** 这样的项目证明了：Skills 可以让 coding agent 更有纪律，先澄清、再设计、再实现、再测试。**[GSD / Get Shit Done](https://github.com/gsd-build/get-shit-done)** 则证明了另一件事：Agent 需要规格、里程碑、上下文和推进节奏，否则工作很容易散在聊天记录里。
-
-VibeSkills 站在同一个方向上，但进一步改变了封装形态：
-
-> **普通 Skill 说：**“我能做某件事。”
->
-> **Super Skill 说：**“我知道这件事应该怎么推进。”
-
-VibeSkills 属于第二种。它把工作流程、专家 Skills、验证和工作区记忆，封装成一个可迁移的通用 Skills 包。更重要的是，它给未来 Skills 留出了接入位置：随着 Skills 变多，同一个 `vibe` 入口仍然能让任务有阶段、有检查、能继续。
-
-<div align="center">
-
-| 项目类型 | 擅长什么 | VibeSkills 往前推进的地方 |
-|:---|:---|:---|
-| **传统 Skills 集合** | 给 Agent 增加更多工具 | 把这些工具组织成有阶段、有检查的工作流 |
-| **Superpowers 式方法论** | 让 coding agent 更有开发习惯 | 把这个思路扩展成能按阶段调用专家 Skills 的 harness |
-| **GSD 式项目流** | 用规格、上下文和里程碑推进项目 | 把 Skill 调度、验证和工作区记忆放进 runtime |
-| **VibeSkills** | 面向 Skills Agent 的通用 Super Skill 包 | 一个入口、更少手动控制、验证交付、跨会话记忆，并能接入未来领域 Skills |
-
-</div>
-
-重点不是“Skills 更多”。重点是让 Skills 不再躺在列表里，而是真正帮 AI 把任务往前推进。
-
----
-
-
-## ✨ 为什么它与众不同？
-
-> 大多数 Skills 仓库回答的是：_"我的 AI 能用哪些工具？"_
-> **VibeSkills 更关心用户每天都会遇到的问题：_"AI 能不能自己选对 Skill、在合适时间用上它，并证明任务真的做好了？"_**
-
-<sub>适用于 **Claude Code** · **Codex** · **Windsurf** · **OpenClaw** · **OpenCode** · **Cursor** 及所有支持 Skills 协议的 AI 环境，原生兼容 **MCP**。</sub>
-
-<br/>
-
-<div align="center">
-
-| 能力 | 用户得到什么 |
-|:---|:---|
-| **一个入口** | 从 `vibe` 开始，用 `vibe-upgrade` 更新，先不用学一长串命令。 |
-| **清楚的推进节奏** | AI 按「问清楚 → 写计划 → 做任务 → 检查 → 记住上下文」推进。 |
-| **自动调用 Skills** | harness 按任务、阶段和约束选择专家 Skills。 |
-| **更少手动控制** | 你不用一直提醒 AI “先计划”“去测试”“别忘了保存上下文”。 |
-| **验证交付** | 任务结果落到测试、检查、证据或明确人工复核状态上。 |
-| **跨会话上下文** | 需求、计划、决策、交接信息和证据会存下来，方便下次接着做。 |
-| **未来 Skills 可接入** | 任意领域的新 Skills 可以加入同一套流程。 |
-| **通用 Skills 包** | 核心是即插即用的 Skills bundle，能给支持 Skills 的 AI Agent 带来同一套工作流升级。 |
-
-</div>
-
-<br/>
-
-<div align="center">
-
-| 没有 harness 时 | 使用 VibeSkills 后 |
-|:---|:---|
-| 用户自己决定下一句提示词、下一个工具、下一步质量检查。 | `vibe` 给 AI 一条路径，并在关键位置要求确认。 |
-| Skills 只是一长串能力列表，AI 可能根本想不起来用。 | Skills 变成按阶段、按任务选中的工作能力。 |
-| 每个新领域都容易变成一套新的使用方式。 | 新领域 Skills 可以接入同一个 `vibe` 流程。 |
-| “完成”可能只是模型停止输出。 | 交付要绑定测试、检查、产物证据或明确复核状态。 |
-| 长任务跨会话后上下文丢失。 | 需求、计划、决策和证据被保存，方便继续。 |
-| 每个宿主都要重新设计一套使用方式。 | 核心保持为可迁移的 Skills 包，宿主适配围绕它展开。 |
-
-</div>
-
-<br/>
-
----
-
-
-## 👥 适用人群
-
-VibeSkills 适合希望 AI Agent 更容易上手、更泛用、更少手动控制的人。
-
-<details>
-<summary>适合你吗？点击展开</summary>
-
-<br/>
-
-<div align="center">
-
-| 人群 | 描述 |
-|:---:|:---|
-| 🎯 **追求稳定交付的用户** | 希望 AI 先澄清、再规划、再测试验证，而不是直接给一个答案。 |
-| ⚡ **重度使用 AI Agent 的人** | 需要一个 harness 来协调大量专家 Skills，不想每一步都自己调度。 |
-| 🏢 **想规范 AI 工作流的团队** | 需要可复用的需求、计划、验证和交接产物。 |
-| 🧩 **Skill 构建者与集成者** | 希望用易安装、可迁移的 Skills 包作为核心封装，适配多种宿主环境。 |
-| 😩 **厌倦手动调工具的人** | 希望系统自动判断哪个阶段该用哪个 Skill。 |
-
-</div>
-
-> _如果你只想要一个孤立小脚本，VibeSkills 可能偏重。但如果你希望 AI Agent 能跨阶段、跨会话承接真实工作，它就是让 Skills 规模化可用、又不难上手的那层基础。_
-
-</details>
-
-<br/>
-
----
-
-
-## 🔀 智能路由机制：340+ 技能如何协同而不冲突
-
-核心点其实很简单：Skills 本身不是完整产品。harness 才是把它们组织成工作系统的关键。
-
-`vibe` 负责整个流程：什么时候澄清，什么时候规划，什么时候选择相关 Skills 加入当前阶段，什么时候跑测试或检查，以及什么时候允许声明交付完成。用户只需要一个简单入口，不需要面对一堆选择题。
-
-<div align="center">
-
-| 用户常见担心 | 实际怎么处理 |
-|:---|:---|
-| “Skills 太多了，我怎么选？” | 不需要你从完整列表里手动挑。harness 会按任务、阶段和约束智能路由。 |
-| “相似 Skills 会不会冲突？” | 路由会给它们分配有边界的职责，专项 Skills 只在当前阶段或任务单元里工作。 |
-| “多代理会不会乱跑？” | 大任务会先拆成有边界的单元，再明确所有权、验证方式和协调者批准。 |
-
-</div>
-
-### harness 在实际里怎么协同
-
-- **一个受管入口开始**：多数任务从 `vibe` 进入，用户不用手动选择一棵 workflow 树。
-- **执行前先冻结意图**：需求和计划会变成稳定产物，而不是散落在聊天记录里。
-- **按阶段选择 Skills**：需求、规划、实现、测试、评审、清理，可以各自调用不同 Skills。
-- **结果必须落到证据**：TDD、定向检查、产物审阅和交付验收共同约束完成声明。
-- **上下文要能延续**：运行时保存足够结构，方便下一个会话或下一个代理继续工作。
-
----
-
-### 为什么大量 Skills 可以共存
-
-- 它们不会一次性全部启动。
-- 有些服务不同阶段：澄清、规划、实现、评审、验证。
-- 有些服务不同领域：代码、科研、数据、写作、设计、文档、运维。
-- 最终掌控工作流的是 harness，而不是某个单独 Skill。
-
----
-
-### M / L / XL 执行级别
-
-选定路线之后，运行时还会根据任务复杂度决定执行级别：
-
-<div align="center">
-
-| 级别 | 适用场景 | 特点 |
-|:---:|:---|:---|
-| **M** | 窄范围执行，边界清楚的小范围工作 | 单代理，省 token，响应快 |
-| **L** | 中等复杂任务，需要设计、计划与评审 | 受管的多步骤执行，通常按计划串行推进 |
-| **XL** | 适合拆分的大任务，存在彼此独立的工作单元 | 先拆单元，再由协调者按波次调度，可对独立单元并行推进 |
-
-</div>
-
-> 即使到了 XL，也不是“大家各自找技能乱跑”。系统会先选定路线，再为有边界的任务单元选择 Skills，整个过程仍由同一个受管协调者控制。
-
----
-
-<details>
-<summary><b>🔍 展开：入口 wrapper、级别覆盖与路由补充说明</b></summary>
-
-<br/>
-
-- 公开可发现入口固定是 `vibe` 和 `vibe-upgrade`。
-- `vibe` 是渐进式入口：先在 `requirement_doc` 停止，再在 `xl_plan` 停止，只有在每个边界都得到明确 re-entry 批准后才进入 `phase_cleanup`。
-- `vibe-upgrade` 负责受管升级路径。
-- `vibe-what-do-i-want`、`vibe-how-do-we-do`、`vibe-do-it` 这类阶段 ID 已禁用为公开宿主入口。它们可以作为运行时连续性元数据保留，但安装器不应把它们物化成宿主可见的 command 或 skill wrapper。
-- 公开允许的轻量级别覆盖只有 `--l` 和 `--xl`。像 `vibe-l`、`vibe-xl` 或阶段入口叠加级别的组合别名是故意不支持的。
-- 当内部调用 `tdd-guide`、`code-review` 这类专项技能时，它们只负责当前阶段或当前任务单元，不会接管全局协调。
-- 在 XL 多代理流程里，子代理可以提出候选 skill，但最终由协调者确认选中项。
-
-</details>
-
-<br/>
-
----
-
-
-## 🧠 记忆系统：让 AI 在同一工作区里持续接上上下文
-
-_路由决定该用哪个技能。记忆让下一次会话不用从零开始。_
-
-<br/>
-
-VibeSkills 只保留继续工作真正需要的受管上下文：
-
-- **接上同一个项目**：同一工作区内，可以恢复已确认的背景、约定和关键决策。
-- **继续长任务**：中断之后，进度、交接信息和证据线索仍然可用。
-- **减少重复解释**：不用每次开新会话都重新讲一遍项目设定。
-- **保持边界清楚**：记忆按当前工作区和当前任务取回，不把无关历史塞进提示词。
-
-| 场景 | VibeSkills 帮你恢复什么 |
-|:---|:---|
-| 同一工作区的新会话 | 已确认的项目背景和工作约定 |
-| 中断后继续任务 | 最近的有效进度、关键决策和验证线索 |
-| 代理交接 | 交接说明和相关产物链接 |
-| 切到另一个项目 | 默认隔离，不串上下文 |
-
-记忆是连续性辅助层，不是项目真相来源的替代品。Git、README、需求文档、执行计划和验证 receipt 仍然是权威记录。持久记忆写入受治理约束；如果记忆能力不可用，系统会直接暴露问题，而不是假装自己还记得。
-
-技术契约见 [工作区记忆平面设计](./docs/design/workspace-memory-plane.md)，量化验证见 [Codex 记忆仿真测试](./tests/runtime_neutral/test_codex_memory_user_simulation.py)。
-
-
----
-
-
-## ✦ 全景能力地图：你的全能工作台
-
-_这一节不是完整的 skill 名字清单，而是帮助你快速判断：VibeSkills 大致能覆盖哪些工作。_
-
-_如果你只是想先判断它适不适合你的任务，看下面这张表就够了。_
-
-<br/>
-
-<div align="center">
-
-| 工作方向 | 它主要能帮你做什么 | 代表能力 |
-|:---|:---|:---|
-| **💡 需求、规划与产品工作** | 把模糊想法讲清楚，写成 spec、计划和可执行任务 | `brainstorming`, `writing-plans`, `speckit-specify` |
-| **🏗️ 工程开发、架构与受管执行** | 设计系统边界、落地代码改动，并协调多步骤工作流 | `aios-architect`, `autonomous-builder`, `vibe` |
-| **🔧 调试、测试与质量控制** | 排查问题、补测试、做 review，并在完成前做核验 | `systematic-debugging`, `verification-before-completion`, `code-review` |
-| **📊 数据分析与统计建模** | 清洗数据、做统计分析、探索模式并解释结果 | `statistical-analysis`, `performing-regression-analysis`, `exploratory-data-analysis` |
-| **🤖 机器学习与 AI 工程** | 训练、评估、解释并迭代模型相关工作流 | `senior-ml-engineer`, `scikit-learn`, `evaluating-machine-learning-models` |
-| **🔬 科研、文献与生命科学** | 做文献检索、科研支持，以及偏生信和生命科学的任务 | `literature-review`, `research-lookup`, `scanpy` |
-| **📐 科学计算与数学建模** | 处理符号推导、概率建模、仿真和优化问题 | `sympy`, `pymc-bayesian-modeling`, `pymoo` |
-| **🎨 文档、可视化与交付输出** | 把结果整理成文档、图表、图像、幻灯片等可交付内容 | `docs-write`, `plotly`, `scientific-visualization` |
-| **🔌 外部集成、自动化与交付** | 连接浏览器、网页、外部服务、CI/CD 和部署流程 | `playwright`, `scrapling`, `aios-devops` |
-
-</div>
-
-<br/>
-
-<details>
-<summary><b>👉 按需展开：查看更细的能力分类、适用场景与分工</b></summary>
-
-<br/>
-
-这一部分讲的是完整覆盖面，但会尽量说人话。
-它主要回答三个实际问题：
-
-1. 你在什么场景下会用到这一类能力？
-2. 为什么会同时保留几个看起来相近的 skill？
-3. 这一类里，哪些是比较典型的代表项？
-
-下面列的是代表项，不是把所有 skill 名字一股脑堆出来。重点是把角色和分工讲清楚，而不是把 README 写成库存表。
-
----
-
-### 🧠 需求、规划与产品管理
-
-**什么时候会用到**：当任务还很模糊，第一步不是写代码，而是先搞清楚“到底要解决什么问题”。
-
-**为什么会共存**：它们解决的是同一条链路上的不同环节。一个负责澄清需求，一个负责写 spec，一个负责把 spec 拆成计划，还有的继续往下拆成任务。
-
-**通常怎么遇到**：项目刚开始时、需求还没冻结时，或者要做高风险改动前。
-
-**代表项**：`brainstorming`, `speckit-clarify`, `writing-plans`, `speckit-specify`
-
----
-
-### 🛠️ 软件工程与架构设计
-
-**什么时候会用到**：当问题已经比较清楚，开始进入“怎么设计、怎么实现、怎么协调落地”这一步。
-
-**为什么会共存**：有的偏架构和边界设计，有的偏具体开发落地，有的偏多步骤、多代理的受管执行。它们很近，但不是一回事。
-
-**通常怎么遇到**：规划完成后，任务开始涉及多文件修改、多层结构或多阶段执行时。
-
-**代表项**：`aios-architect`, `architecture-patterns`, `autonomous-builder`, `vibe`
-
----
-
-### 🔧 调试、测试与质量保证
-
-**什么时候会用到**：当东西坏了、风险高、需要补测试，或者准备提交 review 的时候。
-
-**为什么会共存**：排错、写测试、做 review、做完成前核验，本来就是不同动作。一个偏快速修复入口，另一个偏严格排障流程，谁都不能完全替代谁。
-
-**通常怎么遇到**：报错之后、PR 之前，或者改动完成后需要拿证据说话的时候。
-
-**代表项**：`systematic-debugging`, `error-resolver`, `verification-before-completion`, `code-review`
-
----
-
-### 📊 数据分析与统计建模
-
-**什么时候会用到**：当重点是“看数据、清数据、解释数据”，而不是先上模型。
-
-**为什么会共存**：有的负责清洗和探索，有的负责统计检验，有的负责可视化，有的适合特定数据类型或处理链路。它们是配合关系，不是重复关系。
-
-**通常怎么遇到**：建模前、实验分析时，或者当你真正想问“这些数据到底说明了什么”。
-
-**代表项**：`statistical-analysis`, `performing-regression-analysis`, `detecting-data-anomalies`, `exploratory-data-analysis`
-
----
-
-### 🤖 机器学习与 AI 工程
-
-**什么时候会用到**：当任务目标已经从“理解数据”变成“训练、评估、解释和迭代模型”。
-
-**为什么会共存**：训练、评估、可解释性、实验记录本来就不是同一个动作。模型训练 skill 不等于数据分析 skill，可解释性 skill 也不该替代训练链路。
-
-**通常怎么遇到**：数据准备完成后，需要真正跑模型、比较结果，或者理解模型为什么这样输出时。
-
-**代表项**：`senior-ml-engineer`, `scikit-learn`, `evaluating-machine-learning-models`, `explaining-machine-learning-models`
-
----
-
-### 🧬 科研、文献与生命科学
-
-**什么时候会用到**：当任务本身是科研工作，尤其是文献整理、研究支持、生命科学或生信分析。
-
-**为什么会共存**：科研流程天然就是多步的。有人负责找论文，有人负责整理证据，有人负责分析实验数据，也有人负责生命科学专用工具链。
-
-**通常怎么遇到**：做文献综述、单细胞分析、基因组学任务，或药物和实验支持类工作时。
-
-**代表项**：`literature-review`, `research-lookup`, `biopython`, `scanpy`
-
----
-
-### 🔬 科学计算与数学逻辑
-
-**什么时候会用到**：当问题真正难的地方在数学推导、形式化建模、仿真或优化上。
-
-**为什么会共存**：有的偏符号推导，有的偏概率模型，有的偏仿真，有的偏优化或形式逻辑。它们都跟“算”有关，但处理的不是同一种问题。
-
-**通常怎么遇到**：科研任务、量化建模，或者自然语言解释已经不够精确的场景里。
-
-**代表项**：`sympy`, `pymc-bayesian-modeling`, `pymoo`, `qiskit`
-
----
-
-### 🔌 外部集成、自动化与部署
-
-**什么时候会用到**：当任务离不开浏览器、网页内容、设计平台、外部服务、CI 或部署环境。
-
-**为什么会共存**：浏览器交互、页面抓取、外部服务适配、部署自动化虽然都属于“连接外部世界”，但解决的是不同层面的工作。比如 `playwright` 和 `scrapling` 都碰网页，但一个更适合浏览器行为，一个更适合抓取和提取内容。
-
-**通常怎么遇到**：当任务已经不能只靠模型本身完成，而是必须去碰外部系统的时候。
-
-**代表项**：`playwright`, `scrapling`, `mcp-integration`, `aios-devops`
-
----
-
-### 🎨 文档、可视化与交付输出
-
-**什么时候会用到**：当任务结果需要被别人阅读、展示、评审或交付出去的时候。
-
-**为什么会共存**：图表、文档、幻灯片、图片虽然都属于输出层，但服务的格式和对象不同。它们被放在一类，是因为都承担“把结果变成可交付物”的职责，而不是因为可以互相替代。
-
-**通常怎么遇到**：工作流后段，当分析结果、研究结论或工程产出需要变成报告、图示、幻灯片或更完整的文档时。
-
-**代表项**：`docs-write`, `plotly`, `scientific-visualization`, `generate-image`
-
----
-
-合起来看，这些类别覆盖的是不同任务类型、不同工作阶段和不同交付形式。相似 skill 同时存在，通常不是为了重复堆料，而是因为它们分别承担了阶段差异、领域差异、宿主适配，或输出格式差异带来的不同职责。
-
-</details>
-
-<br/>
-
----
-
-
-## 📊 为什么说它强大？
-
-_看完完整版图，来看实际数字。这不是演示项目，而是已经跑起来的系统：_
-
-**VibeSkills** 背后的运行时核心是 **VCO**。它绝不仅仅是一个单点工具或只会"补代码"的脚本，而是一个已完成高度整合与治理的**超级能力网络**：
-
-<br/>
-
-<div align="center">
-
-|                              🧩 技能模块                               |                            🌍 生态融合                            |                               ⚖️ 治理规则                                |
-| :---------------------------------------------------------------------: | :---------------------------------------------------------------: | :----------------------------------------------------------------------: |
-| <h2>340+</h2>可直接调用的 Skills<br/>覆盖从需求规划到执行的完整链路 | <h2>19+</h2>吸收高价值上游开源项目<br/>与最佳实践来源 | <h2>129 条</h2>基于配置的策略与契约<br/>确保执行稳定、可溯源、防发散 |
-
-</div>
-
-<br/>
-
----
-
-
-## ⚙️ 安装与 Skills 管理
-
-先装起来，再慢慢了解内部机制。现在公开安装路径分成两种：**提示词安装** 和 **命令安装**。
-
-如果你不想处理路径和命令，选提示词安装；如果你已经熟悉终端，想自己控制执行过程，选命令安装。两条路径安装的是同一套 `vibe` / `vibe-upgrade` 公开入口。
-
-### 方式一：提示词安装（推荐）
-
-这是最省心的路径。你只需要选三件事，然后复制一段提示词给正在使用的 AI 客户端：
-
-1. 选宿主：`codex`、`claude-code`、`cursor`、`windsurf`、`openclaw`、`opencode`
-2. 选动作：第一次安装选 `install`，已经装过再选 `update`
-3. 选版本：普通用户推荐 `full`，只想要轻量框架时选 `minimal`
-4. 打开安装入口：
-   [提示词安装（推荐）](docs/install/one-click-install-release-copy.md)
-5. 把对应提示词粘贴到你的 AI 客户端里，让它执行安装和检查
-
-提示词安装会要求安装助手先确认宿主和公开版本，再运行安装与检查；它不会要求你把密钥、URL 或模型名粘贴到聊天里。
-
-### 方式二：命令安装
-
-如果你想直接在终端执行，打开：
-
-[多宿主命令参考](docs/install/recommended-full-path.md)
-
-命令安装适合这些情况：
-
-- 你已经知道目标宿主根目录，比如 Codex 的真实根目录是 `~/.codex`
-- 你希望自己控制 `install` / `check` 的执行顺序
-- 你在 CI、测试机器或隔离目录里验证安装行为
-
-最常见的形态是：
-
-```bash
-bash ./install.sh --host <host> --profile full
-bash ./check.sh --host <host> --profile full
-```
-
-Windows / PowerShell 路径见命令参考页。
-
-### `full` 还是 `minimal`？
-
-- 想获得正常的 VibeSkills 体验，就选 `full`
-- 只有你明确想先装轻量治理框架时，再选 `minimal`
-
-### 安装时不会要求配置什么？
-
-公开安装暂时只关注本地安装、`vibe` 可发现、MCP 尝试接入和基础检查。内置在线增强能力仍按未开放配置处理，安装说明不会引导普通用户配置这部分 provider、凭据或模型。
-
-### 什么时候再看更多文档？
-
-- 不确定宿主根目录：看 [冷启动宿主矩阵](docs/cold-start-install-paths.md)
-- 想直接看命令：看 [多宿主命令参考](docs/install/recommended-full-path.md)
-- 需要 OpenClaw / OpenCode 细节：看 [OpenClaw 宿主说明](docs/install/openclaw-path.md) 或 [OpenCode 宿主说明](docs/install/opencode-path.md)
-- 需要离线安装：看 [手动复制安装](docs/install/manual-copy-install.md)
-
-<details>
-<summary><b>🔧 高级安装细节</b></summary>
-
-下面这些内容只在你需要手动配置路径、排查安装状态或接入自定义 Skills 时再看。
-
-**手动配置路径**
-
-- Codex：`~/.codex/settings.json`
-- Claude Code：`~/.claude/settings.json`
-- Cursor：`~/.cursor/settings.json`
-- OpenCode：`~/.config/opencode/opencode.json`
-- Windsurf / OpenClaw sidecar：`<target-root>/.vibeskills/host-settings.json`
-
-**安装会创建什么**
-
-- 对外运行时入口：`<target-root>/skills/vibe`
-- 内部 bundled 语料：`<target-root>/skills/vibe/bundled/skills/*`
-- 兼容性辅助文件：只有宿主明确需要时才生成
-
-`.vibeskills` 被拆成两层：
-
-- host-sidecar：`<target-root>/.vibeskills/host-settings.json`、`host-closure.json`、`install-ledger.json`、`bin/*`
-- workspace-sidecar：`<workspace-root>/.vibeskills/project.json`、`.vibeskills/docs/requirements/*`、`.vibeskills/docs/plans/*`、`.vibeskills/outputs/runtime/vibe-sessions/*`
-
-**已验证的安装行为**
-
-| 宿主 | 已验证的范围 |
-|:---|:---|
-| `codex` | planning、debug、governed execution、memory continuity |
-| `claude-code` | planning、debug、governed execution、memory continuity |
-| `openclaw` | planning、debug、governed execution、memory continuity |
-| `opencode` | planning、debug、governed execution、memory continuity |
-
-这些检查说明：安装后的 `vibe` 仍然能负责路由、写出治理和清理记录，并保持记忆连续性；但不等于每一种宿主调用方式都在同一次验证里完整跑过。
-
-**卸载和自定义**
-
-- 卸载入口：`uninstall.ps1 -HostId <host>`、`uninstall.sh --host <host>`
-- 卸载治理说明：[`docs/uninstall-governance.md`](docs/uninstall-governance.md)
-- 自定义 Skill 接入：[自定义工作流与 Skill 接入指南](docs/install/custom-workflow-onboarding.md)
-
-</details>
-
-## 📦 集众家之所长：资源整合
-
-_这些能力不是闭门造车做出来的。VibeSkills 会参考现有开源项目、方法和工具，再把适合的部分接入同一套受管运行时。_
-
-VibeSkills 并不声称要替代、也不会完整复刻下面列出的每一个上游项目。更实际的目标是：在合适的地方复用已经被验证的方法和能力，再通过同一套运行时与治理层把它们串起来，减少日常使用时的切换和拼装成本。
-
-> 🙏 **鸣谢**
->
-> 本项目参考、适配或接入了以下项目中的部分思路、工作流或工具能力：
->
-> `superpower` · `claude-scientific-skills` · `get-shit-done` · `aios-core` · `OpenSpec` · `ralph-claude-code` · `SuperClaude_Framework` · `spec-kit` · `Agent-S` · `mem0` · `scrapling` · `claude-flow` · `serena` · `everything-claude-code` · `DeepAgent` 等等
->
-> _我们会尽量认真处理上游来源的署名与说明。如果有遗漏，或某处表述不准确，欢迎在 Issue 中指出，我们会及时修正。_
->
-> 贡献者鸣谢：[xiaozhongyaonvli](https://github.com/xiaozhongyaonvli) 和 [ruirui2345](https://github.com/ruirui2345)，感谢你们对本项目的社区贡献。
-
-<br/>
-
----
-
-
-## 🚀 开启你的 Vibe 体验
-
-_如果你已经装好了 VibeSkills，接下来只需要一次调用。_
-
-> ⚠️ **调用说明**：VibeSkills 采用 **Skills 格式运行时**，请从宿主环境的 Skills 入口调用，**不要**把它当成独立 CLI 程序直接运行。
-
-<br/>
-
-<div align="center">
-
-| 宿主环境 | 调用方式 | 示例 |
-|:---:|:---:|:---|
-| **Claude Code** | `/vibe` | `请帮我规划这个任务 /vibe` |
-| **Codex** | `$vibe` | `请帮我规划这个任务 $vibe` |
-| **OpenCode** | `/vibe` | `请用 vibe 帮我规划这次改动。` |
-| **OpenClaw** | Skills 入口 | 参考宿主说明 |
-| **Cursor / Windsurf** | Skills 入口 | 参考各平台 Skills 调用文档 |
-
-</div>
-
-<br/>
-
-- 第一次可以先从一个很小的请求开始，比如让它先帮你澄清、规划或拆分任务。
-- 如果你希望后续每一轮都留在受管工作流里，就在每条消息后面继续附上 `$vibe` 或 `/vibe`。
-- 如果你还没安装，先回到 [提示词安装（默认推荐）](docs/install/one-click-install-release-copy.md)。
-
-> MCP 说明：`$vibe` 或 `/vibe` 只表示进入 governed runtime，**不等于 MCP 完成**，也不能单独证明某个 MCP 已安装到宿主原生 MCP 配置面。
-
-**当前宿主状态**：`codex` 和 `claude-code` 是目前最清晰、最完整的安装与使用路径。`cursor`、`windsurf`、`openclaw`、`opencode` 也可用，但其中一部分仍偏 preview 或带宿主特定约束。
-
-<br/>
-
----
-
-<details>
-<summary><b>📚 文档导航与安装指引（点击展开）</b></summary>
-
-<br/>
-
-**先看这两个**
-
-- ⚡️ [提示词安装（默认推荐）](docs/install/one-click-install-release-copy.md)
-- 📖 [了解系统架构与理念](docs/quick-start.md)
-
-**下面这些按需再看**
-
-- 🛠 [命令安装参考](docs/install/recommended-full-path.md)
-- 🧩 [自定义工作流接入](docs/install/custom-workflow-onboarding.md)
-- 📄 [OpenClaw 宿主说明](docs/install/openclaw-path.md)
-- 📄 [OpenCode 宿主说明](docs/install/opencode-path.md)
-- 📁 [手动复制安装（离线）](docs/install/manual-copy-install.md)
-- 🧊 [冷启动与其他环境说明](docs/cold-start-install-paths.md)
-
-</details>
-
-<br/>
-
-<div align="center">
-
-### 🤝 加入社区 · 共建生态
-
-欢迎来尝试和体验！有问题、有想法、有建议，欢迎随时提出——鄙人不才，一定认真听取和修改。
-
-<br/>
-
-**本项目完全开源，欢迎一切形式的贡献！**
-
-无论是修复 bug、提升性能、添加新功能还是完善文档，你的每一个 PR 都弥足珍贵。
-
-```
-Fork → 修改 → Pull Request → 合并 ✅
-```
-
-<br/>
-
-> ⭐ 如果这个项目对你有帮助，点个 **Star** 是对我最大的支持！
-> 它的理念受到了大家的欢迎，但目前的底层代码存在一些技术债，功能也有待完善，欢迎大家在issue区指出。
-> 您的支持也是我这个核动力驴的浓缩 U-235 :blush:
-
-<br/>
-
-感谢 **LinuxDo** 各位佬的支持！
-
-[![LinuxDo](https://img.shields.io/badge/社区-LinuxDo-blue?style=for-the-badge)](https://linux.do/)
-
-各种技术交流、AI 前沿资讯、AI 经验分享，尽在 Linuxdo！
-
-</div>
-
-<br/>
-
----
-
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=foryourhealth111-pixel%2FVibe-Skills&type=date&legend=top-left">
+<h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=foryourhealth111-pixel/Vibe-Skills&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=foryourhealth111-pixel/Vibe-Skills&type=date&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/image?repos=foryourhealth111-pixel/Vibe-Skills&type=date&legend=top-left" />
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-wordmark-dark.svg">
+    <img src="./docs/assets/readme-wordmark-light.svg" width="500" alt="VibeSkills">
+  </picture>
+</h1>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-tagline-cn-dark.svg">
+  <img src="./docs/assets/readme-tagline-cn-light.svg" width="560" alt="VibeSkills是一个自动路由本地skills，智能harness调度的通用skills。">
+</picture>
+
+<br>
+
+<a href="https://github.com/foryourhealth111-pixel/Vibe-Skills/releases/latest">
+  <strong>最新版本 · v4.1.0</strong>
+</a>
+
+<br>
+
+<a href="./docs/install/README.md">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/install-cta-cn-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./docs/assets/install-cta-cn-light.svg">
+    <img src="./docs/assets/install-cta-cn-light.svg" width="210" height="38" alt="安装 VibeSkills">
   </picture>
 </a>
 
-<br/>
+<br>
 
----
+<a href="./docs/quick-start.md">快速开始</a> ·
 
-<div align="center">
-  <p><i>把真实工作里最容易失控的部分，变成一个更可调用、更可治理、也更可长期维护的系统。</i></p>
-  <br/>
-  <sub>Made with ❤️ &nbsp;·&nbsp; <a href="https://github.com/foryourhealth111-pixel/Vibe-Skills">GitHub</a> &nbsp;·&nbsp; <a href="./README.md">English</a></sub>
+
+
 </div>
+
+<a id="skillsbench-performance"></a>
+<h2 align="center">SkillsBench 实测表现</h2>
+
+<p align="center">
+  <strong>平均 Verifier Reward：+21.12 个百分点</strong><br>
+  <strong>总 Token：-29.6%</strong> · <strong>工具调用：-33.1%</strong>
+</p>
+
+**SkillsBench**是一个用跨领域的专业任务来测试 AI Agent 能否有效调用Skills完成工作的基准，其意义是衡量给模型配上专业Skills后，实际解决复杂任务的能力提升。
+
+为了评估在生产环境中面对大量已安装Skills的场景下的性能，我们将SkillsBench改造成更接近生产环境的大量Skills共存测试（把SkillsBench 从每题只提供配套的Skill专业，改造成每题都配套全局195个专业Skill环境下测试，其余条件保持不变），用来评估 Agent 能否从众多已安装 Skills 中自主发现、选择并组织相关能力，形成有效工作流完成复杂任务。
+
+vibeskills的4.1.0版本在Skillsbench (https://www.skillsbench.ai/) 上使用DeepSeekV4Flash-VE和Openhands进行基线测试。相比未使用vibeskills组的情况，vibeskills将平均任务得分提升21.12%，同时将Token消耗降低29.6%、工具调用减少33.1%。
+
+<p align="center">
+  <a href="https://github.com/foryourhealth111-pixel/vibeskills-benchmark/tree/main/studies/full-skills-comparison">
+    <img src="./docs/assets/skillsbench-task-outcomes.png" width="900" alt="SkillsBench 配对任务效果：Lean Vibe 的平均 Reward 从 50.3% 提升到 71.4%，满分率从 47.6% 提升到 69.5%；逐题对比中 23 项更高、55 项相同、4 项更低">
+  </a>
+</p>
+
+<p align="center"><sub>任务效果：满分任务从 39 项增至 57 项；逐题对比中，Lean Vibe 领先 23 项，Native 领先 4 项，另有 55 项相同。</sub></p>
+
+<p align="center">
+  <a href="https://github.com/foryourhealth111-pixel/vibeskills-benchmark/tree/main/studies/full-skills-comparison">
+    <img src="./docs/assets/skillsbench-resource-use.png" width="900" alt="SkillsBench 资源消耗对比：总 Token 从 Native 的 491.1M 降至 Lean Vibe 的 345.8M，工具调用减少 33.1%">
+  </a>
+</p>
+
+<p align="center"><sub>资源消耗：总 Token 从 491.122M 降至 345.756M，工具调用从 9,954 次降至 6,664 次。</sub></p>
+
+通过对原始测试的日志分析发现，***VibeSkills能取得更好的任务效果，并没有调用了更多 Skills***。 而是通过明确目标和交付要求，再把复杂任务拆成若干可检查的子任务，随后从大量候选 Skills中选择少量真正相关的能力，并按照依赖关系有序执行。这样可以减少任务理解错误、步骤遗漏和 Skill 选择失误，从而提高最终任务的表现性能。 ***在token成本和工具调用***上，这套工作流也减少了大量无效试错。Native 更容易在错误方向上反复调用工具、重复读取上下文和返工，而 VibeSkills通过更清晰的计划和交付前检查，更快收敛到关键步骤。因此它不仅提高了完成质量，也显著减少了工具循环和重复上下文带来的 Token 消耗。
+
+<p align="center">
+  <a href="https://github.com/foryourhealth111-pixel/vibeskills-benchmark/blob/main/studies/full-skills-comparison/README.zh-CN.md">完整研究、公开数据与复现方法</a> ·
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark) and (max-width: 600px)" srcset="./docs/assets/readme-preface-v2-cn-mobile-dark.svg">
+    <source media="(prefers-color-scheme: light) and (max-width: 600px)" srcset="./docs/assets/readme-preface-v2-cn-mobile-light.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-preface-v2-cn-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./docs/assets/readme-preface-v2-cn-light.svg">
+    <img src="./docs/assets/readme-preface-v2-cn-light.svg" width="900" alt="Skills是优秀的本地可复用经验资产。下载和安装了很多 skills 之后，很容易有些时候搞忘了已经安装了什么 skills，不知道该调用什么 skills。 进一步，在复杂任务的时候,会涉及到不同领域的多个 skills 的复合组织调用时，人类规划起来比较复杂,要详细跟AI阐明每个模块要用什么skills，同时AI 在执行过程中可能会遗忘这些设计。 而目前的 harness 框架很多并不会主动去规划好利用本地的skills资源，甚至有些时候陷入了harness框架和领域skills资源非此即彼的调度矛盾。 这个项目的核心就是效仿 superpower 和 GSD 类似的 harness 框架，基于负责规划的状态机模块拆分，在每个不同的模块中使用不一样的 skills 来辅助任务，充分调度本地的已有资源，减少用户的规划和认知负担，给用户端到端的交付体验。 致力于成为身边顺手的skills资源调度大管家，遇到复杂任务的时候，可以帮用户慢慢捋清楚要有哪些模块，有哪些好的经验可以复用，给用户最终交付一个优秀的结果。">
+  </picture>
+</p>
+
+<a id="vibeskills-ml-practice-case"></a>
+<h2 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-chapter-01-cn-dark.svg">
+    <img src="./docs/assets/readme-chapter-01-cn-light.svg" width="720" alt="VibeSkills实践案例：完成一项机器学习实验">
+  </picture>
+</h2>
+
+> **任务**
+>
+> *使用公开数据完成一个可复现的分类实验，并交付数据审计、统计复核、4 张结果图、科学报告和 7 页组会 Slides。*
+
+这张图展示的是需求和计划确认之后，这次任务怎样实际执行并完成检查。
+
+这次任务按 `L` 级计划顺序推进。发布准备时，同一台主机的已配置
+目录中统计到 100 多个 Skills；VibeSkills 查看候选并读取相关的 `SKILL.md`，最后
+选出适合这次任务的 7 个 Skills，再把工作安排成 5 个工作组和 10 个工作单元。
+这些工作依次完成环境准备、数据审计、建模、统计复核、图表、报告和 Slides。
+
+所有工作完成后，VibeSkills 对数据、实验结果、图表、报告和 Slides 做了 17 项检查。
+文件齐全、内容一致、核心实验可以复现后，这次任务通过最终验收。
+
+<p align="center"><strong>选用 7 个 Skills · 拆分为 5 个工作组 · 完成 10 / 10 个工作单元 · 通过 17 / 17 项检查</strong></p>
+
+```mermaid
+%%{init: {"flowchart": {"curve": "monotoneX", "nodeSpacing": 18, "rankSpacing": 36}}}%%
+flowchart LR
+    subgraph DISC["Skill 发现"]
+        direction TB
+        A["本地 Skill 目录<br/>100+ Skills"]
+        B["筛选候选<br/>读取 SKILL.md"]
+        SEL["Skill 选择<br/>7 个 Skills 已分配"]
+        A --> B
+        B --> SEL
+    end
+
+    subgraph EXEC["执行 · 5 个工作组 · 10 个工作单元"]
+        direction TB
+
+        subgraph G1["G1 · 01 环境与数据"]
+            direction LR
+            u01["U01<br/>环境准备"]
+            u02["U02<br/>数据审计"]
+            u01 --> u02
+        end
+
+        subgraph G2["G2 · 02 建模与复现"]
+            direction LR
+            u03["U03<br/>基线实验"]
+        end
+
+        subgraph G3["G3 · 03 统计与科学复核"]
+            direction LR
+            u04["U04<br/>统计分析"]
+            u05["U05<br/>科学复核"]
+            u04 --> u05
+        end
+
+        subgraph G4["G4 · 04 图表与报告"]
+            direction LR
+            u06["U06<br/>结果图"]
+            u07["U07<br/>报告初稿"]
+            u08["U08<br/>报告复核"]
+            u06 --> u07
+            u07 --> u08
+        end
+
+        subgraph G5["G5 · 05 Slides 与验收"]
+            direction LR
+            u09["U09<br/>组会 Slides"]
+            u10["U10<br/>案例打包与一致性检查"]
+            u09 --> u10
+        end
+
+        G1 --> G2
+        G2 --> G3
+        G3 --> G4
+        G4 --> G5
+    end
+
+    subgraph MID["运行与产物"]
+        direction TB
+        S(["运行状态<br/>10 / 10 完成<br/>0 失败 · 0 阻塞"])
+        D["实际产物<br/>4 张图 · 科学报告<br/>7 页 Slides"]
+        S --> D
+    end
+
+    subgraph VERIFY["验证 · 17 项检查"]
+        direction TB
+
+        subgraph V1["V1 · 基础与计划"]
+            direction LR
+            t01["T01<br/>必需文件"]
+            t02["T02<br/>模块输出匹配"]
+            t03["T03<br/>运行与计划绑定"]
+            t04["T04<br/>环境合同"]
+            t01 --> t02
+            t02 --> t03
+            t03 --> t04
+        end
+
+        subgraph V2["V2 · 数据、模型与复现"]
+            direction LR
+            t05["T05<br/>数据集合同"]
+            t06["T06<br/>数据拆分与模型合同"]
+            t07["T07<br/>基线结果"]
+            t08["T08<br/>精确复现"]
+            t05 --> t06
+            t06 --> t07
+            t07 --> t08
+        end
+
+        subgraph V3["V3 · 统计与交付物"]
+            direction LR
+            t09["T09<br/>不确定性一致性"]
+            t10["T10<br/>统计文件写入保护"]
+            t11["T11<br/>图表可追溯性"]
+            t12["T12<br/>报告一致性"]
+            t13["T13<br/>Slides 一致性"]
+            t09 --> t10
+            t10 --> t11
+            t11 --> t12
+            t12 --> t13
+        end
+
+        subgraph V4["V4 · 发布与边界"]
+            direction LR
+            t14["T14<br/>中英文摘要一致性"]
+            t15["T15<br/>可视材料指引"]
+            t16["T16<br/>Manifest 边界"]
+            t17["T17<br/>产物路径边界"]
+            t14 --> t15
+            t15 --> t16
+            t16 --> t17
+        end
+
+        V1 --> V2
+        V2 --> V3
+        V3 --> V4
+    end
+
+    E(["最终验收<br/>17 / 17 检查通过<br/>PASS"])
+
+    DISC --> EXEC
+    EXEC --> MID
+    MID --> VERIFY
+    VERIFY --> E
+
+    classDef source fill:#EAF3F3,stroke:#2B6F73,color:#182026;
+    classDef selected fill:#F5EBEE,stroke:#8A5363,color:#182026;
+    classDef unit fill:#FFFFFF,stroke:#5B7F83,color:#182026;
+    classDef status fill:#F7EEF1,stroke:#8A5363,color:#182026,stroke-width:2px;
+    classDef output fill:#E8F2F0,stroke:#2D7F75,color:#182026;
+    classDef check fill:#FFFFFF,stroke:#8A9AA7,color:#182026;
+    classDef result fill:#EAF4EE,stroke:#2F7A4B,color:#182026,stroke-width:2px;
+    class A,B source;
+    class SEL selected;
+    class u01,u02,u03,u04,u05,u06,u07,u08,u09,u10 unit;
+    class S status;
+    class D output;
+    class t01,t02,t03,t04,t05,t06,t07,t08,t09,t10,t11,t12,t13,t14,t15,t16,t17 check;
+    class E result;
+
+    style DISC fill:transparent,stroke:#AAB7C4,stroke-width:1px,stroke-dasharray:4 3;
+    style EXEC fill:transparent,stroke:#AAB7C4,stroke-width:1px,stroke-dasharray:4 3;
+    style MID fill:transparent,stroke:#AAB7C4,stroke-width:1px,stroke-dasharray:4 3;
+    style VERIFY fill:transparent,stroke:#AAB7C4,stroke-width:1px,stroke-dasharray:4 3;
+    style G1 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style G2 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style G3 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style G4 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style G5 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style V1 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style V2 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style V3 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    style V4 fill:#FFFFFF,stroke:#DCE4EA,stroke-width:1px;
+    linkStyle default stroke:#6D878B,stroke-width:1px;
+```
+
+<p align="center">
+  <a href="./docs/cases/ml-experiment/README.zh.md#案例执行过程">查看案例执行过程</a> ·
+  <a href="./docs/cases/ml-experiment/README.zh.md#最终交付结果">查看最终交付结果</a>
+</p>
+
+<a id="vibeskills-delivery-process"></a>
+<h2 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-chapter-02-cn-dark.svg">
+    <img src="./docs/assets/readme-chapter-02-cn-light.svg" width="720" alt="VibeSkills 如何把任务推进到可交付">
+  </picture>
+</h2>
+
+*VibeSkills 为 Agent 提供一套从接收任务到检查交付的完整流程。*
+
+每个阶段都回答一个具体问题：要做什么、怎样推进、哪些 Skills 参与、实际完成了什么，
+以及最终能否交付。
+
+<p align="center">
+  <img src="./docs/assets/vibeskills-harness-overview-cn.svg" width="860" alt="VibeSkills 从确认需求开始，经过 L 或 XL 分级、组织 Skills、执行并保存记录，最后检查结果；代码任务可以进入 TDD 循环">
+</p>
+
+<ol type="I">
+  <li><strong>确认需求。</strong> 开始工作前，先确认任务目标、限制条件、已有材料和最后要交付的内容。需求没有确认时，流程会停在这里，后面的计划和检查都有明确依据。</li>
+  <li><strong>推荐级别。</strong> VibeSkills 根据任务范围、步骤、依赖关系和可并行的工作推荐 <code>L</code> 或 <code>XL</code>，再由你确认。规模可控的任务按顺序推进，较大的任务拆得更细。</li>
+  <li><strong>组织 Skills。</strong> VibeSkills 查看本地 Skill 目录，为任务各部分选择合适的方法，并写清每个 Skill 负责什么、需要交付什么、怎样确认完成。</li>
+  <li><strong>执行并记录。</strong> 计划确认后，当前 Agent 按计划完成工作。代码任务可以在适合时使用测试驱动开发（TDD），先用失败测试确认问题，再修改并重新测试。完成、失败和阻塞都会记录，中断后也可以从已有进度继续。</li>
+  <li><strong>检查结果。</strong> 工作结束后，VibeSkills 把实际结果和计划逐项对照。必做内容没有完成、执行失败或仍然被卡住时，任务不会通过最终检查。</li>
+</ol>
+
+<details>
+<summary><strong>L 和 XL 分别适合什么任务</strong></summary>
+
+| 级别 | 适合的任务 | 处理方式 |
+|:---|:---|:---|
+| `L` | 步骤较多，但规模仍然可控 | 拆分后按顺序推进，处理过程较简单，使用的时间和上下文较少 |
+| `XL` | 包含多个相对独立部分的大任务 | 拆得更细，互不影响时最多同时推进两项工作，并增加协调和结果汇总 |
+
+</details>
+
+<a id="local-skills-in-tasks"></a>
+<h2 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-chapter-03-cn-dark.svg">
+    <img src="./docs/assets/readme-chapter-03-cn-light.svg" width="720" alt="本地 Skills 如何参与任务">
+  </picture>
+</h2>
+
+*本地 Skills 可以保存工具用法、工作步骤、判断标准和检查方法。*
+
+VibeSkills 会从你配置的本地 Skill 目录中查看可用 Skills，再根据任务每一部分需要
+完成的工作筛选候选。
+
+<p align="center">
+  <img src="./docs/assets/vibeskills-skill-orchestration-cn.png" width="860" alt="VibeSkills 位于任务模块和本地 Skills 之间，负责拆分任务、安排 Skills、协调工作并汇总结果">
+</p>
+
+图中左边是任务包含的不同工作，中间是 VibeSkills 做出的安排，右边是本地 Skill
+目录。被选中的 Skill 会对应到具体工作、交付内容和检查方式，最后由当前 Agent
+按照同一份计划完成。
+
+<table align="center" width="94%">
+  <thead>
+    <tr>
+      <th width="50%" align="center">只靠被动触发</th>
+      <th width="50%" align="center">使用 VibeSkills</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>AI 临时根据几个关键词决定用什么</td>
+      <td><strong>先把整个任务完整拆开</strong></td>
+    </tr>
+    <tr>
+      <td>容易反复使用最熟悉的一两个 Skills</td>
+      <td><strong>每一部分都看看有没有更合适的 Skill</strong></td>
+    </tr>
+    <tr>
+      <td>没匹配到的部分继续临场处理</td>
+      <td><strong>把合适的 Skill 安排到具体工作上，并写清要做出什么</strong></td>
+    </tr>
+    <tr>
+      <td>各次调用互不衔接</td>
+      <td><strong>最后把所有结果汇总起来一起检查</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+VibeSkills 做的事情很直接：**先把任务拆清楚，再把合适的 Skills 安排到对应部分**。
+它负责协调这些工作，并在最后汇总检查。任务需要哪些 Skills 就使用哪些，不会把
+本地的 Skills 全部调用一遍。
+
+你可以继续添加自己编写的 Skill、团队内部 Skill 和第三方 Skill。VibeSkills 不会自动调用你安装的所有 Skills，
+只会选择当前任务真正用得上的部分。安装数量代表
+可选范围，不会变成每次任务都要使用的清单。
+
+<details>
+<summary><strong>Skill 很多时，会不会消耗很多 token？</strong></summary>
+
+VibeSkills 会检查你配置的 Skill 目录，但在本机发现文件和把文件全文放进模型上下文
+是两件事。
+
+目录发现和索引生成在本机完成。VibeSkills 先提取 Skill 的名称、说明、适用场景和
+边界等紧凑信息，用这些信息为任务的不同部分筛选候选。
+
+只有保留下来的候选才会由 Agent 继续阅读完整的 `SKILL.md`。执行时也只使用已经写进
+计划的 Skills。因此，token 开销主要取决于这次任务保留了多少候选、这些文档有多长，
+以及任务本身的复杂度，不会等同于把整个 Skill 库全文读一遍。
+
+这部分开销仍然存在。候选较多、Skill 文档较长或任务拆分较细时，会使用更多上下文。
+当前设计通过本地索引、候选筛选和按需阅读控制范围。
+
+</details>
+
+<details>
+<summary><strong>本地目录和选择记录</strong></summary>
+
+除了共享 Skills 目录，还可以通过 `~/.vibeskills/skill-roots.json` 或工作区中的
+`<workspace>/.vibeskills/skill-roots.json` 增加其他本地目录。
+
+一个 Skill 需要有可读取的 `SKILL.md`，名称不能与另一个 Skill 冲突，并且用途适合
+当前工作，才会进入选择范围。新增本地目录后，其中的 Skills 就可以参与后续任务，
+不需要等待 VibeSkills 项目收录。
+
+计划阶段，`agent_skill_organization` 保存每一部分准备使用哪些 Skills。开始执行后，
+`module_assignments` 保存实际分配。发现一个 Skill 只说明它可以考虑，不代表它
+已经参与了工作。
+
+</details>
+
+<a id="continue-and-review"></a>
+<h2 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-chapter-04-cn-dark.svg">
+    <img src="./docs/assets/readme-chapter-04-cn-light.svg" width="720" alt="任务中断后怎样继续，完成后怎样复查">
+  </picture>
+</h2>
+
+*公开案例会让人能顺着需求、计划、实际结果和最终检查一路看下来。*
+
+VibeSkills 会把确认过的需求、计划、执行进度和最终检查保存在同一次任务记录中。
+任务中断后，Agent 可以从已有进度继续；复查时，也能对照原来的计划和实际结果。
+安装状态单独记录，避免把“已经安装”和“任务已经完成”混在一起。
+
+<details>
+<summary><strong>查看记录文件</strong></summary>
+
+| 文件或目录 | 用来做什么 |
+|:---|:---|
+| `install-receipt.json` | 记录安装器写入的文件，供 `check` 检查安装是否完整、文件有没有被改动 |
+| `session_root` | 保存一次任务的输入、进度、重要决定和运行摘要 |
+| `module-work-plan.json` | 保存已经确认的任务安排，包括各部分由谁负责、需要交付什么、怎样检查 |
+| `module-execution.json` | 保存各部分实际完成的结果，以及完成、失败或被卡住的状态 |
+| `delivery-acceptance-report.json` 或 `.md` | 保存最终检查结果，说明哪些项目已经通过 |
+
+维护项目时，可以查看 [CI 检查结果](https://github.com/foryourhealth111-pixel/Vibe-Skills/actions/workflows/vco-gates.yml) 和本地 `check.ps1` 输出。
+一般先完成清单里的基础检查；只有发现风险时，再扩大检查范围。
+
+</details>
+
+这些记录不能互相代替。安装成功，不代表任务已经跑完；有运行记录，也不代表
+最终结果已经通过检查。
+
+<a id="use-vibeskills"></a>
+<h2 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-chapter-05-cn-dark.svg">
+    <img src="./docs/assets/readme-chapter-05-cn-light.svg" width="720" alt="使用 VibeSkills">
+  </picture>
+</h2>
+
+<ol type="I">
+  <li><strong>调用。</strong> 在任何支持本地 Skills 的 AI 应用中，通过应用自己的 Skills 入口调用 VibeSkills，可使用 <code>$vibe</code>、<code>/vibe</code> 或该应用提供的入口语法。</li>
+  <li><strong>发现。</strong> VibeSkills 会扫描 Skills 安装目录，以及你配置的其他本地 Skill 目录，找到当前可用的 Skills。</li>
+  <li><strong>组织。</strong> 它会根据任务选择合适的 Skills，安排到对应工作中，再统一推进和检查结果。你不需要自己记住每个 Skill 应该在什么时候使用。</li>
+</ol>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-wave-divider-dark.svg">
+    <img src="./docs/assets/readme-wave-divider-light.svg" width="240" alt="">
+  </picture>
+</p>
+
+<a id="more-documentation"></a>
+<h2 align="center">更多文档</h2>
+
+<table align="center" width="90%">
+  <thead>
+    <tr>
+      <th width="50%" align="center">你想做什么</th>
+      <th width="50%" align="center">从这里开始</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td align="center">查看一次完整的真实运行</td><td align="center"><strong><a href="./docs/cases/ml-experiment/README.zh.md">机器学习实验案例</a></strong></td></tr>
+    <tr><td align="center">安装、更新、卸载</td><td align="center"><strong><a href="./docs/install/README.md">简明安装指南</a></strong></td></tr>
+    <tr><td align="center">第一次使用</td><td align="center"><strong><a href="./docs/quick-start.md">快速开始</a></strong></td></tr>
+    <tr><td align="center">当前发布版本</td><td align="center"><strong><a href="https://github.com/foryourhealth111-pixel/Vibe-Skills/releases/latest">GitHub Release 元数据</a></strong></td></tr>
+    <tr><td align="center">了解它怎么工作</td><td align="center"><strong><a href="./docs/README.md">文档索引</a></strong></td></tr>
+    <tr><td align="center">排查问题</td><td align="center"><strong><a href="./docs/troubleshooting.md">故障排查</a></strong></td></tr>
+    <tr><td align="center">参与贡献</td><td align="center"><strong><a href="./CONTRIBUTING.md">贡献指南</a></strong></td></tr>
+  </tbody>
+</table>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-wave-divider-dark.svg">
+    <img src="./docs/assets/readme-wave-divider-light.svg" width="240" alt="">
+  </picture>
+</p>
+
+<a id="community-and-credits"></a>
+<h2 align="center">社区与致谢</h2>
+
+问题、纠错和范围清晰的贡献都可以通过
+[GitHub Issues](https://github.com/foryourhealth111-pixel/Vibe-Skills/issues)
+与 Pull Request 提交。
+
+VibeSkills 的使用讨论和社区实践也可以在 [LINUX DO](https://linux.do/) 继续交流。
+那里有技术讨论、AI 实践和使用经验分享。感谢 LINUX DO 社区一直以来对这个项目
+的支持。
+
+想看已经公开分享过的实践，可以从
+[VibeSkills 3.1.0 社区实践案例](https://linux.do/t/topic/2061161) 开始。
+
+社区贡献者包括
+[xiaozhongyaonvli](https://github.com/xiaozhongyaonvli) 和
+[ruirui2345](https://github.com/ruirui2345)。
+
+第三方软件的归属和许可证信息见 [NOTICE](./NOTICE) 与
+[第三方许可证](./THIRD_PARTY_LICENSES.md)。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme-wave-divider-dark.svg">
+    <img src="./docs/assets/readme-wave-divider-light.svg" width="240" alt="">
+  </picture>
+</p>
+
+

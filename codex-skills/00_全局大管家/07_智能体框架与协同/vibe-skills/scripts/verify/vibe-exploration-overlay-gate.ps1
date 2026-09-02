@@ -59,8 +59,6 @@ function Set-ExplorationOverlayStage {
     }
 
     # Force deterministic gate behavior.
-    $policy.preserve_routing_assignment = $true
-    $policy.route_mode_allow = @("legacy_fallback", "confirm_required", "pack_overlay")
     $policy.task_allow = @("planning", "coding", "review", "debug", "research")
     $policy.grade_allow = @("M", "L", "XL")
 
@@ -101,6 +99,12 @@ try {
     Write-Host "=== VCO Exploration Overlay Gate ==="
 
     Set-ExplorationOverlayStage -ConfigPath $policyPath -Stage "shadow"
+    $currentPolicy = Get-Content -LiteralPath $policyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $results += Assert-True -Condition (-not ($currentPolicy.PSObject.Properties.Name -contains "route_mode_allow")) -Message "[policy] route_mode_allow removed"
+
+    $moduleText = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\router\modules\44-exploration-overlay.ps1") -Raw -Encoding UTF8
+    $results += Assert-True -Condition (-not ($moduleText -match "route_mode_allow")) -Message "[module] route_mode_allow residue removed"
+
     $routeShadow = Invoke-Route -Prompt $mixedPrompt -Grade "M" -TaskType "coding"
     $results += Assert-True -Condition ($null -ne $routeShadow.exploration_advice) -Message "[shadow] exploration_advice exists"
     $results += Assert-True -Condition ($routeShadow.exploration_advice.enabled -eq $true) -Message "[shadow] overlay enabled"
@@ -110,10 +114,9 @@ try {
     $results += Assert-True -Condition ($routeShadow.exploration_advice.confirm_required -eq $false) -Message "[shadow] confirm is not forced"
     $results += Assert-True -Condition ([string]$routeShadow.exploration_advice.intent_id -ne "none") -Message "[shadow] intent is resolved"
     $results += Assert-True -Condition ([string]$routeShadow.exploration_advice.recommended_execution_mode -ne "") -Message "[shadow] execution mode is suggested"
-
-    $shadowPack = [string]$routeShadow.selected.pack_id
-    $shadowSkill = [string]$routeShadow.selected.skill
     $shadowRouteMode = [string]$routeShadow.route_mode
+    $results += Assert-True -Condition ($routeShadow.exploration_advice.auto_override -eq $false) -Message "[shadow] auto override stays off"
+    $results += Assert-True -Condition ($routeShadow.exploration_advice.route_override_applied -eq $false) -Message "[shadow] route override not applied"
 
     Set-ExplorationOverlayStage -ConfigPath $policyPath -Stage "soft"
     $routeSoft = Invoke-Route -Prompt $mixedPrompt -Grade "M" -TaskType "coding"
@@ -122,8 +125,8 @@ try {
     $results += Assert-True -Condition ($routeSoft.exploration_advice.confirm_recommended -eq $true) -Message "[soft] confirm is recommended"
     $results += Assert-True -Condition ($routeSoft.exploration_advice.confirm_required -eq $false) -Message "[soft] confirm is not forced"
     $results += Assert-True -Condition ($routeSoft.exploration_advice.enforcement -eq "advisory") -Message "[soft] enforcement remains advisory"
-    $results += Assert-True -Condition ($routeSoft.selected.pack_id -eq $shadowPack) -Message "[soft] selected pack unchanged"
-    $results += Assert-True -Condition ($routeSoft.selected.skill -eq $shadowSkill) -Message "[soft] selected skill unchanged"
+    $results += Assert-True -Condition ($routeSoft.exploration_advice.auto_override -eq $false) -Message "[soft] auto override stays off"
+    $results += Assert-True -Condition ($routeSoft.exploration_advice.route_override_applied -eq $false) -Message "[soft] route override not applied"
     $results += Assert-True -Condition ($routeSoft.route_mode -eq $shadowRouteMode) -Message "[soft] route mode unchanged"
 
     Set-ExplorationOverlayStage -ConfigPath $policyPath -Stage "strict"
@@ -132,15 +135,13 @@ try {
     $results += Assert-True -Condition ($routeStrict.exploration_advice.intent_ambiguous -eq $true) -Message "[strict] ambiguous intent detected"
     $results += Assert-True -Condition ($routeStrict.exploration_advice.confirm_required -eq $true) -Message "[strict] confirm_required set for ambiguity/multi-domain"
     $results += Assert-True -Condition ($routeStrict.exploration_advice.enforcement -eq "confirm_required") -Message "[strict] enforcement escalates to confirm_required"
-    $results += Assert-True -Condition ($routeStrict.selected.pack_id -eq $shadowPack) -Message "[strict] selected pack unchanged"
-    $results += Assert-True -Condition ($routeStrict.selected.skill -eq $shadowSkill) -Message "[strict] selected skill unchanged"
+    $results += Assert-True -Condition ($routeStrict.exploration_advice.auto_override -eq $false) -Message "[strict] auto override stays off"
+    $results += Assert-True -Condition ($routeStrict.exploration_advice.route_override_applied -eq $false) -Message "[strict] route override not applied"
     $results += Assert-True -Condition ($routeStrict.route_mode -eq $shadowRouteMode) -Message "[strict] route mode remains unchanged (advice-only)"
 
     Set-ExplorationOverlayStage -ConfigPath $policyPath -Stage "off"
     $routeOff = Invoke-Route -Prompt $mixedPrompt -Grade "M" -TaskType "coding"
     $results += Assert-True -Condition ($routeOff.exploration_advice.enabled -eq $false) -Message "[off] overlay disabled"
-    $results += Assert-True -Condition ($routeOff.selected.pack_id -eq $shadowPack) -Message "[off] selected pack unchanged"
-    $results += Assert-True -Condition ($routeOff.selected.skill -eq $shadowSkill) -Message "[off] selected skill unchanged"
 } finally {
     Set-Content -LiteralPath $policyPath -Value $originalRaw -Encoding UTF8
     Write-Host "Restored exploration-policy to original content."

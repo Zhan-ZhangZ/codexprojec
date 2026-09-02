@@ -28,9 +28,6 @@ def write_artifacts(repo_root: Path, artifact: dict[str, Any], output_directory:
         f"- Manual Actions Pending: `{artifact['summary']['manual_action_count']}`",
         f"- Warnings: `{artifact['summary']['warning_count']}`",
         f"- Target Root: `{artifact['target_root']}`",
-        f"- MCP Profile: `{artifact['mcp']['profile']}`",
-        f"- MCP Auto-Provision Attempted: `{artifact['mcp']['auto_provision_attempted']}`",
-        f"- MCP Active File Exists: `{artifact['mcp']['active_file_exists']}`",
         "",
         "## Settings",
         "",
@@ -50,21 +47,6 @@ def write_artifacts(repo_root: Path, artifact: dict[str, Any], output_directory:
             f"- Receipt Exists: `{global_instruction_bootstrap.get('receipt_exists')}`",
             f"- Duplicate Count: `{global_instruction_bootstrap.get('duplicate_count')}`",
             f"- Corruption: `{global_instruction_bootstrap.get('corruption')}`",
-            "",
-        ]
-    claude_code_global_mcp = ((artifact.get("host_runtime") or {}).get("claude_code_global_mcp") or {})
-    if claude_code_global_mcp.get("applicable"):
-        schema_issue = claude_code_global_mcp.get("claude_flow_schema_issue") or {}
-        lines += [
-            "## Claude Code Global MCP",
-            "",
-            f"- Status: `{claude_code_global_mcp.get('status')}`",
-            f"- Config Path: `{claude_code_global_mcp.get('config_path')}`",
-            f"- Bare npx Servers: `{', '.join(claude_code_global_mcp.get('windows_bare_npx_servers') or []) or 'none'}`",
-            f"- claude-flow MCP Aliases: `{', '.join(claude_code_global_mcp.get('claude_flow_mcp_servers') or []) or 'none'}`",
-            f"- Duplicate claude-flow Aliases: `{', '.join(claude_code_global_mcp.get('duplicate_claude_flow_aliases') or []) or 'none'}`",
-            f"- Schema Issue Detected: `{schema_issue.get('detected')}`",
-            f"- claude-flow Version: `{schema_issue.get('package_version')}`",
             "",
         ]
     if artifact["plugins"]:
@@ -88,13 +70,6 @@ def write_artifacts(repo_root: Path, artifact: dict[str, Any], output_directory:
                 f"- `{surface['name']}`: role=`{surface['role']}` status=`{surface['status']}` next_step=`{surface['next_step']}`"
             )
         lines.append("")
-    if artifact["mcp"]["servers"]:
-        lines += ["## MCP Servers", ""]
-        for server in artifact["mcp"]["servers"]:
-            lines.append(
-                f"- `{server['name']}`: mode=`{server['mode']}` status=`{server['status']}` next_step=`{server['next_step']}`"
-            )
-        lines.append("")
     if artifact["integration_surfaces"]:
         lines += ["## External Integration Surfaces", ""]
         for surface in artifact["integration_surfaces"]:
@@ -116,29 +91,12 @@ def evaluate(repo_root: Path, target_root: Path) -> dict[str, Any]:
     settings_path = target_root / "settings.json"
     settings = load_json(settings_path) if settings_path.exists() else None
 
-    profile = "full"
-    if isinstance(settings, dict):
-        vco = settings.get("vco")
-        if isinstance(vco, dict) and vco.get("mcp_profile"):
-            profile = str(vco["mcp_profile"])
-
-    profile_path = repo_root / "mcp" / "profiles" / f"{profile}.json"
-    active_mcp_path = target_root / "mcp" / "servers.active.json"
-    mcp_receipt_path = target_root / ".vibeskills" / "mcp-auto-provision.json"
-    mcp_receipt = load_json(mcp_receipt_path) if mcp_receipt_path.exists() else None
-
     return build_bootstrap_artifact(
         repo_root=repo_root,
         target_root=target_root,
         settings_path=settings_path,
         settings=settings,
-        profile=profile,
-        profile_path=profile_path,
-        active_mcp_path=active_mcp_path,
-        mcp_receipt_path=mcp_receipt_path,
-        mcp_receipt=mcp_receipt,
         plugins_manifest=load_json(repo_root / "config" / "plugins-manifest.codex.json"),
-        servers_template=load_json(repo_root / "mcp" / "servers.template.json"),
         secrets_policy=load_json(repo_root / "config" / "secrets-policy.json"),
         tool_registry=load_json(repo_root / "config" / "tool-registry.json"),
         memory_governance=load_json(repo_root / "config" / "memory-governance.json"),

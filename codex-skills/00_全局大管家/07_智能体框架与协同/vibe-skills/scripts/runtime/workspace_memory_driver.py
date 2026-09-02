@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,16 @@ if os.name == "nt":
     import msvcrt
 else:
     import fcntl
+
+
+CONTRACTS_SRC = Path(__file__).resolve().parents[2] / "packages" / "contracts" / "src"
+if CONTRACTS_SRC.is_dir() and str(CONTRACTS_SRC) not in sys.path:
+    sys.path.insert(0, str(CONTRACTS_SRC))
+
+from vgo_contracts.live_governance_contract import (  # noqa: E402
+    LiveGovernanceContract,
+    load_live_governance_contract_file,
+)
 
 
 LANE_KIND = {
@@ -249,7 +260,11 @@ def dedupe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def load_workspace_memory_policy_bundle(repo_root: Path) -> dict[str, Any]:
     config_root = repo_root / "config"
     bundle: dict[str, Any] = {}
-    for name in ("memory-ingest-policy", "memory-disclosure-policy", "workspace-memory-plane"):
+    for name in (
+        "memory-ingest-policy",
+        "memory-disclosure-policy",
+        "workspace-memory-plane",
+    ):
         path = config_root / f"{name}.json"
         bundle[name.replace("-", "_")] = load_json(path) if path.exists() else {}
     return bundle
@@ -259,8 +274,57 @@ def _normalize_identity_input(value: str) -> str:
     return value.replace("\\", "/").rstrip("/").lower()
 
 
+def _relative_runtime_contract(
+    repo_root: Path,
+    policy_bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    contract_path = repo_root / "config" / "live-document-contract.json"
+    policy_bundle = policy_bundle or {}
+    if "live_document_contract" in policy_bundle:
+        raw_contract = policy_bundle["live_document_contract"]
+        if not isinstance(raw_contract, dict):
+            raise ValueError(
+                f"live governance artifact contract is required: {contract_path}: "
+                "contract payload must be an object"
+            )
+        try:
+            contract = LiveGovernanceContract.model_validate(raw_contract)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"live governance artifact contract is required: {contract_path}: {exc}"
+            ) from exc
+    elif contract_path.is_file():
+        try:
+            contract = load_live_governance_contract_file(contract_path)
+        except (OSError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"live governance artifact contract is required: {contract_path}: {exc}"
+            ) from exc
+    else:
+        raise ValueError(
+            f"live governance artifact contract is required: {contract_path}"
+        )
+    sink = contract.artifact_sink
+    legacy_roots = sink.legacy_documentation_root_map
+    session_receipts = sink.session_receipts.model_dump()
+    return {
+        "artifact_sink_root": sink.root,
+        "legacy_requirement_root": legacy_roots["requirement"],
+        "legacy_execution_plan_root": legacy_roots["plan"],
+        "legacy_projection_root": sink.legacy_projection_root,
+        "artifact_paths": sink.artifact_path_map,
+        "primary_document_paths": sink.primary_document_path_map,
+        "manifest_path": sink.manifest_path,
+        "legacy_compatibility_path": sink.legacy_compatibility_path,
+        "session_root": session_receipts["root"],
+        "session_receipts": session_receipts,
+        "legacy_documentation_roots": list(sink.legacy_documentation_roots),
+        "legacy_removal_release": sink.legacy_removal_release,
+        "legacy_write_mode": sink.legacy_write_mode,
+    }
+
+
 def ensure_workspace_descriptor(repo_root: Path, policy_bundle: dict[str, Any] | None = None) -> dict[str, Any]:
-    del policy_bundle
     workspace_root = repo_root.resolve()
     sidecar_root = workspace_root / ".vibeskills"
     descriptor_path = sidecar_root / "project.json"
@@ -275,11 +339,10 @@ def ensure_workspace_descriptor(repo_root: Path, policy_bundle: dict[str, Any] |
             "workspace_sidecar_root": str(sidecar_root),
             "project_descriptor_path": str(descriptor_path),
             "default_artifact_root": str(sidecar_root),
-            "relative_runtime_contract": {
-                "requirement_root": "docs/requirements",
-                "execution_plan_root": "docs/plans",
-                "session_root": "outputs/runtime/vibe-sessions",
-            },
+            "relative_runtime_contract": _relative_runtime_contract(
+                workspace_root,
+                policy_bundle,
+            ),
             "host_sidecar_root": None,
         }
     descriptor["workspace_root"] = str(Path(str(descriptor.get("workspace_root") or workspace_root)).resolve())
@@ -288,11 +351,10 @@ def ensure_workspace_descriptor(repo_root: Path, policy_bundle: dict[str, Any] |
     descriptor["default_artifact_root"] = str(
         Path(str(descriptor.get("default_artifact_root") or descriptor["workspace_sidecar_root"])).resolve()
     )
-    descriptor["relative_runtime_contract"] = {
-        "requirement_root": "docs/requirements",
-        "execution_plan_root": "docs/plans",
-        "session_root": "outputs/runtime/vibe-sessions",
-    }
+    descriptor["relative_runtime_contract"] = _relative_runtime_contract(
+        workspace_root,
+        policy_bundle,
+    )
     descriptor["memory_plane"] = {
         "identity_root": descriptor["project_descriptor_path"],
         "identity_scope": WORKSPACE_MEMORY_IDENTITY_SCOPE,

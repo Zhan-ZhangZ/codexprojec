@@ -19,6 +19,13 @@ from .materializer import compatibility_projection_names
 from .runtime_packaging import resolve_runtime_core_packaging
 from .global_instruction_service import remove_global_instruction_bootstrap
 
+RETIRED_DISCOVERABLE_ENTRY_IDS = (
+    "vibe-what-do-i-want",
+    "vibe-how-do-we-do",
+    "vibe-do-it",
+    "vibe-upgrade",
+)
+
 
 def should_remove_claude_pretooluse_hook_entry(
     entry: dict,
@@ -117,9 +124,10 @@ def runtime_core_inventory(repo_root: Path) -> set[str]:
 
     internal_corpus = packaging.get("internal_skill_corpus") or {}
     if bool(internal_corpus.get("enabled")):
-        source_root = repo_root / str(internal_corpus.get("source") or "bundled/skills")
-        target_prefix = normalize_relpath(str(internal_corpus.get("target_relpath") or "skills/vibe/bundled/skills"))
-        if source_root.exists() and target_prefix:
+        source_value = str(internal_corpus.get("source") or "").strip()
+        target_prefix = normalize_relpath(str(internal_corpus.get("target_relpath") or ""))
+        source_root = repo_root / source_value if source_value else None
+        if source_root is not None and source_root.exists() and target_prefix:
             for candidate in source_root.iterdir():
                 if not candidate.is_dir() or candidate.name in exclude_bundled_skill_names:
                     continue
@@ -128,9 +136,11 @@ def runtime_core_inventory(repo_root: Path) -> set[str]:
     projections = packaging.get("compatibility_skill_projections") or {}
     projection_root = normalize_relpath(str(projections.get("target_root") or "skills")) or "skills"
     projected_names = compatibility_projection_names(packaging, host_id=None)
-    bundled_source = repo_root / str(packaging.get("bundled_skills_source") or "bundled/skills")
+    bundled_source_value = str(packaging.get("bundled_skills_source") or "").strip()
+    bundled_source = repo_root / bundled_source_value if bundled_source_value else None
     for name in projected_names:
-        inventory.update(collect_file_inventory(bundled_source / name, f"{projection_root}/{name}"))
+        if bundled_source is not None:
+            inventory.update(collect_file_inventory(bundled_source / name, f"{projection_root}/{name}"))
 
     target_rel = normalize_relpath(
         (packaging.get("canonical_vibe_payload") or {}).get("target_relpath")
@@ -162,12 +172,9 @@ def host_inventory(repo_root: Path, host_id: str) -> set[str]:
     if host_id == "codex":
         inventory.update(collect_file_inventory(repo_root / "rules", "rules"))
         inventory.update(collect_file_inventory(repo_root / "agents" / "templates", "agents/templates"))
-        inventory.update(collect_file_inventory(repo_root / "mcp", "mcp"))
         inventory.add("config/plugins-manifest.codex.json")
-        inventory.update(collect_file_inventory(repo_root / "bundled" / "skills" / "vibe-what-do-i-want", "skills/vibe-what-do-i-want"))
-        inventory.update(collect_file_inventory(repo_root / "bundled" / "skills" / "vibe-how-do-we-do", "skills/vibe-how-do-we-do"))
-        inventory.update(collect_file_inventory(repo_root / "bundled" / "skills" / "vibe-do-it", "skills/vibe-do-it"))
-        inventory.update(collect_file_inventory(repo_root / "bundled" / "skills" / "vibe-upgrade", "skills/vibe-upgrade"))
+        for entry_id in RETIRED_DISCOVERABLE_ENTRY_IDS:
+            inventory.add(f"skills/{entry_id}/SKILL.md")
         inventory.update(
             {
                 "commands/vibe-what-do-i-want.md",
@@ -198,16 +205,17 @@ def path_matches_template(path: Path, template_path: Path) -> bool:
     return path.read_text(encoding="utf-8") == template_path.read_text(encoding="utf-8")
 
 
-def parse_path_list(values: object, target_root: Path) -> set[str]:
+def parse_path_list(values: object, target_root: Path, *, base_root: Path | None = None) -> set[str]:
     result: set[str] = set()
+    effective_root = (base_root or target_root).resolve()
     if not isinstance(values, list):
         return result
     for entry in values:
         normalized = None
         if isinstance(entry, dict):
-            normalized = relativize_to_target(entry.get("path"), target_root)
+            normalized = relativize_to_target(entry.get("path"), effective_root)
         else:
-            normalized = relativize_to_target(entry, target_root)
+            normalized = relativize_to_target(entry, effective_root)
         if normalized:
             result.add(normalized)
     return result
@@ -410,14 +418,15 @@ def plan_uninstall(repo_root: Path, target_root: Path, adapter: dict) -> dict[st
     ledger = load_json(ledger_path) if ledger_path.exists() else None
     if ledger is not None:
         ownership_source.append("ledger")
-        runtime_roots = parse_path_list(ledger.get("runtime_roots"), target_root)
-        compatibility_roots = parse_path_list(ledger.get("compatibility_roots"), target_root)
+        runtime_root_base = Path(str(ledger.get("runtime_root") or target_root)).resolve()
+        runtime_roots = parse_path_list(ledger.get("runtime_roots"), target_root, base_root=runtime_root_base)
+        compatibility_roots = parse_path_list(ledger.get("compatibility_roots"), target_root, base_root=runtime_root_base)
         sidecar_roots = parse_path_list(ledger.get("sidecar_roots"), target_root)
-        legacy_cleanup_candidates = parse_path_list(ledger.get("legacy_cleanup_candidates"), target_root)
+        legacy_cleanup_candidates = parse_path_list(ledger.get("legacy_cleanup_candidates"), target_root, base_root=runtime_root_base)
         owned_tree_roots = parse_path_list(ledger.get("owned_tree_roots"), target_root)
 
-        def collect_owned_root(rel: str) -> None:
-            candidate = target_root / rel
+        def collect_owned_root(rel: str, *, base_root: Path = target_root) -> None:
+            candidate = base_root / rel
             if candidate.exists() and candidate.is_dir() and not candidate.is_symlink():
                 managed_files.update(collect_target_tree_inventory(target_root, rel))
                 deleted_dirs.add(rel)
@@ -427,7 +436,7 @@ def plan_uninstall(repo_root: Path, target_root: Path, adapter: dict) -> dict[st
         if runtime_roots or compatibility_roots or sidecar_roots or legacy_cleanup_candidates:
             ownership_source.append("ledger-v2-roots")
             for rel in sorted(runtime_roots | compatibility_roots | legacy_cleanup_candidates):
-                collect_owned_root(rel)
+                collect_owned_root(rel, base_root=runtime_root_base)
             for rel in sorted(sidecar_roots):
                 collect_owned_root(rel)
         for rel in sorted(owned_tree_roots):
@@ -440,7 +449,7 @@ def plan_uninstall(repo_root: Path, target_root: Path, adapter: dict) -> dict[st
             if candidate.exists() and candidate.is_dir() and not candidate.is_symlink():
                 continue
             managed_files.add(rel)
-        for rel in sorted(parse_path_list(ledger.get("specialist_wrapper_paths"), target_root)):
+        for rel in sorted(parse_path_list(ledger.get("host_visible_entry_paths"), target_root)):
             candidate = target_root / rel
             if candidate.exists() and candidate.is_dir() and not candidate.is_symlink():
                 continue
@@ -488,11 +497,6 @@ def plan_uninstall(repo_root: Path, target_root: Path, adapter: dict) -> dict[st
         settings_template = repo_root / "config" / "settings.template.codex.json"
         if path_matches_template(target_root / "settings.json", settings_template):
             template_candidates.append("settings.json")
-    if host_id in {"windsurf", "openclaw"}:
-        mcp_template = repo_root / "mcp" / "servers.template.json"
-        if path_matches_template(target_root / "mcp_config.json", mcp_template):
-            template_candidates.append("mcp_config.json")
-
     managed_json_paths = parse_config_rollbacks(ledger.get("config_rollbacks") if isinstance(ledger, dict) else None, target_root)
     if not managed_json_paths:
         managed_json_paths = parse_managed_json_paths(ledger.get("managed_json_paths") if isinstance(ledger, dict) else None, target_root)

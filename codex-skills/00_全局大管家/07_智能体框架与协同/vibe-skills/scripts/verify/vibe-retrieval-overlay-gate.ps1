@@ -59,7 +59,6 @@ function Set-RetrievalOverlayStage {
     }
 
     # Force deterministic gate behavior.
-    $policy.preserve_routing_assignment = $true
     $policy.profile_selection.min_profile_confidence = 0.9
     $policy.profile_selection.ambiguous_gap = 0.2
     $policy.profile_selection.fallback_profile = "composite"
@@ -89,6 +88,14 @@ try {
     Write-Host "=== VCO Retrieval Overlay Gate ==="
 
     Set-RetrievalOverlayStage -ConfigPath $policyPath -Stage "shadow"
+    $currentPolicy = Get-Content -LiteralPath $policyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $results += Assert-True -Condition (-not ($currentPolicy.PSObject.Properties.Name -contains "preserve_routing_assignment")) -Message "[policy] preserve_routing_assignment removed"
+    $results += Assert-True -Condition (-not ($currentPolicy.PSObject.Properties.Name -contains "route_mode_allow")) -Message "[policy] route_mode_allow removed"
+
+    $moduleText = Get-Content -LiteralPath (Join-Path $repoRoot "scripts\router\modules\43-retrieval-overlay.ps1") -Raw -Encoding UTF8
+    $results += Assert-True -Condition (-not ($moduleText -match "preserve_routing_assignment")) -Message "[module] preserve_routing_assignment residue removed"
+    $results += Assert-True -Condition (-not ($moduleText -match "route_mode_allow")) -Message "[module] route_mode_allow residue removed"
+
     $routeShadow = Invoke-Route -Prompt $literaturePrompt -Grade "L" -TaskType "research"
     $results += Assert-True -Condition ($null -ne $routeShadow.retrieval_advice) -Message "[shadow] retrieval_advice exists"
     $results += Assert-True -Condition ($routeShadow.retrieval_advice.enabled -eq $true) -Message "[shadow] overlay enabled"
@@ -98,18 +105,17 @@ try {
     $results += Assert-True -Condition ($routeShadow.retrieval_advice.confirm_required -eq $false) -Message "[shadow] confirm is not forced"
     $results += Assert-True -Condition ($routeShadow.retrieval_advice.query_plan.max_query_variants -eq 3) -Message "[shadow] query variant budget applied"
     $results += Assert-True -Condition ($routeShadow.retrieval_advice.source_plan.source_count -ge 1) -Message "[shadow] source plan resolved"
-
-    $shadowPack = [string]$routeShadow.selected.pack_id
-    $shadowSkill = [string]$routeShadow.selected.skill
     $shadowRouteMode = [string]$routeShadow.route_mode
+    $results += Assert-True -Condition ($routeShadow.retrieval_advice.auto_override -eq $false) -Message "[shadow] auto override stays off"
+    $results += Assert-True -Condition ($routeShadow.retrieval_advice.route_override_applied -eq $false) -Message "[shadow] route override not applied"
 
     Set-RetrievalOverlayStage -ConfigPath $policyPath -Stage "soft"
     $routeSoft = Invoke-Route -Prompt $literaturePrompt -Grade "L" -TaskType "research"
     $results += Assert-True -Condition ($routeSoft.retrieval_advice.mode -eq "soft") -Message "[soft] mode is soft"
     $results += Assert-True -Condition ($routeSoft.retrieval_advice.enforcement -eq "advisory") -Message "[soft] enforcement remains advisory"
     $results += Assert-True -Condition ($routeSoft.retrieval_advice.query_plan.max_query_variants -eq 4) -Message "[soft] query variant budget increased"
-    $results += Assert-True -Condition ($routeSoft.selected.pack_id -eq $shadowPack) -Message "[soft] selected pack unchanged"
-    $results += Assert-True -Condition ($routeSoft.selected.skill -eq $shadowSkill) -Message "[soft] selected skill unchanged"
+    $results += Assert-True -Condition ($routeSoft.retrieval_advice.auto_override -eq $false) -Message "[soft] auto override stays off"
+    $results += Assert-True -Condition ($routeSoft.retrieval_advice.route_override_applied -eq $false) -Message "[soft] route override not applied"
     $results += Assert-True -Condition ($routeSoft.route_mode -eq $shadowRouteMode) -Message "[soft] route mode unchanged"
 
     Set-RetrievalOverlayStage -ConfigPath $policyPath -Stage "strict"
@@ -119,12 +125,12 @@ try {
     $results += Assert-True -Condition ($routeStrict.retrieval_advice.confirm_required -eq $true) -Message "[strict] confirm_required set for ambiguity/coverage"
     $results += Assert-True -Condition ($routeStrict.retrieval_advice.enforcement -eq "confirm_required") -Message "[strict] enforcement escalates to confirm_required"
     $results += Assert-True -Condition ($routeStrict.retrieval_advice.query_plan.max_query_variants -eq 5) -Message "[strict] query variant budget increased"
+    $results += Assert-True -Condition ($routeStrict.retrieval_advice.auto_override -eq $false) -Message "[strict] auto override stays off"
+    $results += Assert-True -Condition ($routeStrict.retrieval_advice.route_override_applied -eq $false) -Message "[strict] route override not applied"
 
     Set-RetrievalOverlayStage -ConfigPath $policyPath -Stage "off"
     $routeOff = Invoke-Route -Prompt $literaturePrompt -Grade "L" -TaskType "research"
     $results += Assert-True -Condition ($routeOff.retrieval_advice.enabled -eq $false) -Message "[off] overlay disabled"
-    $results += Assert-True -Condition ($routeOff.selected.pack_id -eq $shadowPack) -Message "[off] selected pack unchanged"
-    $results += Assert-True -Condition ($routeOff.selected.skill -eq $shadowSkill) -Message "[off] selected skill unchanged"
 } finally {
     Set-Content -LiteralPath $policyPath -Value $originalRaw -Encoding UTF8
     Write-Host "Restored retrieval-policy to original content."
@@ -146,4 +152,3 @@ if ($failCount -gt 0) {
 
 Write-Host "Retrieval overlay gate passed."
 exit 0
-

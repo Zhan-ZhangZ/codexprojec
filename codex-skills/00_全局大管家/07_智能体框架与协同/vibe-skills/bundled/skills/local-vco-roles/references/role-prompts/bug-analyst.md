@@ -1,4 +1,4 @@
-# bug-analyst Prompt
+﻿# bug-analyst Prompt
 
 Role goal:
 Identify concrete defects, contradictions, dead references, and runtime breakpoints.

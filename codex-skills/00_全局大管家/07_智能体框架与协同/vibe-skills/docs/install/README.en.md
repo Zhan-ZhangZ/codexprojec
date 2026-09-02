@@ -1,99 +1,72 @@
-# Install Docs Index
+# Simple Install
 
-This folder contains the install, update, uninstall, and custom-integration docs.
+The public install path starts from a published release zip, not a repository checkout. Download the current [vibe-skills-4.1.0-public.zip](https://github.com/foryourhealth111-pixel/Vibe-Skills/releases/download/v4.1.0/vibe-skills-4.1.0-public.zip), extract it outside the managed Skills directory, and run the wrappers from the extracted folder.
 
-Normal users have two paths:
+Verify the downloaded ZIP against the SHA-256 digest shown for the asset on the GitHub Release page.
 
-- **Prompt-based install**: copy one prompt into the AI app and let it confirm host, version, install, and check.
-- **Command install**: run install/check directly in a terminal when you already know the host root and command flow.
+## One Installation Model
 
-If you are unsure, start with prompt-based install:
+VibeSkills uses the same package and directory layout in every AI application:
 
-1. Open [`one-click-install-release-copy.en.md`](./one-click-install-release-copy.en.md).
-2. Choose host, action, and version.
-3. Copy one prompt into the AI app you want to install VibeSkills into.
+1. Choose a `SkillsDir` that the application scans.
+2. Run `install` against that directory.
+3. Invoke `vibe` through the application's Skills entry.
 
-If you prefer direct commands, open [`recommended-full-path.en.md`](./recommended-full-path.en.md).
+The installer always writes the same runtime to `<SkillsDir>/vibe`. The
+application changes only the `SkillsDir` path and the invocation syntax; it
+does not select a different VibeSkills package or runtime.
 
-## Requirements
+The default directory is `~/.agents/skills`. If a host or your own workflow needs a different skills directory, pass it explicitly, for example `~/.codex/skills` or `~/.claude/skills`.
 
-- Python 3.10+
-- PowerShell 7 (`pwsh`) for the full governed verification path
-- Git access to this repository
+## Install
 
-Linux and macOS can still use the `bash` install scripts. PowerShell 7 is recommended because several governed verification gates use the PowerShell command surface.
+```powershell
+pwsh -NoProfile -File .\install.ps1 -SkillsDir "$HOME\.agents\skills"
+pwsh -NoProfile -File .\check.ps1 -SkillsDir "$HOME\.agents\skills"
+```
 
-## Main Pages
+```bash
+bash ./install.sh --skills-dir "$HOME/.agents/skills"
+bash ./check.sh --skills-dir "$HOME/.agents/skills"
+```
 
-| Need | Read |
-|:---|:---|
-| Public install/update entry | [`one-click-install-release-copy.en.md`](./one-click-install-release-copy.en.md) |
-| Command install reference | [`recommended-full-path.en.md`](./recommended-full-path.en.md) |
-| Host root decision help | [`../cold-start-install-paths.en.md`](../cold-start-install-paths.en.md) |
-| Offline/manual install | [`manual-copy-install.en.md`](./manual-copy-install.en.md) |
-| OpenClaw details | [`openclaw-path.en.md`](./openclaw-path.en.md) |
-| OpenCode details | [`opencode-path.en.md`](./opencode-path.en.md) |
-| Post-install configuration boundaries | [`configuration-guide.en.md`](./configuration-guide.en.md) |
-| Custom Skill onboarding | [`custom-workflow-onboarding.en.md`](./custom-workflow-onboarding.en.md) |
+To use another Skills directory, replace only the `SkillsDir` value. The
+installed files and runtime remain identical.
 
-Maintainer/reference pages:
+After installation, the managed directory is `<SkillsDir>/vibe`. The install receipt lives at `<SkillsDir>/vibe/.vibeskills/install-receipt.json`.
 
-- [`installation-rules.en.md`](./installation-rules.en.md): truth-first install assistant rules
-- [`host-plugin-policy.en.md`](./host-plugin-policy.en.md): host/plugin boundary notes
-- [`../one-shot-setup.md`](../one-shot-setup.md): one-shot setup behavior and MCP reporting contract
+`check` verifies the files recorded in the receipt.
+`check` proves `installed locally`. It does not prove `runtime coherent` or `delivery accepted`.
 
-## Prompt Library
+## Update An Existing Install
 
-The public prompt set is intentionally small:
+Download the newer published release ZIP first, extract it, and run these commands from that newer release copy against the same `SkillsDir`:
 
-- [`prompts/full-version-install.en.md`](./prompts/full-version-install.en.md)
-- [`prompts/framework-only-install.en.md`](./prompts/framework-only-install.en.md)
-- [`prompts/full-version-update.en.md`](./prompts/full-version-update.en.md)
-- [`prompts/framework-only-update.en.md`](./prompts/framework-only-update.en.md)
+```powershell
+pwsh -NoProfile -File .\update.ps1 -SkillsDir "$HOME\.agents\skills"
+pwsh -NoProfile -File .\check.ps1 -SkillsDir "$HOME\.agents\skills"
+```
 
-Other pages in this folder are reference docs, compatibility notes, or host-specific supplements. They are not separate public landing pages.
+```bash
+bash ./update.sh --skills-dir "$HOME/.agents/skills"
+bash ./check.sh --skills-dir "$HOME/.agents/skills"
+```
 
-## Public Versions
+Do not extract the new release inside the managed `<SkillsDir>/vibe` directory. `update` refuses to overwrite receipt-owned files when drift is detected.
 
-| Public wording | Runtime profile |
-|:---|:---|
-| `Full Version + Customizable Governance` | `full` |
-| `Framework Only + Customizable Governance` | `minimal` |
+## Remove
 
-Use `full` for the normal VibeSkills experience. Use `minimal` only when you deliberately want the smaller framework foundation.
+To remove VibeSkills, delete `<SkillsDir>/vibe` from the installation location.
 
-## Public Hosts
+## Replace An Older Version
 
-Current public host ids:
+Delete the old `<SkillsDir>/vibe` folder, then install the current release with the commands above.
 
-- `codex`
-- `claude-code`
-- `cursor`
-- `windsurf`
-- `openclaw`
-- `opencode`
+v4 does not automatically install or recommend the `chrome`, `chrome-devtools`, `playwright`, `context7`, or `claude-flow` MCPs. The installer also does not modify their host configuration.
 
-The install modes are not identical across hosts. `codex` and `claude-code` are the clearest install-and-use paths; `cursor`, `windsurf`, `openclaw`, and `opencode` have host-specific or preview-oriented boundaries. Keep those boundaries visible in install reports.
+The installer does not edit Codex, Claude, or Agents settings. It also does not write system prompts or command wrappers. Extra skill scan directories are managed by runtime config:
 
-## Truth Model For Install Reports
+- User level: `~/.vibeskills/skill-roots.json`
+- Workspace level: `<workspace>/.vibeskills/skill-roots.json`
 
-Do not collapse install state into one vague success line. Report these separately:
-
-- `installed locally`
-- `vibe host-ready`
-- `mcp native auto-provision attempted`
-- per-MCP `host-visible readiness`
-- `online-ready`
-
-`$vibe` or `/vibe` proves the governed runtime entry only. It is not MCP completion and not proof that providers, credentials, plugins, or host-native MCP surfaces are fully configured.
-
-The public install flow does not currently guide users through built-in online enhancement configuration. Install assistants should not ask users for providers, credentials, URLs, or model names; when that path is not configured through public docs, keep `online-ready` separate and report it as not ready or not verified.
-
-## Uninstall
-
-Use the repo-root uninstall entrypoint:
-
-- Windows: `uninstall.ps1 -HostId <host>`
-- Linux / macOS: `uninstall.sh --host <host>`
-
-See [`../uninstall-governance.md`](../uninstall-governance.md) for the owned-only cleanup contract.
+Repository checkout installation is for development only.

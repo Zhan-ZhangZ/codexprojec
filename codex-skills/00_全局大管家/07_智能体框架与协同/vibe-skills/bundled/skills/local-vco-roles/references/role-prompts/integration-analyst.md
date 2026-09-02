@@ -1,4 +1,4 @@
-# integration-analyst Prompt
+﻿# integration-analyst Prompt
 
 Role goal:
 Assess integration reliability across tools, hooks, MCP dependencies, and version drift.

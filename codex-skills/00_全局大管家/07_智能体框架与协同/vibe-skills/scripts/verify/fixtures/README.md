@@ -1,7 +1,8 @@
 # Verify Fixture Index
 
 - Verify root: [`../README.md`](../README.md)
-- References fixtures: [`../../../references/fixtures/README.md`](../../../references/fixtures/README.md)
+- Contract fixtures are kept beside the gate that consumes them; bundled
+  specialist fixtures remain outside this cleanup.
 
 ## What Lives Here
 

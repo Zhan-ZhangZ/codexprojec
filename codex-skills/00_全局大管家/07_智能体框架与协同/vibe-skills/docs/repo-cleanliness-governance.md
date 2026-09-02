@@ -26,7 +26,7 @@
 | Local operator state | `.serena/`, `task_plan.md`, `findings.md`, `progress.md` | 不入库；通过 shared ignore 或 local exclude 隐藏 |
 | Temporary scratch | `.tmp/` | 默认不入库；一次性补丁/调查文件及时删除 |
 | Runtime outputs | `outputs/**` | 视为可再生证据，不作为 canonical 资产 |
-| Governed workset | `config/`, `docs/`, `references/`, `scripts/`, `protocols/` | 保留为后续分批审阅/提交对象，不要用 ignore 掩盖 |
+| Governed workset | `adapters/`, `agents/`, `apps/`, `benchmarks/`, `bundled/`, `commands/`, `config/`, `core/`, `dist/`, `docs/`, `mcp/`, `packages/`, `protocols/`, `references/`, `rules/`, `schemas/`, `scripts/`, `templates/`, `tests/`, `third_party/`, `tmp-kernel-benchmark-artifacts/`, `vendor/`, `vgo_cli/` | 保留为后续分批审阅/提交对象，不要用 ignore 掩盖 |
 | High-risk packaging workset | `config/version-governance.json`, runtime packaging configs, install/uninstall/verify scripts | 只能走 canonical truth + generated compatibility，禁止重新引入 tracked mirror |
 
 ## Repo Policy
@@ -75,6 +75,8 @@ pwsh -NoProfile -File .\scripts\governance\install-local-worktree-excludes.ps1
 - 是否仍有**运行产物**暴露在 `git status`；
 - 是否出现了**不在治理范围内的未知 dirty 路径**；
 - 另外把真实的 governed workset / high-risk mirror pressure 作为 advisory 单独报告。
+
+这里的 governed workset 必须跟着真实仓库拓扑一起更新。当前 repo 已经不只是 `config/`、`docs/`、`scripts/` 这几个旧根；像 `apps/`、`packages/`、`tests/`、`adapters/`、`benchmarks/` 这类明确属于 canonical repo 的顶层面，也应被视为 managed workset backlog，而不是落到 uncategorized dirty。
 
 补充 operator：scripts/governance/export-repo-cleanliness-inventory.ps1 会导出 plane split、top dirty prefixes 与 bucket summary，用于 Batch0 的 freeze/inventory/classification。
 

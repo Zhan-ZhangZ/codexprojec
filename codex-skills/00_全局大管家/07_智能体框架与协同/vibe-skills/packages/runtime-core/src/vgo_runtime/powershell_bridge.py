@@ -238,22 +238,23 @@ def _decode_json_object_stdout(
     *,
     bridge_label: str,
     stderr: bytes | str | None = None,
+    stream_label: str = "stdout",
 ) -> dict[str, Any]:
     stderr_preview = _preview_stream(stderr)
     if stdout is None:
         detail = f"; stderr={stderr_preview}" if stderr_preview else ""
-        raise RuntimeError(f"{bridge_label} returned no stdout{detail}")
+        raise RuntimeError(f"{bridge_label} returned no {stream_label}{detail}")
 
     if isinstance(stdout, str):
         payload_text = stdout.strip()
         if not payload_text:
             detail = f"; stderr={stderr_preview}" if stderr_preview else ""
-            raise RuntimeError(f"{bridge_label} returned empty stdout{detail}")
+            raise RuntimeError(f"{bridge_label} returned empty {stream_label}{detail}")
         try:
             payload = json.loads(payload_text)
         except json.JSONDecodeError as exc:
             detail = _build_stream_detail(stdout=stdout, stderr=stderr)
-            raise RuntimeError(f"{bridge_label} returned invalid JSON stdout{detail}") from exc
+            raise RuntimeError(f"{bridge_label} returned invalid JSON {stream_label}{detail}") from exc
         if not isinstance(payload, dict):
             detail = _build_stream_detail(stdout=stdout, stderr=stderr)
             raise RuntimeError(f"{bridge_label} returned non-object payload{detail}")
@@ -261,7 +262,7 @@ def _decode_json_object_stdout(
 
     if not stdout.strip():
         detail = f"; stderr={stderr_preview}" if stderr_preview else ""
-        raise RuntimeError(f"{bridge_label} returned empty stdout{detail}")
+        raise RuntimeError(f"{bridge_label} returned empty {stream_label}{detail}")
 
     decode_failures: list[str] = []
     last_json_error: tuple[str, json.JSONDecodeError] | None = None
@@ -292,7 +293,7 @@ def _decode_json_object_stdout(
             decoded_as=last_json_error[0],
             extra_parts=extra_parts,
         )
-        raise RuntimeError(f"{bridge_label} returned invalid JSON stdout{detail}") from last_json_error[1]
+        raise RuntimeError(f"{bridge_label} returned invalid JSON {stream_label}{detail}") from last_json_error[1]
     if last_non_object is not None:
         detail = _build_stream_detail(
             stdout=stdout,
@@ -302,7 +303,7 @@ def _decode_json_object_stdout(
         )
         raise RuntimeError(f"{bridge_label} returned non-object payload{detail}")
     detail = _build_stream_detail(stdout=stdout, stderr=stderr, extra_parts=extra_parts)
-    raise RuntimeError(f"{bridge_label} returned undecodable JSON stdout{detail}")
+    raise RuntimeError(f"{bridge_label} returned undecodable JSON {stream_label}{detail}")
 
 
 def run_powershell_json_command(
@@ -312,6 +313,7 @@ def run_powershell_json_command(
     bridge_label: str,
     env: Mapping[str, str] | None = None,
     timeout: float | None = None,
+    json_output_path: str | Path | None = None,
 ) -> dict[str, Any]:
     resolved_timeout = _resolve_bridge_timeout(timeout)
     try:
@@ -341,6 +343,36 @@ def run_powershell_json_command(
             cwd=cwd,
             completed=completed,
         )
+    if json_output_path is not None:
+        output_path = Path(json_output_path)
+        try:
+            output_bytes = output_path.read_bytes()
+        except OSError as exc:
+            _raise_bridge_failure(
+                bridge_label=bridge_label,
+                message=f"JSON output file was not written: {output_path}",
+                command=command,
+                cwd=cwd,
+                completed=completed,
+                extra_parts=[f"json_output_path={output_path}"],
+            )
+            raise AssertionError("unreachable") from exc
+        try:
+            return _decode_json_object_stdout(
+                output_bytes,
+                bridge_label=bridge_label,
+                stderr=completed.stderr,
+                stream_label="JSON output file",
+            )
+        except RuntimeError as exc:
+            _raise_bridge_failure(
+                bridge_label=bridge_label,
+                message=str(exc),
+                command=command,
+                cwd=cwd,
+                completed=completed,
+                extra_parts=[f"json_output_path={output_path}"],
+            )
     try:
         return _decode_json_object_stdout(
             completed.stdout,

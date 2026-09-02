@@ -6,7 +6,7 @@
 
 | File | Purpose |
 | --- | --- |
-| [`pack-manifest.json`](pack-manifest.json) | pack routing 主入口 |
+| [`runtime-contract.json`](runtime-contract.json) | controller 与本地 skill 路由的运行时合同 |
 | [`router-thresholds.json`](router-thresholds.json) | routing threshold / confidence contract |
 | [`skill-alias-map.json`](skill-alias-map.json) | 旧 skill 名兼容映射 |
 | [`version-governance.json`](version-governance.json) | canonical-only packaging 与 generated compatibility contract |
@@ -18,7 +18,7 @@
 
 ## Families
 
-- Routing core: `pack-manifest.json`, `router-thresholds.json`, `skill-alias-map.json`
+- Routing core: host-declared local `SKILL.md` roots, generated `local_skill_index_v2`, `router-thresholds.json`, `skill-alias-map.json`
 - Runtime / packaging: `version-governance.json`, `frontmatter-integrity-policy.json`, `execution-context-status.json`, `bundled-skill-tier-policy.json`
 - Cleanliness / outputs: `repo-cleanliness-policy.json`, `outputs-boundary-policy.json`
 - Boards / lifecycle: `promotion-board.json`, `capability-catalog.json`
@@ -27,9 +27,9 @@
 ## Reading Order
 
 1. 先看 [`version-governance.json`](version-governance.json)、[`repo-cleanliness-policy.json`](repo-cleanliness-policy.json)、[`outputs-boundary-policy.json`](outputs-boundary-policy.json)。
-2. 再看 [`pack-manifest.json`](pack-manifest.json)、[`router-thresholds.json`](router-thresholds.json)、[`skill-alias-map.json`](skill-alias-map.json)。
+2. 再看 [`runtime-contract.json`](runtime-contract.json)、[`router-thresholds.json`](router-thresholds.json)、[`skill-alias-map.json`](skill-alias-map.json)。
 3. 需要 rollout / admission 时再进入 boards。
-4. 历史 wave boards / scorecards / archived governance-board snapshots 进入 [`../docs/archive/config/README.md`](../docs/archive/config/README.md)。
+4. 历史 wave boards、scorecards 和治理快照通过 Git 历史或 CI 工件检索。
 
 ## Rules
 

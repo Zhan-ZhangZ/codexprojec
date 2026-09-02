@@ -20,7 +20,6 @@ function Get-PromptAssetBoostPolicyDefaults {
         scope = [pscustomobject]@{
             grade_allow = @("M", "L", "XL")
             task_allow = @("planning", "coding", "review", "debug", "research")
-            route_mode_allow = @("legacy_fallback", "confirm_required", "pack_overlay")
         }
         trigger = [pscustomobject]@{
             require_prompt_signal = $true
@@ -72,7 +71,6 @@ function Get-PromptAssetBoostPolicy {
         scope = [pscustomobject]@{
             grade_allow = if ($scope.grade_allow) { @($scope.grade_allow) } else { @($defaults.scope.grade_allow) }
             task_allow = if ($scope.task_allow) { @($scope.task_allow) } else { @($defaults.scope.task_allow) }
-            route_mode_allow = if ($scope.route_mode_allow) { @($scope.route_mode_allow) } else { @($defaults.scope.route_mode_allow) }
         }
         trigger = [pscustomobject]@{
             require_prompt_signal = if ($trigger.require_prompt_signal -ne $null) { [bool]$trigger.require_prompt_signal } else { [bool]$defaults.trigger.require_prompt_signal }
@@ -105,8 +103,7 @@ function Test-PromptAssetBoostScope {
         [object]$Policy,
         [object]$PromptNormalization,
         [string]$Grade,
-        [string]$TaskType,
-        [string]$RouteMode
+        [string]$TaskType
     )
 
     $resolved = Get-PromptAssetBoostPolicy -Policy $Policy
@@ -130,7 +127,6 @@ function Test-PromptAssetBoostScope {
 
     if ($resolved.scope.grade_allow.Count -gt 0 -and -not ($resolved.scope.grade_allow -contains $Grade)) { $reasons += "grade_not_allowed" }
     if ($resolved.scope.task_allow.Count -gt 0 -and -not ($resolved.scope.task_allow -contains $TaskType)) { $reasons += "task_not_allowed" }
-    if ($resolved.scope.route_mode_allow.Count -gt 0 -and -not ($resolved.scope.route_mode_allow -contains $RouteMode)) { $reasons += "route_mode_not_allowed" }
 
     $scopeApplicable = ($reasons.Count -eq 0)
 
@@ -532,7 +528,7 @@ function Get-PromptAssetBoostAdvice {
     }
 
     $resolved = Get-PromptAssetBoostPolicy -Policy $PromptAssetBoostPolicy
-    $scope = Test-PromptAssetBoostScope -Policy $resolved -PromptNormalization $PromptNormalization -Grade $Grade -TaskType $TaskType -RouteMode $RouteMode
+    $scope = Test-PromptAssetBoostScope -Policy $resolved -PromptNormalization $PromptNormalization -Grade $Grade -TaskType $TaskType
 
     if (-not [bool]$scope.enabled -or -not [bool]$scope.scope_applicable) {
         return [pscustomobject]@{

@@ -40,6 +40,16 @@ from vgo_contracts.canonical_vibe_contract import resolve_canonical_vibe_contrac
 from vgo_contracts.target_root_contract import resolve_target_root_text
 
 
+LEGACY_TARGET_ROOT_SIGNATURES: dict[str, tuple[str, ...]] = {
+    'codex': ('.codex',),
+    'claude-code': ('.claude',),
+    'cursor': ('.cursor',),
+    'windsurf': ('.codeium/windsurf',),
+    'openclaw': ('.openclaw',),
+    'opencode': ('.config/opencode', '.opencode'),
+}
+
+
 def resolve_registry_path(repo_root: Path) -> tuple[Path, Path]:
     try:
         registry_path = resolve_adapter_registry_path(repo_root)
@@ -181,12 +191,9 @@ def path_matches_relative_signature(target_root: str, signature: str) -> bool:
 def _target_root_signatures(host_id: str, entry: dict[str, Any]) -> tuple[str, ...]:
     spec = _target_root_spec_from_entry(entry)
     signatures = []
-    if spec['rel']:
+    if spec['rel'] and spec['kind'] != 'shared-home':
         signatures.append(spec['rel'])
-    if host_id == 'cursor':
-        signatures.append('.cursor')
-    if host_id == 'opencode':
-        signatures.append('.opencode')
+    signatures.extend(LEGACY_TARGET_ROOT_SIGNATURES.get(host_id, ()))
     return tuple(signatures)
 
 

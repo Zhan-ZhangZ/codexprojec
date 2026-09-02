@@ -97,7 +97,7 @@ verbosity = "debug"
 ### Activate Profile
 
 ```python
-# tests/conftest.py
+# https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/conftest.py
 from hypothesis import settings, Verbosity
 
 # Set default profile based on environment
