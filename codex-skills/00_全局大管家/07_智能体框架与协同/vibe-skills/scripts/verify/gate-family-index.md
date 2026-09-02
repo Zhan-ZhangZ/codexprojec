@@ -4,31 +4,27 @@
 
 ## Start Here
 
-- closure proof contract: [`../../docs/status/non-regression-proof-bundle.md`](../../docs/status/non-regression-proof-bundle.md)
+- closure proof contract: [`../../config/live-document-contract.json`](../../config/live-document-contract.json)
 - verify entrypoint: [`README.md`](./README.md)
 - broader operator surface: [`../governance/README.md`](../governance/README.md)
 
-## Typical Closure Order
+## Default release closure
 
-1. `vibe-pack-routing-smoke.ps1`
-2. `vibe-router-contract-gate.ps1`
-3. `vibe-current-routing-debt-gate.ps1`
-   current meaning: current routing debt stays out of runtime, router, docs, and current tests
-4. `vibe-version-packaging-gate.ps1`
-   current meaning: canonical-only packaging governance + generated compatibility wiring
-5. `vibe-mirror-edit-hygiene-gate.ps1`
-   current meaning: block repo-tracked mirror reintroduction
-6. `vibe-output-artifact-boundary-gate.ps1`
-7. `vibe-installed-runtime-freshness-gate.ps1`
-8. `vibe-release-install-runtime-coherence-gate.ps1`
-9. `vibe-release-truth-consistency-gate.ps1`
-10. `vibe-repo-cleanliness-gate.ps1`
+1. `vibe-governed-runtime-contract-gate.ps1`
+2. `vibe-canonical-entry-truth-gate.ps1`
+3. `vibe-runtime-execution-proof-gate.ps1`
+4. `vibe-release-truth-consistency-gate.ps1`
+5. `vibe-repo-cleanliness-gate.ps1`
 
-## Families
+Default closure should stay small. Packaging, mirror, freshness, and retired-routing audit gates are still useful, but they are opt-in audit tools instead of the normal closeout path.
 
+## Touched-surface extension gates
+
+- Install receipt / installed-copy health: `check.ps1`, `vibe-installed-runtime-freshness-gate.ps1`
+- Routing / retired-routing audits: `vibe-pack-routing-smoke.ps1`, `vibe-current-routing-debt-gate.ps1`
 - Runtime / packaging: `vibe-bom-frontmatter-gate.ps1`, `vibe-version-packaging-gate.ps1`, `vibe-installed-runtime-freshness-gate.ps1`
 - Release / truth honesty: `vibe-dist-manifest-gate.ps1`, `vibe-release-notes-quality-gate.ps1`, `vibe-release-truth-consistency-gate.ps1`
-- Cleanliness / outputs / compatibility hygiene: `vibe-current-routing-debt-gate.ps1` verifies retired routing terms stay out of current runtime, router, docs, and current tests while allowing explicit retired/historical evidence; `vibe-repo-cleanliness-gate.ps1`, `vibe-output-artifact-boundary-gate.ps1`, `vibe-mirror-edit-hygiene-gate.ps1`, `vibe-nested-bundled-parity-gate.ps1`
+- Cleanliness / outputs / compatibility hygiene: `vibe-current-routing-debt-gate.ps1` is the current routing debt audit. It verifies retired routing terms stay out of current runtime, router, docs, and current tests while allowing explicit retired/historical evidence; `vibe-repo-cleanliness-gate.ps1`, `vibe-output-artifact-boundary-gate.ps1`, `vibe-mirror-edit-hygiene-gate.ps1`, `vibe-nested-bundled-parity-gate.ps1`
 - Plane governance: `vibe-browserops-*.ps1`, `vibe-desktopops-*.ps1`, `vibe-docling-*.ps1`, `vibe-connector-*.ps1`
 - Capability / upstream / role packs: `vibe-capability-*.ps1`, `vibe-role-pack-*.ps1`, `vibe-upstream-*.ps1`
 - Operator Preview / Apply Safety: `vibe-operator-preview-contract-gate.ps1`, `vibe-manual-apply-policy-gate.ps1`
@@ -36,6 +32,6 @@
 
 ## Boundary
 
-- proof contract 在 [`../../docs/status/non-regression-proof-bundle.md`](../../docs/status/non-regression-proof-bundle.md)
+- proof contract 在 [`../../config/live-document-contract.json`](../../config/live-document-contract.json)
 - operator 导航在 [`../README.md`](../README.md)
 - 长期 contracts / ledgers / playbooks 在 [`../../references/index.md`](../../references/index.md)

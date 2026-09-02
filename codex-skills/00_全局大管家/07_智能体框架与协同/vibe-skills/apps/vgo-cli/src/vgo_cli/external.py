@@ -58,11 +58,8 @@ def maybe_install_external_dependencies(repo_root: object, install_mode: str, *,
     if strict_offline:
         return
     if shutil.which('npm'):
-        _run_optional_install(['npm', 'install', '-g', 'claude-flow'])
         if install_mode == 'governed':
             _run_optional_install(['npm', 'install', '-g', '@th0rgal/ralph-wiggum'])
-    if not shutil.which('scrapling'):
-        _run_optional_install([sys.executable, '-m', 'pip', 'install', 'scrapling[ai]'])
     if shutil.which('xan') is None:
         print('[WARN] xan CLI not detected. Install manually (brew/pixi/conda/cargo) to enable large CSV acceleration.')
     ivy_probe = subprocess.run([sys.executable, '-c', 'import ivy'], capture_output=True, text=True)

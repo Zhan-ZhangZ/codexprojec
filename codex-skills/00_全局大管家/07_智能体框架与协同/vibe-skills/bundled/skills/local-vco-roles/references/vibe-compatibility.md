@@ -1,4 +1,4 @@
-# vibe Compatibility Notes for local-vco-roles
+﻿# vibe Compatibility Notes for local-vco-roles
 
 ## Purpose
 

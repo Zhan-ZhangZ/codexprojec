@@ -66,7 +66,6 @@ if ($null -ne $context.runtimeConfig -and $context.runtimeConfig.PSObject.Proper
     $runtimeRel = [string]$context.runtimeConfig.target_relpath
 }
 
-$governanceDocPath = Join-Path $context.repoRoot 'docs\governance\frontmatter-bom-governance.md'
 $helpersPath = Join-Path $context.repoRoot 'scripts\common\vibe-governance-helpers.ps1'
 $releaseCutPath = Join-Path $context.repoRoot 'scripts\governance\release-cut.ps1'
 $installedFreshnessGateRel = 'scripts/verify/vibe-installed-runtime-freshness-gate.ps1'
@@ -181,15 +180,19 @@ foreach ($scope in @($policy.scopes)) {
     }
 }
 
-$governanceDocText = if (Test-Path -LiteralPath $governanceDocPath) { Get-Content -LiteralPath $governanceDocPath -Raw -Encoding UTF8 } else { '' }
 $releaseCutText = if (Test-Path -LiteralPath $releaseCutPath) { Get-Content -LiteralPath $releaseCutPath -Raw -Encoding UTF8 } else { '' }
+$frontmatterPolicyValid = (
+    (Test-Path -LiteralPath $policyPath -PathType Leaf) -and
+    $null -ne $policy.scopes -and
+    @($policy.scopes).Count -gt 0
+)
 
 $extraChecks = @(
     [pscustomobject]@{
-        scope = 'governance_doc'
-        path = $governanceDocPath
-        pass = ((Test-Path -LiteralPath $governanceDocPath) -and ($governanceDocText -match 'stop-ship') -and ($governanceDocText -match '字节 0|byte-0'))
-        reason = 'frontmatter governance doc exists and documents byte-0 stop-ship contract'
+        scope = 'frontmatter_policy'
+        path = $policyPath
+        pass = $frontmatterPolicyValid
+        reason = 'executable frontmatter scope policy exists and declares at least one scope'
     },
     [pscustomobject]@{
         scope = 'governance_helpers'

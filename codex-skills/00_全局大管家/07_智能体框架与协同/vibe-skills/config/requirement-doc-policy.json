@@ -2,7 +2,8 @@
   "version": 1,
   "updated_at": "2026-03-17",
   "enabled": true,
-  "root": "docs/requirements",
+  "artifact_sink": "config/live-document-contract.json",
+  "root": ".vibeskills/runs",
   "template_path": "templates/requirements/governed-requirement-template.md",
   "single_requirement_doc_per_run": true,
   "required_sections": [
@@ -15,6 +16,7 @@
     "Manual Spot Checks",
     "Completion Language Policy",
     "Delivery Truth Contract",
+    "Workflow Level Confirmation",
     "Primary Objective",
     "Non-Objective Proxy Signals",
     "Validation Material Role",
@@ -28,7 +30,7 @@
     "Assumptions",
     "Evidence Inputs"
   ],
-  "filename_contract": "{date}-{slug}.md",
+  "filename_contract": "{run_id}/requirement.md",
   "bridges": {
     "intent_contract_fields": [
       "goal",
@@ -39,6 +41,7 @@
       "manual_spot_checks",
       "completion_language_policy",
       "delivery_truth_contract",
+      "workflow_level_confirmation",
       "non_goals",
       "autonomy_mode",
       "assumptions"

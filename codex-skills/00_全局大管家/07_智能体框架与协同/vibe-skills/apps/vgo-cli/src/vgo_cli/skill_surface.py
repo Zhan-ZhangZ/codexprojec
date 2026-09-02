@@ -8,12 +8,7 @@ from .errors import CliError
 
 
 def resolve_codex_duplicate_skill_root(target_root: Path, host_id: str) -> Path | None:
-    if host_id != 'codex' or target_root.name.lower() != '.codex':
-        return None
-    parent = target_root.parent
-    if parent == target_root:
-        return None
-    return parent / '.agents' / 'skills' / 'vibe'
+    return None
 
 
 def is_vibe_skill_dir(root: Path) -> bool:

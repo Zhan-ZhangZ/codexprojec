@@ -202,13 +202,6 @@
             ]
           },
           {
-            "id": "mcp_template_exists",
-            "promise_level": "promised",
-            "evidence_paths": [
-              "mcp/servers.template.json"
-            ]
-          },
-          {
             "id": "official_runtime_entrypoints_exist",
             "promise_level": "promised",
             "evidence_paths": [
@@ -569,8 +562,7 @@
               "install.ps1",
               "install.sh",
               "check.ps1",
-              "check.sh",
-              "docs/install/opencode-path.en.md"
+              "check.sh"
             ]
           }
         ],
@@ -665,7 +657,6 @@
           "docs/universalization/platform-parity-contract.md",
           "config/settings.template.codex.json",
           "config/plugins-manifest.codex.json",
-          "mcp/servers.template.json",
           "adapters/codex/host-profile.json",
           "adapters/codex/settings-map.json",
           "adapters/codex/closure.json",
@@ -964,7 +955,6 @@
           "adapters/opencode/platform-windows.json",
           "adapters/opencode/platform-linux.json",
           "adapters/opencode/platform-macos.json",
-          "docs/install/opencode-path.en.md",
           "README.md"
         ],
         "host_adapter_ref": "adapters/opencode/host-profile.json",

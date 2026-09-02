@@ -9,7 +9,8 @@
   "human_entry_order": [
     "README.md",
     "docs/README.md",
-    "docs/status/non-regression-proof-bundle.md",
+    "config/live-document-contract.json",
+    "references/index.md",
     "scripts/verify/gate-family-index.md"
   ],
   "config_families": [

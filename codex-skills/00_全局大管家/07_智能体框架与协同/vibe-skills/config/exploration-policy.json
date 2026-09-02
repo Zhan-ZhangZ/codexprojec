@@ -3,7 +3,6 @@
     "updated": "2026-02-27",
     "enabled": true,
     "mode": "soft",
-    "preserve_routing_assignment": true,
     "routing_integration": "post_route_exploration_overlay",
     "task_allow": [
         "planning",
@@ -16,11 +15,6 @@
         "M",
         "L",
         "XL"
-    ],
-    "route_mode_allow": [
-        "legacy_fallback",
-        "confirm_required",
-        "pack_overlay"
     ],
     "intent_selection": {
         "min_intent_confidence": 0.44,
@@ -59,7 +53,3 @@
         "on_parser_failure": "continue_advisory"
     }
 }
-
-
-
-

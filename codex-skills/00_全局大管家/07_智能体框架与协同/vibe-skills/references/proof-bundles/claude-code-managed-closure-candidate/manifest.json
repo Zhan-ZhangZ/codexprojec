@@ -38,7 +38,7 @@
     {
       "id": "linux-managed-run-01-local-host",
       "bundle_dir": "references/proof-bundles/claude-code-managed-closure-candidate/linux-managed-run-01-local-host",
-      "operation_record": "references/proof-bundles/claude-code-managed-closure-candidate/linux-managed-run-01-local-host/operation-record.md",
+      "operation_record": null,
       "required_files": [
         "installed-runtime-outputs/runtime-freshness-receipt.json"
       ]
@@ -56,7 +56,7 @@
   "notes": [
     "This bundle freezes the current Claude managed-closure evidence and promotes only the Linux lane to supported-with-constraints.",
     "Linux proof is frozen as a clean target-root local-host install/check/smoke bundle for the bounded managed closure surface.",
-    "The live bundle intentionally keeps only the operation record plus the runtime-freshness receipt; duplicated verify outputs and command inventories are not part of the current proof contract.",
+    "The live bundle keeps only the runtime-freshness receipt; historical operation records, duplicated verify outputs, and command inventories are not part of the current proof contract.",
     "Windows and macOS remain blocked by missing fresh-machine replay and real Claude host smoke evidence."
   ]
 }

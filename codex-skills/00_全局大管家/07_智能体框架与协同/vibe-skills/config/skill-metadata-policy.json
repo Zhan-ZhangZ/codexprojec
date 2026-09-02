@@ -1,4 +1,4 @@
-{
+﻿{
     "version":  2,
     "updated":  "2026-03-06",
     "policy_id":  "skill_metadata_hardening_p25",
@@ -27,7 +27,7 @@
                   "skills_roots":  [
                                        {
                                            "id":  "user_skills",
-                                           "path":  "~/.codex/skills",
+                                           "path":  "~/.agents/skills",
                                            "priority":  1
                                        },
                                        {
@@ -185,35 +185,35 @@
                                                                       "role":  "team-lead",
                                                                       "native_agent_type":  "default",
                                                                       "permission_bundle":  "lead_synthesis",
-                                                                      "template_prompt_path":  "~/.codex/skills/local-vco-roles/references/role-prompts/team-lead.md",
+                                                                      "template_prompt_path":  "~/.agents/skills/local-vco-roles/references/role-prompts/team-lead.md",
                                                                       "taxonomy_prompt_path":  "bundled/skills/local-vco-roles/references/role-prompts/team-lead.md"
                                                                   },
                                                                   {
                                                                       "role":  "bug-analyst",
                                                                       "native_agent_type":  "explorer",
                                                                       "permission_bundle":  "read_only_analysis",
-                                                                      "template_prompt_path":  "~/.codex/skills/local-vco-roles/references/role-prompts/bug-analyst.md",
+                                                                      "template_prompt_path":  "~/.agents/skills/local-vco-roles/references/role-prompts/bug-analyst.md",
                                                                       "taxonomy_prompt_path":  "bundled/skills/local-vco-roles/references/role-prompts/bug-analyst.md"
                                                                   },
                                                                   {
                                                                       "role":  "arch-critic",
                                                                       "native_agent_type":  "default",
                                                                       "permission_bundle":  "quality_gate",
-                                                                      "template_prompt_path":  "~/.codex/skills/local-vco-roles/references/role-prompts/arch-critic.md",
+                                                                      "template_prompt_path":  "~/.agents/skills/local-vco-roles/references/role-prompts/arch-critic.md",
                                                                       "taxonomy_prompt_path":  "bundled/skills/local-vco-roles/references/role-prompts/arch-critic.md"
                                                                   },
                                                                   {
                                                                       "role":  "integration-analyst",
                                                                       "native_agent_type":  "worker",
                                                                       "permission_bundle":  "scoped_implementation",
-                                                                      "template_prompt_path":  "~/.codex/skills/local-vco-roles/references/role-prompts/integration-analyst.md",
+                                                                      "template_prompt_path":  "~/.agents/skills/local-vco-roles/references/role-prompts/integration-analyst.md",
                                                                       "taxonomy_prompt_path":  "bundled/skills/local-vco-roles/references/role-prompts/integration-analyst.md"
                                                                   },
                                                                   {
                                                                       "role":  "usability-analyst",
                                                                       "native_agent_type":  "default",
                                                                       "permission_bundle":  "quality_gate",
-                                                                      "template_prompt_path":  "~/.codex/skills/local-vco-roles/references/role-prompts/usability-analyst.md",
+                                                                      "template_prompt_path":  "~/.agents/skills/local-vco-roles/references/role-prompts/usability-analyst.md",
                                                                       "taxonomy_prompt_path":  "bundled/skills/local-vco-roles/references/role-prompts/usability-analyst.md"
                                                                   }
                                                               ]

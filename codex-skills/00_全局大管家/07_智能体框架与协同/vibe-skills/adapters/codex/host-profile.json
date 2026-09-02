@@ -6,18 +6,17 @@
   "source_evidence": [
     "config/settings.template.codex.json",
     "config/plugins-manifest.codex.json",
-    "scripts/setup/materialize-codex-mcp-profile.ps1",
     "install.ps1",
     "check.ps1"
   ],
   "settings_surface": {
-    "path": "~/.codex/settings.json",
+    "path": "~/.agents/settings.json",
     "managed_by_repo": true,
-    "notes": "The repository can materialize runtime payload and template settings into the Codex root, but host plugins remain host-managed."
+    "notes": "The repository can materialize runtime payload and template settings into the shared agents root, while host plugins remain host-managed."
   },
   "global_instruction_surface": {
     "relpath": "AGENTS.md",
-    "documented_path": "~/.codex/AGENTS.md",
+    "documented_path": "~/.agents/AGENTS.md",
     "format": "markdown-rules",
     "managed_block_id": "global-vibe-bootstrap",
     "merge_policy": "managed-block-only",
@@ -41,7 +40,7 @@
   },
   "host_managed_surfaces": [
     "plugin provisioning",
-    "MCP provider credentials",
+    "provider credentials",
     "external CLI availability",
     "operator-specific secrets"
   ],

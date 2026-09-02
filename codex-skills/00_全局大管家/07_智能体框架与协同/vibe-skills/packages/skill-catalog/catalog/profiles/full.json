@@ -2,8 +2,6 @@
   "schema_version": "vgo-skill-catalog.profile.v1",
   "profile_id": "full",
   "owner": "skill-catalog",
-  "selection_mode": "all_official_except_excluded",
-  "exclude_skill_ids": [
-    "vibe"
-  ]
+  "selection_mode": "runtime_core_projection",
+  "runtime_core_profile": "full"
 }

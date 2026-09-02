@@ -62,9 +62,9 @@ It does not relicense upstream code, prompts, datasets, or services.
 ## Operational References
 
 - Distribution governance policy:
-  [docs/distribution-governance.md](docs/distribution-governance.md)
+  [docs/governance/distribution-governance.md](docs/governance/distribution-governance.md)
 - Upstream governance policy:
-  [docs/governance/upstream-distribution-governance.md](docs/governance/upstream-distribution-governance.md)
+  [docs/governance/distribution-governance.md](docs/governance/distribution-governance.md)
 - Provenance policy:
   [docs/governance/origin-provenance-policy.md](docs/governance/origin-provenance-policy.md)
 - Canonical upstream registry:

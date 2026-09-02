@@ -50,12 +50,20 @@ function Get-InternalMarkdownLinks {
     }
 
     $content = Get-Content -LiteralPath $MarkdownPath -Raw -Encoding UTF8
-    $matches = [regex]::Matches($content, '\[[^\]]+\]\(([^)]+)\)')
+    $linkTargets = @(
+        [regex]::Matches($content, '\[[^\]]+\]\(([^)]+)\)') | ForEach-Object {
+            [string]$_.Groups[1].Value
+        }
+    )
+    $linkTargets += @(
+        [regex]::Matches($content, 'href=["'']([^"'']+)["'']', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase) | ForEach-Object {
+            [string]$_.Groups[1].Value
+        }
+    )
     $resolved = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     $baseDir = Split-Path -Parent $MarkdownPath
 
-    foreach ($match in $matches) {
-        $rawTarget = [string]$match.Groups[1].Value
+    foreach ($rawTarget in $linkTargets) {
         if ([string]::IsNullOrWhiteSpace($rawTarget)) {
             continue
         }
@@ -157,7 +165,7 @@ function Write-Artifacts {
         ('- `contributing_links_governance`: `{0}`' -f $Artifact.assertions.contributing_links_governance),
         ('- `contributing_links_zone_table`: `{0}`' -f $Artifact.assertions.contributing_links_zone_table),
         ('- `contributing_links_proof_matrix`: `{0}`' -f $Artifact.assertions.contributing_links_proof_matrix),
-        ('- `contributing_links_plan_entry`: `{0}`' -f $Artifact.assertions.contributing_links_plan_entry),
+        ('- `contributing_links_live_contract`: `{0}`' -f $Artifact.assertions.contributing_links_live_contract),
         ''
     )
 
@@ -215,7 +223,7 @@ $results = [ordered]@{
         contributing_links_governance = $false
         contributing_links_zone_table = $false
         contributing_links_proof_matrix = $false
-        contributing_links_plan_entry = $false
+        contributing_links_live_contract = $false
     }
     required_files = @()
     required_links = @()
@@ -301,7 +309,7 @@ if ($contractExists) {
     $results.assertions.contributing_links_governance = [bool]((@($requiredLinks | Where-Object { $_.path -eq 'docs/developer-change-governance.md' -and $_.present }).Count) -gt 0)
     $results.assertions.contributing_links_zone_table = [bool]((@($requiredLinks | Where-Object { $_.path -eq 'references/contributor-zone-decision-table.md' -and $_.present }).Count) -gt 0)
     $results.assertions.contributing_links_proof_matrix = [bool]((@($requiredLinks | Where-Object { $_.path -eq 'references/change-proof-matrix.md' -and $_.present }).Count) -gt 0)
-    $results.assertions.contributing_links_plan_entry = [bool]((@($requiredLinks | Where-Object { $_.path -like 'docs/plans/*' -and $_.present }).Count) -gt 0)
+    $results.assertions.contributing_links_live_contract = [bool]((@($requiredLinks | Where-Object { $_.path -eq 'config/live-document-contract.json' -and $_.present }).Count) -gt 0)
 }
 
 $results.required_files = @($requiredFiles)

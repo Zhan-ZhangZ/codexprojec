@@ -1,6 +1,6 @@
 {
     "version":  1,
-    "updated_at":  "2026-04-01",
+    "updated_at":  "2026-06-24",
     "shared_repo_ignores":  [
                                 ".serena/",
                                 ".tmp/",
@@ -23,14 +23,28 @@
                                     "outputs/"
                                 ],
     "managed_workset_roots":  [
-                                  "config/",
-                                  "docs/",
-                                  "references/",
-                                  "scripts/",
+                                  ".github/",
+                                  "adapters/",
+                                  "agents/",
+                                  "apps/",
                                   "bundled/",
-                                  "protocols/",
+                                  "commands/",
+                                  "config/",
+                                  "core/",
+                                  "dist/",
+                                  "docs/",
                                   "mcp/",
-                                  "third_party/"
+                                  "packages/",
+                                  "protocols/",
+                                  "references/",
+                                  "rules/",
+                                  "schemas/",
+                                  "scripts/",
+                                  "templates/",
+                                  "tests/",
+                                  "third_party/",
+                                  "vendor/",
+                                  "vgo_cli/"
                               ],
     "high_risk_managed_roots":  [
                                     "config/version-governance.json",
@@ -60,18 +74,27 @@
                                             ]
                     },
     "managed_root_files":  [
+                               ".gitattributes",
                                ".gitignore",
+                               "CONTRIBUTING.md",
+                               "LICENSE",
+                               "logo.png",
+                               "NOTICE",
                                "README.md",
+                               "README.zh.md",
                                "SKILL.md",
+                               "THIRD_PARTY_LICENSES.md",
+                               "_python_source_roots.py",
                                "check.ps1",
                                "check.sh",
                                "install.ps1",
                                "install.sh",
+                               "pyproject.toml",
+                               "pytest.ini",
                                "scripts.check.upstream.sh",
-                               "THIRD_PARTY_LICENSES.md",
-                               "LICENSE",
-                               "NOTICE",
-                               ".gitattributes"
+                               "uninstall.ps1",
+                               "uninstall.sh",
+                               "vgo_python_source_roots.py"
                            ],
     "companion_gates":  [
                             "scripts/verify/vibe-repo-cleanliness-gate.ps1",

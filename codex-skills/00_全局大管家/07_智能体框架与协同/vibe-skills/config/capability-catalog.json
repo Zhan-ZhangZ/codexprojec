@@ -10,8 +10,8 @@
     "enforced_scopes": [
       "capability_catalog.skills",
       "capability_catalog.advice_overlays",
-      "pack_manifest.skill_candidates",
-      "pack_manifest.defaults_by_task",
+      "local_skill_index_v2.skills",
+      "local_skill_index_v2.diagnostics",
       "skill_alias_map.alias_targets",
       "local_vco_roles.template_7"
     ]
@@ -28,7 +28,7 @@
         "skills"
       ],
       "preserve_flat_fields": true,
-      "routing_assignment_owner": "config/pack-manifest.json"
+      "routing_assignment_owner": "generated/skills-index.json"
     },
     "material_layer_boundary": {
       "discovery_eval_mode": "material_only",
@@ -40,7 +40,7 @@
       "second_orchestrator",
       "second_team_execution_owner",
       "raw_curated_list_runtime_ingestion",
-      "capability_catalog_replacing_pack_manifest"
+      "capability_catalog_replacing_local_skill_index"
     ]
   },
   "corpus_sources": [
@@ -272,7 +272,6 @@
         "修复"
       ],
       "skills": [
-        "autonomous-builder",
         "tdd-guide",
         "systematic-debugging"
       ],
@@ -307,7 +306,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -379,7 +378,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -453,7 +452,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -528,7 +527,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -598,7 +597,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -671,7 +670,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -742,7 +741,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -777,7 +776,6 @@
       ],
       "skills": [
         "prompt-lookup",
-        "documentation-lookup",
         "openai-docs",
         "docs-write"
       ],
@@ -813,7 +811,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -916,7 +914,6 @@
       ],
       "skills": [
         "flashrag-evidence",
-        "verification-quality-assurance",
         "context-hunter"
       ],
       "problem_domains": [
@@ -951,7 +948,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -1022,7 +1019,7 @@
       ],
       "materialization": {
         "mode": "runtime_recommendation",
-        "canonical_owner": "config/pack-manifest.json",
+        "canonical_owner": "generated/skills-index.json",
         "runtime_surface": "vco-native",
         "promotion_stage": "soft"
       },
@@ -1129,7 +1126,6 @@
       ],
       "skills": [
         "research-lookup",
-        "documentation-lookup",
         "skill-lookup",
         "mcp-integration"
       ],
@@ -1273,7 +1269,6 @@
       "skills": [
         "research-lookup",
         "playwright",
-        "documentation-lookup",
         "vibe"
       ],
       "problem_domains": [

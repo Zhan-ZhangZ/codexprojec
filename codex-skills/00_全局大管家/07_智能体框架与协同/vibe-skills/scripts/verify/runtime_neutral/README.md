@@ -39,12 +39,12 @@ Run the direct Python checks:
 
 ```bash
 PYTHON_BIN="$(bash scripts/common/python_helpers.sh --print-supported-python 'Runtime-neutral verification core')"
-"${PYTHON_BIN}" tests/runtime_neutral/test_freshness_gate.py
-"${PYTHON_BIN}" tests/runtime_neutral/test_bootstrap_doctor.py
-"${PYTHON_BIN}" tests/runtime_neutral/test_coherence_gate.py
-"${PYTHON_BIN}" tests/runtime_neutral/test_workflow_acceptance_runner.py
-"${PYTHON_BIN}" tests/runtime_neutral/test_runtime_delivery_acceptance.py
-"${PYTHON_BIN}" tests/runtime_neutral/test_release_truth_gate.py
+"${PYTHON_BIN}" https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_freshness_gate.py
+"${PYTHON_BIN}" https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_bootstrap_doctor.py
+"${PYTHON_BIN}" https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_coherence_gate.py
+"${PYTHON_BIN}" https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_workflow_acceptance_runner.py
+"${PYTHON_BIN}" https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_runtime_delivery_acceptance.py
+"${PYTHON_BIN}" https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_release_truth_gate.py
 ```
 
 Run the shell wrapper syntax checks:

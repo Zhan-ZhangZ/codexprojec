@@ -56,23 +56,35 @@ $context = Get-VgoGovernanceContext -ScriptPath $PSCommandPath -EnforceExecution
 $repoRoot = $context.repoRoot
 $assertions = [System.Collections.Generic.List[object]]::new()
 
-$releaseReadmePath = Join-Path $repoRoot 'docs\releases\README.md'
-$proofBundlePath = Join-Path $repoRoot 'docs\status\non-regression-proof-bundle.md'
-$routerTruthPath = Join-Path $repoRoot 'docs\status\router-platform-truth-matrix-2026-03-15.md'
+$liveContractPath = Join-Path $repoRoot 'config\live-document-contract.json'
+$runtimeContractPath = Join-Path $repoRoot 'config\runtime-contract.json'
 $previewContractPath = Join-Path $repoRoot 'config\operator-preview-contract.json'
 $promotionBoardPath = Join-Path $repoRoot 'config\promotion-board.json'
 
-$releaseReadme = Get-Content -LiteralPath $releaseReadmePath -Raw -Encoding UTF8
-$proofBundle = Get-Content -LiteralPath $proofBundlePath -Raw -Encoding UTF8
-$routerTruth = Get-Content -LiteralPath $routerTruthPath -Raw -Encoding UTF8
+$requiredContractPaths = @(
+    $liveContractPath,
+    $runtimeContractPath,
+    $previewContractPath,
+    $promotionBoardPath
+)
+foreach ($requiredContractPath in $requiredContractPaths) {
+    Add-Assertion -Assertions $assertions -Pass (Test-Path -LiteralPath $requiredContractPath -PathType Leaf) -Message ('release truth contract exists: {0}' -f (Split-Path -Leaf $requiredContractPath)) -Details $requiredContractPath
+}
+
+$liveContract = Get-Content -LiteralPath $liveContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$runtimeContract = Get-Content -LiteralPath $runtimeContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $previewContract = Get-Content -LiteralPath $previewContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $releaseCutOperator = $previewContract.operators.'release-cut'
 $promotionBoard = Get-Content -LiteralPath $promotionBoardPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $releasePlane = @($promotionBoard.planes | Where-Object { [string]$_.plane_id -eq 'operator-release-train' }) | Select-Object -First 1
 
-Add-Assertion -Assertions $assertions -Pass ($releaseReadme.Contains('fallback-truth consistency proof')) -Message 'release README documents fallback-truth consistency proof'
-Add-Assertion -Assertions $assertions -Pass ($proofBundle.Contains('vibe-release-truth-consistency-gate.ps1')) -Message 'non-regression proof bundle requires release-truth consistency gate'
-Add-Assertion -Assertions $assertions -Pass ($routerTruth.Contains('release-truth consistency proof')) -Message 'router platform truth matrix names release-truth consistency proof'
+Add-Assertion -Assertions $assertions -Pass ([string]$liveContract.artifact_sink.root -eq '.vibeskills/runs') -Message 'release truth uses the canonical run artifact sink'
+Add-Assertion -Assertions $assertions -Pass ([string]$liveContract.artifact_sink.primary_document_paths.requirement -eq 'requirement.md') -Message 'release truth stores requirements inside the run sink'
+Add-Assertion -Assertions $assertions -Pass ([string]$liveContract.artifact_sink.primary_document_paths.plan -eq 'plan.md') -Message 'release truth stores plans inside the run sink'
+Add-Assertion -Assertions $assertions -Pass ([string]$liveContract.artifact_sink.legacy_write_mode -eq 'disabled') -Message 'release truth keeps legacy documentation writes disabled'
+Add-Assertion -Assertions $assertions -Pass (@($runtimeContract.stages | Where-Object { [string]$_.receipt -match 'docs/(requirements|plans)' }).Count -eq 0) -Message 'runtime stage receipts do not require historical documentation roots'
+Add-Assertion -Assertions $assertions -Pass ([int]$liveContract.proof_retention.pull_request_days -eq 30) -Message 'release truth keeps pull-request proof retention at 30 days'
+Add-Assertion -Assertions $assertions -Pass ([int]$liveContract.proof_retention.main_and_scheduled_days -eq 90) -Message 'release truth keeps main and scheduled proof retention at 90 days'
 Add-Assertion -Assertions $assertions -Pass (@($releaseCutOperator.apply_gates) -contains 'scripts/verify/vibe-release-truth-consistency-gate.ps1') -Message 'release-cut contract includes release-truth consistency gate'
 Add-Assertion -Assertions $assertions -Pass ($null -ne $releasePlane) -Message 'promotion board contains operator-release-train plane'
 if ($releasePlane) {

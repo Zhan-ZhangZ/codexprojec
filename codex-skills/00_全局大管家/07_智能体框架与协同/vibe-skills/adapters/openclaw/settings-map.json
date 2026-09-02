@@ -4,7 +4,9 @@
   "target": "~/.openclaw",
   "semantics": {
     "vco.host_root": "~/.openclaw",
-    "vco.skill_root": "~/.openclaw/skills",
+    "vco.skill_roots.global": [
+      "~/.openclaw/skills"
+    ],
     "vco.command_root": "~/.openclaw/commands",
     "vco.workspace_surface": ".openclaw/"
   },

@@ -39,8 +39,9 @@ The user-facing runtime path remains fixed:
 - `requirement_doc`: freeze the requirement contract
 - `xl_plan`: generate the executable plan
 
-`M`, `L`, and `XL` are still used here, but only as internal execution strategy.
-They are not separate user-facing entry branches.
+`M`, `L`, and `XL` are still one runtime strategy surface rather than separate
+entry branches. In `interactive_governed` runs, L/XL selection is also a
+user-visible workflow-level confirmation before requirement and plan freeze.
 
 ## Runtime Mode Behavior
 
@@ -165,10 +166,13 @@ Phase 4: Security Review (vibe-review)
 Native method: `vibe.deep_interview`
 - ask one high-value clarification when ambiguity blocks requirement quality
 - compare options before choosing an implementation direction
+- for L/XL-capable work, first explain L versus XL in plain language and stop for the user's level choice
+- after specialist skills are recommended, ask "我将会在接下来的工作中使用这些 skills，你觉得 OK 吗？" and stop before those skills become execution obligations
 - output clarified requirements, assumptions, acceptance criteria, and user-visible tradeoffs
 
 Governed runtime requirement:
 - persist an intent contract that can be turned into a file under `docs/requirements/`
+- do not merge workflow-level confirmation, skill-use confirmation, and requirement approval into one all-at-once prompt
 
 ### B2: Architecture Design (if needed)
 Tool: sc:design
@@ -193,6 +197,8 @@ Native method: `vibe.xl_plan`
 
 Minimum governed-runtime contents:
 - internal grade decision
+- confirmed user-facing workflow level
+- approved selected skills, clearly separated from final material-use evidence
 - wave or batch structure
 - verification commands
 - rollback rules

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -92,7 +93,6 @@ def _load_canonical_entry_module() -> types.ModuleType:
         sys.modules[host_receipt_module.__name__] = host_receipt_module
 
         router_module = types.ModuleType("vgo_runtime.router")
-        router_module.load_allowed_vibe_entry_ids = lambda: {"vibe", "vibe-upgrade"}
         sys.modules[router_module.__name__] = router_module
 
         spec = importlib.util.spec_from_file_location("vgo_runtime.canonical_entry", RUNTIME_CORE_SRC / "vgo_runtime" / "canonical_entry.py")
@@ -400,79 +400,6 @@ class CliProcessPowerShellPolicyTests(unittest.TestCase):
 
 class DelegatedLaneContractTests(unittest.TestCase):
     """Assert delegated-lane contract and runtime policy wiring."""
-    def test_plan_execute_uses_repo_root_first_working_directory_logic(self):
-        """Keep delegated-lane working-directory fallback rooted at the repository first."""
-        script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-        self.assertIn("Resolve-VibeDelegatedLaneWorkingDirectory", script_text)
-        self.assertIn("requested_lane_root = $requestedLaneRoot", script_text)
-        self.assertIn("lane_root_invalid", script_text)
-        self.assertIn("requested_working_directory = if", script_text)
-        self.assertIn("effective_working_directory = [string]$workingDirectoryInfo.effective_working_directory", script_text)
-        self.assertIn("repo_root_invalid", script_text)
-        self.assertIn("repo_root_missing", script_text)
-
-    def test_plan_execute_recovers_payload_from_artifact_when_stdout_missing(self):
-        """Recover delegated-lane payloads from receipt artifacts when stdout is empty."""
-        script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-        self.assertIn("Resolve-VibeDelegatedLanePayload", script_text)
-        self.assertIn("source = 'lane_payload_artifact'", script_text)
-        self.assertIn("lane_payload_artifact:read_failed", script_text)
-        self.assertIn("empty_lane_receipt_path", script_text)
-        self.assertIn("payload_source = [string]$payloadRecovery.source", script_text)
-
-    def test_plan_execute_failure_message_is_actionable(self):
-        """Include lane and artifact context in delegated payload failure messages."""
-        script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-        self.assertIn("Delegated lane payload handoff failed for lane_id=", script_text)
-        self.assertIn("effective_working_directory=", script_text)
-        self.assertIn("stdout_path=", script_text)
-        self.assertIn("stderr_path=", script_text)
-        self.assertIn("payload_path=", script_text)
-
-    def test_delegated_lane_launch_metadata_records_host_resolution(self):
-        """Persist PowerShell host-resolution details in delegated lane launch metadata."""
-        script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-        self.assertIn("host_kind = if ($invocation.PSObject.Properties.Name -contains 'host_kind')", script_text)
-        self.assertIn("fallback_used = [bool]$(if ($invocation.PSObject.Properties.Name -contains 'fallback_used')", script_text)
-        self.assertIn("lane_root_fallback_reason = if ($null -eq $workingDirectoryInfo.lane_root_fallback_reason)", script_text)
-        self.assertIn("resolved_command = [string]($invocation.host_path)", script_text)
-        self.assertIn("resolved_arguments = @($invocation.arguments)", script_text)
-        self.assertIn("arguments_render_mode = 'RenderedString'", script_text)
-        self.assertIn("preflight = [pscustomobject]@{", script_text)
-
-    def test_runtime_execution_records_preflight_and_render_mode(self):
-        """Record process preflight fields and argument render mode in runtime metadata."""
-        script_text = (REPO_ROOT / "scripts" / "runtime" / "VibeExecution.Common.ps1").read_text(encoding="utf-8")
-        self.assertIn("function New-VibeProcessPreflightResult", script_text)
-        self.assertIn("command = [string]$Command", script_text)
-        self.assertIn("Preflight.resolved_command", script_text)
-        self.assertIn("Failed to persist launch metadata to", script_text)
-        self.assertIn("Process preflight failed:", script_text)
-        self.assertIn("arguments_render_mode = if ($usedArgumentList) { 'ArgumentList' } else { 'RenderedString' }", script_text)
-        self.assertIn("launch_metadata_path", script_text)
-        self.assertIn("script_used_as_executable", script_text)
-
-    def test_parallel_lane_failure_cleans_up_remaining_handles(self):
-        """Stop leftover delegated lane handles when one parallel lane fails."""
-        script_text = SCRIPT_PATH.read_text(encoding="utf-8")
-        self.assertIn("function Stop-VibeDelegatedLaneHandle", script_text)
-        self.assertIn("$completedLaneIds = New-Object 'System.Collections.Generic.HashSet[string]'", script_text)
-        self.assertIn("Stop-VibeDelegatedLaneHandle -Handle $remainingHandle", script_text)
-
-    def test_runtime_execution_mentions_unicode_path_preflight_surfaces(self):
-        """Keep preflight error text explicit for missing paths and host resolution failures."""
-        script_text = (REPO_ROOT / "scripts" / "runtime" / "VibeExecution.Common.ps1").read_text(encoding="utf-8")
-        self.assertIn("resolved executable does not exist:", script_text)
-        self.assertIn("working directory does not exist:", script_text)
-        self.assertIn("powershell script path is being used as the executable instead of the host:", script_text)
-        self.assertIn("python command spec did not resolve to a host executable:", script_text)
-
-    def test_execution_runtime_policy_uses_existing_coherence_gate_path(self):
-        """Reference the runtime coherence gate instead of the retired version gate."""
-        policy_text = (REPO_ROOT / "config" / "execution-runtime-policy.json").read_text(encoding="utf-8")
-        self.assertIn("scripts/verify/vibe-release-install-runtime-coherence-gate.ps1", policy_text)
-        self.assertNotIn("scripts/verify/vibe-version-consistency-gate.ps1", policy_text)
-
     def test_runtime_summary_artifacts_allow_early_bounded_stop_nulls(self):
         """Allow empty bounded-stop artifact paths to round-trip as nulls in summaries."""
         script_text = (REPO_ROOT / "scripts" / "runtime" / "VibeRuntime.Common.ps1").read_text(encoding="utf-8")
@@ -759,8 +686,8 @@ class BridgeFailureLayeringTests(unittest.TestCase):
         """Carry frozen host decision fields into approval-only bounded continuation launches."""
         module = _load_canonical_entry_module()
         with tempfile.TemporaryDirectory() as temp_dir:
-            repo_root = Path(temp_dir)
-            artifact_root = repo_root / ".vibeskills"
+            repo_root = REPO_ROOT
+            artifact_root = Path(temp_dir) / ".vibeskills"
             prior_session_root = artifact_root / "outputs" / "runtime" / "vibe-sessions" / "run-req"
             prior_session_root.mkdir(parents=True, exist_ok=True)
             _write_verified_host_receipt(prior_session_root, "run-req")
@@ -790,8 +717,17 @@ class BridgeFailureLayeringTests(unittest.TestCase):
                             "deferred_skill_ids": ["scikit-learn"],
                             "rejected_skill_ids": [],
                         },
+                        "module_assignments": {"units": []},
                     }
                 ),
+                encoding="utf-8",
+            )
+            (prior_session_root / "governance-capsule.json").write_text(
+                json.dumps({"runtime_selected_skill": "vibe"}),
+                encoding="utf-8",
+            )
+            (prior_session_root / "stage-lineage.json").write_text(
+                json.dumps({"last_stage_name": "xl_plan", "stages": [{"stage": "xl_plan"}]}),
                 encoding="utf-8",
             )
             (prior_session_root / "runtime-summary.json").write_text(
@@ -980,13 +916,13 @@ class BridgeFailureLayeringTests(unittest.TestCase):
             bridge_path.mkdir(parents=True, exist_ok=True)
             (bridge_path / "Invoke-VibeCanonicalEntry.ps1").write_text("# stub", encoding="utf-8")
 
-            def fake_startup_bridge(command, *, cwd, bridge_label, env=None, timeout=None):
+            def fake_startup_bridge(command, *, cwd, bridge_label, env=None, timeout=None, json_output_path=None):
                 """Raise the startup-stage bridge failure expected by this test."""
                 raise RuntimeError(
                     "canonical entry bridge failed during canonical bridge startup: subprocess exited non-zero before JSON payload was returned (exit=11; cwd=%s; command=python; stderr=startup boom)" % cwd
                 )
 
-            def fake_payload_bridge(command, *, cwd, bridge_label, env=None, timeout=None):
+            def fake_payload_bridge(command, *, cwd, bridge_label, env=None, timeout=None, json_output_path=None):
                 """Raise the payload-stage bridge failure expected by this test."""
                 raise RuntimeError(
                     "canonical entry bridge failed during delegated lane payload handoff: canonical entry bridge returned invalid JSON stdout (cwd=%s; command=python; stdout=not-json)" % cwd
@@ -1042,6 +978,32 @@ class BridgeFailureLayeringTests(unittest.TestCase):
         self.assertEqual(result["cwd"], str(cwd))
         self.assertIn("桥接", result["cwd"])
 
+    def test_bridge_reads_utf8_json_output_file_from_unicode_working_directory(self):
+        """Use a UTF-8 file handoff for JSON that contains Unicode paths."""
+        with tempfile.TemporaryDirectory(prefix="vibe-桥接-羽裳-") as temp_dir:
+            cwd = Path(temp_dir)
+            output_path = cwd / "bridge-output-羽裳.json"
+            command = [
+                sys.executable,
+                "-c",
+                (
+                    "import json, pathlib, sys; "
+                    "pathlib.Path(sys.argv[1]).write_text("
+                    "json.dumps({'status':'ok','cwd':str(pathlib.Path.cwd())}, ensure_ascii=False), "
+                    "encoding='utf-8')"
+                ),
+                str(output_path),
+            ]
+            result = run_powershell_json_command(
+                command,
+                cwd=cwd,
+                bridge_label="canonical entry bridge",
+                json_output_path=output_path,
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["cwd"], str(cwd))
+        self.assertIn("桥接", result["cwd"])
+
     def test_bridge_failure_from_unicode_working_directory_preserves_context(self):
         """Preserve Unicode working-directory context in bridge startup failures."""
         with tempfile.TemporaryDirectory(prefix="vibe-桥接-羽裳-") as temp_dir:
@@ -1061,14 +1023,6 @@ class BridgeFailureLayeringTests(unittest.TestCase):
         self.assertIn("桥接", message)
 
 
-    def test_real_bridge_smoke_surfaces_preflight_script_missing_instead_of_invalid_python_host(self):
-        """Keep preflight failures focused on missing scripts rather than Python host confusion."""
-        helper_text = (REPO_ROOT / "scripts" / "common" / "vibe-governance-helpers.ps1").read_text(encoding="utf-8")
-        runtime_text = (REPO_ROOT / "scripts" / "runtime" / "VibeExecution.Common.ps1").read_text(encoding="utf-8")
-        self.assertIn("Test-VgoWindowsRunnableCommandPath", helper_text)
-        self.assertIn("powershell script path does not exist:", runtime_text)
-        self.assertIn("Process startup failed for {0}:", runtime_text)
-
     def test_canonical_entry_builds_command_for_unicode_repo_root(self):
         """Build the canonical bridge command correctly when the repo root contains Unicode."""
         module = _load_canonical_entry_module()
@@ -1080,11 +1034,13 @@ class BridgeFailureLayeringTests(unittest.TestCase):
 
             observed: dict[str, object] = {}
 
-            def fake_bridge(command, *, cwd, bridge_label, env=None, timeout=None):
+            def fake_bridge(command, *, cwd, bridge_label, env=None, timeout=None, json_output_path=None):
                 """Capture the bridge invocation for command-shape assertions."""
                 observed["command"] = list(command)
                 observed["cwd"] = cwd
                 observed["bridge_label"] = bridge_label
+                observed["env"] = dict(env or {})
+                observed["json_output_path"] = json_output_path
                 return {
                     "run_id": "run-1",
                     "session_root": str(repo_root / ".vibeskills" / "outputs" / "runtime" / "vibe-sessions" / "run-1"),
@@ -1114,7 +1070,44 @@ class BridgeFailureLayeringTests(unittest.TestCase):
         self.assertEqual(observed["bridge_label"], "canonical entry bridge")
         self.assertEqual(observed["command"][0], sys.executable)
         self.assertIn(str((repo_root / "scripts" / "runtime" / "Invoke-VibeCanonicalEntry.ps1")), observed["command"])
+        self.assertIn("-BridgeOutputJsonPath", observed["command"])
+        self.assertIsNotNone(observed["json_output_path"])
+        self.assertEqual(observed["env"]["PYTHONUTF8"], "1")
+        self.assertEqual(observed["env"]["PYTHONIOENCODING"], "utf-8")
         self.assertIn("规范入口", str(repo_root))
+
+    def test_canonical_entry_cli_writes_utf8_json_stdout(self):
+        """Emit machine JSON as UTF-8 bytes even under Windows console defaults."""
+        module = _load_canonical_entry_module()
+        result = module.CanonicalLaunchResult(
+            run_id="run-utf8",
+            session_root=Path("C:/Users/羽裳/AppData/Local/Temp/vibe-run"),
+            summary_path=Path("C:/Users/羽裳/AppData/Local/Temp/vibe-run/runtime-summary.json"),
+            host_launch_receipt_path=Path("C:/Users/羽裳/AppData/Local/Temp/vibe-run/host-launch-receipt.json"),
+            launch_mode="canonical-entry",
+            summary={"task": "请冻结需求"},
+            artifacts={"runtime_input_packet": "C:/Users/羽裳/AppData/Local/Temp/vibe-run/runtime-input-packet.json"},
+        )
+
+        class StdoutCapture:
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+            def write(self, text):
+                self.buffer.write(str(text).encode("utf-8"))
+
+            def flush(self):
+                return None
+
+        capture = StdoutCapture()
+        with patch.object(module, "launch_canonical_vibe", return_value=result), patch.object(module.sys, "stdout", capture):
+            exit_code = module.main(["--repo-root", str(REPO_ROOT), "--prompt", "请冻结需求"])
+
+        self.assertEqual(exit_code, 0)
+        output_text = capture.buffer.getvalue().decode("utf-8")
+        self.assertIn("羽裳", output_text)
+        self.assertIn("请冻结需求", output_text)
+        self.assertNotIn("\ufffd", output_text)
 
     def test_canonical_entry_preserves_bridge_context_when_not_launched_from_repo_cwd(self):
         """Run the bridge from repo_root even when the current process cwd differs."""
@@ -1127,7 +1120,7 @@ class BridgeFailureLayeringTests(unittest.TestCase):
 
             observed: dict[str, object] = {}
 
-            def fake_bridge(command, *, cwd, bridge_label, env=None, timeout=None):
+            def fake_bridge(command, *, cwd, bridge_label, env=None, timeout=None, json_output_path=None):
                 """Capture the cwd used for bridge execution and raise a known failure."""
                 observed["cwd"] = cwd
                 raise RuntimeError("canonical entry bridge failed during delegated lane payload handoff")

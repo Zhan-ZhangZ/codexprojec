@@ -6,20 +6,11 @@
       "id": "obra/superpowers",
       "upstream_repo": "https://github.com/obra/superpowers",
       "upstream_ref": "main",
-      "integration_mode": "bundled-local",
+      "integration_mode": "reference-corpus",
       "local_rewrite_required": true,
-      "bundled_paths": [
-        "bundled/skills/brainstorming",
-        "bundled/skills/writing-plans",
-        "bundled/skills/subagent-driven-development",
-        "bundled/skills/systematic-debugging",
-        "bundled/skills/requesting-code-review",
-        "bundled/skills/receiving-code-review",
-        "bundled/skills/verification-before-completion"
-      ],
       "disclosure_required": true,
-      "shipped_by_default": true,
-      "distribution_tier": "distributed-local",
+      "shipped_by_default": false,
+      "distribution_tier": "reference-only",
       "canonical_slug": "superpowers",
       "redistribution_posture": "allowed-with-notice",
       "local_retention_allowed": true,
@@ -29,21 +20,17 @@
       "decision_class": "admit",
       "admission_scope": "compatibility-and-policy-refresh-only",
       "packet_memo": "docs/external-tooling/shipped-local-adaptation-upstream-delta-2026-03-17.md",
-      "next_action": "Refresh shipped-local policy around delegation isolation and host-plugin priority while keeping VCO-owned mirrors authoritative."
+      "next_action": "Use as reference material only; the current Agent executes work under the approved module plan and follows any assigned local SKILL.md."
     },
     {
       "id": "frankbria/ralph-claude-code",
       "upstream_repo": "https://github.com/frankbria/ralph-claude-code",
       "upstream_ref": "main",
-      "integration_mode": "bundled-local",
+      "integration_mode": "reference-corpus",
       "local_rewrite_required": true,
-      "bundled_paths": [
-        "bundled/skills/ralph-loop",
-        "bundled/skills/cancel-ralph"
-      ],
       "disclosure_required": true,
-      "shipped_by_default": true,
-      "distribution_tier": "distributed-local",
+      "shipped_by_default": false,
+      "distribution_tier": "reference-only",
       "canonical_slug": "ralph-claude-code",
       "redistribution_posture": "allowed-with-notice",
       "local_retention_allowed": true,
@@ -53,7 +40,7 @@
       "decision_class": "metadata-only",
       "admission_scope": "optional-open-backend-posture-only",
       "packet_memo": "docs/external-tooling/shipped-local-adaptation-upstream-delta-2026-03-17.md",
-      "next_action": "Keep compat engine as the authoritative baseline and treat upstream open-backend fixes as optional operator guidance only."
+      "next_action": "Keep as optional reference material; do not install as a default specialist corpus."
     },
     {
       "id": "f/prompts.chat",
@@ -76,7 +63,7 @@
       "upstream_ref": "master",
       "integration_mode": "upstream-locked",
       "local_rewrite_required": true,
-      "notes": "Install script can fetch commands, but codex wrappers in bundled/skills/superclaude-framework-compat are authoritative",
+      "notes": "Install script can fetch commands, but specialist routing does not depend on repo-shipped wrappers.",
       "disclosure_required": true,
       "shipped_by_default": false,
       "distribution_tier": "external-optional",
@@ -89,14 +76,11 @@
       "id": "feiskyer/claude-code-settings",
       "upstream_repo": "https://github.com/feiskyer/claude-code-settings",
       "upstream_ref": "main",
-      "integration_mode": "bundled-local",
+      "integration_mode": "reference-corpus",
       "local_rewrite_required": true,
-      "bundled_paths": [
-        "bundled/skills/think-harder"
-      ],
       "disclosure_required": true,
-      "shipped_by_default": true,
-      "distribution_tier": "distributed-local",
+      "shipped_by_default": false,
+      "distribution_tier": "reference-only",
       "canonical_slug": "claude-code-settings",
       "redistribution_posture": "allowed-with-notice",
       "local_retention_allowed": true,
@@ -106,20 +90,17 @@
       "decision_class": "defer",
       "admission_scope": "no-host-authority-widening",
       "packet_memo": "docs/external-tooling/shipped-local-adaptation-upstream-delta-2026-03-17.md",
-      "next_action": "Keep think-harder compatibility only; defer any settings-layer authority expansion until an explicit challenger or replacement packet exists."
+      "next_action": "Keep as reference material only; defer any settings-layer authority expansion until an explicit challenger or replacement packet exists."
     },
     {
       "id": "github/spec-kit",
       "upstream_repo": "https://github.com/github/spec-kit",
       "upstream_ref": "main",
-      "integration_mode": "bundled-local",
+      "integration_mode": "reference-corpus",
       "local_rewrite_required": true,
-      "bundled_paths": [
-        "bundled/skills/spec-kit-vibe-compat"
-      ],
       "disclosure_required": true,
-      "shipped_by_default": true,
-      "distribution_tier": "distributed-local",
+      "shipped_by_default": false,
+      "distribution_tier": "reference-only",
       "canonical_slug": "spec-kit",
       "redistribution_posture": "allowed-with-notice",
       "local_retention_allowed": true,
@@ -129,22 +110,7 @@
       "decision_class": "admit",
       "admission_scope": "compatibility-and-methodology-refresh-only",
       "packet_memo": "docs/external-tooling/shipped-local-adaptation-upstream-delta-2026-03-17.md",
-      "next_action": "Keep spec-kit in methodology/reference posture and refresh only the VCO compatibility bridge wording."
-    },
-    {
-      "id": "ruvnet/claude-flow",
-      "upstream_repo": "https://github.com/ruvnet/claude-flow",
-      "upstream_ref": "main",
-      "integration_mode": "upstream-locked",
-      "local_rewrite_required": false,
-      "notes": "Optional external runtime dependency",
-      "disclosure_required": true,
-      "shipped_by_default": false,
-      "distribution_tier": "external-optional",
-      "canonical_slug": "claude-flow",
-      "redistribution_posture": "optional-external-install",
-      "local_retention_allowed": false,
-      "license_spdx": "MIT"
+      "next_action": "Keep spec-kit in methodology/reference posture; the current Agent executes work under the approved module plan and follows any assigned local SKILL.md."
     },
     {
       "id": "medialab/xan",

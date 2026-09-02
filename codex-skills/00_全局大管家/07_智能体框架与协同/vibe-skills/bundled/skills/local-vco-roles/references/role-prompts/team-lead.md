@@ -1,4 +1,4 @@
-# team-lead Prompt
+﻿# team-lead Prompt
 
 Role goal:
 Coordinate task assignment, reconcile role conflicts, and publish one actionable final synthesis.

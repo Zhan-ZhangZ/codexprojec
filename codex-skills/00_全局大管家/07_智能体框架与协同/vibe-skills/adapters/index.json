@@ -22,9 +22,9 @@
         "supports_bounded_stop": true
       },
       "default_target_root": {
-        "env": "CODEX_HOME",
-        "rel": ".codex",
-        "kind": "host-home"
+        "env": "VIBE_AGENTS_HOME",
+        "rel": ".agents",
+        "kind": "shared-home"
       },
       "discoverable_entries": {
         "shared_source": "config/vibe-entry-surfaces.json",
@@ -53,9 +53,9 @@
         "supports_bounded_stop": true
       },
       "default_target_root": {
-        "env": "CLAUDE_HOME",
-        "rel": ".claude",
-        "kind": "host-home"
+        "env": "VIBE_AGENTS_HOME",
+        "rel": ".agents",
+        "kind": "shared-home"
       },
       "discoverable_entries": {
         "shared_source": "config/vibe-entry-surfaces.json",
@@ -84,9 +84,9 @@
         "supports_bounded_stop": true
       },
       "default_target_root": {
-        "env": "CURSOR_HOME",
-        "rel": ".cursor",
-        "kind": "host-home"
+        "env": "VIBE_AGENTS_HOME",
+        "rel": ".agents",
+        "kind": "shared-home"
       },
       "discoverable_entries": {
         "shared_source": "config/vibe-entry-surfaces.json",
@@ -115,9 +115,9 @@
         "supports_bounded_stop": true
       },
       "default_target_root": {
-        "env": "WINDSURF_HOME",
-        "rel": ".codeium/windsurf",
-        "kind": "host-home"
+        "env": "VIBE_AGENTS_HOME",
+        "rel": ".agents",
+        "kind": "shared-home"
       },
       "discoverable_entries": {
         "shared_source": "config/vibe-entry-surfaces.json",
@@ -146,9 +146,9 @@
         "supports_bounded_stop": true
       },
       "default_target_root": {
-        "env": "OPENCLAW_HOME",
-        "rel": ".openclaw",
-        "kind": "host-home"
+        "env": "VIBE_AGENTS_HOME",
+        "rel": ".agents",
+        "kind": "shared-home"
       },
       "discoverable_entries": {
         "shared_source": "config/vibe-entry-surfaces.json",
@@ -177,9 +177,9 @@
         "supports_bounded_stop": true
       },
       "default_target_root": {
-        "env": "OPENCODE_HOME",
-        "rel": ".config/opencode",
-        "kind": "host-home"
+        "env": "VIBE_AGENTS_HOME",
+        "rel": ".agents",
+        "kind": "shared-home"
       },
       "discoverable_entries": {
         "shared_source": "config/vibe-entry-surfaces.json",

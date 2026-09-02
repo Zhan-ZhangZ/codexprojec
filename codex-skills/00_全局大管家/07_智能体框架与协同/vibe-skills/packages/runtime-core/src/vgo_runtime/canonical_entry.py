@@ -4,16 +4,19 @@ import argparse
 import copy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path, PureWindowsPath
 import re
 import shutil
 import sys
+import tempfile
 from typing import Any
 import warnings
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+RUNTIME_CORE_SRC = REPO_ROOT / "packages" / "runtime-core" / "src"
 CONTRACTS_SRC = REPO_ROOT / "packages" / "contracts" / "src"
 POWERSHELL_HOST_POLICY_PATH = REPO_ROOT / "config" / "powershell-host-policy.json"
 POWERSHELL_HOST_POLICY_DEFAULTS: dict[str, Any] = {
@@ -23,6 +26,8 @@ POWERSHELL_HOST_POLICY_DEFAULTS: dict[str, Any] = {
     "record_host_resolution_artifacts": True,
 }
 SUPPORTED_POWERSHELL_HOSTS = frozenset({"pwsh", "windows-powershell"})
+if str(RUNTIME_CORE_SRC) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_CORE_SRC))
 if str(CONTRACTS_SRC) not in sys.path:
     sys.path.insert(0, str(CONTRACTS_SRC))
 
@@ -30,11 +35,31 @@ from vgo_contracts.canonical_vibe_contract import resolve_canonical_vibe_contrac
 from vgo_contracts.discoverable_entry_surface import load_discoverable_entry_surface
 from vgo_contracts.entry_root_guard import EntryRootGuardError, resolve_entry_repo_root
 from vgo_contracts.host_launch_receipt import HostLaunchReceipt, read_host_launch_receipt, write_host_launch_receipt
+from vgo_runtime.artifact_contract import (  # noqa: E402
+    resolve_runtime_artifact_projection,
+    resolve_runtime_session_receipts_root,
+    resolve_runtime_session_root,
+    sync_session_receipts_to_run_artifact_sink,
+)
+from vgo_runtime.kernel.loop import run_local_kernel
 from vgo_runtime.powershell_bridge import run_powershell_json_command
-from vgo_runtime.router import load_allowed_vibe_entry_ids
+from vgo_runtime.runtime_support import resolve_host_id
+from vgo_runtime.runtime_truth import build_runtime_truth_packet, build_runtime_truth_packet_from_payload
+from vgo_runtime.runtime_summary import (
+    build_runtime_summary,
+    build_runtime_summary_from_payload,
+    refresh_runtime_summary_acceptance,
+)
+from vgo_runtime.stage_stop import (
+    extract_terminal_stage as extract_shared_terminal_stage,
+    resolve_progressive_stage_stop_source,
+    resolve_stage_stop,
+    resolve_terminal_stage,
+)
 
 RUNTIME_ENTRYPOINT_RELPATH = "scripts/runtime/invoke-vibe-runtime.ps1"
 CANONICAL_ENTRY_BRIDGE_RELPATH = "scripts/runtime/Invoke-VibeCanonicalEntry.ps1"
+LOCAL_KERNEL_ENTRYPOINT_RELPATH = "packages/runtime-core/src/vgo_runtime/kernel/loop.py"
 CANONICAL_RUNTIME_ENTRY_ID = "vibe"
 CANONICAL_VIBE_PROGRESSIVE_STAGE_STOPS = ("requirement_doc", "xl_plan", "phase_cleanup")
 MINIMUM_TRUTH_ARTIFACTS = {
@@ -43,10 +68,7 @@ MINIMUM_TRUTH_ARTIFACTS = {
     "stage_lineage": "stage-lineage.json",
 }
 REQUIRED_TRUTH_PACKET_FIELDS = (
-    "canonical_router",
-    "route_snapshot",
-    "skill_routing",
-    "divergence_shadow",
+    "module_assignments",
 )
 STRUCTURED_REENTRY_APPROVAL_ACTIONS: dict[str, frozenset[str]] = {
     "requirement_doc": frozenset(
@@ -317,19 +339,43 @@ def _load_json_dict(path: Path, *, label: str) -> dict[str, Any]:
 
 
 def _normalize_requested_entry_id(entry_id: str | None) -> str:
-    """Normalize and validate the requested canonical entry identifier."""
-    requested_entry_id = str(entry_id or "").strip() or CANONICAL_RUNTIME_ENTRY_ID
-    if requested_entry_id not in load_allowed_vibe_entry_ids():
-        raise RuntimeError(f"unsupported canonical vibe entry id: {requested_entry_id}")
+    """Collapse explicit entry hints onto the canonical runtime entry."""
+    _ = str(entry_id or "").strip()
+    return CANONICAL_RUNTIME_ENTRY_ID
+
+
+def _runtime_entry_id_for_requested_entry(requested_entry_id: str) -> str:
     return requested_entry_id
 
 
-def _continuation_sessions_root(artifact_root: Path) -> Path:
-    return artifact_root / "outputs" / "runtime" / "vibe-sessions"
+def _seed_requested_stage_stop(
+    requested_entry_id: str,
+    requested_stage_stop: str | None,
+) -> str | None:
+    normalized_requested_stage_stop = str(requested_stage_stop or "").strip() or None
+    return normalized_requested_stage_stop
 
 
-def _iter_runtime_summaries(artifact_root: Path) -> list[Path]:
-    sessions_root = _continuation_sessions_root(artifact_root)
+def _continuation_sessions_root(
+    artifact_root: Path,
+    *,
+    repo_root: Path = REPO_ROOT,
+) -> Path:
+    return resolve_runtime_session_receipts_root(
+        repo_root=repo_root,
+        artifact_root=artifact_root,
+    )
+
+
+def _iter_runtime_summaries(
+    artifact_root: Path,
+    *,
+    repo_root: Path = REPO_ROOT,
+) -> list[Path]:
+    sessions_root = _continuation_sessions_root(
+        artifact_root,
+        repo_root=repo_root,
+    )
     if not sessions_root.exists():
         return []
     return sorted(
@@ -339,14 +385,23 @@ def _iter_runtime_summaries(artifact_root: Path) -> list[Path]:
     )
 
 
-def _runtime_summary_path_for_run_id(artifact_root: Path, run_id: str | None) -> Path | None:
+def _runtime_summary_path_for_run_id(
+    artifact_root: Path,
+    run_id: str | None,
+    *,
+    repo_root: Path = REPO_ROOT,
+) -> Path | None:
     candidate = str(run_id or "").strip()
     if not candidate or candidate in {".", ".."} or "/" in candidate or "\\" in candidate:
         return None
     windows_candidate = PureWindowsPath(candidate)
     if windows_candidate.drive or windows_candidate.anchor or windows_candidate.is_absolute():
         return None
-    return _continuation_sessions_root(artifact_root) / candidate / "runtime-summary.json"
+    return (
+        _continuation_sessions_root(artifact_root, repo_root=repo_root)
+        / candidate
+        / "runtime-summary.json"
+    )
 
 
 def _load_json_dict_if_exists(path: Path | None) -> dict[str, Any] | None:
@@ -436,6 +491,17 @@ def _load_runtime_input_packet_from_summary(summary_path: Path | None) -> dict[s
     return None
 
 
+def _runtime_packet_task_type(runtime_packet: dict[str, Any] | None) -> str:
+    if not isinstance(runtime_packet, dict):
+        return ""
+    route_snapshot = runtime_packet.get("route_snapshot")
+    if isinstance(route_snapshot, dict):
+        route_task_type = str(route_snapshot.get("task_type") or "").strip()
+        if route_task_type:
+            return route_task_type
+    return ""
+
+
 def _inherit_frozen_host_decision_fields_from_bounded_reentry(
     *,
     host_decision: dict[str, Any] | None,
@@ -456,8 +522,18 @@ def _inherit_frozen_host_decision_fields_from_bounded_reentry(
 
     effective_decision = copy.deepcopy(decision) if decision else {}
 
+    if effective_decision.get("code_task_tdd_decision") is None:
+        prior_tdd_decision = runtime_packet.get("code_task_tdd_decision")
+        if isinstance(prior_tdd_decision, dict):
+            effective_decision["code_task_tdd_decision"] = copy.deepcopy(prior_tdd_decision)
+
     if effective_decision.get("phase_decomposition") is None:
-        prior_phase_decomposition = runtime_packet.get("execution_phase_decomposition")
+        prior_phase_decomposition = None
+        prior_host_decision = runtime_packet.get("host_decision")
+        if isinstance(prior_host_decision, dict):
+            prior_phase_decomposition = prior_host_decision.get("phase_decomposition")
+        if prior_phase_decomposition is None:
+            prior_phase_decomposition = runtime_packet.get("execution_phase_decomposition")
         if isinstance(prior_phase_decomposition, dict):
             effective_decision["phase_decomposition"] = copy.deepcopy(prior_phase_decomposition)
 
@@ -528,6 +604,105 @@ def _serialize_host_decision_json(host_decision: dict[str, Any] | None) -> str |
     if not decision:
         return None
     return json.dumps(decision, ensure_ascii=False, separators=(",", ":"))
+
+
+def _requested_grade_floor_from_host_decision(
+    host_decision: dict[str, Any] | None,
+) -> str | None:
+    decision = _normalize_host_decision(host_decision)
+    if not decision:
+        return None
+
+    for container in (
+        decision,
+        decision.get("continuation_context") if isinstance(decision.get("continuation_context"), dict) else None,
+    ):
+        if not isinstance(container, dict):
+            continue
+        for key in ("requested_grade_floor", "workflow_level"):
+            value = str(container.get(key) or "").strip().upper()
+            if value in {"L", "XL"}:
+                return value
+    return None
+
+
+def _resolve_local_kernel_stage_stop_summary(
+    *,
+    entry_id: str,
+    requested_stage_stop: str | None,
+    has_agent_skill_organization: bool,
+) -> tuple[str, str, str | None]:
+    surface = load_discoverable_entry_surface(Path(__file__))
+    discoverable_entry = surface.entry_by_id.get(entry_id)
+    if discoverable_entry is None:
+        raise RuntimeError(f"discoverable entry surface missing entry: {entry_id}")
+    if not has_agent_skill_organization and requested_stage_stop in {"xl_plan", "plan_execute", "phase_cleanup"}:
+        raise RuntimeError(f"agent_skill_organization is required before {requested_stage_stop}")
+    default_stage_stop = discoverable_entry.requested_stage_stop if has_agent_skill_organization else "requirement_doc"
+    stage_stop = resolve_stage_stop(
+        requested_stage_stop,
+        default_stage_stop,
+        default_source="entry_surface_default",
+    )
+    return (
+        stage_stop.effective_requested_stage_stop,
+        stage_stop.stage_stop_source,
+        stage_stop.requested_stage_stop,
+    )
+
+
+def _build_normal_reading_path(artifacts: dict[str, Any]) -> dict[str, Any]:
+    proof_artifact_path = artifacts.get("work_dossier")
+    proof_markdown_path = artifacts.get("work_dossier_markdown")
+    artifact_paths = {
+        "task_card": artifacts.get("task_card"),
+        "work_plan": artifacts.get("work_plan"),
+        "module_assignments": artifacts.get("module_assignments"),
+        "work_results": artifacts.get("work_results"),
+        "verification": artifacts.get("verification"),
+        "proof": proof_artifact_path,
+    }
+    if proof_markdown_path:
+        artifact_paths["proof_markdown"] = proof_markdown_path
+    return {
+        "reading_order": [
+            "task_card",
+            "work_plan",
+            "module_assignments",
+            "work_results",
+            "verification",
+            "proof",
+        ],
+        "artifact_paths": artifact_paths,
+        "primary_artifact": "work_dossier",
+        "primary_artifact_path": proof_artifact_path,
+        "human_readable_artifact": "work_dossier_markdown",
+        "human_readable_artifact_path": proof_markdown_path,
+    }
+
+
+def _resolve_canonical_stage_stop_source(
+    *,
+    requested_stage_stop: str | None,
+    effective_requested_stage_stop: str | None,
+) -> str:
+    return resolve_progressive_stage_stop_source(
+        requested_stage_stop=requested_stage_stop,
+        effective_requested_stage_stop=effective_requested_stage_stop,
+    )
+
+
+def _resolve_canonical_terminal_stage(
+    *,
+    stage_lineage_payload: dict[str, Any],
+    summary: dict[str, Any],
+    effective_requested_stage_stop: str | None,
+) -> str:
+    return resolve_terminal_stage(
+        stage_lineage_payload=stage_lineage_payload,
+        summary=summary,
+        fallback_terminal_stage=effective_requested_stage_stop,
+    )
 
 
 def _extract_continuation_keywords(intent_contract: dict[str, Any]) -> list[str]:
@@ -630,20 +805,12 @@ def _build_structured_continuation_prompt(
         if prior_task:
             segments.append(prior_task)
 
-    deliverable = str(continuation.get("intent_deliverable") or "").strip()
-    if deliverable and deliverable.lower() != "unknown":
-        segments.append(f"Deliverable: {deliverable}.")
-
-    constraints = _normalize_text_list(continuation.get("intent_constraints"))
-    if constraints:
-        segments.append(f"Constraints: {'; '.join(constraints)}.")
-
     revision_delta = _normalize_text_list(continuation.get("revision_delta"))
     if revision_delta:
         segments.append(f"Revision delta: {'; '.join(revision_delta)}.")
 
     delta = str(prompt_text or "").strip()
-    if delta and not _is_control_only_structured_reentry_prompt(delta):
+    if delta and not revision_delta and not _is_control_only_structured_reentry_prompt(delta):
         segments.append(f"Update: {delta}")
 
     return " ".join(segment for segment in segments if segment).strip() or delta
@@ -762,10 +929,6 @@ def _required_continuation_artifact(
     entry_id: str,
     bounded_reentry: dict[str, Any] | None,
 ) -> str | None:
-    if entry_id == "vibe-how-do-we-do":
-        return "requirement_doc"
-    if entry_id == "vibe-do-it":
-        return "execution_plan"
     if entry_id != CANONICAL_RUNTIME_ENTRY_ID or bounded_reentry is None:
         return None
 
@@ -785,14 +948,7 @@ def _should_apply_continuation(
 ) -> bool:
     if bounded_reentry is not None:
         return _required_continuation_artifact(entry_id=entry_id, bounded_reentry=bounded_reentry) is not None
-    if entry_id not in {"vibe-how-do-we-do", "vibe-do-it"}:
-        return False
-    normalized = prompt_text.strip().lower()
-    if not normalized:
-        return False
-    if len(normalized.split()) <= 24:
-        return True
-    return normalized.startswith("execute ") or normalized.startswith("plan ")
+    return False
 
 
 def _find_continuation_context(
@@ -802,8 +958,13 @@ def _find_continuation_context(
     run_id: str | None,
     preferred_run_id: str | None = None,
     allow_bounded_preferred: bool = False,
+    repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any] | None:
-    preferred_summary = _runtime_summary_path_for_run_id(artifact_root, preferred_run_id)
+    preferred_summary = _runtime_summary_path_for_run_id(
+        artifact_root,
+        preferred_run_id,
+        repo_root=repo_root,
+    )
     bounded_preferred_locked = allow_bounded_preferred and bool(str(preferred_run_id or "").strip())
     if bounded_preferred_locked and (preferred_summary is None or not preferred_summary.is_file()):
         return None
@@ -822,7 +983,10 @@ def _find_continuation_context(
             if bounded_preferred_locked:
                 return None
 
-    for summary_path in _iter_runtime_summaries(artifact_root):
+    for summary_path in _iter_runtime_summaries(
+        artifact_root,
+        repo_root=repo_root,
+    ):
         if run_id and summary_path.parent.name == run_id:
             continue
         summary = _load_json_dict_if_exists(summary_path)
@@ -871,18 +1035,13 @@ def _load_continuation_context_from_summary(
     if not intent_contract:
         return None
     runtime_packet = _load_runtime_input_packet_from_summary(summary_path)
-    prior_task_type = ""
-    if isinstance(runtime_packet, dict):
-        canonical_router = runtime_packet.get("canonical_router")
-        if isinstance(canonical_router, dict):
-            prior_task_type = str(canonical_router.get("task_type") or "").strip()
     return {
         "summary_path": str(summary_path),
         "run_id": str(summary.get("run_id") or summary_path.parent.name),
         "terminal_stage": str(summary.get("terminal_stage") or ""),
         "required_artifact": str(required_path),
         "task": str(summary.get("task") or ""),
-        "prior_task_type": prior_task_type,
+        "prior_task_type": _runtime_packet_task_type(runtime_packet),
         "intent_contract": intent_contract,
         "intent_goal": str(intent_contract.get("goal") or "").strip(),
         "intent_deliverable": str(intent_contract.get("deliverable") or "").strip(),
@@ -895,6 +1054,7 @@ def _resolve_effective_prompt(
     host_id: str,
     entry_id: str,
     prompt: str,
+    repo_root: Path = REPO_ROOT,
     host_decision: dict[str, Any] | None = None,
     artifact_root: Path | None = None,
     run_id: str | None = None,
@@ -902,16 +1062,8 @@ def _resolve_effective_prompt(
     continuation_source_run_id: str | None = None,
     allow_bounded_preferred_source: bool = False,
 ) -> str:
-    """Derive the runtime prompt, including upgrade fallback and continuation context."""
+    """Derive the runtime prompt, including bounded continuation context."""
     prompt_text = str(prompt or "")
-    if not prompt_text.strip() and entry_id == "vibe-upgrade":
-        resolved_host_id = str(host_id or "").strip() or "current-host"
-        return (
-            f"Upgrade the local Vibe-Skills installation for host {resolved_host_id} "
-            "using the shared vgo-cli upgrade flow against the official default branch. "
-            "Reinstall the supported host surface, verify the result, and report concise before-and-after status."
-        )
-
     required_artifact = _required_continuation_artifact(entry_id=entry_id, bounded_reentry=bounded_reentry)
     if artifact_root is not None and required_artifact and _should_apply_continuation(
         entry_id,
@@ -924,6 +1076,7 @@ def _resolve_effective_prompt(
             run_id=run_id,
             preferred_run_id=continuation_source_run_id,
             allow_bounded_preferred=allow_bounded_preferred_source,
+            repo_root=repo_root,
         )
         if continuation:
             structured_context = _bounded_reentry_context_from_host_decision(host_decision)
@@ -966,11 +1119,6 @@ def _coerce_bounded_return_control(summary: dict[str, Any], summary_path: Path |
     intent_contract = _load_intent_contract_from_artifacts(artifacts, base_dir=summary_base_dir)
     runtime_packet_path = _artifact_path_from_artifacts(artifacts, "runtime_input_packet", base_dir=summary_base_dir)
     runtime_packet = _load_json_dict_if_exists(runtime_packet_path) if runtime_packet_path else {}
-    prior_task_type = ""
-    if isinstance(runtime_packet, dict):
-        canonical_router = runtime_packet.get("canonical_router")
-        if isinstance(canonical_router, dict):
-            prior_task_type = str(canonical_router.get("task_type") or "").strip()
     return {
         "summary_path": str(summary_path or summary.get("summary_path") or ""),
         "source_run_id": source_run_id,
@@ -982,7 +1130,7 @@ def _coerce_bounded_return_control(summary: dict[str, Any], summary_path: Path |
         "intent_goal": str(intent_contract.get("goal") or "") if intent_contract else "",
         "intent_deliverable": str(intent_contract.get("deliverable") or "") if intent_contract else "",
         "intent_constraints": _normalize_text_list(intent_contract.get("constraints")) if intent_contract else [],
-        "prior_task_type": prior_task_type,
+        "prior_task_type": _runtime_packet_task_type(runtime_packet),
     }
 
 
@@ -996,11 +1144,6 @@ def _build_malformed_bounded_return_control(summary: dict[str, Any], summary_pat
     intent_contract = _load_intent_contract_from_artifacts(artifacts, base_dir=summary_path.parent)
     runtime_packet_path = _artifact_path_from_artifacts(artifacts, "runtime_input_packet", base_dir=summary_path.parent)
     runtime_packet = _load_json_dict_if_exists(runtime_packet_path) if runtime_packet_path else {}
-    prior_task_type = ""
-    if isinstance(runtime_packet, dict):
-        canonical_router = runtime_packet.get("canonical_router")
-        if isinstance(canonical_router, dict):
-            prior_task_type = str(canonical_router.get("task_type") or "").strip()
     return {
         "summary_path": str(summary_path),
         "source_run_id": str(summary.get("run_id") or summary_path.parent.name),
@@ -1012,7 +1155,7 @@ def _build_malformed_bounded_return_control(summary: dict[str, Any], summary_pat
         "intent_goal": str(intent_contract.get("goal") or "") if intent_contract else "",
         "intent_deliverable": str(intent_contract.get("deliverable") or "") if intent_contract else "",
         "intent_constraints": _normalize_text_list(intent_contract.get("constraints")) if intent_contract else [],
-        "prior_task_type": prior_task_type,
+        "prior_task_type": _runtime_packet_task_type(runtime_packet),
         "malformed": True,
     }
 
@@ -1022,8 +1165,13 @@ def _find_latest_bounded_return_control(
     artifact_root: Path,
     run_id: str | None,
     preferred_run_id: str | None = None,
+    repo_root: Path = REPO_ROOT,
 ) -> dict[str, Any] | None:
-    preferred_summary_path = _runtime_summary_path_for_run_id(artifact_root, preferred_run_id)
+    preferred_summary_path = _runtime_summary_path_for_run_id(
+        artifact_root,
+        preferred_run_id,
+        repo_root=repo_root,
+    )
     if preferred_summary_path and preferred_summary_path.is_file():
         if not _has_verified_host_launch_receipt(preferred_summary_path):
             return None
@@ -1035,7 +1183,10 @@ def _find_latest_bounded_return_control(
                 return preferred_guard
             return _build_malformed_bounded_return_control(preferred_summary, preferred_summary_path)
 
-    for summary_path in _iter_runtime_summaries(artifact_root):
+    for summary_path in _iter_runtime_summaries(
+        artifact_root,
+        repo_root=repo_root,
+    ):
         if run_id and summary_path.parent.name == run_id:
             continue
         if not _has_verified_host_launch_receipt(summary_path):
@@ -1056,7 +1207,6 @@ def _find_latest_bounded_return_control(
 def _looks_like_generic_reentry_prompt(
     prompt_text: str,
     *,
-    entry_id: str,
     bounded_return_control: dict[str, Any],
 ) -> bool:
     normalized_prompt = _normalize_prompt_for_compare(prompt_text)
@@ -1153,6 +1303,7 @@ def _structured_host_decision_reentry_action(
 def _validate_bounded_reentry(
     *,
     artifact_root: Path | None,
+    repo_root: Path = REPO_ROOT,
     entry_id: str,
     prompt: str,
     run_id: str | None,
@@ -1175,6 +1326,7 @@ def _validate_bounded_reentry(
         artifact_root=artifact_root,
         run_id=run_id,
         preferred_run_id=continue_from_run_id,
+        repo_root=repo_root,
     )
     if not prior_guard:
         if explicit_reentry_credentials_supplied:
@@ -1183,7 +1335,10 @@ def _validate_bounded_reentry(
                 "verify --continue-from-run-id, --bounded-reentry-token, and artifact root"
             )
         return None
-    fallback_prompt_reentry = _looks_like_generic_reentry_prompt(prompt, entry_id=entry_id, bounded_return_control=prior_guard)
+    fallback_prompt_reentry = _looks_like_generic_reentry_prompt(
+        prompt,
+        bounded_return_control=prior_guard,
+    )
     if bool(prior_guard.get("malformed")):
         if explicit_reentry_credentials_supplied or fallback_prompt_reentry or host_decision is not None:
             raise RuntimeError(
@@ -1256,20 +1411,44 @@ def _new_run_id() -> str:
     return f"{timestamp}-{suffix}"
 
 
+def _resolve_path(base_root: Path, value: str | Path) -> Path:
+    path = Path(str(value)).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (base_root / path).resolve()
+
+
 def _resolve_artifact_root(repo_root: Path, artifact_root: str | Path | None) -> Path:
     """Resolve the artifact root relative to the repository when needed."""
     if artifact_root in (None, ""):
         return (repo_root / ".vibeskills").resolve()
+    return _resolve_path(repo_root, artifact_root)
 
-    artifact_root_path = Path(str(artifact_root)).expanduser()
-    if artifact_root_path.is_absolute():
-        return artifact_root_path.resolve()
-    return (repo_root / artifact_root_path).resolve()
+
+def _resolve_canonical_roots(
+    repo_root: Path,
+    *,
+    workspace_root: str | Path | None,
+    artifact_root: str | Path | None,
+) -> tuple[Path, Path]:
+    if workspace_root not in (None, ""):
+        resolved_workspace_root = _resolve_path(repo_root, workspace_root)
+        if artifact_root in (None, ""):
+            return resolved_workspace_root, (resolved_workspace_root / ".vibeskills").resolve()
+        return resolved_workspace_root, _resolve_path(resolved_workspace_root, artifact_root)
+    if artifact_root not in (None, ""):
+        resolved_artifact_root = _resolve_artifact_root(repo_root, artifact_root)
+        return resolved_artifact_root, resolved_artifact_root
+    return repo_root.resolve(), (repo_root / ".vibeskills").resolve()
 
 
 def _resolve_session_root(*, repo_root: Path, run_id: str, artifact_root: str | Path | None) -> Path:
     """Build the canonical session output directory for a run."""
-    return (_resolve_artifact_root(repo_root, artifact_root) / "outputs" / "runtime" / "vibe-sessions" / run_id).resolve()
+    return resolve_runtime_session_root(
+        repo_root=repo_root,
+        artifact_root=_resolve_artifact_root(repo_root, artifact_root),
+        run_id=run_id,
+    )
 
 
 def invoke_vibe_runtime_entrypoint(
@@ -1281,7 +1460,9 @@ def invoke_vibe_runtime_entrypoint(
     requested_stage_stop: str | None,
     requested_grade_floor: str | None,
     run_id: str | None,
+    workspace_root: Path,
     artifact_root: str | Path | None,
+    module_execution_json_file: str | Path | None = None,
     host_decision: dict[str, Any] | None = None,
     force_runtime_neutral: bool = False,
 ) -> dict[str, Any]:
@@ -1334,20 +1515,351 @@ def invoke_vibe_runtime_entrypoint(
         command.extend(["-RequestedGradeFloor", requested_grade_floor])
     if run_id:
         command.extend(["-RunId", run_id])
+    command.extend(["-WorkspaceRoot", str(workspace_root)])
     if artifact_root:
         command.extend(["-ArtifactRoot", str(Path(artifact_root))])
+    if module_execution_json_file:
+        command.extend(["-ModuleExecutionJsonFile", str(Path(module_execution_json_file))])
     serialized_host_decision = _serialize_host_decision_json(host_decision)
     if serialized_host_decision:
         command.extend(["-HostDecisionJson", serialized_host_decision])
 
+    bridge_output_path = Path(tempfile.gettempdir()) / f"vgo-canonical-entry-{os.getpid()}-{os.urandom(4).hex()}.json"
+    command.extend(["-BridgeOutputJsonPath", str(bridge_output_path)])
     env = dict(os.environ)
     env["VCO_HOST_ID"] = host_id
-    return run_powershell_json_command(
-        command,
-        cwd=repo_root,
-        bridge_label="canonical entry bridge",
-        env=env,
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    try:
+        return run_powershell_json_command(
+            command,
+            cwd=repo_root,
+            bridge_label="canonical entry bridge",
+            env=env,
+            json_output_path=bridge_output_path,
+        )
+    finally:
+        try:
+            bridge_output_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def finalize_runtime_summary_payload(
+    *,
+    input_json_path: str | Path,
+    output_json_path: str | Path,
+) -> dict[str, Any]:
+    """Build the Python-owned runtime summary from a staged payload file."""
+    input_path = Path(input_json_path).resolve()
+    output_path = Path(output_json_path).resolve()
+    payload = _load_json_dict(input_path, label="runtime summary finalize payload")
+    summary = build_runtime_summary_from_payload(payload)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
+def refresh_runtime_summary_acceptance_payload(
+    *,
+    summary_json_path: str | Path,
+    delivery_acceptance_report_json_path: str | Path,
+    cleanup_receipt_path: str | Path,
+) -> dict[str, Any]:
+    summary_path = Path(summary_json_path).resolve()
+    report_path = Path(delivery_acceptance_report_json_path).resolve()
+    summary = _load_json_dict(summary_path, label="runtime-summary")
+    report = _load_json_dict(report_path, label="delivery-acceptance-report")
+    refreshed = refresh_runtime_summary_acceptance(
+        summary,
+        report,
+        cleanup_receipt_path=str(Path(cleanup_receipt_path).resolve()),
+        delivery_acceptance_report_path=str(report_path),
     )
+    summary_path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return refreshed
+
+
+def build_runtime_truth_payload(
+    *,
+    input_json_path: str | Path,
+    output_json_path: str | Path,
+) -> dict[str, Any]:
+    """Build the Python-owned runtime truth packet from a staged payload file."""
+    input_path = Path(input_json_path).resolve()
+    output_path = Path(output_json_path).resolve()
+    payload = _load_json_dict(input_path, label="runtime truth build payload")
+    packet = build_runtime_truth_packet_from_payload(payload)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(packet, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return packet
+
+
+def _launch_local_agent_kernel(
+    *,
+    repo_root: Path,
+    workspace_root: Path,
+    host_id: str,
+    entry_id: str,
+    prompt: str,
+    requested_stage_stop: str | None,
+    requested_grade_floor: str | None,
+    run_id: str | None,
+    artifact_root: Path,
+    local_agent_root: str | Path,
+    summary_source: str,
+    host_decision: dict[str, Any] | None,
+) -> CanonicalLaunchResult:
+    resolved_run_id = str(run_id or "").strip() or f"local-{_new_run_id()}"
+    resolved_local_agent_root = Path(local_agent_root).expanduser().resolve()
+    artifact_projection = resolve_runtime_artifact_projection(
+        agent_root=resolved_local_agent_root,
+        workspace_root=workspace_root,
+        session_artifact_root=artifact_root,
+        run_id=resolved_run_id,
+        repo_root=repo_root,
+    )
+    session_root = artifact_projection.session_root
+    normalized_host_decision = _normalize_host_decision(host_decision)
+    raw_agent_skill_organization = (
+        normalized_host_decision.get("agent_skill_organization") if normalized_host_decision else None
+    )
+    agent_skill_organization = (
+        dict(raw_agent_skill_organization) if isinstance(raw_agent_skill_organization, dict) else None
+    )
+    effective_requested_stage_stop, stage_stop_source, normalized_requested_stage_stop = _resolve_local_kernel_stage_stop_summary(
+        entry_id=entry_id,
+        requested_stage_stop=requested_stage_stop,
+        has_agent_skill_organization=agent_skill_organization is not None,
+    )
+    should_execute = effective_requested_stage_stop in {"plan_execute", "phase_cleanup"}
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    receipt = HostLaunchReceipt(
+        host_id=host_id,
+        entry_id=CANONICAL_RUNTIME_ENTRY_ID,
+        launch_mode="local-agent-kernel",
+        launcher_path=str((repo_root / CANONICAL_ENTRY_BRIDGE_RELPATH).resolve()),
+        requested_stage_stop=requested_stage_stop,
+        requested_grade_floor=requested_grade_floor,
+        runtime_entrypoint=str((repo_root / LOCAL_KERNEL_ENTRYPOINT_RELPATH).resolve()),
+        run_id=resolved_run_id,
+        created_at=created_at,
+        launch_status="launched",
+    )
+    receipt_path = write_host_launch_receipt(session_root, receipt)
+
+    try:
+        kernel_result = run_local_kernel(
+            agent_root=resolved_local_agent_root,
+            prompt=prompt,
+            run_id=resolved_run_id,
+            host_id=host_id,
+            workspace_root=workspace_root,
+            repo_root=repo_root,
+            agent_skill_organization=agent_skill_organization,
+            execute=should_execute,
+        )
+    except Exception:
+        failed_receipt = HostLaunchReceipt(**{**receipt.model_dump(), "launch_status": "failed"})
+        write_host_launch_receipt(receipt_path, failed_receipt)
+        sync_session_receipts_to_run_artifact_sink(
+            artifact_projection,
+            session_root=session_root,
+        )
+        raise
+
+    artifacts = dict(kernel_result.get("artifacts") or {})
+    if not artifacts:
+        artifacts = {
+            "work_dossier": str(session_root / "work-dossier.json"),
+            "work_dossier_markdown": str(session_root / "work-dossier.md"),
+            "task_card": str(session_root / "task-card.json"),
+            "work_plan": str(session_root / "plan.json"),
+            "plan": str(session_root / "plan.json"),
+            "module_assignments": str(session_root / "module-assignments.json"),
+            "work_results": str(session_root / "work-results.json"),
+            "run_state": str(session_root / "run-state.json"),
+            "verification": str(session_root / "verification.json"),
+        }
+    artifacts["host_launch_receipt"] = str(receipt_path)
+    module_assignments_path = _artifact_path_from_artifacts(artifacts, "module_assignments")
+    if module_assignments_path is None:
+        raise RuntimeError("local agent kernel summary requires a module_assignments artifact")
+    module_assignments = _load_json_dict(module_assignments_path, label="module-assignments")
+    work_results_path = _artifact_path_from_artifacts(artifacts, "work_results")
+    work_results = _load_json_dict(work_results_path, label="work-results") if work_results_path else {}
+    verification_path = _artifact_path_from_artifacts(artifacts, "verification")
+    verification = _load_json_dict(verification_path, label="verification") if verification_path else {}
+    proof_ready = str(verification.get("result") or "") == "done"
+    local_status = (
+        "awaiting_agent_skill_organization"
+        if agent_skill_organization is None
+        else "completed"
+        if proof_ready
+        else "ready_for_execution"
+        if not should_execute
+        else "needs_execution"
+    )
+    artifact_kind = "delivery" if proof_ready else "scaffold"
+    runtime_packet_path = session_root / MINIMUM_TRUTH_ARTIFACTS["runtime_input_packet"]
+    governance_capsule_path = session_root / MINIMUM_TRUTH_ARTIFACTS["governance_capsule"]
+    stage_lineage_path = session_root / MINIMUM_TRUTH_ARTIFACTS["stage_lineage"]
+    runtime_packet = build_runtime_truth_packet(
+        run_id=resolved_run_id,
+        task=prompt,
+        module_assignments=module_assignments,
+        base_fields={
+            "host_id": host_id,
+            "entry_intent_id": entry_id,
+            "requested_stage_stop": requested_stage_stop,
+            "effective_requested_stage_stop": effective_requested_stage_stop,
+            "stage_stop_source": stage_stop_source,
+            "launch_mode": "local-agent-kernel",
+            "status": local_status,
+            "proof_ready": proof_ready,
+            "artifact_kind": artifact_kind,
+            "agent_skill_organization": agent_skill_organization,
+            "skill_search_guide": {
+                "schema_version": "skill_search_guide_v1",
+                "skill_roots": list((kernel_result.get("skills_catalog") or {}).get("roots", [])),
+                "search_protocol": [
+                    "Split the task into modules before searching local skills.",
+                    "Read candidate SKILL.md contracts before selecting an owner.",
+                ],
+                "selection_rules": [
+                    "Only the Agent may select skills for module assignments.",
+                    "Declare uncovered modules instead of fabricating coverage.",
+                ],
+                "disclosure_rules": [
+                    "Requirement output exposes discovery guidance and candidates, not bound skills.",
+                    "Execution output reports only skills selected by the Agent organization.",
+                ],
+            },
+        },
+        skill_routing={
+            "schema_version": "simplified_skill_routing_v1",
+            "candidates": list(kernel_result.get("candidates") or []),
+            "rejected": [],
+        },
+    )
+    runtime_packet_path.write_text(json.dumps(runtime_packet, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    governance_capsule = {
+        "runtime_selected_skill": CANONICAL_RUNTIME_ENTRY_ID,
+        "host_id": host_id,
+        "entry_id": entry_id,
+        "launch_mode": "local-agent-kernel",
+        "status": local_status,
+        "proof_ready": proof_ready,
+        "artifact_kind": artifact_kind,
+    }
+    governance_capsule_path.write_text(json.dumps(governance_capsule, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    stage_lineage = {
+        "stages": [{"stage_name": effective_requested_stage_stop}],
+        "last_stage_name": effective_requested_stage_stop,
+        "status": local_status,
+        "proof_ready": proof_ready,
+        "artifact_kind": artifact_kind,
+    }
+    stage_lineage_path.write_text(json.dumps(stage_lineage, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    artifacts["runtime_input_packet"] = str(runtime_packet_path)
+    artifacts["governance_capsule"] = str(governance_capsule_path)
+    artifacts["stage_lineage"] = str(stage_lineage_path)
+    truth_artifacts = assert_minimum_truth_artifacts(session_root)
+    assert_minimum_truth_consistency(
+        receipt=receipt,
+        runtime_packet_path=truth_artifacts["runtime_input_packet"],
+        governance_capsule_path=truth_artifacts["governance_capsule"],
+        stage_lineage_path=truth_artifacts["stage_lineage"],
+    )
+    summary = build_runtime_summary(
+        run_id=resolved_run_id,
+        task=prompt,
+        artifacts=artifacts,
+        module_assignments=module_assignments,
+        base_fields={
+            "launch_mode": "local-agent-kernel",
+            "host_id": host_id,
+            "entry_id": entry_id,
+            "status": local_status,
+            "proof_ready": proof_ready,
+            "artifact_kind": artifact_kind,
+            "requested_stage_stop": normalized_requested_stage_stop,
+            "effective_requested_stage_stop": effective_requested_stage_stop,
+            "stage_stop_source": stage_stop_source,
+            "terminal_stage": effective_requested_stage_stop,
+            "requested_grade_floor": requested_grade_floor,
+            "summary_source": summary_source,
+            "normal_reading_path": _build_normal_reading_path(artifacts),
+        },
+    )
+    summary_path = session_root / "runtime-summary.json"
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    verified_receipt = HostLaunchReceipt(**{**receipt.model_dump(), "launch_status": "verified"})
+    receipt_path = write_host_launch_receipt(receipt_path, verified_receipt)
+    artifacts["host_launch_receipt"] = str(receipt_path)
+    sync_session_receipts_to_run_artifact_sink(
+        artifact_projection,
+        session_root=session_root,
+    )
+    return CanonicalLaunchResult(
+        run_id=resolved_run_id,
+        session_root=session_root,
+        summary_path=summary_path,
+        host_launch_receipt_path=receipt_path,
+        launch_mode=verified_receipt.launch_mode,
+        summary=summary,
+        artifacts=artifacts,
+    )
+
+
+def _looks_like_local_agent_root(path: Path) -> bool:
+    resolved = path.resolve()
+    return (resolved / "vibe" / "skills" / "local").is_dir()
+
+
+def _auto_local_agent_root_candidate(
+    *,
+    repo_root: Path,
+    artifact_root: str | Path | None,
+) -> Path | None:
+    candidates: list[Path] = []
+    if artifact_root is not None:
+        candidates.append(Path(artifact_root).expanduser())
+    if repo_root.name.casefold() == "vibe" and (repo_root / "SKILL.md").is_file():
+        candidates.append(repo_root.parent)
+    candidates.append(repo_root)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if _looks_like_local_agent_root(resolved):
+            return resolved
+    return None
+
+
+def _should_auto_use_local_agent_kernel(
+    *,
+    requested_entry_id: str,
+    requested_stage_stop: str | None,
+    requested_grade_floor: str | None,
+    continue_from_run_id: str | None,
+    bounded_reentry_token: str | None,
+    host_decision: dict[str, Any] | None,
+    local_agent_root_candidate: Path | None,
+) -> bool:
+    if requested_entry_id != CANONICAL_RUNTIME_ENTRY_ID:
+        return False
+    if local_agent_root_candidate is None:
+        return False
+    if requested_stage_stop or requested_grade_floor:
+        return False
+    if continue_from_run_id or bounded_reentry_token:
+        return False
+    if host_decision and not isinstance(host_decision.get("agent_skill_organization"), dict):
+        return False
+    return True
 
 
 def assert_minimum_truth_artifacts(session_root: str | Path) -> dict[str, str]:
@@ -1366,62 +1878,44 @@ def assert_minimum_truth_artifacts(session_root: str | Path) -> dict[str, str]:
     return resolved
 
 
+def _load_runtime_truth_packet(
+    runtime_packet_path: Path,
+) -> dict[str, Any]:
+    runtime_packet = _load_json_dict(runtime_packet_path, label="runtime-input-packet")
+    module_assignments = runtime_packet.get("module_assignments")
+    if not isinstance(module_assignments, dict):
+        raise RuntimeError("canonical truth packet missing module_assignments object")
+
+    raw_skill_routing = runtime_packet.get("skill_routing")
+    if raw_skill_routing is not None and not isinstance(raw_skill_routing, dict):
+        raise RuntimeError("canonical truth packet has malformed skill_routing object")
+    return runtime_packet
+
+
 def _extract_terminal_stage(stage_lineage: dict[str, Any]) -> str | None:
-    """Extract the terminal stage name from known stage-lineage shapes."""
-    last_stage_name = str(stage_lineage.get("last_stage_name") or stage_lineage.get("last_stage") or "").strip()
-    if last_stage_name:
-        return last_stage_name
-    stages = stage_lineage.get("stages")
-    if isinstance(stages, list) and stages:
-        tail = stages[-1]
-        if isinstance(tail, dict):
-            stage_name = str(tail.get("stage_name") or tail.get("stage") or "").strip()
-            if stage_name:
-                return stage_name
-    entries = stage_lineage.get("entries")
-    if isinstance(entries, list) and entries:
-        tail = entries[-1]
-        if isinstance(tail, dict):
-            stage_name = str(tail.get("stage_name") or tail.get("stage") or "").strip()
-            if stage_name:
-                return stage_name
-    stage_name = str(stage_lineage.get("stage_name") or stage_lineage.get("stage") or "").strip()
-    return stage_name or None
+    return extract_shared_terminal_stage(stage_lineage)
 
 
-def _runtime_packet_records_no_specialist_resolution(runtime_packet: dict[str, Any]) -> bool:
-    specialist_decision = runtime_packet.get("specialist_decision")
-    if not isinstance(specialist_decision, dict):
-        return False
-    decision_state = str(specialist_decision.get("decision_state") or "").strip()
-    resolution_mode = str(specialist_decision.get("resolution_mode") or "").strip()
-    return (
-        decision_state == "no_specialist_recommendations"
-        and resolution_mode in {"no_matching_specialist", "no_specialist_needed"}
-    )
-
-
-def _skill_routing_selected_skill_ids(runtime_packet: dict[str, Any]) -> list[str]:
-    skill_routing = runtime_packet.get("skill_routing")
-    if not isinstance(skill_routing, dict):
+def _module_assignments_bound_skill_ids(runtime_packet: dict[str, Any]) -> list[str]:
+    module_assignments = runtime_packet.get("module_assignments")
+    if not isinstance(module_assignments, dict):
         return []
-    selected_rows = skill_routing.get("selected")
-    if not isinstance(selected_rows, list):
+    units = module_assignments.get("units")
+    if not isinstance(units, list):
         return []
-    selected_skill_ids: list[str] = []
-    for row in selected_rows:
-        if not isinstance(row, dict):
+    bound_skill_ids: list[str] = []
+    for unit in units:
+        if not isinstance(unit, dict):
             continue
-        skill_id = str(row.get("skill_id") or "").strip()
-        if skill_id and skill_id not in selected_skill_ids:
-            selected_skill_ids.append(skill_id)
-    return selected_skill_ids
+        skill_id = str(unit.get("bound_skill") or "").strip()
+        if skill_id and skill_id not in bound_skill_ids:
+            bound_skill_ids.append(skill_id)
+    return bound_skill_ids
 
 
 def assert_minimum_truth_consistency(
     *,
     receipt: HostLaunchReceipt,
-    requested_entry_id: str,
     runtime_packet_path: str | Path,
     governance_capsule_path: str | Path,
     stage_lineage_path: str | Path,
@@ -1432,14 +1926,6 @@ def assert_minimum_truth_consistency(
     if missing_truth_fields:
         missing = ", ".join(missing_truth_fields)
         raise RuntimeError(f"canonical truth packet missing required fields: {missing}")
-
-    packet_host_id = str(runtime_packet.get("host_id") or "").strip()
-    if packet_host_id and packet_host_id != receipt.host_id:
-        raise RuntimeError("host_id mismatch between host launch receipt and runtime packet")
-
-    packet_entry_intent_id = str(runtime_packet.get("entry_intent_id") or "").strip()
-    if packet_entry_intent_id and packet_entry_intent_id != requested_entry_id:
-        raise RuntimeError("entry_intent_id mismatch between canonical request and runtime packet")
 
     packet_requested_stop = runtime_packet.get("requested_stage_stop")
     if receipt.requested_stage_stop:
@@ -1456,33 +1942,68 @@ def assert_minimum_truth_consistency(
             raise RuntimeError("requested_grade_floor mismatch between host launch receipt and runtime packet")
 
     canonical_router = runtime_packet.get("canonical_router")
-    if not isinstance(canonical_router, dict):
-        raise RuntimeError("canonical truth packet missing canonical_router object")
-    router_host_id = str(canonical_router.get("host_id") or "").strip()
-    if not router_host_id:
-        raise RuntimeError("canonical truth packet missing canonical_router host_id")
-    if router_host_id != receipt.host_id:
-        raise RuntimeError("host_id mismatch between host launch receipt and canonical_router")
-    router_requested_skill = str(canonical_router.get("requested_skill") or "").strip()
-    if router_requested_skill and router_requested_skill != CANONICAL_RUNTIME_ENTRY_ID:
-        raise RuntimeError("canonical_router requested_skill must remain canonical vibe or be omitted")
+    if isinstance(canonical_router, dict):
+        _ = canonical_router.get("host_id")
 
-    route_snapshot = runtime_packet.get("route_snapshot")
-    if not isinstance(route_snapshot, dict):
-        raise RuntimeError("canonical truth packet missing route_snapshot object")
-    confirm_required = bool(route_snapshot.get("confirm_required"))
-    selected_skill = str(route_snapshot.get("selected_skill") or "").strip()
-    if not selected_skill:
-        raise RuntimeError("canonical truth packet missing route_snapshot selected_skill")
-
-    skill_routing = runtime_packet.get("skill_routing")
-    if not isinstance(skill_routing, dict):
-        raise RuntimeError("canonical truth packet missing skill_routing object")
-    selected_skill_ids = _skill_routing_selected_skill_ids(runtime_packet)
-    if not selected_skill_ids and not _runtime_packet_records_no_specialist_resolution(runtime_packet):
-        raise RuntimeError("canonical truth packet must preserve selected skill or no-specialist resolution evidence")
-    if selected_skill_ids and selected_skill not in selected_skill_ids:
-        raise RuntimeError("route_snapshot selected_skill mismatch with skill_routing.selected")
+    module_assignments = runtime_packet.get("module_assignments")
+    if not isinstance(module_assignments, dict):
+        raise RuntimeError("canonical truth packet missing module_assignments object")
+    bound_skill_ids = _module_assignments_bound_skill_ids(runtime_packet)
+    agent_organization = runtime_packet.get("agent_skill_organization")
+    if agent_organization is None:
+        if str(packet_requested_stop or "") in {"xl_plan", "plan_execute", "phase_cleanup"}:
+            raise RuntimeError("canonical truth packet requires agent_skill_organization before planning or execution")
+        if bound_skill_ids:
+            raise RuntimeError("canonical truth packet cannot bind task skills before agent_skill_organization")
+    elif not isinstance(agent_organization, dict):
+        raise RuntimeError("canonical truth packet agent_skill_organization must be an object")
+    else:
+        modules = agent_organization.get("modules")
+        if not isinstance(modules, list) or not modules:
+            raise RuntimeError("canonical truth packet agent_skill_organization.modules must be a non-empty list")
+        for module in modules:
+            if not isinstance(module, dict):
+                raise RuntimeError("canonical truth packet agent_skill_organization.modules must contain objects")
+            module_id = str(module.get("module_id") or "").strip()
+            criteria = module.get("acceptance_criteria")
+            if not isinstance(criteria, list) or not criteria:
+                raise RuntimeError(
+                    f"canonical truth packet module {module_id} must include acceptance_criteria"
+                )
+            criterion_ids: set[str] = set()
+            for criterion in criteria:
+                if not isinstance(criterion, dict):
+                    raise RuntimeError(
+                        f"canonical truth packet module {module_id} acceptance_criteria must contain objects"
+                    )
+                criterion_id = str(criterion.get("criterion_id") or "").strip()
+                description = str(criterion.get("description") or "").strip()
+                verification_mode = str(criterion.get("verification_mode") or "").strip()
+                if not criterion_id or not description:
+                    raise RuntimeError(
+                        f"canonical truth packet module {module_id} acceptance criteria require criterion_id and description"
+                    )
+                if criterion_id in criterion_ids:
+                    raise RuntimeError(
+                        f"canonical truth packet module {module_id} has duplicate acceptance criterion {criterion_id}"
+                    )
+                if verification_mode not in {"automated", "manual"}:
+                    raise RuntimeError(
+                        f"canonical truth packet module {module_id} acceptance criterion verification_mode must be automated or manual"
+                    )
+                criterion_ids.add(criterion_id)
+        selected_rows = agent_organization.get("selected_skills")
+        if not isinstance(selected_rows, list):
+            raise RuntimeError("canonical truth packet agent_skill_organization.selected_skills must be a list")
+        selected_skill_ids = sorted(
+            {
+                str(row.get("skill_id") or "").strip()
+                for row in selected_rows
+                if isinstance(row, dict) and str(row.get("skill_id") or "").strip()
+            }
+        )
+        if selected_skill_ids != sorted(set(bound_skill_ids)):
+            raise RuntimeError("canonical truth packet module_assignments must match agent_skill_organization selected skills")
 
     governance_capsule = _load_json_dict(Path(governance_capsule_path), label="governance-capsule")
     runtime_selected_skill = str(governance_capsule.get("runtime_selected_skill") or "").strip()
@@ -1490,16 +2011,14 @@ def assert_minimum_truth_consistency(
         raise RuntimeError("governance capsule must keep vibe as runtime authority")
 
     divergence_shadow = runtime_packet.get("divergence_shadow")
-    if not isinstance(divergence_shadow, dict):
-        raise RuntimeError("canonical truth packet missing divergence_shadow object")
-    divergence_runtime_skill = str(divergence_shadow.get("runtime_selected_skill") or "").strip()
-    if divergence_runtime_skill != CANONICAL_RUNTIME_ENTRY_ID:
-        raise RuntimeError("divergence_shadow must keep vibe as runtime authority")
-    divergence_router_skill = str(divergence_shadow.get("router_selected_skill") or "").strip()
-    if not divergence_router_skill:
-        raise RuntimeError("canonical truth packet missing divergence_shadow router_selected_skill")
-    if divergence_router_skill != selected_skill:
-        raise RuntimeError("route_snapshot selected_skill mismatch with divergence_shadow")
+    if isinstance(divergence_shadow, dict):
+        divergence_runtime_skill = str(divergence_shadow.get("runtime_selected_skill") or "").strip()
+        if divergence_runtime_skill and divergence_runtime_skill != CANONICAL_RUNTIME_ENTRY_ID:
+            raise RuntimeError("divergence_shadow must keep vibe as runtime authority when present")
+    # divergence_shadow now only needs to preserve secondary mismatch/override
+    # shadowing for older readers. Runtime authority truth stays with
+    # governance-capsule.json, and the live selected-skill truth stays with
+    # kernel-facing module_assignments evidence.
 
     stage_lineage = _load_json_dict(Path(stage_lineage_path), label="stage-lineage")
     stage_entries = stage_lineage.get("stages")
@@ -1511,37 +2030,116 @@ def assert_minimum_truth_consistency(
     if not terminal_stage:
         raise RuntimeError("stage-lineage missing terminal stage")
     if receipt.requested_stage_stop:
-        if confirm_required:
-            if terminal_stage != "skeleton_check":
-                raise RuntimeError("confirm-required runtime stop must return before governed stage progression")
-        elif terminal_stage != receipt.requested_stage_stop:
+        handoff_path = Path(stage_lineage_path).resolve().parent / "agent-execution-handoff.json"
+        handoff = (
+            _load_json_dict(handoff_path, label="agent-execution-handoff")
+            if handoff_path.exists()
+            else {}
+        )
+        is_agent_handoff_stop = (
+            receipt.requested_stage_stop == "phase_cleanup"
+            and terminal_stage == "plan_execute"
+            and handoff.get("status") == "agent_action_required"
+            and handoff.get("control_owner") == "agent"
+        )
+        if terminal_stage != receipt.requested_stage_stop and not is_agent_handoff_stop:
             raise RuntimeError("bounded stop mismatch between host launch receipt and stage-lineage")
 
 
 def launch_canonical_vibe(
     *,
     repo_root: str | Path,
-    host_id: str,
-    entry_id: str,
+    host_id: str | None,
+    entry_id: str | None,
     prompt: str,
     requested_stage_stop: str | None = None,
     requested_grade_floor: str | None = None,
     run_id: str | None = None,
+    workspace_root: str | Path | None = None,
     artifact_root: str | Path | None = None,
+    local_agent_root: str | Path | None = None,
     continue_from_run_id: str | None = None,
     bounded_reentry_token: str | None = None,
+    module_execution_json_file: str | Path | None = None,
     host_decision: dict[str, Any] | None = None,
     force_runtime_neutral: bool = False,
 ) -> CanonicalLaunchResult:
     """Launch canonical vibe, verify its artifacts, and return launch metadata."""
     decision = resolve_entry_repo_root(repo_root, script_anchor=Path(__file__))
     repo_root_path = decision.repo_root
+    resolved_workspace_root, resolved_artifact_root = _resolve_canonical_roots(
+        repo_root_path,
+        workspace_root=workspace_root,
+        artifact_root=artifact_root,
+    )
+    resolved_host_id = resolve_host_id(host_id)
     requested_entry_id = _normalize_requested_entry_id(entry_id)
-    resolved_artifact_root = _resolve_artifact_root(repo_root_path, artifact_root)
+    runtime_entry_id = _runtime_entry_id_for_requested_entry(requested_entry_id)
+    requested_stage_stop_seed = _seed_requested_stage_stop(requested_entry_id, requested_stage_stop)
+    if local_agent_root is not None:
+        return _launch_local_agent_kernel(
+            repo_root=repo_root_path,
+            workspace_root=resolved_workspace_root,
+            host_id=resolved_host_id,
+            entry_id=runtime_entry_id,
+            prompt=prompt,
+            requested_stage_stop=requested_stage_stop_seed,
+            requested_grade_floor=requested_grade_floor,
+            run_id=run_id,
+            artifact_root=resolved_artifact_root,
+            local_agent_root=local_agent_root,
+            summary_source="explicit local agent root delegation",
+            host_decision=host_decision,
+        )
+    auto_local_agent_root = _auto_local_agent_root_candidate(
+        repo_root=repo_root_path,
+        artifact_root=resolved_artifact_root,
+    )
+    if _should_auto_use_local_agent_kernel(
+        requested_entry_id=runtime_entry_id,
+        requested_stage_stop=requested_stage_stop_seed,
+        requested_grade_floor=requested_grade_floor,
+        continue_from_run_id=continue_from_run_id,
+        bounded_reentry_token=bounded_reentry_token,
+        host_decision=host_decision,
+        local_agent_root_candidate=auto_local_agent_root,
+    ):
+        return _launch_local_agent_kernel(
+            repo_root=repo_root_path,
+            workspace_root=resolved_workspace_root,
+            host_id=resolved_host_id,
+            entry_id=runtime_entry_id,
+            prompt=prompt,
+            requested_stage_stop=requested_stage_stop_seed,
+            requested_grade_floor=requested_grade_floor,
+            run_id=run_id,
+            artifact_root=resolved_artifact_root,
+            local_agent_root=auto_local_agent_root,
+            summary_source="auto local agent root detection",
+            host_decision=host_decision,
+        )
+    if module_execution_json_file is not None:
+        return _launch_agent_execution_reentry(
+            repo_root=repo_root_path,
+            workspace_root=resolved_workspace_root,
+            host_id=resolved_host_id,
+            entry_id=runtime_entry_id,
+            prompt=prompt,
+            requested_stage_stop=requested_stage_stop_seed,
+            requested_grade_floor=requested_grade_floor,
+            run_id=run_id,
+            artifact_root=resolved_artifact_root,
+            continue_from_run_id=continue_from_run_id,
+            bounded_reentry_token=bounded_reentry_token,
+            module_execution_json_file=module_execution_json_file,
+            host_decision=host_decision,
+            force_runtime_neutral=force_runtime_neutral,
+        )
     normalized_host_decision = _normalize_host_decision(host_decision)
     validated_reentry = _validate_bounded_reentry(
         artifact_root=resolved_artifact_root,
-        entry_id=requested_entry_id,
+        repo_root=repo_root_path,
+        entry_id=runtime_entry_id,
         prompt=prompt,
         run_id=run_id,
         continue_from_run_id=continue_from_run_id,
@@ -1560,13 +2158,18 @@ def launch_canonical_vibe(
     effective_requested_stage_stop = _resolve_progressive_requested_stage_stop(
         repo_root=repo_root_path,
         entry_id=requested_entry_id,
-        requested_stage_stop=requested_stage_stop,
+        requested_stage_stop=requested_stage_stop_seed,
         bounded_reentry=validated_reentry,
     )
+    effective_requested_grade_floor = requested_grade_floor or _requested_grade_floor_from_host_decision(
+        effective_host_decision,
+    )
+    prompt_entry_id = runtime_entry_id if validated_reentry is not None else requested_entry_id
     effective_prompt = _resolve_effective_prompt(
-        host_id=host_id,
-        entry_id=requested_entry_id,
+        host_id=resolved_host_id,
+        entry_id=prompt_entry_id,
         prompt=prompt,
+        repo_root=repo_root_path,
         host_decision=effective_host_decision,
         artifact_root=resolved_artifact_root,
         run_id=run_id,
@@ -1574,22 +2177,20 @@ def launch_canonical_vibe(
         continuation_source_run_id=(str(validated_reentry["source_run_id"]) if validated_reentry else None),
         allow_bounded_preferred_source=bool(validated_reentry),
     )
-    contract = resolve_canonical_vibe_contract(repo_root_path, host_id)
-    if str(contract.get("fallback_policy") or "").strip() != "blocked":
-        raise RuntimeError("unsupported fallback policy for canonical entry launcher")
-    if bool(contract.get("allow_skill_doc_fallback", False)):
-        raise RuntimeError("unsupported fallback policy for canonical entry launcher")
-
     resolved_run_id = str(run_id or "").strip() or _new_run_id()
-    session_root = _resolve_session_root(repo_root=repo_root_path, run_id=resolved_run_id, artifact_root=artifact_root)
+    session_root = _resolve_session_root(
+        repo_root=repo_root_path,
+        run_id=resolved_run_id,
+        artifact_root=resolved_artifact_root,
+    )
     summary_path = (session_root / "runtime-summary.json").resolve()
     receipt = HostLaunchReceipt(
-        host_id=host_id,
+        host_id=resolved_host_id,
         entry_id=CANONICAL_RUNTIME_ENTRY_ID,
         launch_mode="canonical-entry",
         launcher_path=str((repo_root_path / CANONICAL_ENTRY_BRIDGE_RELPATH).resolve()),
         requested_stage_stop=effective_requested_stage_stop,
-        requested_grade_floor=requested_grade_floor,
+        requested_grade_floor=effective_requested_grade_floor,
         runtime_entrypoint=str((repo_root_path / RUNTIME_ENTRYPOINT_RELPATH).resolve()),
         run_id=resolved_run_id,
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1600,45 +2201,447 @@ def launch_canonical_vibe(
     try:
         payload = invoke_vibe_runtime_entrypoint(
             repo_root=repo_root_path,
-            host_id=host_id,
-            entry_id=requested_entry_id,
+            host_id=resolved_host_id,
+            entry_id=runtime_entry_id,
             prompt=effective_prompt,
             requested_stage_stop=effective_requested_stage_stop,
-            requested_grade_floor=requested_grade_floor,
+            requested_grade_floor=effective_requested_grade_floor,
             run_id=resolved_run_id,
+            workspace_root=resolved_workspace_root,
             artifact_root=resolved_artifact_root,
+            module_execution_json_file=None,
             host_decision=effective_host_decision,
             force_runtime_neutral=force_runtime_neutral,
         )
     except Exception:
-        failed_receipt = HostLaunchReceipt(**{**receipt.model_dump(), "launch_status": "failed"})
-        write_host_launch_receipt(receipt_path, failed_receipt)
+        _mark_host_launch_failed(receipt_path, receipt)
         raise
 
-    session_root = Path(str(payload["session_root"])).resolve()
-    resolved_run_id = str(payload.get("run_id") or resolved_run_id or session_root.name)
-    summary_path = Path(str(payload.get("summary_path") or summary_path)).resolve()
+    try:
+        return _finalize_canonical_launch_result(
+            receipt=receipt,
+            receipt_path=receipt_path,
+            requested_entry_id=requested_entry_id,
+            requested_stage_stop=requested_stage_stop_seed,
+            effective_requested_stage_stop=effective_requested_stage_stop,
+            effective_prompt=effective_prompt,
+            payload=payload,
+            fallback_run_id=resolved_run_id,
+            fallback_summary_path=summary_path,
+        )
+    except Exception:
+        _mark_host_launch_failed(receipt_path, receipt)
+        raise
 
-    summary = dict(payload.get("summary") or {})
+
+def _launch_agent_execution_reentry(
+    *,
+    repo_root: Path,
+    workspace_root: Path,
+    host_id: str,
+    entry_id: str,
+    prompt: str,
+    requested_stage_stop: str | None,
+    requested_grade_floor: str | None,
+    run_id: str | None,
+    artifact_root: Path,
+    continue_from_run_id: str | None,
+    bounded_reentry_token: str | None,
+    module_execution_json_file: str | Path,
+    host_decision: dict[str, Any] | None,
+    force_runtime_neutral: bool,
+) -> CanonicalLaunchResult:
+    source_run_id = str(continue_from_run_id or "").strip()
+    if not source_run_id:
+        raise RuntimeError("Agent execution re-entry requires --continue-from-run-id")
+    if str(run_id or "").strip() not in {"", source_run_id}:
+        raise RuntimeError("Agent execution re-entry must resume the source run")
+    if bounded_reentry_token:
+        raise RuntimeError("Agent execution re-entry does not accept a user approval token")
+    if host_decision is not None:
+        raise RuntimeError("Agent execution re-entry does not accept a host approval decision")
+
+    session_root = _resolve_session_root(
+        repo_root=repo_root,
+        run_id=source_run_id,
+        artifact_root=artifact_root,
+    )
+    runtime_packet = _load_runtime_truth_packet(session_root / "runtime-input-packet.json")
+    frozen_task = str(runtime_packet.get("task") or "").strip()
+    if not frozen_task:
+        raise RuntimeError("Agent execution re-entry requires the frozen task from runtime-input-packet.json")
+    handoff = _load_json_dict(session_root / "agent-execution-handoff.json", label="agent-execution-handoff")
+    if handoff.get("status") != "agent_action_required" or handoff.get("control_owner") != "agent":
+        raise RuntimeError("source run is not waiting for Agent execution results")
+
+    submitted_path = Path(module_execution_json_file).expanduser().resolve()
+    submitted = _load_json_dict(submitted_path, label="module-execution")
+    _validate_agent_module_execution(
+        session_root=session_root,
+        source_run_id=source_run_id,
+        handoff=handoff,
+        submitted=submitted,
+    )
+
+    receipt = HostLaunchReceipt(
+        host_id=host_id,
+        entry_id=CANONICAL_RUNTIME_ENTRY_ID,
+        launch_mode="canonical-entry",
+        launcher_path=str((repo_root / CANONICAL_ENTRY_BRIDGE_RELPATH).resolve()),
+        requested_stage_stop="phase_cleanup",
+        requested_grade_floor=requested_grade_floor,
+        runtime_entrypoint=str((repo_root / RUNTIME_ENTRYPOINT_RELPATH).resolve()),
+        run_id=source_run_id,
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        launch_status="launched",
+    )
+    receipt_path = write_host_launch_receipt(session_root, receipt)
+    try:
+        payload = invoke_vibe_runtime_entrypoint(
+            repo_root=repo_root,
+            host_id=host_id,
+            entry_id=entry_id,
+            prompt=frozen_task,
+            requested_stage_stop="phase_cleanup",
+            requested_grade_floor=requested_grade_floor,
+            run_id=source_run_id,
+            workspace_root=workspace_root,
+            artifact_root=artifact_root,
+            module_execution_json_file=submitted_path,
+            host_decision=None,
+            force_runtime_neutral=force_runtime_neutral,
+        )
+        return _finalize_canonical_launch_result(
+            receipt=receipt,
+            receipt_path=receipt_path,
+            requested_entry_id=entry_id,
+            requested_stage_stop=requested_stage_stop,
+            effective_requested_stage_stop="phase_cleanup",
+            effective_prompt=frozen_task,
+            payload=payload,
+            fallback_run_id=source_run_id,
+            fallback_summary_path=session_root / "runtime-summary.json",
+        )
+    except Exception:
+        _mark_host_launch_failed(receipt_path, receipt)
+        raise
+
+
+def _validate_agent_module_execution(
+    *,
+    session_root: Path,
+    source_run_id: str,
+    handoff: dict[str, Any],
+    submitted: dict[str, Any],
+) -> None:
+    result_contract = handoff.get("result_contract")
+    if not isinstance(result_contract, dict):
+        raise RuntimeError("Agent execution handoff is missing result_contract")
+    required_top_level_fields = result_contract.get("required_top_level_fields")
+    if not isinstance(required_top_level_fields, list) or any(
+        not isinstance(field, str) or not field.strip() for field in required_top_level_fields
+    ):
+        raise RuntimeError("Agent execution handoff result_contract required_top_level_fields is invalid")
+    for field in required_top_level_fields:
+        if field not in submitted:
+            raise RuntimeError(f"module execution is missing required field: {field}")
+    if submitted.get("schema_version") != "module_execution_v1":
+        raise RuntimeError("Agent module execution must use module_execution_v1")
+    if str(handoff.get("source_run_id") or "") != source_run_id:
+        raise RuntimeError("Agent execution handoff source_run_id does not match the source run")
+    if str(submitted.get("source_run_id") or "") != source_run_id:
+        raise RuntimeError("module execution source_run_id does not match the handoff run")
+
+    tdd_contract = result_contract.get("tdd_evidence")
+    if tdd_contract is not None:
+        if not isinstance(tdd_contract, dict):
+            raise RuntimeError("Agent execution handoff TDD evidence contract is invalid")
+        tdd_evidence = submitted.get("tdd_evidence")
+        if not isinstance(tdd_evidence, dict):
+            raise RuntimeError("module execution TDD evidence must be a JSON object")
+        required_tdd_fields = tdd_contract.get("required_result_fields")
+        if not isinstance(required_tdd_fields, list) or any(
+            not isinstance(field, str) or not field.strip() for field in required_tdd_fields
+        ):
+            raise RuntimeError("Agent execution handoff TDD evidence required fields are invalid")
+        for field in required_tdd_fields:
+            if field not in tdd_evidence:
+                raise RuntimeError(f"module execution TDD evidence is missing required field: {field}")
+
+        tdd_state = str(tdd_evidence.get("state") or "")
+        allowed_tdd_states = tdd_contract.get("terminal_states")
+        if not isinstance(allowed_tdd_states, list) or tdd_state not in allowed_tdd_states:
+            raise RuntimeError("module execution TDD evidence state must be passing, failing, or blocked")
+
+        list_fields = (
+            "evidence_paths",
+            "red_phase_evidence_paths",
+            "green_phase_evidence_paths",
+            "refactor_phase_evidence_paths",
+            "covered_code_task_tdd_evidence_requirements",
+            "covered_code_task_tdd_exceptions",
+        )
+        for field in list_fields:
+            value = tdd_evidence.get(field)
+            if not isinstance(value, list) or any(
+                not isinstance(item, str) or not item.strip() for item in value
+            ):
+                raise RuntimeError(f"module execution TDD evidence {field} must be a JSON array of strings")
+        if not isinstance(tdd_evidence.get("notes"), str):
+            raise RuntimeError("module execution TDD evidence notes must be a string")
+
+        if tdd_state == "passing":
+            required_tdd_requirements = tdd_contract.get(
+                "required_code_task_tdd_evidence_requirements"
+            )
+            required_tdd_exceptions = tdd_contract.get("required_code_task_tdd_exceptions")
+            if tdd_evidence["covered_code_task_tdd_evidence_requirements"] != required_tdd_requirements:
+                raise RuntimeError(
+                    "passing module execution TDD evidence must cover the frozen TDD requirements"
+                )
+            if tdd_evidence["covered_code_task_tdd_exceptions"] != required_tdd_exceptions:
+                raise RuntimeError(
+                    "passing module execution TDD evidence must cover the frozen TDD exceptions"
+                )
+            if not tdd_evidence["evidence_paths"]:
+                raise RuntimeError("passing module execution TDD evidence requires evidence paths")
+            if required_tdd_requirements and not tdd_evidence["red_phase_evidence_paths"]:
+                raise RuntimeError("passing module execution TDD evidence requires red-phase evidence paths")
+            if required_tdd_requirements and not tdd_evidence["green_phase_evidence_paths"]:
+                raise RuntimeError("passing module execution TDD evidence requires green-phase evidence paths")
+
+    plan_path = session_root / "module-work-plan.json"
+    plan = _load_json_dict(plan_path, label="module-work-plan")
+    if str(submitted.get("module_work_plan_digest") or "") != hashlib.sha256(plan_path.read_bytes()).hexdigest():
+        raise RuntimeError("module execution does not match the approved module work plan digest")
+
+    raw_submitted_units = submitted.get("units")
+    if not isinstance(raw_submitted_units, list) or any(
+        not isinstance(unit, dict) for unit in raw_submitted_units
+    ):
+        raise RuntimeError("module execution units must be a JSON array of objects")
+    planned_units = {
+        str(unit.get("unit_id") or ""): unit
+        for unit in plan.get("work_units") or []
+        if isinstance(unit, dict) and str(unit.get("unit_id") or "")
+    }
+    submitted_units = {
+        str(unit.get("unit_id") or ""): unit
+        for unit in raw_submitted_units
+        if isinstance(unit, dict) and str(unit.get("unit_id") or "")
+    }
+    if set(submitted_units) != set(planned_units) or len(raw_submitted_units) != len(planned_units):
+        raise RuntimeError("module execution work units must exactly match the approved plan")
+    for unit_id, planned_unit in planned_units.items():
+        unit = submitted_units[unit_id]
+        for field in (
+            "unit_id",
+            "module_id",
+            "skill_id",
+            "role",
+            "state",
+            "result_summary",
+            "evidence_paths",
+            "verification_results",
+        ):
+            if field not in unit:
+                raise RuntimeError(f"module execution unit {unit_id} is missing required field: {field}")
+        if str(unit.get("module_id") or "") != str(planned_unit.get("module_id") or ""):
+            raise RuntimeError(f"module execution unit {unit_id} changed its module binding")
+        if (str(unit.get("skill_id") or "") or None) != (str(planned_unit.get("skill_id") or "") or None):
+            raise RuntimeError(f"module execution unit {unit_id} changed its Skill binding")
+        if str(unit.get("role") or "") != str(planned_unit.get("role") or ""):
+            raise RuntimeError(f"module execution unit {unit_id} changed its role binding")
+        state = str(unit.get("state") or "")
+        if state not in {"completed", "failed", "blocked"}:
+            raise RuntimeError(f"module execution unit {unit_id} is not terminal")
+        if state == "completed" and not str(unit.get("result_summary") or "").strip():
+            raise RuntimeError(f"completed module execution unit {unit_id} requires a result summary")
+
+    raw_submitted_modules = submitted.get("modules")
+    if not isinstance(raw_submitted_modules, list) or any(
+        not isinstance(module, dict) for module in raw_submitted_modules
+    ):
+        raise RuntimeError("module execution modules must be a JSON array of objects")
+    planned_modules = {
+        str(module.get("module_id") or ""): module
+        for module in plan.get("modules") or []
+        if isinstance(module, dict) and str(module.get("module_id") or "")
+    }
+    submitted_modules = {
+        str(module.get("module_id") or ""): module
+        for module in raw_submitted_modules
+        if isinstance(module, dict) and str(module.get("module_id") or "")
+    }
+    if set(submitted_modules) != set(planned_modules) or len(raw_submitted_modules) != len(planned_modules):
+        raise RuntimeError("module execution modules must exactly match the approved plan")
+    for module_id, planned_module in planned_modules.items():
+        module = submitted_modules[module_id]
+        for field in (
+            "module_id",
+            "required",
+            "execution_mode",
+            "gap_reason",
+            "state",
+            "criterion_results",
+        ):
+            if field not in module:
+                raise RuntimeError(f"module execution module {module_id} is missing required field: {field}")
+        if not isinstance(module.get("required"), bool) or module.get("required") != planned_module.get("required"):
+            raise RuntimeError(f"module execution module {module_id} changed its required binding")
+        if str(module.get("execution_mode") or "") != str(planned_module.get("execution_mode") or ""):
+            raise RuntimeError(f"module execution module {module_id} changed its execution_mode binding")
+        if module.get("gap_reason") != planned_module.get("gap_reason"):
+            raise RuntimeError(f"module execution module {module_id} changed its gap_reason binding")
+        if str(module.get("state") or "") not in {
+            "completed",
+            "failed",
+            "blocked",
+        }:
+            raise RuntimeError(f"module execution module {module_id} is not terminal")
+
+        planned_criteria = [
+            criterion
+            for criterion in planned_module.get("acceptance_criteria") or []
+            if isinstance(criterion, dict) and str(criterion.get("criterion_id") or "")
+        ]
+        criterion_results = module.get("criterion_results")
+        if not isinstance(criterion_results, list) or any(
+            not isinstance(result, dict) for result in criterion_results
+        ):
+            raise RuntimeError(
+                f"module execution module {module_id} criterion_results must be a JSON array of objects"
+            )
+        planned_criterion_ids = [str(criterion["criterion_id"]) for criterion in planned_criteria]
+        submitted_criterion_ids = [
+            str(result.get("criterion_id") or "") for result in criterion_results
+        ]
+        if (
+            set(submitted_criterion_ids) != set(planned_criterion_ids)
+            or len(submitted_criterion_ids) != len(planned_criterion_ids)
+        ):
+            raise RuntimeError(
+                f"module execution module {module_id} criterion results must exactly match the approved plan"
+            )
+        for result in criterion_results:
+            criterion_id = str(result.get("criterion_id") or "")
+            if "state" not in result:
+                raise RuntimeError(
+                    f"module execution criterion {module_id}:{criterion_id} is missing required field: state"
+                )
+            criterion_state = str(result.get("state") or "")
+            if criterion_state not in {"passing", "failing", "blocked"}:
+                raise RuntimeError(
+                    f"module execution criterion {module_id}:{criterion_id} has unsupported state: {criterion_state}"
+                )
+
+
+def _mark_host_launch_failed(receipt_path: Path, receipt: HostLaunchReceipt) -> None:
+    failed_receipt = HostLaunchReceipt(**{**receipt.model_dump(), "launch_status": "failed"})
+    write_host_launch_receipt(receipt_path, failed_receipt)
+
+
+def _finalize_canonical_launch_result(
+    *,
+    receipt: HostLaunchReceipt,
+    receipt_path: Path,
+    requested_entry_id: str,
+    requested_stage_stop: str | None,
+    effective_requested_stage_stop: str | None,
+    effective_prompt: str,
+    payload: dict[str, Any],
+    fallback_run_id: str,
+    fallback_summary_path: Path,
+) -> CanonicalLaunchResult:
+    if not isinstance(payload, dict):
+        raise RuntimeError("canonical runtime returned a malformed payload")
+    expected_summary_path = Path(fallback_summary_path).resolve()
+    expected_session_root = expected_summary_path.parent
+    if expected_summary_path.name != "runtime-summary.json":
+        raise RuntimeError(
+            "canonical runtime summary path must be runtime-summary.json"
+        )
+    raw_run_id = payload.get("run_id")
+    if not isinstance(raw_run_id, str) or raw_run_id.strip() != fallback_run_id:
+        raise RuntimeError(
+            "canonical runtime returned a run_id that does not match the live contract"
+        )
+    raw_session_root = payload.get("session_root")
+    if not isinstance(raw_session_root, str) or not raw_session_root.strip():
+        raise RuntimeError("canonical runtime must return session_root")
+    session_root = Path(raw_session_root).expanduser().resolve()
+    if session_root != expected_session_root:
+        raise RuntimeError(
+            "canonical runtime returned session_root outside the live contract"
+        )
+    raw_summary_path = payload.get("summary_path")
+    if not isinstance(raw_summary_path, str) or not raw_summary_path.strip():
+        raise RuntimeError("canonical runtime must return summary_path")
+    summary_path = Path(raw_summary_path).expanduser().resolve()
+    if summary_path != expected_summary_path:
+        raise RuntimeError(
+            "canonical runtime returned summary_path outside the live contract"
+        )
+    resolved_run_id = fallback_run_id
+
+    raw_summary = payload.get("summary")
+    if raw_summary is None:
+        summary = {}
+    elif isinstance(raw_summary, dict):
+        summary = dict(raw_summary)
+    else:
+        raise RuntimeError("canonical runtime returned a malformed summary")
     if summary_path.exists():
         summary = _load_json_dict(summary_path, label="runtime-summary")
 
     if receipt_path.parent != session_root:
         receipt_path = write_host_launch_receipt(session_root, receipt)
 
-    try:
-        artifacts = assert_minimum_truth_artifacts(session_root)
-        assert_minimum_truth_consistency(
-            receipt=receipt,
-            requested_entry_id=requested_entry_id,
-            runtime_packet_path=artifacts["runtime_input_packet"],
-            governance_capsule_path=artifacts["governance_capsule"],
-            stage_lineage_path=artifacts["stage_lineage"],
-        )
-    except Exception:
-        failed_receipt = HostLaunchReceipt(**{**receipt.model_dump(), "launch_status": "failed"})
-        write_host_launch_receipt(receipt_path, failed_receipt)
-        raise
+    artifacts = assert_minimum_truth_artifacts(session_root)
+    _ = _load_runtime_truth_packet(Path(artifacts["runtime_input_packet"]))
+    assert_minimum_truth_consistency(
+        receipt=receipt,
+        runtime_packet_path=artifacts["runtime_input_packet"],
+        governance_capsule_path=artifacts["governance_capsule"],
+        stage_lineage_path=artifacts["stage_lineage"],
+    )
+
+    stage_lineage = _load_json_dict(Path(artifacts["stage_lineage"]), label="stage-lineage")
+    runtime_packet = _load_json_dict(Path(artifacts["runtime_input_packet"]), label="runtime-input-packet")
+    terminal_stage = _resolve_canonical_terminal_stage(
+        stage_lineage_payload=stage_lineage,
+        summary=summary,
+        effective_requested_stage_stop=effective_requested_stage_stop,
+    )
+    module_execution_path = _artifact_path_from_artifacts(
+        dict(summary.get("artifacts") or {}),
+        "module_execution",
+        base_dir=summary_path.parent,
+    )
+    module_execution = (
+        _load_json_dict(module_execution_path, label="module-execution")
+        if module_execution_path and module_execution_path.is_file()
+        else None
+    )
+    summary = build_runtime_summary(
+        run_id=resolved_run_id,
+        task=effective_prompt,
+        artifacts=dict(summary.get("artifacts") or {}),
+        module_assignments=runtime_packet["module_assignments"],
+        module_execution=module_execution,
+        base_fields={
+            **summary,
+            "requested_stage_stop": requested_stage_stop,
+            "effective_requested_stage_stop": effective_requested_stage_stop,
+            "stage_stop_source": _resolve_canonical_stage_stop_source(
+                requested_stage_stop=requested_stage_stop,
+                effective_requested_stage_stop=effective_requested_stage_stop,
+            ),
+            "terminal_stage": terminal_stage,
+        },
+    )
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     verified_receipt = HostLaunchReceipt(**{**receipt.model_dump(), "launch_status": "verified"})
     receipt_path = write_host_launch_receipt(receipt_path, verified_receipt)
@@ -1657,17 +2660,63 @@ def launch_canonical_vibe(
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for launching canonical vibe and emitting JSON output."""
+    argv = list(argv or sys.argv[1:])
+    if "--build-runtime-truth-input-json" in argv:
+        parser = argparse.ArgumentParser(
+            description="Build a Python-owned runtime truth packet from a staged payload."
+        )
+        parser.add_argument("--build-runtime-truth-input-json", required=True)
+        parser.add_argument("--output-json-path", required=True)
+        args = parser.parse_args(argv)
+        build_runtime_truth_payload(
+            input_json_path=args.build_runtime_truth_input_json,
+            output_json_path=args.output_json_path,
+        )
+        return 0
+
+    if "--finalize-runtime-summary-input-json" in argv:
+        parser = argparse.ArgumentParser(
+            description="Finalize a Python-owned runtime summary from a staged payload."
+        )
+        parser.add_argument("--finalize-runtime-summary-input-json", required=True)
+        parser.add_argument("--output-json-path", required=True)
+        args = parser.parse_args(argv)
+        finalize_runtime_summary_payload(
+            input_json_path=args.finalize_runtime_summary_input_json,
+            output_json_path=args.output_json_path,
+        )
+        return 0
+
+    if "--refresh-runtime-summary-acceptance" in argv:
+        parser = argparse.ArgumentParser(
+            description="Refresh a Python-owned runtime summary from final delivery acceptance."
+        )
+        parser.add_argument("--refresh-runtime-summary-acceptance", action="store_true")
+        parser.add_argument("--runtime-summary-json", required=True)
+        parser.add_argument("--delivery-acceptance-report-json", required=True)
+        parser.add_argument("--cleanup-receipt-path", required=True)
+        args = parser.parse_args(argv)
+        refresh_runtime_summary_acceptance_payload(
+            summary_json_path=args.runtime_summary_json,
+            delivery_acceptance_report_json_path=args.delivery_acceptance_report_json,
+            cleanup_receipt_path=args.cleanup_receipt_path,
+        )
+        return 0
+
     parser = argparse.ArgumentParser(description="Launch canonical vibe entry and emit receipt-backed JSON output.")
     parser.add_argument("--repo-root", required=True)
-    parser.add_argument("--host-id", default="codex")
-    parser.add_argument("--entry-id", default="vibe")
+    parser.add_argument("--host-id", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--entry-id", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--requested-stage-stop")
     parser.add_argument("--requested-grade-floor", choices=("L", "XL"))
     parser.add_argument("--run-id")
+    parser.add_argument("--workspace-root", help=argparse.SUPPRESS)
     parser.add_argument("--artifact-root")
+    parser.add_argument("--local-agent-root")
     parser.add_argument("--continue-from-run-id")
     parser.add_argument("--bounded-reentry-token")
+    parser.add_argument("--module-execution-json-file")
     parser.add_argument("--host-decision-json")
     parser.add_argument("--host-decision-json-file")
     parser.add_argument("--force-runtime-neutral", action="store_true")
@@ -1683,14 +2732,25 @@ def main(argv: list[str] | None = None) -> int:
             requested_stage_stop=args.requested_stage_stop,
             requested_grade_floor=args.requested_grade_floor,
             run_id=args.run_id,
+            workspace_root=args.workspace_root,
             artifact_root=args.artifact_root,
+            local_agent_root=args.local_agent_root,
             continue_from_run_id=args.continue_from_run_id,
             bounded_reentry_token=args.bounded_reentry_token,
+            module_execution_json_file=args.module_execution_json_file,
             host_decision=host_decision,
             force_runtime_neutral=bool(args.force_runtime_neutral),
         )
     except EntryRootGuardError as exc:
         raise SystemExit(str(exc)) from None
-    json.dump(result.to_dict(), sys.stdout, ensure_ascii=False, indent=2)
-    sys.stdout.write("\n")
+    output = json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n"
+    stdout_buffer = getattr(sys.stdout, "buffer", None)
+    if stdout_buffer is not None:
+        stdout_buffer.write(output.encode("utf-8"))
+    else:
+        sys.stdout.write(output)
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -186,8 +186,8 @@ if ($trackedMirrorRetired) {
     $assertions += Assert-True -Condition ($mirrorFiles.Count -gt 0 -or $mirrorDirs.Count -gt 0) -Message 'runtime payload remains explicitly declared'
     $assertions += Assert-True -Condition ($null -ne $nestedRuntimeRoot) -Message 'generated compatibility nested runtime root is declared'
     if ($null -ne $nestedRuntimeRoot) {
-        $assertions += Assert-True -Condition (([string]$nestedRuntimeRoot.relative_path) -eq 'bundled/skills/vibe') -Message 'generated compatibility keeps legacy nested runtime path only at install/runtime boundary'
-        $assertions += Assert-True -Condition (([string]$nestedRuntimeRoot.materialization_mode) -eq 'install_only') -Message 'generated compatibility remains install_only'
+        $assertions += Assert-True -Condition (([string]$nestedRuntimeRoot.relative_path) -eq '') -Message 'generated compatibility keeps no nested runtime path under canonical-only packaging'
+        $assertions += Assert-True -Condition (([string]$nestedRuntimeRoot.materialization_mode) -eq 'disabled') -Message 'generated compatibility keeps nested runtime materialization disabled'
     }
     $assertions += Assert-True -Condition (-not [bool]$runtimeConfig.require_nested_bundled_root) -Message 'installed runtime does not require nested bundled root'
 } else {

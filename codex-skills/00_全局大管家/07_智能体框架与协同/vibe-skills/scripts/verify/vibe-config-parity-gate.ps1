@@ -158,6 +158,81 @@ function Load-JsonFile {
     return (Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json)
 }
 
+function Get-VgoLegacyBundledCompatRoot {
+    param(
+        [Parameter(Mandatory)] [psobject]$Governance
+    )
+
+    if (
+        $Governance.PSObject.Properties.Name -contains 'packaging' -and
+        $null -ne $Governance.packaging -and
+        $Governance.packaging.PSObject.Properties.Name -contains 'generated_compatibility' -and
+        $null -ne $Governance.packaging.generated_compatibility -and
+        $Governance.packaging.generated_compatibility.PSObject.Properties.Name -contains 'nested_runtime_root' -and
+        $null -ne $Governance.packaging.generated_compatibility.nested_runtime_root -and
+        $Governance.packaging.generated_compatibility.nested_runtime_root.PSObject.Properties.Name -contains 'relative_path' -and
+        -not [string]::IsNullOrWhiteSpace([string]$Governance.packaging.generated_compatibility.nested_runtime_root.relative_path)
+    ) {
+        return ([string]$Governance.packaging.generated_compatibility.nested_runtime_root.relative_path).Replace('\', '/').TrimEnd('/')
+    }
+
+    return 'bundled/skills/vibe'
+}
+
+function Get-VgoConfigParityPairs {
+    param(
+        [Parameter(Mandatory)] [string]$RepoRoot,
+        [Parameter(Mandatory)] [psobject]$Governance,
+        [bool]$TrackedMirrorRetired,
+        [AllowEmptyString()] [string]$BundledRoot = ''
+    )
+
+    $pairs = New-Object System.Collections.Generic.List[object]
+
+    if (-not $TrackedMirrorRetired -and -not [string]::IsNullOrWhiteSpace($BundledRoot)) {
+        $bundledConfigRoot = Join-Path $BundledRoot 'config'
+        if (Test-Path -LiteralPath $bundledConfigRoot) {
+            $bundledFiles = @(Get-ChildItem -LiteralPath $bundledConfigRoot -Recurse -File -Filter *.json | Sort-Object FullName)
+            foreach ($file in $bundledFiles) {
+                $relativeTail = [System.IO.Path]::GetRelativePath($bundledConfigRoot, $file.FullName).Replace('\', '/')
+                $mainRel = "config/$relativeTail"
+                $bundledRel = [System.IO.Path]::GetRelativePath($RepoRoot, $file.FullName).Replace('\', '/')
+                $pairs.Add([pscustomobject]@{
+                    id = $mainRel
+                    main = $mainRel
+                    bundled = $bundledRel
+                }) | Out-Null
+            }
+            return @($pairs.ToArray())
+        }
+    }
+
+    $runtimeConfigManifestPath = Join-Path $RepoRoot 'config\runtime-config-manifest.json'
+    $runtimeConfigManifest = Load-JsonFile -Path $runtimeConfigManifestPath
+    $legacyBundledCompatRoot = Get-VgoLegacyBundledCompatRoot -Governance $Governance
+    $configFiles = @(
+        @($runtimeConfigManifest.files) |
+        Where-Object {
+            $file = [string]$_
+            $file.StartsWith('config/', [System.StringComparison]::OrdinalIgnoreCase) -and
+            ([System.IO.Path]::GetExtension($file) -eq '.json')
+        } |
+        Sort-Object -Unique
+    )
+
+    foreach ($mainRel in $configFiles) {
+        $normalizedMainRel = ([string]$mainRel).Replace('\', '/')
+        $bundledRel = "$legacyBundledCompatRoot/$normalizedMainRel"
+        $pairs.Add([pscustomobject]@{
+            id = $normalizedMainRel
+            main = $normalizedMainRel
+            bundled = $bundledRel
+        }) | Out-Null
+    }
+
+    return @($pairs.ToArray())
+}
+
 function Assert-True {
     param(
         [bool]$Condition,
@@ -183,53 +258,7 @@ $bundledRoot = $context.bundledRoot
 $nestedBundledRoot = $context.nestedBundledRoot
 $bundledTarget = $context.bundledTarget
 $trackedMirrorRetired = ($null -eq $bundledTarget)
-$pairs = @(
-    [pscustomobject]@{ id = "pack-manifest"; main = "config/pack-manifest.json"; bundled = "bundled/skills/vibe/config/pack-manifest.json" },
-    [pscustomobject]@{ id = "router-thresholds"; main = "config/router-thresholds.json"; bundled = "bundled/skills/vibe/config/router-thresholds.json" },
-    [pscustomobject]@{ id = "skill-keyword-index"; main = "config/skill-keyword-index.json"; bundled = "bundled/skills/vibe/config/skill-keyword-index.json" },
-    [pscustomobject]@{ id = "skill-routing-rules"; main = "config/skill-routing-rules.json"; bundled = "bundled/skills/vibe/config/skill-routing-rules.json" },
-    [pscustomobject]@{ id = "openspec-policy"; main = "config/openspec-policy.json"; bundled = "bundled/skills/vibe/config/openspec-policy.json" },
-    [pscustomobject]@{ id = "gsd-overlay"; main = "config/gsd-overlay.json"; bundled = "bundled/skills/vibe/config/gsd-overlay.json" },
-    [pscustomobject]@{ id = "prompt-overlay"; main = "config/prompt-overlay.json"; bundled = "bundled/skills/vibe/config/prompt-overlay.json" },
-    [pscustomobject]@{ id = "prompt-asset-boost"; main = "config/prompt-asset-boost.json"; bundled = "bundled/skills/vibe/config/prompt-asset-boost.json" },
-    [pscustomobject]@{ id = "memory-governance"; main = "config/memory-governance.json"; bundled = "bundled/skills/vibe/config/memory-governance.json" },
-    [pscustomobject]@{ id = "data-scale-overlay"; main = "config/data-scale-overlay.json"; bundled = "bundled/skills/vibe/config/data-scale-overlay.json" },
-    [pscustomobject]@{ id = "quality-debt-overlay"; main = "config/quality-debt-overlay.json"; bundled = "bundled/skills/vibe/config/quality-debt-overlay.json" },
-    [pscustomobject]@{ id = "framework-interop-overlay"; main = "config/framework-interop-overlay.json"; bundled = "bundled/skills/vibe/config/framework-interop-overlay.json" },
-    [pscustomobject]@{ id = "ml-lifecycle-overlay"; main = "config/ml-lifecycle-overlay.json"; bundled = "bundled/skills/vibe/config/ml-lifecycle-overlay.json" },
-    [pscustomobject]@{ id = "python-clean-code-overlay"; main = "config/python-clean-code-overlay.json"; bundled = "bundled/skills/vibe/config/python-clean-code-overlay.json" },
-    [pscustomobject]@{ id = "system-design-overlay"; main = "config/system-design-overlay.json"; bundled = "bundled/skills/vibe/config/system-design-overlay.json" },
-    [pscustomobject]@{ id = "cuda-kernel-overlay"; main = "config/cuda-kernel-overlay.json"; bundled = "bundled/skills/vibe/config/cuda-kernel-overlay.json" },
-    [pscustomobject]@{ id = "retrieval-policy"; main = "config/retrieval-policy.json"; bundled = "bundled/skills/vibe/config/retrieval-policy.json" },
-    [pscustomobject]@{ id = "retrieval-intent-profiles"; main = "config/retrieval-intent-profiles.json"; bundled = "bundled/skills/vibe/config/retrieval-intent-profiles.json" },
-    [pscustomobject]@{ id = "retrieval-source-registry"; main = "config/retrieval-source-registry.json"; bundled = "bundled/skills/vibe/config/retrieval-source-registry.json" },
-    [pscustomobject]@{ id = "retrieval-rerank-weights"; main = "config/retrieval-rerank-weights.json"; bundled = "bundled/skills/vibe/config/retrieval-rerank-weights.json" },
-    [pscustomobject]@{ id = "exploration-policy"; main = "config/exploration-policy.json"; bundled = "bundled/skills/vibe/config/exploration-policy.json" },
-    [pscustomobject]@{ id = "exploration-intent-profiles"; main = "config/exploration-intent-profiles.json"; bundled = "bundled/skills/vibe/config/exploration-intent-profiles.json" },
-    [pscustomobject]@{ id = "exploration-domain-map"; main = "config/exploration-domain-map.json"; bundled = "bundled/skills/vibe/config/exploration-domain-map.json" },
-    [pscustomobject]@{ id = "observability-policy"; main = "config/observability-policy.json"; bundled = "bundled/skills/vibe/config/observability-policy.json" },
-    [pscustomobject]@{ id = "heartbeat-policy"; main = "config/heartbeat-policy.json"; bundled = "bundled/skills/vibe/config/heartbeat-policy.json" },
-    [pscustomobject]@{ id = "deep-discovery-policy"; main = "config/deep-discovery-policy.json"; bundled = "bundled/skills/vibe/config/deep-discovery-policy.json" },
-    [pscustomobject]@{ id = "capability-catalog"; main = "config/capability-catalog.json"; bundled = "bundled/skills/vibe/config/capability-catalog.json" },
-    [pscustomobject]@{ id = "dialectic-team-policy"; main = "config/dialectic-team-policy.json"; bundled = "bundled/skills/vibe/config/dialectic-team-policy.json" },
-    [pscustomobject]@{ id = "daily-dialectic-guard"; main = "config/daily-dialectic-guard.json"; bundled = "bundled/skills/vibe/config/daily-dialectic-guard.json" },
-    [pscustomobject]@{ id = "llm-acceleration-policy"; main = "config/llm-acceleration-policy.json"; bundled = "bundled/skills/vibe/config/llm-acceleration-policy.json" },
-    [pscustomobject]@{ id = "browserops-provider-policy"; main = "config/browserops-provider-policy.json"; bundled = "bundled/skills/vibe/config/browserops-provider-policy.json" },
-    [pscustomobject]@{ id = "cross-plane-conflict-policy"; main = "config/cross-plane-conflict-policy.json"; bundled = "bundled/skills/vibe/config/cross-plane-conflict-policy.json" },
-    [pscustomobject]@{ id = "desktopops-shadow-policy"; main = "config/desktopops-shadow-policy.json"; bundled = "bundled/skills/vibe/config/desktopops-shadow-policy.json" },
-    [pscustomobject]@{ id = "mem0-backend-policy"; main = "config/mem0-backend-policy.json"; bundled = "bundled/skills/vibe/config/mem0-backend-policy.json" },
-    [pscustomobject]@{ id = "letta-governance-contract"; main = "config/letta-governance-contract.json"; bundled = "bundled/skills/vibe/config/letta-governance-contract.json" },
-    [pscustomobject]@{ id = "memory-tier-router"; main = "config/memory-tier-router.json"; bundled = "bundled/skills/vibe/config/memory-tier-router.json" },
-    [pscustomobject]@{ id = "prompt-intelligence-policy"; main = "config/prompt-intelligence-policy.json"; bundled = "bundled/skills/vibe/config/prompt-intelligence-policy.json" },
-    [pscustomobject]@{ id = "version-governance"; main = "config/version-governance.json"; bundled = "bundled/skills/vibe/config/version-governance.json" },
-    [pscustomobject]@{ id = "upstream-corpus-manifest"; main = "config/upstream-corpus-manifest.json"; bundled = "bundled/skills/vibe/config/upstream-corpus-manifest.json" },
-    [pscustomobject]@{ id = "docling-provider-policy"; main = "config/docling-provider-policy.json"; bundled = "bundled/skills/vibe/config/docling-provider-policy.json" },
-    [pscustomobject]@{ id = "connector-admission-policy"; main = "config/connector-admission-policy.json"; bundled = "bundled/skills/vibe/config/connector-admission-policy.json" },
-    [pscustomobject]@{ id = "role-pack-policy"; main = "config/role-pack-policy.json"; bundled = "bundled/skills/vibe/config/role-pack-policy.json" },
-    [pscustomobject]@{ id = "process-health-policy"; main = "config/process-health-policy.json"; bundled = "bundled/skills/vibe/config/process-health-policy.json" },
-    [pscustomobject]@{ id = "process-ledger-policy"; main = "config/process-ledger-policy.json"; bundled = "bundled/skills/vibe/config/process-ledger-policy.json" },
-    [pscustomobject]@{ id = "promotion-board"; main = "config/promotion-board.json"; bundled = "bundled/skills/vibe/config/promotion-board.json" }
-)
+$pairs = @(Get-VgoConfigParityPairs -RepoRoot $repoRoot -Governance $governance -TrackedMirrorRetired:$trackedMirrorRetired -BundledRoot $bundledRoot)
 
 $results = @()
 $assertions = @()
@@ -238,6 +267,8 @@ Write-Host "=== VCO Config Parity Gate ==="
 Write-Host ("Ignore keys: {0}" -f ($IgnoreKeys -join ", "))
 Write-Host ("Mode: {0}" -f $(if ($trackedMirrorRetired) { 'canonical_only_retired_tracked_mirror' } else { 'legacy_bundled_parity' }))
 Write-Host ""
+
+$assertions += Assert-True -Condition ($pairs.Count -gt 0) -Message 'config parity target set is not empty'
 
 foreach ($pair in $pairs) {
     $mainPath = Join-Path $repoRoot $pair.main

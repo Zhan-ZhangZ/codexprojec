@@ -45,6 +45,10 @@ def install_claude_managed_settings(
     repo_root: Path,
     target_root: Path,
     *,
+    runtime_root: Path | None = None,
+    host_bridge_root: Path | None = None,
+    desired_shared_runtime_root: Path | None = None,
+    runtime_layout_mode: str = "co-located",
     track_created_path: TrackCreatedPath,
     record_managed_json: RecordManagedJson,
     record_merged_file: Callable[..., None],
@@ -55,8 +59,12 @@ def install_claude_managed_settings(
     settings["vibeskills"] = {
         "managed": True,
         "host_id": "claude-code",
-        "skills_root": str((target_root / "skills").resolve()),
-        "runtime_skill_entry": str((target_root / "skills" / "vibe" / "SKILL.md").resolve()),
+        "runtime_root": str((runtime_root or target_root).resolve()),
+        "host_bridge_root": str((host_bridge_root or target_root).resolve()),
+        "desired_shared_runtime_root": str((desired_shared_runtime_root or runtime_root or target_root).resolve()),
+        "runtime_layout_mode": str(runtime_layout_mode or "co-located"),
+        "skills_root": str(((runtime_root or target_root) / "skills").resolve()),
+        "runtime_skill_entry": str(((runtime_root or target_root) / "skills" / "vibe" / "SKILL.md").resolve()),
         "explicit_vibe_skill_invocation": ["/vibe", "$vibe"],
     }
     _write_json_file(settings_path, settings)
@@ -93,7 +101,6 @@ def is_owned_legacy_opencode_vibeskills_node(node: object, target_root: Path) ->
         "command_root_compat",
         "agents_root",
         "agent_root_compat",
-        "specialist_wrapper",
     ):
         if path_points_inside_target_root(node.get(key), target_root):
             return True
@@ -143,6 +150,10 @@ def materialize_host_settings(
     target_root: Path,
     adapter: dict[str, Any],
     *,
+    runtime_root: Path | None = None,
+    host_bridge_root: Path | None = None,
+    desired_shared_runtime_root: Path | None = None,
+    runtime_layout_mode: str = "co-located",
     track_created_path: TrackCreatedPath,
     record_managed_json: RecordManagedJson,
 ) -> list[str]:
@@ -154,27 +165,23 @@ def materialize_host_settings(
             "schema_version": 1,
             "host_id": host_id,
             "managed": True,
-            "skills_root": str((target_root / "skills").resolve()),
-            "runtime_skill_entry": str((target_root / "skills" / "vibe" / "SKILL.md").resolve()),
+            "runtime_root": str((runtime_root or target_root).resolve()),
+            "host_bridge_root": str((host_bridge_root or target_root).resolve()),
+            "desired_shared_runtime_root": str((desired_shared_runtime_root or runtime_root or target_root).resolve()),
+            "runtime_layout_mode": str(runtime_layout_mode or "co-located"),
+            "skills_root": str(((runtime_root or target_root) / "skills").resolve()),
+            "runtime_skill_entry": str(((runtime_root or target_root) / "skills" / "vibe" / "SKILL.md").resolve()),
             "explicit_vibe_skill_invocation": ["$vibe", "/vibe"],
-            "specialist_execution": {
-                "mode": "same_session_path_only",
-                "path_source": "native_skill_entrypoint",
-                "hidden_subprocess_removed": True,
-            },
         }
         commands_root = target_root / "commands"
         agents_root = target_root / "agents"
         workflow_root = target_root / "global_workflows"
-        mcp_config = target_root / "mcp_config.json"
         if commands_root.exists():
             host_settings["commands_root"] = str(commands_root.resolve())
         if agents_root.exists():
             host_settings["agents_root"] = str(agents_root.resolve())
         if workflow_root.exists():
             host_settings["workflow_root"] = str(workflow_root.resolve())
-        if mcp_config.exists():
-            host_settings["mcp_config"] = str(mcp_config.resolve())
         _write_json_file(settings_path, host_settings)
         materialized.append(str(settings_path.resolve()))
         record_managed_json(settings_path)
@@ -187,6 +194,10 @@ def materialize_host_closure(
     target_root: Path,
     adapter: dict[str, Any],
     *,
+    runtime_root: Path | None = None,
+    host_bridge_root: Path | None = None,
+    desired_shared_runtime_root: Path | None = None,
+    runtime_layout_mode: str = "co-located",
     track_created_path: TrackCreatedPath,
     record_managed_json: RecordManagedJson,
 ) -> tuple[Path, dict[str, Any]]:
@@ -195,6 +206,10 @@ def materialize_host_closure(
     settings_materialized = materialize_host_settings(
         target_root,
         adapter,
+        runtime_root=runtime_root,
+        host_bridge_root=host_bridge_root,
+        desired_shared_runtime_root=desired_shared_runtime_root,
+        runtime_layout_mode=runtime_layout_mode,
         track_created_path=track_created_path,
         record_managed_json=record_managed_json,
     )
@@ -211,30 +226,23 @@ def materialize_host_closure(
         "host_id": host_id,
         "platform": detect_platform_tag(),
         "target_root": str(target_root.resolve()),
+        "runtime_root": str((runtime_root or target_root).resolve()),
+        "host_bridge_root": str((host_bridge_root or target_root).resolve()),
+        "desired_shared_runtime_root": str((desired_shared_runtime_root or runtime_root or target_root).resolve()),
+        "runtime_layout_mode": str(runtime_layout_mode or "co-located"),
         "install_mode": adapter["install_mode"],
         "entry_mode": runtime_readiness["entry_mode"],
         "host_closure_driver": runtime_readiness["readiness_driver"],
         "effective_runtime_ready": bool(runtime_readiness["effective_runtime_ready"]),
-        "skills_root": str((target_root / "skills").resolve()),
-        "runtime_skill_entry": str((target_root / "skills" / "vibe" / "SKILL.md").resolve()),
+        "skills_root": str(((runtime_root or target_root) / "skills").resolve()),
+        "runtime_skill_entry": str(((runtime_root or target_root) / "skills" / "vibe" / "SKILL.md").resolve()),
         "commands_root": str(commands_root.resolve()),
         "global_workflows_root": str((target_root / "global_workflows").resolve()),
-        "mcp_config_path": str((target_root / "mcp_config.json").resolve()),
         "host_closure_state": closure_state,
         "commands_materialized": commands_root.exists(),
         "settings_materialized": settings_materialized,
         "direct_runtime": dict(runtime_readiness["direct_runtime"]),
         "bridge_runtime": dict(runtime_readiness["bridge_runtime"]),
-        "specialist_execution": {
-            "mode": "same_session_path_only",
-            "path_source": "native_skill_entrypoint",
-            "hidden_subprocess_removed": True,
-        },
-        "specialist_wrapper": {
-            "ready": False,
-            "removed": True,
-            "removal_reason": "same_session_path_only",
-        },
     }
     closure_path = target_root / ".vibeskills" / "host-closure.json"
     _write_json_file(closure_path, closure)

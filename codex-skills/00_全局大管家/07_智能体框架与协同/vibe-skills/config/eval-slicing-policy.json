@@ -1,4 +1,4 @@
-{
+﻿{
   "version": 1,
   "updated": "2026-03-07",
   "purpose": "Wave16 evaluation slicing policy derived from awesome-ai-tools, Prompt-Engineering-Guide, and awesome-ai-agents-e2b. Slices are reporting-only and never mutate routing defaults.",

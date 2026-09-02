@@ -32,7 +32,7 @@ function Write-GateArtifacts {
 
 $context = Get-VgoGovernanceContext -ScriptPath $PSCommandPath -EnforceExecutionContext
 $repoRoot = $context.repoRoot
-$policyDoc = Join-Path $repoRoot 'docs\origin-provenance-policy.md'
+$policyDoc = Join-Path $repoRoot 'docs\governance\origin-provenance-policy.md'
 $templatePath = Join-Path $repoRoot 'templates\ORIGIN.md.tmpl'
 $vendorReadme = Join-Path $repoRoot 'vendor\README.md'
 $generatorPath = Join-Path $repoRoot 'scripts\governance\new-origin-record.ps1'

@@ -1,4 +1,4 @@
-{
+﻿{
   "version": 1,
   "updated": "2026-03-07",
   "purpose": "Wave15 watch-lane decision register. Reporting-only and never mutates routing defaults, candidate availability, or live connector enablement.",

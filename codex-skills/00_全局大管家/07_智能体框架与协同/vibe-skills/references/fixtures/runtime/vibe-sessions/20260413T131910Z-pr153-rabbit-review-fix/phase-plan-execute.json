@@ -4,8 +4,8 @@
   "status": "completed",
   "completed_at_utc": "2026-04-13T13:28:53Z",
   "commands": [
-    "python3 -m pytest -q tests/runtime_neutral/test_release_cut_operator.py -k tolerates_sync_script_without_preview_or_prune_parameters",
-    "python3 -m pytest -q tests/runtime_neutral/test_release_cut_operator.py",
+    "python3 -m pytest -q https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_release_cut_operator.py -k tolerates_sync_script_without_preview_or_prune_parameters",
+    "python3 -m pytest -q https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_release_cut_operator.py",
     "pwsh -NoProfile -File scripts/verify/vibe-wave64-82-closure-gate.ps1 -WriteArtifacts",
     "pwsh -NoProfile -File scripts/verify/vibe-wave83-100-closure-gate.ps1 -WriteArtifacts",
     "pwsh -NoProfile -File scripts/verify/vibe-output-artifact-boundary-gate.ps1",

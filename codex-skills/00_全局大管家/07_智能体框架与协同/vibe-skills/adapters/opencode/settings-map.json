@@ -4,8 +4,12 @@
   "target": "~/.config/opencode/opencode.json",
   "semantics": {
     "vco.host_root.global": "~/.config/opencode",
-    "vco.skill_root.global": "~/.config/opencode/skills",
-    "vco.skill_root.project": ".opencode/skills",
+    "vco.skill_roots.global": [
+      "~/.config/opencode/skills"
+    ],
+    "vco.skill_roots.project": [
+      ".opencode/skills"
+    ],
     "vco.command_root.global": "~/.config/opencode/commands",
     "vco.command_root.project": ".opencode/commands",
     "vco.command_root.compat": "~/.config/opencode/command",

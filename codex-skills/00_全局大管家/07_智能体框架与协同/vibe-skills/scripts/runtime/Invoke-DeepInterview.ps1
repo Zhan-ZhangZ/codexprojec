@@ -2,7 +2,9 @@ param(
     [Parameter(Mandatory)] [string]$Task,
     [string]$Mode = 'interactive_governed',
     [string]$RunId = '',
-    [string]$ArtifactRoot = ''
+    [string]$ArtifactRoot = '',
+    [AllowEmptyString()] [string]$WorkspaceRoot = '',
+    [AllowEmptyString()] [string]$HostDecisionJson = ''
 )
 
 Set-StrictMode -Version Latest
@@ -15,8 +17,9 @@ if ([string]::IsNullOrWhiteSpace($RunId)) {
     $RunId = New-VibeRunId
 }
 
-$sessionRoot = Ensure-VibeSessionRoot -RepoRoot $runtime.repo_root -RunId $RunId -Runtime $runtime -ArtifactRoot $ArtifactRoot
-$intentContract = New-VibeIntentContractObject -Task $Task -Mode $Mode
+$sessionRoot = Ensure-VibeSessionRoot -RepoRoot $runtime.repo_root -RunId $RunId -Runtime $runtime -WorkspaceRoot $WorkspaceRoot -ArtifactRoot $ArtifactRoot
+$hostDecision = ConvertFrom-VibeHostDecisionJson -HostDecisionJson $HostDecisionJson
+$intentContract = New-VibeIntentContractObject -Task $Task -Mode $Mode -HostDecision $hostDecision
 $receiptPath = Join-Path $sessionRoot 'intent-contract.json'
 Write-VibeJsonArtifact -Path $receiptPath -Value $intentContract
 

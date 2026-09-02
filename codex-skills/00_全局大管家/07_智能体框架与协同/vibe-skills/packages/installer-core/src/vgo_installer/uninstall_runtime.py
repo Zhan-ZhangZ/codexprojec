@@ -12,7 +12,7 @@ def main(argv: list[str] | None = None):
     parser.add_argument("--repo-root", required=True)
     parser.add_argument("--target-root", required=True)
     parser.add_argument("--host", required=True)
-    parser.add_argument("--profile", choices=("minimal", "full"), default="full")
+    parser.add_argument("--profile", choices=("minimal", "full"), default="minimal")
     parser.add_argument("--preview", action="store_true")
     parser.add_argument("--purge-empty-dirs", action="store_true")
     parser.add_argument("--strict-owned-only", action="store_true", default=True)

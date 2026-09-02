@@ -24,6 +24,15 @@ class PolicyError(ValueError):
 
 CONFIG_ERROR_EXIT_CODE = 2
 RUNTIME_ERROR_EXIT_CODE = 1
+LEGACY_POLICY_KEYS = {"classification", "risk_keywords"}
+LEGACY_LAYER_KEYS = {
+    "source_layer_id",
+    "include_file_patterns",
+    "exclude_file_patterns",
+    "include_risk_tags",
+    "exclude_risk_tags",
+}
+VALID_SELECTION_SCOPES = {"contract_support", "default_regression", "host_boundary", "touched_surface_only"}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -32,6 +41,10 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def load_policy(path: Path) -> dict[str, Any]:
     policy = load_json(path)
+    legacy_keys = sorted(key for key in LEGACY_POLICY_KEYS if key in policy)
+    if legacy_keys:
+        raise PolicyError(f"Policy uses retired classification keys: {', '.join(legacy_keys)}")
+
     layers = policy.get("layers")
     if not isinstance(layers, list) or not layers:
         raise PolicyError("Policy must define at least one layer")
@@ -46,9 +59,15 @@ def load_policy(path: Path) -> dict[str, Any]:
         if layer_id in seen:
             raise PolicyError(f"Duplicate layer id: {layer_id}")
         seen.add(layer_id)
+        legacy_layer_keys = sorted(key for key in LEGACY_LAYER_KEYS if key in layer)
+        if legacy_layer_keys:
+            raise PolicyError(f"Layer {layer_id} uses retired keys: {', '.join(legacy_layer_keys)}")
         pytest_args = layer.get("pytest_args")
         if not isinstance(pytest_args, list) or not all(isinstance(item, str) and item for item in pytest_args):
             raise PolicyError(f"Layer {layer_id} must define non-empty pytest_args")
+        selection_scope = str(layer.get("selection_scope") or "")
+        if selection_scope and selection_scope not in VALID_SELECTION_SCOPES:
+            raise PolicyError(f"Layer {layer_id} has unsupported selection_scope: {selection_scope}")
 
     defaults = policy.get("defaults")
     if not isinstance(defaults, dict):
@@ -95,14 +114,21 @@ PYTEST_OPTIONS_WITH_VALUE = {
 }
 
 
-def pytest_arg_targets_repo_path(arg: str, repo_root: Path) -> bool:
+def normalize_pytest_target(arg: str, repo_root: Path) -> str:
     if not arg or arg.startswith("-"):
-        return False
+        return ""
     selector_path = arg.split("::", 1)[0]
     candidate = Path(selector_path)
-    if not candidate.is_absolute():
-        candidate = repo_root / selector_path
-    return candidate.exists()
+    if candidate.is_absolute():
+        try:
+            return candidate.relative_to(repo_root).as_posix()
+        except ValueError:
+            return candidate.as_posix()
+    return candidate.as_posix()
+
+
+def pytest_arg_targets_repo_path(arg: str, repo_root: Path) -> bool:
+    return bool(normalize_pytest_target(arg, repo_root))
 
 
 def preserved_pytest_args_when_narrowing(pytest_args: list[str], repo_root: Path) -> list[str]:
@@ -163,89 +189,41 @@ def node_file(node_id: str) -> str:
     return node_id.split("::", 1)[0].replace("\\", "/")
 
 
-def path_contains_pattern(path_text: str, pattern: str) -> bool:
-    return pattern.lower() in path_text.lower()
-
-
-def path_matches_any_pattern(path_text: str, patterns: list[Any]) -> bool:
-    return any(path_contains_pattern(path_text, str(pattern)) for pattern in patterns)
-
-
 def scan_file_risks(path: Path, policy: dict[str, Any]) -> list[str]:
-    if not path.exists() or not path.is_file():
-        return []
-    text = path.read_text(encoding="utf-8", errors="replace")
-    tags: list[str] = []
-    for entry in policy.get("risk_keywords") or []:
-        tag = str(entry.get("tag") or "")
-        keywords = entry.get("keywords") or []
-        if tag and any(str(keyword) in text for keyword in keywords):
-            tags.append(tag)
-    return sorted(set(tags))
+    return []
 
 
-def classify_by_path(file_rel: str, policy: dict[str, Any]) -> tuple[str, list[str], list[str]]:
-    classification = policy.get("classification") or {}
-    risk_tags: list[str] = []
-    reasons: list[str] = []
-
-    for pattern in classification.get("heavy_file_patterns") or []:
-        pattern_text = str(pattern)
-        if path_contains_pattern(file_rel, pattern_text):
-            risk_tags.append("heavy")
-            if "install" in pattern_text:
-                risk_tags.append("host_install")
-            reasons.append(f"heavy_file_pattern:{pattern_text}")
-
-    for pattern in classification.get("host_boundary_file_patterns") or []:
-        pattern_text = str(pattern)
-        if path_contains_pattern(file_rel, pattern_text):
-            risk_tags.append("host_boundary")
-            reasons.append(f"host_boundary_file_pattern:{pattern_text}")
-
-    if file_rel.startswith("tests/integration/"):
-        risk_tags.append("host_boundary")
-        reasons.append("integration_root")
-        return "integration_host_boundary", sorted(set(risk_tags)), reasons
-
-    if file_rel.startswith("tests/contract/") or file_rel.startswith("tests/unit/"):
-        return "contract_unit", sorted(set(risk_tags)), reasons or ["contract_or_unit_root"]
-
-    if "heavy" in risk_tags or "host_install" in risk_tags:
-        return "runtime_neutral_heavy", sorted(set(risk_tags)), reasons
-
-    return "runtime_neutral_fast", sorted(set(risk_tags)), reasons or ["runtime_neutral_default"]
+def pytest_target_covers_file(pytest_arg: str, file_rel: str, repo_root: Path) -> bool:
+    target = normalize_pytest_target(pytest_arg, repo_root)
+    if not target:
+        return False
+    if target.endswith(".py"):
+        return file_rel == target
+    prefix = target.rstrip("/")
+    return file_rel == prefix or file_rel.startswith(f"{prefix}/")
 
 
-def fast_excluded_risk_tags(policy: dict[str, Any]) -> set[str]:
-    for layer in policy.get("layers") or []:
-        if isinstance(layer, dict) and layer.get("id") == "runtime_neutral_fast":
-            return {str(tag) for tag in layer.get("exclude_risk_tags") or []}
-    return set()
+def layer_reason_for_file(layer: dict[str, Any], file_rel: str, repo_root: Path) -> str | None:
+    for pytest_arg in layer.get("pytest_args") or []:
+        if pytest_target_covers_file(str(pytest_arg), file_rel, repo_root):
+            return f"pytest_target:{normalize_pytest_target(str(pytest_arg), repo_root)}"
+    return None
 
 
 def classify_node(node_id: str, repo_root: Path, policy: dict[str, Any]) -> dict[str, Any]:
     file_rel = node_file(node_id)
-    layer_id, path_tags, reasons = classify_by_path(file_rel, policy)
-    file_tags = scan_file_risks(repo_root / file_rel, policy)
-    risk_tags = sorted(set(path_tags + file_tags))
-    excluded_tags = sorted(set(risk_tags).intersection(fast_excluded_risk_tags(policy)))
-    if layer_id == "runtime_neutral_fast" and excluded_tags:
-        for tag in excluded_tags:
-            reasons.append(f"fast_layer_excluded_risk:{tag}")
-        if "host_boundary" in excluded_tags and not {"heavy", "host_install", "network", "download", "external_url"}.intersection(
-            excluded_tags
-        ):
-            layer_id = "integration_host_boundary"
-        else:
-            layer_id = "runtime_neutral_heavy"
-    return {
-        "node_id": node_id,
-        "file": file_rel,
-        "layer_id": layer_id,
-        "risk_tags": risk_tags,
-        "reasons": reasons,
-    }
+    for layer in policy["layers"]:
+        reason = layer_reason_for_file(layer, file_rel, repo_root)
+        if reason is None:
+            continue
+        return {
+            "node_id": node_id,
+            "file": file_rel,
+            "layer_id": str(layer["id"]),
+            "risk_tags": [],
+            "reasons": [reason],
+        }
+    raise PolicyError(f"No policy layer targets {file_rel}")
 
 
 def select_layer_files(
@@ -261,7 +239,7 @@ def select_layer_files(
     files: set[str] = set()
     for node in collected_nodes:
         item = classify_node(node, repo_root, policy)
-        if layer_matches_classified_item(item, layers[layer_id]):
+        if str(item["layer_id"]) == layer_id:
             files.add(str(item["file"]))
     return sorted(files)
 
@@ -270,55 +248,27 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def layer_matches_classified_item(item: dict[str, Any], layer: dict[str, Any]) -> bool:
-    layer_id = str(layer["id"])
-    source_layer_id = str(layer.get("source_layer_id") or layer_id)
-    if str(item["layer_id"]) != source_layer_id:
-        return False
-
-    file_rel = str(item["file"])
-    include_patterns = layer.get("include_file_patterns") or []
-    if include_patterns and not path_matches_any_pattern(file_rel, include_patterns):
-        return False
-
-    exclude_patterns = layer.get("exclude_file_patterns") or []
-    if exclude_patterns and path_matches_any_pattern(file_rel, exclude_patterns):
-        return False
-
-    return True
-
-
 def summarize_classified(classified: list[dict[str, Any]], policy: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
     layers: dict[str, Any] = {
         str(layer["id"]): {
             "description": str(layer.get("description") or ""),
+            "selection_scope": str(layer.get("selection_scope") or ""),
             "node_count": 0,
             "files": [],
             "risk_tags": [],
         }
         for layer in policy["layers"]
     }
-    risks: dict[str, int] = {}
     files_by_layer: dict[str, set[str]] = {layer_id: set() for layer_id in layers}
-    tags_by_layer: dict[str, set[str]] = {layer_id: set() for layer_id in layers}
 
     for item in classified:
-        for tag in item["risk_tags"]:
-            tag_text = str(tag)
-            risks[tag_text] = risks.get(tag_text, 0) + 1
-        for layer in policy["layers"]:
-            layer_id = str(layer["id"])
-            if not layer_matches_classified_item(item, layer):
-                continue
-            layers[layer_id]["node_count"] += 1
-            files_by_layer[layer_id].add(str(item["file"]))
-            for tag in item["risk_tags"]:
-                tags_by_layer[layer_id].add(str(tag))
+        layer_id = str(item["layer_id"])
+        layers[layer_id]["node_count"] += 1
+        files_by_layer[layer_id].add(str(item["file"]))
 
     for layer_id in layers:
         layers[layer_id]["files"] = sorted(files_by_layer[layer_id])
-        layers[layer_id]["risk_tags"] = sorted(tags_by_layer[layer_id])
-    return layers, dict(sorted(risks.items()))
+    return layers, {}
 
 
 def build_artifact(
@@ -368,7 +318,7 @@ def render_markdown(artifact: dict[str, Any]) -> str:
     ]
     for layer_id, layer in artifact["layers"].items():
         lines.append(
-            f"- `{layer_id}`: nodes=`{layer['node_count']}` files=`{len(layer['files'])}` risks=`{', '.join(layer['risk_tags']) or 'none'}`"
+            f"- `{layer_id}`: scope=`{layer['selection_scope'] or 'none'}` nodes=`{layer['node_count']}` files=`{len(layer['files'])}` risks=`{', '.join(layer['risk_tags']) or 'none'}`"
         )
     lines += ["", "## Risks", ""]
     if artifact["risks"]:

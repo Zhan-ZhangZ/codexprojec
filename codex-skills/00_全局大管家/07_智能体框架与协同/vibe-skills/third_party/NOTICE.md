@@ -1,4 +1,4 @@
-# Third-Party Notice
+﻿# Third-Party Notice
 
 This repository references or integrates artifacts inspired by upstream projects. Codex-compatible rewrites in `bundled/` are maintained independently.
 

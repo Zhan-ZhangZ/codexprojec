@@ -1,4 +1,4 @@
-# Reviewer Agent Template
+﻿# Reviewer Agent Template
 
 Goal: detect regressions and correctness gaps before completion.
 

@@ -15,7 +15,6 @@ function Get-LlmAccelerationPolicyDefaults {
         scope = [pscustomobject]@{
             grade_allow = @("M", "L", "XL")
             task_allow = @("planning", "coding", "review", "debug", "research")
-            route_mode_allow = @("legacy_fallback", "confirm_required", "pack_overlay")
         }
         trigger = [pscustomobject]@{
             top_k = 3
@@ -157,7 +156,6 @@ function Get-LlmAccelerationPolicy {
         scope = [pscustomobject]@{
             grade_allow = if ($scope.grade_allow) { @($scope.grade_allow) } else { @($defaults.scope.grade_allow) }
             task_allow = if ($scope.task_allow) { @($scope.task_allow) } else { @($defaults.scope.task_allow) }
-            route_mode_allow = if ($scope.route_mode_allow) { @($scope.route_mode_allow) } else { @($defaults.scope.route_mode_allow) }
         }
         trigger = [pscustomobject]@{
             top_k = if ($trigger.top_k -ne $null) { [int]$trigger.top_k } else { [int]$defaults.trigger.top_k }
@@ -275,8 +273,7 @@ function Test-LlmAccelerationScope {
         [object]$Policy,
         [object]$PromptNormalization,
         [string]$Grade,
-        [string]$TaskType,
-        [string]$RouteMode
+        [string]$TaskType
     )
 
     $resolved = Get-LlmAccelerationPolicy -Policy $Policy
@@ -300,7 +297,6 @@ function Test-LlmAccelerationScope {
 
     if ($resolved.scope.grade_allow.Count -gt 0 -and -not ($resolved.scope.grade_allow -contains $Grade)) { $reasons += "grade_not_allowed" }
     if ($resolved.scope.task_allow.Count -gt 0 -and -not ($resolved.scope.task_allow -contains $TaskType)) { $reasons += "task_not_allowed" }
-    if ($resolved.scope.route_mode_allow.Count -gt 0 -and -not ($resolved.scope.route_mode_allow -contains $RouteMode)) { $reasons += "route_mode_not_allowed" }
 
     return [pscustomobject]@{
         enabled = $true
@@ -1962,7 +1958,7 @@ function Get-LlmAccelerationAdvice {
     )
 
     $policyResolved = Get-LlmAccelerationPolicy -Policy $LlmAccelerationPolicy
-    $scope = Test-LlmAccelerationScope -Policy $policyResolved -PromptNormalization $PromptNormalization -Grade $Grade -TaskType $TaskType -RouteMode $RouteMode
+    $scope = Test-LlmAccelerationScope -Policy $policyResolved -PromptNormalization $PromptNormalization -Grade $Grade -TaskType $TaskType
     $trigger = Get-LlmAccelerationTrigger -PolicyResolved $policyResolved -RouteMode $RouteMode -TopGap $TopGap -Confidence $Confidence
 
     $providerSummary = [pscustomobject]@{

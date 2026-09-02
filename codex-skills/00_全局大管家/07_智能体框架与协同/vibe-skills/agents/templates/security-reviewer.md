@@ -1,4 +1,4 @@
-# Security Reviewer Template
+﻿# Security Reviewer Template
 
 Goal: detect security risks in code and configuration.
 

@@ -207,9 +207,10 @@ Write or attach a plan before editing if:
 - the change affects vendored, mirrored, provenance, or disclosure surfaces
 - you cannot explain the proof set before making the edit
 
-Current program plan:
+Current program contract:
 
-- [`plans/2026-03-13-post-upstream-governance-developer-entry-plan.md`](plans/2026-03-13-post-upstream-governance-developer-entry-plan.md)
+- [`../config/live-document-contract.json`](../config/live-document-contract.json)
+- [`../references/developer-entry-contract.md`](../references/developer-entry-contract.md)
 
 ## Runtime Proof Bundle
 
@@ -218,7 +219,7 @@ execution-sensitive surfaces, expect to justify the result with the relevant
 subset of:
 
 - `scripts/verify/vibe-pack-routing-smoke.ps1`
-- `scripts/verify/vibe-router-contract-gate.ps1`
+- `scripts/verify/vibe-current-routing-debt-gate.ps1`
 - `scripts/verify/vibe-version-packaging-gate.ps1`
 - `scripts/verify/vibe-output-artifact-boundary-gate.ps1`
 - `scripts/verify/vibe-repo-cleanliness-gate.ps1`

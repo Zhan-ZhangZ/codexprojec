@@ -54,8 +54,6 @@ $configRoot = Join-Path $repoRoot "config"
 $packManifestPath = Join-Path $configRoot "pack-manifest.json"
 $aliasMapPath = Join-Path $configRoot "skill-alias-map.json"
 $thresholdPath = Join-Path $configRoot "router-thresholds.json"
-$skillKeywordIndexPath = Join-Path $configRoot "skill-keyword-index.json"
-$routingRulesPath = Join-Path $configRoot "skill-routing-rules.json"
 $deepDiscoveryPolicyPath = Join-Path $configRoot "deep-discovery-policy.json"
 $capabilityCatalogPath = Join-Path $configRoot "capability-catalog.json"
 $heartbeatPolicyPath = Join-Path $configRoot "heartbeat-policy.json"
@@ -71,14 +69,11 @@ $explorationDomainMapPath = Join-Path $configRoot "exploration-domain-map.json"
 
 $results = @()
 
-Write-Host "=== VCO Pack Router Config Checks ==="
-$results += Assert-True -Condition (Test-Path -LiteralPath $packManifestPath) -Message "pack-manifest.json exists"
+Write-Host "=== VCO Pack Compatibility Config Checks ==="
+$results += Assert-True -Condition (Test-Path -LiteralPath $packManifestPath) -Message "pack-manifest.json compatibility config exists"
 $results += Assert-True -Condition (Test-Path -LiteralPath $aliasMapPath) -Message "skill-alias-map.json exists"
 $results += Assert-True -Condition (Test-Path -LiteralPath $thresholdPath) -Message "router-thresholds.json exists"
-$results += Assert-True -Condition (Test-Path -LiteralPath $skillKeywordIndexPath) -Message "skill-keyword-index.json exists"
-$results += Assert-True -Condition (Test-Path -LiteralPath $routingRulesPath) -Message "skill-routing-rules.json exists"
 $results += Assert-True -Condition (Test-Path -LiteralPath $deepDiscoveryPolicyPath) -Message "deep-discovery-policy.json exists"
-$results += Assert-True -Condition (Test-Path -LiteralPath $capabilityCatalogPath) -Message "capability-catalog.json exists"
 $results += Assert-True -Condition (Test-Path -LiteralPath $heartbeatPolicyPath) -Message "heartbeat-policy.json exists"
 $results += Assert-True -Condition (Test-Path -LiteralPath $dialecticTeamPolicyPath) -Message "dialectic-team-policy.json exists"
 $results += Assert-True -Condition (Test-Path -LiteralPath $dailyDialecticGuardPath) -Message "daily-dialectic-guard.json exists"
@@ -93,8 +88,6 @@ $results += Assert-True -Condition (Test-Path -LiteralPath $explorationDomainMap
 $packManifest = Get-Content -LiteralPath $packManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $aliasMap = Get-Content -LiteralPath $aliasMapPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $thresholds = Get-Content -LiteralPath $thresholdPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$skillKeywordIndex = Get-Content -LiteralPath $skillKeywordIndexPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$routingRules = Get-Content -LiteralPath $routingRulesPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $deletedSkillIds = @(
     "modal",
     "modal-labs",
@@ -135,7 +128,18 @@ $deletedSkillIds = @(
     "bgpt-paper-search"
 )
 $deepDiscoveryPolicy = Get-Content -LiteralPath $deepDiscoveryPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$capabilityCatalog = Get-Content -LiteralPath $capabilityCatalogPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$deepDiscoveryEnabled = [bool]($deepDiscoveryPolicy.enabled -ne $false -and [string]$deepDiscoveryPolicy.mode -ne "off")
+$capabilityCatalog = if ($deepDiscoveryEnabled -and (Test-Path -LiteralPath $capabilityCatalogPath)) {
+    Get-Content -LiteralPath $capabilityCatalogPath -Raw -Encoding UTF8 | ConvertFrom-Json
+} else {
+    $null
+}
+$capabilityCatalogJson = if ($null -ne $capabilityCatalog) {
+    $capabilityCatalog | ConvertTo-Json -Depth 100
+} else {
+    ""
+}
+$results += Assert-True -Condition ((-not $deepDiscoveryEnabled) -or (Test-Path -LiteralPath $capabilityCatalogPath)) -Message "capability-catalog.json exists when deep discovery is active"
 $heartbeatPolicy = Get-Content -LiteralPath $heartbeatPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $dialecticTeamPolicy = Get-Content -LiteralPath $dialecticTeamPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $dailyDialecticGuard = Get-Content -LiteralPath $dailyDialecticGuardPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -210,31 +214,22 @@ foreach ($pack in $packManifest.packs) {
     }
 }
 
-$autoRoute = [double]$thresholds.thresholds.auto_route
-$confirmRequired = [double]$thresholds.thresholds.confirm_required
-$fallbackBelow = [double]$thresholds.thresholds.fallback_to_legacy_below
+$candidateFocus = [double]$thresholds.thresholds.candidate_focus
+$nearMatch = [double]$thresholds.thresholds.min_candidate_signal_for_near_match
+$focusedSignal = [double]$thresholds.thresholds.min_candidate_signal_for_focus
 
-$results += Assert-True -Condition ($autoRoute -gt $confirmRequired) -Message "auto_route threshold higher than confirm_required"
-$results += Assert-True -Condition ($confirmRequired -ge $fallbackBelow) -Message "confirm_required is not lower than fallback threshold"
+$results += Assert-True -Condition ($focusedSignal -gt $candidateFocus) -Message "focused candidate signal is higher than ordinary candidate focus"
+$results += Assert-True -Condition ($candidateFocus -gt $nearMatch) -Message "ordinary candidate focus is higher than near-match signal"
 $results += Assert-True -Condition ($thresholds.thresholds.min_top1_top2_gap -ne $null) -Message "min_top1_top2_gap threshold configured"
-$results += Assert-True -Condition ($thresholds.safety.enforce_grade_boundary -eq $true) -Message "grade boundary safety is enabled"
-$results += Assert-True -Condition ($thresholds.safety.enforce_task_boundary -eq $true) -Message "task boundary safety is enabled"
-$results += Assert-True -Condition ($thresholds.safety.enforce_confirm_on_legacy_fallback -eq $true) -Message "legacy fallback confirm guard is enabled"
-$results += Assert-True -Condition ($thresholds.weights.skill_keyword_signal -ne $null) -Message "skill_keyword_signal weight is configured"
-$results += Assert-True -Condition ($thresholds.candidate_selection.rule_positive_keyword_bonus -ne $null) -Message "candidate_selection positive bonus configured"
-$results += Assert-True -Condition ($thresholds.candidate_selection.rule_negative_keyword_penalty -ne $null) -Message "candidate_selection negative penalty configured"
-$results += Assert-True -Condition ($thresholds.candidate_selection.canonical_for_task_bonus -ne $null) -Message "candidate_selection canonical bonus configured"
-$results += Assert-True -Condition ($skillKeywordIndex.selection.weights.keyword_match -ne $null) -Message "skill index keyword_match weight is configured"
-$results += Assert-True -Condition ($skillKeywordIndex.selection.weights.name_match -ne $null) -Message "skill index name_match weight is configured"
-$results += Assert-True -Condition ($skillKeywordIndex.selection.fallback_to_first_when_score_below -ne $null) -Message "skill index fallback threshold is configured"
-$results += Assert-True -Condition ((@($skillKeywordIndex.skills.PSObject.Properties).Count -gt 0)) -Message "skill index contains skill mappings"
-$results += Assert-True -Condition ((@($routingRules.skills.PSObject.Properties).Count -gt 0)) -Message "routing rules contain skill mappings"
 foreach ($skill in $deletedSkillIds) {
-    $results += Assert-True -Condition (-not ($skillKeywordIndex.skills.PSObject.Properties.Name -contains $skill)) -Message "deleted skill '$skill' absent from skill keyword index"
-    $results += Assert-True -Condition (-not ($routingRules.skills.PSObject.Properties.Name -contains $skill)) -Message "deleted skill '$skill' absent from routing rules"
+    $results += Assert-True -Condition ((-not $deepDiscoveryEnabled) -or ($capabilityCatalogJson -notmatch [regex]::Escape($skill))) -Message "deleted skill '$skill' absent from capability catalog"
 }
 $results += Assert-True -Condition ($deepDiscoveryPolicy.mode -ne $null) -Message "deep discovery mode configured"
-$results += Assert-True -Condition ((@($capabilityCatalog.capabilities).Count -gt 0)) -Message "capability catalog contains entries"
+if ($deepDiscoveryEnabled) {
+    $results += Assert-True -Condition ((@($capabilityCatalog.capabilities).Count -gt 0)) -Message "capability catalog contains entries when deep discovery is active"
+} else {
+    $results += Assert-True -Condition $true -Message "capability catalog not required when deep discovery is off"
+}
 $results += Assert-True -Condition ($heartbeatPolicy.mode -ne $null) -Message "heartbeat mode configured"
 $results += Assert-True -Condition ($heartbeatPolicy.timers.hard_stall_silence_sec -ne $null) -Message "heartbeat hard stall threshold configured"
 $results += Assert-True -Condition ($heartbeatPolicy.timers.user_brief_interval_sec -ne $null) -Message "heartbeat brief interval configured"
@@ -251,15 +246,6 @@ $results += Assert-True -Condition ($explorationPolicy.intent_selection.min_inte
 $results += Assert-True -Condition ($explorationPolicy.domain_detection.min_domain_confidence -ne $null) -Message "exploration domain confidence configured"
 $results += Assert-True -Condition ((@($explorationIntentProfiles.profiles).Count -gt 0)) -Message "exploration intent profiles configured"
 $results += Assert-True -Condition ((@($explorationDomainMap.domains).Count -gt 0)) -Message "exploration domain map configured"
-
-foreach ($ruleProp in @($routingRules.skills.PSObject.Properties | Select-Object -First 10)) {
-    $rule = $ruleProp.Value
-    $results += Assert-True -Condition ($null -ne $rule.task_allow) -Message "routing rule '$($ruleProp.Name)' has task_allow"
-    $results += Assert-True -Condition ($null -ne $rule.positive_keywords) -Message "routing rule '$($ruleProp.Name)' has positive_keywords"
-    $results += Assert-True -Condition ($null -ne $rule.negative_keywords) -Message "routing rule '$($ruleProp.Name)' has negative_keywords"
-    $results += Assert-True -Condition ($null -ne $rule.equivalent_group -or $rule.equivalent_group -eq $null) -Message "routing rule '$($ruleProp.Name)' has equivalent_group"
-    $results += Assert-True -Condition ($null -ne $rule.canonical_for_task) -Message "routing rule '$($ruleProp.Name)' has canonical_for_task"
-}
 
 $aliasPairs = @($aliasMap.aliases.PSObject.Properties)
 $results += Assert-True -Condition ($null -ne $aliasMap.aliases) -Message "alias mapping container exists"

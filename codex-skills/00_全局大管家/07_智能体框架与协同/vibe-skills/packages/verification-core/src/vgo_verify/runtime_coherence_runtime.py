@@ -25,6 +25,10 @@ def evaluate_runtime_coherence(repo_root: Path, target_root: Path, runtime: dict
     install_sh = repo_root / "install.sh"
     check_ps1 = repo_root / "check.ps1"
     check_sh = repo_root / "check.sh"
+    update_ps1 = repo_root / "update.ps1"
+    update_sh = repo_root / "update.sh"
+    uninstall_ps1 = repo_root / "uninstall.ps1"
+    uninstall_sh = repo_root / "uninstall.sh"
     runtime_gate_path = repo_root / str(runtime["post_install_gate"])
     coherence_gate_path = repo_root / str(runtime["coherence_gate"])
     frontmatter_gate_path = repo_root / str(runtime["frontmatter_gate"])
@@ -43,24 +47,16 @@ def evaluate_runtime_coherence(repo_root: Path, target_root: Path, runtime: dict
         ),
         "[runtime] receipt_relpath stays under target_relpath",
     )
+    add_assertion(
+        str(runtime["receipt_relpath"]).replace("\\", "/") == "skills/vibe/.vibeskills/install-receipt.json",
+        "[runtime] receipt_relpath uses simplified install receipt",
+    )
     add_assertion(runtime_gate_path.exists(), "[runtime] post-install freshness gate script exists")
     add_assertion(coherence_gate_path.exists(), "[runtime] coherence gate script exists")
     add_assertion(frontmatter_gate_path.exists(), "[runtime] BOM/frontmatter gate script exists")
     add_assertion(
-        str(runtime["post_install_gate"]) in list(runtime["required_runtime_markers"]),
-        "[runtime] required_runtime_markers includes post-install freshness gate",
-    )
-    add_assertion(
-        str(runtime["coherence_gate"]) in list(runtime["required_runtime_markers"]),
-        "[runtime] required_runtime_markers includes coherence gate",
-    )
-    add_assertion(
         int(runtime["receipt_contract_version"]) >= 1,
         "[runtime] receipt_contract_version is declared and >= 1",
-    )
-    add_assertion(
-        str(runtime["shell_degraded_behavior"]) == "warn_and_skip_authoritative_runtime_gate",
-        "[runtime] shell_degraded_behavior declares warn-and-skip semantics",
     )
 
     add_assertion(version_doc.exists(), "[docs] version-packaging-governance.md exists")
@@ -78,64 +74,62 @@ def evaluate_runtime_coherence(repo_root: Path, target_root: Path, runtime: dict
         "[docs] runtime SOP documents receipt contract",
     )
     add_assertion(
-        content_contains(runtime_doc, "shell degraded behavior"),
-        "[docs] runtime SOP documents shell degraded behavior",
+        content_contains(runtime_doc, "does not require the installed folder to be a full repository mirror"),
+        "[docs] runtime SOP limits freshness to the receipt-owned payload",
     )
 
-    add_assertion(
-        content_contains(install_ps1, "Invoke-InstalledRuntimeFreshnessGate"),
-        "[install.ps1] install flow invokes runtime freshness gate",
+    ps_wrappers = (
+        ("install.ps1", install_ps1, "install"),
+        ("check.ps1", check_ps1, "check"),
+        ("update.ps1", update_ps1, "update"),
+        ("uninstall.ps1", uninstall_ps1, "uninstall"),
     )
-    add_assertion(
-        content_contains(install_sh, "run_runtime_freshness_gate"),
-        "[install.sh] shell install flow invokes runtime freshness gate",
+    sh_wrappers = (
+        ("install.sh", install_sh, "install"),
+        ("check.sh", check_sh, "check"),
+        ("update.sh", update_sh, "update"),
+        ("uninstall.sh", uninstall_sh, "uninstall"),
     )
-    add_assertion(
-        content_contains(check_ps1, "Invoke-RuntimeFreshnessCheck"),
-        "[check.ps1] check flow invokes runtime freshness gate",
-    )
-    add_assertion(
-        content_contains(check_ps1, "Invoke-RuntimeCoherenceCheck"),
-        "[check.ps1] check flow invokes coherence gate",
-    )
-    add_assertion(
-        content_contains(check_sh, "run_runtime_freshness_gate"),
-        "[check.sh] shell check flow invokes runtime freshness gate",
-    )
-    add_assertion(
-        content_contains(check_sh, "run_runtime_coherence_gate"),
-        "[check.sh] shell check flow invokes coherence gate",
-    )
-    add_assertion(
-        content_contains(check_sh, "runtime-neutral") or content_contains(check_sh, "pwsh is not installed"),
-        "[check.sh] shell check documents a degraded or runtime-neutral gate path",
-    )
+    legacy_ps_tokens = ("HostId", "Profile", "TargetRoot")
+    legacy_sh_tokens = ("--host", "--profile", "--target-root")
 
-    add_assertion(
-        authoritative_gate_contains(repo_root, runtime, "receipt_version"),
-        "[receipt] installed runtime freshness gate emits receipt_version",
-    )
-    add_assertion(
-        authoritative_gate_contains(repo_root, runtime, "gate_result"),
-        "[receipt] installed runtime freshness gate writes gate_result",
-    )
+    for label, path, command in ps_wrappers:
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        add_assertion(path.is_file(), f"[{label}] simplified wrapper exists")
+        add_assertion("SkillsDir" in text, f"[{label}] exposes skills directory semantics")
+        add_assertion("vgo_cli.main" in text and f"'{command}'" in text, f"[{label}] calls vgo-cli {command}")
+        add_assertion("--skills-dir" in text, f"[{label}] forwards explicit skills directory")
+        add_assertion(
+            not any(token in text for token in legacy_ps_tokens),
+            f"[{label}] does not expose legacy host/profile/target-root install options",
+        )
+
+    for label, path, command in sh_wrappers:
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        add_assertion(path.is_file(), f"[{label}] simplified wrapper exists")
+        add_assertion(f"vgo_cli.main {command}" in text, f"[{label}] calls vgo-cli {command}")
+        add_assertion('"$@"' in text, f"[{label}] forwards CLI arguments including --skills-dir")
+        add_assertion(
+            not any(token in text for token in legacy_sh_tokens),
+            f"[{label}] does not expose legacy host/profile/target-root install options",
+        )
 
     if receipt_path.exists():
         try:
             receipt = load_json(receipt_path)
             add_assertion(
-                str(receipt.get("gate_result")) == "PASS",
-                "[receipt] installed runtime receipt gate_result is PASS",
+                str(receipt.get("receipt_kind")) == "vibe-skill-install",
+                "[receipt] install receipt declares simplified install kind",
             )
             add_assertion(
-                int(receipt.get("receipt_version", 0)) >= int(runtime["receipt_contract_version"]),
-                "[receipt] installed runtime receipt version satisfies contract",
+                str(receipt.get("skill_id")) == "vibe",
+                "[receipt] install receipt belongs to vibe skill",
             )
         except Exception as exc:
-            add_assertion(False, f"[receipt] installed runtime receipt parses cleanly -> {exc}")
+            add_assertion(False, f"[receipt] install receipt parses cleanly -> {exc}")
     else:
         add_warning(
-            f"runtime receipt not found at {receipt_path}; repo contract validated without installed-runtime evidence."
+            f"install receipt not found at {receipt_path}; repo contract validated without installed-runtime evidence."
         )
 
     failures = sum(1 for item in assertions if not item["ok"])
@@ -155,7 +149,6 @@ def evaluate_runtime_coherence(repo_root: Path, target_root: Path, runtime: dict
             "frontmatter_gate": str(runtime["frontmatter_gate"]),
             "neutral_freshness_gate": str(runtime["neutral_freshness_gate"]),
             "receipt_contract_version": int(runtime["receipt_contract_version"]),
-            "shell_degraded_behavior": str(runtime["shell_degraded_behavior"]),
         },
         "summary": {
             "failures": failures,

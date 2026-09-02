@@ -2,11 +2,11 @@
 
 Up: [index.md](index.md)
 
-This contract defines the minimum developer-entry verification surface required by the post-upstream-governance developer-entry plan.
+This contract defines the minimum stable developer-entry verification surface.
 
 Scope for this slice:
 - Verify the repository exposes a canonical developer-entry path.
-- Verify `CONTRIBUTING.md` exists and points contributors to zone, proof, and plan surfaces.
+- Verify `CONTRIBUTING.md` exists and points contributors to zone, proof, and executable live-contract surfaces.
 - Verify only documentation and verification entry surfaces.
 
 Out of scope for this slice:
@@ -30,13 +30,13 @@ Out of scope for this slice:
       "docs/developer-change-governance.md",
       "references/contributor-zone-decision-table.md",
       "references/change-proof-matrix.md",
-      "docs/plans/2026-03-13-post-upstream-governance-developer-entry-plan.md"
+      "config/live-document-contract.json"
     ],
     "required_links": [
       "docs/developer-change-governance.md",
       "references/contributor-zone-decision-table.md",
       "references/change-proof-matrix.md",
-      "docs/plans/2026-03-13-post-upstream-governance-developer-entry-plan.md"
+      "config/live-document-contract.json"
     ],
     "required_marker_groups": [
       [

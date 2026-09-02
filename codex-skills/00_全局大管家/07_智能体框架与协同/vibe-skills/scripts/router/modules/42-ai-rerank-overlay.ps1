@@ -17,8 +17,7 @@ function Test-AiRerankScope {
     param(
         [object]$AiRerankPolicy,
         [string]$Grade,
-        [string]$TaskType,
-        [string]$RouteMode
+        [string]$TaskType
     )
 
     $reasons = @()
@@ -53,11 +52,6 @@ function Test-AiRerankScope {
     $taskAllow = @($scope.task_allow)
     if ($taskAllow.Count -gt 0 -and -not ($taskAllow -contains $TaskType)) {
         $reasons += "task_not_allowed"
-    }
-
-    $routeModeAllow = @($scope.route_mode_allow)
-    if ($routeModeAllow.Count -gt 0 -and -not ($routeModeAllow -contains $RouteMode)) {
-        $reasons += "route_mode_not_allowed"
     }
 
     if ($reasons.Count -eq 0) {
@@ -202,7 +196,7 @@ function Get-AiRerankAdvice {
     )
 
     $mode = if ($AiRerankPolicy -and $AiRerankPolicy.mode) { [string]$AiRerankPolicy.mode } else { "off" }
-    $scope = Test-AiRerankScope -AiRerankPolicy $AiRerankPolicy -Grade $Grade -TaskType $TaskType -RouteMode $RouteMode
+    $scope = Test-AiRerankScope -AiRerankPolicy $AiRerankPolicy -Grade $Grade -TaskType $TaskType
     $enabled = [bool]($AiRerankPolicy -and [bool]$AiRerankPolicy.enabled -and $mode -ne "off")
 
     $triggerConfig = if ($AiRerankPolicy -and $AiRerankPolicy.trigger) { $AiRerankPolicy.trigger } else { $null }
@@ -349,5 +343,4 @@ function Get-AiRerankAdvice {
         would_override = [bool]$wouldOverride
     }
 }
-
 

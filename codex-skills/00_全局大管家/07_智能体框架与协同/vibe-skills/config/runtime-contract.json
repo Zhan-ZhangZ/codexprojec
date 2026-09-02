@@ -9,9 +9,10 @@
     "vibe"
   ],
   "authority": {
-    "internal_specialist_recommender": "scripts/router/resolve-pack-route.ps1",
-    "canonical_router": "scripts/router/resolve-pack-route.ps1",
-    "canonical_router_compatibility": "legacy packet field name only; runtime authority remains vibe",
+    "local_installed_skill_recommender": "packages/runtime-core/src/vgo_runtime/router_contract_runtime.py",
+    "local_installed_skill_recommender_bridge": "scripts/router/resolve-pack-route.ps1",
+    "canonical_router": "legacy packet field name only; runtime authority remains vibe",
+    "canonical_router_compatibility": "retained callers may still enter through scripts/router/resolve-pack-route.ps1 compatibility bridge",
     "runtime_protocol": "protocols/runtime.md",
     "forbid_second_router": true
   },
@@ -48,13 +49,13 @@
       "id": "requirement_doc",
       "order": 3,
       "required": true,
-      "receipt": "docs/requirements/{date}-{slug}.md"
+      "receipt": ".vibeskills/runs/{run_id}/requirement.md"
     },
     {
       "id": "xl_plan",
       "order": 4,
       "required": true,
-      "receipt": "docs/plans/{date}-{slug}-execution-plan.md"
+      "receipt": ".vibeskills/runs/{run_id}/plan.md"
     },
     {
       "id": "plan_execute",

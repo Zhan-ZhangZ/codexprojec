@@ -12,7 +12,6 @@
     "mcp/**",
     "config/plugins-manifest.codex.json",
     "config/upstream-lock.json",
-    "config/skills-lock.json",
     "settings.json from config/settings.template.codex.json if absent",
     "canonical vibe mirror under skills/vibe/**"
   ],
@@ -40,7 +39,6 @@
       "mcp/**",
       "config/plugins-manifest.codex.json",
       "config/upstream-lock.json",
-      "config/skills-lock.json",
       "canonical vibe mirror under skills/vibe/**"
     ],
     "shared_json_targets": [

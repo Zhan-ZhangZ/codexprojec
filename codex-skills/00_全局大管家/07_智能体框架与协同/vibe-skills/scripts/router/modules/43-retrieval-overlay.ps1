@@ -215,7 +215,6 @@ function Get-RetrievalOverlayAdvice {
         [string]$PromptLower,
         [string]$Grade,
         [string]$TaskType,
-        [string]$RouteMode,
         [string]$SelectedPackId,
         [string]$SelectedSkill,
         [string[]]$PackCandidates,
@@ -235,7 +234,6 @@ function Get-RetrievalOverlayAdvice {
             scope_applicable = $false
             enforcement = "none"
             reason = "policy_missing"
-            preserve_routing_assignment = $true
             profile_id = "none"
             profile_confidence = 0.0
             profile_top_gap = 0.0
@@ -262,7 +260,6 @@ function Get-RetrievalOverlayAdvice {
             scope_applicable = $false
             enforcement = "none"
             reason = "policy_off"
-            preserve_routing_assignment = $true
             profile_id = "none"
             profile_confidence = 0.0
             profile_top_gap = 0.0
@@ -279,11 +276,10 @@ function Get-RetrievalOverlayAdvice {
 
     $taskAllow = @($RetrievalPolicy.task_allow)
     $gradeAllow = @($RetrievalPolicy.grade_allow)
-    $routeModeAllow = @($RetrievalPolicy.route_mode_allow)
 
     $taskApplicable = if ($taskAllow.Count -gt 0) { $taskAllow -contains $TaskType } else { $true }
     $gradeApplicable = if ($gradeAllow.Count -gt 0) { $gradeAllow -contains $Grade } else { $true }
-    $routeModeApplicable = if ($routeModeAllow.Count -gt 0) { $routeModeAllow -contains $RouteMode } else { $true }
+    $routeModeApplicable = $true
     $scopeApplicable = $taskApplicable -and $gradeApplicable -and $routeModeApplicable
 
     if (-not $scopeApplicable) {
@@ -304,7 +300,6 @@ function Get-RetrievalOverlayAdvice {
             scope_applicable = $false
             enforcement = "none"
             reason = $scopeReason
-            preserve_routing_assignment = $true
             profile_id = "none"
             profile_confidence = 0.0
             profile_top_gap = 0.0
@@ -330,7 +325,6 @@ function Get-RetrievalOverlayAdvice {
             scope_applicable = $false
             enforcement = "none"
             reason = "profiles_missing"
-            preserve_routing_assignment = $true
             profile_id = "none"
             profile_confidence = 0.0
             profile_top_gap = 0.0
@@ -480,7 +474,6 @@ function Get-RetrievalOverlayAdvice {
 
     $profileConfidence = [double]$profileChoice.selected_score
     $confidence = [Math]::Round((($profileConfidence * 0.6) + ($coverageScore * 0.4)), 4)
-    $preserveRoutingAssignment = if ($RetrievalPolicy.preserve_routing_assignment -ne $null) { [bool]$RetrievalPolicy.preserve_routing_assignment } else { $true }
 
     return [pscustomobject]@{
         enabled = $true
@@ -491,7 +484,6 @@ function Get-RetrievalOverlayAdvice {
         scope_applicable = $true
         enforcement = $enforcement
         reason = $reason
-        preserve_routing_assignment = [bool]$preserveRoutingAssignment
         profile_id = if ($selectedProfile) { [string]$selectedProfile.id } else { "none" }
         profile_confidence = [Math]::Round($profileConfidence, 4)
         profile_top_gap = [double]$profileChoice.top_gap

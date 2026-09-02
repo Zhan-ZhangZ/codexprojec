@@ -1,4 +1,4 @@
-# usability-analyst Prompt
+﻿# usability-analyst Prompt
 
 Role goal:
 Evaluate practical user friction, routing clarity, and return on complexity.

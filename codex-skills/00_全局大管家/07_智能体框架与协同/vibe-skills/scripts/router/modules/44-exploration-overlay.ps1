@@ -176,7 +176,6 @@ function Get-ExplorationOverlayAdvice {
         [string]$PromptLower,
         [string]$Grade,
         [string]$TaskType,
-        [string]$RouteMode,
         [string]$SelectedPackId,
         [string]$SelectedSkill,
         [string[]]$PackCandidates,
@@ -195,7 +194,6 @@ function Get-ExplorationOverlayAdvice {
             scope_applicable = $false
             enforcement = "none"
             reason = "policy_missing"
-            preserve_routing_assignment = $true
             intent_id = "none"
             intent_confidence = 0.0
             intent_top_gap = 0.0
@@ -224,7 +222,6 @@ function Get-ExplorationOverlayAdvice {
             scope_applicable = $false
             enforcement = "none"
             reason = "mode_off"
-            preserve_routing_assignment = $true
             intent_id = "none"
             intent_confidence = 0.0
             intent_top_gap = 0.0
@@ -243,11 +240,10 @@ function Get-ExplorationOverlayAdvice {
 
     $taskAllow = @($ExplorationPolicy.task_allow)
     $gradeAllow = @($ExplorationPolicy.grade_allow)
-    $routeModeAllow = @($ExplorationPolicy.route_mode_allow)
 
     $taskApplicable = if ($taskAllow.Count -gt 0) { $taskAllow -contains $TaskType } else { $true }
     $gradeApplicable = if ($gradeAllow.Count -gt 0) { $gradeAllow -contains $Grade } else { $true }
-    $routeModeApplicable = if ($routeModeAllow.Count -gt 0) { $routeModeAllow -contains $RouteMode } else { $true }
+    $routeModeApplicable = $true
     $scopeApplicable = $taskApplicable -and $gradeApplicable -and $routeModeApplicable
 
     if (-not $scopeApplicable) {
@@ -260,7 +256,6 @@ function Get-ExplorationOverlayAdvice {
             scope_applicable = $false
             enforcement = "advisory"
             reason = "outside_scope"
-            preserve_routing_assignment = $true
             intent_id = "none"
             intent_confidence = 0.0
             intent_top_gap = 0.0
@@ -288,7 +283,6 @@ function Get-ExplorationOverlayAdvice {
             scope_applicable = $true
             enforcement = "advisory"
             reason = "missing_intent_profiles"
-            preserve_routing_assignment = $true
             intent_id = "none"
             intent_confidence = 0.0
             intent_top_gap = 0.0
@@ -394,8 +388,6 @@ function Get-ExplorationOverlayAdvice {
         }
     }
 
-    $preserveRoutingAssignment = if ($ExplorationPolicy.preserve_routing_assignment -ne $null) { [bool]$ExplorationPolicy.preserve_routing_assignment } else { $true }
-
     $recommendedSkill = $null
     if ($domainRows.Count -gt 0 -and $domainRows[0].default_skill) {
         $candidateSkill = [string]$domainRows[0].default_skill
@@ -420,7 +412,6 @@ function Get-ExplorationOverlayAdvice {
         scope_applicable = $true
         enforcement = $enforcement
         reason = $reason
-        preserve_routing_assignment = [bool]$preserveRoutingAssignment
         intent_id = $selectedIntentId
         intent_confidence = [Math]::Round([double]$intentChoice.selected_score, 4)
         intent_top_gap = [Math]::Round([double]$intentChoice.top_gap, 4)

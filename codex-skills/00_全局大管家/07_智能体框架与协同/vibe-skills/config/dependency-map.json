@@ -1,4 +1,4 @@
-{
+﻿{
   "version": 1,
   "items": [
     {
@@ -12,10 +12,6 @@
     {
       "source": "${CODEX_HOME}/skills/spec-kit-vibe-compat",
       "target": "bundled/skills/spec-kit-vibe-compat"
-    },
-    {
-      "source": "${CODEX_HOME}/skills/superclaude-framework-compat",
-      "target": "bundled/skills/superclaude-framework-compat"
     },
     {
       "source": "${CODEX_HOME}/skills/ralph-loop",

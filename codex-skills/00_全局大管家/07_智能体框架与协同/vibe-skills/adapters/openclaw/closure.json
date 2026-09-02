@@ -8,10 +8,8 @@
     "skills/**",
     "commands/**",
     "config/upstream-lock.json",
-    "config/skills-lock.json",
     "canonical vibe mirror under skills/vibe/**",
     "host-root global_workflows/** when commands exist",
-    "host-root mcp_config.json from mcp/servers.template.json when absent",
     "host-root .vibeskills/host-closure.json",
     "host-root .vibeskills/bin/**"
   ],
@@ -19,7 +17,6 @@
     "skills/**",
     "skills/vibe/**",
     "global_workflows/** when commands exist",
-    "mcp_config.json when absent",
     ".vibeskills/host-closure.json",
     ".vibeskills/bin/**"
   ],
@@ -38,14 +35,10 @@
       "skills/**",
       "commands/**",
       "config/upstream-lock.json",
-      "config/skills-lock.json",
       "canonical vibe mirror under skills/vibe/**",
-      "host-root global_workflows/** when commands exist",
-      "host-root mcp_config.json from mcp/servers.template.json when absent"
+      "host-root global_workflows/** when commands exist"
     ],
-    "shared_json_targets": [
-      "mcp_config.json when created from mcp/servers.template.json"
-    ],
+    "shared_json_targets": [],
     "legacy_compatibility": [
       ".vibeskills/host-closure.json",
       ".vibeskills/bin/**"
@@ -54,7 +47,6 @@
       "skills/**",
       "skills/vibe/**",
       "global_workflows/** when commands exist",
-      "mcp_config.json when absent",
       ".vibeskills/host-closure.json",
       ".vibeskills/bin/**"
     ],

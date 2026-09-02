@@ -24,6 +24,10 @@ from vgo_contracts.mirror_topology_contract import (
 
 from .ledger_service import MaterializationLedgerState
 from .discoverable_wrappers import materialize_host_visible_wrappers as _materialize_host_visible_wrappers
+from .profile_inventory import (
+    allowlisted_bundled_skill_names,
+    internal_corpus_resident_skill_names,
+)
 
 TrackCreatedPath = Callable[[Path | str], None]
 RecordOwnedTreeRoot = Callable[[Path | str], None]
@@ -307,8 +311,8 @@ def canonical_vibe_target_relpath(packaging: dict[str, Any]) -> str:
 def internal_skill_corpus(packaging: dict[str, Any]) -> dict[str, Any]:
     corpus = dict(packaging.get("internal_skill_corpus") or {})
     corpus.setdefault("enabled", False)
-    corpus.setdefault("source", str(packaging.get("bundled_skills_source") or "bundled/skills"))
-    corpus.setdefault("target_relpath", "skills/vibe/bundled/skills")
+    corpus.setdefault("source", str(packaging.get("bundled_skills_source") or "").strip())
+    corpus.setdefault("target_relpath", "")
     corpus.setdefault("entrypoint_filename", "SKILL.runtime-mirror.md")
     corpus.setdefault("sanitize_entrypoints", True)
     corpus.setdefault("exclude_skill_names", list(packaging.get("exclude_bundled_skill_names") or []))
@@ -351,8 +355,8 @@ def excluded_bundled_skill_names(packaging: dict[str, Any]) -> set[str]:
     return configured
 
 
-def resolve_bundled_skills_root(repo_root: Path, packaging: dict[str, Any]) -> Path:
-    source_rel = str(packaging.get("bundled_skills_source") or "bundled/skills")
+def resolve_bundled_skills_root(repo_root: Path, packaging: dict[str, Any]) -> Path | None:
+    source_rel = str(packaging.get("bundled_skills_source") or "").strip()
     candidates: list[Path] = []
 
     skill_source_root = str(packaging.get("skill_source_root") or "").strip()
@@ -371,7 +375,8 @@ def resolve_bundled_skills_root(repo_root: Path, packaging: dict[str, Any]) -> P
         else:
             candidates.append((repo_root / catalog_candidate).resolve())
 
-    candidates.append((repo_root / source_rel).resolve())
+    if source_rel:
+        candidates.append((repo_root / source_rel).resolve())
     parent = repo_root.parent
     if parent.name == "skills":
         candidates.append(parent.resolve())
@@ -384,7 +389,7 @@ def resolve_bundled_skills_root(repo_root: Path, packaging: dict[str, Any]) -> P
         if candidate.exists():
             return candidate
 
-    return candidates[0] if candidates else (repo_root / source_rel).resolve()
+    return candidates[0] if candidates else None
 
 
 def materialize_allowlisted_skills(
@@ -397,18 +402,20 @@ def materialize_allowlisted_skills(
     *,
     copy_dir_replace_fn: Callable[[Path, Path], None],
 ) -> None:
-    skills_allowlist = compatibility_projection_names(packaging, host_id=host_id)
-    if not skills_allowlist:
+    projected_skill_names = compatibility_projection_names(packaging, host_id=host_id)
+    if not projected_skill_names:
         return
 
     bundled_root = resolve_bundled_skills_root(repo_root, packaging)
+    if bundled_root is None:
+        raise SystemExit("Bundled skills source must be explicit for allowlisted packaging.")
     if not bundled_root.exists():
         raise SystemExit(f"Bundled skills source missing for allowlisted packaging: {bundled_root}")
 
     canonical_vibe_rel = canonical_vibe_target_relpath(packaging)
     canonical_vibe_name = Path(canonical_vibe_rel).name
     target_skills_root = destination_root or (target_root / "skills")
-    for name in sorted({str(value).strip() for value in skills_allowlist if str(value).strip()}):
+    for name in sorted({str(value).strip() for value in projected_skill_names if str(value).strip()}):
         if name == canonical_vibe_name:
             continue
         source = bundled_root / name
@@ -428,19 +435,27 @@ def materialize_internal_skill_corpus(
     packaging: dict[str, Any],
     *,
     copy_dir_replace_fn: Callable[[Path, Path], None],
-) -> Path:
+) -> Path | None:
     corpus = internal_skill_corpus(packaging)
-    destination_root = target_root / str(corpus.get("target_relpath") or "skills/vibe/bundled/skills")
+    if not bool(corpus.get("enabled")):
+        stale_corpus = target_root / canonical_vibe_target_relpath(packaging) / "bundled" / "skills"
+        if stale_corpus.exists():
+            shutil.rmtree(stale_corpus)
+        return None
+
+    target_relpath = str(corpus.get("target_relpath") or "").strip()
+    if not target_relpath:
+        raise SystemExit("Internal skill corpus target path must be explicit when internal corpus packaging is enabled.")
+    destination_root = target_root / target_relpath
     bundled_root = resolve_bundled_skills_root(repo_root, packaging)
-    if bool(corpus.get("enabled")) and not bundled_root.exists():
+    if bundled_root is None:
+        raise SystemExit("Internal skill corpus source must be explicit when internal corpus packaging is enabled.")
+    if not bundled_root.exists():
         raise SystemExit(f"Bundled skills source missing for internal corpus packaging: {bundled_root}")
     in_place_corpus = bundled_root.exists() and same_path(bundled_root, destination_root)
 
     if destination_root.exists() and not in_place_corpus:
         shutil.rmtree(destination_root)
-
-    if not bool(corpus.get("enabled")):
-        return destination_root
 
     destination_root.mkdir(parents=True, exist_ok=True)
     excluded = {
@@ -459,9 +474,14 @@ def materialize_internal_skill_corpus(
     else:
         selected_names.update(
             name
-            for name in (str(raw).strip() for raw in packaging.get("skills_allowlist") or [])
+            for name in allowlisted_bundled_skill_names(packaging)
             if name and name not in excluded
         )
+    selected_names.update(
+        name
+        for name in internal_corpus_resident_skill_names(packaging)
+        if name and name not in excluded
+    )
 
     if in_place_corpus:
         for existing in sorted(destination_root.iterdir(), key=lambda item: item.name):
@@ -548,8 +568,6 @@ def install_codex_payload(
     track_created_path(target_root / "rules")
     copy_tree_fn(repo_root / "agents" / "templates", target_root / "agents" / "templates")
     track_created_path(target_root / "agents" / "templates")
-    copy_tree_fn(repo_root / "mcp", target_root / "mcp")
-    track_created_path(target_root / "mcp")
     (target_root / "config").mkdir(parents=True, exist_ok=True)
     track_created_path(target_root / "config")
     copy_file_fn(repo_root / "config" / "plugins-manifest.codex.json", target_root / "config" / "plugins-manifest.codex.json")
@@ -606,10 +624,3 @@ def install_runtime_core_mode_payload(
     if commands_root.exists():
         copy_tree_fn(commands_root, target_root / "global_workflows")
         track_created_path(target_root / "global_workflows")
-
-    mcp_template = repo_root / "mcp" / "servers.template.json"
-    mcp_config = target_root / "mcp_config.json"
-    if mcp_template.exists() and not mcp_config.exists():
-        copy_file_fn(mcp_template, mcp_config)
-        record_generated_from_template(mcp_config)
-    track_created_path(mcp_config)

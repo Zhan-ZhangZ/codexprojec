@@ -1,4 +1,4 @@
-{
+﻿{
     "version":  3,
     "updated":  "2026-03-06",
     "purpose":  "Advice-first ecosystem candidate scoring for freeze/watch/retire governance. Scores are reporting-only and never mutate routing defaults or candidate availability.",

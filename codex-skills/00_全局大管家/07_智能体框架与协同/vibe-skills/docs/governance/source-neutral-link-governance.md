@@ -36,7 +36,7 @@ files. When a relative path works, use the relative path.
 
 ## Verification
 
-`tests/runtime_neutral/test_docs_source_neutral_links.py` enforces the primary
+`https://github.com/foryourhealth111-pixel/Vibe-Skills/blob/v4.1.0/tests/runtime_neutral/test_docs_source_neutral_links.py` enforces the primary
 source-neutral contract:
 
 - documentation surfaces reject repo-owned `github.com/.../blob/...` links;
