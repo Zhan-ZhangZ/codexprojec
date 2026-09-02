@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="presentation/banner.png" alt="Humanize-Text" width="600"/>
+  <img src="https://raw.githubusercontent.com/lynote-ai/humanize-text/v1.5.2/presentation/banner.png" alt="Humanize-Text" width="600"/>
 </p>
 
 <p align="center">
@@ -89,7 +89,7 @@ LLM 步骤默认使用 **DeepSeek**,也可通过 `config.toml` 的 `[llm]` 配�
 
 <p align="center">
   <a href="https://lynote.ai">
-    <img src="presentation/lynote_banner.png" alt="Lynote.ai" width="500"/>
+    <img src="https://raw.githubusercontent.com/lynote-ai/humanize-text/v1.5.2/presentation/lynote_banner.png" alt="Lynote.ai" width="500"/>
   </a>
 </p>
 
@@ -154,6 +154,18 @@ niutrans_api_key = "your-key"
 [llm]
 provider = "openrouter"
 model = "deepseek/deepseek-chat"
+```
+
+**Atlas Cloud：**
+
+```toml
+[api_keys]
+atlascloud_api_key = "ak-..."
+niutrans_api_key = "your-key"
+
+[llm]
+provider = "atlascloud"
+model = "qwen/qwen3.5-flash"
 ```
 
 可通过 `[llm].base_url` 或环境变量 `LLM_BASE_URL` / `LLM_API_KEY` 覆盖 API 端点。完整说明见 [docs/configuration.md](docs/configuration.md)。

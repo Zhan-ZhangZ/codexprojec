@@ -1,6 +1,34 @@
-## Free Humanize Text: Open-source toolkit to rewrite AI-generated content into natural
+## Humanize Text: Open-source toolkit for more natural AI-assisted drafts
+
+A Python toolkit for text humanization. Two parts:
+
+**Reference implementations** — four documented approaches to
+humanizing machine-generated text: translation chaining, multi-turn
+LLM rewriting, detection-guided feedback loops, and mixed-engine
+translation. 
+
+**Standard Pipeline** — the configuration we actually run. Five steps:
+two LLM rewrite passes (the second carries the first as conversation
+history) followed by two NMT hops across different engines. The
+translation chain routes through Chinese → Japanese → Finnish before
+returning to English, maximizing linguistic distance at each hop so
+that no single engine's structural fingerprint survives.
+
+**Note on intended use.** This toolkit is for improving the readability
+and natural cadence of AI-assisted drafts. If you are writing in an
+academic setting, follow your institution's policies on AI use and
+disclosure.
+
+> **Important:** Detector scores are probabilistic. This project does not guarantee
+> that rewritten text will be classified as human, and it should not be used to
+> misrepresent authorship or evade institutional policies.
+
+**Other Quality Projects**</br>
+AI Text Detector:https://github.com/lynote-ai/ai-text-detector</br>
+AI Image Detector:https://github.com/lynote-ai/ai-image-detector</br>
+
 <p align="center">
-  <img src="presentation/banner.png" alt="Humanize-Text" width="600"/>
+  <img src="https://raw.githubusercontent.com/lynote-ai/humanize-text/v1.5.2/presentation/banner.png" alt="Humanize-Text" width="600"/>
 </p>
 
 <p align="center">
@@ -44,7 +72,7 @@ LLM steps use **DeepSeek** (default) or **[OpenRouter](https://openrouter.ai)** 
 
 > The 4 underlying methodologies live in `src/methodologies/` as reference implementations for research and customization. The Standard Pipeline (`src/standard/pipeline.py`) is the recommended production path.
 
-> **Want higher bypass rates + all methods combined?**
+> **Want higher broader coverage + all methods combined?**
 > Lynote.ai fuses Standard + Advanced + Focus pipelines into one intelligent system — auto-selects the optimal approach for each passage.
 >
 > **[Try Lynote.ai Free →](https://lynote.ai)**
@@ -74,7 +102,7 @@ LLM steps use **DeepSeek** (default) or **[OpenRouter](https://openrouter.ai)** 
 
 <p align="center">
   <a href="https://lynote.ai">
-    <img src="presentation/lynote_banner.png" alt="Lynote.ai" width="500"/>
+    <img src="https://raw.githubusercontent.com/lynote-ai/humanize-text/v1.5.2/presentation/lynote_banner.png" alt="Lynote.ai" width="500"/>
   </a>
 </p>
 
@@ -139,6 +167,18 @@ niutrans_api_key = "your-key"
 [llm]
 provider = "openrouter"
 model = "deepseek/deepseek-chat"   # any OpenRouter model slug
+```
+
+**Atlas Cloud:**
+
+```toml
+[api_keys]
+atlascloud_api_key = "ak-..."
+niutrans_api_key = "your-key"
+
+[llm]
+provider = "atlascloud"
+model = "qwen/qwen3.5-flash"
 ```
 
 Override the API endpoint with `base_url` in `[llm]`, or via `LLM_BASE_URL` / `LLM_API_KEY` environment variables. Full reference: [docs/configuration.md](docs/configuration.md).
@@ -242,13 +282,14 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ## Links
 
-- [Lynote.ai — AI Humanization Platform](https://lynote.ai)
+- [Lynote.ai — AI Humanization Platform](https://lynote.ai/ai-humanizer)
 - [Report a Bug](https://github.com/lynote-ai/humanize-text/issues)
 
-### Recommended Projects
 
-- [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) — AI short video generator
-- [AiToEarn](https://github.com/yikart/AiToEarn) — AI content publishing tool
+## Support & Contact
+⭐ **Star this repository** if this all-in-one text humanization toolkit helps you.
 
+🌐 Visit official website [lynote.ai](https://lynote.ai) to unlock full premium features.
 
+💬 Have questions, feature requests or usage troubles? Feel free to start a discussion in [Discussions](https://github.com/lynote-ai/humanize-text/discussions).
 
