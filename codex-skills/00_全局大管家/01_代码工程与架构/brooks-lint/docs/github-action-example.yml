@@ -9,15 +9,23 @@ jobs:
     name: Code Quality Review
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write  # required to post PR comments
+      pull-requests: write   # required to post PR comments
+      # security-events: write  # uncomment to upload SARIF to Code Scanning (sarif-file)
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # needed for git diff main...HEAD
 
-      - uses: hyhmrright/brooks-lint/.github/actions/brooks-lint@main
+      # Pin to a release tag. `@main` would silently re-point at unreviewed
+      # changes on every run — including the Anthropic SDK version the action
+      # installs. Bump this deliberately.
+      - uses: hyhmrright/brooks-lint/.github/actions/brooks-lint@v1.4.3
         with:
           mode: review
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           fail-below: 70  # fail the check if Health Score drops below 70
+          # fail-on: critical            # fail on any Critical finding (none | warning | critical)
+          # fail-on-regression: true     # fail if the Health Score dropped vs the last run
+          # sarif-file: brooks-lint.sarif  # also upload findings to GitHub Code Scanning
+          # api-base-url: https://your-gateway.example.com  # any Anthropic-compatible /v1/messages endpoint
