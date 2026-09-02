@@ -9,9 +9,7 @@ This folder holds **agent-facing** material for coding assistants (Cursor, Claud
 | [AI_INTEGRATION_DESIGN.md](AI_INTEGRATION_DESIGN.md) | How external AI agents (P4) and autonomous strategy AIs (P5) consume QuantDinger via a versioned, scoped Agent Gateway |
 | [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) | Operator + integrator walkthrough: issue a token, call the Gateway, run paper trades |
 | [agent-openapi.json](agent-openapi.json) | Machine-readable contract for `/api/agent/v1` (OpenAPI 3.0) |
-| [../API_CONVENTIONS.md](../API_CONVENTIONS.md) | Shared HTTP conventions (envelopes, auth, Public/Internal tiers) |
+| [../architecture/API_CONVENTIONS.md](../architecture/API_CONVENTIONS.md) | Shared HTTP conventions (envelopes, auth, Public/Internal tiers) |
 | [../api/openapi.yaml](../api/openapi.yaml) | Human Web API spec (flask-smorest; migration in progress) |
 
-**Language policy:** Agent-oriented docs and [`.cursor/skills/`](../../.cursor/skills/) in this repository are **English only** so the same text works across tools and locales.
-
-For human product overviews in other languages, see the root [README.md](../../README.md) and [docs/README_CN.md](../README_CN.md).
+**Language policy:** Machine-readable schemas, route names, scopes, environment variables, and tool identifiers remain in English as the canonical contract. Human setup guides are maintained in paired editions: [中文入口](README_CN.md) and this English entry. The automation-oriented [`.cursor/skills/`](https://github.com/OpenByteInc/QuantDinger/tree/v5.0.25/.cursor/skills) content remains English-only so it behaves consistently across tools and locales.
