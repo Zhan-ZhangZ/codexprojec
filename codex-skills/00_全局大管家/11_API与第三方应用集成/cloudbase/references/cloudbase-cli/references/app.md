@@ -1,17 +1,20 @@
 # App — CloudBase CLI
 
+> ⚠️ **Agent default: prefer MCP `manageApps` / `manageHosting`, or CLI `hosting.md` (local build + `tcb hosting deploy`).**
+> `tcb deploy` in this file is an experimental all-in-one shorthand — use only when the user explicitly asks for it.
+
 Deploy web applications with automatic framework detection, cloud build, and CDN hosting.
 App = framework build + deploy; for pre-built static files only, use `hosting` instead.
 
 ## When to Use
 
-- Deploying web apps (React, Vue, Vite, Next.js, Nuxt, Angular) to CloudBase
-- Need zero-config deployment with automatic framework detection
-- Managing web app versions, build status, or redeployment
-- Deploying monorepo sub-projects
+- User **explicitly** asks for `tcb deploy` / zero-config cloud-build web deploy
+- Managing web app versions, build status, or redeployment after that path was already chosen
+- Deploying monorepo sub-projects with that experimental flow
 
 ## Do NOT use for
 
+- Default agent fallback when MCP is missing — use `hosting` (or MCP when available)
 - Pre-built static files without build step — use `hosting`
 - Cloud functions — use `functions`
 - Containerized long-running services — use `cloudrun`
@@ -198,6 +201,22 @@ To skip build entirely in CI: `tcb deploy my-app --env-id env-xxx --build-comman
 | Name conflict prompt | App already exists | Use `--force` or `--yes` to skip; creates new version |
 | URL unreachable after deploy | CDN propagation or bad `outputDir` | Wait 1-2 min; verify `outputDir` contains `index.html` |
 | Env ID required | `--yes`/`--json` without `--env-id` | Always pass `--env-id` in non-interactive mode |
+
+---
+
+## ⚠️ 打包目录 ≠ 上传目录（大目录被整个打进 zip 的坑）
+
+**`tcb app deploy` / `manageApps(deployApp)` 打包的是项目根目录（`localPath`），不是 `outputDir`！**
+- 上传的只是 `outputDir`（如 `web/out`），但生成 `cloudapp-<ts>-<rand>.zip` 时会把**整个项目根**压缩进去
+- 若项目根下有 `target/`（Rust）、`.next/`、`dist-old/`、`build/` 等大目录，会被整个打进 zip（实测 ato 项目 54GB target → 34GB zip，占满 /tmp/var/folders 磁盘）
+- 默认 exclude 只有 `node_modules/**`、`.git/**`、`.DS_Store`、`**/.DS_Store`——**没有 `target/**` 等**
+
+**规避**（三选一，推荐 ①+③）：
+1. 部署时显式传 `--ignore "**/target/**"`（CLI）或 `ignore: ["**/target/**", ...]`（MCP deployApp）
+2. 项目根 `cloudbaserc.json` 的 `app.ignore` 加 `**/target/**`（CLI 会合并）
+3. 部署完成后删除残留：`rm -f /private/var/folders/*/*/T/cloudapp-*.zip`（部署进程异常时残留不清理会堆积）
+
+**判断**：部署日志显示 "Project directory: xxx" 只代表 framework 检测目录，**不代表打包目录**；怀疑打包过大时先看生成的 zip 大小。
 
 ---
 

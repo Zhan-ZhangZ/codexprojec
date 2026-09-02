@@ -41,7 +41,7 @@ CREATE POLICY "authenticated_read" ON storage.objects
   USING (auth.role() = 'authenticated');
 ```
 
-详细指引见 `cloud-storage-web/SKILL.md` "Post-bucket: storage RLS" 章节。
+详细指引见 `../../../../cloud-storage-web/SKILL.md` "Post-bucket: storage RLS" 章节。
 
 ## 根因
 
