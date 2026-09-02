@@ -25,6 +25,11 @@ EXCLUDED_INDEX_DIRS = {"nature-shared"}
 EXCLUDED_LINK_DIRS = {"nature-shared", "nature-<topic>"}
 JSON_FILE_RE = re.compile(r"(^|/)package-lock\.json$|\.json$")
 TOML_FILE_RE = re.compile(r"\.toml$")
+REFERENCE_CONTENTS_RE = re.compile(
+    r"^##\s+(?:Table of Contents|Contents|目录)\s*$",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
+MAX_REFERENCE_LINES_WITHOUT_CONTENTS = 100
 
 
 @dataclass
@@ -65,6 +70,26 @@ def validate_structured_configs(skills: list[pathlib.Path]) -> list[ValidationEr
                     tomllib.loads(path.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
                 errors.append(ValidationError(path, f"invalid structured config: {exc}"))
+    return errors
+
+
+def validate_reference_navigation(skills: list[pathlib.Path]) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    for skill in skills:
+        references = skill / "references"
+        if not references.is_dir():
+            continue
+        for path in sorted(references.rglob("*.md")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if len(text.splitlines()) > MAX_REFERENCE_LINES_WITHOUT_CONTENTS:
+                first_lines = "\n".join(text.splitlines()[:40])
+                if not REFERENCE_CONTENTS_RE.search(first_lines):
+                    errors.append(
+                        ValidationError(
+                            path,
+                            "reference files longer than 100 lines need a Contents section near the top",
+                        )
+                    )
     return errors
 
 
@@ -117,6 +142,7 @@ def main() -> int:
     skills = skill_dirs()
     errors = validate_skill_layout(skills)
     errors.extend(validate_structured_configs(skills))
+    errors.extend(validate_reference_navigation(skills))
     for readme in README_FILES:
         if readme.is_file():
             errors.extend(validate_readme(readme, skills))

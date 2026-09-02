@@ -16,8 +16,19 @@ always_load:
 | `core/reader-workflow.md` | `nature-polishing`, `nature-writing` |
 | `core/paper-type-taxonomy.md` | `nature-polishing`, `nature-writing` |
 | `core/ethics.md` | `nature-polishing`, `nature-writing` |
+| `core/research-compliance.md` | `nature-writing` 及需要 Nature Portfolio 专项合规检查的技能 |
 | `core/terminology-ledger.md` | `nature-polishing`, `nature-writing`, `nature-reader`, `nature-paper2ppt` |
+| `core/consistency-sweep.md` | `nature-polishing`, `nature-reviewer`, `nature-response`, `nature-statistics` |
+| `core/main-text-discipline.md` | `nature-writing`, `nature-polishing`, `nature-response` |
+| `core/nature-results-discussion.md` | `nature-writing`, `nature-polishing` 通用的 Nature / Nature Portfolio Results claim 递进与 Discussion 综合（来自 NMI 与旗舰 Nature 已发表论文语料归纳，非官方规则） |
+| `core/discussion-argument-language.md` | `nature-writing`, `nature-polishing` 通用的 Discussion 功能链、反向漏斗、证据强度与情态动词、局限和未来工作审计（写作指导，非期刊官方规则） |
+| `core/nature-introduction.md` | `nature-writing`, `nature-polishing` 通用的 Nature / Nature Portfolio 问题漏斗、精确 gap 与 Introduction–Results 对齐（最初来自 NMI 语料归纳，非官方规则） |
+| `core/nature-abstract.md` | `nature-writing`, `nature-polishing` 通用的 Nature / Nature Portfolio 发现中心型摘要证据链、claim 层级与数字取舍（最初来自 NMI 语料归纳，非官方规则） |
 | `journal-formats/nat-comms.md` | `nature-polishing`, `nature-writing` |
+| `journal-formats/nature.md` | `nature-writing` 及需要旗舰 `Nature Article` 精确投稿规则的技能 |
+| `journal-formats/nature-machine-intelligence.md` | NMI 投稿的写作、润色、图表、数据与统计工作流 |
+
+`scripts/check_consistency.py` 为一致性扫描提供机械初筛，可报告术语变体、同值不同精度和等值长度单位混用。输出是待人工核对的风险提示，不会自动改稿。
 
 ## 什么时候把文件放到这里
 

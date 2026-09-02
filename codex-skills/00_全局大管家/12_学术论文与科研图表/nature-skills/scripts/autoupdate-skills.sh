@@ -4,20 +4,22 @@
 # upstream, cheaply enough to run on every agent/editor session start.
 #
 # This script lives inside a dedicated clone of this repository. On each run it
-# fast-forwards the clone to its upstream and, ONLY when upstream actually moved,
-# re-syncs the skills into your agent's skills directory via update-codex-skills.sh.
+# fast-forwards the clone to its upstream, verifies the installed destination,
+# and re-syncs via update-codex-skills.sh when upstream moved or local drift is found.
 #
 # Typical use is a Claude Code SessionStart hook (see the README), but it works
 # anywhere you can run a command at startup (a shell profile, cron, etc.).
 #
 # It is safe to run constantly:
-#   - Throttled: skips the network entirely if it checked within THROTTLE seconds.
+#   - Throttled: skips the network if it checked within THROTTLE seconds, while
+#     still verifying and repairing the local destination on every invocation.
 #   - Offline-tolerant: a stalled/failed fetch is ignored and the run exits 0, so
 #     it never blocks or errors a session start (handy on flaky or blocked links).
 #   - Non-destructive: it only ever fast-forwards this clone. It refuses to run if
 #     the clone has local commits or a dirty tree, so a working dev checkout is
 #     never rewritten — keep this on a dedicated skills-only clone.
-#   - Cheap: it re-syncs skills only when the upstream HEAD changed.
+#   - Cheap: it re-syncs skills only when upstream changed or destination drift
+#     is detected.
 #
 # Usage:
 #   scripts/autoupdate-skills.sh                      # sync into ~/.claude/skills
@@ -27,7 +29,8 @@
 #
 # Environment (flags take precedence):
 #   SKILLS_DEST=/path      Destination skills dir  (default ~/.claude/skills)
-#   SKILLS_THROTTLE=SECS   Min seconds between upstream checks (default 21600 = 6h; 0 = always)
+#   SKILLS_THROTTLE=SECS   Min seconds between upstream checks (default 3600 = 1h; 0 = always)
+#   SKILLS_STATE_DIR=/path Base state dir (default $XDG_STATE_HOME/nature-skills)
 #
 set -uo pipefail
 
@@ -35,12 +38,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 DEST="${SKILLS_DEST:-$HOME/.claude/skills}"
-THROTTLE="${SKILLS_THROTTLE:-21600}"
+THROTTLE="${SKILLS_THROTTLE:-3600}"
 FORCE=0
-
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/nature-skills"
-STAMP="$STATE_DIR/last-check"
-LOG="$STATE_DIR/autoupdate.log"
 
 usage() { sed -n '2,32p' "$0"; }
 
@@ -63,15 +62,96 @@ case "$THROTTLE" in
     ;;
 esac
 
+# Keep throttle and logs independent for each destination. A user may install
+# the same repository into Codex and Claude Code; one client's recent check
+# must not prevent the other destination from being verified and repaired.
+STATE_ROOT="${SKILLS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/nature-skills}"
+DEST_KEY=$(printf '%s' "$DEST" | cksum | awk '{print $1}')
+STATE_DIR="$STATE_ROOT/$DEST_KEY"
+STAMP="$STATE_DIR/last-check"
+LOG="$STATE_DIR/autoupdate.log"
+LOCK_DIR="$STATE_DIR/update.lock"
+LOCK_OWNED=0
+
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG" 2>/dev/null; }
 
-# --- throttle: skip the network if we checked recently --------------------
+release_lock() {
+  if [ "$LOCK_OWNED" = "1" ]; then
+    if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" = "$$" ]; then
+      rm -rf "$LOCK_DIR" 2>/dev/null || true
+    fi
+    LOCK_OWNED=0
+  fi
+}
+
+handle_signal() {
+  trap - HUP INT TERM
+  release_lock
+  exit 130
+}
+
+acquire_lock() {
+  local attempt owner
+  for attempt in 1 2; do
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      printf '%s\n' "$$" >"$LOCK_DIR/pid"
+      LOCK_OWNED=1
+      return 0
+    fi
+
+    owner=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    case "$owner" in
+      ''|*[!0-9]*) ;;
+      *)
+        if kill -0 "$owner" 2>/dev/null; then
+          log "another updater is already running for $DEST (pid $owner) — skip"
+          return 1
+        fi
+        ;;
+    esac
+
+    # A terminated updater can leave its mkdir-based lock behind. Remove only
+    # this destination-scoped lock and retry the atomic mkdir once.
+    rm -rf "$LOCK_DIR" 2>/dev/null || true
+  done
+
+  log "could not acquire updater lock for $DEST — skip"
+  return 1
+}
+
+if ! acquire_lock; then
+  exit 0
+fi
+trap release_lock EXIT
+trap handle_signal HUP INT TERM
+
+installer="$REPO_ROOT/scripts/update-codex-skills.sh"
+if [ ! -x "$installer" ]; then
+  log "update-codex-skills.sh missing or not executable — skip sync"
+  exit 0
+fi
+
+sync_destination() {
+  if "$installer" --dest "$DEST" --prune >>"$LOG" 2>&1; then
+    log "sync OK -> $(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    return 0
+  fi
+  log "sync FAILED"
+  return 1
+}
+
+# --- throttle: skip only the network; still verify the destination ---------
 now=$(date +%s)
 if [ "$THROTTLE" -gt 0 ] && [ -f "$STAMP" ]; then
   last=$(cat "$STAMP" 2>/dev/null || echo 0)
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
   if [ $(( now - last )) -lt "$THROTTLE" ]; then
+    if "$installer" --dest "$DEST" --check >>"$LOG" 2>&1; then
+      exit 0
+    fi
+    log "network check throttled but destination drift detected; re-syncing skills into $DEST"
+    sync_destination
     exit 0
   fi
 fi
@@ -116,20 +196,16 @@ fi
 echo "$now" >"$STAMP"
 
 after=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo none)
+
 if [ "$before" = "$after" ] && [ "$FORCE" != "1" ]; then
-  log "up to date ($after)"
-  exit 0
+  if "$installer" --dest "$DEST" --check >>"$LOG" 2>&1; then
+    log "up to date and destination verified ($after)"
+    exit 0
+  fi
+  log "upstream unchanged but destination drift detected; re-syncing skills into $DEST"
+else
+  log "upstream ${before} -> ${after}; syncing skills into $DEST"
 fi
 
-log "upstream ${before} -> ${after}; syncing skills into $DEST"
-installer="$REPO_ROOT/scripts/update-codex-skills.sh"
-if [ -x "$installer" ]; then
-  if "$installer" --dest "$DEST" --prune >>"$LOG" 2>&1; then
-    log "sync OK -> $after"
-  else
-    log "sync FAILED"
-  fi
-else
-  log "update-codex-skills.sh missing or not executable — skip sync"
-fi
+sync_destination
 exit 0

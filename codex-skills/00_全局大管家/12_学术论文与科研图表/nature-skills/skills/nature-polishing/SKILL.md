@@ -1,8 +1,6 @@
 ---
 name: nature-polishing
-description: Polish, restructure, or translate academic prose into Nature-leaning English using writing-strategy principles, curated Nature/Nature Communications article patterns, and phrase-level support from Academic Phrasebank. Use whenever the user asks to polish a manuscript paragraph, abstract, introduction, results, discussion, conclusion, title, methods section, or Chinese academic draft for publication-quality English. Also covers LaTeX layout/typesetting (排版) fixes — loose or sparse pages, stranded section headings, figures that don't fill the page or split across pages, "Float too large", multi-panel figure arrangement, and Supplementary Information that looks empty — via references/latex-layout.md. Also trigger on general academic/scientific writing requests even without the word "Nature", including academic writing, scientific writing, SCI/paper writing, English manuscript polishing, language editing, proofreading, and Chinese phrasings such as 学术写作、科研写作、论文润色、写paper、SCI写作、英文论文润色、语言润色、润色、改写、学术英语、英文写作.
-version: 6.1.0
-author: Yuan1z skill, refactored into static/dynamic layers
+description: Polish, restructure, or translate academic prose into concise Nature-leaning English while preserving facts, evidence boundaries, terminology, and citation intent. Use for manuscript paragraphs, abstracts, introductions, Results, discussions, conclusions, titles, Methods, Chinese drafts, proofreading, language editing, and general academic or scientific writing. Also use to shorten bloated Results, allocate evidence across main text, captions, and Supplementary Information, prevent reviewer-driven revision accretion, reduce repeated statistics or claims, and apply paragraph-necessity checks. Covers LaTeX layout or typesetting fixes such as sparse pages, stranded headings, oversized or split figures, float errors, multi-panel arrangement, and sparse Supplementary Information via references/latex-layout.md. Trigger on 学术写作、科研写作、论文润色、SCI写作、英文论文润色、语言润色、润色、改写、学术英语、排版.
 ---
 
 # Nature-Style Academic Polishing — Router
@@ -31,7 +29,10 @@ For each axis in the manifest, decide the value using the manifest's `detect:` h
 - `paper_type` — research / methods / hypothesis / algorithmic / review. Default: research.
 - `section` — abstract / intro / results / discussion / conclusion / title / methods. May be multiple. Ask the user if it is ambiguous and matters for the polish.
 - `language` — en or zh-to-en. Detect from the draft itself.
-- `journal` — nature / nat-comms / generic. Default: generic. If the user names a Nature subjournal, treat it as `nature`.
+- `journal` — nature / nat-comms / nat-mach-intell / generic. Default:
+  generic. Use `nature` only for flagship Nature, `nat-comms` for Nature
+  Communications and `nat-mach-intell` for Nature Machine Intelligence (NMI).
+  Do not route another Nature Portfolio title through flagship Nature rules.
 
 State the detected axis values in one short line to the user before proceeding, so they can correct you cheaply.
 
@@ -53,9 +54,45 @@ Apply the loaded fragments in this priority order, matching the `paper type -> s
 
 If a paragraph's structural problem cannot be fixed without inventing content, flag it instead of papering over it.
 
+For Results, full-main-text compression, main-versus-SI allocation, or prose
+added during revision, load `../nature-shared/core/main-text-discipline.md`
+before sentence polishing. Classify each result, retain the shortest sufficient
+evidence chain, and require every addition to trigger a deletion or replacement
+check across the affected paragraph.
+
+For flagship Nature, Nature Communications, Nature Machine Intelligence, or
+another Nature Portfolio title, load the matching shared Nature-style corpus
+guidance:
+
+- Results or Discussion →
+  `../nature-shared/core/nature-results-discussion.md`
+- Introduction or whole-manuscript narrative →
+  `../nature-shared/core/nature-introduction.md`
+- Abstract → `../nature-shared/core/nature-abstract.md`
+
+Preserve claim escalation, the fast question funnel, Introduction–Results
+alignment, discovery-centred abstract compression, evidence-bound local
+interpretation, and cross-Results synthesis. These defaults were initially
+distilled from published NMI papers; treat them as corpus-derived guidance, not
+official policy, and obey the target journal's current rules when they differ.
+
+For any Discussion polish or restructuring job, also load
+`../nature-shared/core/discussion-argument-language.md`. Use its function labels
+to remove Results replay, repair the movement from specific findings to bounded
+implications, calibrate modal and reporting verbs to evidence strength, and make
+limitations and future work resolve named claim boundaries. Treat it as general
+writing guidance, not journal policy.
+
 ### 5. Reach for references only when needed
 
 The files under `references/` are deep references, not defaults. Open them on demand per the `references.on_demand` table in the manifest, for example when the user explicitly asks for phrasebank-style alternatives or a stricter style audit.
+
+When the target is Nature Machine Intelligence and exact limits, availability
+sections, conference-extension disclosure or production checks affect the
+revision, load
+`../nature-shared/journal-formats/nature-machine-intelligence.md`.
+
+When the job is a whole manuscript rather than a passage, or the text has already been through more than one round of editing, also load `../nature-shared/core/consistency-sweep.md`. Polishing passage by passage cannot see accumulated drift: one experimental factor under several names, the same quantity in two units, a metric at two precisions, or a superlative the paper's own table contradicts. Sweep for those before working on sentences, and repeat the sweep until a pass finds nothing new.
 
 **Layout/typesetting (排版) requests are different.** If the user asks to fix
 *placement* rather than wording — loose/sparse pages, stranded headings, figures
