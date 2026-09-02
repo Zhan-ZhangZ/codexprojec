@@ -25,7 +25,14 @@ The general-purpose skills that do exist are narrow output-format helpers (`docx
 
 ## Layout
 
+The repository root is an [Agent Plugins](https://agent-plugins.org/) 1.0.0 package: `plugin.json`
+plus the portable `skills/` tree. Keep `plugin.json` valid against the Agent Plugins manifest
+schema, and keep its `version` identical to `pyproject.toml` `[project].version`. Do not add
+non-portable top-level fields to `plugin.json` (no inline MCP, hooks, or client-only keys — use
+`mcp.json` or a reverse-domain `extensions` namespace if those are ever needed).
+
 ```text
+plugin.json                 # Agent Plugins manifest (repo root)
 skills/<skill-name>/
 ├── SKILL.md        # required
 ├── references/     # optional: long documentation, loaded only when needed
@@ -33,8 +40,8 @@ skills/<skill-name>/
 └── assets/         # optional: templates and static resources
 ```
 
-Only `SKILL.md` is required. Reference other files with relative paths from the skill root, kept
-one level deep.
+Only `SKILL.md` is required inside each skill. Reference other files with relative paths from the
+skill root, kept one level deep.
 
 **Tests never live under `skills/`.** A skill directory ships only what an agent loads. Checks for a
 skill's scripts and structure go in the repository-level suite instead:
@@ -45,9 +52,9 @@ tests/<skill-name>/          # same name as the skill directory
 └── fixtures/                # optional test data
 ```
 
-**Diagrams never live under `skills/` either.** Every skill has one generated workflow diagram at
-`docs/images/<skill-name>.png`, produced by `scripts/generate_skill_image.py` and kept in step with
-the skill's documentation — see [Skill diagrams](#skill-diagrams).
+**Diagrams never live under `skills/` either.** A skill may have a generated workflow diagram at
+`docs/images/<skill-name>.png`, produced by `scripts/generate_skill_image.py`. Diagrams are optional
+— see [Skill diagrams](#skill-diagrams).
 
 Tests reach their skill through an explicit anchor, never a relative walk:
 
@@ -66,11 +73,6 @@ SKILL_ROOT = Path(__file__).resolve().parents[2] / "skills" / "<skill-name>"
 5. If the skill ships `scripts/`, put their tests in **`tests/<name>/`** — never in the skill
    directory. Fixtures go in `tests/<name>/fixtures/`.
 6. Validate and scan (below).
-7. Generate the skill's diagram — a new skill without `docs/images/<name>.png` is incomplete:
-
-   ```bash
-   uv run python scripts/generate_skill_image.py --skill <name>
-   ```
 
 ```markdown
 ---
@@ -108,16 +110,6 @@ Use this skill when...
 5. Re-run any example, command, or script you touched, plus `tests/<name>/` if that suite exists.
    Suites check that `metadata.version` is present and quoted, not what it equals, so a version bump
    never needs a matching test edit.
-6. **Regenerate the diagram in the same change** whenever the edit changes what the skill does or
-   how its workflow runs — the picture is generated from `SKILL.md` and `references/`, so it goes
-   stale silently. The command overwrites `docs/images/<name>.png` in place:
-
-   ```bash
-   uv run python scripts/generate_skill_image.py --skill <name>
-   ```
-
-   A typo fix, a link repair, or a version bump alone does not need a new image.
-
 ## Frontmatter
 
 `SKILL.md` starts with YAML frontmatter. **Only these six fields are allowed** — the spec defines a
@@ -242,13 +234,13 @@ If the skill has tests in `tests/<name>/`, run them:
 uv run --with pytest python -m pytest tests/<name> -q
 
 # every skill's suite, one process each, after the repo-wide guard
-uv run --with pytest python tests/run_all.py
+uv run --with pytest python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py
 ```
 
 **One skill per pytest process.** Skills' `scripts/` directories own plain top-level module names —
 32 of them ship a `scripts/_common.py` — so collecting two skills into one interpreter resolves
-`_common` to whichever skill imported first and silently tests the wrong files. `tests/conftest.py`
-refuses such a session; `tests/run_all.py` forks per skill.
+`_common` to whichever skill imported first and silently tests the wrong files. `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/conftest.py`
+refuses such a session; `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py` forks per skill.
 
 ### The repo-wide guard
 
@@ -259,8 +251,8 @@ uv run --with pytest python -m pytest tests/_meta -q
 `tests/_meta` is the fastest useful signal in the repo: pure standard library, no scientific
 packages, a couple of seconds. It runs the shared structural contract against **every** skill and
 fails if a skill ships `scripts/` without a suite under `tests/<name>/` or an entry in
-`tests/skill-requirements.toml`. `.github/workflows/skill-tests.yml` runs it on every pull request,
-so a skill with untested scripts cannot land. A full run of `tests/run_all.py` starts with it.
+`https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/skill-requirements.toml`. `.github/workflows/skill-tests.yml` runs it on every pull request,
+so a skill with untested scripts cannot land. A full run of `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py` starts with it.
 
 It is not one of the per-skill processes because it deliberately spans all of them at once — safe
 because it never imports skill code, only parses it.
@@ -268,7 +260,7 @@ because it never imports skill code, only parses it.
 ### The shared contract
 
 `tests/_contract/` holds the assertions every skill shares, so a per-skill suite contains only what
-is actually specific to that skill. `tests/conftest.py` registers it as the importable module
+is actually specific to that skill. `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/conftest.py` registers it as the importable module
 `skill_contract`:
 
 ```python
@@ -301,11 +293,11 @@ version the `transformers` skill targets, `geniml` and `spikeinterface` pin `zar
 together forces every one of those skills to the losing side of a version fight.
 
 So `--isolated` builds a throwaway `uv` environment per skill instead, from
-[`tests/skill-requirements.toml`](tests/skill-requirements.toml):
+[`https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/skill-requirements.toml`](https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/skill-requirements.toml):
 
 ```bash
-python tests/run_all.py --isolated                 # every suite, one env each
-python tests/run_all.py --isolated scanpy qiskit   # just these
+python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py --isolated                 # every suite, one env each
+python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py --isolated scanpy qiskit   # just these
 ```
 
 Each entry lists the packages that skill documents, plus an optional `python` when the skill cannot
@@ -324,10 +316,11 @@ touch the shared contract.
 
 ## Skill diagrams
 
-Every skill carries one generated workflow diagram at `docs/images/<skill-name>.png`. Creating a
-skill means creating its image; changing what a skill does means regenerating it. The image is not
-optional decoration — it is derived from the documentation, so an out-of-date one misrepresents the
-skill.
+A skill may carry a generated workflow diagram at `docs/images/<skill-name>.png`. Diagrams are
+optional: neither a new skill nor a change to an existing one is blocked on having or refreshing an
+image, and no CI check enforces them. If you do ship one, note that it is derived from the
+documentation, so regenerate it when the skill's workflow changes rather than leaving a picture that
+misrepresents the skill.
 
 `scripts/generate_skill_image.py` is local repository tooling, standard library only, and runs in
 two stages on one `OPENROUTER_API_KEY` (environment variable, repository `.env`, or `--api-key`):
@@ -367,12 +360,13 @@ hand-tuning one skill's prompt, so the set stays visually consistent.
 - `metadata.version` exists, is quoted, and is bumped if you changed an existing skill.
 - `metadata` is a block mapping; `openclaw` / `hermes` blocks are nested mappings.
 - `uv run skills-ref validate skills/<name>` passes.
+- If the collection version changes, `plugin.json` `version` matches `pyproject.toml`.
 - `uv run --with pytest python -m pytest tests/_meta -q` passes — this is what CI blocks on, and it
-  catches a missing suite, a missing `skill-requirements.toml` entry, a broken local link, and a
-  leaked local path.
+  catches a missing suite, a missing `skill-requirements.toml` entry, a broken local link, a
+  leaked local path, and a drifted Agent Plugins manifest.
 - If the skill ships `scripts/`: a suite exists at `tests/<name>/`, a `[skills.<name>]` entry exists
-  in `tests/skill-requirements.toml`, and `python tests/run_all.py --isolated <name>` passes.
-- `docs/images/<name>.png` exists, and was regenerated if the change altered what the skill does.
-  Its labels are spelled correctly and its arrows point where they should.
+  in `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/skill-requirements.toml`, and `python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py --isolated <name>` passes.
+- If the skill ships `docs/images/<name>.png`, its labels are spelled correctly and its arrows point
+  where they should. The image itself is optional.
 - Examples and scripts are tested, or clearly marked illustrative.
 - No secrets or private data; scan results clean or explained in the PR.

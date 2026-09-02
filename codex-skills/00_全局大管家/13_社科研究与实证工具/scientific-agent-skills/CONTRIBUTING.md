@@ -14,9 +14,13 @@ Participation in this project is governed by our [Code of Conduct](CODE_OF_CONDU
 
 ## Skill Location
 
-All repository skills live under `skills/`:
+All repository skills live under `skills/`. The repository root is also an
+[Agent Plugins](https://agent-plugins.org/) package: keep root `plugin.json` schema-valid, do not
+add non-portable top-level fields, and keep its `version` in sync with `pyproject.toml` whenever
+you bump the collection version.
 
 ```text
+plugin.json
 skills/
 └── skill-name/
     ├── SKILL.md
@@ -279,10 +283,10 @@ Run one skill's suite, or the whole tree:
 uv run --with pytest python -m pytest tests/skill-name -q
 
 # every skill, in a separate process each, after the repo-wide guard
-uv run --with pytest python tests/run_all.py
+uv run --with pytest python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py
 ```
 
-Each skill's suite must run in its own process. Skills' `scripts/` directories own plain top-level module names — 32 skills ship a `scripts/_common.py`, and names like `cluster.py` and `validate_manifest.py` recur — so collecting two skills into one interpreter would resolve those imports to whichever skill was imported first and silently test the wrong files. `tests/conftest.py` rejects a multi-skill session, and `tests/run_all.py` forks per skill.
+Each skill's suite must run in its own process. Skills' `scripts/` directories own plain top-level module names — 32 skills ship a `scripts/_common.py`, and names like `cluster.py` and `validate_manifest.py` recur — so collecting two skills into one interpreter would resolve those imports to whichever skill was imported first and silently test the wrong files. `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/conftest.py` rejects a multi-skill session, and `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py` forks per skill.
 
 ### The repo-wide guard, and what you no longer have to write
 
@@ -292,7 +296,7 @@ uv run --with pytest python -m pytest tests/_meta -q
 
 `tests/_meta` is the check to run first and the one CI blocks on. It needs no scientific packages and finishes in seconds. It spans every skill at once — safe, because it parses scripts with `ast` and never imports them — and it enforces the rule this whole layout exists for: **a skill that ships `scripts/` must have a suite at `tests/<name>/` and a `[skills.<name>]` entry in `skill-requirements.toml`.** It also runs the shared structural contract over every skill: frontmatter conformance, the 500-line `SKILL.md` limit, no tests or compiled bytecode under `skills/`, every local link resolving, every script parsing, no `eval`/`exec`/`os.system`, no script shadowing a standard-library module, no hardcoded local path, and valid shell scripts.
 
-Because `tests/_meta` already covers all of that repo-wide, a per-skill suite should not repeat it. Write only what is specific to the skill, and pull the shared pieces from `tests/_contract/`, which `tests/conftest.py` registers as the importable module `skill_contract`:
+Because `tests/_meta` already covers all of that repo-wide, a per-skill suite should not repeat it. Write only what is specific to the skill, and pull the shared pieces from `tests/_contract/`, which `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/conftest.py` registers as the importable module `skill_contract`:
 
 ```python
 import skill_contract
@@ -318,11 +322,11 @@ np = pytest.importorskip("numpy", reason="skill-name needs numpy")
 
 Four suites fail on this repository's default environment because their scientific dependencies are not installed (`exa-search`, `qutip`, `scikit-survival`, `simpy`), and installing them all into one environment is not possible: the skills' upstream pins contradict each other. `opentrons` requires `numpy<2`; `esm` caps `transformers` below the release the `transformers` skill targets; `geniml` and `spikeinterface` pin `zarr<3` while the `zarr-python` skill targets 3.x; `bioservices` caps `lxml<6` while `matchms` requires 6.0.2+; and `pytdc`, `molfeat`, `deepchem`, `histolab`, `vaex`, and `ete3` each need an interpreter older than 3.13.
 
-`--isolated` therefore gives each skill its own throwaway `uv` environment, built from [`tests/skill-requirements.toml`](tests/skill-requirements.toml):
+`--isolated` therefore gives each skill its own throwaway `uv` environment, built from [`https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/skill-requirements.toml`](https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/skill-requirements.toml):
 
 ```bash
-python tests/run_all.py --isolated                    # every suite, one env each
-python tests/run_all.py --isolated qutip exa-search   # just these
+python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py --isolated                    # every suite, one env each
+python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py --isolated qutip exa-search   # just these
 ```
 
 Nothing is installed into the project environment, so `uv sync` is unaffected. Each `[skills.<name>]` entry lists the packages that skill documents and, where needed, a `python` version for that skill alone — uv downloads the interpreter on demand. Packages that cannot be installed at all (a GitHub-only SDK, a conda-forge-only library, a CUDA build) are listed under `[unavailable]` with the reason, and the runner prints them so the gap appears in the test output.
@@ -345,9 +349,10 @@ Before submitting a pull request, confirm:
 - If the skill needs credentials, they are named in `compatibility` and declared in `metadata.openclaw.envVars`.
 - `metadata.version` exists and is quoted.
 - Existing skills have a version bump when changed.
+- If the collection version changes, `plugin.json` `version` matches `pyproject.toml`.
 - The `description` clearly says what the skill does and when to use it.
 - `uv run --with pytest python -m pytest tests/_meta -q` passes. This is what CI blocks on, and it catches a missing suite, a missing `skill-requirements.toml` entry, a broken local link, a leaked local path, and a `SKILL.md` over 500 lines.
-- If the skill ships `scripts/`: a suite exists at `tests/<skill-name>/`, a `[skills.<skill-name>]` entry exists in `tests/skill-requirements.toml`, and `python tests/run_all.py --isolated <skill-name>` passes.
+- If the skill ships `scripts/`: a suite exists at `tests/<skill-name>/`, a `[skills.<skill-name>]` entry exists in `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/skill-requirements.toml`, and `python https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/run_all.py --isolated <skill-name>` passes.
 - Examples and scripts have been tested or clearly marked as illustrative.
 - No secrets, credentials, private data, or unsafe instructions are included.
 - Relevant official documentation is linked where useful.

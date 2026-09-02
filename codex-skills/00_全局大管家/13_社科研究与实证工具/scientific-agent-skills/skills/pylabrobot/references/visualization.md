@@ -123,8 +123,8 @@ Generate a JSON plan without importing PyLabRobot:
 
 ```bash
 python3 skills/pylabrobot/scripts/generate_simulation_plan.py \
-  --manifest tests/pylabrobot/fixtures/protocol_manifest.json \
-  --transfers tests/pylabrobot/fixtures/transfers.csv
+  --manifest https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/protocol_manifest.json \
+  --transfers https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/transfers.csv
 ```
 
 The output:

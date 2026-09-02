@@ -16,7 +16,7 @@ listed; this covers the claims that go stale.
 | Bioequivalence sample sizes (2×2, GMR 0.95, 80% power): 12/20/28/40/52/66 at CV 15/20/25/30/35/40% | `bioequivalence.py --power` reproduces the published PowerTOST table exactly |
 | ABEL limits cap at 69.84–143.19% at CVwR = 50% | Computed from `exp(±0.760 · swR)` at the cap |
 | NCA recovers λz, t½, CL/F and Vz/F from an analytical one-compartment oral profile | `nca.py` against a simulated noiseless profile with known parameters |
-| The model library reproduces closed-form AUC = D/CL, Vss = ΣV, MRT = Vss/CL for 1-, 2- and 3-compartment models | Analytical checks in `tests/pkpd-modeling/test_scripts.py` |
+| The model library reproduces closed-form AUC = D/CL, Vss = ΣV, MRT = Vss/CL for 1-, 2- and 3-compartment models | Analytical checks in `https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pkpd-modeling/test_scripts.py` |
 
 ## Package versions from PyPI
 

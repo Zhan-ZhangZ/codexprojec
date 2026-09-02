@@ -196,8 +196,8 @@ documented gravimetric or assay validation and operator approval.
 
 ```bash
 python3 skills/pylabrobot/scripts/plan_transfers.py \
-  --manifest tests/pylabrobot/fixtures/protocol_manifest.json \
-  --transfers tests/pylabrobot/fixtures/transfers.csv
+  --manifest https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/protocol_manifest.json \
+  --transfers https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/transfers.csv
 ```
 
 The CSV header is exact and fixed. Unknown columns, duplicate IDs, unsupported
