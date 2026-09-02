@@ -24,7 +24,7 @@ To avoid duplicate effort, please **comment on an issue** to claim it before you
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) >= 20.9.0
+- [Node.js](https://nodejs.org/) >= 22.19.0
 - [pnpm](https://pnpm.io/) (latest)
 - A copy of `.env.local` — see [`.env.example`](.env.example) for reference
 
@@ -100,7 +100,7 @@ If you have not completed local verification, keep your PR in **Draft** status. 
 
 - **Every PR must link to an issue** — use `Closes #123` or `Fixes #456` in the PR description. If no issue exists yet, create one first. PRs without a linked issue will not be reviewed.
 - **Keep PRs focused** — one concern per PR; do not mix unrelated changes
-- **Describe what and why** — fill out the [PR template](.github/pull_request_template.md)
+- **Describe what and why** — fill out the [PR template](https://github.com/THU-MAIC/OpenMAIC/blob/f760f58/https://github.com/THU-MAIC/OpenMAIC/blob/f760f58/.github/pull_request_template.md)
 - **Include screenshots** — for UI changes, show before/after
 - **Ensure CI passes** before requesting review
 - **All UI text must be internationalized (i18n)** — do not hardcode user-facing strings
