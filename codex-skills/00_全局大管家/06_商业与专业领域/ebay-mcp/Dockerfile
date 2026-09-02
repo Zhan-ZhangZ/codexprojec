@@ -1,49 +1,45 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy all source files first (before removing prepare script)
+# Copy package manifests first for better layer caching
+COPY package.json pnpm-lock.yaml* ./
+
+# Install all dependencies (ignore lifecycle scripts — no prepare/husky needed in the image)
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy source and build
 COPY . .
-
-# Now remove prepare script to avoid issues during prod install
-RUN sed -i '/"prepare":/d' package.json
-
-# Install dependencies
-RUN pnpm install --frozen-lockfile || pnpm install
-
-# Build the application
 RUN pnpm run build
 
 # Production stage
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy package files and remove prepare script
-COPY package.json ./
-RUN sed -i '/"prepare":/d' package.json
+# Copy package manifests
+COPY package.json pnpm-lock.yaml* ./
 
-# Copy lockfile
-COPY pnpm-lock.yaml* ./
+# Install only production dependencies (ignore lifecycle scripts)
+RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 
-# Install only production dependencies
-RUN pnpm install --prod --frozen-lockfile || pnpm install --prod
-
-# Copy built application from builder
+# Copy built application and runtime assets from builder
 COPY --from=builder /app/build ./build
-
-# Copy docs directory (needed for scopes)
+# Scopes / docs referenced at runtime
 COPY --from=builder /app/docs ./docs
+# Icon assets served by the HTTP transport at /icons
+COPY --from=builder /app/public ./public
 
-# Expose port
+# Default HTTP port (Railway and similar platforms inject PORT; httpTransport
+# picks up PORT and binds 0.0.0.0 automatically when MCP_HOST is unset)
 EXPOSE 3000
 
-# Run the server
-CMD ["node", "build/index.js"]
+# HTTP transport entrypoint for container deploys
+CMD ["node", "build/serverHttp.js"]

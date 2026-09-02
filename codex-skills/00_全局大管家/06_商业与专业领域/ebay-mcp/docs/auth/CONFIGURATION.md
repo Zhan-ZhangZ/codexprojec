@@ -77,7 +77,15 @@ These credentials are obtained from the [eBay Developer Portal](https://develope
 - **Example:** `EBAY_US`, `EBAY_DE`, `EBAY_FR`
 - **Required:** No (optional default)
 - **Default:** `EBAY_US`
-- **Behavior:** Sent on all requests; defaults to `EBAY_US` if unset. Many tools accept a `marketplaceId` parameter that overrides this default.
+- **Behavior:** Sent on all requests; defaults to `EBAY_US` if unset. Many tools accept a `marketplaceId` parameter that overrides this default. REST calls send it as `X-EBAY-C-MARKETPLACE-ID`; Trading API calls (listing create/revise, order tools) send the matching numeric site as `X-EBAY-API-SITEID` — see `EBAY_SITE_ID`.
+
+#### `EBAY_SITE_ID`
+
+- **Description:** Trading API site ID override (`X-EBAY-API-SITEID`)
+- **Example:** `0` (US), `77` (Germany), `3` (UK)
+- **Required:** No
+- **Default:** derived from `EBAY_MARKETPLACE_ID` (e.g. `EBAY_DE` → `77`), falling back to `0`
+- **Behavior:** Only needed for sites the marketplace mapping does not cover, or when REST and Trading must target different sites. The site determines which currency a listing may use, so a mismatch fails with `Invalid auction currency`.
 
 #### `EBAY_CONTENT_LANGUAGE`
 
@@ -86,6 +94,43 @@ These credentials are obtained from the [eBay Developer Portal](https://develope
 - **Required:** No (optional default)
 - **Default:** `en-US`
 - **Behavior:** Sent on all requests; defaults to `en-US` if unset. Per-tool overrides are not currently exposed.
+
+#### `EBAY_MCP_TOOLS`
+
+- **Description:** Controls how many tools the server advertises to the agent, to manage context-window usage
+- **Example:** `all`, `dynamic`, `inventory,fulfillment`
+- **Required:** No (optional)
+- **Default:** `all`
+- **Behavior:**
+  - `all` (or unset) — every tool is advertised at startup (original behavior).
+  - `dynamic` — only three discovery tools are advertised (`list_ebay_tools`, `enable_ebay_tools`, `disable_ebay_tools`); the agent searches the catalogue and enables tools on demand, which then appear natively. Requires a host that honors `tools/listChanged` (e.g. Claude); not suitable for hosts that ignore it.
+  - A comma-separated family list — registers **only** those families, frozen for the session; works on every host. The list is literal (ChatGPT connectors must include `connector`). Valid families: `connector`, `token-management`, `account`, `inventory`, `fulfillment`, `marketing`, `analytics`, `metadata`, `taxonomy`, `communication`, `other`, `developer`, `trading`, `browse`. An unknown family name fails validation at startup.
+
+#### `EBAY_READ_ONLY`
+
+- **Description:** When enabled, only registers tools classified as safe/read-only (gets, lists, searches). Create/update/delete and other mutating tools are omitted at registration time.
+- **Valid Values:** `true`, `1`, `yes` (case-insensitive) enable the mode; any other value or unset leaves it off
+- **Example:** `true`
+- **Required:** No (optional)
+- **Default:** off
+- **Behavior:** Applied after `EBAY_MCP_TOOLS` family gating. Classification uses each tool’s MCP `readOnlyHint` / `destructiveHint` annotations when present, otherwise a conservative name heuristic (write verbs excluded; unmatched names default to excluded).
+
+### HTTP transport / container deploy (optional)
+
+These variables apply when running the HTTP MCP server (`node build/serverHttp.js` or the Docker image, which uses that entrypoint).
+
+#### `MCP_HOST` / `MCP_PORT` / `PORT`
+
+- **`MCP_HOST`:** Interface to bind. Default `localhost`. When `PORT` is set (common on Railway/Fly/Render) and `MCP_HOST` is unset, the server binds `0.0.0.0` so the platform can reach the process.
+- **`MCP_PORT`:** Preferred TCP port. Default `3000`.
+- **`PORT`:** Cloud-platform port. Used when `MCP_PORT` is unset. Presence of `PORT` alone also switches the default host to `0.0.0.0`.
+
+#### `MCP_AUTH_TOKEN`
+
+- **Description:** When set, HTTP MCP routes require `Authorization: Bearer <MCP_AUTH_TOKEN>` and **skip** the full OAuth 2.1 token verifier. Useful for self-hosted / fleet deploys that share a static secret instead of an external auth server.
+- **Example:** a long random string
+- **Required:** No
+- **Security:** ⚠️ Keep secret. `/health` remains unauthenticated for probes.
 
 ### Required: User Refresh Token (For OAuth Flow)
 

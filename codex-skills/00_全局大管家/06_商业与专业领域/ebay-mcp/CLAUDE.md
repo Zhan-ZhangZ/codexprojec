@@ -2,4 +2,7 @@
 
 @AGENTS.md
 
-<!-- Claude-specific notes go below. Shared repo guidance lives in AGENTS.md (imported above) to keep a single source of truth. -->
+## Claude-specific notes
+
+- Shared repo guidance lives in `AGENTS.md` through the import above; keep this file limited to Claude-only behavior.
+- Use `CODE-STYLE.md` as the source of truth for style decisions before suggesting or editing code.
