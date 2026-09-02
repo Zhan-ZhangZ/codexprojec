@@ -11,6 +11,7 @@ repack_7z.py  —  全量打包脚本（7z 格式）
     codex-skills-<月>月<日>日.7z   （项目根目录）
 
 流程:
+    0. 路径长度防线：扫描全部待打包文件，超过 Windows 兼容上限直接废弃打包
     1. 将已有的全量包移入备份文件夹（保留最近 2 份）
     2. 调用 7z 压缩 codex-skills/ → 临时文件
     3. 校验临时文件：7z t + 检查 skills_manifest.json / SKILL.md 存在
@@ -48,6 +49,76 @@ EXCLUDE_PATTERNS = [
     '-xr!.vscode',
     '-xr!.idea',
 ]
+
+# ── Windows 路径长度防线 ──────────────────────────────────────────────────────
+# 客户典型安装前缀 C:\Users\<user>\.codex\skills\codex-skills\ 约 41~55 字符，
+# Windows MAX_PATH = 260（按 UTF-16 字符计，一个汉字算 1 个）。
+# 库内相对路径（codex-skills/ 之下）阈值：
+PATH_WARN_LIMIT = 200   # 警告：客户机用户名较长 / OneDrive 重定向时可能超限
+PATH_HARD_LIMIT = 219   # 硬性：41 + 219 = 260，超出则废弃打包
+
+# 与 EXCLUDE_PATTERNS 对应的扫描过滤（保证只测量真正会进包的文件）
+_SCAN_EXCLUDE_DIRS  = {'.git', '.github', '__pycache__', 'node_modules',
+                       '.venv', '__MACOSX', '.vscode', '.idea'}
+
+
+def enforce_path_limits(source_dir):
+    """出包前扫描全部待打包文件的库内相对路径长度（字符口径）。
+
+    超过硬性上限时打印详细报告并终止打包（废弃本次出包，不产生任何压缩包）。
+    """
+    warns, rejects = [], []
+    for dirpath, dirnames, filenames in os.walk(source_dir):
+        dirnames[:] = [d for d in dirnames if d not in _SCAN_EXCLUDE_DIRS]
+        for fn in filenames:
+            if fn == '.DS_Store' or fn.startswith('._') or fn == '.env':
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, fn), source_dir)
+            n = len(rel)
+            if n > PATH_HARD_LIMIT:
+                rejects.append((n, rel))
+            elif n > PATH_WARN_LIMIT:
+                warns.append((n, rel))
+
+    if rejects:
+        rejects.sort(reverse=True)
+        bar = '!' * 70
+        lines = [
+            bar,
+            '!!  警告：检测到超长路径，本次打包已废弃（未生成任何压缩包）',
+            bar,
+            '!!',
+            f'!!  原因      : {len(rejects)} 个文件的库内相对路径超过硬性上限 {PATH_HARD_LIMIT} 字符。',
+            '!!              客户机安装前缀 C:\\Users\\<user>\\.codex\\skills\\codex-skills\\ 约 41 字符，',
+            f'!!              41 + {PATH_HARD_LIMIT} = 260（Windows MAX_PATH 上限），超限文件在客户机',
+            '!!              解压/安装时必然报「无法打开」。',
+            '!!',
+            '!!  处理步骤  : 1. 按下方清单定位所属技能；',
+            '!!              2. 缩短该技能内部目录嵌套，或删除深层无价值文件',
+            '!!                 （价值判断须由 AI 按集成规则执行，勿机械删除）；',
+            '!!              3. 运行 python3 scripts/integration_check.py "<技能文件夹>" 复检；',
+            '!!              4. 复检通过后重新执行本打包脚本。',
+            '!!',
+            '!!  超限清单  :（按长度降序，最多列 20 条）',
+        ]
+        print('\n'.join(lines))
+        for n, rel in rejects[:20]:
+            print(f'!!    {n} 字符  {rel}')
+        if len(rejects) > 20:
+            print(f'!!    ... 及另外 {len(rejects) - 20} 个文件')
+        print(bar)
+        sys.exit(1)
+
+    if warns:
+        warns.sort(reverse=True)
+        print(f'  [路径长度警告] {len(warns)} 个文件超过 {PATH_WARN_LIMIT} 字符'
+              f'（未超硬性上限 {PATH_HARD_LIMIT}，本次放行，建议尽早整改）：')
+        for n, rel in warns[:5]:
+            print(f'    {n} 字符  {rel}')
+        if len(warns) > 5:
+            print(f'    ... 及另外 {len(warns) - 5} 个文件')
+
+    print(f'  路径长度检查通过（阈值：警告 {PATH_WARN_LIMIT} / 硬性 {PATH_HARD_LIMIT} 字符）。')
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 def run(args, **kwargs):
@@ -136,6 +207,9 @@ def build_7z():
     print(f"目标文件 : {output_7z}")
     print(f"7z 工具  : {BIN_7Z}")
     print()
+
+    # Step 0: 路径长度防线（超限则废弃打包，不做备份移动、不产生压缩包）
+    enforce_path_limits(SOURCE_DIR)
 
     # Step 1: 备份已有全量包
     backup_existing()
