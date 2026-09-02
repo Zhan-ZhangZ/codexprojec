@@ -161,8 +161,7 @@ Once connected, ask your AI assistant:
 | `color_scheme` | string | `Cornfield` | OpenSCAD color scheme |
 | `variables` | dict | `{}` | OpenSCAD `-D` variables |
 | `quality` | string | — | `draft`, `normal`, or `high` |
-| `include_paths` | list | — | Extra `-I` include directories |
-| `output_format` | string | `auto` | `auto`, `base64`, `file_path`, or `compressed` |
+| `include_paths` | list | — | Extra include directories (via `OPENSCADPATH`) |
 
 *Exactly one of `scad_content` or `scad_file` must be provided.
 
@@ -269,12 +268,11 @@ uv run pytest
 # Run specific markers
 uv run pytest -m unit
 uv run pytest -m performance
-
-# Run a single file
-uv run pytest tests/test_helpers.py -v
 ```
 
 Tests mock the OpenSCAD subprocess — no OpenSCAD installation required to run them. Coverage target: 80% minimum.
+
+> 本地副本为文档层集成：服务器运行时由 `uv` 直接从上游仓库拉取，源码与测试套件不随本技能分发。上方开发/测试命令请克隆上游仓库后运行；单测文件运行示例见上游 v0.3.0 标签下的 [test_helpers.py（v0.3.0）](https://github.com/quellant/openscad-mcp/blob/v0.3.0/tests/test_helpers.py)。
 
 ## Troubleshooting
 
