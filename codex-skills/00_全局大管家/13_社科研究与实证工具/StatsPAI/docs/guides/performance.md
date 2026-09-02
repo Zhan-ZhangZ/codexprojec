@@ -9,7 +9,7 @@ where StatsPAI is *slower*.
 
 ## The harness
 
-[`benchmarks/cross_library/hdfe_benchmark.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/benchmarks/cross_library/hdfe_benchmark.py)
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/benchmarks/cross_library/hdfe_benchmark.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/benchmarks/cross_library/hdfe_benchmark.py)
 runs a single two-way (unit × time) fixed-effects OLS on one generated panel and
 times four backends head-to-head:
 
@@ -36,16 +36,16 @@ Design choices that keep it trustworthy:
 Reproduce it yourself — and please do before quoting any number:
 
 ```bash
-python benchmarks/cross_library/hdfe_benchmark.py \
+python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/benchmarks/cross_library/hdfe_benchmark.py \
     --scales 10000,100000,1000000 --repeats 7 \
     --json benchmarks/cross_library/results.json \
-    --markdown benchmarks/cross_library/RESULTS.md
+    --markdown https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/benchmarks/cross_library/RESULTS.md
 ```
 
 ## What we see (and what we don't)
 
 On a representative balanced two-way panel (Apple-silicon arm64, the run checked
-into [`benchmarks/cross_library/RESULTS.md`](https://github.com/brycewang-stanford/StatsPAI/blob/main/benchmarks/cross_library/RESULTS.md)):
+into [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/benchmarks/cross_library/RESULTS.md`](https://github.com/brycewang-stanford/StatsPAI/blob/main/benchmarks/cross_library/RESULTS.md)):
 
 - **All four backends agree to ~1e-11** on the slope and SE. This is the
   precondition for any timing claim to be meaningful.

@@ -1,9 +1,9 @@
 # StatsPAI
 
 **Validation-tiered Python workflows for causal inference and applied
-econometrics.** One `import statspai as sp` exposes **1,000+ registered
+econometrics.** One `import statspai as sp` exposes **1,178 registered
 functions** across 87 submodules (live count: `python
-scripts/registry_stats.py`) spanning classical regression, staggered
+https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/registry_stats.py`) spanning classical regression, staggered
 DiD, regression discontinuity,
 synthetic control, decomposition, stochastic frontier, multilevel /
 mixed-effects, modern ML causal inference, the full three-school
@@ -11,13 +11,21 @@ mixed-effects, modern ML causal inference, the full three-school
 modules (bridging theorems, fairness, surrogates, PCMCI, TMLE survival,
 etc.), and manuscript/reporting output in Word / Excel / LaTeX / HTML.
 
-> **Current release: v1.19.0 (2026-06-20)** — cross-engine validation
-> (`sp.cross_validate` runs the same OLS/FE/IV/DML/DiD model through
-> StatsPAI, pyfixest, linearmodels, DoubleML, R `fixest`/`did`, and Stata,
-> then reports an honest AGREE / PARTIAL / DISAGREE verdict), data-MCP
-> ingestion normalisers (`sp.from_worldbank` / `sp.from_fred` /
-> `sp.from_sdmx`), and a numpy/scipy-native social-network-analysis module
-> (`sp.network`). See the [changelog](changelog.md) for detail.
+> **Current release: v1.21.0 (2026-08-03)** — a batch of ⚠️ inference
+> correctness fixes (`sp.did_multiplegt` dynamics + placebos matched to
+> the archived 0.1.4 reference; `sp.did_multiplegt_dyn` now handles
+> switch-off events; `sp.rdrobust` rebuilt CCT bandwidth + bias
+> correction so it reports 7.51 where R reports 7.51; `sp.rd_honest`
+> intervals were ~1.7× too wide; `sp.pretrends_power` was running a
+> different test than the paper it cites; `sp.rdrandinf` asymptotic
+> p-value and ranksum), plus new features
+> (`sp.spillover_did`, `sp.cgs_continuous_did`, `sp.functional_form_test`,
+> `sp.did_misclassified`, `sp.did_bcf`, `sp.cohort_anchored_event_study`,
+> `sp.design_robust_event_study`, `sp.rdmc(cutoff_var=)`,
+> `sp.rdrobust(vce=)`), one deprecation
+> (`sp.continuous_did(method="cgs")` → `sp.cgs_continuous_did`), and 11
+> new Track A parity modules. See the [changelog](changelog.md) for
+> detail.
 
 ```python
 import statspai as sp
@@ -30,7 +38,12 @@ rpt = sp.cs_report(data, y='y', g='g', t='t', i='id',
 
 ## What's inside
 
-### Release highlights (v0.9.17 → v1.5.0)
+### Release highlights (early era: v0.9.17 → v1.5.0)
+
+> For everything after v1.5.0 — the P1 agent-native surface
+> (`sp.causal_question`, `sp.paper()`, LLM-DAG), cross-engine validation
+> (`sp.cross_validate`), the parity index, and the v1.20.0 inference
+> correctness batch — see the [changelog](changelog.md).
 
 | Release | Focus | Headline |
 | --- | --- | --- |
@@ -56,16 +69,16 @@ quantile regression (`sp.ivqreg`); mixed logit (`sp.mixlogit`).
 **Difference-in-differences (10+ variants).**
 `sp.callaway_santanna` (DR/IPW/REG), `sp.aggte` with Mammen uniform
 bands, `sp.sun_abraham`, `sp.bjs` (Borusyak-Jaravel-Spiess imputation),
-`sp.dcdh` (de Chaisemartin-D'Haultfoeuille), `sp.etwfe`,
-`sp.goodman_bacon`; sensitivity via `sp.honest_did`, `sp.breakdown_m`;
+`sp.did_multiplegt` (de Chaisemartin-D'Haultfoeuille), `sp.etwfe`,
+`sp.bacon_decomposition`; sensitivity via `sp.honest_did`, `sp.breakdown_m`;
 one-call `sp.cs_report` with Markdown / LaTeX / Excel export.
 
 **Regression discontinuity (18+ estimators).**
 `sp.rdrobust` (CCT sharp/fuzzy/kink with bias-corrected robust CI),
 `sp.rd2d` (2D/boundary), `sp.rkd`, `sp.rdit`, multi-cutoff and
-multi-score designs, `sp.rdhonest` (Armstrong-Kolesar), local
+multi-score designs, `sp.rd_honest` (Armstrong-Kolesar), local
 randomization (`sp.rdrandinf`, `sp.rdwinselect`, `sp.rdsensitivity`),
-`sp.cjm_density`, ML-based CATE (`sp.rd_forest`, `sp.rd_boost`,
+`sp.rddensity`, ML-based CATE (`sp.rd_forest`, `sp.rd_boost`,
 `sp.rd_lasso`), Angrist-Rokkanen extrapolation, `sp.rdpower`,
 `sp.rdsampsi`, bundled `sp.rdsummary` dashboard.
 
@@ -130,7 +143,7 @@ Oster bounds; sensemakr; E-values; Rosenbaum bounds; Manski bounds;
 
 ```python
 # Recommend estimators + run posterior verification
-rec  = sp.recommend(df, outcome='y', treatment='d', verify=True)
+rec  = sp.recommend(df, y='y', treatment='d', verify=True)
 rec.summary()                # ranked estimators with verify_score
 rec.plot('verify_radar')     # visual stability check
 ```
@@ -165,11 +178,13 @@ reference — together with this package:
 ```bibtex
 @software{wang2026statspai,
   author  = {Wang, Biaoyue and Rozelle, Scott},
-  title   = {StatsPAI: Validation-Tiered Causal Inference and
-             Econometrics Workflows for Python},
+  title   = {StatsPAI: A Unified, Agent-Native Python Toolkit for
+             Causal Inference and Applied Econometrics},
   year    = {2026},
-  version = {1.19.0},
-  url     = {https://github.com/brycewang-stanford/StatsPAI}
+  version = {1.23.0},
+  doi     = {10.5281/zenodo.19933900},
+  url     = {https://doi.org/10.5281/zenodo.19933900},
+  license = {MIT}
 }
 ```
 

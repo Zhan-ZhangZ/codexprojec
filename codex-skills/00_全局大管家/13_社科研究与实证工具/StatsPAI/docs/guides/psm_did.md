@@ -3,13 +3,15 @@
 This guide shows how to reproduce the supported Stata propensity-score-matching
 pipeline — including the `psmatch2`-style post-matching variables
 (`_weight`, `_support`, `_n1`, `_nn`, `_pdif`, …) — and then run a
-frequency-weighted **PSM-DID** in StatsPAI.
+weighted **PSM-DID** in StatsPAI.
 
-For the pinned Stata 18 `psmatch2` paths (nearest-neighbour, Epanechnikov
-kernel, and radius matching), `sp.psmatch2` is numerically faithful to Leuven
-& Sianesi (2003): on the same data the ATT/SE and emitted matched-sample
-variables match the reference fixtures (`tests/reference_parity/
-test_psmatch2_parity.py`).
+For the pinned Stata 18 `psmatch2` paths — nearest-neighbour, Epanechnikov
+kernel, radius, local linear regression, and the Mahalanobis metric —
+`sp.psmatch2` is numerically faithful to Leuven & Sianesi (2003): on the same
+data the ATT/SE and the emitted matched-sample variables match the reference
+fixtures in `tests/reference_parity/` (`test_psmatch2_parity.py`,
+`test_psmatch2_llr_parity.py`, `test_pstest_parity.py`,
+`test_psmdid_weight_parity.py`).
 
 ---
 
@@ -22,7 +24,7 @@ dataset, so you can
 
 1. run a **post-matching balance test**,
 2. draw a **post-matching propensity-score density** on the *matched* sample,
-3. select the matched sample and run a **frequency-weighted PSM-DID**.
+3. select the matched sample and run a **weighted PSM-DID**.
 
 Those variables are now produced automatically.
 
@@ -60,7 +62,7 @@ m.matched_data[['_pscore', '_treated', '_weight', '_n1', '_pdif']].head()
 
 ## 2b. Matching methods and standard errors
 
-`sp.psmatch2` reproduces the three psmatch2 matching algorithms:
+`sp.psmatch2` reproduces the psmatch2 matching algorithms:
 
 ```python
 # nearest-neighbour (default), k = 1
@@ -80,7 +82,8 @@ bandwidth, weighted by a kernel of the propensity-score distance, so they
 produce `_weight` and `_y` but not the discrete-neighbour columns
 (`_n1`/`_nn`/`_pdif`) — exactly like Stata.
 
-**Standard errors.** Three estimators, all matched against Stata 18:
+**Standard errors.** Four estimators; the first three are pinned against
+Stata 18:
 
 ```python
 m = sp.psmatch2(df, treat='d', outcome='y', covariates=X)            # se='psmatch2' (default)
@@ -94,7 +97,51 @@ m = sp.psmatch2(df, treat='d', outcome='y', covariates=X, ai=2)      # ai(2): 2 
   heteroskedasticity-robust SE (`psmatch2 , ai(J)`), which estimates
   `σ²(X)` from each unit's `J` nearest same-arm neighbours — reproduced to
   machine precision.
-- `se='ai'` — the simple matched-pair SE.
+- `se='ai'` — the simple matched-pair SE. **Anti-conservative** under
+  matching with replacement (it ignores the extra variance from reusing
+  controls); prefer `ai=J` for nearest-neighbour inference.
+- `se='bootstrap'` — see below. Not a Stata psmatch2 option, and the only
+  inference available for `method='llr'`.
+
+#### Which standard error actually covers?
+
+Parity says StatsPAI reproduces Stata. It does not say either package's
+interval contains the truth. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/benchmarks/matching_se_coverage.py` measures
+that directly — 36 designs (3 control-pool regimes × `replace` × `k`) ×
+1000 replications, on a design whose ATT is known:
+
+| `se_method` | SE / true sampling SD | coverage (nominal 0.95) | verdict |
+| --- | :-: | :-: | --- |
+| `'ai'` | 0.56 – 0.91 | **0.71 – 0.92** | never reaches nominal |
+| `'psmatch2'` (Stata's default) | 1.50 – 1.69 | 0.994 – 1.000 | far too wide |
+| `'abadie_imbens'` | **0.95 – 1.04** | **0.905 – 0.956** | correctly sized |
+| `'bootstrap'` | 0.95 – 1.23 | 0.933 – 1.000 | correct to mildly wide |
+
+Read over `replace=True`, where the point estimate is nearly unbiased
+(|bias| ≤ 0.029 on a true effect of 2.0) so the numbers isolate SE sizing
+rather than confounding it with the pool-exhaustion bias described above.
+
+**The two front doors default differently, on purpose:**
+
+- `sp.match(...)` — `se_method='auto'` resolves to **`'abadie_imbens'`**
+  for nearest-neighbour matching, the only estimator measured to be
+  correctly sized. This is the statistically-motivated default.
+- `sp.psmatch2(...)` — `se='psmatch2'` stays the default, because this
+  function exists to *reproduce Stata* and that is Stata's number. It is
+  conservative (a null will rarely be rejected), which the table above
+  quantifies. Pass `ai=J` for the correctly-sized one.
+
+> **Changed in 1.22.** `sp.match`'s `'auto'` resolved to `'ai'` before
+> 1.22, so **default nearest-neighbour standard errors change** — they get
+> larger, by roughly 10% to 79%. Point estimates are untouched. Pass
+> `se_method='ai'` to recover the old numbers (it now warns). See
+> [`MIGRATION.md`](../../MIGRATION.md).
+
+Regenerate the table with:
+
+```bash
+PYTHONPATH=src python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/benchmarks/matching_se_coverage.py
+```
 
 The nearest-neighbour SE, the AI-robust SE, and the radius ATT/SE match
 Stata 18 to machine precision; the smooth Epanechnikov kernel ATT matches to
@@ -107,23 +154,136 @@ matching algorithm).
 `matched_data` and `_weight` for downstream PSM-DID, but the cross-sectional
 ATT is intentionally `NaN` and `att_defined=False`.
 
-> **Local-linear (`llr`) matching is not provided.** Stata routes its default
-> `psmatch2 ... llr` through the `lpoly` command, whose bandwidth and boundary
-> handling are not bit-reproducible; rather than ship an estimator that
-> disagrees with Stata, StatsPAI omits it. Use kernel matching with a small
-> bandwidth for a comparable local estimator.
+### Local linear regression (`llr`) matching
 
-## 3. Post-matching balance (the `pstest` analogue)
+```python
+m = sp.psmatch2(df, treat='d', outcome='y', covariates=X,
+                method='llr', kernel='tricube', bwidth=0.5)
+```
+
+Each treated unit's counterfactual is the intercept of a kernel-weighted
+degree-1 regression of the control outcome on the propensity gap
+(Heckman, Ichimura & Todd 1997). Matches Stata to ~4e-11 relative across the
+tricube, biweight, normal and uniform kernels.
+
+Two things about Stata's `llr` you need to know before comparing numbers:
+
+> **`psmatch2 ..., llr` with the default kernel is not local linear
+> regression.** `epan` is psmatch2's default kernel for `llr`, and for that
+> combination `psmatch2.ado` rewrites the request as *nearest-neighbour
+> matching on an `lpoly`-smoothed outcome*. Only a non-Epanechnikov kernel
+> reaches psmatch2's own LLR routine. On the reference fixture the two give
+> 0.0322 and −0.0275 respectively. StatsPAI always runs genuine LLR and warns
+> when you pass `kernel='epan'`; pass `kernel='tricube'` to reproduce Stata's
+> LLR numbers.
+>
+> **Stata reports no standard error for LLR** (`seatt = .`), because local
+> linear weights can be negative and the analytic formula assumes they are
+> not. StatsPAI defaults `method='llr'` to `se='bootstrap'` instead, so you
+> get inference where Stata gives you none. `se='psmatch2'` is refused for
+> `llr` rather than silently returning a number the formula cannot support.
+
+`method='spline'` is **not** implemented: Stata delegates it to the separate
+SSC package `-spline-` and reports no SE for it either, so there is no
+reference path to align against.
+
+### Bootstrap standard errors
+
+```python
+m = sp.psmatch2(df, treat='d', outcome='y', covariates=X,
+                method='kernel', se='bootstrap',
+                bootstrap_reps=999, bootstrap_seed=42)
+```
+
+The bootstrap resamples units with replacement *within treatment arm* and
+**re-estimates the propensity score in every replication**. That is the point:
+every analytic matching SE conditions on the fitted score and so ignores the
+uncertainty the score itself contributes. Pass `bootstrap_seed` for
+reproducible numbers; `model_info` records how many replications succeeded and
+the bootstrap bias.
+
+> Abadie & Imbens (2008) prove the nonparametric bootstrap is **not** valid
+> for nearest-neighbour matching with a fixed number of matches. StatsPAI
+> warns if you ask for it there. It is sound for the smooth kernel-class
+> estimators (`kernel`, `radius`, `llr`), which is where it is the default.
+
+### With or without replacement? Check your control pool first
+
+Matching **without replacement** can only form the matches you asked for
+when
+
+```text
+n_matches × n_treated  ≤  n_control        (on support)
+```
+
+Past that point the pool is exhausted: the treated units matched last take
+whatever is left, and then get nothing. What comes back is still labelled an
+ATT, but it is an average over the treated units that *happened* to be
+matched first — a non-random subset.
+
+On a 400-row design with 209 treated and 191 controls, `n_matches=4,
+replace=False` leaves **161 of the 209 treated units (77%) with no match at
+all**. StatsPAI warns and reports the counts:
+
+```python
+res = sp.match(df, y='y', treat='d', covariates=X,
+               n_matches=4, replace=False)
+res.model_info['n_treated_unmatched']            # 161
+res.model_info['n_treated_partially_matched']    # 1
+```
+
+Your options, in order of preference:
+
+1. **`replace=True`** (the default) — one control may serve several treated
+   units, so the constraint disappears entirely. The cost is that reused
+   controls induce dependence, which the analytic standard errors do not
+   fully price (see §5a).
+2. **Reduce `n_matches`** until the inequality holds.
+3. **Accept the restricted estimand** — but then say in the paper that the
+   effect is an ATT over the matched subset, and report how many treated
+   units were dropped.
+
+The same warning fires when a caliper leaves treated units with no
+admissible donor; the message names which cause applies.
+
+---
+
+## 3. Post-matching balance
+
+There are two balance tables, and they are deliberately different.
+
+### `m.pstest()` — Stata's table, digit for digit
+
+```python
+t = m.pstest()
+print(t.summary())            # the two blocks pstest prints
+t.table                       # per-covariate rows
+t.summary_stats['matched']    # Ps R2, LR chi2, MeanBias, Rubin's B and R
+```
+
+Use this to check a port against a printed `pstest` table. It reproduces
+`pstest x1 x2, both` to 1e-14 on the per-covariate rows and 1e-9 on the
+summary block, including Rubin's B and R and their `B < 25`, `R ∈ [0.5, 2]`
+flags (Rubin 2001).
+
+### `m.balance()` — StatsPAI's diagnostics
 
 ```python
 bal = m.balance()
 print(bal.summary())
 ```
 
-`smd_raw` is the standardized mean difference **before** matching; the
-`smd_weighted` column is the **after**-matching SMD computed on the matched
-sample with the `_weight` frequency weights — exactly what Stata `pstest`
-reports.
+Reports weighted SMD, variance ratios, KS statistics and effective sample
+size.
+
+> **These two do not agree, by design.** `pstest` keeps the **unmatched**
+> pooled standard deviation in the denominator of the post-matching bias, so
+> its "before" and "after" rows are directly comparable. `balance()` uses the
+> matched-sample SD, the convention most non-Stata packages follow. On the
+> reference fixture the post-matching figure for `x1` is 13.91 under `pstest`
+> and 14.73 under `balance()` — same data, same weights, different (and both
+> defensible) conventions. Quote whichever you like, but do not present one as
+> the other.
 
 ---
 
@@ -150,14 +310,14 @@ over the on-support treated, and `_support == 0` flags the trimmed rows.
 
 ---
 
-## 5. PSM-DID: frequency-weighted difference-in-differences
+## 5. PSM-DID: weighted difference-in-differences
 
 The canonical Stata recipe
 
 ```stata
 psmatch2 d x1 x2, neighbor(1)             // produces _weight, _support
 * merge _weight onto the panel by id, then
-reg y i.treat##i.post [fweight=_weight] if _support==1
+reg y i.treat##i.post [aweight=_weight] if _support==1
 ```
 
 becomes, in StatsPAI:
@@ -183,8 +343,59 @@ did = m.psm_did(panel, id='id', y='y', time='time', treat_time=1, treat='d',
 ```
 
 Pass `post=<column>` directly instead of `time` + `treat_time` if you already
-have a post-period indicator, and `weight='none'` to run the matched-sample
-DiD unweighted.
+have a post-period indicator.
+
+### 5a. `aweight` or `fweight`? It changes your standard error
+
+Stata's `aweight` and `fweight` give the **same coefficient** and **different
+standard errors**, because `fweight` treats a control reused *w* times as *w*
+independent observations:
+
+| `weight=` | Stata equivalent | residual df | on the reference fixture |
+| --------- | ---------------- | ----------- | ------------------------ |
+| `'aweight'` (default) | `[aweight=_weight]` | `n_rows − k` | SE **0.250051** |
+| `'fweight'` | `[fweight=_weight]` | `Σw − k` | SE **0.214797** |
+| `'none'` | no weights | `n_rows − k` | SE 0.266448 |
+
+The DiD coefficient is 1.551163 in all three cases. The `fweight` interval is
+about 14% narrower *purely from the degrees of freedom*.
+
+**Which should you pick?** Mostly this is a *reproducibility* question, not a
+statistical one: pick the regime matching the Stata line you are reconciling
+against. `'aweight'` is the default because it is the more conservative of the
+two, and because it is the only one defined when `k > 1` makes `_weight`
+fractional.
+
+```python
+did = m.psm_did(panel, id='id', y='y', post='post', weight='fweight')
+```
+
+> **Neither regime gives correct inference under matching *with
+> replacement*.** Both condition on the realised match structure and treat
+> the matched sample as if it were drawn independently. A control that serves
+> as the counterfactual for three treated units induces dependence across
+> those three comparisons, which no `[aweight=]`/`[fweight=]` degrees-of-
+> freedom convention captures. `'aweight'` is merely the less optimistic of
+> the two — not the correct one.
+>
+> If the standard error is load-bearing for your conclusion, cluster on the
+> matched control's identity or bootstrap the whole pipeline
+> (`se='bootstrap'` on the cross-sectional ATT re-estimates the propensity
+> score each draw). Matching *without* replacement, where each control is
+> used at most once, does not have this problem.
+
+`'fweight'` requires **integer** weights, exactly as Stata does. Matching with
+`k > 1` neighbours splits each treated unit's weight into `1/k` shares, so
+`_weight` is fractional and `weight='fweight'` raises with a pointer back to
+`'aweight'`.
+
+> **Changed in 1.22.** Before 1.22, `weight='fweight'` computed `aweight`
+> numbers while this guide advertised the `[fweight=]` line — the standard
+> error did not match the recipe it claimed to implement. The default moved
+> from `'fweight'` to `'aweight'`, which is numerically identical to the old
+> default, so results from a default call are unchanged. An explicit
+> `weight='fweight'` now genuinely computes Stata's `fweight` degrees of
+> freedom. See `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_psmdid_weight_parity.py`.
 
 ---
 
@@ -195,14 +406,20 @@ DiD unweighted.
 | `psmatch2 d x, out(y) n(1) logit`                | `sp.psmatch2(df, treat='d', outcome='y', covariates=['x'], neighbor=1)` |
 | `psmatch2 d x, out(y) kernel bw(0.06)`           | `... method='kernel', kernel='epan', bwidth=0.06`   |
 | `psmatch2 d x, out(y) radius caliper(0.05)`      | `... method='radius', caliper=0.05`                 |
+| `psmatch2 d x, out(y) llr kerneltype(tricube)`   | `... method='llr', kernel='tricube'`                |
+| `psmatch2 d, out(y) mahalanobis(x)`              | `... method='mahalanobis'`                          |
+| `psmatch2 d x, out(y) spline`                    | *not implemented* — use `method='llr'`              |
 | default `r(seatt)` analytic SE                    | `... se='psmatch2'` (default)                        |
 | `psmatch2 d x, out(y) ai(2)`                      | `... ai=2` (Abadie-Imbens robust SE)                |
+| `bootstrap: psmatch2 ...`                         | `... se='bootstrap', bootstrap_reps=999`            |
 | `psmatch2 d x, out(y) common`                    | `... common_support='minmax'`                       |
 | `psmatch2 d x` without `outcome()`                 | matched-frame only; ATT undefined (`att_defined=False`) |
 | `_weight`, `_support`; nearest-neighbour `_n1`, `_nn`, `_pdif` | columns on `m.matched_data`                         |
-| `pstest x, both`                                 | `m.balance()`                                       |
+| `pstest x, both`                                 | `m.pstest()` — Stata's exact table                  |
+| (no Stata equivalent)                            | `m.balance()` — StatsPAI's own diagnostics          |
 | `psgraph` / kdensity of `_pscore`               | `m.psplot()`                                         |
-| `reg y i.d##i.post [fw=_weight] if _support==1`  | `m.psm_did(panel, id='id', y='y', post='post')`     |
+| `reg y i.d##i.post [aw=_weight] if _support==1`  | `m.psm_did(panel, id='id', y='y', post='post')`     |
+| `reg y i.d##i.post [fw=_weight] if _support==1`  | `... weight='fweight'` (see §5a — different SE)     |
 
 ---
 

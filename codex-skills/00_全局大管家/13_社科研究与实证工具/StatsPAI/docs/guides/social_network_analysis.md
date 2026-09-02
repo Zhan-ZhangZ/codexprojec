@@ -58,7 +58,7 @@ res.n_components, res.is_connected
 | `sp.network_components(g)` | connected-component decomposition |
 
 These match `igraph`/`networkx` to machine precision (see
-`tests/test_network.py`).
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/test_network.py`).
 
 ## Centrality
 

@@ -8,7 +8,7 @@
 > against (a) the figure printed in the book and (b) an independent
 > base-R / `survival` / `EValue` reference run on the same bytes. The
 > machinery lives in `tests/orig_parity/06–11_nhefs_*.{py,R}` and the
-> pinned tests in `tests/external_parity/test_whatif_nhefs.py`.
+> pinned tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/external_parity/test_whatif_nhefs.py`.
 
 If you are an epidemiologist arriving from SAS, Stata, or R's `ipw` /
 `gfoRmula` / `survival`, this is the page that shows the same analyses,
@@ -175,7 +175,7 @@ confounding and the hazard ratio collapses toward the null:
 
 ```python
 # Build survival time + stabilized IP weights, then a weighted Cox /
-# pooled-logistic hazard (see tests/orig_parity/10_nhefs_ch17_survival.py).
+# pooled-logistic hazard (see https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/orig_parity/10_nhefs_ch17_survival.py).
 ```
 
 | | StatsPAI | R gold (`survival::coxph`) | Book (§17) |

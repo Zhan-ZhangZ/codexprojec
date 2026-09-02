@@ -21,10 +21,10 @@ Concretely:
 - **Against R / Stata (parity).** Estimators with a reference implementation are
   pinned to frozen R/Stata outputs in `tests/reference_parity/` /
   `tests/stata_parity/`, at tolerances documented in
-  `tests/reference_parity/REFERENCES.md` (machine-precision `1e-6`–`1e-9` for the
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/REFERENCES.md` (machine-precision `1e-6`–`1e-9` for the
   bit-exact tier; documented looser tolerances for iterative estimators). The R
   package versions behind those fixtures are recorded in
-  [`tests/reference_parity/R_PACKAGE_VERSIONS.md`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/reference_parity/R_PACKAGE_VERSIONS.md)
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/R_PACKAGE_VERSIONS.md`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/reference_parity/R_PACKAGE_VERSIONS.md)
   so upstream drift is visible, not silent.
 - **Per-function evidence.** `sp.parity_status("feols")` reports what a given
   function was validated against and to what tolerance — the auditable map of

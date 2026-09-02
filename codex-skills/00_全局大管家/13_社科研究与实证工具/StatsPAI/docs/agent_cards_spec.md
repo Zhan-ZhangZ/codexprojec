@@ -3,16 +3,16 @@
 > Contract for what counts as a "complete" agent card on a registered
 > StatsPAI function.  Read this before adding new functions or filling
 > in metadata for existing ones.  The CI ratchet in
-> [`tests/test_agent_card_coverage.py`](../tests/test_agent_card_coverage.py)
+> [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_card_coverage.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_card_coverage.py)
 > enforces "only-up" against the floor in
-> [`scripts/agent_card_coverage_floor.json`](../scripts/agent_card_coverage_floor.json).
+> [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_card_coverage_floor.json`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/agent_card_coverage_floor.json).
 
 ## Why this file exists
 
 StatsPAI has ~1000 public functions.  Each is exposed to LLM agents
-through [`sp.describe_function`](../src/statspai/registry.py),
-[`sp.agent_card`](../src/statspai/registry.py), and
-[`sp.function_schema`](../src/statspai/registry.py).  An agent calling
+through [`sp.describe_function`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py),
+[`sp.agent_card`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py), and
+[`sp.function_schema`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py).  An agent calling
 `sp.did(...)` blindly is a defect — the wrapper has to know
 *identifying assumptions*, *common failure modes*, and *which alternative
 estimator to fall back to*.  This document defines, per field, what
@@ -21,12 +21,12 @@ estimator to fall back to*.  This document defines, per field, what
 Two views of the same data exist:
 
 - **Curated (raw) view** — what a human has written into
-  [`registry.py`](../src/statspai/registry.py) or the auto-card layer.
-  Measured by [`scripts/agent_card_coverage.py`](../scripts/agent_card_coverage.py).
+  [`registry.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py) or the auto-card layer.
+  Measured by [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_card_coverage.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/agent_card_coverage.py).
   Drives the work-to-do.
 - **Effective (post-fallback) view** — what an LLM agent sees after
   `_param_description` synthesizes placeholder text for empty fields.
-  Measured by [`scripts/schema_quality.py`](../scripts/schema_quality.py).
+  Measured by [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/schema_quality.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/schema_quality.py).
   Feeds JSS Table 9.
 
 These two **must not be conflated**.  The fallback layer is a UX cushion,
@@ -45,7 +45,7 @@ A Tier-B card is the *minimum* viable surface for an agent to decide
 | `description` | More than 30 characters of human-written prose. | `FunctionSpec.description` |
 | `tags` | At least one tag from a controlled vocabulary (estimator family, design, output). | `FunctionSpec.tags` |
 | `example` | One runnable `sp.xxx(...)` call. | `FunctionSpec.example` |
-| `reference` | A bib key from [`paper.bib`](../paper.bib) **or** a verified DOI/arXiv ID.  Never a hand-written citation string — see [§10 in CLAUDE.md](../CLAUDE.md). | `FunctionSpec.reference` |
+| `reference` | A bib key from [`paper.bib`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/paper.bib) **or** a verified DOI/arXiv ID.  Never a hand-written citation string — see [§10 in CLAUDE.md](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/CLAUDE.md). | `FunctionSpec.reference` |
 | `param.description` | At least one parameter has a non-empty `ParamSpec.description`.  (Per-parameter coverage is a separate Tier-B+ goal.) | `ParamSpec.description` |
 
 The `description_30` lower bound exists because the auto-registration
@@ -66,7 +66,7 @@ Tier-B:
 | `typical_n_min` | Rule-of-thumb minimum sample size; `None` allowed only when no rule exists. | Documented in `validation_notes` if `None`. |
 
 The target is **70% of independent design points**, not 70% of the
-1,020-function surface.  Many functions are method variants behind a
+1,139-function surface.  Many functions are method variants behind a
 dispatcher (`sp.synth(method=...)` has 20+) and should inherit from
 their parent via `FunctionSpec.inherits_from` (Sprint 2).  See the
 collapse-strategy doc once it lands.
@@ -82,7 +82,7 @@ Tier-A *and* `validation_status ∈ {certified, validated}`:
   or explicit convention evidence in this checkout.
 
 This tier is gated by the parity-test work tracked separately in
-[`scripts/stability_audit.py`](../scripts/stability_audit.py) and by the
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/stability_audit.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/stability_audit.py) and by the
 JSS validation-evidence audit. It does not block Tier-A completion, and it
 is not a marketing ratchet: if evidence weakens, a function should be
 demoted to `api_stable` until the numerical evidence is repaired.
@@ -103,15 +103,15 @@ Tier-S, treat it as a release-gate issue.
 ## Where to write the data
 
 - **Hand-curated specs (Tier-A/S, ~200 functions)** — directly in
-  [`src/statspai/registry.py::_build_registry`](../src/statspai/registry.py).
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/registry.py::_build_registry`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py).
   These always win over the auto-pass.
 - **Auto-baseline (Tier-B fill)** — emitted by
-  [`scripts/gen_baseline_cards.py`](../scripts/gen_baseline_cards.py)
-  into [`src/statspai/_baseline_cards.py`](../src/statspai/_baseline_cards.py),
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/gen_baseline_cards.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/gen_baseline_cards.py)
+  into [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/_baseline_cards.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/_baseline_cards.py),
   read by `_ensure_full_registry` after `_build_registry`.  The auto-pass
   **only writes empty fields**; it never overwrites curated content.
 - **Dispatcher inheritance** — declared via `_INHERITANCE_SEEDS` in
-  [`registry.py`](../src/statspai/registry.py); the rules are explained
+  [`registry.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py); the rules are explained
   in the next section.
 
 ## Dispatcher inheritance
@@ -164,14 +164,14 @@ its own `assumptions` field is empty.  This is intentional — what
 matters is what an agent sees from `FunctionSpec.agent_card`.
 
 To add a new variant link, edit `_INHERITANCE_SEEDS` in
-[`registry.py`](../src/statspai/registry.py).  Use sparingly:
+[`registry.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py).  Use sparingly:
 **only canonical estimator children belong there**.  Output / plot /
 diagnostic helpers should *not* inherit estimator assumptions, because
 those assumptions don't apply to "render a coefficient plot".
 
 ## Citations are the only red line
 
-Repeating [§10 of CLAUDE.md](../CLAUDE.md) because it is the cheapest
+Repeating [§10 of CLAUDE.md](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/CLAUDE.md) because it is the cheapest
 quality killer:
 
 > Any new citation (docstring / `paper.bib` / `MIGRATION.md` /
@@ -197,7 +197,7 @@ nothing.
 ## CI ratchet
 
 The floor in
-[`scripts/agent_card_coverage_floor.json`](../scripts/agent_card_coverage_floor.json)
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_card_coverage_floor.json`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/agent_card_coverage_floor.json)
 tracks card-completeness counters: per-tier totals, per-field counts, and
 the evidence-tier counts exposed to agents. Non-validation card coverage is
 a ratchet. Validation-status counts are evidence-audit outputs, not vanity
@@ -206,7 +206,7 @@ floors: they may go down when a function is honestly demoted from
 card-completeness bar, run:
 
 ```bash
-python scripts/agent_card_coverage.py --write-floor
+python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_card_coverage.py --write-floor
 ```
 
 after the new content is merged.  CI runs `--check` and fails if any
@@ -217,12 +217,12 @@ when the evidence audit justifies a demotion.
 ## Status
 
 Historical snapshot at v1.15.5 — Tier-B 127, Tier-A 84, Tier-S 78; denominators
-are preserved in `scripts/agent_card_coverage_floor.json`.
+are preserved in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_card_coverage_floor.json`.
 
 | Sprint | Goal | Status |
 | --- | --- | --- |
-| 0 | Coverage script, spec doc, CI ratchet | **complete** — 5-mode `scripts/agent_card_coverage.py`, 15-counter floor, 9-test ratchet suite, `docs/agent_cards_spec.md`. |
-| 1 | Auto-baseline → fill empty Tier-B fields from docstrings | **complete (mechanically saturated)** — `scripts/gen_baseline_cards.py` + `src/statspai/_baseline_cards.py` lifts `tags` to 100% and `example` to 36.6%. Further gains require docstring rewrites, not script changes. |
+| 0 | Coverage script, spec doc, CI ratchet | **complete** — 5-mode `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_card_coverage.py`, 15-counter floor, 9-test ratchet suite, `docs/agent_cards_spec.md`. |
+| 1 | Auto-baseline → fill empty Tier-B fields from docstrings | **complete (mechanically saturated)** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/gen_baseline_cards.py` + `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/_baseline_cards.py` lifts `tags` to 100% and `example` to 36.6%. Further gains require docstring rewrites, not script changes. |
 | 2 | Dispatcher inheritance → collapse to ~200 design points | **complete (PoC + propagation)** — `FunctionSpec.inherits_from` field, `_merge_inherited_view` helper, `_INHERITANCE_SEEDS` wires 41 variants (DiD / IV / RD / synth / MR). |
 | 3 | Hand-curate Tier-A by category | **in progress** — 14 flagship estimators curated in this batch (`panel`, `feols`, `fepois`, `decompose`, `dfl_decompose`, `ffl_decompose`, `oaxaca`, `sar`, `sem`, `sdm`, 4× `mr_*`). Remaining ~56 design points to reach 70%-of-200 target are tracked as a separate follow-up sprint. |
-| 4 | Tier-S parity evidence (parallel, long-running) | **pending** — gated by `scripts/stability_audit.py` and `tests/reference_parity/` work, independent of Tier-A curation. |
+| 4 | Tier-S parity evidence (parallel, long-running) | **pending** — gated by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/stability_audit.py` and `tests/reference_parity/` work, independent of Tier-A curation. |

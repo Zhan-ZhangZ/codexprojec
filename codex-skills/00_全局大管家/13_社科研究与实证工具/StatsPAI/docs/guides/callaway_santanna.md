@@ -30,8 +30,9 @@ cs.model_info['pretrend_test'] # joint Wald pre-trend test
 
 The raw `callaway_santanna()` result is a grid of ATT(g, t) estimates.
 Collapse to a scalar or an event-study curve with `aggte()`, which
-layers the Mammen (1993) multiplier bootstrap on top and returns
-*simultaneous* confidence bands:
+layers the multiplier bootstrap on top (Rademacher weights, matching
+the R `did` implementation) and returns *simultaneous* confidence
+bands:
 
 ```python
 es = sp.aggte(cs, type='dynamic',
@@ -54,6 +55,140 @@ Other aggregation types:
 | `'dynamic'` | event-study curve ATT(e) |
 | `'group'` | per-cohort average ATT(g) |
 | `'calendar'` | per-calendar-time ATT(t) |
+
+## Bootstrap inference at the ATT(g, t) level
+
+R's `att_gt()` defaults to a multiplier bootstrap; Stata's `csdid`
+offers it as `wboot`. The same inference surface is available directly
+on `callaway_santanna()`:
+
+```python
+cs = sp.callaway_santanna(
+    df, y='y', g='first_treat', t='year', i='id',
+    bstrap=True,            # multiplier-bootstrap SEs (R: bstrap, Stata: wboot)
+    biters=999,             # replications        (R: biters, Stata: reps())
+    cband=True,             # uniform sup-t bands  (R: cband)
+    random_state=42,
+)
+
+cs.detail[['group', 'time', 'att', 'se', 'cband_lower', 'cband_upper']]
+cs.model_info['crit_val_uniform']   # sup-t critical value (> 1.96)
+```
+
+Option mapping:
+
+| StatsPAI | R `did::att_gt` | Stata `csdid` |
+| --- | --- | --- |
+| `bstrap=True` | `bstrap=TRUE` (default in R) | `wboot` |
+| `biters=999` | `biters=999` | `reps(999)` |
+| `cband=True` | `cband=TRUE` | (default with `wboot`) |
+| `clustervars=['id', 'state']` | `clustervars=c("id", "state")` | `cluster(state)` |
+| `boot_weight_type='mammen'` | — (R draws Rademacher) | `wbtype(mammen)` |
+
+Note StatsPAI defaults to `bstrap=False`, R `did` to `bstrap=TRUE`. The
+two are different estimators of the same variance, so compare like with
+like: StatsPAI's analytic path reproduces R's **analytic** standard
+errors (`aggte(..., bstrap=FALSE)`) exactly, and `bstrap=True`
+reproduces R's default bootstrap up to the draw. These are
+influence-function standard errors, not a delta-method approximation —
+the aggregation carries both the covariance between ATT(g, t) cells and
+the sampling variability of the estimated cohort-share weights.
+
+The default multiplier weights are Rademacher (±1) because that is what
+R `did` actually draws (`BMisc::multiplier_bootstrap`), its Mammen
+citation notwithstanding.
+
+### Two-level clustering
+
+`clustervars` mirrors R's `mboot` convention: the unit id is always
+implied, at most one *additional* time-invariant variable is allowed,
+and clustering requires the bootstrap (analytic SEs would silently
+understate within-cluster dependence, so `clustervars` without
+`bstrap=True` raises):
+
+```python
+cs = sp.callaway_santanna(
+    df, y='y', g='first_treat', t='year', i='id',
+    bstrap=True, clustervars=['id', 'state'], biters=999, random_state=42,
+)
+es = sp.aggte(cs, type='dynamic')   # inherits the clustering automatically
+```
+
+## Migrating from Stata `csdid`
+
+The option names do **not** line up, and two of the mismatches change
+your numbers silently. This table is the mapping.
+
+| `csdid` | StatsPAI | Note |
+| --- | --- | --- |
+| `method(dripw)` | `estimator='dr'` | default both sides |
+| `method(reg)` | `estimator='reg'` | |
+| `method(stdipw)` | `estimator='ipw'` **or** `'stdipw'` | ⚠️ see below |
+| `method(ipw)` | `estimator='ipw_abadie'` | ⚠️ see below |
+| `wboot` | `bstrap=True` or `se_method='wboot'` | |
+| `wboot(reps(999))` | `biters=999` | |
+| `wboot(wtype(mammen))` | `boot_weight_type='mammen'` | csdid defaults to mammen, StatsPAI to rademacher — R `did` draws rademacher despite citing Mammen |
+| `pointwise` | `cband=False` | csdid's default is *uniform*; StatsPAI's is pointwise |
+| `long2` | `base_period='universal'` | StatsPAI's default |
+| (csdid default gaps) | `base_period='varying'` | |
+| `asinr` | `notyet_cutoff='period'` | StatsPAI's default |
+| (csdid default) | `notyet_cutoff='cohort'` | |
+| `notyet` | `control_group='notyettreated'` | |
+| `pscoretrim(#)` | `pscore_trim=#` | both default 0.995 |
+| `saverif(f)` | `sp.influence_functions(res, path=f)` | |
+| `cluster(v)` | `clustervars=['v']` | requires `bstrap=True` |
+
+### ⚠️ `ipw` means different things in the two ecosystems
+
+StatsPAI follows **R `did`**, where `est_method='ipw'` dispatches to
+`DRDID::std_ipw_did_panel` — the Hájek-*stabilized* estimator. Stata's
+`method(ipw)` is Abadie (2005), which normalizes both arms by the same
+`E[D]` and is a genuinely different estimator.
+
+```python
+# porting `csdid ..., method(ipw)`     -> estimator='ipw_abadie'
+# porting `csdid ..., method(stdipw)`  -> estimator='ipw'  (or 'stdipw')
+```
+
+On `mpdta` the two differ by up to 2.4e-4 — small enough to look like
+noise, large enough to change a marginal t-statistic. Both spellings are
+pinned against Stata in
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_csdid_conventions_stata_parity.py`.
+
+### ⚠️ `asinr` is a control-set convention, not a test
+
+Despite the name, `asinr` does not test anything. It selects which date a
+control must still be untreated at, for **pre-treatment** ATT(g,t) only:
+
+- `notyet_cutoff='period'` — untreated as of `t` (R `did`, `csdid, asinr`)
+- `notyet_cutoff='cohort'` — untreated as of `g` (`csdid`'s own default)
+
+Post-treatment cells are identical either way. On `mpdta` the
+pre-treatment placebos move in the third decimal, e.g. ATT(2007, 2004)
+goes from 0.032971 to 0.033813.
+
+## Influence-function export (`saverif` workflow)
+
+Stata's `csdid, saverif()` saves the per-observation influence
+functions so any custom aggregation can be computed later without
+refitting. The StatsPAI equivalent:
+
+```python
+# Stage 1 — fit once, export the influence functions
+cs = sp.callaway_santanna(df, y='y', g='first_treat', t='year', i='id')
+sp.influence_functions(cs, path='cs_rif.csv')     # or .parquet
+
+# Stage 2 — later / elsewhere: aggregate without the original data
+es = sp.aggte_from_influence(
+    'cs_rif.csv', type='dynamic',
+    min_e=-4, max_e=8, bstrap=True, cband=True, random_state=0,
+)
+```
+
+The export is self-contained (unit, cohort, (g, t) cell, ATT, influence
+value, and the cluster label if the fit used `clustervars`), and the
+round-trip is exact: `aggte_from_influence(influence_functions(cs), ...)`
+reproduces `aggte(cs, ...)` to machine precision at the same seed.
 
 ## Repeated cross-sections
 

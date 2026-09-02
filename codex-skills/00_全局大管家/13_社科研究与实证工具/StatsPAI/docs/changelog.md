@@ -300,7 +300,7 @@ via Crossref and the published PDF.
 - **The reference-claim audit counts the group and calendar
   aggregations.** They had been a *stated* vocabulary gap: module 04
   pinned both vectors three ways and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/audit_reference_claims.py` did not score them, so they
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/audit_reference_claims.py` did not score them, so they
   surfaced only as unclassified statistics. They now have slots, and the
   probe **discovers** support by calling `sp.aggte` rather than
   consulting a hand-maintained list of which estimators aggregate —
@@ -363,7 +363,7 @@ via Crossref and the published PDF.
 
 - **HDFE-IV parity with Stata `ivreghdfe`, end to end.** `sp.iv(absorb=)`
   grew from a 2SLS-only prototype into the full estimator surface, pinned
-  against Stata 18 in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_iv_hdfe_stata_parity.py`:
+  against Stata 18 in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_iv_hdfe_stata_parity.py`:
 
   - every estimator absorbs — `2sls`, `liml`, `fuller`, `gmm`, `jive` all
     run in residualised space (previously LIML/Fuller/GMM/JIVE raised
@@ -435,7 +435,7 @@ via Crossref and the published PDF.
   is exactly how an unpinned object hides, which is the subject of this
   release.
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/audit_reference_claims.py` mis-filed `tau<k>` horizons as
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/audit_reference_claims.py` mis-filed `tau<k>` horizons as
   the headline statistic**, because the relative-time pattern matched a
   bare `t` before `tau`. Horizon rows were crediting coverage the
   archive did not have. Object coverage is now 61 reported / 26 with a
@@ -514,7 +514,7 @@ via Crossref and the published PDF.
   warns, because the two coincide only under independent unit-level
   assignment and assuming so is the optimistic error.
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/audit_reference_claims.py` — object-level parity coverage.**
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/audit_reference_claims.py` — object-level parity coverage.**
   A parity archive answers "does this function agree with its reference?"
   The answerable question is narrower: a function reports a headline
   estimate, its standard error, an event-study vector, the pre-treatment
@@ -844,7 +844,7 @@ via Crossref and the published PDF.
   one of those works was **already in `paper.bib` under another key**, so
   they were plausible-looking guesses, not missing literature, and no new
   entry was needed. `paper.bib` 668 → 660 entries (8 duplicates removed across both passes). New guard
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_citation_integrity.py` fails on any unresolvable citation key,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_citation_integrity.py` fails on any unresolvable citation key,
   any shared DOI, and any shared title. Refs verified via Crossref
   (`10.3982/ECTA6539`, `10.1177/00491241211055769`,
   `10.1257/aer.20181047`, `10.1080/01621459.2024.2393466`,
@@ -895,7 +895,7 @@ via Crossref and the published PDF.
   through 26 separate top-level symbols — the house pattern of CLAUDE.md
   §3 rule 4. **No new public functions; the registered count is
   unchanged at 1,171**, so no README / `docs/stats.md` / JSS figure
-  moves. New guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_iv_dispatcher_registry_sync.py` pins the
+  moves. New guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_iv_dispatcher_registry_sync.py` pins the
   enum against `statspai.iv._METHOD_ALIASES` in both directions — a
   method that routes must be advertised, and an advertised method must
   route.
@@ -925,7 +925,7 @@ via Crossref and the published PDF.
   `HonestDiD::createSensitivityResults` to
   `sp.honest_did(cs_result, Mbar=...)`; `Mbar` belongs to
   `sp.sensitivity_rr` on the following row, while `honest_did` takes
-  `m_grid`. New guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_docs_call_signatures.py` parses every
+  `m_grid`. New guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_docs_call_signatures.py` parses every
   inline `sp.*(...)` span in `docs/guides/` (278 of them) and fails when a
   documented keyword names no real parameter, or when positional arguments
   overflow the signature. Argument elision (`sp.dml(...)`,
@@ -978,13 +978,13 @@ via Crossref and the published PDF.
   `sp.describe_function(name)['validation_notes']` reports these paths as
   `"API/unit contract evidence: <path>"`, so an agent or referee reads
   them as the place the estimator is covered. `stacked_did` pointed at
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_did.py`, which contains no stacked-DiD test at all; `cic`,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_did.py`, which contains no stacked-DiD test at all; `cic`,
   `ddd`, `did_analysis`, `pretrends_test`, `breslow_day_test`,
   `mr_clust` and `target_trial_protocol` pointed at files they had been
   split or renamed out of. All ten now cite files that call them (verified
   by direct-call count). No validation *tier* changes — `stacked_did`
   remains `certified` on the Track A 75 parity evidence — only the cited
-  evidence. New guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_registry_validation_evidence.py`
+  evidence. New guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_registry_validation_evidence.py`
   parametrises over all 220 ledger entries and fails on a path that is
   missing or that never mentions its function.
 
@@ -1093,7 +1093,7 @@ via Crossref and the published PDF.
 
   Found by the new Cheng–Hoekstra castle-doctrine replication, which
   compares StatsPAI against Stata 18 MP and R `did` on real data; the
-  regression guard is `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_aggte_r_did_parity.py`.
+  regression guard is `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_aggte_r_did_parity.py`.
 
 - **`fmt="auto"` outside `sp.regtable` rendered the literal string `"auto"`
   into every cell.** `sp.sumstats` / `sp.mean_comparison` applied the format
@@ -1173,7 +1173,7 @@ via Crossref and the published PDF.
   `'ai'` treats matched pairs as independent and ignores the extra
   variance from reusing controls under matching with replacement. Measured
   over 36 designs × 1000 replications
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/matching_se_coverage.py`), it **never reached nominal
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/matching_se_coverage.py`), it **never reached nominal
   coverage in any cell** — 0.71 to 0.92 against a nominal 0.95, running
   0.56–0.91× the true sampling SD. `'abadie_imbens'` is the only option
   measured to be correctly sized (0.95–1.04×, coverage 0.905–0.956); Stata
@@ -1247,7 +1247,7 @@ via Crossref and the published PDF.
   affected. **Absorbing panels are bit-identical** — there "first period
   treated" *is* the first change — which is why the existing
   `DIDmultiplegtDYN` parity suite never caught it. Fixed, and pinned by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_multiplegt_dyn_options_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_multiplegt_dyn_options_parity.py`.
 
 - **`sp.sun_abraham` standard errors were missing the cohort-share term.**
   The IW estimator δ̂_ℓ = Σ_g ŵ_{g,ℓ} β̂_{g,ℓ} multiplies two estimated
@@ -1373,7 +1373,7 @@ via Crossref and the published PDF.
   reproduces `xtreg, fe` *exactly* — standard error included. Ships
   `SASP_COVARIATES` and `SASP_TIME_INVARIANT`: twelve provider-level
   controls have no within variation and are annihilated by demeaning.
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_sasp_within_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_sasp_within_parity.py`.
 
 - **Thornton (2008) randomization-inference replication:
   `sp.datasets.thornton_hiv()` and `sp.replicate('thornton_2008')`.** The
@@ -1381,7 +1381,7 @@ via Crossref and the published PDF.
   simple difference (0.450551852) and the HC1 OLS standard error
   (0.020857971) all match **Stata 18 MP** exactly, and `sp.ri_test`
   returns the same statistic with a permutation p-value.
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_thornton_ri_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_thornton_ri_parity.py`.
 
 - **Texas prison-expansion replication: `sp.datasets.texas_prison()` and
   `sp.replicate('texas_1993')`.** The real 51-state × 16-year panel
@@ -1399,7 +1399,7 @@ via Crossref and the published PDF.
   4 and 40 random starts. The guide says plainly: report the effect,
   don't interpret the donor weights, and use the modern track or the
   outcome-only recipe (convex, unique solution) when a number has to
-  reproduce across software. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_texas_synth_parity.py`.
+  reproduce across software. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_texas_synth_parity.py`.
 
 - **Castle-doctrine replication: `sp.datasets.castle_doctrine()` and
   `sp.replicate('castle_2013')`.** The real Cheng & Hoekstra (2013)
@@ -1410,7 +1410,7 @@ via Crossref and the published PDF.
   (`region_year_fe=True`, `state_trends=True`) rather than shipped, and
   `event_time=True` adds `time_til` / `gvar`. Every number is pinned in
   CI against **Stata 18 MP** and **R `did`** in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_castle_stata_parity.py`: four TWFE
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_castle_stata_parity.py`: four TWFE
   specifications (including `aweight` semantics and the 19 collinear
   drops in the saturated spec) agree to ≤1e-6; `sp.bacon_decomposition`
   reproduces Stata `bacondecomp` cell by cell across all 25
@@ -1420,7 +1420,7 @@ via Crossref and the published PDF.
   Crossref + doi.org content negotiation)
 
 - **Replication guides are now executed in CI.**
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_replication_guides_execute.py` runs every code block
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_replication_guides_execute.py` runs every code block
   shipped by `sp.replicate(...)` against that entry's own dataset, so a
   guide that no longer runs fails the build instead of a user's
   session.
@@ -1478,7 +1478,7 @@ via Crossref and the published PDF.
   `68_demean_within` sampled its middle observation at Python index `n//2`
   but named it from R's 1-based `n %/% 2`, so three of its ten statistics
   never joined in the py↔R comparison either; both sides now sample the same
-  observation. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/panel/test_demean_parity_within.py` encoded the same
+  observation. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/panel/test_demean_parity_within.py` encoded the same
   inconsistency (it hard-coded the R index under a comment claiming it was
   the Python one) and now checks the observation all three sides share.
 
@@ -1670,8 +1670,8 @@ via Crossref and the published PDF.
   `did_imputation`'s long-missing `vce`, `n_boot`, `boot_seed` and
   `sun_abraham`'s `aggregation`). The remaining 124 entries — 501 hidden
   parameters, including `regress`'s `vce` / `weights` / Conley options —
-  are frozen in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/registry_param_drift_baseline.json` and
-  ratcheted by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_registry_param_drift.py`, so the debt can
+  are frozen in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/registry_param_drift_baseline.json` and
+  ratcheted by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_registry_param_drift.py`, so the debt can
   shrink but not grow.
 
 - **`sp.sbw(...).solver_status` reported the estimand, not the solver.**
@@ -1697,7 +1697,7 @@ via Crossref and the published PDF.
   unique controls, one control serving 12 treated units), so the formula
   treats dependent pairs as independent. The same formula measured on
   `sp.match` over 36 designs × 1000 replications
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/matching_se_coverage.py`) runs 0.56–0.91× the true sampling
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/matching_se_coverage.py`) runs 0.56–0.91× the true sampling
   SD, with coverage 0.71–0.92 against a nominal 0.95. The docstrings are
   corrected with a warning block stating what `att_se` conditions on, and a
   `UserWarning` now fires when controls are reused, quoting that run's own
@@ -1736,7 +1736,7 @@ via Crossref and the published PDF.
   Corrected to the accepted set. The `sclass` parameter (Holder vs. Taylor
   smoothness class, added with the WP-6 interval fix) was also missing from
   the spec and the docstring entirely; both now document it. A new test
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_rd_validation.py`) runs every enumerated choice the schema
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_rd_validation.py`) runs every enumerated choice the schema
   advertises through the estimator, so an agent-facing enum can no longer
   drift away from what the function accepts.
 
@@ -1758,13 +1758,13 @@ via Crossref and the published PDF.
   what tripped it and which corpus entries are responsible.
 
 - **The JSS validation-boundary census had drifted out of the docs.**
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/jss_source_audit_dossier.md` and `docs/guides/stability.md` still
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/jss_source_audit_dossier.md` and `docs/guides/stability.md` still
   quoted the pre-1.21.0 registry (1,154 functions across 86 submodules;
   73 `certified` / 298 `validated` / 780 `api_stable` / 3 `experimental`;
   371 certified/validated; 670 unbacked), while the live registry reports
   **1,157 across 87** and **76 / 303 / 775 / 3**, giving **379**
   certified/validated against **666** stable auto-registered symbols. Every
-  count is re-derived from `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/stability_audit.py` and
+  count is re-derived from `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/stability_audit.py` and
   `validation_evidence_audit.py` rather than hand-carried. The stability
   guide also still named `1.20.0` as the snapshot's package metadata; the
   manifest reports `1.21.0`.
@@ -1801,7 +1801,7 @@ via Crossref and the published PDF.
 ### Changed
 
 - **The JSS census pins now reconcile instead of freezing a literal.**
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jss_release_manifest.py` asserted exact tier counts and had to
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jss_release_manifest.py` asserted exact tier counts and had to
   be re-pinned three times in one day — every symbol *promoted* from
   `api_stable` to `validated`, which is unambiguously good news for the
   paper, arrived as a red test. The literals were also redundant: what
@@ -1895,7 +1895,7 @@ via Crossref and the published PDF.
   Only `sp.did` had the guard. `sp.ddd`, `sp.did_2x2`, `sp.did_analysis`,
   `sp.xtabond`, `sp.xtdpdsys`, `sp.interactive_fe` and `sp.mixlogit` did not.
 
-  New `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_robust_flag_contract.py` (98 tests) drives the contract
+  New `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_robust_flag_contract.py` (98 tests) drives the contract
   off `ROBUST_BOOL_HINTS` itself and asserts the two lists agree, so a ninth
   bool-typed `robust=` site either implements the guard or fails the suite.
 
@@ -1991,7 +1991,7 @@ via Crossref and the published PDF.
 ### Changed
 
 - **The JSS release-manifest tests pinned a census three drifts behind.**
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jss_release_manifest.py` asserted 66 `certified` / 276
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jss_release_manifest.py` asserted 66 `certified` / 276
   `validated` / 800 `api_stable` and a 342-symbol scoped-validation surface.
   Live: **70 / 297 / 783** and **367**, plus `symbols_with_limitations`
   9 → **13**. The pin is deliberate — it is a ratchet on what the paper
@@ -2011,7 +2011,7 @@ via Crossref and the published PDF.
   certified/validated while the surface grew by 8. The stale numbers were
   understating the package's own evidence coverage.
 
-  One correction is not a re-sync: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/jss_source_audit_dossier.md` gave
+  One correction is not a re-sync: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/jss_source_audit_dossier.md` gave
   **282** registry-evidence source files for both the submitted archive and
   the live inventory. Those are different quantities — the archive carries
   **152**, the live validation-note inventory **305**. The single stale
@@ -2037,7 +2037,7 @@ via Crossref and the published PDF.
   records Lee (2008) Table 2 as **0.080**, and the test pinned **0.0616**
   (−23%); a second pinned 0.073 with the comment "paper 0.077". They now read
   0.0768 and 0.077545 against R's 0.076339 and 0.077547.
-  New parity suites: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_rdrobust_parity.py`,
+  New parity suites: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_rdrobust_parity.py`,
   `test_rdrobust_params_parity.py`.
   See [MIGRATION](MIGRATION.md#rdrobust-bandwidth-rebuild).
 
@@ -2048,7 +2048,7 @@ via Crossref and the published PDF.
   non-cluster kinds are now accepted, and `cluster=` is threaded through
   the CCT cascade rather than being applied to inference alone.
 
-  All 17 cells of the new `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_rd_vce_parity.py`
+  All 17 cells of the new `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_rd_vce_parity.py`
   agree with R `rdrobust` 4.0.0 to <= 5.5e-11 on `h`, `b`, both
   coefficients and both SEs. Three defects had to land together, and each
   was invisible until the one before it was gone:
@@ -2183,7 +2183,7 @@ via Crossref and the published PDF.
   (`OptBW → PrelimVar(EHW) → IKBW → PrelimVar(Silverman)`), and `M` its
   rule of thumb, both exactly.
 
-  Two pinned values in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_cov95_rd_misc.py` recorded the old
+  Two pinned values in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_cov95_rd_misc.py` recorded the old
   output; they were re-derived by running RDHonest on that same design
   rather than by accepting whatever the new code produced.
 
@@ -2234,7 +2234,7 @@ via Crossref and the published PDF.
   - all-caps tokens treated as acronyms (`IEEE DSAA 2016`, `CGS 2024`) and
     possessives folded to the bare surname (`StatsPAI's`).
 
-  11 new tests (56→59 in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_audit_citations.py`).
+  11 new tests (56→59 in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_audit_citations.py`).
 
 ### Added
 
@@ -2287,7 +2287,7 @@ via Crossref and the published PDF.
   Pinned against `contdid` 0.1.1, the authors' own package: both curves at
   four grid points and both overall quantities, across three spline
   specifications, agree to **1e-12**. Track A module `80_contdid` plus
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_cgs_continuous_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_cgs_continuous_parity.py`.
 
   Two scope notes, stated rather than implied. Standard errors come from the
   per-cell influence function; `contdid` routes its own through the `pte`
@@ -2372,7 +2372,7 @@ via Crossref and the published PDF.
   Pinned against `didFF` 0.1.0 — Sant'Anna's own package — on `did::mpdta`
   and on a multiplicative DGP built to reject: all sixteen implied-density
   bins agree at 1.2e-15, and both p-values match. Track A module `79_didff`
-  plus `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_functional_form_parity.py`.
+  plus `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_functional_form_parity.py`.
 
   Two binning details had to match R exactly, each worth ~3e-4 per bin: the
   bins come from the **untreated** observations only, and R's
@@ -2410,7 +2410,7 @@ via Crossref and the published PDF.
 - **Parametric AFT reference parity across all four distributions.** `sp.survreg`
   was pinned against R `survival::survreg` for Weibull only. Extended to
   exponential, lognormal and loglogistic as well (11 tests,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_survreg_aft_parity.py`), with committed R
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_survreg_aft_parity.py`), with committed R
   reference JSON so the suite runs without R. The existing Weibull +
   formula-interface tests in `test_aft_parity.py` stay — they cover the
   formula API this one does not.
@@ -2460,10 +2460,10 @@ via Crossref and the published PDF.
     Melnychuk & Feuerriegel, 2025**), cited by `sp.ope` but absent from the
     bibliography.
 
-  New offline guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_citation_attribution_drift.py` (10 tests)
+  New offline guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_citation_attribution_drift.py` (10 tests)
   cross-checks every parenthesised author attribution sitting next to an
   arXiv ID in `src/` and `docs/` against `paper.bib`. The existing
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tools/audit_citations.py` needs a network and someone to run it; this
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tools/audit_citations.py` needs a network and someone to run it; this
   runs in CI. It is proven to discriminate rather than merely pass: the
   three real regressions are asserted to fire and their corrected forms to
   stay silent.
@@ -2623,8 +2623,8 @@ via Crossref and the published PDF.
   the reversal-capable estimators cluster near the truth
   (`sp.did_multiplegt` and `sp.lp_did` ~1.43, R `fect` 1.405) while the
   cohort estimator sits at 0.71. New guards:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_absorbing_treatment.py` (12 tests) and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_absorbing_reference.py` (4).
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_absorbing_treatment.py` (12 tests) and
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_absorbing_reference.py` (4).
 
   Also pinned while investigating: `sp.lp_did`'s h=0 estimate coincides
   with `sp.did_multiplegt` to machine precision **by construction** — with
@@ -2666,7 +2666,7 @@ via Crossref and the published PDF.
   `estimand` × `efficient` combinations match to **≤1e-8** on both the
   point estimate and the SE (`simple`/efficient −0.0470539142, SE
   0.0116138788). New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_staggered_rollout_parity.py` (18 tests).
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_staggered_rollout_parity.py` (18 tests).
 
   Two traps are closed by construction. R's `staggered` requires
   never-treated units coded `g = Inf` and silently returns −0.3704 instead
@@ -2742,15 +2742,15 @@ via Crossref and the published PDF.
     registered public function with 10% test coverage. It turns out to be
     correct - it matches Stata's `xtlsdvc` (Bruno 2005) to 1e-9 across all
     three initialisers and all three bias orders - but nothing was holding
-    it there. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_lsdvc_parity.py` now does, and
+    it there. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_lsdvc_parity.py` now does, and
     coverage of `statspai/gmm/` as a whole went from 81% to **97%**
-    (new `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dynpanel_internals.py` covers the lag-operator
+    (new `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dynpanel_internals.py` covers the lag-operator
     grammar, panel-layout validation and the fail-loudly guards).
   - The per-unit Python loops in the weight matrix, the moment covariance,
     the Windmeijer derivative and the AR-test lag vector were replaced by
     segment sums and banded row-pair products: a 20,000-unit, 15-period
     two-step fit went from 2.56 s to 1.12 s, system GMM from 6.24 s to
-    2.94 s. New benchmark: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/bench_dynpanel.py`.
+    2.94 s. New benchmark: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/bench_dynpanel.py`.
 
 - **`sp.gmm` (general moment-condition GMM) rebuilt.** It was a thin BFGS
   wrapper with a numerical Jacobian and no way to state the dependence
@@ -2764,13 +2764,13 @@ via Crossref and the published PDF.
   and honest convergence reporting. Verified against R `gmm::gmm` for
   two-step, iterated, CUE and HAC, and against an independent closed-form
   solution to 2e-15. New suite:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_general_gmm_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_general_gmm_parity.py`.
 
   - Numerics moved to `statspai/gmm/_dynpanel/` (spec / data / moments /
     estimate / inference / diagnostics); `sp.xtabond` is the presentation
-    layer. New suites: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_dynpanel_abdata_parity.py`
+    layer. New suites: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_dynpanel_abdata_parity.py`
     (45 tests against Stata 18 + `xtabond2` + R `plm::pgmm` + `pdynmc`) and
-    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_xtabond_golden.py` (regression lock on the pre-existing
+    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_xtabond_golden.py` (regression lock on the pre-existing
     numbers).
 
 ### Changed
@@ -2795,7 +2795,7 @@ via Crossref and the published PDF.
   scale. The two lee frames are deliberately *not* given a shared
   vocabulary — same names on different units would be a worse trap than
   the shape change. `simulated=True` keeps the replica in every case.
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_datasets_catalog.py` enforces the rule from the shipped CSV
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_datasets_catalog.py` enforces the rule from the shipped CSV
   list, so a new bundled dataset cannot quietly default to its replica.
 
 - **`list_datasets()` gained a `source` column and stopped misreporting row
@@ -2805,7 +2805,7 @@ via Crossref and the published PDF.
   catalogue instead of buried in each docstring. Three `n_obs` entries were
   wrong: `nsw_lalonde` (445 → 614, after the default flip above),
   `california_prop99` (1200 → 1209) and `basque_terrorism` (774 → 731), the
-  last two long-standing. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_datasets_catalog.py` now pins every
+  last two long-standing. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_datasets_catalog.py` now pins every
   row against its loader, so the table cannot drift again, and asserts the
   whole catalogue loads with sockets blocked.
 
@@ -2834,7 +2834,7 @@ via Crossref and the published PDF.
   names the treatment for the Sensemakr component) it doubles as the term,
   so no caller has to name the same column twice. Results exposing a scalar
   `estimate` are unaffected. Pinned by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_unified_sensitivity_term.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_unified_sensitivity_term.py`.
 
   Two callers carried the same defect and are fixed with it:
   `EconometricResults.sensitivity()` built a "1-entry view" whose
@@ -2856,7 +2856,7 @@ via Crossref and the published PDF.
 
 ### Added
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/orchestration_assertion_audit.py`** — a pre-push ratchet
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/orchestration_assertion_audit.py`** — a pre-push ratchet
   against smoke-only assertions in orchestration tests. Five shipped
   defects this cycle hid behind assertions that only proved a call did not
   raise (`assert isError is False`, `"verdict" in payload`,
@@ -2999,7 +2999,7 @@ via Crossref and the published PDF.
   `sp.aipw` was the only offender. Pass `seed=None` explicitly to opt back
   into a fresh split per call; the seed actually used is now recorded in
   `result.model_info['seed']`. Pinned by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_estimator_determinism.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_estimator_determinism.py`.
 
 - **`sp.sensitivity_dashboard` now warns when it tested nothing.** Most
   dimensions re-estimate the model on perturbed samples, so without `data=`
@@ -3008,7 +3008,7 @@ via Crossref and the published PDF.
   raises a `RuntimeWarning` naming the fix. Populated dashboards are
   unchanged and stay quiet. (The dashboard picks the treatment coefficient
   correctly; it does not share the `unified_sensitivity` intercept defect
-  above — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_unified_sensitivity_term.py` asserts that.)
+  above — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_unified_sensitivity_term.py` asserts that.)
 
 - **`sp.xtabond`'s AR(1)/AR(2) tests were wrong under `orthogonal=True`.**
   The statistic was computed on the forward-orthogonal-deviation residuals.
@@ -3071,7 +3071,7 @@ via Crossref and the published PDF.
   n = 4000 (coverage 0.930). Those figures, and the remaining gap, are
   now stated in the function's Notes rather than described only as a
   qualitative caveat. New guards:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_ml_causal_recovery_parity_round2.py`
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_ml_causal_recovery_parity_round2.py`
   compares the reported SE against the estimator's Monte-Carlo
   dispersion and checks that `se·√n` is stable across n — the only kind
   of test that catches a missing influence-curve term, since no
@@ -3100,7 +3100,7 @@ via Crossref and the published PDF.
   centring: R `gmm` centres by default, Stata does not), plus convergence
   reporting and loud rejection of under-identified models. Verified 17/17
   against R `gmm` 1.9.1 in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_general_gmm_parity.py`, which was already
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_general_gmm_parity.py`, which was already
   on `main` asserting this API against an implementation that did not have
   it. See [MIGRATION](MIGRATION.md#gmm-unadjusted-variance-and-conventions).
 
@@ -3143,7 +3143,7 @@ via Crossref and the published PDF.
   distributional-DiD value of 4,023 and the QTT curve is distorted — R
   produces the identical curve silently. The reported `ate` is the plain
   mean DiD, matching R, because the mean needs only distributional DiD.
-  New parity suite: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_panel_qtet_parity.py`.
+  New parity suite: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_panel_qtet_parity.py`.
 
 - **Firpo (2007) efficient unconditional QTE and QTT**:
   `sp.qte(method='firpo_qte')` and `sp.qte(method='firpo_qtt')`, with
@@ -3159,7 +3159,7 @@ via Crossref and the published PDF.
   (golden section, tol `.Machine$double.eps^0.25`) on a piecewise-linear
   objective, so its point value is not a well-defined functional of the data
   — it returns `-5.93e-06` where the exact answer is `0`. New parity suite:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_firpo_qte_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_firpo_qte_parity.py`.
 
 ### ⚠️ Correctness
 
@@ -3205,7 +3205,7 @@ via Crossref and the published PDF.
   positive only by sampling noise now emits a weak-instrument warning; and
   standard errors are now analytic influence-function based by default
   (Monte-Carlo coverage 0.950 / 0.957 / 0.963 against nominal 95%).
-  New guards: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_dist_iv_parity.py`.
+  New guards: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_dist_iv_parity.py`.
   See [MIGRATION](MIGRATION.md#dist-iv-quantile-wald-ratio).
 
 - **`sp.callaway_santanna(base_period='varying')` omitted the `e = −1`
@@ -3225,7 +3225,7 @@ via Crossref and the published PDF.
   the pre-period vector (`sp.honest_did`, `sp.sensitivity_rr`,
   `sp.pretrends_test`) now see one additional pre-period under
   `'varying'`, which shifts their output. New parity guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_cs_base_period_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_cs_base_period_parity.py`.
   See [MIGRATION](MIGRATION.md#cs-varying-base-period-e-minus-1).
 - **`sp.aggte(type='group')` overall ATT was an unweighted mean of the
   cohort effects.** R `did::aggte(type="group")` reports
@@ -3264,7 +3264,7 @@ via Crossref and the published PDF.
   point estimate — including the previously-wrong `group` overall
   (−0.0310182822) — and the analytic SEs land within 2.5% of R's, where
   the old independence formula gave ~0.64x. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_aggte_mpdta_parity.py` (12 ATT(g,t) cells
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_aggte_mpdta_parity.py` (12 ATT(g,t) cells
   plus all four aggregations).
 - **`sp.cbps` was not solving the Imai-Ratkovic problem.** The GMM was
   posed in the raw covariate basis with an empirical outer-product
@@ -3426,7 +3426,7 @@ via Crossref and the published PDF.
   same way. `method='relative_magnitude'` remains a worst-case-bias
   approximation and still warns; a native ARP conditional/hybrid solver is
   the remaining gap. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_honest_did_backend_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_honest_did_backend_parity.py`.
   See [MIGRATION](MIGRATION.md#honest-did-flci).
 
 
@@ -3466,7 +3466,7 @@ via Crossref and the published PDF.
   `backend='r'` for reference-backed intervals, rather than a docstring
   footnote. No numerical output changed. Implementing a native FLCI
   remains open. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_honest_did_backend_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_honest_did_backend_parity.py`.
 
 ### Added
 
@@ -3511,7 +3511,7 @@ via Crossref and the published PDF.
   `cate_eval` and `xlearner` were **absent from `sp.parity_status`
   entirely** — indistinguishable, to a user or to `docs/parity.md`, from
   estimators with no evidence at all, despite having unit tests.
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_ml_causal_recovery_parity.py` gives each a
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_ml_causal_recovery_parity.py` gives each a
   known-truth recovery or exact-identity check, so all six now carry an
   honest `analytical-only` grade. The tests are written to discriminate:
   the X-learner check requires correlation with the true CATE *surface*
@@ -3520,7 +3520,7 @@ via Crossref and the published PDF.
 - **`sp.dml_sensitivity` pinned to `doubleml`'s `sensitivity_analysis`.**
   The DML omitted-variable-bias analysis had no cross-package reference
   and was absent from the parity index. It is now pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_dml_sensitivity_parity.py`, which caught
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_dml_sensitivity_parity.py`, which caught
   the scaling-factor defect above. The reference is *doubleml-for-py*
   rather than R: `DoubleML` 1.0.2's R6 classes expose no sensitivity
   method on `DoubleMLPLR` or on the base class, so the feature has no R
@@ -3555,7 +3555,7 @@ via Crossref and the published PDF.
 - **Clean-overlap coverage guard for the causal forest (Track B).** The
   existing Track B forest row stresses overlap *loss*; nothing evidenced
   SE calibration on the clean-overlap DGP where module 13 grades the
-  point estimate. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/coverage_monte_carlo/test_coverage_robustness.py
+  point estimate. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/coverage_monte_carlo/test_coverage_robustness.py
   ::test_causal_forest_clean_overlap_ate_and_att` closes that gap,
   asserting ATE *and* ATT coverage inside [0.90, 0.98] on the module-13
   DGP; a B=300 pilot measured **94.3% for both** against a nominal 95%.
@@ -3573,7 +3573,7 @@ via Crossref and the published PDF.
   fixture carrying grf's own forest outputs and `grf::get_scores()`
   vector: StatsPAI reproduces the score vector **elementwise to 2.3e-14**
   and grf's reported ATE *and* ATT (estimate and `std.err`) to 1e-15
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_grf_aipw_operator_parity.py`,
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_grf_aipw_operator_parity.py`,
   `_fixtures/_generate_grf_scores.R`). With the operator exact, the
   module-13 band now covers forest RNG alone; `rel_se` tightens from
   **0.50 to 0.25** and the record carries a factor-level note so
@@ -3596,10 +3596,10 @@ via Crossref and the published PDF.
   engines maximise the identical objective and the residual gap is a
   pure tree-search difference — 9.6e-16 across policy value, treated
   fraction and root split at depths 1 and 2. A companion test
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_policy_tree_r_parity.py`) asserts the two
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_policy_tree_r_parity.py`) asserts the two
   engines' full per-row policy vectors are elementwise identical, which a
   scalar comparison cannot establish, and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_policy_tree_exact_search.py` checks the exact search
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_policy_tree_exact_search.py` checks the exact search
   against an independent brute-force enumeration over randomised
   problems with ties.
 - **`sp.match` now reproduces `Matching::Match` exactly under matching
@@ -3678,8 +3678,8 @@ via Crossref and the published PDF.
   Parity vs R `did` 2.3.0 on `did::mpdta` (`xformla=~lpop`): all six
   `est_method` × `control_group` combinations match to **≤1e-11** on the
   point estimate and ≤0.15% on the SE. New guards:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_cs_rcs_parity.py` (20 tests) and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_drdid_rc_parity.py` (12 tests) for the
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_cs_rcs_parity.py` (20 tests) and
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_drdid_rc_parity.py` (12 tests) for the
   underlying primitives in the new `statspai.did._rcs` module.
 
   `clustervars` remains unsupported under `panel=False` and raises —
@@ -3706,7 +3706,7 @@ via Crossref and the published PDF.
   ~1e-5 relative (`fixest` and `statsmodels` apply different
   finite-sample corrections to the clustered sandwich). Both R-generated
   fixtures are committed. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_etwfe_glm_parity.py` (19 tests).
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_etwfe_glm_parity.py` (19 tests).
 
   `family=None`/`'gaussian'` is the default and the existing linear path
   is byte-for-byte unchanged (mpdta `cgroup='notyet'` still −0.0477099183).
@@ -3716,7 +3716,7 @@ via Crossref and the published PDF.
 - **Cross-software parity coverage for `sp.sun_abraham` and
   `sp.gardner_did`** on the canonical `did::mpdta` panel, closing two
   rows that previously had no matched-option runner
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_sunab_did2s_mpdta_parity.py`). Against
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_sunab_did2s_mpdta_parity.py`). Against
   `fixest` 0.14.0, every Sun-Abraham IW event-study coefficient matches
   `fixest::sunab` to ≤1e-6 and the SEs to ≤1%; `aggregation='fixest_att'`
   reproduces `fixest::summary(agg='att')` to 1e-8 (−0.0399512752).
@@ -3742,7 +3742,7 @@ via Crossref and the published PDF.
   clustering. Parity vs R `did` 2.3.0 (`biters=9999`): ATT(g,t) point
   estimates ≤ 1e-6, bootstrap SEs within 3%, uniform critical values
   within 2%, clustered SEs within 10% (15-cluster fixture; see
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_cs_inference_parity.py`).
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_cs_inference_parity.py`).
 - **Influence-function export + post-hoc aggregation (Stata
   `csdid saverif()` equivalent).** New `sp.influence_functions(result,
   path=)` exports the per-unit ATT(g,t) influence functions of a
@@ -3902,7 +3902,7 @@ via Crossref and the published PDF.
   `except Exception: pass` sites around torch/jax RNG
   snapshot/seed/restore now emit `StatsPAIWarning` describing exactly
   which reproducibility guarantee was lost. The
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_no_silent_degradation.py` ratchet is now at
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_no_silent_degradation.py` ratchet is now at
   `BARE_SWALLOW_MAX = 0` / `SILENT_NONE_MAX = 0` — the orchestration
   silent-degradation debt is fully paid down.
 - **`sp.dist_iv`** warns when the point estimate is NaN for any
@@ -4002,7 +4002,7 @@ StatsPAI runs.
   under-identification (`len(proxies) < len(surrogates)`) and a
   rank-deficient projected first stage now raise loudly instead of
   returning a minimum-norm solution. Guards:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_surrogate_parity.py::test_proximal_surrogate_index_recovers_confounded_ate`
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_surrogate_parity.py::test_proximal_surrogate_index_recovers_confounded_ate`
   (previously skipped) and `::test_proximal_surrogate_index_invariant_to_proxy_units`.
 - **`sp.callaway_santanna(control_group="nevertreated")` now fails loudly when
   the panel has no never-treated units** instead of silently returning
@@ -4015,7 +4015,7 @@ StatsPAI runs.
   panel with any never-treated (including `NaN`-coded) unit is unaffected, and
   `control_group="notyettreated"` is unaffected. No previously-valid estimate
   moves — only the silent `0.0` degenerate path changes. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/tier_eg/test_did_robustness.py::test_cs_no_never_treated_control_documented`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/tier_eg/test_did_robustness.py::test_cs_no_never_treated_control_documented`.
 - **`sp.eigenvector_centrality` on bipartite graphs** now returns the true
   leading eigenvector instead of a spurious near-uniform vector. The score was
   computed by naive power iteration `x <- A x`, which *oscillates* on a
@@ -4025,7 +4025,7 @@ StatsPAI runs.
   eigendecomposition (`eigh` for undirected, `eig` for directed), so a star
   hub scores `1/sqrt(2)` and its leaves `1/sqrt(8)`, matching the
   igraph / networkx convention. New guard in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_network_centrality_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_network_centrality_parity.py`.
 
 - **`sp.ges` (Greedy Equivalence Search)** no longer adds a spurious edge
   between the parents of a collider. The greedy edge search had no acyclicity
@@ -4036,7 +4036,7 @@ StatsPAI runs.
   directed cycle, and the recovered DAG is reported as its CPDAG (v-structures
   stay directed, reversible edges render undirected). Colliders now recover the
   correct `X -> Z <- Y`; chains recover the undirected skeleton. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_ges_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_ges_parity.py`.
 
 - **`sp.dist_iv` / `sp.kan_dlate` with a binary instrument** no longer return a
   silent all-`NaN` `late_q`. The Wald quantile-LATE split used a strict
@@ -4047,7 +4047,7 @@ StatsPAI runs.
   back to `Z >= median` so both instrument groups are non-empty, giving up (a
   single NaN) only when the instrument is genuinely constant. Estimates on the
   previously-working draws (including the documented `seed=42` example) are
-  unchanged. New guard: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_dist_iv_parity.py`.
+  unchanged. New guard: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_dist_iv_parity.py`.
 - **`sp.contrast` / `sp.pwcompare` with `C(var)` categoricals** now return the
   correct treatment contrasts instead of all zeros. The predictive-margin
   engine matched design-matrix terms by raw column name, so a model fit with a
@@ -4057,7 +4057,7 @@ StatsPAI runs.
   adjacent / pairwise contrasts equal the corresponding dummy coefficients
   exactly (verified to ≤1e-15). Models specified with numeric-coded factors
   were already correct and are unchanged. New parity guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_contrast_pwcompare_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_contrast_pwcompare_parity.py`.
 - **`sp.did_multiplegt` DID_M / dynamic / placebo** now conditions
   switcher-vs-stayer cells on the baseline treatment `d_{t-1}`, matching the
   de Chaisemartin–D'Haultfoeuille estimator and Stata
@@ -4117,7 +4117,7 @@ StatsPAI runs.
   off Stata `regress ..., [aw=w] robust` on dispersed weights — while the
   cluster branch in the same functions squared the score correctly all
   along. Both now match Stata 18 MP to machine precision (~2e-16), pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_did2x2_ddd_weighted_robust_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_did2x2_ddd_weighted_robust_parity.py`.
   Unweighted and clustered SEs are unchanged.
 - **`sp.parallel_trends_robustness` no longer inverts the verdict for
   maximally robust effects.** `_breakdown_for_family` returns `inf` when the
@@ -4169,7 +4169,7 @@ StatsPAI runs.
 - **`sp.rd` dispatcher docstring gained a runnable doctest example**
   (default CCT path + `method="honest"`), closing the last Tier-1
   dispatcher without a `>>>` example.
-- **New loud-fallback contract tests** (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_loud_fallbacks.py`)
+- **New loud-fallback contract tests** (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_loud_fallbacks.py`)
   pinning the silent-degradation fixes below.
 
 ### Fixed
@@ -4238,7 +4238,7 @@ StatsPAI runs.
   unusable on those classes despite the §3 contract promising it. They now
   fall back to the single Field/Value sheet; the `path=None` bytes branch
   is unchanged.
-- **New regression guards** in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_export_protocol_regressions.py`
+- **New regression guards** in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_export_protocol_regressions.py`
   pinning all four defects above.
 - **`ResultProtocolMixin.to_excel` recursed forever.** The mixin's
   `to_excel` delegated to `getattr(self, "to_excel")` — i.e. itself — so
@@ -4308,18 +4308,18 @@ StatsPAI runs.
 
   | test file | estimator family covered |
   | --- | --- |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_structural_parity.py` | structural (`olley_pakes`, `levinsohn_petrin`, `ackerberg_caves_frazer`, `wooldridge_prod`, `prod_fn`, `markup`, `blp`) |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_longitudinal_parity.py` | longitudinal regimes (`longitudinal_analyze`, `longitudinal_contrast`, `regime`, `always_treat`, `never_treat`) |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_msm_family_parity.py` | `msm` |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_gformula_family_parity.py` | parametric g-formula (`gformula_ice_fn`, `gformula_mc`) |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_fairness_parity.py` | fairness (`demographic_parity`, `equalized_odds`, `fairness_audit`, `orthogonal_to_bias`, `counterfactual_fairness`, `evidence_without_injustice`) |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_imputation_parity.py` | multiple imputation (`mice`, `mi_estimate`) |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_multi_treatment_parity.py` | `multi_treatment` |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_ope_parity.py` | off-policy evaluation (`sharp_ope_unobserved`, `causal_policy_forest`) |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_surrogate_parity.py` | surrogate index (`surrogate_index`, `long_term_from_short`, `proximal_surrogate_index`) |
-  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_target_trial_parity.py` | target-trial emulation (`target_trial_protocol`, `target_trial_emulate`, `clone_censor_weight`, `immortal_time_check`, `target_trial_checklist`, `target_trial_report`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_structural_parity.py` | structural (`olley_pakes`, `levinsohn_petrin`, `ackerberg_caves_frazer`, `wooldridge_prod`, `prod_fn`, `markup`, `blp`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_longitudinal_parity.py` | longitudinal regimes (`longitudinal_analyze`, `longitudinal_contrast`, `regime`, `always_treat`, `never_treat`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_msm_family_parity.py` | `msm` |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_gformula_family_parity.py` | parametric g-formula (`gformula_ice_fn`, `gformula_mc`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_fairness_parity.py` | fairness (`demographic_parity`, `equalized_odds`, `fairness_audit`, `orthogonal_to_bias`, `counterfactual_fairness`, `evidence_without_injustice`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_imputation_parity.py` | multiple imputation (`mice`, `mi_estimate`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_multi_treatment_parity.py` | `multi_treatment` |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_ope_parity.py` | off-policy evaluation (`sharp_ope_unobserved`, `causal_policy_forest`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_surrogate_parity.py` | surrogate index (`surrogate_index`, `long_term_from_short`, `proximal_surrogate_index`) |
+  | `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_target_trial_parity.py` | target-trial emulation (`target_trial_protocol`, `target_trial_emulate`, `clone_censor_weight`, `immortal_time_check`, `target_trial_checklist`, `target_trial_report`) |
 
-  See [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/dev/parity_pr39.md`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/dev/parity_pr39.md) for the
+  See [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/dev/parity_pr39.md`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/dev/parity_pr39.md) for the
   reviewer-facing rationale (why the title was narrower than the body,
   what to expect on `git log` / JOSS audit).
 
@@ -4374,7 +4374,7 @@ StatsPAI runs.
   identities. Every record
   traces to a committed `tests/reference_parity/` guard; grades are honest
   (bit-exact only for machine-precision identities, analytical-only for
-  DGP-recovery / coverage guarantees). See `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/dev/parity_gap_inventory.md`.
+  DGP-recovery / coverage guarantees). See `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/dev/parity_gap_inventory.md`.
 - **Universal SE menu — every regression-family estimator is now 8/8 native,
   externally validated.** The reviewer question *"is wild cluster bootstrap
   usable on any estimator or only `feols`?"* now has a clean answer: `regress`,
@@ -4383,8 +4383,8 @@ StatsPAI runs.
   CR2–CR3 / jackknife / wild cluster bootstrap / Conley spatial HAC), and
   `fepois` / `feglm` add CR2–CR3/jackknife plus the score wild bootstrap.
   Every cell is pinned to an external reference
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/REFERENCES.md`); the coverage ratchet
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/se_menu_matrix.py --check` now holds 64 native cells / 0 unsafe.
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/REFERENCES.md`); the coverage ratchet
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/se_menu_matrix.py --check` now holds 64 native cells / 0 unsafe.
   Highlights:
   - `sp.feols` / `sp.panel(method="fe")` / `sp.hdfe_ols`:
     `vce="CR2"/"CR3"/"jackknife"` (Pustejovsky–Tipton 2018 on the within
@@ -4507,11 +4507,11 @@ StatsPAI runs.
     `RlassoClassifier`. The high-dim logistic *effect* (`rlassologitEffect`)
     is intentionally deferred (a separate parity exercise). 5 hdm/glmnet
     parity pins in `test_rlassologit_parity.py`.
-  Coverage: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_rlasso_parity.py` (17 pins vs
+  Coverage: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_rlasso_parity.py` (17 pins vs
   `hdm`, generated by `_generate_rlasso.R` — including `rlasso_effects`
   multi-target and a tight `sp.dml(ml_g='rlasso')` pin against a manual
   R DoubleML-PLR-with-`hdm::rlasso` reference on shared folds, agreeing to
-  machine precision) and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_rlasso.py` (24 behavioural/edge tests,
+  machine precision) and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_rlasso.py` (24 behavioural/edge tests,
   incl. the §3 result-contract). References (verified): `belloni2012sparse`
   (Econometrica 80(6), doi `10.3982/ECTA9626`), `belloni2014inference`
   (RES 81(2)), `chernozhukov2016hdm` (R Journal 8(2), doi
@@ -4532,8 +4532,8 @@ StatsPAI runs.
   - `normalize_ipw=` (Hájek self-normalized IPW) and
     `trimming_threshold=` (symmetric propensity clip) for `irm` / `iivm`.
   Each new path is pinned against `doubleml-for-py` 0.11.3 in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_dml_python_parity.py` (7 pins total) and
-  guarded by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dml_score_options.py`. **Defaults reproduce the
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_dml_python_parity.py` (7 pins total) and
+  guarded by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dml_score_options.py`. **Defaults reproduce the
   previous output bit-for-bit** — `score=None` / `normalize_ipw=False` /
   `trimming_threshold=0.01` is the historical estimator (verified PLR
   partialling-out and IRM ATE both unchanged to machine precision). This
@@ -4550,10 +4550,10 @@ StatsPAI runs.
   registry.** `paper.md`, the two reviewer-facing docs for the other
   review track, and `docs/agent_cards_spec.md` still quoted the
   release-1.16.0 snapshot (1,020 functions / 81 submodules); they now reflect
-  the 1.20.0 reality reported by `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/registry_stats.py` (1,139
+  the 1.20.0 reality reported by `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/registry_stats.py` (1,139
   functions / 87 submodules; `paper.md` uses drift-proof floors "more than
   1,100 / more than 80"). The local-only JSS release-gate expectations in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jss_release_manifest.py` were refreshed to the current
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jss_release_manifest.py` were refreshed to the current
   `validation_status` distribution (certified 66, validated 271, api_stable
   799, experimental 3; certified+validated 337 — previously 61/50/1016/3 and
   111). Documentation and test-expectation maintenance only — no estimator or
@@ -4570,7 +4570,7 @@ StatsPAI runs.
   dedicated `sp.rlasso` port — `sp.rlasso_iv` reproduces `hdm::rlassoIV`
   exactly — and `bch_post_lasso_iv` is deprecated. See the `sp.rlasso`
   entry above.)
-- **Quality gate (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/quality_gate.py`).** The `mypy` debt ratchet now
+- **Quality gate (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/quality_gate.py`).** The `mypy` debt ratchet now
   counts only StatsPAI-authored errors (lines under `src/statspai/`), so errors
   mypy surfaces while following imports into installed third-party packages no
   longer inflate the count in a venv-dependent way — the same environment
@@ -4581,7 +4581,7 @@ StatsPAI runs.
   failure); a run is now trusted whenever mypy actually produced analysis. With
   the count reflecting only our code — measured at 0 under the pinned mypy 1.x —
   `DEFAULT_MYPY_MAX` is tightened from `1058` to `25`, converting a dormant
-  ratchet into a live one. New guards in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_import_budget.py`.
+  ratchet into a live one. New guards in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_import_budget.py`.
 - **`StatsPAI_full_data_analysis_skill/SKILL.md`.** The frontmatter description,
   keyword list, and triggers now advertise the distributional / gap-decomposition
   family (`sp.oaxaca`, `sp.kitagawa_decompose`, `sp.dfl_decompose`, `sp.gelbach`,
@@ -4613,7 +4613,7 @@ StatsPAI runs.
   detects the tuple form and otherwise uses the array as-is, so both StatsPAI
   and libpysal weights work; calls that passed a raw NumPy array (the only
   path that worked before) are numerically unchanged. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_spatial_models_parity.py::test_spatial_iv_accepts_native_W_object`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_spatial_models_parity.py::test_spatial_iv_accepts_native_W_object`.
 - **`sp.peer_effects` and the `sp.network` graph layer now accept a native
   StatsPAI `W` object.** Both carried the same `W.full()[0]` first-row bug as
   `spatial_iv` (peer_effects raised `AxisError: axis 1 is out of bounds` on the
@@ -4621,7 +4621,7 @@ StatsPAI runs.
   instead of the `(n, n)` adjacency). Both now detect the libpysal `(array,
   ids)` tuple form and otherwise use the dense array directly. Raw-array /
   scipy-sparse inputs are unaffected. New guard:
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_peer_effects_parity.py::test_peer_effects_accepts_native_W_object`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_peer_effects_parity.py::test_peer_effects_accepts_native_W_object`.
 
 ## [1.20.0] — 2026-06-22
 
@@ -4741,7 +4741,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   wrappers around the shared OLS machinery, surfacing ANCOVA, change-score
   NEGD, assumptions, and regression-to-the-mean warnings as `CausalResult`
   objects.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/agent_workflow_spec_audit.py`** — a static audit for agent
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_workflow_spec_audit.py`** — a static audit for agent
   empirical-analysis workflow specs, including a bundled DID example contract
   and focused regression tests.
 
@@ -4887,7 +4887,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   All eight flagship functions carry curated agent-native registry specs
   (`sp.describe_function` / `sp.function_schema`). 21 new references verified
   via the Crossref API and added to `paper.bib`. New test suite
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_network.py` (42 cases: karate/Florentine parity, analytic
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_network.py` (42 cases: karate/Florentine parity, analytic
   small-graph closed forms, and boundary cases).
 
 ### ⚠ Correctness
@@ -4953,10 +4953,10 @@ estimates. See `MIGRATION.md` for per-function detail.
   citation keys are sourced from the modules' existing references and checked
   against `paper.bib` — zero-hallucination (CLAUDE.md §10): a method with no
   single canonical paper honestly returns a placeholder rather than a
-  fabricated reference, and a CI test (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_result_protocol.py`) fails
+  fabricated reference, and a CI test (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_result_protocol.py`) fails
   if any `_citation_keys` value is absent from `paper.bib`. The serialisation
-  logic lives in exactly one place. Pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_result_protocol.py`
-  and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_result_to_dict.py`.
+  logic lives in exactly one place. Pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_result_protocol.py`
+  and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_result_to_dict.py`.
 - **29 estimators made agent-discoverable (`__all__` / registry drift repair).**
   A family of estimators — the proximal / negative-control identification
   methods (`sp.double_negative_control`, `sp.proximal_regression`,
@@ -4976,7 +4976,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   complete, and the MCP schema bundle covers them. Eleven of them additionally
   gained hand-written agent-native cards (identifying assumptions, failure
   modes, alternatives). The `__all__`↔registry drift guard baseline shrank from
-  44 → 25, locking the gain in. Pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_registry_drift_repair.py`
+  44 → 25, locking the gain in. Pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_registry_drift_repair.py`
   (discoverability + correctness-by-construction on a known-truth DGP).
 - **Full coefficient table on limited-dependent-variable models.** `sp.tobit`
   and `sp.heckman` now expose the *entire* coefficient vector through
@@ -4990,7 +4990,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   breaks; as a bonus `sp.etable(tobit_fit)` now renders the full regression
   table. Implemented via a small `LimitedDepResult` subclass — the shared
   `CausalResult` base is untouched. Pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_limited_dep_lane.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_limited_dep_lane.py`.
 - **Standard result accessors on parametric survival models.** `sp.aft`
   (`AFTResult`) and `sp.cox_frailty` (`FrailtyResult`) now expose
   `.params` / `.std_errors` / `.tvalues` / `.pvalues` like every other
@@ -5001,7 +5001,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   Hessian and then discarded by a `[:k]` slice). The two independent Weibull
   AFT implementations (`sp.aft` and `sp.survreg`) are cross-validated to agree
   on coefficients (~1e-5) and standard errors (~1e-7). Pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_limited_dep_lane.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_limited_dep_lane.py`.
 - **`sp.garch` now reports parameter standard errors / inference.** The
   GARCH(p,q) fit previously returned only point estimates (`omega`, `alpha`,
   `beta`, `mu`) with no standard errors, so the volatility parameters could
@@ -5010,7 +5010,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   the standard `.params` / `.std_errors` / `.tvalues` / `.pvalues` accessors,
   with a coef/std-err/z/p table in `.summary()`. Monte-Carlo coverage tracks
   the empirical SD of α̂/β̂ to ratio ~0.96. Pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_garch_inference.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_garch_inference.py`.
 - **`sp.bvar` now reports posterior uncertainty (SD + credible intervals).**
   The Bayesian VAR previously returned only the posterior-mean coefficient
   matrix, so credible intervals could not be formed. The marginal posterior
@@ -5021,7 +5021,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   added to `.summary()`. Validated against statsmodels VAR: in the loose-prior
   limit the posterior SD equals the OLS VAR standard error (to the n vs n-k df
   factor), and the Minnesota prior correctly shrinks it. Pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bvar_posterior_se.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bvar_posterior_se.py`.
 - **`gwr` (geographically weighted regression) now reports local standard
   errors and t-values.** GWR previously returned only the local coefficient
   matrix `params (n, k)`, so a user could not tell *where* a covariate's
@@ -5031,7 +5031,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `σ̂² = RSS / (n − 2 tr(S) + tr(S'S))`, exposed via the new `se` and `tvals`
   attributes. Verified against the global limit: at a very large bandwidth the
   per-location SE collapses to the OLS standard error (to ~0.5%, identical
-  across locations). Pinned in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/spatial/test_gwr_local_se.py`.
+  across locations). Pinned in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/spatial/test_gwr_local_se.py`.
   (Multiscale GWR / `mgwr` local SEs remain a known follow-up — their
   back-fitting variance is materially more involved.)
 
@@ -5062,9 +5062,9 @@ estimates. See `MIGRATION.md` for per-function detail.
   (e.g. sklearn absent), the fallback branch then referenced an unbound `lr`,
   so the "degrade gracefully" promise itself crashed. The two network
   estimators additionally gained agent-native cards (assumptions / failure
-  modes / alternatives). Pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_input_validation.py`,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_proximal_input_validation.py` and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_interference_orthogonal.py`.
+  modes / alternatives). Pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_input_validation.py`,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_proximal_input_validation.py` and
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_interference_orthogonal.py`.
 - **Fail-loud input validation on the DiD / time-series / shift-share /
   sensitivity estimators.** A second hardening sweep closes the same
   silent-failure class in five more estimators that an investigation surfaced:
@@ -5083,7 +5083,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   a min-observations floor (n > parameters) and an intervention-in-range check;
   `sp.dl_propensity_score` validates ≥2 rows spanning both treatment classes
   without dropping rows (the returned score stays row-aligned). Pinned by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_estimator_input_hardening.py`. Separately, the long-standing
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_estimator_input_hardening.py`. Separately, the long-standing
   `test_dl_propensity_score_returns_valid_probs` pinned a non-converging
   `MLPClassifier`'s output to `atol=1e-12` (sklearn/BLAS-version fragile); it now
   asserts environment-robust invariants instead. The same sweep also clarifies
@@ -5116,7 +5116,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   raise a clear message for anything else. Classical and robust IV standard
   errors match `ivregress 2sls, small` / `ivregress 2sls, robust small` (the
   finite-sample *t* convention StatsPAI uses) to machine precision. Pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_regress_weights_iv_robust_parity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_regress_weights_iv_robust_parity.py`.
 - **⚠️ Correctness — `sp.biprobit` always reported zero error correlation.**
   The bivariate-probit MLE estimated `rho` via a per-observation
   `scipy.stats.multivariate_normal.cdf` loop whose ~1e-8 precision floor
@@ -5131,9 +5131,9 @@ estimates. See `MIGRATION.md` for per-function detail.
   ρ̂≈0.47 (p<0.001), and on independent errors ρ̂≈0 (p≈0.97). `biprobit` now
   also reports `model_info['converged']`. Marginal coefficients match separate
   univariate probits and reproduce the pre-regression reference values
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_v06_round2.py::TestSelectionModels::test_biprobit`, previously
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_v06_round2.py::TestSelectionModels::test_biprobit`, previously
   failing, now green). Behavioural regression test added in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_limited_dep_lane.py`. Reference: Drezner & Wesolowsky (1990),
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_limited_dep_lane.py`. Reference: Drezner & Wesolowsky (1990),
   *J. Stat. Comput. Simul.* 35(1–2), 101–107 (verified via Taylor & Francis +
   Semantic Scholar).
 - **⚠️ Correctness — `sp.sar` / `sp.sem` spatial-parameter standard errors
@@ -5148,7 +5148,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   numerical Hessian of the exact log-likelihood (`slogdet` Jacobian) to <5%,
   and (ii) Monte-Carlo coverage matches the empirical SD of ρ̂/λ̂ (ratio
   0.89/0.94, vs 1.51/1.39 before). Point estimates are unchanged. Pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/spatial/test_ml_se_information.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/spatial/test_ml_se_information.py`.
 - **Reliability — spurious `converged: False` on the BFGS-based MLEs.**
   `sp.tobit`, `sp.heckman`'s selection probit, `sp.truncreg`, `sp.zip` /
   `sp.zinb`, `sp.betareg` and `sp.biprobit` reported
@@ -5163,7 +5163,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   transparency. It only ever relaxes a false negative — a genuinely
   non-converged run keeps a large gradient and still reports `False`. Point
   estimates and standard errors are byte-identical; only the boolean flag
-  changes. Pinned in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_limited_dep_lane.py`.
+  changes. Pinned in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_limited_dep_lane.py`.
 
 ## [1.18.0] — 2026-06-15
 
@@ -5177,7 +5177,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   reproducing Stata's `r(seatt)` **digit for digit** (machine precision, since
   the within-arm match and `_weight` are both discrete). `sp.match` gains
   `se_method='abadie_imbens'` + `ai_matches=J`. Pinned in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_psmatch2_parity.py` against Stata 18 `ai(1)` /
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_psmatch2_parity.py` against Stata 18 `ai(1)` /
   `ai(2)`. (Note: psmatch2's `llr` local-linear matching is intentionally
   **not** ported — Stata routes its default through the `lpoly` command, whose
   bandwidth/boundary handling is not bit-reproducible; a faithful "align with
@@ -5200,10 +5200,10 @@ estimates. See `MIGRATION.md` for per-function detail.
   its nearest-neighbour SE default is unchanged (`se_method='auto'` → AI),
   so existing results are untouched. Algorithm and SE formula were
   reverse-engineered from `psmatch2.ado` and pinned against Stata 18 in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_psmatch2_parity.py` (with kernel/radius
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_psmatch2_parity.py` (with kernel/radius
   fixtures and scalars).
 - **`sp.psmatch2` — Stata `psmatch2`-faithful propensity-score matching with
-  a full post-matching toolkit (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/matching/psmatch2.py`).** Closes
+  a full post-matching toolkit (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/matching/psmatch2.py`).** Closes
   the gap that `sp.match(method='psm')` produced only an ATT, not the
   per-observation matched-sample variables Stata writes back. `sp.psmatch2`
   returns a `PSMatch2Result` whose `.matched_data` carries the psmatch2
@@ -5220,7 +5220,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   baseline outcome). Verified **row-for-row against Stata 18 `psmatch2`** —
   ATT exact to 6 digits, and `_pscore` / `_weight` / `_nn` / `_pdif` / `_n1`
   (neighbour identity) / `_y` all match (`tests/reference_parity/
-  test_psmatch2_parity.py`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_psmatch2.py`, +40 tests). New guide:
+  test_psmatch2_parity.py`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_psmatch2.py`, +40 tests). New guide:
   [`docs/guides/psm_did.md`](docs/guides/psm_did.md). Refs verified via
   Crossref (Heckman-Ichimura-Todd 1997, DOI 10.2307/2971733) and the SSC
   archive (Leuven & Sianesi 2003, S432001).
@@ -5248,7 +5248,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   recovers truth), and structure-recovery metrics (skeleton precision =
   recall = 1). Each was adversarially verified to FAIL under a 20% injected
   estimate bias; DGPs and tolerance rationale are logged in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/REFERENCES.md`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/REFERENCES.md`.
 
 ### Changed
 
@@ -5256,7 +5256,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `43_heckman`, `28_frontier`, `44_mlogit`, `41_tobit`, `14_ols_cluster`,
   `24_coxph`, `46_clogit`, `49_oprobit`) to ≈3× the worst observed gap
   across both reference sides (floored at the `1e-6` machine tier) — none
-  loosened; `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/dev/r_parity_tolerances.md` carries the before/after
+  loosened; `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/dev/r_parity_tolerances.md` carries the before/after
   table and the harness contract test stays green.
 - **Hardened ~555 weak assertions** across 12 core-estimator test suites
   (DiD / RD / DML / synth / panel / matching / proximal / principal-strat /
@@ -5277,7 +5277,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   aligns an array-valued `weights=` to the post-`dropna` sample, and threads the
   weights through the clustered sandwich. FE-absorbed paths were already
   weighted and are numerically unchanged; no-`weights=` calls are unchanged.
-  Guarded by new cases in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_panel_cov_feols.py`. See
+  Guarded by new cases in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_panel_cov_feols.py`. See
   [MIGRATION.md](MIGRATION.md#feols-nofe-weights).
 
 - Typo `boostrap` → `bootstrap` in a `structural/production/wooldridge.py`
@@ -5292,7 +5292,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   → 952/1031) and repaired the package's long-standing *illustrative*
   examples on headline functions (`sp.did(df, ...)` with a placeholder
   `df`, bare `did(...)`, `sp.synth.california_prop99()` submodule-access
-  bugs) so they actually execute. A new `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/check_example_execution.py`
+  bugs) so they actually execute. A new `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/check_example_execution.py`
   extracts every example's `>>>` source (dropping `# doctest: +SKIP`
   lines reserved for heavy-optional / external-data blocks) and runs it:
   the package now reports **939 examples run, 0 failing**. Two CI gates in
@@ -5323,8 +5323,8 @@ estimates. See `MIGRATION.md` for per-function detail.
   migration-from-r, mixtape_ch09_did, agent_native_workflow) are now wired
   into the mkdocs nav, and `mkdocs build --strict` is green.
 - **R/Stata parity tolerance registry
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/dev/r_parity_tolerances.md`, linked next to the JSS dossier).**
-  Every per-module tolerance in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/compare.py` now carries an
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/dev/r_parity_tolerances.md`, linked next to the JSS dossier).**
+  Every per-module tolerance in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/compare.py` now carries an
   A (mechanistic) / B (empirical, with recomputed observed gaps) / C
   (honestly unjustified) grade, and 13 stale loose SE budgets were
   tightened — none loosened — including the former `11_psm rel_se = 5.0`
@@ -5337,14 +5337,14 @@ estimates. See `MIGRATION.md` for per-function detail.
   psm, cbps, overlap_weights, love_plot, balance_diagnostics,
   rif_decomposition, dfl_decompose). Each example executed before landing
   and independently re-run by a verifier agent (27/27 pass). New
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/examples_coverage.py` audits Examples coverage per category
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/examples_coverage.py` audits Examples coverage per category
   (currently 370/1031 registered functions, 35.9%) for future ratcheting.
-- **Performance-regression ratchet (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/benchmark_ratchet.py` +
+- **Performance-regression ratchet (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/benchmark_ratchet.py` +
   scheduled `benchmarks.yml` workflow).** The released PyPI wheel and the
   source tree are benchmarked back-to-back on the same runner twice a
   month; any `sp_*` timing >1.5× slower than the release fails the
   scheduled run (PRs are never blocked). A committed
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/baseline.json` enables the same-machine local check.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/baseline.json` enables the same-machine local check.
 - **Community/supply-chain files**: `SECURITY.md` (private vulnerability
   reporting policy with scope notes) and `.github/dependabot.yml`
   (weekly pip + GitHub-Actions, monthly cargo update PRs).
@@ -5390,7 +5390,7 @@ estimates. See `MIGRATION.md` for per-function detail.
     on `sp.california_prop99()` — point estimate agrees to ~1e-6
     (−17.8985 packs/capita).
 - **NIST StRD one-way ANOVA certification for `sp.regress`
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/numerical_accuracy/test_nist_strd_anova.py`).** All 11 NIST ANOVA
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/numerical_accuracy/test_nist_strd_anova.py`).** All 11 NIST ANOVA
   datasets (SiRstv, SmLs01–09, AtmWtAg) bundled verbatim; a one-way ANOVA is
   OLS of `y ~ C(group)`, so these certify the F-statistic / R² / sum-of-squares
   numerical accuracy. Backed by the new mean-centred OLS fit (see ⚠️
@@ -5409,7 +5409,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `feglm`, `mi_estimate`, boundary/multi-score RD aliases (`boundary_rd`,
   `geographic_rd`, `multi_score_rd`), production functions (`levpet`, `opreg`),
   `peer_effects`, `notch`, `model_averaging_dml`, `test_calibration`. A
-  read-only classifier `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/tierd_classify.py` grades every registered
+  read-only classifier `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/tierd_classify.py` grades every registered
   function's test evidence (reference / anchored / weak / smoke / untested) and
   emits the worklist; the zero-guard P1 floor went from 25 → 0 (the lone
   remainder, `blp`, fixed in this release — see Fixed). Purely
@@ -5419,41 +5419,41 @@ estimates. See `MIGRATION.md` for per-function detail.
   Jupyter notebooks reproduce the headline numbers of Card (1995), ADH (2010)
   Prop 99, LaLonde/DW NSW, Lee (2008) RD, and Graddy (2006) from the bundled
   *real* data; each ends with a drift-guard cell, and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_replication_notebooks.py` executes them headless in CI (fails on
-  drift). Generated by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/build_replication_notebooks.py`; new
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_replication_notebooks.py` executes them headless in CI (fails on
+  drift). Generated by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/build_replication_notebooks.py`; new
   `notebooks` extra (`pip install -e ".[notebooks]"`).
 - **Agent-native surface hardening (agent-infra work line).** A batch of
   additive metadata / result-object / MCP-runtime improvements that make the
   schema an agent reads (`sp.describe_function`) trustworthy. No estimator
   numerics, signatures, or `paper.md`/`paper.bib` touched (see
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/dev/agent_infra_campaign.md` for the JOSS-isolation contract):
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/dev/agent_infra_campaign.md` for the JOSS-isolation contract):
   - **`EconometricResults.cite(format=...)` — citation parity with
     `CausalResult`.** Previously `sp.bib_for(<regression result>)` raised
     because only `CausalResult` carried `.cite()`. The bib key resolves exactly
     from `model_info['citation_key'] → model_type → method` against the shared
     `CausalResult._CITATIONS`; OLS/logit/probit/poisson return a placeholder
     rather than a fuzzy/fabricated match (§10 zero-hallucination). Pure addition
-    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_econometric_results_cite.py`).
+    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_econometric_results_cite.py`).
   - **Opt-in TTL + reason-aware misses for the MCP result cache.** New
     `STATSPAI_MCP_RESULT_CACHE_TTL` env var (default unset = no expiry, prior
     behaviour byte-identical); expired handles are swept lazily on access /
     eagerly on insert, and a bounded ledger records why a handle left
     (`ttl`/`lru`/`explicit`) so the "result expired" hint an agent receives is
     tailored to the cause. New `evict()` / `purge_expired()` / `stats()`
-    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_result_cache_ttl.py`).
+    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_result_cache_ttl.py`).
   - **Docstring parser now reads type-less NumPy param headers** (`name` then an
     indented description, no `: type`), recovering **65 parameter descriptions
     across 41 functions** (`feols`, `causal_forest`, `match`, …) that
     `describe_function` was silently dropping. No new dependency; a column-0
     barename branch with the false-positive boundary pinned by
-    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_docstring_param_parser.py`.
+    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_docstring_param_parser.py`.
   - **Three forward CI guards** (test-only, no runtime change): every MCP
     workflow tool has a real dispatch branch
-    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_workflow_tool_dispatch_contract.py`); the 42-edge
+    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_workflow_tool_dispatch_contract.py`); the 42-edge
     `FunctionSpec.inherits_from` graph stays free of dangling parents /
-    self-references / cycles (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_inherits_from_integrity.py`); and a
+    self-references / cycles (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_inherits_from_integrity.py`); and a
     concrete source annotation never collapses to `Any` in auto-generated specs
-    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_auto_spec_type_resolution.py`).
+    (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_auto_spec_type_resolution.py`).
 
 ### Changed
 
@@ -5480,7 +5480,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `experimental`. Orchestration-layer stragglers in
   `workflow.causal_workflow`, `smart.benchmark`, and
   `smart.identification` now route through `record_degradation` (bare-
-  swallow debt ratchet 8 → 7 in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_no_silent_degradation.py`).
+  swallow debt ratchet 8 → 7 in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_no_silent_degradation.py`).
 - **⚠️ Correctness — `sp.unified_sensitivity` dashboard components revived
   and corrected.** (1) The Sensemakr component was 100% dead code: it called
   `sensemakr(result, treatment=...)` against the real signature
@@ -5503,7 +5503,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `delta_for_zero`; both fixed, so `dash.oster["delta"]` is now the actual
   Oster δ*. Locked by parity tests against direct `sp.sensemakr` /
   `sp.rosenbaum_bounds` / `sp.oster_bounds` calls in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_unified_sensitivity.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_unified_sensitivity.py`.
 - **RIF/UQR parity now mirrors `dineq::rif`'s exact density convention.**
   The `quantile_convention="dineq"` path now ports R `stats::density`'s
   binned Gaussian estimator at the quantile, rather than a direct Gaussian
@@ -5527,7 +5527,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   per-stratum mask matched nothing and the bounds summed to zero with no error.
   NaN strata are now bucketed into an explicit `-1` sentinel stratum, recovering
   the correct closed-form bounds. The analytic guard
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_tierD_bounds_analytic.py::TestHorowitzManskiAnalytic::test_single_stratum_matches_closed_form`)
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_tierD_bounds_analytic.py::TestHorowitzManskiAnalytic::test_single_stratum_matches_closed_form`)
   pins the single-stratum case to the closed form on both pandas 2.x and 3.x.
   Numerics are unchanged on pandas < 3.0.
 
@@ -5537,7 +5537,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `TypeError: _gmm_objective() got an unexpected keyword argument 'maxiter'`
   before producing any output. Renamed the keyword at both call sites (first-
   and second-stage GMM). A new analytic recovery test
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_tierD_structural_analytic.py::TestBLPAnalytic`) recovers the
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_tierD_structural_analytic.py::TestBLPAnalytic`) recovers the
   known linear price/characteristic coefficients on a logit DGP with
   endogenous price and valid cost instruments, and guards the keyword
   regression directly. This clears the last Tier D zero-guard remainder.
@@ -5553,7 +5553,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   and `granger_causality` forms the proper coefficient covariance
   `σ²_caused·(X'X)⁻¹`, so the F now matches the restricted-vs-unrestricted OLS
   F-test and detects causal direction correctly. Guarded by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_tierD_p2_timeseries_analytic.py`. No prior valid result is
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_tierD_p2_timeseries_analytic.py`. No prior valid result is
   invalidated (the old statistic was statistically meaningless); no JOSS/JSS
   table uses `granger_causality`. Found by the Tier D campaign (CLAUDE.md §5).
 
@@ -5569,7 +5569,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `dag_recommend_estimator`. Moralisation now connects every pair of a node's
   parents; the chain/fork/collider truths and back-door adjustment-set finding
   are correct (e.g. `adjustment_sets("X","Y")` on `W→X, W→Y, X→Y` now returns
-  `[{W}]`). Guarded by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_tierD_p2_dag_dsep_analytic.py`; all 9
+  `[{W}]`). Guarded by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_tierD_p2_dag_dsep_analytic.py`; all 9
   dag-touching test files still pass (none had pinned the broken behaviour).
   No JOSS/JSS table uses these graph routines. Found by the Tier D campaign.
 
@@ -5591,7 +5591,7 @@ estimates. See `MIGRATION.md` for per-function detail.
     result already compatible with the null).
   The keyword `rare_outcome` is renamed `rare`; the old name still works as a
   `DeprecationWarning` alias. Verified at machine precision against R `EValue`
-  across every measure (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/23_evalue.py`, 26 rows, worst relative
+  across every measure (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/23_evalue.py`, 26 rows, worst relative
   difference 5.8e-14). **JOSS/JSS note:** this is the `23_evalue` row of the JSS
   cross-language parity table
   (`Paper-JSS/manuscript/tables/appendix_b_parity.tex`); the change *increases*
@@ -5607,14 +5607,14 @@ estimates. See `MIGRATION.md` for per-function detail.
   - **18 specs advertised param *names* the function cannot accept** (e.g.
     `metalearner` said `treatment`/`method`; the signature — and the spec's own
     example — use `treat`/`learner`). Fixed to match real signatures;
-    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_registry_signature_contract.py` now locks two invariants over
+    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_registry_signature_contract.py` now locks two invariants over
     all hand-written specs (no phantom params; every required signature param
     documented).
   - **11 specs reported a default *value* the estimator does not use** — e.g.
     `drdid` method `'dr'`→`'imp'` (enum `['dr','or','ipw','reg','stdipw']`→
     `['imp','trad']`), `did_bcf` `n_trees` `200`→`50`, `harvest_did` `reference`
     `'pre'` (str)→`-1` (int), `iv_compare`/`iv_diag` defaults stored as
-    string-reprs-of-tuples → real lists. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_registry_default_contract.py`
+    string-reprs-of-tuples → real lists. `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_registry_default_contract.py`
     locks that a pinned default neither contradicts the signature nor falls
     outside its own enum. (Also surfaced and corrected a latent duplicate
     `harvest_did` registration.)
@@ -5627,7 +5627,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   ATT across environments. Equal-distance ties now select lower-index pool
   units first, with lower-index target units used as the without-replacement
   fallback. A shuffled-row regression test guards the policy, and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_tierD_lalonde_psm_guard.py` is tightened from the old
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_tierD_lalonde_psm_guard.py` is tightened from the old
   cross-backend band (width ~$300) to two exact anchors (±0.1): GitHub CI is
   now bitwise-identical across ubuntu/windows/macos (`1967.94`), while
   Accelerate on macOS 26 lands at `1963.43` — a residual ULP-level *near*-tie
@@ -5639,7 +5639,7 @@ estimates. See `MIGRATION.md` for per-function detail.
 ### Known issues
 
 - **NIST StRD Linear Least Squares certification for the OLS kernel
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/numerical_accuracy/test_nist_strd_ols.py`).** All 11 NIST Statistical
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/numerical_accuracy/test_nist_strd_ols.py`).** All 11 NIST Statistical
   Reference Datasets for linear regression (Norris, Pontius, NoInt1/2, Filip,
   Longley, Wampler1–5) are bundled verbatim under
   `tests/numerical_accuracy/_fixtures/nist_strd/` and checked against their
@@ -5728,7 +5728,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   (and accepts the canonical `endog`/`instruments`/`exog` aliases), so the
   formula path returns the **same** estimates as the explicit
   `x_endog=[...]`, `z=[...]` calling convention — verified bit-for-bit
-  (`atol=0`) in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_iv_cov_tail.py::test_dispatch_lasso_formula_matches_native`.
+  (`atol=0`) in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_iv_cov_tail.py::test_dispatch_lasso_formula_matches_native`.
   No existing numerics move: the native `lasso_iv` path is unchanged; this only
   turns a previously-erroring route into a working one.
 
@@ -5761,7 +5761,7 @@ estimates. See `MIGRATION.md` for per-function detail.
 
 ### Added
 
-- **Registry-example bind guard (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_registry_examples_bind.py`).**
+- **Registry-example bind guard (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_registry_examples_bind.py`).**
   A parametrized test now statically parses every registered `example` string
   and binds the keyword arguments of its `sp.<name>(...)` call against the real
   signature, failing if an example references a keyword the function does not
@@ -5773,17 +5773,17 @@ estimates. See `MIGRATION.md` for per-function detail.
 - **`parity` optional extra — opt-in DoubleML reference pin for `sp.dml`.**
   `pip install -e ".[dev,parity]"` now installs `doubleml-for-py` (the Python
   DoubleML reference of Bach, Chernozhukov, Kurz & Spindler, JMLR 23(53),
-  2022), so `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_dml_python_parity.py` *runs* instead
+  2022), so `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_dml_python_parity.py` *runs* instead
   of silently skipping. Under identical scikit-learn learners and folds,
   `sp.dml(model='plr')` reproduces `doubleml-for-py` to machine precision on
   the seed-42 fixture — `|Δ coefficient| = 1.1e-16` and `|Δ standard error| =
   1.4e-17`, i.e. one float64 unit in the last place. `doubleml` remains *not*
   a runtime dependency. The measured numbers, software versions, and the
   divergence discussion are recorded in the source-audit evidence trail
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/jss_source_audit_dossier.md` plus the parity artifacts under
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/jss_source_audit_dossier.md` plus the parity artifacts under
   `tests/external_parity/`). Verified by installing the
-  extra and running both `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_dml_python_parity.py` and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_dml_parity.py` (55 DML tests green).
+  extra and running both `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_dml_python_parity.py` and
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_dml_parity.py` (55 DML tests green).
 
 ### Fixed
 
@@ -5828,7 +5828,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   (no change). A crash-hunt across ~48 fitted results confirmed the rest of
   the §3 unified-result export surface (`summary`/`to_latex`/`to_markdown`/
   `to_word`/`to_excel`/`cite`/`tidy`/`for_agent`/`plot`) is otherwise clean
-  across 20+ estimator families. Covered by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_glance_survival.py`.
+  across 20+ estimator families. Covered by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_glance_survival.py`.
 
 - **`sp.event_study` results crashed the library's own exporters, plotters and
   pre-trend tools (canonical-column mismatch).** `sp.event_study` emitted its
@@ -5868,7 +5868,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `model_info['vcv_pre']` and a full-length `delta` are aligned to the retained
   periods, and a still-singular VCV now raises a clear `ValueError` (collinear
   pre-periods) instead of an opaque NumPy error. No output changes for any call
-  that previously succeeded. Covered by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_pretrends_power.py`.
+  that previously succeeded. Covered by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_pretrends_power.py`.
 
 - **⚠️ Correctness — `sp.structural_break` sup-F p-value used the wrong null
   distribution.** The Chow/sup-F statistic is a *supremum* of the F statistic
@@ -5939,8 +5939,8 @@ estimates. See `MIGRATION.md` for per-function detail.
   emits a `RuntimeWarning` instead of silently degrading. On the regression
   fixture the fixed path reproduces a textbook stabilized-IPTW computation to
   machine precision (`max|Δw| = 1.8e-15`); the already-correct multi-period
-  path is unchanged. Verified by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_msm_singleperiod_iptw_regression.py`
-  (3 new tests) plus the existing `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_msm.py` (8 green total). See
+  path is unchanged. Verified by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_msm_singleperiod_iptw_regression.py`
+  (3 new tests) plus the existing `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_msm.py` (8 green total). See
   MIGRATION.md.
 - **CI: scikit-learn 1.9 compatibility — `LassoCV(n_alphas=...)` removal.**
   scikit-learn 1.7 deprecated the `n_alphas` argument of the coordinate-descent
@@ -5949,9 +5949,9 @@ estimates. See `MIGRATION.md` for per-function detail.
   now raises `TypeError: LassoCV.__init__() got an unexpected keyword argument
   'n_alphas'`. The `CI/CD Pipeline` matrix resolves to scikit-learn 1.9.0, so
   `sp.tmle(method='hal')` (`HALRegressor`) and `sp.rd_flex(learner='lasso')`
-  both failed at construction (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_hal_tmle.py`,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_estimator_provenance_round5.py::TestHalTmleProvenance`,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_low_cov_battery.py::test_hal_regressor_predicts_finite`). A new
+  both failed at construction (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_hal_tmle.py`,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_estimator_provenance_round5.py::TestHalTmleProvenance`,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_low_cov_battery.py::test_hal_regressor_predicts_finite`). A new
   version-robust shim `statspai.compat.sklearn.lasso_cv_alphas_kwargs(n)` emits
   `{"alphas": n}` on scikit-learn >= 1.7 and `{"n_alphas": n}` on older
   releases; both call sites now route through it. The number of path alphas
@@ -5965,7 +5965,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `pandas.core.frame.DataFrame`. Because pandas 3.0 requires Python >= 3.11,
   the committed bundle matched the CI `ubuntu x 3.10` shard but was flagged
   stale on every 3.11/3.12/3.13 shard, failing `CI/CD Pipeline`
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_schema_export.py::test_committed_schemas_dir_is_in_sync`).
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_schema_export.py::test_committed_schemas_dir_is_in_sync`).
   `_stringify_annotation` now canonicalises pandas internal module paths to
   their public form, so the exported bundle is byte-identical across pandas
   versions. Verified by regenerating under both pandas 2.x and pandas 3.0 and
@@ -5976,7 +5976,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `_scan_reference_tests` recorded each parity test as a validation-evidence
   note via `str(path.relative_to(root))`, which emits OS-native separators —
   so Windows runners wrote `tests\reference_parity\...` backslash notes. That
-  (a) failed `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jss_validation_api.py::test_certified_validated_symbols_have_attached_evidence_notes`
+  (a) failed `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jss_validation_api.py::test_certified_validated_symbols_have_attached_evidence_notes`
   because the JSS evidence-grade markers are forward-slash, and (b) drifted
   `agent_cards.json` away from the POSIX-generated committed bundle, failing
   the schema-sync guard on every Windows shard. Notes are now built with
@@ -5988,8 +5988,8 @@ estimates. See `MIGRATION.md` for per-function detail.
   multi-agent audit surfaced the remaining latent siblings of the two bugs
   above (none yet red, but each a Windows landmine of the identical class):
   `validation._rel` (artifact paths in `sp.validation_report()`) and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/stability_audit.py` now build paths with `Path.as_posix()`;
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_causal_workflow.py` and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_paper_tables.py` now read the
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/stability_audit.py` now build paths with `Path.as_posix()`;
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_causal_workflow.py` and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_paper_tables.py` now read the
   UTF-8 HTML/LaTeX/markdown reports they generate with `encoding="utf-8"`
   (cp1252 default would mojibake on Windows — CLAUDE.md §5). Two POSIX-runnable
   schema-bundle invariants were added (no backslash separators; no internal
@@ -6018,10 +6018,10 @@ estimates. See `MIGRATION.md` for per-function detail.
 
 - **Docs: refreshed live registry-stats drift.** `docs/stats.md` (per-module
   table + the measured source/test LOC rows), `README.md`, and `README_CN.md`
-  now match `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/registry_stats.py` (269,043 core LOC / 96,514 test
+  now match `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/registry_stats.py` (269,043 core LOC / 96,514 test
   LOC; 1,020 functions across 81 submodules). This restores
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jss_release_manifest.py::test_registry_stats_docs_are_live`
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/registry_stats.py --check` exits 0). Docs only — no API change.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jss_release_manifest.py::test_registry_stats_docs_are_live`
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/registry_stats.py --check` exits 0). Docs only — no API change.
 
 ## [1.16.1] — 2026-06-01
 
@@ -6042,7 +6042,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   `'ascm'`); every non-default method is unchanged. Verified against the full
   synth test surface (170 tests) and the R `Synth` recovery parity test.
   Guarded by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_synth.py::TestSyntheticControl::test_weights_non_negative`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_synth.py::TestSyntheticControl::test_weights_non_negative`.
 
 ### ⚠️ Correctness fix — synthetic-control weights projected back onto the simplex
 
@@ -6058,7 +6058,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   projection moves the native output *toward* the reference clean-simplex
   solution, so reference parity is preserved (verified against the synth
   parity suite). Guarded by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_synth.py::TestSyntheticControl::test_weights_non_negative`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_synth.py::TestSyntheticControl::test_weights_non_negative`.
 
 ### Fixed — agent schema generation preserves full typing shapes
 
@@ -6074,12 +6074,12 @@ estimates. See `MIGRATION.md` for per-function detail.
 
 ### Docs
 
-- Reviewer-facing validation docs (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/jss_source_audit_dossier.md`,
+- Reviewer-facing validation docs (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/jss_source_audit_dossier.md`,
   `Paper-JSS/README.md`, `README.md`) refreshed: the focused
   reviewer follow-up regression command is documented, the
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_joss_reviewer_followups.py` compatibility path is restored for
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_joss_reviewer_followups.py` compatibility path is restored for
   the public review thread (delegating to
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_external_reviewer_followups.py`), and the activity/measurement
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_external_reviewer_followups.py`), and the activity/measurement
   dates are updated to 2026-06-01. Live `docs/stats.md` counts re-measured
   against the 1.16.1 source tree (source LOC 269,010).
 
@@ -6098,7 +6098,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   bandwidth-selector disclosure to a T2 native reference-parity pass.
   Side-specific manual bandwidths remain supported, and `backend="r"` still
   delegates to the R package for users who want direct package execution.
-  Guarded by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_rddensity_io.py` and the Track A parity harness.
+  Guarded by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_rddensity_io.py` and the Track A parity harness.
 
 ### ⚠️ Correctness fix — causal-forest ATE/ATT now doubly-robust (AIPW)
 
@@ -6131,13 +6131,13 @@ estimates. See `MIGRATION.md` for per-function detail.
     the only moderate-stochastic T3 row, and the remaining
     methodological/T4 bucket is the documented classical-SCM
     non-uniqueness/reference-disagreement gap.
-  - Guards: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_causal_forest_aipw_recovery.py`
+  - Guards: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_causal_forest_aipw_recovery.py`
     (recovery against truth, no R needed) and the tightened
-    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_grf_parity.py` (combined-SE parity vs a
+    `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_grf_parity.py` (combined-SE parity vs a
     committed `grf` fixture).
 - **Synthetic-control solver certified on identified problems and exact
   `Synth` parity exposed when reviewers need it.** Added
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_scm_recovery.py` and the cross-language
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_scm_recovery.py` and the cross-language
   module `tests/r_parity/52_scm_unique`: on a DGP whose synthetic-control
   weights are uniquely identified (treated unit exactly a convex
   combination of donors in the pre-period), `sp.synth(method="classic")`
@@ -6187,7 +6187,7 @@ estimates. See `MIGRATION.md` for per-function detail.
 ### Added — MCP protocol modernization
 
 - **Protocol version negotiation + bump to `2025-06-18`
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/mcp_server.py`)** — the server now negotiates its
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/mcp_server.py`)** — the server now negotiates its
   protocol revision with the client (`SUPPORTED_PROTOCOL_VERSIONS =
   ("2025-06-18", "2025-03-26", "2024-11-05")`): it echoes the client's
   requested revision when supported, else offers the latest. Replaces the
@@ -6219,9 +6219,9 @@ estimates. See `MIGRATION.md` for per-function detail.
   now carries an inline `provenance` block (R version, platform,
   BLAS/LAPACK, and the version of each attached/loaded package), emitted by
   `_common.R::.r_provenance`. The full 245-package dependency closure is
-  pinned in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/renv.lock` (exact versions; true GitHub commit
+  pinned in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/renv.lock` (exact versions; true GitHub commit
   SHAs for `augsynth`/`synthdid`), with a human-readable manifest in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/R_ENVIRONMENT.md`. A new `verify_reproduce.py` re-runs
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/R_ENVIRONMENT.md`. A new `verify_reproduce.py` re-runs
   each R reference on the committed CSV bytes and diffs every statistic
   against the golden value at a 1e-9 reproducibility tolerance: 46 of 47
   data-driven modules reproduce bit-for-bit under R 4.5.2; the report is
@@ -6239,7 +6239,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   paper fails CI. Default `validation_report()` path is unchanged (fast,
   metadata-only).
 - **Strictness-tier breakdown in the Track A parity tables
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/compare.py`)** — each module is classified by its
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/compare.py`)** — each module is classified by its
   registered point-estimate tolerance into machine-level / iterative /
 	  moderate / methodological-T4 tiers (50 / 4 / 1 / 1 on the 56
   R-joined modules at this checkpoint; 57 / 5 / 1 / 1 on the 64 R-joined modules
@@ -6258,7 +6258,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   (the Stata analogue of `renv.lock`). Reproduction ledger:
   `results/REPRODUCIBILITY_REPORT_STATA.md`.
 - **Provenance drift guard
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_parity_harness_contract.py`)** — the normal-CI contract suite
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_parity_harness_contract.py`)** — the normal-CI contract suite
   now fails the build if any committed `*_R.json` (r_version + packages) or
   `*_Stata.json` (stata_version + edition) loses its provenance block.
 
@@ -6283,28 +6283,28 @@ estimates. See `MIGRATION.md` for per-function detail.
   `schemas/` bundle on its cold-start fast path, gated only on a matching
   `statspai_version`. A registry change within the same version (a refactor
   between releases) drifted the bundle silently, so the server served a
-  stale tool list. CI now runs `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/dump_schemas.py --check`
+  stale tool list. CI now runs `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/dump_schemas.py --check`
   alongside the existing `registry_stats --check`, failing the build until
   the bundle is regenerated. Regenerated the bundle (`schemas/` +
   `src/statspai/schemas/`) to clear the existing drift.
 
 ### Added — agent-native sprint
 
-- **Agent-card metadata overlay (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/_agent_cards_extra.py`)** —
+- **Agent-card metadata overlay (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/_agent_cards_extra.py`)** —
   89 curated Tier-A cards (assumptions / pre_conditions / failure_modes /
   alternatives / typical_n_min) for certified + validated estimators that
   previously had none, applied via `registry._apply_agent_card_seeds` with
   extend-missing semantics (hand-written `FunctionSpec` content always
   wins). Lifts curated agent-native field coverage roughly threefold. Every
   `alternative` and `exception` is CI-validated to resolve.
-- **Relational-integrity contract suite (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_native_contract.py`)**
+- **Relational-integrity contract suite (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_native_contract.py`)**
   — guards that every agent-card `alternatives` / `failure_modes.alternative`
   resolves to a real function/MCP tool, every `failure_modes.exception` is a
   real class, every advertised MCP tool is executable, every
   `_FOLLOWUP_BY_TOOL` next-call is an advertised tool, and every
   `_CITATIONS_BY_TOOL` bib key exists in `paper.bib`.
-- **Machine-readable schema bundle (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/dump_schemas.py`,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/_schema_export.py`, `schemas/`)** — an import-free, versioned
+- **Machine-readable schema bundle (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/dump_schemas.py`,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/_schema_export.py`, `schemas/`)** — an import-free, versioned
   bundle (`tools.json` / `functions.json` / `agent_cards.json` /
   `result.schema.json` / `index.json`) so a non-Python client can discover
   the full surface offline. Includes a JSON Schema (draft 2020-12) for the
@@ -6384,7 +6384,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   PNG/PDF via `fig.savefig`): one `\addplot` series per model with horizontal
   CI error bars, reversed y-axis, dashed zero line; `coef_labels` / `level` /
   `standalone` options. Auto-registered.
-- **Export-surface contract (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_export_surface_contract.py`)**
+- **Export-surface contract (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_export_surface_contract.py`)**
   — 55 parametrized checks asserting `sp.regtable(r)` consumes registered
   result-class outputs (`EconometricResults` / `CausalResult` / `PanelResults` /
   `FrontierResult`) and round-trips, so a future non-exportable result fails
@@ -6466,13 +6466,13 @@ estimates. See `MIGRATION.md` for per-function detail.
   `sp.nbreg`, `sp.heckman`, `sp.mlogit`, `sp.ologit`, `sp.clogit`,
   `sp.probit`, `sp.oprobit`, `sp.xtabond`, `sp.newey`, and a 3-FE PPML
   variant. The 3-way Track A table
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/results/parity_table_3way.md`) covered 50
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/results/parity_table_3way.md`) covered 50
   R-joined modules versus 36 previously at that checkpoint, with a Stata
   reference for 43 versus 21. The current source snapshot supersedes that
   checkpoint with 64 R-joined modules, 61 Stata references, and a materialized
   `50_xtabond` R reference through `plm::pgmm`. The expansion surfaced the qreg and newey
   SE fixes above and further P1/P2 findings recorded in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/PARITY_SESSION_2026-05-28.md`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/PARITY_SESSION_2026-05-28.md`.
 
 ### Fixed
 
@@ -6480,9 +6480,9 @@ estimates. See `MIGRATION.md` for per-function detail.
   entries that caused editorialbot DOI suggestions, aligned the AKM
   shift-share citation key / DOI metadata, and refreshed v1.15.6 wording in
   reviewer-facing docs and README release callouts.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tools/audit_citations.py` now treats transient HTTP/socket/SSL timeouts as
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tools/audit_citations.py` now treats transient HTTP/socket/SSL timeouts as
   unresolved citation lookups instead of leaking Python tracebacks.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/36_mediation.py` referenced `model_info["n_boot"]`,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/36_mediation.py` referenced `model_info["n_boot"]`,
   but `sp.mediation`'s schema renamed this to `n_boot_requested` /
   `n_boot_successful` / `n_boot_failed`. The parity script crashed
   before producing JSON; pinned it to the new key.
@@ -6492,9 +6492,9 @@ estimates. See `MIGRATION.md` for per-function detail.
 ### Changed — Co-authorship, software-journal submission readiness
 
 - Added **Scott Rozelle** as co-author across all package metadata:
-  `pyproject.toml`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/__init__.py` (`__author__`), `CITATION.cff`,
+  `pyproject.toml`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/__init__.py` (`__author__`), `CITATION.cff`,
   `.zenodo.json`, `mkdocs.yml`, the package citation templates in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/_citation.py` (BibTeX / APA / plain), and the README BibTeX
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/_citation.py` (BibTeX / APA / plain), and the README BibTeX
   snippets (English and Chinese).
 - ⚠️ **Downstream-facing rename**: unified the package BibTeX key to
   **`wang2026statspai`** (CLAUDE.md §10 `lastnameYEARkeyword` convention).
@@ -6551,13 +6551,13 @@ estimates. See `MIGRATION.md` for per-function detail.
 
 ### Added — Agent-card coverage ratchet and baseline enrichment
 
-- Added `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/agent_card_coverage.py`, `docs/agent_cards_spec.md`, and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_card_coverage.py` to make raw curated agent-card metadata
+- Added `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/agent_card_coverage.py`, `docs/agent_cards_spec.md`, and
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_card_coverage.py` to make raw curated agent-card metadata
   measurable and CI-ratcheted. The committed floor tracks 15 counters across
   Tier-B, Tier-A, Tier-S, per-field coverage, and certified / validated
   evidence counts.
-- Added generated `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/_baseline_cards.py` plus
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/gen_baseline_cards.py` to fill empty Tier-B fields from docstrings
+- Added generated `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/_baseline_cards.py` plus
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/gen_baseline_cards.py` to fill empty Tier-B fields from docstrings
   without overwriting curated registry entries. The baseline pass lifts tags to
   100% of the then-current v1.15.5 registry and keeps examples / references
   limited to mechanically extracted, auditable content.
@@ -6603,7 +6603,7 @@ estimates. See `MIGRATION.md` for per-function detail.
   primary fall through to the appended CJK font without affecting Latin
   glyphs. Empirically required vs. appending to `font.sans-serif`, which
   does not trigger fallback in matplotlib 3.10.
-- New tests: [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_auto_cjk_fallback.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_auto_cjk_fallback.py)
+- New tests: [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_auto_cjk_fallback.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_auto_cjk_fallback.py)
   covers the 7-point behavior contract (primary preserved, unicode_minus
   preserved, family-specific lists preserved, Chinese renders without
   warnings, user override wins, idempotent, env var opt-out).
@@ -6688,7 +6688,7 @@ Three independent hardening tracks land together:
 
 ### Fixed — MCP wire format is strict-JSON-clean
 
-- [`sp.agent.mcp_server`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/mcp_server.py) used to
+- [`sp.agent.mcp_server`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/mcp_server.py) used to
   serialise responses with `json.dumps(..., default=_json_default)`,
   which **does not** intercept native Python `float('nan')` /
   `float('inf')` — those become the non-standard literals `NaN` /
@@ -6699,24 +6699,24 @@ Three independent hardening tracks land together:
   `null` across `dict` / `list` / `tuple` containers) and serialise
   with `allow_nan=False`, so the server can never emit a JSON token a
   strict parser refuses. Covered by 273-line regression suite
-  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_mcp_nan_inf.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_mcp_nan_inf.py).
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_mcp_nan_inf.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_mcp_nan_inf.py).
 - Agent schema metadata extraction (`sp.function_schema`,
   `sp.describe_function`) now surfaces more signature detail for
   registry entries built from auto-introspection.
-- Stability-tier audit (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/stability_audit.py`) accounts for
+- Stability-tier audit (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/stability_audit.py`) accounts for
   evidence files more precisely; new
-  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_schema.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_schema.py) locks
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_schema.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_schema.py) locks
   the schema metadata fields agents rely on.
 
 ### Fixed — result HTML escaping (notebook XSS-safety)
 
-- [`CausalResult._repr_html_`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/core/results.py) (and the
+- [`CausalResult._repr_html_`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/core/results.py) (and the
   surrounding rich-display helpers) now route every user-derived cell
   through `html.escape`. Previously, any string column whose contents
   contained `<` / `>` / `&` / `"` would interpolate raw into the
   rendered HTML, opening a path for notebook XSS when a result was
   displayed in Jupyter / VS Code / nbviewer. New regression test:
-  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_results_html_escape.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_results_html_escape.py).
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_results_html_escape.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_results_html_escape.py).
 
 ### Fixed — release packaging hygiene
 
@@ -6728,8 +6728,8 @@ Three independent hardening tracks land together:
 - [`MANIFEST.in`](MANIFEST.in) now includes `src/statspai/py.typed`
   and the sdist test fixtures so `pip install --no-binary :all:` and
   `mypy --strict` both behave correctly on the published artifacts.
-- [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/.github/workflows/build-wheels.yml`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/.github/workflows/build-wheels.yml)
-  and [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/.github/workflows/ci-cd.yml`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/.github/workflows/ci-cd.yml):
+- [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/.github/workflows/build-wheels.yml`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/.github/workflows/build-wheels.yml)
+  and [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/.github/workflows/ci-cd.yml`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/.github/workflows/ci-cd.yml):
   wheel smoke tests now **fail the job** on `ImportError` instead of
   swallowing it as a warning. Releases that silently ship a broken
   wheel are no longer possible from a green CI run.
@@ -6748,15 +6748,15 @@ Three independent hardening tracks land together:
 - README / README\_CN add the hero banner image
   ([`docs/logo/readme-1.png`](docs/logo/readme-1.png)).
 - Track-C performance comparison table
-  ([`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/perf/results/perf_table.tex`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/perf/results/perf_table.tex))
+  ([`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/perf/results/perf_table.tex`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/perf/results/perf_table.tex))
   switches to `\scriptsize` with package-name macros and a
   direction-aware "Winner" column; log-log figure regenerated to match.
 
 ### Internal
 
 - Perf-benchmark harness factored — new
-  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/perf/_common.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/perf/_common.py) shared utilities;
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/perf/05_feols_jax_bootstrap_bench.py` rewritten on top.
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/perf/_common.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/perf/_common.py) shared utilities;
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/perf/05_feols_jax_bootstrap_bench.py` rewritten on top.
 - Full-suite validation snapshot refreshed in
   [`test_results_full_suite.md`](test_results_full_suite.md).
 
@@ -6810,7 +6810,7 @@ not change the negative-binomial numerical path.
 
 ### Added — R-parity opt-in for `sp.rdrobust`
 
-- **New `bwselect='cct'`** in [`sp.rdrobust`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/rd/rdrobust.py)
+- **New `bwselect='cct'`** in [`sp.rdrobust`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/rd/rdrobust.py)
   delegates the entire estimation (bandwidth selection + bias-corrected
   inference) to the official `rdrobust>=1.3` Python port (Calonico,
   Cattaneo & Titiunik 2014). This guarantees **bit-equal alignment with
@@ -6821,7 +6821,7 @@ not change the negative-binomial numerical path.
   backward compatibility** — it uses StatsPAI's own MSE-optimal recipe
   which can drift from R's `rdbwselect` by up to ~70% on certain
   datasets (documented in
-  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/orig_parity/results/parity_table_orig.md`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/orig_parity/results/parity_table_orig.md)
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/orig_parity/results/parity_table_orig.md`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/orig_parity/results/parity_table_orig.md)
   row 52, module `05_lee_original`).
 - Install with `pip install statspai[rd-cct]` (adds the official
   `rdrobust>=1.3` dependency).  Calling `bwselect='cct'` without it
@@ -6831,13 +6831,13 @@ not change the negative-binomial numerical path.
 
 ### Tests — `did::aggte` parity lock
 
-- Added [`TestAggteRParity`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_published_replications.py)
-  in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_published_replications.py`. Asserts
+- Added [`TestAggteRParity`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_published_replications.py)
+  in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_published_replications.py`. Asserts
   `sp.aggte(type='simple')` is bit-equal (≤1e-10) with R `did::aggte`
-  recorded in [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/orig_parity/results/02_mpdta_original_R.json`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/orig_parity/results/02_mpdta_original_R.json),
+  recorded in [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/orig_parity/results/02_mpdta_original_R.json`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/orig_parity/results/02_mpdta_original_R.json),
   and `type='dynamic'` matches R's published vignette output to 1e-3.
   Prevents future refactors from silently drifting away from R.
-- Added [`TestCCTDelegationParity`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_published_replications.py)
+- Added [`TestCCTDelegationParity`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_published_replications.py)
   and an `ImportError`-guarded test that pin the new `bwselect='cct'`
   delegation to R `rdrobust` Senate-replication numbers (Conv 7.4141,
   Robust 7.5065, h=17.754, 1e-3 tolerance).
@@ -6879,13 +6879,13 @@ not change the negative-binomial numerical path.
   second-author surname corrected (was a misattribution; now matches
   the arXiv 2503.21629 author list — Rho, Tang, Bergam, Cummings,
   Misra). `paper.bib` was already correct; the typo only lived in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/synth/report.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/synth/report.py`.
 - Updated callsites: [`paper.bib`](paper.bib) (new
-  `clarke2025double` entry), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/dml/panel_dml.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/dml/panel_dml.py)
-  (module docstring + within-transform comment), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/dml/__init__.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/dml/__init__.py)
-  (lazy-export tag), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py)
+  `clarke2025double` entry), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/dml/panel_dml.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/dml/panel_dml.py)
+  (module docstring + within-transform comment), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/dml/__init__.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/dml/__init__.py)
+  (lazy-export tag), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/registry.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/registry.py)
   (FunctionSpec description + reference field), [`README.md`](README.md)
-  (Long-panel Double-ML row), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/synth/report.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/synth/report.py)
+  (Long-panel Double-ML row), [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/synth/report.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/synth/report.py)
   (ClusterSC author list), and the historical v1.7 entry below
   (annotated, not silently rewritten). No code logic, numerical path,
   API signature, or test changed — pure citation correction.
@@ -7021,8 +7021,8 @@ adaptive density estimator — see the dedicated section below.
   conformal_cate, proximal.p2sls, matrix_completion, metalearners,
   hal_tmle, did, rd, synth) now has uniform LaTeX / Excel / Word
   export.
-- **DTR + QTE test coverage** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dtr.py` (10 new tests)
-  and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_qte.py` (7 new tests) close two zero-coverage
+- **DTR + QTE test coverage** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dtr.py` (10 new tests)
+  and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_qte.py` (7 new tests) close two zero-coverage
   modules flagged in the v1.13 audit. Tests verify (i) Q-learning
   exactly recovers the optimal terminal-stage rule under a linear
   blip, (ii) A-learning's terminal contrast aligns with the truth,
@@ -7031,7 +7031,7 @@ adaptive density estimator — see the dedicated section below.
   respectively to within 0.30 absolute error at every quantile,
   and (iv) `distributional_te`'s CDFs are monotone with stochastic
   dominance in the right direction.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_ml_causal_polish.py`** (22 new tests) covers all of
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_ml_causal_polish.py`** (22 new tests) covers all of
   the above end-to-end (BLP DR-score recovery, mediation bootstrap
   diagnostics, OPE isinstance, DAG viz, `PolicyTreeResult` contract,
   DML sensitivity / diagnostics, `cate_eval` direction, `to_word`
@@ -7087,7 +7087,7 @@ adaptive density estimator — see the dedicated section below.
   `docs/guides/decomposition_family.md`, wired into MkDocs nav under
   the v1.15 entry. Decomposition section in `paper.md` rewritten with
   inline citation keys.
-- **Tests** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_decomposition_polish.py` (14 new tests)
+- **Tests** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_decomposition_polish.py` (14 new tests)
   covering the Yu–Elwert algebraic identity, bootstrap inference,
   dispatcher routing, plot smoke test, the unified mixin (cite /
   to_dict / to_excel / confint), and the wild bootstrap helper
@@ -7138,7 +7138,7 @@ adaptive density estimator — see the dedicated section below.
   Imbens (2024, *Stata Journal* 24(4), 557–598, DOI
   10.1177/1536867X241297914); Bottmer, Imbens, Spiess & Warnick
   (2024, *JBES* 42(2), 762–773, DOI 10.1080/07350015.2023.2238788).
-- 17 new tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_synth_exports.py` covering single-result
+- 17 new tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_synth_exports.py` covering single-result
   and comparison LaTeX / Markdown / Excel exports, the new plot
   options, and SDID-canonicalised reports.
 
@@ -7211,7 +7211,7 @@ adaptive density estimator — see the dedicated section below.
 - Existing IV functions (`sp.iv`, `sp.weakrobust`,
   `sp.kleibergen_paap_rk`, `sp.anderson_rubin_test`, etc.) are
   unchanged — `iv_diag` is purely additive and does not alter any
-  numeric path. The 18 new tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/iv/test_iv_diag.py` all
+  numeric path. The 18 new tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/iv/test_iv_diag.py` all
   pass; no regressions in the 188 prior IV tests.
 
 ### Added — RDD polish (v1.15)
@@ -7282,7 +7282,7 @@ additions close the gap between `sp.rd` and the canonical R/Stata
 
 ### Tests — RDD polish (v1.15)
 
-- New `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_rd_polish.py` with 21 checks: estimator parity
+- New `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_rd_polish.py` with 21 checks: estimator parity
   recovery, dispatcher routing, warning behaviour, dashboard smoke
   tests.
 - All 156 RD tests (existing + new) pass on Python 3.13 / macOS.
@@ -7387,19 +7387,19 @@ kernel matches GPU performance).
 ### Verified
 
 - 10 PyTorch device-resolver tests
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_torch_device_resolver.py`); 51 existing neural
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_torch_device_resolver.py`); 51 existing neural
   tests pass without numerical drift on default CPU.
 - 9 `cluster_meat` Rust parity tests
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_cluster_meat_rust.py`) — auto-skip when
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_cluster_meat_rust.py`) — auto-skip when
   `statspai_hdfe` is not built.
 - 13 `sp.iv(absorb=)` parity tests vs explicit drop-first
-  dummies (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_iv_absorb.py`); coefficients agree to
+  dummies (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_iv_absorb.py`); coefficients agree to
   `atol=1e-9`, iid SE to `rtol=1e-3`, cluster SE to `rtol=1e-2`.
 - 12 `feols_jax` parity tests vs `feols`
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jax_feols.py`); iid / hc1 / cr1 / weighted /
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jax_feols.py`); iid / hc1 / cr1 / weighted /
   float32 / 6 error-path validations.
 - 24 `feols_jax_bootstrap` tests
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jax_feols_bootstrap.py`); convergence to HC1 SE
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jax_feols_bootstrap.py`); convergence to HC1 SE
   for pairs / wild and CR1 SE for cluster / wild_cluster at
   B=2000 (rtol 10–15%); algebraic identity check that the wild
   score formulation reproduces the literal "refit on pseudo-y"
@@ -7454,7 +7454,7 @@ instead of disappearing. `sp.principal_strat(instrument=...)` ships a
 proper Angrist-Imbens-Rubin Wald-LATE estimator (the kwarg was
 previously stubbed); `sp.hal_tmle(variant='projection')` keeps its
 `NotImplementedError` but now points at a written-out RFC
-(`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/hal_tmle_projection.md`) instead of raising in silence.
+(`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/hal_tmle_projection.md`) instead of raising in silence.
 Lazy-loading of optional families via `__getattr__` keeps `import
 statspai` fast without breaking same-name function/subpackage
 collisions (`bartik`, `deepiv`, `proximal`, …) — pinned by a
@@ -7490,10 +7490,10 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   Stock–Yogo threshold. The 2SLS row now also carries
   `first_stage_F` as a numeric field so downstream tooling can
   consume it without regex.
-- **Preflight / recommend tests.** `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_preflight.py` adds
+- **Preflight / recommend tests.** `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_preflight.py` adds
   `TestIVFirstStageStrength` (6 cases covering strong / weak /
   borderline / non-IV / missing-columns / JSON-safe payloads).
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_smart_workflow.py::TestRecommend` adds two cases
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_smart_workflow.py::TestRecommend` adds two cases
   pinning the 2SLS-first ordering on strong instruments and the
   LIML-first / AR-included ordering on weak instruments.
 
@@ -7543,7 +7543,7 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   `track_c_loglog.{pdf,png}` log-log scaling figure.
 
 - **Coverage Monte Carlo at B=1000.** New
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/coverage_monte_carlo/run_b1000.py` measures 95% CI coverage
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/coverage_monte_carlo/run_b1000.py` measures 95% CI coverage
   for OLS (0.952), 2×2 DiD (0.955), and strong-Z IV (0.962) — all
   inside the 99% Wilson band [0.935, 0.967] around nominal 0.95. The
   full slow `pytest tests/coverage_monte_carlo/ -m slow` sweep at
@@ -7564,8 +7564,8 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
 
 - **`sp.validation_report` / `sp.coverage_matrix` /
   `sp.reproduce_jss_tables` — JSS-grade validation meta-API.** New
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/validation.py` (863 LOC, 58-test battery in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_jss_validation_api.py`) exposes three top-level
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/validation.py` (863 LOC, 58-test battery in
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_jss_validation_api.py`) exposes three top-level
   functions for the paper-submission audit trail:
   `sp.validation_report()` summarises the live `sp.registry` plus
   the materialised parity / coverage / agent-bench artifacts as a
@@ -7615,13 +7615,13 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   `limitations` entry is rewritten: the only remaining gap on this
   path is always-survivor SACE under encouragement design (Mealli &
   Pacini 2013, partial identification). Seven new tests in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_principal_strat.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_principal_strat.py`.
 
 - **`sp.hal_tmle(variant='projection')` RFC + sharper error.** Rather
   than ship an unverified port of the Li-Qiu-Wang-vdL (2025) §3.2
   Riesz-projection step (the v1.11.x code path was a no-op on the
   point estimate — see CHANGELOG), v1.13 keeps the
-  `NotImplementedError` and adds `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/hal_tmle_projection.md`
+  `NotImplementedError` and adds `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/hal_tmle_projection.md`
   with the full implementation roadmap and the parity-test gates that
   must clear before the variant can be promoted to `stable`. The
   runtime exception message now points at the RFC and asks reporters
@@ -7640,8 +7640,8 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   ``text_treatment_effect``).  This closes a gap where an LLM agent
   asking ``sp.causal(df, ...)`` for an applied analysis could
   silently land on a frontier MVP just because the recommender
-  ranked it first.  Tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_smart_stability_gating.py`.
-- **Stability reverse-audit script.** `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/stability_audit.py`
+  ranked it first.  Tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_smart_stability_gating.py`.
+- **Stability reverse-audit script.** `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/stability_audit.py`
   cross-checks every `stability='stable'` claim in the registry
   against parity-test coverage in `tests/reference_parity/` and
   `tests/external_parity/`. Splits the catalogue into hand-written
@@ -7653,7 +7653,7 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   deliberate quality signal. Does NOT auto-downgrade; the call to
   flip a function from `stable` to `experimental` belongs to a
   maintainer who has read the code. Tests in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_stability_audit.py`. The audit fixed a registry bug
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_stability_audit.py`. The audit fixed a registry bug
   along the way: auto-registered specs were never tagged `_auto=True`
   on the `FunctionSpec` instance, so `describe_function` error hints
   and the audit itself couldn't distinguish them from hand-written
@@ -7661,7 +7661,7 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   `_auto_spec_from_callable`.
 - **Runtime consistency tests for `FunctionSpec.limitations`.** Each
   `limitations` entry on a `FunctionSpec` is now structurally audited
-  by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_limitations_consistency.py` so the registry's
+  by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_limitations_consistency.py` so the registry's
   parity-grade-with-known-gaps claims cannot drift away from runtime
   behaviour: every entry must (a) use vetted vocabulary and (b) be
   classified as either runtime-testable (a curated map calls the
@@ -7683,20 +7683,20 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   per-file coverage to **synth/report.py 4% → 81%, wooldridge_did.py
   76% → 93%, did_imputation.py 85% → 99%, workflow/paper.py 66% →
   86%** and add a 30-test cross-family smoke battery
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_low_cov_battery.py`) that exercises every headline
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_low_cov_battery.py`) that exercises every headline
   estimator's CI/SE/point-estimate contract:
-  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_synth_report.py` (25 tests) — full text/markdown/LaTeX
+  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_synth_report.py` (25 tests) — full text/markdown/LaTeX
     SCM report renderer + every sensitivity sub-block + the LaTeX
     escape table.
-  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_wooldridge_did_branches.py` (31 tests) — Bacon + dCDH
+  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_wooldridge_did_branches.py` (31 tests) — Bacon + dCDH
     decomposition, repeated-CS / never-only / xvar dispatch branches,
     every `etwfe` validation guard, all four `etwfe_emfx`
     aggregations including `include_leads=True`.
-  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_did_imputation_branches.py` (14 tests) — every
+  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_did_imputation_branches.py` (14 tests) — every
     `ValueError` guard, the controls + horizon event-study path with
     pre-trend chi-squared test, and the `_cluster_se_horizon`
     `N_k == 0` short-circuit.
-  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_paper_branches.py` (31 tests) — every YAML/TeX/MD
+  - `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_paper_branches.py` (31 tests) — every YAML/TeX/MD
     helper, all four `to_qmd` rendering branches (single vs.
     multi-format, author / bibliography / csl), `to_docx` fallback
     when `python-docx` is missing, `write()` extension dispatch, and
@@ -7754,7 +7754,7 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   (no `sp.forest` callable export) so the standard lazy path is safe;
   `sp.causal`'s callable shim and the `statspai.causal` deprecation
   shim continue to work unchanged. Pinned by three new contracts in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_late_bind_contracts.py` — `import statspai` must not
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_late_bind_contracts.py` — `import statspai` must not
   pre-load any `statspai.forest.*` submodule (subprocess-isolated to
   avoid `sys.modules` pollution that would corrupt downstream
   `isinstance` checks); each of the 10 forest leaves must resolve to a
@@ -7820,7 +7820,7 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   class-definition time; refactoring that inheritance hierarchy is
   out of scope.  Pinned by a new
   `test_sklearn_budget_ceiling_on_bare_import_statspai` contract in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_late_bind_contracts.py` (≤ 50 ceiling, ~39 floor + 11
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_late_bind_contracts.py` (≤ 50 ceiling, ~39 floor + 11
   slack for sklearn-version drift) running in a subprocess so the
   cold-state measurement does not perturb other tests' `sys.modules`.
   248 tests across the 18 affected modules (metalearners /
@@ -7874,11 +7874,11 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   on `method='reg'`, while `'ipw'` and `'dr'` were inside the 99%
   Wilson band. The fix tightens the REG influence-function scaling
   and explicitly adds the control-regression contribution; the
-  parity table at `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/results/parity_table_3way.md` and
-  the coverage frame at `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/coverage_monte_carlo/FINDINGS.md` are
+  parity table at `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/results/parity_table_3way.md` and
+  the coverage frame at `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/coverage_monte_carlo/FINDINGS.md` are
   refreshed accordingly. Regression-pinned by
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_did_parity.py` and the new
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/r_parity/04_csdid.py` driver. **Re-run any v1.10–v1.13
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_did_parity.py` and the new
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/r_parity/04_csdid.py` driver. **Re-run any v1.10–v1.13
   Callaway–Sant'Anna analyses that used `method='reg'`**;
   `'ipw'` and `'dr'` are unchanged.
 
@@ -7892,7 +7892,7 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   `from .policy_learning import ... OPEResult` is removed so
   `sp.OPEResult` falls through to the lazy `_register_lazy("ope",
   "OPEResult", ...)` table, restoring v1.12.2 class identity.
-  Regression-pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_ope_cevae.py::test_ips_close_to_true_value`.
+  Regression-pinned by `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_ope_cevae.py::test_ips_close_to_true_value`.
 - Hand-written registry specs for `aggte` and `principal_strat` now
   exactly match their callable signatures (`na_rm`, `alpha`, `seed`),
   with a regression test guarding the new v1.13 hand-written upgrades
@@ -7922,13 +7922,13 @@ latent Callaway–Sant'Anna REG inference scaling bug — discovered
   premature `workflow/__init__` import during `import statspai`,
   which had reintroduced partially initialized top-level symbols and
   made the lazy API order-sensitive.
-- Added a committed `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/__init__.pyi` generator and pinned it
+- Added a committed `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/__init__.pyi` generator and pinned it
   with a regression test so IDE/type-checker visibility tracks the live
   runtime namespace. The stub generator now skips exported constants
   during leaf scanning and correctly types `STABILITY_TIERS` as
   `frozenset[str]`, avoiding duplicate/conflicting declarations.
 - Pinned the two binding hazards introduced by the lazy-load refactor
-  with 21 explicit contracts in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_late_bind_contracts.py`:
+  with 21 explicit contracts in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_late_bind_contracts.py`:
   the five late-bind aliases re-bound by `_article_aliases`
   (`mediation`, `policy_tree`, `dml`, `matrix_completion`,
   `causal_discovery`) plus the `sp.iv` callable dispatcher must each
@@ -8499,7 +8499,7 @@ changed**; this is the agent-orchestration layer.
   never silently guesses.
 - Surfaces `notes` for partial mappings (e.g. Stata `if` clause
   → `df.query(...)` instructions).
-- Tests: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_translation.py` — 61 cases, every distinct
+- Tests: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_translation.py` — 61 cases, every distinct
   Stata handler covered by ≥1 round-trip.
 
 ### Added — concurrent runner + progress notifications + timeouts
@@ -8702,17 +8702,17 @@ discovery / orchestration / output layer.
 
 ### New modules
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/_result_cache.py` — bounded LRU cache + entry
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/_result_cache.py` — bounded LRU cache + entry
   metadata.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/auto_dispatch.py` — registry-driven dispatch
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/auto_dispatch.py` — registry-driven dispatch
   for non-curated tools (filters kwargs against `ParamSpec`).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/workflow_tools.py` — handle-based + workflow
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/workflow_tools.py` — handle-based + workflow
   primitive tools (audit_result / brief_result / *_from_result /
   audit / preflight / detect_design / brief / plot_from_result /
   bibtex).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/pipeline_tools.py` — pipeline_did / pipeline_iv
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/pipeline_tools.py` — pipeline_did / pipeline_iv
   / pipeline_rd composites.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/_enrichment.py` — `next_calls` + `citations` +
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/_enrichment.py` — `next_calls` + `citations` +
   `narrative` builder.
 
 ## [Unreleased]
@@ -8786,7 +8786,7 @@ discovery / orchestration / output layer.
 
 ### Added — output module PR-B foundation (B-1)
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_regtable_snapshots.py` snapshot harness.** Locks down
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_regtable_snapshots.py` snapshot harness.** Locks down
   the byte-stable rendered output of `sp.regtable` for five
   representative fixtures (simple OLS / multi-model / custom stats /
   notes+labels / GLM-logit) across four text formats (text / HTML /
@@ -8794,7 +8794,7 @@ discovery / orchestration / output layer.
   diffs survive editor newline handling but catch real renderer
   drift. Excel / Word are **not** snapshotted (binary archives are
   brittle); coverage there is via `test_paper_tables_export.py`.
-  Update with `STATSPAI_UPDATE_SNAPSHOTS=1 pytest https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_regtable_snapshots.py`.
+  Update with `STATSPAI_UPDATE_SNAPSHOTS=1 pytest https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_regtable_snapshots.py`.
 
 ### Added — agent / dispatcher work (other sessions)
 
@@ -8839,7 +8839,7 @@ discovery / orchestration / output layer.
   table — they have a different ``(data, y, x, id, time)``-style
   signature and remain accessible as standalone functions.
 
-  Regression-guarded by ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_panel_dispatcher.py`` (37 new
+  Regression-guarded by ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_panel_dispatcher.py`` (37 new
   tests); 31 existing panel-family tests pass.
 
 - **`sp.match()` `method=` expanded to cover the full matching
@@ -8876,7 +8876,7 @@ discovery / orchestration / output layer.
   raises ``TypeError: does not accept these classical-matching
   kwargs``.
 
-  Regression-guarded by ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_match_dispatcher.py`` (31
+  Regression-guarded by ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_match_dispatcher.py`` (31
   new tests); 76 existing matching-family tests still pass.
 
 - **`sp.rd()` is now callable with a unified `method=` table.** Same
@@ -8920,7 +8920,7 @@ discovery / orchestration / output layer.
   ``rdrbounds``) are intentionally NOT in the ``method=`` table —
   they are not estimators of treatment effects.
 
-  Regression-guarded by ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_rd_dispatcher.py`` (22 new
+  Regression-guarded by ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_rd_dispatcher.py`` (22 new
   tests); 78 existing rd-family tests still pass.
 
 ### Performance
@@ -8973,7 +8973,7 @@ discovery / orchestration / output layer.
   ``regtable`` is the canonical regression-table renderer and that
   ``esttab`` / ``modelsummary`` / ``outreg2`` are Stata/R compatibility
   surfaces (full consolidation tracked in
-  [``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/output_pr_b_consolidation.md``](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/output_pr_b_consolidation.md)).
+  [``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/output_pr_b_consolidation.md``](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/output_pr_b_consolidation.md)).
   No symbols added or removed; ``sp.list_functions()`` unchanged at
   973.
 
@@ -9000,7 +9000,7 @@ discovery / orchestration / output layer.
   ``statspai.iv`` (PEP 562-style) and removing ``iv`` from the
   ``regression.iv`` import line so the subpackage isn't shadowed in
   reverse. Regression-guarded by
-  ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_iv_dispatcher.py::test_sp_iv_is_callable`` (33 new
+  ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_iv_dispatcher.py::test_sp_iv_is_callable`` (33 new
   tests total).
 
 ### Changed
@@ -9058,7 +9058,7 @@ changed.** Two MCP-server fixes surfaced by strict-schema clients
   ``required`` list is conditional now. New
   ``_DATALESS_TOOLS = {"honest_did", "sensitivity"}`` is the single
   source of truth in
-  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/mcp_server.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/agent/mcp_server.py)
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/mcp_server.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/agent/mcp_server.py)
   — keep in sync with ``TOOL_REGISTRY`` in ``agent/tools.py``.
 
 - **MCP `tools/call` typed error — missing `name` returns -32602.**
@@ -9302,7 +9302,7 @@ Ackerberg-Caves-Frazer, Wooldridge) + De Loecker-Warzynski markup.
 
 The closure was driven by three orthogonal contributions, each
 verified with a wall-clock spike before the next was committed
-(audited at `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/hdfe/AUDIT.md`):
+(audited at `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/hdfe/AUDIT.md`):
 
 - **Phase A primitives**: `statspai_hdfe.demean_2d_weighted` PyO3
   binding, Python `_weighted_ap_demean` dispatcher with NumPy fallback,
@@ -9361,10 +9361,10 @@ verified with a wall-clock spike before the next was committed
 - `sp.fast.fepois` Python dispatcher with three-tier fallback (native
   Rust IRLS → sort-aware Rust demean → random-scatter Rust demean →
   pure NumPy) — no user-facing API change.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/hdfe/run_fepois_phase_a.py`, `run_fepois_phase_b0.py`,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/hdfe/run_fepois_phase_a.py`, `run_fepois_phase_b0.py`,
   `run_fepois_phase_b.py` — reproducible wall-clock harnesses with
   hard merge gates.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/hdfe/AUDIT.md` — Phase A round 1 (gate failure +
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/hdfe/AUDIT.md` — Phase A round 1 (gate failure +
   root-cause), Phase B0 round 1 PASS, Phase B1 round 1 PASS audit
   trails. The audit pattern (measure-before-commit) is the structural
   counter-measure that prevented Phase A's "assumption broke" failure
@@ -9711,7 +9711,7 @@ markup work.
 
 #### Tests
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_prod_fn.py` — 23 tests:
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_prod_fn.py` — 23 tests:
   - Synthetic DGP recovery (ACF tight; OP/LP loose per ACF's
     identification critique; Wooldridge feasible-range)
   - Translog: 5-coef structure, dispatcher pass-through, CD-truth
@@ -9853,7 +9853,7 @@ for productivity / TFP / markup work.
 
 #### Tests
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_prod_fn.py` — synthetic DGP recovery (ACF tight, OP/LP
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_prod_fn.py` — synthetic DGP recovery (ACF tight, OP/LP
   loose per ACF's identification critique), dispatcher, aliases,
   bootstrap SE, markup, edge cases (missing columns, too-few-obs,
   zero-proxy filter, time-gap warning, registry presence). 18 tests.
@@ -9976,7 +9976,7 @@ for productivity / TFP / markup work.
 
 #### Tests
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_prod_fn.py` — synthetic DGP recovery (ACF tight, OP/LP
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_prod_fn.py` — synthetic DGP recovery (ACF tight, OP/LP
   loose per ACF's identification critique), dispatcher, aliases,
   bootstrap SE, markup, edge cases (missing columns, too-few-obs,
   zero-proxy filter, time-gap warning, registry presence). 18 tests.
@@ -10016,7 +10016,7 @@ and can drift 50–100% from clubSandwich on multi-restriction tests).
 
 - 3 frozen-fixture parity tests vs R clubSandwich 0.6.2 at
   ``rtol < 1e-8`` (``q ∈ {1, 2, 3}``, balanced + unbalanced panels;
-  fixture in ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/fixtures/htz_clubsandwich.json``, no R required
+  fixture in ``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/fixtures/htz_clubsandwich.json``, no R required
   in CI).
 - 3 live-R parity tests at ``rtol < 1e-8`` (skipif ``Rscript`` missing).
 - 14 unit tests: validation, invariance (X rescale + cluster relabel +
@@ -10120,7 +10120,7 @@ through ``chat()``, so no concrete adapter needs changes.
 
 #### Tests
 
-27 new tests (``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_llm_resolver.py``):
+27 new tests (``https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_llm_resolver.py``):
 
 - Config file: XDG path, missing/malformed graceful fallback, save
   round-trip, header comment warns against putting keys in the file.
@@ -10331,7 +10331,7 @@ top of the Phase 1 Rust demean kernel + Phase 4 inference primitives;
 - Coefficient parity vs R `fixest::feols`: **4.2e-15** at n=1M / fe1=100k
   / fe2=1k (machine epsilon). Wall-time **135 ms** vs R fixest **106 ms**
   vs pyfixest **210 ms** — i.e. 1.55× faster than pyfixest, 1.27× slower
-  than fixest's mature C++. See [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/hdfe/run_feols_bench.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/hdfe/run_feols_bench.py).
+  than fixest's mature C++. See [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/hdfe/run_feols_bench.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/hdfe/run_feols_bench.py).
 - Full `coef()` / `se()` / `vcov()` / `tidy()` / `summary()` surface;
   drop-in compatible with `sp.fast.etable` for side-by-side regression
   tables alongside `sp.fast.fepois` results.
@@ -10391,35 +10391,35 @@ the v1.8 stack become Agent-discoverable for the first time.
 
 #### Documentation
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/fast/jax_backend.py` — added a verified-blocked note
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/fast/jax_backend.py` — added a verified-blocked note
   for Apple Silicon (Metal). `jax-metal 0.1.1` (latest, Apple-
   maintained) is incompatible with JAX 0.10.0 at the StableHLO
   bytecode level; even basic ops fail. Verified empirically on M3.
   Workaround for users with jax-metal installed: `JAX_PLATFORMS=cpu`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/benchmarks/hdfe/SUMMARY.md` — added v1.8.1 follow-up section with
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/hdfe/SUMMARY.md` — added v1.8.1 follow-up section with
   OLS bench numbers and full delta vs Phase 8.
 
 #### Tests
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_fast_feols.py` — 20 new tests (coef / SE parity vs
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_fast_feols.py` — 20 new tests (coef / SE parity vs
   pyfixest and R fixest; weighted; intercept-only; validation; hand
   closed-form for OLS).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_fast_inference.py` — +14 tests (extra_df backward-compat
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_fast_inference.py` — +14 tests (extra_df backward-compat
   and direction proofs across crve/boottest/boottest_wald; BM and
   Wald BM DOF coverage).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_fast_event_study.py` — +2 tests (FE-rank pin via math
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_fast_event_study.py` — +2 tests (FE-rank pin via math
   identity; R fixest SE parity within 1%).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_fast_fepois.py` — +6 tests (cluster CR1 path + R fixest
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_fast_fepois.py` — +6 tests (cluster CR1 path + R fixest
   SE parity).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_fast_within_dsl.py` — +3 tests (`fe_interact` NaN
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_fast_within_dsl.py` — +3 tests (`fe_interact` NaN
   rejection; 2-way no-collision; K-way matches pandas tuple path).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_fast_etable.py` — +2 tests (etable × FeolsResult; mixed
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_fast_etable.py` — +2 tests (etable × FeolsResult; mixed
   feols + fepois side-by-side).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_registry_new_modules.py` — +25 tests (parametrised
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_registry_new_modules.py` — +25 tests (parametrised
   `fast.*` registry coverage; namespace coexistence with top-level).
 
-Total: `pytest tests/test_fast_*.py https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_hdfe_native.py
-tests/test_registry*.py https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_help.py` — **267 passed,
+Total: `pytest tests/test_fast_*.py https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_hdfe_native.py
+tests/test_registry*.py https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_help.py` — **267 passed,
 2 graceful-skip** (was 133 at end of Phase 8).
 
 ### Phase 2: great_tables + CSL pipeline + paper auto-provenance
@@ -10804,7 +10804,7 @@ conventions:
 - **no** internal vertical or horizontal borders
 - Times New Roman, header bold, notes italic 8pt
 
-The shared helper lives in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/_aer_style.py`.
+The shared helper lives in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/_aer_style.py`.
 Previous DOCX output used the boxed `Table Grid` style.
 
 #### Added — `sp.paper_tables(...)` DOCX / XLSX export
@@ -10843,39 +10843,39 @@ and visible via `sp.help("collect")`.
 
 #### Tests
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_regtable_alpha.py` (6 tests) — `alpha` controls CI label
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_regtable_alpha.py` (6 tests) — `alpha` controls CI label
   and width; `esttab` parity; recompute matches `scipy.stats.t.ppf`
   by hand.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_aer_word_style.py` (6 tests) — OOXML reverse-checks the
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_aer_word_style.py` (6 tests) — OOXML reverse-checks the
   three rules, asserts no inner vertical borders, italic notes.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_paper_tables_export.py` (5 tests) — multi-panel docx /
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_paper_tables_export.py` (5 tests) — multi-panel docx /
   xlsx round-trip with book-tab borders.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_collection.py` (18 tests) — construction, chained adds,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_collection.py` (18 tests) — construction, chained adds,
   duplicate-name guard, all five export formats, registry presence.
 
 #### Files changed
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/estimates.py` — `_ModelData` gains `df_resid`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/estimates.py` — `_ModelData` gains `df_resid`
   slot; `_ci_bounds(model, var, alpha)` helper; `EstimateTable` /
   `esttab` accept `alpha`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/regression_table.py` — `RegtableResult` accepts
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/regression_table.py` — `RegtableResult` accepts
   and uses `alpha`; `to_word` rewritten to use `_aer_style` helpers;
   `MeanComparisonResult.to_word` likewise.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/sumstats.py` — `_sumstats_to_word` uses
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/sumstats.py` — `_sumstats_to_word` uses
   `_aer_style`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/tab.py` — `_tab_to_word` uses `_aer_style`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/paper_tables.py` — `PaperTables.to_docx` /
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/tab.py` — `_tab_to_word` uses `_aer_style`.
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/paper_tables.py` — `PaperTables.to_docx` /
   `to_xlsx` added; `paper_tables()` accepts `docx_filename=` /
   `xlsx_filename=`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/_aer_style.py` — **new**, OOXML border
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/_aer_style.py` — **new**, OOXML border
   manipulation + book-tab typography helpers.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/collection.py` — **new**, `Collection` class
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/collection.py` — **new**, `Collection` class
   + `collect()` factory.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/output/__init__.py` — export `Collection`,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/output/__init__.py` — export `Collection`,
   `CollectionItem`, `collect`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/__init__.py` — export `Collection`, `CollectionItem`,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/__init__.py` — export `Collection`, `CollectionItem`,
   `collect`; add to public `__all__`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/registry.py` — register `collect` under
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/registry.py` — register `collect` under
   `category="output"`.
 
 ### 2026-04-24 — HDFE LSMR/LSQR solver + ⚠️ Heckman SE correctness fix
@@ -10921,16 +10921,16 @@ precision.
 
 #### Added — test coverage (Heckman)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_heckman_se_parity.py`: three tests
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_heckman_se_parity.py`: three tests
   pinning β̂ and SE to a hand-computed implementation of the
   Greene (2003) formula, plus a check that `model_info['sigma']` /
   `rho` expose the consistent σ̂² estimator.
 
 #### Fixed
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/regression/heckman.py::heckman` — replace naive
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/regression/heckman.py::heckman` — replace naive
   HC1 sandwich with the Heckman (1979) two-step analytical variance.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/regression/heckman.py::_probit_fit` — now returns
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/regression/heckman.py::_probit_fit` — now returns
   `(γ̂, V̂_γ)`; avoids allocating an n×n `diag(w)` via broadcasting.
 
 #### Added — HDFE LSMR/LSQR solver option (additive, pyreghdfe parity)
@@ -10946,7 +10946,7 @@ precision.
     robust / multi-way cluster SE, singleton drop, weights, Krylov
     solvers. `pyreghdfe` can now be archived with `sp.hdfe_ols` as a
     strict replacement (see [`MIGRATION.md`](MIGRATION.md)).
-- New cross-solver parity tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_hdfe_native.py` verify MAP
+- New cross-solver parity tests in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_hdfe_native.py` verify MAP
   ≡ LSMR ≡ LSQR to `atol=1e-6` on two-way FE OLS (with and without
   weights, with and without clustering).
 - `MIGRATION.md` gained a "Migrating from `pyreghdfe`" section with full
@@ -11005,14 +11005,14 @@ at κ = 1 (2SLS).
 
 ### Added — test coverage
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_liml_se_parity.py`: four tests —
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_liml_se_parity.py`: four tests —
   hand-computed projected-meat formula match, `sp.liml` vs
   `sp.ivreg(method='liml')` internal consistency (byte-exact), and
   `linearmodels.IVLIML` parity with documented convention tolerance.
 
 ### Fixed
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/regression/advanced_iv.py::liml` — κ solver aligned to
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/regression/advanced_iv.py::liml` — κ solver aligned to
   `scipy.linalg.eigh` on the symmetric generalized eigenvalue problem;
   cluster / robust meat now uses projected `AX = I_kMz @ X_all`.
 
@@ -11032,7 +11032,7 @@ used the correct formula).
 computed with the **unprojected** regressor matrix `X = [X_exog, X_endog]`
 instead of the projected `X̂ = P_W X`. The bread
 `(X' A X)^{-1} = (X̂' X̂)^{-1}` was correct; the bug was in
-`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/regression/iv.py::_cluster_cov` / `::_robust_cov` call
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/regression/iv.py::_cluster_cov` / `::_robust_cov` call
 sites which passed `X_actual` where the parameter (already misleadingly
 named `X_hat`) expected the projected regressor.
 
@@ -11058,7 +11058,7 @@ in a paper, re-run and update the numbers before submission.**
 
 ### Added — test coverage
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_iv_se_parity.py`: six tests pinning
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_iv_se_parity.py`: six tests pinning
   2SLS cluster / HC0 / HC1 to both a hand-computed projected-meat
   formula (Cameron–Miller) and to `linearmodels.IV2SLS` with
   `debiased=True`. Closes the coverage gap that let this bug live
@@ -11066,7 +11066,7 @@ in a paper, re-run and update the numbers before submission.**
 
 ### Fixed
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/regression/iv.py::_k_class_fit` — pass projected
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/regression/iv.py::_k_class_fit` — pass projected
   `AX = A @ X_actual` to the sandwich meat.
 
 ## [1.6.3] — 2026-04-24 — DiD frontier sprint
@@ -11098,13 +11098,13 @@ docstring had overstated paper fidelity.
   placebo and overall Wald tests. Anchored to
   `[@dechaisemartin2024difference]` (DOI verified). **Not paper-
   parity** — switch-off events and analytical IF variance are flagged
-  `[待核验]`, covered in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/multiplegt_dyn.md`.
+  `[待核验]`, covered in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/multiplegt_dyn.md`.
 - **`sp.continuous_did(method='cgs')`** — Callaway-Goodman-Bacon-
   Sant'Anna (2024) ATT(d)/ACRT(d) **MVP**. 2-period design, OR only,
   Nadaraya-Watson-style local linear smoother over dose, bootstrap
   SE. Anchored to `[@callaway2024difference]`. Full CGS cohort
   aggregation + DR/IPW + analytical IF are flagged `[待核验]` and
-  tracked in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/continuous_did_cgs.md`.
+  tracked in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/continuous_did_cgs.md`.
 
 ### Added — shared infrastructure
 
@@ -11130,19 +11130,19 @@ docstring had overstated paper fidelity.
 
 ### Added — test coverage
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_continuous_did_heuristics.py` — 11 tests covering
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_continuous_did_heuristics.py` — 11 tests covering
   `method='att_gt'` and `method='dose_response'` paths that previously
   had zero dedicated tests.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_did_core_primitives.py` — 16 unit tests for `_core.py`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_lp_did.py` — 9 tests for `sp.lp_did`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_ddd_heterogeneous.py` — 7 tests for
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_did_core_primitives.py` — 16 unit tests for `_core.py`.
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_lp_did.py` — 9 tests for `sp.lp_did`.
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_ddd_heterogeneous.py` — 7 tests for
   `sp.ddd_heterogeneous`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_did_timevarying_covariates.py` — 6 tests.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_did_multiplegt_dyn.py` — 10 tests including method-label
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_did_timevarying_covariates.py` — 6 tests.
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_did_multiplegt_dyn.py` — 10 tests including method-label
   MVP warning.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_continuous_did_cgs.py` — 8 tests including recovery on
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_continuous_did_cgs.py` — 8 tests including recovery on
   linear dose-response DGP.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_did_multiplegt_parity.py` — skeleton
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_did_multiplegt_parity.py` — skeleton
   with R fixture script template; skipped until
   `tests/reference_parity/fixtures/did_multiplegt/*.json` committed.
 
@@ -11190,14 +11190,14 @@ under `docs/rfc/` so the registry `reference` / `remedy` pointers resolve.
   bootstrap SE, (iii) local-linear dose-response of ΔY on baseline dose.
   Callaway, Goodman-Bacon & Sant'Anna (2024) analytical
   influence-function inference is on the v1.7 roadmap — see
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/continuous_did_cgs.md`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/continuous_did_cgs.md`.
 - `sp.did_multiplegt` is now registered. de Chaisemartin &
   D'Haultfœuille (2020) DID_M estimator for treatments that switch on
   *and off* (unlike Callaway–Sant'Anna which assumes staggered
   adoption). Supports placebo lags, dynamic horizons, joint placebo
   Wald test, and cluster-bootstrap SE. The full dCDH (2024)
   intertemporal event-study (Stata `did_multiplegt_dyn`) is on the v1.7
-  roadmap — see `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rfc/multiplegt_dyn.md`.
+  roadmap — see `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/rfc/multiplegt_dyn.md`.
 - `docs/rfc/` — RFC directory for not-yet-landed design docs. Ships
   with `continuous_did_cgs.md`, `multiplegt_dyn.md`,
   `did_roadmap_gap_audit.md`, plus `README.md` and a sprint-prep
@@ -11227,19 +11227,19 @@ digest-byte-identical to v1.6.0 (verified by assert); `embed_texts` /
 
 ### Fixed — CI/CD green-up
 
-- **Bandit security gate** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/causal_text/_common.py`
+- **Bandit security gate** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/causal_text/_common.py`
   hashing call now passes `usedforsecurity=False` to `hashlib.md5`.
   The digest is used as a deterministic bucket index for hashed-token
   embeddings, not a security primitive; the flag tells Bandit B324
   (CWE-327) that weak-hash use is intentional. Digest bytes are
   identical to the prior call — no numerical change to `embed_texts`
   or `sp.text_treatment_effect`.
-- **Windows path-separator parity** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tools/audit_bib_coverage.py::_rel`
+- **Windows path-separator parity** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tools/audit_bib_coverage.py::_rel`
   now emits POSIX-style paths via `Path.as_posix()`, so the
   `citations_by_key` report is identical across Windows and POSIX
   runners. Fixes `test_build_report_records_citation_locations` on
   `windows-latest`.
-- **Windows CLI subprocess** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_suggest_bibkey_backfills.py`
+- **Windows CLI subprocess** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_suggest_bibkey_backfills.py`
   now merges the child-process environment with `os.environ` (so `PATH`
   survives) before invoking the tool. Windows `CreateProcess` has no
   `_CS_PATH` fallback like POSIX `execvpe`, so an empty-env child
@@ -11285,7 +11285,7 @@ frontier estimators (`sp.mr_lap` etc.), one long-panel DML estimator
   constraints injected into PC.  Default `None` preserves the prior
   contract bit-for-bit.  Required edges win over forbidden when both
   reference the same pair.
-- 18 new tests (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_llm_dag_loop.py`).
+- 18 new tests (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_llm_dag_loop.py`).
 - Family guide: `docs/guides/llm_dag_family.md`.
 
 ### Added — P1-C: data → publication-draft pipeline
@@ -11304,7 +11304,7 @@ frontier estimators (`sp.mr_lap` etc.), one long-panel DML estimator
   variable `X`".  Explicit kwargs always win.
 - Per-section failure isolation: a failed estimator stage yields a
   "Pipeline notes" section rather than crashing the draft.
-- 27 new tests (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_paper_pipeline.py`).
+- 27 new tests (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_paper_pipeline.py`).
 - Family guide: `docs/guides/paper_pipeline.md`.
 
 ### Added — P1-B: `sp.causal_text` (experimental MVP)
@@ -11323,7 +11323,7 @@ frontier estimators (`sp.mr_lap` etc.), one long-panel DML estimator
 - Both methods subclass `CausalResult`, surface `status: "experimental"`
   in `result.diagnostics`, and ship full agent-card metadata
   (`assumptions` / `pre_conditions` / `failure_modes` / `alternatives`).
-- 20 new tests (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_causal_text.py`).
+- 20 new tests (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_causal_text.py`).
 - Family guide: `docs/guides/causal_text_family.md`.
 
 ### Added — MR Frontier (`src/statspai/mendelian/frontier.py`)
@@ -11352,7 +11352,7 @@ frontier estimators (`sp.mr_lap` etc.), one long-panel DML estimator
   adjustment; same structural model as GRAPPLE but resistant to
   gross pleiotropy outliers.  Sandwich SE from M-estimator formula.
 
-### Added — v1.7 long-panel DML (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/dml/panel_dml.py`)
+### Added — v1.7 long-panel DML (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/dml/panel_dml.py`)
 
 - **`sp.dml_panel`** — Long-panel Double/Debiased ML for static panel
   models with fixed effects (Clarke & Polselli 2025 simplified).
@@ -11381,12 +11381,12 @@ frontier estimators (`sp.mr_lap` etc.), one long-panel DML estimator
 
 ### Added — tests
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_mr_frontier.py` — 41 tests covering correctness,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_mr_frontier.py` — 41 tests covering correctness,
   boundary validation, cross-method consistency (`mr_lap` with
   `overlap=0` == IVW; `mr_cml` with `K=0` ≈ IVW; `mr_clust`
   two-cluster DGP; `mr_raps` outlier-robustness vs IVW), dispatcher
   routing, and registry/schema export.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dml_panel.py` — 13 tests covering recovery under
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dml_panel.py` — 13 tests covering recovery under
   homogeneous treatment, FE-OLS agreement in the no-confounding
   limit, cluster-SE vs iid SE under AR(1) within-unit correlation,
   time-FE option, boundary validation, and registry metadata.
@@ -11447,7 +11447,7 @@ on.
 
 - Auto-rendered from registry cards via `sp.render_agent_block(name)`
   and `sp.render_agent_blocks(category=…, names=…)`.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/sync_agent_blocks.py` regenerates in-place between
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/sync_agent_blocks.py` regenerates in-place between
   `<!-- AGENT-BLOCK-START: <name> --> … <!-- AGENT-BLOCK-END -->`
   markers; `--check` exits non-zero on drift (CI-friendly).
 - Wired into four flagship guides so far:
@@ -11455,20 +11455,20 @@ on.
   `choosing_iv_estimator.md` (iv),
   `choosing_rd_estimator.md` (rdrobust),
   `synth.md` (synth).
-- Test guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_blocks_drift.py` fails CI if a doc
+- Test guard `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_blocks_drift.py` fails CI if a doc
   falls out of sync with the registry.
 
 ### Tests — agent-native infrastructure
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_exceptions.py` — hierarchy, payload, raise/catch,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_exceptions.py` — hierarchy, payload, raise/catch,
   `warn()` helper, top-level exposure.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_schema.py` — schema mechanics, `agent_card` /
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_schema.py` — schema mechanics, `agent_card` /
   `agent_cards` APIs, `FailureMode`, parametrized flagship population.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_result_methods.py` — `violations()` /
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_result_methods.py` — `violations()` /
   `to_agent_summary()` on both result classes, JSON round-trip.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_docs.py` — renderer output, pipe escaping,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_docs.py` — renderer output, pipe escaping,
   empty / non-empty cases.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_agent_blocks_drift.py` — CI guard for doc/registry sync.
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_agent_blocks_drift.py` — CI guard for doc/registry sync.
 
 ### Added — agent-native follow-up sprint
 
@@ -11507,8 +11507,8 @@ on.
   first (e.g. test fixtures). Replaced with a dedicated
   `_BASE_REGISTRY_BUILT` sentinel so flagship agent-native fields
   survive arbitrary registration order.
-- **New tests**: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_recommend_agent_cards.py` (5 tests),
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_exception_migrations.py` (7 tests). All existing
+- **New tests**: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_recommend_agent_cards.py` (5 tests),
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_exception_migrations.py` (7 tests). All existing
   registry / help / DID / IV / synth / matching / DML / meta-learner
   / Bayesian-DID / TMLE / causal-forest / agent-native suites
   continue to pass.
@@ -11541,7 +11541,7 @@ on.
   - `sp.conformal_synth` / `sp.augsynth` insufficient pre/post
     periods → `DataInsufficient`
 - **6 new migration tests** added to
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_exception_migrations.py` (13 total now). All existing
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_exception_migrations.py` (13 total now). All existing
   DID / IV / matching / DML / meta-learners / TMLE / synth / Bayesian
   family suites (363 tests total) continue to pass.
 
@@ -11575,8 +11575,8 @@ on.
   agents see the same triage picture. Backwards compatible: the
   existing `method_type` / `checks` keys are untouched.
 - **3 new migration tests** + **8 new closed-loop tests** added to
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_exception_migrations.py` and
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_diagnose_result_closed_loop.py`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_exception_migrations.py` and
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_diagnose_result_closed_loop.py`.
 - **Self-audit fix**: the `rdrobust` card's alternatives list used
   `rd_donut` (not exposed as a top-level function); replaced with
   `rdrbounds`. Doc block re-synced; drift-check green.
@@ -11590,7 +11590,7 @@ on.
   multi-treatment / network exposure / conformal / DML panel /
   paper / causal text / LLM-DAG.
 - **28 `## For Agents` blocks** across **21 guides**, rendered by
-  `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/sync_agent_blocks.py` with a CI drift guard.
+  `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/scripts/sync_agent_blocks.py` with a CI drift guard.
 - **19 call-site exception migrations** to the typed taxonomy
   (`MethodIncompatibility`, `DataInsufficient`,
   `IdentificationFailure`, `NumericalInstability`) across DID / IV
@@ -11680,7 +11680,7 @@ Three new top-level dispatchers mirroring the style of `sp.synth` /
 All three dispatchers are registered with hand-written schemas so
 `sp.describe_function("mr")` / `"conformal"` / `"interference"` return
 agent-readable descriptions.  30 new tests in
-`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dispatchers_v150.py` guarantee the dispatcher path and the
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dispatchers_v150.py` guarantee the dispatcher path and the
 direct-call path produce byte-for-byte identical results.
 
 ### ⚠️ Breaking — `sp.mr` is now a function, not a module alias
@@ -11697,7 +11697,7 @@ dispatcher.  The module is still accessible as `sp.mendelian` for users
 who were doing submodule-level introspection.
 
 Updated references: the only in-repo consumer of the old
-`sp.mr.mr_ivw` form was `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_mr_parity.py`,
+`sp.mr.mr_ivw` form was `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_mr_parity.py`,
 which has been migrated to top-level calls.  All external user code
 that already uses `sp.mr_ivw` / `sp.mendelian_randomization` / etc
 continues to work unchanged.
@@ -11713,7 +11713,7 @@ continues to work unchanged.
   correct t(3)-based p is 0.231.  `mendelian_randomization(..., methods=["egger"])`
   inherited the bug through its internal call.  The fix switches both the
   p-value and the CI critical value to `t(n−2)`.  Regression guard in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_correctness_v150.py::TestMREggerUsesTDistribution`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_correctness_v150.py::TestMREggerUsesTDistribution`.
   For `n_snps ≥ 100` the change is numerically invisible (< 1e-3 in p).
 
 - **`sp.mr_presso` — MC p-value could equal exactly 0.**  Both the
@@ -11726,7 +11726,7 @@ continues to work unchanged.
   now always strictly positive and in `[1/(B+1), 1]`, which prevents
   log-transforms and sensitivity analyses from silently producing
   `-inf`.  Regression guard in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_correctness_v150.py::TestMRPressoMCPvalueConvention`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_correctness_v150.py::TestMRPressoMCPvalueConvention`.
 
 ### Fixed — dead code
 
@@ -11771,7 +11771,7 @@ between the v3 reference document and the documentation.
   82% (≈ nominal, with the remaining gap explained by a 4% small-sample
   bias in the point estimate — a nuisance-tuning issue, not a
   variance-formula issue).  Regression guard added to
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dml_model_averaging.py::test_se_on_correct_scale`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dml_model_averaging.py::test_se_on_correct_scale`.
 - **`sp.gardner_did` — event-study reference-category contamination.**
   The Stage-2 dummy regression pooled never-treated units *and* treated
   units outside the event-study horizon into a single baseline,
@@ -11812,7 +11812,7 @@ hand-written registry specs.
 
 ### Added — tests + docs hooks (from v1.4.1 cherry-picks now formally shipped)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bridge_full.py`: 10 end-to-end smoke + correctness tests
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bridge_full.py`: 10 end-to-end smoke + correctness tests
   for the six `sp.bridge(kind=...)` bridging theorems — dispatches,
   finite outputs, agreement property on correctly-specified DGPs.
 - `docs/guides/bridging_theorems.md`: full walkthrough of the six
@@ -11862,7 +11862,7 @@ points.
 
 ### Added — parity + integration test suites
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_assimilation_parity.py`** — 10 checks
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_assimilation_parity.py`** — 10 checks
   on the Kalman / particle backends:
   - static-effect posterior recovery (both backends)
   - Kalman ↔ particle agreement on three seeds (point + SD within 15%)
@@ -11872,7 +11872,7 @@ points.
   - drift tracking without variance blow-up
   - `assimilative_causal(backend=...)` matches direct-backend calls
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/integration/test_causal_mas_with_fake_llm.py`** — 11
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/integration/test_causal_mas_with_fake_llm.py`** — 11
   end-to-end integration tests using the deterministic `echo_client`
   to drive the proposer / critic / domain-expert / synthesiser loop:
   proposer parsing (newlines + bullets), critic rejection,
@@ -11976,7 +11976,7 @@ Methods* / guides section.
 
 ### Fixed
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_causalml_book.py::test_forest_ate_recovers_average_tau`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_causalml_book.py::test_forest_ate_recovers_average_tau`
   was flaking on `ubuntu-latest + Python 3.10` because only the
   data-generating RNG was seeded — the causal forest's bootstrap +
   honest-split sampling was unseeded, so the ATE estimate varied
@@ -12069,13 +12069,13 @@ surfaces through `sp.list_functions`, `sp.describe_function`, and
   runs a user-supplied per-batch estimator.  New subpackage
   [`assimilation/`].
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/reference_parity/test_mr_parity.py`** — 7 analytic-truth
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/reference_parity/test_mr_parity.py`** — 7 analytic-truth
   checks over the MR suite (IVW consistency, Egger intercept under
   balanced pleiotropy, Egger directional-pleiotropy detection,
   weighted-median robustness, PRESSO outlier flag, LOO stability,
   Radial-Wald exact agreement).  All 7 pass.
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/external_parity/test_causalml_book.py`** — 7 CausalMLBook
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/external_parity/test_causalml_book.py`** — 7 CausalMLBook
   (Chernozhukov et al. 2024–2025) canonical-DGP checks: DML-PLR,
   Causal Forest, T-learner, 2SLS, Callaway–Sant'Anna DID, rdrobust,
   and rbc-bootstrap vs analytic parity.  All 7 pass.
@@ -12280,7 +12280,7 @@ deferred in v1.0.0.
 
 ### Tests
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_v100_review_fixes.py`: 8 pinning regression tests, each
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_v100_review_fixes.py`: 8 pinning regression tests, each
   corresponding 1:1 to a review finding.
 - Full-suite regression: 2 515+ tests passing, zero regressions.
 
@@ -12338,9 +12338,9 @@ all routed through `sp.*` and registered in `sp.list_functions()`.
 ### Tests (v3 sweep)
 
 - 55 new smoke tests added under `tests/test_*_frontiers.py`,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_causal_llm.py`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_causal_rl.py`,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_cluster_rct.py`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_metalearner_frontiers.py`,
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bunching_unified.py`. All pass; no regressions in the
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_causal_llm.py`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_causal_rl.py`,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_cluster_rct.py`, `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_metalearner_frontiers.py`,
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bunching_unified.py`. All pass; no regressions in the
   153 core tests for did / iv / rd / dml / proximal / metalearners.
 
 ### Registry (v3 sweep)
@@ -12796,11 +12796,11 @@ scaffold for the Rust HDFE spike.
   add-on diagnostic. Sub-fit priors and sampler controls mirror the
   pooled fit, so runtime scales roughly `(K+1)×`.
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/.github/workflows/build-wheels.yml`** — Rust Phase-2
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/.github/workflows/build-wheels.yml`** — Rust Phase-2
   cibuildwheel matrix workflow (macOS arm64 + x86_64,
   manylinux_2_17 x86_64 + aarch64, musllinux_1_2 x86_64, Windows
   x86_64) with a `check_rust_present` guard job that makes the
-  workflow a no-op when `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/rust/statspai_hdfe/Cargo.toml` is absent
+  workflow a no-op when `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/rust/statspai_hdfe/Cargo.toml` is absent
   (the state on `main`). The workflow activates automatically on
   `feat/rust-hdfe`/`feat/rust-phase2` and on PRs touching
   `rust/**`, so the Rust spike's CI lights up the moment the
@@ -12808,17 +12808,17 @@ scaffold for the Rust HDFE spike.
 
 ### Tests (0.9.16)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_bivariate_normal.py` — 7 tests covering
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_bivariate_normal.py` — 7 tests covering
   API validation (selection + first_stage gates, poly_u override),
   structural-param presence in posterior, method label contents,
   and slope recovery on a genuine trivariate-normal DGP at n=800.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_did_cohort.py` — 9 tests covering back-compat
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_did_cohort.py` — 9 tests covering back-compat
   (no cohort → single-row tidy identical to v0.9.15), cohort fit
   populates summaries, multi-row tidy via `per_cohort` + explicit
   list, unknown-term raises, τ ordering recovered on a two-cohort
   staggered DGP with heterogeneous true ATTs (2.0 vs 0.5), and
   cohort weights recorded in model_info.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_iv_per_instrument.py` — 8 tests covering
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_iv_per_instrument.py` — 8 tests covering
   back-compat, per-instrument summary population, `per_instrument`
   tidy, explicit-list tidy, unknown-term raises, error path when
   asking for `per_instrument` tidy without the sub-fit, and each
@@ -12866,7 +12866,7 @@ across fits in one call.
 
 ### Tests (0.9.15)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_tidy.py` (13 tests) — back-compat default
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_tidy.py` (13 tests) — back-compat default
   schema, single-term paths for all three labels, multi-row order
   preservation, concat workflow, invalid-term + mixed-valid
   rejection, NaN prob_positive stub back-compat, prob_positive
@@ -12876,7 +12876,7 @@ across fits in one call.
 
 ### Design spec (0.9.15)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v0915-tidy-multiterm.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v0915-tidy-multiterm.md`
 
 ### Non-goals (0.9.15)
 
@@ -12921,7 +12921,7 @@ Reviewer confirmed:
 
 ### Tests (0.9.14)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_uncertainty.py` now has:
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_uncertainty.py` now has:
   - `test_summary_shows_att_atu_uncertainty` — after fit, string
     contains `'ATT:'`, `'ATU:'`, `'sd '`, `'HDI ['`.
   - `test_summary_skips_att_atu_when_nan` — NaN-SD stub → no
@@ -12992,18 +12992,18 @@ manually in the same session before tests ever ran outside dev.
 
 ### Tests (0.9.13)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_hdi_compat.py` (4 tests) — forwards on current
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_hdi_compat.py` (4 tests) — forwards on current
   arviz, falls back on monkey-patched future arviz, returns length-2
   array, propagates `TypeError` when both kwargs rejected (no silent
   success).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_uncertainty.py` (4 tests) — ATT/ATU SD
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_uncertainty.py` (4 tests) — ATT/ATU SD
   populated + > 0, HDI brackets mean, no redundant `ate_sd`, realistic-
   DGP both-finite.
 - Bayesian family suite: 145/145 focused MTE + sibling tests green.
 
 ### Design spec
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v0913-hdi-compat-and-att-sd.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v0913-hdi-compat-and-att-sd.md`
 
 ### Non-goals (0.9.13)
 
@@ -13074,7 +13074,7 @@ Same story as earlier releases: `hv_latent` recovers truth;
 
 ### Tests (0.9.12)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_selection.py` (NEW, 12 tests) — back-compat,
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_selection.py` (NEW, 12 tests) — back-compat,
   method-label, Heckman DGP recovery, all-8-combo orthogonality,
   input validation, `v` column presence/absence, ATT/ATU V-scale
   correctness (Round-C regression), `policy_effect` V-scale
@@ -13127,8 +13127,8 @@ Closes two long-standing API gaps plus an empirical math debt.
 
 ### Tests (0.9.11)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_multi_iv.py` (9 tests).
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_policy.py` (+7 tests).
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_multi_iv.py` (9 tests).
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_policy.py` (+7 tests).
 - 61 focused MTE tests green.
 
 ### Code review
@@ -13139,7 +13139,7 @@ Closes two long-standing API gaps plus an empirical math debt.
 
 ### Design spec (0.9.11)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v0911-multi-iv-mte-observed-prte.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v0911-multi-iv-mte-observed-prte.md`
 
 ---
 
@@ -13216,7 +13216,7 @@ is the mathematical fix.
 
 ### Tests (0.9.10)
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_hv_latent.py`** (10 tests) — API, recovery
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_hv_latent.py`** (10 tests) — API, recovery
   of true `(b_0, b_1) = (2, -2)` on an HV DGP, disagreement with
   polynomial mode on same DGP, orthogonality with
   `first_stage='joint'`, input validation, memory-warning fires
@@ -13239,7 +13239,7 @@ is the mathematical fix.
 
 ### Design spec
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v0910-hv-latent-mte.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v0910-hv-latent-mte.md`
 
 ### Non-goals (0.9.10)
 
@@ -13298,7 +13298,7 @@ before this round.
 
 #### Tests (article-surface round-2)
 
-`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_article_aliases_round2.py` adds 25 tests covering all of
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_article_aliases_round2.py` adds 25 tests covering all of
 the above, including the conflict-detection and backend-signature
 branches flagged by the round-2 code review.
 
@@ -13323,14 +13323,14 @@ MTE labelling that survived two rounds of code review.
   honest about identification noise.
 
 - **`BayesianMTEResult.policy_effect(weight_fn, label, rope=None)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/_base.py`) — posterior summary of
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/_base.py`) — posterior summary of
   `int w(u) g(u) du / int w(u) du` using trapezoidal integration
   on the fit's `u_grid`. With `policy_weight_ate()` it is now
   **numerically identical** to `.ate` (both trapezoid on the same
   grid) — test asserts `< 1e-8` parity.
 
 - **`sp.policy_weight_*`** — four weight-function builders
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/policy_weights.py`):
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/policy_weights.py`):
   - `policy_weight_ate()` — uniform weight = 1.
   - `policy_weight_subsidy(u_lo, u_hi)` — indicator on `[u_lo, u_hi]`.
   - `policy_weight_prte(shift)` — **stylised** rectangle around the
@@ -13366,7 +13366,7 @@ MTE labelling that survived two rounds of code review.
 
 ### Tests (0.9.9)
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte_policy.py`** (NEW, 14 tests) — builders'
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte_policy.py`** (NEW, 14 tests) — builders'
   input validation (bad bounds rejected, FP-safe grids), joint
   mode runs + agrees with plug-in on well-specified DGPs,
   policy_effect contract, trapezoid parity with `.ate` at 1e-8,
@@ -13383,7 +13383,7 @@ MTE labelling that survived two rounds of code review.
 
 ### Design spec (0.9.9)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v099-mte-joint-policy-weights.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v099-mte-joint-policy-weights.md`
 
 ### Non-goals (0.9.9)
 
@@ -13405,7 +13405,7 @@ sampler dispatch with two new backends.
 ### Added (0.9.8)
 
 - **`sp.bayes_mte(data, y, treat, instrument, covariates=None, u_grid=..., poly_u=2, ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/mte.py`) — Heckman-Vytlacil (2005) Marginal
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/mte.py`) — Heckman-Vytlacil (2005) Marginal
   Treatment Effects via PyMC. Returns a `BayesianMTEResult` with:
   - `.mte_curve` — DataFrame on the user-supplied (or default
     19-point) grid of propensity-to-be-treated values ``U_D``:
@@ -13446,15 +13446,15 @@ sampler dispatch with two new backends.
 
 ### Design spec (0.9.8)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v098-bayes-mte-samplers.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v098-bayes-mte-samplers.md`
 
 ### Tests (0.9.8)
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_mte.py`** (9 tests) — API surface, flat-MTE
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_mte.py`** (9 tests) — API surface, flat-MTE
   recovery, monotone-MTE slope recovery, custom `u_grid`, `poly_u=1`
   path, covariate plumbing, top-level export, missing-column and
   non-binary-treat validation.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_advi.py`** (+5 tests) — Pathfinder on
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_advi.py`** (+5 tests) — Pathfinder on
   bayes_iv and bayes_did, SMC on bayes_iv and bayes_did, Pathfinder
   summary() caveat.
 
@@ -13481,7 +13481,7 @@ The third (Bayesian bunching) is **explicitly declined** — see the
 ### Added (0.9.7)
 
 - **`sp.bayes_hte_iv(data, y, treat, instrument, effect_modifiers, ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/hte_iv.py`) — Bayesian IV with a linear
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/hte_iv.py`) — Bayesian IV with a linear
   CATE-by-covariate model. Returns a `BayesianHTEIVResult` carrying:
   - Average LATE (`tau_0`, at modifier means) with posterior + HDI.
   - `.cate_slopes` DataFrame — one row per effect modifier with
@@ -13515,15 +13515,15 @@ The third (Bayesian bunching) is **explicitly declined** — see the
 
 ### Design spec (0.9.7)
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v097-bayes-hte-iv-advi.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v097-bayes-hte-iv-advi.md`
 
 ### Tests (0.9.7)
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_hte_iv.py`** (8 tests) — API surface, avg-LATE
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_hte_iv.py`** (8 tests) — API surface, avg-LATE
   recovery on heterogeneous DGP, slope recovery, null-slope
   coverage on homogeneous DGP, `predict_cate` schema, multi-modifier
   fit, input validation.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_advi.py`** (10 tests) — ADVI runs on all five
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_advi.py`** (10 tests) — ADVI runs on all five
   Bayesian estimators, posterior means finite,
   `model_info['inference']` reports correctly, invalid inference
   modes raise across the parametrised five-function set.
@@ -13574,7 +13574,7 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
 ### Added
 
 - **`sp.bayes_iv(data, y, treat, instrument, covariates=None, ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/iv.py`) — Bayesian linear IV via a
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/iv.py`) — Bayesian linear IV via a
   control-function formulation. First-stage OLS residuals enter the
   structural equation as an exogeneity correction, so the posterior
   on the LATE equals 2SLS asymptotically while remaining trivially
@@ -13583,7 +13583,7 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
   — the posterior prices identification automatically).
 
 - **`sp.bayes_fuzzy_rd(data, y, treat, running, cutoff, ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/fuzzy_rd.py`) — Bayesian fuzzy RD via joint
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/fuzzy_rd.py`) — Bayesian fuzzy RD via joint
   ITT-on-Y and ITT-on-D local polynomials with a deterministic
   ratio for the LATE. Under partial compliance the posterior
   inherits both noise channels (Wald-ratio posterior); under full
@@ -13615,18 +13615,18 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
 
 ### Design spec
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v096-bayes-iv-fuzzyrd-perlearner.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v096-bayes-iv-fuzzyrd-perlearner.md`
 
 ### Tests
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_iv.py`** (8 tests) — API, top-level export,
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_iv.py`** (8 tests) — API, top-level export,
   strong-IV recovery, weak-IV HDI widens, multi-instrument fit,
   covariate plumbing, input validation, tidy/glance shape.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_fuzzy_rd.py`** (7 tests) — API, recovery
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_fuzzy_rd.py`** (7 tests) — API, recovery
   under partial compliance, sharp-equivalence under full
   compliance, bandwidth shrinks sample, first-stage diagnostics
   reported, non-binary uptake rejected.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_auto_cate_tuned.py`** (+5 tests) — invalid
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_auto_cate_tuned.py`** (+5 tests) — invalid
   `tune` mode rejected, `'per_learner'` populates params, no
   nuisance metadata leaks in per_learner mode, `'both'` mode
   covers both channels, selection_rule mentions per-learner tuning.
@@ -13644,7 +13644,7 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
 ### Added (Sprint B)
 
 - **`sp.dml(..., model='iivm', instrument=Z)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/dml/iivm.py`) — Interactive IV (binary D, binary Z)
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/dml/iivm.py`) — Interactive IV (binary D, binary Z)
   DML estimator for LATE. Uses the efficient-influence-function ratio
   of two doubly-robust scores `(ψ_a, ψ_b)` with Neyman-orthogonal
   cross-fitting; SE via delta-method on the ratio. Weak-instrument
@@ -13659,7 +13659,7 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
   The legacy `sp.DoubleML(model=...)` façade still works.
 
 - **`sp.g_computation(data, y, treat, covariates, estimand='ATE'|'ATT'|'dose_response', ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/inference/g_computation.py`) — Robins' (1986)
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/inference/g_computation.py`) — Robins' (1986)
   parametric g-formula / standardisation estimator. Supports binary
   treatment (ATE, ATT) and continuous treatment dose-response grids.
   Default OLS outcome model or any sklearn-compatible learner via
@@ -13668,7 +13668,7 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
   fallback that would shrink SE.
 
 - **`sp.front_door(data, y, treat, mediator, covariates=None, mediator_type='auto', integrate_by='marginal'|'conditional', ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/inference/front_door.py`) — Pearl (1995) front-door
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/inference/front_door.py`) — Pearl (1995) front-door
   adjustment estimator. Closed-form sums for binary mediator; Monte
   Carlo integration over a Gaussian conditional density for continuous
   mediator. Two identification variants exposed: `integrate_by='marginal'`
@@ -13686,7 +13686,7 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
   users who want the weights without fitting the outcome model.
 
 - **`sp.mediate_interventional(data, y, treat, mediator, covariates=None, tv_confounders=None, ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/mediation/mediate.py`) — VanderWeele, Vansteelandt &
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/mediation/mediate.py`) — VanderWeele, Vansteelandt &
   Robins (2014) interventional (in)direct effects. Identified in the
   presence of a treatment-induced mediator-outcome confounder
   (`tv_confounders=[...]`) where natural (in)direct effects are not.
@@ -13755,28 +13755,28 @@ diagnostics, MC vectorisation, and did a full DML internal refactor
 
 ### Tests (Sprint B)
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dml_iivm.py`** (5 tests) — LATE recovery on
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dml_iivm.py`** (5 tests) — LATE recovery on
   one-sided-noncompliance DGP, significance, binary-D/binary-Z
   validation, `model_info` fields.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_dml_split.py`** (5 tests) — direct-class API equals
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_dml_split.py`** (5 tests) — direct-class API equals
   dispatcher, legacy `DoubleML` façade, PLIV rejects multi-instrument
   list.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_g_computation.py`** (5 tests) — ATE / ATT /
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_g_computation.py`** (5 tests) — ATE / ATT /
   dose-response curves recovered within tolerance, validation errors.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_front_door.py`** (4 tests) — continuous-M and
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_front_door.py`** (4 tests) — continuous-M and
   binary-M ATE recovery on DGP with unobserved confounder, strictly
   closer to truth than naïve OLS.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_front_door_integrate_by.py`** (3 tests) — marginal
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_front_door_integrate_by.py`** (3 tests) — marginal
   and conditional variants both recover truth, invalid values rejected.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_msm.py`** (5 tests) — cumulative-exposure slope
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_msm.py`** (5 tests) — cumulative-exposure slope
   recovery, stabilised-weight shape / mean, `exposure='ever'`
   requires binary treatment, weight diagnostics exposed.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_mediate_interventional.py`** (4 tests) — IIE + IDE
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_mediate_interventional.py`** (4 tests) — IIE + IDE
   decomposition additivity, total-effect sign, binary-D validation.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_proximal.py`** (6 tests) — linear-bridge ATE
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_proximal.py`** (6 tests) — linear-bridge ATE
   recovery, strictly-better-than-OLS, order-condition check,
   covariate compatibility, bootstrap SE path, first-stage F reported.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_principal_strat.py`** (7 tests) — monotonicity LATE
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_principal_strat.py`** (7 tests) — monotonicity LATE
   + stratum proportions, valid SACE bounds, principal-score method
   with informative X, input validation, SACE helper.
 
@@ -13805,7 +13805,7 @@ retrospective (Section 8 "认怂" list):
 ### Added
 
 - **`sp.bayes_did(data, y, treat, post, unit=None, time=None, ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/did.py`) — Bayesian difference-in-differences
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/did.py`) — Bayesian difference-in-differences
   via PyMC. 2×2 for no panel indices, hierarchical Gaussian random
   effects when `unit` and/or `time` are supplied. NUTS sampler,
   configurable priors, `rope=(lo, hi)` for "practical equivalence"
@@ -13815,7 +13815,7 @@ retrospective (Section 8 "认怂" list):
   plotting.
 
 - **`sp.bayes_rd(data, y, running, cutoff, bandwidth=None, poly=1, ...)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/bayes/rd.py`) — Bayesian sharp regression
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/bayes/rd.py`) — Bayesian sharp regression
   discontinuity with local polynomial (order ≥ 1) and Normal prior
   on the jump. Bandwidth defaults to `0.5 * std(running)`.
 
@@ -13827,7 +13827,7 @@ retrospective (Section 8 "认怂" list):
   frequentist estimators.
 
 - **`sp.auto_cate_tuned(..., n_trials=25, timeout=None, search_space=None)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/metalearners/auto_cate_tuned.py`) — Optuna's
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/metalearners/auto_cate_tuned.py`) — Optuna's
   `TPESampler` searches over the nuisance GBM hyperparameters
   (outcome and propensity model separately), scoring each trial by
   shared-nuisance held-out R-loss. Best trial's models are handed to
@@ -13836,7 +13836,7 @@ retrospective (Section 8 "认怂" list):
   econml "nuisance cross-validation before CATE" ergonomic gap.
 
 - **`sp.fast.hdfe_bench(n_list, n_groups, repeat, seed, atol)`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/fast/bench.py`) — benchmark harness for HDFE
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/fast/bench.py`) — benchmark harness for HDFE
   group-demean kernels. Times NumPy, Numba, and (future) Rust paths
   on the same DGPs and asserts correctness to ≤ 1 × 10⁻¹⁰ vs the
   NumPy reference. Unavailable backends are recorded, not crashed,
@@ -13851,24 +13851,24 @@ retrospective (Section 8 "认怂" list):
 
 ### Design docs
 
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v095-bayes-optuna-rust-spike.md`
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v095-bayes-optuna-rust-spike.md`
   — full spec for this release.
-- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v095-rust-hdfe-spike.md` — the
+- `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v095-rust-hdfe-spike.md` — the
   phased plan for the Rust HDFE port (crate layout, PyO3 FFI
   surface, cibuildwheel matrix, graceful-degradation contract).
 
 ### Tests
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_did.py`** (11 tests) — 2×2 + panel recovery,
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_did.py`** (11 tests) — 2×2 + panel recovery,
   prob_positive calibration, HDI coverage, input validation, ROPE,
   tidy/glance shape.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_bayes_rd.py`** (9 tests) — sharp recovery, null-effect
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_bayes_rd.py`** (9 tests) — sharp recovery, null-effect
   HDI straddles 0, bandwidth shrinks local sample, poly=2 runs,
   validation errors.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_auto_cate_tuned.py`** (7 tests) — API, `n_trials`
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_auto_cate_tuned.py`** (7 tests) — API, `n_trials`
   respected, ATE recovery, custom search space honoured, invalid
   treatment rejected.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_fast_bench.py`** (5 tests) — harness returns
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_fast_bench.py`** (5 tests) — harness returns
   `HDFEBenchResult`, dry-run <5 s, Numba/NumPy agree to 1e-10,
   unavailable paths recorded not crashed, summary string.
 
@@ -13897,7 +13897,7 @@ retrospective (`社媒文档/4.20-升级说明/StatsPAI-0.9.3之后的一周…`
 ### Added
 
 - **`sp.auto_cate(data, y, treat, covariates, learners=('s','t','x','r','dr'))`**
-  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/metalearners/auto_cate.py`, +400 LOC) — races the five
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/metalearners/auto_cate.py`, +400 LOC) — races the five
   meta-learners on shared cross-fitted nuisances, scores each on
   held-out predictions via the Nie-Wager R-loss, runs the
   Chernozhukov-Demirer-Duflo-Fernández-Val BLP calibration test on
@@ -13938,13 +13938,13 @@ retrospective (`社媒文档/4.20-升级说明/StatsPAI-0.9.3之后的一周…`
 
 ### Tests
 
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_auto_cate.py`** (13 tests) — API surface, leaderboard
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_auto_cate.py`** (13 tests) — API surface, leaderboard
   shape, ATE recovery on constant-effect DGP, all-positive ATE on
   positive DGP, learner subset, invalid learner rejection, selection
   rule string, agreement matrix, `CausalResult` delegation
   (`.tidy()`, `.glance()`), custom model override, summary string,
   top-level `sp.*` availability, heterogeneous-DGP CATE dispersion.
-- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_check_identification.py`** (+5 tests) — `strict=True`
+- **`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_check_identification.py`** (+5 tests) — `strict=True`
   raises on blockers, tolerates warnings, default non-strict
   behaviour unchanged, `sp.IdentificationError` top-level export,
   weak-instrument flagged, strong-instrument not flagged.
@@ -13952,7 +13952,7 @@ retrospective (`社媒文档/4.20-升级说明/StatsPAI-0.9.3之后的一周…`
 ### Design
 
 - Published spec at
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/superpowers/specs/2026-04-20-v094-auto-cate-strict-id-design.md`.
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/docs/superpowers/specs/2026-04-20-v094-auto-cate-strict-id-design.md`.
 
 ### Non-goals (deferred to 0.9.5+)
 
@@ -14023,7 +14023,7 @@ All are fixed on `main` without a version bump (pending a later patch release).
 
 ### Tests
 
-`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_v093_bugfixes.py` — 15 regression tests covering all four bugs
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_v093_bugfixes.py` — 15 regression tests covering all four bugs
 plus the new validation. Full suite: 1655 passed, 4 skipped, 0 regressions.
 
 ---
@@ -14253,7 +14253,7 @@ proper sub-package (~2,000 LOC across `_core.py`, `lmm.py`, `glmm.py`,
   predictions in group-iteration order rather than the original row
   order. `_GroupBlock` now carries the training row indices and
   `predict()` scatters the output back to the correct positions.
-  Regression test: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_multilevel.py::TestRandomIntercept::
+  Regression test: `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_multilevel.py::TestRandomIntercept::
   test_predict_is_row_aligned_with_training_frame`.
 - **[BLOCKER fix]** GLMM inner Newton (`_find_mode`) now damps large
   steps and returns a convergence flag. `meglm` aggregates per-cluster
@@ -14325,7 +14325,7 @@ comparisons biased by ~Σ log(y!). β and variance estimates are
 unchanged; only `log_likelihood` and `aic` / `bic` absolute values
 shift — relative comparisons within a family are unaffected.
 
-**Tests (multilevel).** `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_multilevel.py` grows from 35 to 53
+**Tests (multilevel).** `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_multilevel.py` grows from 35 to 53
 tests:
 
 - `TestAGHQ` (7 tests) — nAGQ=1↔Laplace identity, AGHQ improves vs
@@ -14343,10 +14343,10 @@ Backwards compatibility: all 35 prior multilevel tests pass unchanged.
   stale call sites in `synth/power.py` and `synth/sensitivity.py`
   migrated to the new (Y_treated_pre, Y_donors_pre, X_treated,
   X_donors, run_nested) signature (fixes 8 test failures in
-  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_synth_advanced.py` and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_synth_extras.py`).
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_synth_advanced.py` and `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_synth_extras.py`).
 - **Placebo alignment** — `synth/power.py` placebo builder now follows
   `scm.py:888` exactly so LOO ↔ main placebo results stay consistent.
-- **numpy 2.x compatibility** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_frontier.py` switches
+- **numpy 2.x compatibility** — `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_frontier.py` switches
   `np.trapz` → `np.trapezoid` (removed in numpy 2.x).
 
 ---
@@ -14402,7 +14402,7 @@ Shipped in commit `be59260`:
 ### Meta — Author Attribution
 
 - Author metadata corrected from `Bryce Wang` to `Biaoyue Wang` in:
-  `pyproject.toml` (`authors` + `maintainers`), `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/__init__.py`
+  `pyproject.toml` (`authors` + `maintainers`), `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/src/statspai/__init__.py`
   (`__author__`), `README.md` / `README_CN.md` (team line + BibTeX),
   `docs/index.md` (BibTeX), and `mkdocs.yml` (`site_author`).
   Software-journal submission (`paper.md`) was already correct.
@@ -14711,7 +14711,7 @@ DID-focused polish release. Brings the Wooldridge (2021) ETWFE
 implementation to full feature parity with the R `etwfe` package,
 adds a one-call method-robustness workflow, and closes 12 issues
 uncovered by an internal code review round. All 27 new / updated
-DID tests pass (`pytest https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_did_summary.py`).
+DID tests pass (`pytest https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_did_summary.py`).
 
 ### Added — ETWFE full parity with R `etwfe`
 
@@ -14792,7 +14792,7 @@ High-severity:
 
 ### Tests
 
-- New test module `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/tests/test_did_summary.py` — 27 cases covering
+- New test module `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/tests/test_did_summary.py` — 27 cases covering
   consistency with direct estimator calls, export formats, forest
   plot rendering, `etwfe_emfx` round-trips, xvar / panel / cgroup
   options, the 12 review fixes, and the `include_leads` mode.

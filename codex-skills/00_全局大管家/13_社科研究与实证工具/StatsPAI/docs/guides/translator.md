@@ -12,12 +12,12 @@ across is mechanical, not a rewrite. The translators are available three ways:
 import statspai as sp
 
 sp.from_stata("reghdfe y x, absorb(id year) vce(cluster id)")
-# → {'tool': 'fixest',
-#    'python_code': "sp.fixest('y ~ x', data=df, fe=['id', 'year'], cluster='id')",
+# → {'tool': 'feols',
+#    'python_code': "sp.feols('y ~ x | id + year', data=df, cluster='id')",
 #    'notes': [], 'ok': True}
 
 sp.from_r("feols(y ~ x | id, data = df)")
-# → {'tool': 'fixest', 'python_code': "sp.fixest('y ~ x', data=df, fe=['id'])", ...}
+# → {'tool': 'feols', 'python_code': "sp.feols('y ~ x | id', data=df)", ...}
 ```
 
 Each call returns one ready-to-run `python_code` string plus a `notes` list. The
@@ -42,7 +42,7 @@ translators actually do:
 ```python
 cov = sp.translation_coverage()
 cov["summary"]      # {'n_stata_commands': 38, 'n_r_functions': 11, ...}
-cov["stata"]        # [{'command': 'reghdfe', 'targets': ['sp.fixest'], ...}, ...]
+cov["stata"]        # [{'command': 'reghdfe', 'targets': ['sp.feols'], ...}, ...]
 cov["limitations"]  # the documented gaps (see below)
 
 print(sp.translation_coverage(fmt="markdown"))   # a ready-to-read table
@@ -54,7 +54,7 @@ always-current list):
 | Stata | → StatsPAI |
 | --- | --- |
 | `regress` / `reg` | `sp.regress` |
-| `reghdfe`, `xtreg`, `ivreghdfe` | `sp.fixest` |
+| `reghdfe`, `xtreg`, `ivreghdfe` | `sp.feols` |
 | `ivreg2` / `ivregress` | `sp.ivreg` |
 | `csdid`, `didregress`, `did_imputation` | `sp.callaway_santanna` / `sp.did` / `sp.did_imputation` |
 | `rdrobust`, `rdplot`, `rddensity` | `sp.rdrobust` / `sp.rdplot` / `sp.rddensity` |
@@ -66,9 +66,9 @@ Flagship R mappings:
 
 | R | → StatsPAI |
 | --- | --- |
-| `feols` / `felm` (fixest / lfe) | `sp.fixest` |
+| `feols` / `felm` (fixest / lfe) | `sp.feols` |
 | `lm` / `glm` | `sp.regress` / `sp.glm` |
-| `plm`, `lmer` / `glmer` | `sp.panel` / `sp.multilevel` / `sp.meglm` |
+| `plm`, `lmer` / `glmer` | `sp.panel` / `sp.mixed` / `sp.melogit` (or `sp.meglm`) |
 | `att_gt` / `did` | `sp.callaway_santanna` |
 | `matchit` (MatchIt) | `sp.match` |
 
@@ -80,7 +80,7 @@ These are part of the queryable contract — `sp.translation_coverage()["limitat
   placeholder when the `xtset` / `tsset` declaration is on a different line; pass
   `id=` / `time=` explicitly to the resulting `sp.*` call.
 - **Time series.** `arima` / `var` / `vec` / `granger` are not translated — call
-  `sp.arima` / `sp.var` / `sp.vecm` directly.
+  `sp.arima` / `sp.var` / `sp.johansen` directly.
 - **Estimation tables.** `esttab` / `eststo` / `outreg2` are not translated; use
   `sp.regtable` on the fitted results.
 - **Dropped qualifiers are surfaced, not lost.** A Stata `if`/`in` qualifier or

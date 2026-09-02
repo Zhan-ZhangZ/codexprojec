@@ -41,8 +41,8 @@ for r in card["recommend"]:
 The CLI regenerates the human-readable scorecard and runs the CI ratchet:
 
 ```bash
-python benchmarks/recommend_hit_rate/harness.py            # report + scorecard
-python benchmarks/recommend_hit_rate/harness.py --check --min-hit-rate 0.9
+python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/recommend_hit_rate/harness.py            # report + scorecard
+python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/benchmarks/recommend_hit_rate/harness.py --check --min-hit-rate 0.9
 ```
 
 ## Current results
