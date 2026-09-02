@@ -46,6 +46,9 @@ dist/
 build/
 out/
 coverage/
+# 例外：text-to-cad 技能的 CAD Viewer 预构建运行时（上游 main 分支随技能分发的
+# dist 产物，cad-viewer 技能 `npm run start` 直接服务该目录，属运行链路而非构建垃圾）
+!codex-skills/00_全局大管家/06_商业与专业领域/text-to-cad/skills/cad-viewer/scripts/viewer/dist/
 
 # Python Cache
 .mypy_cache/
