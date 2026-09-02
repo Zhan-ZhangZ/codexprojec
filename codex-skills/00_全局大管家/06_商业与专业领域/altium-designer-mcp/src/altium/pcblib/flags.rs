@@ -13,5 +13,10 @@ pub(super) const ALT_FLAG_SAVED: u16 = 0x0008;
 pub(super) const ALT_FLAG_TENTING_TOP: u16 = 0x0020;
 /// Solder-mask tenting on the bottom layer.
 pub(super) const ALT_FLAG_TENTING_BOTTOM: u16 = 0x0040;
+/// Fabrication test point on the top layer. Altium also clears
+/// [`ALT_FLAG_UNLOCKED`] when this is set, so such a pad reads as locked too.
+pub(super) const ALT_FLAG_TESTPOINT_TOP: u16 = 0x0080;
+/// Fabrication test point on the bottom layer. Clears [`ALT_FLAG_UNLOCKED`] as well.
+pub(super) const ALT_FLAG_TESTPOINT_BOTTOM: u16 = 0x0100;
 /// Keepout primitive.
 pub(super) const ALT_FLAG_KEEPOUT: u16 = 0x0200;

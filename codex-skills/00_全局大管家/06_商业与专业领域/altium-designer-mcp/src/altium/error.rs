@@ -227,4 +227,39 @@ mod tests {
         assert!(!msg.contains(dir), "error message leaked directory: {msg}");
         assert!(msg.contains("Parts.SchLib"), "message: {msg}");
     }
+
+    #[test]
+    fn sanitise_path_falls_back_when_there_is_no_final_component() {
+        // A path whose final component is absent (empty, or one ending in `..`)
+        // must still render as the `<file>` placeholder rather than panicking.
+        for p in ["", "..", "/.."] {
+            assert_eq!(
+                sanitise_path_for_client(Path::new(p)),
+                "<file>",
+                "path {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compression_error_carries_message_and_optional_source() {
+        let with_source = AltiumError::compression_error(
+            "Failed to compress storage entry",
+            Some(io::Error::new(io::ErrorKind::WriteZero, "short write")),
+        );
+        assert!(
+            with_source
+                .to_string()
+                .contains("Failed to compress storage entry"),
+            "message: {with_source}"
+        );
+
+        // The source is optional: a compression failure with no underlying I/O
+        // error still renders its own message.
+        let bare = AltiumError::compression_error("inflate failed", None);
+        assert!(
+            bare.to_string().contains("inflate failed"),
+            "message: {bare}"
+        );
+    }
 }

@@ -25,6 +25,12 @@ struct Args {
     #[arg(value_name = "CONFIG_FILE")]
     config: Option<PathBuf>,
 
+    /// Grant access to a library directory (repeatable). Adds to the config
+    /// file's allowed paths, and works with no config file at all — the other
+    /// settings then take their defaults
+    #[arg(long = "allow", value_name = "DIR", num_args = 1..)]
+    allow: Vec<PathBuf>,
+
     /// Increase logging verbosity (-v for info, -vv for debug, -vvv for trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -81,14 +87,15 @@ fn main() -> ExitCode {
 
     // Load configuration
     let config_path = args.config.as_deref();
-    let cfg = match config::load_config(config_path) {
+    let cfg = match config::load_config_with_allow(config_path, args.allow) {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Configuration error: {e}");
             if config_path.is_none() {
                 if let Some(default_path) = config::default_config_path() {
                     eprintln!("\nExpected config at: {}", default_path.display());
-                    eprintln!("Create one based on config/example-config.json");
+                    eprintln!("Create one based on config/example-config.json,");
+                    eprintln!("or grant directories directly: --allow <DIR>...");
                 }
             }
             return ExitCode::FAILURE;
@@ -174,5 +181,33 @@ mod tests {
     fn verify_cli() {
         use clap::CommandFactory;
         Args::command().debug_assert();
+    }
+
+    #[test]
+    fn quiet_forces_error_regardless_of_verbose_or_config() {
+        assert_eq!(get_log_level(0, true, "trace"), Level::ERROR);
+        assert_eq!(get_log_level(3, true, "info"), Level::ERROR);
+    }
+
+    #[test]
+    fn verbose_flags_map_to_levels() {
+        assert_eq!(get_log_level(1, false, "warn"), Level::INFO);
+        assert_eq!(get_log_level(2, false, "warn"), Level::DEBUG);
+        assert_eq!(get_log_level(3, false, "warn"), Level::TRACE);
+        // Beyond -vvv still saturates at TRACE.
+        assert_eq!(get_log_level(9, false, "warn"), Level::TRACE);
+    }
+
+    #[test]
+    fn config_level_used_when_no_verbose_flags() {
+        assert_eq!(get_log_level(0, false, "trace"), Level::TRACE);
+        assert_eq!(get_log_level(0, false, "debug"), Level::DEBUG);
+        assert_eq!(get_log_level(0, false, "info"), Level::INFO);
+        assert_eq!(get_log_level(0, false, "warn"), Level::WARN);
+        assert_eq!(get_log_level(0, false, "error"), Level::ERROR);
+        // Case-insensitive.
+        assert_eq!(get_log_level(0, false, "INFO"), Level::INFO);
+        // Unknown config level falls back to WARN.
+        assert_eq!(get_log_level(0, false, "chatty"), Level::WARN);
     }
 }

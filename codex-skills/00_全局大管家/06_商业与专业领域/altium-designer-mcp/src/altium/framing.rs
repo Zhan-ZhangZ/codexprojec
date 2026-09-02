@@ -3,7 +3,7 @@
 //! Both the `PcbLib` (binary) and `SchLib` (ASCII-record) writers frame data
 //! with the same handful of length-prefixed primitives. They live here so the
 //! two formats share one implementation of each frame instead of copy-pasting
-//! the exact byte layout (which previously drifted and caused issue #68's
+//! the exact byte layout, which is easy to let drift (issue #68's
 //! "Data does not end with 0x00").
 //!
 //! The per-format record *shape* (`PcbLib`'s binary sub-blocks vs `SchLib`'s
@@ -46,6 +46,17 @@ pub fn write_pascal_string(record: &mut Vec<u8>, bytes: &[u8]) {
     record.extend_from_slice(bytes);
 }
 
+/// Appends a `WriteStringBlock`: a Pascal short string wrapped in an outer
+/// length-prefixed block — `[u32 LE block_len][u8 str_len][bytes]`.
+///
+/// The exact inverse of reading with [`read_block`] then [`read_pascal_string`].
+/// Callers validate `bytes.len() <= 255` (the inner Pascal length prefix).
+pub fn write_string_block(data: &mut Vec<u8>, bytes: &[u8]) {
+    let mut inner = Vec::with_capacity(1 + bytes.len());
+    write_pascal_string(&mut inner, bytes);
+    write_block(data, &inner);
+}
+
 /// Reads a length-prefixed binary block written by [`write_block`]:
 /// `[u32 LE length][bytes]`.
 ///
@@ -75,7 +86,7 @@ pub fn read_pascal_string(data: &[u8], offset: usize) -> (String, usize) {
     let start = offset + 1;
     let end = start + len;
     let s = if len > 0 && end <= data.len() {
-        crate::altium::decode_windows1252(&data[start..end])
+        crate::altium::decode_altium_text(&data[start..end])
     } else {
         String::new()
     };

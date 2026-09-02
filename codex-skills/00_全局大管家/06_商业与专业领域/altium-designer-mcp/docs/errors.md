@@ -2,9 +2,10 @@
 
 This document is a consolidated catalogue of every error this MCP server can surface, the
 condition that produces it, and how to resolve it. It complements the operational hints in
-[CLAUDE_CODE_GUIDE.md § Troubleshooting](CLAUDE_CODE_GUIDE.md#troubleshooting), which covers
-client-side setup problems, and the `isError` example in the
-[README § read_footprint](../README.md#mcp-tools), which it does not repeat here.
+[CLIENT_SETUP.md § Troubleshooting](CLIENT_SETUP.md#troubleshooting), which covers
+client-side setup problems, [USAGE.md § When Something Goes Wrong](USAGE.md#when-something-goes-wrong),
+which covers problems once connected, and the tool reference in
+[README § MCP Tools](../README.md#mcp-tools), which it does not repeat here.
 
 ---
 
@@ -108,6 +109,25 @@ operations. They are surfaced to the client as tool-call results with `isError: 
 
 ---
 
+## Path Validation Errors
+
+Every file-touching tool routes its `filepath` argument through `validate_path`
+(`src/mcp/server.rs`) before any I/O. When validation fails, the message below is returned
+to the client as a tool-call result with `isError: true` (see
+[How Errors Surface](#how-errors-surface)). Only the sanitised file name (`{name}`) ever
+appears — never a full path.
+
+| Message | When It Occurs | Remedy |
+|---------|----------------|--------|
+| `Access denied: no allowed directories are configured` | The server was constructed with an empty allow-list, so every path is denied (fail closed). The CLI substitutes the current directory when the config omits `allowed_paths`, so this normally only affects embedders. | Configure at least one `allowed_paths` entry. |
+| `Access denied: path is outside the configured allowed directories` | The canonicalised path is not within any configured allowed path. The message is deliberately generic — it discloses no path, allow-list contents, or OS error text. | Use a path inside a configured allowed directory, or add the directory to `allowed_paths`. |
+| `Failed to resolve path '{name}'` | The path exists but could not be canonicalised (for example, permission denied on a component of the path). | Check the path's permissions and that every component is accessible. |
+| `Invalid path '{name}': cannot create a file at the filesystem root` | A new-file path has no parent directory (it points at the filesystem root). | Supply a path inside a directory, not at the root. |
+| `Invalid path '{name}': no filename specified` | A new-file path has no final file-name component. | Supply a path that ends in a file name. |
+| `Parent directory of '{name}' does not exist or is inaccessible` | For a file that does not yet exist, the parent directory could not be canonicalised — it is missing or unreadable. | Create the parent directory first, or correct the path. |
+
+---
+
 ## Tool-Call Result and Error-Context Shapes
 
 When a tool fails, the handler returns a `ToolCallResult` (defined in `src/mcp/server.rs`).
@@ -119,7 +139,7 @@ The envelope serialises to the standard MCP shape: a `content` array of typed it
     "content": [
         {
             "type": "text",
-            "text": "Component 'SOIC-99' not found in library."
+            "text": "Component 'SOIC-99' not found in library. Available: SOIC-8, SOIC-14, SOIC-16"
         }
     ],
     "isError": true
@@ -151,6 +171,83 @@ The structured document inside `text` always carries these keys:
 - **`filepath`** — the file being operated on, or `null` if not applicable.
 - **`component`** — the component being processed, or `null` if not applicable.
 - **`details`** — additional context about what was happening, or `null`.
+
+### Unknown-Argument and Unknown-Field Rejection
+
+Every `tools/call` is first checked against the called tool's own schema (the one
+`tools/list` serves): an argument the schema does not document —
+`Unknown argument 'dryrun' for tool 'update_pad'. Accepted arguments are: [...]` — is
+refused before the handler runs, because every handler would otherwise ignore it and
+silently take the default (`src/mcp/server.rs`, `check_tool_arguments`). So is a value
+of the wrong JSON type anywhere in the arguments, named by its path —
+`Argument 'footprints[0].pads[1].width' must be a number, got string "1.5"` — since a
+handler reading `"true"` where it expects `true`, or `"1.5"` where it expects `1.5`,
+would likewise take the default without a word. A whole number is accepted wherever an
+integer is expected (`2` and `2.0` alike, up to 2^53) and handed to the tool as the
+integer it is, so `"limit": 2.0` pages by two; a field the schema types as several kinds
+(`flags`, a region's `kind`) accepts any of them. A page is asked for with a `limit` of
+1 or more and an `offset` of 0 or more — `limit must be a whole number of 1 or more, got 0`
+— since a zero page would never advance and a negative one used to read as absent. A
+range the schema states (`minimum` / `maximum`, shown in `docs/TOOLS.md`) is checked at
+the same point — `Argument 'symbols[0].labels[0].font_id' must be between 1 and 255, got 0`
+— since a negative under an unsigned field, or a byte over 255, used to read as absent.
+The parsers judge the rest of the *values* — spellings, geometry, layer names — and say
+so in their own errors. A pad or
+via stack is held to what the record stores — the entry count its stack mode takes
+(3 for `top_middle_bottom`, 32 for `full_stack`; 32 diameters for a stacked via), a shape
+per entry, a whole-number 0-100 corner radius —
+`Pad '1' per_layer_shapes[2] 'oblongish' is not a shape` — rather than filling a
+missing layer from the main size or ignoring an extra one.
+
+`write_pcblib`, `write_schlib`, `update_component`, `update_pad`, `update_primitive` and
+`batch_update` refuse any JSON object key they do not know —
+`Unknown field 'widht'. Allowed fields are: [...]` — rather than ignoring it, because an
+ignored typo is a pad of the wrong shape or a track on the wrong layer, found only in Altium.
+Every object is checked: footprints and symbols, each primitive kind, 3D-model and
+component-body objects, footprint links, and the `updates` / `parameters` objects of the
+in-place tools (per primitive kind and per batch operation). The accepted keys are the fields the read tools
+emit for that object plus its authoring-only spellings (`step_model`, `vertices`, `hidden`,
+`designator_prefix`, …), so anything a read returned can be passed straight back
+(`src/mcp/tools/allowed_keys.rs`). A footprint or symbol is parsed by one routine whichever
+tool receives it (`parse_footprint_json` / `parse_symbol_json`, `src/mcp/tools/parsing.rs`),
+so `update_component` accepts exactly what `write_pcblib` / `write_schlib` do.
+
+A record the parser cannot build — a required field missing or of the wrong type — is
+likewise refused, never silently left out: the error names the kind and index
+(`Failed to parse region at index 2`, `Failed to parse footprint link at index 0`) in the
+structured context above, and nothing is written. An enum-valued field spelt in a way no
+accepted name matches is refused the same way —
+`Pin '7' orientation 'sideways' is not recognised. Accepted values: left, right, up, down`
+— with names matched in any case, with or without separators, plus the documented
+synonyms (`tristate` for `hi_z`).
+
+No text field may contain `|`: it is the separator of Altium's pipe-delimited records,
+and the format has no way to escape it, so the text would come back cut at that point.
+Altium's own editors confirm the rule — the schematic editor stores such a `|` as `¦`
+(U+00A6), the PCB editor writes it raw and then reads the text back cut (measured in
+AD24; `scripts/samples/manual/pipe.*`) — so both writers and the write tools refuse it by
+field: `Symbol 'X' parameters[].value contains '|', the separator of Altium's record
+format, which cannot hold it (Altium's own schematic editor stores it as '¦', U+00A6 —
+send that character if it is what you mean)`. Strings kept in binary fields — a pad
+designator, a PCB text's string, a pin's name and designator — may carry one.
+
+### Component Names Are Case-Insensitive
+
+A component name is resolved regardless of case — `get_component` for `lm358` finds
+`LM358`, as does the `component_name` filter of `read_pcblib` / `read_schlib` — because
+that is how the file's own OLE directory compares the storage names a component becomes,
+and how Altium resolves one. A name the library does not hold is an error that names what
+it does — `Component 'LM385' not found in library. Available: LM358, LM324 ... and 12 more`
+— from every tool that looks one up, never an empty success. Every tool that creates a name
+(`copy_component`, `rename_component`, `bulk_rename`, `write_*` append, `import_library`,
+`merge_libraries`, `update_component` with a new name) therefore treats a name differing
+from an existing one only in case as taken, and says so with the spelling on file:
+`Component 'res_0402' already exists in library as 'RES_0402' (component names are
+case-insensitive)`. Renaming a component to its own name in another case is allowed,
+however the request spells the old name. Naming a component in another case when
+referring to it (`update_component`, `update_pad`, …) never changes the spelling on file:
+only an explicit new name renames. Two such names within one `write_*` request are
+reported as a duplicate. A rename keeps the component's position in the library.
 
 ---
 

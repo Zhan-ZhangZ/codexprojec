@@ -428,6 +428,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_request_failing_validation_is_rejected_as_invalid() {
+        // `validate` is the wire-level contract check: the wrong protocol
+        // version or an empty method would otherwise reach dispatch and be
+        // answered as though it were a real call.
+        let wrong_version = JsonRpcRequest {
+            jsonrpc: "1.0".to_string(),
+            id: RequestId::Number(1),
+            method: "initialize".to_string(),
+            params: None,
+        };
+        assert_eq!(
+            wrong_version.validate(),
+            Some("jsonrpc field must be \"2.0\"")
+        );
+
+        let no_method = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: RequestId::Number(1),
+            method: String::new(),
+            params: None,
+        };
+        assert_eq!(no_method.validate(), Some("method field cannot be empty"));
+
+        let valid = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: RequestId::Number(1),
+            method: "initialize".to_string(),
+            params: None,
+        };
+        assert_eq!(valid.validate(), None);
+
+        // And the same check rejects the message at the parse boundary, with
+        // the id echoed back so the caller can match the error to its call.
+        let err = parse_message(r#"{"jsonrpc": "1.0", "id": 7, "method": "initialize"}"#)
+            .expect_err("a wrong protocol version must be refused");
+        assert_eq!(err.id, Some(RequestId::Number(7)));
+    }
+
+    #[test]
     fn parse_valid_request() {
         let json = r#"{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}"#;
         let msg = parse_message(json).unwrap();
@@ -549,5 +588,91 @@ mod tests {
     fn request_id_display() {
         assert_eq!(format!("{}", RequestId::Number(42)), "42");
         assert_eq!(format!("{}", RequestId::String("abc".to_string())), "abc");
+    }
+
+    #[test]
+    fn outgoing_progress_notification_shape() {
+        let n = OutgoingNotification::progress("tok", 3, Some(10), Some("halfway"));
+        assert_eq!(n.method, "notifications/progress");
+        let p = n.params.unwrap();
+        assert_eq!(p["progressToken"], "tok");
+        assert_eq!(p["progress"], 3);
+        assert_eq!(p["total"], 10);
+        assert_eq!(p["message"], "halfway");
+
+        // Absent total/message serialise as JSON null.
+        let bare = OutgoingNotification::progress("t", 1, None, None);
+        let p = bare.params.unwrap();
+        assert_eq!(p["total"], Value::Null);
+        assert_eq!(p["message"], Value::Null);
+    }
+
+    #[test]
+    fn error_code_numbers_and_default_messages() {
+        for (code, num, msg) in [
+            (ErrorCode::ParseError, -32700, "Parse error"),
+            (ErrorCode::InvalidRequest, -32600, "Invalid Request"),
+            (ErrorCode::MethodNotFound, -32601, "Method not found"),
+            (ErrorCode::InvalidParams, -32602, "Invalid params"),
+            (ErrorCode::InternalError, -32603, "Internal error"),
+            (ErrorCode::ServerError(-32050), -32050, "Server error"),
+        ] {
+            assert_eq!(code.code(), num);
+            assert_eq!(code.default_message(), msg);
+        }
+    }
+
+    #[test]
+    fn error_data_from_code_message_and_data() {
+        let plain = JsonRpcErrorData::from_code(ErrorCode::InternalError);
+        assert_eq!(plain.code, -32603);
+        assert_eq!(plain.message, "Internal error");
+        assert!(plain.data.is_none());
+
+        let rich = JsonRpcErrorData::with_message(ErrorCode::InvalidParams, "bad arg")
+            .with_data(serde_json::json!({ "field": "x" }));
+        assert_eq!(rich.code, -32602);
+        assert_eq!(rich.message, "bad arg");
+        assert_eq!(rich.data.unwrap()["field"], "x");
+    }
+
+    #[test]
+    fn error_response_constructors_set_code_and_id() {
+        let parse = JsonRpcError::parse_error();
+        assert_eq!(parse.error.code, -32700);
+        assert!(parse.id.is_none());
+
+        let invalid = JsonRpcError::invalid_request(Some(RequestId::Number(1)));
+        assert_eq!(invalid.error.code, -32600);
+        assert_eq!(invalid.id, Some(RequestId::Number(1)));
+
+        let mnf = JsonRpcError::method_not_found(RequestId::Number(2), "tools/nope");
+        assert_eq!(mnf.error.code, -32601);
+        assert!(mnf.error.message.contains("tools/nope"));
+
+        let ip = JsonRpcError::invalid_params(RequestId::Number(3), "missing filepath");
+        assert_eq!(ip.error.code, -32602);
+        assert_eq!(ip.error.message, "missing filepath");
+
+        let ie = JsonRpcError::internal_error(RequestId::String("s7".to_string()), "boom");
+        assert_eq!(ie.error.code, -32603);
+        assert_eq!(ie.error.message, "boom");
+        assert_eq!(ie.id, Some(RequestId::String("s7".to_string())));
+    }
+
+    #[test]
+    fn incoming_message_accessors_for_request_and_notification() {
+        let req =
+            parse_message(r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"a":1}}"#)
+                .unwrap();
+        assert_eq!(req.method(), "tools/call");
+        assert_eq!(req.params().unwrap()["a"], 1);
+        assert_eq!(req.id(), Some(&RequestId::Number(7)));
+
+        let notif =
+            parse_message(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#).unwrap();
+        assert_eq!(notif.method(), "notifications/initialized");
+        assert!(notif.params().is_none());
+        assert!(notif.id().is_none());
     }
 }
