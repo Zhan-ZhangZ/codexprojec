@@ -3,469 +3,118 @@ name: markitdown
 description: 文档与图文跨模态转换至 Markdown 格式的编译神器。可以将任何复杂的 Office 格式文档、带有数学公式的 PDF 及图文混排文章完美清洗并逆向还原为干净、纯粹的 Markdown。Leading Words: Office转Markdown, 复杂图文提取, 文档格式清洗与逆向
 allowed-tools: Read Write Edit Bash
 license: MIT license
+version: 0.1.7
 metadata:
     skill-author: K-Dense Inc.
+    upstream: github.com/microsoft/markitdown
 ---
 
-# MarkItDown - File to Markdown Conversion
+# MarkItDown — 万能文件转 Markdown
 
-## Overview
+微软官方（AutoGen 团队维护）的 Python 转换器：把 PDF、Word、PPT、Excel、图片、音频、HTML、EPUB 等几十种格式统一转成干净的 Markdown，输出面向 LLM 消费（保结构、省 token），而不是给人看的高保真排版还原。本技能为**文档层**：工具本体通过 PyPI 分发（`pip install` 即用），本地只保留使用文档与配套脚本，不含上游源码。
 
-MarkItDown is a Python tool developed by Microsoft for converting various file formats to Markdown. It's particularly useful for converting documents into LLM-friendly text format, as Markdown is token-efficient and well-understood by modern language models.
+## 定位与适用场景
 
-**Key Benefits**:
-- Convert documents to clean, structured Markdown
-- Token-efficient format for LLM processing
-- Supports 15+ file formats
-- Optional AI-enhanced image descriptions
-- OCR for images and scanned documents
-- Speech transcription for audio files
+| 用它 | 不用它 |
+| --- | --- |
+| 批量把 Office/PDF/网页喂给 LLM 做分析、摘要、检索 | 需要人看的高保真版式还原（用专用 PDF 排版工具） |
+| 提取 Word/PPT 里的表格、标题层级、备注 | 纯文本抽取后还要复杂后处理（直接写解析器） |
+| 公式（OMML/LaTeX）、扫描件 OCR、图片 EXIF 转写 | 生成新图表（转交本仓库 `../../12_学术论文与科研图表/scientific-schematics`） |
 
-## Visual Enhancement with Scientific Schematics
+安全前提：MarkItDown 以当前进程权限做 I/O，`convert()` 可以读本地路径、URL 与流。处理不可信输入时改用最窄的入口（`convert_local()` / `convert_stream()`），详见 [references/api_reference.md](references/api_reference.md)。
 
-**When creating documents with this skill, you may want to add scientific diagrams and schematics to enhance visual communication.**
+## 安装
 
-This skill（markitdown）本身**不生成图表**，它只负责把已有文件转成 Markdown。如果需要为文档新增示意图、流程图、架构图等，请**转交给另一个 skill**：
-
-- 调用 **scientific-schematics** skill（见同仓库 `50_学术论文与科研图表/scientific-schematics`）
-- 该 skill 可根据自然语言描述生成出版级 AI 示意图
-
-**示例协作流程：**
-1. 用 markitdown 把源文档转成 Markdown
-2. 判断哪些章节适合配图（工作流、架构、数据流等）
-3. 调用 scientific-schematics skill 生成对应的示意图
-4. 将图片链接回 Markdown 文档
-
-> 注意：不要在本 skill 目录下寻找 `scripts/generate_schematic.py`，该脚本属于 scientific-schematics skill，请到其目录下执行。
-
----
-
-## Supported Formats
-
-| Format | Description | Notes |
-|--------|-------------|-------|
-| **PDF** | Portable Document Format | Full text extraction |
-| **DOCX** | Microsoft Word | Tables, formatting preserved |
-| **PPTX** | PowerPoint | Slides with notes |
-| **XLSX** | Excel spreadsheets | Tables and data |
-| **Images** | JPEG, PNG, GIF, WebP | EXIF metadata + OCR |
-| **Audio** | WAV, MP3 | Metadata + transcription |
-| **HTML** | Web pages | Clean conversion |
-| **CSV** | Comma-separated values | Table format |
-| **JSON** | JSON data | Structured representation |
-| **XML** | XML documents | Structured format |
-| **ZIP** | Archive files | Iterates contents |
-| **EPUB** | E-books | Full text extraction |
-| **YouTube** | Video URLs | Fetch transcriptions |
-
-## Quick Start
-
-### Installation
+Python ≥ 3.10，建议虚拟环境：
 
 ```bash
-# Install with all features
-pip install 'markitdown[all]'
-
-# Or from source
-git clone https://github.com/microsoft/markitdown.git
-cd markitdown
-pip install -e 'packages/markitdown[all]'
+pip install 'markitdown[all]'        # 全格式支持
+pip install 'markitdown[pdf,docx]'   # 只装需要的格式（extras 见下表）
 ```
 
-### Command-Line Usage
+## CLI 用法
 
 ```bash
-# Basic conversion
-markitdown document.pdf > output.md
+markitdown file.pdf > out.md                 # 输出到 stdout
+markitdown file.pdf -o out.md                # 输出到文件
+cat file.pdf | markitdown                    # stdin 管道（用 -x 补扩展名提示）
+markitdown file.bin -x pdf                   # 无法识别扩展名时显式提示
+markitdown -v                                # 版本号
 
-# Specify output file
-markitdown document.pdf -o output.md
+# 云端增强转换（二者互斥）
+markitdown scan.pdf -d -e "<docintel_endpoint>"              # Azure Document Intelligence
+markitdown video.mp4 --use-cu --cu-endpoint "<cu_endpoint>"  # Azure Content Understanding
 
-# Pipe content
-cat document.pdf | markitdown > output.md
-
-# Enable plugins
-markitdown --list-plugins  # List available plugins
-markitdown --use-plugins document.pdf -o output.md
-```
-
-### Python API
-
-```python
-from markitdown import MarkItDown
-
-# Basic usage
-md = MarkItDown()
-result = md.convert("document.pdf")
-print(result.text_content)
-
-# Convert from stream
-with open("document.pdf", "rb") as f:
-    result = md.convert_stream(f, file_extension=".pdf")
-    print(result.text_content)
-```
-
-## Advanced Features
-
-### 1. AI-Enhanced Image Descriptions
-
-Use LLMs via OpenRouter to generate detailed image descriptions (for PPTX and image files):
-
-```python
-from markitdown import MarkItDown
-from openai import OpenAI
-
-# Initialize OpenRouter client (OpenAI-compatible API)
-client = OpenAI(
-    api_key="your-openrouter-api-key",
-    base_url="https://openrouter.ai/api/v1"
-)
-
-md = MarkItDown(
-    llm_client=client,
-    llm_model="anthropic/claude-opus-4.5",  # recommended for scientific vision
-    llm_prompt="Describe this image in detail for scientific documentation"
-)
-
-result = md.convert("presentation.pptx")
-print(result.text_content)
-```
-
-### 2. Azure Document Intelligence
-
-For enhanced PDF conversion with Microsoft Document Intelligence:
-
-```bash
-# Command line
-markitdown document.pdf -o output.md -d -e "<document_intelligence_endpoint>"
-```
-
-```python
-# Python API
-from markitdown import MarkItDown
-
-md = MarkItDown(docintel_endpoint="<document_intelligence_endpoint>")
-result = md.convert("complex_document.pdf")
-print(result.text_content)
-```
-
-### 3. Plugin System
-
-MarkItDown supports 3rd-party plugins for extending functionality:
-
-```bash
-# List installed plugins
+# 插件
 markitdown --list-plugins
-
-# Enable plugins
-markitdown --use-plugins file.pdf -o output.md
+markitdown file.pdf -p                       # 启用已装插件（如 markitdown-ocr）
 ```
 
-Find plugins on GitHub with hashtag: `#markitdown-plugin`
+全部旗标（`-m` MIME 提示、`-c` 字符集、`--keep-data-uris`、`--cu-analyzer`、`--cu-file-types`）见 [references/api_reference.md](references/api_reference.md) 的 CLI 对照表。
 
-## Optional Dependencies
-
-Control which file formats you support:
-
-```bash
-# Install specific formats
-pip install 'markitdown[pdf, docx, pptx]'
-
-# All available options:
-# [all]                  - All optional dependencies
-# [pptx]                 - PowerPoint files
-# [docx]                 - Word documents
-# [xlsx]                 - Excel spreadsheets
-# [xls]                  - Older Excel files
-# [pdf]                  - PDF documents
-# [outlook]              - Outlook messages
-# [az-doc-intel]         - Azure Document Intelligence
-# [audio-transcription]  - WAV and MP3 transcription
-# [youtube-transcription] - YouTube video transcription
-```
-
-## Common Use Cases
-
-### 1. Convert Scientific Papers to Markdown
+## Python API 速览
 
 ```python
 from markitdown import MarkItDown
 
 md = MarkItDown()
+result = md.convert("document.pdf")     # 也接受 Path / URL / Response / 二进制流
+print(result.markdown)                  # v0.1.x 推荐 .markdown（.text_content 为兼容别名）
 
-# Convert PDF paper
-result = md.convert("research_paper.pdf")
-with open("paper.md", "w") as f:
-    f.write(result.text_content)
-```
+# 流式输入
+with open("document.pdf", "rb") as f:
+    result = md.convert_stream(f)
 
-### 2. Extract Data from Excel for Analysis
-
-```python
-from markitdown import MarkItDown
-
-md = MarkItDown()
-result = md.convert("data.xlsx")
-
-# Result will be in Markdown table format
-print(result.text_content)
-```
-
-### 3. Process Multiple Documents
-
-```python
-from markitdown import MarkItDown
-import os
-from pathlib import Path
-
-md = MarkItDown()
-
-# Process all PDFs in a directory
-pdf_dir = Path("papers/")
-output_dir = Path("markdown_output/")
-output_dir.mkdir(exist_ok=True)
-
-for pdf_file in pdf_dir.glob("*.pdf"):
-    result = md.convert(str(pdf_file))
-    output_file = output_dir / f"{pdf_file.stem}.md"
-    output_file.write_text(result.text_content)
-    print(f"Converted: {pdf_file.name}")
-```
-
-### 4. Convert PowerPoint with AI Descriptions
-
-```python
-from markitdown import MarkItDown
+# LLM 视觉描述（PPTX/图片），任意 OpenAI 兼容客户端
 from openai import OpenAI
-
-# Use OpenRouter for access to multiple AI models
-client = OpenAI(
-    api_key="your-openrouter-api-key",
-    base_url="https://openrouter.ai/api/v1"
-)
-
-md = MarkItDown(
-    llm_client=client,
-    llm_model="anthropic/claude-opus-4.5",  # recommended for presentations
-    llm_prompt="Describe this slide image in detail, focusing on key visual elements and data"
-)
-
-result = md.convert("presentation.pptx")
-with open("presentation.md", "w") as f:
-    f.write(result.text_content)
+md_vision = MarkItDown(llm_client=OpenAI(), llm_model="gpt-4o",
+                       llm_prompt="Describe this image in detail")
 ```
 
-### 5. Batch Convert with Different Formats
+完整签名（`convert_local/convert_uri/convert_response`、`StreamInfo`、自定义转换器、插件开发、异常类型）见 [references/api_reference.md](references/api_reference.md)。
 
-```python
-from markitdown import MarkItDown
-from pathlib import Path
+## 支持格式与 extras 对照
 
-md = MarkItDown()
+| 格式 | 转换器 | extras | 说明 |
+| --- | --- | --- | --- |
+| PDF | PdfConverter | `[pdf]` | pdfminer + pdfplumber；扫描件走 DocIntel/CU/OCR 插件 |
+| Word (docx) | DocxConverter | `[docx]` | 标题/表格/OMML 公式；OMML 模板在 v0.1.7 修复 |
+| PowerPoint (pptx) | PptxConverter | `[pptx]` | 幻灯片+备注+图表；v0.1.7 修复图表 O(n²) 与 SVG 回退 |
+| Excel (xlsx/xls) | XlsxConverter/XlsConverter | `[xlsx]` / `[xls]` | 工作表转 Markdown 表 |
+| 图片 (jpeg/png/…) | ImageConverter | `[all]` | EXIF 元数据 + 可选 LLM 描述；EXIF 取自 exiftool |
+| 音频 (wav/mp3) | AudioConverter | `[audio-transcription]` | 元数据 + 语音转录 |
+| Outlook (msg) | OutlookMsgConverter | `[outlook]` | 邮件正文与附件信息 |
+| EPUB | EpubConverter | `[all]` | 全文抽取 |
+| HTML | HtmlConverter | `[all]` | 清洗转换，支持 `text/markdown` 协商 |
+| CSV / JSON / XML / 纯文本 | CsvConverter/PlainTextConverter | `[all]` | 结构化表示 |
+| ipynb | IpynbConverter | `[all]` | Notebook 单元格 |
+| ZIP 压缩包 | ZipConverter | `[all]` | 逐个转换内部文件 |
+| RSS / Wikipedia / YouTube / Bing SERP | 对应专用转换器 | `[all]` / `[youtube-transcription]` | URL 直接传入 `convert()` |
 
-# Files to convert
-files = [
-    "document.pdf",
-    "spreadsheet.xlsx",
-    "presentation.pptx",
-    "notes.docx"
-]
+每格式的依赖、能力边界与示例见 [references/file_formats.md](references/file_formats.md)。
 
-for file in files:
-    try:
-        result = md.convert(file)
-        output = Path(file).stem + ".md"
-        with open(output, "w") as f:
-            f.write(result.text_content)
-        print(f"✓ Converted {file}")
-    except Exception as e:
-        print(f"✗ Error converting {file}: {e}")
-```
+## v0.1.7 要点（2026-07-29）
 
-### 6. Extract YouTube Video Transcription
+- **PPTX 图表转换 O(n²) 性能修复**：大图表转换明显提速。
+- **PPTX SVG 图片**：无栅格化回退时不再失败。
+- **公式转换修复**：mu/nu/tau/下箭头等 LaTeX 宏映射纠错；OMML 模板 bug 修复（Word 公式转 Markdown 更可靠）。
+- **本次重写补齐的既有能力文档**（v0.1.5/v0.1.6 已合入、旧版本文档缺失）：`markitdown-ocr` 官方 OCR 插件、Azure Content Understanding 多模态云转换（`cu_endpoint`/`--use-cu`）、`convert_local/convert_uri/convert_response` 安全入口族。
+- 结果对象新写法：`result.markdown`（`.text_content` 转为软弃用别名，旧代码不用改）。
 
-```python
-from markitdown import MarkItDown
+## 本地脚本（自研配套）
 
-md = MarkItDown()
+| 脚本 | 用途 |
+| --- | --- |
+| [scripts/batch_convert.py](scripts/batch_convert.py) | 多线程批量转换目录下全部文件 |
+| [scripts/convert_literature.py](scripts/convert_literature.py) | 文献 PDF 批量转 Markdown 并带来源元数据 |
+| [scripts/convert_with_ai.py](scripts/convert_with_ai.py) | LLM 视觉描述增强转换（科学图/PPT，经 OpenRouter 等 OpenAI 兼容端点） |
 
-# Convert YouTube video to transcript
-result = md.convert("https://www.youtube.com/watch?v=VIDEO_ID")
-print(result.text_content)
-```
+三个脚本只依赖 `markitdown` 的稳定公开 API（`MarkItDown()` / `convert()` / `result.text_content`），v0.1.7 下可直接运行。
 
-## Docker Usage
+## 参考文档索引
 
-```bash
-# Build image
-docker build -t markitdown:latest .
-
-# Run conversion
-docker run --rm -i markitdown:latest < ~/document.pdf > output.md
-```
-
-## Best Practices
-
-### 1. Choose the Right Conversion Method
-
-- **Simple documents**: Use basic `MarkItDown()`
-- **Complex PDFs**: Use Azure Document Intelligence
-- **Visual content**: Enable AI image descriptions
-- **Scanned documents**: Ensure OCR dependencies are installed
-
-### 2. Handle Errors Gracefully
-
-```python
-from markitdown import MarkItDown
-
-md = MarkItDown()
-
-try:
-    result = md.convert("document.pdf")
-    print(result.text_content)
-except FileNotFoundError:
-    print("File not found")
-except Exception as e:
-    print(f"Conversion error: {e}")
-```
-
-### 3. Process Large Files Efficiently
-
-```python
-from markitdown import MarkItDown
-
-md = MarkItDown()
-
-# For large files, use streaming
-with open("large_file.pdf", "rb") as f:
-    result = md.convert_stream(f, file_extension=".pdf")
-    
-    # Process in chunks or save directly
-    with open("output.md", "w") as out:
-        out.write(result.text_content)
-```
-
-### 4. Optimize for Token Efficiency
-
-Markdown output is already token-efficient, but you can:
-- Remove excessive whitespace
-- Consolidate similar sections
-- Strip metadata if not needed
-
-```python
-from markitdown import MarkItDown
-import re
-
-md = MarkItDown()
-result = md.convert("document.pdf")
-
-# Clean up extra whitespace
-clean_text = re.sub(r'\n{3,}', '\n\n', result.text_content)
-clean_text = clean_text.strip()
-
-print(clean_text)
-```
-
-## Integration with Scientific Workflows
-
-### Convert Literature for Review
-
-```python
-from markitdown import MarkItDown
-from pathlib import Path
-
-md = MarkItDown()
-
-# Convert all papers in literature folder
-papers_dir = Path("literature/pdfs")
-output_dir = Path("literature/markdown")
-output_dir.mkdir(exist_ok=True)
-
-for paper in papers_dir.glob("*.pdf"):
-    result = md.convert(str(paper))
-    
-    # Save with metadata
-    output_file = output_dir / f"{paper.stem}.md"
-    content = f"# {paper.stem}\n\n"
-    content += f"**Source**: {paper.name}\n\n"
-    content += "---\n\n"
-    content += result.text_content
-    
-    output_file.write_text(content)
-
-# For AI-enhanced conversion with figures
-from openai import OpenAI
-
-client = OpenAI(
-    api_key="your-openrouter-api-key",
-    base_url="https://openrouter.ai/api/v1"
-)
-
-md_ai = MarkItDown(
-    llm_client=client,
-    llm_model="anthropic/claude-opus-4.5",
-    llm_prompt="Describe scientific figures with technical precision"
-)
-```
-
-### Extract Tables for Analysis
-
-```python
-from markitdown import MarkItDown
-import re
-
-md = MarkItDown()
-result = md.convert("data_tables.xlsx")
-
-# Markdown tables can be parsed or used directly
-print(result.text_content)
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Missing dependencies**: Install feature-specific packages
-   ```bash
-   pip install 'markitdown[pdf]'  # For PDF support
-   ```
-
-2. **Binary file errors**: Ensure files are opened in binary mode
-   ```python
-   with open("file.pdf", "rb") as f:  # Note the "rb"
-       result = md.convert_stream(f, file_extension=".pdf")
-   ```
-
-3. **OCR not working**: Install tesseract
-   ```bash
-   # macOS
-   brew install tesseract
-   
-   # Ubuntu
-   sudo apt-get install tesseract-ocr
-   ```
-
-## Performance Considerations
-
-- **PDF files**: Large PDFs may take time; consider page ranges if supported
-- **Image OCR**: OCR processing is CPU-intensive
-- **Audio transcription**: Requires additional compute resources
-- **AI image descriptions**: Requires API calls (costs may apply)
-
-## Next Steps
-
-- See `references/api_reference.md` for complete API documentation
-- Check `references/file_formats.md` for format-specific details
-- Review `scripts/batch_convert.py` for automation examples
-- Explore `scripts/convert_with_ai.py` for AI-enhanced conversions
-
-## Resources
-
-- **MarkItDown GitHub**: https://github.com/microsoft/markitdown
-- **PyPI**: https://pypi.org/project/markitdown/
-- **OpenRouter**: https://openrouter.ai (for AI-enhanced conversions)
-- **OpenRouter API Keys**: https://openrouter.ai/keys
-- **OpenRouter Models**: https://openrouter.ai/models
-- **MCP Server**: markitdown-mcp (for Claude Desktop integration)
-- **Plugin Development**: See `packages/markitdown-sample-plugin`
-
+- [references/api_reference.md](references/api_reference.md) — Python API 全签名、CLI 全旗标、StreamInfo、自定义转换器与插件开发
+- [references/file_formats.md](references/file_formats.md) — 逐格式能力、依赖、限制与示例
+- [references/cloud_and_plugins.md](references/cloud_and_plugins.md) — Azure Document Intelligence / Content Understanding、markitdown-ocr、MCP 服务器、Docker
+- 上游仓库：<https://github.com/microsoft/markitdown>（tag `v0.1.7`）｜ PyPI：<https://pypi.org/project/markitdown/>
+- 上游关键源码（定 tag 链接）：[主包 pyproject.toml](https://github.com/microsoft/markitdown/blob/v0.1.7/packages/markitdown/pyproject.toml)｜[转换器目录](https://github.com/microsoft/markitdown/tree/v0.1.7/packages/markitdown/src/markitdown/converters)｜[OCR 插件](https://github.com/microsoft/markitdown/tree/v0.1.7/packages/markitdown-ocr)｜[MCP 服务器](https://github.com/microsoft/markitdown/tree/v0.1.7/packages/markitdown-mcp)
