@@ -1,0 +1,257 @@
+# Docs drift playbook
+
+This playbook enumerates every documentation file in the bernstein repository,
+points each one at a concrete source of truth in code (or marks it static), and
+records the drift signal that should trigger a refresh.
+
+## Why this exists
+
+Code and docs drift apart over time. This playbook gives future agents
+mechanically discoverable check-points so the gap can be detected and closed
+without re-reading every file. The companion CI workflow at
+`.github/workflows/docs-drift.yml` consumes this file via
+`https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/check_docs_drift.py` and reports drift on every push to `main` and on
+every pull request.
+
+## How agents pick up drift
+
+Convention: when you change code under `src/bernstein/<package>/`, also update
+the doc rows in the table below that name that package as their source of
+truth. The CI workflow will block merges to `main` on uncorrected drift; on
+pull requests it posts a non-blocking comment so the change can land in the
+same PR.
+
+Drift remediation paths used by the rows below:
+
+| Remediation token | What it runs |
+|-------------------|--------------|
+| `agents-md-sync` | `uv run bernstein agents-md sync` then `uv run bernstein agents-md verify` |
+| `gen-agents-md` | `uv run python https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/gen_agents_md.py --update` (legacy detailed module map). Self-guarding since #4019: when `agents-md-sync` is the active source of truth it prints a note and exits 0 without writing. `--force` overrides. |
+| `manual-prose` | Re-read the source-of-truth module and adjust the prose by hand; no script generates this content |
+| `manual-cmd` | The doc lists a CLI command surface; re-run `bernstein <cmd> --help` and reconcile |
+| `gen-benchmarks` | `uv run python https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/generate_benchmark_docs.py` |
+| `static` | No code source; check only repo URL / contact / license updates |
+
+## Doc inventory
+
+### Root (`./`)
+
+| Doc | Source of truth | Drift signal | Remediation |
+|-----|-----------------|--------------|-------------|
+| `README.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/main.py`, `src/bernstein/cli/commands/`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/adapters/registry.py`, `pyproject.toml` (`[project.scripts]`, `[project.optional-dependencies]`) | New top-level command, adapter added or removed, install method changed, optional extra added | `manual-prose` |
+| `AGENTS.md` | `src/bernstein/` package layout (auto-derived); curated content under `.sdd/agents-md/` | New top-level package or module under `src/bernstein/`; any change to the canonical IR | `agents-md-sync` |
+| `CLAUDE.md` | Mirror of canonical IR via `bernstein agents-md sync` | Drift versus AGENTS.md canonical | `agents-md-sync` |
+| `CONVENTIONS.md` | Mirror of canonical IR for Aider via `bernstein agents-md sync` | Drift versus AGENTS.md canonical | `agents-md-sync` |
+| `CODE_OF_CONDUCT.md` | None (Contributor Covenant 2.1 verbatim) | Repo URL change, contact email change | `static` |
+| `CONTRIBUTING.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/adapters/registry.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/adapters/base.py`, `templates/roles/`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/run_tests.py`, `.importlinter` | New adapter contract method, new role added under `templates/roles/`, change to lint / type-check pipeline | `manual-prose` |
+| `SECURITY.md` | `pyproject.toml` version, security policy contacts | Disclosure policy changes, scope changes, new in-scope target | `manual-prose` |
+| `CHANGELOG.md` | Pointer document; release history lives in `docs/release-notes/` and release tags are cut by `.github/workflows/auto-release.yml` | The release-notes location moves, or the tag-cutting workflow changes | `manual-prose` |
+| `CONTRIBUTORS.md` | None (hand-curated list of named contributors) | New contributor merged a PR | `static` |
+
+### `docs/` top-level
+
+| Doc | Source of truth | Drift signal | Remediation |
+|-----|-----------------|--------------|-------------|
+| `../../docs/index.md` | All docs subdirs (each linked entry must resolve) | Linked page renamed / deleted, getting-started / installation / operations / reference / architecture path moved | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/adapter-deferred.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/adapters/registry.py` (negative-space: agents NOT integrated) | A previously-deferred agent now has a stable CLI binary | `manual-prose` |
+| `../../docs/agents-md.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/agents_md_cmd.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/knowledge/agents_md_bridge.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/knowledge/agents_md_generator.py` | New target format added to the canonical IR, sync command options change | `manual-prose` |
+| `../../docs/playbooks/readme-l10n.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/knowledge/readme_l10n.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/readme_l10n_cmd.py`, `pyproject.toml` (`[tool.bernstein.readme-l10n]`) | Binding format change, verify/sync surface change, language config change | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/CHANGELOG.md` | Pointer document for mkdocs; release history lives in `docs/release-notes/` | The release-notes location moves | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/CODE_REVIEW.md` | `src/bernstein/core/quality/`, `src/bernstein/core/review/`, `src/bernstein/core/review_responder/` | Review pipeline stage added, reviewer-role policy change | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/ENTERPRISE.md` | `src/bernstein/core/compliance/`, `src/bernstein/core/security/`, audit / lineage / air-gap surface | New regulator mapping, new compliance pack target, audit export schema change | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/lineage.md` | `src/bernstein/core/lineage/`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/persistence/lineage.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/lineage_cmd.py` | Lineage record schema change, signature algorithm change, new verify CLI subcommand | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/llm-citation-surface.md` | None (positioning note about how the project surfaces in LLM citations) | External citation pattern audited | `static` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/mentions.md` | None (hand-curated external coverage and list entries) | A listed link goes dead or moves | `static` |
+| `../../docs/reference/capabilities.md` | `src/bernstein/` capability surfaces; scoped claims guarded by `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/tests/unit/test_docs_capability_reachability.py` | Capability added / removed, scoped reachability note lands or goes stale | `manual-prose` |
+| `../../docs/reference/receipt.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/receipt_cmd.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/security/result_receipt_bundle.py`; flag surface guarded by `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/tests/unit/test_receipt_reference_docs_drift.py` | Flag added / removed / renamed on `bernstein receipt create` or `verify`, verdict shape changes (new field on `BundleVerification`) | `manual-cmd` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/routine-scenarios.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/planning/routine_bridge.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/routine_cmd.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/mcp/routine_tools.py` | Routine <-> Scenario bridge surface change | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/telemetry.md` | `src/bernstein/core/telemetry/`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/telemetry_cmd.py` | New telemetry event, opt-out matrix change, retention policy change | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/use-cases.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/main.py` (command list) plus operator workflow CLIs | New operator workflow command (`autofix`, `review-responder`, `dep-impact`, etc.) | `manual-prose` |
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/whats-new.md` | Release tags, hand-curated highlights | New release published | `manual-prose` |
+
+### `docs/concepts/`
+
+Each file in this folder pairs a Bernstein architectural concept with a concrete
+module path. The drift signal in every row is "the named source module has
+been moved, renamed, deleted, or its public surface changed."
+
+| Doc | Source of truth | Drift signal | Remediation |
+|-----|-----------------|--------------|-------------|
+| `abstracted-code-review.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/quality/review_pipeline/abstract_diff.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/review_responder/pr_gen.py` | Diff abstraction class renamed, PR-generation signature change | `manual-prose` |
+| `action-cache.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/persistence/action_cache.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/persistence/fingerprint.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/cache_cmd.py` | Cache record schema change, fingerprint inputs change | `manual-prose` |
+| `agent-mode-profiles.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/routing/mode_profile.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/agents/spawner_prompt.py` | New mode profile, profile selection input change | `manual-prose` |
+| `artifact-lineage.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/persistence/lineage.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/lineage_cmd.py` | Lineage record schema change | `manual-prose` |
+| `ast-aware-chunking.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/quality/review_pipeline/ast_chunker.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/knowledge/ast_symbol_graph.py` | Chunker public surface change | `manual-prose` |
+| `best-of-n.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/orchestration/best_of_n.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/orchestration/tick_pipeline.py` | New routing input, tick-pipeline hook change | `manual-prose` |
+| `feature-contract.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/planning/feature_contract.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/security/audit.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/quality/janitor.py` | Feature-contract schema change, audit hook signature change | `manual-prose` |
+| `fingerprint-memoization.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/persistence/fingerprint.py` | Memoization key inputs change | `manual-prose` |
+| `jsonl-memory-log.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/memory/jsonl_log.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/memory/sqlite_store.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/memory_cmd.py` | Event schema change, store backend swap | `manual-prose` |
+| `orchestrator-hardening.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/orchestration/orchestrator.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/orchestration/adaptive_parallelism.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/orchestration/tick_budget.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/cost/cost_tracker.py` | New hardening primitive, budget knob added | `manual-prose` |
+| `phase-pipeline.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/orchestration/phase_pipeline.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/planning/plan_loader.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/routing/router.py` | New phase, phase contract change | `manual-prose` |
+| `sandbox-selector.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/sandbox/selector.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/sandbox/registry.py` | New sandbox backend registered, selector heuristic change | `manual-prose` |
+| `scaffold.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/scaffold_cmd.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/scaffold/templates.py` | New scaffold template, CLI flag change | `manual-prose` |
+| `schema-validation-retry.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/tasks/schema_retry.py` | Retry policy change, schema validator change | `manual-prose` |
+| `spec-as-test.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/planning/spec_assertions.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/orchestration/drain.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/run_cmd.py` | Spec-assertion schema change, drain-hook signature change | `manual-prose` |
+| `swarm-migration.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/tasks/swarm_migration.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/migrate_cmd.py` | Migration entry point change, CLI flag change | `manual-prose` |
+| `task-budgets.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/cost/budget_countdown.py` | Budget-format function renamed | `manual-prose` |
+| `team-hub.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/plugins_core/team_hub_manifest.py` | Manifest schema change | `manual-prose` |
+| `wiki-build.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/commands/wiki_cmd.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/knowledge/ast_symbol_graph.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/knowledge/wiki_renderer.py` | Wiki-build CLI flag change, renderer output schema change | `manual-prose` |
+
+### `docs/gui/`
+
+Source of truth for this group is `src/bernstein/gui/` (FastAPI + SPA), `web/`
+(Vite + React + Tailwind), and the GUI mount logic.
+
+| Doc | Source of truth | Drift signal | Remediation |
+|-----|-----------------|--------------|-------------|
+| `index.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/gui/__init__.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/gui/cli.py`, `web/` | New tab added to the SPA, `gui-meta` route change | `manual-prose` |
+| `install.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/gui/cli.py`, `pyproject.toml` `[project.optional-dependencies]` (`gui` extra) | New runtime dep in `gui` extra, install-time check change | `manual-prose` |
+| `configuration.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/core/security/auth_middleware.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/run_bootstrap.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/adapters/mock.py`, `src/bernstein/core/fleet/` | Auth source change, idle-mode change, fleet wiring change | `manual-prose` |
+| `screens.md` | `web/src/` SPA component tree | New per-task drawer tab, new top-level tab | `manual-prose` |
+| `playground.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/adapters/mock.py`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/cli/run_bootstrap.py` (`--idle`) | Mock-idle option change | `manual-prose` |
+| `troubleshooting.md` | `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/src/bernstein/gui/cli.py` (`_check_gui_extras`), static-assets gating | Error-message change in the extras check | `manual-prose` |
+| `mobile.md` | `web/` responsive breakpoints | Layout breakpoint change | `manual-prose` |
+
+### `docs/sdd/`
+
+| Doc | Source of truth | Drift signal | Remediation |
+|-----|-----------------|--------------|-------------|
+| `ticket_schema.md` | `.sdd/backlog/` ticket files; ticket consumers under `src/bernstein/core/planning/` | New required ticket field, label taxonomy change | `manual-prose` |
+
+### Benchmarks
+
+| Doc | Source of truth | Drift signal | Remediation |
+|-----|-----------------|--------------|-------------|
+| `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/benchmarks/BENCHMARKS.md` | `src/bernstein/benchmark/`, `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/generate_benchmark_docs.py`, simulation harness inputs | New benchmark added, methodology change | `gen-benchmarks` (regenerate) or `manual-prose` |
+
+## Data-freshness drift (time-stamped metrics)
+
+Some docs include time-stamped factual metrics (stars, downloads, dates) that
+grow stale even when the code does not change. These lines look like
+`as of YYYY-MM-DD: ...` or `(YYYY-MM-DD)` in a table heading. The drift gate
+here is purely temporal: the underlying numbers were correct on the recorded
+date and are expected to drift between scheduled refreshes.
+
+To enumerate the known time-stamped lines, run:
+
+```bash
+rg -n 'as of 20\d\d-\d\d-\d\d|\(20\d\d-\d\d-\d\d\)' README.md docs/
+```
+
+The current inventory is:
+
+| File | Stale-prone substring shape | Data source | Refresh command |
+|------|-----------------------------|-------------|-----------------|
+| `README.md` (intro line) | `as of YYYY-MM-DD: N stars, N forks, ~N pypi downloads/day (~Nk/month)` | GitHub API, PyPI | `gh api repos/sipyourdrink-ltd/bernstein --jq '{stargazers_count, forks_count}'` and `curl -sS https://pypistats.org/api/packages/bernstein/recent \| jq .data` |
+| `README.md` (regulatory anchors) | `### regulatory anchors (as of YYYY-MM-DD)` | Regulator publications | Manual review of cited regulations |
+
+### Refresh commands
+
+For the README intro stats line:
+
+```bash
+gh api repos/sipyourdrink-ltd/bernstein --jq '{stargazers_count, forks_count}'
+curl -sS https://pypistats.org/api/packages/bernstein/recent | jq .data
+```
+
+### Staleness policy
+
+- An `as of YYYY-MM-DD` marker older than 30 days is considered stale and
+  emits a soft warning from `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/check_data_freshness.py`.
+- A marker older than 60 days is a hard fail only on the weekly scheduled run
+  of the `docs-data-freshness` job. Instead of failing pushes to `main`, the
+  scheduled run opens or updates a single marker-tagged tracking issue so a
+  stale marker never reddens unrelated main pushes.
+- Pushes to `main` still run the checker in soft (non-strict) mode for the
+  inline warning, but never fail on staleness.
+- The `docs-data-freshness` check is advisory and is not part of the canary
+  list of required checks.
+
+## Context-file staleness (curated context files vs their subtrees)
+
+The two gates above check *internal consistency* (`bernstein agents-md
+verify`) and *referential integrity* (source-of-truth paths still exist).
+Neither can notice a subtree churning for weeks while the curated context
+file that describes it stays byte-identical. `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/check_context_staleness.py`
+covers that third failure mode with a report derived from git history alone.
+
+What it computes, per curated context file (nested `AGENTS.md` under `src/`
+and `tests/`, plus `.sdd/agents-md/*.md` overlays when committed):
+
+- the last commit that touched the file;
+- the net diff under the file's scope since that commit (files changed,
+  insertions + deletions, `*.py` modules added or removed);
+- the commits in that range ranked by churn, so every flag names the exact
+  commits that aged the file.
+
+Flag rules (named constants at the top of the script):
+
+| Context file kind | Scope | Flags when |
+|-------------------|-------|------------|
+| Nested `AGENTS.md` | its directory subtree | net churn >= 200 lines, or any `*.py` module added/removed |
+| Committed `.sdd/agents-md` overlay | whole repository | net churn >= 2000 lines (module events alone never flag repo-wide prose) |
+
+The computation is a pure function of the repository state: two runs on the
+same repo state produce byte-identical output. Rename detection is disabled
+explicitly (`--no-renames`), so a rename surfaces as one module-removed plus
+one module-added event and the verdict cannot vary with git version or local
+diff configuration. The checker refuses to run on a shallow clone (exit 2)
+rather than emit silently truncated numbers.
+
+Where it surfaces (`.github/workflows/docs-drift.yml`):
+
+- **Pull requests**: a non-blocking comment (marker tag
+  `<!-- context-staleness-report -->`), posted only when the PR itself pushes
+  a scope over threshold — the PR base sha is passed as `--baseline` and only
+  newly flagged files count.
+- **Weekly schedule**: accumulated flags are upserted into a single tracking
+  issue titled `context-file staleness: curated context files lag their
+  subtrees` (updated in place, never duplicated).
+- It never fails a push to `main`: staleness accrues from ordinary merges and
+  is a review prompt, not a merge gate.
+- The `drift-check` job that executes the checker scripts is read-only
+  (`contents: read`); the PR comments and tracking-issue upserts run in the
+  separate `drift-publish` job, which only downloads the report artifacts and
+  never executes repository code — on pull requests the checked-out scripts
+  are PR-controlled, so they must never share a job with a write token.
+
+To clear a flag, review the context file against its scope and touch it in a
+commit — update the prose, or make a reconfirmation-only edit if everything
+still holds. Either way the "is this still true?" review leaves a commit that
+resets the file's clock.
+
+Run it locally:
+
+```bash
+uv run python https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/check_context_staleness.py           # markdown report
+uv run python https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/check_context_staleness.py --json    # machine-readable
+uv run python https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/check_context_staleness.py --strict  # exit 1 on any flag
+```
+
+## Cross-repo
+
+The public website mirrors some docs pages.
+
+## Adding a new doc
+
+When you add a new file under `docs/` (or a new root-level doc):
+
+1. Add a row to the appropriate table above.
+2. Set the source-of-truth column to a concrete module path under `src/`, or
+   to `static` if there is no code source.
+3. Update `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/check_docs_drift.py` only if the new doc needs a custom
+   check beyond "the named source-of-truth file still exists." The default
+   path-existence check covers the common case.
+4. If the new doc is operator-facing, link it from `../../docs/index.md`.
+
+## Adding a new code module
+
+When you add a new top-level package under `src/bernstein/` or a new module
+that becomes a source of truth for a doc:
+
+1. Run `uv run bernstein agents-md sync` so the canonical AGENTS.md / CLAUDE.md
+   / CONVENTIONS.md / `.goosehints` / `.cursor/rules/*.mdc` pick up the new
+   module entry.
+2. Run `uv run bernstein agents-md verify` to confirm all five outputs agree.
+3. If the new module has a concept-doc-worthy public surface, add a file under
+   `docs/concepts/` and a corresponding row in this playbook.

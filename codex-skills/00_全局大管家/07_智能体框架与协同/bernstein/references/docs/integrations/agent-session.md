@@ -1,0 +1,219 @@
+# Driving bernstein from inside an agent session
+
+Operators increasingly drive tooling from inside their agent sessions
+rather than a separate shell. Bernstein packages three surfaces for that:
+
+1. A cross-vendor **agent skill** (`https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/skills/bernstein-run/SKILL.md`, open
+   `SKILL.md` format) that wraps the submit / status / verify loop.
+2. A **plugin bundle** (repository root, manifest at
+   `.plugin/plugin.json`) carrying the skill, slash commands, agent
+   definitions, rules, and `.mcp.json` MCP-server registration.
+3. **Registry listings**: the official MCP registry (`server.json`, PyPI
+   package type) and a Docker MCP catalog entry
+   (`https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/packaging/docker-mcp/server.yaml`) backed by the signed GHCR image.
+
+Installs are not fire-and-forget: every skill or plugin install can be
+anchored as a content-addressed receipt in the lineage spine and HMAC
+audit chain, so a run triggered from inside an agent session carries
+provenance from install to artifact.
+
+## The skill
+
+`bernstein-run` teaches an agent session the three-step operator loop:
+
+```bash
+bernstein run -g "<goal>"          # submit
+bernstein status                   # monitor
+bernstein lineage verify <run_id>  # verify the run journal
+bernstein audit verify             # verify the workspace audit chain
+```
+
+The skill body is host-neutral; per-host installation and worked
+transcripts live in `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/skills/bernstein-run/references/worked-examples.md`.
+Any agent CLI that executes shell commands can follow it against the same
+bernstein install.
+
+## Installing the skill into a host
+
+```bash
+# Copy the bundled skill into a host's default skills directory
+bernstein skills package install --host claude --scope project
+bernstein skills package install --host codex --scope user
+
+# Host scans a different directory? Point at it directly
+bernstein skills package install --dest .myhost/skills/bernstein-run
+```
+
+Supported `--host` values: `claude`, `codex`, `copilot`, `cursor`,
+`gemini`. `--scope project` installs under the project root, `--scope
+user` under the home directory. The defaults are conventions; `--dest`
+always wins.
+
+Every install writes an install receipt (`.sdd/skills/receipts/`) whose
+canonical bytes are hashed into the `skills` lineage spine, and mirrors a
+`plugin.install_receipt` event into the HMAC audit chain.
+
+## Receipts for host-performed installs
+
+When the host itself performs the install - a plugin checkout, a
+marketplace install - anchor the resulting tree post hoc:
+
+```bash
+bernstein skills package install --dest <installed-dir> --record-only
+```
+
+## Verifying an install
+
+```bash
+bernstein skills package verify --host claude --scope project
+bernstein skills package verify --dest <installed-dir>
+```
+
+`verify` re-hashes the installed tree; the recomputed content address
+selects the receipt, and the install spine plus manifest hash are checked.
+Because receipts are content-addressed, a tampered tree resolves to an
+address with no receipt: tamper detection is structural, not a stored
+comparison. Exit codes: `0` verified, `1` missing directory, `2`
+attestation failure.
+
+## Updating an install
+
+Bumping an installed skill to newer content is not a plain overwrite. An
+update binds the *prior* content address to the new one, so the
+supersession is itself a chain-anchored fact:
+
+```bash
+bernstein skills package update --host claude --scope project
+```
+
+The update writes an update receipt (`.sdd/skills/updates/`) keyed by the
+new content address, anchors it in the same `skills` lineage spine, and
+mirrors a `plugin.update_receipt` event into the HMAC chain. A verifier
+walks the update receipts newest to oldest and lands on the root
+`plugin.install_receipt`, so the full supersession history of an installed
+tree is reconstructable offline. An update onto a tree that was never
+anchored is refused (run `install` first); an update whose source already
+matches the installed tree is a no-op. Exit codes: `0` updated or already
+current, `1` error.
+
+`verify` (and `status`, below) transparently accept an updated tree: the
+recomputed content address resolves to the update receipt, and the lineage
+is required to chain back to a root install.
+
+## Checking every install at once
+
+`status` scans the default skill directory for each supported host and
+scope, re-hashes any present tree, and proves it against its anchored
+install or update receipt:
+
+```bash
+bernstein skills package status
+bernstein skills package status --json
+```
+
+Exit codes: `0` every present install verifies (or none present), `2` at
+least one present install failed verification. `--json` emits the
+per-install verdicts for scripting.
+
+## Proving the skill drives several hosts against one install
+
+`conformance` closes the loop end to end: it installs the bundled skill into
+every selected host against one shared install, then replays the skill's
+documented self-check contract (`skills package show`, then `skills package
+verify --dest`) per host, exactly as an agent session would run it:
+
+```bash
+bernstein skills package conformance --host claude --host codex --host cursor
+bernstein skills package conformance --json
+```
+
+Each host must pass every contract step, and at least `--min-hosts` hosts
+(default 3) must be green, for an overall pass. The shared content address,
+the ordered per-host verdicts, and the aggregate result are sealed into a
+content-addressed conformance receipt anchored in the `skills` lineage spine
+and a `plugin.conformance_receipt` audit-chain event - so "the skill works
+from N agent CLIs against one install" is a chain-verifiable fact, not a
+transient log line.
+
+Exit codes: `0` every host green and the `--min-hosts` bar met, `2`
+conformance failed, `1` error.
+
+## Verifying the signed distribution image
+
+The MCP registry listing (`server.json`) and the Docker MCP catalog entry
+(`https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/packaging/docker-mcp/server.yaml`) both point a host at a runnable image;
+that image is signed at build time with a Sigstore keyless build-provenance
+attestation. `image-verify` proves, offline, that the two manifests resolve to
+the same canonical `ghcr.io/<owner>/bernstein` repository and that the registry
+listing pins the release version, so a pull can never resolve to a different
+(or unsigned) image than the catalog advertises:
+
+```bash
+bernstein skills package image-verify                 # defaults to the installed version
+bernstein skills package image-verify --version 3.4.1 --json
+bernstein skills package image-verify --online        # also run `gh attestation verify`
+```
+
+The offline check is a deterministic projection of the two manifests. With
+`--online` it additionally runs `gh attestation verify oci://<ref>` against the
+live Sigstore attestation (when the `gh` CLI and a network are available; absent
+tooling leaves the offline verdict standing). The same consistency check is a
+release gate: `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/gen_distribution_manifests.py --check` -- run in the
+publish workflow before the registry listing is pushed -- fails the release if
+the listing and the catalog disagree or the tag does not pin the version. Exit
+codes: `0` consistent (and, with `--online`, attestation verified or tooling
+unavailable), `2` a manifest mismatch or a failed online attestation.
+
+## The plugin bundle
+
+The repository root doubles as the plugin root:
+
+- `.plugin/plugin.json` - manifest (version is stamped from
+  `pyproject.toml` by `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/gen_distribution_manifests.py`).
+- `commands/` - `/bernstein:run`, `/bernstein:status`, `/bernstein:stop`.
+- `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/agents/orchestrator.md` - the orchestrator agent definition.
+- `skills/` - the `bernstein-run` skill.
+- `.mcp.json` - registers `bernstein mcp` as a stdio MCP server.
+
+### Standard Agent Plugins manifests
+
+For hosts that follow the open Agent Plugins specification
+(agent-plugins.org, v1.0.0), the repository root also carries the
+spec's discovery surface, generated by the same script:
+
+- `plugin.json` - the spec manifest (`$schema` marker, version stamped
+  from `pyproject.toml`); skills are discovered by directory
+  convention from `skills/*/SKILL.md`, so the manifest carries no
+  skill list.
+- `mcp.json` - the spec MCP configuration; every server entry carries
+  the required `type` field (`bernstein` is a `stdio` server rooted at
+  `${PLUGIN_ROOT}`).
+
+Both files are deterministic projections of the bundle state:
+regeneration is byte-stable, and CI fails on any drift from
+`https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/scripts/gen_distribution_manifests.py`. They validate against the
+spec's JSON Schemas vendored under `schemas/agent-plugins/1.0.0/` -
+validation is strictly offline, so air-gap deploys never fetch a
+schema at load time. The host-specific `.plugin/plugin.json` and
+`.mcp.json` above are unchanged; the root manifests are additive.
+
+After a host installs the plugin, record its checkout with
+`--record-only` (above) to get the same chain-verifiable receipt as a
+CLI-performed install.
+
+## Registry listings
+
+- **Official MCP registry**: `server.json` lists the PyPI package and the
+  GHCR image. It is regenerated from `pyproject.toml` and published by the
+  `publish-mcp-registry` job in `.github/workflows/publish.yml`, so the
+  listing version can never drift from the released package.
+- **Docker MCP catalog**: `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/packaging/docker-mcp/server.yaml` is the
+  submission payload; the image it references ships with BuildKit
+  provenance, an SBOM, and a Sigstore build-provenance attestation. See
+  `https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/packaging/docker-mcp/README.md` for the maintainer flow.
+
+## See also
+
+- [MCP server](../mcp/server.md) - the tools the server exposes.
+- [Plugin SDK](plugin-sdk.md) - extending bernstein itself.
+- [Lineage](https://github.com/sipyourdrink-ltd/bernstein/blob/v3.19.0/docs/lineage.md) - the spine that anchors install receipts.

@@ -855,7 +855,7 @@
   },
   {
     "name": "bernstein",
-    "description": "Bernstein 确定性 CLI 多智能体编排引擎。支持编排与调度命令行代码助手组（如 Aider / GitHub Copilot CLI），以极其确定性的方式执行多步骤代码任务。Leading Words: 确定性Agent编排, CLI多智能体调度, Aider代码助手协同, 任务流状态机",
+    "description": "Bernstein 开源 AI Agent 治理层与确定性编排引擎。协调环内无模型——计划重放即同一任务图，每个编码任务跑在独立 git worktree 并过 lint/类型/测试门；离线可验证运行回执、签名血缘与可选 HMAC 审计链。驱动 Claude Code、Codex、Gemini CLI 等 40+ CLI 代码助手。Leading Words: 确定性Agent编排, CLI多智能体调度, 任务流状态机, Agent治理审计",
     "category": "07_智能体框架与协同",
     "folder": "bernstein",
     "relative_path": "./00_全局大管家/07_智能体框架与协同/bernstein"
