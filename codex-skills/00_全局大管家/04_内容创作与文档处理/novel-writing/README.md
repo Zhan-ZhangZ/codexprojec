@@ -14,8 +14,9 @@ This skill is meant for longform fiction work where narrative judgment matters.
 
 It helps Codex:
 
-- plan chapters and scenes with actual narrative function
+- plan scenes, chapters, arcs, and whole stories with an explicit causal spine
 - draft or continue fiction prose without collapsing everything into summary
+- keep dialogue embodied without attaching arbitrary gestures to every line
 - review prose with concrete findings instead of soft impressions
 - protect style-bearing material during revision
 - check whether scenes obey realism and access limits
@@ -24,7 +25,8 @@ It helps Codex:
 
 Use this repo when the task is mainly about fiction craft:
 
-- chapter or scene planning
+- scene, chapter, arc, volume, or whole-story planning
+- standalone story synopsis or canon-document structure
 - prose continuation
 - rewrite while preserving voice
 - structural review of a chapter
@@ -37,7 +39,9 @@ If your main problem is project recovery, chapter-state tracking, or workspace g
 
 - `Use novel-writing. Review this chapter and give concrete findings with locations, not vague feedback.`
 - `Plan a chapter that introduces the rival clearly and moves the relationship forward.`
+- `Build a standalone volume outline that separates pre-story state, causal story, author truth, and reveal boundaries.`
 - `Continue this scene without flattening the author's voice or cutting style-bearing detail.`
+- `Review this meeting or laboratory scene for transcript-like dialogue, decorative gestures, and procedural action that does not change the human exchange.`
 
 ## Install
 
@@ -59,6 +63,13 @@ ln -s "$(pwd)/novel-writing/novel-writing" ~/.codex/skills/novel-writing
 
 Restart Codex after installing or updating the skill.
 
+On Windows, maintainers can install the development checkout as a junction with
+backup protection:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-local-dev-link.ps1
+```
+
 Installer-style inputs:
 
 - repo: `wgwtest/novel-writing`
@@ -67,6 +78,8 @@ Installer-style inputs:
 ## Repository Layout
 
 - `novel-writing/`: installable skill package
+- `scripts/`: local development and package validation helpers
+- `CODEX_START_HERE.md`: maintainer startup and release workflow
 - `README.md`: landing page for humans
 - `.github/`: templates for issues and pull requests
 
@@ -87,4 +100,9 @@ MIT. See [LICENSE](./LICENSE).
 
 ## Maintainer Note
 
-This public repository is synced from a separate source-of-truth workspace. Keep the root landing files and the installable package aligned in the same release.
+This repository is the source of truth for `novel-writing`. Edit the installable
+package only under `novel-writing/`; local Codex installations and copies in
+other repositories are runtime links or derived mirrors, never editable
+sources. Run
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-package.ps1`
+before committing or releasing a change.
