@@ -31,8 +31,13 @@ Guidance for Claude Code when modifying this repository. For repo layout, instal
 - **SKILL.md trigger descriptions:** Every `description:` field MUST include a "Do NOT trigger for:" clause. Without it, false triggering occurs (e.g. `brooks-debt` firing on HTTP `/health` questions).
 - **Book count is derived, never hardcoded:** `validate-repo.mjs` reads `source-coverage.md` frontmatter and derives `sourceCount` from it. Adding a book = update the frontmatter list + add the corresponding section; the validator auto-adapts.
 - **`package.json` is ESM:** `"type": "module"` enables ESM for everything in `scripts/`. Skills are plain markdown — no bundling.
-- **Slash commands:** Plugin skills register as `/brooks-lint:brooks-review`. Short forms (`/brooks-review`, `/brooks-audit`, `/brooks-debt`, `/brooks-test`, `/brooks-health`, `/brooks-sweep`) are auto-installed to `~/.claude/commands/` by the session-start hook — they are thin wrappers, not separate definitions.
+- **Slash commands:** Plugin skills register as `/brooks-lint:brooks-review`. Short forms (`/brooks-review`, `/brooks-audit`, `/brooks-debt`, `/brooks-test`, `/brooks-health`, `/brooks-sweep`) are auto-installed to `~/.claude/commands/` by the session-start hook — they are thin wrappers, not separate definitions. Each wrapper body must **`Read` its skill's `SKILL.md` directly**, NOT "use the Skill tool to invoke …" — a purely self-referential body loops forever when the skill is model-invoked (upstream re-injects the body without the `<command-name>` tag; issue #21 / `anthropics/claude-code#54535`). The hook substitutes `${CLAUDE_PLUGIN_ROOT}` → the absolute plugin path when installing short forms, because that variable does not expand in user commands. `commands/*.md` is shared: the Gemini extension (`gemini-extension.json`) consumes it as-is; Codex loads `skills/` only.
+- **Codex plugin validator — two deliberate failures:** `python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .` (ships with codex-cli) mirrors OpenAI's *workspace ingestion* schema, which is stricter than the Codex CLI loader brooks-lint actually installs through. `interface.defaultPrompt` was a genuine gap and is now fixed; the remaining two failures are intentional and must NOT be "fixed":
+  - `` field `commands` is not accepted `` — `"commands": []` is what stops the CLI from migrating `commands/*.md` into duplicate `source-command-brooks-*` skills (issue #22). Confirmed by installing both ways under an isolated `CODEX_HOME`: drop the field and Codex regenerates `.codex-plugin/migrated-command-skills/`. The CLI's `RawPluginManifest` accepts `commands`; only the ingestion schema rejects it.
+  - `` skill `_shared` is missing `SKILL.md` `` — the validator only skips dot-prefixed dirs, and `_shared/` is a shared-framework dir by design (see above). Renaming it to `.shared/` would also require changing `install.sh`'s `cp -R "$SRC"/*`, whose glob does not match dot-dirs.
 - **GitHub Action cache:** `.github/actions/brooks-lint/action.yml` uses `actions/cache@v4` with built-in cache-hit guard — do NOT add a manual directory check.
+- **Adding a platform is derived, not hardcoded:** create `docs/<name>-setup.md`, add the platform to `install.sh`'s `PLATFORMS` **and** both `global_dir()` / `project_dir()` case tables, then link the new guide from every `README*.md` and `docs/getting-started.md` **and** add the name to each of those documents' `<platform> = …` enumeration (the `<平台> = …` line in the zh translations). That enumeration must list every `PLATFORMS` entry, `claude` included — it is the one spot a platform has to be spelled out, since a bare mention elsewhere is worthless as a check (`~/.bob/skills` in a table row already contains "bob"). `npm run validate` derives all three sides (`scripts/platforms.mjs`) and fails on any gap — a guide missing from one translation, a `PLATFORMS` entry with no directory mapping, or a platform absent from one document's enumeration. Do not add a hand-maintained platform list anywhere.
+- **Star history is data-first, never hand-drawn:** `assets/star-history.json` (raw `starred_at` timestamps, no usernames) is the source of truth; `assets/star-history.svg` is a pure function of it. Never hand-edit the SVG — `npm run validate` re-renders and fails on any mismatch. `node scripts/gen-star-history.mjs` refetches (needs `GITHUB_TOKEN` or `gh auth`, since GitHub restricted the stargazers API to admins/collaborators on 2026-06-30); `--render-only` redraws offline from the committed data. The render must stay deterministic — anchoring the time axis to the clock would make the weekly workflow commit noise on every run.
 - **Custom risks:** Teams add project-specific risk codes via `custom-risks-guide.md` in their project root. Template lives at `skills/_shared/custom-risks-guide.md`.
 
 ## How the Skills Work
@@ -46,34 +51,33 @@ Guidance for Claude Code when modifying this repository. For repo layout, instal
 
 ## Adding a New Skill
 
-Each skill is two files inside `skills/{name}/`:
-
-- `SKILL.md` — frontmatter with `name`, `description` (must include "Do NOT trigger for:" clause), and a `Process` section (3–6 bullets citing guide step ranges)
-- `{name}-guide.md` — sequentially numbered steps, no gaps; sub-steps like `Step 2a` are allowed
-
-Checklist:
-1. Create `skills/{name}/SKILL.md` and `skills/{name}/{name}-guide.md`
-2. Add ≥1 happy-path eval scenario + ≥1 false-positive scenario (`no_risk_codes: true`) to `evals/evals.json`
-3. Run `npm run validate` (structure + step continuity) and `npm run evals` (eval schema)
-4. Test locally: `cp -r skills/* ~/.claude/skills/brooks-lint/` → trigger in a Claude session → verify output
-5. Restore the marketplace version using the commands in the "Skill sync after edit" gotcha above
+1. `skills/{name}/SKILL.md` — frontmatter with `name`, `description` (must include the "Do NOT trigger for:" clause), and a `Process` section (3–6 bullets citing guide step ranges)
+2. `skills/{name}/{name}-guide.md` — sequentially numbered steps, no gaps; sub-steps like `Step 2a` allowed
+3. Add ≥1 happy-path eval scenario + ≥1 false-positive scenario (`no_risk_codes: true`) to `evals/evals.json`
+4. `npm run validate` (structure + step continuity) and `npm run evals` (eval schema)
+5. Test locally: `cp -r skills/* ~/.claude/skills/brooks-lint/` → trigger in a Claude session → verify output, then restore the marketplace version per the "Skill sync after edit" gotcha above
 
 ## Eval Suite
 
-`evals/evals.json` contains 49 benchmark scenarios covering R1–R6 (code decay) and T1–T6 (test decay), including false-positive / tradeoff cases that must NOT be flagged. Each scenario has `id`, `name`, `prompt`, `expected_output`, `mode`, `files`. Optional flags (mutually exclusive): `no_risk_codes: true` (no risk codes expected in output) or `no_health_score: true` (Health Score suppression test).
+`evals/evals.json` contains 57 benchmark scenarios covering R1–R6 (code decay) and T1–T6 (test decay), including false-positive / tradeoff cases that must NOT be flagged. Each scenario has `id`, `name`, `prompt`, `expected_output`, `mode`, `files`. Optional flags (mutually exclusive): `no_risk_codes: true` (no risk codes expected in output) or `no_health_score: true` (Health Score suppression test).
 
 To add a scenario: append to the `evals` array with the next sequential `id` and the relevant risk code. Validate structure with `npm run evals`; live-test with `npm run evals:live` (requires `ANTHROPIC_API_KEY`).
 
 `expected_output` should describe the Iron Law finding (Symptom + risk code) and a Health Score range; it does NOT need to be verbatim — the evaluator matches semantics. For false-positive / tradeoff scenarios, set `no_risk_codes: true` and describe what must NOT appear in output.
 
+## Parser-Fidelity Benchmark
+
+`evals/benchmark-corpus.json` is a FROZEN corpus of 30 real, model-generated reports (one per curated sample, across all six modes) each paired with an independently-graded finding inventory. `scripts/benchmark.mjs` (`npm run benchmark`) runs the shipped parser (`report-parse.mjs` / `sarif.mjs`) against it and reports severity-count fidelity, risk-code precision/recall, and SARIF validity; `npm test` guards the same as a deterministic regression. This is distinct from the eval suite: it benchmarks the **parser/SARIF plumbing**, not model judgment. The corpus is a frozen artifact — regenerate it only by re-running the generation workflow and hand-checking the new ground truth; do NOT hand-edit `report` or `truth` to make a failing parser pass.
+
 ## Development Commands
 
 ```bash
-npm run bump              # Propagate the package.json version to all manifests + README badge (NOT changelog)
-npm run validate          # Repo consistency: manifests, README badge, changelog, source inventory, skills structure
+npm run bump              # Propagate the package.json version to all manifests + every version-bearing text file (NOT changelog)
+npm run validate          # Repo consistency: manifests, version refs, changelog, source inventory, skills structure
 npm test                  # Unit tests for validate-repo helpers
 npm run evals             # Eval structural validation (IDs, fields, risk-code refs)
 npm run evals:live        # Live evals against the AI (requires ANTHROPIC_API_KEY)
+npm run benchmark         # Parser-fidelity benchmark on the frozen real-report corpus
 npm run history           # View Health Score trend (.brooks-lint-history.json)
 
 # Test hooks locally
@@ -83,4 +87,4 @@ CLAUDE_PLUGIN_ROOT=1 bash hooks/session-start   # plugin platform branch
 
 ## Release Process
 
-Set the new version in `package.json` (e.g. `npm version <v> --no-git-tag-version`), then `npm run bump` (propagates the version to all manifests + README badge) → add the new `CHANGELOG.md` section by hand → `npm run validate` → commit, push, tag GitHub release.
+Set the new version in `package.json` (e.g. `npm version <v> --no-git-tag-version`), then `npm run bump` (propagates the version to all manifests plus every version-bearing text file listed by `scripts/version-refs.mjs` — all six README badges and the docs landing-page JSON-LD) → add the new `CHANGELOG.md` section by hand → `npm run validate` → commit, push, tag GitHub release.
