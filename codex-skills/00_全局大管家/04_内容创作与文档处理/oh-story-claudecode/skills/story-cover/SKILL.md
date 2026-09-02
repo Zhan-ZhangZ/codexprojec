@@ -1,8 +1,8 @@
 ---
 name: story-cover
 version: 1.0.0
-description: "小说封面生成。根据书名、作者名自动分析题材风格，调用 GPT-Image-2 直接生成含标题和署名的专业级网文封面。触发方式：/story-cover、/封面、「帮我做个封面」「生成封面图」「做个小说封面」「封面设计」。"
-metadata: {"openclaw":{"requires":{"env":["GPT_IMAGE_API_KEY"],"bins":["curl","jq","base64"]},"primaryEnv":"GPT_IMAGE_API_KEY","source":"https://github.com/worldwonderer/oh-story-claudecode"}}
+description: "小说封面生成。根据书名、作者名自动分析题材风格，调用 GPT-Image-2 生成含标题和署名的专业级网文封面；Codex CLI 优先使用内置 ImageGen，无需单独 API Key。触发方式：/story-cover、/封面、「帮我做个封面」「生成封面图」「做个小说封面」「封面设计」。"
+metadata: {"openclaw":{"requires":{"env":["GPT_IMAGE_API_KEY"],"bins":["curl","jq","base64"]},"primaryEnv":"GPT_IMAGE_API_KEY","source":"https://github.com/zenstory-ai/oh-story-claudecode"}}
 ---
 # story-cover：小说封面生成
 
@@ -12,17 +12,22 @@ metadata: {"openclaw":{"requires":{"env":["GPT_IMAGE_API_KEY"],"bins":["curl","j
 
 ---
 
-## 环境变量
+## 生成通路
+
+- **Codex 内置（优先）**：当前 Codex CLI 会话可调用 `$imagegen` / `image_gen` 时，直接生成并落盘；计入 Codex 通用用量，无需 `OPENAI_API_KEY` 或 `GPT_IMAGE_API_KEY`，也不运行 `curl`。`story-cover` 自行调用工具，不让用户另开命令。
+- **API 回退**：仅在会话没有内置工具或用户明确指定 API 时使用，需要 `GPT_IMAGE_API_KEY`。工具缺失不等于 Codex 订阅不支持生图；内置调用失败时先报告错误，不静默切换到可能收费的 API。
+
+## 输出参数与 API 回退环境变量
 
 | 变量 | 必填 | 默认 | 说明 |
 |:-----|:----:|:-----|:-----|
-| `GPT_IMAGE_API_KEY` | ✅ | — | OpenAI 或兼容代理的 API Key |
+| `GPT_IMAGE_API_KEY` | API 回退必填 | — | OpenAI 或兼容代理的 API Key；Codex 内置通路不用 |
 | `GPT_IMAGE_BASE_URL` | | `https://api.openai.com/v1` | 兼容代理时改这个 |
 | `GPT_IMAGE_MODEL` | | `gpt-image-2` | 仅在测试新模型时覆盖 |
-| `GPT_IMAGE_SIZE` | | `1024x1536` | 目标比例提示（番茄 3:4→`768x1024`，默认 2:3→`1024x1536`）。官方 gpt-image-2 认任意 16 倍数尺寸（比例≤3:1），但**很多中转代理会忽略 size、按预设返回约 2:3**（已实测）——平台尺寸不靠它，由 Step 3.5 兜底 |
-| `UPLOAD_SIZE` | | — | 平台固定上传像素（番茄 `600x800`）；设置后 Step 3.5 居中裁剪+缩放出上传版（不变形、不依赖出图尺寸） |
+| `GPT_IMAGE_SIZE` | | `1024x1536` | API 回退的目标比例提示（番茄 3:4→`768x1024`，默认 2:3→`1024x1536`）。官方 gpt-image-2 认任意 16 倍数尺寸（比例≤3:1），但**很多中转代理会忽略 size、按预设返回约 2:3**（已实测）——平台尺寸不靠它，由「导出平台上传尺寸」步骤兜底 |
+| `UPLOAD_SIZE` | | — | 平台固定上传像素（番茄 `600x800`）；设置后由「导出平台上传尺寸」步骤居中裁剪+缩放出上传版（不变形、不依赖出图尺寸） |
 | `BOOK_DIR` | ✅ | — | 输出目录，建议 `./covers/<书名>` |
-| `REF_IMAGE` | | — | 参考图本地路径或 URL；设置后走 `images/edits` 图生图 |
+| `REF_IMAGE` | | — | 参考图本地路径或 URL；内置通路先把图片载入会话，API 回退走 `images/edits` 图生图 |
 
 ---
 
@@ -30,7 +35,7 @@ metadata: {"openclaw":{"requires":{"env":["GPT_IMAGE_API_KEY"],"bins":["curl","j
 
 ### Step 1：收集信息
 
-必填：书名、作者名（笔名）、目标平台、输出目录 `BOOK_DIR`（建议 `./covers/<书名>`，调用前 export）
+必填：书名、作者名（笔名）、目标平台、输出目录 `BOOK_DIR`（建议 `./covers/<书名>`；API 回退用环境变量，内置通路直接使用当前任务值）
 选填：参考图 `REF_IMAGE`（本地路径或 URL，设置后切换到图生图）、风格偏好、尺寸
 
 > **书名和笔名是封面必需信息**：缺任一必须先用 AskUserQuestion 问用户补全，不得编造或留空。
@@ -42,9 +47,9 @@ metadata: {"openclaw":{"requires":{"env":["GPT_IMAGE_API_KEY"],"bins":["curl","j
 | 番茄小说 | 600×800 | 3:4 | `768x1024` |
 | 其他平台（默认竖版） | 按平台规格 | 2:3 | `1024x1536` |
 
-`export GPT_IMAGE_SIZE` 给目标比例（官方按它出图，很多代理会忽略、返回约 2:3）；平台有固定上传像素再 `export UPLOAD_SIZE`（番茄 `600x800`）。**平台尺寸最终由 Step 3.5 居中裁剪+缩放保证，不依赖代理认不认 size。** 平台与题材风格见 [references/cover-styles.md](references/cover-styles.md)。
+内置通路把目标比例写进提示词；API 回退再 `export GPT_IMAGE_SIZE`（很多代理会忽略、返回约 2:3）。平台有固定上传像素时设置 `UPLOAD_SIZE`（番茄 `600x800`）。**平台尺寸最终由「导出平台上传尺寸」步骤居中裁剪+缩放保证，不依赖实际出图尺寸。** 平台与题材风格见 [references/cover-styles.md](references/cover-styles.md)。
 
-### Step 1.5：题材判定
+### Step 2：题材判定
 
 扫描书名（必要时简介）中的关键词，对照 [references/cover-styles.md](references/cover-styles.md) 的「题材推断规则」表选定题材。
 
@@ -52,7 +57,7 @@ metadata: {"openclaw":{"requires":{"env":["GPT_IMAGE_API_KEY"],"bins":["curl","j
 - 多题材命中 → 按优先级取一：仙侠 > 西幻 > 古言 > 现言 > 都市 > 悬疑 > 科幻 > 历史 > 灵异 > 轻小说
 - 零命中 → 默认 `都市`
 
-### Step 2：构建提示词
+### Step 3：构建提示词
 
 提示词 = **文字层** + **风格层** + **画面层**，全部用英文编写。
 
@@ -137,9 +142,17 @@ Professional book cover, high detail digital painting, portrait [平台比例：
 - 光效是指定光源方向 + 颜色（如 `dramatic golden light from above`）
 - 用 `digital painting style` 而非 `photo`，避免真人照片感
 
-### Step 3：调用 API 并保存
+### Step 4：生成并保存
 
-`gpt-image-2` 始终返回 base64，请求体不要带 `response_format`（旧 DALL-E 参数，gpt-image 系列不支持）。`$PROMPT` 为 Step 2 拼出的完整提示词。
+#### Codex 内置 ImageGen（优先）
+
+1. 用 Step 3 的完整提示词调用 `image_gen`。比例和安全区写进提示词，不传 `GPT_IMAGE_MODEL`、`GPT_IMAGE_SIZE`、`response_format` 等 API 参数。
+2. 有 `REF_IMAGE` 时，本地文件先用图片查看工具载入会话；URL 先下载再载入。说明它是编辑目标还是风格参考，并列出必须保持的内容。
+3. 每个构图方案单独调用一次。先创建 `BOOK_DIR/封面/`，再把工具返回的图片复制为 `封面_vN.png`，`N` 自增且不覆盖旧版；保留 `$CODEX_HOME/generated_images/` 原文件，同时保存同名 `.prompt.txt`，有参考图再保存 `.ref.txt`。确认图片可读，并把原图绝对路径交给 Step 5。
+
+#### API 回退
+
+`gpt-image-2` 始终返回 base64，请求体不要带 `response_format`（旧 DALL-E 参数，gpt-image 系列不支持）。`$PROMPT` 为「构建提示词」步骤拼出的完整提示词。
 
 两种调用方式二选一：未设置 `REF_IMAGE` → 走「文生图」；设置了 → 走「图生图」。
 
@@ -148,7 +161,7 @@ Professional book cover, high detail digital painting, portrait [平台比例：
 ```bash
 set -euo pipefail
 : "${GPT_IMAGE_API_KEY:?请设置 export GPT_IMAGE_API_KEY=你的key}"
-: "${PROMPT:?请先 export PROMPT=Step 2 拼好的完整提示词}"
+: "${PROMPT:?请先 export PROMPT=构建提示词步骤拼好的完整提示词}"
 BASE_URL="${GPT_IMAGE_BASE_URL:-https://api.openai.com/v1}"
 MODEL="${GPT_IMAGE_MODEL:-gpt-image-2}"
 SIZE="${GPT_IMAGE_SIZE:-1024x1536}"
@@ -201,7 +214,7 @@ ls -lt "$BOOK_DIR/封面/"
 ```bash
 set -euo pipefail
 : "${GPT_IMAGE_API_KEY:?请设置 export GPT_IMAGE_API_KEY=你的key}"
-: "${PROMPT:?请先 export PROMPT=Step 2 拼好的完整提示词}"
+: "${PROMPT:?请先 export PROMPT=构建提示词步骤拼好的完整提示词}"
 BASE_URL="${GPT_IMAGE_BASE_URL:-https://api.openai.com/v1}"
 MODEL="${GPT_IMAGE_MODEL:-gpt-image-2}"
 SIZE="${GPT_IMAGE_SIZE:-1024x1536}"
@@ -256,13 +269,14 @@ file "$OUT"
 ls -lt "$BOOK_DIR/封面/"
 ```
 
-### Step 3.5：导出平台上传尺寸（平台有固定像素时）
+### Step 5：导出平台上传尺寸（平台有固定像素时）
 
-设了 `UPLOAD_SIZE`（番茄 600×800）就把原图**居中裁剪+缩放**成上传尺寸——不论出图是 2:3 还是 3:4 都裁成平台精确像素，不变形，避免平台再裁切掉书名/笔名。原图保留、另存 `_上传` 版：
+平台有固定上传像素（番茄 600×800）时，把原图**居中裁剪+缩放**成上传尺寸——不论出图是 2:3 还是 3:4 都裁成平台精确像素，不变形，避免平台再裁切掉书名/笔名。原图保留、另存 `_上传` 版；`SRC` 和 `TARGET` 直接使用前序步骤的任务值，不依赖跨 shell 的临时变量：
 
 ```bash
-SRC="${OUT:-$(ls -t "${BOOK_DIR:-.}"/封面/封面_v*.png 2>/dev/null | grep -v _上传 | head -1)}"  # 复用 Step 3 的 $OUT；新 shell 里从 BOOK_DIR 找最新原图
-TARGET="${UPLOAD_SIZE:-}"   # 番茄=600x800；未设则跳过
+SRC='<Step 4 生成的原图绝对路径>'
+TARGET='<Step 1 确定的平台上传尺寸；无则留空>'
+[ -f "$SRC" ] || { echo "封面原图不存在: $SRC" >&2; exit 1; }
 if [ -n "$TARGET" ] && [ -f "$SRC" ]; then
   UP="${SRC%.png}_上传.png"; W="${TARGET%x*}"; H="${TARGET#*x}"
   if command -v magick >/dev/null 2>&1; then M=magick
@@ -285,7 +299,7 @@ fi
 
 > 书名/笔名已在提示词里留中心安全区，居中裁剪不会切到。
 
-### Step 4：质量检查 + 迭代
+### Step 6：质量检查 + 迭代
 
 | 检查项 | 标准 |
 |:-------|:-----|

@@ -3,7 +3,6 @@ name: output-contract
 description: |
   story-short-analyze 输出契约。定义 Stage → 文件映射、_meta.json schema、
   下游消费规范（story-short-write 读全套 markdown + 原文 + _meta.json 写新短篇）。
-sync-source: skills/story-short-analyze/references/output-contract.md
 sync-policy: |
   本文件在 story-short-analyze 与 story-short-write 之间需保持字节一致（byte-equal）。
   修改任一副本后，必须同步另一副本，并通过 bash scripts/check-shared-files.sh 验证。
@@ -25,7 +24,7 @@ sync-policy: |
 ├── 拆文报告.md             # 人类可读综合报告（Stage 2-6 综合）
 ├── 情节节点.md             # Stage 2 情节节点清单
 ├── 写作手法.md             # Stage 4 写作手法分析
-└── _meta.json             # 管道元数据 + 结构计数（resume + Phase 7 检查数值依据）
+└── _meta.json             # 管道元数据 + 结构计数（resume + 验收数值依据）
 ```
 
 **文件名约定**：`拆文报告.md / 情节节点.md / 写作手法.md` 由 `story-short-write` 硬编码
@@ -47,7 +46,7 @@ sync-policy: |
 
 ## `_meta.json` schema
 
-`_meta.json` 是管道元数据 + 结构计数。**不放分析内容**，只放数字和枚举——给 Phase 7
+`_meta.json` 是管道元数据 + 结构计数。**不放分析内容**，只放数字和枚举——给验收
 检查做完整性校验用。分析叙事都在 `拆文报告.md` 里。
 
 ```jsonc
@@ -59,7 +58,7 @@ sync-policy: |
   "stages_completed": [2, 3, 4, 5],     // 已完成 Stage，按完成顺序 append
   "last_stage_in_progress": null,       // 当前正在执行的 Stage；空闲为 null
 
-  "structure_counts": {                 // Stage 6 完成时一次性写入；Phase 7.2 验收依据
+  "structure_counts": {                 // Stage 6 完成时一次性写入；structure_counts 数值校验依据
     "beats": 5,                         // 结构段数（结构划分，开端/发展/高潮/结局，Stage 2）
     "hooks": 4,                         // 钩子数（Stage 3）
     "setup_clues": 3,                   // 反转铺垫线索数（Stage 4）
@@ -77,7 +76,7 @@ sync-policy: |
 3. **通过**：清空 `last_stage_in_progress`，append `N` 到 `stages_completed[]`。
 4. **失败**：`stages_completed` 不动，`last_stage_in_progress` 保留为 `N`。
 5. **Stage 6 完成时额外动作**：把 `structure_counts` 一次性算出并写入 `_meta.json`，
-   然后才进 Phase 7。
+   然后才进入验收。
 
 ### Resume 协议
 
@@ -85,23 +84,22 @@ sync-policy: |
 - `last_stage_in_progress` 为空 → 从 `max(stages_completed) + 1` 开始。
 - `stages_completed` 含 6 → 已完成，询问用户覆盖/取消。
 
-**Stage 6 = 内容写完 AND Phase 7 通过**。Phase 7 未过前 `last_stage_in_progress` 保持 `6`、`stages_completed` 不含 `6`；resume 时正文/structure_counts 已在盘上，只重跑 Phase 7 检查，不重写 Stage 6 正文。
+**Stage 6 = 内容写完 AND 验收通过**。验收未过前 `last_stage_in_progress` 保持 `6`、`stages_completed` 不含 `6`；resume 时正文/structure_counts 已在盘上，只重跑验收检查，不重写 Stage 6 正文。
 
 ---
 
-## Phase 7 检查接入点
+## 验收接入点
 
 Stage 6 内容写完后、`stages_completed[6]` append 前，跑三道检查：
 
-### 7.1 拆文报告 AI 腔自检
+### Step 1：拆文报告 AI 腔自检
 
-扫描 `拆文报告.md` 全文 against 本地禁用词表 + `references/anti-ai-writing.md`。
-这是 `story-short-analyze` 的拆文报告质量门；`story-short-write` 成稿去 AI 味另走
-`references/short-deslop.md`，不要把两套规则混用。
+扫描 `拆文报告.md` 全文 against 拆文流程本地加载的禁用词表与报告 AI 腔规则。
+这是拆文报告质量门；成稿去 AI 规则由写作流程在自己的 Skill 内维护，不跨 Skill 读取参考文件，也不要把两套规则混用。
 命中 → 不写 `stages_completed[6]`，列出位置请用户修订**拆文报告本身**的 AI 腔
 （源文里有 AI 腔不算——这里扫的是分析师写的报告）。
 
-### 7.2 `_meta.json.structure_counts` 数值校验
+### Step 2：`_meta.json.structure_counts` 数值校验
 
 | 字段 | 最低值 | 不达标 |
 |------|--------|--------|
@@ -113,14 +111,14 @@ Stage 6 内容写完后、`stages_completed[6]` append 前，跑三道检查：
 | `structure_counts.reversal_type` | 在枚举内（含「无反转」）| 阻断 |
 | `genre_detected` | 非空 | 阻断 |
 
-> 情节节点数（15-60 个，按字数分档）走 `情节节点.md` 自己的密度校验（见 material-decomposition.md），不在本表。`beats` 是结构段数，不是情节节点数。
+> 情节节点数不设阈值，按 `情节节点.md` 的语义变化边界提取（见 material-decomposition.md），不在本表。`beats` 是结构段数，不是情节节点数。
 
-### 7.3 `story-short-analyze/references/output-templates.md` BLOCK 项扫描
+### Step 3：`story-short-analyze` BLOCK 项扫描
 
-扫 `story-short-analyze/references/output-templates.md` 所有 `[BLOCK]` 标注项对应的产出段是否在 `拆文报告.md` 出现。
+扫拆文流程本地加载的输出模板，确认所有 `[BLOCK]` 标注项对应的产出段均在 `拆文报告.md` 出现。
 任一缺失 → 阻断。`[WARN]` 项 → 写入拆文报告末尾「待补」清单，不阻断。
 
-### 7.4 通过
+### Step 4：通过
 
 清空 `_meta.json.last_stage_in_progress`，append `6` 到 `stages_completed[]`，提示
 用户「拆解完成，可调用 `/story-short-write` 写下一篇」。
@@ -164,4 +162,4 @@ ls 拆文库/{书名}/   # 应有：原文/ 拆文报告.md 情节节点.md 写�
 - `_meta.json.version` 与本文件 `sync-policy` 联动。
 - breaking change（字段重命名 / 类型变更 / 必填变更）必须 bump major version 并同步两侧
   副本，CI 通过 `scripts/check-shared-files.sh` 拦截单边修改。
-- additive change（新增可选字段）可 bump minor，旧字段保持读容忍。
+- additive change（新增可选字段）可 bump minor；producer、consumer 与两侧副本必须在同一变更中升级到当前 schema。
