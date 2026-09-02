@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="./assets/readme-cover.svg" alt="活人感写作" width="100%">
-</p>
-
-<p align="center">
   <a href="https://github.com/KKKKhazix/human-writing/releases/tag/v1.1.0"><img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-C4473A?style=flat-square"></a>
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-313131?style=flat-square"></a>
   <a href="https://github.com/KKKKhazix/human-writing/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/KKKKhazix/human-writing?style=flat-square&color=6B6258"></a>
@@ -46,7 +42,7 @@ Agent 会读取仓库、找到 `human-writing`，完成安装。装好之后显�
 <details>
 <summary><strong>Agent 不支持直接安装时</strong></summary>
 
-从 [Releases](https://github.com/KKKKhazix/human-writing/releases/latest) 下载，或者把仓库里的 [`human-writing`](./human-writing) 文件夹完整复制到本机 Skills 目录。文件夹名保留 `human-writing`。
+从 [Releases](https://github.com/KKKKhazix/human-writing/releases/latest) 下载，或者把本技能目录（`human-writing` 文件夹）完整复制到本机 Skills 目录。文件夹名保留 `human-writing`。
 
 ```text
 ~/.agents/skills/human-writing/
@@ -94,14 +90,14 @@ human-writing/
 
 | 位置 | 干什么的 |
 | :--- | :--- |
-| [`SKILL.md`](./human-writing/SKILL.md) | 入口。材料门槛、现实与虚构分流、写作流程、交付禁令，全在这一份里 |
-| [`forum-prose.md`](./human-writing/references/forum-prose.md) | 知乎、公众号、论坛长帖的写法，节奏和措辞的具体做法都在这里 |
-| [`reality.md`](./human-writing/references/reality.md) | 真人、历史、新闻、数据和个人经历的事实边界 |
-| [`fiction.md`](./human-writing/references/fiction.md) | 小说、故事、虚构散文和对白的创作规则 |
-| [`formats.md`](./human-writing/references/formats.md) | 短内容、口播、演讲、教程、评测等特殊形式 |
-| [`revision.md`](./human-writing/references/revision.md) | 初稿写完之后怎么改——逐遍检查清单 |
-| [`check_prose.py`](./human-writing/scripts/check_prose.py) | 检查成稿有没有踩到硬禁令 |
-| [`human-writing-lite.md`](./human-writing/dist/human-writing-lite.md) | 蒸馏版，两千字以内，聊天窗口直接粘贴用 |
+| [`SKILL.md`](./SKILL.md) | 入口。材料门槛、现实与虚构分流、写作流程、交付禁令，全在这一份里 |
+| [`forum-prose.md`](./references/forum-prose.md) | 知乎、公众号、论坛长帖的写法，节奏和措辞的具体做法都在这里 |
+| [`reality.md`](./references/reality.md) | 真人、历史、新闻、数据和个人经历的事实边界 |
+| [`fiction.md`](./references/fiction.md) | 小说、故事、虚构散文和对白的创作规则 |
+| [`formats.md`](./references/formats.md) | 短内容、口播、演讲、教程、评测等特殊形式 |
+| [`revision.md`](./references/revision.md) | 初稿写完之后怎么改——逐遍检查清单 |
+| [`check_prose.py`](./scripts/check_prose.py) | 检查成稿有没有踩到硬禁令 |
+| [`human-writing-lite.md`](./dist/human-writing-lite.md) | 蒸馏版，两千字以内，聊天窗口直接粘贴用 |
 
 </details>
 
