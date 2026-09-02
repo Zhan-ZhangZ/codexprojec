@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.BuyWhere/buywhere-mcp",
-  "title": "BuyWhere — AI Product Search API",
-  "description": "Product search API for AI agents. Get a free key in 3 seconds with no signup: POST https://api.buywhere.ai/v1/auth/register with {\"agent_name\":\"<name>\"}. Search 11M+ products across 3,700+ retailers in SG, US, MY, VN, TH. Real-time pricing, price comparison, and deal discovery. Built for AI agent commerce, not store management.",
+  "title": "BuyWhere \u2014 AI Product Search API",
+  "description": "Product catalog for AI agents \u2014 real-time prices across US, SG, MY merchants",
   "website": "https://buywhere.ai",
   "blog": "https://buywhere.ai/blog",
   "repository": {
     "url": "https://github.com/BuyWhere/buywhere-mcp",
     "source": "github"
   },
-  "version": "1.0.4",
+  "version": "0.3.17",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@buywhere/mcp-server",
-      "version": "0.3.10",
+      "version": "0.3.17",
       "transport": {
         "type": "stdio"
       },
@@ -43,7 +43,7 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Authorization header with Bearer token (no signup: POST https://api.buywhere.ai/v1/auth/register {\"agent_name\":\"<name>\"})",
+          "description": "Bearer token (no signup: POST https://api.buywhere.ai/v1/auth/register {\"agent_name\":\"<name>\"}). v2 tools: always pass deliver_to (ISO 3166-1 alpha-2 country code).",
           "isSecret": true
         }
       ]
