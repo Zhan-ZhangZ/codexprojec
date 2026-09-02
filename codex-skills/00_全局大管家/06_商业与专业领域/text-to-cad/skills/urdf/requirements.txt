@@ -1,1 +1,2 @@
---editable ./scripts/packages/cadpy_metadata
+cadgen==0.4.28
+playwright
