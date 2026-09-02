@@ -6,7 +6,6 @@ services:
     # image: crpi-hocnvtkomt7w9v8t.cn-beijing.personal.cr.aliyuncs.com/xpzouying/xiaohongshu-mcp
     container_name: xiaohongshu-mcp
     restart: unless-stopped
-    init: true
     tty: true
     volumes:
       - ./data:/app/data
@@ -15,5 +14,6 @@ services:
       - COOKIES_PATH=/app/data/cookies.json
       - HOME=/app/data/home
       - XDG_CONFIG_HOME=/app/data/config
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
     ports:
       - "18060:18060"

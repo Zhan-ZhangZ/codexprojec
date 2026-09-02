@@ -58,7 +58,7 @@ docker build -t xpzouying/xiaohongshu-mcp .
 docker compose up -d
 
 # 查看日志
-docker logs -f xpzouying/xiaohongshu-mcp
+docker logs -f xiaohongshu-mcp
 
 # 或者
 docker compose logs -f
@@ -74,7 +74,7 @@ docker compose logs -f
 docker compose stop
 
 # 查看实时日志
-docker logs -f xpzouying/xiaohongshu-mcp
+docker logs -f xiaohongshu-mcp
 
 # 进入容器
 docker exec -it xiaohongshu-mcp bash
@@ -121,7 +121,25 @@ environment:
 Using proxy: http://***:***@proxy:port
 ```
 
-## 5. 扫码登录
+## 5. 配置访问鉴权（可选）
+
+不设置或设置为空时，鉴权默认关闭。生产环境建议通过 `AUTH_TOKEN` 环境变量配置访问令牌。
+
+### 使用 docker run
+
+```bash
+docker run -e AUTH_TOKEN=your-secret-token -p 18060:18060 xpzouying/xiaohongshu-mcp
+```
+
+### 使用 docker compose
+
+```bash
+AUTH_TOKEN=your-secret-token docker compose up -d
+```
+
+Compose 通过 `${AUTH_TOKEN:-}` 读取宿主环境变量。启用鉴权后，所有 MCP 客户端请求都必须带上自定义请求头：`Authorization: Bearer <token>`。
+
+## 6. 扫码登录
 
 1. **重要**，一定要先把 App 提前打开，准备扫码登录。
 2. 尽快扫码，有可能二维码会过期。
