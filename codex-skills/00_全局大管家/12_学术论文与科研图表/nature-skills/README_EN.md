@@ -5,7 +5,7 @@
   <p>
     <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-2ea44f"></a>
     <a href="#5-installation"><img alt="Install" src="https://img.shields.io/badge/install-Claude%20Code%20%7C%20Codex%20%7C%20OpenClaw%20%7C%20OpenCode%20%7C%20Hermes-111827"></a>
-    <a href="#6-skill-index"><img alt="Skills" src="https://img.shields.io/badge/skills-18-0ea5e9"></a>
+    <a href="#6-skill-index"><img alt="Skills" src="https://img.shields.io/badge/skills-19-0ea5e9"></a>
     <a href="README.md"><img alt="Language" src="https://img.shields.io/badge/language-English%20%7C%20中文-1f6feb"></a>
   </p>
   <p>
@@ -89,7 +89,7 @@ For business cooperation, please contact us at [natureskills2026@outlook.com](ma
 | Developer | Project Role | Main Focus and Contributions | Profiles and Contact |
 |---|---|---|---|
 | **Yizhe Yuan** | Founder / Maintainer | Project initiation, skill-system design, and community operations | — |
-| **Xin-Rui Ma** | Core Developer | Day-to-day skills maintenance | [Gmail](mailto:travisma2233@gmail.com) |
+| **Xin-Rui Ma** | Core Developer | Core development and architecture maintenance | [Gmail](mailto:travisma2233@gmail.com) |
 | **Bin Hu** | Major Contributor | Agentic agents and AI for Science | [GitHub](https://github.com/Flyme886) · [Email](mailto:mhoang12205@gmail.com) |
 
 ## 3. Project Philosophy and Community
@@ -152,8 +152,8 @@ or task description directly. These prompts are ready to copy:
 | Generate a paper presentation | `Create a Chinese journal-club PPT from this paper, keeping key figures and source labels.` |
 | Polish or translate a manuscript paragraph | `Rewrite this Chinese paragraph into Nature-style academic English without changing the meaning.` |
 | Draft an abstract, introduction, or discussion | `Using these results and figures, draft a Nature-style abstract and introduction.` |
-| Simulate pre-submission review | `Evaluate this manuscript from a Nature reviewer perspective and produce three reviewer reports.` |
-| Respond to reviewer comments | `Use this revision email to draft point-by-point replies, a cover letter, and redline locations for the revised manuscript.` |
+| Simulate pre-submission review | `Evaluate this manuscript from a Nature reviewer perspective, produce three mutually blind reviewer reports, and synthesize them only after all are final.` |
+| Respond to reviewer comments | `Use this revision email to draft a separate point-by-point response for each mutually blind reviewer and a cover letter, and mark redline locations in the revised manuscript.` |
 | Search literature, strict citations, and citer profiles | `Create a table with this paper's citation count, strict external citation count, DOI, and whether major scholars or Fellows cited it.` |
 | Create scientific figures or schematics | `Use this method and result description to draft a publication-ready scientific figure or manuscript schematic.` |
 
@@ -347,18 +347,19 @@ an existing `hooks` block rather than replacing it):
 
 `async: true` runs it in the background so it never blocks startup. The script is
 safe to run constantly: it skips the network if it already checked within the last
-6 hours, silently skips when offline or the pull fails (`exit 0`, never stalling a
-session), re-syncs only when the upstream HEAD actually changed, and refuses to
+hour, silently skips when offline or the pull fails (`exit 0`, never stalling a
+session), re-syncs when the upstream HEAD changes or the installed copy drifts, and refuses to
 fast-forward a clone that has uncommitted changes. New skills take effect on the
-**next** session (the current one already loaded its skills). Logs go to
-`~/.local/state/nature-skills/autoupdate.log`.
+**next** session (the current one already loaded its skills). Each destination
+has a separate log at
+`~/.local/state/nature-skills/<destination-id>/autoupdate.log`.
 
 The destination and check interval are both configurable:
 
 ```bash
 # Defaults to ~/.claude/skills; use --dest for another location, e.g. Codex:
 ~/ai-skills/nature-skills/scripts/autoupdate-skills.sh --dest ~/.codex/skills
-# Check at most once per hour:
+# Check the network at most once per hour; still verify the local install each run:
 ~/ai-skills/nature-skills/scripts/autoupdate-skills.sh --throttle 3600
 ```
 
@@ -475,7 +476,7 @@ Then create or merge `~/.codex/hooks.json`:
           {
             "type": "command",
             "command": "/bin/bash \"$HOME/.codex/.nature-skills-src/scripts/autoupdate-skills.sh\" --dest \"$HOME/.codex/skills\"",
-            "timeout": 75,
+            "timeout": 120,
             "statusMessage": "Checking Nature Skills updates"
           }
         ]
@@ -488,11 +489,13 @@ Then create or merge `~/.codex/hooks.json`:
 If `hooks.json` already contains other hooks, merge the `SessionStart` entry
 instead of replacing the file. After enabling or changing the hook, run `/hooks`
 in Codex to review and trust it. Codex currently runs command hooks synchronously,
-so this setup relies on the script's built-in 6-hour throttle, 60-second network
+so this setup relies on the script's built-in 1-hour throttle, 60-second network
 guard, and offline-safe exit to avoid repeated network checks or blocking startup
-when an update cannot be fetched.
+when an update cannot be fetched. Even when upstream is unchanged, the script
+verifies the destination and repairs detected drift.
 
-Logs are written to `~/.local/state/nature-skills/autoupdate.log`. Newly fetched
+Each destination has a separate log at
+`~/.local/state/nature-skills/<destination-id>/autoupdate.log`. Newly fetched
 skills normally take full effect in the next session.
 
 ### 5.4 Other Agent Scenarios
@@ -518,17 +521,18 @@ The current `skills/` directory contains the following triggerable skills.
 
 | Skill | Status | Purpose | Example Triggers | Details |
 |---|---|---|---|---|
-| [`nature-figure`](skills/nature-figure/README_EN.md) | Stable | Submission-grade Python or R scientific figure workflow for Nature / high-impact journals, with a figures4papers-style demo and OpenRouter GPT Image 2 schematic-draft generation | "Nature figure", "submission-grade figure", "publication plot", "scientific figure", "figures4papers", "paper schematic", "GPT Image 2" | [Details](skills/nature-figure/README_EN.md) |
-| [`nature-polishing`](skills/nature-polishing/README_EN.md) | Stable | Polish, restructure, or translate academic prose into Nature-style English | "Nature style", "polishing", "academic writing", "English manuscript" | [Details](skills/nature-polishing/README_EN.md) |
+| [`nature-figure`](skills/nature-figure/README_EN.md) | Stable | Submission-grade Python or R scientific figure workflow for Nature / high-impact journals, with Results-level multi-panel evidence architecture, a render-time panel-alignment gate, automatic final-PDF text/graphic collision QA, separately noticed third-party figures4papers references, original templates, and OpenRouter GPT Image 2 schematic drafts | "Nature figure", "submission-grade figure", "publication plot", "scientific figure", "figures4papers", "paper schematic", "GPT Image 2" | [Details](skills/nature-figure/README_EN.md) |
+| [`nature-polishing`](skills/nature-polishing/README_EN.md) | Stable | Polish, restructure, or translate academic prose into Nature-style English, with manuscript-wide terminology, unit, precision, and claim-drift checks | "Nature style", "polishing", "academic writing", "English manuscript" | [Details](skills/nature-polishing/README_EN.md) |
 | [`nature-writing`](skills/nature-writing/README_EN.md) | Draft | Draft Nature-style manuscript sections and rebuild a paper argument | "Nature writing", "write an abstract", "write introduction", "manuscript draft", "paper writing" | [Details](skills/nature-writing/README_EN.md) |
-| [`nature-reviewer`](skills/nature-reviewer/README_EN.md) | Draft | Simulate Nature-style reviewer assessment from the reviewer perspective, returning three reviewer reports and a synthesis | "Nature reviewer", "pre-submission review", "reviewer report", "reviewer-perspective assessment" | [Details](skills/nature-reviewer/README_EN.md) |
+| [`nature-reviewer`](skills/nature-reviewer/README_EN.md) | Draft | Simulate Nature-style reviewer assessment with three mutually blind reports, tiered Major/Minor comments, and manuscript-internal consistency checks | "Nature reviewer", "pre-submission review", "reviewer report", "reviewer-perspective assessment" | [Details](skills/nature-reviewer/README_EN.md) |
 | [`nature-citation`](skills/nature-citation/README_EN.md) | Beta | Search support literature strictly within Nature / CNS families and export ENW, RIS, or Zotero RDF | "Nature citation", "CNS citation", "segmented citation", "supporting references", "Zotero RDF" | [Details](skills/nature-citation/README_EN.md) |
 | [`nature-data`](skills/nature-data/README_EN.md) | Draft | Prepare Data Availability statements, data repository plans, and FAIR checks | "Data Availability", "data availability", "repository", "FAIR metadata" | [Details](skills/nature-data/README_EN.md) |
-| [`nature-statistics`](skills/nature-statistics/README_EN.md) | Draft | Audit, revise, or draft statistical reporting for Nature / high-impact journal manuscripts, covering sample size, independent units, replicates, p values, multiple comparisons, effect sizes, confidence intervals, figure statistics, and reviewer comments | "Nature statistics", "statistical analysis", "p value", "sample size", "replicates", "multiple comparisons", "figure statistics", "statistics review" | [Details](skills/nature-statistics/README_EN.md) |
-| [`nature-reader`](skills/nature-reader/README_EN.md) | Beta | Generate full-paper Markdown readers with source anchors, figure-text alignment, and Chinese-English side-by-side translation | "nature reader", "full Markdown", "source-aligned text", "figure-text alignment", "full translation" | [Details](skills/nature-reader/README_EN.md) |
+| [`nature-statistics`](skills/nature-statistics/README_EN.md) | Draft | Audit, revise, or draft statistical reporting, covering experimental units, replicates, p values, multiple comparisons, effect sizes, confidence intervals, figure statistics, and cross-section numeric consistency | "Nature statistics", "statistical analysis", "p value", "sample size", "replicates", "multiple comparisons", "figure statistics", "statistics review" | [Details](skills/nature-statistics/README_EN.md) |
+| [`nature-reader`](skills/nature-reader/README_EN.md) | Beta | Generate full-paper Markdown readers with source anchors, figure-text alignment, rendered equations, and Chinese-English side-by-side translation | "nature reader", "full Markdown", "source-aligned text", "figure-text alignment", "rendered equations", "full translation" | [Details](skills/nature-reader/README_EN.md) |
 | [`nature-paper-card`](skills/nature-paper-card/README_EN.md) | Beta | Deep-read one paper into a source-grounded Sections 01–16 Paper Card covering method logic, experiment-to-claim evidence, conclusion boundaries, critical analysis, and testable research ideas | "nature paper card", "deep-read paper", "Paper Card", "evidence chain", "conclusion boundaries" | [Details](skills/nature-paper-card/README_EN.md) |
-| [`nature-response`](skills/nature-response/README_EN.md) | Beta | Parse revision emails; draft, audit, and revise revision cover letters, point-by-point response letters, red-marked manuscripts, and LaTeX templates | "response to reviewers", "rebuttal letter", "cover letter", "major revision", "revision email", "reviewer-comment response", "LaTeX template" | [Details](skills/nature-response/README_EN.md) |
+| [`nature-response`](skills/nature-response/README_EN.md) | Beta | Parse revision emails; create separate mutually blind reviewer responses, cover letters, red-marked manuscripts, LaTeX templates, and revision-package consistency checks | "response to reviewers", "rebuttal letter", "cover letter", "major revision", "revision email", "reviewer-comment response", "LaTeX template" | [Details](skills/nature-response/README_EN.md) |
 | [`nature-paper2ppt`](skills/nature-paper2ppt/README_EN.md) | Beta | Generate Chinese PPTX journal-club or paper-presentation decks from research papers | "paper PPT", "journal club", "paper to slides", "paper presentation" | [Details](skills/nature-paper2ppt/README_EN.md) |
+| [`nature-image2ppt`](skills/nature-image2ppt/README_EN.md) | Beta | Reconstruct slide images, scanned PDFs, and image-only PPTX files as object-level editable PowerPoint with rendered QA | "image to editable PowerPoint", "reconstruct slide screenshot", "scanned PDF to PPTX", "editable PPT" | [Details](skills/nature-image2ppt/README_EN.md) |
 | [`nature-paper-to-patent`](skills/nature-paper-to-patent/README_EN.md) | Beta | Generate evidence-constrained Chinese invention patent drafts and support patent-point mining, prior-art search, and iterative technical disclosure drafting | "paper to patent", "Chinese patent", "paper-to-patent", "claims drafting", "technical disclosure", "patent points" | [Details](skills/nature-paper-to-patent/README_EN.md) |
 | [`nature-ref-verifier`](skills/nature-ref-verifier/README_EN.md) | Stable | Cross-check references across multiple sources and flag author, title, year, volume, issue, and page inconsistencies | "verify refs", "check references", "reference verification", "ref check" | [Details](skills/nature-ref-verifier/README_EN.md) |
 | [`nature-academic-search`](skills/nature-academic-search/README_EN.md) | Beta | Multi-source literature search, citation verification, strict other-citation audits, article-level citation metric tables, influential citer profiling, and reference management | "search papers", "find articles", "literature search", "literature lookup", "verify DOI", "strict other citation", "article citation table", "influential citer" | [Details](skills/nature-academic-search/README_EN.md) |
@@ -703,4 +707,4 @@ After adding a skill, update the [Skill Index](#6-skill-index) table:
 
 ## 8. Star History
 
-[![Star History Chart](assets/star-history-20260731T032906Z.svg)](https://star-history.com/#Yuan1z0825/nature-skills&Date)
+[![Star History Chart](https://github.com/Yuan1z0825/nature-skills/blob/ebd722e18808442688bd205917a3e774195c258f/assets/star-history-20260901T023811Z.svg)](https://star-history.com/#Yuan1z0825/nature-skills&Date)

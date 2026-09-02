@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate GitHub Actions workflow triggers for repository health checks.
+"""Validate workflow path filters and immutable GitHub Action references.
 
 The repository has several focused validators with `paths` filters so routine
 skill edits only run the relevant CI jobs. This check keeps those filters honest:
@@ -22,6 +22,7 @@ except ImportError as exc:  # pragma: no cover - developer environment guard
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 LOCAL_SCRIPT_RE = re.compile(r"\b(?:python3?|bash|sh)\s+(scripts/[\w./-]+)")
+PINNED_ACTION_RE = re.compile(r"^[^@\s]+@[0-9a-fA-F]{40}$")
 
 
 def read_workflow(path: Path) -> dict[str, Any]:
@@ -67,12 +68,32 @@ def local_scripts_from_run_steps(workflow: dict[str, Any]) -> set[str]:
     return scripts
 
 
+def external_action_references(workflow: dict[str, Any]) -> set[str]:
+    references: set[str] = set()
+    jobs = workflow.get("jobs", {})
+    if not isinstance(jobs, dict):
+        return references
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        job_uses = job.get("uses")
+        if isinstance(job_uses, str):
+            references.add(job_uses)
+        steps = job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            step_uses = step.get("uses")
+            if isinstance(step_uses, str):
+                references.add(step_uses)
+    return references
+
+
 def validate_workflow(path: Path) -> list[str]:
     workflow = read_workflow(path)
     scripts = local_scripts_from_run_steps(workflow)
-    if not scripts:
-        return []
-
     errors: list[str] = []
     events = workflow_events(workflow)
     for event_name in ("pull_request", "push"):
@@ -84,6 +105,15 @@ def validate_workflow(path: Path) -> list[str]:
             errors.append(
                 f"{path.relative_to(ROOT)}: {event_name}.paths missing "
                 + ", ".join(missing)
+            )
+
+    for reference in sorted(external_action_references(workflow)):
+        if reference.startswith(("./", "docker://")):
+            continue
+        if not PINNED_ACTION_RE.fullmatch(reference):
+            errors.append(
+                f"{path.relative_to(ROOT)}: action reference must use a full 40-character "
+                f"commit SHA: {reference}"
             )
     return errors
 

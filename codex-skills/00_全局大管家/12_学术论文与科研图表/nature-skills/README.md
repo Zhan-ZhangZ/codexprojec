@@ -5,7 +5,7 @@
   <p>
     <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-2ea44f"></a>
     <a href="#5-安装"><img alt="Install" src="https://img.shields.io/badge/install-Claude%20Code%20%7C%20Codex%20%7C%20OpenClaw%20%7C%20OpenCode%20%7C%20Hermes-111827"></a>
-    <a href="#6-技能索引"><img alt="Skills" src="https://img.shields.io/badge/skills-18-0ea5e9"></a>
+    <a href="#6-技能索引"><img alt="Skills" src="https://img.shields.io/badge/skills-19-0ea5e9"></a>
     <a href="README_EN.md"><img alt="Language" src="https://img.shields.io/badge/language-中文%20%7C%20English-1f6feb"></a>
   </p>
   <p>
@@ -50,7 +50,7 @@
 
 ### 1.2 知识星球
 
-知识星球名称：**Nature Skills 以及背后的哲学**。
+知识星球名称：**Nature Skills 以及背后的哲学**，以加入知识星球代替打赏。
 
 <img width="300" height="400" alt="Nature Skills 知识星球" src="https://github.com/user-attachments/assets/64e37909-0a48-4bfb-8471-c2aff971a0f6" />
 
@@ -70,7 +70,7 @@
       <a href="https://apiciyuan.top/">https://apiciyuan.top/</a>
     </td>
     <td align="center" width="32%">
-  <img width="342" height="338" alt="ea3af1aadda16b0ddc18565450715d7c" src="https://github.com/user-attachments/assets/795cad8a-6a27-472f-8b61-1283c77fc7f0" />
+<img width="1088" height="1101" alt="250d280342f34902a527721a118ac52e" src="https://github.com/user-attachments/assets/de1432e7-23ca-476d-9a68-30cd78f23ffd" />
 
       扫码添加微信客服
   </tr>
@@ -85,7 +85,7 @@
 | 开发者 | 项目角色 | 主要方向与贡献 | 主页与联系 |
 |---|---|---|---|
 | **袁一哲** | 创始人 / 维护者 | 项目发起、技能体系设计与社区运营 | — |
-| **马昕瑞** | 核心开发者 | Skills 日常维护 | [Gmail](mailto:travisma2233@gmail.com) |
+| **马昕瑞** | 核心开发者 | 核心开发、架构维护 | [Gmail](mailto:travisma2233@gmail.com) |
 | **胡彬** | 主要贡献者 | Agentic Agent |[Email](mailto:mhoang12205@gmail.com) |
 
 ## 3. 项目理念与社区
@@ -110,8 +110,8 @@
       <img width="300" alt="Agent 科研交流群" src="https://github.com/user-attachments/assets/28d1886a-69be-46bc-a1cb-777d7510ddab" />
     </td>
     <td align="center">
-      <b>袁博个人微信</b><br>
-      <img width="300" alt="袁博个人微信" src="https://github.com/user-attachments/assets/88e6b293-bda3-4094-94f9-aff4aa5a8842" />
+      <b>添加个人微信请备注来意</b><br>
+      <img width="300" alt="添加个人微信请备注来意" src="https://github.com/user-attachments/assets/88e6b293-bda3-4094-94f9-aff4aa5a8842" />
     </td>
   </tr>
 </table>
@@ -126,8 +126,8 @@
 | 生成文献汇报 PPT | `把这篇论文做成中文组会汇报 PPT，保留关键图件和来源标注。` |
 | 润色或翻译论文段落 | `把这段中文改写成 Nature 风格英文，保持学术含义不变。` |
 | 写摘要、引言或讨论 | `根据这些结果和图件，帮我起草 Nature 风格的摘要和引言。` |
-| 预投稿审稿模拟 | `从 Nature 审稿人视角评估这篇稿件，给出三份 reviewer reports。` |
-| 回复审稿意见 | `根据这封返修邮件，帮我写逐点回复、cover letter，并标出修改稿需要标红的位置。` |
+| 预投稿审稿模拟 | `从 Nature 审稿人视角评估这篇稿件，给出三份互盲 reviewer reports；全部定稿后再综合。` |
+| 回复审稿意见 | `根据这封返修邮件，为每位互盲审稿人分别写逐点回复和 cover letter，并标出修改稿需要标红的位置。` |
 | 查文献、他引和引用者画像 | `整理这篇文章的引用数、严格他引数、DOI，并看引用者里有没有院士、Fellow 或领域大牛。` |
 | 做科研图或论文示意图 | `根据这段方法和结果，帮我生成投稿级科研图或论文示意图草稿。` |
 
@@ -294,14 +294,14 @@ git clone https://github.com/Yuan1z0825/nature-skills.git ~/ai-skills/nature-ski
 }
 ```
 
-`async: true` 让它在后台运行、不阻塞启动。脚本自带保护：默认 6 小时内不重复联网检查、断网或拉取失败自动跳过（`exit 0`，绝不卡住会话）、只有上游 HEAD 真正变化时才重新同步、并且拒绝在有未提交改动的 clone 上强行前进。拉到的新版会在**下一次**开启会话时生效（当前会话的技能已经加载完毕）。运行日志在 `~/.local/state/nature-skills/autoupdate.log`。
+`async: true` 让它在后台运行、不阻塞启动。脚本自带保护：默认 1 小时内不重复联网检查、断网或拉取失败自动跳过（`exit 0`，绝不卡住会话）、上游变化或安装目录发生漂移时重新同步、并且拒绝在有未提交改动的 clone 上强行前进。拉到的新版会在**下一次**开启会话时生效（当前会话的技能已经加载完毕）。每个安装目标使用独立日志，路径为 `~/.local/state/nature-skills/<目标目录编号>/autoupdate.log`。
 
 目标目录与检查频率都可配置：
 
 ```bash
 # 默认同步到 ~/.claude/skills；用 --dest 指到别处，例如 Codex：
 ~/ai-skills/nature-skills/scripts/autoupdate-skills.sh --dest ~/.codex/skills
-# 只在最多每小时检查一次：
+# 最多每小时联网检查一次；每次运行仍会校验本地安装：
 ~/ai-skills/nature-skills/scripts/autoupdate-skills.sh --throttle 3600
 ```
 
@@ -407,7 +407,7 @@ git clone https://github.com/Yuan1z0825/nature-skills.git ~/.codex/.nature-skill
           {
             "type": "command",
             "command": "/bin/bash \"$HOME/.codex/.nature-skills-src/scripts/autoupdate-skills.sh\" --dest \"$HOME/.codex/skills\"",
-            "timeout": 75,
+            "timeout": 120,
             "statusMessage": "Checking Nature Skills updates"
           }
         ]
@@ -417,9 +417,9 @@ git clone https://github.com/Yuan1z0825/nature-skills.git ~/.codex/.nature-skill
 }
 ```
 
-若 `hooks.json` 中已有其他 hook，请合并 `SessionStart` 项，不要整体覆盖。首次启用或修改 hook 后，在 Codex 中运行 `/hooks` 检查并信任它。Codex 当前按同步方式执行 command hook，因此这里依靠脚本自带的 6 小时节流、60 秒网络保护和断网自动跳过，避免每次会话都重复联网或因更新失败阻断启动。
+若 `hooks.json` 中已有其他 hook，请合并 `SessionStart` 项，不要整体覆盖。首次启用或修改 hook 后，在 Codex 中运行 `/hooks` 检查并信任它。Codex 当前按同步方式执行 command hook，因此这里依靠脚本自带的 1 小时节流、60 秒网络保护和断网自动跳过，避免每次会话都重复联网或因更新失败阻断启动。即使上游版本未变化，脚本也会验证安装目录并在发现漂移时重新同步。
 
-更新日志位于 `~/.local/state/nature-skills/autoupdate.log`。拉取到的新技能通常在下一次会话中完整生效。
+每个安装目标使用独立日志，路径为 `~/.local/state/nature-skills/<目标目录编号>/autoupdate.log`。拉取到的新技能通常在下一次会话中完整生效。
 
 ### 5.4 其他 Agent 场景
 
@@ -439,17 +439,18 @@ OpenClaw、OpenCode、Hermes 的具体接入方式见 [OpenClaw / OpenCode / Her
 
 | 技能 | 状态 | 用途 | 触发词 | 详情页 |
 |-------|--------|---------|-----------------|--------|
-| [`nature-figure`](skills/nature-figure/README.md) | Stable | 面向 Nature / 高影响力期刊的 Python 或 R 投稿级科研图工作流，内置 figures4papers demo，并支持通过 OpenRouter GPT Image 2 生成论文示意图草稿 | “Nature figure”, “投稿级图片”, “publication plot”, “scientific figure”, “figures4papers”, “论文示意图”, “GPT Image 2” | [详情](skills/nature-figure/README.md) |
-| [`nature-polishing`](skills/nature-polishing/README.md) | Stable | 将学术文本润色、重构或翻译为 Nature 风格英文 | “Nature style”, “润色”, “academic writing”, “论文英文” | [详情](skills/nature-polishing/README.md) |
+| [`nature-figure`](skills/nature-figure/README.md) | Stable | 面向 Nature / 高影响力期刊的 Python 或 R 投稿级科研图工作流，包含 Results 级多面板证据架构、渲染时子图对齐门、最终 PDF 自动文字/图形碰撞审计、第三方 figures4papers 参考示例、原创模板和 OpenRouter GPT Image 2 论文示意图草稿 | “Nature figure”, “投稿级图片”, “publication plot”, “scientific figure”, “figures4papers”, “论文示意图”, “GPT Image 2” | [详情](skills/nature-figure/README.md) |
+| [`nature-polishing`](skills/nature-polishing/README.md) | Stable | 将学术文本润色、重构或翻译为 Nature 风格英文，并扫描全文术语、单位、数值精度和声称漂移 | “Nature style”, “润色”, “academic writing”, “论文英文” | [详情](skills/nature-polishing/README.md) |
 | [`nature-writing`](skills/nature-writing/README.md) | Draft | 起草 Nature 风格手稿章节，并重建论文论证 | “Nature writing”, “写摘要”, “写引言”, “manuscript draft”, “论文写作” | [详情](skills/nature-writing/README.md) |
-| [`nature-reviewer`](skills/nature-reviewer/README.md) | Draft | 从审稿人视角模拟 Nature 风格评审，输出三份 reviewer reports 和综合意见 | “Nature reviewer”, “预投稿评审”, “reviewer report”, “审稿人视角评估” | [详情](skills/nature-reviewer/README.md) |
+| [`nature-reviewer`](skills/nature-reviewer/README.md) | Draft | 从审稿人视角模拟 Nature 风格评审，输出三份互盲 reviewer reports、分级 Major/Minor 意见，并检查手稿内部一致性 | “Nature reviewer”, “预投稿评审”, “reviewer report”, “审稿人视角评估” | [详情](skills/nature-reviewer/README.md) |
 | [`nature-citation`](skills/nature-citation/README.md) | Beta | 检索严格限定在 Nature / CNS 系列的支撑文献，并导出 ENW、RIS 或 Zotero RDF | “Nature citation”, “CNS citation”, “分段引用”, “支撑文献”, “Zotero RDF” | [详情](skills/nature-citation/README.md) |
 | [`nature-data`](skills/nature-data/README.md) | Draft | 准备 Data Availability statement、数据仓储方案和 FAIR 检查 | “Data Availability”, “数据可用性”, “repository”, “FAIR metadata” | [详情](skills/nature-data/README.md) |
-| [`nature-statistics`](skills/nature-statistics/README.md) | Draft | 审查、改写或起草 Nature / 高影响力期刊投稿中的统计报告，覆盖样本量、独立分析单位、重复数、p 值、多重比较、效应量、置信区间、图注统计和审稿人统计意见 | “Nature statistics”, “统计审查”, “statistical analysis”, “p value”, “sample size”, “replicates”, “multiple comparisons”, “图注统计”, “统计分析小节” | [详情](skills/nature-statistics/README.md) |
-| [`nature-reader`](skills/nature-reader/README.md) | Beta | 生成带来源锚点、图文对应和中英文对照的全文 Markdown reader | “nature reader”, “全文 Markdown”, “原文对照”, “图文对应”, “全文翻译” | [详情](skills/nature-reader/README.md) |
+| [`nature-statistics`](skills/nature-statistics/README.md) | Draft | 审查、改写或起草统计报告，覆盖实验单位、重复数、p 值、多重比较、效应量、置信区间、图注统计和跨章节数值一致性 | “Nature statistics”, “统计审查”, “statistical analysis”, “p value”, “sample size”, “replicates”, “multiple comparisons”, “图注统计”, “统计分析小节” | [详情](skills/nature-statistics/README.md) |
+| [`nature-reader`](skills/nature-reader/README.md) | Beta | 生成带来源锚点、图文对应、公式渲染和中英文对照的全文 Markdown reader | “nature reader”, “全文 Markdown”, “原文对照”, “图文对应”, “公式渲染”, “全文翻译” | [详情](skills/nature-reader/README.md) |
 | [`nature-paper-card`](skills/nature-paper-card/README.md) | Beta | 精读单篇论文并生成有来源约束的 01–16 节 Paper Card，覆盖方法逻辑、实验—结论证据链、结论边界、批判性分析和可检验研究想法 | “nature paper card”, “论文精读”, “Paper Card”, “证据链”, “结论边界” | [详情](skills/nature-paper-card/README.md) |
-| [`nature-response`](skills/nature-response/README.md) | Beta | 解析返修邮件，起草、审查和修改返修 cover letter、逐点回复审稿人的 response letter、标红修改稿，并提供 LaTeX 模板 | “response to reviewers”, “rebuttal letter”, “cover letter”, “major revision”, “返修邮件”, “审稿意见回复”, “修回信”, “LaTeX 模板” | [详情](skills/nature-response/README.md) |
+| [`nature-response`](skills/nature-response/README.md) | Beta | 解析返修邮件，为互盲审稿人分别生成独立回复，并提供 cover letter、标红稿、LaTeX 模板和返修包一致性检查 | “response to reviewers”, “rebuttal letter”, “cover letter”, “major revision”, “返修邮件”, “审稿意见回复”, “修回信”, “LaTeX 模板” | [详情](skills/nature-response/README.md) |
 | [`nature-paper2ppt`](skills/nature-paper2ppt/README.md) | Beta | 从科研论文生成中文 PPTX 文献汇报 deck | “paper PPT”, “journal club”, “paper to slides”, “论文汇报” | [详情](skills/nature-paper2ppt/README.md) |
+| [`nature-image2ppt`](skills/nature-image2ppt/README.md) | Beta | 将幻灯片图片、扫描 PDF 和图片型 PPTX 重建为对象级可编辑 PowerPoint，并执行渲染 QA | “图片转可编辑PPT”, “截图还原PPT”, “扫描PDF转PPTX”, “image to editable PowerPoint” | [详情](skills/nature-image2ppt/README.md) |
 | [`nature-paper-to-patent`](skills/nature-paper-to-patent/README.md) | Beta | 从论文、技术报告或项目材料生成有证据约束的中国发明专利草稿，并支持专利点挖掘、查新和技术交底书迭代 | “paper to patent”, “Chinese patent”, “论文转专利”, “权利要求书”, “技术交底书”, “专利点” | [详情](skills/nature-paper-to-patent/README.md) |
 | [`nature-ref-verifier`](skills/nature-ref-verifier/README.md) | Stable | 参考文献多源交叉验证：逐字段对比作者/标题/年份/卷期/页码，标记卷年冲突、作者编造、页码偏差等 | “verify refs”, “校验文献”, “check references”, “文献验证”, “ref check” | [详情](skills/nature-ref-verifier/README.md) |
 | [`nature-academic-search`](skills/nature-academic-search/README.md) | Beta | 多源文献检索、引用核验、严格他引审计、文章引用指标表、高影响力引用者画像和参考文献管理 | “search papers”, “find articles”, “literature search”, “查文献”, “verify DOI”, “严格他引”, “文章引用表”, “引用我的文章的人有没有大牛” | [详情](skills/nature-academic-search/README.md) |
@@ -616,4 +617,4 @@ description: >-
 
 ## 8. Star 历史
 
-[![Star History Chart](assets/star-history-20260731T032906Z.svg)](https://star-history.com/#Yuan1z0825/nature-skills&Date)
+[![Star History Chart](https://github.com/Yuan1z0825/nature-skills/blob/ebd722e18808442688bd205917a3e774195c258f/assets/star-history-20260901T023811Z.svg)](https://star-history.com/#Yuan1z0825/nature-skills&Date)

@@ -1,18 +1,51 @@
 # Intake and routing
 
+## Contents
+
+- [Mandatory decision-type gate](#mandatory-decision-type-gate)
+- [Task modes](#task-modes)
+- [Readiness states](#readiness-states)
+- [Editor instruction handling](#editor-instruction-handling)
+- [Pasted editorial email handling](#pasted-editorial-email-handling)
+- [Minimum information by output type](#minimum-information-by-output-type)
+- [Clarifying question rules](#clarifying-question-rules)
+- [Routing shortcuts](#routing-shortcuts)
+
+
 Use this file before splitting comments or drafting prose. Its job is to decide what task the
 user is asking for, whether the supplied information is enough, and what output state is honest.
+
+## Mandatory decision-type gate
+
+For `draft`, `audit`, `revise`, `triage-only`, `cover-letter`, and `revision-package` modes, identify
+the editorial decision before drafting strategy or prose.
+
+- If an editor letter explicitly says `Major Revision` or `Minor Revision`, use that value and do
+  not ask a redundant question.
+- If the user explicitly says 大修、小修, major review, minor review, major revision, or minor
+  revision, normalize it to the corresponding revision type.
+- If neither source resolves it, ask in the user's language and pause. Chinese default:
+  `这是 Major Revision（大修）还是 Minor Revision（小修）？如果决定信没有明确写，请把决定信发给我，我帮你判断。`
+  English default: `Is this a Major Revision or a Minor Revision? If the decision letter does
+  not state it clearly, please send it and I can help classify the decision.`
+- Never guess from the number or apparent difficulty of reviewer comments. Reviewer requests and
+  editor instructions can be serious even when the package is labelled Minor Revision.
+- `revise-and-resubmit` and `transfer after review` remain distinct decision types; do not force
+  either into Major or Minor Revision. Follow the explicit editor instructions for those routes.
+
+Once resolved, apply the Major/Minor strategy in `static/core/workflow.md` and record the chosen
+decision type in the response strategy summary.
 
 ## Task modes
 
 | Mode | Use when | Minimum useful input | Default output |
 |---|---|---|---|
-| `draft` | User wants a new point-by-point response package | Reviewer comments plus any author actions or manuscript-change notes | Full response package with placeholders where needed |
+| `draft` | User wants a new point-by-point response package | Reviewer comments plus any author actions or manuscript-change notes | Internal/editor master plus separate reviewer-specific responses with placeholders where needed |
 | `audit` | User provides an existing response draft and asks whether it is good enough | Response draft; reviewer comments when available | Findings first, then revised or annotated response sections |
 | `revise` | User wants a draft rewritten for tone, traceability, or Nature-style response | Existing draft plus target change request | Revised response text plus changed-risk notes |
 | `triage-only` | User wants strategy, action list, or missing inputs before writing prose | Reviewer comments or editor letter | Tracker, action map, missing-input list, no final letter |
 | `cover-letter` | User asks for a revision cover letter only | Manuscript metadata plus revision summary or change notes | Concise editor-facing cover letter |
-| `revision-package` | User asks for a complete revision package or pastes a decision email and wants the agent to begin | Decision email or reviewer/editor comments plus available author actions | Response letter, cover letter when useful, change checklist, and placeholders |
+| `revision-package` | User asks for a complete revision package or pastes a decision email and wants the agent to begin | Decision email or reviewer/editor comments plus available author actions | Internal/editor master, reviewer-separated response files, cover letter when useful, change checklist, and placeholders |
 | `latex-template` | User asks for LaTeX templates or filled `.tex` files | Desired output type; manuscript metadata if filling templates | Template paths or filled `.tex` content |
 | `appeal-like` | User wants to challenge rejection or process rather than revise | Decision letter and disputed points | Route out of default workflow and explain separate appeal handling |
 
@@ -64,12 +97,14 @@ separate the email manually. Start by extracting:
 - required files, such as clean manuscript, marked manuscript, response to reviewers, cover letter, graphical abstract, data availability update, or supplementary files;
 - editor instructions and portal-specific constraints;
 - reviewer-report boundaries and comment numbering.
+- reviewer-visibility rules and whether the portal accepts separate reviewer-response files.
 
 Ignore boilerplate only after checking it for required files, deadlines, formatting constraints,
 and resubmission instructions. If the email contains reviewer reports, enter `revision-package`
 or `draft` mode automatically depending on whether the user requested a full package or only a
-response letter. If reviewer boundaries are ambiguous, keep the original ordering visible and flag
-the ambiguity instead of inventing identities.
+response letter. If reviewer boundaries are ambiguous, keep the original ordering visible in the
+internal package and flag the ambiguity instead of inventing identities. Do not create outward-facing
+reviewer files until their boundaries can be separated safely.
 
 ## Minimum information by output type
 
@@ -105,14 +140,17 @@ If reviewer comments are absent, audit only the visible draft and flag that comp
 
 ## Clarifying question rules
 
-Usually proceed with placeholders and risk flags. Ask concise questions only when:
+Except for the mandatory decision-type gate above, usually proceed with placeholders and risk
+flags. Ask concise questions only when:
 
+- Major/Minor Revision status is not supplied and cannot be extracted from the decision letter;
 - the user explicitly asks for final submission-ready text and required facts are missing;
 - the draft would otherwise fabricate data, locations, approvals, statistics, citations, or figure panels;
 - reviewer boundaries are too ambiguous to assign stable IDs;
 - the case appears appeal-like or outside normal revision response.
 
-When asking, keep questions specific:
+When asking, keep questions specific. Ask the decision-type question first when it is unresolved;
+after that, group only the remaining facts that genuinely block the requested output:
 
 ```text
 I need three facts before final wording: the validation result summary, the Methods/Results location,

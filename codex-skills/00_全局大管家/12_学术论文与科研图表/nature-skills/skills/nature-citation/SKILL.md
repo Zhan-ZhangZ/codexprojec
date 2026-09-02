@@ -12,8 +12,8 @@ description: >-
   adding references while writing a paper, finding sources/literature for a claim, building a
   reference list, citation/referencing for academic writing, and Chinese phrasings like
   学术写作引用、写论文加引用、写paper找文献、加参考文献、配文献、引用文献、文献支撑.
-version: 2.0.0
-author: Yuan1z skill, refactored into static/dynamic layers
+metadata:
+  author: Yuan1z skill, refactored into static/dynamic layers
 ---
 
 # Nature Citation — Router
@@ -49,7 +49,7 @@ State the detected scope and date limits in one short line before searching.
 
 ### 3. Run the workflow
 
-Follow the seven steps in `core/workflow.md`: segment, parse, search, evaluate support conservatively, export one reference-manager file, generate review artifacts when useful, and report with the HTML browser path first. Prefer `scripts/nature_citation.py` for the search/export when internet access is available; open `references/script-usage.md` for its full flag list and the long-article batch strategy.
+Follow the seven steps in `core/workflow.md`: segment, parse, search, evaluate support conservatively, validate complete structured author metadata, export one reference-manager file, generate review artifacts when useful, and report with the HTML browser path first. Prefer `scripts/nature_citation.py` for the search/export when internet access is available; open `references/script-usage.md` for its full flag list and the long-article batch strategy. When DOI metadata lacks given names, refetch the record by PMID or verify it against the publisher rather than exporting surname-only `AU` fields.
 
 Never present a paper as support merely because its title is related, and never cite a metadata-only candidate without checking the abstract or publisher page. Do not invent missing bibliographic fields.
 
