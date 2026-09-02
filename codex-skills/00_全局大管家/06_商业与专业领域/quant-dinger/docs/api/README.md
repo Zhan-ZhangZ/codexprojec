@@ -4,7 +4,7 @@ Human-facing REST API specification generated from **flask-smorest** (`app/opena
 
 | File | Purpose |
 |------|---------|
-| [`openapi.yaml`](openapi.yaml) | Committed SSOT — update via `backend_api_python/scripts/export_openapi.py` |
+| [`openapi.yaml`](openapi.yaml) | Committed SSOT — update via [export_openapi.py](https://github.com/OpenByteInc/QuantDinger/blob/v5.0.25/backend_api_python/scripts/export_openapi.py) |
 | [`index.html`](index.html) | Static Redoc viewer — **must be served over HTTP** (see below) |
 
 ## View docs locally
@@ -24,7 +24,7 @@ If you see `process is not defined`, refresh after pulling the latest `index.htm
 
 ## Conventions
 
-See [`../API_CONVENTIONS.md`](../API_CONVENTIONS.md) for envelopes, auth, and Public/Internal tiers.
+See [`../architecture/API_CONVENTIONS.md`](../architecture/API_CONVENTIONS.md) for envelopes, auth, and Public/Internal tiers.
 
 ## Agent API
 
