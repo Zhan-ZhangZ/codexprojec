@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.HUANGCHIHHUNGLeo/claude-real-video",
+  "description": "Let any LLM watch a video locally — and search everything it has ever watched.",
+  "repository": {
+    "url": "https://github.com/HUANGCHIHHUNGLeo/claude-real-video",
+    "source": "github"
+  },
+  "version": "0.10.3",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "claude-real-video",
+      "version": "0.10.3",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

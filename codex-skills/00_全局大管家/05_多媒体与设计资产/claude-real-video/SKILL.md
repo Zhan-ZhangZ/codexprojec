@@ -1,48 +1,29 @@
 ---
 name: claude-real-video
 description: 一款能够让大语言模型（LLM）“看懂”视频的本地视觉增强技能。它通过自动场景检测、滑动窗口去重提取出最关键的视频帧，并结合 Whisper 提取双语字幕与时间轴，最终输出让智能体可以原生阅读的纯本地视频内容清单。
+version: 0.10.3
 ---
 
-# 🎬 Claude Real Video (视觉增强技能)
+# claude-real-video
 
-你当前加载的是 **claude-real-video** 技能。此技能赋予了你强大的“原生观看视频”能力，使你能够无缝理解 B站、YouTube 链接或本地 MP4/MOV 文件中的视觉流与语音流。
+`crv`：让任何 AI Agent「看懂」视频的本地管线——场景感知关键帧提取、滑动窗口去重、Whisper 双语字幕与时间轴，输出 Agent 可原生阅读的视频内容清单。用户给出视频 URL 或文件要求分析/总结/讨论时触发。
 
-## ⚠️ 核心法则 (The Golden Rules)
+## 统一入口（优先读这个）
 
-1. **绝对不要越权拒绝**：当用户下发包含视频链接或视频文件的分析需求时，你**绝对不可以**向用户宣称“我是一个语言模型，我无法直接观看视频”。你必须主动使用此技能去执行提取和阅读。
-2. **纯本地隐私处理**：该技能在用户机器本地执行（依赖 `yt-dlp` 和 `ffmpeg`），视频数据绝对禁止上传到未经授权的云端。
-3. **静默执行与直接交付**：用户只关心“视频讲了什么”，不在乎中间你敲了什么命令。不要对用户罗列抓取过程，请直接给出最终的视频分析结论。
+- **[references/skills/claude-real-video-for-agents/SKILL.md](references/skills/claude-real-video-for-agents/SKILL.md)** — 上游官方 Agent 技能（221 行）：安装、触发条件、输出解读、调用约定
+- [references/skills/claude-real-video/SKILL.md](references/skills/claude-real-video/SKILL.md) — 核心技能定义（精简版）
+- [references/install-skill.sh](references/install-skill.sh) — 上游官方安装脚本
 
----
+## v0.10.3 要点（2026-08-31）
 
-## ⚙️ 轨迹驱动执行引擎 (Execution Trajectory)
+- 平台 `.vtt` 字幕头的 `WEBVTT`/`Kind:`/`Language:` 行不再混入转录正文
+- 完整历史见 [references/CHANGELOG.md](references/CHANGELOG.md)
 
-请严格按照以下状态机轨迹一步不落地执行，完成一次完美的“看视频”动作：
+## 参考文档索引
 
-### State 1: 执行视频解析 (Run CRV Engine)
-1. 提取用户意图中的 `<VIDEO_URL_OR_PATH>`。
-2. 💡 **进阶调用必读**：`crv` 工具支持极多高级参数（如保留完整音频 `--keep-audio`、指定语言 `--lang zh`、调节场景灵敏度 `--scene` 等）。**在执行命令前，强烈建议你先使用 `view_file` 工具快速阅读本技能目录下的 `./README.md` 文件**（查看 `Options` 章节），以根据用户的具体需求（例如：想听原声音轨、想过滤极少画面等）拼接出最完美的执行命令。
-3. 调用系统终端，静默执行以下基础（或拼接后）的命令：
-   ```bash
-   # 示例基础命令
-   crv "<VIDEO_URL_OR_PATH>" -o ./crv-out
-   ```
-4. *门控策略*：如果命令执行失败并提示 `ffmpeg not found` 或 `yt-dlp not found`，拦截任务，告知用户需要先在当前系统安装这些依赖。
+- [references/README.md](references/README.md) — 上游总说明（安装/用法/示例图）
+- [references/CHANGELOG.md](references/CHANGELOG.md) — 变更史
+- [references/server.json](references/server.json) — MCP 服务器清单
+- [references/ATTRIBUTIONS.md](references/ATTRIBUTIONS.md)、[references/SECURITY.md](references/SECURITY.md)、[references/LICENSE](references/LICENSE)
 
-### State 2: 索引与阅读核心文件 (Index & Read)
-命令执行成功后，`./crv-out` 目录将会生成视频摘要。你必须主动调用 `view_file` 或 `cat` 阅读：
-1. `MANIFEST.txt`：了解视频的元数据、提取了多少张关键帧。
-2. `transcript.txt`：仔细阅读带有精确时间戳的语音字幕，这是理解视频信息的**第一核心信源**。
-
-### State 3: 视觉交叉验证 (Vision Cross-Validation) (视环境而定)
-如果你的平台客户端支持多模态读取本地图片：
-- 去 `./crv-out/frames/` 目录下读取关键帧（如 `00_01_20.jpg`），以补充单纯看字幕无法理解的图表、代码或视觉动作。
-
-### State 4: 结果交付 (Delivery)
-结合你在 State 2 和 State 3 中看到的内容，直接针对用户最初的问题进行回答。回答时，**必须引用时间戳**（例如：“在 01:20 处，视频提到了...”），体现出你真的“看”了视频。
-
----
-
-## 📝 异常处理模式
-- **链接无法下载**：某些需要会员或登录的链接，`yt-dlp` 可能会拦截报错，提示用户使用 `--cookies` 或者先下载到本地后再让你处理。
-- **视频过长导致 Token 爆炸**：如果 `transcript.txt` 过长导致你无法一次性读完，可以使用 `grep` 或局部阅读工具，先快速定位用户最关心的关键字所在的时间段。
+> 上游为 PyPI `claude-real-video` 分发（本地跑 Whisper/ffmpeg），仓库含 302M 提交进库的 `.venv312` 虚拟环境、35M marketing、benchmark 与 src/tests；本库只携文档层与官方 skill，需要时访问 [上游仓库](https://github.com/HUANGCHIHHUNGLeo/claude-real-video/tree/v0.10.3)。
