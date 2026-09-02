@@ -1,5 +1,7 @@
 ---
 name: google-cloud-waf-operational-excellence
+metadata:
+  category: WellArchitectedFramework
 description: >-
   Generates operations-focused guidance for Google Cloud workloads based on the
   design principles and recommendations in the Operational Excellence pillar of
@@ -27,27 +29,27 @@ Framework are aligned with the following core principles:
 -   **Ensure operational readiness**: Define and measure criteria for a workload
     to be considered ready for production, including staffing, processes, and
     governance. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/operational-excellence/operational-readiness-and-performance-using-cloudops
+    https://docs.cloud.google.com/architecture/framework/operational-excellence/operational-readiness-and-performance-using-cloudops.md.txt
 
 -   **Manage incidents and problems**: Establish structured processes for
     incident response, communication, and root cause analysis to minimize impact
     and prevent recurrence. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/operational-excellence/manage-incidents-and-problems
+    https://docs.cloud.google.com/architecture/framework/operational-excellence/manage-incidents-and-problems.md.txt
 
 -   **Manage and optimize cloud resources**: Monitor resource utilization and
     right-size environments to maintain performance while ensuring operational
     efficiency. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/operational-excellence/manage-and-optimize-cloud-resources
+    https://docs.cloud.google.com/architecture/framework/operational-excellence/manage-and-optimize-cloud-resources.md.txt
 
 -   **Automate and manage change**: Use Infrastructure as Code (IaC) and CI/CD
     pipelines to ensure consistent, repeatable, and low-risk deployments and
     configuration changes. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/operational-excellence/automate-and-manage-change
+    https://docs.cloud.google.com/architecture/framework/operational-excellence/automate-and-manage-change.md.txt
 
 -   **Continuously improve and innovate**: Regularly review architectures,
     monitor industry trends, and adapt operations to meet evolving business
     needs. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/operational-excellence/continuously-improve-and-innovate
+    https://docs.cloud.google.com/architecture/framework/operational-excellence/continuously-improve-and-innovate.md.txt
 
 ## Relevant Google Cloud products
 

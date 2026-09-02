@@ -27,7 +27,7 @@ Ensure you have the Google Cloud SDK installed and authenticated.
   page_result = client.list_services(request=request)
   ```
 
-- [Python Reference](https://docs.cloud.google.com/python/docs/reference/run/latest)
+- [Python Reference](https://docs.cloud.google.com/python/docs/reference/run/latest.md.txt)
 
 ### Java
 
@@ -64,7 +64,7 @@ Ensure you have the Google Cloud SDK installed and authenticated.
   }
   ```
 
-- [Java Reference](https://docs.cloud.google.com/java/docs/reference/google-cloud-run/latest/overview)
+- [Java Reference](https://docs.cloud.google.com/java/docs/reference/google-cloud-run/latest/overview.md.txt)
 
 ### Node.js (TypeScript)
 

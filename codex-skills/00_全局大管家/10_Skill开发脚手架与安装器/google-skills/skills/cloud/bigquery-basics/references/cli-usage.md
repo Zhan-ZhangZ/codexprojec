@@ -108,4 +108,4 @@ bq COMMAND [FLAGS] [ARGUMENTS]
 - `--format`: Changes output format (e.g., `prettyjson`, `sparse`, `csv`).
 
 For the complete BigQuery CLI reference guide, visit:
-[bq command-line tool reference](https://docs.cloud.google.com/bigquery/docs/reference/bq-cli-reference).
+[bq command-line tool reference](https://docs.cloud.google.com/bigquery/docs/reference/bq-cli-reference.md.txt).

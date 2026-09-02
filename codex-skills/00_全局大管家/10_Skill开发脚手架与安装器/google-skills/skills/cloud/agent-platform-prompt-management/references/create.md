@@ -29,11 +29,12 @@ vertexai.init(project="PROJECT_ID", location="LOCATION_ID")
 # Construct a local Prompt object. `prompt_name` is the display name shown
 # in Agent Platform Studio; `prompt_data` is the prompt text/template
 # (use `{variable_name}` placeholders for variables passed to
-# `assemble_contents()`); `model_name` is the target model.
+# `assemble_contents()`); `model_name` is the target model -- ask the user
+# which model to use, do not default to whatever this example happens to show.
 local_prompt = Prompt(
     prompt_name="my_new_prompt",
     prompt_data="Hello, how are you? {text}",
-    model_name="gemini-2.5-pro",
+    model_name="MODEL_ID",
 )
 
 # Persist the local Prompt as a new managed prompt resource. This creates

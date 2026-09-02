@@ -30,7 +30,7 @@ To connect to the Cloud Run MCP server:
 1.  Enable the Cloud Run API in your Google Cloud project.
 2.  Configure the agent's MCP connection using the Gemini CLI extension.
 3.  Follow the setup guide:
-    [Setting up Cloud Run MCP](https://docs.cloud.google.com/run/docs/reference/mcp).
+    [Setting up Cloud Run MCP](https://docs.cloud.google.com/run/docs/reference/mcp.md.txt).
 
 ## Supported Operations
 

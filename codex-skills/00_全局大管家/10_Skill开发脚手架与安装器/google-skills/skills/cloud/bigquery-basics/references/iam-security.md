@@ -8,7 +8,7 @@ the most granular level—such as the table or view level—that is necessary.
 
 ## Predefined IAM Roles
 
-For a complete list of predefined roles and detailed usage information, see [BigQuery IAM roles](https://docs.cloud.google.com/bigquery/docs/access-control#bigquery-roles).
+For a complete list of predefined roles and detailed usage information, see [BigQuery IAM roles](https://docs.cloud.google.com/bigquery/docs/access-control.md.txt).
 
 ## Service Accounts and Agents
 

@@ -22,7 +22,7 @@ charged to the project specified in the `project_id` field.
 
 ## Setup Instructions
 
-To connect to the BigQuery MCP server, see [Configure a client connection](https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp#configure-client).
+To connect to the BigQuery MCP server, see [Configure a client connection](https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp.md.txt).
 
 ## Supported Operations
 
@@ -33,12 +33,12 @@ Agents using the BigQuery MCP remote server can perform tasks such as:
 - Getting table metadata.
 
 For more information about the BigQuery MCP server, visit:
-[Use the BigQuery MCP server](https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp).
+[Use the BigQuery MCP server](https://docs.cloud.google.com/bigquery/docs/use-bigquery-mcp.md.txt).
 Alternatively, you can use
 [MCP Toolbox](https://mcp-toolbox.dev/integrations/bigquery/source/), an
 open-source CLI tool that runs a local MCP server for BigQuery connections. For
 more on connecting BigQuery to your tools, see
-[Connect LLMs to BigQuery with MCP](https://docs.cloud.google.com/bigquery/docs/pre-built-tools-with-mcp-toolbox)
+[Connect LLMs to BigQuery with MCP](https://docs.cloud.google.com/bigquery/docs/pre-built-tools-with-mcp-toolbox.md.txt)
 for details. For additional specialized skills and advanced analytics workflows,
 install the
 [BigQuery Data Analytics extension](https://github.com/gemini-cli-extensions/bigquery-data-analytics)

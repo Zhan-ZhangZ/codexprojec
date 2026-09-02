@@ -8,7 +8,12 @@ description: Google 官方企业级 Agent 技能库与云端原生 (Cloud-native
 - **项目主页**: https://github.com/google/skills
 
 ## 功能说明
-Google 官方的 13 个 Agent 技能库。提供针对 Google Cloud 模块（如 BigQuery、Firebase、GKE 等）的标准模块化技能以及各种 Recipe。可作为大型团队构建标准企业级智能体技能的权威参考。
+
+Google 官方技能库：**128 个子技能**分四大桶——`cloud`（Agent Platform 部署/评估飞轮/端点管理、BigQuery、AlloyDB、GKE 等）、`ads`（Google Ads 账户与物料管理）、`analytics`（GA4 数据分析）、`developers`（Android Studio / Flutter & Dart 开发）。另附 `plugins/` 官方插件市场清单（指向各 Google 产品扩展仓）。
 
 ## 详细指南
-关于该技能的详细配置、触发提示词和执行命令，请参考本地代码库中的 [README.md](./README.md)。
+
+- [README.md](./README.md) — 上游总说明（技能目录与使用方式）
+- [index.json](./index.json) — 全部技能的机器可读索引
+
+> 上游 `.agents/` 隐藏插件配置未随库分发（与 `plugins/` 重复），需要时访问 [上游仓库](https://github.com/google/skills)。
