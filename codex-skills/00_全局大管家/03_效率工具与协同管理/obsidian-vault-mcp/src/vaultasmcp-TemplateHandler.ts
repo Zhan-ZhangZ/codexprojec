@@ -31,8 +31,8 @@ export interface TemplateInfo {
 export class TemplateHandler {
     constructor(
         private app: App,
-        private aclChecker?: PathACLChecker,
-        private logger?: Logger,
+        private aclChecker: PathACLChecker,
+        private logger: Logger,
     ) {}
 
     /**
@@ -62,7 +62,6 @@ export class TemplateHandler {
     async createFromTemplate(
         templatePath: string,
         targetPath: string,
-        targetFolder?: string,
     ): Promise<TFile> {
         const normalizedTemplate = normalizePath(templatePath);
         const templateFile =
@@ -79,11 +78,7 @@ export class TemplateHandler {
             );
         }
 
-        return await this.createWithTemplater(
-            templateFile,
-            targetPath,
-            targetFolder,
-        );
+        return await this.createWithTemplater(templateFile, targetPath);
     }
 
     /**
@@ -122,16 +117,11 @@ export class TemplateHandler {
         const collectTemplates = (currentFolder: TFolder) => {
             for (const child of currentFolder.children) {
                 if (child instanceof TFile && child.extension === "md") {
-                    // Filter by ACL if checker is available
-                    if (this.aclChecker) {
-                        try {
-                            this.aclChecker.checkReadAccess(child.path);
-                            templates.push(child.path);
-                        } catch {
-                            // Silently skip forbidden templates
-                        }
-                    } else {
+                    try {
+                        this.aclChecker.checkReadAccess(child.path);
                         templates.push(child.path);
+                    } catch {
+                        // Silently skip forbidden templates
                     }
                 } else if (child instanceof TFolder) {
                     collectTemplates(child);
@@ -149,7 +139,6 @@ export class TemplateHandler {
     private async createWithTemplater(
         templateFile: TFile,
         targetPath: string,
-        targetFolder?: string,
     ): Promise<TFile> {
         const templater = this.app.plugins.getPlugin("templater-obsidian");
         if (!templater?.templater) {
@@ -161,17 +150,12 @@ export class TemplateHandler {
         let folder: TFolder | string | undefined;
         let filename: string;
 
-        if (targetFolder) {
-            folder = targetFolder;
-            filename = normalizedPath;
+        const parts = normalizedPath.split("/");
+        if (parts.length > 1) {
+            folder = parts.slice(0, -1).join("/");
+            filename = parts[parts.length - 1];
         } else {
-            const parts = normalizedPath.split("/");
-            if (parts.length > 1) {
-                folder = parts.slice(0, -1).join("/");
-                filename = parts[parts.length - 1];
-            } else {
-                filename = normalizedPath;
-            }
+            filename = normalizedPath;
         }
 
         // Remove .md extension if present (Templater adds it)
@@ -193,7 +177,7 @@ export class TemplateHandler {
             );
         }
 
-        this.logger?.debug(
+        this.logger.debug(
             `Created note from template: ${templateFile.path} -> ${createdFile.path}`,
         );
         return createdFile;
