@@ -1,542 +1,81 @@
-# File Format Support
+# 支持格式详解（对应上游 v0.1.7）
 
-This document provides detailed information about each file format supported by MarkItDown.
+> 来源：[converters/](https://github.com/microsoft/markitdown/tree/v0.1.7/packages/markitdown/src/markitdown/converters) 各转换器源码与[主 README](https://github.com/microsoft/markitdown/blob/v0.1.7/README.md)。安装缺失 extras 后重试即可解决大部分 `MissingDependencyException`。
 
-## Document Formats
+## Office 文档
 
-### PDF (.pdf)
+### Word（.docx）— `DocxConverter`，extras `[docx]`
 
-**Capabilities**:
-- Text extraction
-- Table detection
-- Metadata extraction
-- OCR for scanned documents (with dependencies)
+- 保留标题层级、列表、表格、超链接；OMML 公式转 LaTeX（v0.1.7 修复了 mu/nu/tau/下箭头宏映射与 OMML 模板 bug）。
+- 样式映射：`MarkItDown(style_map="p[style-name='Title'] => h1:fresh")`。
 
-**Dependencies**:
-```bash
-pip install 'markitdown[pdf]'
-```
-
-**Best For**:
-- Scientific papers
-- Reports
-- Books
-- Forms
-
-**Limitations**:
-- Complex layouts may not preserve perfect formatting
-- Scanned PDFs require OCR setup
-- Some PDF features (annotations, forms) may not convert
-
-**Example**:
 ```python
-from markitdown import MarkItDown
-
 md = MarkItDown()
-result = md.convert("research_paper.pdf")
-print(result.text_content)
+print(md.convert("报告.docx").markdown)
 ```
 
-**Enhanced with Azure Document Intelligence**:
+### PowerPoint（.pptx）— `PptxConverter`，extras `[pptx]`
+
+- 每张幻灯片一节，含备注；图表转 Markdown 表（v0.1.7 修复图表值查找 O(n²) 性能问题）。
+- 内嵌图片可配 LLM 视觉描述（`llm_client`/`llm_model`）；SVG 图片无栅格化回退时不再失败（v0.1.7）。
+
+### Excel（.xlsx / .xls）— `XlsxConverter` / `XlsConverter`，extras `[xlsx]` / `[xls]`
+
+- 每个工作表一节，转 Markdown 表格；适合喂 LLM 做数据分析，不适合保留公式与格式。
+
+## PDF
+
+### 本地离线 — `PdfConverter`，extras `[pdf]`
+
+- 依赖 `pdfminer.six>=20251230` + `pdfplumber>=0.11.9`；pdfplumber 抽取对齐表格，失败时自动回退 pdfminer 纯文本。
+- 局限：复杂版式不保真；纯扫描件（图片型 PDF）无文字层，需走下述三种增强路径之一。
+
 ```python
-md = MarkItDown(docintel_endpoint="https://YOUR-ENDPOINT.cognitiveservices.azure.com/")
-result = md.convert("complex_layout.pdf")
+print(md.convert("paper.pdf").markdown)
 ```
 
----
-
-### Microsoft Word (.docx)
-
-**Capabilities**:
-- Text extraction
-- Table conversion
-- Heading hierarchy
-- List formatting
-- Basic text formatting (bold, italic)
-
-**Dependencies**:
-```bash
-pip install 'markitdown[docx]'
-```
-
-**Best For**:
-- Research papers
-- Reports
-- Documentation
-- Manuscripts
-
-**Preserved Elements**:
-- Headings (converted to Markdown headers)
-- Tables (converted to Markdown tables)
-- Lists (bulleted and numbered)
-- Basic formatting (bold, italic)
-- Paragraphs
-
-**Example**:
-```python
-result = md.convert("manuscript.docx")
-```
-
----
-
-### PowerPoint (.pptx)
-
-**Capabilities**:
-- Slide content extraction
-- Speaker notes
-- Table extraction
-- Image descriptions (with AI)
-
-**Dependencies**:
-```bash
-pip install 'markitdown[pptx]'
-```
-
-**Best For**:
-- Presentations
-- Lecture slides
-- Conference talks
-
-**Output Format**:
-```markdown
-# Slide 1: Title
-
-Content from slide 1...
-
-**Notes**: Speaker notes appear here
-
----
-
-# Slide 2: Next Topic
-
-...
-```
-
-**With AI Image Descriptions**:
-```python
-from openai import OpenAI
-
-client = OpenAI()
-md = MarkItDown(llm_client=client, llm_model="gpt-4o")
-result = md.convert("presentation.pptx")
-```
-
----
-
-### Excel (.xlsx, .xls)
-
-**Capabilities**:
-- Sheet extraction
-- Table formatting
-- Data preservation
-- Formula values (calculated)
-
-**Dependencies**:
-```bash
-pip install 'markitdown[xlsx]'  # Modern Excel
-pip install 'markitdown[xls]'   # Legacy Excel
-```
-
-**Best For**:
-- Data tables
-- Research data
-- Statistical results
-- Experimental data
-
-**Output Format**:
-```markdown
-# Sheet: Results
-
-| Sample | Control | Treatment | P-value |
-|--------|---------|-----------|---------|
-| 1      | 10.2    | 12.5      | 0.023   |
-| 2      | 9.8     | 11.9      | 0.031   |
-```
-
-**Example**:
-```python
-result = md.convert("experimental_data.xlsx")
-```
-
----
-
-## Image Formats
-
-### Images (.jpg, .jpeg, .png, .gif, .webp)
-
-**Capabilities**:
-- EXIF metadata extraction
-- OCR text extraction
-- AI-powered image descriptions
-
-**Dependencies**:
-```bash
-pip install 'markitdown[all]'  # Includes image support
-```
-
-**Best For**:
-- Scanned documents
-- Charts and graphs
-- Scientific diagrams
-- Photographs with text
-
-**Output Without AI**:
-```markdown
-![Image](image.jpg)
-
-**EXIF Data**:
-- Camera: Canon EOS 5D
-- Date: 2024-01-15
-- Resolution: 4000x3000
-```
-
-**Output With AI**:
-```python
-from openai import OpenAI
-
-client = OpenAI()
-md = MarkItDown(
-    llm_client=client,
-    llm_model="gpt-4o",
-    llm_prompt="Describe this scientific diagram in detail"
-)
-result = md.convert("graph.png")
-```
-
-**OCR for Text Extraction**:
-Requires Tesseract OCR:
-```bash
-# macOS
-brew install tesseract
-
-# Ubuntu
-sudo apt-get install tesseract-ocr
-```
-
----
-
-## Audio Formats
-
-### Audio (.wav, .mp3)
-
-**Capabilities**:
-- Metadata extraction
-- Speech-to-text transcription
-- Duration and technical info
-
-**Dependencies**:
-```bash
-pip install 'markitdown[audio-transcription]'
-```
-
-**Best For**:
-- Lecture recordings
-- Interviews
-- Podcasts
-- Meeting recordings
-
-**Output Format**:
-```markdown
-# Audio: interview.mp3
-
-**Metadata**:
-- Duration: 45:32
-- Bitrate: 320kbps
-- Sample Rate: 44100Hz
-
-**Transcription**:
-[Transcribed text appears here...]
-```
-
-**Example**:
-```python
-result = md.convert("lecture.mp3")
-```
-
----
-
-## Web Formats
-
-### HTML (.html, .htm)
-
-**Capabilities**:
-- Clean HTML to Markdown conversion
-- Link preservation
-- Table conversion
-- List formatting
-
-**Best For**:
-- Web pages
-- Documentation
-- Blog posts
-- Online articles
-
-**Output Format**: Clean Markdown with preserved links and structure
-
-**Example**:
-```python
-result = md.convert("webpage.html")
-```
-
----
-
-### YouTube URLs
-
-**Capabilities**:
-- Fetch video transcriptions
-- Extract video metadata
-- Caption download
-
-**Dependencies**:
-```bash
-pip install 'markitdown[youtube-transcription]'
-```
-
-**Best For**:
-- Educational videos
-- Lectures
-- Talks
-- Tutorials
-
-**Example**:
-```python
-result = md.convert("https://www.youtube.com/watch?v=VIDEO_ID")
-```
-
----
-
-## Data Formats
-
-### CSV (.csv)
-
-**Capabilities**:
-- Automatic table conversion
-- Delimiter detection
-- Header preservation
-
-**Output Format**: Markdown tables
-
-**Example**:
-```python
-result = md.convert("data.csv")
-```
-
-**Output**:
-```markdown
-| Column1 | Column2 | Column3 |
-|---------|---------|---------|
-| Value1  | Value2  | Value3  |
-```
-
----
-
-### JSON (.json)
-
-**Capabilities**:
-- Structured representation
-- Pretty formatting
-- Nested data visualization
-
-**Best For**:
-- API responses
-- Configuration files
-- Data exports
-
-**Example**:
-```python
-result = md.convert("data.json")
-```
-
----
-
-### XML (.xml)
-
-**Capabilities**:
-- Structure preservation
-- Attribute extraction
-- Formatted output
-
-**Best For**:
-- Configuration files
-- Data interchange
-- Structured documents
-
-**Example**:
-```python
-result = md.convert("config.xml")
-```
-
----
-
-## Archive Formats
-
-### ZIP (.zip)
-
-**Capabilities**:
-- Iterates through archive contents
-- Converts each file individually
-- Maintains directory structure in output
-
-**Best For**:
-- Document collections
-- Project archives
-- Batch conversions
-
-**Output Format**:
-```markdown
-# Archive: documents.zip
-
-## File: document1.pdf
-[Content from document1.pdf...]
-
----
-
-## File: document2.docx
-[Content from document2.docx...]
-```
-
-**Example**:
-```python
-result = md.convert("archive.zip")
-```
-
----
-
-## E-book Formats
-
-### EPUB (.epub)
-
-**Capabilities**:
-- Full text extraction
-- Chapter structure
-- Metadata extraction
-
-**Best For**:
-- E-books
-- Digital publications
-- Long-form content
-
-**Output Format**: Markdown with preserved chapter structure
-
-**Example**:
-```python
-result = md.convert("book.epub")
-```
-
----
-
-## Other Formats
-
-### Outlook Messages (.msg)
-
-**Capabilities**:
-- Email content extraction
-- Attachment listing
-- Metadata (from, to, subject, date)
-
-**Dependencies**:
-```bash
-pip install 'markitdown[outlook]'
-```
-
-**Best For**:
-- Email archives
-- Communication records
-
-**Example**:
-```python
-result = md.convert("message.msg")
-```
-
----
-
-## Format-Specific Tips
-
-### PDF Best Practices
-
-1. **Use Azure Document Intelligence for complex layouts**:
-   ```python
-   md = MarkItDown(docintel_endpoint="endpoint_url")
-   ```
-
-2. **For scanned PDFs, ensure OCR is set up**:
-   ```bash
-   brew install tesseract  # macOS
-   ```
-
-3. **Split very large PDFs before conversion** for better performance
-
-### PowerPoint Best Practices
-
-1. **Use AI for visual content**:
-   ```python
-   md = MarkItDown(llm_client=client, llm_model="gpt-4o")
-   ```
-
-2. **Check speaker notes** - they're included in output
-
-3. **Complex animations won't be captured** - static content only
-
-### Excel Best Practices
-
-1. **Large spreadsheets** may take time to convert
-
-2. **Formulas are converted to their calculated values**
-
-3. **Multiple sheets** are all included in output
-
-4. **Charts become text descriptions** (use AI for better descriptions)
-
-### Image Best Practices
-
-1. **Use AI for meaningful descriptions**:
-   ```python
-   md = MarkItDown(
-       llm_client=client,
-       llm_model="gpt-4o",
-       llm_prompt="Describe this scientific figure in detail"
-   )
-   ```
-
-2. **For text-heavy images, ensure OCR dependencies** are installed
-
-3. **High-resolution images** may take longer to process
-
-### Audio Best Practices
-
-1. **Clear audio** produces better transcriptions
-
-2. **Long recordings** may take significant time
-
-3. **Consider splitting long audio files** for faster processing
-
----
-
-## Unsupported Formats
-
-If you need to convert an unsupported format:
-
-1. **Create a custom converter** (see `api_reference.md`)
-2. **Look for plugins** on GitHub (#markitdown-plugin)
-3. **Pre-convert to supported format** (e.g., convert .rtf to .docx)
-
----
-
-## Format Detection
-
-MarkItDown automatically detects format from:
-
-1. **File extension** (primary method)
-2. **MIME type** (fallback)
-3. **File signature** (magic bytes, fallback)
-
-**Override detection**:
-```python
-# Force specific format
-result = md.convert("file_without_extension", file_extension=".pdf")
-
-# With streams
-with open("file", "rb") as f:
-    result = md.convert_stream(f, file_extension=".pdf")
-```
-
+### 扫描件 / 嵌入图文字的三条增强路径
+
+| 路径 | 依赖 | 适用 |
+| --- | --- | --- |
+| Azure Document Intelligence | `pip install 'markitdown[az-doc-intel]'` + DI 资源 | 云端版式分析，PDF 专用，见 [cloud_and_plugins.md](cloud_and_plugins.md) |
+| Azure Content Understanding | `pip install 'markitdown[az-content-understanding]'` + CU 资源 | 云端多模态（含音视频）+ 结构化字段抽取 |
+| markitdown-ocr 插件 | `pip install markitdown-ocr` + 任意 LLM 视觉端点 | PDF/DOCX/PPTX/XLSX 内嵌图 + 扫描页整页 OCR，见 [cloud_and_plugins.md](cloud_and_plugins.md) |
+
+## 图片（.jpeg/.png/.gif/.webp 等）— `ImageConverter`
+
+- 无 extras 要求（`[all]` 已含）；EXIF 元数据需系统装有 **exiftool**（`brew install exiftool` / `apt install exiftool`，或 `MarkItDown(exiftool_path=...)`）。
+- 配 `llm_client` + `llm_model` 时输出 LLM 视觉描述，可自定义 `llm_prompt`。
+
+## 音频（.wav/.mp3，及 .mp4/.m4a 容器）— `AudioConverter`，extras `[audio-transcription]`
+
+- 依赖 pydub + SpeechRecognition；先写元数据（时长、声道），再尝试语音转录。转录引擎为本地 Google Speech API 兼容调用，无云凭据需求。
+
+## 网页与在线资源
+
+| 类型 | 转换器 | extras | 说明 |
+| --- | --- | --- | --- |
+| HTML | `HtmlConverter` | `[all]` | 清洗为 Markdown；服务器支持 `text/markdown` 时按内容协商直取 |
+| RSS/Atom | `RssConverter` | `[all]` | feed URL 直接传入 |
+| Wikipedia | `WikipediaConverter` | `[all]` | 词条正文清洗 |
+| Bing 搜索结果页 | `BingSerpConverter` | `[all]` | SERP 转结构化列表 |
+| YouTube | `YouTubeConverter` | `[all]`（转录需 `[youtube-transcription]`） | 标题+描述+字幕；仅支持 `https://www.youtube.com/watch?` 形态 URL |
+
+## 数据与容器格式
+
+| 类型 | 转换器 | extras | 说明 |
+| --- | --- | --- | --- |
+| CSV | `CsvConverter` | `[all]` | Markdown 表 |
+| JSON / XML / 纯文本 / 代码 | `PlainTextConverter` | `[all]` | 通用兜底（优先级最低） |
+| Jupyter Notebook | `IpynbConverter` | `[all]` | 单元格含代码与输出 |
+| Outlook 邮件 | `OutlookMsgConverter` | `[outlook]` | .msg 正文与元数据 |
+| EPUB | `EpubConverter` | `[all]` | 全文抽取 |
+| ZIP 压缩包 | `ZipConverter` | `[all]` | 逐文件递归转换内部内容 |
+
+## 排障速查
+
+1. **`MissingDependencyException`** → 补装 extras：`pip install 'markitdown[pdf]'`。
+2. **`UnsupportedFormatException`** → 扩展名不可识别；stdin/改后缀文件用 `-x` 或 `StreamInfo(extension=...)` 提示。
+3. **图片无 EXIF** → 装 exiftool 或指定 `exiftool_path`。
+4. **data URI 被截断** → CLI 加 `--keep-data-uris`（或 `convert(..., keep_data_uris=True)`）。
+5. **扫描 PDF 输出为空** → 无文字层，改走 DocIntel / CU / markitdown-ocr 三条增强路径。
