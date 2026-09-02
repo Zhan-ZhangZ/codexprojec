@@ -18,7 +18,7 @@ This package provides MCP interface into Playwright. If you are using a **coding
 
 ### Requirements
 - Node.js 18 or newer
-- VS Code, Cursor, Windsurf, Claude Desktop, Goose, Junie or any other MCP client
+- VS Code, Cursor, Windsurf, Claude Desktop, Goose, Grok, Junie or any other MCP client
 
 <!--
 // Generate using:
@@ -64,7 +64,7 @@ Add via the Amp VS Code extension settings screen or by updating your settings.j
 
 **Amp CLI Setup:**
 
-Add via the `amp mcp add`command below
+Add via the `amp mcp add` command below
 
 ```bash
 amp mcp add playwright -- npx @playwright/mcp@latest
@@ -238,6 +238,27 @@ Go to `Advanced settings` -> `Extensions` -> `Add custom extension`. Name to you
 </details>
 
 <details>
+<summary>Grok</summary>
+
+Use the Grok CLI to add the Playwright MCP server:
+
+```bash
+grok mcp add playwright -- npx @playwright/mcp@latest
+```
+
+Alternatively, create or edit the configuration file `~/.grok/config.toml` and add:
+
+```toml
+[mcp_servers.playwright]
+command = "npx"
+args = ["@playwright/mcp@latest"]
+```
+
+For more information, see the [Grok MCP documentation](https://docs.x.ai/build/features/mcp-servers).
+
+</details>
+
+<details>
 <summary>Junie</summary>
 
 To add the Playwright MCP server in Junie CLI:
@@ -395,10 +416,11 @@ Playwright MCP server supports following arguments. They can be provided in the 
 | --cdp-endpoint <endpoint> | CDP endpoint to connect to.<br>*env* `PLAYWRIGHT_MCP_CDP_ENDPOINT` |
 | --cdp-header <headers...> | CDP headers to send with the connect request, multiple can be specified.<br>*env* `PLAYWRIGHT_MCP_CDP_HEADERS` |
 | --cdp-timeout <timeout> | timeout in milliseconds for connecting to CDP endpoint, defaults to 30000ms<br>*env* `PLAYWRIGHT_MCP_CDP_TIMEOUT` |
-| --codegen <lang> | specify the language to use for code generation, possible values: "typescript", "none". Default is "typescript".<br>*env* `PLAYWRIGHT_MCP_CODEGEN` |
+| --codegen <lang> | specify the language to use for code generation, possible values: "typescript", "python", "java", "csharp", "none". Default is "typescript".<br>*env* `PLAYWRIGHT_MCP_CODEGEN` |
 | --config <path> | path to the configuration file.<br>*env* `PLAYWRIGHT_MCP_CONFIG` |
 | --console-level <level> | level of console messages to return: "error", "warning", "info", "debug". Each level includes the messages of more severe levels.<br>*env* `PLAYWRIGHT_MCP_CONSOLE_LEVEL` |
 | --device <device> | device to emulate, for example: "iPhone 15"<br>*env* `PLAYWRIGHT_MCP_DEVICE` |
+| --mobile | emulate a generic mobile device (Pixel 10 for Chromium, iPhone 17 for WebKit). Mobile pages are usually lighter, which saves tokens. Cannot be combined with --device.<br>*env* `PLAYWRIGHT_MCP_MOBILE` |
 | --executable-path <path> | path to the browser executable.<br>*env* `PLAYWRIGHT_MCP_EXECUTABLE_PATH` |
 | --extension | Connect to a running browser instance (Edge/Chrome only). Requires the "Playwright Extension" to be installed.<br>*env* `PLAYWRIGHT_MCP_EXTENSION` |
 | --endpoint <endpoint> | Bound browser endpoint to connect to.<br>*env* `PLAYWRIGHT_MCP_ENDPOINT` |
@@ -413,7 +435,6 @@ Playwright MCP server supports following arguments. They can be provided in the 
 | --no-sandbox | disable the sandbox for all process types that are normally sandboxed.<br>*env* `PLAYWRIGHT_MCP_NO_SANDBOX` |
 | --output-dir <path> | path to the directory for output files.<br>*env* `PLAYWRIGHT_MCP_OUTPUT_DIR` |
 | --output-max-size <bytes> | Threshold for evicting old output files, in bytes.<br>*env* `PLAYWRIGHT_MCP_OUTPUT_MAX_SIZE` |
-| --output-mode <mode> | whether to save snapshots, console messages, network logs to a file or to the standard output. Can be "file" or "stdout". Default is "stdout".<br>*env* `PLAYWRIGHT_MCP_OUTPUT_MODE` |
 | --port <port> | port to listen on for SSE transport.<br>*env* `PLAYWRIGHT_MCP_PORT` |
 | --proxy-bypass <bypass> | comma-separated domains to bypass proxy, for example ".com,chromium.org,.domain.com"<br>*env* `PLAYWRIGHT_MCP_PROXY_BYPASS` |
 | --proxy-server <proxy> | specify proxy server, for example "http://myproxy:3128" or "socks5://myproxy:8080"<br>*env* `PLAYWRIGHT_MCP_PROXY_SERVER` |
@@ -421,11 +442,13 @@ Playwright MCP server supports following arguments. They can be provided in the 
 | --save-session | Whether to save the Playwright MCP session into the output directory.<br>*env* `PLAYWRIGHT_MCP_SAVE_SESSION` |
 | --secrets <path> | path to a file containing secrets in the dotenv format<br>*env* `PLAYWRIGHT_MCP_SECRETS_FILE` |
 | --shared-browser-context | reuse the same browser context between all connected HTTP clients.<br>*env* `PLAYWRIGHT_MCP_SHARED_BROWSER_CONTEXT` |
+| --snapshot-boxes | include each element's bounding box as [box=x,y,width,height] in snapshots. Coordinates are viewport-relative, in CSS pixels.<br>*env* `PLAYWRIGHT_MCP_SNAPSHOT_BOXES` |
 | --snapshot-mode <mode> | when taking snapshots for responses, specifies the mode to use. Can be "full" or "none". Default is "full".<br>*env* `PLAYWRIGHT_MCP_SNAPSHOT_MODE` |
 | --storage-state <path> | path to the storage state file for isolated sessions.<br>*env* `PLAYWRIGHT_MCP_STORAGE_STATE` |
 | --test-id-attribute <attribute> | specify the attribute to use for test ids, defaults to "data-testid"<br>*env* `PLAYWRIGHT_MCP_TEST_ID_ATTRIBUTE` |
 | --timeout-action <timeout> | specify action timeout in milliseconds, defaults to 5000ms<br>*env* `PLAYWRIGHT_MCP_TIMEOUT_ACTION` |
 | --timeout-navigation <timeout> | specify navigation timeout in milliseconds, defaults to 60000ms<br>*env* `PLAYWRIGHT_MCP_TIMEOUT_NAVIGATION` |
+| --timeout-settle <timeout> | how long to wait after each action for triggered work to settle, in milliseconds, defaults to 500ms<br>*env* `PLAYWRIGHT_MCP_TIMEOUT_SETTLE` |
 | --user-agent <ua string> | specify user agent string<br>*env* `PLAYWRIGHT_MCP_USER_AGENT` |
 | --user-data-dir <path> | path to the user data directory. If not specified, a temporary directory will be created.<br>*env* `PLAYWRIGHT_MCP_USER_DATA_DIR` |
 | --viewport-size <size> | specify browser viewport size in pixels, for example "1280x720"<br>*env* `PLAYWRIGHT_MCP_VIEWPORT_SIZE` |
@@ -707,6 +730,11 @@ npx @playwright/mcp@latest --config path/to/config.json
      * Configures default expect timeout: https://playwright.dev/docs/test-timeouts#expect-timeout. Defaults to 5000ms.
      */
     expect?: number;
+
+    /**
+     * How long to wait after each action for triggered work (navigations, requests) to settle before responding. Defaults to 500ms.
+     */
+    settle?: number;
   };
 
   /**
@@ -719,6 +747,12 @@ npx @playwright/mcp@latest --config path/to/config.json
      * When taking snapshots for responses, specifies the mode to use.
      */
     mode?: 'full' | 'none';
+
+    /**
+     * Whether to include each element's bounding box as [box=x,y,width,height] in snapshots.
+     * Coordinates are viewport-relative, in CSS pixels (Element.getBoundingClientRect).
+     */
+    boxes?: boolean;
   };
 
   /**
@@ -732,7 +766,7 @@ npx @playwright/mcp@latest --config path/to/config.json
   /**
    * Specify the language to use for code generation.
    */
-  codegen?: 'typescript' | 'none';
+  codegen?: 'typescript' | 'python' | 'java' | 'csharp' | 'none';
 }
 ```
 
@@ -918,6 +952,16 @@ http.createServer(async (req, res) => {
 
 <!-- NOTE: This has been generated via update-readme.js -->
 
+- **browser_find**
+  - Title: Find in page snapshot
+  - Description: Search the accessibility snapshot of the current page for text or a regular expression. Returns matching snapshot nodes with a few lines of surrounding context (like search snippets), each shown under its path from the root of the tree, which is cheaper than capturing the whole snapshot when you only need to locate an element and its ref.
+  - Parameters:
+    - `text` (string, optional): Plain text to search for in the page snapshot (case-insensitive substring match). Provide either text or regex, not both.
+    - `regex` (string, optional): Regular expression to search for in the page snapshot. Matching is case-sensitive by default; wrap the pattern in slashes to add flags, e.g. "/error/i" for case-insensitive. Provide either text or regex, not both.
+  - Read-only: **true**
+
+<!-- NOTE: This has been generated via update-readme.js -->
+
 - **browser_handle_dialog**
   - Title: Handle a dialog
   - Description: Handle a dialog
@@ -1035,8 +1079,8 @@ http.createServer(async (req, res) => {
   - Parameters:
     - `element` (string, optional): Human-readable element description used to obtain permission to interact with the element
     - `target` (string, optional): Exact target element reference from the page snapshot, or a unique element selector
-    - `type` (string): Image format for the screenshot. Default is png.
-    - `filename` (string, optional): File name to save the screenshot to. Defaults to `page-{timestamp}.{png|jpeg}` if not specified. Prefer relative file names to stay within the output directory.
+    - `type` (string, optional): Image format for the screenshot. If unset, inferred from the filename extension, otherwise png.
+    - `filename` (string, optional): File name to save the screenshot to. Defaults to `page-{timestamp}.{png|jpeg|webp}` if not specified. Prefer relative file names to stay within the output directory.
     - `fullPage` (boolean, optional): When true, takes a screenshot of the full scrollable page, instead of the currently visible viewport. Cannot be used with element screenshots.
     - `scale` (string): Image resolution scale. "css" produces a screenshot sized in CSS pixels (smaller, consistent across devices). "device" produces a high-resolution screenshot using device pixels (larger, accounts for the device pixel ratio). Default is css.
   - Read-only: **true**
@@ -1353,6 +1397,14 @@ http.createServer(async (req, res) => {
 
 <!-- NOTE: This has been generated via update-readme.js -->
 
+- **browser_start_recording**
+  - Title: Start recording user actions
+  - Description: Start recording actions that the user performs in the browser as Playwright code. Use it when the user wants to demonstrate a flow manually. Call browser_stop_recording when the user says they are done to retrieve the recorded actions.
+  - Parameters: None
+  - Read-only: **true**
+
+<!-- NOTE: This has been generated via update-readme.js -->
+
 - **browser_start_tracing**
   - Title: Start tracing
   - Description: Start trace recording
@@ -1367,6 +1419,14 @@ http.createServer(async (req, res) => {
   - Parameters:
     - `filename` (string, optional): Filename to save the video.
     - `size` (object, optional): Video size
+  - Read-only: **true**
+
+<!-- NOTE: This has been generated via update-readme.js -->
+
+- **browser_stop_recording**
+  - Title: Stop recording user actions
+  - Description: Stop the recording started with browser_start_recording and return the recorded actions as Playwright code.
+  - Parameters: None
   - Read-only: **true**
 
 <!-- NOTE: This has been generated via update-readme.js -->
