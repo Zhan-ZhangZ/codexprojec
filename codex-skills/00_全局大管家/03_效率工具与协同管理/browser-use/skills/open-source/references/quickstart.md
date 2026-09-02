@@ -195,14 +195,11 @@ git clone https://github.com/browser-use/browser-use
 cd browser-use
 uv sync --all-extras --dev
 
-# Helper scripts
-./bin/setup.sh   # Complete setup
-./bin/lint.sh    # Formatting, linting, type checking
-./bin/test.sh    # CI test suite
-
 # Run examples
 uv run examples/simple.py
 ```
+
+Helper scripts (development infra, not shipped in this doc-layer skill package — see upstream at tag v0.13.8): [setup script](https://github.com/browser-use/browser-use/blob/v0.13.8/bin/setup.sh) (complete setup), [lint script](https://github.com/browser-use/browser-use/blob/v0.13.8/bin/lint.sh) (formatting, linting, type checking), [test script](https://github.com/browser-use/browser-use/blob/v0.13.8/bin/test.sh) (CI test suite).
 
 ### Telemetry
 
