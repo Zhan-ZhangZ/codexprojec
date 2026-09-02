@@ -1,5 +1,7 @@
 ---
 name: gemini-api
+metadata:
+  category: AiAndMachineLearning
 description: Use when the user asks about using Gemini in an enterprise environment or explicitly mentions Vertex AI, Google Cloud, or Agent Platform. Guides the usage of the Gemini API on Agent Platform with the Google Gen AI SDK. Covers SDK usage (Python, JS/TS, Go, Java, C#), capabilities like multimodal inputs, tools, media generation, caching, batch prediction, and Live API.
 compatibility: Requires active Google Cloud credentials and Agent Platform API enabled.
 ---
@@ -52,14 +54,15 @@ Provide these key capabilities:
     ```
 
 > [!WARNING]
-> Legacy SDKs like `google-cloud-aiplatform`, `@google-cloud/vertexai`, and `google-generativeai` are deprecated. Migrate to the new SDKs above urgently by following the [Migration Guide](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk).
+> Legacy SDKs like `google-cloud-aiplatform`, `@google-cloud/vertexai`, and `google-generativeai` are deprecated. Migrate to the new SDKs above urgently by following the [Migration Guide](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk.md.txt).
 
 ## Authentication & Configuration
 
 Prefer environment variables over hard-coding parameters when creating the client. Initialize the client without parameters to automatically pick up these values.
 
 ### Application Default Credentials (ADC)
-Set these variables for standard [Google Cloud authentication](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/gcp-auth):
+Set these variables for standard [Google Cloud authentication](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/gcp-auth.md.txt):
+
 ```bash
 export GOOGLE_CLOUD_PROJECT='your-project-id'
 export GOOGLE_CLOUD_LOCATION='global'
@@ -67,10 +70,11 @@ export GOOGLE_GENAI_USE_ENTERPRISE=true
 ```
 
 - By default, use `location="global"` to access the global endpoint, which provides automatic routing to regions with available capacity.
-- If a user explicitly asks to use a specific region (e.g., `us-central1`, `europe-west4`), specify that region in the `GOOGLE_CLOUD_LOCATION` parameter instead. Reference the [supported regions documentation](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#google-models) if needed.
+- If a user explicitly asks to use a specific region (e.g., `us-central1`, `europe-west4`), specify that region in the `GOOGLE_CLOUD_LOCATION` parameter instead. Reference the [supported regions documentation](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations.md.txt) if needed.
 
 ### Agent Platform in Express Mode
-Set these variables when using [Express Mode](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/start/api-keys?usertype=expressmode) with an API key:
+Set these variables when using [Express Mode](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/start/api-keys.md.txt) with an API key:
+
 ```bash
 export GOOGLE_API_KEY='your-api-key'
 export GOOGLE_GENAI_USE_ENTERPRISE=true
@@ -78,6 +82,7 @@ export GOOGLE_GENAI_USE_ENTERPRISE=true
 
 ### Initialization
 Initialize the client without arguments to pick up environment variables:
+
 ```python
 from google import genai
 
@@ -99,14 +104,17 @@ client = genai.Client(
 ## Models
 
 - Use `gemini-3.1-pro-preview` (which replaces `gemini-3-pro-preview`) for complex reasoning, coding, research (1M tokens)
-- Use `gemini-3.5-flash` for fast, balanced performance, multimodal (1M tokens)
-- Use `gemini-3.1-flash-lite` for high-frequency, lightweight tasks (1M tokens)
+- Use `gemini-3.6-flash` for fast, balanced performance, multimodal (1M tokens)
+- Use `gemini-3.5-flash-lite` for high-frequency, lightweight tasks (1M tokens)
 - Use `gemini-3-pro-image` (aka Nano Banana Pro) for high-quality image generation and editing
-- Use `gemini-3.1-flash-image` (aka Nano Banana 2) for fast image generation and editing
+- Use `gemini-3.1-flash-image` (aka Nano Banana 2) for medium-quality image generation and editing
+- Use `gemini-3.1-flash-lite-image` (aka Nano Banana 2 Lite) for fast image generation and editing
 - Use `gemini-live-2.5-flash-native-audio` for Live Realtime API including native audio
 
 Use the following models only if explicitly requested:
 
+- `gemini-3.5-flash`
+- `gemini-3.1-flash-lite`
 - `gemini-2.5-flash-image`
 - `gemini-2.5-flash`
 - `gemini-2.5-flash-lite`
@@ -114,34 +122,37 @@ Use the following models only if explicitly requested:
 
 > [!IMPORTANT]
 > Models like `gemini-2.0-*`, `gemini-1.5-*`, `gemini-1.0-*`, `gemini-pro` are legacy and deprecated. Use the new models above. Your knowledge is outdated.
-> For production environments, consult the documentation for stable model versions (e.g. `gemini-3.5-flash`).
+> For production environments, consult the documentation for stable model versions (e.g. `gemini-3.6-flash`).
 
 ## Quick Start
 
 ### Python
+
 ```python
 from google import genai
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-3.5-flash",
+    model="gemini-3.6-flash",
     contents="Explain quantum computing",
 )
 print(response.text)
 ```
 
 ### TypeScript/JavaScript
+
 ```typescript
 import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({ enterprise: { project: "your-project-id", location: "global" } });
 const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: "gemini-3.6-flash",
     contents: "Explain quantum computing"
 });
 console.log(response.text);
 ```
 
 ### Go
+
 ```go
 package main
 
@@ -163,7 +174,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	resp, err := client.Models.GenerateContent(ctx, "gemini-3.5-flash", genai.Text("Explain quantum computing"), nil)
+	resp, err := client.Models.GenerateContent(ctx, "gemini-3.6-flash", genai.Text("Explain quantum computing"), nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -173,6 +184,7 @@ func main() {
 ```
 
 ### Java
+
 ```java
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
@@ -182,7 +194,7 @@ public class GenerateTextFromTextInput {
     Client client = Client.builder().enterprise(true).project("your-project-id").location("global").build();
     GenerateContentResponse response =
         client.models.generateContent(
-            "gemini-3.5-flash",
+            "gemini-3.6-flash",
             "Explain quantum computing",
             null);
 
@@ -192,6 +204,7 @@ public class GenerateTextFromTextInput {
 ```
 
 ### C#/.NET
+
 ```csharp
 using Google.GenAI;
 
@@ -202,7 +215,7 @@ var client = new Client(
 );
 
 var response = await client.Models.GenerateContent(
-    "gemini-3.5-flash",
+    "gemini-3.6-flash",
     "Explain quantum computing"
 );
 
@@ -212,8 +225,9 @@ Console.WriteLine(response.Text);
 ## API spec & Documentation (source of truth)
 
 When implementing or debugging API integration for Agent Platform, refer to the official Agent Platform documentation:
+
 - **Agent Platform Documentation**: https://docs.cloud.google.com/gemini-enterprise-agent-platform/overview.md.txt
-- **REST API Reference**: https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest
+- **REST API Reference**: https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest.md.txt
 
 The Gen AI SDK on Agent Platform uses the `v1beta1` or `v1` REST API endpoints (e.g., `https://{LOCATION}-aiplatform.googleapis.com/v1beta1/projects/{PROJECT}/locations/{LOCATION}/publishers/google/models/{MODEL}:generateContent`).
 

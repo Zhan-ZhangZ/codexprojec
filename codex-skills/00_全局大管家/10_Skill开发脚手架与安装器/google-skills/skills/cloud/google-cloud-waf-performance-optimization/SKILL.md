@@ -1,5 +1,7 @@
 ---
 name: google-cloud-waf-performance-optimization
+metadata:
+  category: WellArchitectedFramework
 description: >-
   Generates performance-focused guidance for Google Cloud workloads based on the
   design principles and recommendations in the Performance Optimization pillar
@@ -27,23 +29,23 @@ Well-Architected Framework are aligned with the following core principles:
 -   **Plan resource allocation**: Carefully select and configure the compute,
     storage, and networking resources that best match the specific requirements
     of your workload. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/performance-optimization/plan-resource-allocation
+    https://docs.cloud.google.com/architecture/framework/performance-optimization/plan-resource-allocation.md.txt
 
 -   **Take advantage of elasticity**: Utilize automated scaling and serverless
     technologies to dynamically adjust resource capacity in response to
     real-time demand fluctuations. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/performance-optimization/elasticity
+    https://docs.cloud.google.com/architecture/framework/performance-optimization/elasticity.md.txt
 
 -   **Promote modular design**: Architect systems using independent, loosely
     coupled components to enhance scalability and allow individual parts to be
     optimized without affecting the entire system. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/performance-optimization/promote-modular-design
+    https://docs.cloud.google.com/architecture/framework/performance-optimization/promote-modular-design.md.txt
 
 -   **Continuously monitor and improve performance**: Implement robust
     observability to identify bottlenecks and use performance data to drive
     iterative enhancements throughout the software development lifecycle.
     Grounding document:
-    https://docs.cloud.google.com/architecture/framework/performance-optimization/continuously-monitor-and-improve-performance
+    https://docs.cloud.google.com/architecture/framework/performance-optimization/continuously-monitor-and-improve-performance.md.txt
 
 ## Relevant Google Cloud products
 

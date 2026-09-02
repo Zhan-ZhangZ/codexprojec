@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "google-cloud-developer",
+  "version": "1.1.0",
+  "description": "Google Cloud guidance for coding agents: first-project onboarding, authentication and credential selection, and safety-critical validation for gcloud CLI commands. Includes the Google Developer Knowledge MCP server for grounded, up-to-date Google Cloud documentation.",
+  "author": {
+    "name": "Google LLC",
+    "url": "https://cloud.google.com"
+  },
+  "homepage": "https://github.com/google/skills/tree/main/plugins/cloud/google-cloud-developer",
+  "repository": "https://github.com/google/skills",
+  "license": "Apache-2.0",
+  "keywords": ["google-cloud", "gcloud", "authentication", "onboarding"]
+}

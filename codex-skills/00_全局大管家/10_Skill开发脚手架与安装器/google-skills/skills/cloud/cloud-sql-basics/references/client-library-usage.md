@@ -113,4 +113,4 @@ certificates.
 To manage Cloud SQL resources (e.g., list instances) programmatically, use the
 `sqladmin` libraries.
 
--   [Cloud SQL Admin API Overview](https://docs.cloud.google.com/sql/docs/mysql/admin-api)
+-   [Cloud SQL Admin API Overview](https://docs.cloud.google.com/sql/docs/mysql/admin-api.md.txt)

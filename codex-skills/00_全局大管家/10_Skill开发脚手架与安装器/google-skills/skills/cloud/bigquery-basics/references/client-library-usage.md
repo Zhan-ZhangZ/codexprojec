@@ -26,7 +26,7 @@ authenticated.
   results = query_job.result()
   ```
 
-- [Python Reference](https://docs.cloud.google.com/python/docs/reference/bigquery/latest)
+- [Python Reference](https://docs.cloud.google.com/python/docs/reference/bigquery/latest.md.txt)
 
 ### Java
 
@@ -48,7 +48,7 @@ authenticated.
   TableResult results = bigquery.query(queryConfig);
   ```
 
-- [Java Reference](https://docs.cloud.google.com/java/docs/reference/google-cloud-bigquery/latest/overview)
+- [Java Reference](https://docs.cloud.google.com/java/docs/reference/google-cloud-bigquery/latest/overview.md.txt)
 
 ### Node.js (TypeScript)
 
@@ -85,7 +85,7 @@ authenticated.
   it, _ := q.Read(ctx)
   ```
 
-- [Go Reference](https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/bigquery/latest)
+- [Go Reference](https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/bigquery/latest.md.txt)
 
 ## BigQuery DataFrames (BigFrames)
 

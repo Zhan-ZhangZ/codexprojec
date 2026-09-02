@@ -61,7 +61,7 @@ Cloud Run services scale automatically based on:
 
 Your container image can run code written in the programming language
 of your choice and use any base image, provided that it respects the
-constraints listed in the [Container runtime contract](https://docs.cloud.google.com/run/docs/container-contract).
+constraints listed in the [Container runtime contract](https://docs.cloud.google.com/run/docs/container-contract.md.txt).
 
 Executables in the container image must be compiled for
 Linux 64-bit. Cloud Run specifically supports the Linux x86_64 ABI format.
@@ -76,7 +76,7 @@ linux/amd64.
 For functions deployed with Cloud Run, you can use one of the
 Cloud Run runtime base images that are published by Google
 Cloud's buildpacks to receive automatic security and maintenance updates.
-For more information about the supported runtimes, see the [Runtime support schedule](https://docs.cloud.google.com/run/docs/runtime-support).
+For more information about the supported runtimes, see the [Runtime support schedule](https://docs.cloud.google.com/run/docs/runtime-support.md.txt).
 
 ### Container requirements
 
@@ -106,7 +106,7 @@ deployment, each worker instance receives a private IP address on the
 configured network and subnet. Only resources from your VPC network can
 connect to the worker pool private IP address endpoint. For more information
 about obtaining the private IP addresses of your worker pool instance, see
-[Retrieve the private IP addresses using the metadata server (MDS)](https://docs.cloud.google.com/run/docs/configuring/vpc-direct-vpc#mds-support).
+[Retrieve the private IP addresses using the metadata server (MDS)](https://docs.cloud.google.com/run/docs/configuring/vpc-direct-vpc.md.txt).
 
 For Cloud Run worker pools with Direct VPC ingress, such as database
 connections or any other custom TCP-based protocol, the container must
@@ -119,9 +119,9 @@ Cloud Run supports hosting AI inference models. You can configure services with
 GPUs (e.g., NVIDIA RTX PRO 6000 Blackwell GPU, NVIDIA L4) to accelerate
 workloads like LLM inference using Gemma 3. For more information, see GPU
 support for
-[services](https://docs.cloud.google.com/run/docs/configuring/services/gpu),
-[jobs](https://docs.cloud.google.com/run/docs/configuring/jobs/gpu), and [worker
-pools](https://docs.cloud.google.com/run/docs/configuring/workerpools/gpu).
+[services](https://docs.cloud.google.com/run/docs/configuring/services/gpu.md.txt),
+[jobs](https://docs.cloud.google.com/run/docs/configuring/jobs/gpu.md.txt), and [worker
+pools](https://docs.cloud.google.com/run/docs/configuring/workerpools/gpu.md.txt).
 
 ## Pricing
 

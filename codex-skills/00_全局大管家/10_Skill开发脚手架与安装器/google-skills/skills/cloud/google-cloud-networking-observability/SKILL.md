@@ -1,7 +1,9 @@
 ---
 name: google-cloud-networking-observability
+metadata:
+  category: Compute
 description: >-
-  Investigates Google Cloud networking issues by analyzing logs, metrics, and diagnostics. Use when investigating VPC Flow Logs, NAT, firewall, or threat logs, querying latency and throughput metrics, or running Connectivity Tests for path diagnostics.
+  Investigates Google Cloud networking issues by analyzing logs, metrics, and diagnostics. Use when investigating VPC Flow Logs (including cost estimation), NAT, firewall, or threat logs, querying latency and throughput metrics, or running Connectivity Tests for path diagnostics. Don't use for generic VM management or non-observability tasks.
 ---
 
 # Google Cloud Networking Observability Expert
@@ -66,6 +68,7 @@ description: >-
 ### 2. Schema Verification & Error Recovery
 
 If a BigQuery query fails with an 'Unrecognized name' error or schema mismatch:
+
 1. **Validate Schema**: Run `bq show --schema --format=json
 {project_id}:{dataset_id}.{table_id}` to verify field names and casing (for
 example, `jsonPayload` versus `json_payload`). 2. **Dry Run**: Before executing
@@ -82,6 +85,8 @@ the corresponding reference file:
     [references/threat-analysis.md](references/threat-analysis.md)
 -   **VPC Flow Analysis**:
     [references/vpc-flow-analysis.md](references/vpc-flow-analysis.md)
+-   **VPC Flow Logs Cost Estimation**:
+    [references/vpc-flow-logs-cost-estimation.md](references/vpc-flow-logs-cost-estimation.md)
 -   **Cloud NAT Analysis**:
     [references/cloud-nat-analysis.md](references/cloud-nat-analysis.md)
 -   **Firewall Rule Analysis**:
@@ -90,6 +95,9 @@ the corresponding reference file:
     [references/metrics-analysis.md](references/metrics-analysis.md)
 -   **Connectivity Test Analysis**:
     [references/connectivity-tests.md](references/connectivity-tests.md)
+
+> **CRITICAL**: If the user asks for **Cost Estimation**, you MUST strictly use `references/vpc-flow-logs-cost-estimation.md`. Do NOT read or use `references/vpc-flow-analysis.md` for cost estimation tasks.
+
 
 ## Boundaries (CRITICAL)
 

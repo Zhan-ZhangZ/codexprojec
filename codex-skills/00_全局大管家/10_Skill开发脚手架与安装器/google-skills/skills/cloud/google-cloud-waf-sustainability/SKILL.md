@@ -1,5 +1,7 @@
 ---
 name: google-cloud-waf-sustainability
+metadata:
+  category: WellArchitectedFramework
 description: >-
   Generates sustainability-focused guidance for Google Cloud workloads based on
   the design principles and recommendations in the Google Cloud Well-Architected
@@ -29,53 +31,53 @@ Framework are aligned with the following core principles:
     embrace a shared fate model, working with your cloud provider and partners
     to achieve optimal environmental outcomes for the entire ecosystem.
     Grounding document:
-    https://docs.cloud.google.com/architecture/framework/sustainability#shared-responsibility
+    https://docs.cloud.google.com/architecture/framework/sustainability.md.txt
 
 -   **Use regions that consume low-carbon energy**: Prioritize Google Cloud
     regions with a high percentage of Carbon-Free Energy (CFE) and "Low CO2"
     indicators to lower the gross carbon emissions of your deployments.
     Grounding document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/low-carbon-regions
+    https://docs.cloud.google.com/architecture/framework/sustainability/low-carbon-regions.md.txt
 
 -   **Optimize AI and ML workloads**: Maximize computations per watt by matching
     algorithmic needs to specialized hardware (like TPUs) and applying
     mathematical techniques to reduce computational complexity. Grounding
     document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/ai-ml-energy-efficiency
+    https://docs.cloud.google.com/architecture/framework/sustainability/ai-ml-energy-efficiency.md.txt
 
 -   **Optimize resource usage**: Eliminate energy waste by scaling resources to
     zero when idle, rightsizing virtual machines, and prioritizing managed
     services that dynamically match actual demand. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/optimize-resource-usage
+    https://docs.cloud.google.com/architecture/framework/sustainability/optimize-resource-usage.md.txt
 
 -   **Develop energy-efficient software**: Design your applications to minimize
     unnecessary CPU, memory, and network activity on both backend servers and
     end-user devices by using event-driven logic and optimized assets. Grounding
     document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/energy-efficient-software
+    https://docs.cloud.google.com/architecture/framework/sustainability/energy-efficient-software.md.txt
 
 -   **Optimize data and storage**: Reduce the environmental footprint of your
     storage by implementing lifecycle management to archive cold data and
     eliminating "dark data" that provides no business value. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/optimize-storage
+    https://docs.cloud.google.com/architecture/framework/sustainability/optimize-storage.md.txt
 
 -   **Continuously measure and improve**: Gain visibility into your carbon
     emissions by analyzing granular data, identifying hotspots, and taking
     proactive steps to remediate inefficiencies. Grounding document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/continuously-measure-improve
+    https://docs.cloud.google.com/architecture/framework/sustainability/continuously-measure-improve.md.txt
 
 -   **Promote a culture of sustainability**: Embed sustainability into your
     organizational governance, connect technical decisions to environmental
     goals, and ensure staff have the skills to implement green practices.
     Grounding document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/culture
+    https://docs.cloud.google.com/architecture/framework/sustainability/culture.md.txt
 
 -   **Align sustainability practices with industry guidelines**: Ensure that
     your sustainability initiatives are aligned with industry guidelines for
     measurement, reporting, and verification, such as W3C Web Sustainability
     Guidelines, Green Software Foundation, and Greenhouse Gas Protocol.
     Grounding document:
-    https://docs.cloud.google.com/architecture/framework/sustainability/industry-guidelines
+    https://docs.cloud.google.com/architecture/framework/sustainability/industry-guidelines.md.txt
 
 ## Relevant Google Cloud products
 

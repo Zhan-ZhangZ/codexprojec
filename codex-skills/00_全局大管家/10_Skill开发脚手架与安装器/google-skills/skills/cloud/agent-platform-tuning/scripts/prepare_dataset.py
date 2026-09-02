@@ -9,6 +9,13 @@ from typing import Any
 
 import datasets
 
+# The tuning service rejects a job whose validation file exceeds this fraction
+# of the training file, measured in bytes rather than rows. 0.2 is the largest
+# split that satisfies it and lands exactly on the line, so the default keeps a
+# margin -- see references/data_prep.md, "Sizing the validation split".
+MAX_VALIDATION_RATIO = 0.25
+DEFAULT_VALIDATION_SPLIT = 0.1
+
 
 def _validate_example(example: dict[str, Any], format_type: str) -> bool:
   """Validates a single example against the expected format."""
@@ -75,13 +82,37 @@ def validate_jsonl(file_path: str, format_type: str) -> bool:
   return invalid_count == 0
 
 
+def validation_ratio_error(train_bytes: int, val_bytes: int) -> str | None:
+  """Returns a message if the written split would be rejected, else None.
+
+  The service weighs the two files by size, so a row-count split fraction
+  cannot predict the outcome; only the written bytes can.
+
+  Args:
+    train_bytes: Size of the written training file.
+    val_bytes: Size of the written validation file.
+
+  Returns:
+    An actionable error message, or None if the split is within the ceiling.
+  """
+  if val_bytes <= MAX_VALIDATION_RATIO * train_bytes:
+    return None
+  ratio = val_bytes / train_bytes if train_bytes else float("inf")
+  return (
+      f"Validation file is {ratio:.1%} of the training file ({val_bytes} vs"
+      f" {train_bytes} bytes), above the {MAX_VALIDATION_RATIO:.0%} the tuning"
+      " service allows. Re-run with a smaller --validation_split"
+      f" (default {DEFAULT_VALIDATION_SPLIT})."
+  )
+
+
 def convert_to_jsonl(
     input_file: str,
     output_file: str,
     format_type: str,
     prompt_col: str,
     completion_col: str,
-    validation_split: float | None = 0.2,
+    validation_split: float | None = DEFAULT_VALIDATION_SPLIT,
 ):
   """Converts a file to JSONL format for Agent Platform tuning.
 
@@ -120,7 +151,7 @@ def convert_to_jsonl(
     sys.exit(1)
 
   for col in [prompt_col, completion_col]:
-    if col not in dataset.column_names:
+    if col not in dataset.column_names:  # pyrefly: ignore[not-iterable]
       logging.error(
           "Column '%s' not found. Available columns: %s",
           col,
@@ -141,11 +172,11 @@ def convert_to_jsonl(
         and completion_text != "none"
     )
 
-  initial_len = len(dataset)
+  initial_len = len(dataset)  # pyrefly: ignore[bad-argument-type]
   dataset = dataset.filter(is_valid)
-  if len(dataset) < initial_len:
+  if len(dataset) < initial_len:  # pyrefly: ignore[bad-argument-type]
     logging.warning(
-        "Dropped %d rows with empty or NaN values", initial_len - len(dataset)
+        "Dropped %d rows with empty or NaN values", initial_len - len(dataset)  # pyrefly: ignore[bad-argument-type]
     )
 
   def format_example(example):
@@ -165,7 +196,7 @@ def convert_to_jsonl(
       }
 
   formatted_dataset = dataset.map(
-      format_example, remove_columns=dataset.column_names
+      format_example, remove_columns=dataset.column_names  # pyrefly: ignore[bad-argument-type]
   )
 
   if validation_split and validation_split > 0:
@@ -174,7 +205,7 @@ def convert_to_jsonl(
       sys.exit(1)
 
     # Use the datasets library to perform the split as requested
-    split_dict = formatted_dataset.train_test_split(
+    split_dict = formatted_dataset.train_test_split(  # pyrefly: ignore[missing-attribute]
         seed=42, test_size=validation_split
     )
     train_ds = split_dict["train"]
@@ -197,11 +228,20 @@ def convert_to_jsonl(
         len(val_ds),
         val_output_file,
     )
+
+    # Catch an oversized validation file here rather than letting the tuning
+    # service reject the job after the dataset has been uploaded to GCS.
+    ratio_error = validation_ratio_error(
+        os.path.getsize(output_file), os.path.getsize(val_output_file)
+    )
+    if ratio_error:
+      logging.error("%s", ratio_error)
+      sys.exit(1)
   else:
-    formatted_dataset.to_json(output_file, force_ascii=False, lines=True)
+    formatted_dataset.to_json(output_file, force_ascii=False, lines=True)  # pyrefly: ignore[missing-attribute]
     logging.info(
         "Successfully saved %d examples to %s",
-        len(formatted_dataset),
+        len(formatted_dataset),  # pyrefly: ignore[bad-argument-type]
         output_file,
     )
 
@@ -240,8 +280,11 @@ if __name__ == "__main__":
   parser.add_argument(
       "--validation_split",
       type=float,
-      default=0.2,
-      help="Fraction of data to use for validation (e.g. 0.2)",
+      default=DEFAULT_VALIDATION_SPLIT,
+      help=(
+          "Fraction of data to hold out for validation. Keep it at or below"
+          f" {DEFAULT_VALIDATION_SPLIT}; see references/data_prep.md."
+      ),
   )
   parser.add_argument(
       "--validate_only",
