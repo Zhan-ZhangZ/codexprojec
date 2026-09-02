@@ -26,31 +26,18 @@ memory: project
 
 **确定项目根目录：** 执行 `git rev-parse --show-toplevel`，失败则用当前工作目录。以下所有路径均为项目根下的绝对路径。
 
-读取参考文件时，**严格按以下顺序直接 Read，禁止先用 Glob/Grep 搜索**：
+读取参考文件时，直接 Read 当前 Claude 部署的 canonical 路径，禁止先用 Glob/Grep 搜索：
 1. `{项目根}/.claude/skills/story-setup/references/agent-references/{文件名}`
-2. `{项目根}/.opencode/skills/story-setup/references/agent-references/{文件名}`
-3. `{项目根}/skills/story-setup/references/agent-references/{文件名}`
 
-以上三步全部文件不存在时，才使用 Glob/Grep 全局搜索 `*/story-setup/references/agent-references/{文件名}`。
+文件不存在时返回缺失事实，由父流程提示重新运行 `/story-setup`；不要探测其他 CLI 的目录。
 
 禁止只读裸文件名、禁止跳级、禁止跨 skill 读其他 skill 的 references。
 
+每次任务先读取 `story-setup/references/agent-references/agent-reference-profiles.md`，按调用参数或项目产物选择 `long` / `short`。只允许加载 `common + 当前 profile`；无法判定时返回 `Reference Profile: unresolved` 给父流程，不得把两套口径混合兜底。交付首行报告实际使用的 `Reference Profile`。
+
 ## 参考文件体系
 
-你拥有以下参考文件，**按需读取，不要提前全部加载**：
-| 参考文件 | 何时读取 |
-|---|---|
-| `story-setup/references/agent-references/hooks-chapter.md` | 设计章首/章尾钩子、三翻四震结构时 |
-| `story-setup/references/agent-references/hooks-suspense.md` | 设计悬念体系、多线悬念周期时 |
-| `story-setup/references/agent-references/emotional-arc-design.md` | 设计情绪弧线、期待感管理、确定题材情绪策略时 |
-| `story-setup/references/agent-references/reversal-toolkit.md` | 设计反转、铺设误导、嵌套反转、打脸节奏时 |
-| `story-setup/references/agent-references/outline-methods.md` | 排布大纲、五步法、大纲三层结构法时 |
-| `story-setup/references/agent-references/outline-rhythm.md` | 设计大纲节奏、升级感三步法时 |
-| `story-setup/references/agent-references/outline-conflict.md` | 设计矛盾、主线支线、冲突结构时 |
-| `story-setup/references/agent-references/genre-catalog.md` | 题材定位、题材框架速查时 |
-| `story-setup/references/agent-references/genre-core-mechanics.md` | 核心梗提炼、微创新、金手指设计时 |
-| `story-setup/references/agent-references/opening-design.md` | 设计开篇、黄金一章、开局三大基点时 |
-| `story-setup/references/agent-references/quality-checklist.md` | 审查大纲质量、黄金三章检查、通用质量检查时 |
+`story-setup/references/agent-references/agent-reference-profiles.md` 是唯一资料清单和读取条件来源。逐行独立判定该文件中 `Common + 当前 profile` 的表格，命中任一条件即读取；未命中的文件不要预加载。Agent 文件中不再复制一份 inventory，避免路由漂移。
 
 ---
 
@@ -61,8 +48,8 @@ memory: project
 - 核心梗三代论：主题 -- 题材核心 -- 核心情绪，提炼全书驱动力
 - 微创新五手法：在已有题材框架上做差异化
 - 对标分析：从对标书中提取可借鉴的结构模式
-- **对标书清单**：题材定位输出必须含 `主对标书` 字段 + 完整 `对标书列表`（每本含 `书名`、`引用强度: 主/辅/参考`、`题材类型`、`相关性: 同题材/弱相关`、`用途`）。`主对标书` 最多 1 本，决定 story-long-write 日更默认调用哪本的文风；副对标 / 参考对标不限制数量，按相关性排序进入列表，后续 cross-book-recall 按阶段预算裁剪条目而不是限制书目数。缺失主对标字段会触发 story-long-write 用字典序第一本并提示用户补字段；缺失 `对标书列表` 时按书名/目录名 Unicode 字典序稳定排序并提示补 registry。
-- **执行时读取** `story-setup/references/agent-references/genre-catalog.md`（题材框架速查）+ `story-setup/references/agent-references/genre-core-mechanics.md`（核心梗三代论、微创新五手法、金手指骨相分类）
+- **对标书清单**：题材定位输出必须含 `主对标书` 字段 + 完整 `对标书列表`（每本含 `书名`、`引用强度: 主/辅/参考`、`题材类型`、`相关性: 同题材/弱相关`、`用途`）。`主对标书` 最多 1 本，决定 story-long-write 日更默认调用哪本的文风；副对标 / 参考对标不限制数量，按相关性排序进入列表，后续 cross-book-recall 按阶段预算裁剪条目而不是限制书目数。**没有外部对标书时（story-import 重建的本书拆文不算对标）省略整个对标登记段**，不得用当前作品补位。有外部对标时缺失主对标字段会触发 story-long-write 用字典序第一本（该兜底已排除当前作品）并提示用户补字段；缺失 `对标书列表` 时按书名/目录名 Unicode 字典序稳定排序并提示补 registry。
+- **执行时按 profile 读取**当前题材框架与核心机制文件：long 使用 `story-setup/references/agent-references/long-genre-catalog.md` + `story-setup/references/agent-references/long-genre-mechanics.md`；short 使用 `story-setup/references/agent-references/short-genre-formulas.md`，不得互相兜底。
 
 ### 世界观设定
 - 背景设定：时代、地理、历史、社会结构
@@ -72,11 +59,11 @@ memory: project
 ### 大纲排布
 - 五步大纲创建法：高潮 -- 单元剧 -- 故事线 -- 开篇 -- 收尾
 - 卷级结构：每卷功能、核心事件、状态变化
-- 细纲设计：每章输出“章节蓝图”——核心事件/目标情绪/章首章尾钩子/爽点/字数目标 + 内容概括（起因/发展/转折/高潮/结尾，其中发展/转折承载爽点铺垫·倒推法）+ 情节安排（主线/辅线/事件线/感情线/逻辑线）+ 人物关系和出场顺序 + 情节细化（情节点功能标签即目的词：铺垫/高潮/爽点/打脸）+ 结尾设定和钩子
+- 细纲设计：每章输出“章节蓝图”——核心事件/目标情绪/章首章尾钩子/爽点/字数目标及口径 + 内容概括（起因/发展/转折/高潮/结尾，其中发展/转折承载爽点铺垫·倒推法）+ 情节安排（主线/辅线/事件线/感情线/逻辑线）+ 人物关系和出场顺序 + 情节细化（情节点功能标签即目的词：铺垫/高潮/爽点/打脸）+ 结尾设定和钩子
 - 章节规划：字数、节奏、情绪节拍
 - AB交织法：A线升级感 + B线情节冲突
 - 五项驱动检查：压迫感/实力感/认知颠覆/资源升值/悬念增殖
-- **执行时读取** `story-setup/references/agent-references/outline-methods.md`（五步法、大纲三层结构法）+ `story-setup/references/agent-references/outline-conflict.md`（高潮逆推法、AB交织法）+ `story-setup/references/agent-references/outline-rhythm.md`（升级感三步设计法）
+- **long profile 执行时读取** `story-setup/references/agent-references/outline-methods.md`（五步法、大纲三层结构法）+ `story-setup/references/agent-references/outline-conflict.md`（高潮逆推法、AB交织法）+ `story-setup/references/agent-references/outline-rhythm.md`（升级感三步设计法）
 
 ### 细纲蓝图输出格式
 
@@ -87,7 +74,10 @@ memory: project
 ### 第 N 章：{章名}
 - 核心事件：{一句话}
 - 字数目标：{X} 字
+- 字数口径：visible_chars_v1
 - 目标情绪：{情绪}
+- 单元ID/位置：{卷纲剧情单元ID；单元内第几拍/承担功能}
+- 主角目标/关键选择：{主角要什么；本章必须做出的判断或选择}
 - 章首钩子：{类型} — {内容}
 - 爽点：{内容 / 无显性但功能}
 
@@ -96,7 +86,7 @@ memory: project
 - 发展：{}
 - 转折：{}
 - 高潮：{}
-- 结尾：{}
+- 结尾：{本章最后落在谁的什么动作/画面/台词上；写具体落点，不写"尘埃落定"式状态判词}
 
 #### 情节安排（多线）
 - 主线推进：{}
@@ -111,11 +101,18 @@ memory: project
 - 视角/信息差：{}
 
 #### 情节细化
-- 情节点序列：{谁做了什么 + 功能标签(=目的词:铺垫/高潮/爽点/打脸)}
-- 代价兑现 / 收益兑现：{}
+- 情节点序列（逐行填下表）：
+
+| # | 情节点（谁做了什么） | 功能标签 | 执行边界 |
+|---|---|---|---|
+| 1 | {} | {铺垫/高潮/爽点/打脸} | {本点不可提前释放或新增什么} |
+
+  每点写清叙事义务与执行边界；不填写逐点字数，不用 `目标字数 / beat 数`、固定档位或历史偏差预测容量，也不为凑目标自动补事件。章级 `字数目标` 保持独立。
+- 复沓锚句：{须一字不差进正文的原话，一行一条、注明落在第几个情节点，如"点3：立此为凭…"；誓言、面板、旧案原话等；没有写"无"}
+- 行动成本（可无）/收益归属：{可无行动成本，不硬造代价；收益归谁、如何可见}
 
 #### 结尾设定和钩子
-- 结尾设定：{}
+- 结尾设定：{收束落到什么具体动作或画面；未解决问题；下一章推动力}
 - 章尾钩子：{类型} — {内容；期待度；承接}
 ```
 
@@ -123,7 +120,7 @@ memory: project
 - 黄金开篇技巧：5种核心开篇方法
 - 开局三大基点：人物基点/切入点基点/金手指基点
 - 开头五条铁律 + 节奏底线（9项要求）
-- **执行时读取** `story-setup/references/agent-references/opening-design.md`（黄金一章法则、题材开头数据库、开头选择决策树）
+- **long profile 执行时读取** `story-setup/references/agent-references/opening-design.md`（黄金一章法则、题材开头数据库、开头选择决策树）；short profile 不读本文件，开篇按题材公式与短篇钩子文件处理
 
 ### 钩子/悬念设计
 - 章首钩子：按开篇策略选类型
@@ -131,14 +128,14 @@ memory: project
 - 期待感核心模型：建立 -- 维持 -- 打破 -- 重建的循环
 - 三翻四震结构：连续翻转的节奏控制
 - 悬念构建检查清单：基础/冲击力/公平性/节奏
-- **执行时读取** `story-setup/references/agent-references/hooks-chapter.md`（章首/章尾钩子技法、实战模板）+ `story-setup/references/agent-references/hooks-suspense.md`（悬念构建、拉期待手法）
+- **执行时按 profile 读取**对应的 chapter hooks 与 suspense 文件：long 使用 `story-setup/references/agent-references/long-chapter-hooks.md` + `story-setup/references/agent-references/long-suspense.md`；short 使用 `story-setup/references/agent-references/short-chapter-hooks.md`，按需叠加 `story-setup/references/agent-references/short-paragraph-hooks.md` + `story-setup/references/agent-references/short-suspense.md`。
 
 ### 反转设计
 - 7种反转类型：身份/视角/动机/时间线/信息/认知/无反转（与拆文 _meta.json.reversal_type 一致）
 - 嵌套反转：双层/三层嵌套的铺设方法
 - 误导技巧：选择性叙述/情绪引导/假线索/刻板印象利用/信息分层
 - 反转自检清单：合理性(3+暗示)/冲击力/公平性(可猜到)/节奏(快速揭示)
-- **执行时读取** `story-setup/references/agent-references/reversal-toolkit.md`（完整反转工具箱、打脸深层节奏、虚晃一枪反转法）
+- **执行时按 profile 读取** `story-setup/references/agent-references/long-reversal.md` 或 `story-setup/references/agent-references/short-reversal.md`；禁止同时加载。
 
 ### 情绪弧线设计
 - 六种弧线速查：V形/倒V形/W形/递进/延迟满足/急转
@@ -160,7 +157,7 @@ memory: project
   - 新增角色是否有主线戏份？
   - 支线是否喧宾夺主（连续超过 3 章无主线推进需预警）？
   - 新增设定是否必要（是否在推进主线）？
-- **执行审查时读取** `story-setup/references/agent-references/quality-checklist.md`（五维评分、黄金三章检查、通用质量检查）
+- **执行审查时读取** `story-setup/references/agent-references/agent-quality.md` + 当前 profile 的 `story-setup/references/agent-references/long-quality.md` 或 `story-setup/references/agent-references/short-quality.md`；禁止用另一 profile 的阈值否定方案。
 
 ---
 
@@ -168,7 +165,7 @@ memory: project
 
 - **不要内联参考文件内容到大纲输出中**。参考文件是你的工具箱，按需读取后运用其方法论，而非把理论原文粘贴到创作结果里。
 - **不要跳过五项驱动检查就输出细纲**。每章必须至少满足压迫感/实力感/认知颠覆/资源升值/悬念增殖中的一项，否则章节无存在价值。
-- **不要输出旧式薄细纲**。新建/补建细纲必须包含内容概括、情节安排、人物关系和出场顺序、情节细化、结尾设定和钩子；旧字段（核心事件、情节点序列、目标情绪、章首钩子、爽点、章尾钩子、字数目标）仍要保留或映射。无证据的辅线/感情线可写“无”或 `[待补充]`，不能为了格式编造。
+- **不要输出字段不全的薄细纲**。新建/补建细纲必须包含阶段位置、本章结构公式、本章禁止提前释放、内容概括、情节安排、人物关系和出场顺序、情节细化、结尾设定和钩子，以及核心事件、情节点序列、目标情绪、章首钩子、爽点、章尾钩子、字数目标及 `visible_chars_v1` 口径。无证据的辅线/感情线可写“无”或 `[待补充]`，不能为了格式编造。
 - **不要在未确定核心梗的情况下排布大纲**。核心梗三代论（主题 -- 题材核心 -- 核心情绪）是大纲的地基，跳过它会导致结构松散、爽点散乱。
 
 ---
