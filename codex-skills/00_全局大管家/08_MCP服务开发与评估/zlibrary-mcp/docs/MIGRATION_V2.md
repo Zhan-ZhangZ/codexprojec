@@ -295,7 +295,7 @@ If you encounter issues:
 git checkout v1.9.9  # Last v1.x version
 
 # Option 2: Report issue
-# GitHub: https://github.com/loganrooks/zlibrary-mcp/issues
+# GitHub: https://github.com/rookslog/zlibrary-mcp/issues
 ```
 
 ---
@@ -335,10 +335,10 @@ rm -rf ~/.cache/zlibrary-mcp/
 
 **Documentation**:
 - [UV Documentation](https://docs.astral.sh/uv/)
-- [UV Migration Plan](UV_MIGRATION_PLAN.md)
-- [Architecture Analysis](ARCHITECTURE_ANALYSIS.md)
+- [UV Migration Plan](https://github.com/rookslog/zlibrary-mcp/blob/v1.4.0/docs/UV_MIGRATION_PLAN.md)
+- [Architecture Analysis](https://github.com/rookslog/zlibrary-mcp/blob/v1.4.0/docs/ARCHITECTURE_ANALYSIS.md)
 
-**Issues**: https://github.com/loganrooks/zlibrary-mcp/issues
+**Issues**: https://github.com/rookslog/zlibrary-mcp/issues
 
 ---
 

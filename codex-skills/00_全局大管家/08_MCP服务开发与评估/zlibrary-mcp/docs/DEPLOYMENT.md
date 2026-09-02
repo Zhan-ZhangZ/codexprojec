@@ -22,7 +22,7 @@ The Z-Library MCP server uses a dual-language architecture:
 
 **Path Resolution Strategy**: Python scripts stay in source `lib/` directory, TypeScript references them via relative paths from `dist/`.
 
-**For details**: See [ADR-004](adr/ADR-004-Python-Bridge-Path-Resolution.md)
+**For details**: See [ADR-004](https://github.com/rookslog/zlibrary-mcp/blob/v1.4.0/docs/adr/ADR-004-Python-Bridge-Path-Resolution.md)
 
 ---
 
@@ -59,7 +59,7 @@ npm link zlibrary-mcp
 
 #### 3. **Clone and Build**
 ```bash
-git clone https://github.com/loganrooks/zlibrary-mcp.git
+git clone https://github.com/rookslog/zlibrary-mcp.git
 cd zlibrary-mcp
 npm install
 npm run build
@@ -435,10 +435,10 @@ import('./dist/lib/python-bridge.js').then(async (m) => {
 
 ## Resources
 
-- **Architecture Decision**: [ADR-004](adr/ADR-004-Python-Bridge-Path-Resolution.md)
-- **Build Validation**: `scripts/validate-python-bridge.js`
+- **Architecture Decision**: [ADR-004](https://github.com/rookslog/zlibrary-mcp/blob/v1.4.0/docs/adr/ADR-004-Python-Bridge-Path-Resolution.md)
+- **Build Validation**: [validate-python-bridge.js](https://github.com/rookslog/zlibrary-mcp/blob/v1.4.0/scripts/validate-python-bridge.js)
 - **Integration Tests**: `__tests__/integration/`
-- **Main Docs**: [CLAUDE.md](../CLAUDE.md)
+- **Main Docs**: [AGENTS.md](https://github.com/rookslog/zlibrary-mcp/blob/v1.4.0/AGENTS.md)
 
 ---
 
