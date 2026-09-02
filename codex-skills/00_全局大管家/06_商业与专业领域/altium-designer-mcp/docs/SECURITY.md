@@ -45,7 +45,8 @@ The following are within scope and have concrete controls behind them.
 | Internal-path disclosure in error messages | Denial message is generic; file errors render only the final path component | generic denial `src/mcp/server.rs`; `sanitise_path_for_client` `src/altium/error.rs` |
 | Runaway-write / backup-thrash DoS (e.g. an AI loop) | Token-bucket rate limiter gates **mutating** tools only | gate `src/mcp/server.rs`; `is_mutating_tool` `src/mcp/server.rs` |
 | Malformed / truncated / hostile `.PcbLib` / `.SchLib` input | Parsers return `Err`, never panic, on arbitrary bytes — proven by property tests | `tests/property_tests.rs` |
-| Decompression bombs / oversized embedded 3D models | Each embedded model is decompressed through a bounded reader; output beyond `MAX_DECOMPRESSED_MODEL_BYTES` (256 MiB) is rejected and the model skipped, so a high-ratio zlib stream cannot exhaust memory | `decompress_model_data` / `decompress_capped` `src/altium/pcblib/reader.rs` |
+| A panic anywhere below a tool (a parser assertion, a third-party crate's debug check) taking the server — and the assistant's session — down | The dispatcher runs every tool call under `catch_unwind` and answers a panic with an ordinary `isError` result; the payload is logged server-side only. The release profile keeps unwinding on purpose | `guard_panics` `src/mcp/server.rs`; `[profile.release]` `Cargo.toml` |
+| Decompression bombs / oversized embedded 3D models | Each embedded model is decompressed through a bounded reader; output beyond `MAX_DECOMPRESSED_MODEL_BYTES` (256 MiB) is rejected and the model skipped, so a high-ratio zlib stream cannot exhaust memory | `decompress_model_data` / `decompress_capped` `src/altium/pcblib/reader/models.rs` |
 
 A note on the parser guarantee: the no-panic property is not merely asserted, it is
 exercised. The property tests both feed purely random bytes (rejected early at the OLE
@@ -85,9 +86,10 @@ intermediate failure messages likewise surface only the sanitised file name.
 
 ### Backups with bounded retention (`create_backup` / `MAX_BACKUPS`)
 
-Before a destructive operation, `create_backup` (`src/mcp/server.rs`) copies the
-existing file to a timestamped `filepath.YYYYMMDD_HHMMSS.bak`. New-file creation is a
-no-op. Retention is bounded: `MAX_BACKUPS = 5` (`src/mcp/server.rs`) and
+Before a destructive operation — including `restore_backup`, which snapshots the
+current file before the chosen backup replaces it — `create_backup` (`src/mcp/server.rs`)
+copies the existing file to a timestamped `filepath.YYYYMMDD_HHMMSS.bak`. New-file
+creation is a no-op. Retention is bounded: `MAX_BACKUPS = 5` (`src/mcp/server.rs`) and
 `cleanup_old_backups` (`src/mcp/server.rs`) prunes the oldest backups so the safety
 net cannot itself become an unbounded-disk-usage DoS.
 
@@ -111,7 +113,7 @@ component (falling back to `<file>`). This is deliberately important for writes:
 atomic-write temporary path (for example `…/MyLib.pcblib.tmp`) is never surfaced to the
 client. The full path is retained in the structured error field for `tracing` at debug
 level only. Regression tests assert that neither read nor write errors leak their
-directory (`src/altium/error.rs`, `src/altium/error.rs`).
+directory (`src/altium/error.rs`).
 
 **Central sanitiser choke-point.** Beyond the per-variant `Display` sanitisation above,
 every client-facing error funnels through one egress point: `ToolCallResult::error` and

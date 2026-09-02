@@ -20,71 +20,66 @@ src/
 ├── lib.rs                       # Library crate root
 ├── main.rs                      # CLI entry point
 ├── error.rs                     # Top-level error types
+├── util.rs                      # Path redaction, CSV escaping, UniqueId generation
 │
 ├── config/                      # Configuration
 │   ├── mod.rs                   # Module exports
 │   └── settings.rs              # Config file parsing + defaults
 │
-├── altium/                      # Altium file I/O
+├── security/                    # Safety controls
 │   ├── mod.rs                   # Module exports
-│   ├── error.rs                 # Altium-specific errors
+│   ├── audit.rs                 # Append-only audit log for mutating tools
+│   └── rate_limit.rs            # Token-bucket rate limiter (mutating tools)
+│
+├── altium/                      # Altium file I/O
+│   ├── mod.rs                   # Shared helpers: Windows-1252, OLE names, atomic save
+│   ├── error.rs                 # Altium-specific errors (path-sanitised Display)
+│   ├── bytes.rs                 # Bounds-checked little-endian scalar readers
+│   ├── base64_opt.rs            # Serde base64 codec for embedded image bytes
+│   ├── framing.rs               # Shared block / Pascal-string / C-string frames
+│   ├── text.rs                  # TextJustification (shared enum)
+│   ├── serde_round.rs           # 6-decimal f64 rounding on serialise
+│   ├── libpkg.rs                # .LibPkg project-file generator
 │   ├── pcblib/
-│   │   ├── mod.rs               # PcbLib module exports
-│   │   ├── primitives.rs        # Pad, Track, Arc, Region, Text, Fill, etc.
-│   │   ├── reader.rs            # Binary parsing
-│   │   └── writer.rs            # Binary encoding
-│   └── schlib/
-│       ├── mod.rs               # SchLib module exports
-│       ├── primitives.rs        # Pin, Rectangle, Line, Arc, Ellipse, etc.
-│       ├── reader.rs            # Binary parsing
-│       └── writer.rs            # Binary encoding
+│   │   ├── mod.rs               # PcbLib + Footprint types, CRUD
+│   │   ├── read_io.rs           # OLE stream orchestration (read)
+│   │   ├── write_io.rs          # OLE stream orchestration (write)
+│   │   ├── reader/              # Binary parsing (dispatch, per-primitive, 3D models)
+│   │   ├── writer.rs            # Binary encoding (byte templates)
+│   │   ├── primitives/          # Pad, Via, Track, Arc, Region, Text, Fill, bodies
+│   │   ├── flags.rs             # On-disk flag-word bits
+│   │   ├── units.rs             # mm ↔ Altium internal units
+│   │   └── assets/              # Captured Library/Data stack + FileVersionInfo
+│   └── schlib/                  # (mirrors pcblib/ — same module shape)
+│       ├── mod.rs               # SchLib + Symbol types, CRUD
+│       ├── read_io.rs           # OLE stream orchestration (read)
+│       ├── write_io.rs          # OLE stream orchestration (write)
+│       ├── reader/              # Record parsing (dispatch + per-record parsers)
+│       ├── writer.rs            # Record encoding (omit-when-default)
+│       ├── primitives/          # Pin, shapes, text, footprint models
+│       ├── coord.rs             # Fractional (_Frac) coordinate codec
+│       ├── pin_aux.rs           # PinFrac / PinSymbolLineWidth aux streams
+│       └── storage.rs           # /Storage stream + compressed-storage framing
 │
 └── mcp/                         # MCP server implementation
     ├── mod.rs                   # Module exports
-    ├── server.rs                # JSON-RPC server + tool handlers
+    ├── server.rs                # JSON-RPC dispatch, path validation, backups, audit
     ├── protocol.rs              # MCP protocol types
-    └── transport.rs             # stdio transport
+    ├── transport.rs             # stdio transport
+    ├── tool_definitions.rs      # Tool schemas (source of truth for docs/TOOLS.md)
+    ├── tool_docs.rs             # docs/TOOLS.md generator + drift guard (test-only)
+    └── tools/                   # One file per tool family (read_write, compare, …)
+        ├── allowed_keys.rs      # JSON keys the write tools accept, derived from the structs
+        └── mutation_fidelity.rs # (test-only) every mutating tool leaves untouched components byte-identical
 ```
 
 ---
 
 ## Data Flow: Component Creation
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ CREATE FOOTPRINT: AI calculates dimensions, tool writes file                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Engineer              AI                            MCP Server             │
-│    │                    │                                │                  │
-│    │  "Create 0603"     │                                │                  │
-│    ├───────────────────►│                                │                  │
-│    │                    │                                │                  │
-│    │                    │  AI reasons about:             │                  │
-│    │                    │  • IPC-7351B formulas          │                  │
-│    │                    │  • Pad size calculation        │                  │
-│    │                    │  • Courtyard margins           │                  │
-│    │                    │  • Silkscreen placement        │                  │
-│    │                    │                                │                  │
-│    │                    │  write_pcblib                  │                  │
-│    │                    │  { filepath, footprints: [{    │                  │
-│    │                    │      name, pads, tracks,       │                  │
-│    │                    │      arcs, regions, text }]}   │                  │
-│    │                    ├───────────────────────────────►│                  │
-│    │                    │                                │                  │
-│    │                    │                                │  Write OLE file  │
-│    │                    │                                │  with primitives │
-│    │                    │                                │                  │
-│    │                    │◄───────────────────────────────┤                  │
-│    │                    │  { success: true }             │                  │
-│    │                    │                                │                  │
-│    │◄───────────────────┤                                │                  │
-│    │  "Footprint        │                                │                  │
-│    │   RESC1608X55N     │                                │                  │
-│    │   created!"        │                                │                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+See [README § How It Works](../README.md#how-it-works) for the sequence diagram of a
+component-creation call (engineer → AI → MCP server): the AI computes the geometry and
+calls `write_pcblib` / `write_schlib`; the server writes the OLE compound document.
 
 ---
 
@@ -118,9 +113,18 @@ Altium libraries use OLE Compound File Binary (CFB) format:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The `Data` stream contains binary records for each primitive. The exact binary
-format is being reverse-engineered from existing libraries and prior art
-(AltiumSharp, python-altium).
+The `Data` stream contains binary records for each primitive. The diagram above
+is a simplification; the full stream inventory and every record's byte layout are
+documented in [PCBLIB_FORMAT.md](PCBLIB_FORMAT.md) and
+[SCHLIB_FORMAT.md](SCHLIB_FORMAT.md), reverse-engineered from Altium-authored
+golden fixtures and prior art (AltiumSharp, python-altium) and enforced at three layers,
+each holding the golden's bytes through a different route:
+
+| Layer | Suite | Route |
+|-------|-------|-------|
+| Library API | `tests/golden_fidelity.rs` | `PcbLib::open` → `save`, every stream and parameter block; two saves of a library, and a save of our own output, are byte-identical |
+| JSON boundary | `fidelity_replay` in `src/mcp/tools/read_write.rs` | `read_*` → `write_*` and `read_*` → `update_component`, re-reading the server's own output save after save |
+| Mutating tools | `src/mcp/tools/mutation_fidelity.rs` | each tool on a copy of the golden; every component it was not asked to touch must be byte-identical, and export → import / merge must be too |
 
 ---
 
@@ -132,23 +136,9 @@ See [README.md § MCP Tools](../README.md#mcp-tools) for the complete tool refer
 
 ## Security Considerations
 
-### File Access
-
-- The MCP server only accesses paths configured in the config file
-- No arbitrary file system access
-- Path traversal attacks are prevented
-
-### Input Validation
-
-- Primitive coordinates and dimensions are validated
-- Invalid inputs return clear error messages
-- No code execution from user input
-
-### Error Handling
-
-- Internal errors are logged but not exposed to users
-- Sensitive paths are sanitised in error messages
-- Stack traces are only shown in debug mode
+See [docs/SECURITY.md](SECURITY.md) for the threat model, the concrete controls
+(path confinement, error sanitisation, rate limiting, bounded decompression), and
+where each lives in the source.
 
 ---
 

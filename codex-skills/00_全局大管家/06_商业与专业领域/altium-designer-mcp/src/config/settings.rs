@@ -36,6 +36,20 @@ pub struct Config {
     pub rate_limit: RateLimitConfig,
 }
 
+impl Default for Config {
+    /// The configuration a missing config file stands for: no allowed paths
+    /// (until `--allow` grants some), `warn` logging, default rate limits.
+    fn default() -> Self {
+        Self {
+            _schema: None,
+            _comment: None,
+            allowed_paths: Vec::new(),
+            logging: LoggingConfig::default(),
+            rate_limit: RateLimitConfig::default(),
+        }
+    }
+}
+
 impl Config {
     /// Validates the configuration.
     ///

@@ -1,6 +1,6 @@
 [package]
 name = "altium-designer-mcp"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 license = "GPL-3.0-or-later"
@@ -73,7 +73,7 @@ uuid = { version = "1.11", features = ["v4"] }
 regex = "1.11"
 
 # Base64 encoding (for STEP model extraction)
-base64 = "0.22"
+base64 = "0.23"
 
 # Ordered hash map (preserves insertion order for SchLib symbols)
 indexmap = { version = "2.7", features = ["serde"] }
@@ -94,7 +94,10 @@ proptest = "1.6"
 opt-level = 3
 lto = true
 strip = true
-panic = "abort"
+# Unwinding (the default) is deliberate: the tool dispatcher catches a panic
+# and answers the call with an error result, so one failing tool cannot take
+# the server — and the assistant's whole session — down. `panic = "abort"`
+# would make that safety net impossible.
 codegen-units = 1
 
 [lints.rust]
@@ -107,3 +110,11 @@ nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 # Allow multiple versions of transitive dependencies (we can't control these)
 multiple_crate_versions = "allow"
+
+# cfb 0.14.0 walks the whole mini-stream FAT chain on every access to a small
+# stream and every path lookup walks an unbalanced tree, so a library of n
+# components costs O(n^2) to read or write. Fixed upstream in
+# mdsteele/rust-cfb#81 (merged 2026-08-28); pinned to that merge until a
+# release carries it — then bump `cfb` above and delete this block.
+[patch.crates-io]
+cfb = { git = "https://github.com/mdsteele/rust-cfb", rev = "8c1ec76" }
