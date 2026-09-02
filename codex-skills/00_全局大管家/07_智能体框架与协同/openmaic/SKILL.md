@@ -8,9 +8,9 @@ description: "多智能体交互式数字课堂与课件全自动生成套件。
 OpenMAIC（Open Multi-Agent Interactive Classroom）是由清华大学多智能体交互与协作课题组（THU-MAIC）开源的互动教学与课件生成系统。能够将任何主题、文档或音视频瞬间转化为包含 AI 教师授课、AI 同学讨论互动、白板推演、测验 Quiz、交互式仿真及 PBL（项目制学习）的沉浸式虚拟课堂。
 
 > ⚠️ **前置必读**：在执行任何具体操作或构建课堂前，请先使用 `view_file` 阅读本地说明文档：
-> - 中文主文档：[README-zh.md](file:///Users/zz/codexproject/codex-skills/00_全局大管家/07_智能体框架与协同/openmaic/README-zh.md)
-> - 英文主文档：[README.md](file:///Users/zz/codexproject/codex-skills/00_全局大管家/07_智能体框架与协同/openmaic/README.md)
-> - 专项参考指南：详见 `references/` 目录中的 [live-demo.md](file:///Users/zz/codexproject/codex-skills/00_全局大管家/07_智能体框架与协同/openmaic/references/live-demo.md), [startup-modes.md](file:///Users/zz/codexproject/codex-skills/00_全局大管家/07_智能体框架与协同/openmaic/references/startup-modes.md), [provider-keys.md](file:///Users/zz/codexproject/codex-skills/00_全局大管家/07_智能体框架与协同/openmaic/references/provider-keys.md), [generate-flow.md](file:///Users/zz/codexproject/codex-skills/00_全局大管家/07_智能体框架与协同/openmaic/references/generate-flow.md), [extend.md](file:///Users/zz/codexproject/codex-skills/00_全局大管家/07_智能体框架与协同/openmaic/references/extend.md)。
+> - 中文主文档：[README-zh.md](README-zh.md)
+> - 英文主文档：[README.md](README.md)
+> - 专项参考指南：详见 `references/` 目录中的 [live-demo.md](references/live-demo.md), [startup-modes.md](references/startup-modes.md), [provider-keys.md](references/provider-keys.md), [generate-flow.md](references/generate-flow.md), [extend.md](references/extend.md)。
 
 ---
 
