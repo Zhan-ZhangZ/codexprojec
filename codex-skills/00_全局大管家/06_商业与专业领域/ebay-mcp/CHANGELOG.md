@@ -7,13 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.3] - 2026-08-07
+
 ### Fixed
 
-- **Packaging** — Ship `build/mcp/**/*.js` in the published tarball. The architecture refactor in v1.8.9 moved runtime/HTTP transport into `src/mcp/`, but the `files` whitelist in `package.json` was not updated, so `npm install -g ebay-mcp@1.8.9` produced `ERR_MODULE_NOT_FOUND: Cannot find module '.../build/mcp/runtime.js'` at startup. ([#120](https://github.com/YosefHayim/ebay-mcp/issues/120))
+- **Empty-body MCP results (#151)** — eBay 201/204 responses with no body no longer produce invalid MCP content (`JSON.stringify(undefined)`). Hosts receive a valid `{ status: "success" }` text block.
+- **Published `diagnose` / setup / skills (#153)** — npm scripts run built `node build/scripts/*.js` entrypoints; `ebay-mcp diagnose` works on global installs without `tsx` or `src/`.
+- **Refresh token persistence (#154)** — serialize concurrent `.env` credential writes, best-effort fsync, and fail OAuth exchange when eBay omits `refresh_token` so tools never claim a false save.
+- **Fulfillment policy shipping codes (#152)** — document marketplace-valid `shippingServiceCode` discovery and a known-good FLAT_RATE sketch (eBay dual-index errors are remote validation, not client array duplication).
+
+## [1.14.2] - 2026-07-28
+
+### Fixed
+
+- **Trading API site ID** — Derive `X-EBAY-API-SITEID` from `EBAY_MARKETPLACE_ID` instead of hardcoding US site `0`, so non-US listing create/revise no longer fails with “Invalid auction currency.” Optional `EBAY_SITE_ID` override. ([#141](https://github.com/YosefHayim/ebay-mcp/pull/141))
+- **API Sync report** — Correct Notification tool name mappings and detect bare class-field API methods so weekly coverage no longer falsely flags already-implemented Commerce Notification endpoints. ([#142](https://github.com/YosefHayim/ebay-mcp/issues/142))
+
+## [1.14.1] - 2026-07-19
+
+Patch release for structure cleanup since **1.14.0**. No intentional MCP tool renames or public API behavior changes.
 
 ### Changed
 
-- **API Status Docs** — Refreshed API status snapshot documentation in 5 post-`v1.8.5` pushes (`[skip ci]` docs-only updates)
+- **Marketing** — Split Marketing API and schemas into campaigns / ads / promotions / reports (+ stable facades). ([#138](https://github.com/YosefHayim/ebay-mcp/issues/138))
+- **Inventory** — Split Inventory API into items / offers / locations (+ stable facade). ([#138](https://github.com/YosefHayim/ebay-mcp/issues/138))
+- **Setup / auth** — Re-homed setup wizard, validator, security, and scope helpers into `scripts/`; OAuth callback helper into `auth/`. ([#139](https://github.com/YosefHayim/ebay-mcp/issues/139))
+- **OpenAPI paths** — Renamed generated folder `markeitng-and-promotions` → `marketing-and-promotions`. ([#140](https://github.com/YosefHayim/ebay-mcp/issues/140))
+- **Tools / docs** — Collocated tool types under [`types.ts`](https://github.com/YosefHayim/ebay-mcp/blob/v1.15.0/src/tools/types.ts); truth-up ARCHITECTURE, AGENTS, and locale READMEs
+
+## [1.14.0] - 2026-07-19
+
+### Added
+
+- **Deploy / HTTP** — Container-friendly HTTP defaults (`PORT`, bind `0.0.0.0`, `MCP_AUTH_TOKEN`)
+- **Locale** — `Accept-Language` support and richer eBay error bodies
+- **Read-only mode** — `EBAY_READ_ONLY` filters write tools out of the MCP surface
+- **Finding comps** — Browse/Finding sold-listing helpers for pricing comps
+- **Seller CS helpers** — Fulfillment cancellation/refund scan tools
+- **Auth** — Basic-auth token introspection support
+
+### Changed
+
+- **Tool schemas** — Migrated tool schemas to the Effect-backed adapter
+- **Style** — Align code with the style guide; extract rate-limit tracker
+- **Tooling** — Migrate package management/CI to pnpm; restore reusable CI workflow templates
+- **Docs** — README hero refresh and structure polish
+
+### Fixed
+
+- **Negotiation** — Confirmed removal of `ebay_get_offers_to_buyers`, which called a nonexistent eBay endpoint (`GET /sell/negotiation/v1/offer`). Use `ebay_find_eligible_items` and `ebay_send_offer_to_interested_buyers` instead. ([#136](https://github.com/YosefHayim/ebay-mcp/issues/136))
+- **Compliance** — `ebay_get_listing_violations` / `ebay_get_listing_violations_summary` no longer hit a bare 404 after eBay decommissioned the Sell Compliance API on 2026-03-30; they fail fast with a clear Seller Hub Issue Resolution Center redirect. ([#137](https://github.com/YosefHayim/ebay-mcp/issues/137))
+- **Errors** — Typed API error modules and Effect call-site alignment for auth/trading failures
+- **CI** — Correct `ppnpm` typo in workflows
+
+## [1.13.3] - 2026-07-04
+
+### Changed
+
+- **Style backlog** — `@/` imports, UI in the CI gate, drop dead code
 
 ## [1.8.5] - 2026-03-21
 
@@ -588,7 +639,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Regulatory & metadata: RegionType, ExtendedProducerResponsibilityEnum
   - All enums include JSDoc documentation with eBay API references
 - **Enhanced Type Safety**
-  - Updated all Zod validation schemas in `src/tools/schemas.ts` to use `z.nativeEnum()` instead of string enums
+  - Updated all Zod validation schemas in [`schemas.ts`](https://github.com/YosefHayim/ebay-mcp/blob/v1.15.0/src/tools/schemas.ts) to use `z.nativeEnum()` instead of string enums
   - 23 schema objects now use native enum validation
   - Provides compile-time type checking and runtime validation
 - **Comprehensive Test Coverage**
@@ -606,7 +657,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated 19 tool input schemas to use native enum types via `z.nativeEnum()`
   - Improved auto-completion and compile-time validation for tool parameters
 - **Type System Organization**
-  - Centralized enum exports through `src/types/index.ts`
+  - Centralized enum exports through [`index.ts`](https://github.com/YosefHayim/ebay-mcp/blob/v1.15.0/src/types/index.ts)
   - Improved module structure for better tree-shaking and IDE support
 
 ### Quality Improvements
@@ -627,7 +678,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Marketing API Test Suite**: Fixed 11 failing tests in `tests/unit/api/marketing.test.ts`
+- **Marketing API Test Suite**: Fixed 11 failing tests in [`marketing.test.ts`](https://github.com/YosefHayim/ebay-mcp/blob/v1.15.0/tests/unit/api/marketing.test.ts)
   - Fixed `updateAdGroupBids` test: Added missing `adGroupId` parameter and corrected endpoint path
   - Fixed `updateAdGroupKeywords` test: Added missing `adGroupId` parameter and corrected endpoint path
   - Fixed keyword bulk operation tests: Changed singular endpoints to plural (`bulk_create_keywords`, `bulk_delete_keywords`, `bulk_update_keyword_bids`)

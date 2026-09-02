@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>O servidor MCP do eBay — dê ao Claude, ao Cursor e a qualquer assistente de IA acesso completo às Sell APIs do eBay. 322 ferramentas para estoque, pedidos, marketing e analytics, rodando localmente com suas próprias chaves.</strong>
+  <strong>O servidor MCP do eBay — dê ao Claude, ao Cursor e a qualquer assistente de IA acesso completo às Sell APIs do eBay. 299 ferramentas para estoque, pedidos, marketing e analytics, rodando localmente com suas próprias chaves.</strong>
 </p>
 
 <p align="center"><sub>Projeto de código aberto não oficial — sem afiliação, autorização ou endosso da eBay Inc.</sub></p>
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tools-322-8957e5?logo=ebay&logoColor=white" alt="322 ferramentas da API do eBay" />
+  <img src="https://img.shields.io/badge/tools-299-8957e5?logo=ebay&logoColor=white" alt="299 ferramentas da API do eBay" />
   <img src="https://img.shields.io/badge/Sell%20API%20coverage-100%25-success" alt="100% de cobertura da Sell API do eBay" />
   <img src="https://img.shields.io/badge/Model%20Context%20Protocol-compatible-000000" alt="compatível com o Model Context Protocol" />
   <img src="https://img.shields.io/badge/tests-1%2C000%2B%20passing-3fb950?logo=vitest&logoColor=white" alt="mais de 1000 testes passando" />
@@ -45,7 +45,9 @@
 
 ---
 
-**eBay MCP** é um servidor local do [Model Context Protocol](https://modelcontextprotocol.io) que conecta assistentes de IA —Claude Desktop, Claude Code, Cursor, Cline, Windsurf, Zed, Continue.dev, Roo Code e Amazon Q— diretamente às **Sell APIs do eBay**. Ele expõe **322 ferramentas** abrangendo **100% da superfície da Sell API do eBay** (270 endpoints únicos) para gestão de estoque, processamento de pedidos, marketing de anúncios patrocinados, analytics e ferramentas para desenvolvedores. Tudo roda na sua máquina via STDIO ou HTTP local — **sem relay na nuvem**, e suas credenciais do eBay nunca saem do seu computador.
+> **Nota:** o [README.md](README.md) em inglês é a fonte da verdade para claims de produto atuais (famílias de ferramentas, APIs descontinuadas, notas de versão). Esta tradução pode estar atrasada.
+
+**eBay MCP** é um servidor local do [Model Context Protocol](https://modelcontextprotocol.io) que conecta assistentes de IA —Claude Desktop, Claude Code, Cursor, Cline, Windsurf, Zed, Continue.dev, Roo Code e Amazon Q— diretamente às **Sell APIs do eBay**. Ele expõe **299 ferramentas** abrangendo **100% da superfície da Sell API do eBay** (270 endpoints únicos) para gestão de estoque, processamento de pedidos, marketing de anúncios patrocinados, analytics e ferramentas para desenvolvedores. Tudo roda na sua máquina via STDIO ou HTTP local — **sem relay na nuvem**, e suas credenciais do eBay nunca saem do seu computador.
 
 > **Aviso legal:** Projeto não oficial de terceiros — **sem afiliação ou endosso da eBay Inc.** Fornecido "como está", sem garantia. Você é responsável por cumprir o [Contrato de licença da API do eBay](https://developer.ebay.com/join/api-license-agreement) e os [requisitos de tratamento de dados](https://developer.ebay.com/api-docs/static/data-handling-update.html), por manter suas credenciais seguras e por respeitar os limites de taxa. Teste no sandbox antes de ir para produção. Consulte [LICENSE](LICENSE), [SECURITY.md](SECURITY.md) e [EBAY_COMPLIANCE.md](EBAY_COMPLIANCE.md).
 
@@ -69,7 +71,7 @@
 
 ## Recursos
 
-- **322 ferramentas da API do eBay** — 100% de cobertura das Sell APIs do eBay em estoque, pedidos, marketing, analytics, metadados, taxonomia e ferramentas para desenvolvedores.
+- **299 ferramentas da API do eBay** — 100% de cobertura das Sell APIs do eBay em estoque, pedidos, marketing, analytics, metadados, taxonomia e ferramentas para desenvolvedores.
 - **9 clientes de IA, autoconfigurados** — Claude Desktop, Cursor, Zed, Cline, Continue.dev, Windsurf, Roo Code, Claude Code CLI e Amazon Q Developer.
 - **OAuth 2.0 integrado** — gestão completa de tokens de usuário com renovação automática e fallback inteligente de tokens de usuário (10k–50k req/dia) para credenciais de cliente (1k req/dia).
 - **Resiliente por padrão** — nova tentativa automática com recuo exponencial em limites de taxa `429` e exibição de erros clara e consistente.
@@ -91,7 +93,7 @@ Ambos falam com os mesmos endpoints do eBay — a diferença é tudo o que você
 | Validação de entradas | Esquemas Zod + tipos TypeScript em cada ferramenta | Nenhuma — você valida seus próprios payloads |
 | Configuração | Um assistente (`npm run setup`) | Auth, cabeçalhos e marketplace por chamada |
 | Suporte a clientes de IA | 9 clientes autoconfigurados | Não se aplica |
-| Cobertura da API | 322 ferramentas em 100% das Sell APIs, prontas para usar | Você constrói cada requisição a partir da documentação |
+| Cobertura da API | 299 ferramentas em 100% das Sell APIs, prontas para usar | Você constrói cada requisição a partir da documentação |
 | Hospedagem | Roda localmente, sem relay na nuvem | Sua própria infraestrutura |
 
 ## Configuração com IA em um clique
@@ -218,7 +220,7 @@ Os limites do token de usuário variam conforme o nível da conta (Individual 10
 
 ### Compatibilidade de clientes MCP
 
-Autoconfigurados pelo `npm run setup`. Requer Node.js ≥ 18 e o protocolo MCP 1.0+ via STDIO (padrão) ou HTTP.
+Autoconfigurados pelo `npm run setup`. Requer Node.js ≥ 20 e o protocolo MCP 1.0+ via STDIO (padrão) ou HTTP.
 
 | Cliente                | Plataforma            | Caminho de configuração                                                     |
 | ---------------------- | --------------------- | --------------------------------------------------------------------------- |
@@ -234,21 +236,24 @@ Autoconfigurados pelo `npm run setup`. Requer Node.js ≥ 18 e o protocolo MCP 1
 
 ## Ferramentas disponíveis
 
-**322 ferramentas**, 100% de cobertura da Sell API, organizadas por categoria. Cada link aponta para as definições de ferramentas e seus handlers em [`src/tools/categories/`](src/tools/categories/):
+**299 ferramentas**, 100% de cobertura da Sell API, organizadas por categoria. Cada link aponta para as definições de ferramentas e seus handlers em [`src/tools/categories`](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categories):
 
 | Categoria | O que você pode fazer |
 | --- | --- |
-| [Account](src/tools/categories/account.ts) | Políticas de negócio, envio, pagamento e devolução; programas; assinaturas; imposto sobre vendas |
-| [Inventory](src/tools/categories/inventory.ts) | Itens de estoque, ofertas, locais, grupos de itens, operações em massa, mapeamento SKU/local |
-| [Fulfillment](src/tools/categories/fulfillment.ts) | Pedidos, envio, reembolsos, disputas, evidências de disputas de pagamento |
-| [Marketing](src/tools/categories/marketing.ts) | Campanhas de anúncios patrocinados, anúncios, promoções, lances, operações em massa |
-| [Analytics](src/tools/categories/analytics.ts) | Relatórios de tráfego, padrões do vendedor, métricas de atendimento ao cliente |
-| [Communication](src/tools/categories/communication.ts) | Mensagens comprador–vendedor, negociações, notificações, avaliações |
-| [Metadata](src/tools/categories/metadata.ts) | Políticas de devolução, jurisdições de imposto sobre vendas, compatibilidade automotiva |
-| [Taxonomy](src/tools/categories/taxonomy.ts) | Árvores de categorias, aspectos de itens, condições de itens |
-| [Trading (XML legado)](src/tools/categories/trading.ts) | Criar, revisar, republicar e encerrar anúncios de preço fixo |
-| [Developer](src/tools/categories/developer.ts) | Limites de taxa, chaves de assinatura, registro de clientes |
-| [Token Management](src/tools/categories/token-management.ts) | Geração de URL de OAuth e gestão de tokens |
+| [Connector](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesconnector.ts) | Ferramentas search/fetch do conector ChatGPT sobre o catálogo eBay MCP |
+| [Account](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesaccount.ts) | Políticas de negócio, envio, pagamento e devolução; programas; assinaturas; imposto sobre vendas |
+| [Inventory](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesinventory.ts) | Itens de estoque, ofertas, locais, grupos de itens, operações em massa, mapeamento SKU/local |
+| [Fulfillment](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesfulfillment.ts) | Pedidos, envio, reembolsos, disputas, evidências de disputas de pagamento |
+| [Marketing](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesmarketing.ts) | Campanhas de anúncios patrocinados, anúncios, promoções, lances, operações em massa |
+| [Analytics](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesanalytics.ts) | Relatórios de tráfego, padrões do vendedor, métricas de atendimento ao cliente |
+| [Communication](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriescommunication.ts) | Mensagens comprador–vendedor, negociações, notificações, avaliações |
+| [Metadata](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesmetadata.ts) | Políticas de devolução, jurisdições de imposto sobre vendas, compatibilidade automotiva |
+| [Taxonomy](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriestaxonomy.ts) | Árvores de categorias, aspectos de itens, condições de itens |
+| [Browse](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesbrowse.ts) | Busca de anúncios vendidos/concluídos (Finding API) para comparáveis de preço |
+| [Other](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesother.ts) | Identity, VeRO, tradução e APIs de suporte a envio internacional (ferramentas de Compliance reportam a desativação da eBay em 2026-03-30) |
+| [Trading (XML legado)](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriestrading.ts) | Criar, revisar, republicar e encerrar anúncios de preço fixo |
+| [Developer](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriesdeveloper.ts) | Limites de taxa, chaves de assinatura, registro de clientes |
+| [Token Management](https://github.com/YosefHayim/ebay-mcp/tree/v1.15.0/src/tools/categoriestokenManagement.ts) | Geração de URL de OAuth e gestão de tokens |
 
 **Ferramentas de exemplo:** `ebay_get_inventory_items`, `ebay_get_orders`, `ebay_create_offer`, `ebay_get_campaigns`, `ebay_get_oauth_url`.
 
@@ -294,7 +299,7 @@ Tarefas comuns, formuladas como você pediria ao seu assistente de IA:
 
 ### O que é o servidor MCP do eBay?
 
-Um servidor local do [Model Context Protocol](https://modelcontextprotocol.io) que expõe **322 ferramentas** cobrindo **100% das Sell APIs do eBay** (270 endpoints) para assistentes de IA — estoque, processamento de pedidos, marketing, analytics e ferramentas para desenvolvedores.
+Um servidor local do [Model Context Protocol](https://modelcontextprotocol.io) que expõe **299 ferramentas** cobrindo **100% das Sell APIs do eBay** (270 endpoints) para assistentes de IA — estoque, processamento de pedidos, marketing, analytics e ferramentas para desenvolvedores.
 
 ### Este é um produto oficial do eBay?
 
@@ -314,7 +319,7 @@ As visualizações interativas do [MCP Apps](#interface-interativa-mcp-apps) só
 
 ### Quantas APIs e ferramentas do eBay ele cobre?
 
-322 ferramentas em 270 endpoints únicos — 100% das Sell APIs do eBay.
+299 ferramentas em 270 endpoints únicos — 100% das Sell APIs do eBay.
 
 ### É gratuito e de código aberto?
 
@@ -326,7 +331,7 @@ Roda inteiramente na sua máquina via STDIO (ou HTTP local). Não há relay na n
 
 ### O que preciso para começar?
 
-Node.js ≥ 18, uma [conta de desenvolvedor do eBay](https://developer.ebay.com/) gratuita (Client ID + Client Secret) e então rodar `npm run setup`.
+Node.js ≥ 20, uma [conta de desenvolvedor do eBay](https://developer.ebay.com/) gratuita (Client ID + Client Secret) e então rodar `npm run setup`.
 
 ### Quais são os limites de taxa da API do eBay?
 

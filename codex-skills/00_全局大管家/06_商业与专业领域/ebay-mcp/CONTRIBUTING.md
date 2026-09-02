@@ -256,6 +256,7 @@ const getInventoryItemSchema = z.object({
 - **Use clear, concise language** - Avoid jargon when possible
 - **Include code examples** - Show usage with real examples
 - **Keep README updated** - Reflect all major changes in README.md
+- **Locale READMEs** - `README.md` (English) is the source of truth for product claims (tool families, decommissions, version notes). Update locale files (`README.*.md`) when those claims change, or add a short note that English leads until translation catches up.
 - **Update CHANGELOG** - Document all changes in CHANGELOG.md
 - **Use Markdown** - Follow GitHub-flavored Markdown conventions
 - **Include links** - Link to relevant documentation and resources
