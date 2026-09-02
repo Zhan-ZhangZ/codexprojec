@@ -24,11 +24,15 @@ import {
     getWeeklyNote,
     type IGranularity,
 } from "obsidian-daily-notes-interface";
+import type { NoteReadResult } from "./@types/notes";
 import type { CurrentSettings, Logger, MCPTool } from "./@types/settings";
 import { momentFn } from "./vaultasmcp-moment";
 import { NoteHandler } from "./vaultasmcp-NoteHandler";
 import { PathACLChecker } from "./vaultasmcp-PathACL";
 import { TemplateHandler } from "./vaultasmcp-TemplateHandler";
+
+// Cap read_multiple_notes to avoid flooding callers with content
+const MAX_READ_MULTIPLE_PATHS = 25;
 
 export class MCPTools {
     private noteHandler: NoteHandler;
@@ -61,8 +65,81 @@ export class MCPTools {
             type: "object" as const,
             properties: {
                 content: { type: "string" },
+                embeds: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            path: { type: "string" },
+                            subpath: { type: "string" },
+                        },
+                        required: ["path"],
+                    },
+                },
+                links: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            path: { type: "string" },
+                            subpath: { type: "string" },
+                        },
+                        required: ["path"],
+                    },
+                },
+                outline: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            text: { type: "string" },
+                            level: { type: "number" },
+                            line: {
+                                type: "number",
+                                description:
+                                    "0-based start line of this heading; " +
+                                    "pass as lineOffset to select or " +
+                                    "disambiguate it.",
+                            },
+                        },
+                        required: ["text", "level", "line"],
+                    },
+                },
+                frontmatter: { type: "object" },
+                startLine: {
+                    type: "number",
+                    description:
+                        "0-based file-relative line number of the " +
+                        "first returned line when whole-document " +
+                        "pagination is used.",
+                },
+                endLine: {
+                    type: "number",
+                    description:
+                        "0-based file-relative line number of the " +
+                        "last returned line when whole-document " +
+                        "pagination is used.",
+                },
+                totalLines: {
+                    type: "number",
+                    description:
+                        "Total line count of the whole document when " +
+                        "whole-document pagination is used.",
+                },
+                truncated: {
+                    type: "boolean",
+                    description:
+                        "Whether additional whole-document lines exist " +
+                        "beyond the returned pagination window.",
+                },
+                sizeBytes: {
+                    type: "number",
+                    description:
+                        "File size in bytes, on disk. Only returned " +
+                        "when metadataOnly is true.",
+                },
             },
-            required: ["content"],
+            required: [],
         };
 
         const pathSchema = {
@@ -84,23 +161,18 @@ export class MCPTools {
             required: ["notes"],
         };
 
-        const linksListSchema = {
-            type: "object" as const,
-            properties: {
-                links: {
-                    type: "array",
-                    items: { type: "string" },
-                },
-            },
-            required: ["links"],
-        };
-
         return [
             {
                 name: "read_note",
                 description:
-                    "Read note content by path. Returns raw markdown by default; " +
-                    "optionally filtered to named sections.",
+                    "Read note content by path. Returns raw markdown by " +
+                    "default, optionally filtered to one section or " +
+                    "windowed by file-relative lines; also returns embeds " +
+                    "(direct embed targets), links (direct outgoing " +
+                    "wikilinks), frontmatter, and, when not filtering to " +
+                    "a section, outline (heading list). Pass metadataOnly: " +
+                    "true to inspect a note's structure and size without " +
+                    "reading its content.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -109,35 +181,55 @@ export class MCPTools {
                             description:
                                 "Path to the note (e.g., 'folder/note.md')",
                         },
-                        sections: {
-                            type: "array",
-                            items: { type: "string" },
+                        heading: {
+                            type: "string",
                             description:
-                                "Return only these sections by heading text " +
-                                "(case-insensitive, includes subheadings).",
+                                "Return only the section under this " +
+                                "heading, by heading text " +
+                                "(case-insensitive, includes subheadings). " +
+                                "Throws if it matches more than one " +
+                                "heading in the note — use lineOffset to " +
+                                "disambiguate. Returns the whole resolved " +
+                                "section. Cannot be combined with lineLimit. " +
+                                "Ignored when metadataOnly is true.",
                         },
-                        includeEmbeds: {
+                        lineOffset: {
+                            type: "number",
+                            description:
+                                "When heading is absent, start a whole-" +
+                                "document read at this 0-based file-relative " +
+                                "line. When heading is present, select or " +
+                                "disambiguate the section by that heading's " +
+                                "0-based start line from outline[].line; " +
+                                "heading and lineOffset must agree or the " +
+                                "call throws. Ignored when metadataOnly is true.",
+                        },
+                        lineLimit: {
+                            type: "number",
+                            description:
+                                "Number of whole-document lines to return, " +
+                                "starting at lineOffset or line 0 if " +
+                                "lineOffset is omitted. Cannot be combined " +
+                                "with heading. Ignored when metadataOnly is true.",
+                        },
+                        metadataOnly: {
                             type: "boolean",
                             description:
-                                "Expand ![[embed]] blocks inline " +
-                                "(up to 2 levels deep, no circular refs); " +
-                                "expensive — use only when embeds are needed. " +
-                                "Default: false.",
-                        },
-                        includeLinks: {
-                            type: "boolean",
-                            description:
-                                "Ignored unless includeEmbeds is true. " +
-                                "Also expand regular [[links]] inline. " +
+                                "Skip content and return only embeds/" +
+                                "links/outline/frontmatter/sizeBytes. " +
+                                "Use to check a note's size before " +
+                                "deciding whether to read it in full or " +
+                                "in chunks (lineOffset/lineLimit). " +
                                 "Default: false.",
                         },
                         excludePatterns: {
                             type: "array",
                             items: { type: "string" },
                             description:
-                                "Ignored unless includeEmbeds is true. " +
-                                "Regex patterns to skip certain embeds; " +
-                                "matched against '[display](link)'.",
+                                "Regex patterns to exclude certain " +
+                                "embeds/links from the returned embeds " +
+                                "and links arrays; matched against " +
+                                "'[display](link)'.",
                         },
                     },
                     required: ["path"],
@@ -151,14 +243,28 @@ export class MCPTools {
                 name: "read_multiple_notes",
                 description:
                     "Read multiple notes in one request. " +
-                    "Returns a map of path to content or error.",
+                    "Returns a map of path to content or error. " +
+                    `Max ${MAX_READ_MULTIPLE_PATHS} paths per call. ` +
+                    "Pass metadataOnly: true to inspect each note's " +
+                    "structure and size without reading its content.",
                 inputSchema: {
                     type: "object",
                     properties: {
                         paths: {
                             type: "array",
                             items: { type: "string" },
-                            description: "Array of note paths to read",
+                            description:
+                                "Array of note paths to read " +
+                                `(max ${MAX_READ_MULTIPLE_PATHS}).`,
+                        },
+                        metadataOnly: {
+                            type: "boolean",
+                            description:
+                                "Skip content and return only embeds/" +
+                                "links/outline/frontmatter/sizeBytes for " +
+                                "each note. Use to triage many candidate " +
+                                "notes cheaply before deciding which to " +
+                                "read in full. Default: false.",
                         },
                     },
                     required: ["paths"],
@@ -172,6 +278,48 @@ export class MCPTools {
                                 type: "object",
                                 properties: {
                                     content: { type: "string" },
+                                    embeds: {
+                                        type: "array",
+                                        items: {
+                                            type: "object",
+                                            properties: {
+                                                path: { type: "string" },
+                                                subpath: { type: "string" },
+                                            },
+                                            required: ["path"],
+                                        },
+                                    },
+                                    links: {
+                                        type: "array",
+                                        items: {
+                                            type: "object",
+                                            properties: {
+                                                path: { type: "string" },
+                                                subpath: { type: "string" },
+                                            },
+                                            required: ["path"],
+                                        },
+                                    },
+                                    outline: {
+                                        type: "array",
+                                        items: {
+                                            type: "object",
+                                            properties: {
+                                                text: { type: "string" },
+                                                level: { type: "number" },
+                                                line: { type: "number" },
+                                            },
+                                            required: ["text", "level", "line"],
+                                        },
+                                    },
+                                    frontmatter: { type: "object" },
+                                    sizeBytes: {
+                                        type: "number",
+                                        description:
+                                            "File size in bytes, on disk. " +
+                                            "Only returned when " +
+                                            "metadataOnly is true.",
+                                    },
                                     error: { type: "string" },
                                 },
                             },
@@ -273,23 +421,6 @@ export class MCPTools {
                 },
             },
             {
-                name: "get_linked_notes",
-                description:
-                    "Get outgoing links from a note. " +
-                    "Returns links and embeds; does not return backlinks.",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        path: { type: "string" },
-                    },
-                    required: ["path"],
-                },
-                outputSchema: linksListSchema,
-                annotations: {
-                    readOnlyHint: true,
-                },
-            },
-            {
                 name: "list_notes",
                 description:
                     "List notes and subfolders in a directory (non-recursive). " +
@@ -372,6 +503,8 @@ export class MCPTools {
                 description:
                     "Append content to an existing note, " +
                     "at end of file or after a heading. " +
+                    "Throws if heading matches more than one heading in " +
+                    "the note — see lineOffset. " +
                     "Use patch_note instead when replacing existing content.",
                 inputSchema: {
                     type: "object",
@@ -381,8 +514,21 @@ export class MCPTools {
                         heading: {
                             type: "string",
                             description:
-                                "Append after this heading (e.g., '## Tasks'); " +
-                                "defaults to end of file.",
+                                "Append after this heading, by heading " +
+                                "text without '#' markers (e.g., 'Tasks'); " +
+                                "case-insensitive; defaults to end of " +
+                                "file. Throws if the text matches more " +
+                                "than one heading — use lineOffset to " +
+                                "disambiguate.",
+                        },
+                        lineOffset: {
+                            type: "number",
+                            description:
+                                "Select the heading by its 0-based start " +
+                                "line, from outline[].line. Usable alone " +
+                                "or with heading, in which case they must " +
+                                "agree or the call throws (refetch the " +
+                                "outline via metadataOnly and retry).",
                         },
                         separator: {
                             type: "string",
@@ -439,10 +585,12 @@ export class MCPTools {
                             type: "string",
                             description: "Replacement text.",
                         },
-                        section: {
-                            type: "string",
+                        lineOffset: {
+                            type: "number",
                             description:
-                                "Scope search to this heading (case-insensitive).",
+                                "Optional 0-based file line used to " +
+                                "disambiguate duplicate exact matches by " +
+                                "choosing the nearest occurrence.",
                         },
                     },
                     required: ["path", "old_text", "new_text"],
@@ -579,19 +727,19 @@ export class MCPTools {
     ): Promise<unknown> {
         switch (toolName) {
             case "read_note":
-                if (args.includeEmbeds) {
-                    return await this.noteHandler.readNoteWithEmbeds(
-                        args.path as string,
-                        args.excludePatterns as string[] | undefined,
-                        args.includeLinks as boolean | undefined,
-                    );
-                }
                 return await this.readNote(
                     args.path as string,
-                    args.sections as string[] | undefined,
+                    args.heading as string | undefined,
+                    args.metadataOnly as boolean | undefined,
+                    args.lineOffset as number | undefined,
+                    args.excludePatterns as string[] | undefined,
+                    args.lineLimit as number | undefined,
                 );
             case "read_multiple_notes":
-                return await this.readMultipleNotes(args.paths as string[]);
+                return await this.readMultipleNotes(
+                    args.paths as string[],
+                    args.metadataOnly as boolean | undefined,
+                );
             case "search_notes":
                 return await this.searchNotes(
                     args.tag as string | undefined,
@@ -605,8 +753,6 @@ export class MCPTools {
                     args.sort as "alpha" | "recent" | undefined,
                     args.limit as number | undefined,
                 );
-            case "get_linked_notes":
-                return this.getLinkedNotes(args.path as string);
             case "list_notes":
                 return this.listNotes(args.path as string);
             case "create_note":
@@ -622,13 +768,14 @@ export class MCPTools {
                     args.content as string,
                     args.heading as string | undefined,
                     args.separator as string | undefined,
+                    args.lineOffset as number | undefined,
                 );
             case "patch_note":
                 return await this.noteHandler.patchNote(
                     args.path as string,
                     args.old_text as string,
                     args.new_text as string,
-                    args.section as string | undefined,
+                    args.lineOffset as number | undefined,
                 );
             case "update_note":
                 return await this.updateNote(
@@ -657,21 +804,45 @@ export class MCPTools {
 
     private async readNote(
         path: string,
-        sections?: string[],
-    ): Promise<{ content: string }> {
-        return await this.noteHandler.readNote(path, sections);
+        heading?: string,
+        metadataOnly?: boolean,
+        lineOffset?: number,
+        excludePatterns?: string[],
+        lineLimit?: number,
+    ): Promise<NoteReadResult> {
+        return await this.noteHandler.readNote(
+            path,
+            heading,
+            metadataOnly,
+            lineOffset,
+            excludePatterns,
+            lineLimit,
+        );
     }
 
-    private async readMultipleNotes(paths: string[]): Promise<{
-        notes: Record<string, { content?: string; error?: string }>;
+    private async readMultipleNotes(
+        paths: string[],
+        metadataOnly?: boolean,
+    ): Promise<{
+        notes: Record<string, NoteReadResult & { error?: string }>;
     }> {
-        const results: Record<string, { content?: string; error?: string }> =
-            {};
+        if (paths.length > MAX_READ_MULTIPLE_PATHS) {
+            throw new Error(
+                `Too many paths requested (${paths.length}); ` +
+                    `max is ${MAX_READ_MULTIPLE_PATHS}. ` +
+                    "Split into multiple calls.",
+            );
+        }
+
+        const results: Record<string, NoteReadResult & { error?: string }> = {};
 
         for (const path of paths) {
             try {
-                const result = await this.noteHandler.readNote(path);
-                results[path] = { content: result.content };
+                results[path] = await this.noteHandler.readNote(
+                    path,
+                    undefined,
+                    metadataOnly,
+                );
             } catch (e) {
                 results[path] = {
                     error: e instanceof Error ? e.message : String(e),
@@ -701,12 +872,14 @@ export class MCPTools {
         content: string,
         heading?: string,
         separator = "\n",
+        lineOffset?: number,
     ): Promise<{ path: string }> {
         return await this.noteHandler.appendToNote(
             path,
             content,
             heading,
             separator,
+            lineOffset,
         );
     }
 
@@ -746,7 +919,7 @@ export class MCPTools {
 
         const createNote: Record<
             IGranularity,
-            (d: ReturnType<typeof momentFn>) => Promise<TFile>
+            (d: ReturnType<typeof momentFn>) => Promise<TFile | undefined>
         > = {
             day: createDailyNote,
             week: createWeeklyNote,
@@ -756,34 +929,23 @@ export class MCPTools {
         };
 
         const settings = this.getPeriodicSettings(period, granularity);
-        if (granularity === "week") {
-            const targetDate = date ? momentFn(date) : momentFn();
-            let file = getWeeklyNote(targetDate, getAllWeeklyNotes());
-            if (!file) {
-                if (!create) {
-                    const { path } = this.buildPeriodicPath(
-                        targetDate,
-                        settings,
-                    );
-                    return { path };
-                }
-                file = await createNote[granularity](targetDate);
-            }
-            const { content } = await this.noteHandler.readNote(file.path);
-            return { path: file.path, content };
-        }
-
         const targetDate = (date ? momentFn(date) : momentFn()).startOf(
             granularity,
         );
         const { path } = this.buildPeriodicPath(targetDate, settings);
 
-        let file = this.app.vault.getFileByPath(path);
+        let file: TFile | undefined =
+            granularity === "week"
+                ? getWeeklyNote(targetDate, getAllWeeklyNotes())
+                : (this.app.vault.getFileByPath(path) ?? undefined);
         if (!file) {
             if (!create) {
                 return { path };
             }
             file = await createNote[granularity](targetDate);
+            if (!file) {
+                return { path };
+            }
         }
 
         const { content } = await this.noteHandler.readNote(file.path);
@@ -841,29 +1003,7 @@ export class MCPTools {
         if (!filename.endsWith(".md")) {
             filename += ".md";
         }
-        return { path: normalizePath(this.join(folder, filename)) };
-    }
-
-    private join(...partSegments: string[]): string {
-        // Split the inputs into a list of path commands.
-        let parts: string[] = [];
-        for (let i = 0, l = partSegments.length; i < l; i++) {
-            parts = parts.concat(partSegments[i].split("/"));
-        }
-        // Interpret the path commands to get the new resolved path.
-        const newParts = [];
-        for (let i = 0, l = parts.length; i < l; i++) {
-            const part = parts[i];
-            // Remove leading and trailing slashes
-            // Also remove "." segments
-            if (!part || part === ".") continue;
-            // Push new path segments.
-            newParts.push(part);
-        }
-        // Preserve the initial slash if there was one.
-        if (parts[0] === "") newParts.unshift("");
-        // Turn back into a single string path.
-        return newParts.join("/");
+        return { path: normalizePath(`${folder}/${filename}`) };
     }
 
     /**
@@ -995,57 +1135,6 @@ export class MCPTools {
                 ? files.map((f) => f.path)
                 : files.map((f) => f.path).sort(),
         };
-    }
-
-    private getLinkedNotes(path: string): { links: string[] } {
-        const normalizedPath = path ? normalizePath(path) : "";
-        this.aclChecker.checkReadAccess(normalizedPath);
-
-        const file = this.app.vault.getAbstractFileByPath(normalizedPath);
-        if (!(file instanceof TFile)) {
-            throw new Error(`Note not found: ${normalizedPath}`);
-        }
-
-        const cache = this.app.metadataCache.getFileCache(file);
-        if (!cache) {
-            return { links: [] };
-        }
-
-        const links = new Set<string>();
-
-        // Process regular links
-        for (const link of cache.links || []) {
-            const targetFile = this.app.metadataCache.getFirstLinkpathDest(
-                link.link,
-                normalizedPath,
-            );
-            if (targetFile) {
-                try {
-                    this.aclChecker.checkReadAccess(targetFile.path);
-                    links.add(targetFile.path);
-                } catch {
-                    // Silently skip forbidden links
-                }
-            }
-        }
-
-        // Process embeds
-        for (const embed of cache.embeds || []) {
-            const targetFile = this.app.metadataCache.getFirstLinkpathDest(
-                embed.link,
-                normalizedPath,
-            );
-            if (targetFile) {
-                try {
-                    this.aclChecker.checkReadAccess(targetFile.path);
-                    links.add(targetFile.path);
-                } catch {
-                    // Silently skip forbidden embeds
-                }
-            }
-        }
-
-        return { links: Array.from(links).sort() };
     }
 
     private listNotes(path: string): {

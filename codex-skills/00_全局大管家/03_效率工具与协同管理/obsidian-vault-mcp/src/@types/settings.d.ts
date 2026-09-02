@@ -11,6 +11,9 @@ export interface CurrentSettings {
     serverHost(): string;
     serverVersion(): string;
     normalizeQuotes(): boolean;
+    tlsEnabled(): boolean;
+    tlsCertificatePem(): string | undefined;
+    getTlsPrivateKeyPem(): string | undefined;
 }
 
 export interface VaultAsMCPSettings {
@@ -18,9 +21,13 @@ export interface VaultAsMCPSettings {
     serverHost: string;
     autoStart: boolean;
     debug: boolean;
+    logPermissionMessages: boolean;
     bearerToken?: string;
     pathACL: PathACL;
     normalizeQuotes: boolean;
+    tlsEnabled: boolean;
+    tlsCertificatePem?: string;
+    tlsPrivateKeySecretId?: string;
 }
 
 export type ServerStatus = "stopped" | "running" | "error";
@@ -28,6 +35,7 @@ export type ServerStatus = "stopped" | "running" | "error";
 export interface Logger {
     debug(message: string, ...params: unknown[]): void;
     warn(message: string, ...params: unknown[]): void;
+    warnAcl(message: string, ...params: unknown[]): void;
     error(error: unknown, message?: string, ...params: unknown[]): string;
 }
 

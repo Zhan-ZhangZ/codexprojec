@@ -1,17 +1,29 @@
-import { type App, normalizePath, TFile } from "obsidian";
+import {
+    type App,
+    type CachedMetadata,
+    type HeadingCache,
+    normalizePath,
+    TFile,
+} from "obsidian";
+import type { LinkRef, NoteReadResult, OutlineEntry } from "./@types/notes";
 import type { CurrentSettings, Logger } from "./@types/settings";
 import type { PathACLChecker } from "./vaultasmcp-PathACL";
 import type { TemplateHandler } from "./vaultasmcp-TemplateHandler";
 
-// Limit embed expansion depth to prevent performance issues and circular refs
-const MAX_DEPTH = 2;
-type EmbeddedLink = {
-    subpaths: Set<string>; // headings, blockrefs
-    hasFullReference: boolean;
-    file: TFile | null; // null for unresolved links
-    depth: number;
+type LineWindow = {
+    content: string;
+    startLine: number;
+    endLine: number;
+    totalLines: number;
+    truncated: boolean;
 };
-type EmbeddedNotes = Map<string, EmbeddedLink>;
+
+const SINGLE_QUOTE_VARIANTS = "\u2018\u2019\u201a\u201b\u2032\u2035";
+const DOUBLE_QUOTE_VARIANTS = "\u201c\u201d\u201e\u201f\u2033\u2036";
+const SINGLE_QUOTE_VARIANTS_RE = new RegExp(`[${SINGLE_QUOTE_VARIANTS}]`, "g");
+const DOUBLE_QUOTE_VARIANTS_RE = new RegExp(`[${DOUBLE_QUOTE_VARIANTS}]`, "g");
+const SINGLE_QUOTE_VARIANTS_SET = new Set(SINGLE_QUOTE_VARIANTS);
+const DOUBLE_QUOTE_VARIANTS_SET = new Set(DOUBLE_QUOTE_VARIANTS);
 
 /**
  * Handles all note CRUD operations with ACL enforcement
@@ -47,23 +59,225 @@ export class NoteHandler {
     }
 
     /**
-     * Read a note's content
+     * Read a note's content, plus its links/embeds/outline/frontmatter.
      * ACL: Requires read access
      */
     async readNote(
         path: string,
-        sections?: string[],
-    ): Promise<{ content: string }> {
+        heading?: string,
+        metadataOnly = false,
+        lineOffset?: number,
+        excludePatterns?: string[],
+        lineLimit?: number,
+    ): Promise<NoteReadResult> {
         const file = this.getFileWithAclCheck(path);
+        const cache = this.app.metadataCache.getFileCache(file);
+        const compiledPatterns = this.compileExcludePatterns(
+            excludePatterns || [],
+        );
+        const embeds = this.getDirectLinkRefs(
+            file,
+            cache?.embeds,
+            compiledPatterns,
+        );
+        const links = this.getDirectLinkRefs(
+            file,
+            cache?.links,
+            compiledPatterns,
+        );
+        const frontmatter = cache?.frontmatter ?? undefined;
+
+        if (metadataOnly) {
+            return {
+                embeds,
+                links,
+                outline: this.getOutline(cache),
+                frontmatter,
+                sizeBytes: file.stat.size,
+            };
+        }
+
+        this.validateReadNotePaginationInputs(heading, lineOffset, lineLimit);
+
         const content = await this.app.vault.cachedRead(file);
 
-        if (!sections || sections.length === 0) {
-            return { content };
+        if (heading !== undefined) {
+            return {
+                content: this.extractSection(
+                    file,
+                    content,
+                    heading,
+                    lineOffset,
+                ),
+                embeds,
+                links,
+                frontmatter,
+            };
+        }
+
+        if (lineOffset !== undefined || lineLimit !== undefined) {
+            const window = this.getLineWindow(
+                content,
+                lineOffset ?? 0,
+                lineLimit,
+            );
+            return {
+                content: window.content,
+                embeds,
+                links,
+                outline: this.getOutline(cache),
+                frontmatter,
+                startLine: window.startLine,
+                endLine: window.endLine,
+                totalLines: window.totalLines,
+                truncated: window.truncated,
+            };
         }
 
         return {
-            content: this.extractSections(file, content, sections),
+            content,
+            embeds,
+            links,
+            outline: this.getOutline(cache),
+            frontmatter,
         };
+    }
+
+    /**
+     * Resolve a heading selector (`name` and/or `lineOffset`) to its
+     * index in cache.headings.
+     *
+     * - `lineOffset` only: resolves directly by exact
+     *   `position.start.line` match, regardless of name.
+     * - `name` only: resolves by case-insensitive, normalized name
+     *   match. Throws if the name matches more than once.
+     * - `name` + `lineOffset`: resolves by `lineOffset`, then
+     *   validates the resolved heading's normalized text matches
+     *   `name` — guards against the file having changed since the
+     *   caller last read the outline.
+     */
+    private resolveHeadingIndex(
+        headings: HeadingCache[],
+        name: string | undefined,
+        lineOffset: number | undefined,
+    ): number {
+        if (lineOffset !== undefined) {
+            const index = headings.findIndex(
+                (h) => h.position.start.line === lineOffset,
+            );
+            if (index === -1) {
+                throw new Error(`No heading found at line ${lineOffset}`);
+            }
+            if (name !== undefined) {
+                const normalizedName = this.normalizeHeading(name);
+                if (
+                    this.normalizeHeading(headings[index].heading) !==
+                    normalizedName
+                ) {
+                    throw new Error(
+                        `Heading at line ${lineOffset} is ` +
+                            `"${headings[index].heading}", not "${name}". ` +
+                            "The outline may be stale — refresh it with " +
+                            "metadataOnly and retry.",
+                    );
+                }
+            }
+            return index;
+        }
+
+        const normalizedName = this.normalizeHeading(name ?? "");
+        const matches: number[] = [];
+        headings.forEach((h, i) => {
+            if (this.normalizeHeading(h.heading) === normalizedName) {
+                matches.push(i);
+            }
+        });
+
+        if (matches.length === 0) {
+            throw new Error(`Heading not found: ${name}`);
+        }
+
+        if (matches.length > 1) {
+            throw new Error(
+                `Heading "${name}" is ambiguous (${matches.length} ` +
+                    "matches). Use metadataOnly to inspect the " +
+                    "outline's line numbers, then pass lineOffset " +
+                    "to select a specific occurrence.",
+            );
+        }
+
+        return matches[0];
+    }
+
+    /**
+     * Direct (depth-1) link/embed targets of a note, resolved to vault
+     * paths. Broken/unresolved targets and targets the caller lacks
+     * read access to are silently omitted. `entries` is `cache.embeds`
+     * or `cache.links`; `excludePatterns` matches against
+     * `[display](link)` text, same as embed expansion used to.
+     */
+    private getDirectLinkRefs(
+        sourceFile: TFile,
+        entries: { link: string; displayText?: string }[] | undefined,
+        excludePatterns: RegExp[],
+    ): LinkRef[] | undefined {
+        if (!entries?.length) {
+            return undefined;
+        }
+
+        const seen = new Set<string>();
+        const result: LinkRef[] = [];
+
+        for (const entry of entries) {
+            if (this.shouldExcludeLink(entry, excludePatterns)) {
+                continue;
+            }
+            const { path, subpath } = this.parseLinkReference(entry.link);
+            const targetFile = this.app.metadataCache.getFirstLinkpathDest(
+                path,
+                sourceFile.path,
+            );
+            if (!targetFile) {
+                continue;
+            }
+            try {
+                this.aclChecker.checkReadAccess(targetFile.path);
+            } catch {
+                continue;
+            }
+
+            const key = subpath
+                ? `${targetFile.path}#${subpath}`
+                : targetFile.path;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            result.push(
+                subpath
+                    ? { path: targetFile.path, subpath }
+                    : { path: targetFile.path },
+            );
+        }
+
+        return result.length ? result : undefined;
+    }
+
+    /**
+     * Heading outline for a note. `line` is the heading's
+     * file-relative start line (0-based), so a caller can pass it
+     * back as `lineOffset` to select or disambiguate a heading.
+     */
+    private getOutline(
+        cache: CachedMetadata | null,
+    ): OutlineEntry[] | undefined {
+        if (!cache?.headings?.length) {
+            return undefined;
+        }
+        return cache.headings.map((h) => ({
+            text: h.heading,
+            level: h.level,
+            line: h.position.start.line,
+        }));
     }
 
     /**
@@ -146,10 +360,11 @@ export class NoteHandler {
         content: string,
         heading?: string,
         separator = "\n",
+        lineOffset?: number,
     ): Promise<{ path: string }> {
         const file = this.getFileWithAclCheck(path, true);
 
-        if (heading) {
+        if (heading !== undefined || lineOffset !== undefined) {
             const cache = this.app.metadataCache.getFileCache(file);
             if (!cache?.sections || !cache.headings) {
                 throw new Error(
@@ -160,10 +375,11 @@ export class NoteHandler {
 
             // Heading-based insertion
             await this.app.vault.process(file, (data) => {
-                const insertOffset = this.findHeadingEndOffset(file, heading);
-                if (insertOffset === undefined) {
-                    throw new Error(`Heading not found: ${heading}`);
-                }
+                const insertOffset = this.findHeadingEndOffset(
+                    file,
+                    heading,
+                    lineOffset,
+                );
 
                 const before = data.slice(0, insertOffset);
                 const after = data.slice(insertOffset);
@@ -183,81 +399,103 @@ export class NoteHandler {
 
     /**
      * Patch a note by replacing an exact string with new text.
-     * Optionally scoped to a named section (heading + its content).
-     * Errors if old_text is not found, or found more than once.
+     * Replace exact text in a note. Errors if old_text is not found,
+     * or found more than once.
      * ACL: Requires write access
      */
     async patchNote(
         path: string,
         oldText: string,
         newText: string,
-        section?: string,
+        lineOffset?: number,
     ): Promise<{ path: string }> {
         if (!path) throw new Error("path is required");
         if (!oldText) throw new Error("old_text is required");
         if (newText === undefined || newText === null)
             throw new Error("new_text is required");
+        if (lineOffset !== undefined && lineOffset < 0) {
+            throw new Error(
+                "lineOffset must be a non-negative 0-based file line",
+            );
+        }
         const file = this.getFileWithAclCheck(path, true);
 
         await this.app.vault.process(file, (data) => {
             const hasCRLF = data.includes("\r\n");
-            const normalizedData = this.normalize(data);
+            const normalizedData = this.normalizeWithOffsetMap(data);
             const normalizedOldText = this.normalize(oldText);
 
-            let searchIn = normalizedData;
-            let searchOffset = 0;
+            const matches: { idx: number; line: number }[] = [];
+            let searchFrom = 0;
+            let scanFrom = 0;
+            let currentLine = 0;
+            while (searchFrom <= normalizedData.content.length) {
+                const idx = normalizedData.content.indexOf(
+                    normalizedOldText,
+                    searchFrom,
+                );
+                if (idx === -1) {
+                    break;
+                }
 
-            if (section) {
-                const cache = this.app.metadataCache.getFileCache(file);
-                if (!cache?.headings) {
+                for (let i = scanFrom; i < idx; i++) {
+                    if (normalizedData.content[i] === "\n") {
+                        currentLine++;
+                    }
+                }
+
+                matches.push({ idx, line: currentLine });
+                scanFrom = idx;
+                searchFrom = idx + 1;
+            }
+
+            if (matches.length === 0) {
+                throw new Error("Text not found in note");
+            }
+
+            let idx = matches[0].idx;
+            if (matches.length > 1) {
+                if (lineOffset === undefined) {
                     throw new Error(
-                        "Section lookup unavailable: note metadata not " +
-                            "indexed yet. Retry in a moment.",
+                        "Text appears more than once in note; " +
+                            "provide more context to make it unique",
                     );
                 }
-                const normalizedSection = this.normalizeHeading(section);
-                const headingIndex = cache.headings.findIndex(
-                    (h) =>
-                        this.normalizeHeading(h.heading) === normalizedSection,
-                );
-                if (headingIndex === -1) {
-                    throw new Error(`Section not found: ${section}`);
+
+                let bestMatch = matches[0];
+                let bestDistance = Math.abs(bestMatch.line - lineOffset);
+                let tied = false;
+
+                for (const match of matches.slice(1)) {
+                    const distance = Math.abs(match.line - lineOffset);
+                    if (distance < bestDistance) {
+                        bestMatch = match;
+                        bestDistance = distance;
+                        tied = false;
+                    } else if (distance === bestDistance) {
+                        tied = true;
+                    }
                 }
-                const start =
-                    cache.headings[headingIndex].position.start.offset;
-                const end = this.findSectionEnd(
-                    cache.headings,
-                    headingIndex,
-                    normalizedData.length,
-                );
-                searchIn = normalizedData.substring(start, end);
-                searchOffset = start;
+
+                if (tied) {
+                    throw new Error(
+                        "Text appears more than once in note; " +
+                            "provide more context to make it unique",
+                    );
+                }
+                idx = bestMatch.idx;
             }
 
-            const idx = searchIn.indexOf(normalizedOldText);
-            if (idx === -1) {
-                throw new Error(
-                    section
-                        ? `Text not found in section "${section}"`
-                        : "Text not found in note",
-                );
-            }
-            if (searchIn.indexOf(normalizedOldText, idx + 1) !== -1) {
-                throw new Error(
-                    section
-                        ? `Text appears more than once in section "${section}"; ` +
-                              "provide more context to make it unique"
-                        : "Text appears more than once in note; " +
-                              "provide more context to make it unique",
-                );
-            }
+            const originalStart = normalizedData.offsets[idx];
+            const originalEnd =
+                normalizedData.offsets[idx + normalizedOldText.length];
+            const replacement = this.withLineEndings(newText, hasCRLF);
 
-            const absIdx = searchOffset + idx;
-            const result =
-                normalizedData.substring(0, absIdx) +
-                newText +
-                normalizedData.substring(absIdx + normalizedOldText.length);
-            return hasCRLF ? result.replace(/\n/g, "\r\n") : result;
+            return (
+                data.substring(0, originalStart) +
+                replacement +
+                data.substring(originalEnd)
+            );
         });
 
         this.logger.debug(`Patched note: ${file.path}`);
@@ -338,19 +576,24 @@ export class NoteHandler {
 
     private findHeadingEndOffset(
         file: TFile,
-        heading: string,
-    ): number | undefined {
+        heading: string | undefined,
+        lineOffset?: number,
+    ): number {
         const cache = this.app.metadataCache.getFileCache(file);
         if (!cache?.sections || !cache.headings) {
-            return undefined;
+            throw new Error(
+                "Heading lookup unavailable: note metadata not " +
+                    "indexed yet. Retry in a moment.",
+            );
         }
 
         const sections = cache.sections;
-        const foundHeading = cache.headings.find((h) => h.heading === heading);
-
-        if (!foundHeading) {
-            return undefined;
-        }
+        const resolvedIndex = this.resolveHeadingIndex(
+            cache.headings,
+            heading,
+            lineOffset,
+        );
+        const foundHeading = cache.headings[resolvedIndex];
 
         // Find the section for this heading
         const foundSectionIndex = sections.findIndex(
@@ -361,7 +604,7 @@ export class NoteHandler {
         );
 
         if (foundSectionIndex === -1) {
-            return undefined;
+            throw new Error(`Heading not found: ${heading}`);
         }
 
         const restSections = sections.slice(foundSectionIndex + 1);
@@ -381,30 +624,6 @@ export class NoteHandler {
             sections[foundSectionIndex];
 
         return lastSection.position.end.offset;
-    }
-
-    /**
-     * Read note with embedded content expanded inline
-     * ACL: Requires read access to main note and all embedded files
-     */
-    async readNoteWithEmbeds(
-        path: string,
-        excludePatterns?: string[],
-        includeLinks = false,
-    ): Promise<{ content: string }> {
-        const file = this.getFileWithAclCheck(path);
-        const content = await this.app.vault.cachedRead(file);
-        const compiledPatterns = this.compileExcludePatterns(
-            excludePatterns || [],
-        );
-        const expandedContent = await this.expandLinkedFiles(
-            file,
-            content,
-            compiledPatterns,
-            includeLinks,
-        );
-
-        return { content: expandedContent };
     }
 
     private compileExcludePatterns(patterns: string[]): RegExp[] {
@@ -442,220 +661,6 @@ export class NoteHandler {
     }
 
     /**
-     * Expand linked/embedded files inline with the main content
-     */
-    private async expandLinkedFiles(
-        sourceFile: TFile,
-        content: string,
-        excludePatterns: RegExp[] = [],
-        includeLinks = false,
-    ): Promise<string> {
-        const fileCache = this.app.metadataCache.getFileCache(sourceFile);
-        if (!fileCache) {
-            return content;
-        }
-
-        // Phase 1: Collect all linked files via breadth-first traversal
-        const linkedFiles = this.collectLinkedFiles(
-            sourceFile,
-            excludePatterns,
-            includeLinks,
-        );
-
-        // Remove source file from expansion (already in main content)
-        linkedFiles.delete(sourceFile.path);
-
-        // Phase 2: Expand content from collected files
-        const expandedContent = await this.expandCollectedContent(linkedFiles);
-
-        if (expandedContent.length) {
-            return (
-                content +
-                "\n----- EMBEDDED/LINKED CONTENT -----\n" +
-                expandedContent.join("\n")
-            );
-        }
-        return content;
-    }
-
-    /**
-     * Phase 1: Collect linked files via breadth-first traversal
-     * Respects MAX_DEPTH and ACL permissions
-     */
-    private collectLinkedFiles(
-        sourceFile: TFile,
-        excludePatterns: RegExp[],
-        includeLinks: boolean,
-    ): EmbeddedNotes {
-        const seenLinks: EmbeddedNotes = new Map();
-        const fileQueue: EmbeddedLink[] = [];
-
-        // Track source file to prevent duplicates
-        const origin = {
-            hasFullReference: true,
-            subpaths: new Set<string>(),
-            file: sourceFile,
-            depth: 0,
-        };
-        seenLinks.set(sourceFile.path, origin);
-        fileQueue.push(origin);
-
-        // Process queue breadth-first
-        let embeddedLink = fileQueue.shift();
-        while (embeddedLink) {
-            // Skip if file wasn't found (null) or max depth reached
-            if (!embeddedLink.file || embeddedLink.depth >= MAX_DEPTH) {
-                embeddedLink = fileQueue.shift();
-                continue;
-            }
-
-            const fileCache = this.app.metadataCache.getFileCache(
-                embeddedLink.file,
-            );
-            if (fileCache) {
-                // Process both links and embeds
-                const allLinks = [
-                    ...(includeLinks ? fileCache.links || [] : []),
-                    ...(fileCache.embeds || []),
-                ].filter((link) => link);
-
-                for (const cachedLink of allLinks) {
-                    // Skip if link matches exclusion patterns
-                    if (this.shouldExcludeLink(cachedLink, excludePatterns)) {
-                        continue;
-                    }
-
-                    // Skip duplicate unresolved links
-                    const linkKey = cachedLink.link;
-                    if (seenLinks.has(linkKey)) {
-                        continue;
-                    }
-
-                    // Parse link to extract path and subpath
-                    const { path, subpath } = this.parseLinkReference(
-                        cachedLink.link,
-                    );
-                    const targetFile =
-                        this.app.metadataCache.getFirstLinkpathDest(
-                            path,
-                            embeddedLink.file.path,
-                        );
-
-                    if (!targetFile) {
-                        this.logger.debug(
-                            `Link target not found: ${cachedLink.link} ` +
-                                `(from ${embeddedLink.file.path})`,
-                        );
-                        // Add to seen list to avoid checking again
-                        seenLinks.set(linkKey, {
-                            hasFullReference: false,
-                            subpaths: new Set<string>(),
-                            file: null,
-                            depth: embeddedLink.depth + 1,
-                        });
-                        continue;
-                    }
-
-                    // Check ACL for target file
-                    try {
-                        this.aclChecker.checkReadAccess(targetFile.path);
-                    } catch {
-                        this.logger.debug(
-                            `Access denied to linked file: ${targetFile.path}`,
-                        );
-                        // Skip forbidden files silently
-                        seenLinks.set(linkKey, {
-                            hasFullReference: false,
-                            subpaths: new Set<string>(),
-                            file: null,
-                            depth: embeddedLink.depth + 1,
-                        });
-                        continue;
-                    }
-
-                    const key = targetFile.path;
-                    let ref = seenLinks.get(key);
-                    if (!ref) {
-                        // create ref if missing
-                        ref = {
-                            hasFullReference: false,
-                            subpaths: new Set<string>(),
-                            file: targetFile,
-                            depth: embeddedLink.depth + 1,
-                        };
-                        seenLinks.set(key, ref);
-                        fileQueue.push(ref);
-                        this.logger.debug(
-                            "Link",
-                            embeddedLink.file.path,
-                            " ➡ ",
-                            targetFile.path,
-                        );
-                    }
-
-                    // Track subpath or full file reference
-                    if (!subpath) {
-                        ref.hasFullReference = true;
-                    } else {
-                        ref.subpaths.add(subpath);
-                    }
-                }
-            }
-            embeddedLink = fileQueue.shift();
-        }
-
-        return seenLinks;
-    }
-
-    /**
-     * Phase 2: Expand content from collected linked files
-     * Formats each file with markers and handles subpath references
-     */
-    private async expandCollectedContent(
-        linkedFiles: EmbeddedNotes,
-    ): Promise<string[]> {
-        const expandedContent: string[] = [];
-
-        this.logger.debug(
-            `Collecting content from ${linkedFiles.size} linked files`,
-        );
-
-        for (const link of linkedFiles.values()) {
-            // Skip null file entries and non-markdown files
-            if (!link.file || link.file.extension !== "md") {
-                continue;
-            }
-
-            const fileContent = await this.app.vault.cachedRead(link.file);
-            if (link.hasFullReference) {
-                // emit whole file once
-                expandedContent.push(
-                    `===== BEGIN ENTRY: ${link.file.path} =====`,
-                );
-                expandedContent.push(fileContent);
-                expandedContent.push("===== END ENTRY =====\n");
-            } else {
-                // emit each subpath snippet
-                for (const subpath of link.subpaths) {
-                    expandedContent.push(
-                        `===== BEGIN ENTRY: ${link.file.path}#${subpath} =====`,
-                    );
-                    expandedContent.push(
-                        this.extractSubpathContent(
-                            link.file,
-                            fileContent,
-                            subpath,
-                        ),
-                    );
-                    expandedContent.push("===== END ENTRY =====\n");
-                }
-            }
-        }
-
-        return expandedContent;
-    }
-
-    /**
      * Find the end offset of a heading's section
      * (up to the next heading at same or higher level).
      */
@@ -674,98 +679,180 @@ export class NoteHandler {
     }
 
     /**
-     * Extract content for named sections (by heading text).
-     * Case-insensitive match; includes subheadings.
+     * Extract content for one section (by heading text and/or
+     * lineOffset). Case-insensitive match; includes subheadings.
+     * Throws if `heading` matches more than one heading and no
+     * `lineOffset` disambiguates, if neither selector resolves to a
+     * heading (including when the note has no headings at all), or if
+     * both are given but disagree (stale outline).
      */
-    private extractSections(
+    private extractSection(
         file: TFile,
         fileContent: string,
-        sections: string[],
+        heading: string | undefined,
+        lineOffset: number | undefined,
     ): string {
         const cache = this.app.metadataCache.getFileCache(file);
-        if (!cache?.headings || cache.headings.length === 0) {
-            return "";
-        }
-
-        const normalizedNames = sections.map((s) => this.normalizeHeading(s));
-        const headings = cache.headings;
-        const parts: string[] = [];
-
-        for (let i = 0; i < headings.length; i++) {
-            const norm = this.normalizeHeading(headings[i].heading);
-            if (!normalizedNames.includes(norm)) {
-                continue;
-            }
-
-            const start = headings[i].position.start.offset;
-            const end = this.findSectionEnd(headings, i, fileContent.length);
-            parts.push(fileContent.substring(start, end).trim());
-        }
-
-        return parts.join("\n\n");
+        const cacheHeadings = cache?.headings ?? [];
+        const resolvedIndex = this.resolveHeadingIndex(
+            cacheHeadings,
+            heading,
+            lineOffset,
+        );
+        const start = cacheHeadings[resolvedIndex].position.start.offset;
+        const end = this.findSectionEnd(
+            cacheHeadings,
+            resolvedIndex,
+            fileContent.length,
+        );
+        return fileContent.substring(start, end);
     }
 
-    private extractSubpathContent(
-        file: TFile,
+    private validateReadNotePaginationInputs(
+        heading: string | undefined,
+        lineOffset: number | undefined,
+        lineLimit: number | undefined,
+    ): void {
+        if (heading !== undefined && lineLimit !== undefined) {
+            throw new Error("lineLimit cannot be used together with heading");
+        }
+
+        if (
+            lineOffset !== undefined &&
+            !this.isNonNegativeInteger(lineOffset)
+        ) {
+            throw new Error(
+                `lineOffset must be a non-negative integer: ${lineOffset}`,
+            );
+        }
+
+        if (lineLimit !== undefined && !this.isPositiveInteger(lineLimit)) {
+            throw new Error(
+                `lineLimit must be a positive integer: ${lineLimit}`,
+            );
+        }
+    }
+
+    /**
+     * Return the raw file-content window for the requested line range.
+     * Trailing newlines terminate the final real line but do not create
+     * an extra empty one.
+     */
+    private getLineWindow(
         fileContent: string,
-        subpath: string,
-    ): string {
-        const cache = this.app.metadataCache.getFileCache(file);
-        if (!cache) {
-            return "";
+        lineOffset = 0,
+        lineLimit?: number,
+    ): LineWindow {
+        const lineStarts = this.getLineStartOffsets(fileContent);
+        const totalLines = lineStarts.length;
+
+        if (lineOffset < 0 || lineOffset >= totalLines) {
+            throw new Error(
+                `lineOffset ${lineOffset} is out of range for ${totalLines} lines`,
+            );
         }
 
-        // Check for block reference (^block-id)
-        if (subpath.startsWith("^")) {
-            const blockId = subpath.substring(1);
-            const block = cache.blocks?.[blockId];
-            if (block) {
-                const start = block.position.start.offset;
-                const end = block.position.end.offset;
-                return fileContent.substring(start, end).trim();
+        const endLine =
+            lineLimit === undefined
+                ? totalLines - 1
+                : Math.min(lineOffset + lineLimit - 1, totalLines - 1);
+        const startOffset = lineStarts[lineOffset];
+        const endOffset =
+            endLine + 1 < totalLines
+                ? lineStarts[endLine + 1]
+                : fileContent.length;
+
+        return {
+            content: fileContent.slice(startOffset, endOffset),
+            startLine: lineOffset,
+            endLine,
+            totalLines,
+            truncated: endLine < totalLines - 1,
+        };
+    }
+
+    /**
+     * Compute the start offset of each logical line in a file.
+     * For files ending in "\n", the trailing newline belongs to the
+     * last line rather than creating an empty extra line.
+     */
+    private getLineStartOffsets(fileContent: string): number[] {
+        if (fileContent.length === 0) {
+            return [];
+        }
+
+        const starts = [0];
+        for (let i = 0; i < fileContent.length; i++) {
+            if (fileContent[i] === "\n" && i + 1 < fileContent.length) {
+                starts.push(i + 1);
             }
-            this.logger.debug(
-                `Block reference not found: ^${blockId} in ${file.path}`,
-            );
-            return "";
         }
+        return starts;
+    }
 
-        // Check for heading reference
-        const targetNormalized = this.normalizeHeading(subpath);
-        const headings = cache.headings;
-        if (!headings) {
-            this.logger.debug(`Subpath not found: #${subpath} in ${file.path}`);
-            return "";
-        }
+    private isNonNegativeInteger(value: number): boolean {
+        return Number.isInteger(value) && value >= 0;
+    }
 
-        const headingIndex = headings.findIndex(
-            (h) => this.normalizeHeading(h.heading) === targetNormalized,
-        );
-
-        if (headingIndex >= 0) {
-            // Content after the heading line, up to next peer
-            const start = headings[headingIndex].position.end.offset;
-            const end = this.findSectionEnd(
-                headings,
-                headingIndex,
-                fileContent.length,
-            );
-            return fileContent.substring(start, end).trim();
-        }
-
-        this.logger.debug(`Subpath not found: #${subpath} in ${file.path}`);
-        return "";
+    private isPositiveInteger(value: number): boolean {
+        return Number.isInteger(value) && value > 0;
     }
 
     private normalize = (value: string): string => {
         let result = value.replace(/\r\n/g, "\n");
         if (this.current.normalizeQuotes()) {
             result = result
-                .replace(/[\u2018\u2019\u201a\u201b\u2032\u2035]/g, "'")
-                .replace(/[\u201c\u201d\u201e\u201f\u2033\u2036]/g, '"');
+                .replace(SINGLE_QUOTE_VARIANTS_RE, "'")
+                .replace(DOUBLE_QUOTE_VARIANTS_RE, '"');
         }
         return result;
     };
+
+    private normalizeWithOffsetMap(value: string): {
+        content: string;
+        offsets: number[];
+    } {
+        let content = "";
+        const offsets: number[] = [];
+
+        for (let i = 0; i < value.length; i++) {
+            const char = value[i];
+            let normalizedChar = char;
+
+            if (char === "\r" && value[i + 1] === "\n") {
+                normalizedChar = "\n";
+                offsets.push(i);
+                content += normalizedChar;
+                i++;
+                continue;
+            }
+
+            if (this.current.normalizeQuotes()) {
+                normalizedChar = this.normalizeQuoteChar(char);
+            }
+
+            offsets.push(i);
+            content += normalizedChar;
+        }
+
+        offsets.push(value.length);
+        return { content, offsets };
+    }
+
+    private withLineEndings(value: string, useCRLF: boolean): string {
+        const normalized = value.replace(/\r\n/g, "\n");
+        return useCRLF ? normalized.replace(/\n/g, "\r\n") : normalized;
+    }
+
+    private normalizeQuoteChar(char: string): string {
+        if (SINGLE_QUOTE_VARIANTS_SET.has(char)) {
+            return "'";
+        }
+        if (DOUBLE_QUOTE_VARIANTS_SET.has(char)) {
+            return '"';
+        }
+        return char;
+    }
 
     private normalizeHeading = (value: string): string => {
         let decoded = value;
