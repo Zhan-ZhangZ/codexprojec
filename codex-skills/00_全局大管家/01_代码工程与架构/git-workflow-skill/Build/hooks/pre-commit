@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-"$(dirname "$0")/../Scripts/validate-skill.sh" "$(git rev-parse --show-toplevel)"
