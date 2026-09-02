@@ -1,18 +1,15 @@
 ---
 name: cloud-storage-web
 description: Complete guide for CloudBase cloud storage using Web SDK (@cloudbase/js-sdk) - upload, download, temporary URLs, file management, and best practices.
-version: 2.23.6
+version: 2.32.5
 alwaysApply: false
 ---
 
-## Standalone Install Note
+## Sibling skills (local only)
 
-If this environment only installed the current skill, start from the CloudBase main entry and use the published `cloudbase/references/...` paths for sibling skills.
+Sibling CloudBase skills ship beside this skill. Use local relative paths such as `../auth-tool-cloudbase/SKILL.md`.
 
-- CloudBase main entry: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/SKILL.md`
-- Current skill raw source: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/cloud-storage-web/SKILL.md`
-
-Keep local `references/...` paths for files that ship with the current skill directory. When this file points to a sibling skill such as `auth-tool` or `web-development`, use the standalone fallback URL shown next to that reference.
+If a referenced sibling skill file is missing from this environment, ask the user to install the full CloudBase plugin (or the missing skill). Do **not** HTTP-fetch remote skill or protocol markdown into the agent context.
 
 # Cloud Storage Web SDK
 
@@ -30,9 +27,9 @@ Keep local `references/...` paths for files that ship with the current skill dir
 
 ### Then also read
 
-- Web login and identity -> `../auth-web/SKILL.md` (standalone fallback: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/auth-web/SKILL.md`)
-- General Web app setup -> `../web-development/SKILL.md` (standalone fallback: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/web-development/SKILL.md`)
-- Direct storage management through MCP tools -> `../cloudbase-platform/SKILL.md` (standalone fallback: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/cloudbase-platform/SKILL.md`)
+- Web login and identity -> `../auth-web-cloudbase/SKILL.md`
+- General Web app setup -> `../web-development/SKILL.md`
+- Direct storage management through MCP tools -> `../cloudbase-platform/SKILL.md`
 
 ### Do NOT use for
 
@@ -69,7 +66,7 @@ When the app runs on a local browser origin and must upload files from the front
    - Browser origin `http://localhost:5173` -> whitelist entry `localhost:5173`
 3. If the exact current host entry is missing, call `envDomainManagement` with `action="create"` and add that host entry before relying on `app.uploadFile()`.
 4. If the runtime port may change between runs, do not assume any fixed default port list is sufficient. Re-check the actual browser origin you are really using for testing or final validation, then add that exact `host:port`.
-5. Tell the user that security-domain changes may take several minutes to propagate.
+5. Tell the user that security-domain changes may take a few minutes to propagate; poll `queryEnv(action="domains")` rather than blind-sleeping for a fixed long interval.
 6. Only after that should you implement and test browser-side `app.uploadFile()` flows.
 
 If `app.uploadFile()` returns `STORAGE_NOT_EXIST`, stop editing frontend code and fix the environment-side storage resource first. Re-check the environment storage list, create or select an available bucket if the task allows it, then retry the same SDK upload flow.

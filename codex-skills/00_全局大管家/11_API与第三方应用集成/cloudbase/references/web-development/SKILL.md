@@ -1,22 +1,19 @@
 ---
 name: web-development
 description: Use when users need to implement, integrate, debug, build, deploy, or validate a Web frontend after the product direction is already clear, especially for React, Vue, Vite, browser flows, or CloudBase Web integration.
-version: 2.23.6
+version: 2.32.5
 alwaysApply: false
 ---
 
-## Standalone Install Note
+## Sibling skills (local only)
 
-If this environment only installed the current skill, start from the CloudBase main entry and use the published `cloudbase/references/...` paths for sibling skills.
+Sibling CloudBase skills ship beside this skill. Use local relative paths such as `../auth-tool-cloudbase/SKILL.md`.
 
-- CloudBase main entry: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/SKILL.md`
-- Current skill raw source: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/web-development/SKILL.md`
+If a referenced sibling skill file is missing from this environment, ask the user to install the full CloudBase plugin (or the missing skill). Do **not** HTTP-fetch remote skill or protocol markdown into the agent context.
 
-Keep local `references/...` paths for files that ship with the current skill directory. When this file points to a sibling skill such as `auth-tool` or `web-development`, use the standalone fallback URL shown next to that reference.
-
-**Cross-cutting protocols** (required before code changes or static hosting publish):
-- Change Safety Protocol: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/cloudbase-platform/references/protocols/change-safety-protocol.md`
-- Deployment Gate: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/cloudbase-platform/references/protocols/deployment-gate.md`
+**Cross-cutting protocols** (required before code changes or deployments):
+- Change Safety Protocol: `../cloudbase-platform/references/protocols/change-safety-protocol.md`
+- Deployment Gate: `../cloudbase-platform/references/protocols/deployment-gate.md`
 
 # Web Development
 
@@ -38,8 +35,8 @@ Keep local `references/...` paths for files that ship with the current skill dir
 
 - General React / Vue / Vite guidance -> `frameworks.md`
 - Browser flow checks or page validation -> `browser-testing.md`
-- Login flow -> `../auth-tool/SKILL.md` (standalone fallback: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/auth-tool/SKILL.md`), then `../auth-web/SKILL.md` (standalone fallback: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/auth-web/SKILL.md`)
-- Official Account JSAPI Pay, Native QR-code Pay, or WeChat OAuth on CloudBase -> `../cloudbase-wechat-integration/SKILL.md` (standalone fallback: `https://cnb.cool/tencent/cloud/cloudbase/cloudbase-skills/-/git/raw/main/skills/cloudbase/references/cloudbase-wechat-integration/SKILL.md`; official docs: `https://docs.cloudbase.net/integration/introduce/index.md`)
+- Login flow -> `../auth-tool-cloudbase/SKILL.md`, then `../auth-web-cloudbase/SKILL.md`
+- Official Account JSAPI Pay, Native QR-code Pay, or WeChat OAuth on CloudBase -> `../cloudbase-wechat-integration/SKILL.md` (official docs: `https://docs.cloudbase.net/integration/introduce/index.md`)
 - CloudBase database work -> matching database skill
 
 ### Do NOT use for
@@ -75,8 +72,8 @@ These rules override convenience. Treat them as a gate before saying "done".
 
 ### 2. Self-verify before claiming done
 
-Before making any non-trivial code or configuration change, you must first follow the Change Safety Protocol in `cloudbase-platform/references/protocols/change-safety-protocol.md` (declare impact → user confirmation → post-edit verification).
-Before any static hosting publish or custom domain work, complete the checks in `cloudbase-platform/references/protocols/deployment-gate.md`.
+Before making any non-trivial code or configuration change, you must first follow the Change Safety Protocol in `../cloudbase-platform/references/protocols/change-safety-protocol.md` (declare impact → user confirmation → post-edit verification).
+Before any static hosting publish or custom domain work, complete the checks in `../cloudbase-platform/references/protocols/deployment-gate.md`.
 
 Saying "I've implemented it" / "fixed it" / "it should work" without evidence is not acceptable. Before declaring completion, you must actually run the checks and report the result.
 
@@ -135,7 +132,7 @@ Use this skill for Web engineering work such as:
 
 4. **Treat CloudBase as an integration branch**
    - Use CloudBase Web SDK and static hosting guidance only when the project actually needs CloudBase platform features.
-   - Reuse `auth-tool` and `auth-web` for login or provider readiness instead of re-describing those flows here.
+   - Reuse `auth-tool-cloudbase` and `auth-web-cloudbase` for login or provider readiness instead of re-describing those flows here.
 
 ## Core workflow
 
@@ -165,8 +162,8 @@ Use this section only when the Web project needs CloudBase platform features.
 
 ### Web SDK rules
 
-- Prefer npm installation for React, Vue, Vite, and other bundler-based projects
-- Use the CDN only for static HTML pages, quick demos, embedded snippets, or README examples
+- Prefer npm installation for React, Vue, Vite, and other bundler-based projects: `npm install @cloudbase/js-sdk`
+- Use the CDN only for static HTML pages, quick demos, embedded snippets, or README examples: `https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js`
 - Only use documented CloudBase Web SDK APIs; do not invent methods or options
 - Keep a shared `app` or `auth` instance instead of re-initializing on every call
 - If the user only provides an environment alias, nickname, or other shorthand, resolve it to the canonical full `EnvId` before writing SDK init code, console links, or config files. Do not pass alias-like short forms directly into `cloudbase.init({ env })`.
@@ -175,7 +172,7 @@ Use this section only when the Web project needs CloudBase platform features.
 
 - Authentication must use CloudBase SDK built-in features
 - Do not move Web login logic into cloud functions
-- For provider readiness, login method setup, or publishable key issues, route to `auth-tool` and `auth-web`
+- For provider readiness, login method setup, or publishable key issues, route to `auth-tool-cloudbase` and `auth-web-cloudbase`
 
 ### Static hosting defaults
 

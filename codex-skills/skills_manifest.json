@@ -988,7 +988,7 @@
   },
   {
     "name": "cloudbase",
-    "description": "为小程序和 Web/H5 提供一体化运行与部署环境（腾讯云开发 TCB）。包括 NoSQL 文档数据库、云函数（Serverless）、云存储、身份权限控制和静态 Web 托管。内置大模型能力。Leading Words: 腾讯云开发, 小程序后端, Serverless云函数, 静态Web托管, 一体化部署",
+    "description": "为小程序和 Web/H5 提供一体化运行与部署环境（腾讯云开发 TCB）。包括 NoSQL 文档数据库、PostgreSQL/MySQL 关系型数据库、云函数（Serverless）、云存储、身份权限控制和静态 Web 托管。内置大模型能力。Leading Words: 腾讯云开发, 小程序后端, Serverless云函数, 静态Web托管, 一体化部署",
     "category": "11_API与第三方应用集成",
     "folder": "cloudbase",
     "relative_path": "./00_全局大管家/11_API与第三方应用集成/cloudbase"
