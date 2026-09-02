@@ -19,62 +19,35 @@
   },
   "flowchart": {
     "htmlLabels": true,
-    "curve": "basis"
+    "curve": "basis",
+    "nodeSpacing": 32,
+    "rankSpacing": 48
   }
 }}%%
 
-flowchart TD
-    A["/dbs 主入口"]
+%% 本文件保留编排逻辑草图；README 中的正式 4:3 图示为手工维护的 skill-link-map-4x3.svg。
 
-    B["/dbs-diagnosis"]
-    C["/dbs-benchmark"]
-    D["/dbs-content"]
-    E["/dbs-hook"]
-    F["/dbs-xhs-title"]
-    G["/dbs-ai-check"]
-    H["/dbs-goal"]
-    I["/dbs-good-question"]
-    J["/dbs-decision"]
-    K["/dbs-save"]
-    L["/dbs-restore"]
-    M["/dbs-report"]
+block-beta
+    columns 4
+
+    A["真实任务、材料<br/>或新反馈"]
+    B["&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;/dbs<br/>主入口&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"]
+    C["判断单 Skill<br/>或主辅组合"]
+    D["生成可直接发送的<br/>任务提示词"]
+
+    space
+    E{"当前任务完成吗？"}:2
+    space
+
+    F["没有完成／有新反馈<br/>回到 /dbs"]
+    G["已经明确下一步<br/>尊重用户选择"]
+    H["已经完成<br/>直接结束"]
+    space
 
     A --> B
-    A --> C
-    A --> D
-    A --> G
-    A --> H
-    A --> I
-    A --> J
-    A --> K
-    A --> L
-    A --> M
-
     B --> C
-    B --> D
-    B --> J
-
-    C --> J
-
+    C --> D
     D --> E
-    D --> F
-    D --> G
-
-    H --> J
-    I --> J
-
-    B --> K
-    C --> K
-    D --> K
-    H --> K
-    I --> K
-    J --> K
-
-    K --> M
-
-    L --> B
-    L --> C
-    L --> D
-    L --> H
-    L --> I
-    L --> J
+    E --> F
+    E --> G
+    E --> H

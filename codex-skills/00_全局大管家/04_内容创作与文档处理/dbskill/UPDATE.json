@@ -1,0 +1,5 @@
+{
+  "version": "2.18.39",
+  "notice": "Windows 安装改用 Junction，避免多端 Skill 被复制成多个实体目录",
+  "details_url": "https://github.com/dontbesilent2025/dbskill/commits/main"
+}
