@@ -100,18 +100,18 @@ select a live backend.
 
 ```bash
 python3 skills/pylabrobot/scripts/validate_manifest.py \
-  --input tests/pylabrobot/fixtures/protocol_manifest.json
+  --input https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/protocol_manifest.json
 
 python3 skills/pylabrobot/scripts/check_deck_geometry.py \
-  --input tests/pylabrobot/fixtures/protocol_manifest.json
+  --input https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/protocol_manifest.json
 
 python3 skills/pylabrobot/scripts/plan_transfers.py \
-  --manifest tests/pylabrobot/fixtures/protocol_manifest.json \
-  --transfers tests/pylabrobot/fixtures/transfers.csv
+  --manifest https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/protocol_manifest.json \
+  --transfers https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/transfers.csv
 
 python3 skills/pylabrobot/scripts/generate_simulation_plan.py \
-  --manifest tests/pylabrobot/fixtures/protocol_manifest.json \
-  --transfers tests/pylabrobot/fixtures/transfers.csv
+  --manifest https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/protocol_manifest.json \
+  --transfers https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/pylabrobot/fixtures/transfers.csv
 
 python3 skills/pylabrobot/scripts/inspect_backends.py \
   --expected-version 0.2.1 --strict

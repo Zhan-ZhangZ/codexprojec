@@ -113,7 +113,7 @@ published methods, not requirements of any framework:
 - Two one-sided tests (TOST) for equivalence.
 
 Implementations are verified against published quantiles and hand-checkable cases in
-`tests/analytical-method-validation/test_scripts.py`. Where a framework prescribes a specific
+`https://github.com/K-Dense-AI/scientific-agent-skills/blob/v2.65.0/tests/analytical-method-validation/test_scripts.py`. Where a framework prescribes a specific
 statistical treatment, the framework governs — these are the general-purpose tools.
 
 ## What is deliberately absent
