@@ -1,7 +1,8 @@
 # Input-backend benchmark (B2)
 
-Speed vs. extraction accuracy of each text-extraction backend, measured by
-`benchmarks/run.py` over the bundled `tests/compare/*.pdf` invoices and their
+Speed vs. extraction accuracy of each text-extraction backend, measured by the
+[upstream benchmark harness](https://github.com/invoice-x/invoice2data/blob/v1.0.1/benchmarks/run.py)
+over the bundled `tests/compare/*.pdf` invoices and their
 golden `*.json` outputs. Accuracy is the fraction of golden fields each backend
 reproduces *through the matching template* — so it reflects real template
 compatibility, not raw text quality. The bundled templates are tuned for
@@ -54,5 +55,5 @@ has no layout mode).
   layout breakage is recovered without any per-template change.
 - Only templates where pypdfium2 returns a *populated-but-wrong* non-required
   value (an `area:` field, or a column-aligned table) need an explicit
-  `input_module: pdftotext` pin; the bundled ones are pinned. Reproduce with
-  `python benchmarks/run.py`.
+  `input_module: pdftotext` pin; the bundled ones are pinned. Reproduce with the
+  [upstream benchmark harness](https://github.com/invoice-x/invoice2data/blob/v1.0.1/benchmarks/run.py).
