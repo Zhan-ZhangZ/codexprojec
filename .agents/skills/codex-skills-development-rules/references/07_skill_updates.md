@@ -13,3 +13,5 @@
     - npm 分发的 MCP 服务器类技能（如 File-Organizer-MCP）：用户从 npm 安装，**本地只保留文档层**（README/API/CHANGELOG/示例配置等），src/tests/bin 一律不拷；保留文档里指向被弃代码的引用改写为 GitHub 定 tag 链接（`blob/v<版本>/<路径>`）。
     - 上游目录重构（改名/合并）时以新结构为主，功能一致即整体采纳；我方 SKILL.md 中引用的旧目录名同步改写。
     - 并行代理/脚本不要共享 `/tmp` 固定文件名（会被相互覆盖），一律带 PID 或随机后缀。
+    - 在 git worktree 中跑 `scripts/integration_check.py` 会误报「跨类目重名」——脚本从自身位置推导库根，worktree 里看不到主检出。规避：把未修改的脚本复制到 `/tmp` 并用同层符号链接把待检技能挂成 `00_全局大管家/<类目>/<技能>` 结构复跑（三个子代理实测可行的等价复现法），不要改脚本本身。
+    - 上游发生组织迁移时（如 brokermr810/QuantDinger→OpenByteInc/QuantDinger），先用 `gh api` 对比新旧 full_name/pushed_at/stargazers 确认是重定向而非冒名仓，再更新索引仓库地址并在备注留迁移记录。
