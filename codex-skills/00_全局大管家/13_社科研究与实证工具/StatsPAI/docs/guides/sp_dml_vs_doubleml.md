@@ -33,10 +33,10 @@ works in `sp.dml`. StatsPAI additionally accepts string shortcuts
 
 ## Same-DGP, same-seed numerical agreement
 
-The fixture in `tests/reference_parity/_fixtures/dml_data.csv` is a
+The fixture in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/_fixtures/dml_data.csv` is a
 seed-42 DGP with `n=1000`, `p=10`, true treatment effect `θ=0.5`. The
 external parity test
-[`tests/external_parity/test_dml_python_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/external_parity/test_dml_python_parity.py)
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/external_parity/test_dml_python_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/external_parity/test_dml_python_parity.py)
 runs `sp.dml` and `doubleml-for-py` on this fixture with identical
 scikit-learn learners (`LassoCV(cv=5)` for regression,
 `LogisticRegressionCV(cv=5)` for binary propensity) under a fixed
@@ -64,7 +64,7 @@ are pinned against `doubleml-for-py`.
   fixed seed. The slight deviation from the R reference (~4.1%) reflects
   glmnet's penalty path differing fractionally from scikit-learn's
   `LassoCV`; the R reference is pinned by
-  [`tests/reference_parity/test_dml_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/reference_parity/test_dml_parity.py)
+  [`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_dml_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/reference_parity/test_dml_parity.py)
   to within 7% relative.
 
 - **IRM**: All three implementations land statistically at zero (the
@@ -110,7 +110,7 @@ estimate bit-for-bit** (so upgrading never moves a default result):
 | `trimming_threshold` | `irm`, `iivm` | **`0.01`** | `trimming_threshold=` (rule `'truncate'`) |
 
 Each option is pinned against `doubleml-for-py` 0.11.3 in
-[`tests/external_parity/test_dml_python_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/external_parity/test_dml_python_parity.py),
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/external_parity/test_dml_python_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/external_parity/test_dml_python_parity.py),
 with same-seed agreement (the residual is fold-construction noise, the
 same source as the IRM/IIVM pins):
 
@@ -166,7 +166,7 @@ with `doubleml-for-py` to machine precision under a fixed seed
 (verified above), and the AIPW models (IRM, IIVM) agree up to the small
 score-construction difference noted above (≈ 0.10–0.13 SE). All four
 DoubleML model classes are pinned numerically against `doubleml-for-py`
-in `tests/external_parity/test_dml_python_parity.py`.
+in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/external_parity/test_dml_python_parity.py`.
 
 ## Estimation procedure and nuisance learners
 
@@ -177,7 +177,7 @@ Chernozhukov et al. (2018, Def. 3.2), which is also DoubleML's default
 `theta = sum(d_tilde * y_tilde) / sum(d_tilde**2)` over *all* out-of-fold
 residuals (not a per-fold DML1 average). This pooled identity, the
 solved Neyman moment, and the sandwich-variance formula are checked
-directly in `tests/test_dml_orthogonality_invariants.py`. The per-fold
+directly in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/test_dml_orthogonality_invariants.py`. The per-fold
 DML1 procedure is not currently exposed; for well-sized folds the two
 agree closely and DML2 is the recommended default.
 
@@ -289,7 +289,7 @@ Beyond the four estimator classes that mirror DoubleML one-to-one,
   [@ahrens2025model].
 - **Unified result object** — every `sp.dml` call returns a
   `CausalResult`, so `.summary()`, `.to_latex()`, `.cite()` and the
-  agent-side audit chain (`sp.audit_result`) work the same as for every
+  agent-side audit chain (`sp.audit`) work the same as for every
   other StatsPAI estimator.
 
 ## Extending `sp.dml` with a custom score
@@ -333,7 +333,7 @@ result = est.fit()          # -> a standard CausalResult
 ```
 
 The four shipped models (`plr` / `irm` / `pliv` / `iivm`) are exactly
-such subclasses; reading `src/statspai/dml/plr.py` is the recommended
+such subclasses; reading `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/src/statspai/dml/plr.py` is the recommended
 template.
 
 ## Roadmap
@@ -371,10 +371,10 @@ pip install -e ".[dev,parity]"   # the parity extra adds doubleml-for-py
 # partialling-out models match to machine precision; AIPW / IV-type paths
 # match within the documented fold-construction tolerance.
 # Without the parity extra this test skips cleanly instead of failing.
-pytest tests/external_parity/test_dml_python_parity.py -v
+pytest https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/external_parity/test_dml_python_parity.py -v
 
 # R-side parity (requires R + DoubleML + mlr3 installed locally)
-pytest tests/reference_parity/test_dml_parity.py -v
+pytest https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_dml_parity.py -v
 ```
 
 The R-side fixture (`dml_R.json`) was generated once on R 4.5.2 with

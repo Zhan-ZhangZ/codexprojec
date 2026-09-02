@@ -97,7 +97,7 @@ partialling-out models (PLR, PLIV) agree to **machine precision**
 (|Δ| at the last float64 unit), and the AIPW models (IRM, IIVM) agree up
 to the small score-construction term. That bit-for-bit equivalence is
 pinned offline (no network) in
-[`tests/external_parity/test_dml_python_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/external_parity/test_dml_python_parity.py)
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/external_parity/test_dml_python_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/external_parity/test_dml_python_parity.py)
 and explained in detail in
 [`sp.dml` and the DoubleML reference implementation](sp_dml_vs_doubleml.md).
 

@@ -22,7 +22,7 @@ contract that keeps the grammar honest, and the two CI gates that enforce it.
 
 ## 1. Canonical keyword vocabulary
 
-The single source of truth is [`statspai/_house_style.py`](../../src/statspai/_house_style.py).
+The single source of truth is [`statspai/_house_style.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/_house_style.py).
 The canonical spellings, ratified 2026-06-30:
 
 | Concept | Canonical | Accepted aliases (forwarded) | Notes |
@@ -49,7 +49,7 @@ The lint excludes these via an explicit allowlist so its signal stays trustworth
 
 ### Accepting the canonical spelling today (additive, reversible)
 
-Estimators opt in via the [`accepts_aliases`](../../src/statspai/_aliases.py)
+Estimators opt in via the [`accepts_aliases`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/src/statspai/_aliases.py)
 decorator, which forwards the canonical spelling to the existing parameter
 **without renaming it** — old call sites keep working unchanged:
 
@@ -71,20 +71,20 @@ spelling deprecates on the normal `MIGRATION.md` schedule.
 
 The reviewer's sharpest question: *is wild cluster bootstrap usable on any
 estimator, or only on `feols`?* The honest answer, tracked in
-[`scripts/se_menu_matrix.py`](../../scripts/se_menu_matrix.py):
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/scripts/se_menu_matrix.py`](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/se_menu_matrix.py):
 
 | estimator | classical | hc_robust | cluster | twoway | cr2_cr3 | wild_cluster_boot | conley | jackknife |
 |---|---|---|---|---|---|---|---|---|
-| `feols` | ✓ | ✓ | ✓ | ✓ | · | ✓ | ○ | · |
-| `hdfe_ols` | ✓ | · | ✓ | ✓ | · | ✓ | · | · |
-| `fepois` | ✓ | ✓ | ✓ | ✓ | · | · | · | · |
-| `feglm` | ✓ | ✓ | ✓ | ✓ | · | · | · | · |
-| `regress` | ✓ | ✓ | ✓ | ○ | ○ | ○ | ○ | ○ |
-| `ivreg` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ⚠ | ✓ |
-| `ppmlhdfe` | ✓ | ✓ | ✓ | · | · | · | · | · |
-| `panel` | ✓ | ✓ | ✓ | · | · | · | · | · |
-| `callaway_santanna` | · | · | ✓ | · | · | · | · | · |
-| `did` | · | · | ✓ | · | · | · | · | · |
+| `feols` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hdfe_ols` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `fepois` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `feglm` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `regress` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ivreg` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ppmlhdfe` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `panel` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `callaway_santanna` | · | · | ✓ | · | · | ✓ | · | · |
+| `did` | · | · | ✓ | · | · | ✓ | · | · |
 | `dml` | ✓ | · | · | · | · | · | · | · |
 | `rdrobust` | · | ✓ | ✓ | · | · | · | · | · |
 | `synth` | · | · | · | · | · | · | · | ✓ |
@@ -96,9 +96,21 @@ refits plain OLS — **wrong** for FE/IV) · · n/a.
 
 What the matrix makes explicit today:
 
-- **`regress` has a full, correct menu.** Wild bootstrap / CR2 / Conley /
-  jackknife attach correctly to plain OLS because its result stores the design
-  matrix and residuals.
+- **`regress` has a full, native SE menu** (8/8) — all the standalone SE
+  options are now `vce=` parameters on `sp.regress` itself:
+
+  ```python
+  sp.regress("y ~ x", df, vce="CR2", cluster="firm")       # bias-reduced CR2
+  sp.regress("y ~ x", df, vce="CR3", cluster="firm")       # bias-reduced CR3 (== jackknife)
+  sp.regress("y ~ x", df, vce="wild", cluster="firm")      # WCR cluster bootstrap
+  sp.regress("y ~ x", df, cluster=["firm","year"])          # CGM-2011 two-way
+  sp.regress("y ~ x", df, vce="conley",                    # Conley spatial HAC
+                 conley_lat="lat", conley_lon="lon", conley_cutoff=200.0)
+  ```
+
+  **Validated vs Stata `reghdfe vce(cluster firm year)`, `acreg ... spatial
+  dist()`, and R `sandwich::vcovCL(HC2/3)`** to machine precision on the
+  same 400-obs panel (see `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_ols_se_external_parity.py`).
 - **Wild cluster bootstrap is native on `feols`** via `vce="wild"` (and on the
   panel `hdfe_ols` path). It runs the WCR bootstrap on the FE-absorbed within
   design:
@@ -112,7 +124,7 @@ What the matrix makes explicit today:
   implementation): on an identical 600-obs / 15-cluster panel the point estimate
   and CRV1 cluster SE match `reghdfe` to ~1e-9, and the wild p-value matches
   `boottest`'s exact 2¹⁵ Rademacher enumeration to Monte-Carlo error (0.0265 vs
-  0.0263). See `tests/reference_parity/test_feols_wild_boottest_parity.py`.
+  0.0263). See `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_feols_wild_boottest_parity.py`.
 - **`ivreg` has native wild via `vce="wild"`** — the **WRE** bootstrap
   (Davidson-MacKinnon 2010), the IV-correct procedure that resamples both the
   structural and reduced-form residuals and refits 2SLS:
@@ -126,7 +138,7 @@ What the matrix makes explicit today:
   0.2016 vs 0.20155) and weak-IV (p 0.3415 vs 0.3412) regimes — the weak-IV
   case rules out the naive reduced form (which gives 0.426). Also validated for
   **two endogenous regressors** (p 0.2101/0.0151 vs boottest 0.2108/0.0141).
-  See `tests/reference_parity/test_iv_wild_boottest_parity.py`.
+  See `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_iv_wild_boottest_parity.py`.
 - **`ivreg` has native two-way clustering** via `cluster=["a", "b"]` — the
   CGM (2011) inclusion-exclusion sandwich on the projected regressors, matching
   Stata `ivreg2, cluster(a b) small`.
@@ -134,9 +146,121 @@ What the matrix makes explicit today:
   McCaffrey) and `vce="CR3"` (== `vce="jackknife"`) — the Pustejovsky-Tipton
   (2018) adjustment on the projected 2SLS regressors, matching R
   `clubSandwich::vcovCR(ivreg, type=...)` to machine precision.
-- **`ivreg`'s one remaining ⚠ cell is Conley** (spatial HAC): the OLS standalone
-  helper refits plain OLS and drops the two-stage structure, so its SE is not
-  trustworthy — flagged pending an IV-aware implementation + `acreg` parity.
+- **`ivreg` has native Conley spatial HAC** via
+  `vce="conley", conley_lat=, conley_lon=, conley_cutoff=` — the spatial kernel
+  on the projected 2SLS scores with Stata `acreg`'s planar distance (111 km/deg,
+  `cos(lat)` longitude), matching `acreg ... spatial` exactly.
+- **`ivreg`'s SE menu is now complete (8/8 native):** every cell — classical /
+  HC / cluster / two-way / CR2-CR3 / wild bootstrap / Conley / jackknife — is a
+  native, externally-validated option. No ⚠ cells remain in the whole matrix.
+- **`feols` has native bias-reduced / spatial SEs** via `vce="CR2"`, `vce="CR3"`
+  (== `vce="jackknife"`) and `vce="conley"` on the FE-absorbed within design.
+  The within-transform's leverage adjustment reproduces R
+  `clubSandwich::vcovCR(plm, model="within", type=...)` to machine precision, so
+  the entire `feols` row is 8/8 native
+  (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_feols_bias_reduced_parity.py`).
+- **`panel(method="fe")` mirrors that menu.** The one-way entity fixed-effects
+  estimator accepts `vce="CR2"/"CR3"/"jackknife"`, `vce="conley"` (with
+  `conley_lat=/conley_lon=/conley_cutoff=`) and two-way clustering via
+  `cluster=["a", "b"]`. Since OLS on the entity-demeaned design reproduces the
+  linearmodels FE coefficients, the CR2/CR3 SEs equal the *identical*
+  `clubSandwich::vcovCR(plm)` anchor as `feols`, and Conley / two-way match
+  `sp.regress` on the hand-demeaned data (Stata `acreg` / `reghdfe`
+  conventions) — see `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_panel_bias_reduced_parity.py`.
+
+  ```python
+  sp.panel(df, "y ~ x", entity="firm", time="t", method="fe",
+           vce="CR2", cluster="firm")                 # bias-reduced CR2
+  sp.panel(df, "y ~ x", entity="firm", time="t", method="fe",
+           cluster=["firm", "region"])                # two-way cluster
+  ```
+- **`fepois` / `feglm` have native bias-reduced cluster SEs** via `vce="CR2"`,
+  `vce="CR3"` (== `vce="jackknife"`). The GLM adjustment is the IRLS-weighted
+  generalisation of CR2 (`d = dμ/dη`, `V = Var(μ)`, working weight `w = d²/V`) on
+  the **fixed-effects-as-dummies** design, matching R
+  `clubSandwich::vcovCR(glm, type=...)` for the Poisson / logit / probit /
+  gaussian families. (Unlike OLS, the weighted projection does *not* carry the
+  CR2 leverage through FE absorption, so the dummy design is required — it is
+  guarded against high-dimensional FE, which should use `cluster=` or the wild
+  bootstrap instead.) See `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_feglm_bias_reduced_parity.py`.
+
+  ```python
+  sp.fepois("y ~ x1 + x2 | firm", data=df, vce="CR2", cluster="clu")
+  sp.feglm("y ~ x1 | firm", data=df, family="logit", vce="CR3", cluster="clu")
+  ```
+- **`fepois` / `feglm` also have a native wild cluster bootstrap** via
+  `vce="wild"` — the restricted **score wild cluster bootstrap** (Kline-Santos
+  2012), the method Stata `boottest` runs after `poisson` / `logit`, implemented
+  with `boottest`'s exact studentization (cluster-share-centered CRVE
+  denominator + strict exceedance counting, reverse-engineered from its
+  enumerated bootstrap distribution and corroborated against `boottest.mata`).
+  In the enumerated regime (`2^G <= wild_reps`) the p-values are **bit-exact**
+  matches to Stata `boottest`, verified for Poisson *and* logit. It returns
+  wild-bootstrap p-values per coefficient (SE/CI stay cluster-robust). So the
+  answer to *"is wild cluster bootstrap usable on any estimator or only
+  `feols`?"* is now: **`regress`, `feols`, `ivreg` (WRE), `fepois`, `feglm` all
+  have a native, externally-validated `vce="wild"`.**
+
+  ```python
+  sp.fepois("y ~ x1 + x2 | firm", data=df, vce="wild", cluster="clu")
+  ```
+- **`ppmlhdfe` has native two-way clustering** via `cluster=["a", "b"]` — the
+  CGM (2011) inclusion-exclusion sandwich on the FE-residualised PPML design
+  with the single `G_min/(G_min-1)` small-sample factor, **byte-identical to
+  Stata `ppmlhdfe ..., cluster(a b)`** (its one-way path already matches Stata
+  exactly). See `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_ppmlhdfe_twoway_parity.py`.
+
+  ```python
+  sp.ppmlhdfe("y ~ x1 + x2 | o + d", data=df, cluster=["origin", "dest"])
+  ```
+- **`ppmlhdfe` gains the boottest-convention wild bootstrap at scale, plus
+  CR2/CR3.** Stata's `boottest` cannot run after `ppmlhdfe` at all (no
+  `constraints()` support — verified empirically), so `ppmlhdfe(vce="wild")`
+  is a *beyond-Stata* capability: the score bootstrap touches only per-cluster
+  one-step contributions (never per-observation leverage), and their weighted
+  Frisch-Waugh-Lovell reduction onto the FE-absorbed design is **exact**
+  (verified to 1e-17) — so it runs on 500-level FE in under a second and is
+  byte-identical to `fepois(vce="wild")` (itself bit-exact vs `boottest`) on
+  low-dimensional FE. `vce="CR2"/"CR3"` use the reference-matching dummy
+  design with the same high-dim guard as `fepois`.
+- **`fepois` / `feglm` gain `vce="conley"`** — GLM spatial HAC referenced to R
+  **conleyreg** (which natively supports Poisson/logit/probit; Stata `acreg`
+  is OLS/2SLS-only). The implementation reproduces conleyreg's spherical
+  uniform kernel (haversine, earth radius 6371.01 km, read from its C++
+  source) to ~1e-7. Note the documented convention split: the OLS menu
+  follows `acreg`'s planar distance, the GLM menu follows `conleyreg`'s
+  spherical distance — each the convention of the reference that exists.
+- **`hdfe_ols` and `panel` complete their rows (8/8).** `hdfe_ols` gains the
+  canonical `vce=` menu on its absorber's within design: `vce="robust"/"hc1"`
+  (HC1 with **reghdfe's** `N/(N-k-df_a)` factor — matches Stata
+  `reghdfe, vce(robust)` exactly), `vce="CR2"/"CR3"/"jackknife"` (same frozen
+  clubSandwich plm anchor as `feols`/`panel`), `vce="conley"`, and
+  `vce="wild"` as shorthand for its native WCR bootstrap. `panel(method="fe")`
+  gains `vce="wild"` — the **same WCR engine** as `sp.regress(vce="wild")` on
+  the entity-within design, byte-identical p-values to regress on the
+  hand-demeaned data with the same seed. **Every regression-family estimator
+  (`regress`, `feols`, `ivreg`, `panel`, `hdfe_ols`) is now 8/8 native.**
+
+  ```python
+  sp.hdfe_ols("y ~ x | firm + year", data=df, vce="robust")        # reghdfe HC1
+  sp.panel(df, "y ~ x", entity="firm", time="t", method="fe",
+           vce="wild", cluster="firm", seed=42)                    # WCR bootstrap
+  ```
+
+- **DiD gets the canonical few-clusters inference.**
+  `did(method="2x2", vce="wild", cluster=...)` runs the WCR wild cluster
+  bootstrap on the interaction regression — the setting the wild-bootstrap
+  literature was built for (MacKinnon-Webb 2017) — validated against Stata
+  `boottest` after `reg y d t dt, vce(cluster ...)` and byte-identical to
+  `sp.regress(vce="wild")` on the same design. `classical`/`hc_robust` for
+  DiD stay deliberately absent (unclustered DiD SEs are the
+  Bertrand-Duflo-Mullainathan mistake). For Callaway-Sant'Anna, the Mammen
+  multiplier bootstrap on unit-level influence functions (`sp.aggte`) **is**
+  the wild bootstrap for that estimator (CS 2021 §4.1; R `did::mboot`), so
+  its cell is native by construction. `ppmlhdfe` also completes
+  `vce="conley"` via the conleyreg-referenced GLM spatial HAC. Remaining
+  blanks (`synth`, `rdrobust`, `dml` rows) are documented in
+  `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/scripts/se_menu_matrix.py` as methodologically legitimate n/a.
 
 This is the gap the SE-menu wiring work closes, estimator by estimator. The
 matrix is the scoreboard: the CI gate ratchets the **native** count up and the
@@ -149,8 +273,8 @@ matrix is the scoreboard: the CI gate ratchets the **native** count up and the
 Two `--check` gates keep the grammar from drifting:
 
 ```bash
-python scripts/signature_house_style.py --check   # keyword-spelling ratchet
-python scripts/se_menu_matrix.py --check          # SE-menu coverage ratchet
+python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/scripts/signature_house_style.py --check   # keyword-spelling ratchet
+python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/scripts/se_menu_matrix.py --check          # SE-menu coverage ratchet
 ```
 
 - **`signature_house_style`** introspects every public callable and counts

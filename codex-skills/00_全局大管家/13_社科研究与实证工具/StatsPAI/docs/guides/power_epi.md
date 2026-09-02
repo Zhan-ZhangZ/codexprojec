@@ -14,7 +14,7 @@ you pass `power_target=` instead of `n`.
 
 These calculators are validated by Monte-Carlo agreement with the test
 they approximate and against the closed-form Schoenfeld events
-requirement (see `tests/test_power_study_designs.py`).
+requirement (see `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/test_power_study_designs.py`).
 
 ---
 

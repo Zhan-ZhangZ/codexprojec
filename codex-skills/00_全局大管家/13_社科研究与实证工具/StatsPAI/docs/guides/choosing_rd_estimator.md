@@ -14,7 +14,7 @@ What is the running variable behaviour at the cutoff?
   Discrete (time-based)        -> RDiT (sp.rdit)
   Kink (derivative jump)       -> RKD (sp.rkd)
   Two running variables        -> sp.rd2d
-  Multiple cutoffs             -> sp.rdmulti
+  Multiple cutoffs             -> sp.rdmc
   Randomisation (near cutoff)  -> Local randomization (sp.rdrandinf)
 ```
 
@@ -53,7 +53,7 @@ Fuzzy RD identifies a LATE for compliers. Also report:
 | Discrete running variable (e.g., date)      | `sp.rdit`                       |
 | Kink design (slope jump, not level)         | `sp.rkd`                        |
 | Two-dimensional cutoff                      | `sp.rd2d`                       |
-| Multiple cutoffs (school-district boundaries)| `sp.rdmulti`                    |
+| Multiple cutoffs (school-district boundaries)| `sp.rdmc`                       |
 | Near-cutoff local randomization             | `sp.rdrandinf`                  |
 | Heterogeneous effects                       | `sp.rdhte`, `sp.rd_forest`      |
 | ML-based extrapolation beyond cutoff        | `sp.rd_extrapolate`             |
@@ -70,11 +70,11 @@ sp.rddensity(df, x='running_var', c=0.0)
 sp.mccrary_test(df, x='running_var', c=0.0)
 
 # 2. Covariate balance across the cutoff
-sp.rdbalance(df, x='running_var', c=0.0, covariates=[...])
+sp.rdbalance(df, x='running_var', c=0.0, covs=['X1', 'X2'])
 
 # 3. Placebo cutoffs
 sp.rdplacebo(df, y='y', x='running_var',
-             true_cutoff=0.0, placebo_cutoffs=[-0.5, 0.5])
+             c=0.0, placebo_cutoffs=[-0.5, 0.5])
 
 # 4. Bandwidth sensitivity
 sp.rdbwsensitivity(df, y='y', x='running_var', c=0.0)
@@ -91,20 +91,51 @@ r.next_steps()  # prints the priority-ordered checklist
 
 ## 5. Bandwidth selection
 
-`bwselect='mserd'` (default) is MSE-optimal and RD-specific. Other
-options:
+`bwselect='mserd'` (default) is MSE-optimal and RD-specific. StatsPAI
+implements the full Calonico–Cattaneo–Titiunik three-stage cascade
+natively, and all ten of R's selector names are accepted:
 
-| `bwselect`   | When to use                                          |
-|--------------|------------------------------------------------------|
-| `'mserd'`    | Default — MSE-optimal, common bandwidth              |
-| `'msetwo'`   | Different bandwidths on each side of cutoff          |
-| `'cerrd'`    | Coverage-error-rate optimal (better for CI coverage) |
-| `'certwo'`   | CER-optimal, two bandwidths                          |
-| `'cct'`      | Exact R `rdrobust` parity; requires `statspai[rd-cct]` |
-| Fixed `h=`   | Specified by you (for robustness checks)             |
+| `bwselect`                | When to use                                     |
+|---------------------------|-------------------------------------------------|
+| `'mserd'`                 | Default — MSE-optimal, common bandwidth         |
+| `'msetwo'`                | MSE-optimal, separate left/right                |
+| `'msesum'`                | MSE-optimal for the sum of the two one-sided estimands |
+| `'msecomb1'`/`'msecomb2'` | min / median of the MSE variants                |
+| `'cerrd'`                 | Coverage-error-rate optimal (better CI coverage)|
+| `'certwo'`, `'cersum'`    | CER-optimal, separate / sum                     |
+| `'cercomb1'`/`'cercomb2'` | min / median of the CER variants                |
+| Fixed `h=`                | Specified by you (for robustness checks)        |
 
 Rule of thumb: use `mserd` for point estimates, run `cerrd` as a
 robustness check for CI coverage.
+
+The default path matches R `rdrobust` 4.0.0 to ~1e-12 on `h`, `b`, both
+coefficients and both standard errors, so `bwselect='cct'` (which delegates
+to the official Python port and needs the `statspai[rd-cct]` extra) is no
+longer needed for parity. It remains available as an independent check.
+
+**`cluster=` changes the bandwidth, not just the standard error.** The
+cascade's variance term is a sandwich, so clustering propagates into `h`
+and `b`. This surprises people who expect clustering to be an
+inference-only switch, but it matches R — and R makes one further
+substitution silently, which StatsPAI reproduces: passing `cluster=` with
+the default `vce='nn'` promotes the variance to `cr1`, whose residuals are
+`hc1`'s rather than nearest-neighbour ones. Nearest-neighbour differencing
+removes exactly the within-cluster correlation a clustered variance exists
+to capture, so the two must not be combined; pairing them understates the
+SE by roughly 10x.
+
+## 5b. Variance estimator
+
+`vce=` mirrors R's argument of the same name:
+
+| `vce`            | Meaning                                             |
+|------------------|-----------------------------------------------------|
+| `'nn'` (default) | Nearest-neighbour residuals, `nnmatch=3`            |
+| `'hc0'`–`'hc3'`  | Regression residuals with the usual HC corrections  |
+
+R's `cr1`/`cr2`/`cr3` are requested by passing `cluster=` rather than by
+name.
 
 ## 6. Polynomial order
 
@@ -159,7 +190,7 @@ r.plot()           # Falls back to coefplot; use sp.rdplot for binscatter
 | McCrary density test p < 0.05 | `AssumptionViolation` | Use donut-hole RD (donut=<δ>) or partial-identification bounds. | `sp.rdrobust` |
 | Covariate imbalance at cutoff (sp.rdbalance rejects) | `AssumptionViolation` | Include covariates as controls, narrow bandwidth, or report as caveat. |  |
 | Effect unstable across bandwidth halvings | `AssumptionWarning` | Report sp.rdbwsensitivity and sp.rd_honest (Armstrong-Kolesár honest CI). | `sp.rd_honest` |
-| Placebo cutoffs show significant 'effects' | `AssumptionViolation` | The RD signal is noise; seek an alternative identification strategy. | `sp.bounds` |
+| Placebo cutoffs show significant 'effects' | `AssumptionViolation` | The RD signal is noise; seek an alternative identification strategy. | `sp.manski_bounds` |
 
 **Alternatives (ranked)**
 - `sp.rd_honest`

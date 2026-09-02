@@ -231,7 +231,7 @@ res.alpha, res.se, res.pvalue, res.conf_int()
 out = sp.rlassologit_effects(X, y, index=[0, 1])   # each X column as the target
 ```
 
-Parity vs `hdm` 0.3.2 (`tests/reference_parity/test_rlassologit_effect_parity.py`):
+Parity vs `hdm` 0.3.2 (`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_rlassologit_effect_parity.py`):
 the coefficient and the post-Lasso standard error match to ~1e-14, the
 multi-target effects to ~1e-15, and the non-post SE to ~1e-7 (the non-post
 LassoShooting tolerance). For a plain binary-treatment causal effect you can
@@ -270,7 +270,7 @@ sp.rlasso_iv(y, d, z, x=Xa, select_Z=False, select_X=True).coef  # -> 0.84503
 ```
 
 All three are pinned to `hdm` in
-[`tests/reference_parity/test_rlasso_vignette_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/reference_parity/test_rlasso_vignette_parity.py).
+[`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_rlasso_vignette_parity.py`](https://github.com/brycewang-stanford/StatsPAI/blob/main/tests/reference_parity/test_rlasso_vignette_parity.py).
 The datasets are public, published economic facts (AJR: Acemoglu,
 Johnson & Robinson 2001, *AER* 91(5); Growth: Barro & Lee; cps2012: U.S.
 CPS 2012). Growth and AJR are bundled in full; for cps2012 the committed
@@ -285,9 +285,9 @@ RNG on the default penalty path), so the fixtures are a hard contract.
 Regenerate only when the algorithm changes:
 
 ```bash
-Rscript tests/reference_parity/_generate_rlasso.R           # core / effect / IV / logit
-Rscript tests/reference_parity/_generate_rlasso_vignette.R  # Growth + AJR vignette
-pytest tests/reference_parity/test_rlasso_parity.py tests/reference_parity/test_rlasso_vignette_parity.py -q
+Rscript https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/_generate_rlasso.R           # core / effect / IV / logit
+Rscript https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/_generate_rlasso_vignette.R  # Growth + AJR vignette
+pytest https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_rlasso_parity.py https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/reference_parity/test_rlasso_vignette_parity.py -q
 ```
 
 ## References

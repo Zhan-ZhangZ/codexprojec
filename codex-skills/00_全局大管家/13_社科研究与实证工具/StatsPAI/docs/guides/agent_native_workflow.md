@@ -80,7 +80,7 @@ sp.describe_function("did")   # full metadata dict
 
 ## Offline discovery (no Python import)
 
-Run `python scripts/dump_schemas.py` to emit a versioned, import-free
+Run `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/scripts/dump_schemas.py` to emit a versioned, import-free
 bundle under `schemas/` that a non-Python runtime can read directly:
 
 | file | contents |
@@ -91,7 +91,7 @@ bundle under `schemas/` that a non-Python runtime can read directly:
 | `result.schema.json` | JSON Schema for the agent result payload |
 | `index.json` | version + counts provenance |
 
-`scripts/dump_schemas.py --check` fails CI if the bundle drifts from the
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/scripts/dump_schemas.py --check` fails CI if the bundle drifts from the
 live package, so the offline artifact never goes stale.
 
 ## Failure handling

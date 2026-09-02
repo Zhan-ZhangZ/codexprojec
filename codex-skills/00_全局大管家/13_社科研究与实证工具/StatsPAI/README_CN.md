@@ -10,6 +10,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/StatsPAI.svg)](https://pypi.org/project/StatsPAI/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/brycewang-stanford/statspai/blob/main/LICENSE)
 [![Tests](https://github.com/brycewang-stanford/statspai/workflows/CI%2FCD%20Pipeline/badge.svg)](https://github.com/brycewang-stanford/statspai/actions)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://brycewang-stanford.github.io/StatsPAI/)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/statspai?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/statspai)
 [![status](https://joss.theoj.org/papers/9f1c837b1b1df7adfcdd538c3698e332/status.svg)](https://joss.theoj.org/papers/9f1c837b1b1df7adfcdd538c3698e332)
 [![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.19933900-blue.svg)](https://doi.org/10.5281/zenodo.19933900)
@@ -29,7 +30,7 @@ StatsPAI 面向那些原本需要在 Stata、R 和 Python 之间来回切换的�
   和 [`Paper-WorkFlow`](https://github.com/brycewang-stanford/Paper-WorkFlow)
   可以和 StatsPAI 以及 agent 一起使用，作为方法选择、期刊要求、论文流程和可复现检查的技能层。
 
-这不是说每个 Stata/R 命令都已经逐字节复现。需要严肃对齐时，请看函数的 `validation_status`、参考对齐测试和 `sp.cross_validate`。
+这不是说每个 Stata/R 命令都已经逐字节复现。需要严肃对齐时，请看函数的 `validation_status`、参考对齐测试和 `sp.cross_validate`。`validation_status` 把 certified / validated / api_stable 三档区分开：certified / validated 表示有数值证据，api_stable 只表示接口稳定、并非数值验证。完整的分级普查见 `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/jss_source_audit_dossier.md`。
 
 ---
 
@@ -49,7 +50,7 @@ print(sp.datasets.list_datasets()[["name", "design", "n_obs"]].head())
 
 StatsPAI 随包带有 Card (1995)、Callaway-Sant'Anna `mpdta`、Lee (2008) RD、LaLonde/NSW、California Proposition 99 等教学数据集。下面的例子安装后可以离线运行。
 
-一眼概览：1,139 个注册函数，分布在 87 个子模块；339k 行核心代码 + 182k 行测试。运行 `python scripts/registry_stats.py` 可复现这些数字。
+一眼概览：1,178 个注册函数，分布在 87 个子模块；352k 行核心代码 + 200k 行测试。运行 `python https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/scripts/registry_stats.py` 可复现这些数字。
 
 ---
 
@@ -93,7 +94,11 @@ StatsPAI 的定位是一个更宽的 Stata/R 风格实证研究工作台，而�
 import statspai as sp
 
 card = sp.datasets.card_1995()
-ols = sp.regress("lwage ~ educ + exper", data=card, robust="hc1")
+ols = sp.regress(
+    "lwage ~ educ + exper + expersq + black + south + smsa",
+    data=card,
+    robust="hc1",
+)
 print(ols.summary())
 ```
 
@@ -103,15 +108,19 @@ print(ols.summary())
 Model: OLS
 Dependent Variable: lwage
 
-           Coefficient  Std. Error  t-statistic  P>|t|
-Intercept       4.9060      0.0599      81.8392 0.0000
-educ            0.1088      0.0042      25.8730 0.0000
-exper           0.0164      0.0014      11.3496 0.0000
+              Coefficient  Std. Error  t-statistic  P>|t|
+Intercept          4.8388      0.0637      76.0131 0.0000
+educ               0.1100      0.0041      26.5543 0.0000
+exper              0.0283      0.0054       5.2742 0.0000
+expersq           -0.0005      0.0002      -2.2132 0.0270
+black             -0.1561      0.0231      -6.7571 0.0000
+south             -0.0554      0.0193      -2.8636 0.0042
+smsa               0.0905      0.0205       4.4214 0.0000
 
-R-squared: 0.2102
+R-squared: 0.2307
 ```
 
-像读 Stata/R 回归表一样读：在这个 replica 里，多上一年学与约 `0.109` 的 log wage 增加相关；这还没有处理教育的内生性。
+像读 Stata/R 回归表一样读：在这个 replica 里，多上一年学与约 `0.110` 的 log wage 增加相关；这还没有处理教育的内生性。加上 Card (1995) 常用控制（经验及其平方、种族、地区、SMSA），R² 从 `0.210` 提到 `0.231`，educ 系数几乎不变 —— `educ` 中的经典测量误差导致的小幅衰减仍然存在，这正是 example 2 中用 IV 来解决的。
 
 ### 2. IV / 2SLS：替代 `ivregress 2sls` 或 `AER::ivreg`
 
@@ -245,6 +254,29 @@ Nevada   0.1580
 
 ---
 
+## 导出结果
+
+每个结果对象都自带 Stata 风格与 R（modelsummary/broom）风格的导出器。一行代码就能生成
+多 sheet 的 `.xlsx` 或可以直接交给合作者的 Word 表格。
+
+```python
+sp.outreg2(r1, r2, filename="results.xlsx")            # Excel，Stata 风格
+sp.modelsummary(r1, r2, output="table.docx")            # Word，modelsummary 风格
+```
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/brycewang-stanford/StatsPAI/main/docs/assets/export-card-xlsx.png" alt="sp.outreg2 导出 — Card 1995 OLS + IV 表" width="820">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/brycewang-stanford/StatsPAI/main/docs/assets/export-lalonde-xlsx.png" alt="sp.outreg2 导出 — LaLonde/NSW 倾向得分表" width="820">
+</p>
+
+上面的截图是 `sp.outreg2` 在 Card (1995) OLS + IV 组合与 LaLonde/NSW 倾向得分回归上
+输出的 `.xlsx`：每个 sheet 都包含系数表、模型拟合统计量和显著性星号，格式与期刊模板
+的要求一致。
+
+---
+
 ## 交互式图表编辑
 
 如果你怀念 Stata 的 Graph Editor，可以对 StatsPAI 返回的任意 matplotlib 图使用
@@ -285,8 +317,12 @@ print(editor.generate_code())  # 复制可复现的 matplotlib 编辑代码
 import statspai as sp
 
 card = sp.datasets.card_1995()
-r1 = sp.regress("lwage ~ educ + exper", data=card, robust="hc1")
-r2 = sp.ivreg("lwage ~ (educ ~ nearc4) + exper", data=card)
+r1 = sp.regress(
+    "lwage ~ educ + exper + expersq + black + south + smsa",
+    data=card,
+    robust="hc1",
+)
+r2 = sp.ivreg("lwage ~ (educ ~ nearc4) + exper + expersq + black + south + smsa", data=card)
 
 print(r1.summary())                         # 人类可读表格
 print(r1.tidy().head())                      # broom 风格 dataframe
@@ -326,6 +362,36 @@ print(sp.list_functions(validation_status="certified")[:5])
 
 Agent 可读元数据可通过 `sp.list_functions()`、`sp.describe_function()`、`sp.function_schema()` 获取。
 
+### 跨语言对齐，可查询
+
+上面的验证层级背后有一套更细、可审计的支撑：**parity 索引**。每个通过验证的函数都记录
+了*它对齐的参考实现是什么、容差是多少、由哪个测试守护、实际匹配到什么程度*。每一行都
+能追溯到一个已提交的测试工件（版本锁定的 StatsPAI ↔ R ↔ Stata 对齐 harness，通过
+`renv.lock` 加逐次运行的 provenance 固定）——没有任何结论是"凭记忆"断言的。
+
+```python
+import statspai as sp
+
+sp.parity_status("feols")
+# {'status': 'bit-exact', 'reference': 'fixest::feols',
+#  'reference_versions': {'R': '...4.5.2...', 'fixest': '0.14.0'},
+#  'tolerance': 'rel_est<=1e-06, rel_se<=1e-06', 'headline': {...}, 'test': [...]}
+
+sp.parity_summary()              # 诚实的覆盖统计（已验证 vs 未验证）
+sp.parity_matrix(status="bit-exact")
+```
+
+等级：`bit-exact`（相对指定 R/Stata 参考实现达到机器精度）、`aligned`（有文档说明的较宽
+容差）、`analytical-only`（能还原已知 DGP 真值）、`external-replication`（对齐已发表论文
+数字）、`unverified`（已注册但**尚**无 parity 证据——诚实标注的缺口）。完整的自动生成
+矩阵发布在 [docs/parity.md](https://brycewang-stanford.github.io/StatsPAI/parity/)。
+
+除了点估计对齐，Track-B 覆盖研究对每个估计量跑 `B=1000` 次蒙特卡洛重复，检查 95%
+置信区间在已知真值 DGP 上是否达到名义覆盖率。7 个已物化 nominal 行——RCT 上的 OLS
+(0.952)、2×2 DiD (0.955)、强工具 IV (0.962)、Callaway–Sant'Anna 交错 ATT (0.946)、
+熵平衡 (1.000)、DML IRM ATE (0.969)、以及 causal-forest AIPW ATE (0.977)——都落在名义
+0.95 的接受带之内或之上；已提交的工件在 `tests/coverage_monte_carlo/results_b1000/`。
+
 ---
 
 ## Changelog
@@ -343,9 +409,9 @@ README 首页只保留新手上路所需信息。
 
 StatsPAI 正在 JOSS 审稿中。审稿人可从这里开始：
 
-- [JOSS reviewer guide](docs/joss_reviewer_guide.md)
-- [JOSS validation dossier](docs/joss_validation_dossier.md)
-- [Design rationale and FAQ](docs/joss_reviewer_qa.md)
+- [JOSS reviewer guide](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/joss_reviewer_guide.md)
+- [JOSS validation dossier](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/joss_validation_dossier.md)
+- [Design rationale and FAQ](https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/joss_reviewer_qa.md)
 - [Examples](examples/)
 - [Contributing](CONTRIBUTING.md)
 - [Support](SUPPORT.md)
@@ -359,11 +425,13 @@ StatsPAI 正在 JOSS 审稿中。审稿人可从这里开始：
 ```bibtex
 @software{wang2026statspai,
   author  = {Wang, Biaoyue and Rozelle, Scott},
-  title   = {StatsPAI: Validation-Tiered Causal Inference and
-             Econometrics Workflows for Python},
+  title   = {StatsPAI: A Unified, Agent-Native Python Toolkit for
+             Causal Inference and Applied Econometrics},
   year    = {2026},
-  version = {1.20.0},
-  url     = {https://github.com/brycewang-stanford/StatsPAI}
+  version = {1.23.0},
+  doi     = {10.5281/zenodo.19933900},
+  url     = {https://doi.org/10.5281/zenodo.19933900},
+  license = {MIT}
 }
 ```
 

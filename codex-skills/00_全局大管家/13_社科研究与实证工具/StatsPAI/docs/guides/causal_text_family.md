@@ -24,7 +24,7 @@ CEVAE) is on the v1.7 roadmap. Both estimators flag themselves with
 | Function | Treatment type | Method |
 |----------|---------------|--------|
 | `sp.text_treatment_effect` | Text-derived (binary or continuous) | OLS with embedding projection as adjustment (Veitch-Wang-Blei 2020 MVP) |
-| `sp.llm_annotator_correct` | Binary, LLM-labelled | Hausman-style measurement-error correction (Egami et al. 2024) |
+| `sp.llm_annotator_correct` | Binary, LLM-labelled | Hausman-style measurement-error correction (Egami et al. 2023) |
 
 ## Decision tree
 
@@ -170,7 +170,7 @@ and human labels exist, then divide:
 ## References
 
 - Veitch, V., Sridhar, D., & Blei, D. M. (2019). "Adapting text embeddings for causal inference." *UAI*. [arXiv:1905.12741](https://arxiv.org/abs/1905.12741).
-- Egami, N., Hinck, M., Stewart, B., & Wei, H. (2024). "Using imperfect surrogates for downstream inference: Design-based supervised learning for social science applications of large language models." *NeurIPS*. [arXiv:2306.04746](https://arxiv.org/abs/2306.04746).
+- Egami, N., Hinck, M., Stewart, B., & Wei, H. (2023). "Using imperfect surrogates for downstream inference: Design-based supervised learning for social science applications of large language models." *NeurIPS*. [arXiv:2306.04746](https://arxiv.org/abs/2306.04746).
 - Hausman, J., Abrevaya, J., & Scott-Morton, F. (1998). "Misclassification of the dependent variable in a discrete-response setting." *Journal of Econometrics*, 87, 239–269.
 - Aigner, D. J. (1973). "Regression with a binary independent variable subject to errors of observation." *Journal of Econometrics*, 1(1), 49–59.
 - Roberts, M. E., Stewart, B. M., & Nielsen, R. A. (2020). "Adjusting for confounding with text matching." *American Journal of Political Science*. (Not yet implemented — v1.7 roadmap.)
@@ -196,8 +196,8 @@ and human labels exist, then divide:
 | ImportError on embedder='sbert' | `ImportError` | Install sentence-transformers: `pip install sentence-transformers` or use embedder='hash' |  |
 
 **Alternatives (ranked)**
-- `sp.sp.regress: plain OLS without text adjustment`
-- `sp.sp.dml: double machine learning with manual text features`
+- `sp.regress: plain OLS without text adjustment`
+- `sp.dml: double machine learning with manual text features`
 
 **Typical minimum N**: 200
 
@@ -226,7 +226,7 @@ and human labels exist, then divide:
 | DataInsufficient: 'Bootstrap produced only N valid draws' | `statspai.DataInsufficient` | Increase n_bootstrap, or fall back to the first-order SE; resampling is too unstable when the validation set is very small |  |
 
 **Alternatives (ranked)**
-- `sp.sp.regress with raw LLM label (biased — for comparison only)`
+- `sp.regress with raw LLM label (biased — for comparison only)`
 
 **Typical minimum N**: 300
 

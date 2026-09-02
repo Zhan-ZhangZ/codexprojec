@@ -127,6 +127,79 @@ Highlights (see `sp.describe_function("regtable")` for the full list):
 - **eform** — `eform=True` reports `exp(b)` (odds ratio / IRR / HR) with
   delta-method SE; pass a per-model list to mix columns.
 
+### Decimal places
+
+Economics journals do not mandate a decimal count. What they do in practice is
+scale precision to the estimate, and print a coefficient and its standard error
+at the **same** decimal place. That is what `fmt="auto"` — the default — does:
+
+```python
+sp.regtable(m)                 # adaptive precision (default)
+sp.regtable(m, fmt="auto")     # the same thing, spelled out
+```
+
+Each coefficient row gets one decimal count, chosen so that neither the
+estimate nor its standard error loses a significant digit, and both halves
+print at that count. A single table can then carry rows on completely
+different scales without either being rounded into meaninglessness:
+
+```text
+treat                   2,108***
+                           (472)
+
+age                        -26.7
+                          (21.6)
+
+re75                    0.392***
+                         (0.049)
+```
+
+A fixed `fmt="%.3f"` would have written the treatment effect as
+`2108.412 (471.938)` — seven digits of false precision on a dollar
+amount — and `fmt="%.0f"` would have flattened `re75` to `0***`.
+
+To pin precision yourself:
+
+| call               | effect                                               | borrowed from                 |
+| ------------------ | ---------------------------------------------------- | ----------------------------- |
+| `digits=3`         | 3 decimal places                                     | R `modelsummary`, `stargazer` |
+| `fmt=3`            | identical to `digits=3`                              | —                             |
+| `fmt="%.4f"`       | any printf template                                  | Stata `esttab`'s `b(%9.3f)`   |
+| `fmt="r3"`         | round to 3 decimals                                  | R `fixest::etable`            |
+| `fmt="s3"`         | 3 significant digits                                 | R `fixest::etable`            |
+| `fmt="auto"`       | pair each estimate with its own SE (default)         | StatsPAI                      |
+| `se_fmt="%.2f"`    | standard-error row only, deliberately unpaired       | —                             |
+| `stats_fmt="%.4f"` | R² / adj. R² / F rows and `tests=` footer statistics | —                             |
+
+**The same vocabulary works everywhere.** `sp.regtable`, `sp.esttab`,
+`sp.modelsummary`, `sp.sumstats`, `sp.mean_comparison`, `sp.outreg2`,
+`sp.etable`, `sp.fast.etable`, and the result-object exports
+(`.to_markdown()`, `.to_html()`, `.to_word()`) all take precision the same
+way, so you never have to remember which parameter a given exporter wanted:
+
+```python
+sp.regtable(m1, m2, digits=3)
+sp.sumstats(df, digits=3)
+result.to_markdown(digits=3)
+```
+
+One deliberate exception: `.to_excel()` keeps **numeric** cells rounded to
+six decimals rather than display strings. A spreadsheet gets sorted, charted
+and recomputed — it is a data-interchange target, not a presentation surface.
+
+`fmt` and `digits` are the same knob — passing both raises. Summary statistics
+never follow `fmt`, because they sit on their own scale; `N` is always a
+thousands-separated integer.
+
+Two edges worth knowing:
+
+- **`siunitx`** decimal-aligns a whole LaTeX column, so it cannot use per-row
+  precision. `to_latex(siunitx=True)` collapses adaptive precision to the
+  finest count any row asked for and drops thousands separators.
+- **Values below the decimal ceiling** escape to scientific notation rather
+  than printing `0.000000`, so a nonzero estimate is never displayed as an
+  exact zero.
+
 ### Saving and the format matrix
 
 ```python
@@ -301,7 +374,7 @@ carry their own visualisations or summaries instead: causal-forest
 identification *bounds* (intervals, not point ± SE), and density / dose-
 response *curves*. Forcing these into a coefficient column would misrepresent
 them, so they are intentionally excluded from the table exporters. The
-`tests/test_export_surface_contract.py` suite pins the universality claim for
+`https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/guides/tests/test_export_surface_contract.py` suite pins the universality claim for
 the table-shaped results above.
 
 ---

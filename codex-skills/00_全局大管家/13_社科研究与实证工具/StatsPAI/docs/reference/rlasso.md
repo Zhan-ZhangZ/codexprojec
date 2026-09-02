@@ -66,7 +66,7 @@ and clone-safe across cross-fitting folds.
 
 ## Numerical parity with `hdm`
 
-Pinned against `hdm` 0.3.2 in `tests/reference_parity/test_rlasso_parity.py`,
+Pinned against `hdm` 0.3.2 in `https://github.com/brycewang-stanford/StatsPAI/blob/v1.23.0/docs/reference/tests/reference_parity/test_rlasso_parity.py`,
 `test_rlassologit_parity.py`, and `test_rlasso_vignette_parity.py` (29 tests):
 
 | Surface | Agreement with `hdm` |
