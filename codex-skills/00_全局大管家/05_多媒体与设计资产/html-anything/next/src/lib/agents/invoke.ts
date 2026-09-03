@@ -150,7 +150,7 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
         safeClose();
         return;
       }
-      // `protocol: "argv"` adapters (deepseek today) take the prompt as a
+      // `protocol: "argv"` adapters (deepseek-tui today) take the prompt as a
       // trailing positional arg rather than reading from stdin.
       if (promptViaArgv) argv = [...argv, opts.prompt];
       // `protocol: "argv-message"` (openclaw today) wants the prompt under
@@ -158,18 +158,20 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       if (promptViaMessageFlag) argv = [...argv, "--message", opts.prompt];
 
       try {
-        child = spawn(bin!, argv, {
+        // On Windows, `spawn` cannot launch a `.cmd` / `.bat` shim (which is
+        // what npm installs for most CLI agents) without going through the
+        // shell. Without this, every agent invocation fails with
+        // EINVAL / "spawn 无效的参数". macOS/Linux use direct exec.
+        // Safety: prompt content is delivered via stdin or `--message
+        // <text>` (argv-message), not interpolated into a shell command,
+        // so this does not introduce a shell-injection vector.
+        const useShell = process.platform === "win32";
+        child = spawn(useShell ? `"${bin}"` : bin!, argv, {
           cwd: opts.cwd ?? process.cwd(),
           env,
           stdio: ["pipe", "pipe", "pipe"],
-          // On Windows, `spawn` cannot launch a `.cmd` / `.bat` shim (which is
-          // what npm installs for most CLI agents) without going through the
-          // shell. Without this, every agent invocation fails with
-          // EINVAL / "spawn 无效的参数". macOS/Linux use direct exec.
-          // Safety: prompt content is delivered via stdin or `--message
-          // <text>` (argv-message), not interpolated into a shell command,
-          // so this does not introduce a shell-injection vector.
-          shell: process.platform === "win32",
+          shell: useShell,
+          windowsVerbatimArguments: false,
         });
       } catch (err) {
         safeEnqueue({
@@ -213,6 +215,12 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
           stdoutBuf = stdoutBuf.slice(nl + 1);
           if (!line) continue;
           for (const part of parse(line)) {
+            // Some agents (bob) may echo the entire prompt back as the first
+            // streamed delta. Suppress that to avoid polluting the user-facing
+            // output with the system prompt.
+            if (opts.agent === "bob" && part.kind === "delta") {
+              if (part.text.trim() === opts.prompt.trim()) continue;
+            }
             if (part.kind === "delta") safeEnqueue({ type: "delta", text: part.text });
             else if (part.kind === "html") safeEnqueue({ type: "html", text: part.text });
             else if (part.kind === "meta") safeEnqueue({ type: "meta", key: part.key, value: part.value });
@@ -284,13 +292,14 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
             }
           }
         } else if (stdoutBuf) {
-          for (const part of parse(stdoutBuf)) {
-            if (part.kind === "delta") safeEnqueue({ type: "delta", text: part.text });
-            else if (part.kind === "html") safeEnqueue({ type: "html", text: part.text });
-            else if (part.kind === "meta") safeEnqueue({ type: "meta", key: part.key, value: part.value });
-          }
-          if (opts.agent === "aider" || opts.agent === "deepseek") {
+          if (opts.agent === "aider" || opts.agent === "codewhale" || opts.agent === "deepseek-tui") {
             safeEnqueue({ type: "delta", text: stdoutBuf });
+          } else {
+            for (const part of parse(stdoutBuf)) {
+              if (part.kind === "delta") safeEnqueue({ type: "delta", text: part.text });
+              else if (part.kind === "html") safeEnqueue({ type: "html", text: part.text });
+              else if (part.kind === "meta") safeEnqueue({ type: "meta", key: part.key, value: part.value });
+            }
           }
         }
         safeEnqueue({ type: "done", code });
