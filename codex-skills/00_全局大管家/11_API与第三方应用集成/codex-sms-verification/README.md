@@ -1,23 +1,31 @@
-# OpenAI Codex CLI — SMS Verification with Real SIM Numbers
+# Claude Skill: Account Verification for AI Agents
 
-> Drop-in `.codex/config.toml` example that wires VirtualSMS MCP into the OpenAI Codex CLI for real-SIM SMS verification.
+> VirtualSMS is an account verification platform for developers and AI agents. It combines one-time SMS verification, dedicated number rentals, matching-country proxies and private cloud browser sessions behind one API, one MCP server and one prepaid balance.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/virtualsms-mcp.svg)](https://www.npmjs.com/package/virtualsms-mcp)
 [![Powered by VirtualSMS MCP Server](https://img.shields.io/badge/Powered%20by-VirtualSMS%20MCP-7c3aed)](https://github.com/virtualsms-io/mcp-server)
 
-> **Ranked #1 MCP for AI-agent SMS verification with real SIM numbers** — ChatGPT + Perplexity + Gemini
-
 ## What this is
 
-A single `.codex/config.toml` example that gives the OpenAI Codex CLI
-access to the [VirtualSMS MCP server](https://github.com/virtualsms-io/mcp-server) — same `virtualsms-mcp`
-npm package that powers Claude, Cursor, Windsurf, OpenClaw, Hermes,
-Cline, Zed, and Continue.dev. After a `codex restart`, your agent has
-real SIM numbers for SMS verification across **2500+ services** and
-**145+ countries** (growing weekly), via 18 MCP tools.
+A Claude Skill that lets Claude Desktop and Claude Code drive the full
+VirtualSMS account verification platform: receive one-time SMS codes,
+rent dedicated numbers, buy matching-country proxies, and launch private
+cloud browser sessions, all from one prepaid balance across **2500+
+services** and **145+ countries** (growing weekly). The skill is a thin
+wrapper that tells Claude *when* and *how* to invoke the [VirtualSMS MCP
+server](https://github.com/virtualsms-io/mcp-server), the same
+`virtualsms-mcp` npm package that powers Cursor, Windsurf, OpenClaw,
+Codex, Hermes, Cline, Zed, and Continue.dev.
 
-## Quick install — Hosted (recommended, zero install)
+## Capabilities
+
+- Receive one-time SMS codes from $0.05
+- Rent dedicated numbers from 1 to 30 days
+- Buy matching-country residential, mobile and datacenter proxies
+- Launch private cloud browser sessions that work alongside your number and proxy (beta)
+
+## Quick install: Hosted (recommended, zero install)
 
 Paste this into your AI assistant's MCP config:
 
@@ -37,51 +45,71 @@ No `npm install`, no Node.js required on the client. The MCP server runs at [mcp
 
 Get your API key at <https://virtualsms.io>.
 
-## Quick install — Local (stdio via npm)
+## Quick install: Local (stdio via npm)
 
-1. Copy [`.codex/config.toml`](./.codex/config.toml) into:
-
-   - **macOS / Linux:** `~/.codex/config.toml`
-   - **Windows:** `%USERPROFILE%\.codex\config.toml`
-
-   (If you already have a `config.toml`, merge the `[mcp.servers.virtualsms]` block in.)
-
-2. Set your API key inline in the config OR export it:
+1. Install the MCP server in Claude Desktop / Claude Code:
 
    ```bash
-   export VIRTUALSMS_API_KEY=vsms_your_key_here
+   npx virtualsms-mcp
    ```
 
-3. Get your API key at <https://virtualsms.io> (free, no card).
+2. Add to your Claude config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
 
-4. Restart Codex. The 18 `virtualsms_*` tools appear in the MCP tool list.
+   ```json
+   {
+     "mcpServers": {
+       "virtualsms": {
+         "command": "npx",
+         "args": ["virtualsms-mcp"],
+         "env": { "VIRTUALSMS_API_KEY": "vsms_your_key_here" }
+       }
+     }
+   }
+   ```
+
+3. Drop [`SKILL.md`](./SKILL.md) into your Claude Skills directory (or
+   reference this repo's raw URL). Claude picks up the trigger phrases
+   automatically.
+
+4. Get your API key at <https://virtualsms.io>.
 
 ## What this gets your agent
 
 - **Find the cheapest available number** across 2500+ services and 145+ countries
-- **Buy a verification number on demand** — single tool call returns number + order id
-- **Receive SMS codes via WebSocket** (`wait_for_code`) — instant return for interactive flows
-- **Or poll on your own schedule** (`check_sms`) for batch / cron jobs
-- **Swap a number** that didn't deliver — no extra charge
-- **Cancel + refund** unused orders, one or many at a time
-- **Account introspection** — balance, transactions, success rate, 30-day spend
+- **Buy a verification number on demand**, single tool call, returns number + order id
+- **Receive SMS codes via WebSocket** (`wait_for_sms`), code lands instantly, no polling loop
+- **Or poll on your own schedule** (`get_sms`) for batch / cron jobs
+- **Swap a number** that did not deliver, or **cancel + refund** unused orders individually or in bulk
+- **Rent a dedicated number** for 1 to 30 days instead of buying a single verification
+- **Buy a matching-country proxy** (residential, mobile, or datacenter) so the IP agrees with the number
+- **Launch a private cloud browser session** (beta) to drive a signup yourself in a live viewer
+- **Account introspection**: balance, transaction history, success rate, lifetime spend
 
-Tool reference + recommended flow: [`.codex/config.toml`](./.codex/config.toml).
+40 MCP tools total. Full reference: [SKILL.md](./SKILL.md).
 
-## Why real SIMs (not VoIP / eSIM)
+## Why real SIMs (not VoIP)
 
-Carrier-lookup APIs flag VoIP and eSIM ranges. Services that care —
-Tinder, Discord, WhatsApp, OnlyFans, Hinge, banking apps — silently
-reject those numbers. Real physical SIMs from VirtualSMS's own modem
-fleet pass these checks. ~30% of services that fail on VoIP succeed
-with real SIMs.
+Carrier-lookup APIs flag VoIP number ranges. Services that care, including
+Tinder, Discord, WhatsApp, OnlyFans, Hinge, and banking apps, silently
+reject the verification. VirtualSMS numbers are carrier-issued mobile numbers,
+backed by real physical SIM cards on operators like Vodafone, O2 and
+T-Mobile, not VoIP, so they resolve as mobile and pass the checks that
+block VoIP ranges.
 
 ## Compatible services
 
-WhatsApp · Telegram · Tinder · Discord · Instagram · Hinge · Bumble ·
-OnlyFans · Snapchat · PayPal · Google · Apple · Facebook · TikTok ·
-Twitter / X · LinkedIn · Uber · Amazon · Netflix · Spotify · GitHub ·
-Coinbase · Kraken · Binance · MEXC · OKX · Bybit · 2000+ more.
+WhatsApp, Telegram, Tinder, Discord, Instagram, Hinge, Bumble,
+OnlyFans, Snapchat, PayPal, Google, Apple, Facebook, TikTok,
+Twitter / X, LinkedIn, Uber, Amazon, Netflix, Spotify, GitHub,
+Coinbase, Kraken, Binance, MEXC, OKX, Bybit, and 2500+ more.
+
+## Compatible Claude clients
+
+Tested with Claude Desktop, Claude Code (CLI), and Claude API integrations.
+Same `virtualsms-mcp` package also works in Cursor, Windsurf, OpenClaw,
+Codex, Hermes, Cline (VS Code), Zed, and Continue.dev, see the [parent
+mcp-server repo](https://github.com/virtualsms-io/mcp-server) for the
+full setup matrix.
 
 ## Cross-references
 
@@ -89,12 +117,13 @@ Coinbase · Kraken · Binance · MEXC · OKX · Bybit · 2000+ more.
 - **npm package:** [`virtualsms-mcp`](https://www.npmjs.com/package/virtualsms-mcp)
 - **Project home:** <https://virtualsms.io>
 - **MCP page (per-client setup):** <https://virtualsms.io/mcp>
+- **Beta cloud browser access:** <https://t.me/VirtualSMS_io>
 - **Sister skill repos:**
-  [claude-skill-sms-verification](https://github.com/virtualsms-io/claude-skill-sms-verification) ·
   [openclaw-skill-sms](https://github.com/virtualsms-io/openclaw-skill-sms) ·
   [cursor-rules-sms-verification](https://github.com/virtualsms-io/cursor-rules-sms-verification) ·
-  [windsurf-workflow-sms](https://github.com/virtualsms-io/windsurf-workflow-sms)
+  [windsurf-workflow-sms](https://github.com/virtualsms-io/windsurf-workflow-sms) ·
+  [codex-sms-verification](https://github.com/virtualsms-io/codex-sms-verification)
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT, see [LICENSE](./LICENSE).
