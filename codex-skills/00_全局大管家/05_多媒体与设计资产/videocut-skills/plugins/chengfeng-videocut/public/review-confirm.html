@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>口播审核确认</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --bg: #fff; --panel: #f5f6f7; --active: #edf8f4; --text: #17191c;
+        --muted: #687078; --line: #dfe3e6; --accent: #087a55; --soft: #d9efe5;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-width: 0; }
+      body { background: var(--bg); color: var(--text); padding: 16px; }
+      h1 { font-size: 18px; line-height: 1.35; margin: 0; }
+      .meta { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 5px; }
+      .options { display: grid; gap: 8px; margin-top: 14px; }
+      .option {
+        align-items: flex-start; background: var(--panel); border: 1px solid var(--line);
+        border-radius: 8px; cursor: pointer; display: grid; gap: 3px;
+        grid-template-columns: 18px minmax(0, 1fr) auto; padding: 11px 12px;
+      }
+      .option:has(input:checked) { background: var(--active); border-color: var(--accent); }
+      input { accent-color: var(--accent); margin: 2px 0 0; }
+      .label { font-size: 14px; font-weight: 650; }
+      .badge { background: var(--soft); border-radius: 999px; color: var(--accent); font-size: 11px; padding: 2px 7px; }
+      .description { color: var(--muted); font-size: 12px; grid-column: 2 / 4; line-height: 1.5; }
+      .next { border-top: 1px solid var(--line); display: flex; font-size: 13px; justify-content: space-between; margin-top: 12px; padding-top: 11px; }
+      .next span:first-child { color: var(--muted); }
+      label[for="note"] { display: block; font-size: 12px; font-weight: 600; margin-top: 13px; }
+      textarea {
+        background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+        font: inherit; line-height: 1.45; margin-top: 6px; min-height: 56px; padding: 8px 9px; resize: vertical; width: 100%;
+      }
+      .actions { align-items: center; display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+      #status { color: var(--muted); font-size: 12px; margin-right: auto; }
+      button { background: var(--accent); border: 0; border-radius: 6px; color: #fff; cursor: pointer; font: inherit; font-size: 13px; font-weight: 650; min-height: 36px; padding: 7px 13px; }
+      button:disabled { cursor: default; opacity: .55; }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #17191c; --panel: #23262a; --active: #18372d; --text: #f2f3f4; --muted: #a7adb4; --line: #3a3e43; --accent: #45c898; --soft: #294c40; }
+        button { color: #0c1a15; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">口播审核确认</h1>
+      <div class="meta" id="prompt"></div>
+      <div class="meta" id="summary"></div>
+      <div class="options" id="options" role="radiogroup" aria-label="选择下一步"></div>
+      <div class="next"><span>下一步</span><strong id="next-step">-</strong></div>
+      <label for="note">备注（可选）</label>
+      <textarea id="note" placeholder="例如：再检查开头是否吞字"></textarea>
+      <div class="actions"><span id="status" role="status"></span><button id="submit" type="button">确认选择</button></div>
+    </main>
+    <script>
+      const fallback = {
+        title: "口播审核确认", prompt: "选择下一步。", reviewSummary: "审核状态已保存",
+        projectId: "preview", stage: "cut_review_ready", expectedProjectRevision: "preview",
+        expectedCutsRevision: "preview", expectedEditListRevision: "preview", selectedId: "confirm",
+        options: [{ id: "confirm", action: "continue_cut", label: "确认剪切", badge: "推荐", description: "按当前审核结果继续。", nextStep: "物理剪切" }]
+      };
+      let data = window.openai?.toolOutput || fallback;
+      let selectedId = window.openai?.widgetState?.selectedId || data.selectedId || data.options[0]?.id;
+      const byId = (id) => document.getElementById(id);
+      const note = byId("note");
+      const status = byId("status");
+      const submit = byId("submit");
+      note.value = window.openai?.widgetState?.note || "";
+
+      function selected() { return data.options.find((option) => option.id === selectedId) || data.options[0]; }
+      function persist() { window.openai?.setWidgetState?.({ selectedId, note: note.value }); }
+      function render() {
+        byId("title").textContent = data.title || fallback.title;
+        byId("prompt").textContent = data.prompt || fallback.prompt;
+        byId("summary").textContent = data.reviewSummary || fallback.reviewSummary;
+        const root = byId("options"); root.replaceChildren();
+        for (const option of data.options || []) {
+          const label = document.createElement("label"); label.className = "option";
+          const input = document.createElement("input"); input.type = "radio"; input.name = "workflow-action"; input.checked = option.id === selectedId;
+          const title = document.createElement("span"); title.className = "label"; title.textContent = option.label;
+          const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = option.badge;
+          const description = document.createElement("span"); description.className = "description"; description.textContent = option.description;
+          input.addEventListener("change", () => { selectedId = option.id; status.textContent = ""; persist(); renderNext(); });
+          label.append(input, title, badge, description); root.append(label);
+        }
+        renderNext(); window.openai?.notifyIntrinsicHeight?.();
+      }
+      function renderNext() { byId("next-step").textContent = selected()?.nextStep || "-"; }
+      note.addEventListener("input", persist);
+      submit.addEventListener("click", async () => {
+        const option = selected(); if (!option) return;
+        const lines = [
+          "[chengfeng-videocut]",
+          `action=${option.action}`,
+          `projectId=${data.projectId}`,
+          `stage=${data.stage}`,
+          `expectedProjectRevision=${data.expectedProjectRevision}`,
+        ];
+        if (data.expectedCutsRevision) lines.push(`expectedCutsRevision=${data.expectedCutsRevision}`);
+        if (data.expectedEditListRevision) lines.push(`expectedEditListRevision=${data.expectedEditListRevision}`);
+        if (note.value.trim()) lines.push(`note=${note.value.trim().replaceAll("\n", " ")}`);
+        if (!window.openai?.sendFollowUpMessage) { status.textContent = "预览模式：安装插件后会提交到当前对话。"; return; }
+        submit.disabled = true; status.textContent = "正在提交...";
+        try { await window.openai.sendFollowUpMessage({ prompt: lines.join("\n") }); status.textContent = "已提交"; }
+        catch { status.textContent = "提交失败，请重试"; submit.disabled = false; }
+      });
+      window.addEventListener("openai:set_globals", (event) => {
+        const next = event.detail?.globals?.toolOutput;
+        if (next?.options) { data = next; if (!data.options.some((item) => item.id === selectedId)) selectedId = data.selectedId; render(); }
+      });
+      render();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "chengfeng · 检查更新"
+  short_description: "安全检查 chengfeng-videocut Skills 更新"
+  default_prompt: "使用 $chengfeng-videocut:chengfeng-check-updates 检查 chengfeng-videocut Skills 是否有可信更新；不要激活，先报告状态。"
