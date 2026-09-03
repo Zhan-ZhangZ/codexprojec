@@ -2,6 +2,56 @@
 
 All notable changes to this project are documented here. Versions follow semantic versioning where practical, with skill content treated as data.
 
+## [2.5.0] - 2026-07-11
+
+### Added
+
+#### New skill: long-horizon-prompting
+
+- `skills/long-horizon-prompting/SKILL.md`: seventeenth skill, covering the launch prompt for long-running autonomous agents and parallel multi-agent orchestrations. Core technique is the pseudo-formal task brief: definitions with degenerate cases, an exact success predicate, enumerated non-counting outcomes, an orchestration policy with an approach-family registry and blocked-route bookkeeping, adversarial audit with enumerated failure modes, an audit-gated return condition, effort floors, and contamination guards. Anchored on the published GPT-5.6 Sol Ultra Cycle Double Cover prompt (OpenAI, July 2026), with each element cross-checked against vendor doctrine (OpenAI GPT-5 through GPT-5.6 Sol guides, multi-agent API; Anthropic multi-agent research system, long-running harnesses, Claude Fable 5 docs) and 2025-2026 research (PushBench arXiv 2605.23574, context-rot give-up drift arXiv 2606.29718, diversity collapse arXiv 2604.18005 and 2604.03809, verification gap arXiv 2602.18998, QEDBench arXiv 2602.20629, block verification arXiv 2605.20531, AOrchestra arXiv 2602.03786, METR GPT-5.6 Sol predeployment evaluation).
+- Four reference files: annotated CDC prompt with provenance and honest caveats (unreviewed proof, no public ablation), dated vendor guidance extracts, dated research evidence with an element-to-evidence mapping, and a reusable task-brief template with a 10-dimension pre-launch evaluation rubric.
+- Explicit boundaries: `multi-agent-patterns` owns topology and coordination mechanics, `harness-engineering` owns runtime-enforced constraints, `evaluation`/`advanced-evaluation` own evaluator and judge construction.
+
+#### Corpus wiring
+
+- 3 new mechanisms in `researcher/mechanisms/registry.jsonl`: `pseudo-formal-task-specification`, `audit-gated-return-condition`, `independent-portfolio-approach-registry` (22 total), with accepted-ledger entries pending human PR review.
+- 8 new provenance-tracked claims in `researcher/claims/index.jsonl` (26 total).
+- 2 new activation cases (23 total) covering the long-horizon-prompting vs multi-agent-patterns boundary.
+- 3 new router-benchmark prompts (p054-p056); the next paid router sweep should publish the delta per the benchmark policy.
+- Manifests bumped to 2.5.0; README, root SKILL.md, CLAUDE.md, and AGENTS.md updated for 17 skills.
+
+## [2.4.0] - 2026-07-08
+
+### Added
+
+#### New skill: self-improvement-loops
+
+- `skills/self-improvement-loops/SKILL.md`: sixteenth skill, covering systems where the harness itself is the optimization target: recursive self-improvement loops, meta-harness search, failure-driven bounded self-edits, evolutionary scaffold search, context mechanism evolution, and acceptance gates for self-modifying systems. Anchored on Lilian Weng's "Harness Engineering for Self-Improvement" (Lil'Log, July 2026) with every load-bearing mechanism cross-verified against the primary sources (Self-Harness arXiv 2606.09498, Meta-Harness arXiv 2603.28052, MCE arXiv 2601.21557, ACE arXiv 2510.04618, Darwin Godel Machine arXiv 2505.22954, AlphaEvolve arXiv 2506.13131, ShinkaEvolve arXiv 2509.19349, STOP arXiv 2310.02304, ADAS arXiv 2408.08435, AFlow arXiv 2410.10762, plus METR and Anthropic reward-hacking and sandbagging evidence).
+- `skills/self-improvement-loops/references/loop-design-evidence.md`: dated per-system numbers, acceptance-rule details, ablation findings, and documented reward-hacking incidents, kept out of the skill body per the volatility policy.
+- Explicit boundary with `harness-engineering`: that skill owns control surfaces and governance of a single autonomous loop; `self-improvement-loops` owns what happens when the surfaces themselves become the optimization target.
+
+#### Corpus wiring
+
+- 3 new mechanisms in `researcher/mechanisms/registry.jsonl`: `two-split-no-regression-acceptance`, `filesystem-experience-archive`, `runtime-enforced-loop-constraints` (19 total).
+- 6 new provenance-tracked claims in `researcher/claims/index.jsonl` (18 total), all primary-source.
+- 2 new activation cases (21 total) covering the self-improvement-loops vs harness-engineering boundary.
+- 3 new router-benchmark prompts (p051-p053) and p036 updated to accept `self-improvement-loops` as a secondary; the next paid router sweep should publish the delta per the benchmark policy.
+- Research run `20260708-034419-harness-engineering-for-self-improvement-lil-log` executed through the full state machine (source evaluation APPROVE at weighted 2.0, novelty check, run readiness) and closed as accepted; runtime run artifacts remain gitignored per policy.
+- Manifests bumped to 2.4.0; README, root SKILL.md, CLAUDE.md, and AGENTS.md updated for 16 skills.
+
+## [2.3.1] - 2026-06-29
+
+### Fixed
+
+- **Cross-platform YAML frontmatter**: 11 of 15 published skills used unquoted `description` values containing colons, which strict YAML parsers (Cursor, Claude Code, Codex, Agent Skills validators) reject. All skill descriptions now use YAML-safe quoting; `memory-systems` no longer uses a folded block scalar that repo validators misread as `">"`.
+- **Shared frontmatter parser**: added `researcher/scripts/skill_frontmatter.py` and wired it into `validate_repo.py`, `skill_health.py`, `check_activation_cases.py`, and `compare_skill_revisions.py`. CI installs `pyyaml` for deterministic strict parsing. The parser handles LF/CRLF line endings, UTF-8 BOM, quoted scalars, and folded block scalars, and rejects empty, too-short, or indicator-only descriptions.
+- **Unit tests**: added the [test_skill_frontmatter.py](https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/blob/main/researcher/scripts/tests/test_skill_frontmatter.py) unit test suite (19 tests) covering parser edge cases, a strict-YAML regression guard for the unquoted-colon bug, format/parse round-trips, and a corpus integration test asserting every published skill parses clean. Wired into CI before the strict repo gate.
+- **Example skills**: quoted the `description` fields in `examples/digital-brain-skill/SKILL.md` and `examples/book-sft-pipeline/SKILL.md`, which had the same unquoted-colon YAML hazard developers would copy.
+- **Manifest validation**: `validate_repo.py --strict` now checks that `.plugin/plugin.json` and `.claude-plugin/marketplace.json` name the same bundled plugin and that Open Plugins `skills` discovery resolves to the same 15 published skills as the repository.
+- **Platform compatibility gate**: added `researcher/scripts/validate_platform_compat.py`, which validates the published skills with the upstream `agentskills` CLI from `skills-ref`, checks Open Plugins and Claude marketplace discovery parity, and simulates directory-copy installs for `.cursor/skills`, `.claude/skills`, `.codex/skills`, and `.agents/skills`.
+- **Platform install docs**: README now documents directory-based install paths for Cursor (`.cursor/skills/`), Claude Code (`.claude/skills/`), and Codex (`.codex/skills/`) instead of the broken flat-file `.md` pattern.
+- **Open Plugins discovery**: `.plugin/plugin.json` now declares `"skills": "./skills/"`. The repository does not commit `.agents/skills` or `.cursor/skills` symlinks because symlinks are fragile on Windows and in plugin packaging.
+
 ## [2.3.0] - 2026-05-15
 
 First release with measured benchmark results across four frontier models, closing the loop from "we wrote skill descriptions" to "we proved they route correctly."

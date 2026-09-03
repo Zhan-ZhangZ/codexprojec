@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "generated_by": "manual-breakthrough-roadmap-seed",
-  "updated_at": "2026-05-15",
+  "updated_at": "2026-07-11",
   "purpose": "Canonical machine-readable map for skills, mechanisms, claims, and activation scenarios.",
   "skills": [
     {
@@ -82,6 +82,13 @@
       "claim_ids": ["claim-latent-briefing-public-results"]
     },
     {
+      "name": "long-horizon-prompting",
+      "path": "skills/long-horizon-prompting/SKILL.md",
+      "activation_scenarios": ["pseudo-formal task briefs", "long-running agent launch prompts", "parallel portfolio orchestration prompts", "persistence and stop-condition design", "pre-launch prompt evaluation"],
+      "mechanism_ids": ["pseudo-formal-task-specification", "audit-gated-return-condition", "independent-portfolio-approach-registry"],
+      "claim_ids": ["claim-long-horizon-cdc-run", "claim-long-horizon-persistence-hacking", "claim-long-horizon-verification-gap", "claim-long-horizon-state-ledger", "claim-long-horizon-give-up-drift", "claim-long-horizon-diversity-collapse", "claim-long-horizon-evidence-audit", "claim-long-horizon-lean-prompt"]
+    },
+    {
       "name": "memory-systems",
       "path": "skills/memory-systems/SKILL.md",
       "activation_scenarios": ["cross-session memory", "entity tracking", "temporal knowledge graphs", "memory benchmark selection"],
@@ -101,6 +108,13 @@
       "activation_scenarios": ["task-model fit analysis", "batch pipeline design", "cost estimation", "staged artifact flows"],
       "mechanism_ids": ["filesystem-state-machine-pipeline"],
       "claim_ids": ["claim-project-development-vercel-d0-reduction"]
+    },
+    {
+      "name": "self-improvement-loops",
+      "path": "skills/self-improvement-loops/SKILL.md",
+      "activation_scenarios": ["recursive self-improvement loops", "meta-harness search", "failure-driven harness self-edits", "evolutionary scaffold search", "acceptance gates for self-modification", "context mechanism evolution"],
+      "mechanism_ids": ["two-split-no-regression-acceptance", "filesystem-experience-archive", "runtime-enforced-loop-constraints"],
+      "claim_ids": ["claim-self-improvement-two-split-acceptance", "claim-self-improvement-capability-threshold", "claim-self-improvement-raw-trace-ablation", "claim-self-improvement-visible-evaluator-hacking", "claim-self-improvement-scorer-visibility", "claim-self-improvement-context-collapse"]
     },
     {
       "name": "tool-design",
