@@ -1,311 +1,178 @@
-# Draw.io Scientific Illustrator
+# Scientific Illustrator
 
-[中文说明](#中文说明) · [English guide](#english-guide) · [MIT License](LICENSE)
+把参考图上传给 Codex，插件会在 **Microsoft PowerPoint、WPS 演示或 draw.io** 中尽量用可编辑对象重新绘制，并自动检查和修正。
 
-A Codex plugin that lets an AI agent draw scientific figures **live inside the visible draw.io desktop canvas**. You can watch shapes, labels, arrows, styling, and layout appear step by step. The live workflow calls draw.io's own graph API through a localhost-only MCP server; it does not automate the operating-system mouse or keyboard and does not create XML first and merely open it afterward.
+**作者：一个地质博士**
 
-> Status: Windows is tested. macOS and Linux executable discovery is included, but live behavior can vary with draw.io/Electron packaging. Reports and pull requests are welcome.
+GitHub：[@icebird1998](https://github.com/icebird1998)
 
-## English guide
+当前版本：[v1.5.4](https://github.com/icebird1998/scientific-illustrator/releases/tag/v1.5.4)
 
-### What this repository contains
+本项目是 [drawio-scientific-illustrator](https://github.com/icebird1998/drawio-scientific-illustrator) 的升级整合版，后续功能只在本项目更新。
 
-- `drawio-live` MCP server: launches/connects to the visible draw.io desktop editor and edits its active graph model in real time.
-- `drawio-file-utils` MCP server: validates saved `.drawio` documents and exports PNG, SVG, PDF, or JPG deliverables.
-- A Codex skill: teaches the agent to inspect a reference, decompose it into editable primitives, draw with pacing, visually review sections, refine the live graph, and save only after the visible drawing exists.
-- A repository-local Codex marketplace so the complete plugin can be installed as one unit.
+## 第一次使用：只需 3 步
 
-This is therefore both an **MCP implementation** and a **Codex plugin**. MCP provides the callable tools; the plugin is the installable package containing the MCP servers, skill, and presentation metadata.
+### 第 1 步：安装插件
 
-### Requirements
+把下面这段话完整发送给 Codex：
 
-1. Codex desktop app or Codex CLI with plugin support.
-2. [draw.io desktop](https://www.drawio.com/) installed locally.
-3. Git.
-4. Node.js available as `node` when running the MCP servers outside the bundled Codex runtime. Node.js 22 or newer is recommended.
+~~~text
+请安装 https://github.com/icebird1998/scientific-illustrator。
+把仓库根目录注册为 Codex Marketplace，然后安装
+scientific-illustrator@scientific-illustrator-tools。完成后提醒我重启 Codex。
+~~~
 
-The plugin auto-detects common draw.io locations on Windows, macOS, and Linux. For a custom installation, set `DRAWIO_PATH` to the executable before starting Codex.
+### 第 2 步：重启 Codex
 
-### Install — easiest methods
+安装完成后：
 
-#### Ask Codex to install it
+1. 完全退出并重新打开 Codex；
+2. 新建一个任务；
+3. 打开准备使用的 PowerPoint、WPS 演示或 draw.io Desktop。
 
-Paste this into a Codex task that has terminal access:
+### 第 3 步：上传图片并复制提示词
 
-```text
-Install the public Codex plugin from https://github.com/icebird1998/drawio-scientific-illustrator.
-Clone it locally, register its repository root as a Codex marketplace, install
-drawio-scientific-illustrator@drawio-scientific-tools, then tell me when to restart Codex.
-```
+把参考图上传到 Codex，然后从下方选择与你的软件对应的提示词，**整段复制发送**即可。
 
-#### Windows one-command installer
+## 支持哪些平台和软件
 
-Review [`install.ps1`](install.ps1), then run:
+| 软件 | Windows | macOS | 使用方式与结果 |
+|---|---|---|---|
+| Microsoft PowerPoint | 支持 | 支持 | 绘制为可编辑 PPTX；Windows 可实时绘制，Mac 可选择普通模式或实时加载项模式 |
+| WPS 演示 | 支持 | 支持 | 绘制为可编辑 PPTX 工作副本；默认按检查点后台刷新，不会持续抢占窗口 |
+| draw.io Desktop | 支持 | 支持 | 直接控制 draw.io 画布，保存可编辑 .drawio 并导出预览图 |
 
-```powershell
-$p="$env:TEMP\drawio-scientific-install.ps1"; Invoke-WebRequest https://raw.githubusercontent.com/icebird1998/drawio-scientific-illustrator/main/install.ps1 -OutFile $p; powershell -ExecutionPolicy Bypass -File $p
-```
+默认情况下，PowerPoint 和 WPS 会在后台绘制，你可以继续使用电脑。WPS 使用可编辑 PPTX 工作副本，不会假装已经连接任意未保存的当前窗口；macOS 会验证文件是否真的由 WPS 打开，Windows 无法验证时会明确显示“未知”。draw.io 不认识的图形名会直接报错，不会悄悄退化成矩形。显微照片、复杂纹理等确实无法用形状还原的内容，只会把最小必要区域作为图片插入，其余文字、箭头和边框仍保持可编辑。
 
-#### macOS/Linux one-command installer
+每次更新都会在 Ubuntu、macOS 和 Windows 上运行代码、MCP、Python、PowerShell、路径发现与 OOXML 回归测试。本版另在真实 Mac 上验证了 PowerPoint 精确打开/刷新/关闭、WPS 指定文件打开和 draw.io 实时画布；GitHub 公共测试机没有商业版 PowerPoint/WPS，因此 Windows 的应用内联调必须由安装后的状态工具确认，不能把模拟测试当成实机连接成功。
 
-Review [`install.sh`](install.sh), then run:
+## 直接复制使用
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/icebird1998/drawio-scientific-illustrator/main/install.sh | bash
-```
+### 使用 Microsoft PowerPoint
 
-Restart Codex and start a new task after installation so the new skill and MCP tools are loaded.
+先打开 PowerPoint 并上传参考图，然后复制：
 
-### Install — manual and auditable
+~~~text
+[@scientific-illustrator](plugin://scientific-illustrator@scientific-illustrator-tools)
+使用 Scientific Illustrator，在当前 Microsoft PowerPoint 中复刻我上传的参考图。
+先连接 PowerPoint，检查状态、可用能力、backend 和当前幻灯片；如果没有演示文稿就新建。
+只有 COM 或 officejs-context-sync 才能声称连接当前窗口；如果使用 OOXML，明确说明正在编辑工作副本。
+默认在后台绘制，不要反复抢占窗口。优先使用可编辑的文字、形状、连接线、表格和图表。
+只有无法可靠绘制的最小区域，例如显微照片或复杂纹理，才裁剪为图片插入。
+按区域逐步绘制，每完成一个区域就检查结构和预览图，有问题先修正再继续。
+完成后做全图对比检查，保存 PPTX 并导出最终预览图。
+~~~
 
-```bash
-git clone https://github.com/icebird1998/drawio-scientific-illustrator.git
-cd drawio-scientific-illustrator
-codex plugin marketplace add "$(pwd)"
-codex plugin add drawio-scientific-illustrator@drawio-scientific-tools
-```
+### 使用 WPS 演示
 
-On PowerShell, replace `"$(pwd)"` with `(Get-Location).Path`:
+先打开 WPS 演示并上传参考图，然后复制：
 
-```powershell
-git clone https://github.com/icebird1998/drawio-scientific-illustrator.git
-Set-Location drawio-scientific-illustrator
-codex plugin marketplace add (Get-Location).Path
-codex plugin add drawio-scientific-illustrator@drawio-scientific-tools
-```
+~~~text
+[@scientific-illustrator](plugin://scientific-illustrator@scientific-illustrator-tools)
+使用 Scientific Illustrator，在 WPS 演示中复刻我上传的参考图。
+请将 host_application 明确设为 wps，不要连接 Microsoft PowerPoint；先检查状态和可用能力，
+确认 target_application=wps 且 microsoft_powerpoint_used=false。如果没有指定要编辑的 PPTX 路径，
+就新建一个 WPS 可编辑工作副本，不要声称已连接任意未保存的当前窗口。默认在后台按检查点绘制。
+优先使用可编辑的文字、形状、连接线、表格和图表。只有无法可靠绘制的最小区域，
+例如显微照片或复杂纹理，才裁剪为图片插入。按区域逐步绘制；每个区域完成后调用刷新，
+分别检查 open_dispatched、document_open_verified 和 refresh_verified，有问题先修正。
+完成后做全图对比检查，保存 PPTX 并导出最终预览图。
+~~~
 
-### How to use it
+### 使用 draw.io
 
-1. Restart Codex after installation and create a new task.
-2. Attach a PNG, JPEG, SVG, or a rendered PDF page as the reference.
-3. Mention **Draw.io Scientific Illustrator** or select the plugin in the composer.
-4. State the desired pacing and output formats.
+先安装并打开 [draw.io Desktop](https://www.drawio.com/)，上传参考图，然后复制：
 
-> **Recommended Codex configuration for complex scientific redraws:** choose **GPT-5.6 Sol** and set reasoning effort to **Max**. In Codex settings, enable the six-level reasoning selector first; the default five-level selector does not show the Max option. This setting can increase response time and token use.
+~~~text
+[@scientific-illustrator](plugin://scientific-illustrator@scientific-illustrator-tools)
+使用 Scientific Illustrator，连接实时 draw.io 画布并复刻我上传的参考图。
+优先使用可编辑的文字、图形、连接线、表格、图表和分组对象。
+只有无法可靠绘制的最小区域，例如显微照片或复杂纹理，才裁剪为图片插入。
+按区域逐步绘制，每完成一个区域就检查结构和画布截图，有问题先修正再继续。
+完成后做全图对比检查，保存可编辑 .drawio，并导出宽度为 2000 px 的 PNG 预览图。
+~~~
 
-Recommended prompt:
+如果第一行插件命令没有被识别，请在 Codex 输入框的插件菜单中选择 **Scientific Illustrator**，再发送后面的提示词。
 
-```text
-Use Draw.io Scientific Illustrator. Launch the live draw.io canvas and recreate this
-reference scientific figure step by step with a 100 ms delay. Control only draw.io's
-own graph API; do not use OS mouse/keyboard automation and do not generate XML first.
-Keep all labels, arrows, panels, and legends editable. Visually inspect and refine each
-section, then save the final .drawio file and export a 2000 px PNG preview.
-```
+如果想让 PowerPoint 或 WPS 一直显示在最前面观看绘制过程，在提示词最后加一句：
 
-Chinese prompts work equally well:
+~~~text
+绘制期间请将 focus_policy 设置为 foreground，让演示文稿保持在前台。
+~~~
 
-```text
-使用 Draw.io Scientific Illustrator。启动实时 draw.io，以 100 ms 的步骤间隔重绘
-这张参考图。必须直接控制 draw.io 画布，不要使用系统鼠标键盘控制，也不要先生成
-XML。文字、箭头、分区和图例都要可编辑；完成后保存 .drawio 并导出 2000 px PNG。
-```
+## 其他安装方式
 
-### Live tool workflow
+大多数用户使用上面的“让 Codex 安装”即可。也可以直接运行安装脚本。
 
-The agent normally uses the tools in this order:
+### Windows
 
-1. `drawio_live_launch` — launch or connect to a visible draw.io editor.
-2. `drawio_live_status` — confirm that the graph is ready.
-3. `drawio_live_add_shape`, `drawio_live_add_edge`, or paced `drawio_live_draw_sequence` — construct editable content visibly.
-4. `drawio_live_screenshot` — inspect the draw.io renderer after logical sections.
-5. `drawio_live_inspect` and `drawio_live_update_cell` — correct labels, styles, positions, and sizes.
-6. `drawio_live_fit` — keep the evolving figure in view.
-7. `drawio_live_save_snapshot` — serialize the already-visible graph to `.drawio`.
-8. `drawio_validate` and `drawio_export` — validate and export deliverables.
+~~~powershell
+$p="$env:TEMP\scientific-illustrator-install.ps1"; Invoke-WebRequest https://raw.githubusercontent.com/icebird1998/scientific-illustrator/main/install.ps1 -OutFile $p; powershell -ExecutionPolicy Bypass -File $p
+~~~
 
-### Configuration
+### macOS / Linux
 
-Optional environment variables:
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `DRAWIO_PATH` | Explicit draw.io executable path | Auto-detected |
-| `DRAWIO_LIVE_PORT` | Preferred localhost debugging port | `9333`; a nearby free port is selected when needed |
-| `DRAWIO_LIVE_PROFILE` | Dedicated draw.io/Electron profile directory | `~/.drawio-live-mcp/<port>` |
-
-Example on Windows:
-
-```powershell
-$env:DRAWIO_PATH = "D:\Apps\draw.io\draw.io.exe"
-```
-
-### Update
-
-Run the same installer again. It performs a fast-forward `git pull` and reinstalls the plugin. Restart Codex and start a new task afterward.
-
-### Troubleshooting
-
-- **`node` not found**: install Node.js 22+ or make sure the Codex runtime exposes Node to plugin MCP servers.
-- **draw.io not found**: install the desktop app or set `DRAWIO_PATH`.
-- **Port already in use**: omit an explicit port and the server will select a nearby localhost port, or set `DRAWIO_LIVE_PORT` to a free port.
-- **Graph not ready**: close stale draw.io windows launched by the plugin, retry, and ensure the desktop app accepts Electron remote-debugging flags.
-- **Plugin not visible**: restart Codex and create a new task after installation.
-- **Export fails**: confirm that draw.io desktop can export the same file manually and that the output directory is writable.
-
-### Security and privacy
-
-- The live debugging endpoint binds to `127.0.0.1`, not a public network interface.
-- Target discovery accepts only pages identified as draw.io/diagrams.net; it does not attach to arbitrary browser pages.
-- The plugin does not use OS-level mouse or keyboard automation.
-- No telemetry or hosted backend is included. See [PRIVACY.md](PRIVACY.md).
-- Only install software from repositories and revisions you trust. Review the installer scripts before executing them.
-
-### Known limitations
-
-- The live API currently emphasizes editable draw.io primitives. Dense microscopy images, photographs, heatmaps, and complex plots may need a future dedicated live image-insertion operation.
-- Visual fidelity depends on reference resolution and how well the content can be represented by draw.io primitives.
-- Windows is the tested platform for v1.0.0; macOS/Linux support is best effort until community testing expands.
-
----
-
-## 中文说明
-
-### 这是什么
-
-Draw.io Scientific Illustrator 是一个面向科研插图的 Codex 插件。它会启动桌面版 draw.io，并通过仅限本机的 MCP 通道直接调用 draw.io 自身的图模型 API。你可以亲眼看到形状、文字、箭头、配色和布局按步骤出现在画布上。
-
-它不会模拟系统鼠标或键盘，也不会先生成一个 XML 文件再让 draw.io 打开。只有当可见画布中的图已经绘制完成后，才会把当前图模型保存为 `.drawio` 文件。
-
-这个仓库同时包含：
-
-- 实时控制 draw.io 画布的 `drawio-live` MCP；
-- 校验和导出的 `drawio-file-utils` MCP；
-- 指导 Codex 重绘、检查和迭代科研插图的 Skill；
-- 可供 Codex 安装的自定义插件市场配置。
-
-所以它既“属于 MCP”，也属于更上层的“Codex 插件”：MCP 是实际工具接口，插件是把 MCP、Skill 和界面元数据打包分享的安装单位。
-
-### 安装要求
-
-1. 支持插件的 Codex 桌面应用或 Codex CLI；
-2. 本机已安装 [draw.io 桌面版](https://www.drawio.com/)；
-3. Git；
-4. 如果脱离 Codex 自带运行环境单独启动 MCP，需要可用的 Node.js，推荐 Node.js 22 或更高版本。
-
-插件会自动检测 Windows、macOS 和 Linux 的常见 draw.io 安装位置。若安装在自定义目录，请在启动 Codex 前设置 `DRAWIO_PATH`。
-
-### 最省事的安装方式
-
-在一个具备终端权限的 Codex 任务里直接粘贴：
-
-```text
-请安装这个公开 Codex 插件：https://github.com/icebird1998/drawio-scientific-illustrator。
-把仓库克隆到本地，将仓库根目录注册为 Codex Marketplace，然后安装
-drawio-scientific-illustrator@drawio-scientific-tools。完成后告诉我何时重启 Codex。
-```
-
-Windows 用户也可以先检查 [`install.ps1`](install.ps1)，然后运行：
-
-```powershell
-$p="$env:TEMP\drawio-scientific-install.ps1"; Invoke-WebRequest https://raw.githubusercontent.com/icebird1998/drawio-scientific-illustrator/main/install.ps1 -OutFile $p; powershell -ExecutionPolicy Bypass -File $p
-```
-
-macOS/Linux 用户先检查 [`install.sh`](install.sh)，然后运行：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/icebird1998/drawio-scientific-illustrator/main/install.sh | bash
-```
-
-安装完成后必须重启 Codex，并新建一个任务，使新的 Skill 和 MCP 工具被载入。
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/icebird1998/scientific-illustrator/main/install.sh | bash
+~~~
 
 ### 手动安装
 
-PowerShell：
-
-```powershell
-git clone https://github.com/icebird1998/drawio-scientific-illustrator.git
-Set-Location drawio-scientific-illustrator
-codex plugin marketplace add (Get-Location).Path
-codex plugin add drawio-scientific-illustrator@drawio-scientific-tools
-```
-
-macOS/Linux：
-
-```bash
-git clone https://github.com/icebird1998/drawio-scientific-illustrator.git
-cd drawio-scientific-illustrator
+~~~bash
+git clone https://github.com/icebird1998/scientific-illustrator.git
+cd scientific-illustrator
 codex plugin marketplace add "$(pwd)"
-codex plugin add drawio-scientific-illustrator@drawio-scientific-tools
-```
+codex plugin add scientific-illustrator@scientific-illustrator-tools
+~~~
 
-### 使用方法
+安装或更新后，都要重启 Codex 并新建任务。
 
-1. 重启 Codex 并新建任务；
-2. 上传 PNG、JPEG、SVG，或者从 PDF 渲染出的参考页；
-3. 在输入框选择或提到 **Draw.io Scientific Illustrator**；
-4. 说明绘制步进间隔、画面尺寸和希望导出的格式。
+<details>
+<summary><strong>Mac PowerPoint：启用逐对象实时绘制（可选）</strong></summary>
 
-> **复杂科研插图重绘建议的 Codex 设置：**选择 **GPT-5.6 Sol**，并将推理等级设为 **“最高（Max）”**。需要先在 Codex 设置中开启 **6 档推理等级**；默认的 **5 档**选择器不会显示“最高”选项。该设置可能增加响应时间和 token 用量。
+普通安装已经可以生成可编辑 PPTX。只有想在 Mac PowerPoint 中观看逐对象实时绘制时，才需要完成本节。
 
-推荐提示词：
+在仓库目录运行：
 
-```text
-使用 Draw.io Scientific Illustrator。启动实时 draw.io，以 100 ms 的步骤间隔逐步重绘
-这张参考图。必须直接控制 draw.io 自己的画布 API，不要控制系统鼠标键盘，也不要先
-生成 XML。所有文字、箭头、分区、图例都要保持可编辑。每完成一个逻辑区域就检查并
-修正，最后保存 .drawio，并导出宽度为 2000 px 的 PNG 预览图。
-```
+~~~bash
+node plugins/scientific-illustrator/scripts/officejs-setup.mjs prepare
+openssl x509 -in "$HOME/.codex/scientific-illustrator/officejs/localhost.crt" -text -noout
+node plugins/scientific-illustrator/scripts/officejs-setup.mjs sideload
+~~~
 
-### 工作过程
+然后：
 
-正常情况下，Codex 会依次完成：
+1. 在 macOS“钥匙串访问”中检查并手动信任 localhost 证书；
+2. 重启 PowerPoint；
+3. 在“插入 → 我的加载项”中打开 **Scientific Illustrator Live**；
+4. 保持任务窗格开启，确认 powerpoint_officejs_status 显示 connected=true。
 
-1. 启动可见的 draw.io；
-2. 确认内部 graph 已就绪；
-3. 逐个或按设定间隔添加可编辑形状和连线；
-4. 每完成一个逻辑区域截取 draw.io 渲染区域进行检查；
-5. 直接在实时画布中修改文字、样式、位置和大小；
-6. 完成后才保存 `.drawio` 快照；
-7. 校验文件结构并导出 PNG、SVG、PDF 或 JPG。
+插件不会自动修改系统证书信任。
 
-### 可选配置
+</details>
 
-| 环境变量 | 作用 | 默认值 |
-|---|---|---|
-| `DRAWIO_PATH` | 指定 draw.io 可执行文件 | 自动检测 |
-| `DRAWIO_LIVE_PORT` | 首选本机调试端口 | `9333`，冲突时自动寻找附近端口 |
-| `DRAWIO_LIVE_PROFILE` | draw.io/Electron 独立用户目录 | `~/.drawio-live-mcp/<端口>` |
+## 版本更新
 
-Windows 示例：
+| 版本 | 主要变化 |
+|---|---|
+| [v1.5.4](https://github.com/icebird1998/scientific-illustrator/releases/tag/v1.5.4) | 将作者署名统一更新为“一个地质博士” |
+| [v1.5.3](https://github.com/icebird1998/scientific-illustrator/releases/tag/v1.5.3) | 修复双平台三软件兼容、连接状态和表格/图表/箭头更新；增加三平台 CI、真实打开验证及 draw.io 防伪形状检查 |
+| [v1.5.2](https://github.com/icebird1998/scientific-illustrator/releases/tag/v1.5.2) | 修复 Mac PowerPoint 实时加载项的图标格式，避免加载项被静默忽略 |
+| [v1.5.1](https://github.com/icebird1998/scientific-illustrator/releases/tag/v1.5.1) | 修复 PowerPoint/WPS 反复抢占窗口；默认可在后台绘制 |
+| [v1.5.0](https://github.com/icebird1998/scientific-illustrator/releases/tag/v1.5.0) | 支持 Windows/macOS 下的 PowerPoint、WPS、draw.io，并加入 Mac PowerPoint 实时模式 |
+| [v1.3.0](https://github.com/icebird1998/scientific-illustrator/releases/tag/v1.3.0) | 首个公开版本，支持 Windows PowerPoint 和 draw.io |
 
-```powershell
-$env:DRAWIO_PATH = "D:\Apps\draw.io\draw.io.exe"
-```
+旧版本不会被覆盖。需要回退时：
 
-### 更新
+~~~bash
+git fetch --tags
+git checkout v1.5.0
+~~~
 
-再次运行安装脚本即可。脚本会执行安全的快进更新并重新安装插件。随后重启 Codex、新建任务。
+然后从该目录重新注册 Marketplace 并安装插件。更新到最新版时重新运行安装脚本即可。
 
-### 常见问题
+## 许可证与隐私
 
-- **找不到 Node**：安装 Node.js 22+，或确认 Codex 插件运行环境能够调用 `node`。
-- **找不到 draw.io**：安装桌面版，或者设置 `DRAWIO_PATH`。
-- **端口被占用**：不要强制指定端口，让插件自动选择；也可以修改 `DRAWIO_LIVE_PORT`。
-- **图模型没有就绪**：关闭插件此前启动但已失效的 draw.io 窗口后重试。
-- **安装后看不到插件**：重启 Codex，并新建任务。
-- **导出失败**：确认 draw.io 桌面版可以手工导出该文件，并检查输出目录写权限。
+[MIT License](LICENSE) · [隐私说明](PRIVACY.md)
 
-### 安全与隐私
-
-- 实时调试端口仅绑定 `127.0.0.1`；
-- 只接受可识别为 draw.io/diagrams.net 的页面，不会连接任意浏览器页面；
-- 不使用系统级鼠标键盘自动化；
-- 不包含遥测或云端服务，详见 [PRIVACY.md](PRIVACY.md)；
-- 执行远程安装脚本前，请先检查脚本内容和版本。
-
-### 当前限制
-
-- 实时工具目前主要面向可编辑的 draw.io 图元。显微照片、热图和复杂数据图可能需要后续增加专门的实时图片插入工具；
-- 最终还原度取决于参考图分辨率，以及内容是否适合用 draw.io 图元表达；
-- v1.0.0 已在 Windows 上测试，macOS/Linux 暂为尽力支持，欢迎提交测试反馈。
-
-## Contributing / 参与贡献
-
-Issues and pull requests are welcome. Please include operating system, draw.io version, Codex version, reproduction steps, and relevant MCP error text. Do not upload confidential reference images.
-
-欢迎提交 Issue 和 Pull Request。请注明操作系统、draw.io 版本、Codex 版本、复现步骤及相关 MCP 错误；不要上传保密的参考图片。
-
-## License
-
-MIT © 2026 [icebird1998](https://github.com/icebird1998)
+感谢使用 **Scientific Illustrator**。制作者：**一个地质博士**。
