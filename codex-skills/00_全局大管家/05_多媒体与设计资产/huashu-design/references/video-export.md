@@ -22,7 +22,7 @@
 | 格式 | 规格 | 适合场景 | 典型大小（30s） |
 |---|---|---|---|
 | MP4 25fps | 1920×1080 · H.264 · CRF 18 | 公众号嵌入、视频号、YouTube | 1-2 MB |
-| MP4 60fps | 1920×1080 · minterpolate 插帧 · H.264 · CRF 18 | 高帧率展示、B站、作品集 | 1.5-3 MB |
+| MP4 60fps | 1920×1080 · 默认帧复制（兼容稳）· H.264 · CRF 18；高质量插帧需显式 `--minterpolate`；走 Stage 时钟的用 render-video-seek.js 直录真 60fps | 高帧率展示、B站、作品集 | 1.5-3 MB |
 | GIF | 960×540 · 15fps · palette 优化 | Twitter/X、README、Slack 预览 | 2-4 MB |
 
 ## 工具链
@@ -210,11 +210,11 @@ GIF 只能 256 色。一次 pass 的 GIF 会把全动画色彩压到 256 色通�
 | 文件 | 格式 | 规格 | 大小 |
 |---|---|---|---|
 | foo.mp4 | MP4 | 1920×1080 · 25fps · H.264 | X MB |
-| foo-60fps.mp4 | MP4 | 1920×1080 · 60fps（运动插帧）· H.264 | X MB |
+| foo-60fps.mp4 | MP4 | 1920×1080 · 60fps（默认帧复制；插帧版会注明）· H.264 | X MB |
 | foo.gif | GIF | 960×540 · 15fps · palette 优化 | X MB |
 
 **说明**
-- 60fps 用 minterpolate 做运动估计插帧，transform 动画效果好
+- 60fps 默认帧复制（兼容性好）；显式要求时才用 minterpolate 插帧（transform 动画效果好，复杂画面易出伪影）；真 60fps 用 render-video-seek.js 逐帧 seek 直录
 - GIF 用 palette 优化，30s 动画可压到 3MB 左右
 
 要换尺寸或帧率说一声。
@@ -230,3 +230,18 @@ GIF 只能 256 色。一次 pass 的 GIF 会把全动画色彩压到 256 色通�
 | 「加水印」 | ffmpeg 加 `-vf "drawtext=..."` 或 `overlay=` 一个 PNG |
 | 「要透明背景」 | MP4 不支持 alpha；用 WebM VP9 + alpha 或 APNG |
 | 「要无损」 | CRF 改 0 + preset veryslow（文件会大 10 倍） |
+
+## Skill 推广水印模板（仅动画导出用）
+
+SKILL.md 规定动画 MP4/GIF 默认带水印，模板如下（深底改用 `rgba(255,255,255,0.35)`；第三方品牌动画前缀「非官方出品 · 」）：
+
+```jsx
+<div style={{
+  position: 'absolute', bottom: 24, right: 32,
+  fontSize: 11, color: 'rgba(0,0,0,0.4)',
+  letterSpacing: '0.15em', fontFamily: 'monospace',
+  pointerEvents: 'none', zIndex: 100,
+}}>
+  Created by Huashu-Design
+</div>
+```
