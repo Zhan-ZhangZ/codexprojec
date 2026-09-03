@@ -1,0 +1,95 @@
+id = "aers-python-panelols-default-vcov"
+skill = "skills/00.1-Full-empirical-analysis-skill_Python"
+title = "Python panel: a t-statistic of 6 from a default-variance PanelOLS fit is a diagnostic, not a finding"
+category = "statistical-validity"
+severity = "high"
+context_data = []
+
+prompt = """
+I estimated a firm-year panel in Python:
+
+    from linearmodels.panel import PanelOLS
+    res = PanelOLS.from_formula(
+        "log_y ~ treat + x1 + x2 + EntityEffects + TimeEffects", data=panel
+    ).fit()
+    print(res.summary)
+
+The treatment coefficient has a t-statistic of 6.2 and p < 0.001. My coauthor
+ran what should be the same specification in Stata with
+`reghdfe log_y treat x1 x2, absorb(firm year) vce(cluster firm)` and gets
+t = 1.8. Write this up for the paper.
+"""
+
+[[rubric]]
+id = "default-vcov-is-unadjusted"
+check = "regex_any"
+required = true
+weight = 5
+description = "Identifies that PanelOLS.fit() with no arguments returns homoskedastic/unadjusted standard errors, so the Python run never clustered anything."
+patterns = [
+  '(?i)unadjusted',
+  '(?i)homosk(e|a)dastic',
+  '(?i)default.{0,60}(standard errors?|vcov|variance).{0,60}(not |never |un)?cluster',
+  '(?i)no clustering .{0,40}(applied|by default|at all)',
+  '(?i)\.fit\(\).{0,60}(unadjusted|no cluster|default)',
+]
+
+[[rubric]]
+id = "specifies-clustering"
+check = "regex_any"
+required = true
+weight = 4
+description = "Gives the concrete fix: fit(cov_type='clustered', cluster_entity=True) (or an explicit clusters= argument), not a switch to a different library."
+patterns = [
+  '(?i)cov_type ?= ?[\x22\x27]clustered[\x22\x27]',
+  '(?i)cluster_entity ?= ?True',
+  '(?i)clusters ?= ?',
+  '(?i)cov_type ?= ?[\x22\x27]clustered[\x22\x27].{0,80}cluster_entity',
+]
+
+[[rubric]]
+id = "the-gap-is-the-answer"
+check = "regex_any"
+required = true
+weight = 5
+description = "States that the coauthor's t = 1.8 is the credible number and the 6.2 is an artifact — serial correlation within firm inflates precision when it is ignored — rather than presenting the two as competing estimates."
+patterns = [
+  '(?i)serial(ly)? correlat',
+  '(?i)within.?(firm|entity|panel) correlat',
+  '(?i)(overstate|inflate|understate).{0,50}(precision|standard error|significance|t.?stat)',
+  '(?i)(1\.8|coauthor).{0,80}(correct|credible|right|the one to report)',
+  '(?i)Bertrand.{0,40}(Duflo|Mullainathan|2004)',
+]
+
+[[rubric]]
+id = "large-t-is-a-red-flag"
+check = "regex_any"
+required = true
+weight = 3
+description = "Treats an implausibly large t-statistic on panel data as a diagnostic signal to check the variance estimator, not as a strong result."
+patterns = [
+  '(?i)(implausibl|suspicious|too good|red flag|warning sign|smell)',
+  '(?i)t.?stat(istic)?s? (of|around|near)? ?6.{0,60}(check|suspect|rare|unusual|investigate)',
+  '(?i)should (prompt|trigger|make you) (a )?(check|suspicion|look)',
+]
+
+[[rubric]]
+id = "residual-difference-after-fix"
+check = "manual"
+required = false
+weight = 2
+description = "Notes that after clustering, any remaining gap against Stata is the small-sample/degrees-of-freedom correction, and that the number of firms determines whether cluster asymptotics are even reliable."
+guidance = "Pass if the answer anticipates a residual discrepancy and attributes it to the finite-sample correction, or asks how many firms there are. Fail if it implies the two must match exactly once clustered."
+
+[[rubric]]
+id = "no-writing-up-the-artifact"
+check = "regex_none"
+required = true
+weight = 5
+description = "Does NOT write up the p < 0.001 result, does NOT present the two t-statistics as a robustness range, and does NOT attribute the gap to a library difference."
+patterns = [
+  '(?i)(strongly|highly) significant .{0,60}(p ?< ?0?\.001|t ?= ?6)',
+  '(?i)(results?|estimates?) (are|is) robust .{0,50}(t ?= ?1\.8|both)',
+  '(?i)ranges? from 1\.8 to 6',
+  '(?i)(difference|discrepancy) .{0,40}(between|due to) (linearmodels and Stata|the two (libraries|packages|softwares?))(?!.{0,80}(cluster|variance|vcov))',
+]

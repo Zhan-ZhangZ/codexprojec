@@ -12,7 +12,8 @@ experiment's treated arm; the control group is a non-experimental CPS comparison
 sample. Because the groups differ sharply on pre-treatment characteristics, a
 naive treated-minus-control comparison of 1978 earnings is misleading. The
 experimental benchmark (the effect estimated from the original randomized NSW
-experiment) is about +$1,794.
+experiment) is about +$1,794 — a number this repo derives rather than cites, in
+demo-notebooks/nsw-lalonde-1986/, from the randomized arms themselves.
 
 A pipeline that handles this data correctly must: (1) surface the severe
 pre-treatment imbalance, (2) NOT report the naive difference as the causal
@@ -25,7 +26,13 @@ a candidate cannot pass by fabricating a balance table.
 """
 
 # Literature golds (constants the writeup should compare against).
-experimental_att = 1794.0      # Dehejia & Wahba (1999), NSW experimental benchmark
+#
+# experimental_att is no longer a hand-transcribed number: the randomized NSW
+# arms are vendored at demo-notebooks/nsw-lalonde-1986/, and
+# replicate_nsw.py derives +1794.34 from them directly (185 treated minus 260
+# randomized controls, no model). tests/test_nsw_replication.py pins this
+# constant to that derivation, so editing one without the other fails the suite.
+experimental_att = 1794.0      # Dehejia & Wahba (1999); derived in demo-notebooks/nsw-lalonde-1986/
 experimental_tol = 1500.0      # generous: "recovers sign and rough magnitude"
 
 [[gold]]

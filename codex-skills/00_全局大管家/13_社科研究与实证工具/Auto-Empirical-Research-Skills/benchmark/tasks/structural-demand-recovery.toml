@@ -1,0 +1,162 @@
+id = "structural-demand-recovery"
+title = "Structural demand recovery: does the pipeline instrument endogenous price, and report elasticities and inverted marginal costs rather than the raw coefficient?"
+data = "benchmark/data/sim-structural.csv"
+reference_candidate = "reference-structural"
+
+description = """
+A deterministic logit demand system: 20 markets, 3 products plus an outside
+good. Mean utility is delta = 1.0 + 0.8*x - 1.5*p + xi, and Berry's (1994)
+inversion ln(s_j) - ln(s_0) = delta makes the system exactly linear, so every
+gold below is an exact recomputation rather than a tolerance around a
+simulation.
+
+The endogeneity is the one that defines empirical IO: firms observe the demand
+shock xi and price against it (p = 2.0 + 0.9*w + 0.7*xi, with w a cost
+shifter), so OLS on the inverted shares pulls the price coefficient toward
+zero — 1.14 against a true 1.50. The bias runs in the direction that flatters
+pricing power: it says demand is less price-sensitive than it is. Instrumenting
+price with the cost shifter recovers 1.50 exactly (xi is residualized in-sample
+against [1, x, w] when the data is generated, so the moment conditions hold to
+machine precision).
+
+Two further steps separate a structural pipeline from a regression:
+
+1. **An elasticity is not a coefficient.** Logit own-price elasticity is
+   -alpha*p*(1-s), which averages -3.73 here. Quoting the price coefficient
+   itself as "the elasticity" gives -1.14 — off by more than a factor of
+   three, and wrong in units before it is wrong in magnitude.
+
+2. **Marginal cost is inverted, not observed.** The single-product
+   Bertrand-Nash FOC gives mc = p - 1/(alpha*(1-s)), averaging 2.05. Carrying
+   the biased OLS alpha through that inversion yields 1.81: a demand estimate
+   that was "only" 24% off produces a cost estimate 12% off, which is the
+   whole argument for taking the identification seriously before using a
+   structural model for anything.
+
+The naive answer is to regress the inverted share (or quantity) on price, quote
+the coefficient as both the price effect and the elasticity, and treat price as
+cost. The truth is recomputed by the checker from the dataset's xi column,
+which no estimator reads, so a candidate cannot pass by fabricating numbers.
+"""
+
+true_alpha_by_construction = 1.5
+true_mean_elasticity_by_construction = -3.7304
+true_mean_marginal_cost_by_construction = 2.0488
+
+[[gold]]
+id = "alpha-recovered"
+required = true
+weight = 5
+description = "The IV/2SLS price coefficient recovers the true price sensitivity recomputed from the data (alpha = 1.50)."
+check = "recovers_truth"
+field = "iv_alpha"
+truth_key = "true_alpha"
+tol = 0.01
+
+[[gold]]
+id = "ols-price-coefficient-biased"
+required = true
+weight = 3
+description = "Reports the OLS price coefficient and it is far from the truth, surfacing the price endogeneity instead of headlining it as the demand estimate."
+check = "biased_away"
+field = "ols_alpha"
+truth_key = "true_alpha"
+min_gap = 0.2
+
+[[gold]]
+id = "instrument-relevant"
+required = true
+weight = 3
+description = "Reports a first-stage F for the excluded cost shifter in the price equation, and it clears the conventional weak-instrument threshold."
+check = "first_stage_min"
+min_f = 10.0
+
+[[gold]]
+id = "elasticity-recovered"
+required = true
+weight = 4
+description = "The mean own-price elasticity is computed as -alpha*p*(1-s), recovering the value the checker recomputes from the data (-3.73)."
+check = "recovers_truth"
+field = "mean_own_elasticity"
+truth_key = "true_mean_elasticity"
+tol = 0.02
+
+[[gold]]
+id = "coefficient-is-not-elasticity"
+required = true
+weight = 3
+description = "Reports the folk answer -- the price coefficient quoted as the elasticity -- and it is far from the real elasticity, so the units error is exposed rather than published."
+check = "biased_away"
+field = "naive_elasticity"
+truth_key = "true_mean_elasticity"
+min_gap = 1.0
+
+[[gold]]
+id = "marginal-cost-inverted"
+required = true
+weight = 4
+description = "Marginal cost is inverted from the Bertrand-Nash FOC (mc = p - 1/(alpha*(1-s))), recovering the recomputed mean of 2.05 rather than reading price as cost."
+check = "recovers_truth"
+field = "mean_marginal_cost"
+truth_key = "true_mean_marginal_cost"
+tol = 0.02
+
+[[gold]]
+id = "cost-inherits-demand-bias"
+required = true
+weight = 3
+description = "Reports what the cost inversion returns when the biased OLS alpha is carried through it, and it is far from the true marginal cost -- the demand bias does not stay in the demand equation."
+check = "biased_away"
+field = "naive_marginal_cost"
+truth_key = "true_mean_marginal_cost"
+min_gap = 0.1
+
+[[gold]]
+id = "iv-beats-ols"
+required = false
+weight = 2
+description = "The instrumented price coefficient is closer to the truth than the OLS one (informational)."
+check = "closer_to_truth"
+near_field = "iv_alpha"
+far_field = "ols_alpha"
+truth_key = "true_alpha"
+
+[[gold]]
+id = "honest-iv-alpha"
+required = true
+weight = 2
+description = "The reported IV price coefficient matches what the checker gets by running 2SLS on the data (no fabricated numbers)."
+check = "recovers_truth"
+field = "iv_alpha"
+truth_key = "iv_alpha"
+tol = 0.001
+
+[[gold]]
+id = "honest-ols-alpha"
+required = true
+weight = 2
+description = "The reported OLS price coefficient matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "ols_alpha"
+truth_key = "ols_alpha"
+tol = 0.001
+
+[[gold]]
+id = "honest-elasticity"
+required = true
+weight = 2
+description = "The reported mean own-price elasticity matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "mean_own_elasticity"
+truth_key = "mean_own_elasticity"
+tol = 0.001
+
+[[gold]]
+id = "honest-marginal-cost"
+required = true
+weight = 2
+description = "The reported mean marginal cost matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "mean_marginal_cost"
+truth_key = "mean_marginal_cost"
+tol = 0.001

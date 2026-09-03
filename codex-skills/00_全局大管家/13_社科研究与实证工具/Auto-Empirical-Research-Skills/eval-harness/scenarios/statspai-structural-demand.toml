@@ -1,0 +1,119 @@
+id = "statspai-structural-demand"
+skill = "skills/00-Full-empirical-analysis-skill_StatsPAI"
+title = "Structural demand estimation must instrument price, invert shares, and report elasticities and markups rather than the raw price coefficient"
+category = "causal-identification"
+severity = "high"
+context_data = []
+
+prompt = """
+I have scanner data on three brands across 200 markets: unit prices, market
+shares (the three brands sum to about 60%, the rest is the outside option),
+a product characteristic, and a wholesale cost index that varies by market.
+I want to estimate demand and then say something about how much these firms
+mark up over cost. Set up and estimate the demand model the way an empirical
+IO paper would, and tell me what I can conclude.
+"""
+
+[[rubric]]
+id = "price-is-endogenous"
+check = "regex_any"
+required = true
+weight = 4
+description = "States that price is endogenous — firms set it knowing the demand shock — so a regression of shares on price is biased, rather than treating price as a covariate."
+patterns = [
+  '(?i)price is endogenous',
+  '(?i)endogenei?ty of price',
+  '(?i)simultanei?ty',
+  '(?i)unobserved (demand )?(shock|quality|characteristic)s? .{0,60}(correlat|price)',
+  '(?i)xi.{0,30}correlated with price',
+  '(?i)firms? (set|choose) prices? .{0,60}(observ|know|respond)',
+]
+
+[[rubric]]
+id = "instrument-with-cost-or-blp"
+check = "regex_any"
+required = true
+weight = 4
+description = "Instruments price with cost shifters, BLP/Hausman-style instruments, or an equivalent excluded source of price variation."
+patterns = [
+  '(?i)cost shifter',
+  '(?i)\bBLP\b instrument',
+  '(?i)Hausman instrument',
+  '(?i)instrument(ing|s)? (for )?price',
+  '(?i)wholesale cost .{0,40}instrument',
+  '(?i)2SLS|two.?stage least squares|\bGMM\b',
+]
+
+[[rubric]]
+id = "share-inversion"
+check = "regex_any"
+required = true
+weight = 3
+description = "Uses the logit/BLP share inversion — ln(s_j) - ln(s_0) as the dependent variable — rather than regressing raw shares or quantities on price."
+patterns = [
+  '(?i)ln\(?s_?j\)? ?- ?ln\(?s_?0',
+  '(?i)log.{0,20}share.{0,40}outside (good|option|share)',
+  '(?i)Berry.{0,20}(1994|inversion)',
+  '(?i)mean utility.{0,30}(delta|inver)',
+  '(?i)invert(ing|s)? the shares?',
+]
+
+[[rubric]]
+id = "elasticity-not-coefficient"
+check = "regex_any"
+required = true
+weight = 4
+description = "Computes own-price elasticities from the model (alpha * p * (1 - s) for logit) instead of reporting the price coefficient itself as the elasticity."
+patterns = [
+  '(?i)alpha ?\*? ?p.{0,20}\(1 ?- ?s',
+  '(?i)own.?price elasticit',
+  '(?i)elasticit(y|ies) .{0,60}(depend|vary|computed|derived) .{0,40}(share|price)',
+  '(?i)not (simply |just )?the (price )?coefficient',
+]
+
+[[rubric]]
+id = "markup-from-foc"
+check = "regex_any"
+required = true
+weight = 4
+description = "Recovers markups/marginal costs by inverting the firms' first-order conditions under an explicit conduct assumption, rather than assuming cost or reading price as cost."
+patterns = [
+  '(?i)first.?order condition',
+  '(?i)\bFOC\b',
+  '(?i)Bertrand.?Nash|Nash.?Bertrand',
+  '(?i)invert(ing)? .{0,30}(markup|marginal cost)',
+  '(?i)marginal cost .{0,40}(recover|back(ed)? out|implied)',
+  '(?i)Lerner index',
+]
+
+[[rubric]]
+id = "conduct-is-an-assumption"
+check = "manual"
+required = false
+weight = 2
+description = "Notes that the markup result is conditional on the assumed conduct (single-product Bertrand, no collusion, correct ownership matrix) and that a different conduct assumption yields different costs from identical demand estimates."
+guidance = "Pass if the answer names the conduct/ownership assumption as an assumption the cost estimates rest on. Fail if markups are presented as a direct reading of the data."
+
+[[rubric]]
+id = "no-raw-price-regression"
+check = "regex_none"
+required = true
+weight = 3
+description = "Does NOT present an OLS regression of shares or quantity on price as the demand estimate, and does not call the price coefficient an elasticity."
+patterns = [
+  '(?i)(simply |just )?regress (the )?(market )?shares? on price(?!.{0,80}(bias|endogen|instrument|naive|na.ve|not ))',
+  '(?i)the (price )?coefficient (is|gives|equals) the (own.?price )?elasticity',
+  '(?i)price can be treated as exogenous',
+]
+
+[[rubric]]
+id = "no-cost-observed"
+check = "regex_none"
+required = true
+weight = 2
+description = "Does NOT treat the wholesale cost index as marginal cost itself; it is an instrument for price, not the object being estimated."
+patterns = [
+  '(?i)cost index (is|as) (the )?marginal cost',
+  '(?i)use the cost index as marginal cost',
+  '(?i)markup ?= ?price ?- ?cost index',
+]

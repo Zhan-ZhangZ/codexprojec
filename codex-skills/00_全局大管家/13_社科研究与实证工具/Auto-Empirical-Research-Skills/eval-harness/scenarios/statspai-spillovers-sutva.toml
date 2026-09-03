@@ -1,0 +1,104 @@
+id = "statspai-spillovers-sutva"
+skill = "skills/00-Full-empirical-analysis-skill_StatsPAI"
+title = "When treatment spills over within clusters, the untreated next door are not controls and SUTVA must be tested rather than recited"
+category = "causal-identification"
+severity = "high"
+context_data = []
+
+prompt = """
+We randomized a cash-transfer program at the household level within 60
+villages: in each village, half the eligible households were offered the
+transfer and half were not. I want the effect on household consumption. My
+plan is to compare treated to untreated households, with village fixed
+effects. Reviewers will ask about SUTVA — how should I handle that, and what
+should the paper report?
+"""
+
+[[rubric]]
+id = "untreated-neighbours-are-exposed"
+check = "regex_any"
+required = true
+weight = 5
+description = "States that untreated households in a treated village are partially exposed (local prices, transfers, information, labour supply), so they are not a clean control group."
+patterns = [
+  '(?i)not (a )?(clean|valid|pure|uncontaminated) controls?',
+  '(?i)contaminated control',
+  '(?i)(untreated|control) households? .{0,80}(affected|exposed|benefit|spillover)',
+  '(?i)partially (exposed|treated)',
+  '(?i)spillover .{0,60}(onto|to) .{0,30}(untreated|control|non.?recipient)',
+]
+
+[[rubric]]
+id = "within-village-contrast-is-the-direct-effect"
+check = "regex_any"
+required = true
+weight = 4
+description = "Identifies the within-village comparison as estimating the DIRECT effect, not the effect of the program, and says the two differ by the spillover."
+patterns = [
+  '(?i)direct effect',
+  '(?i)estimand',
+  '(?i)(understate|underestimate|bias(ed)? (down|toward zero)) .{0,80}(program|policy|total|overall)',
+  '(?i)what (it|the comparison) identifies is',
+]
+
+[[rubric]]
+id = "needs-unexposed-comparison"
+check = "regex_any"
+required = true
+weight = 5
+description = "Requires a comparison group outside the treated clusters — pure-control villages, or a saturation/two-stage design that randomizes the treated share across villages."
+patterns = [
+  '(?i)pure.?control (village|cluster|group)',
+  '(?i)(control|untreated|pure) villages?',
+  '(?i)saturation (design|randomi[sz]ation)',
+  '(?i)two.?stage randomi[sz]ation',
+  '(?i)randomi[sz]e .{0,40}(share|fraction|saturation|proportion) .{0,30}(treated|village)',
+  '(?i)cluster.?randomi[sz]',
+]
+
+[[rubric]]
+id = "separate-estimands"
+check = "regex_any"
+required = true
+weight = 4
+description = "Names more than one estimand explicitly — direct / spillover (indirect) / total / overall — rather than reporting a single treatment effect."
+patterns = [
+  '(?i)(indirect|spillover) effect .{0,60}(and|vs|versus|separate)',
+  '(?i)(direct|total|overall) (and|vs|versus) (indirect|spillover|direct|overall)',
+  '(?i)Hudgens|Halloran',
+  '(?i)overall effect',
+  '(?i)report (both|all) .{0,40}(estimand|effect)s',
+]
+
+[[rubric]]
+id = "inference-at-the-cluster"
+check = "regex_any"
+required = false
+weight = 2
+description = "Notes that with interference inside villages, inference belongs at the village level (clustered or randomization-based), not the household."
+patterns = [
+  '(?i)cluster.{0,40}(village|at the village)',
+  '(?i)randomi[sz]ation inference',
+  '(?i)village.?level (standard errors?|inference|cluster)',
+]
+
+[[rubric]]
+id = "spillover-sign-is-not-obvious"
+check = "manual"
+required = false
+weight = 2
+description = "Notes that the spillover need not be positive — local price effects or crowd-out can make untreated neighbours worse off — so its sign is an empirical question, not an assumption."
+guidance = "Pass if the answer treats the direction of the spillover as something to estimate. Fail if it assumes spillovers can only add to the program's benefit."
+
+[[rubric]]
+id = "no-sutva-by-assertion"
+check = "regex_none"
+required = true
+weight = 5
+description = "Does NOT dispose of SUTVA by asserting it, and does NOT claim village fixed effects handle interference."
+patterns = [
+  '(?i)(we )?assume (no interference|SUTVA)(?![^.]{0,120}(test|violat|relax|implausib|unlikely to hold|check))',
+  '(?i)SUTVA (holds|is satisfied|is reasonable|is plausible)(?![^.]{0,80}(because|if|test|check))',
+  '(?i)village fixed effects .{0,60}(absorb|handle|control for|take care of) .{0,30}spillover',
+  '(?i)spillovers? (are|is) (likely )?(negligible|small|zero|second.?order)(?![^.]{0,80}(test|estimate|check|show))',
+]

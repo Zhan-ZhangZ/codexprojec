@@ -73,6 +73,8 @@ TAXONOMY: dict[str, dict[str, list[str]]] = {
         "panel-fe": [r"panel data", r"fixed effects", r"reghdfe", r"within estimator"],
         "bayesian": [r"bayesian", r"\bmcmc\b", r"posterior", r"\bpymc\b"],
         "survival": [r"survival analysis", r"kaplan[- ]meier", r"cox proportional", r"hazard model"],
+        "interference": [r"\bspillover", r"\binterference\b", r"\bSUTVA\b", r"partial interference", r"spatial (spillover|correlation|lag)", r"network (exposure|effects?)", r"general.equilibrium effects?", r"treatment (spillover|contamination)", r"saturation design"],
+        "structural": [r"structural (estimation|model(l?ing)?|demand)", r"\bblp\b", r"berry[- ]levinsohn[- ]pakes", r"demand estimation", r"nested logit", r"random coefficients logit", r"discrete choice demand", r"\bnevo\b", r"moment conditions?", r"merger simulation", r"markup (estimation|inversion)"],
     },
     "stage": {
         "ideation": [r"topic selection", r"research question", r"ideation", r"brainstorm", r"hypothesis generation"],

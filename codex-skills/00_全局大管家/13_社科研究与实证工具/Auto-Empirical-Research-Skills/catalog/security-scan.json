@@ -1,0 +1,554 @@
+{
+  "collections": {
+    "00-Full-empirical-analysis-skill_StatsPAI": {
+      "files_scanned": 2,
+      "files_seen": 2,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "00.1-Full-empirical-analysis-skill_Python": {
+      "files_scanned": 10,
+      "files_seen": 10,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "00.2-Full-empirical-analysis-skill_Stata": {
+      "files_scanned": 10,
+      "files_seen": 10,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "00.3-Full-empirical-analysis-skill_R": {
+      "files_scanned": 10,
+      "files_seen": 10,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "01-lishix520-academic-paper-skills": {
+      "files_scanned": 7,
+      "files_seen": 7,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "02-luwill-research-skills": {
+      "files_scanned": 19,
+      "files_seen": 19,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "03-K-Dense-AI-claude-scientific-skills": {
+      "files_scanned": 20,
+      "files_seen": 20,
+      "findings_total": 1,
+      "findings_triaged_benign": 1,
+      "findings_untriaged": 0
+    },
+    "04-K-Dense-AI-claude-scientific-writer": {
+      "files_scanned": 10,
+      "files_seen": 10,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "05-kthorn-research-superpower": {
+      "files_scanned": 11,
+      "files_seen": 11,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "06-fuhaoda-stats-paper-writing": {
+      "files_scanned": 22,
+      "files_seen": 22,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "07-Orchestra-Research-AI-Research-SKILLs": {
+      "files_scanned": 16,
+      "files_seen": 16,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "08-ndpvt-web-latex-document-skill": {
+      "files_scanned": 2,
+      "files_seen": 2,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "09-meleantonio-awesome-econ-ai-stuff": {
+      "files_scanned": 43,
+      "files_seen": 43,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "10-Jill0099-causal-inference-mixtape": {
+      "files_scanned": 6,
+      "files_seen": 6,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "11-James-Traina-compound-science": {
+      "files_scanned": 74,
+      "files_seen": 74,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "12-pedrohcgs-claude-code-my-workflow": {
+      "files_scanned": 61,
+      "files_seen": 61,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "13-scunning1975-MixtapeTools": {
+      "files_scanned": 18,
+      "files_seen": 29,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "14-luischanci-claude-code-research-starter": {
+      "files_scanned": 99,
+      "files_seen": 99,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "15-Felpix-Studios-social-science-research": {
+      "files_scanned": 37,
+      "files_seen": 37,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "16-hsantanna88-clo-author": {
+      "files_scanned": 47,
+      "files_seen": 47,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "17-DAAF-Contribution-Community-daaf": {
+      "files_scanned": 319,
+      "files_seen": 319,
+      "findings_total": 3,
+      "findings_triaged_benign": 3,
+      "findings_untriaged": 0
+    },
+    "18-jusi-aalto-stata-accounting-research": {
+      "files_scanned": 129,
+      "files_seen": 129,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "19-CuellarC05-vera-economic-intelligence": {
+      "files_scanned": 11,
+      "files_seen": 11,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "20-wenddymacro-python-econ-skill": {
+      "files_scanned": 2,
+      "files_seen": 2,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "21-claesbackman-AI-research-feedback": {
+      "files_scanned": 6,
+      "files_seen": 6,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "22-christopherkenny-skills": {
+      "files_scanned": 59,
+      "files_seen": 59,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "23-Learning-Bayesian-Statistics-baygent-skills": {
+      "files_scanned": 22,
+      "files_seen": 22,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "24-Imbad0202-academic-research-skills": {
+      "files_scanned": 118,
+      "files_seen": 118,
+      "findings_total": 1,
+      "findings_triaged_benign": 1,
+      "findings_untriaged": 0
+    },
+    "25-HosungYou-Diverga": {
+      "files_scanned": 65,
+      "files_seen": 65,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "26-Data-Wise-scholar": {
+      "files_scanned": 32,
+      "files_seen": 32,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "27-dariia-m-my_claude_skills": {
+      "files_scanned": 13,
+      "files_seen": 13,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "28-maxwell2732-paper-replicate-agent-demo": {
+      "files_scanned": 39,
+      "files_seen": 39,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "29-quarcs-lab-project20XXy": {
+      "files_scanned": 26,
+      "files_seen": 26,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "30-zirui-song-claude-skills": {
+      "files_scanned": 7,
+      "files_seen": 7,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "31-thalysandratos-claude-code-skills": {
+      "files_scanned": 30,
+      "files_seen": 30,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "32-dylantmoore-stata-skill": {
+      "files_scanned": 71,
+      "files_seen": 71,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "33-Galaxy-Dawn-claude-scholar": {
+      "files_scanned": 323,
+      "files_seen": 327,
+      "findings_total": 2,
+      "findings_triaged_benign": 2,
+      "findings_untriaged": 0
+    },
+    "34-andrehuang-research-companion": {
+      "files_scanned": 6,
+      "files_seen": 6,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "35-bahayonghang-academic-writing-skills": {
+      "files_scanned": 264,
+      "files_seen": 264,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "36-taoyunudt-literature-review-skill": {
+      "files_scanned": 2,
+      "files_seen": 2,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "37-IlanStrauss-ai-skills": {
+      "files_scanned": 3,
+      "files_seen": 3,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "38-peternka-academic-proofreader": {
+      "files_scanned": 2,
+      "files_seen": 2,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "39-vincentarelbundock-marginaleffects": {
+      "files_scanned": 2,
+      "files_seen": 2,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "40-py-econometrics-pyfixest": {
+      "files_scanned": 2,
+      "files_seen": 2,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "41-sticerd-eee-sewage-econometrics-check": {
+      "files_scanned": 24,
+      "files_seen": 24,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "42-wanshuiyin-ARIS": {
+      "files_scanned": 153,
+      "files_seen": 153,
+      "findings_total": 1,
+      "findings_triaged_benign": 1,
+      "findings_untriaged": 0
+    },
+    "43-wentorai-research-plugins": {
+      "files_scanned": 479,
+      "files_seen": 479,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "44-matsuikentaro1-humanizer_academic": {
+      "files_scanned": 3,
+      "files_seen": 3,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "45-stephenturner-skill-deslop": {
+      "files_scanned": 7,
+      "files_seen": 7,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "46-hardikpandya-stop-slop": {
+      "files_scanned": 7,
+      "files_seen": 7,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "47-conorbronsdon-avoid-ai-writing": {
+      "files_scanned": 5,
+      "files_seen": 5,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "48-de-AIGC-skills": {
+      "files_scanned": 8,
+      "files_seen": 8,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "49-voidborne-d-humanize-chinese": {
+      "files_scanned": 3,
+      "files_seen": 3,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "50-brycewang-aer-skills": {
+      "files_scanned": 210,
+      "files_seen": 213,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "51-pymc-labs-CausalPy": {
+      "files_scanned": 22,
+      "files_seen": 22,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "52-keemanxp-slr-prisma": {
+      "files_scanned": 5,
+      "files_seen": 5,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "53-keemanxp-thematic-analysis-skill": {
+      "files_scanned": 9,
+      "files_seen": 9,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "54-scdenney-open-science-skills": {
+      "files_scanned": 40,
+      "files_seen": 40,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "55-ab604-claude-code-r-skills": {
+      "files_scanned": 10,
+      "files_seen": 10,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "56-hanlulong-econ-writing-skill": {
+      "files_scanned": 7,
+      "files_seen": 7,
+      "findings_total": 3,
+      "findings_triaged_benign": 3,
+      "findings_untriaged": 0
+    },
+    "57-dgunning-edgartools": {
+      "files_scanned": 26,
+      "files_seen": 26,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "58-charlescoverdale-econstack": {
+      "files_scanned": 34,
+      "files_seen": 34,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "59-shiquda-openalex-skill": {
+      "files_scanned": 5,
+      "files_seen": 5,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "60-regisely-superpapers": {
+      "files_scanned": 34,
+      "files_seen": 34,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "61-phdemotions-research-methods": {
+      "files_scanned": 59,
+      "files_seen": 59,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "62-PHY041-claude-skill-citation-checker": {
+      "files_scanned": 4,
+      "files_seen": 4,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "63-tondevrel-scientific-agent-skills": {
+      "files_scanned": 4,
+      "files_seen": 4,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "64-tmonk-mcp-stata": {
+      "files_scanned": 80,
+      "files_seen": 80,
+      "findings_total": 1,
+      "findings_triaged_benign": 1,
+      "findings_untriaged": 0
+    },
+    "65-game-theory-paper-writer": {
+      "files_scanned": 6,
+      "files_seen": 6,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "66-zheng-siyao-empirical-research-skills": {
+      "files_scanned": 7,
+      "files_seen": 7,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "67-econfin-workflow-toolkit": {
+      "files_scanned": 253,
+      "files_seen": 274,
+      "findings_total": 1,
+      "findings_triaged_benign": 1,
+      "findings_untriaged": 0
+    },
+    "68-research-productivity-skills": {
+      "files_scanned": 16,
+      "files_seen": 16,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "69-Paper-WorkFlow": {
+      "files_scanned": 196,
+      "files_seen": 218,
+      "findings_total": 3,
+      "findings_triaged_benign": 3,
+      "findings_untriaged": 0
+    },
+    "70-ssci-polish": {
+      "files_scanned": 4,
+      "files_seen": 4,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "71-brycewang-lit-review-agent-tools": {
+      "files_scanned": 8,
+      "files_seen": 8,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    },
+    "72-kaggle-research": {
+      "files_scanned": 26,
+      "files_seen": 26,
+      "findings_total": 0,
+      "findings_triaged_benign": 0,
+      "findings_untriaged": 0
+    }
+  },
+  "note": "Pattern scan only \u2014 the same class of evidence as the 2026-07-15 addendum in SECURITY-SCAN-REPORT.md, and strictly weaker than the baseline's multi-agent content read. A clean result means no known-bad pattern matched, not 'reviewed and safe'. Every entry under 'triaged' was inspected in context; the reason records what was found there.",
+  "schema_version": "1.0",
+  "triaged": {
+    "credential-path|skills/42-wanshuiyin-ARIS/README-original.md|~/.ssh/id_ed25519": "ssh-keygen walkthrough for renting a Vast.ai instance; the command shown reads the .pub half to paste into their console. No private key is read or transmitted.",
+    "destructive-rm|skills/17-DAAF-Contribution-Community-daaf/dot-claude/settings.json|rm -rf *": "Entry in the settings 'deny' list \u2014 a permission rule that blocks the command.",
+    "destructive-rm|skills/33-Galaxy-Dawn-claude-scholar/skills/hook-development/references/advanced.md|rm -rf /": "Test fixture for a bash-validation hook: the string is the input fed to the validator to assert it BLOCKS the command.",
+    "long-base64-blob|skills/67-econfin-workflow-toolkit/marp-slides-creator/themes/beam.css|PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iMjUwbW0iIGhlaWdodD0iNS4zNTQ2bW0iIHZlcnNpb249IjEuM...": "CSS background: an inline SVG data-URI (decorative graphic). Decodes to 399 bytes of SVG.",
+    "long-base64-blob|skills/69-Paper-WorkFlow/did_demo.ipynb|iVBORw0KGgoAAAANSUhEUgAAA2QAAAHuCAYAAADwXM9fAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwLjAsIGh0dHBzOi8vbWF0c...": "Committed matplotlib PNG output embedded in the notebook. Decodes to a PNG. Also triaged in the 2026-07-15 addendum.",
+    "long-base64-blob|skills/69-Paper-WorkFlow/did_demo.ipynb|iVBORw0KGgoAAAANSUhEUgAAA5AAAAIECAYAAABvzMHFAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwLjAsIGh0dHBzOi8vbWF0c...": "Committed matplotlib PNG output embedded in the notebook. Decodes to a PNG. Also triaged in the 2026-07-15 addendum.",
+    "obfuscated-python|skills/69-Paper-WorkFlow/scripts/check_demo_execution.py|exec(compile(": "The demo-execution gate runs the cells of the repo's own committed did_demo.ipynb in a temporary namespace, with no network IO. Standard nbconvert-style pattern. Also triaged in the 2026-07-15 addendum.",
+    "pipe-to-shell|skills/03-K-Dense-AI-claude-scientific-skills/README-original.md|curl -LsSf https://astral.sh/uv/install.sh | sh": "Upstream README quoting Astral's official uv installer. Documentation only \u2014 the vendored skill never runs it.",
+    "pipe-to-shell|skills/17-DAAF-Contribution-Community-daaf/CLAUDE.md|curl ... | bash": "A rule forbidding the pattern: 'You MUST NEVER pipe downloaded content to a shell'. The hit is the prohibition, not an instance.",
+    "pipe-to-shell|skills/17-DAAF-Contribution-Community-daaf/dot-claude/hooks/bash-safety.sh|curl <url> | bash": "Comment in a PreToolUse safety hook explaining which pattern the hook blocks. The file is the control, not the risk.",
+    "pipe-to-shell|skills/24-Imbad0202-academic-research-skills/README-original.md|curl -fsSL https://claude.ai/install.sh | bash": "Upstream README quoting Anthropic's own claude.ai installer. Documentation only.",
+    "pipe-to-shell|skills/33-Galaxy-Dawn-claude-scholar/skills/uv-package-manager/SKILL.md|curl -LsSf https://astral.sh/uv/install.sh | sh": "Astral's official uv installer, quoted as the documented install step. Note this one sits in a SKILL.md rather than a README, so an agent following the skill could run it; kept because it is the vendor's canonical install path over TLS to astral.sh, and rewriting vendored content is out of scope (see CLAUDE.md).",
+    "pipe-to-shell|skills/56-hanlulong-econ-writing-skill/README-original.md|curl -fsSL https://raw.githubusercontent.com/hanlulong/econ-writing-skill/main/install.sh | bash": "Upstream README quoting the author's own installer from their own repository, three times in three install sections. Documentation only. Also triaged in the 2026-07-15 addendum.",
+    "pipe-to-shell|skills/64-tmonk-mcp-stata/README-original.md|curl -LsSf https://mcp-stata-install.tdmonk.com/install.sh | bash": "Upstream README quoting the author's own installer on their own domain. Documentation only. Also triaged in the 2026-07-15 addendum."
+  }
+}

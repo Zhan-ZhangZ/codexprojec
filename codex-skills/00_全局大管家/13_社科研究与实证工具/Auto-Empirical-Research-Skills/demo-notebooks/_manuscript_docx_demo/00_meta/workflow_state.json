@@ -1,0 +1,21 @@
+{
+  "schema_version": 14,
+  "manuscript": {
+    "format": "markdown",
+    "body_file": "05_draft/main.md",
+    "deliverable": "docx",
+    "deliverable_docx": "09_submission/main.docx",
+    "docx_status": "assembled",
+    "converter": "pandoc",
+    "reference_docx": "",
+    "csl": "",
+    "exhibits_embedded": 1,
+    "figures_embedded": 1,
+    "unresolved_markers": [],
+    "last_assembly": ""
+  },
+  "table_style": {
+    "format": "three-line",
+    "typography_preset": "en-journal"
+  }
+}

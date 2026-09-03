@@ -1,0 +1,94 @@
+id = "aers-r-fixest-cluster-default"
+skill = "skills/00.3-Full-empirical-analysis-skill_R"
+title = "R fixest: feols clusters on the first fixed effect by default, which is a tool default and not a design decision"
+category = "statistical-validity"
+severity = "high"
+context_data = []
+
+prompt = """
+My coauthor and I get different standard errors on the same regression and the
+same data. I ran
+
+    feols(log_wage ~ treat + x1 + x2 | firm_id + year, data = d)
+
+in R; they ran
+
+    reghdfe log_wage treat x1 x2, absorb(firm_id year) vce(cluster state)
+
+in Stata. My t-statistic is 3.1 and theirs is 1.6. The policy varies at the
+state level. Which of us is right, and how do I make the two agree?
+"""
+
+[[rubric]]
+id = "names-the-default"
+check = "regex_any"
+required = true
+weight = 5
+description = "Identifies that fixest clusters on the FIRST fixed effect (firm_id) by default, so the R run silently clustered somewhere the design never asked for."
+patterns = [
+  '(?i)first fixed effect',
+  '(?i)default.{0,60}cluster.{0,40}(firm|first)',
+  '(?i)cluster.{0,40}(firm_id|firm).{0,40}by default',
+  '(?i)fixest.{0,60}default.{0,40}cluster',
+]
+
+[[rubric]]
+id = "sets-cluster-explicitly"
+check = "regex_any"
+required = true
+weight = 4
+description = "Fixes it by naming the cluster variable explicitly (cluster = ~state or vcov = ~state), rather than by changing the fixed effects or trusting the default."
+patterns = [
+  '(?i)cluster ?= ?~ ?state',
+  '(?i)vcov ?= ?~ ?state',
+  '(?i)cluster ?= ?"state"',
+  '(?i)se ?= ?"cluster".{0,60}state',
+]
+
+[[rubric]]
+id = "state-is-the-right-level"
+check = "regex_any"
+required = true
+weight = 5
+description = "Says the Stata run is the correct one because treatment varies at the state level, so that is where the clustering belongs — the level is a property of the design, not of the software."
+patterns = [
+  '(?i)(treatment|policy) varies at the state level',
+  '(?i)cluster at the level .{0,40}(treatment|assignment|policy)',
+  '(?i)state.{0,50}(correct|right|appropriate) (level|cluster)',
+  '(?i)your coauthor(?:.|\n){0,80}(right|correct)',
+]
+
+[[rubric]]
+id = "small-sample-correction-gap"
+check = "regex_any"
+required = true
+weight = 3
+description = "Notes that even after matching the cluster variable, fixest and Stata apply different small-sample corrections by default, so exact agreement needs an explicit ssc() setting."
+patterns = [
+  '(?i)\bssc\(',
+  '(?i)small.?sample (correction|adjustment)',
+  '(?i)degrees?.of.freedom (correction|adjustment)',
+  '(?i)cluster\.adj',
+  '(?i)finite.?sample (correction|adjustment)',
+]
+
+[[rubric]]
+id = "few-clusters-followup"
+check = "manual"
+required = false
+weight = 2
+description = "Asks how many states there are, or flags that if the state count is small the corrected SE still needs a wild cluster bootstrap (fwildclusterboot) or CR2 (clubSandwich)."
+guidance = "Pass if the answer treats the number of clusters as the next thing to check. Fail if it stops at 'cluster on state' with no regard for how many states exist."
+
+[[rubric]]
+id = "no-tool-blaming"
+check = "regex_none"
+required = true
+weight = 4
+description = "Does NOT attribute the gap to a software difference, rounding, or an R-vs-Stata quirk, and does NOT suggest matching the numbers by adjusting the Stata side to the R default."
+patterns = [
+  '(?i)(just|simply|merely) a (difference|quirk|artifact) (between|of) (R and Stata|the two (packages|programs|softwares?))',
+  '(?i)rounding (difference|error|issue)',
+  '(?i)(change|switch|adjust) (the )?Stata .{0,40}cluster.{0,30}(firm|match (the )?R)',
+  '(?i)both (are|estimates are) (equally )?(valid|correct|fine)',
+]

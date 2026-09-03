@@ -1,0 +1,12 @@
+{
+  "task": "structural-demand-recovery",
+  "method": "Berry inversion of logit shares, price instrumented with the cost shifter; elasticities as -alpha*p*(1-s) and marginal costs from the Bertrand-Nash FOC",
+  "n": 60,
+  "iv_alpha": 1.5,
+  "ols_alpha": 1.139,
+  "first_stage_F": 168.56,
+  "mean_own_elasticity": -3.7304,
+  "naive_elasticity": -1.139,
+  "mean_marginal_cost": 2.0488,
+  "naive_marginal_cost": 1.8075
+}

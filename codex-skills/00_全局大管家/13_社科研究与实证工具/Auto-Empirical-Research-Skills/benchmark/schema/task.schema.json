@@ -19,8 +19,8 @@
       "enum": [
         "bad-control-recovery",
         "bartik-recovery",
-        "bunching-recovery",
         "bayesian-recovery",
+        "bunching-recovery",
         "card-iv-recovery",
         "cate-recovery",
         "decomposition-recovery",
@@ -32,6 +32,8 @@
         "panel-fe-recovery",
         "qte-recovery",
         "rdd-recovery",
+        "spillover-recovery",
+        "structural-demand-recovery",
         "survival-recovery",
         "synthetic-control-recovery"
       ]

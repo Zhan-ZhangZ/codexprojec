@@ -1,0 +1,9 @@
+{
+  "task": "mediation-recovery",
+  "method": "OLS of Y on T and M; direct effect read off the T coefficient",
+  "n": 200,
+  "total_effect": 4.0,
+  "nde": -2.7576,
+  "nie": 6.7576,
+  "naive_direct": -2.7576
+}

@@ -47,6 +47,9 @@ METHOD_ORDER = [
     "shift-share",
     "mediation",
     "decomposition",
+    "bunching",
+    "structural",
+    "interference",
     "bayesian",
     "survival",
 ]
@@ -66,6 +69,8 @@ METHOD_LABEL = {
     "mediation": "Causal mediation",
     "decomposition": "Decomposition (Oaxaca-Blinder)",
     "bunching": "Bunching",
+    "structural": "Structural estimation (demand / IO)",
+    "interference": "Interference / spillovers (SUTVA)",
     "bayesian": "Bayesian methods",
     "survival": "Survival / duration",
 }
@@ -88,12 +93,21 @@ SCENARIO_METHOD = {
     "aer-shiftshare-identification": "shift-share",
     "statspai-mediation-assumptions": "mediation",
     "statspai-decomposition": "decomposition",
+    "statspai-bunching": "bunching",
+    "statspai-structural-demand": "structural",
+    "statspai-spillovers-sutva": "interference",
     "baygent-bayesian-diagnostics": "bayesian",
     "statspai-survival-assumptions": "survival",
     "causalpy-placebo-inference": "synthetic-control",
     "statspai-bad-controls": "*",
     "statspai-clustered-inference": "*",
     "aer-robustness-multiple-testing": "*",
+    # Ecosystem-level inference traps: which variance estimator a tool reaches
+    # for by default. Method-agnostic — the same wrong default corrupts a DiD,
+    # an event study or a plain panel regression identically.
+    "aers-stata-hdfe-singletons-clusters": "*",
+    "aers-r-fixest-cluster-default": "*",
+    "aers-python-panelols-default-vcov": "*",
     "econ-audit-recompute-not-restate": "*",
     "logpoint-percent-interpretation": "*",
     "marginaleffects-interaction-ame": "*",
@@ -122,6 +136,8 @@ TASK_METHOD = {
     "mediation-recovery": "mediation",
     "decomposition-recovery": "decomposition",
     "bunching-recovery": "bunching",
+    "structural-demand-recovery": "structural",
+    "spillover-recovery": "interference",
     "survival-recovery": "survival",
     "bayesian-recovery": "bayesian",
     "synthetic-control-recovery": "synthetic-control",
@@ -131,7 +147,9 @@ TASK_METHOD = {
 # Short notes where a family is defended indirectly by a sibling family.
 RELATED_NOTE = {
     "did": "2x2 base case; the parallel-trends/pre-trends check lives under Event study, and staggered identification under Staggered DiD.",
-    "decomposition": "Estimators (oaxaca, kitagawa_decompose, dfl_decompose, gelbach) ship in the StatsPAI runtime, but no vendored skill *description* advertises the family yet, so the tagged-skill count reads 0; the eval scenario and benchmark task still gate the method.",
+    "decomposition": "Estimators (oaxaca, kitagawa_decompose, dfl_decompose, gelbach) ship in the StatsPAI runtime, but almost no vendored skill *description* advertises the family, so the tagged-skill count understates it; the eval scenario and benchmark task still gate the method.",
+    "interference": "SUTVA is the assumption most often stated and least often tested, so the tagged-skill count reads 0: almost no vendored skill description advertises spillovers or interference by name. The eval scenario and benchmark task gate the method regardless — that gap between how often the assumption is invoked and how often it is checked is the point.",
+    "bunching": "Bunching/notch estimators (bunching, general_bunching, notch, kink_unified) ship in the StatsPAI runtime, but no vendored skill *description* names the family, so the tagged-skill count reads 0; the eval scenario and benchmark task still gate the method.",
 }
 
 

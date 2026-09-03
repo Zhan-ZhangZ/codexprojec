@@ -19,6 +19,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = ROOT / "skills"
 DEFAULT_JSON = ROOT / "catalog" / "provenance.json"
 DEFAULT_MARKDOWN = ROOT / "docs" / "LICENSE_AUDIT.md"
+# GitHub renders this under the `skills/` directory listing, so it is the first
+# thing anyone browsing the vendored collections sees — which makes it the
+# right place to credit each upstream author.
+DEFAULT_SKILLS_INDEX = SKILLS_DIR / "README.md"
 SCAN_DATE = "2026-07-22"
 
 
@@ -112,9 +116,11 @@ OVERRIDES: dict[str, dict[str, object]] = {
         "sync": "manual",
         "source_confidence": "high",
     },
-    "48-copaper-ai-chinese-de-aigc": {
+    "48-de-AIGC-skills": {
         "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
         "license": "CC-BY-SA-4.0 (repository default)",
+        # Renamed from 48-copaper-ai-chinese-de-aigc in the v2 rewrite that
+        # extended the Chinese-only skill to bilingual EN+ZH coverage.
         "origin": "first-party AERS skill",
         "sync": "manual",
         "source_confidence": "high",
@@ -146,6 +152,13 @@ OVERRIDES: dict[str, dict[str, object]] = {
         "sync": "manual",
         "source_confidence": "high",
     },
+    "72-kaggle-research": {
+        "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
+        "license": "CC-BY-SA-4.0 (repository default)",
+        "origin": "first-party AERS skill",
+        "sync": "manual",
+        "source_confidence": "high",
+    },
     "12-pedrohcgs-claude-code-my-workflow": {
         "source_url": "https://github.com/pedrohcgs/claude-code-my-workflow",
         "source_confidence": "high",
@@ -163,18 +176,29 @@ OVERRIDES: dict[str, dict[str, object]] = {
         "source_confidence": "high",
     },
     "18-jusi-aalto-stata-accounting-research": {
-        "source_url": None,
-        "source_confidence": "unresolved",
-        "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
+        # Resolved 2026-08-07 (was "unresolved" since 2026-05-31): the vendored
+        # SKILL.md is byte-identical to the upstream file on the default branch
+        # (`master`), and the upstream tree matches the vendored layout exactly
+        # (README.md -> README-original.md, SKILL.md, references/). Content
+        # match, not folder-name inference, so confidence is "high".
+        "source_url": "https://github.com/jusi-aalto/stata-accounting-research",
+        "source_confidence": "high",
+        "origin": "vendored upstream snapshot; upstream URL resolved by content match 2026-08-07",
     },
     "27-dariia-m-my_claude_skills": {
         "source_url": "https://github.com/dariia-m/my_claude_skills",
         "source_confidence": "high",
     },
     "29-quarcs-lab-project20XXy": {
-        "source_url": None,
-        "source_confidence": "unresolved",
-        "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
+        # Resolved 2026-08-07 (was "unresolved" since 2026-05-31). The vendored
+        # CLAUDE.md is the same document as the upstream one on `master`, with
+        # the drift you would expect from a snapshot that upstream has moved
+        # past (upstream gained `read/`, `notes/`, `styles.css` rows). The
+        # vendored `dot-claude/` is upstream's `.claude/`. Same-document match
+        # rather than byte-identity, so confidence is "medium".
+        "source_url": "https://github.com/quarcs-lab/project20XXy",
+        "source_confidence": "medium",
+        "origin": "vendored upstream snapshot; upstream URL resolved by content match 2026-08-07",
     },
     "31-thalysandratos-claude-code-skills": {
         "source_url": "https://github.com/thalysandratos/claude-code-skills",
@@ -185,18 +209,48 @@ OVERRIDES: dict[str, dict[str, object]] = {
         "source_confidence": "high",
     },
     "38-peternka-academic-proofreader": {
-        "source_url": None,
-        "source_confidence": "unresolved",
-        "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
+        # Resolved 2026-08-07 (was "unresolved" since 2026-05-31). The upstream
+        # repo spells the name with an underscore — "academic_proofreader" —
+        # which is why the hyphenated folder name never resolved. The vendored
+        # README-original.md is byte-identical to the upstream README.md;
+        # SKILL.md is the AERS packaging of upstream's
+        # academic_proofreader_prompt_v2.md and has no upstream counterpart.
+        "source_url": "https://github.com/peternka/academic_proofreader",
+        "source_confidence": "high",
+        "origin": "vendored upstream snapshot (README byte-identical; SKILL.md packaged locally from upstream academic_proofreader_prompt_v2.md); upstream URL resolved 2026-08-07",
     },
     "44-matsuikentaro1-humanizer_academic": {
         "source_url": "https://github.com/matsuikentaro1/humanizer_academic",
         "source_confidence": "high",
     },
     "49-voidborne-d-humanize-chinese": {
-        "source_url": None,
-        "source_confidence": "unresolved",
-        "origin": "vendored snapshot; upstream URL unresolved as of 2026-05-31",
+        # Resolved 2026-08-07 (was "unresolved" since 2026-05-31). The author
+        # renamed the GitHub account from "voidborne-d" to "swaylq" after this
+        # snapshot was taken, so github.com/voidborne-d/humanize-chinese now
+        # 404s and the folder name kept the old owner. Identity confirmed by
+        # content, not by name: the vendored SKILL.md and LICENSE are both
+        # byte-identical to swaylq/humanize-chinese@main, and the vendored
+        # LICENSE is copyright "voidborne-d (sway)".
+        "source_url": "https://github.com/swaylq/humanize-chinese",
+        "source_confidence": "high",
+        "origin": "vendored upstream snapshot; upstream account renamed voidborne-d -> swaylq, URL resolved by content match 2026-08-07",
+    },
+    "26-Data-Wise-scholar": {
+        # Redirected 2026-08-07. infer_source_url() scrapes
+        # "https://github.com/Data-Wise/scholar" out of the vendored
+        # README-original.md, but that standalone repo now 404s — the author
+        # folded it into the Data-Wise/claude-plugins monorepo as the
+        # `statistical-research` plugin. Confirmed by content: of the 17
+        # vendored SKILL.md files, 6 are byte-identical to
+        # statistical-research/skills/<same path>, 4 more are the same skills
+        # with upstream drift, and 7 (including all of `teaching/`) have no
+        # counterpart at that path upstream any more. Pointing readers at the
+        # live successor beats pointing them at a 404; the dead original URL is
+        # preserved in this note. Confidence "medium" — same lineage, but the
+        # tree was reorganized and is no longer a 1:1 mapping.
+        "source_url": "https://github.com/Data-Wise/claude-plugins",
+        "source_confidence": "medium",
+        "origin": "vendored upstream snapshot of Data-Wise/scholar (now 404); upstream content relocated to Data-Wise/claude-plugins -> statistical-research/, re-pointed 2026-08-07",
     },
     # --- 2026-06-01 empirical-skills expansion (51-62) ---
     "51-pymc-labs-CausalPy": {
@@ -329,7 +383,7 @@ OVERRIDES: dict[str, dict[str, object]] = {
         "source_confidence": "medium",
     },
     "42-wanshuiyin-ARIS": {
-        "origin": "vendored upstream snapshot. The upstream skills-codex / skills-codex-*-review runtime ports (OpenAI Codex CLI variants of the same skills) remain on disk but are excluded from skill discovery since 2026-07-22 (see scripts/skill_discovery.py).",
+        "origin": "vendored upstream snapshot. The upstream skills-codex / skills-codex-*-review runtime ports (OpenAI Codex CLI variants of the same skills) remain on disk but are excluded from skill discovery since 2026-07-22 (see scripts/skill_discovery.py). Diverges from upstream in one content detail: the four auto-review-loop SKILL.md files name MiniMax-M3 as the reviewer model, not the upstream MiniMax-M2.7 (PR #69, 2026-08-31). M2.7 was superseded by M3 on 2026-05-31, so the snapshot would otherwise document a model the API no longer serves. Drop this note once upstream carries the same rename.",
     },
 }
 
@@ -568,24 +622,92 @@ def render_markdown(payload: dict[str, object]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_outputs(payload: dict[str, object], json_path: Path, markdown_path: Path) -> None:
+def render_skills_index(payload: dict[str, object]) -> str:
+    """Render `skills/README.md` — the credit-upstream index for this folder."""
+    records = payload["collections"]
+    summary = payload["summary"]
+    total_skills = sum(int(r.get("skill_count") or 0) for r in records)
+
+    lines = [
+        "# `skills/` — where every collection came from · 每个合集的来源",
+        "",
+        "This file is generated by `scripts/build-provenance.py`. Do not edit it by "
+        "hand; run `make catalog` after changing vendored skills.",
+        "",
+        "> **🙏 Credit upstream.** Almost everything in this directory is a "
+        "**snapshot of someone else's work**, vendored here so the whole library "
+        "is browsable in one place. The **Source** column links back to the "
+        "original repository — please star it there, file issues there, and read "
+        "its LICENSE before reuse.",
+        ">",
+        "> **🙏 尊重原作者。** 本目录里的绝大多数内容都是**他人作品的快照**，"
+        "vendor 到这里只是为了让整座库能在一处浏览。**来源**列直接链回原始仓库 —— "
+        "请去原仓库点 star、提 issue，复用前先看它的 LICENSE。",
+        "",
+        f"**{summary['collections']} collections · {total_skills:,} `SKILL.md` files.** "
+        "Full licence and commercial-use audit: "
+        "[`docs/LICENSE_AUDIT.md`](../docs/LICENSE_AUDIT.md). Machine-readable: "
+        "[`catalog/provenance.json`](../catalog/provenance.json).",
+        "",
+        "**Confidence** is how firmly this repo has tied a collection to that "
+        "upstream URL — `high` = verified against upstream content or an explicit "
+        "upstream declaration, `medium` = URL taken from the vendored README, "
+        "`low` = folder-name match only, so treat the link as a lead rather than "
+        "a fact.",
+        "",
+        "| Collection · 合集 | Skills | Source · 来源 | Confidence | License |",
+        "|---|---:|---|---|---|",
+    ]
+    for record in records:
+        source = record["source_url"]
+        slug = str(source or "").rstrip("/").removeprefix("https://github.com/")
+        source_cell = f"[{markdown_escape(slug)}]({source})" if source else "UNKNOWN"
+        cid = str(record["id"])
+        lines.append(
+            "| [`{id}`]({id}/) | {n} | {source} | {confidence} | {license} |".format(
+                id=markdown_escape(cid),
+                n=record.get("skill_count") or 0,
+                source=source_cell,
+                confidence=markdown_escape(record["source_confidence"]),
+                license=markdown_escape(record["license"]),
+            )
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_outputs(
+    payload: dict[str, object],
+    json_path: Path,
+    markdown_path: Path,
+    index_path: Path,
+) -> None:
     json_path.parent.mkdir(parents=True, exist_ok=True)
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     markdown_path.write_text(render_markdown(payload), encoding="utf-8")
+    index_path.write_text(render_skills_index(payload), encoding="utf-8")
 
 
-def check_outputs(payload: dict[str, object], json_path: Path, markdown_path: Path) -> int:
+def check_outputs(
+    payload: dict[str, object],
+    json_path: Path,
+    markdown_path: Path,
+    index_path: Path,
+) -> int:
     expected_json = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     expected_markdown = render_markdown(payload)
+    expected_index = render_skills_index(payload)
     failures: list[str] = []
     if not json_path.exists() or json_path.read_text(encoding="utf-8") != expected_json:
         failures.append(str(json_path.relative_to(ROOT)))
     if not markdown_path.exists() or markdown_path.read_text(encoding="utf-8") != expected_markdown:
         failures.append(str(markdown_path.relative_to(ROOT)))
+    if not index_path.exists() or index_path.read_text(encoding="utf-8") != expected_index:
+        failures.append(str(index_path.relative_to(ROOT)))
     if failures:
         print("Provenance outputs are stale. Regenerate with `make catalog`.", file=sys.stderr)
         for failure in failures:
@@ -599,16 +721,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", type=Path, default=DEFAULT_JSON)
     parser.add_argument("--markdown", type=Path, default=DEFAULT_MARKDOWN)
+    parser.add_argument("--index", type=Path, default=DEFAULT_SKILLS_INDEX)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
     payload = build_payload()
     if args.check:
-        return check_outputs(payload, args.json, args.markdown)
+        return check_outputs(payload, args.json, args.markdown, args.index)
 
-    write_outputs(payload, args.json, args.markdown)
+    write_outputs(payload, args.json, args.markdown, args.index)
     print(f"Wrote {args.json.relative_to(ROOT)}")
     print(f"Wrote {args.markdown.relative_to(ROOT)}")
+    print(f"Wrote {args.index.relative_to(ROOT)}")
     return 0
 
 

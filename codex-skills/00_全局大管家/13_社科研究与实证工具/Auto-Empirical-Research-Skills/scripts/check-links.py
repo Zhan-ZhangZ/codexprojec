@@ -18,6 +18,22 @@ LINK_RE = re.compile(r"(?:href=[\"']|\]\()(https?://[^)\"' >]+)")
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 ACCESS_LIMITED_STATUSES = {403, 429}
 
+# GitHub requires a signed-in session to list who starred or watched a repo, and
+# answers signed-out clients with **404** rather than 401 or 403. So these two
+# paths look permanently dead to any link checker while working fine in a
+# browser, and left unhandled they make the weekly link-check job report a
+# failure that no edit can fix.
+#
+# Deliberately narrow: this is an access decision on two specific endpoints, not
+# a general amnesty for 404. Verified 2026-08-27 against this repo with this
+# script's own user agent — /stargazers and /watchers return 404 while /forks,
+# /network/members, /issues and /pulls all return 200.
+LOGIN_GATED_PATTERNS = (
+    re.compile(r"^https://github\.com/[^/]+/[^/]+/stargazers/?$"),
+    re.compile(r"^https://github\.com/[^/]+/[^/]+/watchers/?$"),
+)
+LOGIN_GATED_STATUS = 404
+
 
 def maintained_docs() -> list[Path]:
     paths: list[Path] = []
@@ -59,6 +75,20 @@ def iter_links(paths: list[Path], *, include_code_fences: bool = False) -> dict[
     return links
 
 
+def is_login_gated(url: str) -> bool:
+    """True when a 404 on this URL means "sign in", not "gone"."""
+    return any(pattern.match(url) for pattern in LOGIN_GATED_PATTERNS)
+
+
+def login_gated_result(url: str, status: int) -> dict[str, object]:
+    return {
+        "url": url,
+        "status": status,
+        "ok": True,
+        "warning": "Sign-in-gated GitHub endpoint; 404 to signed-out clients.",
+    }
+
+
 def check_url(url: str, timeout: float) -> dict[str, object]:
     request = urllib.request.Request(
         url,
@@ -71,6 +101,8 @@ def check_url(url: str, timeout: float) -> dict[str, object]:
     except urllib.error.HTTPError as error:
         if error.code in REDIRECT_STATUSES | ACCESS_LIMITED_STATUSES | {405}:
             return retry_get(url, timeout, tolerated_status=error.code)
+        if error.code == LOGIN_GATED_STATUS and is_login_gated(url):
+            return login_gated_result(url, error.code)
         return {"url": url, "status": error.code, "ok": False, "error": str(error)}
     except Exception as error:  # noqa: BLE001 - CLI should report every failure type.
         return retry_get(url, timeout, error=str(error))
@@ -96,6 +128,8 @@ def retry_get(url: str, timeout: float, tolerated_status: int | None = None, err
                 "ok": True,
                 "warning": "Redirect endpoint; treated as reachable.",
             }
+        if http_error.code == LOGIN_GATED_STATUS and is_login_gated(url):
+            return login_gated_result(url, http_error.code)
         return {"url": url, "status": http_error.code, "ok": False, "error": str(http_error)}
     except Exception as get_error:  # noqa: BLE001
         if tolerated_status in ACCESS_LIMITED_STATUSES:

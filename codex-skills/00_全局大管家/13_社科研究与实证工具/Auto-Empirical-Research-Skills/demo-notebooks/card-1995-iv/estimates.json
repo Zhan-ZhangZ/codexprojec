@@ -1,0 +1,31 @@
+{
+  "candidate": "aers-card1995-replication",
+  "source": "demo-notebooks/card-1995-iv/replicate_card1995.py (pure stdlib, vendored NLSYM extract)",
+  "coefficients": {
+    "ols_return": {
+      "value": 0.0747,
+      "se": 0.0035
+    },
+    "iv_return": {
+      "value": 0.1315,
+      "se": 0.055
+    },
+    "first_stage_coef": {
+      "value": 0.3199,
+      "se": 0.0879
+    }
+  },
+  "all_computed": {
+    "n": 3010,
+    "ols_return": 0.0747,
+    "ols_se": 0.0035,
+    "first_stage_coef": 0.3199,
+    "first_stage_se": 0.0879,
+    "first_stage_t": 3.6408,
+    "first_stage_F": 13.2558,
+    "iv_return": 0.1315,
+    "iv_se": 0.055,
+    "iv_se_naive_second_stage": 0.0565,
+    "iv_minus_ols": 0.0568
+  }
+}
