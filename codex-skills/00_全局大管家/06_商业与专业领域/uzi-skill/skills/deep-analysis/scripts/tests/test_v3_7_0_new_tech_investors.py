@@ -30,8 +30,8 @@ sys.path.insert(0, str(SCRIPTS))
 
 def test_total_count_65():
     from lib.investor_db import INVESTORS, assert_count
-    assert_count()  # 内部 assert == 65 · 不抛即过
-    assert len(INVESTORS) == 65
+    assert_count()  # v3.9.0 起 == 66 (65 + 股海贼王)
+    assert len(INVESTORS) == 66
 
 
 def test_group_distribution_after_v37():
@@ -39,7 +39,7 @@ def test_group_distribution_after_v37():
     from collections import Counter
     dist = Counter(i["group"] for i in INVESTORS)
     # 注：Serenity 已从 H 拆出独立成 I 组（重磅角色）· H 仅留 4 位科技领袖
-    expected = {"A": 6, "B": 9, "C": 7, "D": 4, "E": 7, "F": 23, "G": 4, "H": 4, "I": 1}
+    expected = {"A": 6, "B": 9, "C": 7, "D": 4, "E": 7, "F": 24, "G": 4, "H": 4, "I": 1}  # v3.9.0 F+1 ghzw
     assert dict(dist) == expected, f"分组分布 {dict(dist)} != {expected}"
 
 

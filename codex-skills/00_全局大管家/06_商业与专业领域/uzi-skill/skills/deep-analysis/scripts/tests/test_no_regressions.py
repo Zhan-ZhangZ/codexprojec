@@ -458,14 +458,14 @@ def test_metals_industries_have_futures_coverage():
 
 
 def test_metals_industries_have_peers_alias():
-    """工业金属/贵金属/小金属/能源金属 必须在 _INDUSTRY_ALIASES 里映射到 '有色金属'"""
+    """工业金属/贵金属/小金属/能源金属 必须在 INDUSTRY_ALIASES 里映射到 '有色金属'"""
     src = (SCRIPTS_DIR / "fetch_similar_stocks.py").read_text(encoding="utf-8")
-    alias_idx = src.find("_INDUSTRY_ALIASES = {")
+    alias_idx = src.find("INDUSTRY_ALIASES: dict[str, str] = {")
     end = src.find("}", alias_idx)
     alias_block = src[alias_idx:end]
     for ind in ("工业金属", "贵金属", "小金属", "能源金属", "稀有金属"):
         assert f'"{ind}"' in alias_block, \
-            f"BUG#R10-coverage: _INDUSTRY_ALIASES 缺 {ind!r} → '有色金属' 映射"
+            f"BUG#R10-coverage: INDUSTRY_ALIASES 缺 {ind!r} → '有色金属' 映射"
 
 
 # ─── v2.9 · 机械级 self-review gate ──

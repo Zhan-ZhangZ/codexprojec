@@ -62,7 +62,25 @@ def score_from_cache(ticker: str) -> dict:
     except Exception as e:
         print(f"   ⚠️ Playwright 兜底跳过: {type(e).__name__}: {str(e)[:80]}")
 
-    # 重新写回 raw_data.json（autofill 已修改）
+    # v3.9.4 · 机构建模 dim 20/21/22 —— 与 legacy stage1 保持一致
+    # （此前 pipeline 从未计算这三个维度，导致默认路径报告缺整个机构建模章节）
+    try:
+        from compute_deep_methods import compute_dim_20, compute_dim_21, compute_dim_22
+        from lib.stock_features import extract_features, sanitize_features
+        _features_pre = sanitize_features(extract_features(raw, raw.get("dimensions", {})))
+        raw["dimensions"]["20_valuation_models"] = compute_dim_20(_features_pre, raw)
+        _d20 = raw["dimensions"]["20_valuation_models"]["data"]
+        raw["dimensions"]["21_research_workflow"] = compute_dim_21(_features_pre, raw, _d20)
+        _d21 = raw["dimensions"]["21_research_workflow"]["data"]
+        raw["dimensions"]["22_deep_methods"] = compute_dim_22(_features_pre, raw, _d20, _d21)
+    except Exception as e:
+        print(f"   ⚠️ 机构建模 dim 20/21/22 计算失败: {type(e).__name__}: {str(e)[:100]}")
+
+    # Always derive the recovery artifact from the final, post-fallback snapshot.
+    from lib.data_integrity import refresh_recovery_artifact
+    refresh_recovery_artifact(raw, ti.full, cache_dir / "_data_gaps.json")
+
+    # 重新写回 raw_data.json（autofill 已修改 · dim 20-22 已就位）
     raw_path.write_text(
         json.dumps(raw, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
@@ -79,10 +97,21 @@ def score_from_cache(ticker: str) -> dict:
         json.dumps(panel, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
 
-    # Synthesis（不 merge agent_analysis · stage2/synthesize_and_render 阶段做）
-    synthesis = rrt.generate_synthesis(raw, dims_scored, panel, agent_analysis=None)
+    # v3.9.4 · 读 agent_analysis.json（若存在）→ generate_synthesis 合并
+    # per_investor_override 等角色扮演成果 → 覆盖后写回 panel.json + synthesis.json
+    _aa_path = cache_dir / "agent_analysis.json"
+    _agent_analysis = _read_json(_aa_path)
+    if _agent_analysis:
+        print(f"   🧠 加载 agent_analysis.json · 合并 role-play 成果")
+
+    # Synthesis（合并 agent_analysis · 若存在）
+    synthesis = rrt.generate_synthesis(raw, dims_scored, panel, agent_analysis=_agent_analysis)
     (cache_dir / "synthesis.json").write_text(
         json.dumps(synthesis, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
+    # 覆盖后的 panel（含 per_investor_override 合并）写回 · stage2 重新读 panel.json 也能拿到
+    (cache_dir / "panel.json").write_text(
+        json.dumps(panel, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
 
     return {

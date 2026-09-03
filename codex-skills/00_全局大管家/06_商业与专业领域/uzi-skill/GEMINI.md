@@ -27,5 +27,5 @@ python run.py 贵州茅台 --no-browser
 
 核心是两段式：
 1. `stage1()` — 数据采集 + 规则引擎骨架分
-2. Agent 分析 — 读 panel.json，逐组 role-play 65 评委
+2. Agent 分析 — 读 panel.json，逐组 role-play 66 评委
 3. `stage2()` — 生成 Bloomberg 风格 HTML 报告

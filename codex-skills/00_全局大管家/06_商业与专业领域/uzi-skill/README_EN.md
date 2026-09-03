@@ -2,19 +2,19 @@
 
 # 游资 (UZI) Skills
 
-*"51 legendary investors review your stock picks — Buffett and a Chinese day-trader finally sit at the same table."*
+*"66 legendary investors review your stock picks — Buffett and a Chinese day-trader finally sit at the same table."*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://claude.com/product/claude-code)
 [![Dimensions](https://img.shields.io/badge/Dimensions-22-brightgreen)]()
-[![Investors](https://img.shields.io/badge/Investors-51-orange)]()
-[![Methods](https://img.shields.io/badge/Institutional%20Methods-17-red)]()
-[![Self-Review](https://img.shields.io/badge/Self--Review-13%20checks-blueviolet)](skills/deep-analysis/scripts/lib/self_review.py)
+[![Investors](https://img.shields.io/badge/Investors-66-orange)]()
+[![Methods](https://img.shields.io/badge/Institutional%20Methods-22-red)]()
+[![Tests](https://img.shields.io/badge/Tests-685%20passed-brightgreen)]()
 
-**A-share / HK / US deep-analysis engine — with first-class Chinese-market coverage Western terminals don't touch. v3.4.4: data-quality banner UX (ETF "17% coverage" no longer reads as data failure · WCAG-compliant contrast on orange) · v3.4.3: open-end mutual fund classification + field-level basic fallback · v3.4.2: Windows + Clash Schannel TLS compat · v3.4.1: verdict granularity refinement. 397 pytest pass.**
+**A-share / HK / US deep-analysis engine — with first-class Chinese-market coverage Western terminals don't touch. 66 investors × 9 schools × 22 dimensions × 22 institutional methods, all free data sources, zero API keys. v3.9.2: flow & data-contract hotfix (issue #82/#83) · 685 pytest pass.**
 
-[Install](#install) · [Usage](#usage) · [Why Western Investors Should Care](#-why-western-investors-should-care) · [Jury Panel](#-51-investor-jury) · [Methods](#-17-institutional-methods) · [Self-Review Gate 🆕](#-mechanical-self-review-gate-new-in-v29) · [Screenshots](#-what-the-report-looks-like) · [FAQ](#-faq)
+[Install](#install) · [Usage](#usage) · [Why Western Investors Should Care](#-why-western-investors-should-care) · [Jury Panel](#-66-investor-jury) · [Methods](#-22-institutional-methods) · [Screenshots](#-what-the-report-looks-like) · [FAQ](#-faq)
 
 **English** | [中文](README.md)
 
@@ -40,7 +40,7 @@ So yes — this plugin helps you understand Chinese names like **Alibaba** (`BAB
 
 ## What It Does
 
-One sentence: give it a ticker, Claude becomes your analyst — pulls **22 dimensions of data**, runs **17 Wall-Street analysis models**, has **52 investors with distinct methodologies** score the stock, and produces a 600 KB Bloomberg-style HTML report.
+One sentence: give it a ticker, Claude becomes your analyst — pulls **22 dimensions of data**, runs **22 Wall-Street analysis models**, has **66 investors with distinct methodologies** score the stock, and produces a 600 KB Bloomberg-style HTML report.
 
 ```
 /stock-deep-analyzer:analyze-stock 600519         # Kweichow Moutai (A-share)
@@ -176,7 +176,7 @@ The agent spins up a Cloudflare Tunnel and gives you a `https://xxx.trycloudflar
 | `/stock-deep-analyzer:screen AAPL` | 5 quant screens · value / growth / quality / GARP / short |
 | `/stock-deep-analyzer:dd BABA` | Due-diligence checklist · 21 items across 5 workstreams |
 | `/stock-deep-analyzer:quick-scan 00700.HK` | 30-second sanity check |
-| `/stock-deep-analyzer:panel-only 600519` | Just run the 51-investor jury — no HTML report |
+| `/stock-deep-analyzer:panel-only 600519` | Just run the 66-investor jury — no HTML report |
 | `/stock-deep-analyzer:scan-trap 600519` | Pump-and-dump / trap detection (8 signals) |
 | `/stock-deep-analyzer:segmental-model 300308` | 🆕 Bottom-up segmental revenue model · 3-scenario × 3-year projection · cross-checks top-down DCF |
 
@@ -241,19 +241,21 @@ python run.py 600519
 
 ---
 
-## 🎭 51 Investor Jury
+## 🎭 66 Investor Jury
 
-Not template phrases. Each investor has their own **quantified rule set** (180 rules total) + their own **real quoted voice** + their own **authentic decision profile** (time horizon / position sizing / what-would-change-my-mind).
+Not template phrases. Each investor has their own **quantified rule set** (242 rules total) + their own **real quoted voice** + their own **authentic decision profile** (time horizon / position sizing / what-would-change-my-mind).
 
-| Group | Style | Count | Representatives |
-|---|---|---|---|
-| A | Classic Value | 6 | Buffett · Graham · Munger · Fisher · Templeton · Klarman |
-| B | Growth | 4 | Lynch · O'Neil · Thiel · Cathie Wood |
-| C | Macro / Hedge | 5 | Soros · Dalio · Howard Marks · Druckenmiller · Julian Robertson |
-| D | Technical | 4 | Livermore · Minervini · Darvas · Gann |
-| E | China Value | 6 | Duan Yongping (段永平) · Zhang Kun · Zhu Shaoxing · Xie Zhiyu · Feng Liu · Deng Xiaofeng |
-| F | A-Share Day Traders (游资) | 23 | Zhang Mengzhu · Zhao Laoge · Foshan Shadowless Kick · Beijing Trader · Xin Duoduo … |
-| G | Quant | 3 | Simons · Thorp · David Shaw |
+| Group | Style | Representatives |
+|---|---|---|
+| A | Classic Value | Buffett · Graham · Munger · Fisher · Templeton · Klarman |
+| B | Growth | Lynch · O'Neil · Thiel · Cathie Wood · Andreessen · Gurley · Naval · Gerstner · Chamath |
+| C | Macro / Hedge | Soros · Dalio · Howard Marks · Druckenmiller · Julian Robertson · Burry · Chanos |
+| D | Technical | Livermore · Minervini · Darvas · Gann |
+| E | China Value | Duan Yongping (段永平) · Zhang Kun · Zhu Shaoxing · Xie Zhiyu · Feng Liu · Deng Xiaofeng · Zhang Lei (高瓴) |
+| F | A-Share Day Traders (游资) | Zhao Laoge · Zhang Mengzhu · Foshan Shadowless Kick · 股海贼王 (distilled from real trade records) |
+| G | Quant | Simons · Thorp · David Shaw · Cliff Asness |
+| H | AI Bottleneck Hunters | Jensen Huang · Musk · Sam Altman · Saylor |
+| I | Serenity | AI supply-chain chokepoint / bottleneck hunter |
 
 **Every verdict cites the specific rule it hit.** And each investor answers three questions in their own voice:
 
@@ -269,7 +271,7 @@ Their quotes are sourced from **real public materials** — Berkshire annual let
 
 ---
 
-## 📐 17 Institutional Methods
+## 📐 22 Institutional Methods
 
 Ported from [anthropics/financial-services-plugins](https://github.com/anthropics/financial-services-plugins), adapted with A-share / H-share parameters.
 
@@ -278,6 +280,8 @@ Ported from [anthropics/financial-services-plugins](https://github.com/anthropic
 **Research (7)**: Initiating Coverage · Earnings Analysis · Catalyst Calendar · Thesis Tracker · Morning Note · Quant Screen · Sector Overview
 
 **Decision (6)**: IC Memo · Porter 5 Forces + BCG · DD Checklist · Value Creation Plan · Portfolio Rebalance · Trap Detection (unique to this plugin)
+
+**Tier-1 (5)**: AI Readiness · Earnings Preview · Model Update · Returns Attribution · Rebalance
 
 ---
 
@@ -337,7 +341,7 @@ A: Yes. `/stock-deep-analyzer:analyze-stock AAPL`, `/stock-deep-analyzer:analyze
 **Q: Can I use English company names?**
 A: Best: use ticker codes (`BABA` / `00700.HK` / `600519.SH`). Name-resolution works for Chinese names (`贵州茅台` → `600519.SH`); for English names prefer the ticker.
 
-**Q: Does the 51-investor panel quote real investors?**
+**Q: Does the 66-investor panel quote real investors?**
 A: Yes. The `quotes-knowledge-base.md` contains real published quotes from 45+ investors (22 Western, 23 Chinese), each with source URLs (Berkshire letters, Oaktree memos, books, interviews). Agents are instructed to mimic each investor's voice **using these real quotes**, not fabricate a "Buffett-style" line.
 
 **Q: Is this investment advice?**
@@ -455,15 +459,15 @@ Every time a new BUG is fixed, a matching `check_*` rule is added to self_review
 
 Live count: ![GitHub Repo stars](https://img.shields.io/github/stars/wbh604/UZI-Skill?style=social)
 
-<a href="https://star-history.com/#wbh604/uzi-skill&Date">
+<a href="https://star-history.dera.page/#wbh604/uzi-skill&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wbh604/uzi-skill&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=wbh604/uzi-skill&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wbh604/uzi-skill&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=wbh604/uzi-skill&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=wbh604/uzi-skill&type=Date" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=wbh604/uzi-skill&type=Date" />
  </picture>
 </a>
 
-> Note: star-history.com caches server-side for 24h, so the chart may lag during fast-growth days. For the true current count, see the shields.io badge above — or click the chart to open the live star-history.com page (that triggers a backend refresh).
+> Note: star-history.dera.page caches server-side for 24h, so the chart may lag during fast-growth days. For the true current count, see the shields.io badge above, or click the chart to open the live star-history.dera.page page (that triggers a backend refresh).
 
 ---
 

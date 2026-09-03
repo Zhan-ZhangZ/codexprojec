@@ -139,6 +139,12 @@ def main(ticker: str) -> dict:
         snips = results[key]["snippets"]
         return " ".join(s.get("body", "")[:100] for s in snips[:n])
 
+    evidence = {
+        key: bool(results[key]["text"].strip())
+        for key in ("intangible", "switching", "network", "scale")
+    }
+    scores_available = any(evidence.values())
+
     return {
         "ticker": ti.full,
         "data": {
@@ -146,12 +152,18 @@ def main(ticker: str) -> dict:
             "switching": _top_body("switching") or "—",
             "network": _top_body("network") or "—",
             "scale": _top_body("scale") or "—",
-            "scores": {
+            "scores": ({
                 "intangible": intangible_score,
                 "switching": switching_score,
                 "network": network_score,
                 "scale": scale_score,
-            },
+            } if scores_available else {}),
+            "scores_available": scores_available,
+            "scores_evidence": evidence,
+            "scores_note": (
+                None if scores_available
+                else "未评估：四个护城河维度均未检索到有效证据。"
+            ),
             "rd_summary": _top_body("rd", n=2) or "—",
             "web_search_snippets": {k: v["snippets"] for k, v in results.items()},
             "moat_framework": ["intangible", "switching", "network", "scale", "efficient_scale"],

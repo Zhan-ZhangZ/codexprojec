@@ -119,4 +119,4 @@ def test_evaluate_all_covers_65():
     """evaluate_all 批量评估覆盖全部 65 人 (INVESTOR_RULES 全注册)."""
     from lib.investor_criteria import INVESTOR_RULES
     from lib.investor_db import INVESTORS
-    assert len(INVESTOR_RULES) == len(INVESTORS) == 65
+    assert len(INVESTOR_RULES) == len(INVESTORS) == 66  # v3.9.0 +ghzw

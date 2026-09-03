@@ -1,4 +1,4 @@
-"""Identify market (A / H / U) from a ticker or stock name and normalize the code.
+"""Identify a listing market from a ticker or stock name and normalize the code.
 
 v2.9.2 · 扩展 `_a_share_suffix` 覆盖 ETF / LOF / 可转债 等非个股 6 位码
         + 增加 `classify_security_type` 识别标的类型（stock/etf/lof/cb）
@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-Market = Literal["A", "H", "U"]
+Market = str
 SecurityType = Literal["stock", "etf", "lof", "convertible_bond", "mutual_fund", "unknown"]
 
 
@@ -18,13 +18,57 @@ class TickerInfo:
     raw: str            # original user input
     code: str           # numeric/letter code without exchange suffix
     full: str           # canonical: 002273.SZ / 00700.HK / AAPL
-    market: Market      # A / H / U
+    market: Market      # legacy A/H/U or ISO-like country code for global venues
+    exchange: str = ""
+    currency: str = ""
+    country: str = ""
 
 
 _RE_A_NUMERIC = re.compile(r"^\d{6}$")
 _RE_A_FULL = re.compile(r"^(\d{6})\.(SZ|SH|BJ)$", re.I)
 _RE_HK = re.compile(r"^(\d{4,5})(?:\.HK)?$", re.I)
 _RE_US = re.compile(r"^[A-Z][A-Z\.\-]{0,5}$")
+
+
+_GLOBAL_SUFFIXES: dict[str, tuple[Market, str, str]] = {
+    ".T": ("JP", "TSE", "JPY"),
+    ".KS": ("KR", "KRX", "KRW"),
+    ".KQ": ("KR", "KOSDAQ", "KRW"),
+    ".TW": ("TW", "TWSE", "TWD"),
+    ".TWO": ("TW", "TPEX", "TWD"),
+    ".SI": ("SG", "SGX", "SGD"),
+    ".TO": ("CA", "TSX", "CAD"),
+    ".V": ("CA", "TSXV", "CAD"),
+    ".AX": ("AU", "ASX", "AUD"),
+    ".L": ("GB", "LSE", "GBP"),
+    ".DE": ("DE", "XETRA", "EUR"),
+    ".F": ("DE", "FRANKFURT", "EUR"),
+    ".PA": ("FR", "EURONEXT_PARIS", "EUR"),
+    ".AS": ("NL", "EURONEXT_AMSTERDAM", "EUR"),
+    ".SW": ("CH", "SIX", "CHF"),
+    ".MC": ("ES", "BME", "EUR"),
+    ".MI": ("IT", "BORSA_ITALIANA", "EUR"),
+    ".ST": ("SE", "OMX_STOCKHOLM", "SEK"),
+    ".OL": ("NO", "OSLO", "NOK"),
+    ".CO": ("DK", "OMX_COPENHAGEN", "DKK"),
+    ".HE": ("FI", "OMX_HELSINKI", "EUR"),
+    ".BR": ("BE", "EURONEXT_BRUSSELS", "EUR"),
+    ".LS": ("PT", "EURONEXT_LISBON", "EUR"),
+    ".SA": ("BR", "B3", "BRL"),
+    ".MX": ("MX", "BMV", "MXN"),
+    ".BK": ("TH", "SET", "THB"),
+    ".JK": ("ID", "IDX", "IDR"),
+    ".KL": ("MY", "BURSA_MALAYSIA", "MYR"),
+    ".NZ": ("NZ", "NZX", "NZD"),
+    ".JO": ("ZA", "JSE", "ZAR"),
+    ".TA": ("IL", "TASE", "ILS"),
+    ".VI": ("AT", "VIENNA", "EUR"),
+    ".WA": ("PL", "WSE", "PLN"),
+    ".PR": ("CZ", "PRAGUE", "CZK"),
+    ".BD": ("HU", "BUDAPEST", "HUF"),
+    ".NS": ("IN", "NSE", "INR"),
+    ".BO": ("IN", "BSE", "INR"),
+}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -173,30 +217,55 @@ def parse_ticker(raw: str) -> TickerInfo:
     """Best-effort parse. For Chinese names (e.g. '水晶光电'), caller must resolve via fetch_basic first."""
     s = raw.strip().upper().replace(" ", "")
 
+    if s.startswith("SEHK.") and s.removeprefix("SEHK.").isdigit():
+        code = s.removeprefix("SEHK.").lstrip("0") or "0"
+        return TickerInfo(raw=raw, code=code, full=f"{code.zfill(5)}.HK", market="H",
+                          exchange="HKEX", currency="HKD", country="HK")
+
     m = _RE_A_FULL.match(s)
     if m:
-        return TickerInfo(raw=raw, code=m.group(1), full=f"{m.group(1)}.{m.group(2).upper()}", market="A")
+        suffix = m.group(2).upper()
+        return TickerInfo(raw=raw, code=m.group(1), full=f"{m.group(1)}.{suffix}", market="A",
+                          exchange=suffix, currency="CNY", country="CN")
 
     if _RE_A_NUMERIC.match(s):
         suffix = _a_share_suffix(s)
-        return TickerInfo(raw=raw, code=s, full=f"{s}.{suffix}", market="A")
+        return TickerInfo(raw=raw, code=s, full=f"{s}.{suffix}", market="A",
+                          exchange=suffix, currency="CNY", country="CN")
 
     if s.endswith(".HK"):
         code = s.removesuffix(".HK").lstrip("0") or "0"
-        return TickerInfo(raw=raw, code=code, full=f"{code.zfill(5)}.HK", market="H")
+        return TickerInfo(raw=raw, code=code, full=f"{code.zfill(5)}.HK", market="H",
+                          exchange="HKEX", currency="HKD", country="HK")
+
+    for suffix, (market, exchange, currency) in sorted(
+        _GLOBAL_SUFFIXES.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        if s.endswith(suffix) and len(s) > len(suffix):
+            code = s[:-len(suffix)]
+            return TickerInfo(raw=raw, code=code, full=s, market=market,
+                              exchange=exchange, currency=currency, country=market)
 
     # v2.10.2 · 3-位数纯数字（如 "700"/"981"）A 股不存在，走 HK
     # 原逻辑：_RE_A_NUMERIC 要求 6 位，_RE_HK 匹配 4-5 位 → "700" 3 位都不匹配
     # 落到最后 A 股兜底 → 错判为 A 股 code=700
     if s.isdigit() and 3 <= len(s) <= 5:
         padded = s.zfill(5)
-        return TickerInfo(raw=raw, code=s.lstrip("0") or "0", full=f"{padded}.HK", market="H")
+        return TickerInfo(raw=raw, code=s.lstrip("0") or "0", full=f"{padded}.HK", market="H",
+                          exchange="HKEX", currency="HKD", country="HK")
 
     if _RE_HK.match(s) and not _RE_US.match(s):
-        return TickerInfo(raw=raw, code=s.lstrip("0") or "0", full=f"{s.zfill(5)}.HK", market="H")
+        return TickerInfo(raw=raw, code=s.lstrip("0") or "0", full=f"{s.zfill(5)}.HK", market="H",
+                          exchange="HKEX", currency="HKD", country="HK")
 
     if _RE_US.match(s):
-        return TickerInfo(raw=raw, code=s, full=s, market="U")
+        return TickerInfo(raw=raw, code=s, full=s, market="U",
+                          exchange="US", currency="USD", country="US")
+
+    if re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,30}\.[A-Z0-9]{1,5}", s):
+        code, exchange = s.rsplit(".", 1)
+        return TickerInfo(raw=raw, code=code, full=s, market="G",
+                          exchange=exchange, currency="", country="")
 
     # Unrecognized — likely a Chinese name. Caller must resolve.
     return TickerInfo(raw=raw, code=raw, full=raw, market="A")

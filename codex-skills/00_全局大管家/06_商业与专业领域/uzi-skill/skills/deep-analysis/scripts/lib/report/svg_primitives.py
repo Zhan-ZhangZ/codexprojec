@@ -37,7 +37,7 @@ COLOR_GRID = "#e2e8f0"
 def svg_sparkline(values: list, width: int = 240, height: int = 50, color: str = COLOR_CYAN, fill: bool = True) -> str:
     """Tiny line chart. Values normalized to fit."""
     if not values or len(values) < 2:
-        return f'<svg width="{width}" height="{height}"></svg>'
+        return f'<svg viewBox="0 0 {width} {height}" style="display:block;width:100%;height:{height}px"></svg>'
     vmin, vmax = min(values), max(values)
     span = max(vmax - vmin, 1e-9)
     pts = []
@@ -49,9 +49,9 @@ def svg_sparkline(values: list, width: int = 240, height: int = 50, color: str =
     fill_path = ""
     if fill:
         fill_path = f'<path d="{path} L {width-2},{height-2} L 2,{height-2} Z" fill="{color}" fill-opacity="0.12"/>'
-    return f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="display:block">
+    return f'''<svg viewBox="0 0 {width} {height}" preserveAspectRatio="none" style="display:block;width:100%;height:{height}px">
   {fill_path}
-  <path d="{path}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="{path}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
   <circle cx="{pts[-1].split(',')[0]}" cy="{pts[-1].split(',')[1]}" r="3" fill="{color}"/>
 </svg>'''
 

@@ -19,6 +19,8 @@ Output schema:
 """
 from __future__ import annotations
 
+from lib.investor_db import by_id
+
 import os
 from typing import Any
 
@@ -109,16 +111,29 @@ def _fmt_msg(template: str, features: dict) -> str:
     """
     if not template:
         return ""
+
+    class _MissingValue:
+        def __format__(self, _spec: str) -> str:
+            return "?"
+
+        def __str__(self) -> str:
+            return "?"
+
+        def __repr__(self) -> str:
+            return "?"
+
+    class _SafeFeatures(dict):
+        def __missing__(self, _key):
+            return _MissingValue()
+
+        def __getitem__(self, key):
+            value = super().get(key, _MissingValue())
+            return _MissingValue() if value is None else value
+
     try:
-        return template.format(**features)
-    except (KeyError, IndexError, ValueError):
-        # Fall back: strip unresolved placeholders
-        try:
-            # replace missing keys with "?"
-            safe = {k: features.get(k, "?") for k in _extract_keys(template)}
-            return template.format(**safe)
-        except Exception:
-            return template
+        return template.format_map(_SafeFeatures(features))
+    except (KeyError, IndexError, ValueError, TypeError):
+        return template
 
 
 def _extract_keys(template: str) -> list[str]:
@@ -126,12 +141,21 @@ def _extract_keys(template: str) -> list[str]:
     return re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)", template)
 
 
-def _safe_check(rule: Rule, features: dict) -> bool:
-    """Run rule.check guarded against exceptions (missing features, type errors)."""
+def _safe_check(rule: Rule, features: dict) -> bool | None:
+    """Run rule.check guarded against exceptions.
+
+    Returns:
+        True  → rule passes
+        False → rule fails
+        None  → data missing (rule references a feature whose value is None).
+                Caller should treat this as "skip" (not pass, not fail).
+    """
     try:
         return bool(rule.check(features))
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
-        return False
+        # 数据缺失导致比较类型错误（如 None >= 5）→ 跳过，不判负。
+        # 有真实数据的规则不会走到这里（键值都是数值）。
+        return None
 
 
 def evaluate(investor_id: str, features: dict) -> dict:
@@ -181,8 +205,12 @@ def evaluate(investor_id: str, features: dict) -> dict:
     weight_total = 0
 
     for rule in rules:
+        _check = _safe_check(rule, features)
+        if _check is None:
+            # 数据缺失 → 规则跳过，不占 weight_total（避免无数据恒 fail 拉低分）
+            continue
         weight_total += rule.weight
-        if _safe_check(rule, features):
+        if _check:
             weight_pass += rule.weight
             pass_list.append({
                 "rule_id": rule.rule_id,
@@ -363,12 +391,25 @@ def panel_summary(results: dict[str, dict]) -> dict:
 
     Handles "skip" signal — investors who wouldn't look at this stock's market.
     """
+    empty_short = {
+        "total": 0, "active": 0, "skip": 0, "short_candidates": 0,
+        "no_short_thesis": 0, "avg_score": 50.0, "top_short_candidates": [],
+    }
     if not results:
-        return {"bullish": 0, "bearish": 0, "neutral": 0, "skip": 0, "avg_score": 50.0}
+        return {
+            "total": 0, "long_total": 0, "active": 0, "long_active": 0,
+            "bullish": 0, "bearish": 0, "neutral": 0, "skip": 0,
+            "avg_score": 50.0, "short_consensus": empty_short,
+        }
 
-    # Split active vs skipped
-    active = {k: v for k, v in results.items() if v["signal"] != "skip"}
-    skipped = {k: v for k, v in results.items() if v["signal"] == "skip"}
+    def _mandate(investor_id: str) -> str:
+        investor = by_id(investor_id)
+        return investor.get("mandate", "long") if investor else "long"
+
+    long_results = {k: v for k, v in results.items() if _mandate(k) != "short"}
+    short_results = {k: v for k, v in results.items() if _mandate(k) == "short"}
+    active = {k: v for k, v in long_results.items() if v["signal"] != "skip"}
+    skipped = {k: v for k, v in long_results.items() if v["signal"] == "skip"}
 
     bullish = sum(1 for r in active.values() if r["signal"] == "bullish")
     bearish = sum(1 for r in active.values() if r["signal"] == "bearish")
@@ -383,9 +424,26 @@ def panel_summary(results: dict[str, dict]) -> dict:
     sorted_bear = sorted(active.items(), key=lambda kv: kv[1]["score"])[:5]
 
     n_active = len(active)
+    short_active = {k: v for k, v in short_results.items() if v["signal"] != "skip"}
+    short_skipped = {k: v for k, v in short_results.items() if v["signal"] == "skip"}
+    short_scores = [v["score"] for v in short_active.values() if v["score"] >= 0]
+    short_consensus = {
+        "total": len(short_results),
+        "active": len(short_active),
+        "skip": len(short_skipped),
+        "short_candidates": sum(1 for v in short_active.values() if v["signal"] == "bearish"),
+        "no_short_thesis": sum(1 for v in short_active.values() if v["signal"] in ("bullish", "neutral")),
+        "avg_score": round(sum(short_scores) / len(short_scores), 1) if short_scores else 50.0,
+        "top_short_candidates": [
+            {"id": k, "score": v["score"], "headline": v["headline"]}
+            for k, v in sorted(short_active.items(), key=lambda kv: kv[1]["score"])[:5]
+        ],
+    }
     return {
         "total": len(results),
+        "long_total": len(long_results),
         "active": n_active,
+        "long_active": n_active,
         "skip": len(skipped),
         "skip_names": [v.get("skip_reason", "") for v in skipped.values()],
         "bullish": bullish,
@@ -397,6 +455,7 @@ def panel_summary(results: dict[str, dict]) -> dict:
         "bearish_pct": round(bearish / n_active * 100, 0) if n_active else 0,
         "top_bulls": [{"id": k, "score": v["score"], "headline": v["headline"]} for k, v in sorted_bull],
         "top_bears": [{"id": k, "score": v["score"], "headline": v["headline"]} for k, v in sorted_bear],
+        "short_consensus": short_consensus,
     }
 
 

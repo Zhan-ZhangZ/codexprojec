@@ -41,6 +41,7 @@ class DimResult:
     # 元信息（可选）
     cached: bool = False                  # 是否走了 cache
     latency_ms: int | None = None         # 抓取耗时
+    fetched_at: float | None = None       # Unix epoch · 用于按 fetcher TTL 判断 freshness
 
     # v2.15.1 教训：有些 dim 需要额外 top-level 字段（如 fund_managers 放 raw 顶层）
     # 这些"溢出"字段放这里 · render 端按 dim 配置去拿
@@ -66,6 +67,7 @@ class DimResult:
                 "quality": q_str,
                 "data_gaps": self.data_gaps,
                 "latency_ms": self.latency_ms,
+                "fetched_at": self.fetched_at,
                 "cached": self.cached,
                 "top_level_fields": self.top_level_fields,
                 "error": self.error,
@@ -96,6 +98,7 @@ class DimResult:
             data_gaps=pp.get("data_gaps") or d.get("data_gaps") or [],
             cached=pp.get("cached", d.get("cached", False)),
             latency_ms=pp.get("latency_ms") or d.get("latency_ms"),
+            fetched_at=pp.get("fetched_at") or d.get("fetched_at"),
             top_level_fields=pp.get("top_level_fields") or d.get("top_level_fields") or {},
         )
 

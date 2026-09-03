@@ -38,6 +38,13 @@ class DataSource:
     notes: str = ""
 
 
+GLOBAL_MARKETS = (
+    "A", "H", "U", "JP", "KR", "TW", "SG", "IN", "CA", "AU", "GB",
+    "DE", "FR", "NL", "CH", "ES", "IT", "SE", "NO", "DK", "FI",
+    "BE", "PT", "BR", "MX", "TH", "ID", "MY", "NZ", "ZA", "IL", "G",
+)
+
+
 # ═══════════════════════════════════════════════════════════════
 # Tier 1 · HTTP-accessible primary sources (safe for fetcher code)
 # ═══════════════════════════════════════════════════════════════
@@ -226,6 +233,30 @@ _TIER1: list[DataSource] = [
         ("2_kline",),
         1, "http", "known_good",
         "美股/港股 K 线直接 HTTP · 格式 ?symbol=AAPL&interval=1d&range=1mo · v7/quote 已被 Yahoo 关闭需 401 · v8 仍公开"
+    ),
+    DataSource(
+        "yahoo_equity_screener", "Yahoo Finance 全球股票筛选",
+        "https://query2.finance.yahoo.com/v1/finance/screener",
+        GLOBAL_MARKETS,
+        ("4_peers",),
+        1, "yfinance", "known_good",
+        "按 Yahoo 细分行业发现全球候选；结果仍需发行人去重、币种和数据完整度校验"
+    ),
+    DataSource(
+        "yahoo_fundamentals_timeseries", "Yahoo Finance 全球年度财务时序",
+        "https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/",
+        GLOBAL_MARKETS,
+        ("1_financials", "4_peers", "10_valuation"),
+        1, "http", "known_good",
+        "全球同行年度营收/利润/权益/现金流；固定 host + symbol allowlist + 12s timeout"
+    ),
+    DataSource(
+        "yahoo_fx_chart", "Yahoo Finance 外汇 Chart",
+        "https://query1.finance.yahoo.com/v8/finance/chart/JPYUSD=X",
+        GLOBAL_MARKETS,
+        ("4_peers",),
+        1, "http", "known_good",
+        "按年份计算汇率均值；原币报表值保留，换算值写入独立 *_base 字段"
     ),
     DataSource(
         "tencent_hk_quote", "腾讯港股实时 qt.gtimg.cn",

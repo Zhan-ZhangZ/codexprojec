@@ -78,6 +78,7 @@ MARKET_SCOPE: dict[str, str] = {
     "mao_lb": "A", "xiao_xian": "A", "lasa": "A", "chengdu": "A",
     "sunan": "A", "ningbo_st": "A", "liuyi_zl": "A", "liu_sh": "A",
     "gu_bl": "A", "wang_zr": "A", "xin_dd": "A",
+    "ghzw": "A",            # v3.9.0 · 股海贼王 · 淘股吧实盘 · 接力/打板只在 A 股 T+1 生态有效
 
     # Group G · Quant — 全球
     "simons": "all",

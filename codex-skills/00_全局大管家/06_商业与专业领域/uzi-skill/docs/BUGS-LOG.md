@@ -1,11 +1,102 @@
 # BUGS-LOG · 防回归记录
 
 每个 bug 修完都登记到这里。**未来改这些代码区域时，必须回看本文件确保不引入回归。**
-对应单元测试在 `skills/deep-analysis/scripts/tests/test_no_regressions.py` + `tests/test_v2_10_4_fixes.py` + `tests/test_v2_11_scoring_calibration.py` + `tests/test_v2_12_1_data_fixes.py` + `tests/test_v2_13_playwright_strategy.py`。
+对应单元测试在 `skills/deep-analysis/scripts/tests/test_no_regressions.py` + `tests/test_v2_10_4_fixes.py` + `tests/test_v2_11_scoring_calibration.py` + `tests/test_v2_12_1_data_fixes.py` + `tests/test_v2_13_playwright_strategy.py` + `tests/test_v3_9_2_flow_bugfixes.py` + `tests/test_issue87_em_direct_and_comps.py` + `tests/test_issue90_us_financials_ttm.py`。
 
 **登记规范**：每条必含 症状 / 位置 / 根因 / 影响 / 修法 / 验证 / 回归测试 / "未来改该区域注意事项"
 
 ---
+
+## Unreleased (2026-08-28 · 最新报告期营收同比 · issue #103)
+
+### BUG · 年度收入相邻值覆盖最新报告期营收同比
+
+- **症状**：[#103](https://github.com/wbh604/UZI-Skill/issues/103) 中，华夏银行最新报告期营收同比约为 `+35.3%`，报告却展示年度收入历史相邻计算得到的 `-5.4%`。
+- **位置**：`fetch_financials.py::_fetch_a_share` / `_fetch_hk`，`lib/stock_features.py::extract_features`。
+- **根因**：采集器已调用包含报告期同比的财务分析指标接口，但没有读取其明确同比字段；特征层无条件从年度 `revenue_history` 重算，使年度同比被误标为“最新营收增速”。
+- **影响**：成长、PEG、风格识别及投资者评委规则可能使用过时的年度增长率，对季报后发生拐点的公司形成方向性误判。
+- **修法**：优先读取最新非空的报告期营收同比，结构化保存 `revenue_growth_yoy`、`period`、`basis`、`source`；只有明确同比不可得时才从年度历史推导，并标记为 `annual_yoy`。港股官方同比同步采用相同契约。
+- **验证**：新增回归覆盖最新报告期同比优先、特征层不再重算覆盖、`NaN/Inf` 不得成为有效同比。
+- **未来改该区域注意事项**：增长率必须同时携带报告期、口径和来源；不得把 TTM、季度累计值、单季值或年度值混为同一同比序列，也不得用相邻异口径数值直接推导。
+
+---
+
+## Unreleased (2026-07-18 · 数据完整性 hotfix · issue #87/#90)
+
+### BUG · 东财直连字段/单位误读、Comps 自引用、美股财报只看年报
+
+- **症状**：
+  1. [#87](https://github.com/wbh604/UZI-Skill/issues/87) · A 股基础数据走 EastMoney push2 直连 fallback 时，把 `f47` 成交量错误当作 `change_pct` 兜底，导致涨跌幅异常；同时 `f116` 市值原始单位是元，下游按“亿”读会把 DCF/市场份额等派生指标放大 1e8 倍。
+  2. [#87](https://github.com/wbh604/UZI-Skill/issues/87) · Comps 同行估值在只有目标公司自身样本时仍继续计算分位与估值结论，报告可能出现“自己和自己对标”的假结论。
+  3. [#90](https://github.com/wbh604/UZI-Skill/issues/90) · 美股财务数据只读取 `yfinance.Ticker.financials` 年报，未合并更新的 quarterly financials，财报季后会继续展示旧年报口径，无法暴露 TTM 最新收入/净利。
+- **位置**：
+  - `lib/data_sources.py::_fetch_basic_a` / `_fetch_financials_impl`
+  - `lib/stock_features.py::extract_features`
+  - `lib/fin_models.py::build_comps_table`
+  - `fetch_financials.py::_fetch_us`
+- **根因**：
+  - EastMoney push2 字段 scale 混杂：`f43/f60` 是 price * 100，`f170` 是涨跌幅 * 100，`f47` 是成交量，`f116/f117` 是元；旧代码没有集中解析契约。
+  - Comps 模型只检查 `peers` 是否为空，没有剔除 `is_self` / 同 ticker / 同 name，也没有最低有效同行数 gate。
+  - 美股路径把年报列直接作为最新历史序列，没有读取 `quarterly_financials` 做最近 4 季 TTM，也没有 `financial_basis` / `financial_period` 告诉报告当前口径。
+- **影响**：
+  - A 股 fallback 下涨跌幅、市值、市占率、DCF per-share 和估值结论可能严重失真。
+  - 同行样本不足时仍给出估值判断，用户会把无样本报告误读成有效 peer comp。
+  - 美股在最新季报后仍显示旧年报趋势，尤其对周期股/半导体/高波动成长股会低估或高估盈利拐点。
+- **修法**：
+  1. 新增 `_parse_em_direct_payload` 集中归一化 push2 字段：只用 `f170` 或 `price/prev_close` 计算 `change_pct`，`f47` 只保留为 `volume`，`f116/f117` 转成 `xx亿` 并保留 raw。
+  2. `stock_features._market_cap_to_yi` 识别原始元单位并转成“亿”，市值、市占率走同一转换函数。
+  3. `build_comps_table` 剔除目标公司自身样本；有效同行少于 2 家时直接返回“同行样本不足 · 无法对标”，不输出分位和隐含价。
+  4. `_fetch_us` 读取 quarterly financials 最近 4 季 TTM；季度期末晚于年报时追加 `revenue_ttm` / `net_profit_ttm`，写 `financial_basis=TTM` 和 `financial_period`；最新口径超过 180 天时写 staleness warning。
+  5. `_fetch_financials_impl` 美股原始源暴露 `quarterly_income`，让数据排查能看到季度输入。
+- **验证**：
+  - `tests/test_issue87_em_direct_and_comps.py` 覆盖东财字段不把成交量当涨跌幅、原始元市值转“亿”、self-only Comps 被拒绝。
+  - `tests/test_issue90_us_financials_ttm.py` 覆盖 quarterly TTM 追加、旧财报时效 warning、raw data source 暴露 `quarterly_income`。
+  - 全量 `pytest tests -q`：663 passed。
+- **未来改该区域注意事项**：
+  - 新增东财 push2 字段时必须先写字段 scale 注释和解析测试，不要在 fetcher 内临时 `(field or other_field) / 100`。
+  - 下游模型的市值统一使用“亿”口径，raw 元只能作为溯源字段存在。
+  - Comps 估值必须有真实 peer universe；少于 2 家同行只能展示数据缺口，不能生成估值结论。
+  - 美股报告展示历史财务时必须同时写 `financial_basis` 和 `financial_period`，避免用户不知道当前是 annual 还是 TTM。
+
+---
+
+## v3.9.2 (2026-07-07 · 流程与数据契约 hotfix · issue #82/#83)
+
+### BUG · OCF 缺失、industry=None、CLI report 后处理早退、agent_analysis 坏结构继续合并
+
+- **症状**：
+  1. [#82](https://github.com/wbh604/UZI-Skill/issues/82) · `fetch_financials` 只把经营现金流写成 `fcf`，没有显式 `ocf` / `ocf_history` / `ocf_to_net_income_ratio`，A 股 trap-detector 的现金利润匹配规则会读不到真实 OCF。
+  2. [#83](https://github.com/wbh604/UZI-Skill/issues/83) · `basic.industry=None` 时 `fetch_peers` 整个 A 股分支跳过，返回空同行表且 `fallback=False`；`fetch_valuation` 也直接丢行业/市场 PE。
+  3. fund/ETF/LOF 持仓汇总、`--versus`、`--portfolio` 生成 HTML 后直接 `sys.exit(0)`，绕过 `--output-dir` / `--remote` / 浏览器打开。
+  4. `agent_analysis.json` schema error 只打印 `_agent_analysis_errors.json`，但仍传给 `generate_synthesis`，坏结构可能污染报告或触发 `.get()` 异常。
+- **位置**：
+  - `fetch_financials.py` 现金流段
+  - `fetch_peers.py` A 股 `industry` 分支
+  - `fetch_valuation.py` cninfo 行业 PE 段
+  - `run.py` CLI 分支和 remote 后处理
+  - `run_real_test.py::stage2`
+  - `lib/pipeline/fetchers/registry.py`
+- **根因**：
+  - 数据契约漂移：legacy fetcher 输出 `financial_health` / `pe_quantile`，registry 却期待顶层 `debt_ratio/current_ratio` / `pe_ttm/pe_percentile`。
+  - 控制流分散：多报告模式各自早退，没有共享 report post-process。
+  - schema validator 只写错误清单，没有把 error 级问题转成 fallback。
+- **影响**：
+  - 现金流质量被默认值掩盖，可能把 OCF/净利大幅背离的股票误判为通过。
+  - 行业缺失时报告同行/估值区块空白但不标 fallback。
+  - SaaS/远程查看模式在 fund/versus/portfolio 下失效。
+  - 非 Claude/Codex 生成的坏 `agent_analysis.json` 可能导致 stage2 崩溃或错用用户覆盖字段。
+- **修法**：
+  1. `fetch_financials._apply_operating_cash_flow` 显式输出 OCF 字段；`stock_features` 读取 `ocf_to_net_income_ratio`。
+  2. `fetch_peers` 在 industry 缺失时 self-only fallback，并写 `fallback_reason`。
+  3. `fetch_valuation` 在 industry 缺失/未匹配时用 cninfo 市场加权 PE 兜底，并写 `industry_pe_fallback_reason`。
+  4. pipeline registry 对齐 legacy 输出字段。
+  5. `run.py` 抽出 direct report path + shared post-process，fund summary / versus / portfolio 均复用 `--output-dir` / `--remote`；`cloudflared` 缺失时默认只提示，显式 `--install-cloudflared` 才自动安装。
+  6. `run_real_test._validate_agent_analysis_or_fallback` 对 error 级 schema issue 直接丢弃 payload，回退脚本骨架。
+- **验证**：新增 `tests/test_v3_9_2_flow_bugfixes.py`，覆盖 8 个回归。
+- **未来改该区域注意事项**：
+  - 新增/改名 fetcher 字段时，同步更新 `lib/pipeline/fetchers/registry.py`，并加行为测试，不只 grep 源码。
+  - 所有“生成 HTML 的 CLI 模式”都必须返回 report path 并进入统一 post-process；不要再在 runner 分支里直接 `sys.exit(0)`。
+  - `cloudflared` / `brew` / `sudo` 属于系统变更，默认只提示，必须显式 opt-in。
 
 ## v3.8.1 (2026-06-09 · 全面体检 · H/I 两组配套层 6 处补齐)
 

@@ -29,6 +29,18 @@ def test_is_resume_valid_rejects_error_quality():
     assert _is_resume_valid({"data": {"x": 1}}) is True  # 老格式兼容
 
 
+def test_is_resume_valid_enforces_fetcher_ttl():
+    from lib.pipeline.collect import _is_resume_valid
+
+    fresh = {"data": {"x": 1}, "_pipeline": {"quality": "full", "fetched_at": 970.0}}
+    stale = {"data": {"x": 1}, "_pipeline": {"quality": "full", "fetched_at": 900.0}}
+    legacy_without_timestamp = {"data": {"x": 1}, "quality": "full"}
+
+    assert _is_resume_valid(fresh, ttl_sec=60, now=1000.0) is True
+    assert _is_resume_valid(stale, ttl_sec=60, now=1000.0) is False
+    assert _is_resume_valid(legacy_without_timestamp, ttl_sec=60, now=1000.0) is False
+
+
 def test_dependent_dims_set():
     from lib.pipeline.collect import DEPENDENT_DIMS
     assert "3_macro" in DEPENDENT_DIMS

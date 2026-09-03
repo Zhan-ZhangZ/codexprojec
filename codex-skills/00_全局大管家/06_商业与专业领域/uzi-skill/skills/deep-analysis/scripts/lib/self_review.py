@@ -345,22 +345,22 @@ def check_valuation_sanity(ctx: dict) -> list[Issue]:
     vm = _get_dim(ctx, "20_valuation_models")
     if not vm: return issues
     dcf = vm.get("dcf") or {}
-    iv = dcf.get("intrinsic_value_per_share", 0)
+    iv = dcf.get("intrinsic_per_share", dcf.get("intrinsic_value_per_share", 0))
     if iv in (None, 0, "—"):
         issues.append(Issue(
             severity="warning", category="valuation", dim="20_valuation_models",
             issue="DCF 内在价值为 0/None（可能负 FCF 或假设异常）",
-            evidence=f"intrinsic_value_per_share={iv}",
+            evidence=f"intrinsic_per_share={iv}",
             suggested_fix="检查 fetch_financials.net_profit_history 最新值是否 > 0",
         ))
 
     comps = vm.get("comps") or {}
-    target_price = comps.get("target_price_implied")
+    target_price = comps.get("implied_price", comps.get("target_price_implied"))
     if target_price in (None, 0, "—"):
         issues.append(Issue(
             severity="info", category="valuation", dim="20_valuation_models",
             issue="Comps 隐含目标价缺失",
-            evidence=f"target_price_implied={target_price}",
+            evidence=f"implied_price={target_price}",
             suggested_fix="检查 fetch_peers 是否返回足够同行样本",
         ))
     return issues
@@ -529,6 +529,25 @@ def check_consensus_formula_sanity(ctx: dict) -> list[Issue]:
     return issues
 
 
+def check_panel_hollow_verdicts(ctx: dict) -> list[Issue]:
+    """Reject consensus derived from too many evidence-free verdicts."""
+    panel = ctx.get("panel") or {}
+    if panel.get("consensus_valid", True):
+        return []
+    return [Issue(
+        severity="critical",
+        category="panel",
+        dim="panel",
+        issue=f"共识分包含 {panel.get('hollow_verdicts', 0)} 个无证据空判",
+        evidence=(
+            f"hollow_pct={panel.get('hollow_pct', 0)}% · "
+            f"panel_consensus={panel.get('panel_consensus')} · "
+            f"ids={', '.join((panel.get('hollow_ids') or [])[:8])}"
+        ),
+        suggested_fix="补齐数据后重跑，或由 agent 用可追溯证据覆盖空判；不要引用当前共识分。",
+    )]
+
+
 def check_panel_insights_rendered(ctx: dict) -> list[Issue]:
     """v2.9.1 · panel_insights 字段必须在报告里渲染（之前被丢掉的 bug）"""
     issues = []
@@ -595,6 +614,7 @@ CHECKS = [
     check_factcheck_redflags,
     # v2.9.1 · 评委汇总一致性检查
     check_consensus_formula_sanity,
+    check_panel_hollow_verdicts,
     check_panel_insights_rendered,
     check_debate_bull_bear_populated,
 ]

@@ -27,6 +27,22 @@ def _f(v, default=0.0) -> float:
         return default
 
 
+def sanitize_features(features: dict | None) -> dict:
+    """Return a copy without top-level ``None`` values.
+
+    Institutional workflows use ``dict.get(key, conservative_default)``. A
+    present key whose value is ``None`` bypasses that default and can trigger
+    numeric ``TypeError`` exceptions. Keep this sanitizer at the modeling
+    boundary only: the investor evaluator intentionally uses ``None`` to mark
+    unavailable evidence and skip a rule instead of scoring it as a failure.
+    """
+    return {
+        key: value
+        for key, value in (features or {}).items()
+        if value is not None
+    }
+
+
 def _pct_change(values: list, n: int = 1) -> float:
     """n-period % change between first and last."""
     if not values or len(values) < 2:
@@ -39,7 +55,9 @@ def _pct_change(values: list, n: int = 1) -> float:
 
 
 def _avg(values: list, default: float = 0.0) -> float:
-    vals = [_f(v) for v in values if _f(v) > 0]
+    # v3.9.4 · 与 _min 对齐：保留 0 值（!= 0），此前只对正值取平均会把亏损年份剔除，
+    # 让 ROE 均值虚高（[-3,-5,15,18,20] 真实均值 9.0 被算成 17.7）
+    vals = [_f(v) for v in values if _f(v) != 0]
     return sum(vals) / len(vals) if vals else default
 
 
@@ -52,6 +70,16 @@ def _last(values: list, default: float = 0.0) -> float:
 def _min(values: list, default: float = 0.0) -> float:
     vals = [_f(v) for v in values if _f(v) != 0]
     return min(vals) if vals else default
+
+
+def _market_cap_to_yi(v, default=0.0) -> float:
+    """Normalize market cap to 亿.
+
+    Fetchers may emit "4572.2亿" or raw yuan like 457223467965.5. Downstream
+    models expect 亿; treating yuan as 亿 collapses per-share DCF to near zero.
+    """
+    n = _f(v, default)
+    return n / 1e8 if n > 1_000_000 else n
 
 
 def extract_features(raw: dict, dims: dict) -> dict:
@@ -93,8 +121,8 @@ def extract_features(raw: dict, dims: dict) -> dict:
     f["industry"] = basic.get("industry") or "—"
     f["price"] = _f(basic.get("price"))
     f["change_pct"] = _f(basic.get("change_pct"))
-    f["market_cap_yi"] = _f(str(basic.get("market_cap", "0")).replace("亿", ""))
-    f["circulating_cap_yi"] = _f(str(basic.get("circulating_cap", "0")).replace("亿", ""))
+    f["market_cap_yi"] = _market_cap_to_yi(basic.get("market_cap_yi") or basic.get("market_cap"))
+    f["circulating_cap_yi"] = _market_cap_to_yi(basic.get("circulating_cap_yi") or basic.get("circulating_cap"))
     f["listed_date"] = str(basic.get("listed_date", ""))[:10]
     f["chairman"] = basic.get("chairman") or "—"
     f["actual_controller"] = basic.get("actual_controller") or "—"
@@ -115,7 +143,15 @@ def extract_features(raw: dict, dims: dict) -> dict:
     f["roe_trend_up"] = _last(roe_hist) > _avg(roe_hist[:-1]) if len(roe_hist) >= 3 else False
 
     f["revenue_latest_yi"] = _last(rev_hist)
-    f["revenue_growth_latest"] = _pct_change(rev_hist, 1)
+    explicit_revenue_yoy = fin.get("revenue_growth_yoy")
+    f["revenue_growth_latest"] = (
+        _f(explicit_revenue_yoy)
+        if explicit_revenue_yoy is not None
+        else _pct_change(rev_hist, 1)
+    )
+    f["revenue_growth_period"] = fin.get("revenue_growth_period")
+    f["revenue_growth_basis"] = fin.get("revenue_growth_basis")
+    f["revenue_growth_source"] = fin.get("revenue_growth_source")
     f["revenue_growth_3y_cagr"] = ((_last(rev_hist) / _f(rev_hist[-4])) ** (1/3) - 1) * 100 if len(rev_hist) >= 4 and _f(rev_hist[-4]) > 0 else 0
 
     f["net_profit_latest_yi"] = _last(np_hist)
@@ -136,8 +172,11 @@ def extract_features(raw: dict, dims: dict) -> dict:
     f["current_ratio"] = _f(health.get("current_ratio"))
     f["debt_ratio"] = _f(health.get("debt_ratio"))
     f["fcf_margin"] = _f(health.get("fcf_margin"))
+    f["ocf_to_net_income_ratio"] = _f(
+        fin.get("ocf_to_net_income_ratio") or health.get("ocf_to_net_income_ratio"),
+        default=0,
+    )
     f["roic"] = _f(health.get("roic"))
-    f["fcf_positive"] = f["fcf_margin"] > 0
 
     # v3.8.0 · DuPont 杜邦分解 · 暴露给评委/报告 (价值派看 ROE 质量来源)
     _dupont = fin.get("dupont") or {}
@@ -276,12 +315,16 @@ def extract_features(raw: dict, dims: dict) -> dict:
 
     # ─────────────── MOAT ───────────────
     moat_scores = moat.get("scores") or {}
-    f["moat_intangible"] = _f(moat_scores.get("intangible"))
-    f["moat_switching"] = _f(moat_scores.get("switching"))
-    f["moat_network"] = _f(moat_scores.get("network"))
-    f["moat_scale"] = _f(moat_scores.get("scale"))
-    f["moat_total"] = f["moat_intangible"] + f["moat_switching"] + f["moat_network"] + f["moat_scale"]
-    f["moat_clear"] = f["moat_total"] >= 24  # avg 6+/10
+    f["moat_known"] = bool(moat_scores)
+    f["moat_intangible"] = _f(moat_scores.get("intangible")) if moat_scores else None
+    f["moat_switching"] = _f(moat_scores.get("switching")) if moat_scores else None
+    f["moat_network"] = _f(moat_scores.get("network")) if moat_scores else None
+    f["moat_scale"] = _f(moat_scores.get("scale")) if moat_scores else None
+    f["moat_total"] = (
+        f["moat_intangible"] + f["moat_switching"] + f["moat_network"] + f["moat_scale"]
+        if moat_scores else None
+    )
+    f["moat_clear"] = f["moat_total"] >= 24 if f["moat_known"] else None
 
     # ─────────────── EVENTS ───────────────
     timeline = events.get("event_timeline") or []
@@ -344,16 +387,29 @@ def extract_features(raw: dict, dims: dict) -> dict:
     # BVPS = equity / shares
     eq = _f(f.get("equity_yi"), 0)
     f["bvps"] = round(eq / f["shares_outstanding_yi"], 3) if f["shares_outstanding_yi"] > 0 else 0
-    # FCF latest (proxy from net_income × 0.8 if not present)
-    f["fcf_latest_yi"] = round(latest_ni * 0.8, 2) if latest_ni > 0 else 0
+    # v3.9.4 · FCF：优先用真实经营现金流（fetch_financials 提供 operating_cash_flow_yi），
+    # 缺失时才回退到净利×0.8 代理。fcf_positive 基于真实 OCF 判断——
+    # 此前净利为正但现金流失血的公司会被误报 FCF 正（Codex P1）
+    _real_ocf_raw = fin.get("operating_cash_flow_yi")
+    _real_ocf = _f(_real_ocf_raw)
+    f["fcf_known"] = _real_ocf_raw is not None
+    if f["fcf_known"]:
+        f["fcf_latest_yi"] = round(_real_ocf, 2)
+    else:
+        f["fcf_latest_yi"] = round(latest_ni * 0.8, 2) if latest_ni > 0 else 0
+    f["fcf_is_proxy"] = not f["fcf_known"]
+    f["fcf_positive"] = _real_ocf > 0 if f["fcf_known"] else None
     # EBITDA (proxy: net_income / 0.6)
     f["ebitda_yi"] = round(latest_ni / 0.6, 2) if latest_ni > 0 else 0
     # Debt and cash (from financial_health if available; else default)
     health = fin.get("financial_health") or {}
     f["total_debt_yi"] = _f(health.get("total_debt"), 0) if isinstance(health, dict) else 0
     f["cash_yi"] = _f(health.get("cash"), 0) if isinstance(health, dict) else 0
-    # Gross margin (%)
-    f["gross_margin"] = _f(fin.get("gross_margin"), default=f.get("net_margin", 10) + 18)
+    f["equity_yi"] = _f(health.get("equity"), 0) if isinstance(health, dict) else 0
+    # Gross margin (%) · v3.9.4 · 不再用 net_margin+18 捏造 —— 缺数据时置 0，
+    # 依赖毛利率的规则按"无数据"判 fail（此前 35% 净利率会被造出 53% 毛利率，让
+    # gurley/chamath/jensen_huang 的毛利率阈值误 pass）
+    f["gross_margin"] = _f(fin.get("gross_margin")) if _f(fin.get("gross_margin")) else 0
     # PS ratio
     rev = f.get("revenue_latest_yi", 0)
     f["ps"] = round(mcap / rev, 2) if rev > 0 else 0
@@ -372,16 +428,18 @@ def extract_features(raw: dict, dims: dict) -> dict:
 
     # market_share: 真实 = 公司市值 / 行业总市值 × 100
     # 数据源：basic.market_cap (亿) + industry.cninfo_metrics.total_mcap_yi (亿)
-    _cmcap_yi = _f(basic.get("market_cap_yi")) or _f(basic.get("market_cap"))
+    _cmcap_yi = _market_cap_to_yi(basic.get("market_cap_yi") or basic.get("market_cap"))
     _imcap_yi = _f((industry.get("cninfo_metrics") or {}).get("total_mcap_yi"))
     if _cmcap_yi > 0 and _imcap_yi > 0:
         f["market_share"] = round(_cmcap_yi / _imcap_yi * 100, 2)
     else:
         f["market_share"] = 0.0
-    # Dividend yield from valuation/basic
-    f["dividend_yield"] = _f(valuation.get("dividend_yield"), default=0)
-    # PEG
-    peg_val = f.get("pe", 0) / f.get("rev_growth_3y", 1) if f.get("rev_growth_3y", 0) > 0 else 99
+    # Dividend yield from valuation/basic (v3.9.4 · 不再用 valuation 覆盖 basic 的真实分红率)
+    _div_basic = _f(basic.get("dividend_yield_ttm"))
+    f["dividend_yield"] = _div_basic if _div_basic else _f(valuation.get("dividend_yield"), default=0)
+    # PEG (v3.9.4 · 修孤儿键:rev_growth_3y → revenue_growth_3y_cagr,此前恒取 99)
+    _g3y = f.get("revenue_growth_3y_cagr", 0) or 0
+    peg_val = f.get("pe", 0) / _g3y if _g3y > 0 else 99
     f["peg"] = round(peg_val, 2)
     # Gross margin trend flag
     f["gross_margin_expanding"] = False  # default; could be computed from hist
@@ -557,6 +615,31 @@ def extract_features(raw: dict, dims: dict) -> dict:
     else:
         _score = 8.0 * _elasticity                    # 不在链上 → 接近 0
     f["ai_chokepoint_score"] = round(_score, 1)
+
+    # ─────────────── 兼容别名 · v3.9.4 ───────────────
+    # 规则引擎引用了以下键，但历史命名不一致导致恒取默认值(0/False) → 规则静默失效。
+    # 这里统一补齐别名，让规则层的 get() 拿到正确值。
+    f["pe_ttm"] = f.get("pe", 0)                     # 规则用 pe_ttm · 特征层只有 pe
+    f["rev_growth_3y"] = f.get("revenue_growth_3y_cagr", 0)   # 规则用 rev_growth_3y
+    f["rev_growth_yoy"] = f.get("revenue_growth_latest", 0)   # 规则用 rev_growth_yoy
+    f["roe"] = f.get("roe_latest", 0)                # 规则用裸 roe · 特征层只有 roe_latest
+    f["net_profit_growth_3y"] = f.get("net_profit_growth_latest", 0)
+
+    # ─────────────── 数据不足标记 · v3.9.4 ───────────────
+    # 以下键被 v3.7 新评委（Andreessen/Chanos/Musk/Saylor 等）的规则引用，且是这些规则的
+    # 唯一判断依据（无主备分支），但没有任何 fetcher 提供对应数据源。置 None → 规则层
+    # 识别为"数据缺失"→ 跳过（不 pass 也不 fail），避免这些评委因无数据被系统性判负。
+    # 注意：只在"唯一依赖"时设 None；有备选键（如 network_effect_score 有 moat_total 兜底）
+    # 必须保持缺失，否则 None >= 6 抛错会吞掉整条规则的有效判断。
+    _NO_DATA_KEYS = (
+        "founder_active", "founder_ownership_pct", "ev_to_revenue",
+        "governance_score", "insider_selling_recent", "retail_holding_pct",
+        "ceo_promotional_score", "audit_qualified", "off_balance_debt_ratio",
+        "rev", "revenue_b", "rd_intensity", "capex_growth_yoy",
+        "btc_holdings_b", "cash_to_marketcap_ratio", "rev_growth_3y_pct",
+    )
+    for _k in _NO_DATA_KEYS:
+        f[_k] = None
 
     return f
 

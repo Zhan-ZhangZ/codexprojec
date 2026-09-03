@@ -23,6 +23,8 @@ if str(SCRIPTS) not in sys.path:
 from lib.fin_models import (
     compute_dcf, build_comps_table, project_three_stmt, quick_lbo, accretion_dilution
 )
+from lib.global_peers import global_peers_to_comps
+from lib.stock_features import sanitize_features
 from lib.research_workflow import (
     build_initiating_coverage, build_earnings_analysis, build_catalyst_calendar,
     build_thesis_tracker, build_morning_note, run_idea_screen, build_sector_overview,
@@ -39,6 +41,7 @@ from lib.deep_analysis_methods import (
 
 def compute_dim_20(features: dict, raw: dict) -> dict:
     """DCF + Comps + 3-stmt + LBO packaged as dim 20."""
+    features = sanitize_features(features)
     dcf = compute_dcf(features)
     three_stmt = project_three_stmt(features)
     lbo = quick_lbo(features)
@@ -48,10 +51,12 @@ def compute_dim_20(features: dict, raw: dict) -> dict:
     # ─── Peer data adapter: merge 4_peers.peer_table AND top-level similar_stocks ───
     peers_dim = (dims.get("4_peers") or {}).get("data") or {}
     peer_table = peers_dim.get("peer_table") or peers_dim.get("peer_comparison") or []
+    global_peer_table = global_peers_to_comps(peers_dim.get("global_peer_comparison") or {})
     similar_stocks = raw.get("similar_stocks") or []
 
     target_for_comps = {
         "name": features.get("name", "目标公司"),
+        "ticker": features.get("ticker"),
         "pe": features.get("pe"),
         "pb": features.get("pb"),
         "ps": features.get("ps"),
@@ -103,7 +108,14 @@ def compute_dim_20(features: dict, raw: dict) -> dict:
             if np and np.get("name") and np.get("name") not in seen:
                 peer_list_for_comps.append(np)
                 seen.add(np["name"])
-    # Priority 2: similar_stocks (wave 3 — almost always has data)
+    # Priority 2: normalized global peers.
+    if isinstance(global_peer_table, list):
+        for p in global_peer_table[:12]:
+            np = _normalize_peer(p)
+            if np and np.get("name") and np.get("name") not in seen:
+                peer_list_for_comps.append(np)
+                seen.add(np["name"])
+    # Priority 3: similar_stocks (wave 3 — almost always has data)
     if isinstance(similar_stocks, list):
         for p in similar_stocks[:10]:
             np = _normalize_peer(p)
@@ -139,6 +151,7 @@ def compute_dim_20(features: dict, raw: dict) -> dict:
 
 def compute_dim_21(features: dict, raw: dict, dim_20_data: dict | None = None) -> dict:
     """Initiating + Earnings + Catalyst + Thesis + Morning + Screen + Sector."""
+    features = sanitize_features(features)
     dcf_r = (dim_20_data or {}).get("dcf") if dim_20_data else None
     comps_r = (dim_20_data or {}).get("comps") if dim_20_data else None
 
@@ -185,6 +198,7 @@ def compute_dim_21(features: dict, raw: dict, dim_20_data: dict | None = None) -
 
 def compute_dim_22(features: dict, raw: dict, dim_20_data: dict | None = None, dim_21_data: dict | None = None) -> dict:
     """IC Memo + Unit Econ + VCP + DD + Porter/BCG + Rebalance."""
+    features = sanitize_features(features)
     dcf_r = (dim_20_data or {}).get("dcf") if dim_20_data else None
     comps_r = (dim_20_data or {}).get("comps") if dim_20_data else None
 
