@@ -9,32 +9,38 @@ import os from "node:os";
 import { drawioInstallHint, resolveDrawioExecutable } from "./drawio-path.mjs";
 
 const execFileAsync = promisify(execFile);
-const SERVER_NAME = "drawio-scientific-illustrator";
-const SERVER_VERSION = "1.0.0";
+const SERVER_NAME = "scientific-illustrator-file-utils";
+const SERVER_VERSION = "1.5.4";
 const DRAWIO = resolveDrawioExecutable();
 const MAX_XML_BYTES = 12 * 1024 * 1024;
 const SUPPORTED_PROTOCOLS = new Set(["2024-11-05", "2025-03-26", "2025-06-18"]);
+const FILE_CONSTRUCTION_CONTEXTS = new Set(["post-live-repair", "explicit-file-only-request"]);
 
 const DEFAULT_VERTEX_STYLE =
   "rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#1f2937;";
 const DEFAULT_EDGE_STYLE =
-  "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;";
+  "edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;";
 
 const tools = [
   {
     name: "drawio_status",
-    description: "Check the local draw.io desktop CLI, version, default output directory, and supported operations.",
+    description: "Check the draw.io desktop CLI used only for post-live file validation/export/repair and explicit file-only requests. Live Scientific Illustrator construction belongs to the drawio_live_* server.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "drawio_create_diagram",
     description:
-      "Create an editable uncompressed .drawio file from structured vertices and edges. Use absolute output paths. Supports common scientific-diagram shapes, text, embedded local images, custom draw.io styles, groups/layers, and routed arrows.",
+      "Create an editable uncompressed .drawio file only for a declared post-live repair or an explicit file-only user request. Never substitute this XML-first utility for visible drawio_live_* construction. Every embedded deliverable image must be one atomic irreducible raster unit with complete decomposition metadata.",
     inputSchema: {
       type: "object",
-      required: ["output_path", "vertices"],
+      required: ["output_path", "vertices", "workflow_context"],
       properties: {
         output_path: { type: "string", description: "Absolute .drawio output path." },
+        workflow_context: {
+          type: "string",
+          enum: ["post-live-repair", "explicit-file-only-request"],
+          description: "Mandatory safeguard. Use post-live-repair only after visible drawio_live_* construction, or explicit-file-only-request only when the user specifically requested a non-live file workflow.",
+        },
         title: { type: "string", default: "Scientific figure" },
         page_name: { type: "string", default: "Figure" },
         canvas: {
@@ -87,7 +93,16 @@ const tools = [
               opacity: { type: "number", minimum: 0, maximum: 100 },
               rotation: { type: "number", minimum: -360, maximum: 360 },
               dashed: { type: "boolean" },
-              image_path: { type: "string", description: "Absolute local path for an embedded image vertex." },
+              image_path: { type: "string", description: "Absolute local path for a tightly scoped irreducible raster/SVG region. Inline image data in style/custom_style is rejected." },
+              raster_reason: { type: "string", minLength: 8, description: "Why this exact region cannot be recreated with editable draw.io primitives. Required whenever image_path is present." },
+              source_is_tightly_cropped: { type: "boolean", description: "True only when the source contains no surrounding reconstructable content. Required whenever image_path is present." },
+              atomic_raster_unit: { type: "boolean", const: true, description: "Required whenever image_path is present; one image vertex may contain only one irreducible raster field." },
+              contains_reconstructable_content: { type: "boolean", const: false, description: "Required whenever image_path is present; text, borders, arrows, legends, axes, tables, and regular plots must be separate editable cells." },
+              decomposition_note: { type: "string", minLength: 8, description: "Required whenever image_path is present; state what was rebuilt editably or why no finer split is possible." },
+              crop_left_percent: { type: "number", minimum: 0, maximum: 99 },
+              crop_top_percent: { type: "number", minimum: 0, maximum: 99 },
+              crop_right_percent: { type: "number", minimum: 0, maximum: 99 },
+              crop_bottom_percent: { type: "number", minimum: 0, maximum: 99 },
               locked: { type: "boolean", default: false },
             },
             additionalProperties: false,
@@ -142,7 +157,7 @@ const tools = [
   {
     name: "drawio_create_trace_document",
     description:
-      "Create a .drawio tracing document with a local PNG/JPEG/SVG reference embedded as a locked, low-opacity background and an editable drawing layer above it. Useful after visually decomposing a static scientific figure.",
+      "Create a non-deliverable tracing aid with a reference image explicitly audited as a locked reference-only overlay. Use it only for analysis; construct the real figure visibly with drawio_live_* and remove/omit the overlay from the deliverable.",
     inputSchema: {
       type: "object",
       required: ["reference_path", "output_path"],
@@ -159,13 +174,18 @@ const tools = [
   {
     name: "drawio_write_xml",
     description:
-      "Validate and write full uncompressed mxGraph XML to a .drawio file for high-fidelity diagrams that exceed the structured tool's shape vocabulary.",
+      "Validate and write full uncompressed mxGraph XML only for a declared post-live repair or an explicit file-only user request. Never use it as the construction path for a live Scientific Illustrator task. Unaudited image cells are rejected.",
     inputSchema: {
       type: "object",
-      required: ["output_path", "xml"],
+      required: ["output_path", "xml", "workflow_context"],
       properties: {
         output_path: { type: "string", description: "Absolute .drawio output path." },
         xml: { type: "string", description: "Uncompressed XML beginning with <mxfile>." },
+        workflow_context: {
+          type: "string",
+          enum: ["post-live-repair", "explicit-file-only-request"],
+          description: "Mandatory safeguard. Use post-live-repair only after visible drawio_live_* construction, or explicit-file-only-request only when explicitly requested by the user.",
+        },
         overwrite: { type: "boolean", default: false },
       },
       additionalProperties: false,
@@ -328,6 +348,61 @@ function shapeStyle(shape = "rounded") {
   return shapes[shape] || DEFAULT_VERTEX_STYLE;
 }
 
+function styleUsesImage(style = "") {
+  return /(?:^|;)\s*shape\s*=\s*image(?:;|$)|(?:^|;)\s*image\s*=/i.test(String(style));
+}
+
+function styleSuppliesImageSource(style = "") {
+  return /(?:^|;)\s*image\s*=/i.test(String(style));
+}
+
+function valueEmbedsImage(value = "") {
+  return /<\s*(?:img|svg)\b|data:image\//i.test(String(value));
+}
+
+function validateRasterAudit(args, id = "image") {
+  const reason = String(args.raster_reason || "").trim();
+  if (reason.length < 8) {
+    throw new Error(`Image vertex '${id}' requires raster_reason explaining why this exact region cannot be recreated with editable draw.io primitives.`);
+  }
+  if (typeof args.source_is_tightly_cropped !== "boolean") {
+    throw new Error(`Image vertex '${id}' requires source_is_tightly_cropped=true or false.`);
+  }
+  if (args.atomic_raster_unit !== true) {
+    throw new Error(`Image vertex '${id}' requires atomic_raster_unit=true. Split grids, comparisons, montages, stacks, and multi-image regions into separate image vertices.`);
+  }
+  if (args.contains_reconstructable_content !== false) {
+    throw new Error(`Image vertex '${id}' requires contains_reconstructable_content=false. Rebuild labels, borders, arrows, legends, axes, tables, and regular plots as editable cells.`);
+  }
+  const decompositionNote = String(args.decomposition_note || "").trim();
+  if (decompositionNote.length < 8) {
+    throw new Error(`Image vertex '${id}' requires a decomposition_note explaining what was rebuilt editably or why the image cannot be split further.`);
+  }
+  const crop = {
+    left: Number(args.crop_left_percent || 0),
+    top: Number(args.crop_top_percent || 0),
+    right: Number(args.crop_right_percent || 0),
+    bottom: Number(args.crop_bottom_percent || 0),
+  };
+  for (const [side, value] of Object.entries(crop)) {
+    if (!Number.isFinite(value) || value < 0 || value > 99) throw new Error(`Image vertex '${id}' has invalid crop_${side}_percent.`);
+  }
+  const hasCrop = Object.values(crop).some((value) => value > 0);
+  if (!args.source_is_tightly_cropped && !hasCrop) {
+    throw new Error(`Image vertex '${id}' has source_is_tightly_cropped=false and therefore requires crop percentages that remove surrounding reconstructable content.`);
+  }
+  if (crop.left + crop.right >= 100 || crop.top + crop.bottom >= 100) {
+    throw new Error(`Image vertex '${id}' has opposing crop percentages totaling 100% or more.`);
+  }
+  return { reason, sourceIsTightlyCropped: args.source_is_tightly_cropped, atomicRasterUnit: true, containsReconstructableContent: false, decompositionNote, crop };
+}
+
+function assertFileConstructionContext(args, toolName) {
+  if (!FILE_CONSTRUCTION_CONTEXTS.has(args.workflow_context)) {
+    throw new Error(`${toolName} requires workflow_context=post-live-repair after visible drawio_live_* construction, or workflow_context=explicit-file-only-request when the user explicitly requested a non-live file workflow.`);
+  }
+}
+
 function normalizeOutputPath(filePath, extension = ".drawio") {
   if (!filePath || typeof filePath !== "string") throw new Error("A file path is required.");
   const expanded = filePath.startsWith("~/") || filePath.startsWith("~\\") ? path.join(os.homedir(), filePath.slice(2)) : filePath;
@@ -456,13 +531,15 @@ function inspectXml(xml) {
     const name = opening[1];
     const selfClosing = /\/\s*>$/.test(token);
     const attrs = parseAttributes(token);
-    const entry = { name };
+    const entry = { name, attrs };
 
     if (name === "diagram") {
       currentPage = { id: attrs.id || "", name: decodeXml(attrs.name || ""), cells: [], order: [] };
       pages.push(currentPage);
       if (!currentPage.id) errors.push("Every <diagram> needs a non-empty id attribute.");
     } else if (name === "mxCell" && currentPage) {
+      const wrapperAttrs = stack.toReversed().find((x) => x.name === "object")?.attrs || {};
+      const metadata = { ...wrapperAttrs, ...attrs };
       const cell = {
         id: attrs.id,
         value: decodeXml(attrs.value || ""),
@@ -475,6 +552,19 @@ function inspectXml(xml) {
         geometry: null,
         hasSourcePoint: false,
         hasTargetPoint: false,
+        rasterReason: decodeXml(metadata.scientificIllustratorRasterReason || ""),
+        rasterRole: metadata.scientificIllustratorRasterRole || "",
+        sourceTightlyCropped: metadata.scientificIllustratorSourceTightlyCropped || "",
+        atomicRasterUnit: metadata.scientificIllustratorAtomicRasterUnit || "",
+        containsReconstructableContent: metadata.scientificIllustratorContainsReconstructableContent || "",
+        decompositionNote: decodeXml(metadata.scientificIllustratorDecompositionNote || ""),
+        sourceName: decodeXml(metadata.scientificIllustratorSourceName || ""),
+        crop: {
+          left: Number(metadata.scientificIllustratorCropLeftPercent || 0),
+          top: Number(metadata.scientificIllustratorCropTopPercent || 0),
+          right: Number(metadata.scientificIllustratorCropRightPercent || 0),
+          bottom: Number(metadata.scientificIllustratorCropBottomPercent || 0),
+        },
       };
       currentPage.cells.push(cell);
       currentPage.order.push(cell.id);
@@ -512,6 +602,32 @@ function inspectXml(xml) {
     for (const cell of page.cells) {
       if (cell.id !== "0" && cell.parent && !ids.has(cell.parent)) errors.push(`Cell '${cell.id}' has missing parent '${cell.parent}'.`);
       if (cell.vertex && !cell.geometry) errors.push(`Vertex '${cell.id}' is missing mxGeometry.`);
+      if (cell.vertex && valueEmbedsImage(cell.value)) {
+        errors.push(`Vertex '${cell.id}' embeds an inline HTML/SVG image. Use a separate audited image cell so the source, reason, and crop can be inspected.`);
+      }
+      if (cell.vertex && styleUsesImage(decodeXml(cell.style))) {
+        if (cell.rasterReason.trim().length < 8) errors.push(`Image vertex '${cell.id}' is missing a specific scientificIllustratorRasterReason audit.`);
+        if (cell.rasterRole === "reference-overlay") {
+          warnings.push(`Image vertex '${cell.id}' is a reference-only tracing overlay and must not remain in the final deliverable.`);
+        } else {
+          const values = Object.values(cell.crop);
+          const cropValid = values.every((value) => Number.isFinite(value) && value >= 0 && value <= 99)
+            && cell.crop.left + cell.crop.right < 100
+            && cell.crop.top + cell.crop.bottom < 100;
+          if (!cropValid) errors.push(`Image vertex '${cell.id}' has invalid scientific illustrator crop metadata.`);
+          const hasCrop = values.some((value) => value > 0);
+          if (cell.sourceTightlyCropped !== "true" && !hasCrop) {
+            errors.push(`Image vertex '${cell.id}' must certify a tightly cropped source or record nonzero crop percentages.`);
+          }
+          if (cell.atomicRasterUnit !== "true") errors.push(`Image vertex '${cell.id}' must certify scientificIllustratorAtomicRasterUnit=true.`);
+          if (cell.containsReconstructableContent !== "false") errors.push(`Image vertex '${cell.id}' must certify scientificIllustratorContainsReconstructableContent=false.`);
+          if (cell.decompositionNote.trim().length < 8) errors.push(`Image vertex '${cell.id}' is missing a useful scientificIllustratorDecompositionNote.`);
+          const compositeText = `${cell.id} ${cell.rasterReason} ${cell.decompositionNote}`;
+          if (/(grid|montage|panel|comparison|stack|matrix|multi[- ]?image|multiple images|rows? of|columns? of)/i.test(compositeText)) {
+            errors.push(`Image vertex '${cell.id}' appears to describe a composite raster. Split independent visual fields and rebuild headings, frames, grids, legends, arrows, and axes as editable cells.`);
+          }
+        }
+      }
       if (cell.edge) {
         if (!cell.geometry) errors.push(`Edge '${cell.id}' is missing mxGeometry.`);
         const connected = cell.source && cell.target && ids.has(cell.source) && ids.has(cell.target);
@@ -532,6 +648,8 @@ function inspectXml(xml) {
       cells: p.cells.length,
       vertices: p.cells.filter((c) => c.vertex).length,
       edges: p.cells.filter((c) => c.edge).length,
+      raster_images: p.cells.filter((c) => c.vertex && styleUsesImage(decodeXml(c.style)) && c.rasterRole !== "reference-overlay").length,
+      reference_overlays: p.cells.filter((c) => c.vertex && c.rasterRole === "reference-overlay").length,
     })),
     _pages: pages,
   };
@@ -544,6 +662,26 @@ async function imageDataUri(imagePath) {
   const mime = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".svg" ? "image/svg+xml" : null;
   if (!mime) throw new Error(`Unsupported image format '${ext}'. Use PNG, JPEG, or SVG.`);
   return { dataUri: `data:${mime};base64,${data.toString("base64")}`, data, ext };
+}
+
+async function auditedImageDataUri(vertex) {
+  const audit = validateRasterAudit(vertex, vertex.id);
+  const source = await imageDataUri(vertex.image_path);
+  let dataUri = source.dataUri;
+  const hasCrop = Object.values(audit.crop).some((value) => value > 0);
+  if (hasCrop) {
+    const visibleWidth = 100 - audit.crop.left - audit.crop.right;
+    const visibleHeight = 100 - audit.crop.top - audit.crop.bottom;
+    const wrapperWidth = 1000;
+    const wrapperHeight = 1000;
+    const imageX = -(audit.crop.left / visibleWidth) * wrapperWidth;
+    const imageY = -(audit.crop.top / visibleHeight) * wrapperHeight;
+    const imageWidth = (100 / visibleWidth) * wrapperWidth;
+    const imageHeight = (100 / visibleHeight) * wrapperHeight;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${wrapperWidth}" height="${wrapperHeight}" viewBox="0 0 ${wrapperWidth} ${wrapperHeight}"><image href="${dataUri}" x="${imageX}" y="${imageY}" width="${imageWidth}" height="${imageHeight}" preserveAspectRatio="none"/></svg>`;
+    dataUri = `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
+  }
+  return { dataUri, audit, sourceName: path.basename(path.resolve(vertex.image_path)) };
 }
 
 function readImageSize(data, ext) {
@@ -576,10 +714,34 @@ function readImageSize(data, ext) {
 
 async function vertexXml(v) {
   if (!v.id) throw new Error("Every vertex requires a non-empty id.");
+  if (valueEmbedsImage(v.label)) {
+    throw new Error(`Vertex '${v.id}' embeds an image in label HTML. Use image_path with raster_reason and tight-source/crop audit instead.`);
+  }
+  const suppliedStyle = `${v.style || ""};${v.custom_style || ""}`;
+  const requestsImage = Boolean(v.image_path) || v.shape === "image" || styleUsesImage(suppliedStyle);
+  if (requestsImage && !v.image_path) {
+    throw new Error(`Image vertex '${v.id}' must use image_path so the raster source and audit can be validated; inline image styles are not accepted.`);
+  }
+  if (v.image_path && styleSuppliesImageSource(suppliedStyle)) {
+    throw new Error(`Image vertex '${v.id}' must not supply image= through style or custom_style; use the audited image_path field.`);
+  }
   let style = v.style ? ensureStyle(v.style) : shapeStyle(v.shape);
+  let auditAttributes = "";
   if (v.image_path) {
-    const { dataUri } = await imageDataUri(v.image_path);
+    const { dataUri, audit, sourceName } = await auditedImageDataUri(v);
     style = setStyle(style, "image", dataUri);
+    auditAttributes = [
+      ` scientificIllustratorRasterReason="${xmlEscape(audit.reason)}"`,
+      ` scientificIllustratorSourceTightlyCropped="${audit.sourceIsTightlyCropped}"`,
+      ` scientificIllustratorAtomicRasterUnit="${audit.atomicRasterUnit}"`,
+      ` scientificIllustratorContainsReconstructableContent="${audit.containsReconstructableContent}"`,
+      ` scientificIllustratorDecompositionNote="${xmlEscape(audit.decompositionNote)}"`,
+      ` scientificIllustratorSourceName="${xmlEscape(sourceName)}"`,
+      ` scientificIllustratorCropLeftPercent="${audit.crop.left}"`,
+      ` scientificIllustratorCropTopPercent="${audit.crop.top}"`,
+      ` scientificIllustratorCropRightPercent="${audit.crop.right}"`,
+      ` scientificIllustratorCropBottomPercent="${audit.crop.bottom}"`,
+    ].join("");
   }
   style = setStyle(style, "fillColor", v.fill_color);
   style = setStyle(style, "strokeColor", v.stroke_color);
@@ -594,14 +756,16 @@ async function vertexXml(v) {
     for (const [k, val] of Object.entries({ locked: 1, movable: 0, resizable: 0, rotatable: 0, deletable: 0 })) style = setStyle(style, k, val);
   }
   style = `${ensureStyle(style)}${ensureStyle(v.custom_style)}`;
-  return `        <mxCell id="${xmlEscape(v.id)}" value="${xmlEscape(v.label || "")}" style="${xmlEscape(style)}" vertex="1" parent="${xmlEscape(v.parent || "1")}">\n          <mxGeometry x="${Number(v.x)}" y="${Number(v.y)}" width="${Number(v.width)}" height="${Number(v.height)}" as="geometry" />\n        </mxCell>`;
+  return `        <mxCell id="${xmlEscape(v.id)}" value="${xmlEscape(v.label || "")}" style="${xmlEscape(style)}" vertex="1" parent="${xmlEscape(v.parent || "1")}"${auditAttributes}>\n          <mxGeometry x="${Number(v.x)}" y="${Number(v.y)}" width="${Number(v.width)}" height="${Number(v.height)}" as="geometry" />\n        </mxCell>`;
 }
 
 function edgeXml(e) {
   if (!e.id) throw new Error("Every edge requires a non-empty id.");
   const floating = e.source_point && e.target_point;
   if (!floating && (!e.source || !e.target)) throw new Error(`Edge '${e.id}' requires source and target, or source_point and target_point.`);
-  let style = e.style ? ensureStyle(e.style) : DEFAULT_EDGE_STYLE;
+  let style = e.style ? ensureStyle(e.style) : floating
+    ? "edgeStyle=none;rounded=0;html=1;endArrow=none;startArrow=none;"
+    : DEFAULT_EDGE_STYLE;
   style = setStyle(style, "strokeColor", e.color);
   style = setStyle(style, "strokeWidth", e.width);
   if (e.dashed !== undefined) style = setStyle(style, "dashed", e.dashed ? 1 : 0);
@@ -668,8 +832,20 @@ async function createTraceDocument(args) {
   const pageHeight = height + 140;
   const opacity = args.opacity ?? 25;
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<mxfile host="Electron" modified="${new Date().toISOString()}" version="30.3.6">\n  <diagram id="trace-page" name="Trace">\n    <mxGraphModel grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="${pageWidth}" pageHeight="${pageHeight}" math="0" shadow="0">\n      <root>\n        <mxCell id="0" />\n        <mxCell id="1" parent="0" />\n        <mxCell id="reference-layer" value="Reference (${opacity}% opacity)" parent="0" />\n        <mxCell id="drawing-layer" value="Editable drawing" parent="0" />\n        <mxCell id="trace-title" value="Trace and rebuild on the Editable drawing layer" style="text;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;html=1;fontSize=20;fontStyle=1;fontColor=#111827;" vertex="1" parent="drawing-layer">\n          <mxGeometry x="40" y="20" width="${width}" height="40" as="geometry" />\n        </mxCell>\n        <mxCell id="reference-image" value="" style="shape=image;imageAspect=0;aspect=fixed;html=1;image=${xmlEscape(dataUri)};opacity=${opacity};locked=1;movable=0;resizable=0;rotatable=0;deletable=0;selectable=0;" vertex="1" parent="reference-layer">\n          <mxGeometry x="40" y="80" width="${width}" height="${height}" as="geometry" />\n        </mxCell>\n      </root>\n    </mxGraphModel>\n  </diagram>\n</mxfile>\n`;
-  const result = await writeValidatedXml(target, xml, args.overwrite);
-  return { ...result, reference_path: reference, original_size: original, embedded_size: { width, height }, opacity, drawing_layer: "drawing-layer" };
+  const auditedXml = xml.replace(
+    ' vertex="1" parent="reference-layer">',
+    ` vertex="1" parent="reference-layer" scientificIllustratorRasterRole="reference-overlay" scientificIllustratorRasterReason="Reference-only tracing overlay; not final deliverable content." scientificIllustratorSourceTightlyCropped="false" scientificIllustratorSourceName="${xmlEscape(path.basename(reference))}">`,
+  );
+  const result = await writeValidatedXml(target, auditedXml, args.overwrite);
+  return {
+    ...result,
+    reference_path: reference,
+    original_size: original,
+    embedded_size: { width, height },
+    opacity,
+    drawing_layer: "drawing-layer",
+    reference_overlay_must_be_removed_from_deliverable: true,
+  };
 }
 
 async function drawioVersion() {
@@ -727,14 +903,25 @@ async function exportDiagram(args) {
 async function handleTool(name, args = {}) {
   switch (name) {
     case "drawio_status":
-      return { ...(await drawioVersion()), server_version: SERVER_VERSION, node: process.version, default_output_directory: path.join(os.homedir(), "Documents"), supported_formats: ["drawio", "png", "svg", "pdf", "jpg"] };
+      return {
+        ...(await drawioVersion()),
+        server_version: SERVER_VERSION,
+        server_role: "post-live-file-utilities",
+        live_construction_server: "drawio-live",
+        construction_policy: "Use drawio_live_* for visible Scientific Illustrator construction. Use this server after live drawing for validation/export/repair, or for an explicitly requested file-only workflow.",
+        node: process.version,
+        default_output_directory: path.join(os.homedir(), "Documents"),
+        supported_formats: ["drawio", "png", "svg", "pdf", "jpg"],
+      };
     case "drawio_create_diagram": {
+      assertFileConstructionContext(args, name);
       const xml = await buildDiagram(args);
       return writeValidatedXml(args.output_path, xml, args.overwrite);
     }
     case "drawio_create_trace_document":
       return createTraceDocument(args);
     case "drawio_write_xml":
+      assertFileConstructionContext(args, name);
       return writeValidatedXml(args.output_path, args.xml, args.overwrite);
     case "drawio_validate": {
       const input = normalizeOutputPath(args.input_path);
@@ -764,6 +951,18 @@ async function handleTool(name, args = {}) {
             target: c.target,
             geometry: c.geometry,
             style: c.style.length > 500 ? `${c.style.slice(0, 500)}...` : c.style,
+            ...(styleUsesImage(decodeXml(c.style)) ? {
+              raster_audit: {
+                reason: c.rasterReason,
+                role: c.rasterRole || "deliverable-evidence",
+                source_is_tightly_cropped: c.sourceTightlyCropped === "true",
+                atomic_raster_unit: c.atomicRasterUnit === "true",
+                contains_reconstructable_content: c.containsReconstructableContent === "true",
+                decomposition_note: c.decompositionNote,
+                source_name: c.sourceName,
+                crop_percent: c.crop,
+              },
+            } : {}),
           })),
           truncated: p.cells.length > maxCells,
         })),
@@ -801,7 +1000,7 @@ async function handleMessage(message) {
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-      instructions: "Use absolute paths. Visually analyze reference images first, then create editable draw.io geometry, export a non-embedded PNG preview, inspect it, iterate, and finally export an embedded deliverable.",
+      instructions: "This is the post-live draw.io file-utilities server, not the live drawing backend. For Scientific Illustrator work, first use drawio_live_get_capabilities and construct every region visibly with drawio_live_* tools, including local screenshot/correction gates. Use these file utilities only after live cells exist to validate, inspect, export, or repair a saved snapshot, unless the user explicitly requested a non-live file-only workflow. drawio_create_diagram and drawio_write_xml require a declared workflow_context. Never rasterize reconstructable text, shapes, arrows, tables, charts, axes, or legends; every deliverable image cell must be one atomic irreducible raster unit with a specific reason, tight-source/crop audit, contains_reconstructable_content=false, and a decomposition note. Inline HTML/SVG images are rejected because their source and crop cannot be audited. A trace reference overlay is analysis-only and must not remain in the final deliverable.",
     });
   }
   if (method === "ping") return rpcResult(id, {});
@@ -818,8 +1017,7 @@ async function handleMessage(message) {
   return rpcError(id, -32601, `Method not found: ${method}`);
 }
 
-const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-rl.on("line", async (line) => {
+async function processInputLine(line) {
   if (!line.trim()) return;
   let message;
   try {
@@ -834,6 +1032,14 @@ rl.on("line", async (line) => {
   } catch (error) {
     process.stdout.write(`${JSON.stringify(rpcError(message.id, -32603, "Internal error", error.message))}\n`);
   }
+}
+
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+let requestQueue = Promise.resolve();
+rl.on("line", (line) => {
+  requestQueue = requestQueue.then(() => processInputLine(line)).catch((error) => {
+    process.stderr.write(`[${SERVER_NAME}] request queue error: ${error.stack || error.message}\n`);
+  });
 });
 
 process.on("uncaughtException", (error) => process.stderr.write(`[${SERVER_NAME}] ${error.stack || error.message}\n`));

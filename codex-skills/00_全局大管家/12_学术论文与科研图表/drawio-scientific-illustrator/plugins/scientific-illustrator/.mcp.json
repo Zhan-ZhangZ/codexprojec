@@ -9,6 +9,11 @@
       "command": "node",
       "args": ["./scripts/server.mjs"],
       "cwd": "."
+    },
+    "powerpoint-live": {
+      "command": "node",
+      "args": ["./scripts/powerpoint-server.mjs"],
+      "cwd": "."
     }
   }
 }

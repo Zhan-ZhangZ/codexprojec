@@ -1,14 +1,14 @@
 {
-  "name": "drawio-scientific-tools",
+  "name": "scientific-illustrator-tools",
   "interface": {
-    "displayName": "Draw.io Scientific Tools"
+    "displayName": "Scientific Illustrator Tools"
   },
   "plugins": [
     {
-      "name": "drawio-scientific-illustrator",
+      "name": "scientific-illustrator",
       "source": {
         "source": "local",
-        "path": "./plugins/drawio-scientific-illustrator"
+        "path": "./plugins/scientific-illustrator"
       },
       "policy": {
         "installation": "AVAILABLE",
