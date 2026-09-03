@@ -2,11 +2,16 @@
 name: dependency-auditor
 description: Scans packages for outdated deps, security advisories, license violations, and unused imports. Proposes version bumps, runs tests after updates, generates prioritized upgrade report.
 tools: Read, Bash, Glob, Grep
+allowed-tools: Read Glob Grep Bash(pnpm:*) Bash(npm:*) Bash(npx:*) Bash(bun:*) Bash(grep:*) Bash(find:*)
 disallowedTools: Write, Edit
-model: sonnet
+model: "claude-haiku-4-5"
 permissionMode: plan
 maxTurns: 20
-effort: high
+effort: low
+fallback_model: "claude-haiku-4-5"
+fallback_effort: low
+fallback_reason: cost_optimization
+context: fork
 skills: ["07-quality-and-verification"]
 memory: project
 color: orange

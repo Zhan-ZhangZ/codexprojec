@@ -2,15 +2,19 @@
 name: architect
 description: Pre-implementation architecture agent. Analyzes project structure, generates repo-map, designs task graph, identifies architectural seams and parallel workstreams.
 tools: Read, Glob, Grep, Bash
+allowed-tools: Read Glob Grep Bash(git:*) Bash(find:*) Bash(ls:*) Bash(cat:*) Bash(wc:*)
 disallowedTools: Write, Edit
-model: opus
-model_fallback: claude-sonnet-4-6
+model: "claude-opus-4-8[1m]"
 permissionMode: plan
 maxTurns: 30
+effort: xhigh
+fallback_model: "claude-sonnet-4-6"
+fallback_effort: high
+fallback_reason: cost_optimization
+context: fork
+effort_fallback: high
 skills: ["05-architecture-and-stack", "03-planning-and-research"]
 memory: project
-effort: xhigh
-effort_fallback: high
 color: purple
 ---
 You are a software architect. You run BEFORE any implementation begins.

@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "hono-api"
 priority: 2
 pack: "backend"
@@ -11,6 +13,8 @@ paths:
 ---
 
 # Hono API Rules
+
+Define Hono-on-Workers API patterns including RPC mode, WorkerEntrypoint bindings, Zod middleware, and structured error responses for every endpoint.
 
 ## Core patterns
 
@@ -36,6 +40,7 @@ paths:
 
 - `createFactory()` for reusable middleware chains with shared context
 - Method chaining: `app.use(cors()).get('/api/items', handler).post('/api/items', handler)`
+- Pin Hono **v4.12.x** (Apr 2026, ~14KB). For cold-start-sensitive Workers use the **`hono/tiny` preset** (SmartRouter, ~6KB) — trades slightly slower routing for smaller bundle.
 
 ## D1 patterns
 
@@ -57,6 +62,7 @@ paths:
 - **`wrangler.jsonc`** is the new default (not `.toml`)
 - **`secrets.required`** config property declares required secrets — validated at `wrangler dev`/`deploy`
 - **Remote bindings** via `remote: true` per binding routes operations through Miniflare to real prod resources during dev
+- **Dynamic Workers** (Developer Week 2026): stateful + auto-horizontal-scaling + long tasks ≤30 min in one primitive — for session management, real-time collab, multi-step workflows without hand-rolling DO/KV state
 
 ## Durable Objects
 
@@ -64,6 +70,9 @@ paths:
 - Paid storage billing began 2026-01-07
 - New DOs default to `new_sqlite_classes` not `new_classes`
 - Direct stub: `env.MY_DO.getByName(name)` (replaces `idFromName` → `get` two-step)
+- **WebSocket message size 1 MiB → 32 MiB** (2026); DOs now placeable in **Oceania** (lower latency for AU/NZ eyeballs)
+- **DO Facets** (Agents Week 2026): one DO spawns child facets each with isolated SQLite — for per-tenant / AI-generated-app state in a sandbox
+- Inspect/edit SQLite-DO data via **Data Studio** in the dashboard
 
 ## R2 patterns
 
@@ -106,3 +115,17 @@ paths:
 - Free, networkless verification for service-to-service identity
 - Use instead of static API keys between Workers
 - `CLERK_JWT_KEY` PEM verification for zero-RTT session checks at the edge
+
+## OpenAPI generation
+
+- **`hono-openapi`** is the OpenAPI serving layer: `describeRoute(meta)` per-route + `openAPISpecs(app, {openapi:'3.1.0',...})` to emit the spec document.
+- **`@asteasolutions/zod-to-openapi`** derives the spec from Zod schemas: `extendZodWithOpenApi(z)` once at startup + `OpenApiGeneratorV31` to build the registry — never hand-maintain OpenAPI YAML/JSON.
+- Use `@hono/zod-validator` (or `hono-openapi`'s own resolver) for per-route input validation; Zod remains the SSOT per `[[zod-everywhere]]`.
+- `@hono/zod-openapi` is **superseded** for new OpenAPI work — use `hono-openapi` + `zod-to-openapi` instead.
+
+## CF 2026 primitives (Agents/Dev Week — reach for these before rolling your own)
+
+- **Flagship** — native CF feature-flag service (KV + DO, sub-ms eval). Evaluate before the custom D1 flag tables in `feature-flags.md` for new builds.
+- **Cloudflare Agent Memory** — managed persistent agent memory (recall/forget over time); use for AI-native agents instead of hand-rolled state.
+- **Outbound Workers for Sandboxes** — programmable zero-trust egress proxy; inject credentials + enforce policy without exposing tokens to untrusted/AI-generated code (pairs with `ai-agent-security.md`).
+- **Artifacts** — git-compatible versioned storage for agent code/data outputs.

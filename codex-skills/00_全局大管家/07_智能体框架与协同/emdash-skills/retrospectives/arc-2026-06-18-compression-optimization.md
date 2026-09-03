@@ -1,0 +1,280 @@
+# Arc: Compression & Optimization (2026-06-18 →)
+
+Recurring `/loop 20m` arc. Goal: compress every `~/.agentskills` instruction file without shedding meaning, improve via research, restructure as atomic testable requirements, and integrate 50 research-grounded ideas. AI-optimized AND human-readable.
+
+- **Methodology**: `rules/instruction-compression-playbook.md` (the durable rule every iteration follows).
+- **Format**: `rules/brian-preferences.md` § Skill/Rule File Format.
+- **Cadence**: each fire — advance the file queue (compress a batch), implement 1-2 roadmap ideas, log results, commit+push (side repo).
+
+## How each iteration runs
+
+1. Read this tracker → pick next un-done batch from the file queue.
+2. Compress per the playbook (fan out to subagents for batches; verify with markdownlint).
+3. Implement the next-highest-value idea from the 50-idea roadmap not yet `[x]`.
+4. Update the queue + log below, commit + push. **Stage with `git add <content-dirs>` (rules commands NN-*/ agents), NOT `git add -u`** — `-u` silently skips untracked files (see iter 12 incident).
+5. Never recompress a `[x]` file. Never compress historical logs.
+
+## File queue — prose-heavy rules (compression targets, biggest first)
+
+Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[skip]` keep as-is (log/record).
+
+- `[skip]` principles-incident-log.md (413) — historical record, do not compress
+- `[x]` website-build-doctrine.md (247→198, -20%) — iter 1
+- `[x]` secret-auto-provisioning.md (229→195, -15%) — iter 2
+- `[x]` always.md (224→244, +9% RESTRUCTURE) — iter 3; already compression-optimal, 5 mega-bullets → scannable sub-bullets, 0 facts dropped
+- `[x]` supreme-polish.md (211→181, -14%) — iter 2
+- `[x]` code-style.md (196→147, -25%) — iter 1
+- `[x]` agent-resilience-discipline.md (221→120, -46%) — iter 2
+- `[x]` webhook-as-skill-pattern.md (217→137, -37%) — iter 2
+- `[x]` mcp-namespace-discipline.md (215→140, -35%) — iter 2
+- `[x]` thin-source-amplification.md (182→166, -9%) — iter 1
+- `[x]` lint-doctrine.md (179→173, -3%) — iter 3
+- `[x]` working-backwards.md (194→137, -29%) — iter 3
+- `[skip]` root-cause-validator-findings.md (167) — append-only RCA log, do not compress
+- `[x]` data-residency-by-default.md (199→175, -12%) — iter 3
+- `[x]` agent-selection.md (166→167, dense) — iter 4; taxonomy tables verbatim-required
+- `[x]` one-way-two-way-doors.md (176→148, -16%) — iter 4
+- `[x]` bash-matcher-guardrails.md (171→142, -17%) — iter 4
+- `[x]` auto-meta-work.md (145→139, -4%) — iter 1 (already near-pure bullets)
+- `[x]` source-site-enhancement.md (143→135, -6%) — iter 4
+- `[x]` verification-loop.md (142→132, -7%) — iter 4
+- `[x]` validator-precision-discipline.md (143→84, -41%) — iter 4
+- `[x]` state-is-the-enemy.md (212→180, -15%) — iter 3
+- `[x]` eval-mock-mode-discipline.md (189→165, -13%) — iter 4
+- `[x]` copy-writing.md (146→147, dense) — iter 4
+- `[x]` backwards-compatibility-removal-cadence.md (208→180, -13%) — iter 4
+- `[x]` documentation-as-code.md (224→167, -25%) — iter 3
+- `[x]` hardware-aware-programming.md (223→167, -25%) — iter 3
+- `[x]` inverted-abstraction-pyramid.md (211→167, -21%) — iter 3
+- `[x]` production-observability-default-on.md (210→190, -10%) — iter 3
+- `[x]` structured-logging.md (209→178, -15%) — iter 3
+- `[x]` csp-trusted-types.md (403→402, code-dominant) — iter 5
+- `[x]` fail-fast-build-fail-soft-prod.md (251→241, -4%) — iter 5
+- `[x]` conditional-ci-gates.md (240→209, -13%) — iter 5
+- `[x]` right-to-deletion.md (349→348, code-dominant) — iter 5
+- `[x]` prompt-cache-strategy.md (284→281, code-dominant) — iter 5
+- `[x]` supply-chain-integrity.md (231→214, -7%) — iter 5
+- `[x]` refund-automation.md (287→284, code-dominant) — iter 5
+- `[x]` pii-handling-discipline.md (275→243, -12%) — iter 5
+- `[x]` email-deliverability-implementation.md (334→333, code-dominant) — iter 5
+- `[skip]` webhook-receiver-architecture.md (523) — code reference (progressive disclosure, not gutting)
+- next batches: remaining 144 rules >120 lines, then numbered skill dirs, commands/, agents/
+
+## 50-idea roadmap (research-grounded — integrate over the arc)
+
+Status: `[ ]` planned · `[x]` shipped. Grouped by leverage.
+
+### Tooling / validators (build as `bin/*.mjs`, wire to lefthook/CI)
+
+- `[x]` 1. Token-budget dashboard — shipped `bin/audit-instruction-files.mjs` CHECK 1 (iter 1)
+- `[x]` 2. EARS / hedge linter — shipped `bin/audit-instruction-files.mjs` CHECK 2 (iter 1, MEDIUM)
+- `[x]` 3. Filler-word blocklist — shipped `bin/audit-instruction-files.mjs` CHECK 3 (iter 1, HIGH/CI)
+- `[x]` 4. Near-duplicate detector — `bin/audit-near-duplicates.mjs` (node-only 3-gram shingle Jaccard, no embeddings; advisory). Result: corpus tightly differentiated (max Jaccard 0.053) — NO merges needed; `prompt-cache`/`prompt-cache-strategy` confirmed complementary not duplicate.
+- `[ ]` 5. Contradiction detector — pairwise LLM judge on near-similar rules → `_contradiction-log.md`
+- `[x]` 6. Skill-discoverability auditor — `bin/audit-skill-discoverability.mjs` (lexical proxy, no embeddings; advisory). 0 HIGH (no-triggers); 43 no-summary + 11 thin/echo-trigger MEDIUMs surfaced.
+- `[x]` 7. Cross-link INTEGRITY validator — `bin/audit-crosslinks.mjs` wired as blocking lint gate 16 (every `[[slug]]` resolves; 0 broken). PageRank/promote-isolated half still open.
+- `[ ]` 8. Progressive-disclosure enforcer — fail reference chains >1 deep
+- `[ ]` 9. Vocabulary canonicalizer — `_glossary.json` synonym→canonical, find/replace hook
+- `[x]` 10. Compression-regression guard — `bin/check-compression-regression.mjs` wired as blocking lint gate 17 (>20% growth vs HEAD w/o `## Why this grew`/`<!-- grow-ok -->` fails). 0 violations.
+- `[ ]` 11. Stale-rule guard — frontmatter `last_verified`, fail if >365d
+- `[ ]` 12. Llms.txt auto-generator — synth `/llms.txt` from all descriptions (already have llms.txt — keep fresh)
+- `[x]` 13. Trigger-phrase collision auditor — `bin/audit-trigger-collisions.mjs` (advisory, NOT blocking: router loads ALL matching rules, so shared triggers are usually intentional). 29 collisions surfaced for review; `rebuild`/`sentry` flagged as genuinely worth disambiguating.
+- `[ ]` 14. Gerund-naming linter — skill `name` must be gerund form
+- `[ ]` 15. Perplexity line scorer — small LM flags <5-perplexity filler lines
+
+### Structure / authoring
+
+- `[x]` 16. Compression playbook rule (`rules/instruction-compression-playbook.md`) — shipped iter 1
+- `[ ]` 17. MoSCoW tier tags on every rule (`[MUST]`/`[SHOULD]`/`[COULD]`)
+- `[ ]` 18. Auto-TOC for files >100 lines
+- `[ ]` 19. Archive temporal patterns into `<details>`/`## Legacy`
+- `[ ]` 20. Critical-first-and-last reordering (U-curve recall)
+- `[ ]` 21. Behavior-anchored description template (`{gerund}. Use when {phrases}. Not when {exclusions}.`)
+- `[ ]` 22. Spec-driven skill section (`## Spec` before `## Instructions`)
+- `[ ]` 23. Skill dependency DAG (`depends_on:` frontmatter, acyclic check)
+- `[ ]` 24. Semantic version tags per rule
+- `[ ]` 25. Skill composition templates (extends: pattern skeletons)
+
+### Self-improvement / observation loops
+
+- `[ ]` 26. Skill activation trace log (which skill fired, on what trigger)
+- `[ ]` 27. Dead-skill detector (0 activations 90d → deprecate)
+- `[ ]` 28. Skill health score `(activation×eval×retrieval)/tokens`
+- `[ ]` 29. Hot-path rule promotion to `always.md`
+- `[ ]` 30. Auto-skill forge from repeated prompts (>3× same context)
+- `[ ]` 31. Rule diff summarizer → semantic CHANGELOG line per change
+- `[ ]` 32. Memory reconciliation cron (`/memory` ↔ rule files)
+- `[ ]` 33. Quarterly LLM-audited skill retrospective agent
+- `[ ]` 34. Eval-first gating (≥3 eval cases before merge)
+- `[ ]` 35. Inline eval harness (`__eval__.json` co-located)
+- `[ ]` 36. Zero-filler recall benchmark (Claude recalls N rules from file, <70% → rewrite)
+- `[ ]` 37. Continuous contradiction monitor (nightly)
+- `[ ]` 38. Agent-diversity review for skill authoring (retrieval/compression/contradiction/EARS auditors)
+
+### Navigation / visualization
+
+- `[ ]` 39. Knowledge graph of rules (nodes=rules, edges=link/conflict/depends/supersedes)
+- `[ ]` 40. Skill coverage map (trigger→skill bipartite, find gaps/collisions)
+- `[ ]` 41. Skill org-chart SVG (foundational vs leaf vs orphan)
+- `[ ]` 42. Acceptance-criteria generator (EARS rule → Gherkin stub)
+
+### Context / runtime
+
+- `[ ]` 43. Priority-weighted compaction (keep `[MUST]` verbatim, drop `[COULD]`)
+- `[ ]` 44. Instruction complexity classifier (freedom: high→prose, low→script/EARS)
+- `[ ]` 45. Token-budget allocation matrix (startup vs loaded vs reference per skill)
+- `[ ]` 46. Sub-agent summary-only architecture for info-dense domains
+- `[ ]` 47. Position-aware importance tagger
+- `[ ]` 48. Context-spill detector (inline >30-line blocks → extract to ref)
+- `[ ]` 49. Skill changelog as training signal (meta-skill learns what improves perf)
+- `[ ]` 50. Cross-harness sync validator (AGENTS.md ↔ .cursor ↔ CLAUDE.md semantic diff)
+
+## Repo health blockers — ✅ ALL RESOLVED iter 2 (gate now 15 pass · 0 fail)
+
+`npm run lint` was repo-wide red from pre-existing drift (not caused by this arc). Iter 2 greened it fully — commits no longer need `--no-verify`.
+
+1. ✅ **markdownlint scanned generated trees** — root cause: markdownlint-cli2 ignores `.markdownlintignore`. Added `.markdownlint-cli2.jsonc` with `ignores` for node_modules + cross-platform mirror dirs (`.cursor`,`.windsurf`,…) + `mcp-servers/` + `templates/` + `template/` + forge-generated `skills/`. Scope dropped 4969→429 authored files; `--fix` cleaned the rest. 0 errors.
+2. ✅ **26 rules + 3 numbered skills not in packs** — added all to their claimed `_packs/*.yml`; created `security.yml`, `compliance.yml`, `documents.yml`, `business.yml`. Distributed the 7 field-less meta-rules across ai/core/testing (kept `core` lean). validate-packs + pack-frontmatter + skill-submodules all clean.
+3. ✅ **prettier** — added `mcp-servers/` to `.prettierignore`; `prettier --write` on the authored json/yaml.
+4. ✅ **broken links** — fixed 6 `../admin-api-keys` → real OpenAI URL across openai README + command docs; patched `validate-skills.sh` to skip `node_modules/` + forge-generated `skills/` (own their `webhook:`/relative links).
+
+### Deferred (real work, logged for future iters)
+
+- **Split forge-generated API skills** (github 1237, posthog 2698, stripe 663, openai 530 lines) via progressive disclosure — currently exempted from the 500-line cap in `validate-skills.sh`. Fix `forge-skill-from-openapi` to emit SKILL.md index + reference files (ideas 18/24/48). TODO marked in the script.
+- **Wire `bin/audit-instruction-files.mjs` to lefthook** now the gate is green — first add inline-code-span skip + `<!-- validator-ignore -->` hatch (iter-1 known refinement).
+
+## Iteration log
+
+### iter 14 — 2026-06-19 (idea #6 + SATURATION ASSESSMENT)
+
+- Built `bin/audit-skill-discoverability.mjs` (idea #6): flags rules/skills that route poorly. **0 HIGH findings** — every trigger-less file is correctly `paths: ["*"]` always-load. 43 `no-summary` + 11 thin/echo-trigger MEDIUMs (stylistic, advisory).
+- **Arc saturation reached.** Evidence: (a) compression complete — iters 13-14 found only code-heavy or already-done files; (b) the audits now return CLEAN (near-dup 0, discoverability 0 HIGH, trigger-collisions only intentional) — they confirm health rather than find issues; (c) compression commits net-shrank (iter10 +394/-907, iter11 +226/-283) but recent fires are additive tooling of decreasing marginal value.
+- **Recommendation surfaced to user**: lengthen the `/loop 20m` cron to daily or stop it. The compression mandate is DONE; remaining 50-idea items need infra not available node-only (embeddings, runtime activation logs) or are marginal.
+- Gate 17 pass · 0 fail. 9 of 50 ideas shipped (#1,2,3,4,6,7,10,13,16); 6 tools total, 3 wired as gates.
+
+### iter 13 — 2026-06-19 (idea #4 + final prose files)
+
+- Built `bin/audit-near-duplicates.mjs` (idea #4): pure-lexical 3-gram shingle Jaccard over rules/ (no embeddings, node-only, advisory/never-block). **Finding: corpus is tightly differentiated — max similarity 0.053, zero real duplicates.** The one naming-tell pair (`prompt-cache` vs `prompt-cache-strategy`) confirmed complementary (load-order vs cache_control API), not a dup. The arc's earlier one-canonical-per-concept discipline held.
+- Compressed the final 4 genuinely-uncompressed prose files: coolify-docker-proxmox 265→163 (-38%), 06-build-and-slice-loop/build-breaking-rules 191→143 (-25%), llm-evals 472→363 (-23%, code preserved), build-prompts 940→807 (-14%, 77% code preserved).
+- **Compression mandate now essentially complete**: every prose-heavy rule + skill-dir + command file compressed; remaining large files are legitimate code references.
+- Gate 17 pass · 0 fail. Documented near-dup tool in playbook.
+- Next: remaining 50-idea roadmap (#8 progressive-disclosure enforcer, #11 stale-rule guard, #18 auto-TOC, #6 description-retrieval scorer).
+
+### iter 12 — 2026-06-19 (CRITICAL: 91 untracked files committed)
+
+- **Process bug found + fixed**: `git add -u` (used iters 1-11) stages only TRACKED modifications — it silently skipped 91 untracked instruction `.md` files. Result: compression work on iter 4-5 code-heavy rules (csp-trusted-types, right-to-deletion, prompt-cache-strategy, refund-automation, pii-handling, supply-chain-integrity, conditional-ci-gates) + 84 other legitimate skill/command files (34 commands/, 26 rules/, 12 05-arch/, …) were on disk but NEVER committed. On a clean clone they'd be missing; cross-links + pack memberships to them would break.
+- **Fix**: `git add` across all content dirs → 91 new files committed (`6e81117`), 0 markdownlint errors, gate 17 pass. Repo is now whole + durable. Methodology above updated to stage by dir, not `-u`.
+- Lesson for `[[prompt-as-training-signal]]`: verify `git status` shows no untracked content after each commit.
+- **Still need compression** (now tracked, reported sizes didn't persist as untracked): activation-funnel (325), migrate-to-hardened (299), llm-evals (472), og-card-pipeline (548), mcp-server-registry (432), http-server-on-workers (389). Next batch.
+
+### iter 11 — 2026-06-19 (commands + SKILL indexes + skill dirs)
+
+- Compressed 16 more files (~600 lines cut net), all 0 markdownlint errors, SKILL.md frontmatter intact:
+  - `15-site-generation/non-technical-owner-onboarding.md` 173→116 (-33%)
+  - `05-architecture-and-stack/shared-api-pool.md` 182→128 (-30%, 185 keys preserved)
+  - `07-quality-and-verification/visual-inspection-loop.md` 296→209 (-29%)
+  - `13-observability-and-growth/activation-funnel.md` 328→237 (-28%)
+  - `15-site-generation/template-improvements-100.md` 173→130 (-25%, 100 ideas)
+  - `commands/deploy-forged-mcp.md` 226→176 (-22%)
+  - `commands/audit-prune-completeness.md` 219→182 (-17%)
+  - `12-media-orchestration/SKILL.md` 167→148 (-11%), `commands/forge-stack-pack.md` 289→257 (-11%)
+  - `commands/audit-tool-surface.md`, `audit-cron-arc.md`, `audit-doctrine.md`, 4 SKILL indexes (13/16/10/12), `forge-webhook-skill.md` — modest/code-dominant, preserved.
+- Gate 17 pass · 0 fail. 81 instruction files compressed total.
+- Next: remaining commands/ + agents/ + smaller NN-*/ files; then idea #4 semantic dedup.
+
+### iter 10 — 2026-06-19 (more skill dirs + SKILL indexes)
+
+- Compressed 12 more files (~900 lines cut), all 0 markdownlint errors, SKILL.md frontmatter intact:
+  - `09-brand-and-content-system/seo-and-keywords.md` 215→130 (-40%)
+  - `04-preference-and-memory/wisdom-and-human-psychology.md` 227→143 (-37%)
+  - `07-quality-and-verification/chrome-and-browser-workflows.md` 204→128 (-37%)
+  - `07-quality-and-verification/computer-use-automation.md` 232→149 (-36%)
+  - `13-observability-and-growth/stripe-billing.md` 323→213 (-34%)
+  - `13-observability-and-growth/square-payments.md` 325→229 (-30%)
+  - `09-brand-and-content-system/SKILL.md` 266→187 (-30%)
+  - `15-site-generation/local-seo.md` 219→177 (-19%)
+  - `15-site-generation/SKILL.md` 254→220 (-13%)
+  - `01-operating-system/autonomous-orchestrator.md` 205→186 (-9%)
+  - `15-site-generation/pseo-templates.md`, `12-media-orchestration/notebooklm-pipeline.md` — code-dominant, ~0-1% (preserved).
+- Gate 17 pass · 0 fail. 65 instruction files compressed total.
+- Next: remaining NN-*/ + commands/ + agents/ files; then idea #4 semantic dedup.
+
+### iter 9 — 2026-06-19 (more numbered skill dirs)
+
+- Compressed 9 more skill-dir/command files, ~3163→2330 lines (~833 cut), all 0 markdownlint errors, requirement counts verified equal:
+  - `07-quality-and-verification/build-breaking-rules.md` 448→343 (-23%, 18 reqs)
+  - `11-motion-and-interaction-system/build-breaking-rules.md` 442→318 (-28%, 16 reqs)
+  - `15-site-generation/research-pipeline.md` 363→262 (-28%)
+  - `12-media-orchestration/30-ideogram-methods.md` 315→231 (-27%)
+  - `15-site-generation/page-set-expansion.md` 376→278 (-26%)
+  - `15-site-generation/domain-features.md` 357→263 (-26%)
+  - `01-operating-system/architecture-thought-loop.md` 284→187 (-34%, all 30 points)
+  - `commands/migrate-to-hardened.md` 332→255 (-23%, all 8 steps + flags)
+  - `15-site-generation/small-business-mode.md` 246→193 (-22%)
+- Gate 17 pass · 0 fail. 53 instruction files compressed total.
+- Next: remaining mid-size NN-*/ + commands/ files (notebooklm-pipeline, pseo-templates, computer-use-automation, SKILL.md indexes, other commands/), then idea #4 semantic dedup.
+
+### iter 8 — 2026-06-19 (expand coverage to numbered skill dirs)
+
+- Compression reached the numbered skill dirs (`NN-*/*.md`) — far larger prose than rules/. Compressed 7 checklist files, ~6700→5120 lines (~1580 cut):
+  - `15-site-generation/build-breaking-rules.md` 2179→1684 (-23%, 66 sections preserved)
+  - `12-media-orchestration/build-breaking-rules.md` 898→507 (-44%, 36 reqs)
+  - `10-experience-and-design-system/build-breaking-rules.md` 646→376 (-42%, 33 reqs)
+  - `15-site-generation/template-system.md` 942→805 (-15%)
+  - `15-site-generation/media-acquisition.md` 820→683 (-17%)
+  - `15-site-generation/quality-gates.md` 700→635 (-9%)
+  - `09-brand-and-content-system/build-breaking-rules.md` 516→430 (-17%)
+- All 0 markdownlint errors; distinct-requirement counts verified equal before/after (no rule dropped); code blocks + thresholds + cross-links preserved.
+- Gate 17 pass · 0 fail. 44 instruction files compressed total (37 rules + 7 skill-dir files).
+- Next: remaining NN-*/ files (quality-gates other dirs, research-pipeline, domain-features, 30-ideogram-methods, notebooklm-pipeline, pseo-templates, architecture-thought-loop, small-business-mode), then commands/, then idea #4 semantic dedup.
+
+### iter 7 — 2026-06-19 (tooling integration)
+
+- Built + wired `bin/check-compression-regression.mjs` (idea #10) as **blocking lint gate 17**: any `rules/*.md` growing >20% vs git HEAD without `## Why this grew` / `<!-- grow-ok -->` fails the build. 0 violations (arc has been shrinking files). Locks in compression gains permanently.
+- Built `bin/audit-trigger-collisions.mjs` (idea #13): inverted index of all 505 distinct triggers across 124 files → 29 collisions. **Kept advisory, NOT blocking** — Brian's router loads ALL matching rules, so shared triggers (`logging` across 3 observability rules, `rollback` across 3 recovery files) are intentional, not bugs. Per validator-precision-discipline a 29-finding HIGH gate would cry wolf. Genuinely worth disambiguating: `rebuild` (3 site-build contexts), `sentry`/`tracing`/`observability` (rule vs skill 13).
+- Gate now 17 pass · 0 fail. Both new tools documented.
+- Next: idea #4 semantic dedup (needs embeddings — eval if doable node-only), #11 stale-rule guard, #18 auto-TOC for files >100 lines, #8 progressive-disclosure enforcer.
+
+### iter 6 — 2026-06-19 (PIVOT: compression → tooling integration)
+
+- Built + wired `bin/audit-crosslinks.mjs` (idea #7): validates every `[[slug]]` resolves to a rule/command/skill/numbered-dir `.md`. Resolution across all 5 target types; skips fenced + inline code. **Wired as blocking lint gate 16** — 0 broken links across the corpus (initial 45 → all false positives once full resolution added; cross-link graph is healthy).
+- Refined `bin/audit-instruction-files.mjs`: strip inline-code spans before filler/hedge matching + `<!-- validator-ignore: filler|hedge -->` hatch. Filler false positives 8→0. Fixed 3 real filler findings (context-spillover, forge-with-test-scaffold-pattern, monitor-orchestration).
+- Documented both validators in `instruction-compression-playbook.md`.
+- Gate now 16 pass · 0 fail (added crosslinks). Compression phase complete (37 rules done); arc now in tooling-integration phase.
+- Next: idea #10 compression-regression guard, #11 stale-rule guard, #13 trigger-phrase collision, #4 semantic dedup.
+
+### iter 5 — 2026-06-19
+
+- Compressed 9 larger rules. Prose-heavy gains: conditional-ci-gates (-13%), pii-handling-discipline (-12%), supply-chain-integrity (-7%), fail-fast (-4%). Code-dominant files (csp-trusted-types, right-to-deletion, prompt-cache-strategy, refund-automation, email-deliverability-implementation) preserved verbatim per playbook — only surrounding prose tightened (~28-30% of prose lines).
+- **Inflection point**: remaining long rules are code-dominant reference files where the playbook mandates progressive disclosure, NOT gutting. Pure line-compression has hit diminishing returns (~0-1% on code-heavy files).
+- **Pivot for next iters**: shift from compression passes to integrating the 50-idea roadmap (highest-value un-shipped: #10 compression-regression guard, #11 stale-rule guard, #17 MoSCoW tier tags, #18 auto-TOC, #4 semantic dedup). Wire `bin/audit-instruction-files.mjs` into lefthook (refine inline-code-span skip first).
+- Gate green throughout (15 pass · 0 fail). 37 rule files done, 3 skipped.
+
+### iter 4 — 2026-06-19
+
+- Compressed 9 rules: validator-precision-discipline (-41%), bash-matcher-guardrails (-17%), one-way-two-way-doors (-16%), backwards-compatibility-removal-cadence (-13%), eval-mock-mode-discipline (-13%), verification-loop (-7%), source-site-enhancement (-6%); agent-selection + copy-writing already maximally dense (taxonomy/banned-word lists verbatim). All code blocks + thresholds + cross-links preserved.
+- Marked `root-cause-validator-findings.md` `[skip]` — append-only RCA log (same class as principles-incident-log).
+- Gate green throughout (15 pass · 0 fail). 28 rule files done, 2 skipped.
+- Next batch: remaining rules/*.md >120 lines (csp-trusted-types, email-deliverability-implementation, mcp-server-hardening, pii-handling-discipline, prompt-cache-strategy, refund-automation, right-to-deletion, fail-fast-build-fail-soft-prod, conditional-ci-gates, supply-chain-integrity, …).
+
+### iter 3 — 2026-06-19
+
+- Compressed 9 rules: working-backwards (-29%), documentation-as-code (-25%), hardware-aware-programming (-25%), inverted-abstraction-pyramid (-21%), structured-logging (-15%), state-is-the-enemy (-15%), data-residency-by-default (-12%), production-observability-default-on (-10%), lint-doctrine (-3%). All facts/thresholds/code blocks preserved.
+- Restructured `always.md` (loaded every prompt): 5 wall-of-text mega-bullets → scannable nested sub-bullets. +9% lines but far more readable; 0 constraints/gates/incidents dropped (HTMLRewriter, sitemap-lastmod, robots/security.txt CF gotchas, llms.txt all intact). Already compression-optimal so readability was the win.
+- Gate stayed green throughout (15 pass · 0 fail). 19 rule files now done total.
+- Next batch: root-cause-validator-findings, agent-selection, one-way-two-way-doors, bash-matcher-guardrails, source-site-enhancement, verification-loop, validator-precision-discipline, eval-mock-mode-discipline, copy-writing, backwards-compatibility-removal-cadence.
+
+### iter 2 — 2026-06-19
+
+- Compressed 5 files: secret-auto-provisioning (-15%), supreme-polish (-14%), agent-resilience-discipline (-46%), webhook-as-skill-pattern (-37%), mcp-namespace-discipline (-35%). Frontmatter + UUIDs + thresholds + worked examples preserved.
+- **Greened the entire `npm run lint` gate** (was 5 fail → 0 fail; see Repo health blockers, all ✅). Created 4 new packs, fixed markdownlint scoping, prettier, broken links. Commits no longer need `--no-verify`.
+- Next batch: always.md (careful), lint-doctrine, working-backwards, state-is-the-enemy, documentation-as-code, hardware-aware-programming, inverted-abstraction-pyramid, production-observability-default-on, structured-logging.
+
+### iter 1 — 2026-06-18
+
+- Shipped `rules/instruction-compression-playbook.md` (idea 16) — research-grounded methodology rule.
+- Shipped `bin/audit-instruction-files.mjs` (ideas 1+2+3) — token-budget + EARS/hedge + filler audit; `--json`/`--ci` flags. Scans 144 rules: 5 budget-HIGH, 64 hedge-MEDIUM, 8 filler-HIGH.
+- Compressed 4 files: website-build-doctrine, code-style, thin-source-amplification, auto-meta-work. All markdownlint-clean, frontmatter + cross-links + thresholds preserved.
+- Created this tracker + 50-idea roadmap from heavy web research (Anthropic Skills, context-engineering, LLMLingua, EARS, llms.txt).
+- **Known refinement (next iter)**: audit script flags filler examples inside backtick spans (playbook L34/37/70) + a section header in prompt-as-training-signal as false positives. Add inline-code-span skip + `<!-- validator-ignore: filler -->` escape hatch per `[[validator-precision-discipline]]` before wiring `--ci` to lefthook.
+- **Next batch**: secret-auto-provisioning, always.md (careful), supreme-polish, agent-resilience-discipline, webhook-as-skill-pattern, mcp-namespace-discipline.

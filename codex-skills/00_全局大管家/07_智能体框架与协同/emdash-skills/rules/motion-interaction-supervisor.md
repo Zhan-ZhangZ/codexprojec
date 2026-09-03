@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "motion-interaction-supervisor"
 priority: 3
 pack: "design"
@@ -6,7 +8,7 @@ triggers:
   - "motion"
   - "animation"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # Motion + Interaction Supervisor

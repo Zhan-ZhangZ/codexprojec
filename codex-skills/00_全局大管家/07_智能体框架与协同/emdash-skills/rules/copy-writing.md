@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "copy-writing"
 priority: 2
 pack: "content"
@@ -8,10 +10,12 @@ triggers:
   - "cta"
   - "anti-slop"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # Copy Rules
+
+Write sharp, punchy, Flesch ≥60 copy with action-verb CTAs, servant framing, and zero AI-slop across all marketing and UI surfaces.
 
 ## Voice
 
@@ -29,6 +33,18 @@ paths:
 - **Paragraphs** — 2 max
 - Numbers: specific.
 
+## Human voice (anti-slop)
+
+For instructional/technical prose (skills, rules, docs) — not marketing copy, but the same slop-removal discipline applies. From `[[skill-authoring-contract]]`:
+
+- Sound like one sharp engineer wrote it. No throat-clearing, no "it's worth noting."
+- Fragments beat full sentences when they read clean.
+- Cut every word that survives its own deletion.
+- No emoji-as-decoration, no hype adjectives, no restating the heading in the first bullet.
+- No "in today's fast-paced world" / "unlock the power of" / "seamlessly integrate" — these are the copy equivalent of `sleep(300)` in a test. Delete them.
+
+See `[[skill-authoring-contract]]` § Human voice for the canonical version; `[[micro-test-instruction-wording]]` for proving guidance wording actually binds.
+
 ## Banned words (grep before ship, replace with concrete)
 
 ```
@@ -40,11 +56,11 @@ landscape, ecosystem, streamline, cornerstone, pivotal, myriad,
 plethora, supercharge, unleash, boundless
 ```
 
-The verbs `transform | unlock | empower | redefine | reimagine | elevate | transcend` allowed when literally accurate. Banned only as filler hype.
+- `transform | unlock | empower | redefine | reimagine | elevate | transcend` — allowed only when literally accurate; banned as filler hype.
 
 ## Banned unsourced authority signals
 
-Replace w/ cited concrete number `(Author, Year)` OR delete. See `citations.md`.
+- Replace with cited concrete number `(Author, Year)` OR delete. See `citations.md`.
 
 ```
 studies show, research suggests, most users, industry-leading, trusted by,
@@ -63,28 +79,28 @@ typically, generally
 ## pSEO copy
 
 - 5 page types: integration | comparison | use-case | template | location
-- Each gets unique H1 + meta desc + 2 paragraphs
-- Never templatize verbatim — vary sentence structure, swap synonyms, reorder points
+- Each gets unique H1 + meta desc + 2 paragraphs.
+- Never templatize verbatim — vary sentence structure, swap synonyms, reorder points.
 
 ## GEO / AI search
 
-- Quotable answer blocks 40-60 words (LLMs cite these)
-- **FAQPage schema** has highest AI-citation rate (ChatGPT / Perplexity / Google AI Overviews) — mandate on every content page
-- JSON-LD facts MUST also appear as visible HTML body text (ChatGPT/Claude don't fetch JSON-LD on direct read)
-- Lead paragraphs answer query directly in <40 words
-- **EEAT signals** — author bio + `Person` schema w/ `sameAs` + dated revision + ownership statement outweigh keyword density (Dec 2025 core update favored visible expertise)
+- Quotable answer blocks 40-60 words (LLMs cite these).
+- **FAQPage schema** has highest AI-citation rate — mandate on every content page.
+- JSON-LD facts MUST also appear as visible HTML body text (ChatGPT/Claude don't fetch JSON-LD on direct read).
+- Lead paragraphs answer query directly in <40 words.
+- **EEAT signals** — author bio + `Person` schema w/ `sameAs` + dated revision + ownership statement outweigh keyword density.
 
 ## Anti-slop
 
-- Grep for banned words before finalizing
-- Replace w/ specific, concrete language
+- Grep for banned words before finalizing.
+- Replace with specific, concrete language.
 - "Our innovative platform" → "Ship SaaS in 4 weeks."
 
 ## Sourced facts (tiered by surface)
 
 - **Long-form** (blog, research, `/about`, `/financials`, `/annual-report`, `/press`) — every quantitative claim MUST cite APA 7th inline `(Author, Year)` + reference list. Build gate applies.
-- **Marketing** (hero, CTA, landing H1/H2, feature cards, pricing tiles — routes: `/`, `/pricing`, `/features`, `/services/*`, `/c/*`, `/products/*`) — claims must be true but inline APA destroys punch. Link to `/sources` or `/about` instead. Build gate exempts these surfaces.
-- **Banned-phrase replacement** ("studies show", "industry-leading") applies everywhere
+- **Marketing** (hero, CTA, landing H1/H2, feature cards, pricing tiles — routes: `/`, `/pricing`, `/features`, `/services/*`, `/c/*`, `/products/*`) — claims must be true; link to `/sources` or `/about` instead of inline APA. Build gate exempts these surfaces.
+- Banned-phrase replacement applies everywhere.
 - See `citations.md` for full mandate + build gate.
 
 ## Contact
@@ -97,7 +113,7 @@ typically, generally
 - Real, primary-sourced photographs only.
 - NEVER DALL·E / GPT Image / Midjourney / Ideogram / Stable Diffusion / generic stock next to dated events.
 - Source from Wikimedia Commons, Library of Congress, NPGallery, NPS, NYPL Digital, state historical societies, institution archives, or in-repo Squarespace mirrors.
-- After ≥3 deep searches, if no real image exists: NO photo — typographic year-card only.
+- After ≥3 deep searches with no real image: NO photo — typographic year-card only.
 - Blank > fake. Full: `timeline-authenticity.md`.
 
 ## Production-review copy gate (pre-ship sweep)
@@ -120,13 +136,13 @@ Validator: `validate-production-copy.mjs` greps `dist/**/*.{html,js,css}` and li
 
 Financial numbers carry `_status: 'audited' | 'estimated' | 'placeholder'` tag in source.
 
-- `audited` ships to public pages
-- `estimated` ships w/ visible "estimate pending audit" pill
-- `placeholder` blocks build
+- `audited` — ships to public pages.
+- `estimated` — ships with visible "estimate pending audit" pill.
+- `placeholder` — blocks build.
 
 ### Person names
 
-Only ship names confirmed against:
+Only ship names confirmed against one of:
 
 1. A public LinkedIn
 2. An institutional staff page
@@ -134,3 +150,14 @@ Only ship names confirmed against:
 4. Explicit parish/institution confirmation logged in `_confirmations.json`
 
 Otherwise slot stays blank ("Executive Director" w/ no name) or omitted. Blank > faked.
+
+### Fabricated-people build gate (DETERMINISTIC — ship in every people-bearing site)
+
+- Ship `validate-no-fabricated-people.mjs` wired into `check` + `build` — the "Blank > faked" rule is unenforceable without it.
+- **Detects TWO shapes:**
+  - (1) Person-like `name: '<literal>'` (`First L.` / `First Last` / `Rev. James O.`, plus org-endorser tokens `Bank|Corp|Inc|LLC|Foundation|Company|University|Reserve|Group|Partners`) paired in the same object window with `quote:` / `reviewBody:` / `testimonial:`, OR `body:` alongside `role:`/`years:`.
+  - (2) Object-KEY attribution — a person-like quoted KEY mapped to a quote-like value (`'Barbara Cary': 'a sentence they never said.'`).
+- **NOT flagged:** staff directories (name + role, no quote), citation authors, blog posts (no name+role+body trio), dynamic `name: t.name` (no string literal).
+- **`_confirmations.json`** is the allowlist: `{ "confirmed_voices": [] }`. A name enters only when the testimonial is collected with permission AND verified (signed release / public LinkedIn / staff page / press release).
+- Partnerships tied to a real primary source are NOT fabrications — the gate targets attributed first-person quotes, not sourced org mentions.
+- **Reference incident (njsk.org, 2026-06):** invented testimonials shipped to prod across 3 surfaces. All used `First L.` personas + first-person quotes + `Person`/`Review` JSON-LD. Fix = remove people, reframe to cited patterns. Reference impl: `scripts/validate-no-fabricated-people.mjs` + `_confirmations.json`.

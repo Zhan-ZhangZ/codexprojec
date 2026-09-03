@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "cinematic-ui-patterns"
 priority: 3
 pack: "design"
@@ -8,10 +10,14 @@ triggers:
   - "stat"
   - "appReveal"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # Cinematic UI Patterns
+
+<!-- grow-ok --> <!-- React (default-stack) equivalents added; was Angular-only -->
+
+Mandate `<app-rolling-counter>` for every numeric stat and `[appReveal]` fade-in for every section on all projectsites.dev surfaces; no static alternatives.
 
 ## Standing rule
 
@@ -78,6 +84,10 @@ paths:
 - Module-scoped order counter resets per page reload — every first-paint re-staggers
 - Safe-by-default — host's final state is visible; the animation only adds the entrance flourish
 
+### ⚠️ NEVER `appReveal` on a live-filtered/result `@for` loop (the "list disappears" trap)
+
+`appReveal` starts its host at `opacity:0` + `translateY(16px)` and animates in — a FIRST-PAINT flourish. Put it on a per-item `@for (x of filtered())` loop and every filter keystroke re-mounts the freshly-matched items at opacity 0 and re-runs the enter animation, so the list visibly **disappears / flashes / "waits on stale animations"** on each change. Keep `appReveal` on the STATIC shell (header, result-bar, section roots); result/filtered items render IMMEDIATELY at full opacity with no per-item reveal. **Test it with an immediate-visible-state assertion** — a real-DOM render asserting `querySelector('.item[appReveal]')` is `null` (items don't re-reveal) while a static `[appReveal]` host remains. Reference incident: projectsites.dev `/admin/apps` catalog cards (§17, fixed 2026-06-17).
+
 ## Canonical usage — `<app-before-after-slider>`
 
 ```html
@@ -99,7 +109,32 @@ paths:
 - `clip-path: inset(0 X% 0 0)` reveals the after-image; cyan rule + circular grab-handle ring
 - `prefers-reduced-motion: reduce` → instant snap, no clip-path transition
 
-## Component checklist (every Angular component on projectsites.dev)
+## React (DEFAULT stack — React 19 + Vite) equivalents
+
+The mandate is stack-agnostic; the behavior contracts above apply IDENTICALLY. On the default React stack, ship these as the parallel set (not Angular):
+
+- `<RollingCounter>` — `src/components/RollingCounter.tsx` (replaces `<app-rolling-counter>`)
+- `<Reveal>` wrapper or `useReveal()` hook — `src/components/Reveal.tsx` (replaces `appReveal` directive)
+- `<BeforeAfterSlider>` — `src/components/BeforeAfterSlider.tsx`
+- `<TrustStrip>` — `src/components/TrustStrip.tsx`
+
+```tsx
+// Same contract: rAF easeOutQuart count-up, IntersectionObserver threshold 0.4,
+// Intl.NumberFormat, tabular-nums, prefers-reduced-motion snap, SSR-safe final value.
+<RollingCounter value={2480} suffix="+" />
+<RollingCounter value={99.99} decimals={2} suffix="%" />
+<RollingCounter value={50000} prefix="$" duration={1800} />
+
+// Reveal: WAAPI Element.animate, 16px rise + fade 520ms, stagger 80ms by mount order,
+// IO fallback (threshold 0.12, rootMargin '0px 0px -6%') below fold, RM-safe final state.
+<Reveal><h2>Bold headline</h2></Reveal>
+<Reveal delay={120}><div>Delayed</div></Reveal>
+```
+
+- Implement count-up + reveal in a `useEffect` + `useRef`; guard `typeof window` for SSR/SSG (snap to final).
+- Never `<Reveal>` a live-filtered list root (same "list disappears" trap) — reveal the container once, not per-filter-result.
+
+## Component checklist (every Angular OR React component on projectsites.dev)
 
 - Numeric stat → `<app-rolling-counter>` (not raw `{{ value }}`)
 - Section root → `appReveal` (not static or pure `*ngIf` toggle)

@@ -50,6 +50,8 @@ paths:
 
 # 06 — Build and Slice Loop
 
+Implement features in real vertical slices (UI→API→DB→tests→deploy) starting with the homepage; no placeholders, no stubs.
+
 ## Vertical-slice principle
 
 Every iteration ships ONE feature end-to-end through every layer (UI → API → DB → tests → deploy). Never half a feature across two passes.
@@ -58,18 +60,16 @@ Every iteration ships ONE feature end-to-end through every layer (UI → API →
 
 - First slice is always the homepage hero + nav + footer
 - Real H1, real meta tags, real OG card, real JSON-LD
-- Deploy this minimal version BEFORE adding any other route
-- Establishes the design system, the auth layer, the analytics tier, the deploy pipeline
-
-Per `rules/website-build-doctrine.md` Phase 0 / Phase 1.
+- Deploy before adding any other route — establishes design system, auth layer, analytics tier, deploy pipeline
+- Per `rules/website-build-doctrine.md` Phase 0 / Phase 1
 
 ## Anti-placeholder (NON-NEGOTIABLE)
 
 - ❌ Lorem ipsum
 - ❌ TODO / FIXME / TBD in shipped user-visible strings (source-comment TODOs OK per `rules/todos-are-roadmap.md`)
-- ❌ Gray placeholder boxes / silhouettes (real content or no element)
+- ❌ Gray placeholder boxes / silhouettes
 - ❌ "Coming soon" without firm date
-- ❌ Stub images / generic SVGs (real photos, AI-generated brand-aligned, or nothing)
+- ❌ Stub images / generic SVGs
 - ❌ "John Doe" / "Jane Doe" / "company.com" / "example.com"
 - ❌ Bracket placeholders `[Insert Name]` / `[Your Title]`
 - ❌ Single-character "x" / "?" labels
@@ -100,7 +100,7 @@ src/worker/
 │   ├── schema.ts         # Drizzle source of truth
 │   └── index.ts          # getDb helper
 ├── routes/<feature>.ts   # Hono sub-app per feature
-├── lib/<feature>.ts      # business logic, reusable across routes
+├── lib/<feature>.ts      # business logic
 ├── middleware/           # auth, tenant, rate-limit
 └── types.ts              # Env + Variables
 ```
@@ -112,7 +112,7 @@ src/web/
 ├── main.tsx              # entry — router, providers
 ├── pages/<Page>.tsx      # one per route
 ├── components/
-│   ├── ui/               # shadcn primitives (button, dialog, input)
+│   ├── ui/               # shadcn primitives
 │   ├── <feature>/        # feature-specific components
 │   └── shared/           # Header, Footer, ErrorBoundary
 ├── lib/                  # api client, auth context, hooks
@@ -146,7 +146,7 @@ e2e/
 ## Build loop (per slice)
 
 1. **Write failing test** (Playwright TDD-RED first per `rules/e2e-tdd-organization.md`)
-2. **Author migration** (drizzle/0NNN_<feature>.sql) + update `db/schema.ts`
+2. **Author migration** (`drizzle/0NNN_<feature>.sql`) + update `db/schema.ts`
 3. **Apply locally** (`npm run db:apply:local`)
 4. **Implement** (route, lib, page, components)
 5. **Typecheck** (`npm run typecheck` clean)
@@ -155,7 +155,7 @@ e2e/
 8. **Deploy** (`npm run deploy`)
 9. **Prod E2E** (`npm run e2e:prod` against PROD_URL)
 10. **Verify console** (zero errors, zero CSP violations, zero failed resources)
-11. **AI vision QA** (6bp screenshots → vision rubric ≥8/10)
+11. **AI vision QA** (6bp screenshots → vision rubric ≥9/10)
 12. **Commit + push** (conventional commits per `rules/main-only-branch.md`)
 13. **Update `e2e/FEATURES.md`** + CHANGELOG
 
@@ -169,6 +169,6 @@ e2e/
 
 ## When to stop adding sections
 
-Per `rules/website-build-doctrine.md` Phase 2: keep adding until next would dilute. Stop criterion is "next hurts," never "we have enough."
+Per `rules/website-build-doctrine.md` Phase 2: keep adding until next would dilute. Stop when "next hurts," never "we have enough."
 
 ## See submodules: vertical-slice.md, file-organization.md, anti-placeholder.md.

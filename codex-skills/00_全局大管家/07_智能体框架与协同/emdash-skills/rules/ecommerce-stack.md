@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "ecommerce-stack"
 priority: 3
 pack: "ecommerce"
@@ -13,6 +15,8 @@ paths:
 ---
 
 # E-commerce Stack
+
+Mandate Medusa.js as the headless commerce backend for every e-commerce surface; hand-rolled cart/checkout tables are a build fail.
 
 ## Mandate
 

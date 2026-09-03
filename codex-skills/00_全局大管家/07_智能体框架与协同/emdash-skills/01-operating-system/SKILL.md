@@ -6,12 +6,14 @@ metadata:
   updated: "2026-05-03"
   effort: "high"
   model: "opus"
+  internal: true
 license: "Rutgers"
 compatibility:
   claude-code: ">=2.0.0"
   agentskills: ">=1.0.0"
 priority: 1
 pack: "core"
+stage: stable
 triggers: []
 paths:
   - "*"
@@ -41,9 +43,9 @@ Supreme policy. Loaded every prompt. Overrides all other skills.
 
 1. Deployed + purged
 2. Playwright E2E GREEN at 6 breakpoints (per `_kernel/standards.md#breakpoints`)
-3. AI vision ≥8/10
+3. AI vision ≥9/10
 4. Yoast GREEN
-5. Lighthouse A11y ≥95, Perf ≥75
+5. Lighthouse A11y ≥95, Perf ≥90
 6. Zero errors / stubs / TODO in user-visible strings
 7. Zero Recommendations
 8. CSP Level 3 strict-dynamic + nonce
@@ -88,6 +90,7 @@ Phrase → action:
 - Skill 09 (brand) drives skills 10, 11, 12
 - Skill 13 (observability) wires into every shipped feature
 - Skill 16 (cinematic-website-prime-directive) trumps generic 06 for one-line site prompts
+- Skill 20 (superpowers) holds PROCESS discipline — brainstorm/plan/worktree/code-review/finish-branch — invoked BEFORE implementation skills; TDD/debug/verify/parallel techniques are folded into `rules/` (see `20-superpowers/NOTICE.md`)
 
 ## Done definitions
 

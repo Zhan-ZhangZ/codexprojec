@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "media-file-document-supervisor"
 priority: 3
 pack: "media"
@@ -7,7 +9,7 @@ triggers:
   - "pdf"
   - "image upload"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # Media + File + Document Supervisor

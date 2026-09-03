@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "citations"
 priority: 3
 pack: "content"
@@ -11,6 +13,8 @@ paths:
 ---
 
 # Citations & Sources
+
+Require APA 7th inline citations for all quantitative claims on long-form surfaces; marketing surfaces link to `/sources` instead.
 
 ## Mandate (tiered by surface)
 

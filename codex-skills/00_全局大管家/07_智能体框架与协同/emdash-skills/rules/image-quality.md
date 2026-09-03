@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "image-quality"
 priority: 3
 pack: "media"
@@ -11,6 +13,8 @@ paths:
 ---
 
 # Image Sourcing + Generation Quality
+
+Require every shipped image to be a real primary-sourced photo or a cinematic AI-generated image indistinguishable from photography; no stock clip-art or obvious AI artifacts.
 
 ## Mandate
 
@@ -69,6 +73,17 @@ Search order:
 4. **Banish AI tells:** "no plastic skin, no waxy faces, no impossible anatomy, no hexagonal pupils, no extra fingers, no melted text, no duplicate features, no over-symmetrical composition, no center-framed mug-shot pose, no over-saturated color, no HDR-glow halos, no fake bokeh discs". Include this negative prompt block on every generation.
 5. **Specify dimensions + crop.** Hero: 1600×1200 (4:3) or 1920×1080 (16:9). OG: 1200×630 (1.91:1). Cards: 1080×1080 (1:1). State in the prompt.
 6. **Critique-and-remix.** Every generation graded 1–10 by AI vision pass (or human) against the imagined frame. <8 → remix with specific corrections (more side-light, less symmetry, warmer palette, real-skin texture). Max 3 critique rounds; if still <8, switch model or fall back to real photography.
+
+## Programmatic OG cards (per-route social-share images — the HOW)
+
+Hero/section photos are sourced per § above; OG cards are a DIFFERENT element — a text-on-brand 1200×630 card generated PER ROUTE at build time (page title + brand). A one-line build has 14–20 routes; hand-making each fails checklist #33, so SCAFFOLD a generator (same pattern as the favicon generator).
+
+- **Approach:** `satori` (JSX/HTML → SVG) → `@resvg/resvg-js` (SVG → PNG), OR `@vercel/og`. Pure-node fallback (no Chromium) = the favicon `node:zlib` PNG encoder with a text layer.
+- **Template (brand-locked):** brand bg (`#060610`), accent rule (`#00E5FF`/`#7C3AED`), self-hosted woff2 (Sora/Space Grotesk) embedded, business name + logo mark, generous safe-margins. One reusable template, per-route data only.
+- **Per-route data:** read each route's `<title>` + primary keyphrase from its page source (same source the head/prerender step reads) → overlay as the card headline. NEVER one shared OG for all routes (that's the head-collapse anti-pattern in image form).
+- **Output:** `public/og/<route>.png` (or `/og/home.png`), exactly 1200×630, < 200KB. Referenced in that route's server-rendered head: `<meta property="og:image">` + `twitter:image` + `og:image:width/height`.
+- **Wire into `prebuild`** alongside favicon generation; regenerate when title/brand changes. Output is gitignored (regenerated artifact per `repo-folder-hygiene`).
+- **Verify:** `validate-og-cards.mjs` (below) — every route's `og:image` resolves, is 1200×630, and is unique per route.
 
 ## Brand-consistency
 

@@ -13,6 +13,7 @@ compatibility:
 submodules:
   - accessibility-gate.md
   - adversarial-testing.md
+  - llm-evals.md
   - agentic-security.md
   - audio-video-sync.md
   - build-breaking-rules.md
@@ -39,6 +40,7 @@ submodules:
   - wcag-2-2-2026.md
 priority: 2
 pack: "testing"
+stage: stable
 triggers:
   - "test"
   - "verify"
@@ -50,12 +52,14 @@ paths:
 
 # 07 — Quality and Verification
 
+Run the 5-level verification pyramid (static→unit→E2E→AI visual→post-deploy) with WCAG 2.2 AA and 8-gate quality enforcement on every change.
+
 ## 5-level pyramid (bottom to top)
 
 1. **Static** — TS strict + ESLint + oxlint + Prettier + knip (dead code)
 2. **Unit** — Vitest 3 (40% faster on 5k+ tests, Rust sharding, browser mode default)
 3. **Playwright E2E** — homepage-first, 6 viewports × 3 browsers, hermetic, parallel
-4. **AI visual** — vision rubric ≥8/10 per route, 6bp screenshots
+4. **AI visual** — vision rubric ≥9/10 per route, 6bp screenshots
 5. **Post-deploy** — `wrangler tail` clean + console-error-free + axe-clean + Lighthouse green
 
 ## 8-check quality gate (every PR)
@@ -65,8 +69,8 @@ paths:
 3. `npm test` (Vitest) green
 4. `npm run e2e:prod` green at 6 breakpoints
 5. axe-core 0 violations per `_kernel/standards.md#wcag22`
-6. Lighthouse Perf ≥75, A11y ≥95, BP ≥95, SEO ≥95
-7. AI vision QA ≥8/10 per route
+6. Lighthouse Perf ≥90, A11y ≥95, BP ≥95, SEO ≥95 (authoritative: `EMDASH_LIGHTHOUSE_MIN_*` in `~/.claude` env)
+7. AI vision QA ≥9/10 per route (authoritative: `EMDASH_AI_VISION_MIN`)
 8. Console / CSP / network errors = 0
 
 Any fail = blocker. Fix-forward per `rules/verification-loop.md`.
@@ -74,20 +78,16 @@ Any fail = blocker. Fix-forward per `rules/verification-loop.md`.
 ## Playwright Test Agents (v1.59+)
 
 - `npx playwright init-agents --loop=claude` once per repo
-- **Planner** — Markdown plan
-- **Generator** — test code
-- **Healer** — auto-fix broken selectors (run before manual rewrite)
-- `browser.bind()` for MCP interop
-- `page.screencast` for video receipts on flaky specs
+- **Planner** — Markdown plan; **Generator** — test code; **Healer** — auto-fix broken selectors (run before manual rewrite)
+- `browser.bind()` for MCP interop; `page.screencast` for video receipts on flaky specs
 
 ## Hermetic spec contract (per `rules/e2e-tdd-organization.md`)
 
 1. Starts at homepage (`/`); navigates via clicks/keyboard
-2. Seeds own data via `_fixtures/`
-3. Cleans own data after-each
-4. Doesn't write to localStorage / IDB / cookies next spec reads
-5. Doesn't depend on Date.now() / timezone / random
-6. Doesn't open network to live third-party APIs (MSW / stub)
+2. Seeds own data via `_fixtures/`; cleans own data after-each
+3. Does not write to localStorage / IDB / cookies next spec reads
+4. Does not depend on `Date.now()` / timezone / random
+5. Does not open network to live third-party APIs (MSW / stub)
 
 Violating any = build fail.
 
@@ -96,26 +96,21 @@ Violating any = build fail.
 - `fullyParallel: true`
 - `workers: process.env.CI ? '50%' : '75%'`
 - Sharded via `--shard=$INDEX/$TOTAL`
-- 6 viewports per `_kernel/standards.md#breakpoints`
-- 3 browsers: Chromium, Firefox, WebKit
+- 6 viewports per `_kernel/standards.md#breakpoints`; 3 browsers: Chromium, Firefox, WebKit
 
 ## AI visual QA
 
 - Random snapshot sampling 30% per step (seeded hash, reproducible)
-- New-section AI vision: `e2e/__seen-routes__.json` gates first render of any unknown route
-- Rubric: layout sane / contrast WCAG AA / brand / no slop / ≥8/10 (Claude Sonnet 4.6 or GPT Image 2 vision)
-- Baselines in `e2e/__snapshots__/`
-- Pixelmatch tolerance 0.1% / 0.5% area
-
-Per `rules/e2e-visual-inspection.md`.
+- New-section AI vision: `e2e/__seen-routes__.json` gates first render of unknown routes
+- Rubric: layout sane / contrast WCAG AA / brand / no slop / ≥9/10 (Claude Sonnet 4.6 or GPT Image 2 vision)
+- Baselines in `e2e/__snapshots__/`; pixelmatch tolerance 0.1% / 0.5% area
+- Per `rules/e2e-visual-inspection.md`
 
 ## Visual regression
 
 - **Percy AI Visual Review** — 3× faster review, 40% OCR-based noise filter, full-page + flows
 - **Chromatic** — component-level via Storybook
-- **pixelmatch** — local deterministic CI
-
-Three-tier: local → PR → deploy.
+- **pixelmatch** — local deterministic CI (three-tier: local → PR → deploy)
 
 ## Multi-agent testing
 
@@ -125,28 +120,26 @@ Spawn parallel in single `Agent` call:
 - **security-reviewer** — OWASP Top 10:2025 per `_kernel/standards.md#owasp2025`
 - **accessibility-auditor** — axe 6bp + WCAG 2.2 manual review
 - **performance-profiler** — Lighthouse CI + bundle audit + INP via LoAF
-- **visual-qa** — AI vision rubric ≥8/10
+- **visual-qa** — AI vision rubric ≥9/10
 
-Each: 100-300 word brief, ≤200 word summary back. Per `rules/agent-selection.md`.
+Each: 100–300 word brief, ≤200 word summary back. Per `rules/agent-selection.md`.
 
 ## INP debugging
 
 - `PerformanceObserver` type `long-animation-frame` (LoAF, Chrome 123+)
-- For SPA per-route CWV: web-vitals v4+ w/ `softNavs:true`
-- Target ≤100ms cinematic, ≤200ms = fail per `_kernel/standards.md#cwv`
+- For SPA per-route CWV: web-vitals v4+ with `softNavs:true`
+- Target ≤100ms cinematic; ≤200ms = fail per `_kernel/standards.md#cwv`
 
 ## Console-error gate
 
-- After every deploy, check browser console for CSP violations, JS errors, failed resources
-- ALL must be 0 before marking complete
-- Fixed by `rules/verification-loop.md` console-error gate
+After every deploy: browser console must show 0 CSP violations, 0 JS errors, 0 failed resources. Fixed by `rules/verification-loop.md` console-error gate.
 
 ## E2E accumulation
 
 - Tests NEVER deleted, only appended
 - `journey.spec.ts` serial + stateful — each feature adds steps
 - 100% feature coverage matrix in `e2e/FEATURES.md`
-- Removed features: skip + comment, don't delete
+- Removed features: skip + comment, do not delete
 
 ## Inventory enforcement
 

@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "drift-detection"
 priority: 2
 pack: "core"
@@ -10,7 +12,7 @@ paths:
 
 # Architecture Drift Detection
 
-Architecture drift is the gap between how the system is SUPPOSED to be structured and how it actually is. Drift is fixed IMMEDIATELY, in the same turn it surfaces — never deferred to a follow-up PR. A scattered route, an unflagged feature, an untyped AI output: all drift, all merge-blockers.
+Drift is the gap between how the system is SUPPOSED to be structured and how it actually is. Fix IMMEDIATELY, in the same turn it surfaces — never deferred. A scattered route, an unflagged feature, an untyped AI output: all drift, all merge-blockers.
 
 ## What counts as drift
 
@@ -38,15 +40,14 @@ Architecture drift is the gap between how the system is SUPPOSED to be structure
 
 ## Immediacy rule
 
-- See drift → fix drift in the SAME turn. Drift-class issues never get punted to a TODO or next PR. (TODOs for genuine future work are fine per `todos-are-roadmap`; the ban here is scoped to architecture drift specifically.)
-- Fixing drift adjacent to the touched surface is `context-spillover`'s triple sweep applied to architecture.
+- See drift → fix drift in the SAME turn. Never punted to a TODO or next PR. (TODOs for genuine future work are fine per `todos-are-roadmap`; ban is scoped to architecture drift.)
 - If a drift fix needs a design conversation (rare), surface it in Recs; everything else ships inline.
 
 ## Per-repo enforcement
 
 - Validators live at `tools/architecture-validation/`
 - `pnpm validate:architecture` runs locally + in CI
-- CI fails the merge on any serious drift (missing manifest, unguarded route, untyped AI output, untyped tool)
+- CI fails the merge on serious drift (missing manifest, unguarded route, untyped AI output, untyped tool)
 - Cosmetic drift (missing README, unused export) warns; structural drift blocks
 
 ## Canonical implementation (projectsites.dev)
@@ -55,6 +56,29 @@ Architecture drift is the gap between how the system is SUPPOSED to be structure
 - `scripts/validate-feature-drift.mjs` — asserts route↔flag↔manifest↔e2e↔FEATURES.md coherence, flags dead flags/routes/folders
 - `.github/workflows/feature-architecture.yml` runs both on every push
 - Copy these verbatim into every new emdash project; wire into `predeploy` + CI
+
+## Build-artifact drift guards
+
+Any artifact GENERATED at build (sitemap, RSS/JSON feed, service-worker precache list, robots.txt, OG/JSON-LD, icon manifest) silently drifts from its source-of-truth when a route/asset/file is added or renamed. **Every generated/curated artifact gets a build gate that re-derives or cross-checks it against its single source of truth, and fails the build on mismatch.**
+
+### The rule
+
+- **One source of truth per route/asset set**, imported by BOTH the app and every validator (Node ≥23 can `import` a `.ts` directly). No hand-maintained second copy.
+- Write a gate that asserts coverage/validity, wired into the build chain. Exit 1 on drift.
+- When a gate's class first bites, fix the instance AND ship the gate same turn (per `prompt-as-training-signal`).
+
+### Reference guards (njsk.org, 2026-06)
+
+- **sitemap ↔ route source** — `generate-sitemap.mjs` imports `pageMeta`, fails if any public SEO route absent from `STATIC_ROUTES`.
+- **SW precache ↔ public/** — `validate-links.mjs` parses `sw.js` `STATIC_ASSETS`, asserts every asset-extension entry exists in `public/`.
+- **JSON-LD structural** — `validate-jsonld.mjs` asserts each block has `@context` + `@type` + type-specific required fields (`HowTo→step`, `FAQPage→mainEntity`, `WebPage→name`, …).
+- **route manifest ↔ worker soft-404** — shared `known-routes.ts` (`KNOWN_ROUTES` + `isKnownRoute`) imported by link validator AND Worker; unknown HTML paths return real 404 (not 200 soft-404).
+- **SPA route ↔ manifest ↔ page-meta** — `validate-spa-routes.mjs` (one gate, two checks): every non-dynamic `KNOWN_ROUTES` entry needs a matching `app.tsx` `<Route>` (else the 200 shell renders the 404 page — a soft-404 on an indexed URL); every INDEXABLE entry needs a `page-meta` block (else wrong title/canonical/OG). A shared `NOINDEX_ROUTES` SSOT (also driving the worker noindex header) is the meta exemption, so the two can't drift. njsk.org `/grants` (no Route) + `/login` (no meta) shipped broken until caught.
+- **fabricated-people** — `validate-no-fabricated-people.mjs` flags person-name paired with quote/testimonial lacking a `_confirmations.json` entry. See `copy-writing.md § Fabricated-people build gate`.
+
+### Audit cadence
+
+- Periodically curl/Playwright the LIVE artifacts: `sitemap.xml`, `feed.xml`, `robots.txt`, `site.webmanifest` (every icon/screenshot/shortcut/start_url resolves), `sw.js` precache, OG image dimensions (1200×630 ≤100KB), hreflang reciprocity. Built ≠ served-correctly.
 
 ## Scan cadence (before every new feature)
 
@@ -65,15 +89,15 @@ Architecture drift is the gap between how the system is SUPPOSED to be structure
 
 ## Agent drift signals
 
-Owned by the `agent-diversity-reviewer` role + the `/drift-check` and `/agent-diversity-review` commands. Run on every multi-agent turn before declaring DONE. Each is a merge-blocker when found.
+Owned by `agent-diversity-reviewer` role + `/drift-check` and `/agent-diversity-review` commands. Run on every multi-agent turn before DONE. Each is a merge-blocker when found.
 
-- Too many generic agents spawned — undifferentiated "do everything" agents where named specialists exist
-- Agents with overlapping scope — two agents touching the same files / owning the same concern
-- Agents that do not verify their own work — no build / test / E2E / screenshot proof in their report
-- Agents that change files outside their stated scope — edits beyond the Scope/Non-goals they were briefed with
+- Too many generic agents — undifferentiated agents where named specialists exist
+- Agents with overlapping scope — two agents touching same files / owning same concern
+- Agents that do not verify their own work — no build / test / E2E / screenshot proof in report
+- Agents that change files outside their stated scope
 - Agents that skip tests — no failing-test-first, no regression spec, no `e2e/<feature>/` coverage
-- Agents that ignore user stack preferences — drift from the mandated stack (e.g. wrong frontend framework, banned tool)
-- Agents that fail to update docs — touched a surface but left CLAUDE.md / README / `FEATURES.md` stale
-- Agents that propose global changes but don't implement them — recommend a rule/skill/config edit yet ship nothing
-- Agents that make architectural changes without a review agent — structural edits landed with no completeness/security/code-review pass
-- Agents that defer obvious in-scope work — push <2h ship-able items to Recs instead of integrating them per `auto-integrate-recs`
+- Agents that ignore user stack preferences — drift from mandated stack
+- Agents that fail to update docs — touched surface but left CLAUDE.md / README / `FEATURES.md` stale
+- Agents that propose global changes but don't implement them
+- Agents that make architectural changes without a review agent
+- Agents that defer obvious in-scope work — push <2h ship-able items to Recs per `auto-integrate-recs`
