@@ -35,8 +35,8 @@ INVESTORS = [
     {"id": "druck",     "name": "德鲁肯米勒", "en": "Stanley Druckenmiller","group": "C", "fields": ["3_macro", "12_capital_flow"], "source": "Lost Tree Club Speech 2015", "avatar_seed": "Druckenmiller-Bald"},
     {"id": "robertson", "name": "罗伯逊",     "en": "Julian Robertson",   "group": "C", "fields": ["4_peers", "1_financials"], "source": "Tiger Management Letters", "avatar_seed": "Robertson-Tiger"},
     # v3.7.0 · 2 位做空猎手 (做空也是宏观判断 · 不另建派)
-    {"id": "burry",     "name": "迈克尔·伯利", "en": "Michael Burry",     "group": "C", "tier": "new_gen", "fields": ["3_macro", "10_valuation", "17_sentiment", "18_trap"], "source": "Scion Asset Management 13F + X @michaeljburry", "avatar_seed": "Burry-Plaid"},
-    {"id": "chanos",    "name": "吉姆·查诺斯", "en": "Jim Chanos",        "group": "C", "tier": "new_gen", "fields": ["11_governance", "1_financials", "18_trap"], "source": "Kynikos · 30 Years of Short Selling", "avatar_seed": "Chanos-Suit"},
+    {"id": "burry",     "name": "迈克尔·伯利", "en": "Michael Burry",     "group": "C", "mandate": "short", "tier": "new_gen", "fields": ["3_macro", "10_valuation", "17_sentiment", "18_trap"], "source": "Scion Asset Management 13F + X @michaeljburry", "avatar_seed": "Burry-Plaid"},
+    {"id": "chanos",    "name": "吉姆·查诺斯", "en": "Jim Chanos",        "group": "C", "mandate": "short", "tier": "new_gen", "fields": ["11_governance", "1_financials", "18_trap"], "source": "Kynikos · 30 Years of Short Selling", "avatar_seed": "Chanos-Suit"},
 
     # ──────────── D: 技术趋势派 ────────────
     {"id": "livermore", "name": "利弗莫尔",   "en": "Jesse Livermore",    "group": "D", "fields": ["2_kline", "15_events"], "source": "Reminiscences of a Stock Operator (1923)", "avatar_seed": "Livermore-Hat"},
@@ -79,6 +79,9 @@ INVESTORS = [
     {"id": "bj_cj",      "name": "北京炒家",   "group": "F", "tier": "new_2025","fields": ["2_kline", "15_events", "16_lhb"], "avatar_seed": "BJCJ-Boss"},
     {"id": "wang_zr",    "name": "瑞鹤仙",     "group": "F", "tier": "new_2025","fields": ["2_kline", "16_lhb"], "avatar_seed": "RuiHe-Crane"},
     {"id": "xin_dd",     "name": "鑫多多",     "group": "F", "tier": "new_2025","fields": ["2_kline", "15_events", "16_lhb"], "avatar_seed": "XinDD-Star"},
+    # v3.9.0 · 股海贼王 · 淘股吧十年实盘 (2016-02 起 · 33 万→3000 万+) · 从其 8951 笔
+    # 真实交易流水 + 5069 条发言蒸馏 (docs/ghzw-dossier.md) · 超短接力 + 题材主线 + 格局票
+    {"id": "ghzw",       "name": "股海贼王",   "group": "F", "tier": "flagship","fields": ["2_kline", "15_events", "16_lhb", "7_industry", "17_sentiment"], "source": "淘股吧十年实盘帖 · 8951 笔交割单蒸馏", "avatar_seed": "GHZW-Pirate"},
 
     # ──────────── G: 量化系统派 ────────────
     {"id": "simons",    "name": "西蒙斯",     "en": "Jim Simons",         "group": "G", "fields": ["2_kline", "9_futures"], "source": "The Man Who Solved the Market", "avatar_seed": "Simons-Beard"},
@@ -114,7 +117,7 @@ def all_ids() -> list[str]:
 
 
 def assert_count() -> None:
-    expected = 65  # v3.7.0 · 52 + 13 new tech tycoons (B+5 / C+2 / E+1 / G+1 / H+4)
+    expected = 66  # v3.9.0 · 65 + 股海贼王 (F 组第 24 人 · 淘股吧十年实盘蒸馏)
     assert len(INVESTORS) == expected, f"Expected {expected} investors, got {len(INVESTORS)}"
 
 

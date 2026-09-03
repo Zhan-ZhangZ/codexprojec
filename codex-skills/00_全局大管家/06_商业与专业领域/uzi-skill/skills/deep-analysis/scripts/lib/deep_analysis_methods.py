@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from lib.stock_features import sanitize_features
+
 
 def _num(v, default=0.0) -> float:
     try:
@@ -29,6 +31,7 @@ def build_ic_memo(
     thesis_pillars: list | None = None,
 ) -> dict:
     """Structured IC memo for formal investment decision."""
+    features = sanitize_features(features)
     dims = raw_data.get("dimensions", {}) or {}
     basic = (dims.get("0_basic") or {}).get("data") or {}
     fin = (dims.get("1_financials") or {}).get("data") or {}
@@ -125,12 +128,12 @@ def _ic_recommendation(features: dict, dcf: dict | None) -> tuple[str, str]:
         quality_score += 1
     if features.get("net_margin", 0) > 15:
         quality_score += 1
-    if features.get("moat_total", 0) >= 28:
+    if features.get("moat_known") and features.get("moat_total", 0) >= 28:
         quality_score += 2
 
     val_score = 0
     if dcf:
-        sm = dcf.get("safety_margin_pct", 0)
+        sm = _num(dcf.get("safety_margin_pct"))
         if sm > 20:
             val_score = 2
         elif sm > 0:
@@ -159,7 +162,7 @@ def _ic_risks(features: dict, moat: dict) -> list[dict]:
             "severity": "High",
             "mitigant": "监控利息覆盖倍数与再融资窗口",
         })
-    if features.get("moat_total", 0) < 20:
+    if features.get("moat_known") and features.get("moat_total", 0) < 20:
         risks.append({
             "risk": "护城河偏弱",
             "detail": f"4 项合计 {features.get('moat_total', 0):.0f}/40",
@@ -173,26 +176,31 @@ def _ic_risks(features: dict, moat: dict) -> list[dict]:
             "severity": "Medium",
             "mitigant": "等待 PE 回归 40 以下再建仓",
         })
-    if not features.get("fcf_positive", True):
+    if features.get("fcf_known") and not features.get("fcf_positive"):
         risks.append({
             "risk": "现金流为负",
             "detail": "依赖外部融资",
             "severity": "High",
             "mitigant": "要求管理层提供扭转路线图",
         })
-    risks.append({
-        "risk": "行业周期下行",
-        "detail": "需求侧宏观冲击",
-        "severity": "Medium",
-        "mitigant": "行业景气度月度跟踪",
-    })
+    # v3.9.4 · 行业周期下行不再无条件追加（茅台这种消费龙头会被误标周期下行）。
+    # 仅当行业生命周期判定为衰退时才算风险。
+    if features.get("industry_in_decline"):
+        risks.append({
+            "risk": "行业周期下行",
+            "detail": "需求侧宏观冲击",
+            "severity": "Medium",
+            "mitigant": "行业景气度月度跟踪",
+        })
     return risks
 
 
 def _ic_scenarios(price: float, dcf: dict | None) -> list[dict]:
     if not dcf or price <= 0:
         return []
-    intrinsic = dcf.get("intrinsic_per_share", price)
+    intrinsic = _num(dcf.get("intrinsic_per_share"))
+    if intrinsic <= 0:
+        return []
     return [
         {
             "scenario": "Bull (乐观)",
@@ -296,6 +304,7 @@ def build_unit_economics(features: dict, raw_data: dict) -> dict:
 
 def build_value_creation_plan(features: dict, raw_data: dict) -> dict:
     """Post-investment value creation roadmap — 5 years."""
+    features = sanitize_features(features)
     dims = raw_data.get("dimensions", {}) or {}
     fin = (dims.get("1_financials") or {}).get("data") or {}
 
@@ -395,7 +404,7 @@ def build_dd_checklist(features: dict, raw_data: dict) -> dict:
                 {"item": "5 年营收 / 净利历史", "status": _check(bool(dims.get("1_financials", {}).get("data", {}).get("revenue_history")))},
                 {"item": "ROE / 毛利 / 净利率", "status": _check(bool(features.get("roe_last", 0)))},
                 {"item": "资产负债率", "status": _check(bool(features.get("debt_ratio", 0)))},
-                {"item": "自由现金流", "status": _check(bool(features.get("fcf_positive", False)))},
+                {"item": "自由现金流", "status": _check(bool(features.get("fcf_known")))},
                 {"item": "审计意见 / 会计政策", "status": "⚪ 需人工核查"},
             ],
         },
@@ -420,7 +429,7 @@ def build_dd_checklist(features: dict, raw_data: dict) -> dict:
         {
             "workstream": "运营尽调 (Operational DD)",
             "items": [
-                {"item": "护城河评估", "status": _check(features.get("moat_total", 0) > 0)},
+                {"item": "护城河评估", "status": _check(bool(features.get("moat_known")))},
                 {"item": "研发投入", "status": "⚪ 需年报披露"},
                 {"item": "管理层背景", "status": "⚪ 需人工核查"},
                 {"item": "ESG 评级", "status": "⚪ 需第三方数据"},

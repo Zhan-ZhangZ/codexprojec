@@ -1,7 +1,7 @@
 ---
 name: deep-analysis
-description: 个股深度分析的核心工作流。当用户要求"深度分析 / 全面分析 / 帮我看看 / 值不值得买 / DCF / 机构建模 / 首次覆盖 / 投委会备忘录"等涉及个股研究的请求时触发。覆盖 A 股、港股、美股，产出 22 维数据 + 65 位大佬量化评审 + 6 种机构级估值建模 (DCF/Comps/LBO/3-Stmt/Merger) + 7 种研究产物 (首次覆盖/财报解读/催化剂日历/投资逻辑追踪/晨报/量化筛选/行业综述) + 6 种决策方法 (IC Memo/DD/Porter/单位经济/VCP/再平衡) + 杀猪盘检测，最终生成 Bloomberg 风格 HTML 报告 + 社交分享战报。关键词：股票、个股、深度分析、估值、DCF、comps、首次覆盖、IC memo、杀猪盘、龙虎榜、akshare。
-version: 3.8.1
+description: 个股深度分析的核心工作流。当用户要求"深度分析 / 全面分析 / 帮我看看 / 值不值得买 / DCF / 机构建模 / 首次覆盖 / 投委会备忘录"等涉及个股研究的请求时触发。覆盖 A 股、港股、美股，产出 22 维数据 + 66 位大佬量化评审 + 6 种机构级估值建模 (DCF/Comps/LBO/3-Stmt/Merger) + 7 种研究产物 (首次覆盖/财报解读/催化剂日历/投资逻辑追踪/晨报/量化筛选/行业综述) + 6 种决策方法 (IC Memo/DD/Porter/单位经济/VCP/再平衡) + 杀猪盘检测，最终生成 Bloomberg 风格 HTML 报告 + 社交分享战报。关键词：股票、个股、深度分析、估值、DCF、comps、首次覆盖、IC memo、杀猪盘、龙虎榜、akshare。
+version: 3.9.4
 author: FloatFu-true
 license: MIT
 metadata:
@@ -21,7 +21,7 @@ metadata:
 - **你是分析师** — 你读原始数据 + 量化结果，然后用自己的判断串起一个有冲突感、有洞察的叙事。
 - **脚本给你提供 5 类产物**：
   1. **原始数据** (Task 1 · 22 维 fetcher)
-  2. **机构建模结果** (Task 1.5 · DCF/Comps/LBO/3-Stmt/IC Memo/Porter 等 17 种方法的计算输出)
+  2. **机构建模结果** (Task 1.5 · DCF/Comps/LBO/3-Stmt/IC Memo/Porter 等 22 种方法的计算输出)
   3. **65 人评委量化裁决** (Task 3 · 每人引用具体规则)
   4. **数据完整性报告** (哪些字段缺失 / 哪些降级)
   5. **可审计的 methodology_log** (每一步计算的推导链)
@@ -534,7 +534,7 @@ genuine investment analysis. The whole point of this plugin is agent-driven judg
     ]
   },
   "narrative_override": {
-    "core_conclusion": "宁波建工 · 48 分 · 谨慎。典型地方基建股，ROE 不到 8%、毛利率 8%，靠城投整合讲故事。65 位大佬 12 人看多，29 人看空。DCF 高估 23%，但 LBO 压力测试 IRR 18% — 博弈价值存在但风险更大。",
+    "core_conclusion": "宁波建工 · 48 分 · 谨慎。典型地方基建股，ROE 不到 8%、毛利率 8%，靠城投整合讲故事。66 位大佬 12 人看多，29 人看空。DCF 高估 23%，但 LBO 压力测试 IRR 18% — 博弈价值存在但风险更大。",
     "risks": [
       "ROE 持续下滑，连续 3 年低于 8%",
       "应收账款占比过高，回款周期拉长",
@@ -563,7 +563,7 @@ python -c "from run_real_test import stage2; stage2('<ticker>')"
 Stage 2 读取你更新后的 panel.json + agent_analysis.json，合并生成 HTML 报告。
 如果没有 agent_analysis.json，退化为纯脚本模式（会打印警告）。
 
-### 快速模式（跳过 agent 介入）
+### 快速模式（跳过 agent 介入 · 仅 lite/medium）
 
 如果用户说"快速分析"或时间紧：
 ```bash
@@ -571,6 +571,8 @@ cd <repo_root>
 python run.py <股票> --no-browser
 ```
 这会 stage1 + stage2 一把跑完，不做 agent 分析。速度快但评委判断全是规则引擎的机械输出。
+
+> ⚠️ **v3.9.4 明确**：此模式只适用于 lite/medium 档。**`--depth deep` 不属于快速模式**——deep 档必须由你介入 role-play 66 评委并写 `agent_analysis.json`（见上方 HARD-GATE-PERSONA-ROLEPLAY）。看到 deep 档时不要直接 `run.py --depth deep` 一把梭。
 
 ---
 
@@ -937,6 +939,7 @@ python scripts/render_war_report.py {ticker}  # 战报 PNG
 # 在仓库根目录
 python run.py <股票代码>                   # 自动检测环境，无浏览器时给路径
 python run.py <股票代码> --remote          # 完成后启动 Cloudflare Tunnel，生成公网链接
+python run.py <股票代码> --remote --install-cloudflared  # 允许缺失 cloudflared 时自动安装
 python run.py <股票代码> --no-browser      # 强制不打开浏览器
 ```
 
@@ -946,6 +949,8 @@ python run.py <股票代码> --no-browser      # 强制不打开浏览器
 3. 调用 `cloudflared tunnel` 映射到 `https://xxx.trycloudflare.com`
 4. 输出公网链接 — 用户手机扫码 / 发微信就能看报告
 5. Ctrl+C 停止服务
+
+安全默认值：如果本机没有 `cloudflared`，`--remote` 只提示安装方式，不会自动执行 `brew install` / `sudo mv`。只有用户显式传 `--install-cloudflared` 时才允许自动安装。
 
 **Task 0 可选步骤：询问用户环境**
 
@@ -962,7 +967,7 @@ python run.py <股票代码> --no-browser      # 强制不打开浏览器
 |---|---|---|
 | `KeyError: 'skip'` | preview_with_mock.py 加 'skip' key + .get() 兜底 | 无 |
 | 失败卡死整条 pipeline | as_completed/result 加 90s timeout，单 fetcher 超时不影响其他 | 不要绕过 timeout 重试 |
-| 中断不能续跑 | stage1 默认 `--resume`，每 3 个 fetcher 增量保存 raw_data.json | 不要手动 `--no-resume` 除非真要重抓 |
+| 中断不能续跑 | stage1 默认 `--resume`，每 3 个 fetcher 增量保存 raw_data.json；建模段可用 `python run.py <ticker> --from-modeling` 从缓存接力 | 不要手动 `--no-resume` 除非真要重抓 |
 | Python 3.9 语法报错 | 所有新文件加 `from __future__ import annotations` | 无 |
 | mini_racer V8 thread crash | 给 fetch_industry/capital_flow/valuation 加共享锁 | 无 |
 | share/war report 渲染失败 | render_*.py 加 main() alias | 无 |
@@ -998,6 +1003,21 @@ echo "${CODEX:-${OPENAI_API_KEY:+codex_via_openai}}"
 | `/thesis` | 只跑 thesis_tracker 单独输出 |
 | `/screen` | 跑 5 套量化筛选 |
 | `/dd` | 跑 DD 清单 |
+
+### 全球同行执行规则
+
+`4_peers` 默认同时保留本地同行与全球同行。全球链路按以下顺序执行：
+
+1. 用目标公司的 Yahoo 细分行业发现全球候选。
+2. 按发行人去重，排除目标公司的海外二次上市证券。
+3. 只补全相关度最高的 8 家年度财务，单家公司失败不重试整条流程。
+4. 原币字段保持不变，金额类比较只读取汇率标准化后的 `*_base` 字段。
+5. 有效同行少于 3 家时，不生成全球分位或估值结论。
+6. Agent 引用全球同行时必须同时写公司、报告期、币种和来源；不得把缺失值写成 0。
+
+支持 `7203.T`、`005930.KS`、`2330.TW`、`D05.SI`、`RELIANCE.NS`、
+`SHOP.TO`、`BHP.AX`、`SHEL.L`、`ASML.AS` 等交易所代码。可用
+`UZI_DISABLE_GLOBAL_PEERS=1` 关闭，或用 `UZI_GLOBAL_PEER_LIMIT=3..12` 调整补全数量。
 
 ## 📁 数据契约 & 文件路径
 
@@ -1062,7 +1082,7 @@ echo "${CODEX:-${OPENAI_API_KEY:+codex_via_openai}}"
 - `references/task3-investor-panel.md` — 65 评委规则
 - `references/task4-synthesis.md` — 叙事合成规范
 - `references/task5-report-assembly.md` — 报告组装
-- `references/fin-methods/README.md` — 17 种机构方法论索引
+- `references/fin-methods/README.md` — 22 种机构方法论索引
 - `assets/data-contracts.md` — 所有 JSON schema
 - `assets/quality-checklist.md` — 完成前的 checklist
 

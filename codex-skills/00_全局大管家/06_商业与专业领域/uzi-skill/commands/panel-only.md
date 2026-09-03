@@ -1,5 +1,5 @@
 ---
-description: 只跑 65 人评审团，看 65 位投资大佬怎么投票
+description: 只跑 66 人评审团，看 66 位投资大佬怎么投票
 argument-hint: "[股票名称或代码]"
 ---
 
@@ -10,7 +10,7 @@ argument-hint: "[股票名称或代码]"
 加载 `investor-panel` skill 并执行：
 
 1. 先调用 `deep-analysis/scripts/fetch_basic.py` 和 `fetch_financials.py` 拿基础数据
-2. 然后让 65 位投资者各自按自己的方法论打分（参考 `investor-panel/references/group-{a..i}.md`）
+2. 然后让 66 位投资者各自按自己的方法论打分（参考 `investor-panel/references/group-{a..i}.md`）
 3. 输出**评审团专题报告**（HTML，仅评审团模块），包含：
    - 65 人投票分布柱状图
    - 7 大流派态度对比

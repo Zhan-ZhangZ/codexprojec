@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -29,7 +30,7 @@ from lib.cache import write_task_output  # noqa: E402
 from lib.investor_db import INVESTORS  # noqa: E402
 from lib.investor_personas import get_comment as _persona_comment  # noqa: E402
 from lib.market_router import parse_ticker  # noqa: E402
-from lib.stock_features import extract_features  # noqa: E402
+from lib.stock_features import extract_features, sanitize_features  # noqa: E402
 from lib.investor_evaluator import evaluate as _evaluate_investor  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: E402
 
@@ -44,7 +45,8 @@ FETCHER_MAP = [
     ("fetch_research",        "6_research",     lambda t, r: (t,)),
     ("fetch_industry",        "7_industry",     lambda t, r: (r.get("0_basic", {}).get("data", {}).get("industry", "") or "综合",)),
     ("fetch_materials",       "8_materials",    lambda t, r: (t,)),
-    ("fetch_futures",         "9_futures",      lambda t, r: (r.get("0_basic", {}).get("data", {}).get("industry", "") or "综合",)),
+    ("fetch_futures",         "9_futures",      lambda t, r: (r.get("0_basic", {}).get("data", {}).get("industry", "") or "综合",
+                                                              (r.get("8_materials", {}).get("data", {}).get("materials_detail") or None),)),
     ("fetch_valuation",       "10_valuation",   lambda t, r: (t,)),
     ("fetch_governance",      "11_governance",  lambda t, r: (t,)),
     ("fetch_capital_flow",    "12_capital_flow",lambda t, r: (t,)),
@@ -129,6 +131,18 @@ def _disarm_mini_racer_sentinel() -> None:
 def run_fetcher(module_name: str, args: tuple) -> dict:
     # v3.3.4 · issue #61 · 多重保护 mini_racer 崩溃
     if module_name in _MINI_RACER_FETCHERS and _mini_racer_disabled():
+        if module_name == "fetch_valuation":
+            try:
+                from fetch_valuation import main_safe
+                result = main_safe(*args)
+                return result if isinstance(result, dict) else {"data": result}
+            except Exception as e:
+                return {
+                    "data": {"_disabled": "mini_racer skipped; main_safe failed"},
+                    "source": "fetch_valuation (safe-fallback-error)",
+                    "fallback": True,
+                    "error": f"{type(e).__name__}: {e}",
+                }
         return {
             "data": {"_disabled": "mini_racer skipped (env / sentinel)"},
             "source": f"{module_name} (skipped)",
@@ -491,11 +505,142 @@ def _detect_lite_mode() -> tuple[bool, str]:
     return False, "cache 已预热，full mode"
 
 
+_SAFE_CACHE_KEY = re.compile(r"[A-Z0-9][A-Z0-9.\-]{0,39}")
+
+
+def _resolve_cached_target(ticker: str, *, required_outputs: tuple[str, ...]):
+    """Resolve a code or Chinese name to a safe existing cache directory.
+
+    Local cache metadata is checked before any network name resolution. This
+    keeps ``stage2('中文名')`` and ``--from-modeling`` fast while preventing a
+    raw CLI value from becoming an arbitrary filesystem path.
+    """
+    from lib import cache as _cache
+    from lib.market_router import is_chinese_name
+
+    def _has_outputs(cache_key: str) -> bool:
+        if not _SAFE_CACHE_KEY.fullmatch(cache_key):
+            return False
+        cache_dir = _cache.CACHE_ROOT / cache_key
+        return all((cache_dir / f"{name}.json").is_file() for name in required_outputs)
+
+    parsed = parse_ticker(ticker)
+    if _has_outputs(parsed.full):
+        return parsed
+
+    if is_chinese_name(ticker):
+        if len(ticker) > 80 or any(ch in ticker for ch in ("/", "\\", "\x00")):
+            raise ValueError("股票名称包含不安全路径字符")
+        cache_root = _cache.CACHE_ROOT
+        if cache_root.is_dir():
+            for cache_dir in cache_root.iterdir():
+                if not cache_dir.is_dir() or not _SAFE_CACHE_KEY.fullmatch(cache_dir.name):
+                    continue
+                raw_path = cache_dir / "raw_data.json"
+                if not raw_path.is_file():
+                    continue
+                try:
+                    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+                    basic = ((raw.get("dimensions") or {}).get("0_basic") or {}).get("data") or {}
+                except (OSError, json.JSONDecodeError, AttributeError):
+                    continue
+                if str(basic.get("name") or "").strip() == ticker.strip() and _has_outputs(cache_dir.name):
+                    return parse_ticker(cache_dir.name)
+
+        from lib.pipeline.preflight_helpers import prepare_target
+        prepared = prepare_target(ticker, detect_lite_fn=None)
+        if prepared.get("ok"):
+            return prepared["ticker_info"]
+        raise RuntimeError(prepared.get("payload", {}).get("message") or f"无法解析股票名称: {ticker}")
+
+    if not _SAFE_CACHE_KEY.fullmatch(parsed.full):
+        raise ValueError(f"无效股票代码: {ticker!r}")
+    return parsed
+
+
+def _run_modeling_and_scoring(ti, raw: dict) -> dict:
+    """Run Tasks 1.5, 2 and 3 from an already collected raw snapshot."""
+    from compute_deep_methods import compute_dim_20, compute_dim_21, compute_dim_22
+    from lib import cache as _cache
+    from lib.data_integrity import refresh_recovery_artifact
+
+    raw.setdefault("dimensions", {})
+    print("\n🏛  Task 1.5 · 机构级财务建模 (Dims 20-22)")
+    modeling_features = sanitize_features(extract_features(raw, raw.get("dimensions", {})))
+    raw["dimensions"]["20_valuation_models"] = compute_dim_20(modeling_features, raw)
+    d20 = raw["dimensions"]["20_valuation_models"]["data"]
+    raw["dimensions"]["21_research_workflow"] = compute_dim_21(modeling_features, raw, d20)
+    d21 = raw["dimensions"]["21_research_workflow"]["data"]
+    raw["dimensions"]["22_deep_methods"] = compute_dim_22(modeling_features, raw, d20, d21)
+
+    cache_path = _cache.CACHE_ROOT / ti.full / "_data_gaps.json"
+    refresh_recovery_artifact(raw, ti.full, cache_path)
+    write_task_output(ti.full, "raw_data", raw)
+
+    s20 = d20["summary"]
+    s21 = d21["summary"]
+    s22 = raw["dimensions"]["22_deep_methods"]["data"]["summary"]
+    print(f"  DCF: ¥{s20.get('dcf_intrinsic')} · 安全边际 {s20.get('dcf_safety_margin_pct')}% · {s20.get('dcf_verdict')}")
+    print(f"  LBO: IRR {s20.get('lbo_irr_pct')}% · {s20.get('lbo_verdict')}")
+    print(f"  首次覆盖: {s21.get('rec_rating')} · TP ¥{s21.get('target_price')} ({s21.get('upside_pct')}%)")
+    print(f"  IC Memo: {s22.get('ic_recommendation')}")
+    print(f"  BCG: {s22.get('bcg_position')} · 行业吸引力 {s22.get('industry_attractiveness')}%")
+
+    print("\n📏 Task 2 · 22 维打分")
+    dims = score_dimensions(raw)
+    write_task_output(ti.full, "dimensions", dims)
+    print(f"  基本面得分: {dims['fundamental_score']}/100")
+
+    print("\n🎭 Task 3 · 评委规则引擎（骨架分）")
+    panel = generate_panel(dims, raw)
+    write_task_output(ti.full, "panel", panel)
+    distribution = panel["signal_distribution"]
+    skip_n = distribution.get("skip", 0)
+    active_n = panel.get(
+        "long_active",
+        sum(distribution.get(key, 0) for key in ("bullish", "neutral", "bearish")),
+    )
+    print(
+        f"  参与 {active_n} · 跳过 {skip_n} · 看多 {distribution['bullish']} · "
+        f"中性 {distribution['neutral']} · 看空 {distribution['bearish']}"
+    )
+    if not panel.get("consensus_valid", True):
+        print(f"  ⚠️ {panel.get('consensus_warning')}")
+        print(f"     空判评委: {', '.join(panel.get('hollow_ids', [])[:8])}")
+
+    features = extract_features(raw, raw.get("dimensions", {}))
+    print(f"\n{'━' * 50}")
+    print("📋 Stage 1 建模与评分完成 · 骨架分已生成")
+    print(f"   数据: .cache/{ti.full}/raw_data.json")
+    print(f"   评分: .cache/{ti.full}/dimensions.json")
+    print(f"   评委: .cache/{ti.full}/panel.json")
+    print("")
+    print("   ⏸️  deep 档此时应由 agent 介入 role-play：")
+    print(f"      1. 读取 panel.json 中 {len(INVESTORS)} 人的骨架分")
+    print("      2. 按流派分析并覆盖 headline/reasoning/score")
+    print(f"      3. 写 .cache/{ti.full}/agent_analysis.json，设置 agent_reviewed: true")
+    print(f"      4. 调用 stage2('{ti.full}') 生成最终报告")
+    print(f"{'━' * 50}")
+    return {"ticker": ti.full, "raw": raw, "dims": dims, "panel": panel, "features": features}
+
+
+def stage1_modeling(ticker: str) -> dict:
+    """Resume Tasks 1.5-3 from cached ``raw_data.json`` without fetching."""
+    from lib.cache import read_task_output
+
+    ti = _resolve_cached_target(ticker, required_outputs=("raw_data",))
+    raw = read_task_output(ti.full, "raw_data")
+    if not raw:
+        raise RuntimeError(f"建模恢复缺少 .cache/{ti.full}/raw_data.json")
+    print(f"♻️  从 raw_data.json 恢复建模: {ticker} → {ti.full}")
+    return _run_modeling_and_scoring(ti, raw)
+
+
 def stage1(ticker: str) -> dict:
     """Stage 1: 数据采集 + 建模 + 规则引擎骨架分。
 
     返回 {ticker, raw, dims, panel, features} 供 Claude agent 审查。
-    Claude 应该在 stage1 之后介入，用 sub-agent 逐组分析 51 评委，
+    Claude 应该在 stage1 之后介入，用 sub-agent 逐组分析所有评委，
     覆盖 panel.json 中的 headline/reasoning/score，然后调 stage2 生成报告。
     """
     # v3.1 · stage1 前置段 (preflight + lite + name resolve + ETF guard) 已抽到 pipeline.preflight_helpers
@@ -571,62 +716,37 @@ def stage1(ticker: str) -> dict:
     except Exception as _pwe:
         print(f"   ⚠️ Playwright 兜底异常（跳过，不阻塞主流程）: {type(_pwe).__name__}: {str(_pwe)[:120]}")
 
-    print("\n🏛  Task 1.5 · 机构级财务建模 (Dims 20-22)")
-    from compute_deep_methods import compute_dim_20, compute_dim_21, compute_dim_22
-    _features_pre = extract_features(raw, raw.get("dimensions", {}))
-    raw["dimensions"]["20_valuation_models"] = compute_dim_20(_features_pre, raw)
-    _d20 = raw["dimensions"]["20_valuation_models"]["data"]
-    raw["dimensions"]["21_research_workflow"] = compute_dim_21(_features_pre, raw, _d20)
-    _d21 = raw["dimensions"]["21_research_workflow"]["data"]
-    raw["dimensions"]["22_deep_methods"] = compute_dim_22(_features_pre, raw, _d20, _d21)
-    write_task_output(ti.full, "raw_data", raw)
-    _s20 = _d20["summary"]
-    _s21 = _d21["summary"]
-    _s22 = raw["dimensions"]["22_deep_methods"]["data"]["summary"]
-    print(f"  DCF: ¥{_s20.get('dcf_intrinsic')} · 安全边际 {_s20.get('dcf_safety_margin_pct')}% · {_s20.get('dcf_verdict')}")
-    print(f"  LBO: IRR {_s20.get('lbo_irr_pct')}% · {_s20.get('lbo_verdict')}")
-    print(f"  首次覆盖: {_s21.get('rec_rating')} · TP ¥{_s21.get('target_price')} ({_s21.get('upside_pct'):+}%)")
-    print(f"  IC Memo: {_s22.get('ic_recommendation')}")
-    print(f"  BCG: {_s22.get('bcg_position')} · 行业吸引力 {_s22.get('industry_attractiveness')}%")
+    return _run_modeling_and_scoring(ti, raw)
 
-    print("\n📏 Task 2 · 22 维打分")
-    dims = score_dimensions(raw)
-    write_task_output(ti.full, "dimensions", dims)
-    print(f"  基本面得分: {dims['fundamental_score']}/100")
 
-    print("\n🎭 Task 3 · 51 评委规则引擎（骨架分）")
-    panel = generate_panel(dims, raw)
-    write_task_output(ti.full, "panel", panel)
-    sd = panel["signal_distribution"]
-    skip_n = sd.get("skip", 0)
-    active_n = len(panel["investors"]) - skip_n
-    print(f"  参与 {active_n} · 跳过 {skip_n} · 看多 {sd['bullish']} · 中性 {sd['neutral']} · 看空 {sd['bearish']}")
-
-    features = extract_features(raw, raw.get("dimensions", {}))
-
-    print(f"\n{'━' * 50}")
-    print(f"📋 Stage 1 完成 · 骨架分已生成")
-    print(f"   数据: .cache/{ti.full}/raw_data.json")
-    print(f"   评分: .cache/{ti.full}/dimensions.json")
-    print(f"   评委: .cache/{ti.full}/panel.json")
-    print(f"")
-    print(f"   ⏸️  此时 Claude agent 应介入：")
-    print(f"      1. 读取 panel.json 中 51 人的骨架分")
-    print(f"      2. Spawn 4 个 sub-agent 分组 role-play 投资者")
-    print(f"      3. 用 agent 判断覆盖 panel.json 中的 headline/reasoning/score")
-    print(f"      4. 写 agent_analysis.json 到 .cache/{ti.full}/")
-    print(f"         包含: dim_commentary, panel_insights, great_divide_override, narrative_override")
-    print(f"         设置 agent_reviewed: true")
-    print(f"      5. 然后调用 stage2('{ti.full}') 生成最终报告")
-    print(f"{'━' * 50}")
-
-    return {
-        "ticker": ti.full,
-        "raw": raw,
-        "dims": dims,
-        "panel": panel,
-        "features": features,
-    }
+def _validate_agent_analysis_or_fallback(agent_analysis: dict | None, ticker: str):
+    """Validate agent_analysis and discard structurally invalid payloads."""
+    if not agent_analysis:
+        return None, []
+    try:
+        from lib.agent_analysis_validator import validate as _validate_aa, format_issues as _fmt_aa
+        issues = _validate_aa(agent_analysis)
+        errs = [i for i in issues if i.severity == "error"]
+        if issues:
+            print("\n" + _fmt_aa(issues))
+            from pathlib import Path as _Path
+            err_path = _Path(".cache") / ticker / "_agent_analysis_errors.json"
+            err_path.parent.mkdir(parents=True, exist_ok=True)
+            err_path.write_text(
+                __import__("json").dumps(
+                    [{"severity": i.severity, "field": i.field, "message": i.message, "suggestion": i.suggestion} for i in issues],
+                    ensure_ascii=False, indent=2
+                ),
+                encoding="utf-8"
+            )
+            if errs:
+                print(f"   → 详细 issue 写入 {err_path}")
+                print(f"   → {len(errs)} 条结构性错误，已回退到脚本骨架；agent 应修正后重跑 stage2")
+                return None, issues
+        return agent_analysis, issues
+    except Exception as _ve:
+        print(f"   ⚠️ schema 校验跳过: {_ve}")
+        return agent_analysis, []
 
 
 def stage2(ticker: str) -> str:
@@ -638,7 +758,10 @@ def stage2(ticker: str) -> str:
     返回报告路径。
     """
     from lib.cache import read_task_output
-    ti = parse_ticker(ticker)
+    ti = _resolve_cached_target(
+        ticker,
+        required_outputs=("raw_data", "dimensions", "panel"),
+    )
 
     raw = read_task_output(ti.full, "raw_data")
     dims = read_task_output(ti.full, "dimensions")
@@ -651,29 +774,8 @@ def stage2(ticker: str) -> str:
     agent_analysis = read_task_output(ti.full, "agent_analysis")
 
     # v2.6 · 校验 agent_analysis schema（特别针对非 Claude 模型的输出）
-    if agent_analysis:
-        try:
-            from lib.agent_analysis_validator import validate as _validate_aa, format_issues as _fmt_aa
-            issues = _validate_aa(agent_analysis)
-            errs = [i for i in issues if i.severity == "error"]
-            if issues:
-                print("\n" + _fmt_aa(issues))
-                # 写错误清单 JSON 给 agent 复盘
-                from pathlib import Path as _Path
-                err_path = _Path(".cache") / ti.full / "_agent_analysis_errors.json"
-                err_path.parent.mkdir(parents=True, exist_ok=True)
-                err_path.write_text(
-                    __import__("json").dumps(
-                        [{"severity": i.severity, "field": i.field, "message": i.message, "suggestion": i.suggestion} for i in issues],
-                        ensure_ascii=False, indent=2
-                    ),
-                    encoding="utf-8"
-                )
-                if errs:
-                    print(f"   → 详细 issue 写入 {err_path}")
-                    print(f"   → {len(errs)} 条结构性错误，agent 应修正后重跑 stage2")
-        except Exception as _ve:
-            print(f"   ⚠️ schema 校验跳过: {_ve}")
+    # error 级结构问题不能继续 merge，否则 narrative_override/list 等坏结构会污染 synthesis。
+    agent_analysis, _agent_analysis_issues = _validate_agent_analysis_or_fallback(agent_analysis, ti.full)
 
     if agent_analysis and agent_analysis.get("agent_reviewed"):
         print(f"\n🧠 Agent 分析已加载 · agent_analysis.json")

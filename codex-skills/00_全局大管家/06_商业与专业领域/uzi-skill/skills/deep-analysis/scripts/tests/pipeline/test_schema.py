@@ -41,6 +41,7 @@ def test_dim_result_to_from_dict_roundtrip():
         source="akshare",
         quality=Quality.PARTIAL,
         data_gaps=["net_margin"],
+        fetched_at=1234.5,
     )
     d = r.to_dict()
     # 顶层 legacy 格式
@@ -51,11 +52,13 @@ def test_dim_result_to_from_dict_roundtrip():
     assert d["_pipeline"]["quality"] == "partial"
     assert d["_pipeline"]["data_gaps"] == ["net_margin"]
     assert d["_pipeline"]["dim_key"] == "1_financials"
+    assert d["_pipeline"]["fetched_at"] == 1234.5
     # roundtrip 恢复
     r2 = DimResult.from_dict(d)
     assert r2.dim_key == r.dim_key
     assert r2.quality == Quality.PARTIAL
     assert r2.data["roe"] == 15.5
+    assert r2.fetched_at == 1234.5
 
 
 def test_dim_result_to_dict_legacy_compat():

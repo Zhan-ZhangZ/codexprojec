@@ -84,6 +84,7 @@ class BaseFetcher(ABC):
             quality=Quality.MISSING,  # validator 会改
             top_level_fields=top_level,
             latency_ms=int((time.time() - t0) * 1000),
+            fetched_at=time.time(),
         )
 
         # 根据 spec 校验 · 自动填 data_gaps + quality

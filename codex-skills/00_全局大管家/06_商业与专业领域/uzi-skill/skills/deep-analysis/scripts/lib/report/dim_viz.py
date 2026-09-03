@@ -18,6 +18,7 @@ assemble_report.py 做 `from lib.report.dim_viz import *` · 所有历史引用�
 """
 from __future__ import annotations
 
+from lib.report.global_peers import render_global_peer_comparison
 from lib.report.svg_primitives import (
     COLOR_BULL, COLOR_BEAR, COLOR_GOLD, COLOR_CYAN,
     COLOR_BLUE, COLOR_PINK, COLOR_INDIGO, COLOR_MUTED, COLOR_GRID,
@@ -319,8 +320,20 @@ def _viz_peers(raw: dict) -> str:
         viz += '<div style="font-family:Fira Code;font-size:10px;color:#64748b;margin-bottom:6px">📊 关键指标 vs 行业均值</div>'
         for m in metrics[:4]:
             name = m.get("name", "")
-            self_v = m.get("self", 0)
-            peer_v = m.get("peer", 0)
+            # v3.9.4 · self/peer 缺失（None/"—"）时跳过该指标（Codex P2-3）——
+            # 此前转成 0.0 渲染成"0"对比条，HK rank-only 指标会被误导为零值
+            self_v = m.get("self")
+            peer_v = m.get("peer")
+            if self_v in (None, "", "—") or peer_v in (None, "", "—"):
+                continue
+            try:
+                self_v = float(self_v)
+            except (TypeError, ValueError):
+                continue
+            try:
+                peer_v = float(peer_v)
+            except (TypeError, ValueError):
+                continue
             max_v = max(abs(self_v), abs(peer_v), 1)
             self_pct = abs(self_v) / max_v * 100
             peer_pct = abs(peer_v) / max_v * 100
@@ -336,6 +349,7 @@ def _viz_peers(raw: dict) -> str:
   </div>
 </div>'''
         viz += '</div>'
+    viz += render_global_peer_comparison(raw.get("global_peer_comparison") or {})
     return viz or '<div style="color:#94a3b8;font-size:11px">未获取同行数据</div>'
 
 
@@ -359,7 +373,15 @@ def _viz_research(raw: dict) -> str:
         ("中性", neu_n, COLOR_MUTED),
     ], label=f"{total}家")
     target_avg = raw.get("target_avg", "—")
-    upside = raw.get("upside", "—")
+    upside = raw.get("upside")
+    # v3.9.4 · upside 缺失时不显示 "¥x (None)" · 用真实计算或 "—"
+    if upside is None or upside in ("", "None"):
+        _px = raw.get("price") or 0
+        _ta = float(target_avg) if str(target_avg).replace(".", "").isdigit() else 0
+        if _px and _ta:
+            upside = f"{(_ta - _px) / _px * 100:+.1f}%"
+        else:
+            upside = "—"
     tail = f'''<div style="display:flex;justify-content:space-between;margin-top:10px;padding:8px;background:#fef3c7;border-radius:6px">
   <span style="font-family:Fira Code;font-size:10px;color:#64748b">一致目标价</span>
   <span style="font-family:Fira Code;font-size:12px;color:#d97706;font-weight:700">{target_avg} ({upside})</span>
@@ -446,8 +468,15 @@ def _viz_governance(raw: dict) -> str:
 
     # Qualitative search results
     qual = raw.get("qualitative_search") or []
-    related_tx = "已查询" if qual else "—"
-    violations = "未发现" if qual else "—"
+    # v3.9.4 · 仅"搜过查询词"不等于"未发现违规"——qual 存的是搜索词而非结果，改为中性表述
+    hits = raw.get("violation_hits")
+    if isinstance(hits, list) and hits:
+        violations = f"{len(hits)} 条待核"
+    elif hits == 0 or hits == []:
+        violations = "未发现"
+    else:
+        violations = "暂无公开违规记录"  # v3.9.4 · 数据缺省时中性表述，非"未发现"断言
+    no_violations = violations == "未发现"
 
     def _badge(label, val, positive):
         color = COLOR_BULL if positive else COLOR_BEAR if positive is False else COLOR_GOLD
@@ -458,7 +487,6 @@ def _viz_governance(raw: dict) -> str:
 </div>'''
     low_pledge = isinstance(pledge_raw, list) and len(pledge_raw) > 0 and (isinstance(pledge_raw[0], dict) and pledge_raw[0].get("质押比例", 100) < 20)
     insider_positive = "增持" in str(insider) or "买入" in str(insider)
-    no_violations = "未发现" in str(violations) or violations == "—"
     rows = _badge("实控人质押", pledge, low_pledge)
     rows += _badge("近12月增减持", insider, insider_positive)
     rows += _badge("关联交易/违规", violations, no_violations)
@@ -468,16 +496,17 @@ def _viz_governance(raw: dict) -> str:
 def _viz_capital_flow(raw: dict) -> str:
     """4 mini sparklines + 机构持仓变化 + 解禁时间表"""
     def _mini(label, values, summary, color):
+        summary = _safe(summary, "数据暂缺")  # v3.9.4 · None → 数据暂缺（不再显示 "None"）
         if not values or len(values) < 2:
             return f'''<div style="padding:10px;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px">
   <div style="font-family:Fira Code;font-size:9px;color:#64748b">{label}</div>
-  <div style="font-family:Fira Code;font-size:12px;font-weight:700;color:#0f172a;margin-top:2px">{summary}</div>
+  <div style="font-family:Fira Code;font-size:12px;font-weight:700;color:#64748b;margin-top:2px">{summary}</div>
 </div>'''
         spark = svg_sparkline(values, width=120, height=34, color=color)
         return f'''<div style="padding:10px;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
     <span style="font-family:Fira Code;font-size:9px;color:#64748b">{label}</span>
-    <strong style="font-family:Fira Code;font-size:10px;color:#0f172a">{summary}</strong>
+    <strong style="font-family:Fira Code;font-size:10px;color:#0f172a">{_safe(summary, "数据暂缺")}</strong>
   </div>
   {spark}
 </div>'''
@@ -524,15 +553,16 @@ def _viz_capital_flow(raw: dict) -> str:
 
 
 def _viz_policy(raw: dict) -> str:
+    # v3.9.4 · None → "—"（数据源 null 时走"无数据"分支，不再显示 "None"）
     items = [
-        ("方向", raw.get("policy_dir", "—"), True),
-        ("补贴", raw.get("subsidy", "—"), True),
-        ("监管", raw.get("monitoring", "—"), None),
-        ("反垄断", raw.get("anti_trust", "—"), None),
+        ("方向", _safe(raw.get("policy_dir")), True),
+        ("补贴", _safe(raw.get("subsidy")), True),
+        ("监管", _safe(raw.get("monitoring")), None),
+        ("反垄断", _safe(raw.get("anti_trust")), None),
     ]
     cells = ""
     for label, val, positive in items:
-        if val in ("—", "不适用", "无"):
+        if val in ("—", "不适用", "无", "数据暂缺"):
             cells += f'<div style="padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px"><div style="font-family:Fira Code;font-size:9px;color:#94a3b8">{label}</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">{val}</div></div>'
         else:
             color = COLOR_BULL if positive else COLOR_GOLD
@@ -756,4 +786,3 @@ DIM_VIZ_RENDERERS = {
     "18_trap":         _viz_trap,
     "19_contests":     _viz_contests,
 }
-

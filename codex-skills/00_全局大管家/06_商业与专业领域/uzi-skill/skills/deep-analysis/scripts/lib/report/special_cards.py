@@ -382,6 +382,8 @@ def render_panel_insights(syn: dict, panel: dict) -> str:
         from collections import Counter
         grp_stance: dict[str, Counter] = {}
         for inv in investors:
+            if inv.get("mandate") == "short":
+                continue
             g = inv.get("group", "?")
             grp_stance.setdefault(g, Counter())[inv.get("signal", "?")] += 1
         grp_summary = []
@@ -403,6 +405,13 @@ def render_panel_insights(syn: dict, panel: dict) -> str:
             f"<br><br><strong>按流派分布</strong>："
             + "；".join(grp_summary) + "。"
         )
+        short = panel.get("short_consensus") or {}
+        if short.get("total"):
+            insights += (
+                f"<br><br><strong>做空派独立观察</strong>："
+                f"{short.get('short_candidates', 0)} 个做空候选 · "
+                f"{short.get('no_short_thesis', 0)} 个暂无明确做空逻辑。"
+            )
         if bull == 0 and bear > 10:
             insights += " <em>⚠️ 无一人看多，压倒性看空——高信念回避信号。</em>"
         elif bear == 0 and bull > 10:

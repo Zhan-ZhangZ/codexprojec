@@ -8,6 +8,7 @@ import time
 
 import akshare as ak  # type: ignore
 from lib import data_sources as ds
+from lib.global_peers import fetch_global_peer_comparison
 from lib.market_router import parse_ticker
 
 
@@ -33,6 +34,34 @@ def _build_self_only_table(ti, basic: dict) -> tuple[list, list]:
         "is_self": True,
     }
     return [self_row], []
+
+
+def _attach_global_peers(data: dict, ti, basic: dict) -> dict:
+    """Attach global peers without allowing the optional source to fail dim 4."""
+    out = dict(data)
+    if os.getenv("UZI_DISABLE_GLOBAL_PEERS", "").strip().lower() in {"1", "true", "yes"}:
+        out["global_peer_comparison"] = {"conclusion_status": "disabled", "peer_count": 0}
+        return out
+    if not (basic.get("name") and basic.get("industry")):
+        out["global_peer_comparison"] = {
+            "conclusion_status": "insufficient_target_profile",
+            "peer_count": 0,
+        }
+        return out
+    try:
+        limit = max(3, min(int(os.getenv("UZI_GLOBAL_PEER_LIMIT", "8")), 12))
+        out["global_peer_comparison"] = fetch_global_peer_comparison(
+            ti,
+            basic=basic,
+            limit=limit,
+        )
+    except Exception as exc:
+        out["global_peer_comparison"] = {
+            "conclusion_status": "unavailable",
+            "peer_count": 0,
+            "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+        }
+    return out
 
 
 def main(ticker: str) -> dict:
@@ -74,9 +103,7 @@ def main(ticker: str) -> dict:
         # rank string for the report
         mcap_rank = scale.get("market_cap_rank")
         rank_str = f"HK 第 {mcap_rank} 位（按总市值）" if mcap_rank else "—"
-        return {
-            "ticker": ti.full,
-            "data": {
+        hk_data = _attach_global_peers({
                 "industry": industry or "未分类（akshare HK 无行业聚合）",
                 "self": basic,
                 "peer_table": peer_table,
@@ -84,7 +111,10 @@ def main(ticker: str) -> dict:
                 "rank": rank_str,
                 "peers_top20_raw": [],
                 "_note": "HK peer LIST 需走 AASTOCKS Playwright 或问财；本字段提供 rank-in-universe 作替代",
-            },
+            }, ti, basic)
+        return {
+            "ticker": ti.full,
+            "data": hk_data,
             "source": "akshare:hk_valuation_comparison_em + scale_comparison_em + growth_comparison_em",
             "fallback": False,
         }
@@ -120,18 +150,52 @@ def main(ticker: str) -> dict:
 
         tbl = ([self_row] if self_row else []) + peers_top5
 
+        # v3.9.4 · 同行 ROE 补充（参考 stock_web._fetch_peer · 不走 push2 更稳）
+        # 只给 top 同行补 ROE · 单只失败静默跳过 · 不阻塞主流程
+        try:
+            _roe_cache = {}
+            for _p in tbl:
+                _c = str(_p.get("code", ""))
+                if not _c or _c in _roe_cache:
+                    _p["roe"] = _roe_cache.get(_c, "—")
+                    continue
+                try:
+                    _ind = ak.stock_financial_analysis_indicator_em(symbol=f"{_c}.{('SH' if _c.startswith(('6','9')) else 'SZ')}")
+                    if _ind is not None and not _ind.empty and "ROEJQ" in _ind.columns:
+                        _annual = _ind[_ind.get("REPORT_DATE_NAME", _ind.iloc[:, 0]).astype(str).str.contains("年报", na=False)]
+                        _src = _annual if not _annual.empty else _ind
+                        _v = _float(_src.iloc[-1].get("ROEJQ"))
+                        _p["roe"] = f"{_v:.1f}" if _v else "—"
+                        _roe_cache[_c] = _p["roe"]
+                except Exception:
+                    _roe_cache[_c] = "—"
+        except Exception:
+            pass
+
         def _avg(col):
             if col not in df.columns: return 0.0
             vals = [_float(v) for v in df[col] if _float(v) > 0]
             return round(sum(vals) / len(vals), 2) if vals else 0.0
 
+        # v3.9.4 · ROE 同行均值（用上面补的逐行 ROE · 非 self）
+        _peer_roes = [_float(p.get("roe")) for p in tbl if not p.get("is_self") and _float(p.get("roe")) > 0]
+        _peer_roe_avg = round(sum(_peer_roes) / len(_peer_roes), 1) if _peer_roes else 0.0
+        _self_roe = _float(basic.get("roe")) if _float(basic.get("roe")) else None
+
         cmp = [
             {"name": "PE (越低越好)", "self": _float(basic.get("pe_ttm")), "peer": _avg("市盈率-动态")},
             {"name": "PB (越低越好)", "self": _float(basic.get("pb")),     "peer": _avg("市净率")},
+            {"name": "ROE (越高越好)", "self": _self_roe, "peer": _peer_roe_avg},
         ]
         return raw, tbl, cmp
 
-    if ti.market == "A" and industry:
+    if ti.market == "A" and not industry:
+        peer_table, peer_comparison = _build_self_only_table(ti, basic)
+        fallback_used = True
+        fallback_reason = "basic.industry 缺失 · 仅返回公司自身"
+        source_used += " (missing-industry self-only fallback)"
+
+    elif ti.market == "A" and industry:
         # ─── Tier 1: 主链（push2） ───
         try:
             df = ak.stock_board_industry_cons_em(symbol=industry)
@@ -176,6 +240,71 @@ def main(ticker: str) -> dict:
             except Exception as e:
                 peers_raw.append({"tier": 3, "error": f"{type(e).__name__}: {str(e)[:200]}"})
 
+        # ─── Tier 3.5 · v3.9.4 · push2 全挂时用 INDUSTRY_PEERS 硬编码同行兜底 ───
+        # 白酒/半导体等行业在 fetch_similar_stocks.INDUSTRY_PEERS 有真实同行列表，
+        # 用 stock_financial_analysis_indicator_em（不走 push2）拉它们的估值。
+        if not peer_table:
+            try:
+                from fetch_similar_stocks import INDUSTRY_PEERS, INDUSTRY_ALIASES
+                # v3.9.4 · 别名匹配（Codex P2-1）：集成电路→半导体 / 工业金属→有色金属 / 乘用车→汽车
+                _peers = INDUSTRY_PEERS.get(industry, [])
+                if not _peers:
+                    _alias = INDUSTRY_ALIASES.get(industry)
+                    if _alias:
+                        _peers = INDUSTRY_PEERS.get(_alias, [])
+                if _peers:
+                    import pandas as _pd
+                    # v3.9.4 · 若被分析股票不在同行列表里，先补 self 行（Codex P2-2）
+                    _self_code = ti.code
+                    _in_list = any(str(c) == _self_code for c, _ in _peers)
+                    if not _in_list:
+                        _peers = [(_self_code, basic.get("name") or ti.full)] + list(_peers)
+                    _rows = []
+                    for _pc, _pn in _peers[:6]:
+                        _code = _pc + (".SH" if _pc.startswith("6") else ".SZ")
+                        try:
+                            _df = ak.stock_financial_analysis_indicator_em(symbol=_code)
+                            _roe = "—"
+                            _rev = 0.0
+                            if _df is not None and not _df.empty:
+                                # 取最新一期非空 ROEJQ（末尾行可能是 NaN）
+                                _last = _df.iloc[-1]
+                                if "ROEJQ" in _df.columns:
+                                    _ser = _df["ROEJQ"].dropna()
+                                    _v = float(_ser.iloc[-1]) if len(_ser) else None
+                                    _roe = f"{_v:.1f}" if _v else "—"
+                                if "TOTALOPERATEREVE" in _df.columns:
+                                    _rev = _float(_last.get("TOTALOPERATEREVE"))
+                            # 同行名单至少要有名称/代码（即使无 PE/PB 也比"暂无可比股"强）
+                            _rows.append({
+                                "代码": _pc, "名称": _pn,
+                                "总市值": _rev,
+                                "市盈率-动态": 0,
+                                "市净率": 0,
+                                "_roe": _roe,
+                            })
+                        except Exception:
+                            continue
+                    if _rows:
+                        _xdf = _pd.DataFrame(_rows)
+                        peers_raw, peer_table, peer_comparison = _parse_peer_df(_xdf, ti.code)
+                        # 把 _roe 填回 peer_table（_parse_peer_df 内 ROE 补充逻辑拿不到这里的字段名）
+                        _by_code = {str(r["代码"]): r["_roe"] for r in _rows}
+                        for _p in peer_table:
+                            _pc = str(_p.get("code", "")).split(".")[0]
+                            if _pc in _by_code:
+                                _p["roe"] = _by_code[_pc]
+                        # self 行的 PE/PB 从 basic 补回（_rows 里 PE/PB 是 0，会覆盖真实值）
+                        for _p in peer_table:
+                            if _p.get("is_self"):
+                                _p["pe"] = f"{_float(basic.get('pe_ttm')):.1f}" if _float(basic.get("pe_ttm")) > 0 else "—"
+                                _p["pb"] = f"{_float(basic.get('pb')):.2f}" if _float(basic.get("pb")) > 0 else "—"
+                        fallback_used = True
+                        fallback_reason = "push2 失败 · INDUSTRY_PEERS 硬编码同行兜底"
+                        source_used = "akshare:stock_financial_analysis_indicator_em (INDUSTRY_PEERS)"
+            except Exception as e:
+                peers_raw.append({"tier": 3.5, "error": f"{type(e).__name__}: {str(e)[:200]}"})
+
         # ─── Tier 4 保底：仅公司自己一行 + fallback 标记 ───
         if not peer_table:
             peer_table, peer_comparison = _build_self_only_table(ti, basic)
@@ -184,9 +313,7 @@ def main(ticker: str) -> dict:
                 fallback_reason = "所有同行数据源失败 · 仅返回公司自身"
             source_used += " (self-only fallback)"
 
-    return {
-        "ticker": ti.full,
-        "data": {
+    local_data = _attach_global_peers({
             "industry": industry,
             "self": basic,
             "peer_table": peer_table,
@@ -194,7 +321,10 @@ def main(ticker: str) -> dict:
             "rank": "—",  # 真实排名需要 聚合查询
             "peers_top20_raw": peers_raw[:20],
             "fallback_reason": fallback_reason,  # v2.12.1
-        },
+        }, ti, basic)
+    return {
+        "ticker": ti.full,
+        "data": local_data,
         "source": source_used,
         "fallback": fallback_used,
     }

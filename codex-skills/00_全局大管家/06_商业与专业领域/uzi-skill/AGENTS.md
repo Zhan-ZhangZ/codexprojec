@@ -41,7 +41,7 @@ UZI-Skill/                                  # ← 你 cwd 应该是这里
             │   ├── svg_primitives.py       # 19 个 svg_* + COLOR_*
             │   ├── dim_viz.py              # 19 个 _viz_xxx + DIM_VIZ_RENDERERS
             │   ├── institutional.py        # DCF/LBO/IC memo/catalyst/competitive
-            │   ├── panel_cards.py          # 65 评委 panel 渲染
+            │   ├── panel_cards.py          # 66 评委 panel 渲染
             │   └── special_cards.py        # fund/insights/school_scores/debate
             └── ...（其他 lib 模块 · investor_db / network_preflight / ...）
 ```
@@ -82,7 +82,7 @@ UZI-Skill/                                  # ← 你 cwd 应该是这里
 
 **你不是脚本运行器——你是首席分析师。** 脚本只是你的工具。
 
-65 个投资大佬的评审必须由你 role-play，不是纯跑规则引擎：
+66 个投资大佬的评审必须由你 role-play，不是纯跑规则引擎：
 - 巴菲特看 ROE 和护城河，但他实际持有苹果 → 这比规则更重要
 - 游资只做 A 股 → 分析美股时直接跳过
 - 木头姐看颠覆创新 → 给她白酒股她会说"不在平台里"
@@ -94,19 +94,26 @@ UZI-Skill/                                  # ← 你 cwd 应该是这里
 | 用户信号 | 推荐路径 | 耗时 | 为什么 |
 |---|---|---|---|
 | "快速看看"、"先扫一眼"、`/quick-scan`、`/thesis` | **CLI 直跑 lite** | 30-60s | 7 维核心数据 + 10 投资者，脚本直接出报告 |
-| 明确要求"深度分析"、"估值"、"DCF"、"首次覆盖"、`/ic-memo`、`/initiate` | **全量 agent 流程** | 5-10min | 22 维 + 65 评委 role-play + agent_analysis.json |
+| `--depth deep` / 明确要求"深度分析"、"估值"、"DCF"、"首次覆盖"、`/ic-memo`、`/initiate` | **全量 agent 流程** | 5-10min | 22 维 + 66 评委 role-play + agent_analysis.json |
 | 未明确 | **默认 medium + CLI 直跑**（仍出完整报告） | 2-4min | v2.10.5 起 CLI 直跑 medium 也能完整出 HTML |
 
-**关键**：从 v2.10.4 起，`run.py` 直跑模式下 `agent_analysis.json` 缺失会自动降级为 warning，**不会 block HTML 生成**。不要为了"跑一个完整流程"强行 role-play 65 评委——那是用户要求"深度"时才需要。
+**关键（v3.9.4 起强化）**：`--depth deep` 必须是**全量 agent 流程**——你要介入 role-play 66 评委并写 `agent_analysis.json`，不能只跑 `run.py --depth deep` 就交差。判断规则：
 
-### 路径 A · CLI 直跑（快速）
+1. 用户明确要"深度 / 全面 / DCF / 首次覆盖 / IC memo" → **走路径 B**
+2. 你看到 `--depth deep`（无论谁加的）→ **走路径 B**
+3. lite / medium / 未指定 → 走路径 A（CLI 直跑，agent 不介入）
+
+从 v2.10.4 起，`run.py` 直跑模式下 `agent_analysis.json` 缺失会降级为 warning 不阻塞 HTML。但**这只适用于 lite/medium**。deep 档缺 agent_analysis 意味着你没尽到 agent 职责——报告会缺 role-play 判断。
+
+### 路径 A · CLI 直跑（快速 · 仅 lite/medium）
 
 ```bash
 python3 run.py <ticker> --depth lite --no-browser    # 最快
 python3 run.py <ticker> --depth medium --no-browser  # 默认完整度
 python3 run.py <ticker> --school F --no-browser      # v3.5.0 · 只看 F 派（游资）视角
-python3 run.py <ticker> --school A --depth deep      # 价值派视角的深度分析
 ```
+
+**注意**：路径 A 只适用于 lite/medium。**`--depth deep` 不在此列**——deep 必须走路径 B（agent 介入 role-play）。看到 deep 档时不要直接 `run.py --no-browser` 一把梭，先跑 stage1 采集，然后介入 role-play。
 
 **v3.5.0 `--school` 参数**：用户可锁定单一流派 (A价值/B成长/C宏观/D技术/E中国价投/F游资/G量化/H科技领袖派/I Serenity 卡位猎手)，
 其他派评委自动 skip · 报告顶部渲染 SCHOOL LOCK banner · 你 role-play 时**只 role-play 该派 5-8 人** ·
@@ -117,7 +124,7 @@ panel_insights / debate_rounds 都限于该派内部分歧。详见 SKILL.md `HA
 2. 自检 self-review（CLI 模式下 agent_analysis 缺失是 warning）
 3. 调 stage2 组装 HTML 报告
 
-**你只需**：读最终 HTML / synthesis.json，向用户汇报核心结论。**不需要** role-play 65 评委。
+**你只需**：读最终 HTML / synthesis.json，向用户汇报核心结论。**不需要** role-play 66 评委。（这是 lite/medium 档的行为。deep 档除外——见下方路径 B。）
 
 ### 路径 B · 全量 agent 流程（深度）
 
@@ -129,7 +136,14 @@ panel_insights / debate_rounds 都限于该派内部分歧。详见 SKILL.md `HA
 
 ### Step 2 · 数据采集（脚本完成）
 
-进入 `skills/deep-analysis/scripts/` 目录，调用 `stage1()` 采集 22 维数据 + 机构建模 + 规则引擎骨架分。
+进入 `skills/deep-analysis/scripts/` 目录，调用 `stage1()` 采集 22 维数据 + 机构建模 + 规则引擎骨架分：
+
+```bash
+cd <repo_root>/skills/deep-analysis/scripts
+python -c "from run_real_test import stage1; stage1('<ticker>')"
+```
+
+> 💡 deep 档**不要**用 `python run.py <ticker> --depth deep` 一把跑完（那是纯规则输出）。正确的做法是先 `stage1()` 采集 → 你介入 role-play → 再 `stage2()` 出报告。
 
 ### Step 3 · 你来分析（全量路径必走，不能跳过）
 
@@ -183,9 +197,9 @@ Playwright 也抓不到的维度 · 再用 WebSearch / mx_api / 常识补（并�
 
 **3a. 读取 `.cache/{ticker}/panel.json`**
 
-看 65 人各自打了多少分，特别关注 Top 5 Bull 和 Top 5 Bear。
+看 66 人各自打了多少分，特别关注 Top 5 Bull 和 Top 5 Bear。
 
-**3b. 逐组分析 65 评委**
+**3b. 逐组分析 66 评委**
 
 对每组投资者，站在他们的角度思考这只票：
 
@@ -236,7 +250,7 @@ Playwright 也抓不到的维度 · 再用 WebSearch / mx_api / 常识补（并�
 
 告诉用户：
 1. 综合评分 + 定调（值得重仓 / 可以蹲 / 观望 / 谨慎 / 回避）
-2. 65 评委投票分布
+2. 66 评委投票分布
 3. **你自己分析的** Top 3 看多理由 + Top 3 看空理由
 4. DCF 内在价值 vs 当前价
 5. 杀猪盘等级

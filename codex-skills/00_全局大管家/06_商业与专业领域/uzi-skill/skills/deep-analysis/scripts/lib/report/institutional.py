@@ -26,6 +26,8 @@ assemble_report.py 做 `from lib.report.institutional import *` · 调用不变.
 """
 from __future__ import annotations
 
+import html
+
 from lib.report.svg_primitives import (
     COLOR_BULL, COLOR_BEAR, COLOR_GOLD, COLOR_CYAN, COLOR_MUTED,
     svg_gauge, svg_progress_row,
@@ -40,6 +42,23 @@ def _safe(v, default="—"):
     if v is None or v == "" or v == "—":
         return default
     return v
+
+
+def _number(v, default=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _numeric_series(values) -> list[float]:
+    """Keep valid observations without turning missing time-series points into zero."""
+    result = []
+    for value in values or []:
+        numeric = _number(value, default=None)
+        if numeric is not None:
+            result.append(numeric)
+    return result
 
 
 def trap_color_emoji(level: str) -> tuple[str, str]:
@@ -63,14 +82,25 @@ def _render_dcf_block(dim20: dict) -> str:
     if not dcf or "intrinsic_per_share" not in dcf:
         return '<div class="dcf-block"><p class="muted">DCF 数据缺失</p></div>'
 
-    wacc_info = dcf.get("wacc_breakdown", {}) or {}
-    wacc_pct = wacc_info.get("wacc", 0) * 100
-    ke_pct = wacc_info.get("cost_of_equity", 0) * 100
-    kd_pct = wacc_info.get("after_tax_kd", 0) * 100
+    if dcf.get("intrinsic_per_share") is None:
+        verdict = html.escape(
+            str(_safe(dcf.get("verdict"), "亏损期自由现金流为负，DCF 无法收敛")),
+            quote=True,
+        )
+        return (
+            '<div class="dcf-block"><p class="muted">'
+            f'DCF 暂不可用：{verdict}。亏损期请结合 PB 分位、LBO 与 Comps 估值交叉判断。'
+            '</p></div>'
+        )
 
-    intrinsic = dcf.get("intrinsic_per_share", 0)
-    cur_px = dcf.get("current_price", 0)
-    sm = dcf.get("safety_margin_pct", 0)
+    wacc_info = dcf.get("wacc_breakdown", {}) or {}
+    wacc_pct = _number(wacc_info.get("wacc")) * 100
+    ke_pct = _number(wacc_info.get("cost_of_equity")) * 100
+    kd_pct = _number(wacc_info.get("after_tax_kd")) * 100
+
+    intrinsic = _number(dcf.get("intrinsic_per_share"))
+    cur_px = _number(dcf.get("current_price"))
+    sm = _number(dcf.get("safety_margin_pct"))
     verdict = dcf.get("verdict", "")
 
     # Methodology log
@@ -89,8 +119,12 @@ def _render_dcf_block(dim20: dict) -> str:
         for i, row in enumerate(values):
             cells = ""
             for val in row:
-                if cur_px > 0:
-                    ratio = val / cur_px
+                numeric_val = _number(val, default=None)
+                if numeric_val is None:
+                    color = "#e5e7eb"; fg = "#6b7280"
+                    display_val = "—"
+                elif cur_px > 0:
+                    ratio = numeric_val / cur_px
                     if ratio >= 1.3:
                         color = "#065f46"; fg = "#fff"
                     elif ratio >= 1.1:
@@ -101,16 +135,20 @@ def _render_dcf_block(dim20: dict) -> str:
                         color = "#f97316"; fg = "#fff"
                     else:
                         color = "#b91c1c"; fg = "#fff"
+                    display_val = numeric_val
                 else:
                     color = "#e5e7eb"; fg = "#111"
-                cells += f'<td style="background:{color};color:{fg};padding:6px 10px;text-align:center;font-weight:700">¥{val}</td>'
-            body += f'<tr><th style="padding:6px 8px;background:#f3f4f6;font-size:12px">WACC {wacc_axis[i]}</th>{cells}</tr>'
+                    display_val = numeric_val
+                value_prefix = "" if display_val == "—" else "¥"
+                cells += f'<td style="background:{color};color:{fg};padding:6px 10px;text-align:center;font-weight:700">{value_prefix}{display_val}</td>'
+            axis_label = wacc_axis[i] if i < len(wacc_axis) else "—"
+            body += f'<tr><th style="padding:6px 8px;background:#f3f4f6;font-size:12px">WACC {axis_label}</th>{cells}</tr>'
         heat_rows = f'<table class="sens-heatmap" style="border-collapse:collapse;margin:12px 0;font-size:13px">{header}{body}</table>'
 
     sm_color = "#10b981" if sm > 10 else ("#f59e0b" if sm > -10 else "#ef4444")
 
     # TV 占比
-    tv_pct = dcf.get("tv_pct_of_ev", 0)
+    tv_pct = _safe(dcf.get("tv_pct_of_ev"))
 
     return f'''
     <div class="dcf-block" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin:16px 0;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
@@ -159,7 +197,7 @@ def _render_comps_block(dim20: dict) -> str:
     for m in ("pe", "pb", "ps", "ev_ebitda", "roe", "net_margin"):
         s = stats.get(m)
         if not s: continue
-        pct = target_pct.get(m, 50)
+        pct = max(0.0, min(100.0, _number(target_pct.get(m), 50)))
         bar = f'<div style="background:#e5e7eb;height:6px;border-radius:3px;overflow:hidden"><div style="background:{_pct_color(pct)};height:100%;width:{pct}%"></div></div>'
         metric_rows += f'''
         <tr>
@@ -202,11 +240,11 @@ def _render_lbo_block(dim20: dict) -> str:
     lbo = (dim20 or {}).get("lbo") or {}
     if not lbo:
         return ""
-    irr = lbo.get("irr_pct", 0)
-    moic = lbo.get("moic", 0)
+    irr = _number(lbo.get("irr_pct"))
+    moic = _safe(lbo.get("moic"))
     verdict = lbo.get("verdict", "")
-    debt_sched = lbo.get("debt_schedule", [])
-    ebitda_path = lbo.get("ebitda_path", [])
+    debt_sched = _numeric_series(lbo.get("debt_schedule"))
+    ebitda_path = _numeric_series(lbo.get("ebitda_path"))
     irr_color = "#10b981" if irr >= 20 else ("#f59e0b" if irr >= 15 else "#ef4444")
 
     ebitda_sparks = svg_sparkline(ebitda_path, width=220, height=40, color="#06b6d4") if ebitda_path else ""
@@ -226,9 +264,9 @@ def _render_lbo_block(dim20: dict) -> str:
         <div><div style="font-size:11px;color:#6b7280">退出 IRR</div><div style="font-size:24px;font-weight:900;color:{irr_color}">{irr}%</div><div style="font-size:10px;color:#9ca3af">MOIC {moic}x</div></div>
         <div><div style="font-size:11px;color:#6b7280">结论</div><div style="font-size:14px;font-weight:700;color:{irr_color}">{verdict}</div></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-        <div><div style="font-size:11px;color:#6b7280;margin-bottom:4px">5 年 EBITDA 路径</div>{ebitda_sparks}</div>
-        <div><div style="font-size:11px;color:#6b7280;margin-bottom:4px">债务偿还进度</div>{debt_sparks}</div>
+      <div class="lbo-spark-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div style="min-width:0"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">5 年 EBITDA 路径</div>{ebitda_sparks}</div>
+        <div style="min-width:0"><div style="font-size:11px;color:#6b7280;margin-bottom:4px">债务偿还进度</div>{debt_sparks}</div>
       </div>
     </div>
     '''
@@ -238,12 +276,19 @@ def _render_initiating_coverage(dim21: dict) -> str:
     ic = (dim21 or {}).get("initiating_coverage") or {}
     if not ic: return ""
     head = ic.get("headline") or {}
-    rating = head.get("rating", "—")
+    rating = str(_safe(head.get("rating")))
     tp = head.get("target_price", 0)
     cur = head.get("current_price", 0)
     ups = head.get("upside_pct", 0)
 
-    rating_color = "#10b981" if "买入" in rating or "增持" in rating else ("#f59e0b" if "持有" in rating else "#ef4444")
+    is_rated = "未评级" not in rating
+    rating_color = (
+        "#6b7280" if not is_rated else
+        ("#10b981" if "买入" in rating or "增持" in rating else
+         ("#f59e0b" if "持有" in rating else "#ef4444"))
+    )
+    target_display = f"¥{tp}" if is_rated and _number(tp) > 0 else "—"
+    upside_display = f"{_number(ups):+.1f}%" if is_rated else "—"
     pillars = ic.get("investment_thesis") or []
     risks = ic.get("key_risks") or []
 
@@ -266,9 +311,9 @@ def _render_initiating_coverage(dim21: dict) -> str:
       </div>
       <div style="display:flex;gap:24px;margin-bottom:14px;padding:12px;background:#f9fafb;border-radius:8px">
         <div><div style="font-size:11px;color:#6b7280">RATING</div><div style="font-size:18px;font-weight:800;color:{rating_color}">{rating}</div></div>
-        <div><div style="font-size:11px;color:#6b7280">TARGET</div><div style="font-size:18px;font-weight:800">¥{tp}</div></div>
+        <div><div style="font-size:11px;color:#6b7280">TARGET</div><div style="font-size:18px;font-weight:800">{target_display}</div></div>
         <div><div style="font-size:11px;color:#6b7280">CURRENT</div><div style="font-size:18px;font-weight:800">¥{cur}</div></div>
-        <div><div style="font-size:11px;color:#6b7280">UPSIDE</div><div style="font-size:18px;font-weight:800;color:{rating_color}">{ups:+.1f}%</div></div>
+        <div><div style="font-size:11px;color:#6b7280">UPSIDE</div><div style="font-size:18px;font-weight:800;color:{rating_color}">{upside_display}</div></div>
       </div>
       <div style="padding:10px;background:#f0f9ff;border-left:3px solid #0369a1;margin-bottom:14px;font-size:13px;line-height:1.6">{ic.get("executive_summary", "")}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
@@ -294,17 +339,17 @@ def _render_ic_memo(dim22: dict) -> str:
 
     if not sections: return ""
 
-    headline = exec_sum.get("headline", "—")
+    headline = str(_safe(exec_sum.get("headline")))
     rec_color = "#10b981" if "🟢" in headline else ("#f59e0b" if "🟡" in headline else ("#6b7280" if "⚪" in headline else "#ef4444"))
 
     scen_html = ""
     for s in scenarios:
-        ret = s.get("return_pct", 0)
+        ret = _number(s.get("return_pct"))
         ret_color = "#10b981" if ret > 0 else "#ef4444"
         scen_html += f'''
         <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px">
-          <div style="font-size:11px;color:#6b7280;font-weight:700">{s.get("scenario", "—")} · p={s.get("probability_pct", 0)}%</div>
-          <div style="font-size:20px;font-weight:800;margin:4px 0">¥{s.get("price_target", 0)}</div>
+          <div style="font-size:11px;color:#6b7280;font-weight:700">{s.get("scenario", "—")} · p={_safe(s.get("probability_pct"))}%</div>
+          <div style="font-size:20px;font-weight:800;margin:4px 0">¥{_safe(s.get("price_target"))}</div>
           <div style="font-size:13px;font-weight:700;color:{ret_color}">{ret:+.1f}%</div>
           <div style="font-size:10px;color:#9ca3af;margin-top:4px">{s.get("assumptions", "")}</div>
         </div>'''
@@ -349,9 +394,10 @@ def _render_catalyst_calendar(dim21: dict) -> str:
     items = ""
     for ev in events[:12]:
         imp = ev.get("impact", "low")
+        event_date = str(_safe(ev.get("date")))[:10]
         items += f'''
         <div style="display:flex;padding:10px;border-bottom:1px solid #f3f4f6">
-          <div style="min-width:90px;font-size:12px;color:#6b7280;font-family:Menlo,monospace">{ev.get("date", "—")[:10]}</div>
+          <div style="min-width:90px;font-size:12px;color:#6b7280;font-family:Menlo,monospace">{event_date}</div>
           <div style="width:8px;height:8px;border-radius:50%;background:{_impact_color(imp)};margin:6px 10px 0 0"></div>
           <div style="flex:1"><div style="font-size:13px;color:#111">{ev.get("event", "—")}</div>
             {'<div style="font-size:11px;color:#9ca3af">'+ev.get("expectation","")+'</div>' if ev.get("expectation") else ""}
@@ -377,18 +423,18 @@ def _render_competitive_analysis(dim22: dict) -> str:
     ca = (dim22 or {}).get("competitive_analysis") or {}
     porter = ca.get("porter_five_forces") or {}
     bcg = ca.get("bcg_position") or {}
-    attr = ca.get("industry_attractiveness_pct", 0)
+    attr = _number(ca.get("industry_attractiveness_pct"))
 
     if not porter: return ""
 
     # Porter radar via existing svg_radar
     force_labels = ["新进入者", "替代品", "供应商", "买方", "现有竞争"]
     force_values = [
-        porter.get("new_entrants_threat", {}).get("score", 3),
-        porter.get("substitutes_threat", {}).get("score", 3),
-        porter.get("supplier_power", {}).get("score", 3),
-        porter.get("buyer_power", {}).get("score", 3),
-        porter.get("rivalry_intensity", {}).get("score", 3),
+        _number(porter.get("new_entrants_threat", {}).get("score"), 3),
+        _number(porter.get("substitutes_threat", {}).get("score"), 3),
+        _number(porter.get("supplier_power", {}).get("score"), 3),
+        _number(porter.get("buyer_power", {}).get("score"), 3),
+        _number(porter.get("rivalry_intensity", {}).get("score"), 3),
     ]
     radar = svg_radar(force_labels, force_values, max_val=5, size=200)
 
@@ -409,7 +455,7 @@ def _render_competitive_analysis(dim22: dict) -> str:
         <div>
           <div style="font-size:11px;color:#6b7280;margin-bottom:6px">BCG 矩阵定位</div>
           <div style="font-size:22px;font-weight:800;color:{bcg_color};margin-bottom:8px">{bcg_cat}</div>
-          <div style="font-size:12px;color:#374151;margin-bottom:4px">市场份额 {bcg.get("market_share_pct", 0)}% · 市场增速 {bcg.get("market_growth_pct", 0)}%</div>
+          <div style="font-size:12px;color:#374151;margin-bottom:4px">市场份额 {_safe(bcg.get("market_share_pct"))}% · 市场增速 {_safe(bcg.get("market_growth_pct"))}%</div>
           <div style="padding:10px;background:#faf5ff;border-left:3px solid {bcg_color};font-size:12px">战略建议：{bcg.get("strategic_action", "—")}</div>
         </div>
       </div>
@@ -606,6 +652,12 @@ def _render_school_lock_banner(syn: dict | None) -> str:
         "I": ("#4338ca", "rgba(99,102,241,0.10)", "🔗", "Serenity · AI 供应链卡脖子/瓶颈猎手"),
     }
     fg, bg, icon, members_hint = THEMES.get(group, ("#374151", "rgba(107,114,128,0.10)", "🎯", ""))
+    # v3.9.3 · 拆出嵌套 f-string · Python 3.9 不允许 f-string 表达式含反斜杠（3.12+ 才行）
+    members_html = (
+        f'<div style="margin-top:4px;color:#6b7280;font-size:11px">代表评委 · {members_hint}</div>'
+        if members_hint
+        else ""
+    )
 
     return (
         f'<div class="school-lock-banner" style="margin:16px 0;padding:14px 20px;'
@@ -620,7 +672,7 @@ def _render_school_lock_banner(syn: dict | None) -> str:
         f'      本次分析仅由 <strong style="color:{fg}">{group} · {label}</strong> 的评委参与评分 · '
         f'其他流派的评委已 skip · 报告里"评委打分板 / 流派分数 / 多空辩论"均限于该派内.'
         f'    </div>'
-        f'    {f"<div style=\"margin-top:4px;color:#6b7280;font-size:11px\">代表评委 · {members_hint}</div>" if members_hint else ""}'
+        f'    {members_html}'
         f'  </div>'
         f'</div>'
     )
@@ -645,4 +697,3 @@ def _render_institutional_section(raw: dict) -> str:
         _render_catalyst_calendar(d21) +
         _render_competitive_analysis(d22)
     )
-

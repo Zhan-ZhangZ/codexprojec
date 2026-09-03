@@ -21,8 +21,10 @@ Output shape (matches report viz expectations):
 from __future__ import annotations
 
 import json
+import math
 import sys
 import traceback
+from datetime import datetime
 
 import akshare as ak  # type: ignore
 from lib import data_sources as ds
@@ -38,10 +40,218 @@ def _to_float(v) -> float:
         return 0.0
 
 
+def _to_float_or_none(v) -> float | None:
+    """Parse a numeric cell while preserving a legitimate zero."""
+    try:
+        if v in (None, "", "--", "-"):
+            return None
+        parsed = float(str(v).replace(",", "").replace("%", ""))
+        return parsed if math.isfinite(parsed) else None
+    except (ValueError, TypeError):
+        return None
+
+
+_REVENUE_GROWTH_COLUMNS = (
+    "主营业务收入增长率(%)",
+    "营业总收入同比增长(%)",
+    "营业收入同比增长率(%)",
+    "营业收入增长率(%)",
+)
+
+
+def _latest_reported_revenue_growth(df, date_col: str) -> tuple[float | None, str | None, str | None]:
+    """Return the newest explicit report-period revenue YoY and its provenance."""
+    if df is None or df.empty or date_col not in df.columns:
+        return None, None, None
+    available = [column for column in _REVENUE_GROWTH_COLUMNS if column in df.columns]
+    if not available:
+        return None, None, None
+    for _, row in df.sort_values(date_col, ascending=False).iterrows():
+        for column in available:
+            value = _to_float_or_none(row.get(column))
+            if value is not None:
+                return value, str(row.get(date_col))[:10], column
+    return None, None, None
+
+
+def _mx_search_table(result: dict) -> tuple[dict, dict]:
+    """Return the first MX search table and its label map."""
+    if not isinstance(result, dict) or result.get("error"):
+        return {}, {}
+    data = result.get("data") or {}
+    inner = data.get("data") if isinstance(data.get("data"), dict) else data
+    search = (inner or {}).get("searchDataResultDTO") or {}
+    dto_list = search.get("dataTableDTOList") or []
+    if not dto_list or not isinstance(dto_list[0], dict):
+        return {}, {}
+    dto = dto_list[0]
+    table = dto.get("rawTable") or dto.get("table") or {}
+    name_map = dto.get("nameMap") or {}
+    if isinstance(name_map, list):
+        name_map = {str(i): value for i, value in enumerate(name_map)}
+    return (table if isinstance(table, dict) else {}), name_map
+
+
+def _parse_mx_roe_series(result: dict) -> dict:
+    """Extract an oldest-to-newest annual weighted-ROE series."""
+    table, name_map = _mx_search_table(result)
+    heads = table.get("headName") or []
+    series_key = next(
+        (
+            key
+            for key in table
+            if key != "headName"
+            and (
+                "ROE" in str(name_map.get(key) or name_map.get(str(key)) or key).upper()
+                or "净资产收益率" in str(name_map.get(key) or name_map.get(str(key)) or key)
+            )
+        ),
+        None,
+    )
+    if series_key is None:
+        series_key = next(
+            (
+                key
+                for key, values in table.items()
+                if key != "headName" and isinstance(values, list) and values
+            ),
+            None,
+        )
+    if series_key is None:
+        return {}
+
+    import re
+
+    by_year: dict[str, float] = {}
+    for index, raw in enumerate(table.get(series_key) or []):
+        head = str(heads[index]) if index < len(heads) else ""
+        if "季" in head or "中报" in head:
+            continue
+        match = re.search(r"(20\d{2})", head)
+        value = _to_float_or_none(raw)
+        if match and value is not None:
+            by_year[match.group(1)] = round(value, 2)
+    if not by_year:
+        return {}
+
+    years = sorted(by_year)[-6:]
+    history = [by_year[year] for year in years]
+    return {
+        "roe_history": history,
+        "financial_years": years,
+        "roe": f"{history[-1]:.1f}%",
+    }
+
+
+def _fetch_roe_history_via_mx(code: str, name_hint: str = "") -> dict:
+    """Fetch annual weighted ROE through MX when the primary source fails."""
+    try:
+        from lib.mx_api import MXClient
+        client = MXClient()
+    except Exception:
+        return {}
+    if not client.available:
+        return {}
+
+    label = name_hint.strip() or code
+    for query in (
+        f"{label} 近五年加权净资产收益率",
+        f"{code} 近五年加权净资产收益率ROE",
+        f"{code} 历年年报净资产收益率ROE(加权)",
+    ):
+        try:
+            parsed = _parse_mx_roe_series(client.query(query))
+        except Exception:
+            continue
+        if parsed.get("roe_history"):
+            parsed["_mx_roe_query"] = query
+            return parsed
+    return {}
+
+
+def _fetch_financial_health_via_mx(code: str, name_hint: str = "") -> dict:
+    """Fetch balance-sheet quality ratios through MX."""
+    try:
+        from lib.mx_api import MXClient
+        client = MXClient()
+    except Exception:
+        return {}
+    if not client.available:
+        return {}
+
+    label = name_hint.strip() or code
+    try:
+        result = client.query(f"{label} 流动比率 资产负债率 总资产净利率 销售净利率")
+    except Exception:
+        return {}
+    table, name_map = _mx_search_table(result)
+    heads = [str(head) for head in (table.get("headName") or [])]
+    annual_index = next(
+        (i for i, head in enumerate(heads) if "年报" in head and "季" not in head and "中报" not in head),
+        0,
+    )
+    health: dict = {}
+    for key, values in table.items():
+        if key == "headName" or not isinstance(values, list) or not values:
+            continue
+        label_text = str(name_map.get(key) or name_map.get(str(key)) or key)
+        raw = values[annual_index] if annual_index < len(values) else values[0]
+        value = _to_float_or_none(raw)
+        if value is None:
+            continue
+        if "流动比率" in label_text:
+            health["current_ratio"] = value
+        elif "资产负债率" in label_text:
+            health["debt_ratio"] = value
+        elif "总资产净利率" in label_text or "ROA" in label_text.upper():
+            health["roic"] = value
+        elif "销售净利率" in label_text or ("净利率" in label_text and "总资产" not in label_text):
+            health["net_margin_pct"] = value
+    return health
+
+
 def _to_yi(v) -> float:
     """Convert raw (often 元) to 亿."""
     n = _to_float(v)
     return round(n / 1e8, 2)
+
+
+def _drop_all_zero_histories(out: dict) -> None:
+    """Drop histories that only contain parser-produced zero placeholders."""
+    for key in ("revenue_history", "net_profit_history"):
+        values = out.get(key) or []
+        if values and not any(abs(_to_float(value)) > 1e-9 for value in values):
+            out.pop(key, None)
+            out.setdefault("_zero_history_dropped", []).append(key)
+
+
+def _apply_operating_cash_flow(out: dict, df_cf) -> None:
+    """Attach operating cash-flow fields using 亿 units.
+
+    This is OCF, not true FCF. Keep the naming explicit so trap-detector and
+    investor rules can judge cash-profit matching without mistaking it for
+    free cash flow after capex.
+    """
+    if df_cf is None or df_cf.empty or "经营活动产生的现金流量净额" not in df_cf.columns:
+        return
+
+    ocf_history = [_to_yi(v) for v in df_cf["经营活动产生的现金流量净额"].tolist()]
+    ocf_history = [v for v in ocf_history if v != 0]
+    if not ocf_history:
+        return
+
+    ocf_latest = ocf_history[0]
+    out["ocf"] = f"{ocf_latest:.1f}亿"
+    out["operating_cash_flow"] = out["ocf"]
+    out["operating_cash_flow_yi"] = round(ocf_latest, 2)
+    out["ocf_history"] = ocf_history[:6]
+
+    np_latest = (out.get("net_profit_history") or [0])[-1]
+    if np_latest:
+        ratio = round(ocf_latest / np_latest, 2)
+        out["ocf_to_net_income_ratio"] = ratio
+        out.setdefault("financial_health", {})["ocf_to_net_income_ratio"] = ratio
+        out.setdefault("financial_health", {})["fcf_margin"] = round(ratio * 100, 1)
 
 
 def _fetch_a_share(ti) -> dict:
@@ -67,6 +277,7 @@ def _fetch_a_share(ti) -> dict:
             out["revenue_history"] = _row("营业总收入")
             out["net_profit_history"] = _row("归属于母公司所有者的净利润") or _row("净利润")
             out["financial_years"] = [str(c)[:4] for c in period_cols_annual]
+            _drop_all_zero_histories(out)
     except Exception as e:
         out["_abstract_error"] = str(e)
 
@@ -78,7 +289,7 @@ def _fetch_a_share(ti) -> dict:
             df_ind = df_ind.sort_values(date_col)
             # filter to year-end rows (12-31)
             df_annual = df_ind[df_ind[date_col].astype(str).str.endswith("12-31")]
-            if len(df_annual) < 3:  # fallback to all rows
+            if df_annual.empty:
                 df_annual = df_ind
 
             for col_key, target in [
@@ -91,33 +302,71 @@ def _fetch_a_share(ti) -> dict:
                     break
 
             last = df_ind.iloc[-1]
+            last_annual = df_annual.iloc[-1]
+            revenue_yoy, revenue_yoy_period, revenue_yoy_column = _latest_reported_revenue_growth(
+                df_ind, date_col
+            )
+            if revenue_yoy is not None:
+                out["revenue_growth_yoy"] = round(revenue_yoy, 2)
+                out["revenue_growth"] = f"{revenue_yoy:+.1f}%"
+                out["revenue_growth_period"] = revenue_yoy_period
+                out["revenue_growth_basis"] = "reported_yoy"
+                out["revenue_growth_source"] = (
+                    f"akshare.stock_financial_analysis_indicator:{revenue_yoy_column}"
+                )
             # Financial health
             health = {}
-            for src_key, dst_key, unit_div in [
-                ("流动比率", "current_ratio", 1),
-                ("资产负债率(%)", "debt_ratio", 1),
-                ("总资产净利率(%)", "roic", 1),
-                ("销售净利率(%)", "net_margin_pct", 1),
+            for src_key, dst_key, source_row in [
+                ("流动比率", "current_ratio", last),
+                ("资产负债率(%)", "debt_ratio", last),
+                ("总资产净利率(%)", "roic", last_annual),
+                ("销售净利率(%)", "net_margin_pct", last_annual),
             ]:
                 if src_key in df_ind.columns:
-                    v = _to_float(last.get(src_key))
+                    v = _to_float(source_row.get(src_key))
                     if v:
-                        health[dst_key] = v / unit_div
+                        health[dst_key] = v
             if health:
                 out["financial_health"] = health
 
+            # v3.9.4 · 资产负债表 → total_debt/cash/equity（此前恒缺 → DCF 净债桥=0）
+            # 接口参考 stock_web._fetch_quarterly：ak.stock_balance_sheet_by_report_em
+            # MONETARYFUNDS(货币资金)/TOTAL_LIABILITIES(总负债)/TOTAL_PARENT_EQUITY(归母净资产)
+            try:
+                df_bs = ak.stock_balance_sheet_by_report_em(
+                    symbol=f"{'SH' if ti.full.endswith('SH') else 'SZ'}{code}"
+                )
+                if df_bs is not None and not df_bs.empty:
+                    _bs_last = df_bs.iloc[-1]
+                    _bs_add = {}
+                    for _src, _dst in (
+                        ("MONETARYFUNDS", "cash"),
+                        ("TOTAL_LIABILITIES", "total_debt"),
+                        ("TOTAL_PARENT_EQUITY", "equity"),
+                    ):
+                        if _src in df_bs.columns:
+                            _v = _to_float(_bs_last.get(_src))
+                            if _v:
+                                _bs_add[_dst] = round(_v / 1e8, 2)
+                    if _bs_add:
+                        out.setdefault("financial_health", {}).update(_bs_add)
+            except Exception as e:
+                out["_balance_sheet_error"] = str(e)[:80]
+
             # Net margin / ROE 汇总 summary strings
             if "加权净资产收益率(%)" in df_ind.columns:
-                out["roe"] = f"{_to_float(last['加权净资产收益率(%)']):.1f}%"
+                out["roe"] = f"{_to_float(last_annual['加权净资产收益率(%)']):.1f}%"
+                out["roe_mrq"] = f"{_to_float(last['加权净资产收益率(%)']):.1f}%"
             if "销售净利率(%)" in df_ind.columns:
-                out["net_margin"] = f"{_to_float(last['销售净利率(%)']):.1f}%"
+                out["net_margin"] = f"{_to_float(last_annual['销售净利率(%)']):.1f}%"
+            out["financial_period"] = str(last_annual.get(date_col))[:10]
 
             # v3.8.0 · DuPont 杜邦分解 · ROE = 净利率 × 总资产周转率 × 权益乘数
             # 价值派(巴菲特/张磊)看 ROE 的"质量来源"：margin 驱动=高质量 · 纯杠杆驱动=风险
             try:
-                _dp_nm = _to_float(last.get("销售净利率(%)")) if "销售净利率(%)" in df_ind.columns else None
-                _dp_to = _to_float(last.get("总资产周转率(次)")) if "总资产周转率(次)" in df_ind.columns else None
-                _dp_dr = _to_float(last.get("资产负债率(%)")) if "资产负债率(%)" in df_ind.columns else None
+                _dp_nm = _to_float(last_annual.get("销售净利率(%)")) if "销售净利率(%)" in df_ind.columns else None
+                _dp_to = _to_float(last_annual.get("总资产周转率(次)")) if "总资产周转率(次)" in df_ind.columns else None
+                _dp_dr = _to_float(last_annual.get("资产负债率(%)")) if "资产负债率(%)" in df_ind.columns else None
                 _dp_em = (100.0 / (100.0 - _dp_dr)) if (_dp_dr not in (None, 0) and _dp_dr < 100) else None
                 if _dp_nm is not None and _dp_to is not None and _dp_em is not None:
                     _dp_roe = _dp_nm * _dp_to * _dp_em  # net_margin% × turnover × em → ROE%
@@ -140,29 +389,45 @@ def _fetch_a_share(ti) -> dict:
     except Exception as e:
         out["_indicator_error"] = str(e)
 
+    if not out.get("roe_history"):
+        mx_roe = _fetch_roe_history_via_mx(code, getattr(ti, "raw", "") or "")
+        if mx_roe.get("roe_history"):
+            out["roe_history"] = mx_roe["roe_history"]
+            if mx_roe.get("financial_years") and not out.get("financial_years"):
+                out["financial_years"] = mx_roe["financial_years"]
+            if mx_roe.get("roe") and not out.get("roe"):
+                out["roe"] = mx_roe["roe"]
+            out["_roe_source"] = "mx_api"
+            out.pop("_indicator_error", None)
+
+    if not out.get("financial_health"):
+        mx_health = _fetch_financial_health_via_mx(code, getattr(ti, "raw", "") or "")
+        if mx_health:
+            out["financial_health"] = mx_health
+            out["_financial_health_source"] = "mx_api"
+            if not out.get("net_margin") and mx_health.get("net_margin_pct") is not None:
+                out["net_margin"] = f"{mx_health['net_margin_pct']:.1f}%"
+
     # ─── 3. 营收增速 summary
     try:
         rh = out.get("revenue_history") or []
-        if len(rh) >= 2 and rh[-2]:
+        if "revenue_growth_yoy" not in out and len(rh) >= 2 and rh[-2]:
             growth = (rh[-1] - rh[-2]) / rh[-2] * 100
+            out["revenue_growth_yoy"] = round(growth, 2)
             out["revenue_growth"] = f"{growth:+.1f}%"
+            years = out.get("financial_years") or []
+            out["revenue_growth_period"] = str(years[-1]) if years else None
+            out["revenue_growth_basis"] = "annual_yoy"
+            out["revenue_growth_source"] = "derived:revenue_history"
     except Exception:
         pass
 
-    # ─── 4. 现金流 (FCF 占净利比)
+    # ─── 4. 现金流 (经营现金流/净利)
     try:
         df_cf = ak.stock_cash_flow_sheet_by_report_em(symbol=f"{'SZ' if ti.full.endswith('SZ') else 'SH'}{code}")
-        if df_cf is not None and not df_cf.empty:
-            # 最近一期 经营性现金流
-            if "经营活动产生的现金流量净额" in df_cf.columns:
-                ocf = _to_float(df_cf["经营活动产生的现金流量净额"].iloc[0])
-                out["fcf"] = f"{ocf / 1e8:.1f}亿"
-                # ocf/np
-                np_latest = (out.get("net_profit_history") or [0])[-1]
-                if np_latest:
-                    out.setdefault("financial_health", {})["fcf_margin"] = round(ocf / 1e8 / np_latest * 100, 1)
-    except Exception:
-        pass
+        _apply_operating_cash_flow(out, df_cf)
+    except Exception as e:
+        out["_cash_flow_error"] = str(e)
 
     # ─── 5. 分红历史
     try:
@@ -317,10 +582,17 @@ def _fetch_hk(ti) -> dict:
         out["net_margin"] = _last_pct("NET_PROFIT_RATIO")
         out["gross_margin"] = _last_pct("GROSS_PROFIT_RATIO")
 
-        # 营收增速（最后一年 YoY）
-        try:
-            out["revenue_growth"] = f"{float(last.get('OPERATE_INCOME_YOY', 0)):.1f}%"
-        except (TypeError, ValueError):
+        # 营收增速（最后一年官方 YoY）
+        revenue_yoy = _to_float_or_none(last.get("OPERATE_INCOME_YOY"))
+        if revenue_yoy is not None:
+            out["revenue_growth_yoy"] = round(revenue_yoy, 2)
+            out["revenue_growth"] = f"{revenue_yoy:+.1f}%"
+            out["revenue_growth_period"] = str(last.get("REPORT_DATE"))[:10]
+            out["revenue_growth_basis"] = "reported_yoy"
+            out["revenue_growth_source"] = (
+                "akshare.stock_financial_hk_analysis_indicator_em:OPERATE_INCOME_YOY"
+            )
+        else:
             out["revenue_growth"] = "—"
         try:
             out["profit_growth"] = f"{float(last.get('HOLDER_PROFIT_YOY', 0)):.1f}%"
@@ -356,28 +628,144 @@ def _fetch_hk(ti) -> dict:
     return out
 
 
+def _period_date(col) -> tuple[datetime | None, str]:
+    label = str(col)[:10]
+    try:
+        return datetime.fromisoformat(label), label
+    except ValueError:
+        return None, label
+
+
+def _financial_row(df, candidates: list[str]) -> str | None:
+    if df is None or df.empty:
+        return None
+    return next((r for r in candidates if r in df.index), None)
+
+
+def _annual_history(df, candidates: list[str]) -> tuple[list[float], list[str], datetime | None, str | None]:
+    row = _financial_row(df, candidates)
+    if not row:
+        return [], [], None, None
+    points = []
+    for col in df.columns:
+        dt, label = _period_date(col)
+        raw = df.loc[row, col]
+        val = _to_float(raw)
+        if val:
+            points.append((dt or datetime.min, label, round(val / 1e8, 2)))
+    points.sort(key=lambda p: p[0])
+    if not points:
+        return [], [], None, None
+    values = [p[2] for p in points]
+    years = [p[1][:4] for p in points]
+    latest_dt = points[-1][0] if points[-1][0] != datetime.min else None
+    latest_label = points[-1][1]
+    return values, years, latest_dt, latest_label
+
+
+def _quarterly_ttm(df, candidates: list[str]) -> tuple[float | None, datetime | None, str | None]:
+    row = _financial_row(df, candidates)
+    if not row:
+        return None, None, None
+    points = []
+    for col in df.columns:
+        dt, label = _period_date(col)
+        raw = df.loc[row, col]
+        val = _to_float(raw)
+        if dt and val:
+            points.append((dt, label, val))
+    points.sort(key=lambda p: p[0], reverse=True)
+    if len(points) < 4:
+        return None, None, None
+    latest_four = points[:4]
+    return round(sum(p[2] for p in latest_four) / 1e8, 2), latest_four[0][0], latest_four[0][1]
+
+
+def _apply_financial_staleness(out: dict, latest_dt: datetime | None) -> None:
+    if latest_dt is None:
+        return
+    days = (datetime.now() - latest_dt).days
+    if days > 180:
+        out["financial_staleness_days"] = days
+        out["financial_staleness_warning"] = (
+            f"stale financials: latest period {out.get('financial_period')} is {days} days old"
+        )
+
+
 def _fetch_us(ti) -> dict:
     try:
         import yfinance as yf
     except ImportError:
         return {}
     try:
-        t = yf.Ticker(ti.code)
-        fin = t.financials  # 最近 4 年
+        from lib.global_peers import to_yahoo_symbol
+        t = yf.Ticker(to_yahoo_symbol(ti))
+        fin = t.financials  # annual statements
+        qfin = getattr(t, "quarterly_financials", None)
         bs = t.balance_sheet
         cf = t.cashflow
         info = t.info or {}
         out: dict = {}
         if fin is not None and not fin.empty:
-            rev_row = next((r for r in ["Total Revenue", "TotalRevenue"] if r in fin.index), None)
-            np_row = next((r for r in ["Net Income", "NetIncome", "Net Income Common Stockholders"] if r in fin.index), None)
-            if rev_row:
-                out["revenue_history"] = [round(float(v) / 1e8, 2) for v in fin.loc[rev_row].tolist()[::-1]]
-            if np_row:
-                out["net_profit_history"] = [round(float(v) / 1e8, 2) for v in fin.loc[np_row].tolist()[::-1]]
-            out["financial_years"] = [str(c)[:4] for c in fin.columns[::-1]]
+            rev_hist, years, latest_dt, latest_label = _annual_history(fin, ["Total Revenue", "TotalRevenue"])
+            np_hist, np_years, np_latest_dt, np_latest_label = _annual_history(
+                fin, ["Net Income", "NetIncome", "Net Income Common Stockholders"]
+            )
+            if rev_hist:
+                out["revenue_history"] = rev_hist
+            if np_hist:
+                out["net_profit_history"] = np_hist
+            out["financial_years"] = years or np_years
+            latest_dt = max([d for d in (latest_dt, np_latest_dt) if d], default=None)
+            latest_label = latest_label or np_latest_label
+            if latest_label:
+                out["financial_period"] = latest_label
+                out["financial_basis"] = "annual"
+
+            rev_ttm, rev_q_dt, rev_q_label = _quarterly_ttm(qfin, ["Total Revenue", "TotalRevenue"])
+            np_ttm, np_q_dt, np_q_label = _quarterly_ttm(
+                qfin, ["Net Income", "NetIncome", "Net Income Common Stockholders"]
+            )
+            q_dt = max([d for d in (rev_q_dt, np_q_dt) if d], default=None)
+            q_label = rev_q_label or np_q_label
+            if q_dt and (latest_dt is None or q_dt > latest_dt) and (rev_ttm is not None or np_ttm is not None):
+                if rev_ttm is not None:
+                    out.setdefault("revenue_history", []).append(rev_ttm)
+                    out["revenue_ttm"] = rev_ttm
+                if np_ttm is not None:
+                    out.setdefault("net_profit_history", []).append(np_ttm)
+                    out["net_profit_ttm"] = np_ttm
+                out.setdefault("financial_years", []).append(f"TTM {q_label}")
+                out["financial_period"] = q_label
+                out["financial_basis"] = "TTM"
+                latest_dt = q_dt
+
+            _apply_financial_staleness(out, latest_dt)
         out["roe"] = f"{info.get('returnOnEquity', 0) * 100:.1f}%" if info.get("returnOnEquity") else "—"
         out["net_margin"] = f"{info.get('profitMargins', 0) * 100:.1f}%" if info.get("profitMargins") else "—"
+
+        # v3.9.4 · 从资产负债表补 net-debt bridge（此前 total_debt/cash 恒缺 → DCF 把 EV 当股权价值）
+        if bs is not None and not bs.empty:
+            def _latest_bs_value(row_label: str):
+                """取某行标签的最新一期非空值 · yfinance 列是 Timestamp(新→旧) · 行标签是 str"""
+                if row_label not in bs.index:
+                    return None
+                _ser = bs.loc[row_label]
+                for _v in _ser:  # 列从最新到最旧 · 取第一个非空
+                    if _to_float(_v):
+                        return _v
+                return None
+
+            _debt_row = _financial_row(bs, ["Total Debt", "TotalDebt", "Long Term Debt And Capital Lease Obligations"])
+            _cash_row = _financial_row(bs, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
+            if _debt_row is not None:
+                _debt_last = _latest_bs_value(_debt_row)
+                if _to_float(_debt_last):
+                    out.setdefault("financial_health", {})["total_debt"] = round(_to_float(_debt_last) / 1e8, 2)
+            if _cash_row is not None:
+                _cash_last = _latest_bs_value(_cash_row)
+                if _to_float(_cash_last):
+                    out.setdefault("financial_health", {})["cash"] = round(_to_float(_cash_last) / 1e8, 2)
         return out
     except Exception:
         return {}
@@ -388,7 +776,7 @@ def main(ticker: str) -> dict:
     try:
         if ti.market == "A":
             data = _fetch_a_share(ti)
-        elif ti.market == "U":
+        elif ti.market not in ("A", "H"):
             data = _fetch_us(ti)
         elif ti.market == "H":
             data = _fetch_hk(ti)

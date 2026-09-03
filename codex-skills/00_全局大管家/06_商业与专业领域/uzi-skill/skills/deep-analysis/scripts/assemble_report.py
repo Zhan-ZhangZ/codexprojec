@@ -369,6 +369,9 @@ def assemble(ticker: str) -> Path:
             print(f"⚠  {ticker}: {review['warning_count']} warning 已记录，继续生成 HTML")
 
     basic = (raw.get("dimensions", {}).get("0_basic") or {}).get("data") or {}
+    # v3.9.4 · 币种符号按市场区分 · 港股/美股不再硬编码 ¥（此前腾讯 500 港币显示 ¥500）
+    _mkt = raw.get("market") or basic.get("market") or "A"
+    _currency_symbol = {"H": "HK$", "U": "$"}.get(_mkt, "¥")
     debate = syn.get("debate") or {}
     divide = syn.get("great_divide") or {}
     dashboard = syn.get("dashboard") or {}
@@ -403,6 +406,7 @@ def assemble(ticker: str) -> Path:
     replacements = {
         "{{NAME}}": _safe(syn.get("name") or basic.get("name")),
         "{{TICKER}}": _safe(syn.get("ticker") or basic.get("code")),
+        "{{CURRENCY}}": _currency_symbol,
         "{{ONE_LINER}}": _safe(basic.get("one_liner") or basic.get("industry") or ""),
         "{{PRICE}}": str(_safe(basic.get("price"))),
         "{{CHANGE_PCT}}": f"{basic.get('change_pct', 0):+.2f}%" if basic.get("change_pct") is not None else "—",
@@ -547,9 +551,13 @@ def assemble(ticker: str) -> Path:
     template = template.replace("<!-- INJECT_DIM_SAFETY -->",    render_dim_category("saf", dimensions, raw))
 
     # v2.0 · Institutional modeling section (dim 20/21/22)
+    # v3.9.4 · 币种符号统一替换 · 港股/美股 DCF 内在价值不再硬编码 ¥
+    _inst_html = _render_institutional_section(raw)
+    if _currency_symbol != "¥":
+        _inst_html = _inst_html.replace("¥", _currency_symbol)
     template = template.replace(
         "<!-- INJECT_INSTITUTIONAL_MODELING -->",
-        _render_institutional_section(raw),
+        _inst_html,
     )
 
     # v2.10 / v3.3 · Segmental Revenue Build-Up（分业务收入模型）
@@ -582,6 +590,11 @@ def assemble(ticker: str) -> Path:
         _render_style_chip(syn),
     )
 
+    # v3.9.4 · 收尾统一币种替换 · 覆盖 panel/special/institutional 注入块里的 ¥
+    # （A 股符号 == ¥ 时 replace 是 no-op · 安全）
+    if _currency_symbol != "¥":
+        template = template.replace("¥", _currency_symbol)
+
     date = datetime.now().strftime("%Y%m%d")
     out_dir = Path("reports") / f"{ticker}_{date}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -592,10 +605,14 @@ def assemble(ticker: str) -> Path:
     if not out_avatars.exists():
         shutil.copytree(AVATARS_DIR, out_avatars)
 
+    long_active = panel.get("long_active") or sum(
+        (panel.get("signal_distribution") or {}).get(key, 0)
+        for key in ("bullish", "neutral", "bearish")
+    )
     one_liner = (
         f"{syn.get('name')} 体检结果：{int(syn.get('overall_score', 0))} 分，"
         f"{syn.get('verdict_label')}。\n"
-        f"50 位大佬里 {(panel.get('signal_distribution') or {}).get('bullish', 0)} 人喊买。\n"
+        f"{long_active} 位多头评委里 {(panel.get('signal_distribution') or {}).get('bullish', 0)} 人喊买。\n"
         f"💬 {divide.get('punchline') or '—'}\n"
         f"{trap_emoji} {trap_level}\n"
         f"全文 → {out_file}"

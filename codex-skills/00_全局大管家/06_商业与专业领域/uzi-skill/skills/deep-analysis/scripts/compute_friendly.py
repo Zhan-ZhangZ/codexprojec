@@ -65,22 +65,33 @@ def compute_exit_triggers(raw: dict, dimensions: dict, synthesis: dict) -> list[
     chain = (raw.get("dimensions", {}).get("5_chain") or {}).get("data") or {}
     lhb = (raw.get("dimensions", {}).get("16_lhb") or {}).get("data") or {}
     research = (raw.get("dimensions", {}).get("6_research") or {}).get("data") or {}
+    market = raw.get("market") or "A"
+    cur = {"H": "HK$", "U": "$"}.get(market, "¥")
 
-    # 1. 技术止损 ~ MA60
+    price = basic.get("price") or 0
+
+    # 1. 技术止损 — MA60 低于现价才作支撑；MA60 已在现价上方说明已破位，
+    #    止损应设在当前价下方（-12%），否则止损位反而高于现价，毫无意义
     ma60 = (kline.get("ma60_60d") or [])
     ma60_last = next((v for v in reversed(ma60) if v), None)
-    if ma60_last:
-        triggers.append(f"股价跌破 ¥{ma60_last:.2f}（60 日均线支撑位）→ 无条件止损")
+    if ma60_last and price and ma60_last < price:
+        triggers.append(f"股价跌破 {cur}{ma60_last:.2f}（60 日均线支撑位）→ 无条件止损")
+    elif price:
+        triggers.append(f"股价跌破 {cur}{price * 0.88:.2f}（当前价 -12%）→ 无条件止损")
     else:
-        price = basic.get("price") or 0
-        triggers.append(f"股价跌破 ¥{price * 0.88:.2f}（当前价 -12%）→ 无条件止损")
+        triggers.append("股价放量跌破 60 日均线 → 无条件止损")
 
-    # 2. 基本面恶化 — 大客户
-    downstream = chain.get("downstream", "")
-    if downstream and downstream != "—":
-        main_client = downstream.split("/")[0].strip()
-        triggers.append(f"{main_client} 季度指引下修 > 10% → 产业链逻辑动摇")
-    else:
+    # 2. 基本面恶化 — 用财报增速，而非把主营描述拼成"客户指引下修"
+    #    （chain.downstream 是产业描述不是客户名，之前会拼出"精密薄膜…季度指引下修"这种错误）
+    try:
+        from lib.stock_features import extract_features
+        _feat = extract_features(raw, raw.get("dimensions", {}))
+        _rev_g = _feat.get("revenue_growth_latest") or 0
+        if _rev_g < 0:
+            triggers.append(f"营收同比已转负（-{abs(_rev_g):.1f}%）→ 基本面反转信号")
+        else:
+            triggers.append(f"下季度营收同比转负 → 基本面反转信号")
+    except Exception:
         triggers.append("下季度营收同比转负 → 基本面反转信号")
 
     # 3. 业绩不达
@@ -100,15 +111,20 @@ def compute_exit_triggers(raw: dict, dimensions: dict, synthesis: dict) -> list[
         matched_str = str(matched).split("/")[0] if matched else "顶级游资"
     if matched_str and matched_str not in ("", "—"):
         triggers.append(f"{matched_str} 席位大额卖出 > 2 亿 → 顶级资金撤离信号")
+    elif lhb:
+        triggers.append("龙虎榜游资席位出现大额净卖出 → 资金撤离信号")
 
-    # 5. 估值泡沫
-    pe_quant = val.get("pe_quantile", "")
+    # 5. 估值泡沫 — PE 站上高分位才离场，去掉无意义的"×1.xx"算法
+    pe_quantile = val.get("pe_quantile", "")
     import re
-    m = re.search(r'(\d+)', str(pe_quant))
+    m = re.search(r"(\d+)\s*分位", str(pe_quantile))
     if m:
         cur_q = int(m.group(1))
-        target = min(95, cur_q + 15)
-        triggers.append(f"PE 站上 5 年 {target} 分位（≈ {val.get('pe', '—')} × {1 + (target - cur_q) / 100:.2f}）→ 泡沫区获利了结")
+        if cur_q >= 80:
+            triggers.append(f"PE 已处于 5 年 {cur_q} 分位 → 泡沫区获利了结")
+        else:
+            target = min(90, cur_q + 15)
+            triggers.append(f"PE 站上 5 年 {target} 分位 → 泡沫区获利了结")
     else:
         triggers.append("PE 站上 5 年 90 分位 → 泡沫区获利了结")
 

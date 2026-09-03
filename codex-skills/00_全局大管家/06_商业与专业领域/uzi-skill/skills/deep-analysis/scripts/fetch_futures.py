@@ -55,7 +55,32 @@ def _pull_price(code: str) -> dict:
         return {}
 
 
-def main(industry: str) -> dict:
+def main(industry: str, materials_detail: list | None = None) -> dict:
+    # v3.9.4 · 优先用 8_materials 已识别的原材料期货品种（如光学光电子→玻璃FG0/铜CU0），
+    # 而不是依赖 INDUSTRY_FUTURES 硬编码（光学光电子映射是 (None,None) 会误报"无关联"）
+    if materials_detail:
+        for m in materials_detail:
+            code = str(m.get("code") or "").strip()
+            name = str(m.get("name") or "").strip()
+            if code and name:
+                price_data = _pull_price(code)
+                trend_label = "—"
+                if price_data.get("trend_60d_pct") is not None:
+                    pct = price_data["trend_60d_pct"]
+                    trend_label = f"60 日 {'+' if pct >= 0 else ''}{pct:.1f}%"
+                return {
+                    "data": {
+                        "linked_contract": name,
+                        "contract_code": code,
+                        "latest_price": price_data.get("latest") or m.get("latest_price"),
+                        "contract_trend": trend_label,
+                        "price_history_60d": price_data.get("history_60d", []),
+                        "source_note": "8_materials 识别的原材料期货",
+                    },
+                    "source": "akshare:futures_main_sina via materials",
+                    "fallback": False,
+                }
+
     # Try exact match first
     linked = INDUSTRY_FUTURES.get(industry)
     if linked is None:

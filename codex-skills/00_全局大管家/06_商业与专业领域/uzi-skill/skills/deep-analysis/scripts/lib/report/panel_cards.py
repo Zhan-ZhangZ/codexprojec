@@ -46,7 +46,14 @@ def render_jury_seat(inv: dict) -> str:
 def _li(items: list) -> str:
     if not items:
         return ""
-    return "".join(f"<li>{x}</li>" for x in items)
+    out = []
+    for x in items:
+        # v3.9.4 · pass/fail item 是 dict {'name','msg','weight'} · 不能整 dict str()
+        if isinstance(x, dict):
+            out.append(f"<li>{x.get('msg') or x.get('name') or ''}</li>")
+        else:
+            out.append(f"<li>{x}</li>")
+    return "".join(out)
 
 
 def render_chat_message(inv: dict) -> str:
@@ -152,7 +159,7 @@ def render_top3_bears(investors: list[dict]) -> str:
 def _render_top3_by_signal(investors: list[dict], target_signal: str, empty_msg: str) -> str:
     """v2.9.1 · 提取公共逻辑 + 空时给友好提示而不是 3 个空 div"""
     hits = sorted(
-        [i for i in investors if i.get("signal") == target_signal],
+        [i for i in investors if i.get("signal") == target_signal and i.get("mandate") != "short"],
         key=lambda x: x.get("score", 0),
         reverse=(target_signal == "bullish"),  # bullish 按分降序；bearish 按分升序
     )[:3]

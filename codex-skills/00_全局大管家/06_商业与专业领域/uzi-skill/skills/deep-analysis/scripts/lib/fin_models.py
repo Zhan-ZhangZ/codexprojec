@@ -103,13 +103,24 @@ def compute_dcf(features: dict, assumptions: dict | None = None) -> dict:
 
     # Base FCF — if missing, approximate from revenue × net_margin × 0.8
     fcf0 = _num(features.get("fcf_latest_yi"))
+    _fcf_proxy = False
     if fcf0 <= 0:
         rev = _num(features.get("revenue_latest_yi"))
         nm = _num(features.get("net_margin")) / 100
         fcf0 = rev * nm * 0.8  # rough FCF ≈ 80% of net income
+        _fcf_proxy = True
     if fcf0 <= 0:
-        # Final fallback: proxy from market_cap assuming 5% FCF yield
-        fcf0 = _num(features.get("market_cap_yi")) * 0.05
+        # v3.9.4 · 数据完全缺失时不再用"市值×5% yield"假兜底 —— 那会把数据空洞算成
+        # "基本合理"。直接标数据不足，让调用方（报告）显示"无法估值"而非假中性结论。
+        return {
+            "method": "DCF (2-stage + Gordon Growth terminal)",
+            "verdict": "⛔ 数据不足 · 无法 DCF",
+            "intrinsic_per_share": None,
+            "safety_margin_pct": None,
+            "error": "FCF / 营收 / 净利率均缺失",
+            "methodology_log": ["DCF 跳过 · FCF、营收、净利率均无数据"],
+            "assumptions": a,
+        }
 
     # Stage 1: high growth
     projected_fcf: list[float] = []
@@ -144,8 +155,15 @@ def compute_dcf(features: dict, assumptions: dict | None = None) -> dict:
 
     # Enterprise value → equity value
     enterprise_value = round(pv_explicit + tv_pv, 3)
-    net_debt = _num(features.get("total_debt_yi")) - _num(features.get("cash_yi"))
+    # v3.9.4 · 净债桥缺失检测：total_debt/cash 都无真实数据时显式标注，
+    # 此前静默当 0 → 高杠杆公司股权价值被高估为整个 EV
+    _td = _num(features.get("total_debt_yi"))
+    _cash = _num(features.get("cash_yi"))
+    _has_debt_data = "total_debt_yi" in features and features.get("total_debt_yi") not in (None, 0) \
+        or "cash_yi" in features and features.get("cash_yi") not in (None, 0)
+    net_debt = _td - _cash
     equity_value = round(enterprise_value - net_debt, 3)
+    _net_debt_note = "" if _has_debt_data else "（净债桥缺失 · EV≈股权价值 · 高杠杆公司会高估）"
 
     shares_yi = _num(features.get("shares_outstanding_yi"))
     if shares_yi <= 0:
@@ -182,6 +200,7 @@ def compute_dcf(features: dict, assumptions: dict | None = None) -> dict:
         "enterprise_value_yi": enterprise_value,
         "net_debt_yi": round(net_debt, 3),
         "equity_value_yi": equity_value,
+        "net_debt_bridge_note": _net_debt_note,
         "shares_yi": round(shares_yi, 3),
         "intrinsic_per_share": per_share,
         "current_price": cur_price,
@@ -195,7 +214,7 @@ def compute_dcf(features: dict, assumptions: dict | None = None) -> dict:
             f"Step 3 · 两段增长 {a['stage1_growth']*100:.0f}% ({a['stage1_years']}年) → {a['stage2_growth']*100:.0f}% ({a['stage2_years']}年)",
             f"Step 4 · 显式期 PV 合计 {pv_explicit:.1f} 亿",
             f"Step 5 · 终值 @ g={a['terminal_g']*100:.1f}% → PV={tv_pv:.1f} 亿（占 EV 的 {round(tv_pv/enterprise_value*100, 0) if enterprise_value>0 else 0:.0f}%）",
-            f"Step 6 · EV {enterprise_value:.1f} 亿 − 净债 {net_debt:.1f} 亿 = 股权价值 {equity_value:.1f} 亿",
+            f"Step 6 · EV {enterprise_value:.1f} 亿 − 净债 {net_debt:.1f} 亿 = 股权价值 {equity_value:.1f} 亿{_net_debt_note}",
             f"Step 7 · 每股内在价值 ¥{per_share:.2f}（当前价 ¥{cur_price:.2f}，安全边际 {safety_margin:+.1f}%）",
         ],
     }
@@ -258,8 +277,34 @@ def build_comps_table(target: dict, peers: list[dict]) -> dict:
     Each dict must carry: name, ticker, pe, pb, ps, ev_ebitda (optional),
     ev_sales (optional), revenue_yi, net_margin, roe, market_cap_yi.
     """
-    if not peers:
-        return {"error": "no peers provided", "target": target}
+    def _same_company(peer: dict) -> bool:
+        if peer.get("is_self"):
+            return True
+        target_ticker = str(target.get("ticker") or target.get("code") or "").strip()
+        peer_ticker = str(peer.get("ticker") or peer.get("code") or "").strip()
+        if target_ticker and peer_ticker and target_ticker == peer_ticker:
+            return True
+        target_name = str(target.get("name") or "").strip()
+        peer_name = str(peer.get("name") or "").strip()
+        return bool(target_name and peer_name and target_name == peer_name)
+
+    valid_peers = [p for p in peers if isinstance(p, dict) and not _same_company(p)]
+    if len(valid_peers) < 2:
+        return {
+            "method": "Comparable Company Analysis (peer multiples)",
+            "target": target,
+            "peers": valid_peers,
+            "peer_count": len(valid_peers),
+            "peer_stats": {},
+            "target_percentile": {},
+            "implied_price": {},
+            "current_price": _num(target.get("price")),
+            "valuation_verdict": "⚪ 同行样本不足 · 无法对标",
+            "methodology_log": [
+                f"Step 1 · 有效同行池 n={len(valid_peers)}（已剔除目标公司自身）",
+                "Step 2 · 有效同行少于 2 家，跳过分位数与估值结论",
+            ],
+        }
 
     metrics = ["pe", "pb", "ps", "ev_ebitda", "ev_sales",
                "roe", "net_margin", "revenue_growth"]
@@ -268,7 +313,7 @@ def build_comps_table(target: dict, peers: list[dict]) -> dict:
     import statistics
     stats: dict[str, dict] = {}
     for m in metrics:
-        values = [_num(p.get(m)) for p in peers if _num(p.get(m)) > 0]
+        values = [_num(p.get(m)) for p in valid_peers if _num(p.get(m)) > 0]
         if not values:
             continue
         stats[m] = {
@@ -287,7 +332,7 @@ def build_comps_table(target: dict, peers: list[dict]) -> dict:
         tv = _num(target.get(m))
         if tv <= 0:
             continue
-        values = sorted([_num(p.get(m)) for p in peers if _num(p.get(m)) > 0])
+        values = sorted([_num(p.get(m)) for p in valid_peers if _num(p.get(m)) > 0])
         rank = sum(1 for v in values if v < tv)
         target_pct[m] = round(rank / len(values) * 100, 0) if values else 50
 
@@ -313,14 +358,15 @@ def build_comps_table(target: dict, peers: list[dict]) -> dict:
     return {
         "method": "Comparable Company Analysis (peer multiples)",
         "target": target,
-        "peers": peers,
+        "peers": valid_peers,
+        "peer_count": len(valid_peers),
         "peer_stats": stats,
         "target_percentile": target_pct,
         "implied_price": implied,
         "current_price": cur_px,
         "valuation_verdict": val_verdict,
         "methodology_log": [
-            f"Step 1 · 同行池 n={len(peers)}",
+            f"Step 1 · 有效同行池 n={len(valid_peers)}（已剔除目标公司自身）",
             f"Step 2 · PE 中位数 {stats.get('pe', {}).get('median', '-')}，目标 PE {target.get('pe', '-')}",
             f"Step 3 · 目标 PE 分位 {pe_pct}%",
             f"Step 4 · 隐含价 (中位 PE × EPS) = ¥{implied.get('via_median_pe', '-')}",

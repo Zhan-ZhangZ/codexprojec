@@ -52,6 +52,7 @@ def test_base_fetcher_normalizes_empty_sentinels():
     assert r.data["extra_field"] is None  # normalized from ""
     assert r.quality == Quality.PARTIAL
     assert "pe_ttm" in r.data_gaps
+    assert isinstance(r.fetched_at, float)
 
 
 def test_base_fetcher_extracts_top_level():

@@ -155,6 +155,23 @@
   font-weight: 700;
 }
 .toc-rail .toc-num { font-weight: 700; font-size: 11px; }
+/* v3.9.1 · issue #79 · TOC 折叠按钮（导航栏遮挡内容时可收起）*/
+.toc-rail .toc-toggle {
+  align-self: flex-end;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 13px; line-height: 1;
+  border-radius: 5px; transition: all .15s; margin-bottom: 2px;
+}
+.toc-rail .toc-toggle:hover { color: var(--neon-gold); background: var(--gold-tint); }
+/* 折叠态：只留一个圆形把手 · items 全藏 · 不再遮挡正文 */
+.toc-rail.collapsed {
+  padding: 6px; gap: 0;
+  left: 12px;
+}
+.toc-rail.collapsed .toc-item { display: none; }
+.toc-rail.collapsed .toc-toggle { align-self: center; margin-bottom: 0; font-size: 15px; }
 @media (max-width: 1280px) { .toc-rail { display: none; } }
 
 /* v3.6.0 · count-up number animation hint */
@@ -1378,8 +1395,11 @@ body::after {
 }
 .conc-block ul { margin-left: 16px; color: var(--text-main); font-size: 11px; line-height: 1.5; }
 .conc-block li { margin-bottom: 2px; }
-.conc-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 11px; }
+.conc-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; font-size: 11px; }
 .conc-row strong { color: var(--neon-gold); }
+/* v3.9.4 · 方法论行 · 标签不换行 + 与正文留距，正文右对齐可读 */
+.conc-row span { flex-shrink: 0; color: var(--text-dim); white-space: nowrap; }
+.conc-row em { font-style: normal; color: var(--text-main); text-align: right; line-height: 1.5; min-width: 0; }
 
 /* Highlight target message after seat click */
 .chat-msg.flash-highlight {
@@ -1741,7 +1761,21 @@ body::after {
   transition: all .2s ease;
   box-shadow: var(--shadow-sm);
 }
+/* v3.9.4 · 顶部彩色分级条（按分数档次着色） */
+.dim-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  border-radius: 14px 14px 0 0;
+  background: var(--border);
+  opacity: .0;
+  transition: opacity .2s ease;
+}
 .dim-card:hover { border-color: var(--neon-cyan); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.dim-card:hover::before { opacity: 1; background: linear-gradient(90deg, var(--neon-cyan), var(--accent-indigo)); }
+/* 常驻分级色条：与右上角分数同色系 */
+.dim-card:has(.dim-score .num.high)::before { opacity: 1; background: linear-gradient(90deg, var(--bull-green), transparent); }
+.dim-card:has(.dim-score .num.mid)::before  { opacity: 1; background: linear-gradient(90deg, var(--neon-gold), transparent); }
+.dim-card:has(.dim-score .num.low)::before  { opacity: 1; background: linear-gradient(90deg, var(--bear-red), transparent); }
 .dim-card .dim-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   margin-bottom: 10px;
@@ -1975,6 +2009,28 @@ footer {
   line-height: 1.7;
 }
 footer strong { color: var(--text-dim); }
+
+/* ═══════════════ v3.9.4 · 全局体验增强 ═══════════════ */
+/* 平滑锚点滚动 + 滚动条精细 + 文本选择色 + 键盘聚焦可见 */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+::selection { background: var(--neon-cyan); color: #fff; }
+[data-theme="dark"] ::selection { background: var(--neon-cyan); color: #06121a; }
+:focus-visible { outline: 2px solid var(--neon-cyan); outline-offset: 2px; border-radius: 4px; }
+/* 细滚动条（桌面 webkit） */
+* { scrollbar-width: thin; scrollbar-color: var(--border-hot) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--border-hot); border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--text-ghost); }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* section-head 进入视口时的轻浮现（尊重 reduced-motion） */
+@media (prefers-reduced-motion: no-preference) {
+  .section-head, .dim-card, .fighter, .zone { animation: rise-in .5s ease both; }
+  @keyframes rise-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+}
+/* TOC 锚点不被 sticky 顶栏遮挡 */
+section[id], div[id^="dim-"], .dim-card[id] { scroll-margin-top: 20px; }
 
 /* ═══════════════ O.o LOGO EYE ═══════════════ */
 .oo-eye {
@@ -2444,6 +2500,14 @@ footer strong { color: var(--text-dim); }
   .zone .zone-price { font-size: 30px; }
   .zone .zone-rationale { font-size: 10px; }
 
+  /* v3.9.4 · 机构建模移动端适配 · LBO 迷你图堆叠 + 敏感性表横向滚动 */
+  .lbo-block { padding: 14px !important; }
+  .lbo-block .lbo-spark-grid { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .lbo-block > div[style*="repeat(4"], .dcf-summary { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+  .sens-heatmap { overflow-x: auto; -webkit-overflow-scrolling: touch; font-size: 11px !important; max-width: 100%; }
+  .sens-heatmap th, .sens-heatmap td { padding: 5px 6px !important; white-space: nowrap; font-size: 11px !important; }
+  .inst-modeling-wrap table { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+
   /* footer */
   footer { font-size: 10px; padding: 24px 0 8px; }
 
@@ -2719,6 +2783,7 @@ footer strong { color: var(--text-dim); }
 
   <!-- v3.6.0 · sticky TOC rail · 左侧导航 + scroll spy -->
   <nav class="toc-rail" id="toc-rail" aria-label="报告章节导航">
+    <button class="toc-toggle" id="toc-toggle" type="button" aria-label="折叠导航栏" aria-expanded="true" title="折叠 / 展开导航">◀</button>
     <a href="#section-core" class="toc-item"><span class="toc-num">01</span>核心结论</a>
     <a href="#section-clash" class="toc-item"><span class="toc-num">02</span>世纪分歧</a>
     <a href="#section-jury" class="toc-item"><span class="toc-num">03</span>评委打分板</a>
@@ -2745,7 +2810,7 @@ footer strong { color: var(--text-dim); }
       <div class="stock-code">{{TICKER}} · {{INDUSTRY}}</div>
       <div class="one-liner">{{ONE_LINER}}</div>
       <div class="price-row">
-        <div class="price">¥{{PRICE}}</div>
+        <div class="price">{{CURRENCY}}{{PRICE}}</div>
         <div class="change {{CHANGE_DIR}}">{{CHANGE_PCT}}</div>
       </div>
       <div class="metric-chips">
@@ -3013,10 +3078,10 @@ footer strong { color: var(--text-dim); }
     <div class="section-line"></div>
   </div>
   <div class="zones-grid">
-    <div class="zone"><div class="zone-label">VALUE 价值派</div><div class="zone-price">¥{{ZONE_VALUE_PRICE}}</div><div class="zone-rationale">{{ZONE_VALUE_RATIONALE}}</div></div>
-    <div class="zone"><div class="zone-label">GROWTH 成长派</div><div class="zone-price">¥{{ZONE_GROWTH_PRICE}}</div><div class="zone-rationale">{{ZONE_GROWTH_RATIONALE}}</div></div>
-    <div class="zone"><div class="zone-label">TECH 技术派</div><div class="zone-price">¥{{ZONE_TECH_PRICE}}</div><div class="zone-rationale">{{ZONE_TECH_RATIONALE}}</div></div>
-    <div class="zone"><div class="zone-label">YOUZI 游资派</div><div class="zone-price">¥{{ZONE_YOUZI_PRICE}}</div><div class="zone-rationale">{{ZONE_YOUZI_RATIONALE}}</div></div>
+    <div class="zone"><div class="zone-label">VALUE 价值派</div><div class="zone-price">{{CURRENCY}}{{ZONE_VALUE_PRICE}}</div><div class="zone-rationale">{{ZONE_VALUE_RATIONALE}}</div></div>
+    <div class="zone"><div class="zone-label">GROWTH 成长派</div><div class="zone-price">{{CURRENCY}}{{ZONE_GROWTH_PRICE}}</div><div class="zone-rationale">{{ZONE_GROWTH_RATIONALE}}</div></div>
+    <div class="zone"><div class="zone-label">TECH 技术派</div><div class="zone-price">{{CURRENCY}}{{ZONE_TECH_PRICE}}</div><div class="zone-rationale">{{ZONE_TECH_RATIONALE}}</div></div>
+    <div class="zone"><div class="zone-label">YOUZI 游资派</div><div class="zone-price">{{CURRENCY}}{{ZONE_YOUZI_PRICE}}</div><div class="zone-rationale">{{ZONE_YOUZI_RATIONALE}}</div></div>
   </div>
 
   <!-- v3.6.0 · 分享卡 + QR · 报告链接二维码 + 一句话总结 -->
@@ -3042,7 +3107,7 @@ footer strong { color: var(--text-dim); }
     <div style="background:#fff;border-radius:16px;padding:28px 24px;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto">
       <!-- 标题 -->
       <div style="font-size:22px;font-weight:900;color:#111">{{NAME}}</div>
-      <div style="font-size:14px;color:#6b7280;margin:4px 0 12px">{{TICKER}} · ¥{{PRICE}}</div>
+      <div style="font-size:14px;color:#6b7280;margin:4px 0 12px">{{TICKER}} · {{CURRENCY}}{{PRICE}}</div>
 
       <!-- 评分 -->
       <div style="background:linear-gradient(135deg,#fef3c7,#fff7ed);border:2px solid #f59e0b;border-radius:16px;padding:16px;margin-bottom:16px">
@@ -3105,7 +3170,7 @@ footer strong { color: var(--text-dim); }
     本报告由 AI 模型基于公开信息生成，所有数据通过 akshare / yfinance / 公开数据接口获取，可能存在滞后或误差。
     报告中的评分和建议均为模拟，不代表任何真实投资者的实际观点。
     本报告不构成任何投资建议，投资者应独立判断并承担投资风险。<br><br>
-    Generated by <strong>FloatFu-true · UZI-Skill v2.2.0</strong> · {{GENERATED_AT}} · <span class="oo-eye">O.o</span><br>
+    Generated by <strong>FloatFu-true · UZI-Skill {{PLUGIN_VERSION}}</strong> · {{GENERATED_AT}} · <span class="oo-eye">O.o</span><br>
     <a href="https://github.com/wbh604/UZI-Skill" target="_blank" style="color:#06b6d4;text-decoration:none;font-size:13px;margin-top:6px;display:inline-block">⭐ GitHub · 点击查看最新版本 → github.com/wbh604/UZI-Skill</a><br>
     <span style="font-size:10px;color:#d1d5db;letter-spacing:2px">POWERED BY FloatFu-true</span>
   </footer>
@@ -3123,7 +3188,7 @@ footer strong { color: var(--text-dim); }
   <h1 class="sc-name">{{NAME}}</h1>
   <div class="sc-code-row">
     <div class="sc-code">{{TICKER}}</div>
-    <div class="sc-price">¥{{PRICE}}</div>
+    <div class="sc-price">{{CURRENCY}}{{PRICE}}</div>
     <div class="sc-change {{CHANGE_DIR}}">{{CHANGE_PCT}}</div>
   </div>
 
@@ -3371,6 +3436,25 @@ footer strong { color: var(--text-dim); }
       history.replaceState(null, '', '#' + id);
     }
   }));
+
+  // 2b) TOC 折叠 / 展开 · issue #79 · 状态持久化到 localStorage
+  const TOC_KEY = 'uzi-toc-collapsed';
+  const tocRail = document.getElementById('toc-rail');
+  const tocToggle = document.getElementById('toc-toggle');
+  if (tocRail && tocToggle) {
+    const applyTocState = (collapsed) => {
+      tocRail.classList.toggle('collapsed', collapsed);
+      tocToggle.textContent = collapsed ? '☰' : '◀';
+      tocToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      tocToggle.setAttribute('aria-label', collapsed ? '展开导航栏' : '折叠导航栏');
+    };
+    applyTocState(localStorage.getItem(TOC_KEY) === '1');
+    tocToggle.addEventListener('click', () => {
+      const collapsed = !tocRail.classList.contains('collapsed');
+      applyTocState(collapsed);
+      localStorage.setItem(TOC_KEY, collapsed ? '1' : '0');
+    });
+  }
 
   // 3) Count-up animation · 给指定数字加 .count-up 类 · 进入视口时动画
   function animateNumber(el) {

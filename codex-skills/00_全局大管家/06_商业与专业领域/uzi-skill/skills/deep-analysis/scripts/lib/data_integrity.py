@@ -9,6 +9,9 @@ or mark the report with a warning banner.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -268,6 +271,33 @@ def generate_recovery_tasks(raw: dict, integrity: dict) -> list[dict]:
         })
 
     return tasks
+
+
+def refresh_recovery_artifact(raw: dict, ticker: str, gaps_path: str | Path) -> dict:
+    """Recompute integrity from the current raw snapshot and replace stale gap state."""
+    integrity = validate(raw)
+    raw["_integrity"] = integrity
+    tasks = generate_recovery_tasks(raw, integrity)
+    path = Path(gaps_path)
+
+    if not tasks:
+        path.unlink(missing_ok=True)
+        return integrity
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {
+        "ticker": ticker,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "raw_fetched_at": raw.get("fetched_at"),
+        "coverage_pct": integrity.get("coverage_pct", 0),
+        "critical_missing": integrity.get("critical_missing", False),
+        "tasks": tasks,
+    }
+    path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    return integrity
 
 
 def format_report(report: dict) -> str:

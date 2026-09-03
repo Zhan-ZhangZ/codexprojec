@@ -1,20 +1,27 @@
+# 主动基金 / 基金经理？请看 [基佬skills](https://github.com/wbh604/jilao-skills)
+
+**UZI-Skill 负责个股深度分析；基佬skills 负责主动基金和基金经理行为鉴定。**  
+它用真实公开数据逐笔验证基金经理的买卖行为，评的是行为，不是净值。在线示例：[兴全合宜 163417 · 谢治宇行为报告](https://wbh604.github.io/jilao-skills/assets/fund-163417.html)
+
+---
+
 <div align="center">
 
 # 游资（UZI）Skills
 
-*"51 个投资大佬帮你看盘，巴菲特和赵老哥终于坐在了同一张桌子上。"*
+*"66 个投资大佬帮你看盘，巴菲特、赵老哥和股海贼王终于坐在了同一张桌子上。"*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)](https://claude.com/product/claude-code)
 [![Dimensions](https://img.shields.io/badge/Dimensions-22-brightgreen)]()
-[![Investors](https://img.shields.io/badge/Investors-51-orange)]()
-[![Methods](https://img.shields.io/badge/Institutional%20Methods-17-red)]()
+[![Investors](https://img.shields.io/badge/Investors-66-orange)]()
+[![Methods](https://img.shields.io/badge/Institutional%20Methods-22-red)]()
 [![Self-Review](https://img.shields.io/badge/Self--Review-13%20checks-blueviolet)](skills/deep-analysis/scripts/lib/self_review.py)
 
-A 股 / 港股 / 美股 · 个股深度分析引擎 · **v3.8.1 全面体检 · H/I 两组配套 6 处补齐（14 头像 + 流派渲染 + 风格加权 + 台词库）· v3.8.0 Tier-1 五方法 + Serenity 严谨化 + DuPont/KDJ/OBV/Williams · v3.7.1 首页补 Serenity 介绍 + `--school H/I` · v3.7.0 13 位新晋科技大佬入团 (52→65 评委)**
+A 股 / 港股 / 美股 · 个股深度分析引擎 · **66 位评审团 × 9 大流派 × 22 维数据 × 22 种机构方法** · 最新 **v3.9.4**：前端显示修复 + 美化（kimi-k3）· 完整演进见 [更新日志](#-更新日志)
 
-[安装](#安装) · [用法](#用法) · [三档深度](#-三档思考深度v2103-新增) · [Hermes 🆕](INSTALL-HERMES.md) · [评审团](#-65-位评审团) · [Serenity 🆕](#-i-组--serenity--ai-卡位瓶颈猎手) · [机构方法](#-17-种机构级方法) · [自查 gate](#-机械级自查-gatev29-起) · [报告截图](#-报告长什么样) · [FAQ](#-faq) · [入群交流测试](#-测试交流群) · [Contributors](CONTRIBUTORS.md)
+[安装](#安装) · [用法](#用法) · [三档深度](#-三档思考深度v2103-新增) · [Hermes 🆕](INSTALL-HERMES.md) · [评审团](#-66-位评审团) · [Serenity 🆕](#-i-组--serenity--ai-卡位瓶颈猎手) · [机构方法](#-22-种机构级方法) · [自查 gate](#-机械级自查-gatev29-起) · [报告截图](#-报告长什么样) · [FAQ](#-faq) · [入群交流测试](#-测试交流群) · [Contributors](CONTRIBUTORS.md)
 
 **中文** | [English](README_EN.md)
 
@@ -39,32 +46,28 @@ A 股 / 港股 / 美股 · 个股深度分析引擎 · **v3.8.1 全面体检 · 
 装好后最常用 4 条命令（任何 agent 里直接说）：
 
 ```
-/stock-deep-analyzer:analyze-stock 贵州茅台    ← 完整 22 维 × 65 评委分析（5-8min）
+/stock-deep-analyzer:analyze-stock 贵州茅台    ← 完整 22 维 × 66 评委分析（5-8min）
 /stock-deep-analyzer:quick-scan 002217         ← 30 秒速判
 /stock-deep-analyzer:scan-trap 002217          ← 杀猪盘排查
 /stock-deep-analyzer:dcf 600519                ← DCF 估值专项
 ```
 
-> 💡 **当前最新稳定版 v3.3.2**：
-> - **v3.3.2** · 🆕 **GitHub issue #50 + #51 hotfix**（社区报告驱动）· #50 institutional 漏 import svg_sparkline 致 Stage 2 NameError · #51 XueQiu cubes_search.json endpoint 下线 → 改 query/v1/search/cube/stock.json (致谢 @chenxiang-bj / @bilieebiliee1-design / @Kylin824)
-> - **v3.3.1** · Hermes 兼容回归修复（v3.x 重构期 main 缺 hermes 适配 · 群友报错根因）· main 分支现在直接支持 `hermes skills install`
-> - **v3.3.0** · 分支整合 · segmental 渲染层 cherry-pick 到 v3.2 架构 · 22 个 stale 分支清理（仅保留 main + hermes-compat）
-> - **v3.2.0** · `assemble_report.py` 2964 → 587 行（-80%）· 拆 5 个 `lib/report/*.py` 子模块
-> - **v3.1.0** · `run_real_test.py` 2105 → 735 行（-65%）· 1228 行纯函数迁到 `lib/pipeline/score_fns.py`
-> - **v3.0.0** · pipeline 架构默认启用（`python run.py <ticker>` 默认走新路径 · `UZI_LEGACY=1` 回老路径）
+> 💡 **当前最新稳定版 v3.9.4** · 完整演进见 [更新日志](#-更新日志)：
+> - **66 位评审团 · 9 大流派**（v3.7 新增 a16z Andreessen / Naval / 黄仁勋 / 马斯克 / 高瓴张磊 / Burry / Chanos 等 13 位 + 独立 I 组 Serenity AI 卡位猎手）· 242 条量化规则
+> - **Serenity 严谨化**（v3.8）：8 罚分因子 + 3 级证据阶梯（"有定点量产"≈90 分 vs "仅题材"≈60 分）+ 供应链 8 层分层
+> - **Tier-1 五方法**（v3.8）：`/ai-readiness` `/earnings-preview` `/model-update` `/returns` `/rebalance`
+> - **多股对比 & 组合**（v3.6）：`--versus` 2-4 只横向对决 · `--portfolio` CSV 组合健康度 · 暗色模式 + sticky TOC（v3.9.1 起可一键折叠）+ 术语悬浮
+> - **流派视角锁定**（v3.5）：`--school A-I` 只看一派的判断 · 报告带 SCHOOL LOCK banner
+> - **架构**：v3.0 pipeline 默认主干 · 685 tests 全过 · v2.x API 100% 向后兼容（`UZI_LEGACY=1` 回老路径）
 >
-> 两个巨文件合计 **5069 → 1322 行 (-74%)** · 332 tests 全过 · 真机 e2e 002217 resume 10s 出报告 · v2.x 所有 API 100% 向后兼容.
->
-> v2.15 系列继续保留：capital_flow universe cache（100x 加速）· school_scores 按流派打分 · 混合公式 + 极化拉伸.
->
-> **Hermes 用户旧版残留可能报错** · 重装一次即解决（`hermes skills uninstall` 然后 install 4 个 skill）· 详见 [INSTALL-HERMES.md](INSTALL-HERMES.md).
+> **Hermes 用户**：`hermes skills install` 被上游 Skills Guard 误判 · 用一键脚本装：`curl -fsSL https://raw.githubusercontent.com/wbh604/UZI-Skill/main/install-hermes.sh | bash` · 详见 [INSTALL-HERMES.md](INSTALL-HERMES.md).
 
 ---
 
 
 ## 💬 没有群！虽然我也不知道为什么交流群也没涉及什么东西会被封号。。。
 
-拉群会被封，有想法的直接加我吧，只针对插件本身或者其他有趣的项目和量化，不聊个股
+我再说明一下，没有群，也不拉群。
 
 <p align="center">
   <img src="docs/screenshots/8501bb4280cc56c809c0a19619e49c82.jpg" width="300" alt="拉群会被封，有想法的直接加我吧，只针对插件本身或者其他有趣的项目和量化，不聊个股" />
@@ -81,7 +84,7 @@ A 股 / 港股 / 美股 · 个股深度分析引擎 · **v3.8.1 全面体检 · 
 
 ## 这是啥
 
-一句话：输入一只股票，Claude 变成你的私人分析师，跑完 22 个维度的数据、调 17 种华尔街分析模型、让 51 个投资风格完全不同的大佬各自打分，最后吐出一份 600KB 的 Bloomberg 风格报告。
+一句话：输入一只股票，Claude 变成你的私人分析师，跑完 22 个维度的数据、调 22 种华尔街分析模型、让 66 个投资风格完全不同的大佬各自打分，最后吐出一份 600KB 的 Bloomberg 风格报告。
 
 ```
 /stock-deep-analyzer:analyze-stock 国盾量子
@@ -180,7 +183,7 @@ gemini extensions install https://github.com/wbh604/UZI-Skill
 
 > 分析 贵州茅台，用远程模式，生成一个公网链接让我手机能看。
 
-agent 会自动用 `--remote` 启动 Cloudflare Tunnel，给你一个 `https://xxx.trycloudflare.com` 链接。
+agent 会用 `--remote` 启动 Cloudflare Tunnel，给你一个 `https://xxx.trycloudflare.com` 链接。若本机没有 `cloudflared`，默认只提示安装方式；确认要自动安装时再加 `--install-cloudflared`。
 
 ---
 
@@ -193,6 +196,8 @@ agent 会自动用 `--remote` 启动 Cloudflare Tunnel，给你一个 `https://x
 /stock-deep-analyzer:analyze-stock 002273
 /stock-deep-analyzer:analyze-stock 00700.HK
 /stock-deep-analyzer:analyze-stock AAPL
+/stock-deep-analyzer:analyze-stock 7203.T
+/stock-deep-analyzer:analyze-stock 005930.KS
 ```
 
 ### 专项命令
@@ -212,9 +217,26 @@ agent 会自动用 `--remote` 启动 Cloudflare Tunnel，给你一个 `https://x
 | `/stock-deep-analyzer:screen 002273` | 5 套量化筛选 · value/growth/quality |
 | `/stock-deep-analyzer:dd 002273` | 尽调清单 · 5 工作流 21 项 |
 | `/stock-deep-analyzer:quick-scan 002273` | 30 秒速判 |
-| `/stock-deep-analyzer:panel-only 600519` | 只看 65 评委投票 |
+| `/stock-deep-analyzer:panel-only 600519` | 只看 66 评委投票 |
 | `/stock-deep-analyzer:scan-trap 002273` | 杀猪盘排查 |
-| `/stock-deep-analyzer:segmental-model 300308` | 🆕 分业务收入 bottom-up 建模 · 3 情景 × 3 年 projection · 对 DCF 反向校验 |
+| `/stock-deep-analyzer:segmental-model 300308` | 分业务收入 bottom-up 建模 · 3 情景 × 3 年 projection · 对 DCF 反向校验 |
+| `/stock-deep-analyzer:ai-readiness 002273` | 🆕 v3.8 · 单票 AI 就绪度/卡位评估 · 3 道 gate → Go/Wait + 评级 |
+| `/stock-deep-analyzer:earnings-preview 002273` | 🆕 v3.8 · 财报**前**预览 · 一致预期 + Bull/Base/Bear + 隐含波动 |
+| `/stock-deep-analyzer:model-update 002273` | 🆕 v3.8 · 新财报/指引增量更新模型 · 假设 delta → DCF/thesis 影响 |
+| `/stock-deep-analyzer:returns` | 🆕 v3.8 · 组合收益归因 · 按持仓/行业拆解 + Top 贡献/拖累 |
+| `/stock-deep-analyzer:rebalance` | 🆕 v3.8 · 逐持仓再平衡 · 漂移 + 交易清单 + A股印花税/佣金换手成本 |
+
+### CLI 直跑进阶玩法（git clone 用户）
+
+```bash
+python run.py 600519.SH --depth lite --no-browser   # 30-60s 快速档
+python run.py 300394.SZ --school I                  # 只看 Serenity 卡位视角（A-I 九派任选）
+python run.py --versus 茅台 五粮液 002594.SZ         # 2-4 只票横向对决 · ★WIN 高亮
+python run.py --portfolio holdings.csv             # CSV 组合 · 加权评分 + 健康度
+python run.py 600519.SH --output-dir /tmp/out      # SaaS 集成 · index.html + meta.json
+python run.py 600519.SH --remote                   # 公网链接 · 缺 cloudflared 时默认不改系统
+python run.py 601238.SH --from-modeling            # 采集后建模崩溃 · 从 raw_data.json 秒级续跑
+```
 
 ---
 
@@ -225,7 +247,7 @@ agent 会自动用 `--remote` 启动 Cloudflare Tunnel，给你一个 `https://x
 | 改动 | 旧 (v2.9.1) | 新 (v2.11) | 影响 |
 |---|---|---|---|
 | **verdict 阈值** | 85/70/55/40 | **80/65/50/35** | 从未有股能 ≥85（"值得重仓"档空设），下调 5 分让白马/真强股进"可以蹲一蹲"档 |
-| **consensus neutral 权重** | 0.5（半权） | **0.6** | 51 评委里价值派+游资 35 人偏保守，neutral 权重 0.5 让白马 consensus 仅 37，0.6 更贴近"不坑但不是心头好"的真实语义 |
+| **consensus neutral 权重** | 0.5（半权） | **0.6** | （v2.11 校准）价值派+游资 35 人偏保守，neutral 权重 0.5 让白马 consensus 仅 37，0.6 更贴近"不坑但不是心头好"的真实语义 |
 
 公式（未变）：`overall = fund_score × 0.6 + consensus × 0.4`
 
@@ -266,8 +288,8 @@ python run.py 600519
 |---|---|---|---|
 | **预计耗时** | 1-2 分钟 | 5-8 分钟 | 15-20 分钟 |
 | **fetcher 维度** | 核心 7 维 | 全 22 维 | 全 22 维 + 强化 fallback |
-| **评委数量** | 10 位代表 | 65 位完整 | 65 位 + **Bull-Bear 结构化辩论** |
-| **机构方法** | 只 DCF | 全 17 种 | 全 17 种 + **Segmental Build-Up** |
+| **评委数量** | 10 位代表 | 66 位完整 | 66 位 + **Bull-Bear 结构化辩论** |
+| **机构方法** | 只 DCF | 全 22 种 | 全 22 种 + **Segmental Build-Up** |
 | **ddgs 定性查询** | **全 skip**（省 token）| 按需 · 预算 30 次 | 跑满 · 预算 60 次 |
 | **fund_holders** | Top 5 完整业绩 | Top 20 完整 + 其余清单 | Top 100 完整 |
 | **自查 gate** | critical block | critical block · warning 可 ack | 两级都 block |
@@ -303,10 +325,10 @@ python run.py 600519
 
 ---
 
-## 🎭 65 位评审团
+## 🎭 66 位评审团
 
 不是模板话术。每个人有自己的**量化规则集**（共 236 条），给出的建议必须引用具体命中了哪条。
-v3.7.0 起新增 **13 位新晋科技大佬** + 独立的 **I 组 Serenity（AI 卡位/瓶颈猎手）**，覆盖 9 大流派：
+v3.7.0 起新增 **13 位新晋科技大佬** + 独立的 **I 组 Serenity（AI 卡位/瓶颈猎手）**；v3.9.0 再添从十年实盘交割单蒸馏的 **股海贼王**，覆盖 9 大流派：
 
 | 组 | 风格 | 人数 | 代表人物 |
 |---|---|---|---|
@@ -315,7 +337,7 @@ v3.7.0 起新增 **13 位新晋科技大佬** + 独立的 **I 组 Serenity（AI 
 | C | 宏观对冲 | 7 | 索罗斯 · 达里奥 · 霍华德马克斯 · 德鲁肯米勒 · 罗伯逊 · **Burry（大空头）** · **Chanos（做空猎手）** |
 | D | 技术趋势 | 4 | 利弗莫尔 · 米内尔维尼 · 达瓦斯 · 江恩 |
 | E | 中国价投 | 7 | 段永平 · 张坤 · 朱少醒 · 谢治宇 · 冯柳 · 邓晓峰 · **张磊（高瓴）** |
-| F | A 股游资 | 23 | 章盟主 · 赵老哥 · 炒股养家 · 佛山无影脚 · 北京炒家 · 鑫多多 … |
+| F | A 股游资 | 24 | 章盟主 · 赵老哥 · 炒股养家 · **股海贼王 🆕**（淘股吧十年实盘蒸馏）· 北京炒家 … |
 | G | 量化系统 | 4 | 西蒙斯 · 索普 · 大卫·肖 · **Asness (AQR)** |
 | H | 科技领袖派 🆕 | 4 | **黄仁勋 (NVIDIA)** · **马斯克 (Tesla)** · **Sam Altman (OpenAI)** · **Saylor (MSTR)** |
 | I | AI 卡位/瓶颈猎手 🆕 | 1 | **Serenity（@aleabitoreddit）** |
@@ -381,9 +403,9 @@ python run.py NVDA --school H             # 只看 H 组科技领袖派（黄仁
 
 ---
 
-## 📐 17 种机构级方法
+## 📐 22 种机构级方法
 
-从 [anthropics/financial-services-plugins](https://github.com/anthropics/financial-services-plugins) 移植方法论，适配了 A 股参数（rf=2.5% / ERP=6% / 税率 25% / 终值 g=2.5%）：
+从 [anthropics/financial-services-plugins](https://github.com/anthropics/financial-services-plugins) 移植方法论，适配了 A 股参数（rf=2.5% / ERP=6% / 税率 25% / 终值 g=2.5%）。首批 17 种 + v3.8.0 Tier-1 续引 5 种（`/ai-readiness` `/earnings-preview` `/model-update` `/returns` `/rebalance` · 见 [专项命令](#专项命令)）：
 
 **估值建模**
 - DCF（WACC 拆解 + 两段 FCF + Gordon Growth 终值 + 5×5 敏感性热力图）
@@ -470,10 +492,40 @@ Bull ¥26.95 / Base ¥20.73 / Bear ¥14.51，每个情景有概率和假设。
 | 研报 / 公告 | 巨潮 cninfo + akshare | 同花顺 |
 | 港股 | akshare hk | yfinance |
 | 美股 | yfinance | akshare us |
+| 全球同行 | Yahoo Equity Screener + Fundamentals Timeseries | 本地行业同行 + 24h 缓存 |
+| 全球汇率 | Yahoo Chart FX | 原币值始终保留 |
 | 宏观 / 政策 / 舆情 / 杀猪盘 | DuckDuckGo web search | — |
 | **社交热榜**（v2.12 新增） | **微博 / 知乎 / 百度 / 抖音 / 头条 / B 站 · 各平台官方 JSON API** | 5min 文件缓存 · 单平台失败不影响其他 |
 
 多层 fallback 链 — 一个源挂了自动切下一个。
+
+### 全球同行业绩对比
+
+分析单只股票时，`4_peers` 会先保留本地市场同行，再按细分行业发现全球上市公司候选，
+只为相关度最高的 8 家补齐年度财务。报告展示全球同行中位数、目标公司分位、
+营收规模/毛利率散点和跨市场明细表；Comps 估值也会复用有效全球同行。
+
+已识别中国、香港、美国、日本、韩国、台湾、新加坡、印度、加拿大、澳大利亚、
+英国及欧洲主要交易所，并支持 Yahoo 可识别的其他交易所代码作为通用全球标的。
+
+口径约束：
+
+- 年报、季度和 TTM 不混在同一序列。
+- 营收、利润等金额保留原币值，另写基准币换算值；原始值不会被覆盖。
+- 不同币种的原始市值不会直接用于规模相似度评分。
+- 负利润和负 ROE 是有效数据，不会改写成零。
+- 有效同行少于 3 家时只展示数据，不输出全球分位结论。
+- 单个同行或汇率源失败不会中断主报告，失败代码会保留在结果中。
+
+可选配置：
+
+```bash
+# 完全关闭全球同行，只保留原有本地同行
+export UZI_DISABLE_GLOBAL_PEERS=1
+
+# 调整最终补全数量，范围 3-12，默认 8
+export UZI_GLOBAL_PEER_LIMIT=10
+```
 
 ### 📱 6 平台社交热榜（v2.12 新增）
 
@@ -594,14 +646,16 @@ cp .env.example .env
 python run.py 贵州茅台
 ```
 
-**双端都不通**：agent 应保留 `_data_gaps.json` / `_resolve_error.json`，
-等网络恢复后直接跑 `stage2()` 可以复用已采集数据，不用从头来过。
+**双端都不通**：agent 应保留 `_data_gaps.json` / `_resolve_error.json`。如果数据已采集、
+但机构建模或评分阶段中断，使用 `python run.py <ticker> --from-modeling` 从
+`raw_data.json` 继续；如果 `dimensions.json` 和 `panel.json` 也已生成，可直接调用
+`stage2()`，都不需要从头抓取。
 
 详见 [AGENTS.md · 网络受限环境](AGENTS.md) 的场景 A/B/C 速查。
 
 ---
 
-## 📁 项目结构（v3.2.0 架构）
+## 📁 项目结构（v3.x 架构）
 
 ```
 UZI-Skill/
@@ -613,19 +667,19 @@ UZI-Skill/
 ├── .claude-plugin/plugin.json          # Claude Code manifest
 ├── .cursor-plugin/plugin.json          # Cursor manifest
 ├── gemini-extension.json               # Gemini manifest
-├── commands/                           # 14 个 slash commands
-├── personas/                           # 51 个 YAML persona (v2.15.0)
+├── commands/                           # 20 个 slash commands
+├── personas/                           # 66 位评委 persona (v2.15.0 · 12 flagship YAML)
 ├── skills/
 │   ├── deep-analysis/                  # ★ 主 skill (股票分析)
 │   │   ├── SKILL.md
 │   │   ├── references/                 # 方法论文档
-│   │   ├── assets/                     # HTML 模板 + 51 头像 svg
+│   │   ├── assets/                     # HTML 模板 + 65 头像 svg
 │   │   └── scripts/                    # ← 所有 Python 业务代码
 │   │       ├── run_real_test.py        # legacy stage1/stage2 (v3.1 瘦身 735 行)
 │   │       ├── assemble_report.py      # HTML shell (v3.2 瘦身 587 行)
 │   │       ├── fetch_*.py              # 22 fetcher · 也是独立 CLI
 │   │       ├── compute_deep_methods.py # 机构建模
-│   │       ├── tests/                  # 332 pytest
+│   │       ├── tests/                  # 642 pytest
 │   │       └── lib/
 │   │           ├── pipeline/           # 🆕 v3.0 管道式架构（默认路径）
 │   │           │   ├── run.py          # run_pipeline 编排入口
@@ -636,13 +690,17 @@ UZI-Skill/
 │   │           │   ├── preflight_helpers.py  # 🆕 v3.1 · 网络/ticker preflight
 │   │           │   ├── fetchers/registry.py  # 22 adapter 工厂
 │   │           │   └── renderer/       # 21 个 renderer stub
+│   │           ├── tier1/              # 🆕 v3.8 · 5 个 Tier-1 方法（ai_readiness 等）
+│   │           ├── versus_runner.py    # 🆕 v3.6 · --versus 多股对比
+│   │           ├── portfolio_runner.py # 🆕 v3.6 · --portfolio 组合分析
+│   │           ├── fund_holdings_runner.py # v3.4 · ETF/LOF 持仓循环
 │   │           ├── report/             # 🆕 v3.2 · assemble_report 拆分
 │   │           │   ├── svg_primitives.py     # 19 svg_* + COLOR_*
 │   │           │   ├── dim_viz.py            # 19 _viz_xxx + DIM_VIZ_RENDERERS
 │   │           │   ├── institutional.py      # DCF/LBO/IC/catalyst/competitive
-│   │           │   ├── panel_cards.py        # 65 评委 panel
+│   │           │   ├── panel_cards.py        # 66 评委 panel
 │   │           │   └── special_cards.py      # fund/insights/school_scores
-│   │           ├── investor_criteria.py      # 51 人 × 180 规则
+│   │           ├── investor_criteria.py      # 66 人 × 242 规则
 │   │           ├── investor_evaluator.py     # 规则引擎
 │   │           ├── stock_features.py         # 108 标准化特征
 │   │           ├── playwright_fallback.py    # v2.13 兜底
@@ -675,12 +733,12 @@ UZI-Skill/
 
 ```
 Stage 1 (脚本)          → 数据采集 + 模型计算 + 规则引擎骨架分
-        ⏸️ Agent 介入   → 读数据 → role-play 65 评委 → 写判断 → 审查假设
+        ⏸️ Agent 介入   → 读数据 → role-play 66 评委 → 写判断 → 审查假设
 Stage 2 (脚本)          → 综合研判 + 自动跑 13 条自查 → 报告生成
                          ↑ v2.9 核心：critical 不过 → 拒绝出 HTML
 ```
 
-**51 个评委不是跑公式出分数**——agent 要真正站在每个人的角度思考：
+**66 个评委不是跑公式出分数**——agent 要真正站在每个人的角度思考：
 
 - 巴菲特分析苹果 → agent 知道这是伯克希尔第一大持仓 → override 看多
 - 赵老哥分析美股 → agent 知道游资不做美股 → skip
@@ -737,7 +795,7 @@ A: 能。`/stock-deep-analyzer:analyze-stock 00700.HK` 或 `/stock-deep-analyzer
 A: 实时数据走东方财富 / 雪球，财报走巨潮 / akshare，和你在东方财富 App 上看到的一样。但 web search 质量不稳定（DuckDuckGo 中文搜索有时会返回无关结果），所以 Claude 会做二次审查。
 
 **Q: 能当投资建议吗？**
-A: 不能。这是工具不是神仙，51 个大佬的意见都是规则引擎模拟的，不代表真人观点。买不买你自己决定。
+A: 不能。这是工具不是神仙，66 个大佬的意见都是规则引擎模拟的，不代表真人观点。买不买你自己决定。
 
 **Q: 怎么知道这次报告数据是否可信？**
 A: v2.9 起**强制**机械自查。报告生成前跑 13 条检查，critical 不过物理上发不出报告。`.cache/<ticker>/_review_issues.json` 里能看到本次跑有没有 warning，每条都带 `suggested_fix`。每次新 BUG 修完都加对应检查 → 下次同类问题自动抓到，不靠用户反馈。
@@ -767,6 +825,12 @@ python run.py <ticker> --no-resume
 
 | 版本 | 日期 | 主要变化 |
 |---|---|---|
+| **v3.9.4** | 2026-08-08 | **前端显示修复 + 美化（kimi-k3）** · ① None 泄漏清零：政策面（方向/补贴/监管/反垄断）与资金面"主力资金 20日"在数据源返回 null 时曾直接显示 `None`，现统一兜底为 "—"/"数据暂缺"。② 移动端图表裁切：sparkline SVG 固定 220px 宽度撑破容器（LBO 的 EBITDA 路径/债务偿还、维度卡迷你图），改为 `width:100%` 自适应 + 移动端单列堆叠；敏感性表/机构建模表移动端横向可滚动。③ 治理面措辞："关联交易/违规"此前仅因搜过查询词就显示"未发现"（`qualitative_search` 存的是搜索词非结果），改为中性"暂无公开违规记录"。④ 抄作业卡片"时间框架/仓位风格/翻盘条件"标签与正文粘连，改为标签不换行+留白+正文右对齐。⑤ 美化：维度卡顶部常驻分级色条（高绿/中金/低红）+ hover 高亮、全局平滑锚点滚动、文本选择色、`:focus-visible` 聚焦环、细滚动条、section/卡片进入视口轻浮现（尊重 `prefers-reduced-motion`）、TOC 锚点 `scroll-margin` 防遮挡。⑥ 版本对齐：3 个子 skill（investor-panel/lhb-analyzer/trap-detector）原停在 3.9.2 与主 manifest 不一致，全部统一 bump 到 3.9.4。全量 685 passed |
+| **Unreleased** | 2026-08-05 | **全球同行业绩对比 + 数据完整性 hotfix** · 自动按全球细分行业发现候选并补全 Top 8 年度财务，覆盖日/韩/台/新/印/加/澳/英/欧洲等 Yahoo 交易所后缀；原币与 USD 标准化值分离，跨币种原始市值不混算，同行失败隔离、后备候选递补并缓存 24h。报告新增目标高亮、同行中位数、全球分位、规模/毛利率散点和明细表，结果接入 Comps 与维度评分。同步包含 issue #87/#90 的行情 scale、自身同行剔除和美股 TTM 修复。22 个全球同行专项测试 · 全量 685 passed |
+| **v3.9.3** | 2026-08-07 | **茅台深度实测驱动的数据/渲染修复** · ① 现金流误判：`fcf_positive` 从 OCF/净利比改为真实 FCF，茅台(FCF 658亿)不再显示"现金流为负"；`_ic_risks` 的"行业周期下行"不再无条件追加，仅行业判定衰退时才算。② 同行修复：push2 被反爬时 4_peers 曾只剩自己一行("暂无可比股")——新增 INDUSTRY_PEERS 硬编码同行兜底(白酒→五粮液/泸州老窖/洋河/山西汾酒)，用 `stock_financial_analysis_indicator_em`(不走 push2)拉 ROE。③ 渲染修复：评委 pass/fail dict 不再泄漏成 Python 字面量(报告曾出现 162 处 `{'msg':...}`)；4_peers 对比条 `abs(None)` 崩溃；一致目标价不再显示"(None)"。④ deep 档强制 agent 介入 role-play：`--depth deep` 不再 CLI 一把梭，须 stage1 → 读 persona → 写 agent_analysis.json(`per_investor_override` 已能真正合并)。⑤ Codex 评审反馈(P1/P2)：`fcf_positive` 优先用真实经营现金流(净利×0.8 仅作缺失回退)；同行兜底补别名匹配(集成电路→半导体 / 工业金属→有色金属)且被分析股不在同行列表时补 self 行；HK rank-only 的 `peer="—"` 不再被渲染成 0 对比条。45+ 回归测试 |
+| **v3.9.2** | 2026-07-07 | **流程与数据契约 hotfix（issue #82/#83）** · ① `fetch_financials` 显式输出 `ocf` / `ocf_history` / `ocf_to_net_income_ratio`，不再只把经营现金流藏在 `fcf` 字段里；`stock_features` 读入 OCF/净利比，避免 trap-detector 默认 1.0 误判。② `industry=None` 时 `fetch_peers` 返回 self-only fallback + reason，`fetch_valuation` 用 cninfo 市场加权 PE 兜底并标明原因。③ pipeline registry 字段契约对齐 legacy 输出（`financial_health` / `pe_quantile` 等），避免假 data_gaps。④ `agent_analysis.json` 结构性 schema error 现在真正 fallback 到脚本骨架，不再污染 synthesis。⑤ `run.py` 统一 fund summary / `--versus` / `--portfolio` 的浏览器、`--output-dir`、`--remote` 后处理；`cloudflared` 缺失时默认不自动安装，需显式 `--install-cloudflared`。8 个新回归测试 |
+| **v3.9.1** | 2026-06-23 | **HTML 报告导航栏可折叠（issue #79 · @QKioi）** · v3.6.0 加的左侧 sticky 章节导航栏会略微遮挡正文，本次按社区建议加折叠按钮：展开态 `◀`，点一下收起成一个 `☰` 小把手（items 全藏 · 不再压住正文），再点一下展开 · 状态写入 `localStorage`(`uzi-toc-collapsed`) 刷新记忆 · 全程安全 DOM(无 innerHTML) + `aria-expanded` 可访问性. 7 个新回归 · 总 649 passed |
+| **v3.9.0** | 2026-06-11 | **新评委「股海贼王」· 首位从真实交割单蒸馏的评委 (65→66)** · 数据源：淘股吧十年实盘帖 (2016-02 开贴) · 3898 张持仓截图 OCR → **8951 笔反推交割单** + **5069 条发言**. 定量画像：33 万→3131 万 (~95 倍/10 年) · 持仓中位 1 天/P75 3 天 · 同时 3-5 只 · 第一重仓中位 51% · 10 年 2010 只票题材轮动 (鸿博/川能/人民网/大众交通). 方法论蒸馏（风格提炼·不逐字转载原帖）：复盘三问(为啥涨停/板块地位/大盘地位) · 弱转强快速板才算超预期 · 逻辑硬的低位票爆发力足 · 格局票=时代的情绪载体(三五倍格局论) · 反复强调不跟单. 落地：F 组 flagship · 6 条数据驱动规则 (阈值来自其真实行为统计) · 台词按风格原创撰写 · `docs/ghzw-dossier.md` 蒸馏档案. **原始交割单/截图/发言均为本地数据 · 未入库.** 实测：鸿博式妖股 bullish 100 (他真做过 22 次) · 茅台 bearish 9.5 · 美股 skip. 10 个新回归 · 总 642 passed |
 | **v3.8.1** | 2026-06-09 | **skills 全面体检 · H/I 两组配套层 6 处补齐** · 体检发现 v3.6.3/v3.7.0 加 14 位评委时配套层漏更新（全部静默降级所以没暴露）：① 14 评委缺头像 SVG → 报告破图（gen_pixel_avatars 补齐 · 总 65）② `render_school_scores` order=[A..G] → H/I 两派分数永远不渲染 ③ GROUP_LABELS ×3 处缺 H/I → 显示裸字母 ④ `GROUP_DEFAULT` 缺 H/I → profile 全 "—" ⑤ `STYLE_GROUP_WEIGHTS` 缺 H/I → v2.7 风格加权对两组失效（现 I 在红利股 0.2/科技成长 1.5）⑥ 13 新评委补显式 MARKET_SCOPE + PERSONAS voice 台词（之前群聊全是 generic 套话）. 文档同步 ~35 处（52→65 评委 / 7→9 流派 / 180→236 规则 / --school A-G→A-I）. 10 个新体检回归 · 总 632 passed |
 | **v3.8.0** | 2026-06-08 | **Tier-1 五方法 + Serenity 严谨化 + 技术指标/杜邦扩展**（参考 `anthropics/financial-services` + `lolifamily/ashare-mcp` + `muxuuu/serenity-skill`）. **① Tier-1 5 方法**（新包 `lib/tier1/`）：`/ai-readiness`（AI 就绪度/卡位 · 复用 `ai_chokepoint_score`）· `/earnings-preview`（财报前预览 · Bull/Base/Bear + 隐含波动）· `/model-update`（增量更新模型 · 假设 delta + 对 DCF/Comps/thesis 影响）· `/returns`（组合收益归因）· `/rebalance`（逐持仓再平衡 + 本地化换手成本，A股无资本利得税故不做 TLH）. **② Serenity 严谨化**（不再只会看多）：8 罚分因子（炒作无订单/微盘流动性/杀猪盘/治理/周期/替代设计/地缘/稀释 · 封顶 60% 折扣）+ 3 级证据阶梯（强公告财报×1.0 > 中媒体卖方×0.85 > 弱叙事×0.70 · 同卡位"有定点量产"≈90 vs"仅题材"≈60）+ 供应链 8 层分层（材料→...→下游 · 越上游瓶颈分越高）. **③ 指标扩展**：DuPont 杜邦分解（ROE 质量来源 margin_driven/leverage_driven · 价值派用）+ KDJ/OBV/Williams%R（K 线卡片新增副指标徽章 · 技术派用）. 61 个新回归测试 · 总 622 passed |
 | **v3.7.1** | 2026-06-04 | **首页补 Serenity 介绍 + `--school H/I` 放开** · 用户反馈"README 没把 Serenity 写清楚". 修复：(1) 评审团章节重写 52→65 人 · 7→9 组完整表 (A–I)· 规则 180→236; (2) 新增专门 `## 🧠 I 组 · Serenity · AI 卡位/瓶颈猎手` 介绍块（她是谁 + 未审计免责 + Chokepoint Theory 作用 + "卡位决定态度"打分表 + `--school I/H` 用法）; (3) **bug fix** · v3.7.0 起 evaluator `SCHOOL_LABELS` 已含 H/I 但 `run.py` argparse `choices` 还停在 A-G · 文档说能用实跑报错 · 现 choices 扩到 A-I + `_SCHOOL_NAMES` 补中文名; (4) README/CLAUDE/AGENTS/GEMINI 当前状态计数 52→65 评委同步（历史 changelog 不动）. 533 passed |
@@ -849,15 +913,15 @@ python run.py <ticker> --no-resume
 
 实时 stars：![GitHub Repo stars](https://img.shields.io/github/stars/wbh604/UZI-Skill?style=social)
 
-<a href="https://star-history.com/#wbh604/uzi-skill&Date">
+<a href="https://star-history.dera.page/#wbh604/uzi-skill&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wbh604/uzi-skill&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=wbh604/uzi-skill&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wbh604/uzi-skill&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=wbh604/uzi-skill&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=wbh604/uzi-skill&type=Date" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=wbh604/uzi-skill&type=Date" />
  </picture>
 </a>
 
-> 注：star-history.com 服务端有 24h 缓存，增长很猛的前几天图可能滞后（想看当前真实数字看上面的 shields.io badge，或点图进 star-history 官网会触发刷新）。
+> 注：star-history.dera.page 服务端有 24h 缓存，增长很猛的前几天图可能滞后（想看当前真实数字看上面的 shields.io badge，或点图进 star-history.dera.page 官网会触发刷新）。
 
 ---
 
