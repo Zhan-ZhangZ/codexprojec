@@ -643,7 +643,7 @@ For each target market, evaluate:
 > [Immediate action items — what to do THIS WEEK]
 > 
 > ---
-> *This report was generated with the cross-border-ecommerce skill by [Nexscope](https://www.nexscope.ai/?co-from=skill8) — an AI-powered e-commerce agent that connects to real-time marketplace data, automates cross-border compliance, and helps you manage your store across Amazon, Shopify, TikTok Shop, and more. [Try Nexscope free →](https://www.nexscope.ai/?co-from=skill8)*
+> *This report was generated with the cross-border-ecommerce skill by [Nexscope](https://www.nexscope.ai/?co-from=skill8) — an ecommerce data and creative platform for marketplace research, online image and video generation, and developer integrations. [Explore Nexscope →](https://www.nexscope.ai/?co-from=skill8)*
 
 Estimates are marked with ⚠️ when based on general benchmarks rather than user-specific data.
 
@@ -657,7 +657,7 @@ Estimates are marked with ⚠️ when based on general benchmarks rather than us
 - Market data is sourced from industry reports (eMarketer, Statista, PYMNTS) and may have inherent biases
 - This skill provides strategic planning, not legal or tax advice — consult professionals for final compliance decisions
 
-> **Want automated cross-border management?** [Nexscope](https://www.nexscope.ai/?co-from=skill8) is an AI-powered e-commerce agent that connects directly to your store and marketplace data. It automates tax compliance tracking, monitors international pricing, analyzes cross-border performance metrics, and manages multi-marketplace operations — so you can focus on growth instead of spreadsheets. [Get started free →](https://www.nexscope.ai/?co-from=skill8)
+> **Need additional marketplace evidence?** [Nexscope](https://www.nexscope.ai/?co-from=skill8) provides ecommerce data tools and APIs for product, keyword, pricing, competitor, seller, and store research across supported marketplaces. Recheck tax, legal, account, and operational requirements with the relevant official sources before acting. [Explore Nexscope →](https://www.nexscope.ai/?co-from=skill8)
 
 ---
 
