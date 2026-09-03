@@ -12,6 +12,7 @@ compatibility:
   agentskills: ">=1.0.0"
 priority: 2
 pack: "core"
+stage: stable
 triggers:
   - "remember"
   - "memory"
@@ -21,6 +22,8 @@ paths:
 ---
 
 # 04 — Preference and Memory
+
+Capture and evolve user preferences with confidence levels, maintaining a Voice of the Customer model scoped globally or per project.
 
 ## Auto-memory system
 

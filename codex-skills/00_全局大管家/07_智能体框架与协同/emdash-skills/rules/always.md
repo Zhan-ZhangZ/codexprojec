@@ -5,116 +5,28 @@ pack: "core"
 triggers: []
 paths:
   - "*"
+last_reviewed: 2026-06-28
+superseded_by: null
 ---
 
 # Always
 
-> Numeric stats + first-load animation → `cinematic-ui-patterns.md` (`<app-rolling-counter>` + `appReveal` mandatory on every projectsites.dev surface).
+Standing cross-cutting rules that apply unconditionally to every prompt, surface, and project.
 
-## Every page
+> **Website per-page / per-site / per-entity gates** (SEO head · webmanifest/robots/sitemap/security.txt · lightbox · Google Maps · clickable-entity linking · forms · timeline · Cmd+K) live in `[[website-page-and-site-gates]]` — extracted so WEBSITE-specific detail loads only on site prompts (via the `website-build` pack) instead of taxing every prompt's token budget.
 
-- Keyphrase FIRST
-- Title 50-60 chars
-- Meta desc 120-156 chars
-- One H1 in HTML shell (prerender)
-- Canonical
-- JSON-LD per page only when accurate. WebPage is floor; add Organization/BreadcrumbList/FAQPage/Person/Product/Service ONLY when describing real entities. Never pad.
-- FAQPage only when real Q&A exists. Don't fabricate.
-- OG 1200×630 ≤100KB **branded card** (NOT scraped photo)
-- 2+ internal links, 1+ outbound
-- Yoast GREEN
-- `<meta name="color-scheme">` present
-- DNS-prefetch + preconnect for fonts/analytics
-- Font woff2 preload for primary display + body
-- Speculation Rules prerender when navigation dominant (multi-page funnels, doc sites). Skip on landing where analytics integrity matters — prerender double-counts GA4 pageviews + can fire conversions before user interaction
-- `fetchpriority="high"` on LCP `<img>` AND its preload link
+## Autonomy — drive to done, NEVER ask permission to continue
 
-## Every site (REQUIRED)
+- **Going all the way to completion is the permanent default.** Never end a turn with a stop/continue question — "stop here or continue?", "want me to start the next item?", "should I keep going?" — that offloads a decision the user already made (finish it) back onto them. It is a FAILURE MODE, not politeness.
+- When work remains (a roadmap, a backlog, a half-built feature, a "next" item), just DO it — re-arm the loop / spawn the agents / start the next item — and report what shipped + what's already in progress. A turn ends with momentum, not a question.
+- A momentary scope call ("stop the loop", "ship it") is NOT a standing preference to halt — the standing preference is always: finish everything finishable, then keep driving the roadmap. Don't re-litigate it next turn.
+- **The ONLY legitimate pause** is a genuinely human-gated decision: a secret/credential only the user can mint (vendor-issued, per Secrets §), an irreversible business/legal/brand choice (pricing, one-way-door architecture), or real-world truth you can't source (real reviews/photos/address). Everything else is yours to drive to done — see `autonomous-engineering.md` 4-tier (only `approval-required`/`blocked` pause).
+- Brian-gated `🔑` items still get their decision-independent slice shipped the same turn (`[[feedback_brian_gated_item_has_decision_independent_slice]]`); you advance a buildable item, never block.
 
-- `site.webmanifest` w/ `screenshots[]` 3+ form_factor:"wide"|"narrow", `shortcuts[]`, `share_target`, `file_handlers`, `protocol_handlers` for store listings
-- `robots.txt` — split AI crawlers by purpose, never blanket-block (blanket = removed from AI answers entirely):
-  - **Allow (search/retrieval — keeps you cited in ChatGPT/Perplexity/AI Overviews)**: `OAI-SearchBot`, `Claude-SearchBot`, `Claude-User`, `PerplexityBot`
-  - **Disallow (training-only — opt out of model training)**: `GPTBot`, `ClaudeBot`, `Google-Extended`, `Applebot-Extended`, `CCBot`, `Bytespider`
-  - Explicit `Allow`/`Disallow` per UA — never default
-- `humans.txt`
-- `sitemap.xml` (every `<url>` has `<lastmod>`)
-- `browserconfig.xml`
-- `.well-known/security.txt`
-- `favicon.ico` + `favicon-16x16.png` + `favicon-32x32.png`
-- `apple-touch-icon.png` (180×180)
-- OG image
-- Kill-switch service worker (unregisters + clears caches)
+## Secrets — auto-populate everything self-generable
 
-### Optional
-
-- `llms.txt` — <0.3% adoption, no major LLM crawler requests it. DX-only for Cursor/Claude Code, **not a build gate**
-
-### Asset rules
-
-- Every internal asset ref must resolve to real file in build (**asset existence gate**)
-- PNG >200KB → re-encode AVIF primary (20-30% smaller than WebP, 94% browser support) + WebP fallback + JPEG legacy
-- Drop JPEG XL (10% support, Chrome flag-only)
-- JS chunks ≤250KB gzip via route code-splitting (React.lazy + manualChunks)
-
-## Every site (interactive)
-
-- Full-featured Lightbox component mounted in Layout
-- ALL major image groups wrapped in `[data-gallery="<id>"]` (services/gallery/team/blog hero/testimonials/before-after)
-- Bundle MUST contain `data-zoomable` AND `data-gallery` strings — verified by `build_validators.ts`
-- Lightbox: Esc/←→/Home/End/Tab focus-trap, swipe (Pointer Events ≥40px), pinch-zoom, double-tap, neighbor preload via `<link rel="preload" as="image">`, role="dialog" + aria-modal + aria-label + aria-live counter, `prefers-reduced-motion`
-- Custom hostname canonical when `primary_hostname` set (not default `*.projectsites.dev`)
-- For local businesses: `tel:` link in nav
-
-## Every clickable entity
-
-### Build-break (must link)
-
-- Email → `<a href="mailto:user@domain">`
-- Phone → `<a href="tel:+1NNNNNNNNNN">` (E.164, strip formatting)
-- URL → `<a href>` w/ `target="_blank" rel="noopener noreferrer"` for external
-- Product/service/feature w/ dedicated route → `<Link>` to that route
-- Unlinked email or phone in shipped HTML = build fail
-
-### Warnings (visible in console, not build-failing)
-
-- Street address → `<a href="https://www.google.com/maps/dir/?api=1&destination=<urlencoded>">`
-- PO Box / no-direction-target → `<a href="https://www.google.com/maps/search/?api=1&query=<urlencoded>">`
-- Named institution/org/journal/conference/publication mentioned in body → hyperlinked to canonical URL using institution name as anchor (never "click here" / "learn more")
-- SKU/EIN/DOI/ISBN/arXiv-id → linked to authoritative registry
-
-### Validator
-
-- `validate-hyperlinks.mjs` greps dist/ HTML:
-  - Build-fail on unlinked email regex `[\w.+-]+@[\w-]+\.[\w.-]+`
-  - Build-fail on unlinked US phone `(\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})`
-  - Warn on unlinked address `(P\.?O\.? Box \d+|\d+ [A-Z][a-z]+ (Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr))`
-  - Warn on unlinked named institutions in body copy
-
-## Every form
-
-- Turnstile (invisible, `data-appearance="interaction-only"`, NEVER visible widgets)
-- Zod
-- Resend — every send path passes the `email-deliverability.md` gate (SPF+DKIM+DMARC, RFC 8058 one-click unsub on marketing, spam <0.3%) or mail bounces at SMTP silently
-
-## Every historical timeline (`timeline-authenticity.md`)
-
-- Photos ONLY from Wikimedia Commons / Library of Congress / NPGallery / NPS / NYPL Digital / state historical societies / institution's archives / verified press wire
-- NEVER DALL·E, GPT Image, Midjourney, Ideogram, Stable Diffusion, "evocative" stock next to dated event
-- NEVER decorative gray boxes or placeholder silhouettes
-- Blank entry > faked entry
-- Build gate: `validate-timeline-photos.mjs` rejects `/dall-?e/i|/ai-bank/|/midjourney/i|/ideogram/i|/stable-?diffusion/i|stock-site domains` without primary-source whitelist
-- Required per photo: `image` URL, `imageAlt` (factual, never inventing), `imageCredit` ("Author · Source institution · License · Year")
-- Contextual photos (1860 Brady portrait next to 1846 event) MUST disclose rhyme in alt ("representative of the era")
-
-## Every Cmd+K (UNIVERSAL)
-
-- `Meta+K` / `Ctrl+K` opens AI chat or command palette AND immediately focuses text input — caret blinking, zero extra clicks
-- React: `requestAnimationFrame(() => inputRef.current?.focus({preventScroll:true}))` after open-state flips
-- HTML: `autofocus` + post-mount `.focus()`
-- `prefers-reduced-motion` → skip enter animation but STILL focus
-- If already open, Cmd+K re-focuses + selects existing text
-- Esc closes → returns focus to trigger element (a11y)
-- Build gate: Playwright presses `Meta+K`, asserts `document.activeElement` matches chat/palette input — failure = build fail
+- **Any missing secret you CAN generate, generate + set automatically — never ask, never Rec, never leave a placeholder.** HMAC/webhook/signing keys, session/CSRF/JWT secrets, salts, nonces, bypass tokens, your-own-service API keys → `openssl rand -base64 32` / `-hex 32` (or `crypto.randomUUID`), stored locally AND pushed to the deploy target, same turn.
+- Only exceptions: data-at-rest `*_ENCRYPTION_KEY` (auto-gen destroys persisted data — detect only) and vendor-minted third-party creds (Stripe/Resend/Clerk/OAuth). Full tiers + one-liners: `secret-auto-provisioning.md`.
 
 ## Post-work
 
@@ -190,7 +102,9 @@ Frameworks: IEEE EAD, ACM, W3C, UNESCO, EFF, Humane by Design, Ethical OS, Copen
 Render as markdown in chat, NOT via bash:
 
 ```
-**⚡ {project}** · `{branch}` · {time}
+**⚡ {project}** · `{branch}` · {finish_time}
+
+**⏱ Time:** {start_time} → {finish_time} · {elapsed}
 
 **Changes:**
 - {change 1}
@@ -208,6 +122,11 @@ Render as markdown in chat, NOT via bash:
 **Links:** [Repo]({url}) · [CF]({url}) · [Skills](https://github.com/heymegabyte/claude-skills)
 ```
 
+- **`⏱ Time` line is MANDATORY on every report** — start time, finish time, AND elapsed duration. No exceptions.
+  - **Capture the start** at the FIRST tool call of the turn: `date '+%s %-I:%M:%S %p %Z'` (epoch + human time). Stash the epoch.
+  - **Capture the finish** when composing the report: run `date '+%s %-I:%M:%S %p %Z'` again.
+  - **Elapsed** = finish_epoch − start_epoch, formatted human-readable (`{N}s`, `{M}m {S}s`, or `{H}h {M}m`). If the turn did zero Bash calls (pure conversational answer), state wall-clock isn't tracked and give the timestamp only — never fabricate a duration.
+  - Times in the user's local zone (whatever `date` returns). Example: `**⏱ Time:** 2:31:07 PM EDT → 2:48:22 PM EDT · 17m 15s`.
 - Config/Repos lines ALWAYS present (print "none" if no changes)
 - Every URL: FULL deeplinked
 - Also run `source ~/.claude/hooks/prompt-report.sh && emdash_report` via Bash (bg)

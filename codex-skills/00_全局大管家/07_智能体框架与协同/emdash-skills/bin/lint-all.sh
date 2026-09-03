@@ -172,6 +172,68 @@ logHeader "15. skill-submodules"
 runGate "skill-submodules" "check-skill-submodules" \
   bash "$SKILLS_ROOT/bin/check-skill-submodules.sh"
 
+logHeader "16. crosslinks"
+runGate "crosslinks" "audit-crosslinks --ci" \
+  node "$SKILLS_ROOT/bin/audit-crosslinks.mjs" --ci
+
+logHeader "19. always-load-budget"
+runGate "always-load-budget" "audit-always-load-budget --ci" \
+  node "$SKILLS_ROOT/bin/audit-always-load-budget.mjs" --ci
+
+logHeader "18. dead-paths"
+runGate "dead-paths" "audit-dead-paths --ci" \
+  node "$SKILLS_ROOT/bin/audit-dead-paths.mjs" --ci
+
+logHeader "17. compression-regression"
+runGate "compression-regression" "check-compression-regression --ci" \
+  node "$SKILLS_ROOT/bin/check-compression-regression.mjs" --ci
+
+# Hard gate 20 (Jun-2026 routing-arc RCA) — priority-format. Six rules carried
+# `priority: high` (a string); rebuild-index did int('high') → ValueError → the
+# rebuild crashed and skills.db silently stayed STALE for the whole arc, so every
+# priority/pack/path change was invisible to the live router. This gate blocks any
+# non-numeric priority at commit time so that exact stale-DB class can't recur.
+logHeader "20. priority-format"
+runGate "priority-format" "check-priority-format --ci" \
+  node "$SKILLS_ROOT/bin/check-priority-format.mjs" --ci
+
+# Hard gate 21 (Jun-2026 phrasing-coverage RCA) — route-phrasing. Natural one-line
+# site prompts ("make me a site for my plumbing business", "I need a website for my
+# nonprofit", "create a landing page for…") substring-matched NO website-build
+# trigger, so they routed 0-2/6 core nodes with no manifest — silently skipping the
+# whole build doctrine. This gate asserts every realistic phrasing matches a pack
+# trigger, so a future trigger edit can't re-break natural-language coverage.
+logHeader "21. route-phrasing"
+runGate "route-phrasing" "check-route-phrasing --ci" \
+  node "$SKILLS_ROOT/bin/check-route-phrasing.mjs" --ci
+
+# Hard gate 22 (Jun-2026 recovery-index RCA) — manifest-recovery. The router drops
+# ~61 rules for budget on a site prompt; the design survives ONLY because the manifest
+# recovery index cross-links every dropped-but-essential rule. Three fires running, a
+# pack:core website-essential rule was found dropped AND unreferenced (analytics, then
+# the CF infra LAW, then ai-agent-security) — silently unrecoverable. This gate asserts
+# every must-recover rule + every website-build pack member is [[referenced]].
+logHeader "22. manifest-recovery"
+runGate "manifest-recovery" "check-manifest-recovery --ci" \
+  node "$SKILLS_ROOT/bin/check-manifest-recovery.mjs" --ci
+
+# Hard gate 23 (Jun-2026) — route-health. The RUNTIME complement to static gates 21/22:
+# routes the live router on a canonical site prompt and asserts website-build-manifest
+# lands in `selected` (not dropped for budget) — the linchpin of the recovery design.
+# Skips gracefully when no live skills.db (CI/headless); runs in local pre-commit where
+# routing-affecting edits are made.
+logHeader "23. route-health"
+runGate "route-health" "check-route-health --ci" \
+  node "$SKILLS_ROOT/bin/check-route-health.mjs" --ci
+
+# Hard gate 24 (Jun-2026) — reference-pointers. Integrity for the dynamic-sourcing arc:
+# every `reference/<x>.md` pointer left in a rule/skill must resolve to a real file
+# (a rename/typo would silently dead-end the AI). Crosslinks gate (16) only covers
+# [[slug]] links, not these plain-path pointers.
+logHeader "24. reference-pointers"
+runGate "reference-pointers" "check-reference-pointers --ci" \
+  node "$SKILLS_ROOT/bin/check-reference-pointers.mjs" --ci
+
 # Soft INFO gates (pass-63→67) — 4 audit reports.
 # Human mode: with --quiet, buffer output; only emit if any drift. Without --quiet, emit always.
 # JSON mode (pass-69): capture each script's --json envelope into an `info` block alongside `gates`.
@@ -222,6 +284,11 @@ if [ "$JSON" = "0" ]; then
     cat "$INFO_BUF" >&2
   fi
   rm -f "$INFO_BUF"
+
+  if [ "$QUIET" != "1" ]; then
+    printf '\n━━━ ℹ audit-all (advisory — never gates)\n' >&2
+    node "$SKILLS_ROOT/bin/audit-all.mjs" >&2 || true
+  fi
 fi
 
 EXIT=0

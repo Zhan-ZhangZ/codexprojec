@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "computer-use-safety"
 priority: 2
 pack: "infra"
@@ -6,11 +8,17 @@ triggers:
   - "computer use"
   - "desktop control"
   - "screen"
+  - "playwright"
+  - "browserbase"
+  - "stagehand"
 paths:
-  - "*"
+  - "src/**/*computer*"
+  - "**/computer-use/**"
 ---
 
 # Computer Use
+
+Select the fastest authorized automation path (MCP → Playwright → Chrome → Computer Use) and guard session-bound flows with explicit user confirmation.
 
 ## Efficiency priority (pick fastest path — ALL tiers fully authorized)
 

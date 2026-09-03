@@ -42,8 +42,26 @@ done
 # at README:315 (escaped the original line-21-only pattern from pass-91).
 SECONDARY_HITS=$(grep -oE 'full ([0-9]+) docs' README.md | grep -oE '[0-9]+' || true)
 
+# Jun-2026 extension: gate the AUTHORITATIVE agent count too. CLAUDE.md § Routing
+# claims "Agents N"; it drifted (18 vs actual 20) when media-orchestrator +
+# motion-choreographer were added, and no gate caught it. Assert it matches the
+# real agents/*.md count so adding/removing an agent without updating CLAUDE.md fails.
+AGENTS_ACTUAL=$(find agents -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')
+AGENTS_CLAIMED=$(grep -oE 'Agents [0-9]+' CLAUDE.md | grep -oE '[0-9]+' | head -1)
+
+# Jun-2026 extension #2: the website-completeness-checklist title claims "(N — none
+# optional)" and lists N numbered items. It drifted (title said 50 after expanding to 62
+# items) — the 3rd instance of the stated-count-vs-actual-count drift class this arc.
+# Assert the title number == the actual numbered-item count so expanding the checklist
+# without updating the title (+ its manifest/doctrine references) fails.
+CHK=rules/website-completeness-checklist.md
+CHK_CLAIMED=$(grep -oE 'Checklist \([0-9]+' "$CHK" | grep -oE '[0-9]+' | head -1)
+CHK_ACTUAL=$(grep -cE '^[0-9]+\. ' "$CHK")
+
 EXIT=0
 [ "$EXPECTED" != "$ACTUAL" ] && EXIT=1
+[ "$AGENTS_CLAIMED" != "$AGENTS_ACTUAL" ] && EXIT=1
+[ "$CHK_CLAIMED" != "$CHK_ACTUAL" ] && EXIT=1
 # Check secondary instances too
 if [ -n "$SECONDARY_HITS" ]; then
   while IFS= read -r n; do
@@ -54,10 +72,12 @@ fi
 
 if [ "$JSON" = "0" ]; then
   if [ "$EXIT" = "0" ]; then
-    printf '✓ doc counts match — README says %d, actual %d (incl. secondary "full N docs" phrasings)\n' "$EXPECTED" "$ACTUAL" >&2
+    printf '✓ doc counts match — README %d · agents CLAUDE.md %s/actual %d · completeness-checklist %s/%d\n' "$EXPECTED" "$AGENTS_CLAIMED" "$AGENTS_ACTUAL" "$CHK_CLAIMED" "$CHK_ACTUAL" >&2
   else
-    printf '✗ doc count mismatch — README says %d, actual %d\n' "$EXPECTED" "$ACTUAL" >&2
-    printf '  → fix README.md "%d reference docs" → "%d reference docs"\n' "$EXPECTED" "$ACTUAL" >&2
+    [ "$EXPECTED" != "$ACTUAL" ] && printf '✗ doc count mismatch — README says %d, actual %d\n' "$EXPECTED" "$ACTUAL" >&2
+    [ "$AGENTS_CLAIMED" != "$AGENTS_ACTUAL" ] && printf '✗ agent count mismatch — CLAUDE.md says %s, actual agents/*.md %d\n  → fix CLAUDE.md "Agents %s" → "Agents %d" (+ the named list)\n' "$AGENTS_CLAIMED" "$AGENTS_ACTUAL" "$AGENTS_CLAIMED" "$AGENTS_ACTUAL" >&2
+    [ "$CHK_CLAIMED" != "$CHK_ACTUAL" ] && printf '✗ completeness-checklist count mismatch — title says %s, actual numbered items %d\n  → fix the title "(%s — none optional)" → "(%d — ...)" + its manifest/doctrine "N-point" references\n' "$CHK_CLAIMED" "$CHK_ACTUAL" "$CHK_CLAIMED" "$CHK_ACTUAL" >&2
+    [ "$EXPECTED" != "$ACTUAL" ] && printf '  → fix README.md "%d reference docs" → "%d reference docs"\n' "$EXPECTED" "$ACTUAL" >&2
     if [ -n "$SECONDARY_HITS" ]; then
       while IFS= read -r n; do
         [ -z "$n" ] && continue
@@ -71,8 +91,8 @@ if [ "$JSON" = "1" ]; then
   META_TS=$(emit_iso_ts)
   META_GIT_SHA=$(emit_git_sha "$SKILLS_ROOT")
   META_BLOCK=$(emit_meta_block "$SKILLS_ROOT" "$META_TS" "$META_GIT_SHA" "default")
-  printf '{%s,"counts":{"expected":%d,"actual":%d,"match":%s,"exit":%d}}\n' \
-    "$META_BLOCK" "$EXPECTED" "$ACTUAL" "$([ "$EXIT" = "0" ] && echo true || echo false)" "$EXIT"
+  printf '{%s,"counts":{"expected":%d,"actual":%d,"agentsClaimed":%s,"agentsActual":%d,"match":%s,"exit":%d}}\n' \
+    "$META_BLOCK" "$EXPECTED" "$ACTUAL" "${AGENTS_CLAIMED:-0}" "$AGENTS_ACTUAL" "$([ "$EXIT" = "0" ] && echo true || echo false)" "$EXIT"
 fi
 
 exit "$EXIT"

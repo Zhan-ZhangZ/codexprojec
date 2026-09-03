@@ -12,6 +12,7 @@ compatibility:
   agentskills: ">=1.0.0"
 priority: 2
 pack: "research"
+stage: beta
 triggers:
   - "research"
   - "plan"
@@ -21,6 +22,8 @@ paths:
 ---
 
 # 03 — Planning and Research
+
+Decompose work into parallel vertical slices using deep web research, competitor scanning, and technology evaluation.
 
 ## Deep research protocol
 

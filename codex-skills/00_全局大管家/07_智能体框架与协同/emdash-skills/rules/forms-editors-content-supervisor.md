@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "forms-editors-content-supervisor"
 priority: 3
 pack: "content"
@@ -8,7 +10,7 @@ triggers:
   - "monaco"
   - "tiptap"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # Forms + Editors + Content Supervisor

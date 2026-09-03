@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "stack-selector"
 priority: 2
 pack: "frontend"
@@ -11,12 +13,13 @@ paths:
 
 # Stack Selector
 
-The single most expensive mistake is the wrong framework for the job. Choose deliberately, up front, by SIZE + LIFESPAN of the product — not by familiarity or novelty.
+Choose deliberately by SIZE + LIFESPAN of the product — not familiarity or novelty.
 
 ## The rule
 
-- **React (19 + Vite + SSR/SSG)** → SMALL / SIMPLE / SHORT-FUNNEL surfaces:
+- **React (19 + Vite + SSR/SSG + shadcn/ui)** → SMALL / SIMPLE / SHORT-FUNNEL surfaces:
   - landing pages · marketing sites · portfolios · brochure sites · lightweight apps · simple customer-facing sites · one-off campaigns
+  - UI = **shadcn/ui ONLY** (Radix) + Tailwind v4 per `shadcn-design-system`. No MUI/Chakra/Ant.
   - Optimize for: fast first paint, SEO, minimal ceremony. NEVER over-engineer these.
 - **Angular (21+ + Nx + Spartan UI)** → LARGE / SERIOUS / LONG-LIVED applications:
   - SaaS dashboards · admin systems · PWAs · multi-tenant apps · workflow systems · visual builders · website factories · AI operations consoles · any serious long-lived product
@@ -24,7 +27,7 @@ The single most expensive mistake is the wrong framework for the job. Choose del
 
 ## The litmus
 
-Ask: *"Will this grow into a multi-surface, multi-role, long-lived application with workflows, auth tiers, and dozens of views?"*
+*"Will this grow into a multi-surface, multi-role, long-lived application with workflows, auth tiers, and dozens of views?"*
 
 - **Yes →** Angular large-app per `angular-large-app-supervisor`.
 - **No (it's a site/funnel) →** React small per `frontend-stack`.

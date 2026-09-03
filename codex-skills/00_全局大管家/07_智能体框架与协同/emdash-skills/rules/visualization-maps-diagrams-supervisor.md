@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "visualization-maps-diagrams-supervisor"
 priority: 3
 pack: "design"
@@ -9,7 +11,7 @@ triggers:
   - "map"
   - "graph"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # Visualization + Maps + Diagrams Supervisor

@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "text-contrast"
 priority: 2
 pack: "design"
@@ -7,10 +9,12 @@ triggers:
   - "wcag"
   - "color"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # Text Contrast on Backgrounds
+
+Enforce dark-text-on-light and light-text-on-dark WCAG AA contrast for all text including runtime-injected colors; dark-on-dark is a build fail.
 
 ## Core rule
 
@@ -18,6 +22,15 @@ paths:
 - NEVER dark-on-dark or light-on-light.
 - Includes runtime-injected colors (palette extraction, theme-from-album, JS-set custom properties).
 - Naked accent on dark canvas often produces "dark blue on black" when accent gets palette-derived from cover art / brand image / user uploads.
+
+## Themed components: NEVER hardcode `text-white` / `bg-white` — use theme tokens (BUILD-BREAKING)
+
+**Light text must NEVER sit on a light background** (Brian directive 2026-08-25). In a light/dark **theme-token** system (`--color-text`/`--color-surface`/`--color-border` → Tailwind `text-text` / `text-text-muted` / `text-text-subtle` / `bg-surface` / `border-border`), a hardcoded `text-white`, `text-white/50`, `bg-white/5`, `border-white/10`, or `placeholder-white/30` on a THEME surface renders **invisible on every light theme** (white-on-cream). This is the single most common contrast defect in a multi-vertical template.
+
+- **Rule:** text/border/placeholder/bg utility classes on theme surfaces must be **theme-aware tokens**, never fixed `white`/`black`. Map `text-white→text-text`, `text-white/70|60→text-text-muted`, `text-white/50|40|30→text-text-subtle`, `bg-white/5→bg-surface`, `border-white/10→border-border`, `placeholder-white/30→placeholder-text-subtle`.
+- **Only exception:** an element with a **genuinely fixed-dark background on the same element** (`bg-[#0a0a1a]`, `bg-primary`, `bg-black`, a lightbox/overlay) may keep `text-white`; mark the line `contrast-dark-ok`. Prefer theme tokens even there when the surface can follow the theme.
+- **Build gate (FAILS the build, not a warning):** a fast static validator greps every source file for hardcoded `text-white`/`bg-white`/`border-white`/`placeholder-white` on non-dark surfaces and exits 1 (same gate also fails on any internal link matching no route — no 404s). Reference impl: projectsites `template.projectsites.dev/scripts/validate-site.mjs`, wired into `postbuild` + `npm run validate:site` (<1s, keeps the site build under 10 min). Copy this gate into every themed template.
+- **Reference incident (2026-08-25):** projectsites `/contact` shipped a light-on-light form + info cards; the bug was systemic (`text-white` in Contact/Services/Privacy/Terms/Accessibility + Testimonials/Timeline/StatRollup/Breadcrumbs/Newsletter/Search/ui-button/ui-card). Root cause: components authored with `text-white` instead of the theme's `text-text*` tokens. Fixed template-wide + added the build gate so it can never recur. See `[[logo-contrast]]` (white-text logos need dark backing) as the image-side sibling.
 
 ## Pattern (CSS)
 
@@ -147,6 +160,12 @@ Define `--text-bg-light` + apply via `.text-bg--light` for future light surface 
 - Breadcrumbs
 - Footer credits
 - Every JSON-LD-rendered factual answer block
+
+## Decorative oversized numerals (recurring offender — never trust the large-text exemption)
+
+- Big "ghost" numerals — index counters (`01`–`12`), step numbers, stat-block digits, eyebrow tallies — are THE recurring contrast miss. A pale brand tint (e.g. a `*-300`/`*-400` token) reads elegant but lands ~1.9–2.6:1 on a light surface and fails WCAG 1.4.3.
+- **Size them to the NORMAL-text 4.5:1 bar, not the large-text 3:1 exemption.** axe's large-vs-normal classification flips across device-pixel-ratios right at the ~36px-bold (`text-4xl font-black`) boundary, so a token that only clears 3:1 passes at some breakpoints and fails at others (seen at 390 + 768 while 375/1024/1280/1920 passed). Pick a token ≥4.5:1 (on this palette `maroon-700`+) and the flake disappears.
+- Reference incidents (njsk.org): pass-4 trust-strip glyph, pass-5 planned-giving step numbers, pass-8 `/ways-to-give` path numerals — all the same `maroon-300 → maroon-700` remedy.
 
 ## Never
 

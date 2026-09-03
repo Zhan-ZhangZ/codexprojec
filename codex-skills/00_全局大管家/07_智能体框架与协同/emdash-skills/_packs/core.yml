@@ -15,12 +15,14 @@ members:
   - rules/main-only-branch
   - rules/no-staging-doctrine
   - rules/code-style
+  - rules/instruction-compression-playbook
   - rules/error-recovery
   - rules/auto-meta-work
   - rules/agent-selection
   - rules/parallel-subagent-economy
   - rules/feature-flags
   - rules/drift-detection
+  - rules/repo-folder-hygiene
   - rules/extra-mile
   - rules/proactive-improvements
   - rules/auto-integrate-recs
@@ -35,3 +37,43 @@ members:
   - rules/lint-doctrine
   - rules/uniform-json-output
   - rules/audit-arc-maturity-ladder
+  - rules/agent-resilience-discipline
+  - rules/backwards-compatibility-removal-cadence
+  - rules/blast-radius-minimization
+  - rules/cost-per-request-accountability
+  - rules/customer-facing-changelog
+  - rules/data-residency-by-default
+  - rules/documentation-as-code
+  - rules/error-budget
+  - rules/fail-fast-build-fail-soft-prod
+  - rules/one-way-two-way-doors
+  - rules/principles-incident-log
+  - rules/production-observability-default-on
+  - rules/router-drift-auto-reconciliation
+  - rules/state-is-the-enemy
+  - rules/structured-logging
+  - rules/supply-chain-integrity
+  - rules/sync-ui-async-backing
+  - rules/ttfr-north-star
+  - rules/vendor-risk-tiering
+  - rules/conditional-ci-gates
+  - rules/file-target-disambiguation
+  - rules/loop-arc-economics
+  - rules/mcp-auth-options
+  - rules/oauth2-provider-discipline
+  - rules/principle-stability-monitoring
+  - rules/root-cause-validator-findings
+  - rules/template-utility-conventions
+  - rules/uuid-version-discipline
+  - rules/working-backwards
+  - rules/internal-skill-discovery
+  - rules/multi-harness-portability
+  - rules/skill-authoring-contract
+  - rules/vendored-skill-compression
+  - rules/micro-test-instruction-wording
+  - bin/check-skill-length
+  - bin/check-rationalization-table
+  - bin/check-description-sdo
+  - rules/projectsites-cloudflare-first
+  - rules/projectsites-recommended-stack
+  - rules/emdash-fleet

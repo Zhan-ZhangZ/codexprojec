@@ -45,7 +45,7 @@ EMBED_MODEL = "text-embedding-3-small"  # $0.02 / 1M tokens
 EMBED_DIM = 1536
 
 # Token budget for preamble routing
-DEFAULT_BUDGET_TOKENS = 40_000
+DEFAULT_BUDGET_TOKENS = 150_000
 
 # -----------------------------------------------------------------------------
 # Secrets
@@ -103,6 +103,18 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     return fm, body
 
 
+
+def _parse_priority(val) -> int:
+    """Robust priority parse — never crash on string priorities like 'high'."""
+    if isinstance(val, int):
+        return val
+    m = {"high": 2, "medium": 2, "med": 2, "normal": 2, "low": 3}
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return m.get(str(val).strip().lower(), 3)
+
+
 def discover_skills() -> list[dict]:
     """Walk the plugin dir, return list of {id, type, path, name, description, priority, triggers, paths, pack, body}."""
     out = []
@@ -120,7 +132,7 @@ def discover_skills() -> list[dict]:
             "path": str(skill_md.relative_to(PLUGIN_DIR)),
             "name": fm.get("name", skill_id),
             "description": fm.get("description", ""),
-            "priority": int(fm.get("priority", 3) or 3),
+            "priority": _parse_priority(fm.get("priority", 3)),
             "triggers": fm.get("triggers", []) if isinstance(fm.get("triggers"), list) else [],
             "paths": fm.get("paths", []) if isinstance(fm.get("paths"), list) else [],
             "pack": fm.get("pack", ""),
@@ -140,7 +152,7 @@ def discover_skills() -> list[dict]:
             "path": str(rule_md.relative_to(PLUGIN_DIR)),
             "name": rule_md.stem,
             "description": fm.get("description", ""),
-            "priority": int(fm.get("priority", 3) or 3),
+            "priority": _parse_priority(fm.get("priority", 3)),
             "triggers": fm.get("triggers", []) if isinstance(fm.get("triggers"), list) else [],
             "paths": fm.get("paths", []) if isinstance(fm.get("paths"), list) else [],
             "pack": fm.get("pack", ""),
@@ -215,6 +227,40 @@ def body_hash(body: str) -> str:
 def estimate_tokens(s: str) -> int:
     # Rough estimate: 1 token ≈ 4 chars
     return max(1, len(s) // 4)
+
+
+
+def cmd_sync_metadata():
+    """Fast, KEYLESS sync of routing metadata (priority/pack/triggers/paths/tokens)
+    for every skill — no embeddings. Fixes the stale-DB rot: rebuild-index skips
+    rows whose BODY is unchanged, so frontmatter-only edits (priority/pack) never
+    synced. This updates metadata for ALL rows regardless of body hash. Run on every
+    rule write (hook) + manually; full `rebuild-index` still owns embeddings."""
+    conn = db_open()
+    skills = discover_skills()
+    n = 0
+    for sk in skills:
+        cur = conn.execute("SELECT id FROM skills WHERE id=?", (sk["id"],))
+        if cur.fetchone():
+            conn.execute(
+                """UPDATE skills SET priority=?, triggers=?, paths=?, pack=?, tokens=?, updated_at=?
+                   WHERE id=?""",
+                (sk["priority"], json.dumps(sk["triggers"]), json.dumps(sk["paths"]),
+                 sk["pack"], estimate_tokens(sk["body"]), int(time.time()), sk["id"]),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO skills (id,type,path,name,description,priority,triggers,paths,pack,body_hash,embedding,tokens,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (sk["id"], sk["type"], sk["path"], sk["name"], sk["description"], sk["priority"],
+                 json.dumps(sk["triggers"]), json.dumps(sk["paths"]), sk["pack"],
+                 body_hash(sk["body"]), None, estimate_tokens(sk["body"]), int(time.time())),
+            )
+        n += 1
+    conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('last_metadata_sync', ?)", (str(int(time.time())),))
+    conn.commit()
+    conn.close()
+    print(f"[skill-router] metadata synced for {n} skills/rules (keyless, no embeddings)")
 
 
 def cmd_rebuild_index():
@@ -316,6 +362,13 @@ def cmd_fingerprint(cwd: str | None = None) -> dict:
             if "stripe" in deps or "@stripe/stripe-js" in deps:
                 fp["has_payments"] = True
                 fp["concerns"].append("stripe-billing")
+            if "square" in deps:
+                fp["has_payments"] = True
+                fp["concerns"].append("square-payments")
+            if any(d in deps for d in ("resend", "@aws-sdk/client-ses", "nodemailer", "postmark", "@sendgrid/mail")):
+                fp["concerns"].append("email")
+            if any(d in deps for d in ("shopify", "@shopify/hydrogen", "@shopify/storefront-api-client", "@medusajs/medusa", "swell-js", "snipcart", "@commercelayer/sdk")):
+                fp["concerns"].append("ecommerce")
             if "@anthropic-ai/sdk" in deps or "openai" in deps:
                 fp["has_ai"] = True
                 fp["concerns"].append("ai-features")
@@ -326,6 +379,10 @@ def cmd_fingerprint(cwd: str | None = None) -> dict:
                 fp["concerns"].append("hono-stack")
             if "playwright" in deps or "@playwright/test" in deps:
                 fp["concerns"].append("e2e-testing")
+            if any(d in deps for d in ("@sentry/node", "@sentry/cloudflare", "posthog-node", "posthog-js", "@opentelemetry/api", "@axiomhq/js")):
+                fp["concerns"].append("observability")
+            if any(d in deps for d in ("yjs", "@automerge/automerge", "@liveblocks/client", "partykit", "partysocket")):
+                fp["concerns"].append("realtime")
             fp["languages"].append("typescript" if (cwd_p / "tsconfig.json").exists() else "javascript")
         except Exception:
             pass
@@ -532,7 +589,10 @@ def embedding_topk(prompt: str, conn: sqlite3.Connection, k: int = 8) -> list[tu
 # Tier budget (#4)
 # -----------------------------------------------------------------------------
 REASON_PRIORITY_BUMP = {
-    "tier-1 always": 0,         # tier-1 essentials (keep at base)
+    "tier-1 always": -100,      # IMMUTABLE — priority:1 reserved before all else,
+                                # never budget-dropped (the always-load-budget gate
+                                # keeps this set <38K so it always fits). Was 0, which
+                                # let trigger-match(-3) outrank it and drop `always`.
     "trigger-match": -3,        # explicit phrase = strong signal — loads first
     "pack:": -3,                # pack named in prompt — loads first
     "semantic": -2,             # embedding top-K — high confidence
@@ -626,6 +686,23 @@ def cmd_route(prompt: str, cwd: str | None = None, cache_only: bool = False,
 
     # Fingerprint
     fp = cmd_fingerprint(cwd)
+
+    # Prompt-intent: a one-line website-build prompt ("build a website for X") has none
+    # of the cwd marker files (_research.json etc.) that set is_website_build — those only
+    # appear AFTER Phase 0. So detect build intent from the PROMPT (any website-build pack
+    # member trigger-matched) and set the flag here, BEFORE path-match — otherwise the
+    # org:website_build-scoped rules (cinematic-ui-patterns, copy-writing, supreme-polish,
+    # the forms/media/motion/visualization supervisors) would never load on the very prompt
+    # they exist for. Reuses match_triggers data → no trigger duplication.
+    try:
+        _triggered = set(match_triggers(prompt, conn))
+        _wb_members = set(all_packs().get("website-build", []))
+        if _triggered & _wb_members:
+            fp["is_website_build"] = True
+            if "website-build" not in fp["concerns"]:
+                fp["concerns"].append("website-build")
+    except Exception:
+        pass
 
     selected: dict[str, str] = {}  # id → reason
 
@@ -773,6 +850,9 @@ def main(argv: list[str]) -> int:
     cmd = argv[1]
     if cmd == "rebuild-index":
         cmd_rebuild_index()
+        return 0
+    if cmd == "sync-metadata":
+        cmd_sync_metadata()
         return 0
     if cmd == "fingerprint":
         cwd = argv[2] if len(argv) > 2 else None

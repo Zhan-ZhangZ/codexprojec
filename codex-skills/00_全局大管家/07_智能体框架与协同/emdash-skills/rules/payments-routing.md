@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "payments-routing"
 priority: 2
 pack: "payments"
@@ -13,6 +15,8 @@ paths:
 ---
 
 # Payments Routing
+
+Route payment integrations by project shape: Square for accepting money, Stripe Billing for SaaS recurring, Stripe Connect for contractor payouts.
 
 ## Core rule — decision tree, not absolutism
 

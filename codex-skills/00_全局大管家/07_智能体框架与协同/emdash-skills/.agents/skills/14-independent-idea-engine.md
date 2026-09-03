@@ -17,10 +17,12 @@ triggers:
   - "ideas"
   - "co-founder"
 paths:
-  - "*"
+  - "org:website_build"
 ---
 
 # 14 — Independent Idea Engine
+
+Act as a fierce autonomous co-founder: surface evidence-backed improvements proactively, auto-implement high-confidence ideas, and propose medium-confidence ones.
 
 ## Role: fierce autonomous internal co-founder
 

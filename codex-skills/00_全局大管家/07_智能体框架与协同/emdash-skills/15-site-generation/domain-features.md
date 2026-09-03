@@ -10,8 +10,6 @@ Two layers: universal features (every site gets these) + category-specific featu
 
 ## Universal Features (EVERY GENERATED SITE)
 
-These cost near-zero to add and dramatically increase value. Include ALL of these in every build.
-
 ### SEO & Discovery
 
 - **Sitemap.xml** — auto-generated from all pages, `lastmod` dates
@@ -69,7 +67,7 @@ These cost near-zero to add and dramatically increase value. Include ALL of thes
 - **Image lazy loading** — native `loading="lazy"` below fold, `fetchpriority="high"` on hero
 - **Blur placeholders** — CSS gradient or tiny base64 for images
 - **Preconnect hints** — for Google Fonts, analytics domains
-- **Print stylesheet** — `@media print` for contact/about pages (useful for directories)
+- **Print stylesheet** — `@media print` for contact/about pages
 
 ### UX Enhancements
 
@@ -81,14 +79,14 @@ These cost near-zero to add and dramatically increase value. Include ALL of thes
 - **Skip to content link** — accessibility, hidden until focused
 - **Reduced motion** — `prefers-reduced-motion` disables all animations
 - **Focus visible outlines** — WCAG 2.4.11 Focus Appearance
-- **Before/after slider** — CSS clip-path drag comparison, touch-support, for contractors/salons/dental
+- **Before/after slider** — CSS clip-path drag comparison, touch-support
 - **Competitor comparison** — auto-generated from research data, `/why-choose-us` page
 - **Weather-aware hero** — outdoor businesses get dynamic hero based on local weather conditions
 
 ### Content Enrichment
 
 - **Blog/news section** — AI-generated 3-5 initial posts from research + scraped content, with RSS feed
-- **RSS feed** — `/feed.xml` or `/rss.xml`, auto-generated from blog posts (AI search crawlers consume this)
+- **RSS feed** — `/feed.xml` or `/rss.xml`, auto-generated from blog posts
 - **Reading time estimates** — on blog posts
 - **QR code** — SVG QR code for print materials linking to site URL (downloadable from about page)
 - **Multi-language** — detect via `Accept-Language`, translate key pages via Workers AI (if content justifies it)
@@ -97,14 +95,20 @@ These cost near-zero to add and dramatically increase value. Include ALL of thes
 
 ### Booking & Scheduling
 
-- **Cal.com embed** — free tier, embeddable scheduling widget (if no existing booking system)
-- **Appointment request form** — for businesses needing human confirmation (medical, legal)
-- **Booking CTA** — links to existing system (OpenTable, Resy, Calendly, etc.) if discovered in research
+- **cal.diy embed (DEFAULT — open-source, self-hosted)** — `calcom/cal.diy`, the MIT/AGPL community edition of Cal.com; the embeddable scheduling *primitive* (event types, recurring, seated, Stripe/PayPal, Google/Outlook/Apple/CalDAV/ICS, webhooks, REST). Fits `[[cloudflare-lock-in-is-leverage]]` open-source + self-host ethos — own the booking stack, zero per-seat SaaS fee.
+  - HOST: self-host on Brian infra (Coolify/Proxmox per `coolify-docker-proxmox`, or a CF Container / Railway / Render) — Docker image, Postgres (Neon/Hyperdrive) + Redis. One instance serves every projectsites.dev site's bookings.
+  - EMBED: same `@calcom/embed-react` `<Cal>` (inline) / `data-cal-link` trigger, pointed at the self-hosted origin; lazy-load below the fold, never block LCP. Brand via `config={{ theme, cssVarsPerTheme }}` — never the raw default purple.
+  - Event types via cal.diy REST API or admin; owner one-click flow per `non-technical-owner-onboarding`.
+  - **Caveat**: cal.diy is "personal / non-production" per Cal.com (no teams/orgs/SSO/SLA). For enterprise clients needing teams/SSO/routing → hosted **Cal.com** (fallback) or self-host full Cal.com.
+- **Cal.com (hosted) — fallback** — when the client needs teams, SSO, routing forms, or a managed SLA cal.diy doesn't cover.
+- **Appointment request form** — for businesses needing human confirmation (medical, legal); Zod + Turnstile + Resend per `website-page-and-site-gates` § Every form.
+- **Booking CTA** — links to existing system (OpenTable, Resy, Calendly, etc.) if discovered in research; `target="_blank" rel="noopener"`.
+- **Build-gate**: a service business with bookable services (salon/medical/legal/trades/restaurant) that renders a "Book"/"Schedule" CTA with NO working booking surface (cal.diy embed OR appointment form OR external link) = build fail.
 
 ### Communication
 
 - **Live chat widget** — Chatwoot embed (self-hosted on Coolify) for businesses with support needs
-- **Notification bar** — dismissible announcement banner at top (for specials, events, COVID updates)
+- **Notification bar** — dismissible announcement banner at top (specials, events, COVID updates)
 - **Exit-intent email capture** — triggered on desktop mouse-leave, offers value (coupon, guide, consultation)
 
 ## Category→Feature Map

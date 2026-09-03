@@ -2,11 +2,16 @@
 name: code-simplifier
 description: Simplifies code for clarity, consistency, and maintainability. Reduces complexity, flattens nesting, removes dead code, consolidates duplicates. Focuses on recently modified files.
 tools: Read, Write, Edit, Grep, Glob, Bash
-model: sonnet
+allowed-tools: Read Write Edit Grep Glob Bash(git:*) Bash(npx:*) Bash(npm:*) Bash(pnpm:*)
+model: "claude-haiku-4-5"
 permissionMode: default
 maxTurns: 25
 memory: project
-effort: high
+effort: low
+fallback_model: "claude-haiku-4-5"
+fallback_effort: low
+fallback_reason: cost_optimization
+context: fork
 skills: ["06-build-and-slice-loop"]
 color: cyan
 ---

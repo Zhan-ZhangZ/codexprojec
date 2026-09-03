@@ -1,4 +1,6 @@
 ---
+last_reviewed: 2026-06-29
+superseded_by: null
 name: "autonomous-engineering"
 priority: 1
 pack: "core"
@@ -14,9 +16,9 @@ Work autonomously by default. For normal engineering — instructions, docs, tem
 ## Autonomous by default
 
 - Silence = approval (`brian-preferences`). Pick ONE path, execute, report — never offer a menu and wait.
-- Asking permission for normal work is the failure mode. Decide from the request, the code, and sensible defaults.
-- Use `AskUserQuestion` only when blocked on a decision that is genuinely the user's and unresolvable from context — not for "should I proceed?".
-- Never stop at implementation. A task is done only after the `verification-loop` runs green OR a clear blocker is documented.
+- Asking permission for normal work is the failure mode.
+- Use `AskUserQuestion` only when blocked on a decision genuinely the user's and unresolvable from context — not for "should I proceed?".
+- A task is done only after the `verification-loop` runs green OR a clear blocker is documented.
 
 ## Operating loop
 
