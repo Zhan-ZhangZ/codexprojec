@@ -1656,8 +1656,8 @@
     "name": "academic-research-skills-codex",
     "description": "ARS 学术研究全流程套件 (ARS-Codex)。深度文献调研、系统性综述与 Meta 分析、苏格拉底式选题收敛、IMRaD 论文写作与修改、引用核查与学术诚信门、审稿模拟与编辑决策信、科研到论文全流水线、实验方案设计与统计解读一站式覆盖，支持 ars-plan / ars-reviewer / ars-full 等别名指令直达对应工作流。Leading Words: 深度文献调研, 系统性综述, Meta分析, 论文写作修改, 审稿模拟, 引用核查, 学术诚信, 实验设计, 选题收敛, ars指令",
     "category": "12_学术论文与科研图表",
-    "folder": "academic-research-skills-codex",
-    "relative_path": "./00_全局大管家/12_学术论文与科研图表/academic-research-skills-codex",
+    "folder": "ars",
+    "relative_path": "./00_全局大管家/12_学术论文与科研图表/ars",
     "aliases": [
       "论文写作",
       "学术写作",
