@@ -31,6 +31,8 @@ import bartik  # noqa: E402
 import oaxaca  # noqa: E402
 import bunching  # noqa: E402
 import mediation  # noqa: E402
+import structural  # noqa: E402
+import spillover  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CAND = Path(__file__).resolve().parent / "candidates"
@@ -355,6 +357,54 @@ def bunching_candidate(write_missing_data: bool = True) -> dict:
     }
 
 
+def structural_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-structural.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        structural.write_csv(data_path)
+    rows = structural.load(data_path)
+    alpha = structural.iv_alpha(rows)
+    return {
+        "task": "structural-demand-recovery",
+        "method": (
+            "Berry inversion of logit shares, price instrumented with the cost shifter; "
+            "elasticities as -alpha*p*(1-s) and marginal costs from the Bertrand-Nash FOC"
+        ),
+        "n": len(rows),
+        "iv_alpha": round(alpha, 4),
+        "ols_alpha": round(structural.ols_alpha(rows), 4),
+        "first_stage_F": round(structural.first_stage_f(rows), 2),
+        "mean_own_elasticity": round(structural.mean_own_elasticity(rows, alpha), 4),
+        "naive_elasticity": round(structural.naive_elasticity(rows), 4),
+        "mean_marginal_cost": round(structural.mean_marginal_cost(rows, alpha), 4),
+        "naive_marginal_cost": round(structural.naive_marginal_cost(rows), 4),
+    }
+
+
+def spillover_candidate(write_missing_data: bool = True) -> dict:
+    data_path = ROOT / "benchmark" / "data" / "sim-spillover.csv"
+    if not data_path.exists():
+        if not write_missing_data:
+            raise FileNotFoundError(data_path)
+        spillover.write_csv(data_path)
+    rows = spillover.load(data_path)
+    return {
+        "task": "spillover-recovery",
+        "method": (
+            "Partial-interference decomposition: direct effect within treated clusters, "
+            "spillover and overall effects against pure-control clusters"
+        ),
+        "n": len(rows),
+        "pure_control_clusters": spillover.n_pure_control_clusters(rows),
+        "direct_effect": round(spillover.direct_effect(rows), 4),
+        "spillover_effect": round(spillover.spillover_effect(rows), 4),
+        "naive_spillover": round(spillover.naive_spillover(rows), 4),
+        "total_effect_on_treated": round(spillover.total_effect_on_treated(rows), 4),
+        "overall_effect": round(spillover.overall_effect(rows), 4),
+    }
+
+
 def reference_candidates(write_missing_data: bool = True) -> list[tuple[Path, dict]]:
     return [
         (CAND / "reference-ols" / "results.json", lalonde_candidate()),
@@ -374,6 +424,8 @@ def reference_candidates(write_missing_data: bool = True) -> list[tuple[Path, di
         (CAND / "reference-mediation" / "results.json", mediation_candidate(write_missing_data)),
         (CAND / "reference-oaxaca" / "results.json", oaxaca_candidate(write_missing_data)),
         (CAND / "reference-bunching" / "results.json", bunching_candidate(write_missing_data)),
+        (CAND / "reference-structural" / "results.json", structural_candidate(write_missing_data)),
+        (CAND / "reference-spillover" / "results.json", spillover_candidate(write_missing_data)),
     ]
 
 
@@ -450,6 +502,18 @@ def print_summary(payloads: list[tuple[Path, dict]]) -> None:
     print(
         f"  mediation: naive Y~T+M {md['naive_direct']} -> NDE {md['nde']} + NIE {md['nie']} "
         f"(total {md['total_effect']})"
+    )
+    st = by_task["structural-demand-recovery"]
+    print(
+        f"  structural demand: OLS alpha {st['ols_alpha']} -> IV alpha {st['iv_alpha']} "
+        f"(elasticity {st['mean_own_elasticity']} vs coefficient-as-elasticity "
+        f"{st['naive_elasticity']}; mc {st['mean_marginal_cost']})"
+    )
+    sv2 = by_task["spillover-recovery"]
+    print(
+        f"  spillover: within-cluster {sv2['direct_effect']} -> total on treated "
+        f"{sv2['total_effect_on_treated']} (spillover {sv2['spillover_effect']}, "
+        f"overall {sv2['overall_effect']})"
     )
     ox = by_task["decomposition-recovery"]
     print(

@@ -235,7 +235,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2263,
+      "line_count": 2308,
       "name": "StatsPAI_skill",
       "path": "skills/00-Full-empirical-analysis-skill_StatsPAI/SKILL.md"
     },
@@ -245,7 +245,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2052,
+      "line_count": 2098,
       "name": "Full-empirical-analysis-skill",
       "path": "skills/00.1-Full-empirical-analysis-skill_Python/SKILL.md"
     },
@@ -255,7 +255,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2368,
+      "line_count": 2414,
       "name": "Full-empirical-analysis-skill-Stata",
       "path": "skills/00.2-Full-empirical-analysis-skill_Stata/SKILL.md"
     },
@@ -265,7 +265,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2466,
+      "line_count": 2512,
       "name": "Full-empirical-analysis-skill-R",
       "path": "skills/00.3-Full-empirical-analysis-skill_R/SKILL.md"
     },
@@ -9440,14 +9440,14 @@
       "path": "skills/47-conorbronsdon-avoid-ai-writing/SKILL.md"
     },
     {
-      "collection": "48-copaper-ai-chinese-de-aigc",
+      "collection": "48-de-AIGC-skills",
       "exact_case": true,
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 159,
-      "name": "chinese-de-aigc",
-      "path": "skills/48-copaper-ai-chinese-de-aigc/SKILL.md"
+      "line_count": 261,
+      "name": "de-aigc-skills",
+      "path": "skills/48-de-AIGC-skills/SKILL.md"
     },
     {
       "collection": "49-voidborne-d-humanize-chinese",
@@ -11155,7 +11155,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 269,
+      "line_count": 249,
       "name": "paper-workflow",
       "path": "skills/69-Paper-WorkFlow/SKILL.md"
     },
@@ -11178,16 +11178,26 @@
       "line_count": 129,
       "name": "literature-review-tools",
       "path": "skills/71-brycewang-lit-review-agent-tools/literature-review-tools/SKILL.md"
+    },
+    {
+      "collection": "72-kaggle-research",
+      "exact_case": true,
+      "has_description": true,
+      "has_frontmatter": true,
+      "has_name": true,
+      "line_count": 86,
+      "name": "kaggle-research",
+      "path": "skills/72-kaggle-research/kaggle-research/SKILL.md"
     }
   ],
   "schema_version": "1.0",
   "summary": {
     "duplicate_skill_names": 47,
-    "exact_case_skill_files": 1095,
+    "exact_case_skill_files": 1096,
     "missing_description": 0,
     "missing_frontmatter": 0,
     "non_exact_case_skill_files": 0,
     "over_500_lines": 83,
-    "skill_like_files": 1095
+    "skill_like_files": 1096
   }
 }

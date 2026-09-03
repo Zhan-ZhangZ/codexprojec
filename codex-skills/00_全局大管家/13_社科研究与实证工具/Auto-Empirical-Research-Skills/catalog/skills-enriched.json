@@ -2,19 +2,19 @@
   "generated_by": "scripts/build-catalog-enrich.py",
   "schema_version": 1,
   "summary": {
-    "skills": 1095,
+    "skills": 1096,
     "mean_quality_score": 99.4,
-    "with_frontmatter_description": 1095,
+    "with_frontmatter_description": 1096,
     "body_derived_description": 0,
     "no_description": 0,
-    "tagged": 559,
-    "with_eval_coverage": 18,
-    "with_eval_coverage_pct": 1.6,
-    "total_eval_scenarios": 19
+    "tagged": 560,
+    "with_eval_coverage": 21,
+    "with_eval_coverage_pct": 1.9,
+    "total_eval_scenarios": 22
   },
   "taxonomy": {
     "language": {
-      "latex": 88,
+      "latex": 89,
       "python": 50,
       "stata": 50,
       "r": 22
@@ -32,6 +32,7 @@
       "cate": 8,
       "dml": 8,
       "mediation": 8,
+      "structural": 6,
       "survival": 3,
       "quantile": 2,
       "decomposition": 1,
@@ -40,8 +41,8 @@
     "stage": {
       "analysis": 141,
       "writing": 88,
-      "submission": 80,
-      "reproduction": 62,
+      "submission": 81,
+      "reproduction": 63,
       "literature": 61,
       "citation": 49,
       "tables-figures": 42,
@@ -55,7 +56,7 @@
     "topic": {
       "econometrics": 79,
       "scientific-writing": 73,
-      "reproducibility": 62,
+      "reproducibility": 63,
       "proofreading": 35,
       "causal-inference": 30
     }
@@ -65,7 +66,7 @@
       "name": "StatsPAI_skill",
       "path": "skills/00-Full-empirical-analysis-skill_StatsPAI/SKILL.md",
       "collection": "00-Full-empirical-analysis-skill_StatsPAI",
-      "line_count": 2263,
+      "line_count": 2308,
       "description_effective": "Use when the user asks to run a full empirical / causal analysis in Python — by default in the style of an applied economics paper (AER / QJE / JPE / ReStud / AEJ) with DID / RD / IV / SCM / DML / matching, written-out estimating equation + identifying assumption, Table 1 / Table 2 / event-study figure / robustness gauntlet — OR in epidemiology / public health style (target-trial emulation, IPTW + g-formula + TMLE triplet, Mendelian randomization, KM/AFT survival, E-value sensitivity, STROBE/TRIPOD reporting) — OR in ML causal inference style (DML, S/T/X/R/DR meta-learners, causal forest, Dragonnet/TARNet/CEVAE, BCF, CATE distribution, policy learning, conformal causal, fairness audit, causal discovery) — OR in distributional / gap-decomposition style (Oaxaca–Blinder `sp.oaxaca`, Kitagawa `sp.kitagawa_decompose`, DiNardo–Fortin–Lemieux `sp.dfl_decompose`, Gelbach `sp.gelbach`, Fairlie `sp.fairlie`, RIF / FFL `sp.rif_decomposition`, all reachable through the `sp.decompose` dispatcher). Also covers exporting multi-column regression tables to Word / Excel / LaTeX (Stata outreg2 / esttab / R modelsummary equivalent) and bundling an entire replication appendix into one .docx / .xlsx / .tex file. Triggers on keywords \"StatsPAI\", \"statspai\", \"AER empirical analysis\", \"applied micro pipeline\", \"Table 1 balance\", \"event study\", \"first-stage F\", \"Oster bound\", \"honest_did\", \"spec_curve\", \"callaway_santanna\", \"dragonnet\", \"text as treatment\", \"outreg2 in Python\", \"regression table to Word/Excel\", \"sp.regtable\", \"sp.collect\", \"sp.paper_tables\", \"sp.feols\", \"summary_col\", \"modelsummary\", \"AER style table\", \"QJE style table\", \"epidemiology pipeline\", \"target trial emulation\", \"g-formula\", \"IPTW\", \"TMLE\", \"Mendelian randomization\", \"STROBE\", \"TRIPOD\", \"公共健康\", \"流行病学\", \"DML\", \"double machine learning\", \"causal forest\", \"meta-learner\", \"CATE\", \"conformal causal\", \"policy learning\", \"因果机器学习\", \"ML causal\", \"decomposition\", \"Oaxaca-Blinder\", \"Kitagawa\", \"DiNardo-Fortin-Lemieux\", \"DFL\", \"Gelbach\", \"RIF decomposition\", \"wage gap decomposition\", \"sp.decompose\", \"sp.oaxaca\".",
       "description_source": "frontmatter",
       "has_references": false,
@@ -119,7 +120,9 @@
         "statspai-pretrends-eventstudy",
         "statspai-quantile-effects",
         "statspai-rdd-diagnostics",
+        "statspai-spillovers-sutva",
         "statspai-staggered-did",
+        "statspai-structural-demand",
         "statspai-survival-assumptions",
         "statspai-synthetic-control",
         "statspai-weak-iv"
@@ -129,7 +132,7 @@
       "name": "Full-empirical-analysis-skill",
       "path": "skills/00.1-Full-empirical-analysis-skill_Python/SKILL.md",
       "collection": "00.1-Full-empirical-analysis-skill_Python",
-      "line_count": 2052,
+      "line_count": 2098,
       "description_effective": "Classical end-to-end empirical analysis workflow in the traditional Python econometric stack — pandas + numpy + scipy + statsmodels + linearmodels + pyfixest + rdrobust + econml + causalml + matplotlib/seaborn. **Defaults to economics empirical-paper style** (AER / QJE / AEJ) — every run produces a publication-ready output set with a multi-column regression table (M1→M6 progressive controls/FE) as the centerpiece, plus Table 1 (descriptives), mechanism / heterogeneity / robustness tables, and event-study + coefficient + trend figures. Covers the full 8-step pipeline an applied economist or quantitative social scientist runs on every paper — (1) data cleaning, (2) variable construction & transformation, (3) descriptive statistics & Table 1, (4) statistical diagnostic tests, (5) baseline empirical modeling, (6) robustness battery, (7) further analysis (mechanism, heterogeneity, mediation, moderation), (8) publication-ready tables & figures. **Also covers two parallel domain modes that share the same 8-step scaffolding** — **Mode A — Epidemiology / public health** (target-trial emulation via `zepid` / hand-rolled `pandas`, IPTW + g-formula + TMLE doubly-robust triplet via `zepid` / `econml` / `lifelines`, Mendelian randomization via `pymr` / `mrtool` (or `rpy2` → `MendelianRandomization`/`TwoSampleMR`), KM / AFT / Cox survival via `lifelines`, E-value sensitivity, principal stratification — STROBE / TRIPOD reporting), and **Mode B — ML causal inference** (DML via `econml.dml` / `doubleml`, S/T/X/R/DR meta-learners via `econml.metalearners` / `causalml`, causal forest via `econml.grf` / `causalml`, Dragonnet / TARNet / CEVAE neural causal via `causalml`, BCF via `pymc-bart` / `bcf-py`, matrix completion, CATE distribution + policy tree via `econml.policy` / `policytree-py`, off-policy evaluation, conformal causal via `mapie`, fairness audit via `fairlearn`, DAG learning via `causal-learn` / `cdt` / LLM-assisted). Prescribes which library to reach for at each step, shows the canonical code, and links to deeper `references/` files for variant-specific patterns. Use when the user asks for a **complete empirical analysis** in Python, wants to replicate an applied-economics paper from scratch, needs a reproducible workflow that is NOT opinionated on any single vertical package (contrast with StatsPAI), wants explicit control over every estimator and diagnostic, or asks \"how do I write a full empirical pipeline in Python?\". Also triggers when the user names a specific classical step in isolation — \"winsorize at 1/99%\", \"run Breusch-Pagan\", \"build a Table 1 balance table\", \"do a placebo test\", \"event study plot\", \"mediation analysis\" — and wants it wired into the broader pipeline. Mode A triggers on \"target trial emulation\", \"IPTW\", \"TMLE\", \"Mendelian randomization\", \"STROBE\", \"公共健康\", \"流行病学\". Mode B triggers on \"DML\", \"double machine learning\", \"causal forest\", \"meta-learner\", \"Dragonnet\", \"BCF\", \"policy tree\", \"conformal causal\", \"fairness audit\", \"因果机器学习\".",
       "description_source": "frontmatter",
       "has_references": true,
@@ -164,13 +167,15 @@
       "commercial_use": "share-alike",
       "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
       "sync": "manual",
-      "eval_coverage": []
+      "eval_coverage": [
+        "aers-python-panelols-default-vcov"
+      ]
     },
     {
       "name": "Full-empirical-analysis-skill-Stata",
       "path": "skills/00.2-Full-empirical-analysis-skill_Stata/SKILL.md",
       "collection": "00.2-Full-empirical-analysis-skill_Stata",
-      "line_count": 2368,
+      "line_count": 2414,
       "description_effective": "Classical end-to-end empirical analysis workflow in the traditional Stata ecosystem — native Stata + reghdfe + ivreg2 + csdid + did_imputation + eventstudyinteract + sdid + rdrobust + rddensity + synth + synth_runner + psmatch2 + teffects + ebalance + coefplot + esttab + asdoc + binscatter. **Defaults to economics empirical-paper style** (AER / QJE / AEJ) — every run produces a publication-ready output set with a multi-column regression table (M1→M6 progressive controls/FE) as the centerpiece, plus Table 1 (descriptives), mechanism / heterogeneity / robustness tables, and event-study + coefficient + trend figures. Covers the full 8-step Stata pipeline an applied economist runs on every paper — (1) data import & cleaning (use/import, destring, misstable, duplicates, merge assert), (2) variable construction (gen/egen/winsor2/xtile/xtset with L./F./D.), (3) descriptive statistics & Table 1 (tabstat/balancetable/asdoc), (4) classical diagnostic tests (sktest/swilk/hettest/imtest/xtserial/xttest3/vif/dfuller/kpss/hausman/estat overid), (5) baseline modeling (reg/xtreg/reghdfe/ivreg2/ivregress/csdid/did_imputation/eventstudyinteract/sdid/rdrobust/synth/psmatch2/teffects/heckman/qreg/ppmlhdfe), (6) robustness battery (bacondecomp/honestdid/rwolf/ritest/wildbootstrap/oster), (7) further analysis (subgroup/triple-diff/interactions/medsem/marginsplot/binscatter by group), (8) publication-ready tables & figures (esttab/outreg2/estout/coefplot/marginsplot/rdplot/twoway combined). **Also covers two parallel domain modes that share the same 8-step scaffolding** — **Mode A — Epidemiology / public health** (target-trial emulation, IPTW + g-formula + TMLE doubly-robust triplet via `teffects ipw` / `teffects ipwra` / `teffects aipw` / `eltmle`, Mendelian randomization via `mrrobust` (IVW / Egger / weighted median) and `mregger` / `mrpresso`, KM / Cox / AFT / RMST survival via `sts` / `stcox` / `streg` / `strmst2`, E-value sensitivity via `evalue` (Linden-Mathur), principal stratification — STROBE / TRIPOD reporting), and **Mode B — ML causal inference** (DML via `ddml` / `pdslasso`, S/T/X/R/DR meta-learners via `crforest` and `ddml interactive`, causal forest via `crforest` / `cforest`, BART/BCF via `bart` / `bartCause`-style externals, CATE distribution + policy tree via `crforest`, off-policy evaluation, conformal causal externals, fairness audit, DAG learning via `pcalg` / external Python callouts). Use when the user asks for a complete Stata empirical analysis, wants a reproducible .do-file pipeline, needs a Stata counterpart to the Python StatsPAI / Full-empirical-analysis-skill, or names a specific Stata step in isolation (\"run reghdfe with two-way clustering\", \"csdid event study\", \"winsor2 at 1%\", \"esttab to LaTeX\", \"coefplot with CI\", \"ivreg2 weak-IV test\", \"synth_runner placebos\", \"teffects psmatch balance check\"). Mode A triggers on \"target trial emulation Stata\", \"teffects ipw aipw\", \"eltmle\", \"mrrobust\", \"mregger weighted median\", \"stcox AFT survival\", \"strmst2\", \"evalue Stata\", \"STROBE Stata\", \"公共健康 Stata\", \"流行病学 Stata\". Mode B triggers on \"ddml Stata\", \"pdslasso\", \"crforest causal forest Stata\", \"policy tree Stata\", \"因果机器学习 Stata\".",
       "description_source": "frontmatter",
       "has_references": true,
@@ -208,13 +213,15 @@
       "commercial_use": "share-alike",
       "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
       "sync": "manual",
-      "eval_coverage": []
+      "eval_coverage": [
+        "aers-stata-hdfe-singletons-clusters"
+      ]
     },
     {
       "name": "Full-empirical-analysis-skill-R",
       "path": "skills/00.3-Full-empirical-analysis-skill_R/SKILL.md",
       "collection": "00.3-Full-empirical-analysis-skill_R",
-      "line_count": 2466,
+      "line_count": 2512,
       "description_effective": "Classical end-to-end empirical analysis workflow in the modern tidyverse + econometrics R ecosystem — dplyr + tidyr + haven + fixest + sandwich + lmtest + clubSandwich + AER + ivreg + did + bacondecomp + HonestDiD + eventstudyr + rdrobust + rddensity + Synth + gsynth + synthdid + MatchIt + WeightIt + cobalt + ebal + grf + DoubleML + mediation + marginaleffects + modelsummary + kableExtra + gt + ggplot2 + ggpubr + cowplot + binsreg. **Defaults to economics empirical-paper style** (AER / QJE / AEJ) — every run produces a publication-ready output set with a multi-column regression table (M1→M6 progressive controls/FE) as the centerpiece, plus Table 1 (descriptives), mechanism / heterogeneity / robustness tables, and event-study + coefficient + trend figures. Covers the full 8-step R pipeline an applied economist runs on every paper — (1) data import & cleaning (read_dta/read_csv, naniar, janitor, validate-merges), (2) variable construction (mutate/across/winsorize/group_by + lag/lead with dplyr), (3) descriptive statistics & Table 1 (gtsummary, modelsummary::datasummary, tableone), (4) classical diagnostic tests (shapiro/jarque.bera.test/bptest/dwtest/bgtest/vif/adf.test/kpss.test/Hausman), (5) baseline modeling (fixest::feols, ivreg, did::att_gt, eventstudyr, sun_ab, did_imputation, synthdid, rdrobust, MatchIt, WeightIt, grf::causal_forest, DoubleML, mediation), (6) robustness battery (modelsummary stack, clubSandwich CRSE, fwildclusterboot, ri2, robomit Oster, bacondecomp, HonestDiD), (7) further analysis (interactions + marginaleffects, mediation::mediate, gsem via lavaan, dose-response splines, grf CATE), (8) publication-ready tables & figures (modelsummary, kableExtra, gt, stargazer, texreg, flextable to LaTeX/Word/HTML; ggplot2 + ggpubr + cowplot + binsreg + iplot for figures). **Also covers two parallel domain modes that share the same 8-step scaffolding** — **Mode A — Epidemiology / public health** (target-trial emulation, IPTW + g-formula + TMLE doubly-robust triplet via `WeightIt` / `gfoRmula` / `tmle` / `ltmle`, Mendelian randomization via `MendelianRandomization` / `TwoSampleMR` / `MRPRESSO`, KM / Cox / AFT / RMST survival via `survival` / `survminer` / `flexsurv`, E-value sensitivity via `EValue`, principal stratification — STROBE / TRIPOD reporting), and **Mode B — ML causal inference** (DML via `DoubleML`, S/T/X/R/DR meta-learners via `causalweight` / `grf`, causal forest via `grf::causal_forest`, BART/BCF via `bartCause` / `bcf`, matrix completion via `MCPanel`, CATE distribution + policy tree via `policytree`, off-policy evaluation, conformal causal via `conformalInference` / `cfcausal`, fairness audit via `fairmodels`, DAG learning via `pcalg` / `bnlearn` / LLM-assisted). Use when the user asks for a complete R empirical analysis, wants a tidyverse-style reproducible R script / Quarto workflow, prefers fixest over reghdfe, needs the R counterpart to StatsPAI / 00.1 / 00.2, or names a specific R step in isolation (\"feols with cluster\", \"MatchIt nearest neighbor\", \"bacondecomp in R\", \"gtsummary table 1\", \"modelsummary to Word\"). Mode A triggers on \"target trial emulation R\", \"tmle ltmle\", \"MendelianRandomization\", \"TwoSampleMR\", \"MRPRESSO\", \"survival cox AFT\", \"STROBE R\", \"EValue R\", \"公共健康 R\", \"流行病学 R\". Mode B triggers on \"DoubleML R\", \"grf causal forest\", \"policytree\", \"bartCause bcf\", \"conformal causal R\", \"fairmodels\", \"pcalg NOTEARS\", \"因果机器学习 R\".",
       "description_source": "frontmatter",
       "has_references": true,
@@ -251,7 +258,9 @@
       "commercial_use": "share-alike",
       "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
       "sync": "manual",
-      "eval_coverage": []
+      "eval_coverage": [
+        "aers-r-fixest-cluster-default"
+      ]
     },
     {
       "name": "academic-paper-composer",
@@ -1373,7 +1382,8 @@
       "has_references": true,
       "tags": {
         "method": [
-          "bayesian"
+          "bayesian",
+          "structural"
         ],
         "stage": [
           "analysis"
@@ -1480,6 +1490,9 @@
       "description_source": "frontmatter",
       "has_references": false,
       "tags": {
+        "method": [
+          "structural"
+        ],
         "stage": [
           "analysis"
         ]
@@ -1503,7 +1516,8 @@
       "tags": {
         "method": [
           "bayesian",
-          "matching"
+          "matching",
+          "structural"
         ],
         "stage": [
           "analysis"
@@ -1671,6 +1685,9 @@
       "description_source": "frontmatter",
       "has_references": true,
       "tags": {
+        "method": [
+          "structural"
+        ],
         "stage": [
           "analysis"
         ],
@@ -2531,6 +2548,9 @@
       "description_source": "frontmatter",
       "has_references": false,
       "tags": {
+        "method": [
+          "structural"
+        ],
         "stage": [
           "analysis"
         ],
@@ -4063,7 +4083,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/jusi-aalto/stata-accounting-research",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5438,7 +5458,7 @@
       "quality_flags": [],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5457,7 +5477,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5474,7 +5494,7 @@
       "quality_flags": [],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5491,7 +5511,7 @@
       "quality_flags": [],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5510,7 +5530,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5536,7 +5556,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5562,7 +5582,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5581,7 +5601,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5598,7 +5618,7 @@
       "quality_flags": [],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5621,7 +5641,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5644,7 +5664,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5667,7 +5687,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5686,7 +5706,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5709,7 +5729,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5728,7 +5748,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5754,7 +5774,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -5773,7 +5793,7 @@
       ],
       "license": "MIT",
       "commercial_use": "allowed",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6223,7 +6243,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6244,7 +6264,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6266,7 +6286,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6287,7 +6307,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6304,7 +6324,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6321,7 +6341,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6345,7 +6365,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6369,7 +6389,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6386,7 +6406,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6403,7 +6423,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6420,7 +6440,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6437,7 +6457,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6454,7 +6474,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6479,7 +6499,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6500,7 +6520,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6528,7 +6548,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6545,7 +6565,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6566,7 +6586,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6587,7 +6607,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6609,7 +6629,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6633,7 +6653,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6654,7 +6674,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6675,7 +6695,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -6696,7 +6716,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -8277,7 +8297,7 @@
       "quality_flags": [],
       "license": "UNKNOWN - check upstream",
       "commercial_use": "unknown",
-      "source_url": null,
+      "source_url": "https://github.com/peternka/academic_proofreader",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -18769,11 +18789,11 @@
       ]
     },
     {
-      "name": "chinese-de-aigc",
-      "path": "skills/48-copaper-ai-chinese-de-aigc/SKILL.md",
-      "collection": "48-copaper-ai-chinese-de-aigc",
-      "line_count": 159,
-      "description_effective": "面向中文学术论文的降 AIGC 检测率 Skill。针对知网、万方、维普、Turnitin 中文版的检测机制，识别并消除中文大语言模型的 17 类结构化写作痕迹。采用\"定位 → 诊断 → 改写 → 自评 → 复查\"五步闭环工作流，分章节差异化策略（摘要/引言/文献综述/方法/结果/讨论/结论），保持学术严谨性前提下通过检测。",
+      "name": "de-aigc-skills",
+      "path": "skills/48-de-AIGC-skills/SKILL.md",
+      "collection": "48-de-AIGC-skills",
+      "line_count": 261,
+      "description_effective": "中英双语学术降 AIGC / bilingual academic de-AIGC skill. Removes AI-generated writing signatures from empirical papers in economics, management, and the social sciences — in both English and Chinese. Covers Turnitin AI, GPTZero, Originality.ai on the English side and 知网 AMLC, 万方, 维普 on the Chinese side. Uses a six-step loop (intake → audit → claim-evidence check → differentiated rewrite → five-dimension self-score → cold-reader recheck) with two pattern libraries (22 English + 17 Chinese patterns), section-by-section strategies for empirical papers, and hard protections that keep every number, coefficient, and citation intact.",
       "description_source": "frontmatter",
       "has_references": true,
       "tags": {
@@ -18811,7 +18831,7 @@
       "quality_flags": [],
       "license": "MIT Non-Commercial",
       "commercial_use": "restricted",
-      "source_url": null,
+      "source_url": "https://github.com/swaylq/humanize-chinese",
       "sync": "manual vendor snapshot",
       "eval_coverage": []
     },
@@ -21898,7 +21918,8 @@
       "tags": {
         "method": [
           "cate",
-          "dml"
+          "dml",
+          "structural"
         ],
         "stage": [
           "analysis"
@@ -22578,15 +22599,19 @@
       "name": "paper-workflow",
       "path": "skills/69-Paper-WorkFlow/SKILL.md",
       "collection": "69-Paper-WorkFlow",
-      "line_count": 269,
-      "description_effective": "经管 / 社科实证论文全流程 meta-orchestrator：把选题、设计、数据、估计、方法闸门、 表图、写作、去 AI 味、质量门、修订、投稿与复盘编排成 Stage 0–9 可断点续跑流水线。 本 skill 不重复实现子能力，而是按阶段调用既有 skill 或并行 subagent，并在 Stage 3–4 路由 Python/StatsPAI、Stata、R 三种分析后端。触发：/paper-workflow、帮我写一篇实证论文、 从选题到投稿、端到端 empirical paper、已有 proposal/数据/初稿要推进到投稿，或明确要求 用 Stata / R/fixest / Python-StatsPAI 完整复现。 Parent-invoked with any trigger above: jump straight to Stage 0 Setup without re-asking.",
+      "line_count": 249,
+      "description_effective": "经管 / 社科实证论文全流程 meta-orchestrator：把选题、设计、数据、估计、方法闸门、 表图、写作、去 AI 味、质量门、修订、投稿与复盘编排成 Stage 0–9 可断点续跑流水线。 本 skill 不重复实现子能力，而是按阶段调用既有 skill 或并行 subagent，并在 Stage 3–4 路由 Python/StatsPAI、Stata、R 三种分析后端，Stage 9 交付**一份含正文+表+图+参考文献的 Word 全文定稿**（`09_submission/main.docx`，另可出 `.tex`）。触发：/paper-workflow、 帮我写一篇实证论文、从选题到投稿、端到端 empirical paper、从数据到 docx 论文全文、 出一份 Word 版全文、已有 proposal/数据/初稿要推进到投稿，或明确要求用 Stata / R/fixest / Python-StatsPAI 完整复现。 Parent-invoked with any trigger above: jump straight to Stage 0 Setup without re-asking.",
       "description_source": "frontmatter",
       "has_references": true,
       "tags": {
         "language": [
+          "latex",
           "python",
           "r",
           "stata"
+        ],
+        "stage": [
+          "submission"
         ]
       },
       "quality_score": 100,
@@ -22646,6 +22671,30 @@
       "license": "CC0-1.0",
       "commercial_use": "allowed",
       "source_url": "https://github.com/brycewang-stanford/lit-review-agent-tools",
+      "sync": "manual",
+      "eval_coverage": []
+    },
+    {
+      "name": "kaggle-research",
+      "path": "skills/72-kaggle-research/kaggle-research/SKILL.md",
+      "collection": "72-kaggle-research",
+      "line_count": 86,
+      "description_effective": "Use when a research task needs reproducible Kaggle discovery, metadata inspection, bounded public-data downloads, competition or kernel discovery, model discovery, or an explicitly approved Kaggle write/delete operation through the official CLI.",
+      "description_source": "frontmatter",
+      "has_references": true,
+      "tags": {
+        "stage": [
+          "reproduction"
+        ],
+        "topic": [
+          "reproducibility"
+        ]
+      },
+      "quality_score": 100,
+      "quality_flags": [],
+      "license": "CC-BY-SA-4.0 (repository default)",
+      "commercial_use": "share-alike",
+      "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
       "sync": "manual",
       "eval_coverage": []
     }

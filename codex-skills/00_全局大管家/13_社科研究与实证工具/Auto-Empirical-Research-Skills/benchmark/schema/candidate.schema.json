@@ -14,8 +14,8 @@
       "enum": [
         "bad-control-recovery",
         "bartik-recovery",
-        "bunching-recovery",
         "bayesian-recovery",
+        "bunching-recovery",
         "card-iv-recovery",
         "cate-recovery",
         "decomposition-recovery",
@@ -27,6 +27,8 @@
         "panel-fe-recovery",
         "qte-recovery",
         "rdd-recovery",
+        "spillover-recovery",
+        "structural-demand-recovery",
         "survival-recovery",
         "synthetic-control-recovery"
       ]
@@ -239,6 +241,39 @@
       "type": "number"
     },
     "naive_above_K_total": {
+      "type": "number"
+    },
+    "iv_alpha": {
+      "type": "number"
+    },
+    "mean_marginal_cost": {
+      "type": "number"
+    },
+    "mean_own_elasticity": {
+      "type": "number"
+    },
+    "naive_elasticity": {
+      "type": "number"
+    },
+    "naive_marginal_cost": {
+      "type": "number"
+    },
+    "ols_alpha": {
+      "type": "number"
+    },
+    "direct_effect": {
+      "type": "number"
+    },
+    "naive_spillover": {
+      "type": "number"
+    },
+    "overall_effect": {
+      "type": "number"
+    },
+    "spillover_effect": {
+      "type": "number"
+    },
+    "total_effect_on_treated": {
       "type": "number"
     }
   },

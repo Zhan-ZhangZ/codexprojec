@@ -1,0 +1,28 @@
+{
+  "candidate": "aers-nsw-experimental-benchmark",
+  "source": "demo-notebooks/nsw-lalonde-1986/replicate_nsw.py (pure stdlib, Dehejia NSW re74 subsample + vendored PSID-1 composite)",
+  "coefficients": {
+    "experimental_att": {
+      "value": 1794.34
+    },
+    "observational_att": {
+      "value": -635.03
+    }
+  },
+  "all_computed": {
+    "n_treated": 185,
+    "n_control": 260,
+    "n_psid_control": 429,
+    "treated_re78": 6349.1435,
+    "control_re78": 4554.8011,
+    "experimental_att": 1794.3424,
+    "experimental_re74_gap": -11.453,
+    "experimental_re75_gap": 265.1463,
+    "experimental_age_gap": 0.7624,
+    "psid_control_re78": 6984.1697,
+    "observational_att": -635.0262,
+    "observational_re74_gap": -3523.6628,
+    "observational_re75_gap": -934.4291,
+    "selection_bias": -2429.3686
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "agent": "example-agent",
+  "agent_url": "",
+  "agent_version": "0.1",
+  "exam_commit": "7881f437a7ce83940c54c091b751ad8e13006e1e",
+  "notes": "worked example; falls into the mediator-control trap on purpose",
+  "origin": "example",
+  "produced_by": "aers-score 2026.9.0",
+  "schema": "aers-external-scoreboard/1",
+  "summary": {
+    "earned": 32,
+    "possible": 46,
+    "tasks_all_required_passing": 2,
+    "tasks_attempted": 3
+  },
+  "tasks": {
+    "did-staggered-recovery": {
+      "earned": 12,
+      "optional_failures": [],
+      "possible": 12,
+      "required_failures": []
+    },
+    "mediation-recovery": {
+      "earned": 8,
+      "optional_failures": [
+        "decomposition-adds-up"
+      ],
+      "possible": 22,
+      "required_failures": [
+        "nde-recovered",
+        "nie-recovered",
+        "honest-nde",
+        "honest-nie"
+      ]
+    },
+    "rdd-recovery": {
+      "earned": 12,
+      "optional_failures": [],
+      "possible": 12,
+      "required_failures": []
+    }
+  }
+}

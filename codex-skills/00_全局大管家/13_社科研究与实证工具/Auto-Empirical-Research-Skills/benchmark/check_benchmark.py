@@ -23,7 +23,7 @@ import json
 import re
 import sys
 from numbers import Real
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -47,6 +47,8 @@ import bartik  # noqa: E402
 import mediation  # noqa: E402
 import oaxaca  # noqa: E402
 import bunching  # noqa: E402
+import structural  # noqa: E402
+import spillover  # noqa: E402
 
 TASKS_DIR = Path(__file__).resolve().parent / "tasks"
 CANDIDATES_DIR = Path(__file__).resolve().parent / "candidates"
@@ -57,6 +59,8 @@ SUPPORTED_TASK_IDS = {
     "bartik-recovery",
     "bunching-recovery",
     "decomposition-recovery",
+    "structural-demand-recovery",
+    "spillover-recovery",
     "bayesian-recovery",
     "card-iv-recovery",
     "cate-recovery",
@@ -157,6 +161,15 @@ CANDIDATE_NUMERIC_FIELDS = {
         "excess_mass", "observed_at_K", "counterfactual_at_K",
         "naive_at_K", "observed_above_K", "implied_elasticity",
     ),
+    "structural-demand-recovery": (
+        "iv_alpha", "ols_alpha", "first_stage_F",
+        "mean_own_elasticity", "naive_elasticity",
+        "mean_marginal_cost", "naive_marginal_cost",
+    ),
+    "spillover-recovery": (
+        "direct_effect", "spillover_effect", "naive_spillover",
+        "total_effect_on_treated", "overall_effect",
+    ),
 }
 CANDIDATE_NUMERIC_MAP_FIELDS = {
     "lalonde-recovery": ("balance",),
@@ -181,7 +194,11 @@ def validate_repo_relative_file(value: object, label: str) -> list[str]:
     if not isinstance(value, str) or not value:
         return [f"{label} must be a non-empty string"]
     raw_path = Path(value)
-    if raw_path.is_absolute():
+    if (
+        raw_path.is_absolute()
+        or PurePosixPath(value).is_absolute()
+        or PureWindowsPath(value).is_absolute()
+    ):
         return [f"{label} '{value}' must be repo-relative, not absolute"]
     root = ROOT.resolve()
     resolved = (ROOT / raw_path).resolve(strict=False)
@@ -542,6 +559,43 @@ def compute_truth(task: dict) -> dict:
             "naive_at_K": bunching.naive_density_at(rows, bunching.K),
             "observed_above_K": bunching.observed_density_above(rows),
             "implied_elasticity": bunching.implied_elasticity(rows),
+        }
+    if task["id"] == "structural-demand-recovery":
+        data = ROOT / task["data"]
+        rows = structural.load(data)
+        # The truth comes from the hidden xi column, which no estimator reads:
+        # closing the demand equation with it returns the design parameter.
+        true_alpha = structural.oracle_alpha(rows)
+        estimated_alpha = structural.iv_alpha(rows)
+        return {
+            "n": len(rows),
+            "true_alpha": true_alpha,
+            "true_mean_elasticity": structural.mean_own_elasticity(rows, true_alpha),
+            "true_mean_marginal_cost": structural.mean_marginal_cost(rows, true_alpha),
+            "iv_alpha": estimated_alpha,
+            "ols_alpha": structural.ols_alpha(rows),
+            "first_stage_F": structural.first_stage_f(rows),
+            "mean_own_elasticity": structural.mean_own_elasticity(rows, estimated_alpha),
+            "naive_elasticity": structural.naive_elasticity(rows),
+            "mean_marginal_cost": structural.mean_marginal_cost(rows, estimated_alpha),
+            "naive_marginal_cost": structural.naive_marginal_cost(rows),
+        }
+    if task["id"] == "spillover-recovery":
+        data = ROOT / task["data"]
+        rows = spillover.load(data)
+        # Truth comes from the y0 column (each unit's outcome with no treatment
+        # anywhere in its cluster), which no estimator above reads.
+        return {
+            "n": len(rows),
+            "true_direct": spillover.true_direct_effect(rows),
+            "true_spillover": spillover.true_spillover_effect(rows),
+            "true_total_on_treated": spillover.true_total_effect_on_treated(rows),
+            "true_overall": spillover.true_overall_effect(rows),
+            "direct_effect": spillover.direct_effect(rows),
+            "spillover_effect": spillover.spillover_effect(rows),
+            "naive_spillover": spillover.naive_spillover(rows),
+            "total_effect_on_treated": spillover.total_effect_on_treated(rows),
+            "overall_effect": spillover.overall_effect(rows),
         }
     raise ValueError(f"unknown task {task['id']}")
 

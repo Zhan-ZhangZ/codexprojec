@@ -8,15 +8,15 @@ Paste this snapshot into the GitHub release body and add a hand-written
 
 ## Catalog
 
-- Top-level collections: **75**
-- `SKILL.md` files: **1095**
+- Top-level collections: **76**
+- `SKILL.md` files: **1096**
 - Cataloged agent tools: **334** ([`tools/CATALOG.md`](../tools/CATALOG.md))
 
 ## Methodological rigor
 
-- Method families in the coverage map: **16** ([`RIGOR_COVERAGE.md`](RIGOR_COVERAGE.md))
-- Eval scenarios: **37** (183 rubric items, 167 auto-checkable) ([`../eval-harness/`](../eval-harness/README.md))
-- Benchmark tasks: **17** (102 gold checks, 87 required) ([`../benchmark/`](../benchmark/README.md))
+- Method families in the coverage map: **19** ([`RIGOR_COVERAGE.md`](RIGOR_COVERAGE.md))
+- Eval scenarios: **42** (217 rubric items, 196 auto-checkable) ([`../eval-harness/`](../eval-harness/README.md))
+- Benchmark tasks: **19** (124 gold checks, 107 required) ([`../benchmark/`](../benchmark/README.md))
 
 ### Method families (skills tagged)
 
@@ -32,6 +32,7 @@ Paste this snapshot into the GitHub release body and add a hand-written
 - `cate`: 8
 - `dml`: 8
 - `mediation`: 8
+- `structural`: 6
 - `survival`: 3
 - `quantile`: 2
 - `decomposition`: 1
@@ -39,12 +40,12 @@ Paste this snapshot into the GitHub release body and add a hand-written
 
 ### Eval scenarios by category
 
-- `causal-identification`: 18
+- `causal-identification`: 20
 - `citation-hygiene`: 3
 - `reproducibility`: 3
 - `research-integrity`: 2
 - `runtime-safety`: 1
-- `statistical-validity`: 5
+- `statistical-validity`: 8
 - `writing-compliance`: 3
 - `writing-style`: 2
 
@@ -54,7 +55,7 @@ Paste this snapshot into the GitHub release body and add a hand-written
 - Apache-2.0: 1
 - CC-BY-NC-4.0 (non-commercial): 1
 - CC-BY-SA-4.0: 1
-- CC-BY-SA-4.0 (repository default): 5
+- CC-BY-SA-4.0 (repository default): 6
 - CC0-1.0: 1
 - GPL-3.0: 1
 - MIT: 36

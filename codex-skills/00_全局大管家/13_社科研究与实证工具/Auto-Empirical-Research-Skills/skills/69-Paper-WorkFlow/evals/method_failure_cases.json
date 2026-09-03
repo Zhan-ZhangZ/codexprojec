@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "design_gate_contract": "evals/design_gate_contract.json",
+  "checker": "scripts/check_method_gate_card.py",
+  "require_all_design_cards": true,
+  "minimum_case_count": 14,
+  "cases": [
+    {
+      "id": "did_staggered_without_modern_estimator",
+      "design_card_id": "did_event_study",
+      "method_gate_label": "DiD",
+      "gate_item": "Staggered estimator",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Parallel trends / exclusion / continuity / overlap",
+      "expected_error": "Staggered estimator"
+    },
+    {
+      "id": "iv_weak_instrument_no_robust_inference",
+      "design_card_id": "iv_2sls_late",
+      "method_gate_label": "IV",
+      "gate_item": "Weak-IV robust inference",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Parallel trends / exclusion / continuity / overlap",
+      "expected_error": "Weak-IV robust inference"
+    },
+    {
+      "id": "rdd_density_manipulation_hit",
+      "design_card_id": "rdd_kink_threshold",
+      "method_gate_label": "RDD",
+      "gate_item": "Density/manipulation test",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "no_claim",
+      "hard_flag": "Parallel trends / exclusion / continuity / overlap",
+      "expected_error": "Density/manipulation test"
+    },
+    {
+      "id": "synthetic_control_bad_prefit",
+      "design_card_id": "synthetic_control_sdid",
+      "method_gate_label": "SC-SDID",
+      "gate_item": "Pre-fit fit report",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "External validity / transportability",
+      "expected_error": "Pre-fit fit report"
+    },
+    {
+      "id": "dml_overlap_support_failed",
+      "design_card_id": "dml_hte_causal_forest",
+      "method_gate_label": "DML-HTE",
+      "gate_item": "Overlap / propensity support",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "exploratory",
+      "hard_flag": "Missingness, balance, or overlap",
+      "expected_error": "Overlap / propensity support"
+    },
+    {
+      "id": "panel_fe_bad_control_timing",
+      "design_card_id": "panel_fe_hdfe",
+      "method_gate_label": "Panel FE",
+      "gate_item": "Covariate timing screen",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Bad-control risk",
+      "expected_error": "Covariate timing screen"
+    },
+    {
+      "id": "dag_refuter_missing_refuters",
+      "design_card_id": "causal_graph_refutation",
+      "method_gate_label": "DAG-refuter",
+      "gate_item": "Refuters",
+      "bad_present": "no",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Runtime fallback used",
+      "expected_error": "Refuters"
+    },
+    {
+      "id": "prediction_text_leakage_audit_failed",
+      "design_card_id": "prediction_text_embeddings",
+      "method_gate_label": "Prediction-assisted",
+      "gate_item": "Leakage audit",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "exploratory",
+      "hard_flag": "Runtime fallback used",
+      "expected_error": "Leakage audit"
+    },
+    {
+      "id": "time_series_unit_root_failed",
+      "design_card_id": "time_series_var",
+      "method_gate_label": "Time Series-VAR",
+      "gate_item": "Stationarity / unit-root test",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Runtime fallback used",
+      "expected_error": "Stationarity / unit-root test"
+    },
+    {
+      "id": "psm_did_no_rosenbaum_bounds",
+      "design_card_id": "psm_did_matching",
+      "method_gate_label": "PSM-DID",
+      "gate_item": "隐藏偏差诊断",
+      "bad_present": "no",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Missingness, balance, or overlap",
+      "expected_error": "隐藏偏差诊断"
+    },
+    {
+      "id": "spatial_moran_insignificant_still_sdm",
+      "design_card_id": "spatial_econometrics",
+      "method_gate_label": "Spatial",
+      "gate_item": "Moran I 检验",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Parallel trends / exclusion / continuity / overlap",
+      "expected_error": "Moran I 检验"
+    },
+    {
+      "id": "threshold_no_bootstrap_significance_test",
+      "design_card_id": "threshold_panel",
+      "method_gate_label": "Threshold Panel",
+      "gate_item": "门槛值显著性检验",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Inference level, weights, or clustering",
+      "expected_error": "门槛值显著性检验"
+    },
+    {
+      "id": "rct_no_baseline_balance_table",
+      "design_card_id": "rct_field_experiment",
+      "method_gate_label": "RCT",
+      "gate_item": "Baseline balance table",
+      "bad_present": "no",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Missingness, balance, or overlap",
+      "expected_error": "Baseline balance table"
+    },
+    {
+      "id": "survey_experiment_post_hoc_exclusions",
+      "design_card_id": "survey_experiment_conjoint",
+      "method_gate_label": "Survey Experiment",
+      "gate_item": "注意力/操纵检查",
+      "bad_present": "yes",
+      "bad_pass": "no",
+      "bad_claim_consequence": "descriptive",
+      "hard_flag": "Specification search / researcher degrees of freedom",
+      "expected_error": "注意力/操纵检查"
+    }
+  ]
+}

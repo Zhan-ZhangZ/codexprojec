@@ -1,0 +1,107 @@
+id = "aers-stata-hdfe-singletons-clusters"
+skill = "skills/00.2-Full-empirical-analysis-skill_Stata"
+title = "Stata HDFE: the reghdfe/xtreg sample gap is dropped singletons, and 12 treatment clusters need a small-cluster correction"
+category = "statistical-validity"
+severity = "high"
+context_data = []
+
+prompt = """
+I have a matched worker-firm panel and I'm running
+
+    reghdfe log_wage treat x1 x2, absorb(worker_id firm_id year) vce(cluster worker_id)
+
+The policy I'm studying was adopted at the state level and there are 12
+states in my data. Two things are bothering me: reghdfe reports about 4,000
+fewer observations than the same model run with `xtreg, fe`, and my treatment
+coefficient is significant at 1%. Run this the way an AER paper would and tell
+me whether I can report it.
+"""
+
+[[rubric]]
+id = "singletons-explain-the-sample-gap"
+check = "regex_any"
+required = true
+weight = 4
+description = "Identifies the reghdfe/xtreg observation gap as dropped singleton groups (groups with one observation, which contribute nothing to the within estimator) rather than as data loss or a bug."
+patterns = [
+  '(?i)singleton',
+  '(?i)groups? with (only )?one observation',
+  '(?i)drop(s|ped|ping)? .{0,40}(one|single).{0,20}observation',
+]
+
+[[rubric]]
+id = "singleton-drop-is-correct"
+check = "regex_any"
+required = true
+weight = 3
+description = "States that dropping singletons is the correct behavior for inference — keeping them (as areg/xtreg do) overstates the residual degrees of freedom and understates the standard error (Correia 2015)."
+patterns = [
+  '(?i)degrees? of freedom',
+  '(?i)\bdof\b',
+  '(?i)Correia',
+  '(?i)overstate.{0,40}(standard error|inference|significance)',
+  '(?i)understate.{0,30}standard error',
+]
+
+[[rubric]]
+id = "cluster-at-the-treatment-level"
+check = "regex_any"
+required = true
+weight = 5
+description = "Moves the clustering from worker_id to the level at which treatment is assigned (state), because that is where the correlated shocks and the treatment variation live."
+patterns = [
+  '(?i)vce\(cluster state',
+  '(?i)cluster.{0,40}(at |on |by )?(the )?state',
+  '(?i)cluster.{0,60}level (at |of )?(which |where )?treatment',
+  '(?i)cluster.{0,40}(assignment|treatment) level',
+]
+
+[[rubric]]
+id = "twelve-clusters-is-few"
+check = "regex_any"
+required = true
+weight = 5
+description = "Flags 12 clusters as too few for the asymptotic cluster-robust variance estimator, so the conventional cluster SE over-rejects."
+patterns = [
+  '(?i)few clusters?',
+  '(?i)small number of clusters?',
+  '(?i)12 (states|clusters).{0,60}(too few|not enough|few)',
+  '(?i)over.?reject',
+  '(?i)(asymptotic|large.?sample).{0,40}(fails?|does not hold|unreliable)',
+]
+
+[[rubric]]
+id = "small-cluster-correction"
+check = "regex_any"
+required = true
+weight = 4
+description = "Names a concrete small-cluster fix available in this Stata ecosystem: wild cluster bootstrap (boottest), randomization inference (ritest), or a CR2/bias-reduced variance estimator."
+patterns = [
+  '(?i)\bboottest\b',
+  '(?i)wild (cluster )?bootstrap',
+  '(?i)\britest\b',
+  '(?i)randomi[sz]ation inference',
+  '(?i)\bCR2\b',
+  '(?i)bias.?reduced .{0,20}(variance|estimator)',
+]
+
+[[rubric]]
+id = "significance-is-provisional"
+check = "manual"
+required = false
+weight = 2
+description = "Says the 1% significance cannot be reported as-is, because it was computed at the wrong clustering level with too few clusters, and that the wild-bootstrap p-value is the number to report."
+guidance = "Pass if the answer withholds the significance claim pending the corrected inference. Fail if it reports 1% and merely appends the caveat."
+
+[[rubric]]
+id = "no-false-reassurance"
+check = "regex_none"
+required = true
+weight = 4
+description = "Does NOT treat the observation gap as a defect to be worked around, and does NOT reassure that clustering on worker_id or the default cluster SE with 12 clusters is adequate."
+patterns = [
+  '(?i)(use|prefer|switch to) (xtreg|areg) .{0,40}(keep|retain|avoid los)',
+  '(?i)(the )?(missing|lost) observations? (is|are) a (bug|problem|issue) (in|with) reghdfe',
+  '(?i)12 clusters (is|are) (fine|enough|sufficient|plenty|acceptable)',
+  '(?i)clustering (on|at|by) worker.?id is (correct|appropriate|fine)',
+]

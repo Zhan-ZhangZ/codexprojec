@@ -161,7 +161,18 @@ def iter_skill_files() -> list[Path]:
         for filename in filenames:
             if filename == "SKILL.md":
                 paths.append(Path(dirpath) / filename)
-    return sorted(paths)
+    # Sort on the raw path components, not on the Path objects themselves.
+    # `PurePath.__lt__` compares *case-normalized* parts, and normalization is
+    # flavour-dependent: PosixPath leaves case alone, WindowsPath casefolds.
+    # So a bare `sorted(paths)` puts "topic/SKILL.md" before "topic/nested/"
+    # on Linux/macOS ("S" < "n") but after it on Windows ("skill.md" > "nested"),
+    # producing a different catalog order on a Windows checkout. Keying on
+    # `.parts` skips normalization entirely, so every platform emits the posix
+    # order. Behaviour on Linux/macOS is unchanged -- do not "simplify" this
+    # back to `sorted(paths)`; see TestCrossPlatformSkillOrdering in
+    # tests/test_repo_tools.py, which pins the invariant via PureWindowsPath
+    # so it is checkable from posix CI.
+    return sorted(paths, key=lambda path: path.relative_to(SKILLS_DIR).parts)
 
 
 def collection_records(entries: Iterable[SkillEntry]) -> list[dict[str, object]]:

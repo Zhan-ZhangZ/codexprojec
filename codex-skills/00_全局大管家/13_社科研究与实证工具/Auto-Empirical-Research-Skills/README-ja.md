@@ -45,101 +45,104 @@
 
 ## 最初に読む: リポジトリ全体は 1 つの AERS Router Skill
 
-このリポジトリは、ルートディレクトリを Codex、CodeBuddy、Claude Code、または類似 IDE に 1 つの skill として取り込めます。ルートの [`SKILL.md`](SKILL.md) は `auto-empirical-research-skills` を登録し、75 コレクション・1,095 スキルを一度にコンテキストへ読み込むのではなく、実証研究タスクに合う vendored 子 skill へルーティングします。
+このリポジトリは、ルートディレクトリを Codex、CodeBuddy、Claude Code、または類似 IDE に 1 つの skill として取り込めます。ルートの [`SKILL.md`](SKILL.md) は `auto-empirical-research-skills` を登録し、76 コレクション・1,096 スキルを一度にコンテキストへ読み込むのではなく、実証研究タスクに合う vendored 子 skill へルーティングします。
 
 - **リポジトリ全体を取り込む場合**: リポジトリルートを選び、[`agents/openai.yaml`](agents/openai.yaml) とルート [`SKILL.md`](SKILL.md) で 1 つの catalog router を登録します。agent は [`catalog/skills.json`](catalog/skills.json) または [`docs/SKILL_CATALOG.md`](docs/SKILL_CATALOG.md) を確認してから、選んだ子 skill だけを読みます。
-- **単一 skill を取り込む場合**: IDE が「1 フォルダ = 1 skill」を期待するなら、対象の `SKILL.md` を直接含む子フォルダをコピーしてください。例: `skills/50-brycewang-aer-skills/skills/aer-workflow/`。IDE が明示的に再帰 discovery をサポートしない限り、ルート取り込みで 1,095 個の個別 skill が登録されるとは想定しないでください。
+- **単一 skill を取り込む場合**: IDE が「1 フォルダ = 1 skill」を期待するなら、対象の `SKILL.md` を直接含む子フォルダをコピーしてください。例: `skills/50-brycewang-aer-skills/skills/aer-workflow/`。IDE が明示的に再帰 discovery をサポートしない限り、ルート取り込みで 1,096 個の個別 skill が登録されるとは想定しないでください。
 - **インストール詳細**: [`docs/INSTALL.md`](docs/INSTALL.md) を参照してください。デフォルト README は簡体中文の [`README.md`](README.md) で、英語版は [`README-en.md`](README-en.md) です。
 
 ---
 
-## 全 75 スキルコレクション一覧
+## 全 76 スキルコレクション一覧
 
-> **リポジトリを開けば、ライブラリ全体が見渡せます。** **75 コレクション · 1,095 スキル**のすべてに `00 → 71` の番号が付き、いずれも（外部リンクではなく）**本リポジトリに取り込み（vendored）**、[`catalog/skills.json`](catalog/skills.json) で追跡されています。**どの行をクリックしてもそのフォルダが開きます。** **⭐ = Stanford REAP × CoPaper.AI チームが構築したファーストパーティスキル**。それ以外はすべて精選・セキュリティ監査済みのコミュニティ成果です。
+> **リポジトリを開けば、ライブラリ全体が見渡せます。** **76 コレクション · 1,096 スキル**のすべてに `00 → 72` の番号が付き、いずれも（外部リンクではなく）**本リポジトリに取り込み（vendored）**、[`catalog/skills.json`](catalog/skills.json) で追跡されています。**どの行をクリックしてもそのフォルダが開きます。** **⭐ = Stanford REAP × CoPaper.AI チームが構築したファーストパーティスキル**。それ以外はすべて精選・セキュリティ監査済みのコミュニティ成果です。
 >
 > **テーマ凡例 —** 🚀 全パイプライン & オーケストレーター · 🎯 因果推論 & 計量経済学 · 📚 文献 & 研究設計 · ✍️ 執筆・編集 & 脱 AIGC · 📑 引用・レプリケーション & 査読 · 🛠️ データ・ツール & インフラ
+>
+> **🙏 原作者へのリスペクト —** **「出典」列は元リポジトリ（`owner/repo`）に直接リンクしています。** ここに収録されたコミュニティコレクションは、いずれも**元リポジトリのスナップショット**です。スターや issue は元リポジトリへ、ライセンスも元リポジトリでご確認ください。ライセンスと出典信頼度の完全な監査は [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md)、機械可読版は [`catalog/provenance.json`](catalog/provenance.json) にあります。
 
-| # | コレクション | 何をするか | テーマ | スキル数 |
-|:--|:--|:--|:--:|--:|
-| ⭐ **00** | **[StatsPAI](skills/00-Full-empirical-analysis-skill_StatsPAI/)** 🔥 | Agent-native Python **DSL** — 一つの `sp.causal(...)` で DID/RD/IV/SCM/DML を実行 | 🚀 | 1 |
-| ⭐ **00.1** | **[Full Empirical · Python](skills/00.1-Full-empirical-analysis-skill_Python/)** 📘 | 明示的スタック: `pandas` · `statsmodels` · `linearmodels` · `pyfixest` | 🚀 | 1 |
-| ⭐ **00.2** | **[Full Empirical · Stata](skills/00.2-Full-empirical-analysis-skill_Stata/)** 📊 | `reghdfe` · `ivreg2` · `csdid` · `sdid` · `rdrobust` レプリケーションパック | 🚀 | 1 |
-| ⭐ **00.3** | **[Full Empirical · R](skills/00.3-Full-empirical-analysis-skill_R/)** 📗 | tidyverse · `fixest` · `did` · `HonestDiD`、Quarto でレンダリング | 🚀 | 1 |
-| **01** | [academic-paper-skills](skills/01-lishix520-academic-paper-skills/) | アウトライン → 原稿執筆 + 7 次元の査読者シミュレーション | ✍️ | 2 |
-| **02** | [research-skills](skills/02-luwill-research-skills/) | 医用画像レビュー、研究提案、論文からスライド | 📚 | 3 |
-| **03** | [scientific-skills](skills/03-K-Dense-AI-claude-scientific-skills/) | 仮説生成 + 28 の科学データベース | 📚 | 4 |
-| **04** | [scientific-writer](skills/04-K-Dense-AI-claude-scientific-writer/) | 引用管理 + 科学的執筆 | ✍️ | 8 |
-| **05** | [research-superpower](skills/05-kthorn-research-superpower/) | 体系的検索、スクリーニング & 引用トラバーサル | 📚 | 10 |
-| **06** | [stats-paper-writing](skills/06-fuhaoda-stats-paper-writing/) | エンドツーエンドの LaTeX 統計論文執筆 | ✍️ | 1 |
-| **07** | [AI-Research-SKILLs](skills/07-Orchestra-Research-AI-Research-SKILLs/) | 発表用 ML 図、LaTeX、引用検証 | 🛠️ | 3 |
-| **08** | [latex-document-skill](skills/08-ndpvt-web-latex-document-skill/) | 任意の LaTeX ドキュメントを作成 / コンパイルして PDF 化 | 🛠️ | 1 |
-| **09** | [awesome-econ-ai](skills/09-meleantonio-awesome-econ-ai-stuff/) | Python のパネルデータ分析（`linearmodels`） | 🎯 | 17 |
-| **10** | [causal-inference-mixtape](skills/10-Jill0099-causal-inference-mixtape/) | DID / IV / RDD / SCM テンプレート（Cunningham） | 🎯 | 1 |
-| **11** | [compound-science](skills/11-James-Traina-compound-science/) | 定量社会科学のためのベイズ推定 | 🎯 | 20 |
-| **12** | [claude-code-my-workflow](skills/12-pedrohcgs-claude-code-my-workflow/) | コミット → PR → マージの研究ワークフロー（Emory） | 🛠️ | 22 |
-| **13** | [MixtapeTools](skills/13-scunning1975-MixtapeTools/) | Cunningham の因果推論ツールキット & スライド | 🎯 | 5 |
-| **14** | [research-starter](skills/14-luischanci-claude-code-research-starter/) | R での IV / DiD / RDD（適切な診断付き） | 🎯 | 16 |
-| **15** | [social-science-research](skills/15-Felpix-Studios-social-science-research/) | R または Python でのエンドツーエンドのデータ分析 | 🎯 | 12 |
-| **16** | [clo-author](skills/16-hsantanna88-clo-author/) | マルチエージェントのデータ分析（R / Stata / Python） | 🎯 | 10 |
-| **17** | [DAAF](skills/17-DAAF-Contribution-Community-daaf/) | セキュリティ意識の高いエージェントフレームワーク（32 のディナイルール） | 🛠️ | 35 |
-| **18** | [stata-accounting](skills/18-jusi-aalto-stata-accounting-research/) | 126 本の *JAR* 論文から検証済みの Stata パターン | 🎯 | 1 |
-| **19** | [vera-economic-intelligence](skills/19-CuellarC05-vera-economic-intelligence/) | 経済インテリジェンス／政策研究ワークフロー | 🎯 | 5 |
-| **20** | [python-econ-skill](skills/20-wenddymacro-python-econ-skill/) | DSGE / HANK & 定量経済計算 | 🎯 | 1 |
-| **21** | [AI-research-feedback](skills/21-claesbackman-AI-research-feedback/) | AI 査読で構造化フィードバックを生成 | 📑 | 5 |
-| **22** | [christopherkenny-skills](skills/22-christopherkenny-skills/) | Quarto（`.qmd`）向けの APSA スタイルチェッカー | ✍️ | 11 |
-| **23** | [baygent](skills/23-Learning-Bayesian-Statistics-baygent-skills/) | ガードレール付きの PyMC / ArviZ ベイズワークフロー | 🎯 | 2 |
-| **24** | [academic-research-skills](skills/24-Imbad0202-academic-research-skills/) | 5 名の査読者による多視点論文レビュー | 📑 | 4 |
-| **25** | [Diverga](skills/25-HosungYou-Diverga/) | 研究課題のリファイナー（モードコラプス対策） | 📚 | 34 |
-| **26** | [scholar](skills/26-Data-Wise-scholar/) | 統計アルゴリズムの設計 & ドキュメント化 | 🎯 | 17 |
-| **27** | [my_claude_skills](skills/27-dariia-m-my_claude_skills/) | 経済学アブストラクトの執筆ガイド | ✍️ | 6 |
-| **28** | [paper-replicate-agent](skills/28-maxwell2732-paper-replicate-agent-demo/) | 論文レプリケーションエージェントのデモ | 📑 | 11 |
-| **29** | [project20XXy](skills/29-quarcs-lab-project20XXy/) | 再現可能な原稿 + ノートブックプロジェクト | 📑 | 24 |
-| **30** | [zirui-song-claude-skills](skills/30-zirui-song-claude-skills/) | Zirui Song の研究支援 Claude スキル集 | 🛠️ | 6 |
-| **31** | [claude-code-skills](skills/31-thalysandratos-claude-code-skills/) | Python のパネルデータ分析 | 🎯 | 13 |
-| **32** | [stata-skill](skills/32-dylantmoore-stata-skill/) | 高性能な Stata C/C++ プラグイン | 🛠️ | 3 |
-| **33** | [claude-scholar](skills/33-Galaxy-Dawn-claude-scholar/) | 研究のフルライフサイクル: 構想 → レビュー → 実験 → 査読対応 | 🚀 | 47 |
-| **34** | [research-companion](skills/34-andrehuang-research-companion/) | 研究の方向性をブレインストーム・評価・決定 | 📚 | 1 |
-| **35** | [academic-writing-skills](skills/35-bahayonghang-academic-writing-skills/) | ベニュー対応の産業 AI 文献研究 | 📚 | 5 |
-| **36** | [literature-review-skill](skills/36-taoyunudt-literature-review-skill/) | 文献レビューの全ワークフロー（中国語） | 📚 | 1 |
-| **37** | [IlanStrauss-ai-skills](skills/37-IlanStrauss-ai-skills/) | Ilan Strauss の経済学研究 AI ワークフロー | 🎯 | 1 |
-| **38** | [academic-proofreader](skills/38-peternka-academic-proofreader/) | 学術校正 | ✍️ | 1 |
-| **39** | [marginaleffects](skills/39-vincentarelbundock-marginaleffects/) | 予測、スロープ & 比較（R / Python） | 🎯 | 1 |
-| **40** | [pyfixest](skills/40-py-econometrics-pyfixest/) | Python での高速な固定効果推定 | 🎯 | 1 |
-| **41** | [sewage-econometrics-check](skills/41-sticerd-eee-sewage-econometrics-check/) | 10 項目チェックのレプリケーションパッケージ監査 | 📑 | 22 |
-| **42** | [ARIS](skills/42-wanshuiyin-ARIS/) | 自律型「研究 in sleep」エージェント、エンドツーエンド | 🚀 | 42 |
-| **43** | [research-plugins](skills/43-wentorai-research-plugins/) | 478 の研究プラグイン: データ可視化、ドメイン、インフラ | 🛠️ | 478 |
-| **44** | [humanizer_academic](skills/44-matsuikentaro1-humanizer_academic/) | 医学/学術原稿の脱 AI 化（23 パターン） | ✍️ | 1 |
-| **45** | [deslop](skills/45-stephenturner-skill-deslop/) | AI 文章パターンの除去（5 次元採点） | ✍️ | 1 |
-| **46** | [stop-slop](skills/46-hardikpandya-stop-slop/) | 3 層の AI 痕跡検出 & 書き換え | ✍️ | 1 |
-| **47** | [avoid-ai-writing](skills/47-conorbronsdon-avoid-ai-writing/) | 監査 → 書き換え → 再監査の AI 痕跡対策（証跡付き） | ✍️ | 1 |
-| ⭐ **48** | **[chinese-de-aigc](skills/48-copaper-ai-chinese-de-aigc/)** 🇨🇳 | CNKI / Wanfang / Turnitin-CN 向けの中国語脱 AIGC | ✍️ | 1 |
-| **49** | [humanize-chinese](skills/49-voidborne-d-humanize-chinese/) | AI 生成の中国語テキストを検出・人間化 | ✍️ | 1 |
-| ⭐ **50** | **[AER-skills](skills/50-brycewang-aer-skills/)** 📕 | トップ 5 経済学投稿スタック: 識別 → 頑健性 → R&R | 🚀 | 9 |
-| **51** | [CausalPy](skills/51-pymc-labs-CausalPy/) | ベイズ準実験（PyMC Labs） | 🎯 | 3 |
-| **52** | [slr-prisma](skills/52-keemanxp-slr-prisma/) | 体系的文献レビュー、PRISMA 2020 | 📚 | 1 |
-| **53** | [thematic-analysis](skills/53-keemanxp-thematic-analysis-skill/) | Braun & Clarke の 6 段階質的テーマ分析 | 📚 | 1 |
-| **54** | [open-science-skills](skills/54-scdenney-open-science-skills/) | 引用の整合性、DOI & 主張裏付けの監査 | 📑 | 24 |
-| **55** | [r-skills](skills/55-ab604-claude-code-r-skills/) | `brms` による R でのベイズ推論 | 🎯 | 8 |
-| **56** | [econ-writing-skill](skills/56-hanlulong-econ-writing-skill/) | 50+ のトップガイドを統合した経済学執筆 | ✍️ | 1 |
-| **57** | [edgartools](skills/57-dgunning-edgartools/) | SEC 提出書類のクエリ & 分析 | 🛠️ | 1 |
-| **58** | [econstack](skills/58-charlescoverdale-econstack/) | 政策ブリーフィングノート（UK GES / AU Treasury） | ✍️ | 7 |
-| **59** | [openalex-skill](skills/59-shiquda-openalex-skill/) | OpenAlex 経由で 2.4 億+ の学術成果をクエリ | 📚 | 1 |
-| **60** | [superpapers](skills/60-regisely-superpapers/) | 包括的な実証研究サポートスイート | 📚 | 16 |
-| **61** | [research-methods](skills/61-phdemotions-research-methods/) | 事前登録に対応した確証的検定 | 🎯 | 9 |
-| **62** | [citation-checker](skills/62-PHY041-claude-skill-citation-checker/) | CrossRef / S2 / OpenAlex に対して引用を検証 | 📑 | 1 |
-| **63** | [scientific-agent-skills](skills/63-tondevrel-scientific-agent-skills/) | DoWhy の identify–estimate–refute フレームワーク | 🎯 | 2 |
-| **64** | [mcp-stata](skills/64-tmonk-mcp-stata/) | 20 個の Stata 因果推論 & レプリケーションスキル | 🎯 | 20 |
-| **65** | [game-theory-paper-writer](skills/65-game-theory-paper-writer/) | ゲーム理論論文の生成 & ストレステスト | ✍️ | 1 |
-| **66** | [empirical-research-skills](skills/66-zheng-siyao-empirical-research-skills/) | 大規模パネル向けの R パフォーマンス最適化 | 🛠️ | 7 |
-| **67** | [econfin-workflow-toolkit](skills/67-econfin-workflow-toolkit/) | 中国コーポレートファイナンスの実証ワークフロー、提案 → 論文 | 🚀 | 46 |
-| **68** | [research-productivity-skills](skills/68-research-productivity-skills/) | 論文検索、SSRN、DOI 照会、ダウンロード | 🛠️ | 5 |
-| ⭐ **69** | **[Paper-WorkFlow](skills/69-Paper-WorkFlow/)** 🧭 | 社会科学パイプライン全体を連結するメタオーケストレーター | 🚀 | 1 |
-| **70** | [ssci-polish](skills/70-ssci-polish/) | SSCI/SCI 向け英語論文の言語ポリッシュ（文法・可読性・アカデミックトーン） | ✍️ | 1 |
-| ⭐ **71** | **[lit-review-agent-tools](skills/71-brycewang-lit-review-agent-tools/)** 🔍 | 文献レビューツールの選定と実行（MinerU / PaperQA2 / ASReview / STORM / MCP サーバー） | 📚 | 1 |
+| # | コレクション | 何をするか | テーマ | スキル数 | 出典 |
+|:--|:--|:--|:--:|--:|:--|
+| ⭐ **00** | **[StatsPAI](skills/00-Full-empirical-analysis-skill_StatsPAI/)** 🔥 | Agent-native Python **DSL** — 一つの `sp.causal(...)` で DID/RD/IV/SCM/DML を実行 | 🚀 | 1 | [brycewang-stanford/StatsPAI](https://github.com/brycewang-stanford/StatsPAI) |
+| ⭐ **00.1** | **[Full Empirical · Python](skills/00.1-Full-empirical-analysis-skill_Python/)** 📘 | 明示的スタック: `pandas` · `statsmodels` · `linearmodels` · `pyfixest` | 🚀 | 1 | [⭐ 本リポジトリ](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills) |
+| ⭐ **00.2** | **[Full Empirical · Stata](skills/00.2-Full-empirical-analysis-skill_Stata/)** 📊 | `reghdfe` · `ivreg2` · `csdid` · `sdid` · `rdrobust` レプリケーションパック | 🚀 | 1 | [⭐ 本リポジトリ](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills) |
+| ⭐ **00.3** | **[Full Empirical · R](skills/00.3-Full-empirical-analysis-skill_R/)** 📗 | tidyverse · `fixest` · `did` · `HonestDiD`、Quarto でレンダリング | 🚀 | 1 | [⭐ 本リポジトリ](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills) |
+| **01** | [academic-paper-skills](skills/01-lishix520-academic-paper-skills/) | アウトライン → 原稿執筆 + 7 次元の査読者シミュレーション | ✍️ | 2 | [lishix520/academic-paper-skills](https://github.com/lishix520/academic-paper-skills) |
+| **02** | [research-skills](skills/02-luwill-research-skills/) | 医用画像レビュー、研究提案、論文からスライド | 📚 | 3 | [luwill/research-skills](https://github.com/luwill/research-skills) |
+| **03** | [scientific-skills](skills/03-K-Dense-AI-claude-scientific-skills/) | 仮説生成 + 28 の科学データベース | 📚 | 4 | [K-Dense-AI/claude-scientific-skills](https://github.com/K-Dense-AI/claude-scientific-skills) |
+| **04** | [scientific-writer](skills/04-K-Dense-AI-claude-scientific-writer/) | 引用管理 + 科学的執筆 | ✍️ | 8 | [K-Dense-AI/claude-scientific-writer](https://github.com/K-Dense-AI/claude-scientific-writer) |
+| **05** | [research-superpower](skills/05-kthorn-research-superpower/) | 体系的検索、スクリーニング & 引用トラバーサル | 📚 | 10 | [kthorn/research-superpower](https://github.com/kthorn/research-superpower) |
+| **06** | [stats-paper-writing](skills/06-fuhaoda-stats-paper-writing/) | エンドツーエンドの LaTeX 統計論文執筆 | ✍️ | 1 | [fuhaoda/stats-paper-writing-agent-skills](https://github.com/fuhaoda/stats-paper-writing-agent-skills) |
+| **07** | [AI-Research-SKILLs](skills/07-Orchestra-Research-AI-Research-SKILLs/) | 発表用 ML 図、LaTeX、引用検証 | 🛠️ | 3 | [Orchestra-Research/AI-Research-SKILLs](https://github.com/Orchestra-Research/AI-Research-SKILLs) |
+| **08** | [latex-document-skill](skills/08-ndpvt-web-latex-document-skill/) | 任意の LaTeX ドキュメントを作成 / コンパイルして PDF 化 | 🛠️ | 1 | [ndpvt-web/latex-document-skill](https://github.com/ndpvt-web/latex-document-skill) |
+| **09** | [awesome-econ-ai](skills/09-meleantonio-awesome-econ-ai-stuff/) | Python のパネルデータ分析（`linearmodels`） | 🎯 | 17 | [meleantonio/awesome-econ-ai-stuff](https://github.com/meleantonio/awesome-econ-ai-stuff) |
+| **10** | [causal-inference-mixtape](skills/10-Jill0099-causal-inference-mixtape/) | DID / IV / RDD / SCM テンプレート（Cunningham） | 🎯 | 1 | [Jill0099/causal-inference-mixtape](https://github.com/Jill0099/causal-inference-mixtape) |
+| **11** | [compound-science](skills/11-James-Traina-compound-science/) | 定量社会科学のためのベイズ推定 | 🎯 | 20 | [James-Traina/compound-science](https://github.com/James-Traina/compound-science) |
+| **12** | [claude-code-my-workflow](skills/12-pedrohcgs-claude-code-my-workflow/) | コミット → PR → マージの研究ワークフロー（Emory） | 🛠️ | 22 | [pedrohcgs/claude-code-my-workflow](https://github.com/pedrohcgs/claude-code-my-workflow) |
+| **13** | [MixtapeTools](skills/13-scunning1975-MixtapeTools/) | Cunningham の因果推論ツールキット & スライド | 🎯 | 5 | [scunning1975/MixtapeTools](https://github.com/scunning1975/MixtapeTools) |
+| **14** | [research-starter](skills/14-luischanci-claude-code-research-starter/) | R での IV / DiD / RDD（適切な診断付き） | 🎯 | 16 | [luischanci/claude-code-research-starter](https://github.com/luischanci/claude-code-research-starter) |
+| **15** | [social-science-research](skills/15-Felpix-Studios-social-science-research/) | R または Python でのエンドツーエンドのデータ分析 | 🎯 | 12 | [Felpix-Studios/social-science-research](https://github.com/Felpix-Studios/social-science-research) |
+| **16** | [clo-author](skills/16-hsantanna88-clo-author/) | マルチエージェントのデータ分析（R / Stata / Python） | 🎯 | 10 | [hsantanna88/clo-author](https://github.com/hsantanna88/clo-author) |
+| **17** | [DAAF](skills/17-DAAF-Contribution-Community-daaf/) | セキュリティ意識の高いエージェントフレームワーク（32 のディナイルール） | 🛠️ | 35 | [DAAF-Contribution-Community/daaf](https://github.com/DAAF-Contribution-Community/daaf) |
+| **18** | [stata-accounting](skills/18-jusi-aalto-stata-accounting-research/) | 126 本の *JAR* 論文から検証済みの Stata パターン | 🎯 | 1 | [jusi-aalto/stata-accounting-research](https://github.com/jusi-aalto/stata-accounting-research) |
+| **19** | [vera-economic-intelligence](skills/19-CuellarC05-vera-economic-intelligence/) | 経済インテリジェンス／政策研究ワークフロー | 🎯 | 5 | [CuellarC05/vera-economic-intelligence](https://github.com/CuellarC05/vera-economic-intelligence) |
+| **20** | [python-econ-skill](skills/20-wenddymacro-python-econ-skill/) | DSGE / HANK & 定量経済計算 | 🎯 | 1 | [wenddymacro/python-econ-skill](https://github.com/wenddymacro/python-econ-skill) |
+| **21** | [AI-research-feedback](skills/21-claesbackman-AI-research-feedback/) | AI 査読で構造化フィードバックを生成 | 📑 | 5 | [claesbackman/AI-research-feedback](https://github.com/claesbackman/AI-research-feedback) |
+| **22** | [christopherkenny-skills](skills/22-christopherkenny-skills/) | Quarto（`.qmd`）向けの APSA スタイルチェッカー | ✍️ | 11 | [christopherkenny/skills](https://github.com/christopherkenny/skills) |
+| **23** | [baygent](skills/23-Learning-Bayesian-Statistics-baygent-skills/) | ガードレール付きの PyMC / ArviZ ベイズワークフロー | 🎯 | 2 | [Learning-Bayesian-Statistics/baygent-skills](https://github.com/Learning-Bayesian-Statistics/baygent-skills) |
+| **24** | [academic-research-skills](skills/24-Imbad0202-academic-research-skills/) | 5 名の査読者による多視点論文レビュー | 📑 | 4 | [Imbad0202/academic-research-skills](https://github.com/Imbad0202/academic-research-skills) |
+| **25** | [Diverga](skills/25-HosungYou-Diverga/) | 研究課題のリファイナー（モードコラプス対策） | 📚 | 34 | [HosungYou/Diverga](https://github.com/HosungYou/Diverga) |
+| **26** | [scholar](skills/26-Data-Wise-scholar/) | 統計アルゴリズムの設計 & ドキュメント化 | 🎯 | 17 | [Data-Wise/claude-plugins](https://github.com/Data-Wise/claude-plugins) |
+| **27** | [my_claude_skills](skills/27-dariia-m-my_claude_skills/) | 経済学アブストラクトの執筆ガイド | ✍️ | 6 | [dariia-m/my_claude_skills](https://github.com/dariia-m/my_claude_skills) |
+| **28** | [paper-replicate-agent](skills/28-maxwell2732-paper-replicate-agent-demo/) | 論文レプリケーションエージェントのデモ | 📑 | 11 | [maxwell2732/paper-replicate-agent-demo](https://github.com/maxwell2732/paper-replicate-agent-demo) |
+| **29** | [project20XXy](skills/29-quarcs-lab-project20XXy/) | 再現可能な原稿 + ノートブックプロジェクト | 📑 | 24 | [quarcs-lab/project20XXy](https://github.com/quarcs-lab/project20XXy) |
+| **30** | [zirui-song-claude-skills](skills/30-zirui-song-claude-skills/) | Zirui Song の研究支援 Claude スキル集 | 🛠️ | 6 | [zirui-song/claude-skills](https://github.com/zirui-song/claude-skills) |
+| **31** | [claude-code-skills](skills/31-thalysandratos-claude-code-skills/) | Python のパネルデータ分析 | 🎯 | 13 | [thalysandratos/claude-code-skills](https://github.com/thalysandratos/claude-code-skills) |
+| **32** | [stata-skill](skills/32-dylantmoore-stata-skill/) | 高性能な Stata C/C++ プラグイン | 🛠️ | 3 | [dylantmoore/stata-skill](https://github.com/dylantmoore/stata-skill) |
+| **33** | [claude-scholar](skills/33-Galaxy-Dawn-claude-scholar/) | 研究のフルライフサイクル: 構想 → レビュー → 実験 → 査読対応 | 🚀 | 47 | [Galaxy-Dawn/claude-scholar](https://github.com/Galaxy-Dawn/claude-scholar) |
+| **34** | [research-companion](skills/34-andrehuang-research-companion/) | 研究の方向性をブレインストーム・評価・決定 | 📚 | 1 | [andrehuang/research-companion](https://github.com/andrehuang/research-companion) |
+| **35** | [academic-writing-skills](skills/35-bahayonghang-academic-writing-skills/) | ベニュー対応の産業 AI 文献研究 | 📚 | 5 | [bahayonghang/academic-writing-skills](https://github.com/bahayonghang/academic-writing-skills) |
+| **36** | [literature-review-skill](skills/36-taoyunudt-literature-review-skill/) | 文献レビューの全ワークフロー（中国語） | 📚 | 1 | [taoyunudt/literature-review-skill](https://github.com/taoyunudt/literature-review-skill) |
+| **37** | [IlanStrauss-ai-skills](skills/37-IlanStrauss-ai-skills/) | Ilan Strauss の経済学研究 AI ワークフロー | 🎯 | 1 | [IlanStrauss/ai-skills](https://github.com/IlanStrauss/ai-skills) |
+| **38** | [academic-proofreader](skills/38-peternka-academic-proofreader/) | 学術校正 | ✍️ | 1 | [peternka/academic_proofreader](https://github.com/peternka/academic_proofreader) |
+| **39** | [marginaleffects](skills/39-vincentarelbundock-marginaleffects/) | 予測、スロープ & 比較（R / Python） | 🎯 | 1 | [vincentarelbundock/marginaleffects](https://github.com/vincentarelbundock/marginaleffects) |
+| **40** | [pyfixest](skills/40-py-econometrics-pyfixest/) | Python での高速な固定効果推定 | 🎯 | 1 | [py-econometrics/pyfixest](https://github.com/py-econometrics/pyfixest) |
+| **41** | [sewage-econometrics-check](skills/41-sticerd-eee-sewage-econometrics-check/) | 10 項目チェックのレプリケーションパッケージ監査 | 📑 | 22 | [sticerd-eee/sewage](https://github.com/sticerd-eee/sewage) |
+| **42** | [ARIS](skills/42-wanshuiyin-ARIS/) | 自律型「研究 in sleep」エージェント、エンドツーエンド | 🚀 | 42 | [wanshuiyin/Auto-claude-code-research-in-sleep](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep) |
+| **43** | [research-plugins](skills/43-wentorai-research-plugins/) | 478 の研究プラグイン: データ可視化、ドメイン、インフラ | 🛠️ | 478 | [wentorai/research-plugins](https://github.com/wentorai/research-plugins) |
+| **44** | [humanizer_academic](skills/44-matsuikentaro1-humanizer_academic/) | 医学/学術原稿の脱 AI 化（23 パターン） | ✍️ | 1 | [matsuikentaro1/humanizer_academic](https://github.com/matsuikentaro1/humanizer_academic) |
+| **45** | [deslop](skills/45-stephenturner-skill-deslop/) | AI 文章パターンの除去（5 次元採点） | ✍️ | 1 | [stephenturner/skill-deslop](https://github.com/stephenturner/skill-deslop) |
+| **46** | [stop-slop](skills/46-hardikpandya-stop-slop/) | 3 層の AI 痕跡検出 & 書き換え | ✍️ | 1 | [hardikpandya/stop-slop](https://github.com/hardikpandya/stop-slop) |
+| **47** | [avoid-ai-writing](skills/47-conorbronsdon-avoid-ai-writing/) | 監査 → 書き換え → 再監査の AI 痕跡対策（証跡付き） | ✍️ | 1 | [conorbronsdon/avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing) |
+| ⭐ **48** | **[de-AIGC-skills](skills/48-de-AIGC-skills/)** 🇨🇳🇬🇧 | 中英バイリンガル学術脱 AIGC（Turnitin AI / GPTZero / CNKI / Wanfang） | ✍️ | 1 | [⭐ 本リポジトリ](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills) |
+| **49** | [humanize-chinese](skills/49-voidborne-d-humanize-chinese/) | AI 生成の中国語テキストを検出・人間化 | ✍️ | 1 | [swaylq/humanize-chinese](https://github.com/swaylq/humanize-chinese) |
+| ⭐ **50** | **[AER-skills](skills/50-brycewang-aer-skills/)** 📕 | トップ 5 経済学投稿スタック: 識別 → 頑健性 → R&R | 🚀 | 9 | [brycewang-stanford/AER-skills](https://github.com/brycewang-stanford/AER-skills) |
+| **51** | [CausalPy](skills/51-pymc-labs-CausalPy/) | ベイズ準実験（PyMC Labs） | 🎯 | 3 | [pymc-labs/CausalPy](https://github.com/pymc-labs/CausalPy) |
+| **52** | [slr-prisma](skills/52-keemanxp-slr-prisma/) | 体系的文献レビュー、PRISMA 2020 | 📚 | 1 | [keemanxp/slr-prisma](https://github.com/keemanxp/slr-prisma) |
+| **53** | [thematic-analysis](skills/53-keemanxp-thematic-analysis-skill/) | Braun & Clarke の 6 段階質的テーマ分析 | 📚 | 1 | [keemanxp/thematic-analysis-skill](https://github.com/keemanxp/thematic-analysis-skill) |
+| **54** | [open-science-skills](skills/54-scdenney-open-science-skills/) | 引用の整合性、DOI & 主張裏付けの監査 | 📑 | 24 | [scdenney/open-science-skills](https://github.com/scdenney/open-science-skills) |
+| **55** | [r-skills](skills/55-ab604-claude-code-r-skills/) | `brms` による R でのベイズ推論 | 🎯 | 8 | [ab604/claude-code-r-skills](https://github.com/ab604/claude-code-r-skills) |
+| **56** | [econ-writing-skill](skills/56-hanlulong-econ-writing-skill/) | 50+ のトップガイドを統合した経済学執筆 | ✍️ | 1 | [hanlulong/econ-writing-skill](https://github.com/hanlulong/econ-writing-skill) |
+| **57** | [edgartools](skills/57-dgunning-edgartools/) | SEC 提出書類のクエリ & 分析 | 🛠️ | 1 | [dgunning/edgartools](https://github.com/dgunning/edgartools) |
+| **58** | [econstack](skills/58-charlescoverdale-econstack/) | 政策ブリーフィングノート（UK GES / AU Treasury） | ✍️ | 7 | [charlescoverdale/econstack](https://github.com/charlescoverdale/econstack) |
+| **59** | [openalex-skill](skills/59-shiquda-openalex-skill/) | OpenAlex 経由で 2.4 億+ の学術成果をクエリ | 📚 | 1 | [shiquda/openalex-skill](https://github.com/shiquda/openalex-skill) |
+| **60** | [superpapers](skills/60-regisely-superpapers/) | 包括的な実証研究サポートスイート | 📚 | 16 | [regisely/superpapers](https://github.com/regisely/superpapers) |
+| **61** | [research-methods](skills/61-phdemotions-research-methods/) | 事前登録に対応した確証的検定 | 🎯 | 9 | [phdemotions/research-methods](https://github.com/phdemotions/research-methods) |
+| **62** | [citation-checker](skills/62-PHY041-claude-skill-citation-checker/) | CrossRef / S2 / OpenAlex に対して引用を検証 | 📑 | 1 | [PHY041/claude-skill-citation-checker](https://github.com/PHY041/claude-skill-citation-checker) |
+| **63** | [scientific-agent-skills](skills/63-tondevrel-scientific-agent-skills/) | DoWhy の identify–estimate–refute フレームワーク | 🎯 | 2 | [tondevrel/scientific-agent-skills](https://github.com/tondevrel/scientific-agent-skills) |
+| **64** | [mcp-stata](skills/64-tmonk-mcp-stata/) | 20 個の Stata 因果推論 & レプリケーションスキル | 🎯 | 20 | [tmonk/mcp-stata](https://github.com/tmonk/mcp-stata) |
+| **65** | [game-theory-paper-writer](skills/65-game-theory-paper-writer/) | ゲーム理論論文の生成 & ストレステスト | ✍️ | 1 | [本リポジトリ PR #17](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/pull/17) |
+| **66** | [empirical-research-skills](skills/66-zheng-siyao-empirical-research-skills/) | 大規模パネル向けの R パフォーマンス最適化 | 🛠️ | 7 | [SiyaoZheng/ai4ss-skills](https://github.com/SiyaoZheng/ai4ss-skills) |
+| **67** | [econfin-workflow-toolkit](skills/67-econfin-workflow-toolkit/) | 中国コーポレートファイナンスの実証ワークフロー、提案 → 論文 | 🚀 | 46 | [本リポジトリ PR #22](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/pull/22) |
+| **68** | [research-productivity-skills](skills/68-research-productivity-skills/) | 論文検索、SSRN、DOI 照会、ダウンロード | 🛠️ | 5 | [本リポジトリ PR #21](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/pull/21) |
+| ⭐ **69** | **[Paper-WorkFlow](skills/69-Paper-WorkFlow/)** 🧭 | 社会科学パイプライン全体を連結するメタオーケストレーター | 🚀 | 1 | [brycewang-stanford/Paper-WorkFlow](https://github.com/brycewang-stanford/Paper-WorkFlow) |
+| **70** | [ssci-polish](skills/70-ssci-polish/) | SSCI/SCI 向け英語論文の言語ポリッシュ（文法・可読性・アカデミックトーン） | ✍️ | 1 | [⭐ 本リポジトリ](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills) |
+| ⭐ **71** | **[lit-review-agent-tools](skills/71-brycewang-lit-review-agent-tools/)** 🔍 | 文献レビューツールの選定と実行（MinerU / PaperQA2 / ASReview / STORM / MCP サーバー） | 📚 | 1 | [brycewang-stanford/lit-review-agent-tools](https://github.com/brycewang-stanford/lit-review-agent-tools) |
+| ⭐ **72** | **[Kaggle Research](skills/72-kaggle-research/)** 🧪 | 公式 CLI による安全・監査可能な Kaggle 検索と公開データの制限付き取得 | 🛠️ | 1 | [⭐ 本リポジトリ](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills) |
 
-> ⭐ **私たち自身が構築した背骨:** [StatsPAI](skills/00-Full-empirical-analysis-skill_StatsPAI/)（因果エンジン）· 明示的な [Python](skills/00.1-Full-empirical-analysis-skill_Python/) / [Stata](skills/00.2-Full-empirical-analysis-skill_Stata/) / [R](skills/00.3-Full-empirical-analysis-skill_R/) の全パイプライン移植版 · [AER-skills](skills/50-brycewang-aer-skills/)（トップ 5 投稿スタック）· [chinese-de-aigc](skills/48-copaper-ai-chinese-de-aigc/) · [Paper-WorkFlow](skills/69-Paper-WorkFlow/)（メタオーケストレーター）。これらが AERS の背骨です —— 完全な比較は [旗艦パイプライン skills ↓](#旗艦パイプライン-skills) を参照。用途別に閲覧したいですか? [同じ 75 を用途別に整理したもの ↓](#75-コレクションを用途別に) をご覧ください。
+> ⭐ **私たち自身が構築した背骨:** [StatsPAI](skills/00-Full-empirical-analysis-skill_StatsPAI/)（因果エンジン）· 明示的な [Python](skills/00.1-Full-empirical-analysis-skill_Python/) / [Stata](skills/00.2-Full-empirical-analysis-skill_Stata/) / [R](skills/00.3-Full-empirical-analysis-skill_R/) の全パイプライン移植版 · [AER-skills](skills/50-brycewang-aer-skills/)（トップ 5 投稿スタック）· [de-AIGC-skills](skills/48-de-AIGC-skills/) · [Paper-WorkFlow](skills/69-Paper-WorkFlow/)（メタオーケストレーター）。これらが AERS の背骨です —— 完全な比較は [旗艦パイプライン skills ↓](#旗艦パイプライン-skills) を参照。用途別に閲覧したいですか? [同じ 76 を用途別に整理したもの ↓](#76-コレクションを用途別に) をご覧ください。
 
-**実証研究の専門家のための agent-skills ディストリビューション。** マーケティング用のリストではありません —— 本リポジトリには **1,095 個のスキルを取り込み（vendored）、カタログ化**したうえで、**数値ベンチマーク・評価ハーネス・セキュリティ監査・CI** で品質を固定し、さらに広域エコシステムの **119 リポジトリにまたがる 23,000+ スキル**を精選したマップを重ねています。
+**実証研究の専門家のための agent-skills ディストリビューション。** マーケティング用のリストではありません —— 本リポジトリには **1,096 個のスキルを取り込み（vendored）、カタログ化**したうえで、**数値ベンチマーク・評価ハーネス・セキュリティ監査・CI** で品質を固定し、さらに広域エコシステムの **119 リポジトリにまたがる 23,000+ スキル**を精選したマップを重ねています。
 
 AERS は同時に二つの性格を持ちます。(1) 完全な実証パイプライン — データクリーニング → 識別 → 推定 → 頑健性 → 表/図 → 投稿可能なドラフト — を回す、少数精鋭の**ファーストパーティ旗艦スキル**。そして (2) 実証研究スキルのエコシステムを、研究ワークフローの段階別に整理した**精選・セキュリティ配慮済みのカタログ**です。差別化の核心は数ではありません。旗艦の挙動が、口先で主張されたものではなく**既知の答えに対して検証されている**という点です。
 
@@ -153,8 +156,8 @@ AERS は同時に二つの性格を持ちます。(1) 完全な実証パイプ�
 
 ## 目次
 
-- [**全 75 スキルコレクション一覧**（`00 → 71` の完全インデックス）](#全-75-スキルコレクション一覧)
-  - [75 コレクションを用途別に](#75-コレクションを用途別に)
+- [**全 76 スキルコレクション一覧**（`00 → 72` の完全インデックス）](#全-76-スキルコレクション一覧)
+  - [76 コレクションを用途別に](#76-コレクションを用途別に)
 - [実際に得られるもの（数字を正確に）](#実際に得られるもの数字を正確に)
 - [2 分で自分で検証する](#2-分で自分で検証する)
 - [なぜ信頼できるのか — 3 つの層](#なぜ信頼できるのか--3-つの層)
@@ -173,9 +176,9 @@ AERS は同時に二つの性格を持ちます。(1) 完全な実証パイプ�
 
 ---
 
-## 75 コレクションを用途別に
+## 76 コレクションを用途別に
 
-> [冒頭の連番インデックス ↑](#全-75-スキルコレクション一覧) と同じ **75 コレクション · 1,095 スキル** を、ここでは**研究目的別**に並べ替えました。取り組んでいる段階までスキャンできます。**⭐ = ファーストパーティ**（Stanford REAP × CoPaper.AI）。それ以外はすべて精選・セキュリティ監査済みのコミュニティ成果です。
+> [冒頭の連番インデックス ↑](#全-76-スキルコレクション一覧) と同じ **76 コレクション · 1,096 スキル** を、ここでは**研究目的別**に並べ替えました。取り組んでいる段階までスキャンできます。**⭐ = ファーストパーティ**（Stanford REAP × CoPaper.AI）。それ以外はすべて精選・セキュリティ監査済みのコミュニティ成果です。
 
 **🚀 全パイプライン旗艦 & オーケストレーター** — *一度の呼び出しで、実証ループ全体*
 
@@ -248,7 +251,7 @@ AERS は同時に二つの性格を持ちます。(1) 完全な実証パイプ�
 | [`45` · deslop](skills/45-stephenturner-skill-deslop/) | AI 文章パターンの除去（5 次元採点） | 1 |
 | [`46` · stop-slop](skills/46-hardikpandya-stop-slop/) | 3 層の AI 痕跡検出 & 書き換え | 1 |
 | [`47` · avoid-ai-writing](skills/47-conorbronsdon-avoid-ai-writing/) | 監査 → 書き換え → 再監査の AI 痕跡対策（証跡付き） | 1 |
-| ⭐ **[`48` · chinese-de-aigc](skills/48-copaper-ai-chinese-de-aigc/)** 🇨🇳 | CNKI / Wanfang / Turnitin-CN 向けの中国語脱 AIGC | 1 |
+| ⭐ **[`48` · de-AIGC-skills](skills/48-de-AIGC-skills/)** 🇨🇳🇬🇧 | 中英バイリンガル学術脱 AIGC（Turnitin AI / GPTZero / CNKI / Wanfang） | 1 |
 | [`70` · ssci-polish](skills/70-ssci-polish/) | SSCI/SCI 向け英語論文の言語ポリッシュ | 1 |
 | [`49` · humanize-chinese](skills/49-voidborne-d-humanize-chinese/) | AI 生成の中国語テキストを検出・人間化 | 1 |
 | [`56` · econ-writing-skill](skills/56-hanlulong-econ-writing-skill/) | 50+ のトップガイドを統合した経済学執筆 | 1 |
@@ -290,16 +293,19 @@ AERS は同時に二つの性格を持ちます。(1) 完全な実証パイプ�
 
 | 内容 | 数 | 一次情報源 |
 |---|---:|---|
-| **本リポジトリに取り込み済み**でカタログ化されたスキル | **1,095** | [`catalog/skills.json`](catalog/skills.json) |
-| 取り込み済み **コレクション（collections）** | **75** | [`catalog/skills.json`](catalog/skills.json) · [全 75 を一覧 ↑](#全-75-スキルコレクション一覧) |
+| **本リポジトリに取り込み済み**でカタログ化されたスキル | **1,096** | [`catalog/skills.json`](catalog/skills.json) |
+| 取り込み済み **コレクション（collections）** | **76** | [`catalog/skills.json`](catalog/skills.json) · [全 76 を一覧 ↑](#全-76-スキルコレクション一覧) |
 | **ファーストパーティ旗艦**の全パイプラインスキル（StatsPAI DSL + 明示的な Python/Stata/R） | **4** | [`skills/00*`](skills/) |
-| 毎回データから gold 値を再計算する数値**ベンチマークタスク** | **17** | [`benchmark/`](benchmark/) |
-| 挙動レベルの**評価シナリオ / ルーブリック項目** | **37 / 183** | [`eval-harness/`](eval-harness/) |
+| 毎回データから gold 値を再計算する数値**ベンチマークタスク** | **19** | [`benchmark/`](benchmark/) |
+| 挙動レベルの**評価シナリオ / ルーブリック項目** | **42 / 217** | [`eval-harness/`](eval-harness/) |
+| うち**正誤を区別できると実証済み**のシナリオ（pass/fail フィクスチャ自己検査） | **9**（`critical` 全 6 件を含む） | [`eval-harness/fixtures/`](eval-harness/fixtures/) |
 | **元のベースライン**のセキュリティ監査（コレクション / ファイル） | **52 / 2,940+**、52/52 CLEAN | [`SECURITY-SCAN-REPORT.md`](SECURITY-SCAN-REPORT.md) |
 | **広域エコシステム**の精選マップ | **23,000+ スキル / 119 リポジトリ** | 本 README · [`docs/SKILL_CATALOG.md`](docs/SKILL_CATALOG.md) |
 | **ツールカタログ**（`tools/`）: 因果/計量ライブラリ、自律研究エージェント、MCP サーバー、因果探索、ベンチマークデータセット | **334 ツール / 6 カテゴリ** | [`tools/tools.json`](tools/tools.json) · [`tools/CATALOG.md`](tools/CATALOG.md) |
 
 > セキュリティ監査が対象としたのは、元の **52 コレクション / 2,940 ファイルのベースライン（52/52 CLEAN）**です。そのベースライン以降に取り込まれたスキルは [`catalog/provenance.json`](catalog/provenance.json)、[`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md)、[`docs/SKILL_AUDIT.md`](docs/SKILL_AUDIT.md) で追跡しています。高信頼が求められる文脈で利用する前には `make audit` を実行してください。コレクション 49–70 に対する増分パターンスキャン（2026-07-15）では悪意あるコンテンツは検出されませんでした —— [`SECURITY-SCAN-REPORT.md`](SECURITY-SCAN-REPORT.md) の増補を参照。
+
+> 🏁 **自分の agent で同じ試験を受けられます。** `pip install -e .` して [`aers-score`](aers_score/README.md) で採点し、[`docs/EXTERNAL_SCOREBOARD.md`](docs/EXTERNAL_SCOREBOARD.md) に掲載できます（ルール: [`docs/SCOREBOARD_RULES.md`](docs/SCOREBOARD_RULES.md)）。掲載される数字は提出された自己申告ではなく、**同じ採点器による再計算結果**です。
 
 ---
 
@@ -346,7 +352,7 @@ make check        # repo validation + unit tests + eval lint + numeric benchmark
 | **[Full Empirical Analysis — Stata](skills/00.2-Full-empirical-analysis-skill_Stata/SKILL.md)** 📊 | コミュニティ標準: `reghdfe` · `ivreg2` · `csdid` · `did_imputation` · `sdid` · `rdrobust` · `synth` · `psmatch2` · `boottest` · `esttab` | レフェリーや共著者が Stata のレプリケーションパックを求める場合（AER/QJE/JPE/ReStud スタイル） |
 | **[Full Empirical Analysis — R](skills/00.3-Full-empirical-analysis-skill_R/SKILL.md)** 📗 | モダンな tidyverse: `fixest` · `did` · `synthdid` · `HonestDiD` · `rdrobust` · `grf` · `DoubleML` · `marginaleffects` · **Quarto** | 単一の `.qmd` を一コマンドで PDF/HTML/Word にレンダリングする再現性レポート |
 | **[AER-Skills](skills/50-brycewang-aer-skills/)** 📕 | 9 スキル: トピックルーティング → 識別監査 → 頑健性 → イントロ → 表 → レプリケーション → 投稿 → R&R → オーケストレーター | トップ 5 経済学（AER / AER:Insights / AEJ）への投稿: *識別ファースト* — 設計が脆弱なら、どんな文章でも救えない |
-| **[chinese-de-aigc](skills/48-copaper-ai-chinese-de-aigc/SKILL.md)** 🇨🇳 | 17 パターンの中国語 AI 痕跡ライブラリ、5 ステップの「特定→診断→書き換え→採点→レビュー」ループ | CNKI / Wanfang / VIP / Turnitin-Chinese 投稿向けの AI 文章シグナルの低減 |
+| **[de-aigc-skills](skills/48-de-AIGC-skills/SKILL.md)** 🇨🇳🇬🇧 | 中英 2 つのパターンライブラリ（英 22 + 中 17）、6 ステップの「受入→監査→主張と証拠→書き換え→採点→再確認」ループ | Turnitin AI / GPTZero / CNKI / Wanfang / VIP 投稿向けの AI 文章シグナルの低減 |
 | **[Paper-WorkFlow](skills/69-Paper-WorkFlow/README.md)** 🧭 | **メタオーケストレーター**: ステージ 0–9 — トピック → 設計 → データ → 推定 → 表/図 → ドラフト → 推敲 → 脱 AIGC → 模擬査読 → 投稿 — を、既存スキルと並列サブエージェントへディスパッチし、再開可能な `workflow_state.json` で連結 | 実証社会科学論文をエンドツーエンドで自動実行 |
 
 > **なぜ DSL *と*明示的な移植版の両方が必要なのか?** ワンショットの DSL を信頼するときは StatsPAI を。教育・監査・各診断を手作業で差し替えなければならないときは 00.1/00.2/00.3 を選んでください。AER-skills はそのうえで、正しい分析を採択ラインまで押し上げます —— これらは*異なる*問題を解決し、互いに組み合わさります。
@@ -359,7 +365,7 @@ make check        # repo validation + unit tests + eval lint + numeric benchmark
 |---|---|---|
 | ![主要係数プロット](demo-StatsPAI-skill/figures/fig3_coefplot_main.png) | ![スペシフィケーション・カーブ](demo-StatsPAI-skill/figures/fig5_spec_curve.png) | ![感度ダッシュボード](demo-StatsPAI-skill/figures/fig6_sensitivity_dashboard.png) |
 
-> 🧪 **エンドツーエンド再現の実証**: 依存ゼロのコマンド 1 つで Card & Krueger (1994) の最低賃金 DiD を公式生データから再現 —— 波次平均は桁単位で一致、Table 4 の係数は完全一致、再現スコアラーの判定は **PERFECT**（3 段階すべて 100%）。[`demo-notebooks/card-krueger-1994/`](demo-notebooks/card-krueger-1994/) を参照。
+> 🧪 **エンドツーエンド再現の実証**: 依存ゼロのコマンド 1 つで Card & Krueger (1994) の最低賃金 DiD を公式生データから再現 —— 波次平均は桁単位で一致、Table 4 の係数は完全一致、再現スコアラーの判定は **PERFECT**（3 段階すべて 100%）。[`demo-notebooks/card-krueger-1994/`](demo-notebooks/card-krueger-1994/) を参照。 同じ形の 2 本目 —— [`demo-notebooks/card-1995-iv/`](demo-notebooks/card-1995-iv/) —— は Card (1995) の教育収益率を**標準誤差込みで**再現: OLS 0.075 (0.003)、2SLS 0.132 (0.055)、第一段階 F 13.3、そして「IV > OLS」という主張自体も明示的に検査。
 >
 > 🔎 オンラインカタログ（GitHub Pages、ビルド不要）: **[スキル検索](https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/docs/search.html)** · [ツール検索](https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/docs/tools-search.html) · [サイトホーム](https://brycewang-stanford.github.io/Auto-Empirical-Research-Skills/)
 
@@ -373,7 +379,7 @@ make check        # repo validation + unit tests + eval lint + numeric benchmark
 | トップ 5 の識別戦略をまず監査 | [`aer-identification`](skills/50-brycewang-aer-skills/skills/aer-identification/SKILL.md) |
 | AER / AEJ 投稿を準備 | [`aer-workflow`](skills/50-brycewang-aer-skills/skills/aer-workflow/SKILL.md) |
 | AEA 対応のレプリケーションパッケージを作成 | [`aer-replication`](skills/50-brycewang-aer-skills/skills/aer-replication/SKILL.md) |
-| 中国語ドラフトの AI 文章シグナルを下げる | [`chinese-de-aigc`](skills/48-copaper-ai-chinese-de-aigc/SKILL.md) |
+| 実証論文ドラフト（英語・中国語）の AI 文章シグナルを下げる | [`de-aigc-skills`](skills/48-de-AIGC-skills/SKILL.md) |
 
 **さらなる入口:**
 
@@ -392,10 +398,10 @@ make check        # repo validation + unit tests + eval lint + numeric benchmark
 
 | 層 | 何を捕捉するか | 場所 |
 |---|---|---|
-| **数値ベンチマーク** | 実データから再計算された真値と一致しない報告数字 —— 素朴 DID の符号の罠、第一段階 F なしの弱 IV、staggered なタイミング下での TWFE バイアス、RDD のトレンド交絡、処置後のバッドコントロール、プールされた平均が隠す異質効果（CATE）、平均のみでは見逃す分位点効果、ローカルショックに交絡されたシフトシェア（Bartik）IV、媒介変数を統制して直接効果の符号が反転する罠、参照グループに依存する Oaxaca 分解、kink での超過質量を素朴密度が隠す bunching | [`benchmark/`](benchmark/) · 17 タスク |
-| **評価ハーネス** | 文章レベルの失敗: 弱 IV の根拠なき安心、staggered-DID での TWFE 誤用、捏造引用、安全でない `curl \| bash` セットアップ、多重検定の濫用、AER 準拠のギャップ | [`eval-harness/`](eval-harness/) · 37 シナリオ / 183 ルーブリック項目 |
+| **数値ベンチマーク** | 実データから再計算された真値と一致しない報告数字 —— 素朴 DID の符号の罠、第一段階 F なしの弱 IV、staggered なタイミング下での TWFE バイアス、RDD のトレンド交絡、処置後のバッドコントロール、プールされた平均が隠す異質効果（CATE）、平均のみでは見逃す分位点効果、ローカルショックに交絡されたシフトシェア（Bartik）IV、媒介変数を統制して直接効果の符号が反転する罠、参照グループに依存する Oaxaca 分解、kink での超過質量を素朴密度が隠す bunching、内生的な価格を操作変数で扱わずに推定した需要システムと係数をそのまま弾力性として報告する誤り（構造推定）、処置ユニットを部分的に波及を受けた隣人と比較する誤り（干渉/スピルオーバー） | [`benchmark/`](benchmark/) · 19 タスク |
+| **評価ハーネス** | 文章レベルの失敗: 弱 IV の根拠なき安心、staggered-DID での TWFE 誤用、捏造引用、安全でない `curl \| bash` セットアップ、多重検定の濫用、AER 準拠のギャップ | [`eval-harness/`](eval-harness/) · 42 シナリオ / 217 ルーブリック項目 |
 | **セキュリティ監査** | pipe-to-shell、リバースシェル、認証情報の流出、13 のリスクカテゴリにわたるプロンプトインジェクション —— 6 フェーズ、40+ フックスクリプトを手作業でレビュー | [`SECURITY-SCAN-REPORT.md`](SECURITY-SCAN-REPORT.md) |
-| **来歴とライセンス** | 取り込まれていないソース、ライセンスリスク、1,095 個すべてのカタログ化スキルにわたる衛生のドリフト | [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md) · [`docs/SKILL_HYGIENE.md`](docs/SKILL_HYGIENE.md) |
+| **来歴とライセンス** | 取り込まれていないソース、ライセンスリスク、1,096 個すべてのカタログ化スキルにわたる衛生のドリフト | [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md) · [`docs/SKILL_HYGIENE.md`](docs/SKILL_HYGIENE.md) |
 | **CI と互換性** | カタログの鮮度、ローカルリンク切れ、GitHub Actions ポリシー、Python 3.9 **および** 3.12 の構文フロア | [`.github/workflows/`](.github/workflows/) · 7 ワークフロー |
 
 ```bash
@@ -410,7 +416,7 @@ make check       # full gate: validate + Python compile + unit tests + eval lint
 
 ## 全体像を眺める
 
-> 📚 完全な **[75 コレクションのディレクトリ ↑](#全-75-スキルコレクション一覧)** は本 README の冒頭にあります —— このセクションではエコシステムをテーマ別に掘り下げます。
+> 📚 完全な **[76 コレクションのディレクトリ ↑](#全-76-スキルコレクション一覧)** は本 README の冒頭にあります —— このセクションではエコシステムをテーマ別に掘り下げます。
 
 ### 研究段階別
 
@@ -495,13 +501,13 @@ Replication → Submission → Peer Review Response → Defense
 
 | スイート | 主な特徴 | 最適な用途 | ローカル |
 |-------|-------------|----------|-------|
-| **chinese-de-aigc** 🇨🇳 | CoPaper.AI による**オリジナル**の中国語学術脱 AIGC; 17 パターンの中国語痕跡ライブラリ、5 ステップループ、セクション別戦略、5 次元採点。中国語学術の脱 AIGC に特化した唯一の GitHub スキル | CNKI / Wanfang / VIP / Turnitin-Chinese | [`48`](skills/48-copaper-ai-chinese-de-aigc/) |
+| **de-AIGC-skills** 🇨🇳🇬🇧 | CoPaper.AI による**オリジナル**の中英バイリンガル学術脱 AIGC; 英 22 + 中 17 パターン、主張-証拠監査を含む 6 ステップループ、セクション別戦略、5 次元採点。経済・経営・社会科学の実証論文向け | Turnitin AI / GPTZero / CNKI / Wanfang / VIP | [`48`](skills/48-de-AIGC-skills/) |
 | [matsuikentaro1/humanizer_academic](https://github.com/matsuikentaro1/humanizer_academic) | 学術特化; 23 の AI 文章パターン; 正当な学術的接続表現を保持 | 医学、生命科学、自然科学の論文 | [`44`](skills/44-matsuikentaro1-humanizer_academic/) |
 | [stephenturner/skill-deslop](https://github.com/stephenturner/skill-deslop) | 正当な分野の慣習と AI 痕跡を区別; 5 次元採点 | 科学論文、技術ブログ | [`45`](skills/45-stephenturner-skill-deslop/) |
 | [hardikpandya/stop-slop](https://github.com/hardikpandya/stop-slop) | 3 層検出 + 5 次元採点; 禁止フレーズ、構造的クリシェ、文ルール | 一般的な散文、ブログ、レポート | [`46`](skills/46-hardikpandya-stop-slop/) |
 | [conorbronsdon/avoid-ai-writing](https://github.com/conorbronsdon/avoid-ai-writing) | 構造化監査 + 書き換え + 2 回目の監査; 監査可能、追跡可能 | 証跡を必要とするワークフロー | [`47`](skills/47-conorbronsdon-avoid-ai-writing/) |
 
-> **組み合わせ:** 🇨🇳 中国語（CNKI/Wanfang/VIP）→ chinese-de-aigc · 🇬🇧 英語 → humanizer_academic · 監査証跡が必要 → avoid-ai-writing · 一般的な散文 → stop-slop。
+> **組み合わせ:** 実証論文（英語・中国語）→ de-aigc-skills · 医学系英語 → humanizer_academic · 監査証跡が必要 → avoid-ai-writing · 一般的な散文 → stop-slop。
 
 ### ツールカタログ（`tools/`）— 自動化された実証・因果推論ツール
 
@@ -567,6 +573,7 @@ Replication → Submission → Peer Review Response → Defense
 
 物語形式の変更履歴は [**CHANGELOG.md**](CHANGELOG.md) に移動しました。最近のハイライト:
 
+- **2026-08** — 数値ベンチマークを外部に開放: [`aers-score`](aers_score/README.md) CLI と [`docs/EXTERNAL_SCOREBOARD.md`](docs/EXTERNAL_SCOREBOARD.md) —— 後者は提出された数字を載せるのではなく、**提出された生の candidate を同じ採点器で再計算**する。手法ファミリー 18 として**構造需要推定**を追加（価格の内生性、弾力性は係数ではない、限界費用は FOC から反転）、自前の Python/Stata/R 旗艦スキルに初の挙動レベル eval を付与、vendored コレクションのセキュリティ走査を「未走査のコレクションがあれば落ちる」門に変更。エンドツーエンド再現も 2 本追加 —— 標準誤差込みの Card (1995)、および NSW 実験（LaLonde タスクが対照する +$1,794 を、引用ではなく**導出**するようになった）。
 - **2026-07** — 初のタグ付きリリース **v2026.07** を公開; 厳密性カバレッジマップを **16 の手法ファミリー全閉環**に拡張（CATE、分位点効果、Bartik シフトシェア、因果媒介、Oaxaca 分解を追加 — 各ファミリーに評価シナリオと数値ベンチマークの両方）、ベンチマークは **16 タスク**、評価ハーネスは **29 シナリオ / 159 ルーブリック項目**に; 機械生成のリリーススナップショット、rigor カバレッジバッジ、6 言語 README 数値整合ゲートを導入。
 - **2026-05** — **AER-skills**（トップ 5 経済学投稿スタック、9 スキル）を週次の上流同期付きで取り込み; 数値ベンチマークを **5 つの因果回復タスク**に、評価ハーネスを **17 シナリオ / 95 ルーブリック項目**に拡張。
 - **2026-04** — **52/52 のセキュリティベースライン**を完了; 4 つの全パイプライン旗艦（**StatsPAI** + 明示的な **Python / Stata / R**）を出荷; オリジナルの **chinese-de-aigc** スキルをローンチ。
@@ -580,11 +587,11 @@ Replication → Submission → Peer Review Response → Defense
 
 AERS があなたの研究に役立ったら、ぜひ**引用**し（[CITATION.cff](CITATION.cff)）、**リポジトリにスター**を付けて、より多くの研究者が見つけられるようにしてください。
 
-<a href="https://www.star-history.com/#brycewang-stanford/Auto-Empirical-Research-Skills&Date">
+<a href="https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/stargazers">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=brycewang-stanford%2FAuto-Empirical-Research-Skills&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=brycewang-stanford%2FAuto-Empirical-Research-Skills&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=brycewang-stanford%2FAuto-Empirical-Research-Skills&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="images/star-history-dark.svg" />
+   <source media="(prefers-color-scheme: light)" srcset="images/star-history.svg" />
+   <img alt="Star History Chart" src="images/star-history.svg" width="600" />
  </picture>
 </a>
 

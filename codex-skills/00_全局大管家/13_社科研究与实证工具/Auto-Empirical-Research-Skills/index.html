@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Auto-Empirical Research Skills (AERS)</title>
-  <meta name="description" content="1,093 vendored agent skills for empirical social-science research, with an executable rigor layer: numeric benchmarks, behavioral evals, and published-replication golds.">
+  <meta name="description" content="1,096 vendored agent skills for empirical social-science research, with an executable rigor layer: numeric benchmarks, behavioral evals, and published-replication golds.">
   <style>
     :root {
       color-scheme: light dark;
@@ -109,7 +109,7 @@
       try {
         const badge = await fetch("docs/badges/rigor-coverage.json").then(r => r.json());
         document.getElementById("n-rigor").textContent = badge.message ?? "–";
-      } catch { document.getElementById("n-rigor").textContent = "16 families"; }
+      } catch { document.getElementById("n-rigor").textContent = "see RIGOR_COVERAGE"; }
       document.getElementById("stats").hidden = false;
     } catch { /* stats stay hidden on file:// */ }
   })();

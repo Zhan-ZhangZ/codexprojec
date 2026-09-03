@@ -39,7 +39,7 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +52,11 @@ from checks import ALL_CHECKS, AUTO_CHECKS, MANUAL_CHECK, run_check  # noqa: E40
 EVALS_DIR = ROOT / "eval-harness"
 SCENARIO_DIR = EVALS_DIR / "scenarios"
 RESULTS_DIR = EVALS_DIR / "results"
+# Discrimination fixtures: eval-harness/fixtures/<scenario-id>/{pass,fail}.md.
+# See selftest_scenario() for what they are for.
+FIXTURE_DIR = EVALS_DIR / "fixtures"
+FIXTURE_PASS = "pass.md"
+FIXTURE_FAIL = "fail.md"
 
 
 def rel(path: Path) -> str:
@@ -97,7 +102,11 @@ def validate_repo_relative_path(
     if not isinstance(value, str) or not value:
         return [f"{label} must be a non-empty string"]
     raw_path = Path(value)
-    if raw_path.is_absolute():
+    if (
+        raw_path.is_absolute()
+        or PurePosixPath(value).is_absolute()
+        or PureWindowsPath(value).is_absolute()
+    ):
         return [f"{label} '{value}' must be repo-relative, not absolute"]
     root = ROOT.resolve()
     resolved = (ROOT / raw_path).resolve(strict=False)
@@ -241,6 +250,111 @@ def validate_scenario(s: dict[str, Any]) -> list[str]:
     return problems
 
 
+# --------------------------------------------------------------------------
+# discrimination self-test
+# --------------------------------------------------------------------------
+def fixture_dir(scenario_id: str) -> Path:
+    return FIXTURE_DIR / scenario_id
+
+
+def has_fixtures(scenario_id: str) -> bool:
+    directory = fixture_dir(scenario_id)
+    return (directory / FIXTURE_PASS).exists() and (directory / FIXTURE_FAIL).exists()
+
+
+def selftest_scenario(s: dict[str, Any]) -> list[str]:
+    """Check that a scenario's rubric actually separates right from wrong.
+
+    A scenario is cheap to add and easy to get wrong in two opposite ways. A
+    rubric whose patterns match almost anything inflates the coverage count
+    while testing nothing. A rubric whose patterns match almost nothing fails
+    every candidate including correct ones, and gets ignored.
+
+    Neither failure is visible from the scenario file. Both are visible the
+    moment you run the rubric against a *correct* answer and a *plausibly
+    wrong* one and ask whether the verdicts differ. That is what a fixture pair
+    is: ``fixtures/<scenario-id>/pass.md`` is what a careful answer looks like,
+    ``fail.md`` is what an agent that knows the syntax but not the inference
+    says. The bar:
+
+    - every auto-checkable item must PASS on ``pass.md`` — an item no correct
+      answer can satisfy is a broken item, not a strict one;
+    - at least one REQUIRED auto-checkable item must FAIL on ``fail.md`` — a
+      rubric the wrong answer sails through is not testing anything.
+
+    Manual items are excluded: they exist precisely because no regex settles
+    them.
+    """
+    sid = s["id"]
+    directory = fixture_dir(sid)
+    problems: list[str] = []
+    for name in (FIXTURE_PASS, FIXTURE_FAIL):
+        if not (directory / name).exists():
+            problems.append(f"{sid}: missing fixture {rel(directory / name)}")
+    if problems:
+        return problems
+
+    good = (directory / FIXTURE_PASS).read_text(encoding="utf-8", errors="replace")
+    bad = (directory / FIXTURE_FAIL).read_text(encoding="utf-8", errors="replace")
+    auto = [i for i in s.get("rubric", []) if i.get("check", MANUAL_CHECK) in AUTO_CHECKS]
+    if not auto:
+        return [f"{sid}: has fixtures but no auto-checkable rubric items to exercise"]
+
+    for item in auto:
+        result = run_check(item, good)
+        if result.status != "pass":
+            problems.append(
+                f"{sid}/{item['id']}: fails on the correct answer "
+                f"({FIXTURE_PASS}) — {result.detail or 'no detail'}"
+            )
+
+    failed_required = [
+        item["id"]
+        for item in auto
+        if item.get("required") and run_check(item, bad).status != "pass"
+    ]
+    if not failed_required:
+        problems.append(
+            f"{sid}: the wrong answer ({FIXTURE_FAIL}) passes every required "
+            "auto-checkable item — the rubric does not discriminate"
+        )
+    return problems
+
+
+# Severities whose scenarios must ship fixtures. A check the repo calls
+# `critical` is one it leans on hardest; leaning on an unproven rubric is the
+# thing this whole mechanism exists to prevent.
+SEVERITIES_REQUIRING_FIXTURES = ("critical",)
+
+
+def selftest_scenarios(scenarios: list[dict[str, Any]]) -> tuple[list[str], int]:
+    """Run the discrimination self-test over every scenario that has fixtures."""
+    problems: list[str] = []
+    checked = 0
+    for s in scenarios:
+        severity = s.get("severity", "")
+        if not has_fixtures(s["id"]):
+            if severity in SEVERITIES_REQUIRING_FIXTURES:
+                problems.append(
+                    f"{s['id']}: severity {severity!r} but no discrimination fixtures. "
+                    f"Add eval-harness/fixtures/{s['id']}/{{{FIXTURE_PASS},{FIXTURE_FAIL}}}."
+                )
+            continue
+        checked += 1
+        problems.extend(selftest_scenario(s))
+    return problems, checked
+
+
+def orphan_fixture_dirs(scenarios: list[dict[str, Any]]) -> list[str]:
+    """Fixture directories with no matching scenario (a renamed or deleted id)."""
+    if not FIXTURE_DIR.exists():
+        return []
+    known = {s["id"] for s in scenarios}
+    return sorted(
+        d.name for d in FIXTURE_DIR.iterdir() if d.is_dir() and d.name not in known
+    )
+
+
 def rubric_stats(scenarios: list[dict[str, Any]]) -> dict[str, Any]:
     auto = manual = total = 0
     per_skill: dict[str, int] = {}
@@ -262,6 +376,7 @@ def rubric_stats(scenarios: list[dict[str, Any]]) -> dict[str, Any]:
         "auto_checkable": auto,
         "manual": manual,
         "skills_covered": len(per_skill),
+        "with_fixtures": sum(1 for s in scenarios if has_fixtures(s["id"])),
         "per_skill": per_skill,
         "per_severity": per_severity,
         "per_category": per_category,
@@ -435,6 +550,10 @@ def cmd_lint(scenarios: list[dict[str, Any]], strict: bool) -> int:
         print(f"  rubric items: {stats['rubric_items']} "
               f"({stats['auto_checkable']} auto-checkable, {stats['manual']} manual)")
         print(f"  skills covered: {stats['skills_covered']}")
+        print(
+            f"  discrimination fixtures: {stats['with_fixtures']}/{stats['scenarios']} "
+            "scenario(s) prove they separate a correct answer from a wrong one"
+        )
         print(f"  by severity: {stats['per_severity']}")
         print(f"  by category: {stats['per_category']}")
     if problems:
@@ -562,6 +681,19 @@ def main(argv: list[str] | None = None) -> int:
         "--expect-categories",
         help="coverage gate: comma-separated scenario categories that must exist",
     )
+    ap.add_argument(
+        "--selftest",
+        action="store_true",
+        help=(
+            "run the discrimination self-test: every scenario with fixtures must pass "
+            "its own pass.md and fail at least one required item on its fail.md"
+        ),
+    )
+    ap.add_argument(
+        "--min-fixtures",
+        type=int,
+        help="coverage gate: require at least this many scenarios to ship fixtures",
+    )
     ap.add_argument("--strict", action="store_true", help="treat warnings as errors")
     args = ap.parse_args(argv)
 
@@ -589,6 +721,39 @@ def main(argv: list[str] | None = None) -> int:
         for problem in coverage_problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+
+    if args.min_fixtures is not None:
+        with_fixtures = sum(1 for s in scenarios if has_fixtures(s["id"]))
+        if with_fixtures < args.min_fixtures:
+            print(
+                f"Only {with_fixtures} scenario(s) ship discrimination fixtures; "
+                f"--min-fixtures {args.min_fixtures} was required.",
+                file=sys.stderr,
+            )
+            return 1
+
+    if args.selftest:
+        orphans = orphan_fixture_dirs(scenarios)
+        problems, checked = selftest_scenarios(scenarios)
+        for orphan in orphans:
+            problems.append(
+                f"eval-harness/fixtures/{orphan}/ matches no scenario id "
+                "(renamed or deleted?)"
+            )
+        if problems:
+            print(
+                f"Discrimination self-test failed ({checked} scenario(s) checked):",
+                file=sys.stderr,
+            )
+            for problem in problems:
+                print(f"  - {problem}", file=sys.stderr)
+            return 1
+        print(
+            f"Discrimination self-test passed: {checked} scenario(s) separate a "
+            "correct answer from a plausible wrong one."
+        )
+        if not args.grade and not args.judge_prompts and not args.list:
+            return cmd_lint(scenarios, args.strict)
 
     if args.list:
         for s in scenarios:

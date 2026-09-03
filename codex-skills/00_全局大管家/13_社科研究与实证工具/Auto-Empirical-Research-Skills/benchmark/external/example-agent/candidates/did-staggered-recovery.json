@@ -1,0 +1,8 @@
+{
+  "task": "did-staggered-recovery",
+  "method": "Callaway-Sant'Anna group-time ATT, aggregated",
+  "n": 600,
+  "true_att": 2.9091,
+  "twfe_att": 1.4545,
+  "cs_att": 2.9091
+}

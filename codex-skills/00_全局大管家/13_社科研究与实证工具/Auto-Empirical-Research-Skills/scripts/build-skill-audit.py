@@ -35,7 +35,12 @@ def iter_skill_like_files() -> list[Path]:
         for filename in filenames:
             if filename.lower() == "skill.md":
                 paths.append(Path(dirpath) / filename)
-    return sorted(paths)
+    # Same normalization-free sort key as build-catalog.py's iter_skill_files();
+    # see the comment there for why a bare `sorted()` orders differently on a
+    # Windows checkout. The two must stay in lockstep -- the audit and the
+    # catalog are cross-checked, so a divergence here shows up as spurious
+    # drift. TestCrossPlatformSkillOrdering asserts both against one walk.
+    return sorted(paths, key=lambda path: path.relative_to(SKILLS_DIR).parts)
 
 
 def _skip_leading_comment(lines: list[str]) -> list[str]:

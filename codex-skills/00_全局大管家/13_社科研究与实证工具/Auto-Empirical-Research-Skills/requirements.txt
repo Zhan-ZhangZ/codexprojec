@@ -8,8 +8,24 @@
 # Lower bounds chosen to match the versions known to work with the
 # 69-Paper-WorkFlow demo gate as of v2026.07. Upper bounds leave room
 # for upstream API changes and are not strict pins.
-numpy>=1.26,<3
-pandas>=2.0,<3
+numpy>=2.2.6,<3
+pandas>=3.0.5,<4
 matplotlib>=3.11.1,<4
-statsmodels>=0.14,<1
-linearmodels>=4.27,<6
+statsmodels>=0.15.0,<1
+# Floor raised 4.27 -> 7.0 (2026-08): the 5.x wheels are compiled against the
+# NumPy 1.x ABI, so pairing them with the numpy>=2 this file already allows
+# makes every import print "A module that was compiled using NumPy 1.x cannot
+# be run in NumPy 2.x as it may crash". 7.0 imports clean. It needs Python
+# >= 3.10; that is fine here because this file is only installed by the
+# validate-catalog and sync-* workflows, which all pin 3.12 — the 3.9 leg of
+# the quality matrix installs nothing (every gate it runs is stdlib-only).
+linearmodels>=7.0,<8
+# Added 2026-09-01 alongside the Paper-WorkFlow submodule advance that
+# introduced scripts/check_defense_deck.py. That checker builds the Stage 9
+# defence deck for real, so python-pptx is a *hard* dependency of it — the
+# submodule's own requirements-dev.txt says so. Without it the checker fails,
+# generate_rigor_report.py --check then reports "RIGOR.md is STALE", and the
+# suggested regeneration would commit a false "FAILING - 38/39" record. It is
+# the second entry here (after the notebook stack) that exists purely so the
+# paper-workflow gate can tell the truth.
+python-pptx>=1.0.2,<2

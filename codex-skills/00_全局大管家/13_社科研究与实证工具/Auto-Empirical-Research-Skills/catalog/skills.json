@@ -370,8 +370,8 @@
         "path": "skills/18-jusi-aalto-stata-accounting-research/SKILL.md"
       },
       "skill_count": 1,
-      "source_confidence": "unresolved",
-      "source_url": null,
+      "source_confidence": "high",
+      "source_url": "https://github.com/jusi-aalto/stata-accounting-research",
       "sync": "manual vendor snapshot"
     },
     {
@@ -507,7 +507,7 @@
       },
       "skill_count": 17,
       "source_confidence": "medium",
-      "source_url": "https://github.com/Data-Wise/scholar",
+      "source_url": "https://github.com/Data-Wise/claude-plugins",
       "sync": "manual vendor snapshot"
     },
     {
@@ -557,8 +557,8 @@
         "path": "skills/29-quarcs-lab-project20XXy/dot-claude/skills/abstract/SKILL.md"
       },
       "skill_count": 24,
-      "source_confidence": "unresolved",
-      "source_url": null,
+      "source_confidence": "medium",
+      "source_url": "https://github.com/quarcs-lab/project20XXy",
       "sync": "manual vendor snapshot"
     },
     {
@@ -710,8 +710,8 @@
         "path": "skills/38-peternka-academic-proofreader/SKILL.md"
       },
       "skill_count": 1,
-      "source_confidence": "unresolved",
-      "source_url": null,
+      "source_confidence": "high",
+      "source_url": "https://github.com/peternka/academic_proofreader",
       "sync": "manual vendor snapshot"
     },
     {
@@ -871,13 +871,13 @@
       "commercial_use": "share-alike",
       "has_license": false,
       "has_readme": true,
-      "id": "48-copaper-ai-chinese-de-aigc",
+      "id": "48-de-AIGC-skills",
       "license": "CC-BY-SA-4.0 (repository default)",
-      "path": "skills/48-copaper-ai-chinese-de-aigc",
+      "path": "skills/48-de-AIGC-skills",
       "primary_skill": {
-        "description": "面向中文学术论文的降 AIGC 检测率 Skill。针对知网、万方、维普、Turnitin 中文版的检测机制，识别并消除中文大语言模型的 17 类结构化写作痕迹。采用\"定位 → 诊断 → 改写 → 自评 → 复查\"五步闭环工作流，分章节差异化策略（摘要/引言/文献综述/方法/结果/讨论/结论），保持学术严谨性前提下通过检测。",
-        "name": "chinese-de-aigc",
-        "path": "skills/48-copaper-ai-chinese-de-aigc/SKILL.md"
+        "description": "中英双语学术降 AIGC / bilingual academic de-AIGC skill. Removes AI-generated writing signatures from empirical papers in economics, management, and the social sciences — in both English and Chinese. Covers Turnitin AI, GPTZero, Originality.ai on the English side and 知网 AMLC, 万方, 维普 on the Chinese side. Uses a six-step loop (intake → audit → claim-evidence check → differentiated rewrite → five-dimension self-score → cold-reader recheck) with two pattern libraries (22 English + 17 Chinese patterns), section-by-section strategies for empirical papers, and hard protections that keep every number, coefficient, and citation intact.",
+        "name": "de-aigc-skills",
+        "path": "skills/48-de-AIGC-skills/SKILL.md"
       },
       "skill_count": 1,
       "source_confidence": "high",
@@ -897,8 +897,8 @@
         "path": "skills/49-voidborne-d-humanize-chinese/SKILL.md"
       },
       "skill_count": 1,
-      "source_confidence": "unresolved",
-      "source_url": null,
+      "source_confidence": "high",
+      "source_url": "https://github.com/swaylq/humanize-chinese",
       "sync": "manual vendor snapshot"
     },
     {
@@ -1232,7 +1232,7 @@
       "license": "MIT",
       "path": "skills/69-Paper-WorkFlow",
       "primary_skill": {
-        "description": "经管 / 社科实证论文全流程 meta-orchestrator：把选题、设计、数据、估计、方法闸门、 表图、写作、去 AI 味、质量门、修订、投稿与复盘编排成 Stage 0–9 可断点续跑流水线。 本 skill 不重复实现子能力，而是按阶段调用既有 skill 或并行 subagent，并在 Stage 3–4 路由 Python/StatsPAI、Stata、R 三种分析后端。触发：/paper-workflow、帮我写一篇实证论文、 从选题到投稿、端到端 empirical paper、已有 proposal/数据/初稿要推进到投稿，或明确要求 用 Stata / R/fixest / Python-StatsPAI 完整复现。 Parent-invoked with any trigger above: jump straight to Stage 0 Setup without re-asking.",
+        "description": "经管 / 社科实证论文全流程 meta-orchestrator：把选题、设计、数据、估计、方法闸门、 表图、写作、去 AI 味、质量门、修订、投稿与复盘编排成 Stage 0–9 可断点续跑流水线。 本 skill 不重复实现子能力，而是按阶段调用既有 skill 或并行 subagent，并在 Stage 3–4 路由 Python/StatsPAI、Stata、R 三种分析后端，Stage 9 交付**一份含正文+表+图+参考文献的 Word 全文定稿**（`09_submission/main.docx`，另可出 `.tex`）。触发：/paper-workflow、 帮我写一篇实证论文、从选题到投稿、端到端 empirical paper、从数据到 docx 论文全文、 出一份 Word 版全文、已有 proposal/数据/初稿要推进到投稿，或明确要求用 Stata / R/fixest / Python-StatsPAI 完整复现。 Parent-invoked with any trigger above: jump straight to Stage 0 Setup without re-asking.",
         "name": "paper-workflow",
         "path": "skills/69-Paper-WorkFlow/SKILL.md"
       },
@@ -1274,6 +1274,23 @@
       "source_confidence": "high",
       "source_url": "https://github.com/brycewang-stanford/lit-review-agent-tools",
       "sync": "manual"
+    },
+    {
+      "commercial_use": "share-alike",
+      "has_license": false,
+      "has_readme": true,
+      "id": "72-kaggle-research",
+      "license": "CC-BY-SA-4.0 (repository default)",
+      "path": "skills/72-kaggle-research",
+      "primary_skill": {
+        "description": "Use when a research task needs reproducible Kaggle discovery, metadata inspection, bounded public-data downloads, competition or kernel discovery, model discovery, or an explicitly approved Kaggle write/delete operation through the official CLI.",
+        "name": "kaggle-research",
+        "path": "skills/72-kaggle-research/kaggle-research/SKILL.md"
+      },
+      "skill_count": 1,
+      "source_confidence": "high",
+      "source_url": "https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills",
+      "sync": "manual"
     }
   ],
   "generated_by": "scripts/build-catalog.py",
@@ -1290,7 +1307,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2263,
+      "line_count": 2308,
       "name": "StatsPAI_skill",
       "path": "skills/00-Full-empirical-analysis-skill_StatsPAI/SKILL.md",
       "qualified_name": "00-Full-empirical-analysis-skill_StatsPAI::StatsPAI_skill"
@@ -1306,7 +1323,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2052,
+      "line_count": 2098,
       "name": "Full-empirical-analysis-skill",
       "path": "skills/00.1-Full-empirical-analysis-skill_Python/SKILL.md",
       "qualified_name": "00.1-Full-empirical-analysis-skill_Python::Full-empirical-analysis-skill"
@@ -1322,7 +1339,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2368,
+      "line_count": 2414,
       "name": "Full-empirical-analysis-skill-Stata",
       "path": "skills/00.2-Full-empirical-analysis-skill_Stata/SKILL.md",
       "qualified_name": "00.2-Full-empirical-analysis-skill_Stata::Full-empirical-analysis-skill-Stata"
@@ -1338,7 +1355,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 2466,
+      "line_count": 2512,
       "name": "Full-empirical-analysis-skill-R",
       "path": "skills/00.3-Full-empirical-analysis-skill_R/SKILL.md",
       "qualified_name": "00.3-Full-empirical-analysis-skill_R::Full-empirical-analysis-skill-R"
@@ -16366,8 +16383,8 @@
       "qualified_name": "47-conorbronsdon-avoid-ai-writing::avoid-ai-writing"
     },
     {
-      "collection": "48-copaper-ai-chinese-de-aigc",
-      "description": "面向中文学术论文的降 AIGC 检测率 Skill。针对知网、万方、维普、Turnitin 中文版的检测机制，识别并消除中文大语言模型的 17 类结构化写作痕迹。采用\"定位 → 诊断 → 改写 → 自评 → 复查\"五步闭环工作流，分章节差异化策略（摘要/引言/文献综述/方法/结果/讨论/结论），保持学术严谨性前提下通过检测。",
+      "collection": "48-de-AIGC-skills",
+      "description": "中英双语学术降 AIGC / bilingual academic de-AIGC skill. Removes AI-generated writing signatures from empirical papers in economics, management, and the social sciences — in both English and Chinese. Covers Turnitin AI, GPTZero, Originality.ai on the English side and 知网 AMLC, 万方, 维普 on the Chinese side. Uses a six-step loop (intake → audit → claim-evidence check → differentiated rewrite → five-dimension self-score → cold-reader recheck) with two pattern libraries (22 English + 17 Chinese patterns), section-by-section strategies for empirical papers, and hard protections that keep every number, coefficient, and citation intact.",
       "frontmatter_fields": [
         "description",
         "name",
@@ -16376,10 +16393,10 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 159,
-      "name": "chinese-de-aigc",
-      "path": "skills/48-copaper-ai-chinese-de-aigc/SKILL.md",
-      "qualified_name": "48-copaper-ai-chinese-de-aigc::chinese-de-aigc"
+      "line_count": 261,
+      "name": "de-aigc-skills",
+      "path": "skills/48-de-AIGC-skills/SKILL.md",
+      "qualified_name": "48-de-AIGC-skills::de-aigc-skills"
     },
     {
       "collection": "49-voidborne-d-humanize-chinese",
@@ -19045,7 +19062,7 @@
     },
     {
       "collection": "69-Paper-WorkFlow",
-      "description": "经管 / 社科实证论文全流程 meta-orchestrator：把选题、设计、数据、估计、方法闸门、 表图、写作、去 AI 味、质量门、修订、投稿与复盘编排成 Stage 0–9 可断点续跑流水线。 本 skill 不重复实现子能力，而是按阶段调用既有 skill 或并行 subagent，并在 Stage 3–4 路由 Python/StatsPAI、Stata、R 三种分析后端。触发：/paper-workflow、帮我写一篇实证论文、 从选题到投稿、端到端 empirical paper、已有 proposal/数据/初稿要推进到投稿，或明确要求 用 Stata / R/fixest / Python-StatsPAI 完整复现。 Parent-invoked with any trigger above: jump straight to Stage 0 Setup without re-asking.",
+      "description": "经管 / 社科实证论文全流程 meta-orchestrator：把选题、设计、数据、估计、方法闸门、 表图、写作、去 AI 味、质量门、修订、投稿与复盘编排成 Stage 0–9 可断点续跑流水线。 本 skill 不重复实现子能力，而是按阶段调用既有 skill 或并行 subagent，并在 Stage 3–4 路由 Python/StatsPAI、Stata、R 三种分析后端，Stage 9 交付**一份含正文+表+图+参考文献的 Word 全文定稿**（`09_submission/main.docx`，另可出 `.tex`）。触发：/paper-workflow、 帮我写一篇实证论文、从选题到投稿、端到端 empirical paper、从数据到 docx 论文全文、 出一份 Word 版全文、已有 proposal/数据/初稿要推进到投稿，或明确要求用 Stata / R/fixest / Python-StatsPAI 完整复现。 Parent-invoked with any trigger above: jump straight to Stage 0 Setup without re-asking.",
       "frontmatter_fields": [
         "allowed-tools",
         "argument-hint",
@@ -19055,7 +19072,7 @@
       "has_description": true,
       "has_frontmatter": true,
       "has_name": true,
-      "line_count": 269,
+      "line_count": 249,
       "name": "paper-workflow",
       "path": "skills/69-Paper-WorkFlow/SKILL.md",
       "qualified_name": "69-Paper-WorkFlow::paper-workflow"
@@ -19090,6 +19107,21 @@
       "name": "literature-review-tools",
       "path": "skills/71-brycewang-lit-review-agent-tools/literature-review-tools/SKILL.md",
       "qualified_name": "71-brycewang-lit-review-agent-tools::literature-review-tools"
+    },
+    {
+      "collection": "72-kaggle-research",
+      "description": "Use when a research task needs reproducible Kaggle discovery, metadata inspection, bounded public-data downloads, competition or kernel discovery, model discovery, or an explicitly approved Kaggle write/delete operation through the official CLI.",
+      "frontmatter_fields": [
+        "description",
+        "name"
+      ],
+      "has_description": true,
+      "has_frontmatter": true,
+      "has_name": true,
+      "line_count": 86,
+      "name": "kaggle-research",
+      "path": "skills/72-kaggle-research/kaggle-research/SKILL.md",
+      "qualified_name": "72-kaggle-research::kaggle-research"
     }
   ],
   "summary": {
@@ -19098,7 +19130,7 @@
     "missing_frontmatter": 0,
     "missing_name": 0,
     "oversized_skill_files_over_500_lines": 83,
-    "skill_files": 1095,
-    "top_level_collections": 75
+    "skill_files": 1096,
+    "top_level_collections": 76
   }
 }

@@ -1,0 +1,11 @@
+{
+  "task": "spillover-recovery",
+  "method": "Partial-interference decomposition: direct effect within treated clusters, spillover and overall effects against pure-control clusters",
+  "n": 800,
+  "pure_control_clusters": 20,
+  "direct_effect": 2.0,
+  "spillover_effect": 1.5,
+  "naive_spillover": 0.0,
+  "total_effect_on_treated": 3.5,
+  "overall_effect": 2.5
+}

@@ -1,0 +1,146 @@
+id = "spillover-recovery"
+title = "Spillover recovery: does the pipeline separate direct, spillover, and overall effects, or report the within-cluster contrast as 'the effect'?"
+data = "benchmark/data/sim-spillover.csv"
+reference_candidate = "reference-spillover"
+
+description = """
+Partial interference in the ordinary way it happens: a program reaches half the
+people in a village, and the other half benefit too. Following Hudgens and
+Sant'Anna-style partial-interference notation (Hudgens and Halloran 2008),
+
+    Y_i = b_i + 2.0 * D_i + 3.0 * p_c
+
+where D_i is the unit's own treatment and p_c the treated share of its cluster.
+40 clusters of 20 units; 20 clusters are PURE CONTROLS (p = 0) and 20 are
+treated at p = 0.5. Baselines are balanced by construction across both splits,
+so every contrast below is the design parameter exactly.
+
+Four different quantities all get called "the treatment effect":
+
+  direct effect        (treated vs untreated, same cluster)        2.0
+  spillover effect     (untreated in a treated cluster vs a pure
+                        control cluster)                           1.5
+  total on the treated (treated vs a pure control cluster)         3.5
+  overall / policy     (whole treated cluster vs pure control)     2.5
+
+The trap is the first one. A within-cluster comparison is what a rollout hands
+you for free — both arms are right there — and it recovers 2.0. That is a
+perfectly good *direct* effect and a bad answer to "what did the program do":
+the comparison group is already receiving 1.5 of spillover, so the number
+understates the benefit to a treated person by 43% and the benefit of rolling
+the program out by 20%. The untreated in a treated village are not controls;
+they are partially exposed.
+
+Reporting the spillover as zero is not an oversight, it is what "we assume no
+interference between units" means when nothing follows it — so the benchmark
+grades that assumption as a claim, against a value recomputed from the data.
+
+The dataset ships y0 (each unit's outcome with no treatment anywhere in its
+cluster) as a column no estimator reads, so a candidate cannot pass by
+fabricating numbers.
+"""
+
+true_direct_by_construction = 2.0
+true_spillover_by_construction = 1.5
+true_total_on_treated_by_construction = 3.5
+true_overall_by_construction = 2.5
+
+[[gold]]
+id = "direct-effect-recovered"
+required = true
+weight = 3
+description = "The within-cluster direct effect is recovered (2.0) -- reporting it is fine, calling it the program's effect is not."
+check = "recovers_truth"
+field = "direct_effect"
+truth_key = "true_direct"
+tol = 0.01
+
+[[gold]]
+id = "spillover-recovered"
+required = true
+weight = 5
+description = "The spillover onto untreated units in treated clusters is estimated against pure-control clusters and recovers 1.5."
+check = "recovers_truth"
+field = "spillover_effect"
+truth_key = "true_spillover"
+tol = 0.01
+
+[[gold]]
+id = "sutva-assumption-is-wrong-here"
+required = true
+weight = 4
+description = "Reports what assuming no interference would give (a spillover of zero) and it is far from the recomputed 1.5 -- the assumption is surfaced as a claim rather than made silently."
+check = "biased_away"
+field = "naive_spillover"
+truth_key = "true_spillover"
+min_gap = 1.0
+
+[[gold]]
+id = "total-effect-on-treated-recovered"
+required = true
+weight = 4
+description = "The effect on a treated unit relative to a pure-control cluster (direct + spillover = 3.5) is reported separately from the direct effect."
+check = "recovers_truth"
+field = "total_effect_on_treated"
+truth_key = "true_total_on_treated"
+tol = 0.01
+
+[[gold]]
+id = "overall-policy-effect-recovered"
+required = true
+weight = 5
+description = "The policy-relevant overall effect -- whole treated cluster vs whole pure-control cluster (2.5) -- is reported, since that is what rolling the program out buys."
+check = "recovers_truth"
+field = "overall_effect"
+truth_key = "true_overall"
+tol = 0.01
+
+[[gold]]
+id = "within-cluster-understates-the-program"
+required = true
+weight = 4
+description = "The within-cluster contrast is far from the total effect on a treated unit, exposing the contaminated-control problem instead of hiding it."
+check = "biased_away"
+field = "direct_effect"
+truth_key = "true_total_on_treated"
+min_gap = 1.0
+
+[[gold]]
+id = "pure-controls-beat-contaminated-controls"
+required = false
+weight = 2
+description = "The pure-control comparison is closer to the true total effect on the treated than the within-cluster contrast is (informational)."
+check = "closer_to_truth"
+near_field = "total_effect_on_treated"
+far_field = "direct_effect"
+truth_key = "true_total_on_treated"
+
+[[gold]]
+id = "honest-direct"
+required = true
+weight = 2
+description = "The reported direct effect matches what the checker recomputes from the data (no fabricated numbers)."
+check = "recovers_truth"
+field = "direct_effect"
+truth_key = "direct_effect"
+tol = 0.001
+
+[[gold]]
+id = "honest-spillover"
+required = true
+weight = 2
+description = "The reported spillover matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "spillover_effect"
+truth_key = "spillover_effect"
+tol = 0.001
+
+[[gold]]
+id = "honest-overall"
+required = true
+weight = 2
+description = "The reported overall effect matches what the checker recomputes (no fabricated numbers)."
+check = "recovers_truth"
+field = "overall_effect"
+truth_key = "overall_effect"
+tol = 0.001

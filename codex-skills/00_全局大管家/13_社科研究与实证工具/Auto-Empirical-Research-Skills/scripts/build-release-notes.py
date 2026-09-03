@@ -54,32 +54,27 @@ TASK_DIR = ROOT / "benchmark" / "tasks"
 OUT = ROOT / "docs" / "RELEASE_NOTES.md"
 BADGE_OUT = ROOT / "docs" / "badges" / "rigor-coverage.json"
 HTML_OUT = ROOT / "docs" / "releases" / "index.html"
+CANONICAL_REPO_SLUG = (
+    "brycewang-stanford/Auto-Empirical-Research-Skills"
+)
 
 
 def _repo_slug() -> str:
-    """Best-effort GitHub owner/repo slug for the HTML 'GitHub releases' link.
+    """Return the canonical upstream slug for the 'GitHub releases' link.
 
-    Falls back to a hardcoded default when `git` is unavailable so the page
-    still renders. Maintained by hand in lockstep with the repo URL.
+    Deliberately a constant rather than `git remote get-url origin`. The
+    generated HTML is committed and gated by `--check`, so any input that
+    varies per clone makes the generator non-deterministic: a contributor
+    working in a fork would rewrite the release links and trip the freshness
+    gate for reasons unrelated to their change.
+
+    The trade-off is that this constant does not follow the remote if the
+    repository is ever renamed or transferred. CITATION.cff carries the same
+    URL, and test_repo_slug_matches_citation_metadata pins the two together,
+    so a move that updates the citation metadata will fail the suite here
+    until this constant is updated too.
     """
-    try:
-        import subprocess
-        out = subprocess.check_output(
-            ["git", "remote", "get-url", "origin"],
-            cwd=str(ROOT),
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except Exception:
-        return "brycewang-stanford/Auto-Empirical-Research-Skills"
-    s = out
-    for prefix in ("git@github.com:", "https://github.com/", "ssh://git@github.com/"):
-        if s.startswith(prefix):
-            s = s[len(prefix):]
-            break
-    if s.endswith(".git"):
-        s = s[:-4]
-    return s or "brycewang-stanford/Auto-Empirical-Research-Skills"
+    return CANONICAL_REPO_SLUG
 
 
 def load_json(path: Path) -> dict:

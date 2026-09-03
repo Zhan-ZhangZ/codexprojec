@@ -108,6 +108,24 @@ NAIVE_BUILDERS = {
         "counterfactual_at_K": r["naive_at_K"], "naive_at_K": r["naive_at_K"],
         "observed_above_K": r["naive_above_K_total"],
         "implied_elasticity": 0.0},
+    # No instrument (so no first stage to report), the OLS coefficient doubles
+    # as the elasticity, and price is read as cost.
+    "structural-demand-recovery": lambda r: {
+        "iv_alpha": r["ols_alpha"], "ols_alpha": r["ols_alpha"],
+        "first_stage_F": 0.0,
+        "mean_own_elasticity": r["naive_elasticity"],
+        "naive_elasticity": r["naive_elasticity"],
+        "mean_marginal_cost": r["naive_marginal_cost"],
+        "naive_marginal_cost": r["naive_marginal_cost"]},
+    # Assumes SUTVA: the untreated next door are treated as clean controls, so
+    # every estimand collapses onto the within-cluster contrast and the
+    # spillover is reported as zero.
+    "spillover-recovery": lambda r: {
+        "direct_effect": r["direct_effect"],
+        "spillover_effect": 0.0,
+        "naive_spillover": 0.0,
+        "total_effect_on_treated": r["direct_effect"],
+        "overall_effect": r["direct_effect"]},
 }
 
 NAIVE_MOVE = {
@@ -128,6 +146,8 @@ NAIVE_MOVE = {
     "mediation-recovery": "controls the mediator and headlines the coefficient",
     "decomposition-recovery": "reads the entire gap as the unexplained component",
     "bunching-recovery": "quotes the unmodified baseline at every support point - no kink recognized",
+    "structural-demand-recovery": "regresses shares on price with no instrument; quotes the coefficient as the elasticity",
+    "spillover-recovery": "compares treated to their untreated neighbours and calls it the program effect; spillover assumed zero",
 }
 
 
@@ -209,19 +229,32 @@ def render(rows: list[dict]) -> str:
     out.append("## Join the board")
     out.append("")
     out.append(
-        "Run *your* agent on the same tasks and grade it with the same harness — the "
-        "step-by-step candidate protocol is in [`INTEROP.md`](INTEROP.md). Post the "
-        "scorecard in "
-        "[Show and tell](https://github.com/brycewang-stanford/Auto-Empirical-Research-Skills/discussions); "
-        "reproducible submissions (candidate JSON + how it was produced) may be added "
-        "to this page."
+        "Run *your* agent on the same tasks and grade it with the same harness. Four "
+        "commands with [`aers-score`](../aers_score/README.md):\n\n"
+        "```bash\n"
+        "pip install -e .            # zero dependencies, Python 3.9+\n"
+        "aers-score tasks            # what is on the exam\n"
+        "aers-score init ./my-run    # scaffold candidates with the exact fields\n"
+        "aers-score grade ./my-run   # score yourself\n"
+        "```\n\n"
+        "Published results go on [`EXTERNAL_SCOREBOARD.md`](EXTERNAL_SCOREBOARD.md), "
+        "which regrades your raw candidates rather than trusting your numbers — rules "
+        "in [`SCOREBOARD_RULES.md`](SCOREBOARD_RULES.md). The older manual protocol is "
+        "still in [`INTEROP.md`](INTEROP.md)."
     )
     out.append("")
     out.append(
         "_The replication analog of this board — recovering **published** results from "
-        "raw data — lives in "
-        "[`demo-notebooks/card-krueger-1994/`](../demo-notebooks/card-krueger-1994/), "
-        "scored PERFECT by the Paper-WorkFlow replication benchmark._"
+        "raw data rather than known-by-construction ones — lives in "
+        "[`demo-notebooks/card-krueger-1994/`](../demo-notebooks/card-krueger-1994/) "
+        "(minimum-wage DiD, scored PERFECT by the Paper-WorkFlow replication "
+        "benchmark) and "
+        "[`demo-notebooks/card-1995-iv/`](../demo-notebooks/card-1995-iv/) "
+        "(returns to schooling, standard errors and first stage included). A third, "
+        "[`demo-notebooks/nsw-lalonde-1986/`](../demo-notebooks/nsw-lalonde-1986/), "
+        "derives the +$1,794 experimental benchmark that `lalonde-recovery` grades "
+        "against, so that gold is reproduced rather than transcribed. All three are "
+        "zero-dependency scripts that exit non-zero when an anchor is missed._"
     )
     out.append("")
     return "\n".join(out)
