@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-MM_PER_MIL = 0.0254
+from eda_agent.units import MM_PER_MIL
 
 # Altium TopShape -> KiCad pad shape. Octagonal has no KiCad equal; roundrect
 # is the conventional substitute.

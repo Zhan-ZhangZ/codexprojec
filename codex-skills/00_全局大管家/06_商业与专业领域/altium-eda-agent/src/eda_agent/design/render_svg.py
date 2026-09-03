@@ -174,21 +174,35 @@ def _svg_instance(
         f'height="{y1 - y0:.1f}" fill="{options.body_fill}" '
         f'stroke="{options.body_stroke}" stroke-width="1"/>'
     )
-    # Designator and value stacked above the body's top-left corner -- clear
-    # of the pin stubs (which leave the body's edge centres) and reading as
-    # the conventional refdes-over-value annotation pair. Value sits on the
-    # line just above the body; refdes one line higher.
+    # Designator and value. When text_placement chose collision-free
+    # anchors, honour them (canvas mils, lower-left of each text line);
+    # otherwise fall back to the legacy above-top-left stacking.
     has_value = bool(inst.value)
-    refdes_y = y0 - (15 if has_value else 4)
-    out.append(
-        f'<text x="{x0 + 4:.1f}" y="{refdes_y:.1f}" font-size="11" '
-        f'fill="#222">{html_escape(inst.refdes)}</text>'
-    )
-    if has_value:
+    if inst.designator_pos is not None:
+        dx_, dy_ = _mils_to_svg(
+            inst.designator_pos[0], inst.designator_pos[1], sheet, options)
         out.append(
-            f'<text x="{x0 + 4:.1f}" y="{y0 - 4:.1f}" font-size="10" '
-            f'fill="#1565c0">{html_escape(inst.value)}</text>'
+            f'<text x="{dx_:.1f}" y="{dy_:.1f}" font-size="11" '
+            f'fill="#222">{html_escape(inst.refdes)}</text>'
         )
+        if has_value and inst.value_pos is not None:
+            vx_, vy_ = _mils_to_svg(
+                inst.value_pos[0], inst.value_pos[1], sheet, options)
+            out.append(
+                f'<text x="{vx_:.1f}" y="{vy_:.1f}" font-size="10" '
+                f'fill="#1565c0">{html_escape(inst.value)}</text>'
+            )
+    else:
+        refdes_y = y0 - (15 if has_value else 4)
+        out.append(
+            f'<text x="{x0 + 4:.1f}" y="{refdes_y:.1f}" font-size="11" '
+            f'fill="#222">{html_escape(inst.refdes)}</text>'
+        )
+        if has_value:
+            out.append(
+                f'<text x="{x0 + 4:.1f}" y="{y0 - 4:.1f}" font-size="10" '
+                f'fill="#1565c0">{html_escape(inst.value)}</text>'
+            )
     # Pins: a line from the body-attach end (pin endpoint - length*dir)
     # to the world endpoint, then the pin number near the endpoint and
     # the pin name near the body-attach end.
@@ -297,6 +311,11 @@ def _svg_label(
         2: "end",
         3: "middle",
     }.get(label.orientation % 4, "start")
+    # Justification 2 (bottom-right, Altium numbering) = text ENDS at
+    # the anchor; mirrors what the emitter writes so the offline render
+    # shows the same left-of-pin label the live sheet will have.
+    if getattr(label, "justification", 0) == 2:
+        anchor = "end"
     dy_offset = -4 if label.orientation == 3 else (12 if label.orientation == 1 else 4)
     return (
         f'<text x="{tx:.1f}" y="{ty + dy_offset:.1f}" '

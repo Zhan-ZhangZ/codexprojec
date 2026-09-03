@@ -66,6 +66,29 @@ class BulkHintTracker:
             "proj_get_nets",
             "Call proj_get_nets ONCE with no filters (component='', net_name='', raise limit) to pull the entire pin-net table, then filter locally. Each filtered call is ~700 ms and compiles the project.",
         ),
+        "lib_add_footprint_pad": (
+            "lib_add_footprint_pads",
+            "Pass a list of pads to lib_add_footprint_pads to place the whole footprint in one IPC call instead of one per pad. lib_create_standard_footprint emits a full standard package in a single call.",
+        ),
+        "lib_add_footprint_track": (
+            "lib_add_footprint_tracks",
+            "Pass a list of tracks to lib_add_footprint_tracks to draw the silkscreen / courtyard in one IPC call instead of one per segment.",
+        ),
+        # Plan-authoring tools (pure Python -- the cost is LLM round-trips
+        # and a full-plan echo per call, not IPC). compose_netlist batches
+        # an ordered op list and validates once.
+        "design_add_part": (
+            "design_compose_netlist",
+            "Building several parts / blocks / buses? design_compose_netlist applies a whole ordered list of add_part / add_block / connect_bus ops in one call and validates once -- fewer round-trips than one tool call per element.",
+        ),
+        "design_add_circuit_block": (
+            "design_compose_netlist",
+            "Adding several blocks? design_compose_netlist applies a list of {op:add_block,...} (plus add_part / connect_bus) ops in one call and validates once, instead of one round-trip per block.",
+        ),
+        "design_connect_bus": (
+            "design_compose_netlist",
+            "Wiring several buses or mixing buses with parts/blocks? design_compose_netlist applies them all in one ordered call and validates once.",
+        ),
     }
 
     @classmethod

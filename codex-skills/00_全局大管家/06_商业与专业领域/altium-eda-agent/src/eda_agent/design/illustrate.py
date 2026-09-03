@@ -233,8 +233,11 @@ def canvas_png(canvas, path: str, *, sheet: Optional[str] = None,
             if pw is not None:
                 ax.plot([pw.x], [pw.y], marker="o", markersize=2.0,
                         color="#455a64", zorder=4)
-        ax.text((bb.x_min + bb.x_max) / 2.0, (bb.y_min + bb.y_max) / 2.0,
-                inst.refdes, ha="center", va="center", fontsize=8,
+        # Designator ABOVE the body (schematic convention). Centering it on
+        # the box smears the bold text across tiny 2-pin passive outlines and
+        # reads as doubled; a small gap above keeps it legible at any box size.
+        ax.text((bb.x_min + bb.x_max) / 2.0, bb.y_max + 25,
+                inst.refdes, ha="center", va="bottom", fontsize=8,
                 color="#263238", weight="bold", zorder=5)
 
     for lab in labels:

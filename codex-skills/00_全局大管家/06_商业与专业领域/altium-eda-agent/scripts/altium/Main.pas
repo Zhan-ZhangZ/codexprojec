@@ -1,4 +1,4 @@
-{ SPDX-License-Identifier: Apache-2.0                                   }
+﻿{ SPDX-License-Identifier: Apache-2.0                                   }
 { Copyright (c) 2026 George Saliba <george.saliba@salitronic.com>                                      }
 {..............................................................................}
 { Main.pas - Constants, IPC primitives and JSON helpers for the Altium bridge   }
@@ -13,7 +13,13 @@ Const
     // returns, mismatch means Altium is running a stale compiled script
     // (DelphiScript caches compiled units until the script project is
     // reopened or Altium is restarted).
-    SCRIPT_VERSION = '2026.06.15.3';
+    SCRIPT_VERSION = '2026.09.01.3';
+
+    // How far up the mechanical layers a pair tidy looks. Altium allows 1024,
+    // and checking every combination of those is a million probes for a stack
+    // that in practice stops in the low tens. The bound is reported back so a
+    // pair above it is known to have been skipped rather than judged clean.
+    MechScanLimit = 64;
 
     // Wire protocol version. Bumped whenever the request/response JSON shape
     // changes incompatibly. Python and Pascal must agree; mismatch returns
@@ -36,9 +42,20 @@ Const
     SCHM_EndModify             = 3;
 
     // DelphiScript does NOT predefine Delphi's MaxInt (raises "Undeclared
-    // identifier" at runtime). Declare it explicitly. Used as a
+    // identifier" at runtime), so it is declared here. Used as a
     // "smallest seen so far" sentinel in board-statistics scans.
-    MAX_INT = 2147483647;
+    //
+    // NOT 2147483647. AD25 rejects that literal outright with "Invalid
+    // constant" while compiling the script, which stops the loop before
+    // it serves anything (issue #22, measured on AD25).
+    //
+    // 1e9 internal units is 100 inches, which is Altium's own maximum
+    // board dimension, so a coordinate could in principle equal it. That
+    // is acceptable here: the bounding-box scan carries its own Found
+    // flag as the real guard, and the dimension sentinels it initialises
+    // (track width, hole size, annular ring) are orders of magnitude
+    // below it.
+    MAX_INT = 1000000000;
 
 Var
     WorkspaceDir : String;
@@ -57,6 +74,9 @@ Var
     { pointer it was run against, so we only skip when the SAME project was    }
     { compiled recently. Reset to 0 / Nil at startup.                          }
     LastCompileTick : Cardinal;
+    { Documents the last save pass actually reached. See
+      SaveOneDocByDocRef. Reset by App_SaveAll before each pass. }
+    SaveAttempts : Integer;
     LastCompiledProject : IProject;
 
     { Silent cast-failure counter, incremented every time a defensive       }
@@ -75,13 +95,41 @@ Var
     { primitive helpers can trust.                                           }
     LastCreatedLibComponent : ISch_Component;
 
+    { The name that reference was known by, recorded when it was set.
+
+      ASKING THE COMPONENT ITS OWN NAME IS NOT AN OPTION HERE.
+      Measured on AD26: reading LibReference off THIS global raised
+      "Undeclared identifier: LibReference", and the modal took the
+      polling loop with it because undeclared identifiers are not
+      catchable and the Try/Except around it did nothing. One caller sat
+      on that dialog for over two minutes.
+
+      The property itself is fine. ScanLibForComponent reads it off
+      every component it walks, ten lines earlier in the same lookup,
+      and has always worked. What differs is the reference: this one is
+      held ACROSS commands, and the document it belongs to may have been
+      closed, reopened or re-imported since. A member read on a
+      component that no longer exists is reported as an undeclared
+      identifier rather than as a missing object, which is why it reads
+      as an API error and is not one.
+
+      So the reference is cleared whenever this script reopens the
+      library, and the name is compared against this recorded string
+      rather than against anything read back off the component. }
+    LastCreatedLibComponentName : String;
+
+    { Re-entry guard for LookupLibComponent's last-resort reopen. A
+      reopen re-reads the document and the retry looks the name up
+      again; without this the retry could trigger another reopen. }
+    RefreshingLib : Boolean;
+
 {..............................................................................}
 { Initialise polling tunables to compile-time defaults. Called by the          }
 { dispatcher startup before LoadMCPConfig so a missing/corrupt config file    }
 { still leaves the loop with sane values.                                     }
 {..............................................................................}
 
-Procedure InitDefaultConfig;
+Procedure InitDefaultConfig(Dummy : Integer);
 Begin
     PollIntervalActiveMs := 10;
     PollIntervalIdleMs   := 30;
@@ -100,8 +148,8 @@ End;
 { unambiguous even when a single operation's property list contains '|'.       }
 {                                                                               }
 { Defined in Main.pas so Library.pas and Generic.pas can both use them,       }
-{ the Altium project compiles files in DesignN order (Main → ... → Library →  }
-{ ... → Generic) and a callee must come earlier than its caller.               }
+{ the Altium project compiles files in DesignN order (Main â†’ ... â†’ Library â†’  }
+{ ... â†’ Generic) and a callee must come earlier than its caller.               }
 {..............................................................................}
 
 Function NextBatchOp(Var Remaining : String) : String;
@@ -175,21 +223,69 @@ Var
     I : Integer;
     Doc : IDocument;
     ServerDoc : IServerDocument;
+    Readable : Boolean;
 Begin
+    { UNREADABLE IS NOT CLEAN. This used to swallow the exception and carry
+      on, so a project whose documents could not be reached at all reported
+      nothing dirty and the cached netlist was reused. Reading nothing and
+      there being nothing are different answers and only one of them means
+      the cache is still good.
+
+      A Nil ServerDoc is the exception to that and stays clean on purpose:
+      it means the document is not open in the editor, and a closed
+      document cannot be holding unsaved edits. Treating it as dirty would
+      force a recompile on every call for any project with a closed sheet,
+      which is most of them. }
     Result := False;
     If Project = Nil Then Exit;
     For I := 0 To Project.DM_LogicalDocumentCount - 1 Do
     Begin
-        Doc := Project.DM_LogicalDocuments(I);
-        If Doc = Nil Then Continue;
+        Doc := Nil;
+        Try
+            Doc := Project.DM_LogicalDocuments(I);
+        Except
+            { Written out rather than swallowed, so the next reader can see
+              that the failure is handled by the Nil check below and not
+              simply ignored. }
+            Doc := Nil;
+        End;
+        If Doc = Nil Then
+        Begin
+            { The project structure would not answer for one of its own
+              documents. Say dirty and recompile rather than guess. }
+            Result := True;
+            Exit;
+        End;
+
+        ServerDoc := Nil;
+        Readable := False;
         Try
             ServerDoc := Client.GetDocumentByPath(Doc.DM_FullPath);
-            If (ServerDoc <> Nil) And ServerDoc.Modified Then
-            Begin
+            Readable := True;
+        Except
+            Readable := False;
+        End;
+
+        If Not Readable Then
+        Begin
+            Result := True;
+            Exit;
+        End;
+
+        If ServerDoc <> Nil Then
+        Begin
+            Try
+                If ServerDoc.Modified Then
+                Begin
+                    Result := True;
+                    Exit;
+                End;
+            Except
+                { Could not read the flag, so it is not evidence of clean. }
                 Result := True;
                 Exit;
             End;
-        Except End;
+        End;
     End;
 End;
 
@@ -244,7 +340,7 @@ Begin
         Try Result := Project.DM_LogicalDocuments(Idx); Except End;
 End;
 
-Procedure InvalidateCompileCache;
+Procedure InvalidateCompileCache(Dummy : Integer);
 Begin
     LastCompileTick := 0;
     LastCompiledProject := Nil;
@@ -275,10 +371,16 @@ Begin
 End;
 
 {..............................................................................}
-{ Persist a specific document by path (deferred save: mark dirty only).        }
+{ Mark one document dirty by path. IT DOES NOT WRITE.                          }
+{                                                                              }
+{ Deferred save is deliberate: marking is cheap, and app_save_all flushes at   }
+{ a checkpoint. The hazard is the NAME. Called SaveDocByPath it produced a     }
+{ comment in Generic.pas claiming it wrote to disk, and three tool docstrings  }
+{ promising the caller a save. A caller who needs bytes on disk must call      }
+{ app_save_all or proj_save.                                                   }
 {..............................................................................}
 
-Procedure SaveDocByPath(FilePath : String);
+Procedure MarkDocDirtyByPath(FilePath : String);
 Var
     ServerDoc : IServerDocument;
 Begin
@@ -292,7 +394,7 @@ End;
 { GetPCBBoardAnywhere - Focus-independent PCB board lookup.                    }
 {..............................................................................}
 
-Function GetPCBBoardAnywhere : IPCB_Board;
+Function GetPCBBoardAnywhere(Dummy : Integer): IPCB_Board;
 Var
     Workspace : IWorkspace;
     Project : IProject;
@@ -300,48 +402,65 @@ Var
     ServerDoc : IServerDocument;
     PrevView : IServerDocumentView;
     Path : String;
-    I : Integer;
+    I, P : Integer;
 Begin
     Result := Nil;
 
-    { Fast path: PCB tab already focused. `PCBServer.GetCurrentPCBBoard` is }
-    { the documented entry point and on this build is declared at runtime, }
-    { the IDE flags it at compile time on some builds but the runtime      }
-    { resolves it. (`PCBServer.GetPCBBoardByPath` is genuinely undeclared  }
-    { on this build, so we cannot use the path-based lookup.)              }
-    Result := PCBServer.GetCurrentPCBBoard;
-    If Result <> Nil Then Exit;
-
-    { Fallback: no PCB tab is focused. Find the project's PCB doc, open it }
-    { (which moves focus to it), grab the board pointer, and restore the   }
-    { user's previous view so they don't blink away from where they were.  }
-    { The IPCB_Board pointer stays valid after focus moves back.            }
     Workspace := GetWorkspace;
     If Workspace = Nil Then Exit;
-    Project := Workspace.DM_FocusedProject;
-    If Project = Nil Then Exit;
 
+    { Fast path: a PCB tab is focused, so the PCB editor server is loaded    }
+    { and PCBServer.GetCurrentPCBBoard resolves. Gate on the focused doc's   }
+    { kind, read through the DM layer (which never loads a server). If no    }
+    { PcbDoc has been opened this session the PCB server module is not       }
+    { registered, and merely REFERENCING PCBServer.GetCurrentPCBBoard raises }
+    { an uncatchable "Undeclared identifier" modal (late-bound against the   }
+    { absent server) that Try/Except cannot swallow and that hangs the       }
+    { polling loop. So only touch PCBServer when a PCB is actually focused.  }
+    Doc := Workspace.DM_FocusedDocument;
+    If (Doc <> Nil) And (UpperCase(Doc.DM_DocumentKind) = 'PCB') Then
+    Begin
+        Result := PCBServer.GetCurrentPCBBoard;
+        If Result <> Nil Then Exit;
+    End;
+
+    { Fallback: no PCB tab is focused (the user is on a schematic, a library }
+    { or the script project). Walk EVERY project open in the workspace - not }
+    { just the focused one, which is often the script project with no PcbDoc }
+    { - find the first PcbDoc, and open it. Opening the document loads the   }
+    { PCB server and moves focus to it; a non-nil ServerDoc from            }
+    { OpenDocument('PCB', ...) proves the server is now registered, so the   }
+    { GetCurrentPCBBoard read below is safe. The IPCB_Board pointer stays    }
+    { valid after we restore the user's previous view.                       }
     PrevView := Nil;
     Try
         If (Client <> Nil) Then PrevView := Client.GetCurrentView;
     Except End;
 
-    For I := 0 To Project.DM_LogicalDocumentCount - 1 Do
+    For P := 0 To Workspace.DM_ProjectCount - 1 Do
     Begin
-        Doc := Project.DM_LogicalDocuments(I);
-        If Doc = Nil Then Continue;
-        Path := '';
-        Try Path := Doc.DM_FullPath; Except End;
-        If Path = '' Then Continue;
-        If (UpperCase(Doc.DM_DocumentKind) <> 'PCB') And
-           (Pos('.PCBDOC', UpperCase(Path)) <= 0) Then Continue;
+        Project := Workspace.DM_Projects(P);
+        If Project = Nil Then Continue;
 
-        ServerDoc := Nil;
-        Try ServerDoc := Client.OpenDocument('PCB', Path); Except End;
-        If ServerDoc = Nil Then Continue;
+        For I := 0 To Project.DM_LogicalDocumentCount - 1 Do
+        Begin
+            Doc := Project.DM_LogicalDocuments(I);
+            If Doc = Nil Then Continue;
+            Path := '';
+            Try Path := Doc.DM_FullPath; Except End;
+            If Path = '' Then Continue;
+            If (UpperCase(Doc.DM_DocumentKind) <> 'PCB') And
+               (Pos('.PCBDOC', UpperCase(Path)) <= 0) Then Continue;
 
-        Try Client.ShowDocument(ServerDoc); Except End;
-        Try Result := PCBServer.GetCurrentPCBBoard; Except End;
+            ServerDoc := Nil;
+            Try ServerDoc := Client.OpenDocument('PCB', Path); Except End;
+            If ServerDoc = Nil Then Continue;
+
+            Try Client.ShowDocument(ServerDoc); Except End;
+            Try Result := PCBServer.GetCurrentPCBBoard; Except End;
+            If Result <> Nil Then Break;
+        End;
+
         If Result <> Nil Then Break;
     End;
 
@@ -366,7 +485,7 @@ Begin
     Result := Nil;
     If Path = '' Then
     Begin
-        Result := GetPCBBoardAnywhere;
+        Result := GetPCBBoardAnywhere(0);
         Exit;
     End;
     ServerDoc := Nil;
@@ -375,12 +494,103 @@ Begin
     Begin
         { Path didn't resolve to a loadable PcbDoc; fall back rather than    }
         { silently returning Nil and erroring the whole call.                }
-        Result := GetPCBBoardAnywhere;
+        Result := GetPCBBoardAnywhere(0);
         Exit;
     End;
     Try Client.ShowDocument(ServerDoc); Except End;
     Try Result := PCBServer.GetCurrentPCBBoard; Except End;
-    If Result = Nil Then Result := GetPCBBoardAnywhere;
+    If Result = Nil Then Result := GetPCBBoardAnywhere(0);
+End;
+
+{..............................................................................}
+{ GetPCBBoardForMutation - the board an EDIT is allowed to touch.              }
+{                                                                              }
+{ GetPCBBoardAnywhere WANDERS, and that is correct for a read. When no PcbDoc  }
+{ is focused it walks every open project, opens the first board it finds,      }
+{ reads it, and restores the previous view so the focus change is invisible.   }
+{ For a query that is a convenience. For a DELETE it is a misfire: with a      }
+{ library focused and two boards open, obj_delete would remove primitives from }
+{ whichever board the walk reached first, and hide the fact that it had        }
+{ switched documents to do it.                                                 }
+{                                                                              }
+{ So an edit gets a board only when the target is UNAMBIGUOUS: a PcbDoc is     }
+{ focused, or exactly one is open anywhere. Two open and none focused is       }
+{ refused, and the refusal names them, because picking one is a guess the      }
+{ caller has to make rather than one this should make silently.                }
+{                                                                              }
+{ Why carries the reason when the Result is Nil.                               }
+{..............................................................................}
+
+Function GetPCBBoardForMutation(Var Why : String) : IPCB_Board;
+Var
+    Workspace : IWorkspace;
+    Project : IProject;
+    Doc : IDocument;
+    Path, Candidates, OnePath : String;
+    I, P, Found : Integer;
+Begin
+    Result := Nil;
+    Why := '';
+
+    Workspace := GetWorkspace;
+    If Workspace = Nil Then
+    Begin
+        Why := 'No workspace is open.';
+        Exit;
+    End;
+
+    { A focused PcbDoc is unambiguous, whatever else is open. }
+    Doc := Workspace.DM_FocusedDocument;
+    If (Doc <> Nil) And (UpperCase(Doc.DM_DocumentKind) = 'PCB') Then
+    Begin
+        Result := PCBServer.GetCurrentPCBBoard;
+        If Result <> Nil Then Exit;
+    End;
+
+    Found := 0;
+    Candidates := '';
+    OnePath := '';
+    For P := 0 To Workspace.DM_ProjectCount - 1 Do
+    Begin
+        Project := Workspace.DM_Projects(P);
+        If Project = Nil Then Continue;
+        For I := 0 To Project.DM_LogicalDocumentCount - 1 Do
+        Begin
+            Doc := Project.DM_LogicalDocuments(I);
+            If Doc = Nil Then Continue;
+            Path := '';
+            Try Path := Doc.DM_FullPath; Except End;
+            If Path = '' Then Continue;
+            If (UpperCase(Doc.DM_DocumentKind) <> 'PCB') And
+               (Pos('.PCBDOC', UpperCase(Path)) <= 0) Then Continue;
+            Found := Found + 1;
+            OnePath := Path;
+            If Candidates <> '' Then Candidates := Candidates + ', ';
+            Candidates := Candidates + Path;
+        End;
+    End;
+
+    If Found = 0 Then
+    Begin
+        Why := 'No PCB document is open, so there is nothing to edit.';
+        Exit;
+    End;
+
+    If Found > 1 Then
+    Begin
+        Why := 'This edits a board, and ' + IntToStr(Found)
+            + ' are open with none of them focused: ' + Candidates
+            + '. Refusing rather than picking one. Focus the board you '
+            + 'mean, or name it with board_path. A library being in front '
+            + 'does NOT make this edit apply to the library.';
+        Exit;
+    End;
+
+    { Exactly one board open. Opening it is safe because there is no other }
+    { one it could have meant.                                             }
+    Result := ResolvePCBBoard(OnePath);
+    If Result = Nil Then
+        Why := 'The only open board, ' + OnePath + ', could not be opened.';
 End;
 
 { Save every modified IServerDocument the workspace knows about, both     }
@@ -393,6 +603,11 @@ Var
 Begin
     If Doc = Nil Then Exit;
     Try
+        { Only a document OPEN in the editor has an IServerDocument. A
+          closed project member returns Nil and is skipped, correctly: it
+          cannot be holding unsaved edits. SaveAttempts counts the ones
+          actually reached, so a pass that wrote nothing because nothing
+          was open is not confused with one the editor declined. }
         ServerDoc := Client.GetDocumentByPath(Doc.DM_FullPath);
         { Unconditional flush, Modified flag does not always propagate from   }
         { ProcessControl.PostProcess to the IServerDocument layer in newer    }
@@ -400,6 +615,7 @@ Begin
         { on a clean doc is a fast no-op.                                     }
         If ServerDoc <> Nil Then
         Begin
+            SaveAttempts := SaveAttempts + 1;
             Try ServerDoc.SetModified(True); Except End;
             Try ServerDoc.DoFileSave(''); Except End;
         End;
@@ -422,7 +638,272 @@ Begin
     Except End;
 End;
 
-Procedure SaveAllDirty;
+{ CountDirtyInProject / CountDirtyDocuments - how many documents are STILL     }
+{ unsaved. The only way to tell a save that worked from one Altium refused.    }
+{                                                                              }
+{ MEASURED on AD26: app_save_all returned saved:true while Altium was raising  }
+{ "A command is currently active and save cannot be completed at this time"    }
+{ once per dirty document. Every one of those saves was declined, and the tool }
+{ still reported success, because it only checked that SaveAllDirty had not    }
+{ raised. DoFileSave does not raise when the editor refuses.                   }
+Function CountDirtyInProject(Project : IProject) : Integer;
+Var
+    J : Integer;
+    Doc : IDocument;
+    ServerDoc : IServerDocument;
+Begin
+    Result := 0;
+    If Project = Nil Then Exit;
+    For J := 0 To Project.DM_LogicalDocumentCount - 1 Do
+    Begin
+        Doc := Project.DM_LogicalDocuments(J);
+        If Doc <> Nil Then
+        Begin
+            Try
+                ServerDoc := Client.GetDocumentByPath(Doc.DM_FullPath);
+                If (ServerDoc <> Nil) And ServerDoc.Modified Then
+                    Result := Result + 1;
+            Except End;
+        End;
+    End;
+End;
+
+Function CountDirtyDocuments(Dummy : Integer): Integer;
+Var
+    Workspace : IWorkspace;
+    I : Integer;
+Begin
+    Result := 0;
+    Workspace := GetWorkspace;
+    If Workspace = Nil Then Exit;
+    For I := 0 To Workspace.DM_ProjectCount - 1 Do
+        Result := Result + CountDirtyInProject(Workspace.DM_Projects(I));
+    Try
+        Result := Result + CountDirtyInProject(Workspace.DM_FreeDocumentsProject);
+    Except End;
+End;
+
+{ ResolveLoadedDocPath - turn a bare document name into an ABSOLUTE path.     }
+{                                                                             }
+{ DM_FullPath AND DocumentName BOTH RETURN A BARE BASENAME for a free         }
+{ document, one that is open but not a member of any project. Anything that   }
+{ feeds that string to WorkspaceManager:OpenObject / CloseObject, or to        }
+{ CreateLibCompInfoReader, gets a silent no-op or a reader for the wrong      }
+{ file, because those all want a real path.                                   }
+{                                                                             }
+{ MEASURED: app_get_active_document and lib_get_component_details both        }
+{ reported "SWEEP_A.SchLib" for a document whose actual path is under the     }
+{ scratch directory, while the same call given an explicit library_path       }
+{ reported the full path. A reopen built on the basename did nothing at all   }
+{ and the failure looked like a lookup bug.                                   }
+{                                                                             }
+{ Returns '' when no absolute path can be found, so a caller can REFUSE       }
+{ rather than proceed with a string that will quietly do nothing.             }
+Function LooksAbsolutePath(P : String) : Boolean;
+Begin
+    Result := (Copy(P, 2, 1) = ':') Or (Copy(P, 1, 2) = '\\');
+End;
+
+Function MatchDocPathInProject(Project : IProject; Wanted : String) : String;
+Var
+    J : Integer;
+    Doc : IDocument;
+    Full : String;
+Begin
+    Result := '';
+    If Project = Nil Then Exit;
+    For J := 0 To Project.DM_LogicalDocumentCount - 1 Do
+    Begin
+        Doc := Project.DM_LogicalDocuments(J);
+        If Doc <> Nil Then
+        Begin
+            Full := '';
+            Try Full := Doc.DM_FullPath; Except End;
+            If LooksAbsolutePath(Full)
+                And (UpperCase(ExtractFileName(Full)) = UpperCase(Wanted)) Then
+            Begin
+                Result := Full;
+                Exit;
+            End;
+        End;
+    End;
+End;
+
+Function ResolveLoadedDocPath(NameOrPath : String) : String;
+Var
+    Workspace : IWorkspace;
+    Wanted : String;
+    I : Integer;
+Begin
+    Result := '';
+    If NameOrPath = '' Then Exit;
+    If LooksAbsolutePath(NameOrPath) Then
+    Begin
+        Result := NameOrPath;
+        Exit;
+    End;
+
+    Wanted := ExtractFileName(NameOrPath);
+    Workspace := GetWorkspace;
+    If Workspace = Nil Then Exit;
+
+    For I := 0 To Workspace.DM_ProjectCount - 1 Do
+    Begin
+        Result := MatchDocPathInProject(Workspace.DM_Projects(I), Wanted);
+        If Result <> '' Then Exit;
+    End;
+
+    { Free documents live in the synthetic FreeDocumentsProject, and they are }
+    { precisely the ones that report a basename, so this is the branch that   }
+    { usually answers.                                                        }
+    Try
+        Result := MatchDocPathInProject(Workspace.DM_FreeDocumentsProject, Wanted);
+    Except End;
+End;
+
+{..............................................................................}
+{ Did the save actually write anything.                                        }
+{                                                                              }
+{ app_save_all used to answer this with CountDirtyDocuments, which walks the   }
+{ workspace exactly the way SaveAllDirty does: same GetWorkspace, same         }
+{ DM_Projects loop, same silent Exit when the workspace is Nil. So when the    }
+{ enumeration came back empty the save wrote nothing AND the check counted     }
+{ nothing, and zero was reported as success. A verifier that shares the        }
+{ failure mode of the thing it verifies cannot catch it.                       }
+{                                                                              }
+{ It also read ServerDoc.Modified, which SaveOneDocByDocRef already documents  }
+{ as unreliable: the flag does not always propagate from                       }
+{ ProcessControl.PostProcess to the IServerDocument layer on newer builds.     }
+{ MEASURED: dirty_doc_count 0 immediately after a wire placement and an entry  }
+{ move, and 29 property edits lost on reload while app_save_all reported       }
+{ saved:true throughout.                                                       }
+{                                                                              }
+{ FILE TIMESTAMPS ARE THE GROUND TRUTH. A document either got newer on disk    }
+{ or it did not, and that answer does not depend on any Altium flag.           }
+{..............................................................................}
+
+Function WorkspaceDocPaths(Dummy : Integer) : String;
+Var
+    Workspace : IWorkspace;
+    Project : IProject;
+    Doc : IDocument;
+    I, J : Integer;
+    Path : String;
+Begin
+    Result := '';
+    Workspace := GetWorkspace;
+    If Workspace = Nil Then Exit;
+    For I := 0 To Workspace.DM_ProjectCount - 1 Do
+    Begin
+        Project := Nil;
+        Try Project := Workspace.DM_Projects(I); Except End;
+        If Project = Nil Then Continue;
+        For J := 0 To Project.DM_LogicalDocumentCount - 1 Do
+        Begin
+            Doc := Nil;
+            Try Doc := Project.DM_LogicalDocuments(J); Except End;
+            If Doc = Nil Then Continue;
+            Path := '';
+            Try Path := Doc.DM_FullPath; Except End;
+            If Path <> '' Then
+            Begin
+                If Result <> '' Then Result := Result + '|';
+                Result := Result + Path;
+            End;
+        End;
+    End;
+End;
+
+{ File age for each pipe-separated path, as its own pipe-separated list.       }
+{ A path that does not exist yet reports -1, which simply cannot match a       }
+{ later age and therefore counts as written once it appears.                   }
+
+Function AgesForPaths(PathList : String) : String;
+Var
+    Remaining, Path : String;
+    P, Age : Integer;
+Begin
+    Result := '';
+    Remaining := PathList;
+    While Remaining <> '' Do
+    Begin
+        P := Pos('|', Remaining);
+        If P > 0 Then
+        Begin
+            Path := Copy(Remaining, 1, P - 1);
+            Remaining := Copy(Remaining, P + 1, Length(Remaining) - P);
+        End
+        Else
+        Begin
+            Path := Remaining;
+            Remaining := '';
+        End;
+        Age := -1;
+        Try Age := FileAge(Path); Except Age := -1; End;
+        If Result <> '' Then Result := Result + '|';
+        Result := Result + IntToStr(Age);
+    End;
+End;
+
+{ How many entries differ between two age lists of the same shape.             }
+
+Function CountChangedAges(BeforeList : String; AfterList : String) : Integer;
+Var
+    RemA, RemB, A, B : String;
+    P : Integer;
+Begin
+    Result := 0;
+    RemA := BeforeList;
+    RemB := AfterList;
+    While (RemA <> '') And (RemB <> '') Do
+    Begin
+        P := Pos('|', RemA);
+        If P > 0 Then
+        Begin
+            A := Copy(RemA, 1, P - 1);
+            RemA := Copy(RemA, P + 1, Length(RemA) - P);
+        End
+        Else
+        Begin
+            A := RemA;
+            RemA := '';
+        End;
+
+        P := Pos('|', RemB);
+        If P > 0 Then
+        Begin
+            B := Copy(RemB, 1, P - 1);
+            RemB := Copy(RemB, P + 1, Length(RemB) - P);
+        End
+        Else
+        Begin
+            B := RemB;
+            RemB := '';
+        End;
+
+        If A <> B Then Result := Result + 1;
+    End;
+End;
+
+Function CountPathEntries(PathList : String) : Integer;
+Var
+    Remaining : String;
+    P : Integer;
+Begin
+    Result := 0;
+    Remaining := PathList;
+    While Remaining <> '' Do
+    Begin
+        Result := Result + 1;
+        P := Pos('|', Remaining);
+        If P > 0 Then
+            Remaining := Copy(Remaining, P + 1, Length(Remaining) - P)
+        Else
+            Remaining := '';
+    End;
+End;
+
+Procedure SaveAllDirty(Dummy : Integer);
 Var
     Workspace : IWorkspace;
     I : Integer;
@@ -451,7 +932,7 @@ End;
 { Fallback (pointer missing): C:\EDA Agent\workspace\                        }
 {..............................................................................}
 
-Function ResolveDefaultWorkspaceDir : String;
+Function ResolveDefaultWorkspaceDir(Dummy : Integer): String;
 Var
     PointerFile : String;
     F : TextFile;
@@ -554,6 +1035,37 @@ Begin
     { is transient (Defender scan, or Python reading the response mid-write),  }
     { so retry briefly. Mirrors ReadFileContent and the proven sibling-MCP     }
     { idiom (OutputLines.Text := json; SaveToFile).                           }
+    { CLEAR THE DESTINATION FIRST, with calls that cannot raise.
+
+      MEASURED: EFCreateError, "Cannot create file ... because it is
+      being used by another process", arrived as a modal and stalled the
+      polling loop. The retry below cannot help with that, because the
+      engine surfaces the exception before the surrounding Try/Except
+      runs, so the first failure is already a modal. Same behaviour that
+      defeated Try/Except around StrToFloat, same answer: stop the
+      exception happening rather than trying to catch it.
+
+      FileExists and DeleteFile return Booleans and do not raise, so this
+      loop is safe no matter who holds the file. Only once the name is
+      free is the raising create attempted.
+
+      tmp + RenameFile would be the tidier fix and is ruled out: the
+      sibling implementation in reference/CoAltium records that
+      DelphiScript's RenameFile silently failed for some paths and the
+      response never reached its final filename.
+
+      This does not make a create infallible. A fresh name can still be
+      grabbed between the check and the create, by a virus scanner most
+      likely. It removes the reported case, which is a create against a
+      name that is already there and already held. }
+    Attempt := 0;
+    While (Attempt < 40) And FileExists(FilePath) Do
+    Begin
+        Inc(Attempt);
+        DeleteFile(FilePath);
+        If FileExists(FilePath) Then Sleep(15);
+    End;
+
     Attempt := 0;
     While Attempt < 12 Do
     Begin
@@ -572,6 +1084,9 @@ Begin
             SL.Free;
         End;
         If Ok Then Exit;
+        { The destination may have reappeared, so clear it again before
+          the next create rather than repeating the failing call. }
+        If FileExists(FilePath) Then DeleteFile(FilePath);
         Sleep(15);
     End;
 End;
@@ -599,7 +1114,7 @@ Begin
     End;
 End;
 
-Function FormatLogStamp : String;
+Function FormatLogStamp(Dummy : Integer): String;
 Begin
     Try
         Result := FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now);
@@ -611,7 +1126,7 @@ End;
 Procedure RecordCastError(Where : String);
 Begin
     Inc(CastErrorCount);
-    AppendLog(FormatLogStamp + ',0,_cast_error,' + Where);
+    AppendLog(FormatLogStamp(0) + ',0,_cast_error,' + Where);
 End;
 
 Function IsWhitespaceOrColon(S : String; Idx : Integer) : Boolean;
@@ -835,12 +1350,57 @@ Begin
               Data + ',"error":null}';
 End;
 
+{..............................................................................}
+{ CROSS-DOCUMENT HINTS                                                        }
+{                                                                              }
+{ "No PCB library is active" is true and unhelpful. It says what is missing    }
+{ and not that the SAME operation exists for the other document kind, so the   }
+{ reasonable conclusion from it is that the capability is absent. That         }
+{ conclusion has been drawn and reported more than once, and each time the     }
+{ tool was there under the other namespace.                                    }
+{                                                                              }
+{ The split is the thing worth stating: lib_ acts on .PcbLib and .SchLib, pcb_ }
+{ on .PcbDoc, sch_ and obj_ on .SchDoc. Attached here rather than at the 277   }
+{ call sites so it cannot be right in some of them and stale in the rest.      }
+{..............................................................................}
+
+Function MessageNamesATool(Msg : String) : Boolean;
+Begin
+    Result := (Pos('pcb_', Msg) > 0) Or (Pos('lib_', Msg) > 0)
+           Or (Pos('sch_', Msg) > 0) Or (Pos('proj_', Msg) > 0)
+           Or (Pos('obj_', Msg) > 0) Or (Pos('app_', Msg) > 0)
+           Or (Pos('run_', Msg) > 0);
+End;
+
+Function CrossDocumentHint(ErrorCode : String) : String;
+Begin
+    Result := '';
+    If (ErrorCode = 'NO_PCBLIB') Then
+        Result := 'This is the LIBRARY tool and needs a .PcbLib. The same '
+                + 'operation on an open board is in the pcb_ namespace.'
+    Else If (ErrorCode = 'NO_SCHLIB') Then
+        Result := 'This is the LIBRARY tool and needs a .SchLib. For a '
+                + 'sheet, the sch_ and obj_ tools act on the open .SchDoc.'
+    Else If (ErrorCode = 'NO_PCB') Or (ErrorCode = 'NO_BOARD') Then
+        Result := 'This tool acts on an open .PcbDoc. To edit a footprint '
+                + 'inside a .PcbLib, use the lib_ tools instead.'
+    Else If (ErrorCode = 'NO_SCHDOC') Or (ErrorCode = 'NO_SCHEMATIC') Then
+        Result := 'This tool acts on an open .SchDoc sheet. To edit a '
+                + 'symbol inside a .SchLib, use the lib_ tools instead.';
+End;
+
 Function BuildErrorResponseDetailed(RequestId : String; ErrorCode : String;
                                     ErrorMsg : String; DetailsJson : String) : String;
 Var
-    EscMsg, Ch, HexDigits : String;
+    EscMsg, Ch, HexDigits, Hint : String;
     I, O : Integer;
 Begin
+    { Only when the handler has not already pointed somewhere itself: a }
+    { specific pointer beats the generic one and must not be doubled.   }
+    Hint := CrossDocumentHint(ErrorCode);
+    If (Hint <> '') And (Not MessageNamesATool(ErrorMsg)) Then
+        ErrorMsg := ErrorMsg + ' ' + Hint;
+
     // Inline escape (EscapeJsonString is not yet declared in build order).
     // Must also \u00XX-escape control and non-ASCII bytes: one raw byte
     // >127 in an error message (an accented file path, say) makes the whole
@@ -880,10 +1440,10 @@ Begin
     Result := BuildErrorResponseDetailed(RequestId, ErrorCode, ErrorMsg, '');
 End;
 
-Procedure EnsureWorkspaceDir;
+Procedure EnsureWorkspaceDir(Dummy : Integer);
 Begin
     If WorkspaceDir = '' Then
-        WorkspaceDir := ResolveDefaultWorkspaceDir;
+        WorkspaceDir := ResolveDefaultWorkspaceDir(0);
     If Not DirectoryExists(WorkspaceDir) Then
         ForceDirectories(WorkspaceDir);
 End;
@@ -976,7 +1536,7 @@ End;
 { Wipe orphaned progress_*.json files at session start. A previous run that   }
 { crashed mid-handler would leave its progress marker behind; left untouched, }
 { Python could keep extending its deadline against a stale marker.            }
-Procedure CleanupOrphanProgress;
+Procedure CleanupOrphanProgress(Dummy : Integer);
 Var
     Files : TStringList;
     I : Integer;
@@ -1051,22 +1611,63 @@ Begin
     WriteFileContent(FinalPath, JsonContent);
 End;
 
-{ Wipe leftover request_*.json files at session start so a previous run's   }
-{ orphan can't replay against this session. Per-request response files are  }
-{ left to Python's age-based sweep at attach time.                           }
-Procedure CleanupOrphanResponses;
+{ Wipe leftover request_*.json files at session start so a previous run's    }
+{ orphan can't replay against this session. A crashed loop, or a client that }
+{ abandoned a long sweep, leaves request files on disk; without this the     }
+{ next session would answer them all before serving anything new -- and each }
+{ answer would resolve against whatever document is focused NOW, not the one }
+{ the caller meant.                                                          }
+{                                                                              }
+{ The purged count is logged, so an operator can tell "the loop is slow" from }
+{ "the loop is draining a backlog".                                          }
+Procedure CleanupOrphanRequests(Dummy : Integer);
 Var
     Files : TStringList;
-    I : Integer;
+    I, Purged : Integer;
 Begin
+    Purged := 0;
     Files := TStringList.Create;
     Try
         FindFiles(WorkspaceDir, 'request_*.json', 63, False, Files);
         For I := 0 To Files.Count - 1 Do
-            Try DeleteFile(Files[I]); Except End;
+            Try
+                DeleteFile(Files[I]);
+                Inc(Purged);
+            Except End;
     Finally
         Files.Free;
     End;
+    If Purged > 0 Then
+        AppendLog(FormatLogStamp(0) + ',0,_purge_requests,count=' + IntToStr(Purged)
+            + ',0,');
+End;
+
+{ Wipe leftover response_*.json files at session start. Python deletes its   }
+{ own response file after reading it, but a client that timed out (or died)  }
+{ leaves the response it never collected. These accumulate forever otherwise.}
+{ Only safe at startup: no client can still be waiting on a response written }
+{ by a session that has already ended.                                       }
+{ Hidden from the Run Script dialog by its argument; Dummy is never read. }
+Procedure CleanupOrphanResponses(Dummy : Integer);
+Var
+    Files : TStringList;
+    I, Purged : Integer;
+Begin
+    Purged := 0;
+    Files := TStringList.Create;
+    Try
+        FindFiles(WorkspaceDir, 'response_*.json', 63, False, Files);
+        For I := 0 To Files.Count - 1 Do
+            Try
+                DeleteFile(Files[I]);
+                Inc(Purged);
+            Except End;
+    Finally
+        Files.Free;
+    End;
+    If Purged > 0 Then
+        AppendLog(FormatLogStamp(0) + ',0,_purge_responses,count=' + IntToStr(Purged)
+            + ',0,');
 End;
 
 {..............................................................................}
@@ -1076,7 +1677,7 @@ End;
 { InitDefaultConfig in place.                                                 }
 {..............................................................................}
 
-Procedure LoadMCPConfig;
+Procedure LoadMCPConfig(Dummy : Integer);
 Var
     ConfigPath, Content, V : String;
     N : Integer;

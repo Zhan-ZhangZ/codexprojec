@@ -137,6 +137,30 @@ def _pin_count_per_part(plan: DesignPlan) -> dict[str, int]:
     return counts
 
 
+def _is_series_flow_part(part: Part, plan_nets: list[Net]) -> bool:
+    """True for a 2-pin series element in the power flow (L / FB / F
+    kind, touching a rail, no ground pin). These draw HORIZONTAL by
+    convention, and that decision is deliberate -- downstream
+    neighbour-geometry refinements must not verticalize them.
+    """
+    from eda_agent.design.motifs import _kind_from_refdes
+    if _kind_from_refdes(part.refdes) not in ("L", "FB", "F"):
+        return False
+    nets_for_part = [
+        n for n in plan_nets if any(p.refdes == part.refdes for p in n.pins)
+    ]
+    pins_used: set[str] = set()
+    for n in nets_for_part:
+        for pin in n.pins:
+            if pin.refdes == part.refdes:
+                pins_used.add(pin.pin)
+    if len(pins_used) != 2:
+        return False
+    if any(n.is_ground for n in nets_for_part):
+        return False
+    return any(n.is_power for n in nets_for_part)
+
+
 def _rotation_for_part(part: Part, plan_nets: list[Net]) -> int:
     """Pick a rotation (0/90/180/270) from the part's net categories.
 
@@ -169,9 +193,25 @@ def _rotation_for_part(part: Part, plan_nets: list[Net]) -> int:
     has_power = any(n.is_power for n in nets_for_part)
     has_ground = any(n.is_ground for n in nets_for_part)
     if has_power or has_ground:
+        # Series-vs-shunt refinement. The vertical convention is for
+        # SHUNT parts hanging off a rail (decap, pull-up, divider leg).
+        # A series element in the power FLOW -- inductor between switch
+        # node and output, ferrite bead, fuse -- belongs HORIZONTAL in
+        # the left-to-right flow; drawing a buck's inductor vertical is
+        # an instant amateur tell and tangles every net around the
+        # switch node. Net flags alone cannot make the distinction (a
+        # decap also touches a rail), so use the part KIND via the same
+        # refdes-prefix classifier the motif catalogue is built on.
+        # Ground-connected L/FB/F (an RF choke to ground) stays
+        # vertical like any shunt. NOTE: callers that refine a 0 result
+        # with neighbour geometry must exempt series-flow parts (see
+        # _is_series_flow_part) -- this 0 is a deliberate convention,
+        # not a default.
+        if _is_series_flow_part(part, plan_nets):
+            return 0
         # 270 (CCW = 90 CW) is empirically correct for libraries whose
         # 2-pin parts have pin 1 on the RIGHT in native orientation
-        # (e.g. the user's SELibrary). A library-aware pre-place pass
+        # (e.g. common passive libraries). A library-aware pre-place pass
         # (query lib_get_pin_list, pick rotation based on which pin
         # ends up on top) is the generic fix; this is the interim.
         return 270

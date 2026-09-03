@@ -1,4 +1,4 @@
-# 1. Servers — `SchServer`, `PCBServer`, `Client`
+# 1. Servers: `SchServer`, `PCBServer`, `Client`
 
 The global servers are the entry points to the object model. They are predefined
 identifiers, available in any DelphiScript unit without construction. From a
@@ -8,7 +8,7 @@ editor commits and repaints.
 
 ---
 
-## 1.1 `SchServer` — the schematic server
+## 1.1 `SchServer`: the schematic server
 
 `SchServer` is the schematic-editor server (`ISch_ServerInterface`). It owns the
 active schematic document, the object factory for creating `ISch_*` primitives,
@@ -28,7 +28,7 @@ End;
 
 **`GetCurrentSchDocument : ISch_Document`**
 Returns the schematic document that currently has editor focus. The result is
-either an ordinary sheet (`.SchDoc`) or a schematic library (`.SchLib`) — tell
+either an ordinary sheet (`.SchDoc`) or a schematic library (`.SchLib`): tell
 them apart with `ObjectId = eSchLib`. Returns `Nil` when the focused document is
 not a schematic (a PCB is active, or nothing is open), so every caller guards for
 `Nil` first.
@@ -41,7 +41,7 @@ path rather than relying on which one has focus.
 ### Object creation and destruction
 
 **`SchObjectFactory(ObjectId : TObjectId, CreationMode) : ISch_GraphicalObject`**
-Creates a new, unparented schematic object of kind `ObjectId` — e.g.
+Creates a new, unparented schematic object of kind `ObjectId`, e.g.
 `eSchComponent`, `ePin`, `eRectangle`, `eLine`, `eArc`, `eWire`, `eNetLabel`,
 `ePowerObject`, `eParameter`, `eImplementation`. `CreationMode` is normally
 `eCreate_Default`. The returned object exists only in memory until you add it to
@@ -68,7 +68,7 @@ document. Do not call it on an object that is already owned by a sheet/component
 
 **`CreateLibCompInfoReader(LibFullPath : String) : ISch_LibCompInfoReader`**
 Opens a metadata reader over a `.SchLib` that enumerates its symbol entries
-(name, alias, part-count, description) without loading each symbol — much faster
+(name, alias, part-count, description) without loading each symbol: much faster
 than instantiating every component, and the correct way to *list* a library
 (`SchIterator` walks placed objects on a sheet, not library entries). Call
 `ReadAllComponentInfo`, read `NumComponentInfos` / `ComponentInfos[I]`, then free
@@ -127,7 +127,7 @@ id, read its size/style).
 
 ---
 
-## 1.2 `PCBServer` — the board server
+## 1.2 `PCBServer`: the board server
 
 `PCBServer` is the PCB-editor server (`IPCB_ServerInterface`). It owns the active
 board / library, the primitive and rule factories, and the board transaction
@@ -162,7 +162,7 @@ Returns the focused `.PcbLib`, or `Nil`. Its active footprint is
 ### Object, rule and class factories
 
 **`PCBObjectFactory(ObjectId : TObjectId, Dimension, CreationMode) : IPCB_Primitive`**
-Creates a board primitive of kind `ObjectId` — `ePadObject`, `eTrackObject`,
+Creates a board primitive of kind `ObjectId`: `ePadObject`, `eTrackObject`,
 `eViaObject`, `eArcObject`, `eTextObject`, `ePolyObject`, `eRegionObject`,
 `eFillObject`. `Dimension` is normally `eNoDimension` and `CreationMode`
 `eCreate_Default`. Add the result with the owner's `AddPCBObject`.
@@ -182,7 +182,7 @@ Creates a net / component class (e.g. `eClassMemberKind_Net`).
 
 **`PreProcess`** / **`PostProcess`**
 Open and close a board edit transaction. Unlike `SchServer.ProcessControl`,
-these take **no document argument** — call them bare around board mutations.
+these take **no document argument**: call them bare around board mutations.
 
 **`SendMessageToRobots(Address, BroadcastKind, MessageId, EventData)`**
 Broadcasts a board message. After adding a primitive that does not render until
@@ -191,11 +191,11 @@ reload, register it with
 bracket a change with `PCBM_BeginModify` / `PCBM_EndModify`.
 
 **`SystemOptions : IPCB_SystemOptions`**  *(property)*
-Global PCB editor options — default units and primitive sizes.
+Global PCB editor options: default units and primitive sizes.
 
 ---
 
-## 1.3 `Client` — the application
+## 1.3 `Client`: the application
 
 `Client` (`IClient`) is the application shell: open and show documents, query
 application state, dispatch processes. A "document" here is an `IServerDocument`
@@ -229,8 +229,14 @@ Brings `Doc` to the front, with or without taking keyboard focus.
 **`IsDocumentOpen(FullPath : String) : Boolean`**
 Whether the file at `FullPath` is currently open.
 
-**`GetDocumentCount : Integer`**
-The number of open documents (pair with an index accessor to enumerate them).
+There is no `GetDocumentCount` and no `GetDocument(I)` on `Client`, despite
+them reading like the obvious pair. Both raise "Undeclared identifier" at
+runtime, which `Try/Except` cannot catch and which stops the polling loop.
+`scripts/altium/lint.py` rejects them by name (`KNOWN_WRONG_METHOD_NAMES`).
+
+To enumerate open documents, walk the project instead:
+`Project.DM_LogicalDocumentCount` with `Project.DM_LogicalDocuments(I)`, then
+`Client.GetDocumentByPath` for the `IServerDocument`.
 
 **`GetCurrentView : IServerDocumentView`**
 The currently focused editor view.
@@ -253,6 +259,6 @@ Dispatches a client message / process invocation.
 
 The installed-libraries manager (a predefined global).
 
-**`InstallLibrary(FullPath : String)`** — adds the library at `FullPath` to the
+**`InstallLibrary(FullPath : String)`**: adds the library at `FullPath` to the
 installed/available set.
-**`UnInstallLibrary(FullPath : String)`** — removes it.
+**`UnInstallLibrary(FullPath : String)`**: removes it.

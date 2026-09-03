@@ -30,7 +30,7 @@ Required:
 Optional but recommended:
 
 - Free Pascal (`fpc`) for the offline Pascal cross-validation tests under
-  `tests/cross_validate_pascal.pas`
+  [`cross_validate_pascal.pas`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/cross_validate_pascal.pas)
 - An IDE that understands `pyproject.toml` (VS Code, PyCharm)
 
 ## Running the agent locally
@@ -46,13 +46,68 @@ Pascal side; the workspace pointer lives at
 
 ## Tests
 
-- `pytest` runs the Python suite
-- `python tests/test_cross_validate.py` runs the offline Pascal validator
+- `pytest` runs the offline suite, and is safe with Altium open
+- `EDA_AGENT_INTEGRATION=1 pytest` adds the live-Altium tests
+- `python` [`test_cross_validate.py`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/test_cross_validate.py) runs the offline Pascal validator
   (requires Free Pascal in PATH)
 
+**A plain `pytest` does not touch a running Altium.** The nine tests
+under `tests/integration/` drive a real session, and they are skipped at
+COLLECTION unless `EDA_AGENT_INTEGRATION=1`, so no fixture runs, no
+bridge is built and no request file is written.
+
+That gate is recent. Before it, those tests reached the skip only after
+`real_bridge` had already pinged, and `fixture_project_loaded` called
+`project.open` with no skip in front of it at all, so running the suite
+against a healthy polling loop would have opened the fixture project in
+whatever Altium you had in front of you.
+[`test_integration_tests_are_opt_in.py`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/test_integration_tests_are_opt_in.py) holds the line, and checks
+it end to end by running the directory in a subprocess with the
+workspace redirected and asserting nothing was written there.
+
+Once you opt in, those tests still only read: they open and compile a
+project and query it, and send no command that changes the design. A
+test that would is rejected by
+[`test_integration_suite_is_non_destructive.py`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/test_integration_suite_is_non_destructive.py). Verification that
+has to modify something belongs in `docs/RELEASE_VERIFICATION.md`.
+
 The Pascal scripts cannot be fully unit-tested without a running Altium
-instance — cross-validation runs the same logic compiled by `fpc` against
+instance; cross-validation runs the same logic compiled by `fpc` against
 mocked Altium objects and is the only honest pre-Altium check.
+
+### Writing a guard
+
+A good part of this suite is guards: tests that compare a fact stated in
+one place against the code that decides it, because the two drift and
+nothing else notices. If you add one, four things have caught real
+mistakes here and are worth copying.
+
+**Mutate the defect it exists to catch.** A guard that has never failed
+has not been tested. Break the thing on purpose, confirm the guard
+fails, put it back. Several guards in this suite passed on their first
+run while checking nothing, and only mutation found that.
+
+**Assert the check found something.** If the guard parses a table, a
+document or a registry, assert the parse was non-empty and roughly the
+expected size. A renamed heading otherwise turns the guard into a test
+that passes because it read zero rows. Existing examples:
+`test_the_scan_sees_what_it_claims_to`,
+`test_the_widened_scan_actually_sees_something`,
+`test_the_check_can_actually_fail`.
+
+**Do not let the guard match its own explanation.** If it searches for a
+literal and a nearby comment names that literal, the comment satisfies
+the search. [`test_no_em_dashes.py`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/test_no_em_dashes.py) builds its characters with
+`chr()` for this reason, and the CI check in
+[`test_version_is_unreleased.py`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/test_version_is_unreleased.py) ignores comment lines because its
+own rationale contains the string it looks for.
+
+**Prefer behaviour to literals, and remember a count cannot see a name.**
+[`test_unit_conversions_agree.py`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/test_unit_conversions_agree.py) converts values rather than
+comparing constants, because keeping the constant and flipping the
+operation is the likelier mistake. [`test_readme_names_real_tools.py`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/tests/test_readme_names_real_tools.py)
+exists because the count guard beside it cannot tell a correct total
+from a table naming a tool nobody wrote.
 
 ## Pull requests
 
@@ -61,29 +116,32 @@ mocked Altium objects and is the only honest pre-Altium check.
 - If you touch Pascal: remember that Altium caches scripts. Reviewers will
   need to restart Altium to see your changes in effect.
 - Add or update tests when behaviour changes.
-- Run `pytest` locally before requesting review.
+- Run `pytest --ignore=tests/integration` locally before requesting review.
 
 ## Commit messages
 
-Use the conventional-commit style already present in the repository:
+Write the subject as a plain imperative sentence saying what the commit
+changes, wrapping the body at ~72 columns:
 
 ```
-type(scope): short summary
+Keep the test suite away from the machine-global workspace pointer
 
-Longer body if needed, wrapped at ~72 columns.
+Longer body if needed: what was wrong, and why this is the fix.
 ```
 
-Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `revert`.
-Scopes used in this repo include `pcb`, `sch`, `design`, `altium`,
-`bridge`, `installer`.
+Do not use a `type(scope):` prefix. This file previously documented that
+convention; the repository no longer uses it.
+
+Do not write housekeeping messages. Mechanical tidying goes into the
+commit that makes the substantive change, and is not mentioned in it.
 
 ## Reporting bugs
 
-See [`.github/ISSUE_TEMPLATE/bug_report.md`](.github/ISSUE_TEMPLATE/bug_report.md).
-Include the Altium version, the `eda-agent --version` output, and — if you
-can — the contents of the workspace `response.json` from the failing call.
+See [`bug_report.md`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/.github/ISSUE_TEMPLATE/bug_report.md).
+Include the Altium version, the `eda-agent --version` output, and, if you
+can, the contents of the workspace `response.json` from the failing call.
 
 ## Suggesting features
 
-See [`.github/ISSUE_TEMPLATE/feature_request.md`](.github/ISSUE_TEMPLATE/feature_request.md).
+See [`feature_request.md`](https://github.com/salitronic/eda-agent/blob/1b60105cbe0c4bd557007b87bc04dda2fd4ef9a1/.github/ISSUE_TEMPLATE/feature_request.md).
 Concrete use cases beat speculative API additions.

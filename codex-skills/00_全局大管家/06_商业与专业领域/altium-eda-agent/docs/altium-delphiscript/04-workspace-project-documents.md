@@ -1,7 +1,7 @@
 # 4. Workspace, projects & the document model (`DM_*`)
 
 Above the schematic and board editors sits the **document model**: the compiled,
-flattened view of a project — its logical documents, components, pins, nets,
+flattened view of a project: its logical documents, components, pins, nets,
 parameters and variants. Its members are prefixed **`DM_`** and reached from
 `GetWorkspace : IWorkspace` ([page 1](01-servers.md)). This is the layer that
 gives a project-wide netlist without walking sheets primitive by primitive, and
@@ -41,9 +41,9 @@ End;
 
 ---
 
-## 4.1 `IWorkspace` — the workspace (`GetWorkspace`)
+## 4.1 `IWorkspace`: the workspace (`GetWorkspace`)
 
-The top of the model tree — the open projects and what the user is focused on.
+The top of the model tree: the open projects and what the user is focused on.
 
 **`DM_FocusedProject : IProject`**
 The project the user is currently working in. The usual entry point; guard for
@@ -53,7 +53,7 @@ The project the user is currently working in. The usual entry point; guard for
 The focused logical document (the active sheet/board as a model object).
 
 **`DM_ProjectCount : Integer`** / **`DM_Projects(I) : IProject`**
-The open projects — iterate to operate across all of them.
+The open projects: iterate to operate across all of them.
 
 **`DM_FreeDocumentsProject : IProject`**
 The synthetic project that holds standalone (project-less) documents, so a loose
@@ -61,7 +61,7 @@ The synthetic project that holds standalone (project-less) documents, so a loose
 
 ---
 
-## 4.2 `IProject` — a project (`.PrjPcb` / `.PrjScr`)
+## 4.2 `IProject`: a project (`.PrjPcb` / `.PrjScr`)
 
 A logical project and its compiled model. Compile it, then read its documents,
 netlist, parameters, variants and violations.
@@ -76,7 +76,7 @@ The source documents as authored (each sheet / board once).
 
 **`DM_PhysicalDocumentCount : Integer`** / **`DM_PhysicalDocuments(I) : IDocument`**
 The physical documents after channel expansion (a sheet used in N channels
-appears N times) — the basis for per-channel designators.
+appears N times): the basis for per-channel designators.
 
 **`DM_DocumentFlattened : IDocument`**
 The single whole-project flattened document. Read its `DM_Components` /
@@ -99,7 +99,7 @@ Flat vs hierarchical netlisting mode.
 
 **`DM_GetAppendSheetNumberToLocalNets : Boolean`** / **`DM_GetAllowPortNetNames`** / **`DM_GetAllowSheetEntryNetNames`** / **`DM_GetOutputPath : String`**  *(properties)*
 The netlisting/output options that shape how net names are formed and where
-output is written — read them so a generated netlist matches Altium's.
+output is written: read them so a generated netlist matches Altium's.
 
 **`DM_ChannelDesignatorFormat`** / **`DM_ChannelRoomLevelSeperator`**  *(properties)*
 The multi-channel designator format and room-level separator (how repeated
@@ -114,7 +114,7 @@ The project's flattened nets (on the flattened document).
 Project-level parameters (each with `DM_Name` / `DM_Value`).
 
 **`DM_ViolationCount : Integer`** / **`DM_Violations(I)`**
-The compile / ERC violations — each carries `DM_ShortDescriptorString` /
+The compile / ERC violations, each carries `DM_ShortDescriptorString` /
 `DM_LongDescriptorString` and a location.
 
 **`DM_ComponentMappings`**
@@ -126,21 +126,21 @@ The component-to-implementation (symbol→footprint) mappings.
 The assembly variants (§4.3).
 
 **`DM_CurrentProjectVariant : IProjectVariant`**
-The active variant — what `DM_VariationKind` is resolved against.
+The active variant: what `DM_VariationKind` is resolved against.
 
 ---
 
-## 4.3 `IProjectVariant` — an assembly variant
+## 4.3 `IProjectVariant`: an assembly variant
 
 One assembly variant and its per-component deviations from the base design.
 
-**`DM_Name : String`** / **`DM_Description : String`**  *(properties)* — identity.
+**`DM_Name : String`** / **`DM_Description : String`**  *(properties)*: identity.
 
 **`DM_VariationCount : Integer`** / **`DM_Variations(I)`**
 The per-component variations under this variant.
 
 **`DM_FindComponentVariationByUniqueId(Id : String)`**
-Looks up one component's variation by its unique id — the direct path when you
+Looks up one component's variation by its unique id: the direct path when you
 already have the component.
 
 A single **variation** exposes **`DM_VariationKind`** (fitted / not-fitted /
@@ -149,14 +149,14 @@ alternate), **`DM_AlternatePart`** (the swapped part, when alternate), and
 
 ---
 
-## 4.4 `IDocument` — a logical document in the model
+## 4.4 `IDocument`: a logical document in the model
 
 A sheet or board as a model object (from `IProject.DM_LogicalDocuments(I)`,
 `DM_DocumentFlattened`, or `IWorkspace.DM_FocusedDocument`).
 
-**`DM_FullPath : String`** / **`DM_FileName : String`**  *(properties)* — path / name.
+**`DM_FullPath : String`** / **`DM_FileName : String`**  *(properties)*: path / name.
 
-**`DM_DocumentKind : String`**  *(property)* — `'SCH'`, `'PCB'`, … .
+**`DM_DocumentKind : String`**  *(property)*: `'SCH'`, `'PCB'`, … .
 
 **`DM_ComponentCount : Integer`** / **`DM_Components(I) : IComponent`**
 The document's components (model side, §4.5).
@@ -167,7 +167,7 @@ The document's nets.
 **`DM_PortCount : Integer`** / **`DM_Ports(I)`**
 The sheet ports (the off-sheet connectors).
 
-**`DM_SheetSymbolCount : Integer`** / **`DM_SheetSymbols(I)`** — the sheet symbols
+**`DM_SheetSymbolCount : Integer`** / **`DM_SheetSymbols(I)`**: the sheet symbols
 (hierarchy children), each exposing **`DM_SheetEntryCount` / `DM_SheetEntries(I)`**.
 
 **`DM_ConstraintGroupCount : Integer`** / **`DM_ConstraintGroups(I)`**
@@ -176,17 +176,17 @@ The constraint groups on the document; a group exposes
 
 ---
 
-## 4.5 `IComponent`, `IPin` and `INet` — model components, pins, nets
+## 4.5 `IComponent`, `IPin` and `INet`: model components, pins, nets
 
 ### `IComponent`
 
 A model component (from `Document.DM_Components(I)` or `Pin.DM_Part`).
 
 **`DM_PhysicalDesignator : String`**  *(property)*
-The resolved refdes after channel expansion (`'U1'`, `'U1_2'`) — the one to
+The resolved refdes after channel expansion (`'U1'`, `'U1_2'`): the one to
 report. **`DM_LogicalDesignator`** is the pre-expansion designator.
 
-**`DM_Comment : String`** / **`DM_Name : String`**  *(properties)* — comment/value and name.
+**`DM_Comment : String`** / **`DM_Name : String`**  *(properties)*: comment/value and name.
 
 **`DM_LibraryReference : String`** / **`DM_Footprint : String`**  *(properties)*
 The symbol library reference and the assigned footprint name.
@@ -195,7 +195,7 @@ The symbol library reference and the assigned footprint name.
 The stable unique id that ties a schematic component to its PCB component (the
 key behind `DM_FindComponentVariationByUniqueId` and sync).
 
-**`DM_PinCount : Integer`** / **`DM_Pins(I) : IPin`** — its pins.
+**`DM_PinCount : Integer`** / **`DM_Pins(I) : IPin`**: its pins.
 
 **`DM_ParameterCount : Integer`** / **`DM_Parameters(I)`**
 Its parameters; each exposes **`DM_Name`** (also **`DM_ParameterName`**) and
@@ -214,30 +214,30 @@ Fitted / not-fitted / alternate under the current variant.
 
 A model pin (from `IComponent.DM_Pins(I)`, or an `ISch_Pin`'s `DM_*` members).
 
-**`DM_PinNumber : String`** / **`DM_PinName : String`**  *(properties)* — number and name.
+**`DM_PinNumber : String`** / **`DM_PinName : String`**  *(properties)*: number and name.
 
 **`DM_FlattenedNetName : String`**  *(property)*
-The net this pin connects to in the flattened design — **the canonical
+The net this pin connects to in the flattened design: **the canonical
 connectivity read**. Build a netlist by grouping pins on equal
 `DM_FlattenedNetName`. **`DM_FlattenedNet`** returns the `INet` object itself.
 
-**`DM_Part : IComponent`**  *(property)* — the owning component.
+**`DM_Part : IComponent`**  *(property)*: the owning component.
 
-**`DM_Electrical`**  *(property)* — the pin's electrical type (input/output/power/…).
+**`DM_Electrical`**  *(property)*: the pin's electrical type (input/output/power/…).
 
-**`DM_Value : String`**  *(property)* — the pin's value, where applicable.
+**`DM_Value : String`**  *(property)*: the pin's value, where applicable.
 
 ### `INet`
 
 A model net (from `Document.DM_Nets(I)` / `Project.DM_Nets(I)` /
 `Pin.DM_FlattenedNet`).
 
-**`DM_NetName : String`**  *(property)* — the net name.
+**`DM_NetName : String`**  *(property)*: the net name.
 
-**`DM_PinCount : Integer`** / **`DM_Pins(I) : IPin`** — the pins on the net.
+**`DM_PinCount : Integer`** / **`DM_Pins(I) : IPin`**: the pins on the net.
 
 **`DM_NetLabelCount`** / **`DM_PortCount`** / **`DM_PowerObjectCount : Integer`**  *(properties)*
-How many net labels / ports / power objects name this net — a net named only by
+How many net labels / ports / power objects name this net: a net named only by
 a single label/port is a connectivity smell an audit flags.
 
 ---
@@ -261,7 +261,7 @@ Identify a difference's target object and its kind.
 
 ---
 
-## 4.7 `IServerDocument` — the open editor document
+## 4.7 `IServerDocument`: the open editor document
 
 The raw open file as the application holds it (from `Client.GetDocumentByPath` /
 `Client.OpenDocument`), distinct from the model `IDocument`. Use it to save and
@@ -271,7 +271,7 @@ focus files.
 The document's path; rename/retarget before a save-as.
 
 **`Modified : Boolean`** / **`SetModified(Value : Boolean)`**
-The dirty flag — read to decide whether a save is needed, set to force/clear it.
+The dirty flag: read to decide whether a save is needed, set to force/clear it.
 
 **`DoFileSave(Kind : String)`**
 Writes the document to disk (`Kind` is the document kind, e.g. `'PCB'`).

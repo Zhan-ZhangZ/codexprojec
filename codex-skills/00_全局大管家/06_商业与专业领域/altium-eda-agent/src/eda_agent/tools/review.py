@@ -19,7 +19,7 @@ relying on whatever the model happens to remember:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from ..bridge import get_bridge
 from .datasheet_hints import (
@@ -83,6 +83,7 @@ LINT_SEVERITY: dict[str, str] = {
     # break the board or block fab ----
     "find_designator_collisions":        "critical",
     "find_orphan_net_labels":            "critical",
+    "find_net_label_conflicts":          "critical",
     "find_orphan_power_objects":         "critical",
     "find_placeholder_values":           "critical",
     "find_invalid_regions":              "critical",
@@ -140,6 +141,7 @@ LINT_AUDIT_LIST: list[tuple[str, str]] = [
     ("find_non_embedded_images",        "audit.find_non_embedded_images"),
     ("find_visible_supplier_pn",        "audit.find_visible_supplier_pn"),
     ("find_orphan_net_labels",          "audit.find_orphan_net_labels"),
+    ("find_net_label_conflicts",        "audit.find_net_label_conflicts"),
     ("find_orphan_power_objects",       "audit.find_orphan_power_objects"),
     ("find_placeholder_values",         "audit.find_placeholder_values"),
     # --- pcb ---
@@ -280,6 +282,15 @@ def register_review_tools(mcp):
     ) -> dict[str, Any]:
         """Fetch a comprehensive design-review snapshot in ONE tool call.
 
+        THIS -- the compiled netlist + part data it returns -- is the
+        BASIS of a design review, not a render. Judge connectivity, part
+        values, ratings, and pin functions from these sections (and the
+        cited datasheets), never from `sch_render_svg` / `pcb_render_svg`
+        / `design_visual_review`, which are geometry-only and exist for
+        when an image is genuinely needed (layout/placement). A picture
+        can show a wire that shares no net, or hide a net that is
+        electrically correct -- so the review reads the data here.
+
         PREFER THIS over running 8-12 individual review queries.
         A normal review (components, nets, rules, diff, messages, stats,
         unrouted, BOM) is one round-trip instead of one LLM turn per
@@ -345,15 +356,20 @@ def register_review_tools(mcp):
         # Force a fresh compile up-front if requested. Subsequent
         # SmartCompile calls inside each section will hit the newly
         # refreshed cache.
+        recompile_error = ""
         if force_recompile:
             try:
                 await bridge.send_command_async(
                     "project.force_recompile", {}, timeout=120.0
                 )
-            except Exception:
-                # Non-fatal, individual sections still run; they'll
-                # just use whatever compile state is current.
-                pass
+            except Exception as exc:  # noqa: BLE001 - reported, not raised
+                # Non-fatal: the sections still run against whatever
+                # compile state is current. But the caller ASKED for
+                # fresh connectivity, and a review drawn from stale
+                # netlist data while believing it is fresh is the same
+                # defect this release fixed in the force_recompile flag
+                # itself. Report it instead of swallowing it.
+                recompile_error = str(exc)
 
         requested = list(sections) if sections else list(DEFAULT_SECTIONS)
         if include_bom and "bom" not in requested:
@@ -402,9 +418,34 @@ def register_review_tools(mcp):
         result["_review_guidance"] = _guidance_block(unique_parts)
         if failed:
             result["_sections_failed"] = failed
+        if recompile_error:
+            result["_recompile_failed"] = recompile_error
+            result["_recompile_note"] = (
+                "force_recompile was requested but did not run, so these "
+                "sections reflect whatever compile state was already "
+                "current. Connectivity may be stale."
+            )
         result["_sections_fetched"] = [
             s for s in ordered if s in result and not s.startswith("_")
         ]
+
+        # A review that fetched NOTHING must say so. _sections_fetched
+        # being empty is already honest, but it is an absence, and an
+        # absence is the easiest thing for a reader to skim past: the
+        # equivalent aggregator on the EasyEDA side reported a board as
+        # having no violations when not one audit had been able to read
+        # it. Stated here rather than left to inference.
+        #
+        # Deliberately NOT adding an `ok` key. Whether this tool should
+        # carry the ok/reason envelope is the open question in the
+        # failure-shape task, and answering it here by hand would settle
+        # a published contract as a side effect of a different fix.
+        if not result["_sections_fetched"]:
+            result["_nothing_fetched"] = (
+                "not one section could be fetched, so this is not a "
+                "clean or empty design: nothing was read. See "
+                "_sections_failed for why."
+            )
 
         return result
 
@@ -412,6 +453,7 @@ def register_review_tools(mcp):
     async def design_lint_report(
         run_drc: bool = False,
         bad_connection_tolerance_mils: float = 1.0,
+        checks: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Run all design-lint checks and return a consolidated violation
         report.
@@ -464,6 +506,13 @@ def register_review_tools(mcp):
         summary: dict[str, dict[str, int]] = {}
         failed: list[str] = []
 
+        # ``checks`` folds the 31 standalone audit_* tools into this one:
+        # pass a subset of section names to run only those. None = run all.
+        wanted = set(checks) if checks else None
+
+        def _want(name: str) -> bool:
+            return wanted is None or name in wanted
+
         async def _run(name: str, command: str, params: dict[str, Any] | None = None):
             try:
                 data = await bridge.send_command_async(command, params or {})
@@ -487,30 +536,39 @@ def register_review_tools(mcp):
         # find_bad_connections is the only audit that needs a parameter
         # (tolerance_mils); special-case it here.
         for name, command in LINT_AUDIT_LIST:
+            if not _want(name):
+                continue
             if name == "find_bad_connections":
                 await _run(name, command,
                            {"tolerance_mils": str(bad_connection_tolerance_mils)})
             else:
                 await _run(name, command)
 
-        # Python-side BOM checks (no Pascal handler — run off the
+        # Python-side BOM checks (no Pascal handler: run off the
         # project.get_bom snapshot the bridge already cached). Fetch
         # the BOM ONCE and feed all three helpers from it. Kept separate
-        # from LINT_AUDIT_LIST because the call shape differs.
+        # from LINT_AUDIT_LIST because the call shape differs. Skip the
+        # BOM fetch entirely if none of these are requested.
+        _BOM_CHECKS = ("find_unconnected_ic_pins", "find_pin_net_name_mismatches",
+                       "find_missing_decoupling")
         try:
             from .audit import (
                 find_unconnected_ic_pins_from_bom,
                 find_pin_net_name_mismatches_from_bom,
                 find_missing_decoupling_from_bom,
             )
-            bom = await bridge.send_command_async(
+            # Only pay for the BOM fetch if a BOM-side check is wanted.
+            bom = (await bridge.send_command_async(
                 "project.get_bom", {"limit": "5000"})
+                if any(_want(n) for n in _BOM_CHECKS) else {})
             for name, fn in [
                 ("find_unconnected_ic_pins", find_unconnected_ic_pins_from_bom),
                 ("find_pin_net_name_mismatches",
                  find_pin_net_name_mismatches_from_bom),
                 ("find_missing_decoupling", find_missing_decoupling_from_bom),
             ]:
+                if not _want(name):
+                    continue
                 data = fn(bom or {})
                 sections[name] = data
                 summary[name] = {
@@ -536,7 +594,7 @@ def register_review_tools(mcp):
             "checks_run": len(summary),
             "checks_failed": len(failed),
         }
-        return {
+        result = {
             "summary": summary,
             "sections": sections,
             "totals": totals,
@@ -545,9 +603,16 @@ def register_review_tools(mcp):
                 "Each section is the same shape the individual audit_* "
                 "tool returns. Drill into sections[<name>].items for "
                 "specific violations. Re-run with run_drc=True for an "
-                "ERC/DRC-inclusive sweep."
+                "ERC/DRC-inclusive sweep. Pass checks=[...] to run only "
+                "named audits (folds the standalone audit_* tools)."
             ),
         }
+        if wanted is not None:
+            known = {n for n, _ in LINT_AUDIT_LIST} | set(_BOM_CHECKS) | {"drc"}
+            unknown = sorted(wanted - known)
+            if unknown:
+                result["_unknown_checks"] = unknown
+        return result
 
     @mcp.tool()
     async def design_datasheet_checklist() -> dict[str, Any]:

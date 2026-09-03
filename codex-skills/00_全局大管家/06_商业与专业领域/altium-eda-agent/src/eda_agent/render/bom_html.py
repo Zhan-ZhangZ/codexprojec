@@ -23,6 +23,41 @@ def _h(s: Any) -> str:
     return html.escape(str(s or ""), quote=True)
 
 
+def _script_json(value: Any) -> str:
+    """Serialise data for embedding INSIDE a <script> element.
+
+    Escaping for JSON is not escaping for HTML, and this blob has to
+    survive both parsers. An HTML parser tokenises a script element by
+    scanning the raw bytes for "</script"; it has parsed no JSON at that
+    point and cannot know the sequence sits inside a string. So a
+    component field carrying that text ends the element early, and
+    everything after it is read as markup.
+
+    A BOM is exactly where that arrives. The designator will not carry
+    it, but a description or supplier string travelling in comment or
+    lib_ref holds whatever a vendor typed into a catalogue, and the
+    exported page is made to be mailed to a manufacturer, so nobody
+    reads it first.
+
+    Escaping "<" as \\u003c fixes it inside the JSON, where it parses
+    back to the identical character and no consumer can tell the
+    difference. Doing it the other way, by running the blob through
+    _h(), turns the quotes into entities and the script stops parsing
+    altogether.
+
+    U+2028 and U+2029 need the same treatment for a different reason:
+    they are legal raw inside a JSON string and are LINE TERMINATORS to
+    a JavaScript parser, so they end the statement rather than the
+    element. json.dumps escapes them already while ensure_ascii is on,
+    and they are handled here too so that turning that off later cannot
+    quietly reopen the hole.
+    """
+    return (json.dumps(value)
+            .replace("<", "\\u003c")
+            .replace(" ", "\\u2028")
+            .replace(" ", "\\u2029"))
+
+
 def render_bom_html(
     bom: dict[str, Any],
     *,
@@ -78,7 +113,7 @@ def render_bom_html(
 
     value_counts = Counter(g[0] for g in grouped_rows for _ in g[1])
 
-    rows_json = json.dumps([
+    rows_json = _script_json([
         {
             "designators": dlist,
             "value": key[0],
@@ -88,7 +123,7 @@ def render_bom_html(
         }
         for key, dlist in grouped_rows
     ])
-    flat_json = json.dumps([
+    flat_json = _script_json([
         {
             "designator": str(c.get("designator") or ""),
             "value": str(c.get("comment") or c.get("value") or ""),
@@ -106,7 +141,7 @@ def render_bom_html(
     total_lines = len(grouped_rows)
     total_distinct_values = len({k[0] for k in groups.keys() if k[0]})
 
-    # The HTML is intentionally one giant template literal — easier to
+    # The HTML is intentionally one giant template literal: easier to
     # eyeball than fragmented innerHTML pieces in Python.
     return f"""<!doctype html>
 <html lang="en">

@@ -147,6 +147,24 @@ RULE_BAD_HEX = LineRule(
 )
 
 # Inc on array element -- the DelphiScript parser refuses `Inc(arr[i])`.
+# Subscripting the RESULT of a call. DelphiScript accepts an index only on
+# a variable, so `UpperCase(Ch)[1]` is rejected by the compiler with
+# ") or ] expected" rather than failing at run time. It reached a user's
+# editor as a broken deploy, which is exactly what this gate exists to
+# stop. Assign to a local first, then index the local.
+#
+# The interface PROPERTIES that legitimately take an index are written
+# `Obj.Prop[i]` with a dot before the name, and the leading (?<![.\w])
+# keeps those out. A bare `Foo(x)[1]` is the shape that breaks.
+RULE_INDEX_ON_CALL_RESULT = LineRule(
+    name="index-on-call-result",
+    pattern=re.compile(r"(?<![.\w])[A-Za-z_][A-Za-z0-9_]*\s*\([^()]*\)\s*\["),
+    severity="error",
+    memory="delphiscript_record_field_write_needs_materialized.md",
+    description=("indexing a function result is a compile error; assign to "
+                 "a local first, then index the local."),
+)
+
 RULE_INC_ARRAY = LineRule(
     name="inc-on-array-element",
     pattern=re.compile(r"\bInc\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\["),
@@ -435,6 +453,7 @@ LINE_RULES = [
     RULE_TYPECAST,
     RULE_BAD_HEX,
     RULE_INC_ARRAY,
+    RULE_INDEX_ON_CALL_RESULT,
     RULE_RESERVED_IDENT,
     RULE_TYPED_CONSTANT,
     RULE_UNDECLARED_DELPHI_CONST,
@@ -918,11 +937,77 @@ def lint_file(path: str) -> list[Finding]:
     findings.extend(_scan_case_on_enum(rel, raw_lines))
     findings.extend(_scan_if_then_try(rel, raw_lines))
     findings.extend(_scan_reserved_in_var_block(rel, raw_lines))
+    findings.extend(_scan_param_redeclared_as_local(rel, raw_lines))
     findings.extend(_scan_dollar_i(rel, text))
     findings.extend(_scan_call_before_definition(rel, raw_lines))
+    findings.extend(_scan_undeclared_local(rel, raw_lines))
     # Comment-brace check uses raw text (it tracks comment depth itself).
     findings.extend(_scan_comment_brace(rel, text))
 
+    return findings
+
+
+def _scan_call_order_across_files(targets: list) -> list:
+    """Calls that precede their definition IN THE CONCATENATION.
+
+    The per-file rule only knows the routines defined in the file it is
+    reading, so a call into a file that comes LATER in the build order is
+    invisible to it: the name is simply not in its table and the line
+    passes. That is not a theoretical gap. Library.pas called
+    ObjectTypeFromStringPCB, which lived in PCBGeneric.pas, one file later
+    in PAS_FILES. Every file linted clean, the build succeeded, and the
+    deployed script took the scripting engine down with an access
+    violation rather than a compile error, because DelphiScript has no
+    forward declarations and an unresolved identifier is only discovered
+    when the line runs.
+
+    Altium compiles the concatenation, so that is what this checks. Line
+    numbers are reported against the ORIGINAL file, since that is where
+    the fix goes.
+    """
+    order = []
+    for path in targets:
+        if not os.path.exists(path):
+            continue
+        with open(path, "r", encoding="utf-8") as handle:
+            lines = handle.read().split("\n")
+        rel = os.path.basename(path)
+        for i, raw in enumerate(lines, 1):
+            order.append((rel, i, raw, strip_comments_and_strings(raw)))
+
+    def_at = {}
+    for pos, (rel, i, raw, line) in enumerate(order):
+        m = _DEF_RE.match(line)
+        if m:
+            key = m.group(1).lower()
+            if key not in def_at:
+                def_at[key] = pos
+    if not def_at:
+        return []
+
+    call_re = re.compile(
+        r"(?<![.\w])(" + "|".join(re.escape(n) for n in def_at) + r")\s*\(",
+        re.IGNORECASE,
+    )
+    findings = []
+    for pos, (rel, i, raw, line) in enumerate(order):
+        header = _DEF_RE.match(line)
+        header_key = header.group(1).lower() if header else None
+        for m in call_re.finditer(line):
+            key = m.group(1).lower()
+            if key == header_key or key in _DELPHI_BUILTINS:
+                continue
+            if pos < def_at[key]:
+                where = order[def_at[key]][0]
+                if where == rel:
+                    continue          # the per-file rule already reports it
+                findings.append(Finding(
+                    file=rel, line=i, col=m.start(1) + 1,
+                    rule="call-before-definition-across-files",
+                    severity="error",
+                    snippet=raw.rstrip() + f"   [{key} is defined in {where}]",
+                    memory="delphiscript_call_before_definition.md",
+                ))
     return findings
 
 
@@ -944,6 +1029,10 @@ def run_lint(files: Optional[Iterable[str]] = None, verbose: bool = True) -> int
             else:
                 warns += 1
 
+    for f in _scan_call_order_across_files(targets):
+        by_file.setdefault(f.file, []).append(f)
+        errors += 1
+
     if verbose:
         for fname in sorted(by_file):
             for f in by_file[fname]:
@@ -952,6 +1041,296 @@ def run_lint(files: Optional[Iterable[str]] = None, verbose: bool = True) -> int
         print(f"\nlint: scanned {scanned} files, "
               f"{errors} error(s), {warns} warning(s)")
     return errors
+
+
+#: A routine's own parameter, declared again as a local.
+#:
+#: DelphiScript rejects this outright with "Identifier redeclared", and it
+#: happens naturally when a function grows a parameter it used to compute
+#: for itself: the Var line that used to hold it is easy to leave behind.
+#: The compiler catches it, but only after a deploy and a script reload, so
+#: the cost is a whole round trip through Altium for a one-word fix.
+_ROUTINE_HEAD = re.compile(
+    r"^\s*(?:Function|Procedure)\s+\w+\s*\(", re.IGNORECASE)
+
+
+def _scan_param_redeclared_as_local(path: str, lines: list[str]) -> list[Finding]:
+    """Parameters that the routine also declares in its Var block."""
+    findings: list[Finding] = []
+    i = 0
+    while i < len(lines):
+        if not _ROUTINE_HEAD.match(strip_comments_and_strings(lines[i])):
+            i += 1
+            continue
+
+        # The signature can wrap, so collect until the closing paren.
+        head, depth, j = "", 0, i
+        while j < len(lines):
+            piece = strip_comments_and_strings(lines[j])
+            head += piece
+            depth += piece.count("(") - piece.count(")")
+            j += 1
+            if depth <= 0 and "(" in head:
+                break
+
+        inner = head[head.index("(") + 1:head.rindex(")")] if ")" in head else ""
+        params = set()
+        for part in inner.split(";"):
+            for name in part.split(":")[0].split(","):
+                name = name.strip().lstrip("&")
+                # `Var`/`Const` prefixes on a by-reference parameter.
+                name = re.sub(r"^(?:var|const|out)\s+", "", name,
+                              flags=re.IGNORECASE).strip()
+                if name.isidentifier():
+                    params.add(name.lower())
+        if not params:
+            i = j
+            continue
+
+        # Locals, up to the routine's own Begin.
+        in_vars = False
+        while j < len(lines):
+            line = strip_comments_and_strings(lines[j])
+            if re.match(r"^\s*Begin\b", line, re.IGNORECASE):
+                break
+            if _VAR_OR_CONST_HEADER.match(line):
+                in_vars = True
+                j += 1
+                continue
+            if in_vars and ":" in line:
+                for name in line.split(":")[0].split(","):
+                    name = name.strip()
+                    if name.lower() in params:
+                        findings.append(Finding(
+                            file=path, line=j + 1,
+                            col=line.lower().index(name.lower()) + 1,
+                            rule="parameter-redeclared-as-local",
+                            severity="error",
+                            snippet=lines[j],
+                            memory="delphiscript_reserved_words.md",
+                        ))
+            j += 1
+        i = j
+    return findings
+
+
+#: Language builtins. A routine that declares a local with one of these
+#: names shadows the builtin, which is legal and happens here: Library.pas
+#: uses `Length` as a variable in two routines. Without this exclusion the
+#: undeclared-local rule reported every OTHER routine that calls the real
+#: Length(), which is the opposite of the mistake being hunted.
+_BUILTIN_NAMES = {
+    "length", "copy", "pos", "trim", "result", "inc", "dec", "round",
+    "abs", "chr", "ord", "high", "low", "sqrt", "exit", "break",
+    "continue", "assigned", "uppercase", "lowercase", "inttostr",
+    "strtoint", "floattostr", "strtofloat", "format", "delete",
+    "insert", "concat", "setlength", "sizeof", "true", "false", "nil",
+}
+
+
+def _blank_block_comments(lines: list[str]) -> list:
+    """Lines with `{ ... }` comment text replaced by spaces.
+
+    strip_comments_and_strings works a line at a time, so a brace comment
+    spanning several lines is only stripped on its first line and the rest
+    reads as code. Every remaining false positive from the undeclared-local
+    rule was prose inside such a comment being taken for an identifier.
+
+    Line structure and column positions are preserved so a finding still
+    points at the right place.
+    """
+    out, depth = [], 0
+    for line in lines:
+        buf = []
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if depth == 0 and ch == "{":
+                depth += 1
+                buf.append(" ")
+            elif depth > 0:
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                buf.append(" ")
+            elif ch == "/" and i + 1 < len(line) and line[i + 1] == "/":
+                buf.append(" " * (len(line) - i))
+                break
+            else:
+                buf.append(ch)
+            i += 1
+        out.append("".join(buf))
+    return out
+
+
+def _routine_spans(lines: list[str]) -> list:
+    """(name, first_line_index, begin_index, end_index) for each routine.
+
+    Reuses the same head-matching as the other scans so a routine whose
+    signature wraps across lines is still found.
+    """
+    # NOT _ROUTINE_HEAD: that one requires a '(' because its own caller
+    # needs a parameter list. A parameterless routine was therefore not a
+    # boundary here, so each span ran on into the next routine and every
+    # local of that routine looked undeclared. That was 203 of the first
+    # 203 findings.
+    #
+    # ONLY TOP-LEVEL ROUTINES, and only ones that do not nest. DelphiScript
+    # allows a routine inside a routine, and then the OUTER routine's Var
+    # block sits after the inner routine rather than before it, so a flat
+    # start-to-next-head model attributes the outer's locals to the inner
+    # and reports every one of them as undeclared. Representing that
+    # properly needs Begin/End depth parsing, and a linter that is wrong
+    # about scope is worse than one that says less: a nesting routine is
+    # skipped rather than guessed at.
+    top_pattern = re.compile(
+        r"^(?:Function|Procedure)\s+(\w+)\s*[(;:]", re.IGNORECASE)
+    nested_pattern = re.compile(
+        r"^\s+(?:Function|Procedure)\s+\w+\s*[(;:]", re.IGNORECASE)
+    head_pattern = top_pattern
+    spans = []
+    heads = [k for k, line in enumerate(lines)
+             if top_pattern.match(strip_comments_and_strings(line))]
+    for n, start in enumerate(heads):
+        stop = heads[n + 1] if n + 1 < len(heads) else len(lines)
+        begin = None
+        for k in range(start, stop):
+            if re.match(r"^\s*Begin\b", strip_comments_and_strings(lines[k]),
+                        re.IGNORECASE):
+                begin = k
+                break
+        if begin is None:
+            continue
+        if any(nested_pattern.match(strip_comments_and_strings(lines[k]))
+               for k in range(start, stop)):
+            continue
+        named = head_pattern.match(strip_comments_and_strings(lines[start]))
+        spans.append((named.group(1) if named else "?", start, begin, stop))
+    return spans
+
+
+def _declared_names(lines: list[str], start: int, begin: int) -> set:
+    """Parameter and Var-block names visible inside one routine."""
+    names = set()
+    head = ""
+    depth = 0
+    for k in range(start, begin + 1):
+        piece = strip_comments_and_strings(lines[k])
+        head += piece
+        depth += piece.count("(") - piece.count(")")
+        if depth <= 0 and "(" in head:
+            break
+    if "(" in head and ")" in head:
+        inner = head[head.index("(") + 1:head.rindex(")")]
+        for part in inner.split(";"):
+            for name in part.split(":")[0].split(","):
+                name = re.sub(r"^(?:var|const|out)\s+", "", name.strip(),
+                              flags=re.IGNORECASE).strip().lstrip("&")
+                if name.isidentifier():
+                    names.add(name.lower())
+
+    def take(text: str) -> None:
+        for name in text.split(":")[0].split(","):
+            name = name.strip()
+            if name.isidentifier():
+                names.add(name.lower())
+
+    in_vars = False
+    for k in range(start, begin):
+        line = strip_comments_and_strings(lines[k])
+        if _VAR_OR_CONST_HEADER.match(line):
+            in_vars = True
+            # `Var dx, dy, tt : Double;` puts the declarations on the
+            # SAME line as the keyword. Skipping the whole line lost them
+            # and reported every use of dx as undeclared.
+            rest = re.sub(r"^\s*(?:Var|Const)\b", "", line,
+                          flags=re.IGNORECASE)
+            if ":" in rest:
+                take(rest)
+            continue
+        if in_vars and ":" in line:
+            take(line)
+    return names
+
+
+def _scan_undeclared_local(path: str, lines: list[str]) -> list[Finding]:
+    """An identifier used as a local that this routine never declares.
+
+    THE FAILURE IS SILENT UNTIL IT RUNS. DelphiScript resolves late, so
+    an undeclared identifier compiles and then faults the moment the line
+    executes, taking the polling loop with it.
+
+    MEASURED: Lib_AddFootprintPads passed bare `Board` to ResolveLayerId
+    while every other call site in the same file passed `PcbLib.Board`.
+    The routine never declared `Board`, the linter was silent, and the
+    script halted on that line in Altium.
+
+    THE RULE IS DELIBERATELY NARROW. It only considers a name that this
+    same file declares as a local in at least two OTHER routines, which
+    makes it a name the file clearly treats as routine-scoped rather than
+    a global or an Altium builtin. That keeps it to the real confusion
+    (a variable someone forgot to declare or assign here) and away from
+    the late-bound API surface, where deciding what exists is not
+    something a linter can do.
+    """
+    findings: list[Finding] = []
+    # Block comments blanked first: prose inside a multi-line `{ ... }`
+    # was being read as code and was every remaining false positive.
+    lines = _blank_block_comments(lines)
+    spans = _routine_spans(lines)
+    if not spans:
+        return findings
+
+    declared_by = {}
+    per_routine = {}
+    for name, start, begin, stop in spans:
+        names = _declared_names(lines, start, begin)
+        per_routine[(name, start)] = (names, begin, stop)
+        for n in names:
+            declared_by.setdefault(n, set()).add((name, start))
+
+    # Names this file treats as routine-scoped, minus anything that is
+    # also a language builtin. Two routines in Library.pas declare a
+    # variable called `Length`, which shadows the builtin, and without
+    # this every other routine that calls Length(...) was reported.
+    local_names = {n for n, owners in declared_by.items()
+                   if len(owners) >= 2 and n not in _BUILTIN_NAMES}
+    if not local_names:
+        return findings
+
+    for key, (names, begin, stop) in per_routine.items():
+        routine, start = key
+        missing = local_names - names
+        if not missing:
+            continue
+        for k in range(begin, stop):
+            line = strip_comments_and_strings(lines[k])
+            for m in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", line):
+                word = m.group(0)
+                low = word.lower()
+                if low not in missing:
+                    continue
+                # THE POSITION OF THIS MATCH, not the first place the
+                # substring appears. Using find() located 'Name' inside
+                # 'ThisName', read the preceding character as 's' rather
+                # than '.', and reported 401 findings that were almost
+                # all this one mistake.
+                idx = m.start()
+                # `Something.Board` is a property access, not this local.
+                # `$F` is a hex literal, not an identifier called F.
+                # `&Type` is an escaped reserved word.
+                if idx > 0 and line[idx - 1] in ".$&":
+                    continue
+                findings.append(Finding(
+                    file=path, line=k + 1, col=idx + 1,
+                    rule="undeclared-local",
+                    severity="error",
+                    snippet=lines[k].rstrip(),
+                    memory="altium_wrong_api_identifier_family.md",
+                ))
+                break
+    return findings
 
 
 if __name__ == "__main__":

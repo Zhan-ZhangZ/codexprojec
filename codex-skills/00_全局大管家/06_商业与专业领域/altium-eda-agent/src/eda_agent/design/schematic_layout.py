@@ -988,34 +988,117 @@ def assign_rotations(
         for pr in net.pins:
             nets_of.setdefault(pr.refdes, []).append(net)
 
-    for refdes in sorted(positions):
-        part = part_by_refdes.get(refdes)
-        if part is None:
-            rotations[refdes] = 0
-            continue
-        seed = _rotation_for_part(part, list(plan.nets))
-        rotations[refdes] = seed
-        slots = pin_geometry.get(refdes, [])
-        if not slots:
-            continue
+    # Two Gauss-Seidel passes. In the first pass each part is evaluated
+    # against a mix of fixed and merely-seeded neighbours; a part fixed
+    # early can lock in an orientation that its later-fixed neighbour then
+    # has to route around. The second pass re-evaluates every part with ALL
+    # rotations known, which is what lets series-chain partners settle
+    # face-to-face. Deterministic (same sorted order both passes).
+    for _pass in range(2):
+        for refdes in sorted(positions):
+            part = part_by_refdes.get(refdes)
+            if part is None:
+                rotations[refdes] = 0
+                continue
+            seed = _rotation_for_part(part, list(plan.nets))
+            if refdes not in rotations:
+                rotations[refdes] = seed
+            slots = pin_geometry.get(refdes, [])
+            if not slots:
+                continue
 
-        center = (int(positions[refdes].x), int(positions[refdes].y))
-        incident = nets_of.get(refdes, [])
-        if not incident:
-            continue
+            center = (int(positions[refdes].x), int(positions[refdes].y))
+            incident = nets_of.get(refdes, [])
+            if not incident:
+                continue
 
-        best_rot = seed
-        best_cost = None
-        for rot in (0, 90, 180, 270):
-            cost = _incident_hpwl(
-                refdes, rot, slots, center, incident, positions,
-                rotations, part_by_refdes, pin_geometry,
-            )
-            if best_cost is None or cost < best_cost - 1e-9:
-                best_cost = cost
-                best_rot = rot
-        rotations[refdes] = best_rot
+            best_rot = rotations[refdes]
+            best_cost = None
+            for rot in (0, 90, 180, 270):
+                cost = _incident_hpwl(
+                    refdes, rot, slots, center, incident, positions,
+                    rotations, part_by_refdes, pin_geometry,
+                )
+                cost += _facing_penalty(
+                    refdes, rot, slots, center, incident, positions,
+                    rotations, pin_geometry,
+                )
+                if best_cost is None or cost < best_cost - 1e-9:
+                    best_cost = cost
+                    best_rot = rot
+            rotations[refdes] = best_rot
     return rotations
+
+
+_SIDE_DIR = {
+    "left": (-1, 0),
+    "right": (1, 0),
+    "top": (0, 1),
+    "bottom": (0, -1),
+}
+
+
+def _facing_penalty(
+    refdes: str,
+    rotation: int,
+    slots: Sequence[PinSlot],
+    center: Tuple[int, int],
+    incident: Sequence[Net],
+    positions: Mapping[str, _Pt],
+    rotations: Mapping[str, int],
+    pin_geometry: Mapping[str, Sequence[PinSlot]],
+) -> float:
+    """Penalty for pins that point AWAY from their 2-pin-net partner.
+
+    HPWL alone cannot see orientation: flipping a 2-pin passive 180
+    degrees barely moves its incident half-perimeters, so the greedy
+    rotation pass happily leaves series-chain partners back-to-back --
+    the connecting pins face opposite directions, a direct wire would
+    pass through both bodies, and the router is forced into the visible
+    wrap-around loop (the single ugliest artefact on small sheets).
+
+    The professional convention this encodes: on a 2-pin net, the pin's
+    outward direction should have a non-negative component toward the
+    partner pin. Violations cost a fixed 400 mils plus half the partner
+    distance, big enough to override the tiny HPWL asymmetries that
+    otherwise pick the back-to-back flip, small enough not to fight the
+    placement itself. Nets with 3+ pins are skipped (facing is ambiguous
+    there; trunk routing handles them).
+    """
+    my_pins = _world_pins(center, rotation, slots)
+    slot_by_number = {s.number: s for s in slots}
+    total = 0.0
+    for net in incident:
+        if len(net.pins) != 2:
+            continue
+        mine = [pr for pr in net.pins if pr.refdes == refdes]
+        theirs = [pr for pr in net.pins if pr.refdes != refdes]
+        if len(mine) != 1 or len(theirs) != 1:
+            continue
+        my_pin = my_pins.get(mine[0].pin)
+        my_slot = slot_by_number.get(mine[0].pin)
+        if my_pin is None or my_slot is None:
+            continue
+        nbr = theirs[0]
+        if nbr.refdes not in positions:
+            continue
+        nbr_center = (int(positions[nbr.refdes].x), int(positions[nbr.refdes].y))
+        nbr_slots = pin_geometry.get(nbr.refdes, [])
+        nbr_pins = _world_pins(
+            nbr_center, rotations.get(nbr.refdes, 0), nbr_slots,
+        )
+        target = nbr_pins.get(nbr.pin, nbr_center)
+        dx = target[0] - my_pin[0]
+        dy = target[1] - my_pin[1]
+        if dx == 0 and dy == 0:
+            continue
+        base = _SIDE_DIR.get(my_slot.side, (1, 0))
+        ox, oy = _rotate_offset(base, rotation)
+        dot = ox * dx + oy * dy
+        if dot < 0:
+            dist = abs(dx) + abs(dy)
+            total += 400.0 + 0.5 * dist
+    return total
 
 
 def _incident_hpwl(

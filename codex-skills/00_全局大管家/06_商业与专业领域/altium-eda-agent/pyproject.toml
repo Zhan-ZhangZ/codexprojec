@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "eda-agent"
-version = "0.3.0"
-description = "MCP server for EDA tool automation — currently supports Altium Designer. 150+ tools for schematic, PCB, and library ops via DelphiScript bridge."
+version = "0.5.0"
+description = "MCP server for EDA tool automation, currently supports Altium Designer. Around 400 tools for schematic, PCB, and library ops via DelphiScript bridge."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -31,8 +31,18 @@ dependencies = [
     "pydantic>=2.0,<3",
     "psutil>=5.9.0,<8",
     "pywin32>=306; sys_platform == 'win32'",
+    # MSAA and UI Automation, the two accessible layers the UI driving
+    # rests on: ui/controls.py reads oleacc through it and ui/uia.py
+    # reads UIAutomationCore. Both guard the import, so an absent
+    # comtypes turned every dialog read into "unavailable" rather than a
+    # failure, which is the quietest way for a capability to go missing.
+    "comtypes>=1.2,<2; sys_platform == 'win32'",
     "networkx>=3.0,<4",
     "numpy>=1.24,<3",
+    # Pure-Python OLE/CFB reader for the headless Altium file parsers
+    # (fileio/): read .SchDoc/.PcbDoc without a running Altium. Tiny, no
+    # native deps; stable API across its 0.4x line.
+    "olefile>=0.46,<1",
 ]
 
 [project.optional-dependencies]
@@ -43,12 +53,23 @@ dependencies = [
 render = [
     "matplotlib>=3.5,<4",
 ]
+# KiCad backend (EDA_AGENT_BACKEND=kicad / --backend kicad). kipy is the
+# official KiCad IPC client; it is imported lazily inside the bridge so the
+# core install and the Altium backend never need it, and the KiCad tools
+# degrade to a clear "install kicad-python" reason when it is absent. Needs
+# KiCad 9+ with Preferences > Plugins > KiCad API server enabled.
+kicad = [
+    "kicad-python>=0.7",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     # The illustrate render tests exercise the matplotlib path, so dev
     # pulls the render extra (CI installs .[dev] only).
     "matplotlib>=3.5,<4",
+    # The dashboard tests import the Flask app, so dev pulls the web extra
+    # for the same reason.
+    "flask>=3.0",
 ]
 # Local HTTP vote UI for pairwise layout preference capture. Flask is
 # the only runtime dep; the rest is stdlib. ~70 KB on disk.

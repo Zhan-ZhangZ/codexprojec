@@ -231,25 +231,52 @@ def find_unconnected_ic_pins_from_bom(bom: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: Designator prefix to component class. Kept identical to
+#: componentClass() in the dashboard's index.html, and
+#: tests/test_designator_classes_agree.py fails if the two drift.
+#:
+#: Matched on the WHOLE letter prefix, so LED is a semiconductor rather
+#: than an inductor and SW is a connector rather than a switch nobody
+#: classified.
+_DESIGNATOR_CLASSES = {
+    "U": "ic", "IC": "ic", "A": "ic",
+    "J": "connector", "P": "connector", "X": "connector",
+    "CN": "connector", "SW": "connector", "S": "connector",
+    "D": "semi", "LED": "semi", "Q": "semi", "T": "semi",
+    "VR": "semi", "TVS": "semi",
+    "R": "passive", "C": "passive", "L": "passive", "FB": "passive",
+    "RN": "passive", "Y": "passive", "XTAL": "passive",
+}
+
+
 def _component_class_from_designator(des: str) -> str:
     """Mirror of the dashboard's componentClass() heuristic so MCP-side
     audits classify the same way the Components tab chips do."""
     if not des:
         return "other"
-    prefix = des[0].upper()
-    if prefix == "C":
-        return "passive"
-    if prefix == "R":
-        return "passive"
-    if prefix == "L":
-        return "passive"
-    if prefix == "U":
-        return "ic"
-    if prefix == "Q" or prefix == "D":
-        return "semi"
-    if prefix == "J" or prefix == "P" or prefix == "X":
-        return "connector"
-    return "other"
+
+    # THE WHOLE LETTER PREFIX, matched against one table.
+    #
+    # This used to try a three-entry multi-letter map and then fall
+    # through to des[0], and the claim above that it mirrors the
+    # dashboard was simply false: measured across 25 ordinary
+    # designators the two disagreed on TEN, twice landing in opposite
+    # categories. CN1 was a connector on the dashboard and a passive
+    # here; XTAL1 was a passive there and a connector here. Y1, the
+    # standard crystal prefix, was "other".
+    #
+    # A first-letter fallback cannot be made to agree, because the
+    # prefixes that matter are multi-letter and their first letters
+    # belong to other classes: LED starts with L, TVS with T, SW with S.
+    # So the fallback is gone and the table below is the whole rule,
+    # kept identical to componentClass() in the dashboard. A guard
+    # parses that function and compares the two, because a comment
+    # asserting they match is what failed last time.
+    import re as _re
+
+    match = _re.match(r"[A-Za-z]+", des)
+    prefix = match.group(0).upper() if match else ""
+    return _DESIGNATOR_CLASSES.get(prefix, "other")
 
 
 def register_audit_tools(mcp):
@@ -265,7 +292,7 @@ def register_audit_tools(mcp):
         adds a connection using the editor's default 8 mil width and
         moves on. The result is a thin orphan stub welded to a wide
         bus -- under load that thin section becomes a thermal hotspot
-        and eventually a fab-rework rework. Most agents and human
+        and eventually a fab rework. Most agents and human
         reviewers miss it because the bulk of the net looks fine.
 
         Algorithm: per net, collect min/max track widths on signal
@@ -344,7 +371,7 @@ def register_audit_tools(mcp):
         Checks every parameter (Comment, Value, Manufacturer, MPN,
         Description, etc.) on every component across the project.
         Skips empty values -- those are caught by other audits
-        (e.g. ``find_missing_datasheets``).
+        (e.g. ``audit_find_missing_datasheets``).
 
         Pattern: SDK-derived. No community-script reference; this is
         a defensive sanity check we should always run before release.
@@ -422,6 +449,49 @@ def register_audit_tools(mcp):
             "audit.find_orphan_net_labels", {})
 
     @mcp.tool()
+    async def audit_find_net_label_conflicts() -> dict[str, Any]:
+        """Find net labels that silently merge, short, or do nothing.
+
+        Three failure modes that all look correct on a printed sheet:
+
+        1. ``conflicting_labels`` -- two labels with DIFFERENT text at
+           the same Location (x, y), not merely overlapping text boxes.
+           Altium merges both names into one net and one name wins; the
+           losing net ceases to exist and everything on it is absorbed.
+           This is a real short between two named nets, and the usual
+           symptom is "net X has zero pins" while some unrelated pin
+           turns up on net Y. Adjacent labels on a 100-mil pin pitch
+           are not conflicts.
+
+        2. ``labels_on_pin_root`` -- a label sitting on a pin's
+           ``Location`` instead of its electrical end. ``Location`` is
+           the BODY-side root; a pin connects at
+           ``Location + PinLength`` along ``Orientation``
+           (0=right, 1=up, 2=left, 3=down). A label on the root is
+           inert, so the sheet reads as fully wired while the pin
+           floats on an auto-generated net. Each item reports the
+           label's coordinates AND the ``connect_x_mils`` /
+           ``connect_y_mils`` the label should move to.
+
+        3. ``duplicate_labels`` -- same text twice at one point.
+           Harmless electrically, but it is clutter and it hides
+           class 1 underneath.
+
+        Complements ``audit_find_orphan_net_labels``, which only asks
+        whether a wire sits under the label and therefore reports
+        genuinely-connected labels (those on a pin end, with no wire)
+        as orphans.
+
+        Returns:
+            Dict with ``{checked, conflicts, on_pin_root, duplicates,
+            conflicting_labels[], labels_on_pin_root[],
+            duplicate_labels[]}``.
+        """
+        bridge = get_bridge()
+        return await bridge.send_command_async(
+            "audit.find_net_label_conflicts", {})
+
+    @mcp.tool()
     async def audit_find_visible_supplier_pn() -> dict[str, Any]:
         """Find schematic components with a VISIBLE supplier-PN
         parameter.
@@ -468,8 +538,7 @@ def register_audit_tools(mcp):
         Returns:
             Dict with `{checked, violations, items[]}` where each item
             carries `{designator}` for an unlocked component. Pair
-            with `pcb_set_locked` or `obj_batch_modify` to re-lock at
-            scale.
+            with `obj_batch_modify` to re-lock at scale.
         """
         bridge = get_bridge()
         return await bridge.send_command_async(
@@ -583,7 +652,7 @@ def register_audit_tools(mcp):
         DIFFERENT Manufacturer Part Numbers.
 
         Two presumably-identical parts pointing at different MPNs is
-        almost always a bug — either a typo / accidental override
+        almost always a bug: either a typo / accidental override
         during a sub-circuit clone, or means the design genuinely wants
         two sources but lost the alternates table somewhere. The agent
         reviewing the BOM should see this before purchase.
@@ -613,7 +682,7 @@ def register_audit_tools(mcp):
         At least one of those needs to carry an ``http(s)://`` value
         for the IC to count as covered. The agent's review discipline
         requires fetching the actual manufacturer datasheet before
-        making any device-related claim — ICs without a stored URL
+        making any device-related claim: ICs without a stored URL
         force the agent to web-search the part name, which is slower
         and more error-prone than a direct link.
 
@@ -638,7 +707,7 @@ def register_audit_tools(mcp):
           - pin "VCC" wired to a non-power net (swapped rail bug)
           - pin "GND" or "VSS" wired to a non-ground net (broken
             reference plane)
-        ERC won't catch these — the wire is connected, the names just
+        ERC won't catch these: the wire is connected, the names just
         disagree on intent. A class of bug that ships when the user
         copied a sub-circuit and forgot to re-tag the rail.
 
@@ -698,7 +767,7 @@ def register_audit_tools(mcp):
         """Find IC pins with an empty / unset net (excluding pins
         intentionally named NC / DNC / RSVD / RESERVED).
 
-        Walks the project BOM (cheap — uses the already-cached
+        Walks the project BOM (cheap: uses the already-cached
         ``project.get_bom`` snapshot, no extra Altium round-trip) and,
         for every component whose designator starts with ``U``, counts
         pins whose `net` is empty / null / "?". Pins whose NAME marks
@@ -864,7 +933,7 @@ def register_audit_tools(mcp):
         Walks every track / arc on a signal layer. For each endpoint, looks
         for ANOTHER same-net primitive (track / arc / pad / via) within
         ``tolerance_mils``. If nothing same-net is in range, the endpoint
-        is "dangling" — Altium may show it as connected in the analyser
+        is "dangling": Altium may show it as connected in the analyser
         (centre-point heuristic) but the photoplot will not bridge it,
         producing a real open on the fab side.
 
@@ -1008,7 +1077,7 @@ def register_audit_tools(mcp):
         Schematic best practice: components sit on a 100-mil (or whatever
         the project standard is) grid so pins land predictably on wire
         endpoints. Off-grid placement is the classic "I edited around it
-        and never resnapped" trap — the symbol LOOKS wired but the pin
+        and never resnapped" trap: the symbol LOOKS wired but the pin
         doesn't actually touch the wire, ERC silently passes (no visible
         net) and the connection is missing on the netlist.
 
@@ -1040,7 +1109,7 @@ def register_audit_tools(mcp):
         Altium's "Tools → Remove Unused Pad Shapes" optimization
         deletes per-layer pad copper where a primitive isn't electrically
         used on that layer. Applied too aggressively, it leaves a via
-        that drills through an inner layer with NO annular ring there —
+        that drills through an inner layer with NO annular ring there:
         any later trace edit on that inner layer that tries to land on
         the via will silently fail to connect at fab.
 
@@ -1075,7 +1144,7 @@ def register_audit_tools(mcp):
         can leave duplicates that the agent / reviewer want to surface
         before they hit ERC.
 
-        Walks source schematic sheets (not compiled docs — compiled
+        Walks source schematic sheets (not compiled docs: compiled
         flattening would auto-disambiguate multichannel instances with
         channel suffixes, hiding the real source-level collision).
 
@@ -1138,7 +1207,7 @@ def register_audit_tools(mcp):
         Catches the two cases that matter most:
 
           - **multi_output**: a net has MORE THAN ONE Output port. Two
-            drivers fighting for the same net — almost always a wiring
+            drivers fighting for the same net: almost always a wiring
             error or copy-paste mistake.
           - **no_driver**: a net has Input ports but ZERO Output (or
             Bidirectional) ports anywhere in the project. Orphan signal:
@@ -1167,21 +1236,22 @@ def register_audit_tools(mcp):
         """List components marked Not Fitted in the project's CURRENT variant.
 
         Manufacturing context: a Not-Fitted component is on the BOM as a
-        placeholder but should NOT receive paste on the stencil — otherwise
+        placeholder but should NOT receive paste on the stencil, otherwise
         the SMT line deposits paste on empty pads and bridging forms on
         rework. Many houses also want a "DNP" silkscreen marker on the
         artwork. This tool returns the list of components the agent
         should consider for those treatments.
 
-        This is the identify half; adding a PasteMaskExpansion rule to actually
-        suppress paste is a separate mutating call — defer to a future
-        ``pcb_apply_dnp_paste_exclusion`` tool once we're happy with the
-        DNP-detection result.
+        This is the identify half. ``pcb_apply_dnp_paste_exclusion`` is
+        the remediation half: it takes this list (or re-derives it) and
+        collapses the stencil aperture on each Not-Fitted component's
+        surface pads. Kept as two calls so the detection can be reviewed
+        before anything on the board is edited.
 
         Returns:
             Dict with:
               - ``variant``: the current variant's description (empty
-                when the project has no variant selected — DNP only
+                when the project has no variant selected: DNP only
                 applies to a variant)
               - ``checked``: total flattened-project components
               - ``violations``: how many are NotFitted in this variant

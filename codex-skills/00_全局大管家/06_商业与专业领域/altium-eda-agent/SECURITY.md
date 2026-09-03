@@ -37,9 +37,9 @@ In scope:
 
 Out of scope:
 
-- Vulnerabilities in Altium Designer itself — report those to
+- Vulnerabilities in Altium Designer itself: report those to
   Altium directly
-- Vulnerabilities in upstream Python packages — report those to the
+- Vulnerabilities in upstream Python packages: report those to the
   package maintainers (we will bump pins once a fix is available)
 - Issues that require an attacker who already has interactive access
   to the host Windows account running Altium

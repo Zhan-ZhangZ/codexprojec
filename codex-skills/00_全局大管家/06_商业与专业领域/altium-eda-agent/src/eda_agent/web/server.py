@@ -311,7 +311,7 @@ _EDITOR_HTML = """<!doctype html>
     // Toast feedback after save / reset (URL fragment).
     if (window.location.hash === '#saved') {
       var t = document.getElementById('toast');
-      t.textContent = 'Layout saved — used as training data.';
+      t.textContent = 'Layout saved: used as training data.';
       t.classList.add('show');
       setTimeout(function() { t.classList.remove('show'); }, 2000);
       history.replaceState(null, '', window.location.pathname);

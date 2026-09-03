@@ -51,12 +51,31 @@ def via_barrel_area_mm2(
         raise ValueError("drill diameter must be positive")
     if plating_um < 0:
         raise ValueError("plating thickness must be non-negative")
+    # PLATING GROWS INWARD FROM THE DRILL WALL.
+    #
+    # The drill removes material, and copper is deposited onto the wall
+    # of the hole it leaves, so the finished hole is SMALLER than the
+    # drill and the copper lies between (r_drill - t) and r_drill.
+    #
+    # This previously computed the annulus OUTSIDE the drill radius,
+    # r_drill to r_drill + t, which is copper in the space the drill
+    # had already cleared. It overstated the barrel by 18 percent for a
+    # 0.3mm drill with 25um plating, and thermal resistance came out
+    # low by the same factor: a via array that looked adequate and was
+    # not. The docstring above already described the correct annulus.
     r_drill = drill_mm / 2.0
     t = plating_um / 1000.0  # um -> mm
-    r_outer = r_drill + t
+    r_inner = r_drill - t
+
+    # Plating thicker than the radius closes the hole; it cannot eat
+    # past the centre, and the barrel is then a solid cylinder.
+    if r_inner <= 0.0:
+        return math.pi * r_drill * r_drill
+
     if filled_copper:
-        return math.pi * r_outer * r_outer
-    return math.pi * (r_outer * r_outer - r_drill * r_drill)
+        # A filled via is copper across the drilled hole, not beyond it.
+        return math.pi * r_drill * r_drill
+    return math.pi * (r_drill * r_drill - r_inner * r_inner)
 
 
 def single_via_thermal_resistance(

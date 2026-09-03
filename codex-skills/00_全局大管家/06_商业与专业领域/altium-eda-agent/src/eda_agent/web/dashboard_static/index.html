@@ -4,7 +4,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>EDA Agent — Design Dashboard</title>
+<title>EDA Agent - Design Dashboard</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script>
 /* No-flash theme bootstrap: set data-theme before the body paints so a
@@ -36,7 +36,7 @@
   --row-border:#1f2127;
   --text:#e7e9ed;
   --text-mute:#a0a4ad;
-  --text-dim:#6f747e;
+  --text-dim:#878b93;  /* WCAG AA: 5.25:1 on --bg-elev (was #6f747e = 3.82:1) */
   --accent:#7aa2f7;
   --accent-hi:#9bbbf9;
   --accent-2:#bb9af7;
@@ -94,7 +94,7 @@
   --row-border:#eaecef;
   --text:#1a1c21;
   --text-mute:#586069;
-  --text-dim:#888f99;
+  --text-dim:#636a73;  /* WCAG AA: 4.97:1 on --bg (was #888f99 = 2.96:1) */
   --accent:#2f6fd4;
   --accent-hi:#5089e0;
   --accent-2:#7a52c8;
@@ -126,6 +126,10 @@ html, body {
 }
 a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
+/* Light theme: --accent as normal-size link text is below WCAG AA
+   (4.39:1 on --bg, 4.01:1 on hover rows). Nudge link text a touch darker;
+   the brand accent (buttons / highlights / gradients) stays unchanged. */
+:root[data-theme="light"] a { color:#2b66c3; }  /* 4.60-5.54:1 */
 /* Base button -- the default style for any <button>. Use the .btn-*
  * modifier classes below for stronger or quieter variants. */
 button {
@@ -314,11 +318,22 @@ nav.tabs .tab-count {
   line-height:1.4;
 }
 nav.tabs .tab-count.shown { display:inline-block; }
+nav.tabs .tab-count.err {
+  color:#fff;
+  background:var(--err);
+  border-color:var(--err);
+}
 
 /* Lint panel: when the user checks "Show only violations", hide rows
    with zero violations (and their detail blocks) so the meaningful
    findings pop. Driven purely by class toggle, no re-render needed. */
 #lint-body.lint-hide-clean .lint-row-clean { display:none; }
+/* A library part missing an atomic-parts field (MPN / footprint /
+   datasheet) gets a warn accent bar so the completeness score is
+   actionable down to the row. */
+#lib-body tr.lib-incomplete td:first-child {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
 
 /* Assembly tab styles. The step list looks like the existing Components
    table but tighter, with a hard-current row and per-step checkboxes.
@@ -580,6 +595,16 @@ table.data .mono { font-size:var(--fs-xs); }
 .tag.err   { color:var(--err);  border-color:rgba(247,118,142,0.38); background:rgba(247,118,142,0.13); }
 .tag.info  { color:var(--info); border-color:rgba(125,207,255,0.40); background:rgba(125,207,255,0.13); }
 .tag.muted { color:var(--text-dim); }
+/* Light theme: the bright semantic colors fail WCAG AA as small tag TEXT
+   on their tint background (measured: ok 2.55, warn 2.76, err 3.30,
+   info 3.60). Darken the tag text only -- the tint backgrounds and every
+   non-text use of the vars (sparklines, borders, accent bars) keep the
+   vibrant colors. Each value passes AA on the tag's real tint bg. */
+:root[data-theme="light"] .tag.ok   { color:#156b34; }  /* 5.17:1 */
+:root[data-theme="light"] .tag.warn { color:#7b540a; }  /* 5.25:1 */
+:root[data-theme="light"] .tag.err  { color:#a82e42; }  /* 5.01:1 */
+:root[data-theme="light"] .tag.info { color:#126386; }  /* 5.27:1 */
+:root[data-theme="light"] .tag.slow { color:#9f4a15; }  /* 4.67:1 (was #c75d1a = 3.24:1) */
 
 .empty {
   padding:var(--s-7) var(--s-4); text-align:center;
@@ -1140,9 +1165,20 @@ main > section.full-bleed {
   border-bottom: 1px solid var(--border);
 }
 .drawing-toolbar .toolbar-right { margin-left: auto; }
+/* Recovery banner: shown when the DelphiScript polling loop has faulted
+   (see /api/recovery). High-contrast warning so it's impossible to miss. */
+.recovery-banner {
+  background: #7a1f1f; color: #fff; padding: 10px 16px;
+  font-size: 13px; line-height: 1.5; border-bottom: 2px solid #b03535;
+}
+.recovery-banner .rb-title { font-weight: 600; margin-right: 6px; }
+.recovery-banner ol { margin: 6px 0 0; padding-left: 22px; }
+.recovery-banner li { margin: 2px 0; }
 </style>
 </head>
 <body>
+
+<div id="recovery-banner" class="recovery-banner" hidden role="alert"></div>
 
 <header class="shell">
   <div class="brand">EDA Agent <span class="v" id="brand-v">design dashboard</span></div>
@@ -1170,10 +1206,11 @@ main > section.full-bleed {
   <button data-tab="components">Components<span class="tab-count" data-count-for="components"></span></button>
   <button data-tab="nets">Nets<span class="tab-count" data-count-for="nets"></span></button>
   <button data-tab="libraries">Libraries<span class="tab-count" data-count-for="libraries"></span></button>
+  <button data-tab="footprints">Footprints<span class="tab-count" data-count-for="footprints"></span></button>
   <button data-tab="plan">Plan<span class="tab-count" data-count-for="plan"></span></button>
   <button data-tab="assembly">Assembly<span class="tab-count" data-count-for="assembly"></span></button>
   <button data-tab="actions">Actions</button>
-  <button data-tab="status">Status</button>
+  <button data-tab="status">Status<span class="tab-count err" id="status-err-badge"></span></button>
   <div class="spacer"></div>
   <button class="refresh" id="refresh-tab" title="Refresh current tab (R)"
           aria-label="Refresh">
@@ -1208,6 +1245,7 @@ main > section.full-bleed {
         </select>
         <span class="count" id="tools-count"></span>
       </div>
+      <div id="tools-recent" class="row-actions" style="margin-top:8px; flex-wrap:wrap; gap:4px;"></div>
       <div id="tools-list" style="margin-top:10px;">
         <div class="empty">loading...</div>
       </div>
@@ -1241,6 +1279,7 @@ main > section.full-bleed {
       </select>
       <span class="count" id="drawing-status"></span>
       <div class="toolbar-right row-actions">
+        <button id="drawing-fit" title="Fit the whole board to view (or focus the drawing and press 0)">fit</button>
         <button id="drawing-open" title="Open the SVG in a new browser tab">open ↗</button>
       </div>
     </div>
@@ -1419,6 +1458,10 @@ main > section.full-bleed {
           <option value="other">other</option>
         </select>
         <div class="toolbar-right row-actions">
+          <button id="comp-baseline"
+                  title="Capture the current BOM as a baseline to diff against">baseline</button>
+          <button id="comp-diff-toggle"
+                  title="Show what changed vs the captured baseline">changes</button>
           <button class="iconbtn" id="comp-export"
                   title="Copy BOM as CSV" aria-label="Copy CSV">
             <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
@@ -1431,6 +1474,7 @@ main > section.full-bleed {
         </div>
       </div>
       <div id="comp-summary" style="margin-bottom:10px;"></div>
+      <div id="comp-diff"></div>
       <div id="comp-body"><div class="empty">loading...</div></div>
     </div>
   </section>
@@ -1450,8 +1494,24 @@ main > section.full-bleed {
           <option value="diff">differential</option>
           <option value="signal">signal</option>
         </select>
+        <div class="toolbar-right row-actions">
+          <button id="net-baseline"
+                  title="Capture the current net list as a baseline to diff against">baseline</button>
+          <button id="net-diff-toggle"
+                  title="Show which nets changed vs the captured baseline">changes</button>
+          <button class="iconbtn" id="net-export"
+                  title="Copy nets as CSV" aria-label="Copy CSV">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/>
+              <path d="M10.4 5.5V4A1.5 1.5 0 0 0 8.9 2.5H4A1.5 1.5 0 0 0 2.5 4v4.9A1.5 1.5 0 0 0 4 10.4h1.5"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div id="net-summary" style="margin-bottom:10px;"></div>
+      <div id="net-diff"></div>
       <div id="net-body"><div class="empty">loading...</div></div>
     </div>
   </section>
@@ -1462,6 +1522,15 @@ main > section.full-bleed {
       <h2>inventory snapshot</h2>
       <div class="hint" id="lib-source"></div>
       <div id="lib-body" style="margin-top:10px;"><div class="empty">loading...</div></div>
+    </div>
+  </section>
+
+  <!-- ==================== FOOTPRINT POLICY TAB ==================== -->
+  <section data-pane="footprints" hidden>
+    <div class="panel">
+      <h2>footprint policy audit</h2>
+      <div class="hint" id="fp-policy-source"></div>
+      <div id="fp-policy-body" style="margin-top:10px;"><div class="empty">loading...</div></div>
     </div>
   </section>
 
@@ -1521,6 +1590,22 @@ main > section.full-bleed {
         </label>
         <span class="count" id="feed-count"></span>
         <div class="toolbar-right row-actions">
+          <button class="iconbtn" id="feed-pause"
+                  title="Pause the live feed" aria-label="Pause feed"
+                  aria-pressed="false">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+              <rect x="4" y="3" width="3" height="10" rx="1"/>
+              <rect x="9" y="3" width="3" height="10" rx="1"/>
+            </svg>
+          </button>
+          <button class="iconbtn" id="feed-export"
+                  title="Export the visible entries as CSV" aria-label="Export CSV">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                 stroke-linejoin="round">
+              <path d="M8 2.5v7M5 6.5 8 9.5l3-3M3.5 13.5h9"/>
+            </svg>
+          </button>
           <button class="iconbtn" id="feed-clear"
                   title="Clear the log view" aria-label="Clear view">
             <svg viewBox="0 0 16 16" width="13" height="13" fill="none"
@@ -1818,6 +1903,14 @@ function fmtAgo(epochSec) {
   if (sec < 86400) return Math.floor(sec/3600) + "h ago";
   return Math.floor(sec/86400) + "d ago";
 }
+// Suffix showing when the cached components/nets table was last pulled
+// from Altium, so a table left open reads as stale (use the refresh
+// button to re-pull). Blank until the first fetch. loadComponents /
+// loadNets always refetch then render, so the stamp tracks the shown data.
+function fetchedAgo(key) {
+  const t = state.fetchedAt && state.fetchedAt[key];
+  return t ? " · fetched " + fmtAgo(t) : "";
+}
 // Toasts stack vertically and auto-remove. Each call appends a fresh
 // element so rapid-fire toasts don't overwrite each other; the older
 // ones slide up to make room for newer below them.
@@ -1893,6 +1986,9 @@ function savePersistedUI() {
       compSort: typeof compSortState !== "undefined" ? compSortState : null,
       netSort:  typeof netSortState  !== "undefined" ? netSortState  : null,
       msgFilter: typeof msgFilter !== "undefined" ? msgFilter : null,
+      feedFilter: state.filterFeed,
+      feedHidePings: state.hidePings,
+      feedOnlySlow: state.onlySlow,
     };
     localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
   } catch (e) {}
@@ -1923,6 +2019,20 @@ function restorePersistedUI() {
     }
     if (p.msgFilter && typeof msgFilter !== "undefined") {
       Object.assign(msgFilter, p.msgFilter);
+    }
+    // Feed toolbar state -- restore into both state and the controls so
+    // the feed paints filtered on first load, matching the rest of the UI.
+    if (p.feedFilter != null) {
+      state.filterFeed = p.feedFilter;
+      if ($("#feed-filter")) $("#feed-filter").value = p.feedFilter;
+    }
+    if (p.feedHidePings != null) {
+      state.hidePings = p.feedHidePings;
+      if ($("#feed-hide-pings")) $("#feed-hide-pings").checked = p.feedHidePings;
+    }
+    if (p.feedOnlySlow != null) {
+      state.onlySlow = p.feedOnlySlow;
+      if ($("#feed-only-slow")) $("#feed-only-slow").checked = p.feedOnlySlow;
     }
   } catch (e) {}
   return p;
@@ -1968,8 +2078,26 @@ function updateTabCounts() {
   });
 }
 
+// Red badge on the Status tab counting errors that arrived LIVE while the
+// user was on another tab, so a failure off-tab doesn't go unnoticed.
+// Cleared when the user opens Status.
+function renderErrorBadge() {
+  const b = document.getElementById("status-err-badge");
+  if (!b) return;
+  const n = state.unseenErrors || 0;
+  if (n > 0 && state.activeTab !== "status") {
+    b.textContent = n >= 1000 ? "999+" : String(n);
+    b.title = n + " new error" + (n === 1 ? "" : "s")
+            + " since you last viewed Status";
+    b.classList.add("shown");
+  } else {
+    b.classList.remove("shown");
+  }
+}
+
 function showTab(name) {
   state.activeTab = name;
+  if (name === "status") { state.unseenErrors = 0; renderErrorBadge(); }
   savePersistedUI();
   $$("nav.tabs button").forEach(function(b){
     if (b.dataset.tab) b.classList.toggle("active", b.dataset.tab === name);
@@ -2056,6 +2184,7 @@ async function loadTab(name) {
   else if (name === "components") p = loadComponents();
   else if (name === "nets")       p = loadNets();
   else if (name === "libraries")  p = loadLibraries();
+  else if (name === "footprints") p = loadFootprints();
   else if (name === "plan")       p = loadPlan();
   else if (name === "assembly")   p = loadAssembly();
   else if (name === "actions")    p = loadActions();
@@ -2921,10 +3050,17 @@ async function renderDrawing() {
   const sp = $("#drawing-spinner");
   const status = $("#drawing-status");
   sp.style.display = "";
-  status.textContent = drawingState.mode === "pcb"
-    ? "rendering PCB..."
-    : "rendering schematic...";
   host.innerHTML = "";
+  // Tick a live elapsed counter into the status line while we wait. A
+  // full PCB geometry fetch can take 30-60s; a static "rendering..."
+  // label reads as hung, so show the seconds climbing.
+  const label = drawingState.mode === "pcb"
+    ? "rendering PCB" : "rendering schematic";
+  const t0 = Date.now();
+  status.textContent = label + "...";
+  const ticker = setInterval(function(){
+    status.textContent = label + "... " + Math.round((Date.now() - t0) / 1000) + "s";
+  }, 1000);
 
   let url;
   if (drawingState.mode === "pcb") {
@@ -2937,7 +3073,6 @@ async function renderDrawing() {
   }
 
   try {
-    const t0 = Date.now();
     const resp = await fetch(url, { cache: "no-store" });
     const ctype = resp.headers.get("Content-Type") || "";
     const body = await resp.text();
@@ -2979,8 +3114,23 @@ async function renderDrawing() {
       + (e && e.message ? e.message : e) + "</div>";
     status.textContent = "error";
   } finally {
+    clearInterval(ticker);
     sp.style.display = "none";
   }
+}
+
+// Reset the drawing viewport to the full board. Same effect as pressing
+// "0" with the SVG focused, but discoverable as a toolbar button -- reuses
+// the _zoomTo / _fullBox that attachZoomPan exposes.
+function fitDrawingView() {
+  const host = document.getElementById("drawing-host");
+  const svg = host ? host.querySelector("svg") : null;
+  if (!svg || typeof svg._zoomTo !== "function" || !svg._fullBox) {
+    showToast("nothing to fit", "err");
+    return;
+  }
+  const b = svg._fullBox;
+  svg._zoomTo(b.x, b.y, b.w, b.h);
 }
 
 function setDrawingMode(mode) {
@@ -3874,6 +4024,9 @@ async function loadProjectHealth() {
       dec: dec, dsCov: dsCov, ncIc: ncIc, mismatch: mismatch,
       mpn: mpn, hpc: hpc, fpCov: fpCov, cont: cont,
     });
+    if (!navigator.clipboard) {
+      return showToast("clipboard unavailable (use https or localhost)", "err");
+    }
     navigator.clipboard.writeText(md).then(function(){
       showToast("review report copied (" + md.length + " chars)", "ok");
     }).catch(function(e){
@@ -4258,6 +4411,15 @@ async function renderProjectMessages() {
     return;
   }
 
+  // Errors first (then warnings, then info); stable so compile order is
+  // kept within each tier. Matters because the list truncates at 200 --
+  // without this, errors late in the compile could be cut off entirely.
+  const mrank = { err: 0, warn: 1, info: 2 };
+  visible.sort(function(a, b){
+    return (mrank[a._tier] != null ? mrank[a._tier] : 9)
+         - (mrank[b._tier] != null ? mrank[b._tier] : 9);
+  });
+
   const t = el("table", {class:"data"});
   t.appendChild(el("thead", {}, el("tr", {},
     el("th", {style:"width:80px;"}, "class"),
@@ -4328,9 +4490,125 @@ function severityTag(s) {
 }
 
 /* ============================ COMPONENTS ============================ */
+// BOM baseline + diff. Capture the current BOM to localStorage, then after
+// the agent edits parts / runs an ECO, "changes" shows what was added,
+// removed, or changed (value/footprint/MPN) vs that baseline -- the review
+// question "what did this edit actually do to the BOM?". Self-contained:
+// renders into #comp-diff, never touches the main components table.
+// A stable-per-project key so a baseline captured on one project isn't
+// compared against a different project's BOM/nets after the focus changes.
+// Falls back to "default" only when no project identity is available yet.
+function currentProjectKey() {
+  const d = state.data.project && state.data.project.focused
+            && state.data.project.focused.data;
+  return String((d && (d.project_path || d.project_name))
+    || (typeof assemblyState !== "undefined" && assemblyState.projectKey)
+    || "default");
+}
+function bomBaselineKey() {
+  return "eda-dashboard-bom-baseline:" + currentProjectKey();
+}
+function getBomRows() {
+  const r = state.data.components;
+  return (r && r.data && (r.data.bom || r.data.components)) || [];
+}
+function bomKey(row) { return row.designator || row.refdes || ""; }
+function bomSig(row) {
+  return [row.value || row.comment || "",
+          row.footprint || row.footprint_name || "",
+          row.mpn || row.manufacturer_part_number || ""].join(" | ");
+}
+function loadBomBaseline() {
+  try { return JSON.parse(localStorage.getItem(bomBaselineKey()) || "null"); }
+  catch (e) { return null; }
+}
+function setBomBaseline() {
+  const rows = getBomRows();
+  if (!rows.length) return showToast("no BOM loaded to baseline", "err");
+  const parts = {};
+  rows.forEach(function(r){ const k = bomKey(r); if (k) parts[k] = bomSig(r); });
+  try {
+    localStorage.setItem(bomBaselineKey(),
+      JSON.stringify({ ts: Date.now() / 1000, parts: parts }));
+  } catch (e) { return showToast("could not save baseline", "err"); }
+  showToast("baseline set (" + Object.keys(parts).length + " parts)", "ok");
+  renderBomDiff();
+}
+function toggleBomDiff() {
+  state.bomDiff = !state.bomDiff;
+  const btn = document.getElementById("comp-diff-toggle");
+  if (btn) btn.classList.toggle("active", state.bomDiff);
+  renderBomDiff();
+}
+function renderBomDiff() {
+  const root = document.getElementById("comp-diff");
+  if (!root) return;
+  root.innerHTML = "";
+  if (!state.bomDiff) return;
+  const base = loadBomBaseline();
+  if (!base || !base.parts) {
+    root.appendChild(el("div", {class:"hint", style:"margin-bottom:10px;"},
+      "No baseline yet -- click 'baseline' to capture the current BOM, "
+      + "then edit and click 'changes' to compare."));
+    return;
+  }
+  const cur = {};
+  getBomRows().forEach(function(r){ const k = bomKey(r); if (k) cur[k] = bomSig(r); });
+  const added = [], removed = [], changed = [];
+  Object.keys(cur).forEach(function(k){
+    if (!(k in base.parts)) added.push(k);
+    else if (cur[k] !== base.parts[k]) changed.push(k);
+  });
+  Object.keys(base.parts).forEach(function(k){ if (!(k in cur)) removed.push(k); });
+  added.sort(); removed.sort(); changed.sort();
+
+  const strip = el("div",
+    {class:"panel", style:"background:var(--bg-elev); margin-bottom:10px;"});
+  strip.appendChild(el("div", {class:"row-actions", style:"gap:6px;"},
+    el("span", {class:"tag " + (added.length ? "ok" : "muted")},
+      "+" + added.length + " added"),
+    el("span", {class:"tag " + (removed.length ? "err" : "muted")},
+      "−" + removed.length + " removed"),
+    el("span", {class:"tag " + (changed.length ? "warn" : "muted")},
+      changed.length + " changed"),
+    el("span", {class:"hint"}, "vs baseline " + fmtAgo(base.ts))));
+
+  function chipLine(label, arr, cls, clickable) {
+    if (!arr.length) return;
+    const line = el("div", {style:"margin-top:6px; font-size:12px;"},
+      el("span", {class:"tag " + cls, style:"margin-right:6px;"}, label));
+    arr.slice(0, 60).forEach(function(d){
+      const chip = el("span", {class:"mono",
+        style:"margin-right:10px;" + (clickable ? " cursor:pointer;" : ""),
+        title: clickable ? "filter to " + d : ""}, d);
+      if (clickable) chip.addEventListener("click", function(){
+        const inp = document.getElementById("comp-filter");
+        if (inp) inp.value = d;
+        renderComponents();
+      });
+      line.appendChild(chip);
+    });
+    if (arr.length > 60)
+      line.appendChild(el("span", {class:"hint"}, "+" + (arr.length - 60) + " more"));
+    strip.appendChild(line);
+  }
+  if (!added.length && !removed.length && !changed.length) {
+    strip.appendChild(el("div", {class:"hint", style:"margin-top:6px;"},
+      "no changes vs baseline"));
+  } else {
+    chipLine("added", added, "ok", true);
+    chipLine("changed", changed, "warn", true);
+    chipLine("removed", removed, "err", false);
+  }
+  root.appendChild(strip);
+}
+
 async function loadComponents() {
   state.data.components = await fetchJSON("/api/project/components");
+  state.fetchedAt = state.fetchedAt || {};
+  state.fetchedAt.components = Date.now() / 1000;
   renderComponents();
+  renderBomDiff();
 }
 
 var COMP_CLASS_TAG = {
@@ -4741,7 +5019,7 @@ function renderComponents() {
   }
   if (bomA.singleUse) {
     addIssue("warn", bomA.singleUse + " single-use values",
-             "Values used by exactly one component — consolidation candidates",
+             "Values used by exactly one component: consolidation candidates",
              null);
   }
   if (dsCov.withoutDs.length) {
@@ -4782,7 +5060,7 @@ function renderComponents() {
   if (issues.children.length) {
     summary.appendChild(issues);
   } else {
-    // No problems found — show a one-liner so the section doesn't look
+    // No problems found: show a one-liner so the section doesn't look
     // broken (e.g. snapshot loaded but every check passed).
     const ok = el("div", {class:"row-actions", style:"margin-top:6px;"});
     ok.appendChild(el("span", {class:"tag ok"}, "no issues"));
@@ -4814,8 +5092,8 @@ function renderComponents() {
       "reviewed " + reviewedCount + " / " + designators.length
       + " (" + pct + "%)"));
     if (reviewedCount < designators.length) {
-      // Replaces the rounded "unreviewed only" tag with a real checkbox
-      // — same affordance, no fake-pill ambiguity.
+      // Replaces the rounded "unreviewed only" tag with a real checkbox,
+      // same affordance, no fake-pill ambiguity.
       const lbl = el("label",
         {style:"display:inline-flex; align-items:center; gap:4px; "
               + "cursor:pointer; font-size:var(--fs-xs); color:var(--text-mute);",
@@ -4865,7 +5143,8 @@ function renderComponents() {
   } else if (compReviewedFilter === "reviewed") {
     rows = rows.filter(function(c){ return isReviewed(c.designator); });
   }
-  $("#comp-count").textContent = rows.length + " of " + all.length + " components";
+  $("#comp-count").textContent =
+    rows.length + " of " + all.length + " components" + fetchedAgo("components");
   if (!rows.length) {
     root.appendChild(emptyBox("no matching components"));
     return;
@@ -5058,9 +5337,116 @@ function pickColumns(sampleRow, preferred) {
 }
 
 /* ============================ NETS ============================ */
+// Net-list baseline + diff -- the net-side companion to the BOM diff.
+// "changes" shows nets added, removed, or whose connectivity changed
+// (pin/node count delta) vs the captured baseline: the review question
+// "what did this ECO do to the netlist?". Signature uses only the
+// reliable pin_count/node_count fields (not full membership) to stay
+// robust and compact. Self-contained: renders into #net-diff.
+function netBaselineKey() {
+  return "eda-dashboard-net-baseline:" + currentProjectKey();
+}
+function getNetRows() {
+  const r = state.data.nets;
+  return (r && r.data && r.data.nets) || [];
+}
+function netKey(n) { return n.name || ""; }
+function netSig(n) {
+  const pc = n.pin_count != null ? n.pin_count : (n.pins || 0);
+  const nc = n.node_count != null ? n.node_count : (n.nodes || 0);
+  return pc + " | " + nc;
+}
+function loadNetBaseline() {
+  try { return JSON.parse(localStorage.getItem(netBaselineKey()) || "null"); }
+  catch (e) { return null; }
+}
+function setNetBaseline() {
+  const rows = getNetRows();
+  if (!rows.length) return showToast("no net list loaded to baseline", "err");
+  const nets = {};
+  rows.forEach(function(n){ const k = netKey(n); if (k) nets[k] = netSig(n); });
+  try {
+    localStorage.setItem(netBaselineKey(),
+      JSON.stringify({ ts: Date.now() / 1000, nets: nets }));
+  } catch (e) { return showToast("could not save baseline", "err"); }
+  showToast("baseline set (" + Object.keys(nets).length + " nets)", "ok");
+  renderNetDiff();
+}
+function toggleNetDiff() {
+  state.netDiff = !state.netDiff;
+  const btn = document.getElementById("net-diff-toggle");
+  if (btn) btn.classList.toggle("active", state.netDiff);
+  renderNetDiff();
+}
+function renderNetDiff() {
+  const root = document.getElementById("net-diff");
+  if (!root) return;
+  root.innerHTML = "";
+  if (!state.netDiff) return;
+  const base = loadNetBaseline();
+  if (!base || !base.nets) {
+    root.appendChild(el("div", {class:"hint", style:"margin-bottom:10px;"},
+      "No baseline yet -- click 'baseline' to capture the current net list, "
+      + "then run an ECO and click 'changes' to compare."));
+    return;
+  }
+  const cur = {};
+  getNetRows().forEach(function(n){ const k = netKey(n); if (k) cur[k] = netSig(n); });
+  const added = [], removed = [], changed = [];
+  Object.keys(cur).forEach(function(k){
+    if (!(k in base.nets)) added.push(k);
+    else if (cur[k] !== base.nets[k]) changed.push(k);
+  });
+  Object.keys(base.nets).forEach(function(k){ if (!(k in cur)) removed.push(k); });
+  added.sort(); removed.sort(); changed.sort();
+
+  const strip = el("div",
+    {class:"panel", style:"background:var(--bg-elev); margin-bottom:10px;"});
+  strip.appendChild(el("div", {class:"row-actions", style:"gap:6px;"},
+    el("span", {class:"tag " + (added.length ? "ok" : "muted")},
+      "+" + added.length + " added"),
+    el("span", {class:"tag " + (removed.length ? "err" : "muted")},
+      "−" + removed.length + " removed"),
+    el("span", {class:"tag " + (changed.length ? "warn" : "muted")},
+      changed.length + " changed (pins)"),
+    el("span", {class:"hint"}, "vs baseline " + fmtAgo(base.ts))));
+
+  function chipLine(label, arr, cls, clickable) {
+    if (!arr.length) return;
+    const line = el("div", {style:"margin-top:6px; font-size:12px;"},
+      el("span", {class:"tag " + cls, style:"margin-right:6px;"}, label));
+    arr.slice(0, 60).forEach(function(d){
+      const chip = el("span", {class:"mono",
+        style:"margin-right:10px;" + (clickable ? " cursor:pointer;" : ""),
+        title: clickable ? "filter to " + d : ""}, d);
+      if (clickable) chip.addEventListener("click", function(){
+        const inp = document.getElementById("net-filter");
+        if (inp) inp.value = d;
+        renderNets();
+      });
+      line.appendChild(chip);
+    });
+    if (arr.length > 60)
+      line.appendChild(el("span", {class:"hint"}, "+" + (arr.length - 60) + " more"));
+    strip.appendChild(line);
+  }
+  if (!added.length && !removed.length && !changed.length) {
+    strip.appendChild(el("div", {class:"hint", style:"margin-top:6px;"},
+      "no changes vs baseline"));
+  } else {
+    chipLine("added", added, "ok", true);
+    chipLine("changed", changed, "warn", true);
+    chipLine("removed", removed, "err", false);
+  }
+  root.appendChild(strip);
+}
+
 async function loadNets() {
   state.data.nets = await fetchJSON("/api/project/nets");
+  state.fetchedAt = state.fetchedAt || {};
+  state.fetchedAt.nets = Date.now() / 1000;
   renderNets();
+  renderNetDiff();
 }
 
 // Subset-view: re-render the Nets table showing only nets that pass
@@ -5406,7 +5792,8 @@ function renderNets() {
   if (classFilter) {
     rows = rows.filter(function(n){ return n._class === classFilter; });
   }
-  $("#net-count").textContent = rows.length + " of " + all.length + " nets";
+  $("#net-count").textContent =
+    rows.length + " of " + all.length + " nets" + fetchedAgo("nets");
   if (!rows.length) {
     root.appendChild(emptyBox("no matching nets"));
     return;
@@ -5506,6 +5893,94 @@ async function loadLibraries() {
   renderLibraries(r);
 }
 
+async function loadFootprints() {
+  const r = await fetchJSON("/api/footprint-policy");
+  renderFootprints(r);
+}
+
+function renderFootprints(r) {
+  const root = $("#fp-policy-body");
+  const src = $("#fp-policy-source");
+  root.innerHTML = "";
+  if (!r || r.available === false) {
+    src.textContent = "";
+    root.appendChild(emptyBox((r && r.reason) || "no PcbLib open",
+      "Open a .PcbLib in Altium, then reload. Runs lib_audit_footprint_policies over every footprint."));
+    return;
+  }
+  src.textContent = (r.library_path || "PcbLib") + "  ·  " +
+    (r.footprint_count || 0) + " footprints  ·  " +
+    (r.clean_count || 0) + " clean";
+
+  const roll = r.per_footprint || [];
+  if (roll.length) {
+    const strip = el("div", {class:"row-actions",
+      style:"margin-bottom:12px;flex-wrap:wrap;"});
+    roll.forEach(function(fp){
+      strip.appendChild(el("span",
+        {class:"tag " + (fp.ok ? "ok" : "warn"),
+         title: fp.issues + " issue(s)"},
+        fp.name + (fp.ok ? "" : " (" + fp.issues + ")")));
+    });
+    root.appendChild(strip);
+  }
+
+  const sum = r.summary || {};
+  root.appendChild(el("div", {class:"row-actions", style:"margin-bottom:12px;"},
+    el("span", {class:"tag " + (sum.error ? "err" : "ok")}, (sum.error||0) + " error"),
+    el("span", {class:"tag " + (sum.warning ? "warn" : "ok")}, (sum.warning||0) + " warning"),
+    el("span", {class:"tag info"}, (sum.info||0) + " info")));
+
+  const conv = r.conventions || {};
+  const convRow = el("div", {class:"row-actions", style:"margin-bottom:14px;flex-wrap:wrap;"});
+  Object.keys(conv).forEach(function(k){
+    if (conv[k] === null || conv[k] === undefined) return;
+    convRow.appendChild(el("span", {class:"tag info"}, k + ": " + conv[k]));
+  });
+  if (convRow.children.length) {
+    root.appendChild(el("div", {class:"hint", style:"margin-bottom:4px;"},
+      "inferred library conventions"));
+    root.appendChild(convRow);
+  }
+
+  const fixes = r.fixes || [];
+  const autoFixes = fixes.filter(function(a){ return a.auto; });
+  if (autoFixes.length) {
+    root.appendChild(el("div", {class:"hint", style:"margin-bottom:4px;"},
+      autoFixes.length + " auto-correctable (mechanical layer/height/pad fixes)"));
+    const fixRow = el("div", {style:"margin-bottom:14px;"});
+    autoFixes.forEach(function(a){
+      fixRow.appendChild(el("div", {class:"hint", style:"margin:2px 0;"},
+        "→ " + (a.description || (a.footprint + ": " + a.action))));
+    });
+    root.appendChild(fixRow);
+  }
+
+  const findings = r.findings || [];
+  if (!findings.length) {
+    root.appendChild(el("div", {class:"tag ok", style:"font-size:14px;"},
+      "✓ every footprint follows the library conventions"));
+    return;
+  }
+  findings.slice().sort(function(a,b){
+    return (a.footprint||"").localeCompare(b.footprint||"");
+  }).forEach(function(f){
+    const sev = f.severity === "error" ? "err"
+      : (f.severity === "warning" ? "warn" : "info");
+    const row = el("div", {class:"panel", style:"background:var(--bg-elev);margin-bottom:6px;"});
+    row.appendChild(el("div", {class:"row-actions"},
+      el("span", {class:"tag " + sev}, f.severity),
+      el("strong", {}, f.footprint || "?"),
+      el("span", {class:"tag info"}, f.dimension || "")));
+    if (f.message) row.appendChild(el("div", {class:"hint", style:"margin-top:4px;"}, f.message));
+    if (f.expected !== null && f.expected !== undefined) {
+      row.appendChild(el("div", {class:"hint"},
+        "expected " + JSON.stringify(f.expected) + "  ·  actual " + JSON.stringify(f.actual)));
+    }
+    root.appendChild(row);
+  });
+}
+
 function renderLibraries(r) {
   const root = $("#lib-body");
   const src = $("#lib-source");
@@ -5554,7 +6029,11 @@ function renderLibraries(r) {
       )));
       const tb = el("tbody", {});
       comps.slice(0, 500).forEach(function(c){
-        tb.appendChild(el("tr", {},
+        const miss = contractMissing(c);
+        const attrs = miss.length
+          ? {class:"lib-incomplete", title:"missing: " + miss.join(", ")}
+          : {};
+        tb.appendChild(el("tr", attrs,
           el("td", {class:"mono"}, c.lib_ref || c.name || ""),
           el("td", {}, c.designator_prefix || ""),
           el("td", {class:"num"}, fmt(c.pin_count)),
@@ -5580,6 +6059,16 @@ function scoreLibraryContract(comps) {
     if (c.datasheet || c.datasheet_url) ds++;
   });
   return {mpn:mpn, fp:fp, ds:ds};
+}
+// Which atomic-parts fields a component is missing, matching
+// scoreLibraryContract exactly -- drives the per-row incomplete flag so
+// the MPN/footprint/datasheet score is actionable down to the part.
+function contractMissing(c) {
+  const miss = [];
+  if (!(c.mpn || c.manufacturer_part_number)) miss.push("MPN");
+  if (!(c.footprint || c.footprint_name)) miss.push("footprint");
+  if (!(c.datasheet || c.datasheet_url)) miss.push("datasheet");
+  return miss;
 }
 
 /* ============================ PLAN ============================ */
@@ -5743,15 +6232,29 @@ function recomputeStatsFromEntries() {
   const byCmd = new Map();
   state.entries.forEach(function(e){
     let s = byCmd.get(e.cmd);
-    if (!s) { s = {n:0, tot:0, max:0}; byCmd.set(e.cmd, s); }
+    if (!s) { s = {n:0, tot:0, max:0, err:0}; byCmd.set(e.cmd, s); }
     s.n++; s.tot += e.dur_ms;
+    if (e.severity === "error") s.err++;
     if (e.dur_ms > s.max) s.max = e.dur_ms;
   });
   state.perf = Array.from(byCmd.entries()).map(function(arr){
     const s = arr[1];
-    return { cmd: arr[0], n: s.n, total: s.tot, max: s.max,
+    return { cmd: arr[0], n: s.n, total: s.tot, max: s.max, err: s.err,
              avg: Math.floor(s.tot / s.n) };
   }).sort(function(a,b){ return b.max - a.max; });
+}
+
+// Drill from a perf-table command to its calls in the feed: set the feed
+// filter, switch to the Live sub-pane, and persist. Turns "which command
+// is slow/flaky" straight into "show me its calls".
+function filterFeedToCommand(cmd) {
+  state.filterFeed = cmd;
+  const inp = document.getElementById("feed-filter");
+  if (inp) inp.value = cmd;
+  renderFeed();
+  savePersistedUI();
+  showSub("feed");
+  showToast("feed filtered to " + cmd, "ok");
 }
 
 function renderPerf() {
@@ -5768,15 +6271,30 @@ function renderPerf() {
     el("th", {class:"num"}, "avg ms"),
     el("th", {class:"num"}, "max ms"),
     el("th", {class:"num"}, "total ms"),
+    el("th", {class:"num", title:"failed calls this session / % of N"}, "err"),
   )));
   const tb = el("tbody", {});
   state.perf.forEach(function(r){
-    tb.appendChild(el("tr", {},
+    const errPct = r.n ? (r.err / r.n * 100) : 0;
+    const errTd = el("td", {class:"num"},
+      r.err ? (r.err + " / " + errPct.toFixed(0) + "%") : "-");
+    // Flag a chronically-failing verb so it stands out from the healthy
+    // rows without scanning every command's raw error count.
+    if (r.err && errPct > 5) {
+      errTd.style.color = "var(--err)";
+      errTd.style.fontWeight = "600";
+    }
+    tb.appendChild(el("tr", {
+      style: "cursor:pointer;",
+      title: "Show " + r.cmd + " calls in the feed",
+      onclick: function(){ filterFeedToCommand(r.cmd); },
+    },
       el("td", {class:"mono"}, r.cmd),
       el("td", {class:"num"}, fmt(r.n)),
       el("td", {class:"num"}, fmt(r.avg)),
       el("td", {class:"num"}, fmt(r.max)),
       el("td", {class:"num"}, fmt(r.total)),
+      errTd,
     ));
   });
   t.appendChild(tb);
@@ -5857,6 +6375,88 @@ function sevTag(s) {
   return "ok";
 }
 
+// Export the entries currently VISIBLE in the feed -- same filters the
+// user sees (hide-pings, only-slow, text filter) -- as a CSV the browser
+// downloads. Lets an engineer post-mortem a long run without
+// screenshotting the feed. Client-side only; nothing leaves the machine.
+function csvCell(v) {
+  return '"' + (v == null ? "" : String(v)).replace(/"/g, '""') + '"';
+}
+function exportFeedCsv() {
+  const cols = ["timestamp", "command", "dur_ms", "bytes", "severity",
+                "request_id", "err_code", "err_msg"];
+  const rows = [cols.join(",")];
+  let count = 0;
+  for (let i = 0; i < state.entries.length; i++) {
+    const e = state.entries[i];
+    if (!feedMatches(e)) continue;
+    rows.push([
+      csvCell(e.ts), csvCell(e.cmd), csvCell(e.dur_ms), csvCell(e.bytes),
+      csvCell(e.severity || "ok"), csvCell(e.id),
+      csvCell(e.err_code), csvCell(e.err_msg),
+    ].join(","));
+    count++;
+  }
+  if (!count) { showToast("No visible entries to export", "err"); return; }
+  const blob = new Blob([rows.join("\r\n")], {type: "text/csv;charset=utf-8"});
+  const d = new Date();
+  const p = function(n){ return (n < 10 ? "0" : "") + n; };
+  const stamp = "" + d.getFullYear() + p(d.getMonth()+1) + p(d.getDate())
+              + "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "eda-feed-" + stamp + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  showToast(count + " rows exported", "ok");
+}
+
+// A small "copy" affordance for a drawer block (error / payload / trace).
+// These blocks are the first thing you paste when filing a bridge bug, so
+// one-click copy of the exact text saves a fiddly manual selection.
+function copyButton(text, label, btnText) {
+  const b = el("button", {
+    class: "iconbtn sm",
+    title: "Copy " + (label || "text"),
+    "aria-label": "Copy " + (label || "text"),
+    style: "flex:none;",
+  }, btnText || "copy");
+  b.addEventListener("click", function(ev){
+    ev.stopPropagation();
+    if (!navigator.clipboard) { showToast("clipboard unavailable", "err"); return; }
+    navigator.clipboard.writeText(text || "").then(
+      function(){ showToast((label || "text") + " copied", "ok"); },
+      function(){ showToast("copy failed", "err"); });
+  });
+  return b;
+}
+function drawerSectionHead(title, copyText, copyLabel) {
+  return el("div", {
+    class: "row-actions",
+    style: "justify-content:space-between; align-items:center; margin-top:10px;",
+  }, el("h3", {style:"margin:0;"}, title), copyButton(copyText, copyLabel));
+}
+// Assemble the whole call -- metadata, error, payload, trace -- into one
+// markdown block ready to paste into a bug report or a chat message.
+function buildEntryReport(entry, det) {
+  det = det || {};
+  const L = [];
+  L.push("### " + (entry.cmd || "(command)"), "");
+  L.push("- request id: `" + (entry.id || "-") + "`");
+  L.push("- timestamp: " + (entry.ts || "-"));
+  L.push("- duration: " + (entry.dur_ms != null ? entry.dur_ms + " ms" : "-"));
+  L.push("- severity: " + (entry.severity || "ok"));
+  if (entry.bytes != null) L.push("- bytes: " + entry.bytes);
+  if (entry.err_code) L.push("- error code: `" + entry.err_code + "`");
+  if (entry.err_msg) L.push("", "**error**", "", "```", entry.err_msg, "```");
+  L.push("", "**payload prefix**", "", "```", det.payload_prefix || "(none)", "```");
+  if (det.trace && det.trace.length) {
+    L.push("", "**bridge trace**", "", "```", det.trace.join("\n"), "```");
+  }
+  return L.join("\n");
+}
+
 async function openDrawer(entry) {
   $("#drawer-cmd").textContent = entry.cmd;
   $("#drawer-tag").textContent = entry.severity || "ok";
@@ -5871,21 +6471,30 @@ async function openDrawer(entry) {
   }
   const det = await fetchJSON("/api/entry/" + entry.id);
   body.innerHTML = "";
+  const reportBtn = copyButton(
+    buildEntryReport(entry, det), "bug report", "copy report");
+  reportBtn.style.marginLeft = "auto";  // push to the right edge of the row
   body.appendChild(el("div", {class:"row-actions", style:"margin-bottom:10px;"},
     el("span", {class:"tag"}, entry.dur_ms + "ms"),
     el("span", {class:"tag"}, fmtBytes(entry.bytes)),
     entry.err_code ? el("span", {class:"tag err"}, entry.err_code) : null,
+    reportBtn,
   ));
   if (entry.err_msg) {
     body.appendChild(el("div", {class:"panel", style:"background:var(--bg);"},
-      el("h2", {}, "error"),
+      el("div", {class:"row-actions",
+                 style:"justify-content:space-between; align-items:center;"},
+        el("h2", {style:"margin:0;"}, "error"),
+        copyButton(entry.err_msg, "error")),
       el("div", {}, entry.err_msg)));
   }
-  body.appendChild(el("h3", {}, "payload prefix"));
-  body.appendChild(el("pre", {}, det.payload_prefix || "(none)"));
+  const payload = det.payload_prefix || "(none)";
+  body.appendChild(drawerSectionHead("payload prefix", payload, "payload"));
+  body.appendChild(el("pre", {}, payload));
   if (det.trace && det.trace.length) {
-    body.appendChild(el("h3", {}, "bridge trace"));
-    body.appendChild(el("pre", {}, det.trace.join("\n")));
+    const trace = det.trace.join("\n");
+    body.appendChild(drawerSectionHead("bridge trace", trace, "trace"));
+    body.appendChild(el("pre", {}, trace));
   }
 }
 
@@ -5934,6 +6543,26 @@ async function runHealth() {
     root.appendChild(emptyBox(r.error || "no checks"));
     return;
   }
+  // Sort problems to the top (fail > warn > pass > skip) so what needs
+  // attention isn't buried among passing checks, and show a one-line
+  // count summary above the table.
+  const rank = { fail: 0, warn: 1, pass: 2, skip: 3 };
+  const checks = r.checks.slice().sort(function(a, b){
+    return (rank[a.status] != null ? rank[a.status] : 9)
+         - (rank[b.status] != null ? rank[b.status] : 9);
+  });
+  const counts = { pass: 0, fail: 0, warn: 0, skip: 0 };
+  checks.forEach(function(c){ if (counts[c.status] != null) counts[c.status]++; });
+  const summary = el("div", {class:"row-actions", style:"margin-bottom:8px; gap:6px;"});
+  if (counts.fail) summary.appendChild(
+    el("span", {class:"tag err"}, counts.fail + " failed"));
+  if (counts.warn) summary.appendChild(
+    el("span", {class:"tag warn"},
+      counts.warn + " warning" + (counts.warn === 1 ? "" : "s")));
+  summary.appendChild(el("span", {class:"tag ok"}, counts.pass + " passed"));
+  if (counts.skip) summary.appendChild(
+    el("span", {class:"tag info"}, counts.skip + " skipped"));
+  root.appendChild(summary);
   const t = el("table", {class:"data"});
   t.appendChild(el("thead", {}, el("tr", {},
     el("th", {style:"width:90px;"}, "status"),
@@ -5941,7 +6570,7 @@ async function runHealth() {
     el("th", {}, "message"),
   )));
   const tb = el("tbody", {});
-  r.checks.forEach(function(c){
+  checks.forEach(function(c){
     let tag = "muted";
     if (c.status === "pass") tag = "ok";
     else if (c.status === "fail") tag = "err";
@@ -5971,22 +6600,95 @@ function applySnapshot(snap) {
   updateStatusPill();
 }
 
+// Feed pause: freeze the visible feed so a row can be read/clicked without
+// it shifting under the cursor. KPIs, perf table and sparklines keep
+// updating -- only the feed's DOM is held; entries still accumulate in
+// state and paint in one catch-up render on resume.
+var FEED_ICON_PAUSE = '<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><rect x="4" y="3" width="3" height="10" rx="1"/><rect x="9" y="3" width="3" height="10" rx="1"/></svg>';
+var FEED_ICON_PLAY = '<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M5 3.5v9l7-4.5z"/></svg>';
+function updateFeedPauseUI() {
+  const btn = document.getElementById("feed-pause");
+  if (!btn) return;
+  const paused = !!state.feedPaused;
+  const held = state.feedPausedNew || 0;
+  btn.innerHTML = paused ? FEED_ICON_PLAY : FEED_ICON_PAUSE;
+  btn.setAttribute("aria-pressed", paused ? "true" : "false");
+  btn.setAttribute("aria-label", paused ? "Resume feed" : "Pause feed");
+  btn.title = paused
+    ? ("Feed paused" + (held ? " -- " + held + " new held" : "")
+       + " (click to resume)")
+    : "Pause the live feed";
+}
+function toggleFeedPause() {
+  state.feedPaused = !state.feedPaused;
+  state.feedPausedNew = 0;
+  if (!state.feedPaused) renderFeed();  // catch up to everything held
+  updateFeedPauseUI();
+}
+
 function ingestEntry(entry) {
   state.entries.unshift(entry);
   if (state.entries.length > 2000) state.entries.pop();
   recomputeStatsFromEntries();
-  renderFeed();
+  if (state.feedPaused) {
+    state.feedPausedNew = (state.feedPausedNew || 0) + 1;
+    updateFeedPauseUI();
+  } else {
+    renderFeed();
+  }
   renderPerf();
   paintKpis();
   updateStatusPill();
+  // Count a live error against the Status-tab badge when the user is
+  // looking elsewhere; snapshot backfill is excluded (handled in
+  // applySnapshot), so the badge only reflects newly-arrived failures.
+  if (entry && entry.severity === "error" && state.activeTab !== "status") {
+    state.unseenErrors = (state.unseenErrors || 0) + 1;
+    renderErrorBadge();
+  }
+}
+
+// SSE with explicit auto-reconnect + exponential backoff. A native
+// EventSource does retry on its own, but silently and on a fixed cadence;
+// when the server is genuinely down (Altium / MCP restart, laptop sleep)
+// the tab would otherwise sit on a red pill with no recovery signal. We
+// close the handle on error and drive reconnection ourselves so the pill
+// shows a live countdown and the backoff eases off a dead server
+// (1 -> 2 -> 4 -> ... -> 60s), resetting the moment the stream recovers.
+let sseEs = null;
+let sseBackoffMs = 1000;
+const SSE_BACKOFF_MAX_MS = 60000;
+let sseReconnectTimer = null;
+let sseCountdownTimer = null;
+let sseReconnecting = false;
+let sseReconnectMsg = "";
+
+function clearSseTimers() {
+  if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+  if (sseCountdownTimer) { clearInterval(sseCountdownTimer); sseCountdownTimer = null; }
 }
 
 function connectSSE() {
+  clearSseTimers();
+  try { if (sseEs) sseEs.close(); } catch (e) {}
   const es = new EventSource("/events");
+  sseEs = es;
+  const recovered = function(){
+    // Any successful open/message means the stream is healthy again.
+    if (sseReconnecting || sseBackoffMs !== 1000) {
+      sseReconnecting = false;
+      sseBackoffMs = 1000;
+      clearSseTimers();
+      updateStatusPill();
+    }
+  };
+  es.onopen = recovered;
   es.addEventListener("snapshot", function(ev){
+    recovered();
     applySnapshot(JSON.parse(ev.data));
   });
   es.onmessage = function(ev) {
+    recovered();
     let data;
     try { data = JSON.parse(ev.data); } catch (e) { return; }
     if (!Array.isArray(data)) return;
@@ -6000,7 +6702,32 @@ function connectSSE() {
       }
     });
   };
-  es.onerror = function(){ updateStatusPill("dead"); };
+  es.onerror = function(){
+    // Connection dropped. Take over from the native retry: close this
+    // handle and schedule an explicit reconnect with growing backoff.
+    try { es.close(); } catch (e) {}
+    if (sseEs === es) sseEs = null;
+    scheduleSseReconnect();
+  };
+}
+
+function scheduleSseReconnect() {
+  clearSseTimers();
+  sseReconnecting = true;
+  const delay = sseBackoffMs;
+  let remaining = Math.max(1, Math.round(delay / 1000));
+  const tick = function(){
+    sseReconnectMsg = "reconnecting in " + remaining + "s…";
+    updateStatusPill("reconnecting", sseReconnectMsg);
+    remaining -= 1;
+  };
+  tick();
+  sseCountdownTimer = setInterval(tick, 1000);
+  sseReconnectTimer = setTimeout(function(){
+    clearSseTimers();
+    sseBackoffMs = Math.min(sseBackoffMs * 2, SSE_BACKOFF_MAX_MS);
+    connectSSE();
+  }, delay);
 }
 
 /* ============================ KPIs / pill ============================ */
@@ -6077,12 +6804,19 @@ async function pollScriptVersion() {
   } catch (e) { /* polling is best-effort */ }
 }
 
-function updateStatusPill(forced) {
+function updateStatusPill(forced, detail) {
   const pill = $("#status-pill");
   const txt = $("#status-text");
   pill.classList.remove("ok","busy","stale","dead");
+  // While the SSE stream is mid-reconnect, that state wins over the
+  // periodic pollHealth() tick so the countdown text isn't clobbered.
+  if (!forced && sseReconnecting) { forced = "reconnecting"; detail = sseReconnectMsg; }
   let kind;
-  if (forced === "dead") {
+  if (forced === "reconnecting") {
+    pill.classList.add("stale");
+    txt.textContent = detail || "reconnecting…";
+    kind = "stale";
+  } else if (forced === "dead") {
     pill.classList.add("dead"); txt.textContent = "disconnected";
     kind = "dead";
   } else {
@@ -6113,7 +6847,7 @@ function updateStatusPill(forced) {
 //   ×  disconnected  (red pill -- no ping in 15s+)
 // Only writes when the value actually changes, so we don't churn the
 // title every poll tick.
-const BASE_TITLE = "EDA Agent — Design Dashboard";
+const BASE_TITLE = "EDA Agent - Design Dashboard";
 const TITLE_GLYPH = { ok: "●", busy: "◌", stale: "◦", dead: "×" };
 let lastTitleKind = null;
 function syncTabTitle(kind) {
@@ -6193,6 +6927,34 @@ function tickSparklines() {
 async function pollIntent() {
   const r = await fetchJSON("/api/intent");
   $("#intent-banner").textContent = r.intent || "";
+}
+
+// Recovery banner: surfaces a DelphiScript engine fault + how to recover.
+// Hidden while the polling loop is healthy; the bridge clears the fault
+// state once a command succeeds again, so this auto-dismisses on recovery.
+async function pollRecovery() {
+  const el = $("#recovery-banner");
+  if (!el) return;
+  let r;
+  try { r = await fetchJSON("/api/recovery"); }
+  catch (e) { return; }
+  const rec = r && r.recovery;
+  if (!rec) { el.hidden = true; el.innerHTML = ""; return; }
+  const steps = (rec.steps || []).map(function(s){
+    const li = document.createElement("li"); li.textContent = s; return li;
+  });
+  el.innerHTML = "";
+  const title = document.createElement("span");
+  title.className = "rb-title";
+  title.textContent = "Altium script loop stopped:";
+  const diag = document.createTextNode(" " + (rec.diagnosis || ""));
+  el.appendChild(title); el.appendChild(diag);
+  if (steps.length) {
+    const ol = document.createElement("ol");
+    steps.forEach(function(li){ ol.appendChild(li); });
+    el.appendChild(ol);
+  }
+  el.hidden = false;
 }
 
 /* ============================ Component helpers ============================ */
@@ -7151,6 +7913,7 @@ async function loadActions() {
     state.loaded.actions = true;
   }
   buildNamespaceFilter();
+  loadRecentTools();
   renderTools();
 }
 
@@ -7171,9 +7934,50 @@ function buildNamespaceFilter() {
   sel.value = toolState.ns;
 }
 
+var RECENT_TOOLS_KEY = "eda-dashboard-recent-tools";
+function loadRecentTools() {
+  try { toolState.recent = JSON.parse(localStorage.getItem(RECENT_TOOLS_KEY) || "[]"); }
+  catch (e) { toolState.recent = []; }
+  if (!Array.isArray(toolState.recent)) toolState.recent = [];
+}
+function recordRecentTool(name) {
+  if (!name) return;
+  const r = (toolState.recent || []).filter(function(n){ return n !== name; });
+  r.unshift(name);
+  toolState.recent = r.slice(0, 6);
+  try { localStorage.setItem(RECENT_TOOLS_KEY, JSON.stringify(toolState.recent)); }
+  catch (e) {}
+  renderRecentTools();
+}
+// Quick-access chips for the last few tools you ran -- re-running one in a
+// 200+ tool catalog otherwise means re-searching. A chip drops the tool's
+// name into the filter and expands it.
+function renderRecentTools() {
+  const root = document.getElementById("tools-recent");
+  if (!root) return;
+  root.innerHTML = "";
+  const names = (toolState.recent || []).filter(function(n){
+    return toolState.all.some(function(t){ return t.name === n; });
+  });
+  if (!names.length) return;
+  root.appendChild(el("span", {class:"tag muted", style:"cursor:default;"}, "recent:"));
+  names.forEach(function(n){
+    const chip = el("button", {class:"iconbtn sm", title:"Filter to " + n}, n);
+    chip.addEventListener("click", function(){
+      toolState.filter = n;
+      const inp = document.getElementById("tool-filter");
+      if (inp) inp.value = n;
+      toolState.expanded[n] = true;
+      renderTools();
+    });
+    root.appendChild(chip);
+  });
+}
+
 function renderTools() {
   const root = $("#tools-list");
   root.innerHTML = "";
+  renderRecentTools();
   const q = (toolState.filter || "").toLowerCase();
   const ns = toolState.ns;
   const shown = toolState.all.filter(function(t){
@@ -7363,6 +8167,15 @@ async function runTool(t, inputs, btn, result) {
     result.appendChild(el("div", {class:"empty"}, e.message));
     return;
   }
+  // Guard mutating tools: running e.g. pcb_delete_net, obj_batch_delete or
+  // proj_close from the dashboard changes the live design, so require an
+  // explicit confirm before firing. Read-only tools run straight through.
+  if (t.mutates) {
+    const go = await uiConfirm(
+      "Run “" + t.name + "”? This modifies the live design.",
+      { title: "Confirm mutating tool", confirmText: "Run", danger: true });
+    if (!go) { showToast(t.name + " cancelled"); return; }
+  }
   btn.disabled = true;
   const oldLabel = btn.textContent;
   btn.textContent = "running...";
@@ -7373,6 +8186,7 @@ async function runTool(t, inputs, btn, result) {
     body: JSON.stringify({ name: t.name, args: args }),
   });
   const ms = Date.now() - t0;
+  recordRecentTool(t.name);
   btn.disabled = false;
   btn.textContent = oldLabel;
   const ok = !!(r && r.ok);
@@ -7947,25 +8761,55 @@ window.addEventListener("DOMContentLoaded", function(){
         return JSON.stringify(row[c] == null ? "" : row[c]);
       }).join(","));
     });
-    navigator.clipboard.writeText(csv.join("\n"));
-    showToast("copied " + rows.length + " rows", "ok");
+    if (!navigator.clipboard) {
+      return showToast("clipboard unavailable (use https or localhost)", "err");
+    }
+    navigator.clipboard.writeText(csv.join("\n")).then(
+      function(){ showToast("copied " + rows.length + " rows", "ok"); },
+      function(){ showToast("copy failed", "err"); });
+  });
+
+  $("#comp-baseline").addEventListener("click", setBomBaseline);
+  $("#comp-diff-toggle").addEventListener("click", toggleBomDiff);
+  $("#net-baseline").addEventListener("click", setNetBaseline);
+  $("#net-diff-toggle").addEventListener("click", toggleNetDiff);
+
+  $("#net-export").addEventListener("click", function(){
+    const r = state.data.nets;
+    const rows = (r && r.data && r.data.nets) || [];
+    if (!rows.length) return showToast("nothing to copy");
+    const cols = Object.keys(rows[0]);
+    const csv = [cols.join(",")];
+    rows.forEach(function(row){
+      csv.push(cols.map(function(c){
+        return JSON.stringify(row[c] == null ? "" : row[c]);
+      }).join(","));
+    });
+    if (!navigator.clipboard) {
+      return showToast("clipboard unavailable (use https or localhost)", "err");
+    }
+    navigator.clipboard.writeText(csv.join("\n")).then(
+      function(){ showToast("copied " + rows.length + " rows", "ok"); },
+      function(){ showToast("copy failed", "err"); });
   });
 
   $("#feed-filter").addEventListener("input", function(){
     state.filterFeed = $("#feed-filter").value;
-    renderFeed();
+    renderFeed(); savePersistedUI();
   });
   $("#feed-hide-pings").addEventListener("change", function(){
     state.hidePings = $("#feed-hide-pings").checked;
-    renderFeed();
+    renderFeed(); savePersistedUI();
   });
   $("#feed-only-slow").addEventListener("change", function(){
     state.onlySlow = $("#feed-only-slow").checked;
-    renderFeed();
+    renderFeed(); savePersistedUI();
   });
   $("#feed-clear").addEventListener("click", function(){
     state.entries = []; renderFeed(); paintKpis();
   });
+  $("#feed-export").addEventListener("click", exportFeedCsv);
+  $("#feed-pause").addEventListener("click", toggleFeedPause);
 
   // Help overlay wiring.
   const helpOv = $("#help-overlay");
@@ -8225,6 +9069,10 @@ async function runLint() {
     find_orphan_net_labels: {
       group: "sch",
       label: "Net labels not on any wire (silent phantom net)",
+    },
+    find_net_label_conflicts: {
+      group: "sch",
+      label: "Net labels that merge, short, or sit on a pin root",
     },
     find_orphan_power_objects: {
       group: "sch",
@@ -8557,6 +9405,7 @@ window.addEventListener("DOMContentLoaded", function dlPlaceholder(){
   // (Per-tab drawing refresh removed -- the global nav refresh button /
   // the R shortcut now invalidates the PCB cache before re-rendering.)
   $("#drawing-open").addEventListener("click", openDrawingInTab);
+  $("#drawing-fit").addEventListener("click", fitDrawingView);
   $("#drawing-selbar-clear").addEventListener("click", svgClearSelection);
   $("#drawing-selbar-drawer").addEventListener("click", function(){
     if (!drawingSelection) return;
@@ -8608,6 +9457,8 @@ window.addEventListener("DOMContentLoaded", function dlPlaceholder(){
   }
   loadDrawing();
   pollIntent();
+  pollRecovery();
+  setInterval(pollRecovery, 3000);
   pollHealth();
   setInterval(pollHealth, 3000);
   pollScriptVersion();             // initial fetch on dashboard load

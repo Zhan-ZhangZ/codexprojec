@@ -20,6 +20,12 @@ Checks:
   connects nothing to the rest of the design (the classic "both ends landed
   on U1" typo). The schema already forbids a one-pin net, so this catches the
   remaining degenerate case.
+* ``shorted_component`` (error) -- a 2-pin passive (R / C / L) with both
+  terminals on the SAME net, which makes it electrically inert (a shorted
+  resistor, a cap across nothing). The complement of ``shorted_pin``: there
+  the one pin is on several nets, here the several pins collapse onto one net.
+  Both pins being distinct, the schema's duplicate-pin check does not fire,
+  and the part reaches another net so it is not ``floating_net`` either.
 * ``unconnected_part`` (warning) -- a part that appears in no net at all.
 * ``missing_decoupling`` (warning) -- an IC (a part with >= ``ic_pin_threshold``
   pins) sits on a power rail with no decoupling capacitor (a 2-pin cap from
@@ -137,6 +143,24 @@ def check_plan_erc(
                 message=(f"net {net.name!r} connects only to part {only}; it "
                          f"reaches nothing else in the design"),
                 refs=(net.name,)))
+
+    # --- shorted passives (a 2-pin R/C/L with both pins on one net) ---------
+    # A two-terminal passive whose both pins land on the same net is inert: a
+    # resistor shorting a net to itself, a cap across nothing. Both pins are
+    # distinct so the schema passes it, and it reaches that one net so it is
+    # not floating -- this is the only place it is caught. Scoped to R/C/L:
+    # a connector or mounting hole with several pins on GND is legitimate.
+    for part in sorted(plan.parts, key=lambda p: p.refdes):
+        if _kind_from_refdes(part.refdes) not in ("R", "C", "L"):
+            continue
+        nets = nets_of.get(part.refdes, set())
+        if len(pins_of.get(part.refdes, set())) >= 2 and len(nets) == 1:
+            net = next(iter(nets))
+            issues.append(ErcIssue(
+                code="shorted_component", severity="error",
+                message=(f"part {part.refdes} has both pins on net {net!r}; a "
+                         f"2-terminal passive across a single net is inert"),
+                refs=(part.refdes, net)))
 
     # --- unconnected parts --------------------------------------------------
     for part in sorted(plan.parts, key=lambda p: p.refdes):

@@ -8,7 +8,7 @@ strict (extra='forbid') so a requirement can't carry ambiguity past
 validation, and ``open_questions`` is the explicit parking spot for
 anything the capturing agent could not pin down: an unstated assumption
 goes there as a question for the user instead of being silently guessed.
-Planning must not proceed while ``open_questions`` is non-empty —
+Planning must not proceed while ``open_questions`` is non-empty;
 ``validate_requirement`` enforces that.
 
 Electrical units are SI with the unit in the field name (``voltage_v``,
@@ -120,7 +120,7 @@ class SupplyRail(BaseModel):
 class Environment(BaseModel):
     """Operating environment. Every field optional; None means unstated.
 
-    An unstated field is NOT a license to assume benign conditions — if the
+    An unstated field is NOT a license to assume benign conditions: if the
     application hints at a harsh environment, the capturing agent should add
     an open question rather than leave these None.
     """
@@ -241,7 +241,7 @@ class DesignRequirement(BaseModel):
         default_factory=list,
         description="Questions for the user covering every fact this "
         "requirement does NOT state but the design depends on. An unstated "
-        "assumption goes here as a question — it is never guessed. MUST be "
+        "assumption goes here as a question: it is never guessed. MUST be "
         "empty before planning proceeds; validate_requirement fails while "
         "any remain.",
     )
@@ -356,7 +356,7 @@ def validate_requirement(req: DesignRequirement) -> dict:
                 issues.append(
                     f"supply rail {rail.name!r} ({rail.voltage_v}V) exceeds "
                     f"the highest power input ({max_in}V); requires a "
-                    f"boost/inverting stage — confirm this is intended"
+                    f"boost/inverting stage: confirm this is intended"
                 )
         for io in req.outputs:
             if io.kind != IOKind.POWER:
@@ -366,7 +366,7 @@ def validate_requirement(req: DesignRequirement) -> dict:
                     issues.append(
                         f"power output {io.name!r} ({v}V) exceeds the "
                         f"highest power input ({max_in}V); requires a "
-                        f"boost/inverting stage — confirm this is intended"
+                        f"boost/inverting stage: confirm this is intended"
                     )
                     break
 
