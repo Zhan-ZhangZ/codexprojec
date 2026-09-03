@@ -15,6 +15,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
 
+from skill_frontmatter import parse_frontmatter as parse_skill_frontmatter
+
 
 REQUIRED_RESEARCHER_FILES = [
     "README.md",
@@ -167,22 +169,10 @@ class Validator:
         return sorted(skill_names)
 
     def parse_frontmatter(self, text: str, path: Path) -> dict[str, str]:
-        if not text.startswith("---\n"):
-            self.error(path, "missing opening frontmatter delimiter")
-            return {}
-        end = text.find("\n---", 4)
-        if end == -1:
-            self.error(path, "missing closing frontmatter delimiter")
-            return {}
-        data: dict[str, str] = {}
-        for line in text[4:end].splitlines():
-            if not line.strip() or line.startswith(" "):
-                continue
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            data[key.strip()] = value.strip().strip('"')
-        return data
+        data, issues = parse_skill_frontmatter(text)
+        for issue in issues:
+            self.error(path, issue)
+        return {key: str(value) for key, value in data.items()}
 
     def validate_manifests(self, skill_names: list[str]) -> None:
         marketplace_path = self.root / ".claude-plugin" / "marketplace.json"
@@ -214,6 +204,9 @@ class Validator:
                 f"manifest skills differ from skills directory: manifest={manifest_names} skills={skill_names}",
             )
         for raw_path in manifest_paths:
+            if not str(raw_path).startswith("./"):
+                self.error(marketplace_path, f"skill path must start with './': {raw_path}")
+                continue
             if Path(raw_path).is_absolute() or ".." in Path(raw_path).parts:
                 self.error(marketplace_path, f"skill path escapes repo: {raw_path}")
                 continue
@@ -228,6 +221,63 @@ class Validator:
                 plugin_path,
                 f"plugin version {plugin_version} differs from marketplace metadata {marketplace_version}",
             )
+        plugin_name = str(plugin.get("name", ""))
+        marketplace_plugin_name = str(plugin_entry.get("name", ""))
+        if plugin_name != marketplace_plugin_name:
+            self.error(
+                plugin_path,
+                f"plugin name {plugin_name!r} differs from marketplace plugin {marketplace_plugin_name!r}",
+            )
+        self.validate_open_plugin_manifest(plugin_path, plugin, skill_names)
+        self.validate_documented_plugin_commands({marketplace_plugin_name})
+
+    def validate_open_plugin_manifest(
+        self,
+        plugin_path: Path,
+        plugin: dict[str, Any],
+        skill_names: list[str],
+    ) -> None:
+        raw_skills = plugin.get("skills")
+        if raw_skills is None:
+            return
+        if isinstance(raw_skills, str):
+            skill_paths = [raw_skills]
+        elif isinstance(raw_skills, list) and all(isinstance(item, str) for item in raw_skills):
+            skill_paths = list(raw_skills)
+        else:
+            self.error(plugin_path, "Open Plugins 'skills' field must be a string or list of strings")
+            return
+
+        discovered: set[str] = set()
+        for raw_path in skill_paths:
+            path = Path(raw_path)
+            if not raw_path.startswith("./"):
+                self.error(plugin_path, f"Open Plugins skill path must start with './': {raw_path}")
+                continue
+            if path.is_absolute() or ".." in path.parts:
+                self.error(plugin_path, f"Open Plugins skill path escapes repo: {raw_path}")
+                continue
+            full_path = self.root / raw_path
+            if not full_path.exists():
+                self.error(plugin_path, f"Open Plugins skill path does not exist: {raw_path}")
+                continue
+            if (full_path / "SKILL.md").exists():
+                discovered.add(full_path.name)
+                continue
+            if full_path.is_dir():
+                discovered.update(sorted(p.name for p in full_path.iterdir() if (p / "SKILL.md").exists()))
+                continue
+            self.error(plugin_path, f"Open Plugins skill path is not a skill directory: {raw_path}")
+
+        if sorted(discovered) != sorted(skill_names):
+            self.error(
+                plugin_path,
+                f"Open Plugins skills differ from skills directory: manifest={sorted(discovered)} skills={skill_names}",
+            )
+        plugin_metadata_dir = plugin_path.parent
+        unexpected = sorted(p.name for p in plugin_metadata_dir.iterdir() if p.name != "plugin.json")
+        if unexpected:
+            self.error(plugin_path, f"Open Plugins metadata directory must contain only plugin.json: {unexpected}")
 
     def validate_docs(self, skill_names: list[str]) -> None:
         readme = self.root / "README.md"
@@ -248,12 +298,16 @@ class Validator:
                 if f"skills/{skill}/SKILL.md" not in text:
                     self.error(root_skill, f"missing exact internal skill path: {skill}")
 
-        claude = self.root / "CLAUDE.md"
-        if claude.exists():
-            text = claude.read_text(encoding="utf-8")
-            expected = f"{len(skill_names)} skill"
-            if expected not in text:
-                self.warn(claude, f"does not mention current skill count phrase '{expected}'")
+    def validate_documented_plugin_commands(self, plugin_names: set[str]) -> None:
+        pattern = re.compile(r"/plugin install\s+([a-z0-9.-]+)@")
+        for path in sorted(self.root.glob("**/*.md")):
+            if ".git" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for match in pattern.finditer(text):
+                plugin_name = match.group(1)
+                if plugin_name not in plugin_names:
+                    self.error(path, f"documented install command references unknown plugin: {plugin_name}")
 
     def validate_researcher(self) -> None:
         researcher = self.root / "researcher"
