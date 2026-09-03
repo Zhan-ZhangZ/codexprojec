@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from eda_agent.design._wiring import _sheet_path
+from eda_agent.bridge.payload import payload_safe
 from eda_agent.design.canvas import SchematicCanvas, SymbolInstance
 
 logger = logging.getLogger("eda_agent.design.emitter")
@@ -146,7 +147,14 @@ def _ensure_sheet_loaded(
                     "parameters": "ObjectKind=Document|FileName=" + str(sheet_path),
                 },
             )
-            result.notes.append(f"Loaded existing sheet: {sheet_path}")
+            # Says what was REQUESTED, not what happened. App_RunProcess
+            # fires Altium's RunProcess and answers success
+            # unconditionally, because RunProcess reports no status, so
+            # "loaded" would be asserted on no evidence and a failed load
+            # produced two contradictory notes. The outcome is checked one
+            # step later: set_active_document refuses a document that is
+            # not loaded (NOT_LOADED), which aborts this sheet.
+            result.notes.append(f"Requested load of existing sheet: {sheet_path}")
         except Exception as exc:
             result.ok = False
             result.notes.append(f"OpenObject failed for {sheet_name}: {exc}")
@@ -224,6 +232,7 @@ def _emit_sheet(
         _emit_parameter_stamps(
             instances, parameter_stamps, sheet_path, bridge, result
         )
+        _emit_text_positions(instances, sheet_path, bridge, result)
     # 3. Bulk wires.
     wires = canvas.wires_on(sheet_name)
     if wires:
@@ -317,14 +326,20 @@ def _emit_parameter_stamps(
         stamps = parameter_stamps.get(inst.refdes)
         if not stamps:
             continue
-        fields = [f"designator={inst.refdes}"]
+        # A third variant of the payload sanitiser used to live here: it
+        # substituted ";" but not "~~", and left the designator raw. A
+        # plan-authored parameter value carrying "~~" would therefore
+        # end its operation early and forge an extra stamp -- silently,
+        # because the payload stays syntactically valid. One shared rule
+        # now, from the bridge layer that owns the grammar.
+        fields = [f"designator={payload_safe(inst.refdes)}"]
         for k, v in stamps.items():
             if not k or v is None:
                 continue
             vs = str(v).strip()
             if not vs:
                 continue
-            fields.append(f"{k}={vs.replace(';', ',')}")
+            fields.append(f"{payload_safe(k)}={payload_safe(vs)}")
         if len(fields) > 1:
             ops.append(";".join(fields))
     if not ops:
@@ -439,11 +454,44 @@ def _emit_bus_entries(
             break
 
 
+def _emit_text_positions(
+    instances: list, sheet_path: Path, bridge: Any, result: EmitResult
+) -> None:
+    """Mirror text_placement's collision-free annotation anchors onto the
+    live sheet (Designator / Comment sub-object Locations). Skips
+    instances the pass left at defaults."""
+    ops: list[str] = []
+    for inst in instances:
+        dp = getattr(inst, "designator_pos", None)
+        if dp is None:
+            continue
+        fields = [
+            f"designator={payload_safe(inst.refdes)}",
+            f"dx={dp[0]}", f"dy={dp[1]}",
+        ]
+        vp = getattr(inst, "value_pos", None)
+        if vp is not None:
+            fields.append(f"vx={vp[0]}")
+            fields.append(f"vy={vp[1]}")
+        ops.append(";".join(fields))
+    if not ops:
+        return
+    try:
+        bridge.send_command(
+            "generic.set_sch_text_positions",
+            {"positions": "~~".join(ops), "sheet_path": str(sheet_path)},
+            timeout=_PARAM_TIMEOUT_S * max(1, len(ops) // 8),
+        )
+    except Exception as exc:
+        result.notes.append(f"text position pass failed: {exc}")
+
+
 def _emit_labels(
     labels: list, bridge: Any, result: EmitResult, sheet_name: str
 ) -> None:
     payload = "~~".join(
         f"text={l.text};x={l.x};y={l.y};orientation={l.orientation}"
+        f";justification={getattr(l, 'justification', 0)}"
         for l in labels
     )
     try:

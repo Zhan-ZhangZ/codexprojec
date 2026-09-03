@@ -9,9 +9,13 @@ Altium script run picks up the new values.
 """
 
 import json
+import logging
 import os
+import sys
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("eda_agent.config")
 from pydantic import BaseModel, Field
 
 
@@ -19,7 +23,28 @@ from pydantic import BaseModel, Field
 # DelphiScript can't read environment variables, so Python writes the
 # absolute path here and the script reads it. See scripts/altium/Main.pas:
 # ResolveDefaultWorkspaceDir for the reader side.
+#
+# This path is MACHINE-GLOBAL and shared with any running Altium session:
+# the script reads it once at startup, so whatever is written here decides
+# where a live polling loop looks for work. Overriding it is what keeps a
+# test run (or a second checkout) from redirecting somebody's live bridge.
 WORKSPACE_POINTER_FILE = Path(r"C:\ProgramData\eda-agent\workspace-path.txt")
+
+# Env var that redirects the pointer file itself. Set this to a scratch
+# path to exercise the pointer-writing code without touching the real one.
+WORKSPACE_POINTER_ENV = "EDA_AGENT_POINTER_FILE"
+
+
+def workspace_pointer_file() -> Path:
+    """The pointer file to write, honouring ``EDA_AGENT_POINTER_FILE``."""
+    override = os.environ.get(WORKSPACE_POINTER_ENV)
+    return Path(override) if override else WORKSPACE_POINTER_FILE
+
+
+def _running_under_pytest() -> bool:
+    return "pytest" in sys.modules or bool(
+        os.environ.get("PYTEST_CURRENT_TEST")
+    )
 
 CONFIG_FILE_NAME = "mcp_config.json"
 
@@ -44,12 +69,30 @@ def write_workspace_pointer(workspace_dir: Path) -> None:
     escaped the OSError guard), while utf-8 would mojibake the same path
     on the Pascal side.
     """
+    target = workspace_pointer_file()
+
+    # Never let a test run repoint a live bridge. The pointer is
+    # machine-global and the Altium script reads it once at startup, so a
+    # test that writes its tmp workspace here silently redirects a running
+    # polling loop at a throwaway directory: the script stays healthy and
+    # reports zero requests while every real call times out, which is a
+    # genuinely baffling failure to debug from the outside. Tests that
+    # need to exercise this function set EDA_AGENT_POINTER_FILE to their
+    # own scratch path, which is honoured normally.
+    if target == WORKSPACE_POINTER_FILE and _running_under_pytest():
+        logger.debug(
+            "skipping machine-global workspace pointer write under pytest; "
+            "set %s to exercise it against a scratch path",
+            WORKSPACE_POINTER_ENV,
+        )
+        return
+
     try:
-        WORKSPACE_POINTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
         path_str = str(workspace_dir)
         if not path_str.endswith("\\"):
             path_str += "\\"
-        WORKSPACE_POINTER_FILE.write_text(path_str, encoding="mbcs")
+        target.write_text(path_str, encoding="mbcs")
     except (OSError, PermissionError, UnicodeEncodeError, LookupError):
         # LookupError: "mbcs" only exists on Windows; the pointer file is
         # meaningless elsewhere anyway.

@@ -60,6 +60,157 @@ def _bundled_script_version() -> Optional[str]:
     return m.group(1) if m else None
 
 
+def register_meta_tools(mcp):
+    """Register the backend-agnostic discovery/dispatch pair.
+
+    These are deliberately NOT part of register_application_tools. They
+    describe the tool surface itself rather than Altium, so every backend
+    needs them: the KiCad backend previously had no tool_catalog at all,
+    which also made the minimal toolset impossible there.
+    """
+
+    @mcp.tool()
+    async def tool_catalog(
+        category: str = "",
+        maturity: str = "",
+        interaction: str = "",
+        query: str = "",
+        with_description: bool = False,
+        with_schema: bool = False,
+    ) -> dict[str, Any]:
+        """Discover tools by category / maturity / interaction without
+        loading every schema.
+
+        The surface has 350+ tools; loading them all strains a client's
+        context. This meta-tool returns a filtered, classified index so a
+        client can find the right tool first, then rely on its full schema.
+
+        Filters (all optional, AND-combined):
+            category: core, application, project, library, generic,
+                schematic, pcb, audit, design, simulation, routing, meta,
+                parts (and kicad on the KiCad backend; the EasyEDA tools
+                file under the same subject headings as Altium's, so
+                "pcb" means the same thing on either). "core" holds the
+                EDA-agnostic main flow (review_design, get_board_info,
+                list_components, list_nets, run_drc, run_erc) and is the
+                usual starting point. Call with NO filter to get the live
+                ``categories`` map rather than trusting this list.
+            maturity: how far a tool can be exercised without Altium.
+                ``offline`` needs no Altium at all; ``simulator`` is
+                bridge-backed but every command it sends is implemented
+                by the in-repo Altium simulator; ``live_only`` sends at
+                least one command only real Altium answers. Filter on
+                ``offline`` to find what runs with nothing open.
+            interaction: readonly | silent | modal | partial. ``modal``
+                tools pop a blocking Altium dialog; ``partial`` ones leave
+                the job incomplete: plan around both.
+            query: case-insensitive substring over the tool name (and
+                description when ``with_description``).
+            with_description: include the one-line summary per tool.
+            with_schema: include each tool's parameters and required
+                list. ESSENTIAL under the minimal toolset: no tool schema
+                is loaded up front there, so calling tool_invoke without
+                this means guessing argument names. Filter first, schemas
+                are dropped past a cap so this cannot flood the very
+                context the minimal toolset exists to protect.
+
+        Returns ``{count, tools:[{name, category, maturity, interaction
+        [, description][, parameters, required]}], categories:{cat: n}}``.
+        """
+        from .metadata import tool_metadata
+
+        _SCHEMA_CAP = 40
+
+        tools = await mcp.list_tools()
+        q = query.lower().strip()
+        out = []
+        cat_counts: dict[str, int] = {}
+        for t in tools:
+            md = tool_metadata(t.name)
+            if category and md["category"] != category:
+                continue
+            if maturity and md["maturity"] != maturity:
+                continue
+            if interaction and md["interaction"] != interaction:
+                continue
+            desc = (t.description or "").strip()
+            if q and q not in t.name.lower() and q not in desc.lower():
+                continue
+            cat_counts[md["category"]] = cat_counts.get(md["category"], 0) + 1
+            rec = dict(md)
+            if with_description:
+                rec["description"] = desc.split("\n", 1)[0][:200]
+            if with_schema:
+                # A FastMCP tool and a captured ToolSpec both expose
+                # inputSchema, so this reads the same in either toolset.
+                schema = getattr(t, "inputSchema", None) or {}
+                rec["parameters"] = schema.get("properties", {})
+                rec["required"] = schema.get("required", [])
+            out.append(rec)
+        out.sort(key=lambda r: (r["category"], r["name"]))
+        result: dict[str, Any] = {
+            "count": len(out),
+            "categories": dict(sorted(cat_counts.items())),
+            "tools": out,
+        }
+        if with_schema and len(out) > _SCHEMA_CAP:
+            # Returning hundreds of schemas would defeat the purpose of
+            # the minimal toolset, so drop them and say so rather than
+            # truncate silently.
+            for entry in out:
+                entry.pop("parameters", None)
+                entry.pop("required", None)
+            result["schema_omitted"] = (
+                f"{len(out)} tools matched, over the {_SCHEMA_CAP} cap; "
+                f"narrow with category/query to get parameters")
+        return result
+
+    @mcp.tool()
+    async def tool_invoke(name: str, arguments: Optional[dict] = None) -> dict[str, Any]:
+        """Invoke any registered tool by name: the companion to
+        `tool_catalog`.
+
+        A client with a limited context can expose only the core tools plus
+        this pair: discover a tool with `tool_catalog`, then run it here by
+        name without ever loading its schema. ``arguments`` is the tool's
+        keyword-argument dict.
+
+        GET THE ARGUMENT NAMES FIRST. Under the minimal toolset no schema
+        is loaded up front, so call
+        ``tool_catalog(query="<name>", with_schema=True)`` and use the
+        ``parameters``/``required`` it returns. Guessing is a real failure
+        mode: several tools take names that look obvious but are not
+        (``current_amps``, not ``current_a``), and the same tool can differ
+        between backends.
+
+        Returns the tool's own result (JSON-decoded), or ``{"error": ...}``
+        for an unknown/disallowed name. Note: bypassing the schema means
+        argument mistakes surface as the target tool's own error, not a
+        pre-validation message.
+        """
+        import json as _json
+
+        tools = await mcp.list_tools()
+        known = {t.name for t in tools}
+        if name not in known:
+            return {"error": f"unknown tool: {name}"}
+        # Prevent self-recursion; tool_catalog is fine to invoke.
+        if name == "tool_invoke":
+            return {"error": "tool_invoke cannot invoke itself"}
+        try:
+            result = await mcp.call_tool(name, arguments or {})
+        except Exception as e:  # noqa: BLE001 - surface as data, not a crash
+            return {"error": f"{name} failed: {e}", "tool": name}
+        # FastMCP returns a list of content items; unwrap the tool's dict.
+        content = result[0] if isinstance(result, tuple) else result
+        if isinstance(content, list) and content and hasattr(content[0], "text"):
+            try:
+                return {"tool": name, "result": _json.loads(content[0].text)}
+            except (ValueError, TypeError):
+                return {"tool": name, "result": content[0].text}
+        return {"tool": name, "result": content}
+
+
 def register_application_tools(mcp):
     """Register application tools with the MCP server."""
 
@@ -78,6 +229,111 @@ def register_application_tools(mcp):
         """
         bridge = get_bridge()
         return bridge.get_altium_status()
+
+    @mcp.tool()
+    async def app_context() -> dict[str, Any]:
+        """Where you are, in one call. Run this before anything else.
+
+        THE FOUR FACTS THAT EXPLAIN MOST "WHY DIDN'T THAT WORK". Each has
+        cost a session on its own, and each was individually available
+        and individually unasked for:
+
+        * **Which document is focused, and what kind it is.** Nearly
+          every tool acts on the focused document. A pcb_ tool aimed
+          while a library is focused does not always fail; it can resolve
+          some other open document and report success for work you did
+          not ask for.
+        * **Whether the running script matches the one on disk.**
+          DelphiScript caches compiled units, so a deployed fix does
+          nothing until the script project is reopened. Symptom: a fix
+          that "did not work".
+        * **What is unsaved.** An edit that is real in memory and absent
+          from disk reads as a tool that silently did nothing.
+        * **Whether the bridge is answering at all**, as opposed to
+          Altium being up.
+
+        This composes existing reads rather than adding a bridge call, so
+        it is cheap and cannot disagree with the tools it summarises.
+
+        WHAT IT DOES NOT TELL YOU: which library component is current.
+        That is editor state with no read exposed, and the library
+        authoring tools depend on it. If a lib_add_* call lands somewhere
+        unexpected, set the target explicitly with
+        ``lib_set_current_component`` rather than assuming.
+
+        Returns:
+            ``{"backend": ..., "bridge_answering": bool,
+            "script_version_match": bool, "active_document": {...},
+            "open_document_count": N, "unsaved": [paths],
+            "warnings": [...], "next_step": ...}``.
+
+            ``warnings`` is empty when nothing needs attention.
+            ``next_step`` is the single thing worth doing first, or empty.
+        """
+        bridge = get_bridge()
+        warnings: list[str] = []
+        next_step = ""
+
+        ping = await app_ping()
+        answering = bool(ping.get("success"))
+        version_match = bool(ping.get("version_match"))
+        if not answering:
+            warnings.append(ping.get("message", "the bridge is not answering"))
+            next_step = (
+                "Start the polling loop: File > Run Script > Altium_API > "
+                "Dispatcher.pas > StartMCPServer."
+            )
+        elif not version_match:
+            # Ranked above everything else on purpose. Every other answer
+            # below is being produced by code that is not the code on
+            # disk, so acting on them can be worse than not asking.
+            warnings.append(ping.get("message", "stale script cache"))
+            next_step = (
+                "Close and reopen Altium_API.PrjScr so Altium recompiles. "
+                "Until then the running script is not the deployed one."
+            )
+
+        active: dict[str, Any] = {}
+        open_count = 0
+        unsaved: list[str] = []
+        if answering:
+            try:
+                active = await bridge.send_command_async(
+                    "application.get_active_document") or {}
+            except Exception as exc:            # noqa: BLE001
+                warnings.append(f"could not read the active document: {exc}")
+            try:
+                docs = await bridge.send_command_async(
+                    "application.get_open_documents") or []
+                if isinstance(docs, dict):
+                    docs = docs.get("documents", [])
+                open_count = len(docs)
+                unsaved = [d.get("file_path", "") for d in docs
+                           if isinstance(d, dict) and d.get("modified")]
+            except Exception as exc:            # noqa: BLE001
+                warnings.append(f"could not list open documents: {exc}")
+
+            if not active.get("file_path"):
+                warnings.append(
+                    "no document is focused, so any tool that acts on the "
+                    "focused document has nothing to act on")
+            if unsaved and not next_step:
+                next_step = (
+                    f"{len(unsaved)} document(s) have unsaved changes. "
+                    "app_save_all flushes them, and reports still_dirty.")
+
+        return {
+            "backend": "altium",
+            "bridge_answering": answering,
+            "script_version_match": version_match,
+            "running_script_version": ping.get("altium_script_version"),
+            "deployed_script_version": ping.get("bundled_script_version"),
+            "active_document": active,
+            "open_document_count": open_count,
+            "unsaved": unsaved,
+            "warnings": warnings,
+            "next_step": next_step,
+        }
 
     @mcp.tool()
     async def app_attach() -> dict[str, Any]:
@@ -122,14 +378,175 @@ def register_application_tools(mcp):
         Detach also triggers save_all automatically, so you don't need this
         as the very last step.
 
+        CHECK ``still_dirty``, DO NOT ASSUME. Altium refuses to save while
+        a command is active in the editor and asks a human whether to
+        write a copy instead; DoFileSave does not raise when it declines.
+        MEASURED: this returned saved:true while every single save was
+        being refused. It now counts what is still modified afterwards,
+        and ``saved`` is false when anything is. If that happens, run
+        ``app_exit_active_command`` and retry.
+
         Returns:
-            Dictionary confirming save
+            Dict with ``saved``, ``still_dirty``, and a ``reason`` when
+            documents remain unsaved.
         """
         bridge = get_bridge()
         result = await bridge.send_command_async(
             "application.save_all", timeout=60.0
         )
         return result
+
+    @mcp.tool()
+    async def app_exit_active_command() -> dict[str, Any]:
+        """Close a transaction a crashed handler left open in Altium.
+
+        THE TOOL FOR "A command is currently active and save cannot be
+        completed at this time". While that state is set, EVERY save is
+        refused and the editor asks whether to write a copy instead.
+
+        IT SURVIVES RESTARTING THE POLLING LOOP, because the state lives
+        in Altium's PCB server rather than in the script, and Escape in
+        the editor does not clear it either. MEASURED on 2026-08-25:
+        saves were being refused on a brand-new library, and the state
+        had been left hours earlier by ``lib_link_3d_model`` faulting
+        between PreProcess and PostProcess on an undeclared identifier.
+        It outlived several restarts.
+
+        Every PreProcess in this bridge is paired, including on its error
+        paths, so this is not routine cleanup: it is recovery from a
+        handler that DIED mid-transaction. AltiumScriptCentral ships the
+        same one-line remedy as ExitActiveCommand.vbs.
+
+        Calling it when nothing is outstanding is harmless.
+
+        It saves nothing by itself. Run ``app_save_all`` afterwards and
+        check ``still_dirty``.
+
+        Returns:
+            Dict reporting whether each server accepted the unwind, plus
+            the count of still-modified documents before and after.
+        """
+        bridge = get_bridge()
+        result = await bridge.send_command_async(
+            "application.exit_active_command", timeout=30.0
+        )
+        return result
+
+    async def _resolve_project_dir() -> tuple[Optional[str], Optional[str], Optional[dict]]:
+        """Return (project_dir, project_file, error_payload).
+
+        Fetches the focused project's path from the bridge. On failure the
+        third element is a ready-to-return error dict and the first two are
+        None.
+        """
+        bridge = get_bridge()
+        info = await bridge.send_command_async("project.get_project_path")
+        project_dir = (info or {}).get("project_dir")
+        if not project_dir:
+            return None, None, {
+                "error": "no focused project (open a project in Altium first)",
+                "checkpoint": None,
+            }
+        return project_dir, (info or {}).get("project_name", ""), None
+
+    def _checkpoint_store():
+        from ..config import get_config
+        from ..checkpoint import CheckpointStore
+        return CheckpointStore(get_config().workspace_dir / "checkpoints")
+
+    @mcp.tool()
+    async def app_checkpoint(label: str = "", save_first: bool = True) -> dict[str, Any]:
+        """Snapshot the focused project so the session is revertible.
+
+        Copies the project's design files into a content-addressed store under
+        the workspace (unchanged files are deduplicated, so repeat checkpoints
+        are cheap). Take one before any risky autonomous edit; restore with
+        `app_restore_checkpoint`. This is the undo the live bridge otherwise
+        lacks.
+
+        Args:
+            label: optional human note ("before routing pass").
+            save_first: flush dirty Altium docs to disk before snapshotting
+                so the checkpoint reflects in-editor changes (default True).
+
+        Returns:
+            The checkpoint manifest summary (id, created, file_count, ...).
+            With ``save_first``, also ``saved``: True when the flush
+            worked, False with ``save_error`` and a ``note`` when it did
+            not. A checkpoint is still taken either way, but one taken
+            after a failed save holds the on-disk state only, which is
+            missing precisely the in-editor work you were protecting.
+        """
+        saved: Optional[bool] = None
+        save_error = ""
+        if save_first:
+            try:
+                await get_bridge().send_command_async(
+                    "application.save_all", timeout=60.0
+                )
+                saved = True
+            except Exception as exc:  # noqa: BLE001 - reported, not raised
+                # Still snapshot the on-disk state: a checkpoint of
+                # something beats none. But SAY SO. A checkpoint is a
+                # safety net, and one taken after a failed save is
+                # missing exactly the in-editor work the caller was
+                # protecting.
+                saved = False
+                save_error = str(exc)
+        project_dir, project_file, err = await _resolve_project_dir()
+        if err:
+            return err
+        from pathlib import Path
+        store = _checkpoint_store()
+        info = store.create(Path(project_dir), project_file=project_file or "", label=label)
+        result: dict[str, Any] = {"checkpoint": info.summary()}
+        if save_first:
+            result["saved"] = saved
+            if not saved:
+                result["save_error"] = save_error
+                result["note"] = (
+                    "save_all failed, so this checkpoint holds the "
+                    "on-disk state only. Unsaved editor changes are NOT "
+                    "in it."
+                )
+        return result
+
+    @mcp.tool()
+    async def app_list_checkpoints() -> dict[str, Any]:
+        """List saved checkpoints for the current workspace, newest first."""
+        store = _checkpoint_store()
+        return {"checkpoints": [c.summary() for c in store.list()]}
+
+    @mcp.tool()
+    async def app_restore_checkpoint(
+        checkpoint_id: str, prune_added: bool = False
+    ) -> dict[str, Any]:
+        """Restore the focused project's files from a checkpoint.
+
+        Overwrites design files with the snapshot contents. Close the project
+        in Altium (or expect a reload prompt) before restoring, since Altium
+        holds documents open. With `prune_added=True` this is a true revert:
+        files created after the checkpoint are deleted; the default leaves
+        newer files untouched.
+
+        Args:
+            checkpoint_id: id from `app_list_checkpoints`.
+            prune_added: delete files absent at checkpoint time (default False).
+
+        Returns:
+            {restored, removed, missing_blobs}.
+        """
+        project_dir, _project_file, err = await _resolve_project_dir()
+        if err:
+            return err
+        from pathlib import Path
+        store = _checkpoint_store()
+        try:
+            return store.restore(
+                checkpoint_id, Path(project_dir), prune_added=prune_added
+            )
+        except FileNotFoundError as e:
+            return {"error": str(e)}
 
     @mcp.tool()
     async def app_detach() -> dict[str, Any]:
@@ -470,9 +887,23 @@ def register_application_tools(mcp):
 
     @mcp.tool()
     async def app_run_menu(menu_path: str) -> dict[str, Any]:
-        """Execute a menu command by its path.
+        """Dispatch a menu command by path. DISPATCH IS NOT EXECUTION.
 
-        Supports common menu paths which are mapped to internal processes:
+        This sends the command and cannot tell you it ran. Altium's
+        ``RunProcess`` accepts an unknown process id in silence and
+        reports nothing back, so a typo, a command unavailable in the
+        current editor, and a command that worked are indistinguishable
+        from here. MEASURED 2026-08-17: "Tools|Preferences" returned in
+        0.11s with ``success: true`` and no dialog ever appeared. That is
+        why the reply says ``dispatched``, never ``executed``, and carries
+        ``outcome_verified: false``.
+
+        Use ``app_click_menu`` when you need the command to actually
+        happen. It walks the real menu bar and clicks the item, so it
+        fails loudly on a path that does not exist and reaches the many
+        commands that have no process id at all.
+
+        These paths are mapped to internal processes:
         - "File|Save All"
         - "Tools|Design Rule Check"
         - "Tools|Electrical Rules Check"
@@ -482,21 +913,40 @@ def register_application_tools(mcp):
         - "Tools|Preferences"
         - "Tools|Extensions and Updates"
 
-        Unknown paths are attempted via Client.SendMessage.
+        Anything else is REFUSED with UNMAPPED_MENU_PATH. The old
+        fallback guessed a MenuID out of the pipe-separated path and was
+        measured opening nothing while reporting success, so refusing
+        and pointing at ``app_click_menu`` is strictly more useful than
+        a guess that cannot work.
 
         Args:
             menu_path: Menu path using pipe separators (e.g., "File|Save All")
 
         Returns:
-            Dictionary with success status, menu_path, and process used
+            Dictionary with dispatched, outcome_verified (always false),
+            menu_path, and the process used. A reply the bridge could not
+            parse is reported as a failure, not smoothed into a success.
         """
         bridge = get_bridge()
         result = await bridge.send_command_async(
             "application.execute_menu", {"menu_path": menu_path}
         )
+        # Report what the handler said, and nothing it did not say. The
+        # previous ``{"success": True, **result}`` did preserve an
+        # explicit ``success: false`` (the spread wins), but it INVENTED
+        # a success for any reply that carried no verdict at all, and
+        # ``result or {"success": True, ...}`` turned an empty reply
+        # into a success outright. Both manufactured the one fact this
+        # tool has no way to establish.
         if isinstance(result, dict):
-            return {"success": True, **result}
-        return result or {"success": True, "menu_path": menu_path}
+            return result
+        return {
+            "success": False,
+            "dispatched": False,
+            "menu_path": menu_path,
+            "reason": "the bridge returned no usable reply for "
+                      f"{menu_path!r}, so nothing is known about it",
+        }
 
     @mcp.tool()
     async def app_set_intent(intent: str) -> dict[str, Any]:

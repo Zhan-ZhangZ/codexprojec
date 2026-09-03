@@ -137,7 +137,7 @@ Begin
     If Data = '' Then
     Begin
         Board := Nil;
-        Try Board := GetPCBBoardAnywhere; Except Board := Nil; End;
+        Try Board := GetPCBBoardAnywhere(0); Except Board := Nil; End;
         If Board <> Nil Then
         Begin
             FileName := Board.FileName;
@@ -161,7 +161,6 @@ Var
     I : Integer;
 Begin
     FilePath := ExtractJsonValue(Params, 'file_path');
-    FilePath := StringReplace(FilePath, '\\', '\', -1);
 
     // Only switch focus to a document that is ALREADY loaded.
     // RunProcess('WorkspaceManager:OpenObject') would load it but strip
@@ -287,7 +286,7 @@ Begin
 
     { Try to get PCB preferences from the active board }
     Try
-        Board := GetPCBBoardAnywhere;
+        Board := GetPCBBoardAnywhere(0);
         If Board <> Nil Then
         Begin
             Data := Data + '"pcb":{';
@@ -345,14 +344,28 @@ Begin
     { active PCB / SCH document. RunProcess never raises on missing        }
     { context so the prior implementation reported success even when       }
     { nothing actually ran.                                                 }
+    { REDIRECTED, NOT DELEGATED. These used to call PCB_RunDRC and         }
+    { Gen_RunERC directly. Neither can be called from here: Application.pas }
+    { is compiled third and those live in PCB.pas and Generic.pas, seventh  }
+    { and eighth. DelphiScript has no forward declarations, so the calls    }
+    { resolved to nothing and firing either menu path through this handler  }
+    { took the scripting engine down with an access violation rather than   }
+    { reporting anything. Naming the tool gives the caller the same result  }
+    { by a route that works.                                                }
     If MenuPath = 'Tools|Design Rule Check' Then
     Begin
-        Result := PCB_RunDRC('{}', RequestId);
+        Result := BuildErrorResponse(RequestId, 'USE_DEDICATED_TOOL',
+            'Call pcb_run_drc instead. It validates that a PCB is actually '
+            + 'open and returns the violation list, where this would run '
+            + 'the menu item and report success even when nothing ran.');
         Exit;
     End;
     If MenuPath = 'Tools|Electrical Rules Check' Then
     Begin
-        Result := Gen_RunERC('{}', RequestId);
+        Result := BuildErrorResponse(RequestId, 'USE_DEDICATED_TOOL',
+            'Call run_erc instead. It validates the document context and '
+            + 'returns the violation list, where this would report success '
+            + 'for a menu item that did nothing.');
         Exit;
     End;
 
@@ -375,21 +388,64 @@ Begin
         ProcessName := 'Client:ManagePluginsAndUpdates'
     Else
     Begin
-        { For unknown paths, try Client.SendMessage with the menu path }
-        Try
-            Client.SendMessage('Client:RunMenu', 'MenuID=' + MenuPath, 1024, Nil);
-            Result := BuildSuccessResponse(RequestId, '{"success":true,"menu_path":"' + EscapeJsonString(MenuPath) + '","method":"SendMessage"}');
-            Exit;
-        Except
-            Result := BuildErrorResponse(RequestId, 'MENU_FAILED', 'Could not execute menu: ' + MenuPath + '. Use a known path or specify a process name via run_process instead.');
-            Exit;
-        End;
+        { Unmapped path. The old fallback passed the whole pipe-separated
+          path to Client:RunMenu as a MenuID, which is not what a MenuID
+          is. It reported success, and MEASURED 2026-08-17,
+          Tools|Update From Libraries returned in 0.11s having opened
+          nothing.
+
+          So this branch is not merely unverifiable, it is known not to
+          work, and a success here is a claim contradicted by the
+          measurement in the line above it. It refuses instead. That
+          only became the better answer once app_click_menu existed:
+          it drives the real menu bar, so it reaches the arbitrary
+          paths this branch was invented to guess at, and says what
+          the menu actually contained when an item is missing. }
+        Result := BuildErrorResponse(RequestId, 'UNMAPPED_MENU_PATH',
+            'This path is not one the bridge maps to a process, and the '
+            + 'old fallback that guessed a MenuID from it was measured '
+            + 'opening nothing while reporting success. Call '
+            + 'app_click_menu with the same path: it drives the real '
+            + 'menu bar, so it works for any item and tells you what '
+            + 'the menu held when the item is not there.');
+        Exit;
     End;
 
     ResetParameters;
     RunProcess(ProcessName);
 
-    Result := BuildSuccessResponse(RequestId, '{"success":true,"menu_path":"' + EscapeJsonString(MenuPath) + '","process":"' + EscapeJsonString(ProcessName) + '"}');
+    { DISPATCHED, not "succeeded". RunProcess is fire and forget: it       }
+    { returns nothing, raises nothing, and silently ignores a process id   }
+    { it does not know. The note above the WorkspaceManager:Compare call   }
+    { in Project.pas records the same trap being hit before, when          }
+    { 'PCB:UpdatePCBFromProject' turned out not to be a real id and the    }
+    { handler no-opped while reporting success.                            }
+    {                                                                       }
+    { MEASURED 2026-08-17 against a live, idle, responsive Altium:          }
+    {   Tools|Preferences  -> success in 0.11s, NO dialog. That path is     }
+    {                         mapped to Client:RunConfigurationDialog and   }
+    {                         opens a MODAL, so a handler that really       }
+    {                         launched it would have BLOCKED until the      }
+    {                         dialog closed, exactly as project.update_pcb  }
+    {                         does. Returning immediately proves no modal   }
+    {                         was raised.                                   }
+    {   View|Zoom Fit      -> success in 0.09s, no observable effect.       }
+    {                                                                       }
+    { So this cannot honestly claim the command ran. It reports what it     }
+    { attempted and says the outcome is unverified, and names the tool      }
+    { that CAN confirm one, app_click_menu, which drives the real menu bar  }
+    { and fails loudly when an item is not there.                           }
+    Result := BuildSuccessResponse(RequestId,
+        '{"success":true'
+        + ',"dispatched":true'
+        + ',"outcome_verified":false'
+        + ',"menu_path":"' + EscapeJsonString(MenuPath) + '"'
+        + ',"process":"' + EscapeJsonString(ProcessName) + '"'
+        + ',"note":"The process was dispatched. RunProcess cannot report '
+        + 'failure and silently ignores unknown ids, so this is NOT '
+        + 'evidence the command ran. Several mapped ids were measured '
+        + 'doing nothing. To invoke a menu item and know it happened, '
+        + 'use app_click_menu, which drives the menu bar itself."}');
 End;
 
 {..............................................................................}
@@ -516,14 +572,69 @@ End;
 {..............................................................................}
 
 Function App_SaveAll(RequestId : String) : String;
+Var
+    StillDirty, Seen, Written : Integer;
+    Paths, AgesBefore, AgesAfter : String;
 Begin
     Try
         // Iterate every IServerDocument the editor has open and DoFileSave
         // each modified one. This bypasses WorkspaceManager:SaveAll, which
         // silently no-ops in some workspace states, and project-walk-based
         // saves, which skip free documents.
-        SaveAllDirty;
-        Result := BuildSuccessResponse(RequestId, '{"saved":true}');
+        { WHAT REACHED DISK, measured by file timestamp, because every
+          Altium-side signal here has been observed lying. DoFileSave does
+          not raise when the editor declines. ServerDoc.Modified does not
+          always propagate from ProcessControl. And CountDirtyDocuments
+          walks the workspace exactly as SaveAllDirty does, so an empty
+          enumeration made both of them report zero and zero read as
+          success while 29 edits were lost. }
+        Paths := WorkspaceDocPaths(0);
+        Seen := CountPathEntries(Paths);
+        AgesBefore := AgesForPaths(Paths);
+
+        SaveAttempts := 0;
+        SaveAllDirty(0);
+
+        AgesAfter := AgesForPaths(Paths);
+        Written := CountChangedAges(AgesBefore, AgesAfter);
+        StillDirty := CountDirtyDocuments(0);
+
+        If Seen = 0 Then
+            Result := BuildSuccessResponse(RequestId,
+                '{"saved":false,"documents_seen":0,"documents_written":0'
+                + ',"still_dirty":' + IntToStr(StillDirty)
+                + ',"reason":"no documents were enumerated, so nothing was '
+                + 'even attempted. This is NOT an empty-and-clean workspace: '
+                + 'the walk that saves and the count that verifies share a '
+                + 'workspace lookup, so when it comes back empty both report '
+                + 'zero. Use proj_save, which resolves the focused project '
+                + 'directly."}')
+        Else If SaveAttempts = 0 Then
+            Result := BuildSuccessResponse(RequestId,
+                '{"saved":true,"documents_seen":' + IntToStr(Seen)
+                + ',"documents_attempted":0,"documents_written":0'
+                + ',"still_dirty":' + IntToStr(StillDirty)
+                + ',"note":"nothing was open to save. Only a document open '
+                + 'in the editor has an IServerDocument; the rest are project '
+                + 'members that cannot be holding unsaved edits. Writing '
+                + 'nothing is the correct outcome here, not a failure."}')
+        Else If Written = 0 Then
+            Result := BuildSuccessResponse(RequestId,
+                '{"saved":false,"documents_seen":' + IntToStr(Seen)
+                + ',"documents_attempted":' + IntToStr(SaveAttempts)
+                + ',"documents_written":0'
+                + ',"still_dirty":' + IntToStr(StillDirty)
+                + ',"reason":"every open document was written to and not one '
+                + 'got newer on disk. Altium declines a save while a command '
+                + 'is active in the editor, and an abandoned transaction '
+                + 'leaves it in that state with nothing visible on screen. '
+                + 'Unwind the active command and retry, or use proj_save."}')
+        Else
+            Result := BuildSuccessResponse(RequestId,
+                '{"saved":true,"documents_seen":' + IntToStr(Seen)
+                + ',"documents_attempted":' + IntToStr(SaveAttempts)
+                + ',"documents_written":' + IntToStr(Written)
+                + ',"still_dirty":' + IntToStr(StillDirty) + '}');
     Except
         Result := BuildErrorResponse(RequestId, 'SAVE_FAILED', 'SaveAllDirty raised an exception');
     End;
@@ -585,10 +696,74 @@ Begin
         '],"exception":"' + EscapeJsonString(ExceptionMsg) + '"}');
 End;
 
+{ App_ExitActiveCommand - close a transaction a CRASHED handler left open.    }
+{                                                                             }
+{ Altium refuses every save while a command is active, with "A command is     }
+{ currently active and save cannot be completed at this time. Do you want to  }
+{ save copy of current document?". That state lives in the PCB SERVER, not in }
+{ the script, so RESTARTING THE POLLING LOOP DOES NOT CLEAR IT and neither    }
+{ does Escape in the editor.                                                  }
+{                                                                             }
+{ MEASURED on 2026-08-25: saves were being refused on a BRAND NEW library      }
+{ whose only operations were create, activate and create-symbol. The state was }
+{ left earlier the same day by lib_link_3d_model faulting mid-handler on the   }
+{ undeclared Body.Rotation, after PCBServer.PreProcess and before its          }
+{ PostProcess. It then survived several script restarts.                       }
+{                                                                             }
+{ Every PreProcess in this codebase is paired, including on the error paths,   }
+{ so this is not a leak here: it is recovery from a handler that DIED between  }
+{ the two. AltiumScriptCentral ships the same one-line remedy as               }
+{ ExitActiveCommand.vbs, and the note there names the cause as "a script which }
+{ crashed before it could call PCBServer.PostProcess".                         }
+{                                                                             }
+{ Calling PostProcess with nothing outstanding is harmless, which is why the   }
+{ reference script does exactly this and nothing else.                         }
+Function App_ExitActiveCommand(RequestId : String) : String;
+Var
+    PcbOk, SchOk : Boolean;
+    DirtyBefore, DirtyAfter, I : Integer;
+Begin
+    DirtyBefore := CountDirtyDocuments(0);
+
+    { REPEATED, because PreProcess NESTS and one leak is not the only shape.  }
+    { A single PostProcess was measured NOT to clear a real stuck state, and  }
+    { the depth cannot be queried through the API, so the only way down is to }
+    { unwind further than any plausible leak. Calling it with nothing         }
+    { outstanding is harmless, which is the whole basis of the one-line       }
+    { remedy in ExitActiveCommand.vbs.                                        }
+    PcbOk := False;
+    For I := 1 To 8 Do
+        Try
+            PCBServer.PostProcess;
+            PcbOk := True;
+        Except End;
+
+    { The schematic server keeps its own transaction, and a SchLib handler    }
+    { can die the same way, so close that too. Its PostProcess takes the      }
+    { document, and Nil means "whatever is current".                          }
+    SchOk := False;
+    Try
+        SchServer.ProcessControl.PostProcess(SchServer.GetCurrentSchDocument, '');
+        SchOk := True;
+    Except End;
+
+    DirtyAfter := CountDirtyDocuments(0);
+
+    Result := BuildSuccessResponse(RequestId,
+        '{"pcb_post_process":' + BoolToJsonStr(PcbOk)
+        + ',"sch_post_process":' + BoolToJsonStr(SchOk)
+        + ',"dirty_before":' + IntToStr(DirtyBefore)
+        + ',"dirty_after":' + IntToStr(DirtyAfter)
+        + ',"note":"this closes a transaction left open by a handler that '
+        + 'died between PreProcess and PostProcess. It does not itself save '
+        + 'anything: call app_save_all afterwards and check still_dirty."}');
+End;
+
 Function HandleApplicationCommand(Action : String; Params : String; RequestId : String) : String;
 Begin
     Case Action Of
         'ping':                Result := App_Ping(RequestId);
+        'exit_active_command': Result := App_ExitActiveCommand(RequestId);
         'get_version':         Result := App_GetVersion(RequestId);
         'get_open_documents':  Result := App_GetOpenDocuments(RequestId);
         'get_active_document': Result := App_GetActiveDocument(RequestId);
@@ -600,7 +775,7 @@ Begin
         'create_document':     Result := App_CreateDocument(Params, RequestId);
         'save_all':            Result := App_SaveAll(RequestId);
         'diag_workspace':      Result := App_DiagWorkspace(Params, RequestId);
-        'stop_server':         Begin SaveAllDirty; Running := False; Result := BuildSuccessResponse(RequestId, '{"stopped":true}'); End;
+        'stop_server':         Begin SaveAllDirty(0); Running := False; Result := BuildSuccessResponse(RequestId, '{"stopped":true}'); End;
     Else
         Result := BuildErrorResponse(RequestId, 'UNKNOWN_ACTION', 'Unknown application action: ' + Action);
     End;

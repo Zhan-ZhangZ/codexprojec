@@ -21,7 +21,23 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 _REFDES_PATTERN = r"^[A-Z]+[0-9]+[A-Z]?$"
-_NET_PATTERN = r"^[A-Za-z_][A-Za-z0-9_+\-/]*$"
+
+#: A net name. The leading class admits + and - as well as a letter or
+#: underscore, because a supply rail conventionally carries its sign:
+#: +3V3, +5V, -12V. Measured on a live board, four of its seventy nets
+#: were named that way and every one was refused.
+#:
+#: This adds no new CHARACTER to a net name. Both signs were already
+#: legal in the body, so anything downstream that copes with VCC+ copes
+#: with +VCC; only the position changes.
+#:
+#: Still deliberately narrow. The hierarchy prefix EasyEDA puts on a
+#: net inside a block, "$1I81\I2C_SCL", uses $ and backslash and is NOT
+#: admitted here: those are quoting and escaping characters, this
+#: pattern guards what gets written into a schematic, and the prefix
+#: identifies a sheet instance rather than the net. Strip it when
+#: importing a live netlist into a plan.
+_NET_PATTERN = r"^[A-Za-z_+\-][A-Za-z0-9_+\-/]*$"
 
 
 class PartStatus(str, Enum):
@@ -144,7 +160,7 @@ class Net(BaseModel):
         default=False,
         description="Override for the block-local-wires default: when True, "
         "the executor emits a net label at every pin even if all pins share "
-        "one functional block (zone). Use sparingly — only when a wire would "
+        "one functional block (zone). Use sparingly, only when a wire would "
         "genuinely tangle the block (e.g. a high-fanout intra-block rail with "
         "10+ pins, a control line that would weave between five other "
         "components). Has no effect on power/ground nets, which always use "
@@ -153,7 +169,7 @@ class Net(BaseModel):
     force_wires: bool = Field(
         default=False,
         description="Hard override: route this net with WIRES regardless of "
-        "every other rule — the power/ground flags, the conventional-rail "
+        "every other rule: the power/ground flags, the conventional-rail "
         "name heuristic (a net named 'VCC' is otherwise treated as a power "
         "rail even with is_power=False), and the cross-zone label default. "
         "The explicit escape hatch when the planner wants a drawn wire on a "
@@ -199,7 +215,7 @@ class Zone(BaseModel):
 
     Coordinates here are MILLIMETRES (the ``_mm`` suffixes), while the
     layout/canvas engines work in MILS. Zones are advisory grouping hints
-    only — no engine reads ``origin_mm``/``size_mm`` for geometry today.
+    only; no engine reads ``origin_mm``/``size_mm`` for geometry today.
     If that ever changes, convert at the boundary (1 mm = 39.37 mils);
     feeding these values into mils math silently lands 25.4x off.
     """
@@ -401,6 +417,17 @@ class DesignPlan(BaseModel):
                 if pr.refdes not in part_refdes:
                     problems.append(
                         f"net {n.name} references unknown refdes {pr.refdes}"
+                    )
+
+        # A BOM line that names a refdes the plan no longer has is a dangling
+        # reference -- it slips past every field validator (the BOM is just a
+        # list of strings) and would ship a wrong bill. Common after a part
+        # is deleted without scrubbing the BOM.
+        for bl in self.bom:
+            for rd in bl.refdes_list:
+                if rd not in part_refdes:
+                    problems.append(
+                        f"BOM line references unknown refdes {rd}"
                     )
 
         return problems

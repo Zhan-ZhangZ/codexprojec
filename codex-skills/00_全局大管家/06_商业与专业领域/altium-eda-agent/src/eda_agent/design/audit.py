@@ -316,30 +316,46 @@ def _list_sheets(bridge: Any, project_path: Optional[str]) -> list[str]:
     except Exception:
         return [""]
 
-    sheets: list[str] = []
-    if isinstance(result, dict):
+    # Proj_GetDocuments answers with a BARE JSON ARRAY as its data, and
+    # send_command hands back response.data unwrapped, so `result` is a
+    # LIST. This used to require a dict, so the loop never ran, `sheets`
+    # stayed empty and the function always fell through to the
+    # single-sheet sentinel below. The sentinel is documented as a
+    # fallback for when enumeration fails; enumeration failed every
+    # time, and the only symptom was a multi-sheet project being audited
+    # on its active sheet alone, quietly.
+    #
+    # The dict shapes are kept because they cost nothing and other
+    # handlers do wrap their arrays.
+    if isinstance(result, list):
+        docs: Any = result
+    elif isinstance(result, dict):
         docs = result.get("documents") or result.get("sheets") or []
-        if isinstance(docs, list):
-            for entry in docs:
-                if isinstance(entry, dict):
-                    path = (
-                        entry.get("file_path")
-                        or entry.get("path")
-                        or entry.get("FileName")
-                        or ""
-                    )
-                    kind = (
-                        entry.get("kind")
-                        or entry.get("document_kind")
-                        or entry.get("Kind")
-                        or ""
-                    )
-                    if path and (not kind or "SCH" in str(kind).upper()
-                                 or str(path).lower().endswith(".schdoc")):
-                        sheets.append(str(path))
-                elif isinstance(entry, str):
-                    if entry.lower().endswith(".schdoc"):
-                        sheets.append(entry)
+    else:
+        docs = []
+
+    sheets: list[str] = []
+    if isinstance(docs, list):
+        for entry in docs:
+            if isinstance(entry, dict):
+                path = (
+                    entry.get("file_path")
+                    or entry.get("path")
+                    or entry.get("FileName")
+                    or ""
+                )
+                kind = (
+                    entry.get("kind")
+                    or entry.get("document_kind")
+                    or entry.get("Kind")
+                    or ""
+                )
+                if path and (not kind or "SCH" in str(kind).upper()
+                             or str(path).lower().endswith(".schdoc")):
+                    sheets.append(str(path))
+            elif isinstance(entry, str):
+                if entry.lower().endswith(".schdoc"):
+                    sheets.append(entry)
     return sheets or [""]
 
 

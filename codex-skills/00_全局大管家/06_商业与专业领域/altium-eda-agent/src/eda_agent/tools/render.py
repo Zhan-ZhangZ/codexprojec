@@ -8,14 +8,19 @@ rendered to SVG in pure Python. Output is interactive-ready (``data-*``
 attributes on every group) so a dashboard or LLM client can hook
 hover / click / cross-probe events without re-parsing.
 
-v1 surface:
+Shipped surface:
   - ``sch_render_svg`` : active SchDoc -> SVG file.
-
-Queued for follow-up turns (no stubs shipped to keep the surface honest):
   - ``pcb_render_svg`` : per-layer PCB rendering.
-  - ``sch_render_symbols``: walk each component's primitives for full
-    symbol fidelity (current v1 draws labelled bounding-box bodies
-    with pin stubs).
+  - ``design_visual_review``: render + rasterize to PNG + a layout
+    critique rubric (the visual self-check loop).
+
+Renders are GEOMETRY ONLY -- a visual artifact for layout/placement
+review or when an image is genuinely needed. They are NEVER the basis
+for judging connectivity or part values; that comes from the netlist
+(see each tool's docstring and the design discipline).
+
+Still deferred: full symbol-internal fidelity (the schematic renderer
+draws labelled bounding-box bodies with pin stubs, not the symbol art).
 """
 
 from __future__ import annotations
@@ -51,6 +56,17 @@ def register_render_tools(mcp):
         flip_y: bool = True,
     ) -> dict[str, Any]:
         """Render the active SchDoc to an SVG file (in-house renderer).
+
+        SCOPE: this is a VISUAL artifact for when an image is genuinely
+        needed (layout/readability review, sharing a picture, a CI
+        thumbnail). It is NOT an input to a design review. NEVER judge
+        connectivity, part values, ratings, or pin functions from this
+        render -- a wire that looks joined may not share a net, and a
+        net can be correct while the drawing looks messy. Connectivity
+        and part facts come from the compiled netlist + part data
+        (`proj_get_nets`, `proj_get_connectivity_many`, `obj_crossref_net`,
+        `proj_get_unconnected_pins`, `proj_get_erc_violations`,
+        `design_review_snapshot`), never from a picture.
 
         Pulls every component, pin, wire, junction, net label, port and
         power port from the active schematic via the bridge, then emits
@@ -127,6 +143,15 @@ def register_render_tools(mcp):
     ) -> dict[str, Any]:
         """Render the active PcbDoc to an SVG file (in-house renderer).
 
+        SCOPE: a VISUAL artifact for when an image is genuinely needed
+        (placement / silkscreen / spacing review, sharing a picture).
+        It is NOT an input to a design review's electrical findings.
+        NEVER judge connectivity, net assignment, or clearance from this
+        render -- read those from the board data (`pcb_get_nets`,
+        `pcb_get_unrouted_nets`, `pcb_get_clearance_violations`,
+        `pcb_run_drc`, `proj_compare_sch_pcb`). The render shows
+        geometry; the netlist shows connection.
+
         Pulls the board outline, every track, arc, pad, via, and text
         primitive from the active PCB via the bridge, then emits a
         per-layer SVG. Layers are grouped in render order (KeepOut at
@@ -154,6 +179,9 @@ def register_render_tools(mcp):
                 Altium's bottom-left-origin space.
             show_drills: Punch hole circles through pads / vias.
             show_texts: Render text primitives on overlay layers.
+            show_designators: Draw component designators on the overlay.
+            interactive_legend: Emit a clickable per-layer legend group
+                in the SVG (for the dashboard / cross-probe consumers).
             background: Board-background fill (defaults to a slate
                 review colour; pass ``"none"`` for transparent).
 
@@ -203,6 +231,16 @@ def register_render_tools(mcp):
         """Render the active design and return it as a viewable image plus
         a critique rubric -- the first step of a visual self-check loop.
 
+        SCOPE: layout and placement ONLY -- schematic readability /
+        spread / flow, PCB part placement, silkscreen, spacing, overlaps.
+        This is NOT a connectivity or part-correctness review. Do NOT use
+        it to decide what connects to what, whether a value/rating is
+        right, or whether a pin is wired -- those come from the netlist +
+        part data (`design_review_snapshot`, `proj_get_nets`,
+        `proj_get_connectivity_many`, `proj_get_erc_violations`), never
+        from the image. The rubric below is deliberately about geometry;
+        treat every electrical question as out of scope here.
+
         Renderers are exports; this turns them into *feedback*. It draws
         the active SchDoc or PcbDoc, rasterizes it to PNG (headless Edge)
         so you can actually look at it with the Read tool, and returns a
@@ -247,6 +285,24 @@ def register_render_tools(mcp):
             if isinstance(info, dict):
                 kind = str(info.get("document_kind")
                            or info.get("file_name") or "").lower()
+            # Libraries FIRST. DM_DocumentKind spells them 'PCBLIB' and
+            # 'SCHLIB', so a plain substring test reads "pcb" out of
+            # "pcblib" and sends a PcbLib down the PcbDoc geometry path,
+            # where the user gets an obscure geometry error instead of
+            # being told the active document is a library. This is not a
+            # rare state: every library-authoring call leaves a SchLib or
+            # PcbLib active, which is exactly when someone renders to
+            # check their work.
+            if "lib" in kind:
+                return {
+                    "ok": False,
+                    "reason": f"the active document is a LIBRARY "
+                    f"({kind or 'unknown'}), not a schematic or board. "
+                    f"Open the .SchDoc / .PcbDoc you want to review, or "
+                    f"pass target='schematic'/'pcb' explicitly to try "
+                    f"anyway.",
+                    "active_document": info,
+                }
             if "pcb" in kind:
                 t = "pcb"
             elif "sch" in kind:
@@ -347,7 +403,7 @@ def register_render_tools(mcp):
     ) -> dict[str, Any]:
         """Export the project BOM as a self-contained interactive HTML file.
 
-        Standalone HTML page — no external CSS / JS / Altium runtime
+        Standalone HTML page, no external CSS / JS / Altium runtime
         dependency. Open it in any browser; sortable columns, free-text
         filter, toggle between grouped (one row per value+footprint) and
         per-component layouts. A self-contained one-shot static export.

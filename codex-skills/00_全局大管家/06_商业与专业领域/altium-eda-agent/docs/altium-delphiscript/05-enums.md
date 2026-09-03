@@ -1,6 +1,6 @@
 # 5. Enum vocabulary (`eXxx`)
 
-DelphiScript enums are bare `eXxx` ordinals — there is no enclosing type name at
+DelphiScript enums are bare `eXxx` ordinals: there is no enclosing type name at
 the call site. They appear as `SchObjectFactory` / `PCBObjectFactory` kind
 arguments, iterator filters, layer assignments, `ObjectId` checks, and property
 values. Sets of them are built with `MkSet(eA, eB, …)` for iterator filters and
@@ -18,7 +18,7 @@ Altium also defines but this project does not use are out of scope.
 
 ## 5.1 ObjectIds (`TObjectId`)
 
-The kind tag on every object — passed to the factories, used in
+The kind tag on every object: passed to the factories, used in
 `AddFilter_ObjectSet`, and tested as `Obj.ObjectId`.
 
 **Schematic:** `eSchComponent`, `eSchLib`, `eSheet`, `ePin`, `eParameter`,
@@ -38,12 +38,12 @@ The kind tag on every object — passed to the factories, used in
 
 ## 5.2 Object-factory and iteration modifiers
 
-- **Creation mode** — `eCreate_Default` (the normal new-object mode).
-- **Dimension** — `eNoDimension` (the `PCBObjectFactory` dimension argument for a
+- **Creation mode**: `eCreate_Default` (the normal new-object mode).
+- **Dimension**: `eNoDimension` (the `PCBObjectFactory` dimension argument for a
   non-dimension primitive).
-- **Iteration scope / method** — `eProcessAll` (visit every match),
+- **Iteration scope / method**: `eProcessAll` (visit every match),
   `eIterateFirstLevel` (immediate children only).
-- **Pad-stack cache mode** — `eCacheManual`.
+- **Pad-stack cache mode**: `eCacheManual`.
 
 ---
 
@@ -72,7 +72,7 @@ The kind tag on every object — passed to the factories, used in
 ## 5.5 Rotation (`TRotationBy90`)
 
 `eRotate0`, `eRotate90`, `eRotate180`, `eRotate270`. (Distinct from a pin's
-`Orientation`, which is the ordinal `degrees Div 90` — see
+`Orientation`, which is the ordinal `degrees Div 90`: see
 [page 6](06-types-and-coordinates.md).)
 
 ---
@@ -88,7 +88,7 @@ The kind tag on every object — passed to the factories, used in
 ## 5.7 Power-object styles (`TPowerObjectStyle`)
 
 `ePowerBar`, `ePowerArrow`, `ePowerWave`, `ePowerCircle`, `ePowerGndPower`,
-`ePowerGndSignal`, `ePowerGndEarth`. (Chosen by net role — a ground net uses one
+`ePowerGndSignal`, `ePowerGndEarth`. (Chosen by net role: a ground net uses one
 of the `…Gnd…` glyphs, a rail uses `ePowerBar` / `ePowerArrow`.)
 
 ---
@@ -129,14 +129,14 @@ of the `…Gnd…` glyphs, a rail uses `ePowerBar` / `ePowerArrow`.)
 
 ## 5.12 Variants
 
-`eVariation_NotFitted` — the not-fitted variation kind read from
+`eVariation_NotFitted`: the not-fitted variation kind read from
 `DM_VariationKind` ([page 4](04-workspace-project-documents.md) §4.3).
 
 ---
 
 ## 5.13 Sheet styles (`TSheetStyle`)
 
-The schematic sheet-size presets: `eSheetA` … `eSheetE` (ANSI A–E),
+The schematic sheet-size presets: `eSheetA` … `eSheetE` (ANSI A-E),
 `eSheetLetter`, `eSheetLegal`, `eSheetTabloid`, `eSheetCustom` (with explicit
 `CustomX` / `CustomY`).
 
@@ -144,6 +144,6 @@ The schematic sheet-size presets: `eSheetA` … `eSheetE` (ANSI A–E),
 
 ## 5.14 Schematic line width (`TSize`)
 
-`eSmall`, `eMedium`, `eLarge` (the schematic line-width enum, `0..3` — a small
+`eSmall`, `eMedium`, `eLarge` (the schematic line-width enum, `0..3`: a small
 fixed set, not a coordinate; contrast the PCB `Width`/`LineWidth` coordinates on
 [page 6](06-types-and-coordinates.md)).

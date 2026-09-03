@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 George Saliba <george.saliba@salitronic.com>
 """Perceptual placement metrics: what the rendered board SHOWS, as distinct
 from the analytic objective the solver minimizes.
 

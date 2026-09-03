@@ -246,6 +246,60 @@ def _power_port_orientation(pin_orientation: int, is_ground: bool) -> int:
     return 3 if is_ground else 1
 
 
+def _label_justification(pin_orientation: int) -> int:
+    """Justification for a net label at a pin's stub end.
+
+    HARD RULE, set by the user: a net label on a LEFT-facing pin must
+    read to the LEFT of the pin, never overlap it. The anchor stays on
+    the stub (it is the electrical hotspot); justification decides which
+    way the text grows. Left-facing pin (orientation 2) -> bottom-right
+    justified (2): text ends at the anchor and grows away from the part.
+    Every other orientation keeps bottom-left (0): text grows right,
+    which is away from (or clear of) the part for right / up / down
+    pins.
+    """
+    return 2 if pin_orientation % 4 == 2 else 0
+
+
+def _apply_no_stranded_parts_rule(
+    nets: "list[Net]",
+    reps: dict[str, str],
+    sheet_refdes: "set[str]",
+) -> list[str]:
+    """HARD RULE: no part may have every pin on net-labels only.
+
+    A component whose every terminal is drawn as a floating net label --
+    no wire, no power-port glyph -- reads as an unconnected orphan; no
+    professional schematic does this, and it is the core of the
+    "label soup" artefact. For any part whose incident on-sheet nets are
+    ALL ``label_per_pin``, promote its cheapest incident net (fewest
+    pins) to ``wire`` so at least one terminal gets drawn copper.
+    ``port`` representations already count as a drawn connection.
+
+    Mutates ``reps`` in place; returns the promoted net names (for
+    caller notes). Deterministic: parts and candidate nets are visited
+    in sorted order, so repeated runs promote the same nets.
+    """
+    nets_of_part: dict[str, list[Net]] = {}
+    for net in nets:
+        for pr in net.pins:
+            if pr.refdes in sheet_refdes:
+                nets_of_part.setdefault(pr.refdes, []).append(net)
+
+    promoted: list[str] = []
+    for refdes in sorted(nets_of_part):
+        incident = nets_of_part[refdes]
+        if not incident:
+            continue
+        if any(reps.get(n.name) != "label_per_pin" for n in incident):
+            continue
+        best = min(incident, key=lambda n: (len(n.pins), n.name))
+        if reps.get(best.name) == "label_per_pin":
+            reps[best.name] = "wire"
+            promoted.append(best.name)
+    return promoted
+
+
 def _net_representation(
     net: Net,
     refdes_to_zone: dict[str, Optional[str]],
@@ -270,11 +324,11 @@ def _net_representation(
     A net whose pins are ALL unzoned (every component has ``zone=None``)
     falls through to ``'wire'`` because they share the implicit "no zone"
     group. This keeps current behaviour for plans that don't define
-    zones yet — the executor still wires them together. Once the planner
+    zones yet: the executor still wires them together. Once the planner
     assigns zones, the rule kicks in.
 
-    ``force_wires=True`` beats everything — including the rail-name
-    heuristic — and is the planner's explicit way to demand a drawn wire.
+    ``force_wires=True`` beats everything, including the rail-name
+    heuristic, and is the planner's explicit way to demand a drawn wire.
     """
     if getattr(net, "force_wires", False):
         return "wire"

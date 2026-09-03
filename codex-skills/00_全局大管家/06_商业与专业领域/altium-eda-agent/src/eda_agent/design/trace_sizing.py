@@ -35,7 +35,7 @@ _K_EXTERNAL = 0.048
 _K_INTERNAL = 0.024
 _DT_EXP = 0.44            # temperature-rise exponent
 _AREA_EXP = 0.725        # cross-section exponent
-_OZ_TO_MILS = 1.378      # 1 oz/ft^2 copper thickness in mils
+from ..units import OZ_TO_MILS as _OZ_TO_MILS  # 1 oz/ft^2 in mils
 _RHO_OHM_MIL = 6.7e-7    # annealed copper resistivity, ohm-mil, 25 degC
 
 

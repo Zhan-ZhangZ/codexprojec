@@ -55,19 +55,70 @@ End;
 { migrated to the standard pattern.                                            }
 {..............................................................................}
 
-Function ProcessSingleRequest : Boolean;
+{..............................................................................}
+{ CommandIsReadOnly - whether a command leaves the design untouched.           }
+{                                                                              }
+{ Used for ONE thing: deciding whether the compiled-netlist cache survives a   }
+{ command. SmartCompile skips DM_Compile for COMPILE_CACHE_TTL_MS when the     }
+{ project reports no dirty documents, and InvalidateCompileCache existed but   }
+{ was never called from anywhere, so a write followed within that window by a  }
+{ connectivity read handed back the netlist from BEFORE the write. Whether it  }
+{ did depended on whether that particular handler happened to dirty the        }
+{ document, which is not uniform: many go through ProcessControl, which marks  }
+{ the document modified, and others assign through SetState_ and do not.       }
+{                                                                              }
+{ THE UNKNOWN CASE COUNTS AS A WRITE. Only the prefixes below are treated as   }
+{ leaving the design alone, so a command this list has never heard of, and     }
+{ every command added later, invalidates. An unnecessary invalidation costs    }
+{ one recompile; a missed one returns connectivity that predates the edit.     }
+{..............................................................................}
+
+Function ActionHasPrefix(Verb : String; Prefix : String) : Boolean;
+Begin
+    Result := Copy(Verb, 1, Length(Prefix)) = Prefix;
+End;
+
+Function CommandIsReadOnly(Command : String) : Boolean;
+Var
+    Verb : String;
+    DotPos : Integer;
+Begin
+    Verb := LowerCase(Trim(Command));
+    DotPos := Pos('.', Verb);
+    If DotPos > 0 Then Verb := Copy(Verb, DotPos + 1, Length(Verb) - DotPos);
+
+    Result := ActionHasPrefix(Verb, 'get_')
+           Or ActionHasPrefix(Verb, 'list_')
+           Or ActionHasPrefix(Verb, 'query')
+           Or ActionHasPrefix(Verb, 'read_')
+           Or ActionHasPrefix(Verb, 'find_')
+           Or ActionHasPrefix(Verb, 'count')
+           Or ActionHasPrefix(Verb, 'audit_')
+           Or ActionHasPrefix(Verb, 'check_')
+           Or ActionHasPrefix(Verb, 'calc_')
+           Or ActionHasPrefix(Verb, 'export_')
+           Or ActionHasPrefix(Verb, 'render_')
+           Or ActionHasPrefix(Verb, 'probe_')
+           Or ActionHasPrefix(Verb, 'inspect_')
+           Or ActionHasPrefix(Verb, 'diff_')
+           Or ActionHasPrefix(Verb, 'compare_')
+           Or (Verb = 'ping');
+End;
+
+Function ProcessSingleRequest(Dummy : Integer): Boolean;
 Var
     RequestPath, RequestId : String;
     RequestContent, ResponseContent : String;
     Command, Params, ProtoVer, EnvelopeError : String;
     ExceptionMsg : String;
+    FocusBefore, FocusAfter : String;
     StartMs, DurationMs : Cardinal;
     ResultTag : String;
     DashIsError : Boolean;
     DashDetail, DashErrPayload, DashCode : String;
 Begin
     Result := False;
-    EnsureWorkspaceDir;
+    EnsureWorkspaceDir(0);
 
     If Not ScanForRequestFile(RequestPath, RequestId) Then Exit;
 
@@ -76,7 +127,26 @@ Begin
     // Remove the request file regardless of read outcome so we never reprocess
     DeleteFile(RequestPath);
 
-    If RequestContent = '' Then Exit;
+    If RequestContent = '' Then
+    Begin
+        { ReadFileContent already retried 12 times over ~180ms for a       }
+        { transient sharing violation, so an empty result here means the   }
+        { file was genuinely empty or still locked. Deleting it and        }
+        { exiting SILENTLY left the caller to wait out its entire deadline }
+        { and report a plain timeout, which reads exactly like a wedged    }
+        { polling loop and sends the user hunting the wrong fault.          }
+        {                                                                   }
+        { The id came from the FILENAME via ScanForRequestFile and has not  }
+        { been overwritten by the body's id yet, so the call can still be   }
+        { answered with the actual reason.                                  }
+        If IsValidRequestId(RequestId) Then
+            WriteResponseFile(RequestId,
+                BuildErrorResponse(RequestId, 'REQUEST_UNREADABLE',
+                    'Request file was empty or unreadable after 12 retries '
+                    + 'and has been discarded. The polling loop is healthy; '
+                    + 'retry the call.'));
+        Exit;
+    End;
 
     // ID arrives in the JSON body. Per-request response files use it for
     // the filename so concurrent callers each get an isolated response file.
@@ -126,6 +196,18 @@ Begin
     { status pill drops back to idle/paused/green when we're done.       }
     SetInFlight(Command);
 
+    { WHERE THE CALLER WAS LOOKING, BEFORE THE HANDLER RAN.
+      Nearly every tool acts on the focused document, and several change
+      it as a side effect of doing their job. Nothing announced that.
+      Measured: lib_probe_footprint focused a PcbLib to read it, the
+      obj_switch_view that followed switched the LIBRARY into 3D, and the
+      session spent a long time looking for a placement bug that was not
+      there.
+      Captured here rather than per handler because there are hundreds of
+      them and this is the one place every command passes through. }
+    FocusBefore := CurrentFocusedDocPath(0);
+    ResetNextStep(0);
+
     ExceptionMsg := '';
     { Heartbeat: write progress_<id>.json so Python can distinguish "still      }
     { working" from "polling loop dead" when the 10 s default deadline runs   }
@@ -141,6 +223,15 @@ Begin
             ResultTag := 'EXCEPTION';
         End;
 
+        { The compiled netlist is stale the moment anything is written, and
+          this is the one place every command passes through, so it is done
+          here rather than in each of the hundreds of handlers.
+
+          On the exception path too, deliberately: a handler that threw part
+          way through may well have written something first, and that is
+          exactly when a cached netlist is worth least. }
+        If Not CommandIsReadOnly(Command) Then InvalidateCompileCache(0);
+
         If ResponseContent = '' Then
         Begin
             // Handler returned nothing, degenerate but recoverable. Synthesise
@@ -150,6 +241,25 @@ Begin
             ResultTag := 'EMPTY';
         End;
 
+        { Say so if the active document moved. Appended as a sibling of
+          data rather than merged into it, because data is whatever the
+          handler chose to return and this must not depend on its shape.
+          Silent when nothing moved, which is the overwhelming majority. }
+        { The follow-up this reply owes, if the handler named one. }
+        If PendingNextStep(0) <> '' Then
+            ResponseContent := AppendEnvelopeField(ResponseContent,
+                JsonStr('next_step', PendingNextStep(0)));
+
+        FocusAfter := CurrentFocusedDocPath(0);
+        If FocusAfter <> FocusBefore Then
+            ResponseContent := AppendEnvelopeField(ResponseContent,
+                '"active_document_changed":' + JsonObj(
+                    JsonStr('from', FocusBefore) + ',' +
+                    JsonStr('to', FocusAfter) + ',' +
+                    JsonStr('note', 'this command moved the focused '
+                        + 'document. Tools that act on the focused '
+                        + 'document will now act on the new one.')));
+
         WriteResponseFile(RequestId, ResponseContent);
     Finally
         EndProgress(RequestId);
@@ -158,7 +268,7 @@ Begin
     DurationMs := GetTickCount - StartMs;
     StatusTotalAltiumMs := StatusTotalAltiumMs + DurationMs;
 
-    AppendLog(FormatLogStamp + ',' + IntToStr(DurationMs) + ',' + Command + ',' + ResultTag
+    AppendLog(FormatLogStamp(0) + ',' + IntToStr(DurationMs) + ',' + Command + ',' + ResultTag
               + ',' + IntToStr(Length(ResponseContent)) + ',' + Copy(ResponseContent, 1, 200));
 
     { Surface the error message to the dashboard (inline detail row + last- }
@@ -186,7 +296,7 @@ Begin
     End;
     AppendLogLine(Command, DurationMs, DashIsError, RequestId, DashDetail);
 
-    ResetInFlight;
+    ResetInFlight(0);
 
     Result := True;
 End;
@@ -196,10 +306,10 @@ End;
 { per-request IPC files and flushes the UI.                                    }
 {..............................................................................}
 
-Procedure CleanupMCPServer;
+Procedure CleanupMCPServer(Dummy : Integer);
 Begin
-    CleanupOrphanResponses;
-    CleanupOrphanProgress;
+    CleanupOrphanRequests(0);
+    CleanupOrphanProgress(0);
     Application.ProcessMessages;
 End;
 
@@ -229,11 +339,15 @@ Var
 Begin
     If Running Then Exit;
 
-    InitDefaultConfig;
-    EnsureWorkspaceDir;
-    LoadMCPConfig;
-    CleanupOrphanResponses;
-    CleanupOrphanProgress;
+    InitDefaultConfig(0);
+    EnsureWorkspaceDir(0);
+    LoadMCPConfig(0);
+    { Startup purge: nothing on disk can belong to a live exchange, because no
+      loop was running to serve it. Responses are purged here but NOT in
+      CleanupMCPServer(0) -- on shutdown a client may still be reading one. }
+    CleanupOrphanRequests(0);
+    CleanupOrphanResponses(0);
+    CleanupOrphanProgress(0);
     Running := True;
     StopPath := WorkspaceDir + 'stop';
     If FileExists(StopPath) Then DeleteFile(StopPath);
@@ -247,10 +361,10 @@ Begin
     StatusRequestCount := 0;
     StatusLastCommand := '';
     StatusTotalAltiumMs := 0;
-    ShowStatusForm;
+    ShowStatusForm(0);
     UpdateStatusHeader('MCP: idle');
     UpdateStatsLine(0, 0, 0, AutoShutdownMs Div 1000);
-    AppendLog(FormatLogStamp + ',0,_session_start,version=' + SCRIPT_VERSION
+    AppendLog(FormatLogStamp(0) + ',0,_session_start,version=' + SCRIPT_VERSION
               + ',protocol=' + IntToStr(PROTOCOL_VERSION));
 
     Try
@@ -274,6 +388,18 @@ Begin
                 DeleteFile(StopPath);
                 Running := False;
                 Break;
+            End;
+
+            // Renew button: reset the real idle deadline once per click.
+            If RenewRequested Then
+            Begin
+                LastActivityMs := GetTickCount;
+                RenewRequested := False;
+                UpdateStatsLine(
+                    (GetTickCount - StatusStartTick) Div 1000,
+                    StatusRequestCount,
+                    StatusTotalAltiumMs,
+                    AutoShutdownMs Div 1000);
             End;
 
             // Auto-shutdown after prolonged inactivity. Paused sessions
@@ -307,7 +433,7 @@ Begin
                 Continue;
             End;
 
-            HadRequest := ProcessSingleRequest;
+            HadRequest := ProcessSingleRequest(0);
 
             If HadRequest Then
             Begin
@@ -364,22 +490,34 @@ Begin
     End;
 
     Running := False;
-    AppendLog(FormatLogStamp + ',0,_session_end,requests=' + IntToStr(StatusRequestCount));
-    HideStatusForm;
-    CleanupMCPServer;
+    AppendLog(FormatLogStamp(0) + ',0,_session_end,requests=' + IntToStr(StatusRequestCount));
+    HideStatusForm(0);
+    CleanupMCPServer(0);
 End;
 
 {..............................................................................}
-{ Stop the MCP server from outside the polling loop. Writes the 'stop' file   }
-{ so a running StartMCPServer exits on its next poll.                          }
+{ Write the 'stop' file so a running StartMCPServer exits on its next poll.   }
+{                                                                              }
+{ HIDDEN FROM THE RUN SCRIPT DIALOG, because it cannot be useful there.       }
+{ The scripting engine runs one script at a time, so while the polling loop   }
+{ holds it there is no way to pick this out of the dialog and run it, and     }
+{ when the loop is NOT running there is nothing to stop: the sentinel would   }
+{ just sit there, and StartMCPServer deletes a stale one at startup anyway.   }
+{                                                                              }
+{ Nothing calls it. Python stops the loop with the application.stop_server    }
+{ COMMAND, and the dashboard's Detach button sets Running := False directly,  }
+{ which is the same result by a shorter route. It is kept rather than deleted }
+{ because the sentinel it writes is the documented out-of-band stop and a     }
+{ future caller may want it; the argument keeps it out of a list of four      }
+{ things a human is choosing between.                                          }
 {..............................................................................}
 
-Procedure StopMCPServer;
+Procedure StopMCPServer(Dummy : Integer);
 Var
     StopPath : String;
     F : TextFile;
 Begin
-    EnsureWorkspaceDir;
+    EnsureWorkspaceDir(0);
     StopPath := WorkspaceDir + 'stop';
     Try
         AssignFile(F, StopPath);

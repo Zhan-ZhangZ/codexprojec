@@ -560,14 +560,14 @@ def _collect_auto_junctions(wires: Iterable[dict[str, Any]],
     """Combine explicit eJunction objects with auto-detected T-junctions.
 
     Altium doesn't always materialise an eJunction object where wires
-    meet — sometimes a T-junction is implicit (depends on the project's
+    meet: sometimes a T-junction is implicit (depends on the project's
     "place junctions automatically" setting and whether the doc was
     last hand-routed vs. auto-routed). To make the SVG match what the
     user sees in Altium, we recompute junctions from the wire graph:
 
       1) Wire endpoints with multiplicity >= 3 (multiway joins).
       2) Wire endpoints that land in the interior of another wire's
-         segment (classic T-junction — A passes straight through, B
+         segment (classic T-junction: A passes straight through, B
          ends in the middle of A).
 
     Axis-aligned only (schematics are orthogonal essentially always).

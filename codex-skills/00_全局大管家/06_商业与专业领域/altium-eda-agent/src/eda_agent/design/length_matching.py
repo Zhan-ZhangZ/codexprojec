@@ -132,6 +132,87 @@ def match_group_report(
         all_matched=all_matched, members=tuple(members))
 
 
+@dataclass(frozen=True)
+class IntraPairSkew:
+    """Within-pair (P-vs-N) skew of one differential pair.
+
+    Distinct from the bus / inter-pair matching :class:`MatchReport` does: that
+    matches several independent nets up to the longest. Here the two legs of one
+    pair are matched to *each other*, because any P-vs-N length difference
+    converts differential energy into common mode -- it degrades the eye and
+    radiates as EMI (Bogatin, *Signal Integrity -- Simplified*; Johnson &
+    Graham). The budget is correspondingly far tighter than the bus skew budget.
+    """
+
+    leg_lengths: tuple[float, float]   # (leg-0 total, leg-1 total) mils
+    mismatch_mils: float               # |leg0 - leg1|
+    skew_ps: float                     # delay error the mismatch represents
+    longer_leg: int                    # 0 or 1 -- the leg to leave alone
+    compensation_mils: float           # serpentine copper to add to the shorter leg
+    tolerance_mils: float | None       # intra-pair window, if a budget was given
+    within_tolerance: bool             # True when no budget, or mismatch <= it
+    t_pd_ps_per_mil: float
+
+
+def intra_pair_skew(
+    legs: tuple,
+    segment_lengths: dict[str, float],
+    er_eff: float,
+    *,
+    tolerance_mils: float | None = None,
+    skew_budget_ps: float | None = None,
+) -> IntraPairSkew:
+    """Assess the within-pair skew of a differential pair's two legs.
+
+    ``legs`` is the pair's two legs, each an iterable of the net-segment names
+    that make up that leg -- exactly the shape of
+    :attr:`~eda_agent.design.diffpairs.DiffPair.legs` (a series resistor or
+    AC-coupling cap splits one leg into several segments, so each leg's routed
+    length is the sum of its segments). ``segment_lengths`` maps every net name
+    in both legs to its routed length in mils.
+
+    The shorter leg is the one to lengthen (you add serpentine copper, never
+    remove it), so ``compensation_mils`` is the mismatch and ``longer_leg`` is
+    the leg to leave alone. A ``skew_budget_ps`` (or explicit ``tolerance_mils``)
+    flags whether the pair is matched. Naming-agnostic: works on the topology
+    legs, not on ``_P``/``_N`` suffixes.
+    """
+    if len(legs) != 2:
+        raise ValueError("a differential pair has exactly two legs")
+
+    leg_totals: list[float] = []
+    for i, leg in enumerate(legs):
+        nets = list(leg)
+        if not nets:
+            raise ValueError(f"leg {i} has no net segments")
+        total = 0.0
+        for nm in nets:
+            if nm not in segment_lengths:
+                raise ValueError(f"no routed length for net {nm!r}")
+            L = segment_lengths[nm]
+            if L < 0:
+                raise ValueError(f"net {nm!r} has negative length")
+            total += L
+        leg_totals.append(total)
+
+    tol = tolerance_mils
+    if tol is None and skew_budget_ps is not None:
+        tol = length_for_skew(skew_budget_ps, er_eff)
+
+    t_pd = propagation_delay_ns_per_inch(er_eff)  # ps/mil
+    mismatch = abs(leg_totals[0] - leg_totals[1])
+    longer = 0 if leg_totals[0] >= leg_totals[1] else 1
+    return IntraPairSkew(
+        leg_lengths=(leg_totals[0], leg_totals[1]),
+        mismatch_mils=mismatch,
+        skew_ps=mismatch * t_pd,
+        longer_leg=longer,
+        compensation_mils=mismatch,
+        tolerance_mils=tol,
+        within_tolerance=(tol is None) or (mismatch <= tol + 1e-9),
+        t_pd_ps_per_mil=t_pd)
+
+
 def assess_length_match(
     *,
     dielectric_constant: float = 4.2,
@@ -177,5 +258,7 @@ __all__ = [
     "MatchMember",
     "MatchReport",
     "match_group_report",
+    "IntraPairSkew",
+    "intra_pair_skew",
     "assess_length_match",
 ]

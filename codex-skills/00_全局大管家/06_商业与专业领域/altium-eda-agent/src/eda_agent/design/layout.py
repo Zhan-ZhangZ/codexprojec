@@ -40,6 +40,7 @@ from eda_agent.design.force_directed import (
     _bbox_half,
     _force_directed_layout,
     _hard_shove_pass,
+    _is_series_flow_part,
     _mass,
     _pin_count_per_part,
     _rotation_for_part,
@@ -211,6 +212,18 @@ def _splat_motifs(
         # when an FD-placed singleton happens to occupy the
         # canonical slot -- common in dense plans.
         motif_members = match.components
+        # The anchor IC is a motif member, but its bbox is REAL estate the
+        # canonical offsets must respect: a sheet-edge clamp inside
+        # _targets_at can drag a satellite part back INTO the IC, and
+        # skipping members in the collision check made that invisible
+        # (measured: catch diode clamped from y=700 to y=1000 landed
+        # inside the regulator's courtyard, cascading shove distortions
+        # across the whole sheet). Check the anchor with the same
+        # courtyard metric audit_overlaps uses; other members stay
+        # exempt (intra-motif hugging is intentional).
+        ic_anchor_host: Optional[str] = None
+        if motif.ic_anchor is not None:
+            ic_anchor_host = match.host_refdes(motif.ic_anchor)
 
         def _targets_at(mx: int, my: int) -> dict[str, tuple[int, int]]:
             t: dict[str, tuple[int, int]] = {}
@@ -234,7 +247,11 @@ def _splat_motifs(
                 host_half = _bbox_half(pin_count.get(host, 2))
                 for other_refdes, other in by_refdes.items():
                     if other_refdes in motif_members:
-                        continue
+                        # The anchor IC still counts as an obstacle (see
+                        # comment above); other members are exempt.
+                        if other_refdes != ic_anchor_host or \
+                                other_refdes == host:
+                            continue
                     other_half = _bbox_half(pin_count.get(other_refdes, 2))
                     gap = host_half + other_half + _SHOVE_CLEARANCE_MILS
                     if (abs(tx - other.x_mils) < gap
@@ -243,15 +260,21 @@ def _splat_motifs(
             return False
 
         # Shift candidates: (0, 0) first; then 4 axis shifts, then
-        # diagonal shifts. Keeps shifts tight (max sqrt(2) * 200 mil =
-        # ~280 mil) so the motif stays visually associated with its
-        # anchor / IC.
+        # diagonal shifts, smallest displacement first so the motif stays
+        # visually associated with its anchor / IC. The 300-600 tail
+        # exists for the anchor-IC escape case: a sheet-edge clamp can
+        # park a satellite inside the IC courtyard, and the escape is a
+        # few hundred mils along the open axis.
         shifts = [
             (0, 0),
             (100, 0), (-100, 0), (0, 100), (0, -100),
             (200, 0), (-200, 0), (0, 200), (0, -200),
             (100, 100), (-100, 100), (100, -100), (-100, -100),
             (200, 200), (-200, 200), (200, -200), (-200, -200),
+            (300, 0), (-300, 0), (0, 300), (0, -300),
+            (400, 0), (-400, 0), (0, 400), (0, -400),
+            (300, 300), (-300, 300), (300, -300), (-300, -300),
+            (600, 0), (-600, 0), (0, 600), (0, -600),
         ]
         targets: Optional[dict[str, tuple[int, int]]] = None
         for sx_shift, sy_shift in shifts:
@@ -307,7 +330,7 @@ def _neighbour_aware_rotation(
     0 (horizontal).
 
     Uses 270 rather than 90 to match the existing library convention
-    (the user's SELibrary 2-pin parts have pin 1 on the right in
+    (some 2-pin passive libraries have pin 1 on the right in
     native orientation; 270 swings pin 1 to the top).
     """
     dx_sum = 0
@@ -373,8 +396,8 @@ def _apply_rotations(
         role = (part.role or "").strip().lower()
         if role in _INPUT_CONN_ROLES:
             # Input connector at left edge of sheet -> pins face right
-            # into the schematic interior. The user's SELibrary terminal
-            # blocks have pins on the LEFT in their native orientation,
+            # into the schematic interior. Some terminal-block library
+            # parts have pins on the LEFT in their native orientation,
             # so rotation 180 swings the pins around to face right.
             rotation = 180
         elif role in _OUTPUT_CONN_ROLES:
@@ -387,8 +410,13 @@ def _apply_rotations(
             # (returns 270) and falls back to 0 otherwise.
             rotation = _rotation_for_part(part, plan.nets)
             # For 2-pin signal-only parts (rotation came back as 0),
-            # refine using neighbour positions.
-            if rotation == 0 and pin_count.get(p.refdes, 0) == 2:
+            # refine using neighbour positions. Series power-flow parts
+            # (inductor/ferrite/fuse in the rail path) are EXEMPT: their
+            # 0 is the deliberate horizontal convention, and the
+            # neighbour heuristic was re-verticalizing the buck's
+            # inductor whenever its partners sat above/below.
+            if (rotation == 0 and pin_count.get(p.refdes, 0) == 2
+                    and not _is_series_flow_part(part, plan.nets)):
                 rotation = _neighbour_aware_rotation(
                     p.refdes, placed_pos, neighbours[p.refdes]
                 )
@@ -403,6 +431,87 @@ def _apply_rotations(
             )
         )
     return out
+
+
+def order_rail_columns(
+    plan: DesignPlan,
+    placed: list[PlacedPart],
+) -> list[PlacedPart]:
+    """Reorder stacked 2-pin rail parts so column potential is monotonic.
+
+    The convention every professional schematic follows: within a vertical
+    stack, potential DESCENDS top to bottom -- the part touching the power
+    rail sits at the top of the column, mid-potential (signal-to-signal)
+    parts in the middle, ground-connected parts at the bottom. Neither
+    Sugiyama nor the motif splat enforces this, so a divider's filter cap
+    (MID-GND) can land ABOVE the top resistor (VCC-MID). With the standard
+    pin polarity (power pin up, ground pin down) that inversion makes the
+    connected pins face AWAY from each other, and the router is forced
+    into a wrap-around loop -- the single most visible amateur artefact
+    on a small sheet.
+
+    Mechanics: group vertical (rotation 90/270) 2-pin parts by exact
+    (sheet, x) column; rank each part by the strongest rail it touches
+    (power=2, neither=1, ground-only=0); reassign the SAME y-slots in
+    rank order (stable: equal ranks keep their current top-to-bottom
+    order). Positions are permuted, never invented, so column occupancy
+    and sheet extent are unchanged. Parts with other rotations, more
+    pins, or connector roles are left alone.
+    """
+    pin_count = _pin_count_per_part(plan)
+    part_by_refdes = {p.refdes: p for p in plan.parts}
+
+    touches_power: set[str] = set()
+    touches_ground: set[str] = set()
+    for net in plan.nets:
+        for pr in net.pins:
+            if net.is_power:
+                touches_power.add(pr.refdes)
+            if net.is_ground:
+                touches_ground.add(pr.refdes)
+
+    def rank(refdes: str) -> int:
+        if refdes in touches_power:
+            return 2
+        if refdes in touches_ground:
+            return 0
+        return 1
+
+    def eligible(p: PlacedPart) -> bool:
+        if pin_count.get(p.refdes, 0) != 2:
+            return False
+        if p.rotation % 180 != 90:  # vertical parts only (90 / 270)
+            return False
+        part = part_by_refdes.get(p.refdes)
+        role = ((part.role or "") if part else "").strip().lower()
+        return role not in _INPUT_CONN_ROLES and role not in _OUTPUT_CONN_ROLES
+
+    columns: dict[tuple[str, int], list[PlacedPart]] = defaultdict(list)
+    for p in placed:
+        if eligible(p):
+            columns[(p.sheet, p.x_mils)].append(p)
+
+    new_y: dict[str, int] = {}
+    for col_parts in columns.values():
+        if len(col_parts) < 2:
+            continue
+        top_down = sorted(col_parts, key=lambda p: -p.y_mils)
+        slots = [p.y_mils for p in top_down]
+        want = sorted(top_down, key=lambda p: -rank(p.refdes))  # stable
+        if [p.refdes for p in want] == [p.refdes for p in top_down]:
+            continue
+        for slot_y, p in zip(slots, want):
+            new_y[p.refdes] = slot_y
+
+    if not new_y:
+        return placed
+    return [
+        PlacedPart(
+            refdes=p.refdes, sheet=p.sheet, x_mils=p.x_mils,
+            y_mils=new_y.get(p.refdes, p.y_mils), rotation=p.rotation,
+        )
+        for p in placed
+    ]
 
 
 def _sugiyama_to_placed(

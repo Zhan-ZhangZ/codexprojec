@@ -4,7 +4,7 @@
 
 The simulation flow is three steps:
 
-1. ``sch_get_simulation_readiness()`` audits every component on the
+1. ``sim_get_readiness()`` audits every component on the
    active schematic and returns three buckets:
 
      - ``ready``          , has SpicePrefix; nothing to do.
@@ -17,11 +17,11 @@ The simulation flow is three steps:
    **vendor datasheets + vendor-published SPICE models only**. LLM-
    generated SPICE models are not trustworthy and must not be used.
 
-2. ``sch_attach_spice_primitive()``, for ``needs_primitive`` entries.
-   One call per component; no file needed.
+2. ``sim_attach_primitives()``, for ``needs_primitive`` entries.
+   One bulk call attaches the whole list; no file needed.
 
 3. For ``needs_file`` entries: fetch the vendor model, save it locally,
-   call ``sch_attach_spice_model()`` pointing at that file.
+   call ``sim_attach_model()`` pointing at that file.
 
 Then ``sim_run()`` dispatches Altium's mixed-signal simulator.
 """
@@ -47,13 +47,13 @@ SPICE_MODEL_RULES = [
     "'<manufacturer> <part_number> SPICE model filetype:lib OR "
     "filetype:mdl OR filetype:cir'.",
     "A model file usually contains a .SUBCKT <name> declaration. The "
-    "<name> is what goes into sch_attach_spice_model's model_name "
+    "<name> is what goes into sim_attach_model's model_name "
     "parameter, not the file name.",
     "If a vendor SPICE model cannot be located after a real search, "
     "tell the user. Do not fabricate a substitute; running the sim "
     "with a made-up model gives confidently-wrong results.",
     "For passives (R, L, C) and ideal sources (V, I), no file is "
-    "needed, sch_attach_spice_primitive sets SpicePrefix + Value "
+    "needed, sim_attach_primitives sets SpicePrefix + Value "
     "directly.",
 ]
 
@@ -91,11 +91,11 @@ def _guidance_block(
     return {
         "spice_model_rules": SPICE_MODEL_RULES,
         "action_required": (
-            "For every entry in needs_primitive, call "
-            "sch_attach_spice_primitive. For every entry in "
+            "Pass all needs_primitive entries to "
+            "sim_attach_primitives in one bulk call. For every entry in "
             "needs_file, fetch the vendor SPICE model (WebFetch / "
             "WebSearch using the suggested query below), save it to "
-            "a local file, then call sch_attach_spice_model with the "
+            "a local file, then call sim_attach_model with the "
             ".SUBCKT name from inside the file. Do NOT fabricate a "
             "SPICE model from datasheet reasoning, if the vendor "
             "doesn't publish one, flag it to the user and stop."
@@ -127,11 +127,11 @@ def register_sim_tools(mcp):
           - ``ready``          , SpicePrefix already set; nothing to do.
           - ``needs_primitive``, a passive (R/L/C) or source (V/I/D/Q)
                                   that just needs SpicePrefix + Value.
-                                  Call sch_attach_spice_primitive for
-                                  each entry.
+                                  Pass them all to
+                                  sim_attach_primitives in one call.
           - ``needs_file``     , an IC or active part that requires a
                                   manufacturer-supplied .mdl / .ckt /
-                                  .lib file. Call sch_attach_spice_model
+                                  .lib file. Call sim_attach_model
                                   after fetching the file from the
                                   vendor.
 
@@ -215,7 +215,7 @@ def register_sim_tools(mcp):
         Altium's profile editor isn't exposed via DelphiScript.
 
         Typical workflow:
-            1. Use sch_get_simulation_readiness + sch_attach_* to
+            1. Use sim_get_readiness + sim_attach_* to
                make sure every component has a SPICE model.
             2. Place probes on measurement nodes with sch_place_probe.
             3. In Altium's Simulation Dashboard, pick the analysis

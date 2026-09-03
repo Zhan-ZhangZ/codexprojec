@@ -200,6 +200,12 @@ def _bridge_call(command: str, params: Optional[dict] = None,
         return None
 
 
+# Footprint-policy sweep: footprints per bulk-geometry page, and the per-page
+# timeout. The first page also opens the PcbLib, seconds on a large library.
+_GEOMETRY_PAGE = 250
+_GEOMETRY_TIMEOUT = 120.0
+
+
 # ---------------------------------------------------------------------------
 # activity.log tail
 # ---------------------------------------------------------------------------
@@ -487,7 +493,7 @@ def _aggregate(entries: Iterable[LogEntry]) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 # Extensions we want to surface in the dashboard. Each tool that produces a
-# file uses one of these — SVG preview from design_preview_plan, PDF/STEP/DXF
+# file uses one of these: SVG preview from design_preview_plan, PDF/STEP/DXF
 # from the export_* tools, PNG screenshots from export_image, JSON snapshots
 # from design_review_snapshot, etc.
 _ARTIFACT_EXTS = {
@@ -670,6 +676,110 @@ def _hot_reload_render_modules() -> None:
                 logger.warning("hot-reload of %s failed: %s", full, e)
 
 
+#: Hostnames a browser may legitimately use to reach a loopback bind.
+#: Anything else in the Host header means the request arrived through a
+#: name that resolves here without belonging here, which is what DNS
+#: rebinding is.
+_LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1", "[::1]", ""})
+
+#: Escape hatch for a deliberate non-loopback bind. Comma separated
+#: hostnames, no ports. Sharing the dashboard is already gated behind an
+#: explicit --host and a printed warning; this lets that case name the
+#: address it will actually be reached by.
+_ALLOWED_HOSTS_ENV = "EDA_AGENT_DASHBOARD_ALLOWED_HOSTS"
+
+
+def _hostname_of(value: str) -> str:
+    """The host part of a Host or Origin header, lowercased, no port.
+
+    Handles the bracketed IPv6 form, where the colons inside the
+    brackets are not a port separator.
+    """
+    value = (value or "").strip().lower()
+    if value.startswith("http://"):
+        value = value[7:]
+    elif value.startswith("https://"):
+        value = value[8:]
+    value = value.split("/")[0]
+    if value.startswith("["):
+        end = value.find("]")
+        if end != -1:
+            return value[:end + 1]
+        return value
+    return value.split(":")[0]
+
+
+def _allowed_hostnames() -> frozenset:
+    import os
+
+    extra = os.environ.get(_ALLOWED_HOSTS_ENV, "")
+    names = {n.strip().lower() for n in extra.split(",") if n.strip()}
+    return frozenset(_LOOPBACK_NAMES | names)
+
+
+def install_origin_guard(app) -> None:
+    """Refuse requests that did not come from a loopback name.
+
+    WHY THIS EXISTS. Every endpoint here is unauthenticated, and
+    /api/tool/run invokes any registered tool with caller-supplied
+    arguments. On this project that means reading and mutating client
+    designs under NDA, so the only thing standing between a web page and
+    the board is that the server listens on loopback.
+
+    Loopback is not the protection it looks like. Ordinary CSRF is
+    already blocked, because the endpoint requires a JSON content type
+    and that forces a preflight the server never approves. DNS
+    REBINDING is not: an attacker page served from a domain whose DNS
+    then answers 127.0.0.1 is same-origin as far as the browser is
+    concerned, so no preflight applies and the request arrives looking
+    entirely ordinary.
+
+    MEASURED before this guard: a JSON POST carrying
+    Host: evil.example.com was accepted and ran a command against a live
+    Altium, and GET /api/tools listed all 412 tools to the same caller.
+
+    What separates the two cases is the Host header. A browser sends the
+    name the user typed, so a rebound request carries the attacker's
+    domain while a genuine one carries a loopback name. Origin is
+    checked too when present, which costs nothing and catches a plain
+    cross-site attempt earlier.
+    """
+    from flask import jsonify, request
+
+    @app.before_request
+    def _reject_foreign_origin():
+        allowed = _allowed_hostnames()
+
+        host = _hostname_of(request.headers.get("Host", ""))
+        if host not in allowed:
+            return jsonify({
+                "ok": False,
+                "reason": (
+                    f"refusing a request addressed to {host!r}. This "
+                    f"dashboard is unauthenticated and reachable only as "
+                    f"localhost, because every endpoint can drive the "
+                    f"EDA application. A Host that is not a loopback name "
+                    f"is how a DNS rebinding attack arrives. Set "
+                    f"{_ALLOWED_HOSTS_ENV} if you are deliberately serving "
+                    f"this to another machine."),
+            }), 403
+
+        # Origin is absent on same-origin GETs and on direct navigation,
+        # so only a PRESENT and foreign one is a refusal. Treating a
+        # missing Origin as hostile would break the page itself.
+        origin = request.headers.get("Origin")
+        if origin and _hostname_of(origin) not in allowed:
+            return jsonify({
+                "ok": False,
+                "reason": (
+                    f"refusing a cross-origin request from {origin!r}. "
+                    f"This dashboard has no authentication and its "
+                    f"endpoints drive the EDA application."),
+            }), 403
+
+        return None
+
+
 def create_app(workspace_dir: Optional[Path] = None) -> Flask:
     if workspace_dir is None:
         workspace_dir = get_config().workspace_dir
@@ -736,6 +846,8 @@ def create_app(workspace_dir: Optional[Path] = None) -> Flask:
     _atexit.register(_remove_heartbeat)
 
     app = Flask("eda-agent-dashboard")
+    # Before any route, and before anything reads the body.
+    install_origin_guard(app)
     app.config["WORKSPACE_DIR"] = str(workspace_dir)
     app.config["TAILER"] = tailer
 
@@ -772,6 +884,63 @@ def create_app(workspace_dir: Optional[Path] = None) -> Flask:
     @app.route("/api/snapshot")
     def snapshot() -> Response:
         return jsonify(tailer.snapshot())
+
+    @app.route("/api/recovery")
+    def recovery() -> Response:
+        """Current DelphiScript-fault state for the recovery banner.
+
+        Returns ``{"fault": null}`` when the polling loop is healthy, or the
+        recorded diagnosis + numbered recovery steps when a fault is pending
+        (cleared automatically once a command succeeds again).
+        """
+        from ..bridge.fault_state import read_fault
+        payload = read_fault(Path(app.config["WORKSPACE_DIR"]))
+        if payload is None:
+            return jsonify({"fault": None})
+        return jsonify(payload)
+
+    @app.route("/api/footprint-policy")
+    def footprint_policy() -> Response:
+        """Audit the focused PcbLib for inconsistent footprint policies.
+
+        Sweeps every footprint, infers the library's own conventions, and
+        returns the deviations: the read-only view of
+        ``lib_audit_footprint_policies``. Geometry comes from the bulk
+        ``library.get_library_geometry`` command, paged so a thousand-footprint
+        library is a few round trips rather than a thousand. Returns
+        ``{available: false}`` when no PcbLib is open (or Altium is
+        unreachable), so the panel can show a hint instead of an error.
+        """
+        from ..design.footprint_policy import (
+            audit_footprint_library,
+            plan_footprint_fixes,
+        )
+
+        footprints: list = []
+        library_path = None
+        offset, total = 0, None
+        while total is None or offset < total:
+            page = _bridge_call("library.get_library_geometry",
+                                {"offset": offset, "limit": _GEOMETRY_PAGE},
+                                timeout=_GEOMETRY_TIMEOUT)
+            if not isinstance(page, dict):
+                break
+            library_path = library_path or page.get("library_path")
+            total = page.get("total") or 0
+            batch = page.get("footprints") or []
+            footprints.extend(batch)
+            if not batch:
+                break
+            offset += len(batch)
+
+        if not footprints:
+            return jsonify({"available": False,
+                            "reason": "no PcbLib open, or Altium unreachable"})
+        report = audit_footprint_library(footprints)
+        report["fixes"] = plan_footprint_fixes(report)
+        report["available"] = True
+        report["library_path"] = library_path
+        return jsonify(report)
 
     @app.route("/api/altium/version")
     def altium_version() -> Response:
@@ -1268,7 +1437,10 @@ def create_app(workspace_dir: Optional[Path] = None) -> Flask:
     _READ_ONLY_EXACT = frozenset({
         "proj_compile", "proj_force_recompile", "proj_run_erc", "pcb_run_drc",
         "proj_run_output", "proj_cross_probe", "app_attach", "app_detach",
-        "app_set_intent", "app_run_menu", "obj_highlight_net",
+        # app_run_menu is NOT here: it dispatches an arbitrary menu path,
+        # and "File|Save All" writes to disk. Treating it as read-only
+        # left the project cache stale after it changed something.
+        "app_set_intent", "obj_highlight_net",
         "obj_clear_highlights", "obj_deselect_all", "obj_select", "obj_zoom",
         "obj_switch_view", "obj_refresh_document",
     })

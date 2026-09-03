@@ -4,13 +4,16 @@
 
 import argparse
 import logging
+import os
 import sys
 import threading
 from pathlib import Path
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
-from .tools import register_all_tools
+from .tools import (
+    BACKENDS, DEFAULT_BACKEND, DEFAULT_TOOLSET, TOOLSETS, register_backend,
+)
 from .config import get_config
 
 logger = logging.getLogger("eda_agent")
@@ -97,11 +100,78 @@ def setup_logging() -> None:
     root.setLevel(logging.INFO)
 
 
-# Create global FastMCP instance
-mcp = FastMCP("eda-agent")
+# Which EDA tool this server drives. Resolved once, at import, from the
+# environment so it is settled before the dashboard (which reads the
+# registered tool set) or any subcommand touches ``mcp``. MCP clients select
+# it in their server config's ``env``; the ``--backend`` CLI flag re-execs
+# with this set for terminal use. Altium is the default so existing installs
+# are unaffected.
+ACTIVE_BACKEND = os.environ.get("EDA_AGENT_BACKEND", DEFAULT_BACKEND)
 
-# Register all tools
-register_all_tools(mcp)
+# Some MCP clients cap tool count or stall serializing hundreds of schemas
+# at startup. EDA_AGENT_TOOLSET=minimal advertises only tool_catalog and
+# tool_invoke while keeping every other tool reachable through them. The
+# default stays "full" so existing installs are unaffected.
+ACTIVE_TOOLSET = os.environ.get("EDA_AGENT_TOOLSET", DEFAULT_TOOLSET)
+
+# WHY THERE ARE SERVER INSTRUCTIONS AT ALL.
+#
+# tool_catalog and tool_guide only help a caller who thinks to call them,
+# and the recorded failures are precisely the ones where nobody did: a
+# capability was reported ABSENT while the tool existed under another
+# namespace, four times over. A tool description cannot fix that, because
+# it is read only once the right tool has already been found. Server
+# instructions are the one piece of text a client sees before choosing
+# anything, so the pointer belongs here.
+#
+# Deliberately short. This is prepended to a client's context on every
+# session, so it earns its place by covering the mistakes that actually
+# happened and nothing else.
+def build_server_instructions(toolset: str = DEFAULT_TOOLSET) -> str:
+    """The preamble, worded for the toolset the client will actually see.
+
+    Under the minimal toolset only tool_catalog and tool_invoke are
+    advertised, so instructing a client to "call tool_guide" names
+    something it cannot see. It stays reachable through tool_invoke, and
+    saying which applies is the difference between guidance and a dead
+    end for the clients that most need the guidance.
+    """
+    if (toolset or DEFAULT_TOOLSET).strip().lower() == "minimal":
+        reach = ('reach tool_guide through tool_invoke, since this server '
+                 'is advertising only the two meta-tools,')
+    else:
+        reach = "call tool_guide"
+    return (
+        "Tools are grouped by the DOCUMENT they act on, and mixing them up\n"
+        "is the most common error here: lib_ acts on a .PcbLib or .SchLib,\n"
+        "pcb_ on an open .PcbDoc, sch_ and obj_ on an open .SchDoc. A board\n"
+        "tool aimed at a library does not always fail. It can resolve some\n"
+        "other open board and report success for work you never asked for.\n"
+        "\n"
+        f"Before concluding that this server cannot do something, {reach}\n"
+        "with what you are trying to do. It answers three separate things:\n"
+        "the tool and what it needs first, the tool you were probably\n"
+        "reaching for and why it acts on a different document, and the\n"
+        "short list of things that are genuinely impossible with the\n"
+        "reason. Use tool_catalog to search the surface by name or\n"
+        "category.\n"
+        "\n"
+        "Coordinates are in mils throughout, on every backend.\n"
+    )
+
+
+SERVER_INSTRUCTIONS = build_server_instructions(ACTIVE_TOOLSET)
+
+# Create global FastMCP instance, named for the backend so a client that
+# lists several eda-agent servers can tell them apart.
+mcp = FastMCP(
+    f"eda-agent-{ACTIVE_BACKEND.strip().lower() or DEFAULT_BACKEND}",
+    instructions=SERVER_INSTRUCTIONS,
+)
+
+# Register only the selected backend's tools. Returns the normalised name
+# (an unrecognised value falls back to the default).
+ACTIVE_BACKEND = register_backend(mcp, ACTIVE_BACKEND, ACTIVE_TOOLSET)
 
 
 def _probe_port_owner(host: str, port: int) -> Optional[int]:
@@ -259,6 +329,165 @@ def serve_mcp(no_dashboard: bool = False) -> int:
     return 0
 
 
+def _run_review(args) -> int:
+    """Handle ``eda-agent review <file>`` -- offline fallback review.
+
+    This is the opt-in, no-Altium fallback (component-level checks only); it
+    is NOT the preferred review path. It is disabled unless the caller passes
+    ``--offline`` or sets ``EDA_AGENT_HEADLESS_REVIEW=1``.
+
+    Exit code: 0 clean, 1 if any finding at/above ``--fail-on`` (so CI fails
+    the build), 2 if disabled or the file could not be read.
+    """
+    from .fileio.review import (
+        ERROR,
+        HEADLESS_DISABLED_MESSAGE,
+        headless_review_enabled,
+        review_project_file,
+        to_sarif,
+    )
+
+    if not (getattr(args, "offline", False) or headless_review_enabled()):
+        print(f"ERROR: {HEADLESS_DISABLED_MESSAGE}", file=sys.stderr)
+        return 2
+
+    try:
+        report = review_project_file(args.file)
+    except (ValueError, OSError) as e:
+        print(f"ERROR: cannot read {args.file}: {e}", file=sys.stderr)
+        return 2
+
+    if getattr(args, "sarif", False):
+        import json as _json
+        from . import __version__ as _ver
+        print(_json.dumps(to_sarif(report, tool_version=_ver), indent=2))
+    elif getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps(report, indent=2))
+    else:
+        s = report["summary"]
+        print(f"Reviewed {report['file']}")
+        if "sheet_count" in report:  # project review
+            print(f"  {report['sheet_count']} sheet(s), "
+                  f"{report['component_count']} components")
+        elif "document" in report:  # single schematic sheet
+            doc = report["document"]
+            print(f"  {doc.get('title') or '(untitled)'}  "
+                  f"rev {doc.get('revision') or '-'}  --  "
+                  f"{report['component_count']} components, "
+                  f"{len(report.get('net_names', []))} named nets")
+        else:  # library review
+            print(f"  {report['component_count']} library components")
+        print(f"  {s.get('error', 0)} error(s), {s.get('warning', 0)} "
+              f"warning(s), {s.get('info', 0)} info")
+        for f in report["findings"]:
+            tag = f["designator"] or "-"
+            sheet = f" ({f['sheet']})" if f.get("sheet") else ""
+            print(f"  [{f['severity'].upper():7}] {tag:6} {f['check']}: "
+                  f"{f['message']}{sheet}")
+    # Gating: exit 1 if any finding at or above the --fail-on threshold.
+    # Default "error" preserves the prior behavior.
+    fail_on = getattr(args, "fail_on", "error")
+    order = {"info": 0, "warning": 1, "error": 2}
+    if fail_on == "never":
+        return 0
+    threshold = order.get(fail_on, 2)
+    s = report["summary"]
+    triggered = sum(
+        s.get(sev, 0) for sev, rank in order.items() if rank >= threshold
+    )
+    return 1 if triggered > 0 else 0
+
+
+def _offline_gate_ok(args) -> bool:
+    """Shared opt-in check for the offline (no-Altium) CLI fallbacks."""
+    from .fileio.review import (
+        HEADLESS_DISABLED_MESSAGE,
+        headless_review_enabled,
+    )
+    if getattr(args, "offline", False) or headless_review_enabled():
+        return True
+    print(f"ERROR: {HEADLESS_DISABLED_MESSAGE}", file=sys.stderr)
+    return False
+
+
+def _run_bom(args) -> int:
+    """Handle ``eda-agent bom <file>`` -- offline consolidated BOM.
+
+    Opt-in, no-Altium fallback. Exit 0 on success, 2 if disabled/unreadable.
+    """
+    if not _offline_gate_ok(args):
+        return 2
+    from .fileio.bom import bom_from_file, bom_to_csv
+
+    try:
+        lines = bom_from_file(args.file)
+    except (ValueError, OSError) as e:
+        print(f"ERROR: cannot read {args.file}: {e}", file=sys.stderr)
+        return 2
+
+    if getattr(args, "csv", False):
+        print(bom_to_csv(lines), end="")
+    elif getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps(lines, indent=2))
+    else:
+        parts = sum(ln["quantity"] for ln in lines)
+        print(f"BOM for {args.file}: {len(lines)} line(s), {parts} parts")
+        for ln in lines:
+            print(f"  {ln['quantity']:3}x  {', '.join(ln['designators']):24}  "
+                  f"{ln['value'] or '-':10}  {ln['mpn'] or '-'}")
+    return 0
+
+
+def _run_netlist(args) -> int:
+    """Handle ``eda-agent netlist <file>`` -- offline netlist + connectivity.
+
+    Opt-in, no-Altium fallback. Reconstructs the netlist geometrically and
+    runs connectivity ERC. Exit 0 clean, 1 if any connectivity finding at/
+    above ``--fail-on``, 2 if disabled/unreadable.
+    """
+    if not _offline_gate_ok(args):
+        return 2
+    from .fileio.netlist_solver import solve_schematic_nets
+    from .fileio.review import review_connectivity
+
+    try:
+        solved = solve_schematic_nets(args.file)
+    except (ValueError, OSError, KeyError) as e:
+        print(f"ERROR: cannot solve {args.file}: {e}", file=sys.stderr)
+        return 2
+
+    findings = review_connectivity(solved)
+    if getattr(args, "sarif", False):
+        import json as _json
+        from . import __version__ as _ver
+        from .fileio.review import to_sarif
+        report = {"file": str(args.file), "findings": findings}
+        print(_json.dumps(to_sarif(report, tool_version=_ver), indent=2))
+    elif getattr(args, "json", False):
+        import json as _json
+        print(_json.dumps({"nets": {n: [f"{m['component']}.{m['pin']}"
+                                        for m in v]
+                                    for n, v in solved["nets"].items()},
+                           "findings": findings}, indent=2))
+    else:
+        print(f"Netlist for {args.file}: {len(solved['nets'])} nets, "
+              f"{len(solved['pin_nets'])} pins")
+        for f in findings:
+            tag = f["designator"] or "-"
+            print(f"  [{f['severity'].upper():7}] {tag:6} {f['check']}: "
+                  f"{f['message']}")
+
+    fail_on = getattr(args, "fail_on", "error")
+    if fail_on == "never":
+        return 0
+    order = {"info": 0, "warning": 1, "error": 2}
+    threshold = order.get(fail_on, 2)
+    triggered = any(order.get(f["severity"], 2) >= threshold for f in findings)
+    return 1 if triggered else 0
+
+
 def main() -> int:
     """CLI entry point.
 
@@ -277,6 +506,14 @@ def main() -> int:
             "Run with no arguments to start the MCP server on stdio."
         ),
     )
+    # The bug-report template and CONTRIBUTING both ask reporters for
+    # `eda-agent --version`. Without this the flag was an argparse error,
+    # so the first thing a bug reporter was told to run did not work.
+    from . import __version__ as _pkg_version
+    parser.add_argument(
+        "--version", action="version",
+        version=f"eda-agent {_pkg_version}",
+    )
     # Top-level flag so `eda-agent --no-dashboard` works without the
     # `serve` subcommand. Important: most MCP clients invoke the binary
     # with NO arguments, so this needs to attach at the top level.
@@ -290,6 +527,31 @@ def main() -> int:
     parser.add_argument(
         "--headless", action="store_true",
         help="Alias for --no-dashboard.",
+    )
+    # Top-level so `eda-agent --backend kicad` works with no subcommand, the
+    # way MCP clients invoke the binary. The real selection happens at import
+    # from EDA_AGENT_BACKEND; when this flag names a different backend we
+    # re-exec with that env set so registration runs against the right one.
+    parser.add_argument(
+        # Choices come from BACKENDS rather than a literal list: adding a
+        # backend to the registry and forgetting this line rejects the new
+        # name here while EDA_AGENT_BACKEND accepts it, so the flag and the
+        # variable disagree about what exists. That is how 'easyeda' was
+        # unreachable from the CLI after the backend itself worked.
+        "--backend", choices=BACKENDS, default=None,
+        help=("Which EDA tool to drive (default: altium). Selects the tool "
+              "surface: 'altium' is the full Altium suite, 'kicad' the "
+              "KiCad-native tools, 'easyeda' the EasyEDA Pro tools, 'both' "
+              "the union of Altium and KiCad. Equivalent to setting "
+              "EDA_AGENT_BACKEND."),
+    )
+    parser.add_argument(
+        "--toolset", choices=TOOLSETS, default=None,
+        help=("How many tools to advertise (default: full). 'minimal' "
+              "exposes only tool_catalog and tool_invoke, keeping every "
+              "other tool reachable through them, for MCP clients that "
+              "limit tool count or are slow to load hundreds of schemas. "
+              "Equivalent to setting EDA_AGENT_TOOLSET."),
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 
@@ -305,6 +567,10 @@ def main() -> int:
     serve_p.add_argument(
         "--headless", action="store_true",
         help="Alias for --no-dashboard.",
+    )
+    serve_p.add_argument(
+        "--backend", choices=BACKENDS, default=None,
+        help="Which EDA tool to drive (see top-level flag).",
     )
 
     # scripts-path
@@ -396,7 +662,92 @@ def main() -> int:
     vote_p.add_argument("--port", type=int, default=8765)
     vote_p.add_argument("--debug", action="store_true")
 
+    # review -- OFFLINE FALLBACK, opt-in schematic review (no Altium).
+    # Not the preferred path: the live-Altium tools see connectivity this
+    # reader can't. Disabled unless --offline / EDA_AGENT_HEADLESS_REVIEW=1.
+    review_p = subparsers.add_parser(
+        "review",
+        help=(
+            "Offline FALLBACK design review of a .SchDoc/.PrjPcb -- parses "
+            "the file directly (no running Altium, no license) for the "
+            "component-level subset only (missing MPN / datasheet, "
+            "placeholder values, designator collisions). NOT the preferred "
+            "path -- prefer the live tools when Altium is available. Opt-in: "
+            "requires --offline (or EDA_AGENT_HEADLESS_REVIEW=1)."
+        ),
+    )
+    review_p.add_argument("file", type=Path,
+                          help="Path to a .SchDoc sheet or a .PrjPcb project "
+                               "(reviews all its sheets).")
+    review_p.add_argument("--offline", action="store_true",
+                          help="Opt in to the no-Altium file-reader review. "
+                               "Required (this review is off by default); the "
+                               "live-Altium tools are preferred when a session "
+                               "is available.")
+    review_p.add_argument("--json", action="store_true",
+                          help="Emit the full report as JSON.")
+    review_p.add_argument("--sarif", action="store_true",
+                          help="Emit SARIF 2.1.0 (for GitHub code scanning / "
+                               "PR annotations).")
+    review_p.add_argument("--fail-on", dest="fail_on", default="error",
+                          choices=["error", "warning", "info", "never"],
+                          help="Exit non-zero when a finding at or above this "
+                               "severity exists (default: error).")
+
+    # bom -- offline consolidated BOM (opt-in, no Altium).
+    bom_p = subparsers.add_parser(
+        "bom",
+        help=("Offline consolidated BOM from a .SchDoc/.PrjPcb (no running "
+              "Altium). Opt-in: requires --offline (or "
+              "EDA_AGENT_HEADLESS_REVIEW=1). Prefer live proj_get_bom."))
+    bom_p.add_argument("file", type=Path, help="A .SchDoc or .PrjPcb.")
+    bom_p.add_argument("--offline", action="store_true",
+                       help="Opt in to the no-Altium reader (required).")
+    bom_p.add_argument("--csv", action="store_true", help="Emit CSV.")
+    bom_p.add_argument("--json", action="store_true", help="Emit JSON.")
+
+    # netlist -- offline geometric netlist + connectivity ERC (opt-in).
+    net_p = subparsers.add_parser(
+        "netlist",
+        help=("Offline netlist reconstruction + connectivity ERC "
+              "(single_pin_net, net_short) from a .SchDoc (no running "
+              "Altium). Opt-in: requires --offline. Prefer live "
+              "proj_get_nets/proj_run_erc."))
+    net_p.add_argument("file", type=Path, help="A .SchDoc sheet.")
+    net_p.add_argument("--offline", action="store_true",
+                       help="Opt in to the no-Altium solver (required).")
+    net_p.add_argument("--json", action="store_true", help="Emit JSON.")
+    net_p.add_argument("--sarif", action="store_true",
+                       help="Emit SARIF 2.1.0 (GitHub code scanning / PR "
+                            "annotations).")
+    net_p.add_argument("--fail-on", dest="fail_on", default="error",
+                       choices=["error", "warning", "info", "never"],
+                       help="Exit non-zero on a finding at/above this "
+                            "severity (default: error).")
+
     args = parser.parse_args()
+
+    # Backend was already registered at import from EDA_AGENT_BACKEND. If
+    # --backend asks for a different one, re-exec once with the env set so the
+    # reload registers the right tool surface. MCP clients pass the backend via
+    # env, not this flag, so their startup never re-execs. A sentinel prevents
+    # an exec loop if the child somehow disagrees.
+    # --toolset needs the same treatment for the same reason: the surface
+    # is chosen at import, so changing it after parsing is too late.
+    requested = getattr(args, "backend", None)
+    requested_toolset = getattr(args, "toolset", None)
+    needs_backend = bool(requested) and requested != ACTIVE_BACKEND
+    needs_toolset = (bool(requested_toolset)
+                     and requested_toolset != ACTIVE_TOOLSET)
+    if ((needs_backend or needs_toolset)
+            and not os.environ.get("_EDA_AGENT_BACKEND_REEXEC")):
+        if needs_backend:
+            os.environ["EDA_AGENT_BACKEND"] = requested
+        if needs_toolset:
+            os.environ["EDA_AGENT_TOOLSET"] = requested_toolset
+        os.environ["_EDA_AGENT_BACKEND_REEXEC"] = "1"
+        os.execv(sys.executable,
+                 [sys.executable, "-m", "eda_agent.server", *sys.argv[1:]])
 
     if args.command is None or args.command == "serve":
         # Honour the flag whether it was given at the top level
@@ -461,6 +812,12 @@ def main() -> int:
             "--port", str(args.port),
             *(["--debug"] if args.debug else []),
         ])
+    if args.command == "review":
+        return _run_review(args)
+    if args.command == "bom":
+        return _run_bom(args)
+    if args.command == "netlist":
+        return _run_netlist(args)
     if args.command in ("health", "doctor"):
         from .diag.checks import format_report, overall_exit_code
         if args.command == "health":

@@ -75,7 +75,7 @@ End;
 { 1. JSON Parsing Tests                                                        }
 {..............................................................................}
 
-Procedure TestJsonParsing;
+Procedure TestJsonParsing(Dummy : Integer);
 Var
     Json : String;
 Begin
@@ -127,7 +127,7 @@ End;
 { 2. JSON Array Extraction Tests                                               }
 {..............................................................................}
 
-Procedure TestJsonArrayExtraction;
+Procedure TestJsonArrayExtraction(Dummy : Integer);
 Var
     Json, Res : String;
 Begin
@@ -155,7 +155,7 @@ End;
 { 3. JSON Escaping Tests                                                       }
 {..............................................................................}
 
-Procedure TestJsonEscaping;
+Procedure TestJsonEscaping(Dummy : Integer);
 Begin
     AssertEqual(EscapeJsonString('hello'), 'hello', 'EscapeJsonString no escaping');
     AssertEqual(EscapeJsonString(''), '', 'EscapeJsonString empty');
@@ -171,7 +171,7 @@ End;
 { 4. Response Builder Tests                                                    }
 {..............................................................................}
 
-Procedure TestResponseBuilders;
+Procedure TestResponseBuilders(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -203,7 +203,7 @@ End;
 { 5. Coordinate Conversion Tests                                               }
 {..............................................................................}
 
-Procedure TestCoordinates;
+Procedure TestCoordinates(Dummy : Integer);
 Begin
     AssertIntEqual(MilsToCoord(100), 1000000, 'MilsToCoord 100 mils');
     AssertIntEqual(MilsToCoord(0), 0, 'MilsToCoord zero');
@@ -220,7 +220,7 @@ End;
 { 6. String Helper Tests                                                       }
 {..............................................................................}
 
-Procedure TestStringHelpers;
+Procedure TestStringHelpers(Dummy : Integer);
 Begin
     // StrToIntDef
     AssertIntEqual(StrToIntDef('42', 0), 42, 'StrToIntDef valid');
@@ -252,7 +252,7 @@ End;
 { 7. Object Type Mapping Tests                                                 }
 {..............................................................................}
 
-Procedure TestObjectTypeMappings;
+Procedure TestObjectTypeMappings(Dummy : Integer);
 Begin
     // Schematic object types
     AssertTrue(ObjectTypeFromString('eNetLabel') <> -1, 'ObjectTypeFromString eNetLabel');
@@ -286,7 +286,7 @@ End;
 { 8. Layer Mapping Tests                                                       }
 {..............................................................................}
 
-Procedure TestLayerMappings;
+Procedure TestLayerMappings(Dummy : Integer);
 Begin
     // String to layer and back
     AssertEqual(GetLayerString(GetLayerFromString('TopLayer')), 'TopLayer', 'Layer round-trip TopLayer');
@@ -306,12 +306,12 @@ End;
 { 9. File I/O Round-Trip Tests                                                 }
 {..............................................................................}
 
-Procedure TestFileIO;
+Procedure TestFileIO(Dummy : Integer);
 Var
     Content, ReadBack : String;
     TestPath : String;
 Begin
-    EnsureWorkspaceDir;
+    EnsureWorkspaceDir(0);
     TestPath := WorkspaceDir + 'selftest_temp.json';
 
     // Write and read back plain JSON
@@ -341,7 +341,7 @@ End;
 { 10. Application Command Tests                                                }
 {..............................................................................}
 
-Procedure TestApplicationCommands;
+Procedure TestApplicationCommands(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -384,7 +384,7 @@ End;
 { 11. Project Command Tests                                                    }
 {..............................................................................}
 
-Procedure TestProjectCommands;
+Procedure TestProjectCommands(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -403,7 +403,7 @@ End;
 { 12. Library Command Tests                                                    }
 {..............................................................................}
 
-Procedure TestLibraryCommands;
+Procedure TestLibraryCommands(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -424,7 +424,7 @@ End;
 { 13. Generic Command Tests                                                    }
 {..............................................................................}
 
-Procedure TestGenericCommands;
+Procedure TestGenericCommands(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -470,7 +470,7 @@ End;
 { 14. Command Dispatch Tests                                                   }
 {..............................................................................}
 
-Procedure TestCommandDispatch;
+Procedure TestCommandDispatch(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -530,19 +530,19 @@ Begin
     WriteFileContent(Path, Json);
 End;
 
-Procedure TestIPCRoundTrip;
+Procedure TestIPCRoundTrip(Dummy : Integer);
 Var
     RequestPath, ResponsePath, ResponseJson : String;
     ProcessedOk : Boolean;
 Begin
-    EnsureWorkspaceDir;
-    CleanupOrphanResponses;
+    EnsureWorkspaceDir(0);
+    CleanupOrphanRequests(0);
 
     WriteSelfTestRequest('ipctest1', 'application.ping');
     RequestPath := RequestFilePath('ipctest1');
     AssertTrue(FileExists(RequestPath), 'IPC request file exists after write');
 
-    ProcessedOk := ProcessSingleRequest;
+    ProcessedOk := ProcessSingleRequest(0);
     AssertTrue(ProcessedOk, 'ProcessSingleRequest returns True');
     AssertTrue(Not FileExists(RequestPath), 'IPC request file deleted after processing');
 
@@ -556,7 +556,7 @@ Begin
     If FileExists(ResponsePath) Then DeleteFile(ResponsePath);
 
     WriteSelfTestRequest('ipctest2', 'application.get_version');
-    ProcessedOk := ProcessSingleRequest;
+    ProcessedOk := ProcessSingleRequest(0);
     AssertTrue(ProcessedOk, 'IPC version request processed');
     ResponsePath := ResponseFilePath('ipctest2');
     ResponseJson := ReadFileContent(ResponsePath);
@@ -565,7 +565,7 @@ Begin
     If FileExists(ResponsePath) Then DeleteFile(ResponsePath);
 
     WriteSelfTestRequest('ipctest3', 'bogus.command');
-    ProcessedOk := ProcessSingleRequest;
+    ProcessedOk := ProcessSingleRequest(0);
     AssertTrue(ProcessedOk, 'IPC bogus command processed');
     ResponsePath := ResponseFilePath('ipctest3');
     ResponseJson := ReadFileContent(ResponsePath);
@@ -575,12 +575,12 @@ Begin
 
     // Empty request file: dispatcher reads empty body, deletes file, returns False.
     WriteFileContent(RequestFilePath('ipctest4'), '');
-    ProcessedOk := ProcessSingleRequest;
+    ProcessedOk := ProcessSingleRequest(0);
     AssertTrue(Not ProcessedOk, 'ProcessSingleRequest returns False for empty request body');
 
     // No request file at all: ScanForRequestFile finds nothing, returns False.
-    CleanupOrphanResponses;
-    ProcessedOk := ProcessSingleRequest;
+    CleanupOrphanRequests(0);
+    ProcessedOk := ProcessSingleRequest(0);
     AssertTrue(Not ProcessedOk, 'ProcessSingleRequest returns False when no file');
 End;
 
@@ -588,7 +588,7 @@ End;
 { 16. Application RunProcess Parameter Parsing Tests                           }
 {..............................................................................}
 
-Procedure TestRunProcessParsing;
+Procedure TestRunProcessParsing(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -607,7 +607,7 @@ End;
 { 17. Edge Case Tests                                                          }
 {..............................................................................}
 
-Procedure TestEdgeCases;
+Procedure TestEdgeCases(Dummy : Integer);
 Var
     Resp : String;
 Begin
@@ -624,7 +624,7 @@ Begin
     AssertEqual(ExtractJsonValue(Resp, 'ok'), 'true', 'ExtractJsonValue after array');
 
     // Ensure workspace dir exists
-    EnsureWorkspaceDir;
+    EnsureWorkspaceDir(0);
     AssertTrue(DirectoryExists(WorkspaceDir), 'WorkspaceDir exists after EnsureWorkspaceDir');
 End;
 
@@ -632,7 +632,79 @@ End;
 { Main Entry Point                                                             }
 {..............................................................................}
 
-Procedure RunSelfTest;
+{..............................................................................}
+{ TestIeeeSymbolConverters - the IEEE pin decoration vocabulary.               }
+{                                                                             }
+{ These converters are cross-validated against a real Pascal compiler by      }
+{ tests/cross_validate_pascal.pas, which carries them VERBATIM and is built   }
+{ by Free Pascal. That proves the token walk and the ordinals, and it cannot  }
+{ prove the one thing that matters most here: that DelphiScript itself        }
+{ compiles and runs them. FPC accepts identifiers Altium's engine rejects and }
+{ the reverse, and an undeclared identifier faults at RUNTIME where           }
+{ Try/Except cannot catch it.                                                 }
+{                                                                             }
+{ Running inside Altium is therefore the only check that closes the gap. It   }
+{ needs no document, so it belongs with the pure-logic tests above.           }
+{..............................................................................}
+
+Procedure TestIeeeSymbolConverters(Dummy : Integer);
+Begin
+    { The two that carry schematic meaning. eDot draws the inversion    }
+    { bubble of an active-low pin, eClock the wedge of a clock pin.     }
+    { Ordinals verified against the schematic API types reference.      }
+    AssertEqual(IntToStr(StrToIeeeSymbol('dot')), '1', 'IEEE dot is 1');
+    AssertEqual(IntToStr(StrToIeeeSymbol('clock')), '3', 'IEEE clock is 3');
+
+    { Spread across the enum, so a shifted list cannot pass by getting  }
+    { only the first few right.                                          }
+    AssertEqual(IntToStr(StrToIeeeSymbol('no_symbol')), '0', 'IEEE no_symbol is 0');
+    AssertEqual(IntToStr(StrToIeeeSymbol('active_low_input')), '4', 'IEEE active_low_input is 4');
+    AssertEqual(IntToStr(StrToIeeeSymbol('open_collector')), '9', 'IEEE open_collector is 9');
+    AssertEqual(IntToStr(StrToIeeeSymbol('active_low_output')), '17', 'IEEE active_low_output is 17');
+    AssertEqual(IntToStr(StrToIeeeSymbol('bidirectional_signal_flow')), '34',
+                'IEEE bidirectional_signal_flow is 34');
+
+    { Aliases and Altium's own raw enum spelling. }
+    AssertEqual(IntToStr(StrToIeeeSymbol('inverted')), '1', 'IEEE alias inverted');
+    AssertEqual(IntToStr(StrToIeeeSymbol('  INVERTED  ')), '1', 'IEEE alias is trimmed and case-folded');
+    AssertEqual(IntToStr(StrToIeeeSymbol('active_low')), '1', 'IEEE alias active_low');
+    AssertEqual(IntToStr(StrToIeeeSymbol('clk')), '3', 'IEEE alias clk');
+    AssertEqual(IntToStr(StrToIeeeSymbol('eDot')), '1', 'IEEE raw enum eDot');
+    AssertEqual(IntToStr(StrToIeeeSymbol('eClock')), '3', 'IEEE raw enum eClock');
+
+    { A bare ordinal reaches members with no friendly name; anything    }
+    { unrecognised, out of range or negative becomes eNoSymbol rather   }
+    { than a wrong decoration.                                           }
+    AssertEqual(IntToStr(StrToIeeeSymbol('9')), '9', 'IEEE bare ordinal passes through');
+    AssertEqual(IntToStr(StrToIeeeSymbol('35')), '0', 'IEEE ordinal past the end is refused');
+    AssertEqual(IntToStr(StrToIeeeSymbol('-3')), '0', 'IEEE negative ordinal is refused');
+    AssertEqual(IntToStr(StrToIeeeSymbol('nonsense')), '0', 'IEEE unknown name is refused');
+    AssertEqual(IntToStr(StrToIeeeSymbol('')), '0', 'IEEE empty name is refused');
+    AssertEqual(IntToStr(StrToIeeeSymbol('e')), '0', 'IEEE lone e is refused');
+
+    { Naming an ordinal back, used when reporting a pin's decoration. }
+    AssertEqual(IeeeSymbolToStr(1), 'dot', 'IEEE name of 1');
+    AssertEqual(IeeeSymbolToStr(3), 'clock', 'IEEE name of 3');
+    AssertEqual(IeeeSymbolToStr(0), 'no_symbol', 'IEEE name of 0');
+    AssertEqual(IeeeSymbolToStr(99), 'no_symbol', 'IEEE name of an unknown ordinal');
+    AssertEqual(IeeeSymbolToStr(-1), 'no_symbol', 'IEEE name of a negative ordinal');
+
+    { StripChar is written out rather than calling StringReplace so the }
+    { same source compiles under both DelphiScript and Free Pascal.     }
+    AssertEqual(StripChar('a_b_c', '_'), 'abc', 'StripChar removes every occurrence');
+    AssertEqual(StripChar('abc', '_'), 'abc', 'StripChar leaves a clean string alone');
+    AssertEqual(StripChar('', '_'), '', 'StripChar handles an empty string');
+End;
+
+{ Hidden from the Run Script dialog by its argument, like every other
+  helper here. A user never runs this: it is a developer check, it ends
+  in ShowMessage, and the dialog exists for the one thing a user does,
+  which is starting the bridge.
+
+  To run it, give this routine back its parameterless form temporarily.
+  That is deliberate friction on a developer action rather than a
+  permanent entry in a list a user is choosing from. }
+Procedure RunSelfTest(Dummy : Integer);
 Var
     Summary : String;
     LogPath : String;
@@ -641,28 +713,29 @@ Begin
     SelfTest_Failed := 0;
     SelfTest_Log := '';
 
-    EnsureWorkspaceDir;
+    EnsureWorkspaceDir(0);
 
     // Pure logic tests (no Altium document APIs needed)
-    TestJsonParsing;
-    TestJsonArrayExtraction;
-    TestJsonEscaping;
-    TestResponseBuilders;
-    TestCoordinates;
-    TestStringHelpers;
-    TestObjectTypeMappings;
-    TestLayerMappings;
-    TestFileIO;
-    TestEdgeCases;
-    TestRunProcessParsing;
+    TestJsonParsing(0);
+    TestJsonArrayExtraction(0);
+    TestJsonEscaping(0);
+    TestResponseBuilders(0);
+    TestCoordinates(0);
+    TestStringHelpers(0);
+    TestObjectTypeMappings(0);
+    TestLayerMappings(0);
+    TestIeeeSymbolConverters(0);
+    TestFileIO(0);
+    TestEdgeCases(0);
+    TestRunProcessParsing(0);
 
     // Command tests (need Altium running)
-    TestApplicationCommands;
-    TestProjectCommands;
-    TestLibraryCommands;
-    TestGenericCommands;
-    TestCommandDispatch;
-    TestIPCRoundTrip;
+    TestApplicationCommands(0);
+    TestProjectCommands(0);
+    TestLibraryCommands(0);
+    TestGenericCommands(0);
+    TestCommandDispatch(0);
+    TestIPCRoundTrip(0);
 
     // Build summary
     If SelfTest_Failed = 0 Then

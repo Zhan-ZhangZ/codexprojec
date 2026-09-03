@@ -75,8 +75,10 @@ _NUMBER_UNIT = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*(mil|mm)", re.IGNORECASE)
 
 def _to_mils(value: float, unit: str) -> float:
     """Convert a (value, unit) pair from DRC description text to mils."""
+    from eda_agent.units import MM_PER_MIL
+
     if unit.lower() == "mm":
-        return value / 0.0254
+        return value / MM_PER_MIL
     return value
 
 

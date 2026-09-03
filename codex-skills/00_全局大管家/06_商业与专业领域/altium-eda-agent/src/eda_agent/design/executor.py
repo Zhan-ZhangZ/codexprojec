@@ -127,7 +127,7 @@ class ExecutorResult:
 
 # Pure-Python helpers moved to ``_wiring.py`` so both this legacy executor
 # and the new canvas-based pipeline read from the same source of truth.
-# Re-exported here under the same names for backward compat — anything
+# Re-exported here under the same names for backward compat: anything
 # that did ``from eda_agent.design.executor import _detect_junctions``
 # keeps working.
 from eda_agent.design._wiring import (
@@ -644,8 +644,20 @@ def _place_net_labels(
                         min(x1, x2), min(y1, y2),
                         max(x1, x2), max(y1, y2),
                     )
-            except Exception:
+            except Exception as exc:
+                # Documented fallback, but say so. Without the real
+                # rectangles the router avoids ESTIMATED bodies derived
+                # from pin count, so wires can end up crossing a
+                # component that the estimate made too small. That
+                # surfaces later as a routing complaint with no stated
+                # cause, and the most likely trigger is version skew:
+                # a deployed script older than this Python.
                 real_bboxes = {}
+                result.notes.append(
+                    f"sheet {sheet!r}: real component bounding boxes "
+                    f"unavailable ({type(exc).__name__}), routing fell "
+                    f"back to pin-count body estimates; check the "
+                    f"deployed SCRIPT_VERSION matches this build")
 
             for p in sheet_placements:
                 if p.refdes in real_bboxes:
@@ -662,7 +674,7 @@ def _place_net_labels(
                     ))
     refdes_to_sheet: dict[str, str] = {p.refdes: p.sheet for p in plan.parts}
     # zone is the functional-block identifier per discipline rule 3.
-    # None means the part isn't assigned to a block — those parts fall
+    # None means the part isn't assigned to a block: those parts fall
     # into the implicit "unzoned" group when deciding wire vs label.
     refdes_to_zone: dict[str, Optional[str]] = {
         p.refdes: p.zone for p in plan.parts
@@ -915,7 +927,14 @@ def _place_net_labels(
                 # Greedy clustering: each stub_end joins the first cluster
                 # whose nearest member is within CLUSTER_RADIUS_MILS. Shared
                 # with the pipeline preview so apply matches the canvas.
-                CLUSTER_RADIUS_MILS = POWER_RAIL_CLUSTER_RADIUS_MILS
+                # Asymmetric by kind (same rule as the pipeline's
+                # _cluster_radius_for_net): ground glyphs are narrow, so
+                # per-pin drops on a decap row read cleanly at the tight
+                # radius; power BARS carry the net name, wider than a
+                # decap column pitch, so nearby rail pins share one bar.
+                CLUSTER_RADIUS_MILS = (
+                    POWER_RAIL_CLUSTER_RADIUS_MILS if is_gnd else 1000
+                )
                 clusters: list[list[int]] = []  # list of indices into net_actions
                 for i, (_, (ex, ey), _) in enumerate(net_actions):
                     joined = False
@@ -974,13 +993,13 @@ def _place_net_labels(
 
             else:  # representation == "label_per_pin"
                 # Cross-block net OR planner-asserted force_label: drop a
-                # net label at every pin's stub end. No inter-pin wires —
+                # net label at every pin's stub end. No inter-pin wires;
                 # connectivity is established by the shared label name.
                 for (end_x, end_y) in stub_ends:
                     pending_labels.append((net.name, end_x, end_y))
                     result.nets_labelled += 1
 
-        # End of net/pin loops for this sheet — flush the three batches.
+        # End of net/pin loops for this sheet: flush the three batches.
         if pending_wires:
             wires_payload = "~~".join(
                 f"x1={w[0]};y1={w[1]};x2={w[2]};y2={w[3]}"

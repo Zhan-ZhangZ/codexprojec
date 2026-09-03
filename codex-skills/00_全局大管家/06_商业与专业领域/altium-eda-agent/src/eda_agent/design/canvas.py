@@ -37,9 +37,12 @@ from eda_agent.design.symbols import (
 # Manhattan radius (mils) within which a power/ground net's pins share one
 # rail glyph; pins farther apart each get their own GND/VCC symbol. Shared by
 # the pipeline (preview canvas) and the executor (Altium apply) so the two
-# agree. 1000 mils = 1 inch: adjacent pins cluster, spread pins get per-pin
-# symbols (the universal convention) instead of long cross-sheet rail wires.
-POWER_RAIL_CLUSTER_RADIUS_MILS = 1000
+# agree. 300 mils: only near-coincident pins (an IC's adjacent GND pins,
+# a pin pair on one column) share a glyph; anything farther gets its own
+# symbol. The earlier 1000-mil radius merged a decoupling ROW (caps on a
+# 400-mil column pitch) into one port with a wandering spoke trunk under
+# the row -- per-cap straight drops are the universal convention there.
+POWER_RAIL_CLUSTER_RADIUS_MILS = 300
 
 
 # Rotation in degrees -> (cos, sin) for an integer-clean 90 deg step.
@@ -92,6 +95,11 @@ class SymbolInstance:
     sheet: str = "main"
     flipped: bool = False  # mirror across vertical axis BEFORE rotation
     value: str = ""  # component value/part-number, shown under the designator
+    # Collision-free annotation anchors chosen by text_placement (canvas
+    # mils, lower-left of each text line). None = renderer/emitter use
+    # their default offsets.
+    designator_pos: Optional[tuple[int, int]] = None
+    value_pos: Optional[tuple[int, int]] = None
 
     def pin_world(self, pin_id: str) -> Optional[PinEndpoint]:
         """World-frame endpoint for the named pin (by designator or name).
@@ -181,13 +189,23 @@ class WireSegment:
 
 @dataclass(frozen=True)
 class NetLabel:
-    """A net label dropped at a wire endpoint or pin endpoint."""
+    """A net label dropped at a wire endpoint or pin endpoint.
+
+    ``justification`` uses Altium's TTextJustification numbering for the
+    horizontal cases used here: 0 = text extends RIGHT from the anchor
+    (bottom-left justified), 2 = text ENDS at the anchor (bottom-right
+    justified). The anchor (x, y) is the electrical hotspot and must sit
+    on the wire/stub regardless -- justification only controls which way
+    the text grows, so a label on a LEFT-facing pin can read to the left
+    without its anchor leaving the wire.
+    """
 
     text: str
     x: int
     y: int
     orientation: int  # 0=right, 1=up, 2=left, 3=down
     sheet: str = "main"
+    justification: int = 0  # 0=grow right, 2=end at anchor (grow left)
 
 
 @dataclass(frozen=True)

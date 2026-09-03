@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-MM_PER_MIL = 0.0254
+from eda_agent.units import MM_PER_MIL
 
 # Conventional fab-report columns, in order.
 _HEADER = [

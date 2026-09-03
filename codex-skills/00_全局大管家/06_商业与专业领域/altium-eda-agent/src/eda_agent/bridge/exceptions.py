@@ -104,8 +104,9 @@ class AltiumNotRunningError(AltiumError):
 
 
 class AltiumTimeoutError(AltiumError):
-    def __init__(self, message: str = "Timeout waiting for Altium response"):
-        super().__init__(message, code="ALTIUM_TIMEOUT")
+    def __init__(self, message: str = "Timeout waiting for Altium response",
+                 details: Optional[dict] = None):
+        super().__init__(message, code="ALTIUM_TIMEOUT", details=details)
 
 
 class ScriptNotLoadedError(AltiumError):

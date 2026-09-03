@@ -30,7 +30,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-_OZ_TO_MILS = 1.378
+from ..units import OZ_TO_MILS as _OZ_TO_MILS
+
 _GEOMETRIES = ("microstrip", "microstrip_diff", "stripline", "stripline_diff")
 
 
@@ -130,10 +131,68 @@ def trace_width_for_impedance(
         spacing_mils=spacing_mils, feasible=feasible)
 
 
+def impedance_validity(z0: float, width_mils: float,
+                       dielectric_height_mils: float,
+                       dielectric_constant: float) -> dict:
+    """Whether a computed Z0 can be trusted, and why not.
+
+    Lives in the engine because the tool layer has TWO copies of the
+    impedance tool, one in tools/calc.py serving KiCad and EasyEDA and
+    one in tools/pcb.py serving Altium. Guarding only the first left
+    Altium still returning a negative impedance, which is exactly the
+    drift a shared helper prevents.
+
+    Returns ``{"usable": bool, "reason": str|None,
+    "outside_validity_range": bool, "warning": str|None,
+    "width_to_height_ratio": float}``.
+
+    NOT USABLE when Z0 comes out at or below half an ohm. Both closed
+    forms are a logarithm of (dielectric height over conductor width),
+    so a wide trace on a thin dielectric drives the argument past 1 and
+    the result through zero into negative. A negative impedance is
+    visibly wrong; the small positive value just before it is the
+    more dangerous case, because it reads as a badly matched trace
+    rather than as a formula out of range.
+
+    OUTSIDE THE RANGE, but still returned, when w/h or er falls outside
+    the band IPC-2141 states these expressions over. Inside it the usual
+    plus or minus ten percent applies; outside, the error grows and the
+    answer still arrives as a tidy number.
+    """
+    h = float(dielectric_height_mils)
+    ratio = float(width_mils) / h if h > 0 else float("inf")
+    er = float(dielectric_constant)
+    out = {
+        "usable": True,
+        "reason": None,
+        "outside_validity_range": False,
+        "warning": None,
+        "width_to_height_ratio": round(ratio, 3),
+    }
+    if z0 <= 0.5:
+        out["usable"] = False
+        out["reason"] = (
+            f"the closed form gives {z0:.2f} ohms for w/h = {ratio:.2f}, "
+            f"which is not a physical impedance. The IPC-2141 expressions "
+            f"are logarithmic in (dielectric height / trace width) and "
+            f"break down once the trace is wide relative to the "
+            f"dielectric. Use a field solver for this geometry.")
+        return out
+    if ratio > 2.0 or ratio < 0.1 or er < 1.0 or er > 15.0:
+        out["outside_validity_range"] = True
+        out["warning"] = (
+            f"w/h is {ratio:.2f} and er is {er}. The IPC-2141 closed form "
+            f"is stated for 0.1 to 2.0 and er 1 to 15, so this figure is "
+            f"an extrapolation rather than the usual +/-10 percent. "
+            f"Confirm with a field solver before committing to a stackup.")
+    return out
+
+
 __all__ = [
     "ImpedanceWidthResult",
     "z0_microstrip",
     "z0_stripline",
     "diff_coupling_factor",
     "trace_width_for_impedance",
+    "impedance_validity",
 ]

@@ -795,6 +795,39 @@ FB_DIVIDER = Motif(
 )
 
 
+# Same feedback divider for regulators whose output rail does NOT touch
+# the IC directly: an external-inductor buck reaches VOUT via U-SW-L-
+# VOUT, so FB_DIVIDER's U-VOUT edge never exists and the divider used to
+# degrade into independent pull_up_r / pull_down_r splats scattered by
+# their own centroids (R_bot measured at the sheet's bottom edge, FB
+# demoted to floating labels). Identical shape minus the U-VOUT edge;
+# lower specificity so the stricter FB_DIVIDER wins when U does touch
+# VOUT. Column x=3000 keeps it clear of the comp cluster at x<=2200 on
+# ICs where both fire.
+FB_DIVIDER_EXT = Motif(
+    name="fb_divider_ext",
+    pattern=_make_pattern(
+        components={"Rtop": "R", "Rbot": "R", "U": "U"},
+        nets={
+            "VOUT": "power",
+            "FB_NODE": "signal",
+            "GND": "ground",
+        },
+        edges=[
+            ("Rtop", "VOUT"),
+            ("Rtop", "FB_NODE"),
+            ("Rbot", "FB_NODE"),
+            ("Rbot", "GND"),
+            ("U", "FB_NODE"),
+        ],
+    ),
+    internal_nets=frozenset({"FB_NODE"}),
+    canonical={"Rtop": (4000, -200), "Rbot": (4000, -1200)},
+    specificity=5,
+    ic_anchor="U",
+)
+
+
 # Bootstrap cap on a buck regulator: C between U.BOOT and U.SW pins,
 # both pins on the same U. BOOT is internal degree-2 (C and U).
 BOOT_CAP = Motif(
@@ -810,10 +843,13 @@ BOOT_CAP = Motif(
         ],
     ),
     internal_nets=frozenset({"BOOT"}),
-    # Cap sits above and slightly left of U so the BOOT-SW wires stay
-    # short. Absolute offset; U's placed position is (0, 0) in motif
-    # coords.
-    canonical={"C": (-1000, 600)},
+    # Cap sits directly ABOVE the IC, the way every regulator datasheet
+    # draws the bootstrap cap: BOOT wire rises from the left-side pin,
+    # SW wire rises from the right-side pin, and the cap bridges them
+    # over the body. The old left-of-body slot (-1000, 600) forced the
+    # SW-side wire to wrap around the IC's left edge -- a full-body
+    # detour on every buck sheet.
+    canonical={"C": (300, 1300)},
     specificity=5,
     ic_anchor="U",
 )
@@ -836,8 +872,38 @@ LC_OUTPUT = Motif(
     ),
     internal_nets=frozenset(),
     # Inductor to the right of U; output cap further right and down.
-    canonical={"L": (1500, 0), "C": (2800, -1000)},
+    canonical={"L": (1800, 0), "C": (3400, -800)},
     specificity=6,
+    ic_anchor="U",
+)
+
+
+# Catch / clamp diode on an IC pin: D from a U-touching signal net down
+# to GND. In a non-synchronous buck this is the freewheel diode on the
+# switch node -- every datasheet draws it hanging BELOW the SW trunk
+# between the IC and the inductor, cathode up, anode down to its ground
+# glyph. Without this motif the diode fell through to Sugiyama and
+# drifted to the sheet's top edge with a coincident GND port stamped on
+# top of its own designator text (measured on the buck fixture). Claims
+# only D, so it composes with lc_output (which claims L + C) and
+# boot_cap around the same U. The same shape also covers protection
+# clamps to ground on any IC pin, which want the identical treatment.
+CATCH_DIODE = Motif(
+    name="catch_diode",
+    pattern=_make_pattern(
+        components={"D": "D", "U": "U"},
+        nets={"SW": "signal", "GND": "ground"},
+        edges=[
+            ("U", "SW"),
+            ("D", "SW"),
+            ("D", "GND"),
+        ],
+    ),
+    internal_nets=frozenset(),
+    # Below the SW trunk (lc_output's L sits at (1500, 0)), between the
+    # IC body and the inductor.
+    canonical={"D": (1000, -1400)},
+    specificity=4,
     ic_anchor="U",
 )
 
@@ -906,6 +972,70 @@ RC_COMPENSATION = Motif(
 )
 
 
+# Type-2 error-amp compensation, the full three-part network every
+# current-mode buck datasheet draws hanging off the COMP pin: Cz in
+# series with Rz to ground, Cp in parallel straight to ground.
+# RC_COMPENSATION above only matches the R-first series order and knows
+# nothing of Cp, so on a standard TI/ADI reference design the network
+# fell to a free-standing rc_highpass splatted at its own centroid --
+# the compensation parts drifted to a far corner of the sheet instead
+# of clustering on the COMP pin. COMP_NET is internal at degree 3
+# (U + Cz + Cp); COMP_MID at degree 2.
+COMP_TYPE2 = Motif(
+    name="comp_type2",
+    pattern=_make_pattern(
+        components={"Cz": "C", "Rz": "R", "Cp": "C", "U": "U"},
+        nets={
+            "COMP_NET": "signal",
+            "COMP_MID": "signal",
+            "GND": "ground",
+        },
+        edges=[
+            ("U", "COMP_NET"),
+            ("Cz", "COMP_NET"),
+            ("Cz", "COMP_MID"),
+            ("Rz", "COMP_MID"),
+            ("Rz", "GND"),
+            ("Cp", "COMP_NET"),
+            ("Cp", "GND"),
+        ],
+    ),
+    internal_nets=frozenset({"COMP_NET", "COMP_MID"}),
+    # Series leg in one column right of U, parallel cap one column
+    # further so both bottoms drop straight down to their GND glyphs.
+    canonical={"Cz": (2000, -400), "Rz": (2000, -1400), "Cp": (2600, -400)},
+    specificity=8,
+    ic_anchor="U",
+)
+
+
+# C-first series order of the same two-part compensation (Cz from the
+# COMP pin, Rz to ground). Both element orders appear in real designs;
+# RC_COMPENSATION only matches R-first.
+RC_COMPENSATION_CR = Motif(
+    name="rc_compensation_cr",
+    pattern=_make_pattern(
+        components={"C": "C", "R": "R", "U": "U"},
+        nets={
+            "COMP_NET": "signal",
+            "COMP_MID": "signal",
+            "GND": "ground",
+        },
+        edges=[
+            ("U", "COMP_NET"),
+            ("C", "COMP_NET"),
+            ("C", "COMP_MID"),
+            ("R", "COMP_MID"),
+            ("R", "GND"),
+        ],
+    ),
+    internal_nets=frozenset({"COMP_MID"}),
+    canonical={"C": (1500, -200), "R": (1500, -1200)},
+    specificity=6,
+    ic_anchor="U",
+)
+
+
 # Inverting op-amp gain stage: Rin from the input signal to the summing
 # node (U's inverting input), Rf bridging the summing node and the output.
 # The summing node (SUMMING) is the virtual-ground inverting input -- it is
@@ -948,10 +1078,14 @@ MOTIF_CATALOGUE: list[Motif] = [
     # IC-anchored first by convention (higher specificity).
     CRYSTAL_LOAD,
     LC_OUTPUT,
+    COMP_TYPE2,
     FB_DIVIDER,
+    FB_DIVIDER_EXT,
     OPAMP_INVERTING,
     RC_COMPENSATION,
+    RC_COMPENSATION_CR,
     BOOT_CAP,
+    CATCH_DIODE,
     # Self-contained.
     VOLTAGE_DIVIDER,
     RC_LOWPASS,

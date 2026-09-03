@@ -4,7 +4,7 @@ The board object model hangs off `PCBServer` ([page 1](01-servers.md)). A board
 (`IPCB_Board`) or footprint (`IPCB_LibComponent`) owns primitives; every
 primitive descends from `IPCB_Primitive`. Collections are walked with the board,
 spatial, or group iterators. Edits are bracketed by `PCBServer.PreProcess` /
-`PostProcess` — **no document argument**, unlike the schematic
+`PostProcess`: **no document argument**, unlike the schematic
 `ProcessControl`. All geometry is in internal units (`MilsToCoord` /
 `CoordToMils`); angles are degrees (`Double`).
 
@@ -32,7 +32,7 @@ End;
 
 ---
 
-## 3.1 `IPCB_Board` — a `.PcbDoc`
+## 3.1 `IPCB_Board`: a `.PcbDoc`
 
 `PCBServer.GetCurrentPCBBoard` returns the focused board; `PcbLib.Board` is the
 board document behind a library. It owns every primitive, the layer stack, the
@@ -52,7 +52,7 @@ iteration, so destroy unconditionally.
 
 **`SpatialIterator_Create : IPCB_SpatialIterator`**
 Creates an iterator restricted to a rectangular region (set with
-`AddFilter_Area`), for proximity queries such as clearance checks — far cheaper
+`AddFilter_Area`), for proximity queries such as clearance checks: far cheaper
 than a full board scan. Pair with `SpatialIterator_Destroy`.
 
 **`SpatialIterator_Destroy(Iter : IPCB_SpatialIterator)`**
@@ -65,7 +65,7 @@ not render until reload, follow with the `PCBM_BoardRegisteration` broadcast
 
 **`RemovePCBObject(Obj : IPCB_Primitive)`**
 Removes a primitive from the board. Collect the objects to remove into a
-`TInterfaceList` during iteration and delete *after* the iterator is destroyed —
+`TInterfaceList` during iteration and delete *after* the iterator is destroyed:
 removing mid-walk invalidates the iterator.
 
 **`GetPcbComponentByRefDes(RefDes : String) : IPCB_Component`**
@@ -85,7 +85,7 @@ internal units. The measurement an audit compares against a clearance rule.
 ### Geometry, origin and units
 
 **`BoardOutline : IPCB_BoardOutline`**
-The board shape (§3.10) — its vertices/segments, bounding rectangle, and
+The board shape (§3.10): its vertices/segments, bounding rectangle, and
 `Rebuild`/`Validate`.
 
 **`XOrigin : TCoord`** / **`YOrigin : TCoord`**  *(properties)*
@@ -96,7 +96,7 @@ positions relative to the user-set origin.
 The current snap-grid spacing.
 
 **`DisplayUnit : TUnit`**  *(property)*
-The board's display unit (`eImperial` / `eMetric`) — read it to format reported
+The board's display unit (`eImperial` / `eMetric`): read it to format reported
 coordinates in the unit the user is working in.
 
 ### Layers
@@ -110,7 +110,7 @@ Whether a layer is currently shown. Read it to honour the user's visibility when
 rendering; set it to force a layer visible before a screenshot.
 
 **`LayerIsUsed[Layer : TLayer] : Boolean`**  *(indexed property)*
-Whether a layer carries any objects / is enabled in the stack — lets an exporter
+Whether a layer carries any objects / is enabled in the stack: lets an exporter
 skip empty layers.
 
 ### Repaint and handles
@@ -128,7 +128,7 @@ The board's handle, passed as the broadcast address in
 
 ---
 
-## 3.2 `IPCB_Primitive` — base of every board object
+## 3.2 `IPCB_Primitive`: base of every board object
 
 Every board object (pad, track, via, arc, text, polygon, region, component)
 descends from `IPCB_Primitive` and shares these members. The concrete kind is
@@ -149,7 +149,7 @@ End;
 ```
 
 **`ObjectId : TObjectId`**  *(property)*
-The kind tag — `ePadObject`, `eTrackObject`, `eViaObject`, `eArcObject`,
+The kind tag: `ePadObject`, `eTrackObject`, `eViaObject`, `eArcObject`,
 `eTextObject`, `eComponentObject`, `ePolyObject`, `eRegionObject`,
 `eFillObject` ([enums](05-enums.md)). The discriminator for narrowing.
 
@@ -162,7 +162,7 @@ The net the object belongs to (§3.5), or `Nil` if unassigned. Assign by calling
 `Net.AddPCBObject(Prim)`, not by writing this property.
 
 **`InNet : Boolean`**  *(property)*
-Whether the object is assigned to a net — the cheap guard before reading `Net`.
+Whether the object is assigned to a net: the cheap guard before reading `Net`.
 
 **`InComponent : Boolean`**  *(property)*
 Whether the primitive belongs to a placed component (true for a component's
@@ -172,14 +172,14 @@ pads), versus a free board primitive.
 The owning component when `InComponent` is true, else `Nil`.
 
 **`BoundingRectangle : TCoordRect`**  *(property)*
-The object's extent in internal units — for hit-testing, overlap and extent
+The object's extent in internal units, for hit-testing, overlap and extent
 reports.
 
 **`Moveable : Boolean`**  *(property)*
 Whether the object may be moved (false when locked).
 
 **`Selected : Boolean`**  *(property)*
-The selection state — set it to drive a selection-based process, read it to
+The selection state: set it to drive a selection-based process, read it to
 collect the user's selection.
 
 **`Detail : String`**  *(property)*
@@ -187,7 +187,7 @@ A human-readable description of the object (kind + key geometry), useful in
 audit output.
 
 **`BeginModify`** / **`EndModify`**
-Bracket a property change on an existing primitive so the editor re-renders it —
+Bracket a property change on an existing primitive so the editor re-renders it,
 the PCB analogue of the schematic `SCHM_BeginModify`/`EndModify` broadcast.
 `Prim.BeginModify; Prim.Width := …; Prim.EndModify;`
 
@@ -199,7 +199,7 @@ board).
 The primitive's handle, used as the event-data payload when registering it with
 `PCBM_BoardRegisteration`.
 
-**Testpoint flags** — **`IsTestpoint_Top` / `IsTestpoint_Bottom`** and
+**Testpoint flags**: **`IsTestpoint_Top` / `IsTestpoint_Bottom`** and
 **`IsAssyTestpoint_Top` / `IsAssyTestpoint_Bottom : Boolean`** mark a pad/via as a
 fabrication or assembly testpoint on the given side.
 
@@ -211,7 +211,7 @@ fabrication or assembly testpoint on the given side.
 > `PCBServer.PCBObjectFactory(eXxxObject, eNoDimension, eCreate_Default)`, set
 > its properties, then `Owner.AddPCBObject`. Watch the size-accessor divergence:
 > a pad uses `TopXSize`/`TopYSize`, a track uses `Width`, an arc uses
-> `LineWidth` — three names for "how wide".
+> `LineWidth`, three names for "how wide".
 
 ### `IPCB_Pad`
 
@@ -222,19 +222,19 @@ The pad designator/number (`'1'`, `'A1'`), matched against the schematic pin.
 The pad centre, in internal units.
 
 **`TopXSize : TCoord`** / **`TopYSize : TCoord`**  *(properties)*
-The pad copper size on the top layer — **not** `Width`/`Height`. These are the
+The pad copper size on the top layer: **not** `Width`/`Height`. These are the
 top-layer entries of the per-layer pad stack; a simple SMD/through pad reads
 them as its size.
 
 **`TopShape : TShape`**  *(property)*
-The pad shape — `eRounded`, `eRectangular`, `eOctagonal`, `eRoundRectangle`
+The pad shape: `eRounded`, `eRectangular`, `eOctagonal`, `eRoundRectangle`
 ([enums](05-enums.md)).
 
 **`HoleSize : TCoord`**  *(property)*
 The drill diameter: `0` = SMD pad, `> 0` = through-hole.
 
 **`HoleType : TExtendedHoleType`** / **`HoleWidth : TCoord`** / **`HoleRotation : Double`**  *(properties)*
-The hole geometry for slotted/square holes (round, square, slot) — width and
+The hole geometry for slotted/square holes (round, square, slot): width and
 rotation apply to non-round holes.
 
 **`Plated : Boolean`**  *(property)*
@@ -267,9 +267,9 @@ The pad's extent on a specific layer (a stack pad differs per layer).
 The two endpoints, in internal units.
 
 **`Width : TCoord`**  *(property)*
-The track width — a coordinate, unlike the schematic line-width enum.
+The track width: a coordinate, unlike the schematic line-width enum.
 
-**`Layer : TLayer`** / **`Net : IPCB_Net`** (base, §3.2) — the copper layer and net.
+**`Layer : TLayer`** / **`Net : IPCB_Net`** (base, §3.2): the copper layer and net.
 
 ```pascal
 Track := PCBServer.PCBObjectFactory(eTrackObject, eNoDimension, eCreate_Default);
@@ -302,7 +302,7 @@ The via pad diameter on a specific layer (for tapered stacks).
 Whether the via passes through / connects to a plane on a given layer.
 
 **`SolderMaskExpansion : TCoord`** / **`SolderMaskExpansionFromHoleEdge : Boolean`**  *(properties)*
-The mask opening size and whether it is measured from the hole edge — set both
+The mask opening size and whether it is measured from the hole edge: set both
 to tent or open a via.
 
 **`GetState_IsTenting_Top : Boolean`** / **`GetState_IsTenting_Bottom : Boolean`**
@@ -320,10 +320,10 @@ The arc radius.
 The sweep, in degrees (CCW). A full circle is `0`..`360`.
 
 **`LineWidth : TCoord`**  *(property)*
-The arc stroke width — an arc uses `LineWidth`, a track uses `Width` for the same
+The arc stroke width: an arc uses `LineWidth`, a track uses `Width` for the same
 concept.
 
-**`Layer : TLayer`** / **`Net : IPCB_Net`** (base) — the layer and net.
+**`Layer : TLayer`** / **`Net : IPCB_Net`** (base): the layer and net.
 
 ### `IPCB_Text`
 
@@ -358,7 +358,7 @@ Stroke font (false) vs TrueType (true).
 Whether the text is hidden.
 
 > **Registration trap (text especially):** `AddPCBObject` alone may not register
-> a new primitive with the placement editor — it can appear only after
+> a new primitive with the placement editor: it can appear only after
 > save+reload. After adding, broadcast
 > `PCBServer.SendMessageToRobots(Board.I_ObjectAddress, c_Broadcast,
 > PCBM_BoardRegisteration, Obj.I_ObjectAddress)`.
@@ -369,20 +369,20 @@ Whether the text is hidden.
 
 ### `IPCB_Polygon`
 
-**`Name : String`**  *(property)* — the polygon name.
+**`Name : String`**  *(property)*: the polygon name.
 
 **`PolyHatchStyle : TPolygonHatchStyle`**  *(property)*
-The fill style — `ePolySolid`, `ePolyHatch90/45`, `ePolyNoHatch`
+The fill style: `ePolySolid`, `ePolyHatch90/45`, `ePolyNoHatch`
 ([enums](05-enums.md)).
 
 **`PourOver : TPolygonPourOver`**  *(property)*
 Whether the pour covers same-net objects or pours around them.
 
-**`IsSolid : Boolean`**  *(property)* — solid vs hatched fill.
+**`IsSolid : Boolean`**  *(property)*: solid vs hatched fill.
 
-**`LineWidth : TCoord`**  *(property)* — the track width used to build the pour.
+**`LineWidth : TCoord`**  *(property)*: the track width used to build the pour.
 
-**`Layer : TLayer`** / **`Net : IPCB_Net`**  *(properties)* — the copper layer and net.
+**`Layer : TLayer`** / **`Net : IPCB_Net`**  *(properties)*: the copper layer and net.
 
 **`PointCount : Integer`** / **`GetState_VerticesCount : Integer`** / **`VerticesCount : Integer`**  *(properties)*
 The vertex count of the outline.
@@ -391,7 +391,7 @@ The vertex count of the outline.
 Access individual outline vertices / segments (a segment is a line or arc edge).
 
 **`Rebuild`**
-Re-pours the polygon after the board or its outline changes — call it after
+Re-pours the polygon after the board or its outline changes: call it after
 moving copper underneath, or the fill goes stale.
 
 ### `IPCB_Region`
@@ -400,12 +400,12 @@ moving copper underneath, or the fill goes stale.
 The boundary geometry (a contour of points). Read it to inspect a region shape.
 
 **`SetOutlineContour(Contour : IPCB_Contour)`**
-Sets the region's outline from a contour you build — the way to author a
+Sets the region's outline from a contour you build: the way to author a
 free-form copper/keepout region.
 
-**`Layer : TLayer`** / **`Net : IPCB_Net`**  *(properties)* — the layer and net.
+**`Layer : TLayer`** / **`Net : IPCB_Net`**  *(properties)*: the layer and net.
 
-**`BoundingRectangle : TCoordRect`**  *(property)* — the region extent.
+**`BoundingRectangle : TCoordRect`**  *(property)*: the region extent.
 
 ---
 
@@ -417,14 +417,14 @@ free-form copper/keepout region.
 The net name (`'GND'`, `'VCC'`).
 
 **`RoutedLength : TCoord`**  *(property)*
-The total routed copper length of the net — read for length-matching/tuning
+The total routed copper length of the net: read for length-matching/tuning
 reports.
 
 **`IsHighlighted : Boolean`**  *(property)*
 The net's highlight state (set to drive cross-probe highlighting).
 
 **`AddPCBObject(Obj : IPCB_Primitive)`**
-Assigns a primitive to this net — the correct way to set a track/via/pad's net
+Assigns a primitive to this net: the correct way to set a track/via/pad's net
 (do not write `Prim.Net`).
 
 **`GroupIterator_Create : IPCB_GroupIterator`** / **`GroupIterator_Destroy(Iter)`**
@@ -443,7 +443,7 @@ End;
 Net.GroupIterator_Destroy(Iter);
 ```
 
-### `IPCB_Component` — a placed footprint
+### `IPCB_Component`: a placed footprint
 
 **`Name : IPCB_Text` / refdes**  *(property)*
 The component designator object/string (`'U1'`); **`NameOn : Boolean`** toggles its
@@ -456,9 +456,9 @@ The comment/value and its visibility.
 The footprint (pattern) name placed for this component.
 
 **`Layer : TLayer`**  *(property)*
-`eTopLayer` / `eBottomLayer` — which side the part sits on.
+`eTopLayer` / `eBottomLayer`, which side the part sits on.
 
-**`Rotation : Double`**  *(property)* — placement angle in degrees.
+**`Rotation : Double`**  *(property)*: placement angle in degrees.
 
 **`x : TCoord` / `y : TCoord`**  *(properties)*
 The component reference position. Move with `MoveToXY`, not by writing these.
@@ -466,14 +466,14 @@ The component reference position. Move with `MoveToXY`, not by writing these.
 **`MoveToXY(X, Y : TCoord)`**
 Moves the whole component (body + pads + designator) to an absolute position.
 
-**`Moveable : Boolean`** / **`IsMirrored : Boolean`**  *(properties)* — lock and mirror state.
+**`Moveable : Boolean`** / **`IsMirrored : Boolean`**  *(properties)*: lock and mirror state.
 
 **`ChangeNameAutoposition(Mode)`**
-Repositions the designator text to a standard side automatically — the
+Repositions the designator text to a standard side automatically: the
 silkscreen-tidy operation.
 
 **`SourceDesignator : String`** / **`SourceUniqueId : String`** / **`SourceFootprintLibrary : String`** / **`SourceLibraryName : String`**  *(properties)*
-The schematic-linkage fields — the source designator, the unique id tying it to
+The schematic-linkage fields: the source designator, the unique id tying it to
 the schematic part, and where the footprint came from. Auditing these catches
 ECO mismatches.
 
@@ -483,9 +483,9 @@ Loads/replaces the footprint pattern from a library.
 **`GroupIterator_Create` / `GroupIterator_Destroy`**
 Iterate the component's own primitives (its pads, silk, courtyard).
 
-**`BoundingRectangle : TCoordRect`**  *(property)* — the placed footprint extent.
+**`BoundingRectangle : TCoordRect`**  *(property)*: the placed footprint extent.
 
-**`I_ObjectAddress : Integer`**  *(property)* — the handle for registration broadcasts.
+**`I_ObjectAddress : Integer`**  *(property)*: the handle for registration broadcasts.
 
 ---
 
@@ -496,7 +496,7 @@ Iterate the component's own primitives (its pads, silk, courtyard).
 Built with `PCBServer.PCBRuleFactory(RuleKind)`, configured, then added to the
 board.
 
-**`Name : String`** / **`Comment : String`**  *(properties)* — identity.
+**`Name : String`** / **`Comment : String`**  *(properties)*: identity.
 
 **`RuleKind`** / **`Kind`**  *(properties)*
 The rule type (`eRule_Clearance`, `eRule_MaxMinWidth`, …
@@ -506,16 +506,16 @@ The rule type (`eRule_Clearance`, `eRule_MaxMinWidth`, …
 Whether the rule is active and whether DRC checks it.
 
 **`Priority : Integer`**  *(property)*
-The rule priority — when several rules match an object, the highest priority
+The rule priority: when several rules match an object, the highest priority
 wins (see `Board.FindDominantRuleForObject`).
 
 **`Scope1Expression : String`** / **`Scope2Expression : String`**  *(properties)*
 The query scopes the rule applies to (`'All'`, `'InNet(''GND'')'`, …). A
 unary rule uses scope 1; a binary rule (clearance, diff-pair) uses both.
 
-**`Descriptor : String`**  *(property)* — the human-readable rule descriptor.
+**`Descriptor : String`**  *(property)*: the human-readable rule descriptor.
 
-**`Gap : TCoord`**  *(property)* — the clearance gap (for a clearance rule).
+**`Gap : TCoord`**  *(property)*: the clearance gap (for a clearance rule).
 
 **`PreferedWidth : TCoord`** / **`PreferedHoleWidth : TCoord`**  *(properties)*
 Kind-specific constraint values (width rule / hole-size rule). *(Altium spells
@@ -536,19 +536,19 @@ Board.AddPCBObject(Rule);
 
 ### `IPCB_Violation`
 
-**`Rule : IPCB_Rule`**  *(property)* — the rule that was breached.
+**`Rule : IPCB_Rule`**  *(property)*: the rule that was breached.
 
-**`Name : String`** / **`Description : String`**  *(properties)* — the violation text.
+**`Name : String`** / **`Description : String`**  *(properties)*: the violation text.
 
 **`DM_ShortDescriptorString` / `DM_LongDescriptorString : String`**  *(properties)*
 The short / long descriptor strings (the message shown in the Messages panel).
 
-**`DM_OwnerDocumentName : String`**  *(property)* — the document the violation is on.
+**`DM_OwnerDocumentName : String`**  *(property)*: the document the violation is on.
 
 **`Primitive1 : IPCB_Primitive`** / **`Primitive2 : IPCB_Primitive`**  *(properties)*
 The one or two objects involved (the offending pair for a clearance violation).
 
-**`Layer : TLayer`** / **`BoundingRectangle : TCoordRect`**  *(properties)* — where it is.
+**`Layer : TLayer`** / **`BoundingRectangle : TCoordRect`**  *(properties)*, where it is.
 
 ---
 
@@ -557,7 +557,7 @@ The one or two objects involved (the offending pair for a clearance violation).
 The three iterators share one shape. A board iterator comes from
 `Board.BoardIterator_Create`, a spatial one from `Board.SpatialIterator_Create`,
 a group one from a net's or component's `GroupIterator_Create`. Each is freed by
-its owner's matching `*_Destroy` — always in a `Finally`. Configure filters
+its owner's matching `*_Destroy`, always in a `Finally`. Configure filters
 before the first walk.
 
 **`AddFilter_ObjectSet(MkSet(eXxxObject, …))`**
@@ -601,7 +601,7 @@ End;
 
 ## 3.8 Libraries and footprints
 
-### `IPCB_Library` — a `.PcbLib`
+### `IPCB_Library`: a `.PcbLib`
 
 `PCBServer.GetCurrentPCBLibrary` returns it.
 
@@ -612,7 +612,7 @@ The active footprint being edited; **`SetState_CurrentComponent(Fp)`** sets it.
 Adds a new footprint (from `PCBServer.CreatePCBLibComp`) to the library.
 
 **`Board : IPCB_Board`**  *(property)*
-The board document behind the library — pass it to `AddPCBObject` when building
+The board document behind the library: pass it to `AddPCBObject` when building
 a footprint's primitives, and read its `FileName`.
 
 **`LibraryIterator_Create` / `LibraryIterator_Destroy`**
@@ -630,11 +630,11 @@ Fp.AddPCBObject(Pad);
 PcbLib.Board.AddPCBObject(Pad);   // register against the underlying board too
 ```
 
-### `IPCB_LibComponent` — a footprint
+### `IPCB_LibComponent`: a footprint
 
-**`Name : String`** / **`Description : String`**  *(properties)* — identity.
+**`Name : String`** / **`Description : String`**  *(properties)*: identity.
 
-**`Height : TCoord`**  *(property)* — the 3D body/component height.
+**`Height : TCoord`**  *(property)*: the 3D body/component height.
 
 **`AddPCBObject(Obj : IPCB_Primitive)`**
 Adds a pad / track / arc / text to the footprint. Pair with adding to the
@@ -657,19 +657,19 @@ The first layer object in stack order.
 The next layer after `L`, or `Nil` at the end of the stack.
 
 **`LayerObject_V7[Layer : TLayer] : IPCB_LayerObject_V7`**  *(indexed property)*
-The layer object for a specific layer id — the direct accessor when you know the
+The layer object for a specific layer id: the direct accessor when you know the
 layer.
 
 **`InsertLayer(…)` / `RemoveFromStack(L)`**
 Add / remove a copper or dielectric layer from the stack.
 
-### `IPCB_LayerObject_V7` — one layer
+### `IPCB_LayerObject_V7`, one layer
 
-**`Name : String`**  *(property)* — the layer name (`'Top Layer'`, `'GND'`).
+**`Name : String`**  *(property)*: the layer name (`'Top Layer'`, `'GND'`).
 
-**`LayerID : TLayer`**  *(property)* — the layer's enum id.
+**`LayerID : TLayer`**  *(property)*: the layer's enum id.
 
-**`CopperThickness : TCoord`**  *(property)* — the copper weight as a thickness.
+**`CopperThickness : TCoord`**  *(property)*: the copper weight as a thickness.
 
 **`Dielectric`**  *(sub-record)*
 The dielectric beneath the copper layer, with fields **`DielectricType`**
@@ -697,14 +697,14 @@ End;
 
 `Board.BoardOutline` returns the board shape, a closed polygon of segments.
 
-**`PointCount : Integer`**  *(property)* — the vertex count of the outline.
+**`PointCount : Integer`**  *(property)*: the vertex count of the outline.
 
-**`Segments[I] : TPolySegment`**  *(indexed property)* — each edge (line or arc).
+**`Segments[I] : TPolySegment`**  *(indexed property)*, each edge (line or arc).
 
-**`BoundingRectangle : TCoordRect`**  *(property)* — the board extent.
+**`BoundingRectangle : TCoordRect`**  *(property)*: the board extent.
 
 **`PrimitiveInsidePoly(Prim) : Boolean`**
-Whether a primitive lies inside the board outline — the test behind a
+Whether a primitive lies inside the board outline: the test behind a
 "components outside the board" audit.
 
 **`Validate` / `Invalidate` / `Rebuild`**

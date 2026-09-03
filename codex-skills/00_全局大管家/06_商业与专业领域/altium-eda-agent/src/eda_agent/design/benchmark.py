@@ -124,7 +124,28 @@ def _full_pin_ids(referenced: list[str]) -> list[str]:
 def _synth_symbol(lib_path: str, lib_ref: str, pin_ids: list[str],
                   prefix: str) -> SymbolModel:
     """Generic symbol (mils): 2-pin parts get the canonical horizontal
-    passive shape; everything else a dual-column box, 100 mil pitch."""
+    passive shape; everything else a dual-column box, 100 mil pitch.
+
+    LIMITATION, and it matters when choosing what to measure here: pins
+    are split into columns by INDEX (DIP order), and every pin is typed
+    ``passive``. Nothing consults electrical direction, because a
+    DesignPlan does not carry any: ``PinRef`` is only refdes + pin, and
+    ``Net.role`` is functional ("decoup_cap", "feedback", "clock"), not
+    directional.
+
+    So on a synthetic benchmark an output pin lands wherever its index
+    falls. On the 555 plan, pin 3 (OUT) sits in the LEFT column, and a
+    placer that honours pin sides then correctly puts the LED branch to
+    the left of the IC. Left-to-right signal flow is therefore NOT
+    expressible on these benchmarks, and any flow-direction metric
+    evaluated against them scores this function rather than the layout
+    engine.
+
+    Real designs are unaffected: ``SymbolExtractor`` reads
+    ``electrical_type`` off the actual Altium symbol, so pin sides and
+    directions there are genuine. Validate flow conventions on real
+    symbols via the bridge, not here.
+    """
     if len(pin_ids) <= 2:
         ids = (pin_ids + ["1", "2"])[:2]
         pins = (
