@@ -22,7 +22,7 @@
 > 高置信已达 ~70；如超配以 ABS-AJG 4* 顺位裁剪，边界刊（会计/营销/IS）保留主类。
 
 ### 中文 30
-经济研究 [A-depth] · 经济学(季刊) [A-depth] · 管理世界 [A-depth] · 中国工业经济 [A-depth] · 金融研究 [A-depth] · 世界经济 [A-depth] · 数量经济技术经济研究 [A-depth] · 会计研究 [A-depth] · 南开管理评论 [A-depth] · 管理科学学报 [A-depth] · 中国管理科学 · 系统工程理论与实践 · 经济学动态 · 财经研究 · 中国农村经济 [A-depth] · 南方经济 · 经济科学 · 经济评论 · 财贸经济 · 统计研究 · 管理评论 · 科研管理 · 管理工程学报 · 外国经济与管理 · 经济社会体制比较 · 当代经济科学 · 财政研究 · 审计研究 · 中国软科学 · 农业经济问题
+经济研究 [A-depth] · 经济学(季刊) [A-depth] · 管理世界 [A-depth] · 中国工业经济 [A-depth] · 金融研究 [A-depth] · 世界经济 [A-depth] · 数量经济技术经济研究 [A-depth] · 会计研究 [A-depth] · 南开管理评论 [A-depth] · 管理科学学报 [A-depth] · 中国管理科学 [A-depth] · 系统工程理论与实践 · 经济学动态 · 财经研究 [A-depth] · 中国农村经济 [A-depth] · 南方经济 · 经济科学 · 经济评论 · 财贸经济 [A-depth] · 统计研究 · 管理评论 · 科研管理 · 管理工程学报 · 外国经济与管理 · 经济社会体制比较 · 当代经济科学 · 财政研究 · 审计研究 · 中国软科学 · 农业经济问题
 > 锚点 CSSCI 经管来源刊；已满 30。
 
 ---
@@ -33,21 +33,21 @@ reproducibility/supplementary/review-process/writing-style/related-work/experime
 workflow/topic-selection）。锚点：**CCF-A/B 会议优先** + CSRankings。
 
 ### 英文 90 —— 会议在前
-**AI / ML (顶)**：NeurIPS [A-depth] · ICML [A-depth] · ICLR [A-depth] · AAAI [A-depth] · IJCAI [A-depth] · COLT · AISTATS [A-depth] · UAI
-**计算机视觉**：CVPR · ICCV · ECCV
-**自然语言处理**：ACL · EMNLP · NAACL
-**数据挖掘 / Web**：KDD · WWW (The Web Conf) · WSDM · CIKM · ICDM · SIGIR
-**多媒体 / 语音**：ACM MM · INTERSPEECH · ICASSP
-**机器人**：ICRA · IROS · RSS · CoRL
+**AI / ML (顶)**：NeurIPS [A-depth] · ICML [A-depth] · ICLR [A-depth] · AAAI [A-depth] · IJCAI [A-depth] · COLT [A-depth] · AISTATS [A-depth] · UAI [A-depth]
+**计算机视觉**：CVPR [A-depth] · ICCV [A-depth] · ECCV [A-depth]
+**自然语言处理**：ACL [A-depth] · EMNLP [A-depth] · NAACL [A-depth]
+**数据挖掘 / Web**：KDD [A-depth] · WWW (The Web Conf) [A-depth] · WSDM [A-depth] · CIKM [A-depth] · ICDM [A-depth] · SIGIR [A-depth]
+**多媒体 / 语音**：ACM MM [A-depth] · INTERSPEECH [A-depth] · ICASSP [A-depth]
+**机器人**：ICRA [A-depth] · IROS [A-depth] · RSS [A-depth] · CoRL [A-depth]
 **计算机图形**：SIGGRAPH · SIGGRAPH Asia
-**人机交互**：CHI · UIST · CSCW
-**系统**：OSDI · SOSP · NSDI · EuroSys · USENIX ATC · ASPLOS
-**体系结构**：ISCA · MICRO · HPCA
-**数据库**：SIGMOD · VLDB · ICDE · PODS
-**理论**：STOC · FOCS · SODA
-**安全**：IEEE S&P (Oakland) · USENIX Security · ACM CCS · NDSS
-**网络**：SIGCOMM · INFOCOM · MobiCom
-**编程语言 / 软件工程**：POPL · PLDI · OOPSLA · ICSE · FSE (ESEC/FSE) · ASE · ISSTA
+**人机交互**：CHI [A-depth] · UIST [A-depth] · CSCW [A-depth]
+**系统**：OSDI [A-depth] · SOSP [A-depth] · NSDI [A-depth] · EuroSys [A-depth] · USENIX ATC · ASPLOS [A-depth]
+**体系结构**：ISCA [A-depth] · MICRO [A-depth] · HPCA [A-depth]
+**数据库**：SIGMOD [A-depth] · VLDB [A-depth] · ICDE [A-depth] · PODS
+**理论**：STOC [A-depth] · FOCS [A-depth] · SODA [A-depth]
+**安全**：IEEE S&P (Oakland) [A-depth] · USENIX Security [A-depth] · ACM CCS [A-depth] · NDSS [A-depth]
+**网络**：SIGCOMM [A-depth] · INFOCOM · MobiCom [A-depth]
+**编程语言 / 软件工程**：POPL [A-depth] · PLDI [A-depth] · OOPSLA [A-depth] · ICSE [A-depth] · FSE (ESEC/FSE) [A-depth] · ASE · ISSTA [A-depth]
 **期刊**：JACM · IEEE TPAMI · JMLR · Artificial Intelligence (AIJ) · IJCV ·
 Nature Machine Intelligence · IEEE TKDE · ACM TOG · IEEE/ACM Trans. on Networking ·
 IEEE TSE · ACM TOPLAS · SIAM J. on Computing · Computational Linguistics · IEEE TVCG ·
@@ -105,7 +105,7 @@ New Journal of Physics · Physical Review Applied
 Nature Chemistry · Chemical Reviews · Chemical Society Reviews · Nature Catalysis ·
 Accounts of Chemical Research · Chem · JACS Au · J. of Physical Chemistry Letters · ACS Central Science
 **天文/地球**：The Astrophysical Journal · Monthly Notices of the RAS · Astronomy & Astrophysics ·
-Nature Astronomy · Nature Geoscience · J. of Geophysical Research · Reviews of Geophysics ·
+Nature Astronomy · Nature Geoscience [A-depth] · J. of Geophysical Research · Reviews of Geophysics ·
 The Astronomical Journal
 > ~58 高置信；补足至 88 以各分支 JCR Q1 顺位（如 SIAM 系列、IEEE 信息论 TIT、
 > Inorganic/Organic 化学子刊、Earth & Planetary Science Letters 等）核验填入。**待核实长尾**。
@@ -122,7 +122,7 @@ The Astronomical Journal
 模板：实验变体（reporting-guidelines/ethics-IRB/data-availability，弱 theory-development）。
 
 ### 英文 90
-Cell [A-depth] · Cancer Cell [A-depth] · Molecular Cell · Cell Stem Cell · Cell Metabolism ·
+Cell [A-depth] · Cancer Cell [A-depth] · Molecular Cell [A-depth] · Cell Stem Cell · Cell Metabolism ·
 Cell Host & Microbe · Developmental Cell · Cell Reports · Immunity · Neuron ·
 Nature Genetics · Nature Cell Biology · Nature Biotechnology · Nature Neuroscience ·
 Nature Immunology · Nature Structural & Molecular Biology · Nature Microbiology ·
@@ -174,7 +174,7 @@ Signal Transduction and Targeted Therapy(英文,中国) · Military Medical Rese
 模板：工程变体（experiments/benchmarks · reproducibility · data-availability）。
 
 ### 英文 72
-**材料**：Advanced Materials · Nature Materials · Advanced Functional Materials ·
+**材料**：Advanced Materials [A-depth] · Nature Materials · Advanced Functional Materials ·
 Advanced Energy Materials · ACS Nano · Nano Letters · Materials Today ·
 Nature Nanotechnology · Progress in Materials Science · Acta Materialia
 **能源**：Joule · Energy & Environmental Science · Nature Energy · Applied Energy
@@ -215,7 +215,7 @@ Governance · J. of Policy Analysis and Management
 **法学**：Harvard Law Review · Yale Law Journal · Stanford Law Review · Columbia Law Review
 **教育学**：American Educational Research Journal · Review of Educational Research · J. of Educational Psychology
 **传播学**：J. of Communication · Communication Research · New Media & Society
-**地理/人类学/人口**：Annals of the AAG · Progress in Human Geography · American Anthropologist ·
+**地理/人类学/人口**：Annals of the AAG · Progress in Human Geography [A-depth] · American Anthropologist ·
 Current Anthropology · Population and Development Review
 > ~44 高置信；补足至 55 以 SSCI 分支 Q1 核验。**待核实长尾**。
 
@@ -241,7 +241,7 @@ J. of American History · The China Quarterly · J. of Asian Studies · The Hist
 **哲学**：Mind · The Philosophical Review · J. of Philosophy · Noûs · Ethics · Analysis ·
 Philosophy and Phenomenological Research
 **文学/文论**：PMLA · Critical Inquiry · New Literary History · Modern Language Review · Representations
-**语言学**：Language · Linguistic Inquiry · J. of Linguistics · Natural Language & Linguistic Theory · Cognition(boundary)
+**语言学**：Language [A-depth] · Linguistic Inquiry · J. of Linguistics · Natural Language & Linguistic Theory · Cognition(boundary)
 **宗教/古典/艺术史/考古**：J. of Religion · The Art Bulletin · J. of Roman Studies ·
 Antiquity · American Antiquity · J. of Archaeological Science · Journal of Aesthetics and Art Criticism
 > ~33 高置信；补足至 45 以 AHCI 分支核验。**待核实长尾**。

@@ -11,7 +11,8 @@ This tool is deliberately a *report*, not a CI gate: it needs the network, and
 many academic publishers answer bots with 403/429 (a block, not a dead page),
 so a strict pass/fail would be noise. Classification:
 
-  DEAD        final status 404 or 410 — actionable, the page is gone.
+  DEAD        final status 404 or 410 under both the honest audit agent and a
+              browser agent — actionable, the page is gone.
   REDIRECT    permanent 3xx whose final URL differs materially — review and
               repoint to the canonical URL.
   BLOCKED     401/403/429 — the host refuses bots; almost never a real defect.
@@ -80,9 +81,29 @@ INFRA_HOSTS = {
 # such as ``...package=meta)/[metafor](...)`` do not merge into one URL. Known
 # limitation: URLs whose path contains literal CJK (e.g. some baike.baidu.com
 # /item/ links) are truncated at the first CJK char.
-URL_RE = re.compile(r"https?://[\x21-\x7e]+")
+# A URL runs to the first delimiter, not to the first non-ASCII byte. Restricting the
+# character class to printable ASCII truncated every link with a non-Latin path — the
+# 百度百科 entries are cited as `https://baike.baidu.com/item/中国科学：信息科学`, and the
+# audit checked `https://baike.baidu.com/item/`, got a 404, and reported the citation
+# as dead. A report-only tool is worth exactly as much as its false-positive rate.
+URL_RE = re.compile(r"https?://[^\s<>\"'\[\]{}|`*，。；、）】]+")
 _STOP_CHARS = set(" \t\n<>\"'[]}|`*")
 TRAILING = ".,;:!?*`"
+
+# Documentation shows template URLs with the variable part elided. They are examples,
+# not citations: `\relatedversion{Full version: https://arxiv.org/abs/...}` in a LaTeX
+# snippet is telling an author where their own arXiv id goes. Stripping the ellipsis as
+# trailing punctuation turned three of these into "DEAD" findings.
+#
+# The marker is checked against what *follows* the match as well as the match itself,
+# because `{` and `<` are already URL delimiters — a `{paper_id}` placeholder never
+# reaches `normalize`, it just leaves a truncated stem behind.
+ELIDED_IN = re.compile(r"\.\.\.$|…$")
+ELIDED_AFTER = re.compile(r"^(?:\.\.\.|…|\{|<[A-Za-z_])")
+
+
+def is_elided(raw: str, tail: str) -> bool:
+    return bool(ELIDED_IN.search(raw) or ELIDED_AFTER.match(tail))
 
 
 def rel(path: Path) -> str:
@@ -136,7 +157,12 @@ def collect_urls(include_infra: bool) -> dict[str, list[str]]:
     refs: dict[str, set[str]] = defaultdict(set)
     for path in first_party_markdown():
         text = path.read_text(encoding="utf-8", errors="replace")
-        for raw in URL_RE.findall(text):
+        for match in URL_RE.finditer(text):
+            raw = match.group(0)
+            # An elided example is not a citation; checking it reports a defect that
+            # is not one.
+            if is_elided(raw, text[match.end():match.end() + 12]):
+                continue
             url = normalize(raw)
             if not url:
                 continue
@@ -146,15 +172,27 @@ def collect_urls(include_infra: bool) -> dict[str, list[str]]:
     return {url: sorted(files) for url, files in sorted(refs.items())}
 
 
-def curl_status(url: str, timeout: int) -> tuple[str, str]:
-    """Return (http_code, final_url). http_code '000' means no response."""
+# The audit identifies itself honestly by default. Some hosts (SciEngine, CNKI's
+# magazine portal) answer an unrecognised agent with a *404* rather than the 403
+# that would say "refused" — which the classifier then records as a dead page.
+# A 404 is therefore re-asked once as an ordinary browser: if the page answers,
+# it was never gone, and reporting it dead would send a maintainer looking for a
+# replacement for a live citation. Only the second answer's verdict is kept.
+HONEST_UA = "Mozilla/5.0 (compatible; AJS-link-audit/1.0)"
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+def _curl_once(url: str, timeout: int, agent: str) -> tuple[str, str]:
     try:
         out = subprocess.run(
             [
                 "curl", "-s", "-o", "/dev/null",
                 "-w", "%{http_code} %{url_effective}",
                 "-L", "--max-time", str(timeout),
-                "-A", "Mozilla/5.0 (compatible; AJS-link-audit/1.0)",
+                "-A", agent,
                 url,
             ],
             capture_output=True,
@@ -166,6 +204,20 @@ def curl_status(url: str, timeout: int) -> tuple[str, str]:
     parts = out.stdout.strip().split(" ", 1)
     code = parts[0] if parts else "000"
     final = parts[1] if len(parts) > 1 else url
+    return code, final
+
+
+def curl_status(url: str, timeout: int) -> tuple[str, str]:
+    """Return (http_code, final_url). http_code '000' means no response.
+
+    A 404/410 is confirmed with a second request under a browser agent before it
+    is believed, because some hosts serve 404 to unrecognised agents.
+    """
+    code, final = _curl_once(url, timeout, HONEST_UA)
+    if code in {"404", "410"}:
+        recode, refinal = _curl_once(url, timeout, BROWSER_UA)
+        if recode.startswith("2") or recode.startswith("3"):
+            return recode, refinal
     return code, final
 
 
@@ -260,6 +312,64 @@ def cache_summary(refs: dict[str, list[str]], include_infra: bool) -> dict:
     return summary
 
 
+BACKLOG = ROOT / ".maintenance" / "DEAD-LINKS.md"
+
+
+def render_backlog(results: list[dict], checked: int) -> str:
+    """The actionable half of the audit, as a queue someone can work through.
+
+    Only DEAD and REDIRECT: BLOCKED and UNREACHABLE are the tool being refused or the
+    network having a bad minute, and a backlog padded with those is a backlog nobody
+    opens. Every row names the citing files, because repairing a link means reading
+    what the citation was asserting and confirming the replacement still says it — a
+    URL that returns 200 is not by itself a source.
+    """
+    dead = sorted((r for r in results if r["class"] == "DEAD"), key=lambda r: r["url"])
+    moved = sorted((r for r in results if r["class"] == "REDIRECT"), key=lambda r: r["url"])
+    lines = [
+        "# Dead and moved external links",
+        "",
+        "> **Generated** by `python3 tools/external_link_audit.py --write`. "
+        "Do not edit by hand.",
+        "",
+        f"{checked} external URLs checked · **{len(dead)} dead** · "
+        f"{len(moved)} redirected to a different host.",
+        "",
+        "A dead `Official` link is the defect this repository can least afford: the "
+        "link is the product. But repointing a citation is not a URL substitution — "
+        "the replacement has to be read and confirmed to carry the fact the source "
+        "map cites, or a verified claim quietly acquires a source that does not "
+        "support it. Where no such page can be found, leave the citation dead and "
+        "the fact as it was recorded; a page moving does not make a fact wrong.",
+        "",
+        "## Dead (404/410)",
+        "",
+    ]
+    if dead:
+        lines += ["| URL | Cited by |", "|---|---|"]
+        for row in dead:
+            files = "<br>".join(f"`{f}`" for f in row["files"])
+            lines.append(f"| <{row['url']}> | {files} |")
+    else:
+        lines.append("None.")
+    lines += ["", "## Redirected to another host", "",
+              "Not necessarily wrong — a publisher reorganising is normal — but worth "
+              "repointing so the citation names where the page actually lives. Open "
+              "each one rather than only repointing it: a host change is also what a "
+              "lapsed conference domain looks like after a squatter buys it, and that "
+              "returns 200 while sending readers somewhere the venue never was — "
+              "coling.org and frontiersinai.com both sat in this table doing exactly "
+              "that.", ""]
+    if moved:
+        lines += ["| URL | Now resolves to | Cited by |", "|---|---|---|"]
+        for row in moved:
+            files = "<br>".join(f"`{f}`" for f in row["files"])
+            lines.append(f"| <{row['url']}> | <{row['final']}> | {files} |")
+    else:
+        lines.append("None.")
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--include-infra", action="store_true", help="also check github/shields/etc.")
@@ -270,6 +380,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--refresh", action="store_true", help="ignore cached verdicts")
     ap.add_argument("--cache-summary", action="store_true", help="summarize cached verdicts without network requests")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--write", action="store_true",
+                    help="regenerate .maintenance/DEAD-LINKS.md from this run")
     args = ap.parse_args(argv)
 
     refs = collect_urls(args.include_infra)
@@ -330,6 +442,11 @@ def main(argv: list[str]) -> int:
     counts: dict[str, int] = defaultdict(int)
     for r in results:
         counts[r["class"]] += 1
+
+    if args.write:
+        BACKLOG.parent.mkdir(parents=True, exist_ok=True)
+        BACKLOG.write_text(render_backlog(results, len(urls)), encoding="utf-8")
+        print(f"wrote {rel(BACKLOG)}", file=sys.stderr)
 
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
