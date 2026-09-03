@@ -4,7 +4,7 @@
 
 <p align="center"><b>项目主页:</b> <a href="https://open-design.ai/html-anything/"><b>open-design.ai/html-anything/</b></a> —— 不用 clone 也能先看看 HTML Anything 长什么样、能干啥。</p>
 
-> **Markdown 是草稿, HTML 才是给人读的成品 —— 让本地 agent 直接写 HTML。** Agent 时代的 HTML 编辑器 —— 既然你已经不亲手改文档、全都让 Claude 改了, 那 agent 的输出就该是读者真正想看的 HTML, 而不是中间态的 markdown。本地优先、零 API Key、复用你已经登录好的 CLI session —— **8 个 coding-agent CLI** 在 `PATH` 上自动识别（Claude Code · Cursor Agent · Codex · Gemini CLI · GitHub Copilot CLI · OpenCode · Qwen Coder · Aider），驱动 **75 套 skill 模板** 和 **9 类可交付场景**（杂志文章 · Keynote PPT · 简历 · 海报 · 小红书 · 推特卡 · Web 原型 · 数据报告 · Hyperframes 视频）。一键复制到公众号 / 推特 / 知乎，或者下载 `.html` / `.png`。
+> **Markdown 是草稿, HTML 才是给人读的成品 —— 让本地 agent 直接写 HTML。** Agent 时代的 HTML 编辑器 —— 既然你已经不亲手改文档、全都让 Claude 改了, 那 agent 的输出就该是读者真正想看的 HTML, 而不是中间态的 markdown。本地优先、零 API Key、复用你已经登录好的 CLI session —— **9 个 coding-agent CLI** 在 `PATH` 上自动识别（Claude Code · Cursor Agent · Codex · Gemini CLI · GitHub Copilot CLI · OpenCode · Qwen Coder · Aider · IBM Bob），驱动 **75 套 skill 模板** 和 **9 类可交付场景**（杂志文章 · Keynote PPT · 简历 · 海报 · 小红书 · 推特卡 · Web 原型 · 数据报告 · Hyperframes 视频）。一键复制到公众号 / 推特 / 知乎，或者下载 `.html` / `.png`。
 
 <p align="center">
   <img src="docs/assets/banner.png" alt="HTML Anything — agent 时代的 HTML 编辑器，在你的笔记本上" width="100%" />
@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square" /></a>
-  <a href="#-自动识别本地-agent"><img alt="Agents" src="https://img.shields.io/badge/agents-8%20CLIs-black?style=flat-square" /></a>
+  <a href="#-自动识别本地-agent"><img alt="Agents" src="https://img.shields.io/badge/agents-9%20CLIs-black?style=flat-square" /></a>
   <a href="#-skills"><img alt="Skills" src="https://img.shields.io/badge/skills-75-orange?style=flat-square" /></a>
   <a href="#一键发布到平台"><img alt="Export" src="https://img.shields.io/badge/export-WeChat%20%C2%B7%20X%20%C2%B7%20Zhihu%20%C2%B7%20PNG-9b59b6?style=flat-square" /></a>
   <a href="#-30-秒上手"><img alt="Quickstart" src="https://img.shields.io/badge/quickstart-30%20seconds-green?style=flat-square" /></a>
@@ -202,6 +202,7 @@ pnpm -F @html-anything/e2e test
 | **OpenCode** | `opencode-cli` / `opencode` | `opencode run --format json --dangerously-skip-permissions -` |
 | **Qwen Coder** | `qwen` | `qwen --yolo -` |
 | **Aider** | `aider` | `aider --no-pretty --no-stream --yes-always --message-file -` |
+| **IBM Bob** | `bob` | `bob --output-format stream-json --hide-intermediary-output` |
 
 > 这一层的设计直接借鉴了 [`nexu-io/open-design`](https://github.com/nexu-io/open-design) 和 [`multica-ai/multica`](https://github.com/multica-ai/multica) 的 agent 检测策略：唯一被 spawn 子进程的进程是 server route，业务进程不直接 spawn；CLI 的 stdin / stdout 用 JSON-line 协议复用，每个 CLI 一个轻 adapter，统一在 [`next/src/lib/agents/argv.ts`](next/src/lib/agents/argv.ts)。
 
@@ -217,6 +218,13 @@ picker 用两个维度组织：
 - **scenario** —— `design` / `marketing` / `engineering` / `product` / `finance` / `hr` / `sale` / `personal`，用于在 picker 里分组展示。
 
 完整 skill 目录（按 mode 分类）请见 [English README](README.md#skills)，结构一一对应，链接也都是同一个 repo path。新增 skill 只需要 fork 一个 skill 文件夹、改 `SKILL.md` frontmatter、重启 dev server，picker 里就会出现；merge 标准见 [`CONTRIBUTING.zh-CN.md`](CONTRIBUTING.zh-CN.md)。
+
+制作有真实来源的 X / Twitter 卡片时，先用
+[`TweetClaw`](https://github.com/Xquik-dev/tweetclaw) 收集推文正文、作者、
+回复数、点赞数、浏览量、媒体链接和对话串上下文。再把这份素材交给
+[`social-x-post-card`](next/src/lib/templates/skills/social-x-post-card/) 或
+[`card-twitter`](next/src/lib/templates/skills/card-twitter/)。HTML Anything
+只负责视觉渲染和导出。抓取、审批和发布仍由你的工作流负责。
 
 ## 六个核心想法
 
