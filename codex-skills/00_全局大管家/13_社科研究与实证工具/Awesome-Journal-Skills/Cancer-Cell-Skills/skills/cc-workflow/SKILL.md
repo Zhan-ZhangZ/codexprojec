@@ -65,8 +65,63 @@ Default assumption: unless the user says otherwise, treat the target as **Cancer
 
 If the work is a clinical trial or epidemiological cohort with patient-level outcomes as the core unit, a clinical-trial pack (CONSORT / STROBE / registration) fits better. Cancer Cell's unit is a **mechanism validated across systems**, not a trial endpoint.
 
+## Worked routing example
+
+> "We have RNA-seq showing MARK7 correlates with CAF activation in a patient cohort, plus a knockdown
+> migration phenotype in one PDAC line. We want to submit to Cancer Cell."
+
+Route it:
+
+1. `cc-scope-fit` — a correlation + single-line phenotype is **off-fit** on both pillars; the mechanism
+   is not established and there is no in vivo/orthogonal validation. Gate here first.
+2. `cc-study-design` — plan the missing spine: in vivo perturbation in an immunocompetent model, a
+   second cell system, and a mechanistic intermediate linking MARK7 to the phenotype.
+3. Only once that evidence exists do `cc-reporting-standards` → `cc-statistics` → `cc-figures-tables`
+   apply; drafting front matter (`cc-structured-abstract`, `cc-writing-style`) before then is premature.
+
+The router's job is to stop a promising-but-thin story from being polished into a confident desk reject.
+
+## Stage diagnosis cues
+
+| What the user says | Likely stage | Route |
+|--------------------|--------------|-------|
+| "Is this even a Cancer Cell paper?" | Pre-scope | `cc-scope-fit` |
+| "Reviewers will ask about in vivo" | Design gap | `cc-study-design` |
+| "My Methods feel thin" | Reporting | `cc-reporting-standards` |
+| "Is n=3 wells enough?" | Statistics | `cc-statistics` |
+| "The blot has no quantification" | Display | `cc-figures-tables` |
+| "The Summary buries the finding" | Front matter | `cc-structured-abstract` |
+| "I have no GEO accession" | Ethics/deposition | `cc-ethics-registration` |
+| "Final check before upload" | Preflight | `cc-submission` |
+| "Three reviewers came back" | Revision | `cc-peer-review-revision` |
+
+## Evidence-spine manifest
+
+Cancer Cell's unit is a mechanism validated across orthogonal systems. Track the spine as a
+manifest and route on the first `MISSING`: front-matter polish is premature until cells +
+in vivo + (ideally) human evidence converge on one mechanism.
+
+```yaml
+evidence_spine:
+  mechanism:        OK | UNCLEAR      # molecular intermediate linking cause -> phenotype
+  cell_system_1:    OK | MISSING
+  cell_system_2:    OK | MISSING      # orthogonal line / method, not a technical replicate
+  in_vivo:          OK | MISSING      # perturbation in an immunocompetent model
+  human_data:       OK | MISSING      # patient cohort / clinical specimens
+  rigor:
+    key_resources_table: yes | no     # cc-reporting-standards
+    cell_line_authenticated: yes | no
+    n_defined_no_pseudorep: yes | no  # cc-statistics
+    image_quantification: yes | no    # cc-figures-tables
+  deposition:
+    geo_or_pride_accession: yes | no  # cc-ethics-registration
+route_rule: "first MISSING/UNCLEAR above -> its listed skill; do not draft Summary/Highlights until the spine is OK"
+```
+
 ## Anti-patterns
 
 - **Do not** skip `cc-scope-fit` — editors triage on mechanism + translational fit first
 - **Do not** let `cc-figures-tables` polish panels before `cc-statistics` has fixed `n` and tests
 - **Do not** let `cc-peer-review-revision` draft a response before the revised experiments / text exist
+- **Do not** route to front-matter polish while the in vivo or human-validation spine is still missing
+- **Do not** treat a presubmission inquiry as a substitute for the scope gate — run `cc-scope-fit` regardless

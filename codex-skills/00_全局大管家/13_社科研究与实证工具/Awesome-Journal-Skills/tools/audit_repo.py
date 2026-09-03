@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import struct
 import sys
 import urllib.parse
 from pathlib import Path
@@ -20,9 +21,14 @@ ROOT = Path(__file__).resolve().parents[1]
 # additions. When you intentionally add/remove packs, update these three values
 # (and the README badges) in the same commit. Run `python3 tools/audit_repo.py
 # --counts` to print the live numbers to copy in.
-EXPECTED_SKILL_COUNT = 2902
-EXPECTED_PACK_COUNT = 195
-EXPECTED_ROOT_JOURNAL_ENTRIES = 200
+EXPECTED_SKILL_COUNT = 4166
+EXPECTED_PACK_COUNT = 300
+EXPECTED_ROOT_JOURNAL_ENTRIES = 201
+EXPECTED_VENUE_COUNT = 744
+# Executed empirical evidence cases under showcase/. Each is a real MCP tool
+# run committed as documentation; removing one silently would weaken the
+# repo's central "automated empirical research" claim.
+EXPECTED_SHOWCASE_CASES = 5
 
 IMPORTED_ROOTS = {
     "AER-Skills",
@@ -229,6 +235,56 @@ def check_readme_badges(errors: list[str]) -> None:
             errors.append(f"{rel(path)} does not mention expected skill count {EXPECTED_SKILL_COUNT}")
         if str(EXPECTED_PACK_COUNT) not in text:
             errors.append(f"{rel(path)} does not mention expected pack count {EXPECTED_PACK_COUNT}")
+        if str(EXPECTED_VENUE_COUNT) not in text:
+            errors.append(f"{rel(path)} does not mention expected venue count {EXPECTED_VENUE_COUNT}")
+
+    required_banner_tokens = {
+        "{{SKILL_COUNT}}", "{{PACK_COUNT}}", "{{JOURNAL_COUNT}}",
+        "{{CONFERENCE_COUNT}}", "{{VENUE_COUNT}}",
+    }
+    for path in (ROOT / "assets/banner-src/banner-zh.html", ROOT / "assets/banner-src/banner-en.html"):
+        text = path.read_text(encoding="utf-8")
+        missing = sorted(required_banner_tokens - set(re.findall(r"{{[A-Z_]+}}", text)))
+        if missing:
+            errors.append(f"{rel(path)} missing generated count token(s): {missing}")
+
+
+# The two READMEs differ only in prose language; the catalogue they present must be
+# the same one. These are the language-specific assets, exempt by construction.
+README_LOCALE_ASSETS = {"assets/banner-zh.png", "assets/banner-en.png"}
+PACK_LINK_RE = re.compile(r'href="([^"]+-Skills/[^"]*)"|\]\(([^)]*-Skills/[^)]*)\)')
+README_ASSET_RE = re.compile(r'src="(assets/[^"]+)"')
+
+
+def check_readme_parity(errors: list[str]) -> None:
+    """The English README must offer the same catalogue as the Chinese one.
+
+    `README.en.md` exists so that a reader without Chinese sees the same 1,017 pack
+    entries and the same cover wall, not a subset someone stopped updating. Nothing
+    made that true before this check: the two files are maintained by hand, 2,250
+    lines each, and a card added to one and not the other is invisible in review.
+    """
+    zh = (ROOT / "README.md").read_text(encoding="utf-8")
+    en = (ROOT / "README.en.md").read_text(encoding="utf-8")
+
+    def pack_links(text: str) -> set[str]:
+        return {a or b for a, b in PACK_LINK_RE.findall(text)}
+
+    def assets(text: str) -> set[str]:
+        return set(README_ASSET_RE.findall(text)) - README_LOCALE_ASSETS
+
+    for label, zh_set, en_set in (
+        ("pack link", pack_links(zh), pack_links(en)),
+        ("asset", assets(zh), assets(en)),
+    ):
+        for missing_in, extra in (("README.en.md", zh_set - en_set),
+                                  ("README.md", en_set - zh_set)):
+            if extra:
+                shown = ", ".join(sorted(extra)[:5])
+                more = f" (+{len(extra) - 5} more)" if len(extra) > 5 else ""
+                errors.append(
+                    f"{missing_in} is missing {len(extra)} {label}(s) the other README "
+                    f"has: {shown}{more}")
 
 
 def check_root_marketplace(errors: list[str]) -> None:
@@ -241,6 +297,14 @@ def check_root_marketplace(errors: list[str]) -> None:
     if not isinstance(entries, list):
         errors.append(f"{rel(marketplace_path)} plugins must be a list")
         return
+
+    root_version = marketplace.get("version")
+    entry_versions = {entry.get("version") for entry in entries if isinstance(entry, dict)}
+    if len(entry_versions) == 1 and root_version not in entry_versions:
+        errors.append(
+            f"{rel(marketplace_path)} top-level version {root_version!r} "
+            f"!= pack release version {next(iter(entry_versions))!r}"
+        )
 
     expected_roots = {rel(path) for path in first_party_plugin_roots()}
     seen_roots: set[str] = set()
@@ -444,6 +508,33 @@ def check_skill_frontmatter(errors: list[str]) -> None:
             errors.append(f"duplicate first-party skill name {name!r}: {locations}")
 
 
+def check_showcase(errors: list[str]) -> None:
+    showcase = ROOT / "showcase"
+    index = showcase / "README.md"
+    if not index.exists():
+        errors.append("showcase/README.md is missing")
+        return
+    index_text = index.read_text(encoding="utf-8", errors="replace")
+    case_dirs = sorted(p for p in showcase.iterdir() if p.is_dir())
+    if len(case_dirs) != EXPECTED_SHOWCASE_CASES:
+        errors.append(
+            f"expected {EXPECTED_SHOWCASE_CASES} showcase case directories, "
+            f"found {len(case_dirs)}"
+        )
+    for case in case_dirs:
+        readme = case / "README.md"
+        if not readme.exists():
+            errors.append(f"{rel(case)} has no README.md")
+            continue
+        if f"{case.name}/README.md" not in index_text:
+            errors.append(f"showcase/README.md does not link {case.name}/README.md")
+        case_text = readme.read_text(encoding="utf-8", errors="replace")
+        if "运行日期" not in case_text:
+            errors.append(f"{rel(readme)} lacks the 运行日期 (run date) evidence marker")
+        if "运行备注" not in case_text:
+            errors.append(f"{rel(readme)} lacks the 运行备注 (honest run notes) section")
+
+
 def markdown_files_to_check() -> list[Path]:
     return sorted(
         path
@@ -496,6 +587,208 @@ def check_markdown_links(errors: list[str]) -> None:
                     errors.append(f"{rel(path)}:{lineno}: broken local link {target!r}")
 
 
+# Hero artwork: the images at the top of the two READMEs, plus the logos and codes
+# beside them. Each entry is (path, width, height, minimum bytes).
+#
+# Why a byte floor and not just the dimensions: `assets/banner-en.png` was once
+# overwritten by a screenshot of a bot-check interstitial captured at exactly the
+# banner's size. Every dimension still agreed; only the file size gave it away, because
+# a mostly-white error page compresses to a tenth of what the real artwork does. The
+# floors below sit at roughly half of each asset's committed size, which is loose
+# enough for an honest re-export and tight enough to catch a substitution.
+HERO_ASSETS = [
+    ("assets/banner-zh.png", 2400, 860, 250_000),
+    ("assets/banner-en.png", 2400, 860, 250_000),
+    ("assets/copaper-logo.png", 1252, 512, 40_000),
+    ("assets/stanford-reap-logo.png", 812, 178, 15_000),
+    ("assets/copaper-qrcode.png", 444, 528, 3_000),
+]
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def png_size(data: bytes) -> tuple[int, int] | None:
+    """(width, height) from the IHDR chunk, or None if this is not a PNG."""
+    if not data.startswith(PNG_MAGIC) or len(data) < 24:
+        return None
+    return struct.unpack(">II", data[16:24])
+
+
+def check_hero_assets(errors: list[str]) -> None:
+    for name, width, height, min_bytes in HERO_ASSETS:
+        path = ROOT / name
+        if not path.exists():
+            errors.append(f"{name}: hero asset is missing")
+            continue
+        data = path.read_bytes()
+        size = png_size(data)
+        if size is None:
+            errors.append(f"{name}: not a PNG (the file was replaced by something else)")
+            continue
+        if size != (width, height):
+            errors.append(
+                f"{name}: is {size[0]}x{size[1]}, expected {width}x{height} — update "
+                "HERO_ASSETS in the same commit if the artwork was redesigned")
+        if len(data) < min_bytes:
+            errors.append(
+                f"{name}: {len(data):,} bytes is below the {min_bytes:,}-byte floor. "
+                "A blank or error-page capture compresses this small; the artwork does "
+                "not")
+
+
+# --- documented counts -------------------------------------------------------------
+# Numbers written into prose drift silently. `journal-match.md` and the journal-selection
+# README described a 743-venue index, 289 depth packs, a retrieval vocabulary "300 terms
+# deep" and "1,725 adjacency edges" long after those artefacts held 744, 290, 900 and
+# 1,511 — every one of them a generated file sitting in the same directory as the
+# sentence describing it. `check_readme_badges` reconciles the two root READMEs, which is
+# where a *reader* meets a count; nothing reconciled the capability docs, which is where
+# an *agent* meets one. An agent told the index is 300 terms deep will explain a tool
+# that has not existed since the depth was measured and raised.
+#
+# Each entry pins one prose number to the artefact it is about: every occurrence of the
+# pattern in that file must equal the value computed from the file it describes. Thousands
+# separators are tolerated on the way in, so both "1511" and "1,511" satisfy the check.
+
+VENUE_INDEX = ROOT / "shared-resources/journal-selection/venue-index.tsv"
+SCOPE_POSTINGS = ROOT / "shared-resources/journal-selection/scope-postings.tsv"
+TOPIC_POSTINGS = ROOT / "shared-resources/journal-selection/topic-postings.tsv"
+LADDER = ROOT / "shared-resources/journal-selection/ladder.tsv"
+GOLD_SET = ROOT / "shared-resources/journal-selection/eval/gold-set.tsv"
+
+NUM = r"([\d,]+)"
+DOCUMENTED_COUNTS: list[tuple[str, str, str]] = [
+    # (file, pattern capturing the number, live-value key)
+    ("shared-resources/journal-selection/journal-match.md",
+     rf"\*\*{NUM} venues\*\* are in", "venues"),
+    ("shared-resources/journal-selection/journal-match.md",
+     rf"venue-index\.tsv\) \({NUM} venues\)", "venues"),
+    ("shared-resources/journal-selection/journal-match.md",
+     rf"own depth pack \({NUM}\)", "depth_venues"),
+    ("shared-resources/journal-selection/journal-match.md",
+     rf"breadth bundle \({NUM}\)", "breadth_venues"),
+    ("shared-resources/journal-selection/journal-match.md",
+     rf"full {NUM}-term scope vocabulary", "postings_depth"),
+    ("shared-resources/journal-selection/journal-match.md",
+     rf"ladder\.tsv\) \({NUM} adjacency edges\)", "ladder_edges"),
+    ("shared-resources/journal-selection/README.md",
+     rf"index of \*\*{NUM} venues\*\*", "venues"),
+    ("shared-resources/journal-selection/README.md",
+     rf"vocabulary, {NUM} terms deep", "postings_depth"),
+    ("shared-resources/journal-selection/README.md",
+     rf"\*\*{NUM} adjacency edges\*\*", "ladder_edges"),
+    ("shared-resources/journal-selection/README.md",
+     rf"full {NUM}-term vocabulary", "postings_depth"),
+    ("shared-resources/journal-selection/README.md",
+     rf"A {NUM}-paper gold set", "gold_papers"),
+    ("tools/README.md", rf"stable index of all {NUM} venues", "venues"),
+    ("tools/README.md", rf"\({NUM} depth packs", "depth_venues"),
+    ("tools/README.md", rf"depth packs \+ {NUM} breadth-bundle profiles", "breadth_venues"),
+    ("tools/README.md", rf"the {NUM}-term-deep inverted index", "postings_depth"),
+    ("tools/README.md", rf"rank the {NUM} indexed venues", "venues"),
+    ("shared-resources/journal-selection/README.md",
+     rf"reaches {NUM} of the", "topic_venues"),
+]
+
+
+def _tsv_rows(path: Path) -> int:
+    """Data rows in a TSV — the header line does not count."""
+    with path.open(encoding="utf-8") as handle:
+        return max(sum(1 for line in handle if line.strip()) - 1, 0)
+
+
+def _postings_depth(path: Path) -> int | None:
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.startswith("#"):
+                break
+            key, _, value = line[1:].rstrip("\n").partition("\t")
+            if key == "depth" and value.isdigit():
+                return int(value)
+    return None
+
+
+def live_documented_counts(errors: list[str]) -> dict[str, int]:
+    """The generated artefacts' own numbers, read from the artefacts."""
+    values: dict[str, int] = {}
+    if VENUE_INDEX.exists():
+        depth = breadth = 0
+        with VENUE_INDEX.open(encoding="utf-8") as handle:
+            header = handle.readline().rstrip("\n").split("\t")
+            try:
+                column = header.index("coverage")
+            except ValueError:
+                column = None
+            rows = 0
+            for line in handle:
+                if not line.strip():
+                    continue
+                rows += 1
+                if column is not None:
+                    field = line.rstrip("\n").split("\t")[column]
+                    if field == "depth":
+                        depth += 1
+                    elif field == "breadth":
+                        breadth += 1
+        values["venues"] = rows
+        values["depth_venues"] = depth
+        values["breadth_venues"] = breadth
+    if LADDER.exists():
+        values["ladder_edges"] = _tsv_rows(LADDER)
+    if GOLD_SET.exists():
+        values["gold_papers"] = _tsv_rows(GOLD_SET)
+    if TOPIC_POSTINGS.exists():
+        # How many venues the subject vocabulary actually reached. Stated in prose next
+        # to a claim about what it is worth, so it is guarded like every other count —
+        # the harvest is re-run as packs are added and the number moves with it.
+        with TOPIC_POSTINGS.open(encoding="utf-8") as handle:
+            for line in handle:
+                if not line.startswith("#"):
+                    break
+                key, _, value = line[1:].rstrip("\n").partition("\t")
+                if key == "covered" and value.isdigit():
+                    values["topic_venues"] = int(value)
+                    break
+    if SCOPE_POSTINGS.exists():
+        depth_header = _postings_depth(SCOPE_POSTINGS)
+        if depth_header is None:
+            errors.append(
+                "shared-resources/journal-selection/scope-postings.tsv has no #depth "
+                "header — regenerate with tools/gen_venue_index.py")
+        else:
+            values["postings_depth"] = depth_header
+    return values
+
+
+def check_documented_counts(errors: list[str]) -> None:
+    live = live_documented_counts(errors)
+    if live.get("venues") is not None and live["venues"] != EXPECTED_VENUE_COUNT:
+        errors.append(
+            f"venue-index.tsv holds {live['venues']} venues but EXPECTED_VENUE_COUNT is "
+            f"{EXPECTED_VENUE_COUNT} — regenerate the index or update the tripwire")
+    for name, pattern, key in DOCUMENTED_COUNTS:
+        path = ROOT / name
+        if not path.exists():
+            errors.append(f"{name}: documented-count target is missing")
+            continue
+        expected = live.get(key)
+        if expected is None:
+            continue                      # the artefact itself is absent; reported above
+        text = path.read_text(encoding="utf-8")
+        found = re.findall(pattern, text)
+        if not found:
+            errors.append(
+                f"{name}: no longer states its {key.replace('_', ' ')} in the expected "
+                f"wording (pattern {pattern!r}) — the sentence was rewritten, so either "
+                "restore a stated count or drop this entry from DOCUMENTED_COUNTS")
+            continue
+        for raw in found:
+            if int(raw.replace(",", "")) != expected:
+                errors.append(
+                    f"{name}: states {raw} for {key.replace('_', ' ')}, but the generated "
+                    f"artefact holds {expected:,}")
+
+
 def print_live_counts() -> int:
     skill_count = len(iter_skill_files())
     pack_roots = set(first_party_plugin_roots())
@@ -516,14 +809,18 @@ def main() -> int:
         return print_live_counts()
     errors: list[str] = []
     check_counts(errors)
+    check_documented_counts(errors)
     check_external_import_policy(errors)
     check_root_journal_entries(errors)
     check_readme_badges(errors)
+    check_readme_parity(errors)
     check_root_marketplace(errors)
     check_plugin_metadata(errors)
     check_pack_documentation(errors)
     check_source_maps(errors)
     check_skill_frontmatter(errors)
+    check_showcase(errors)
+    check_hero_assets(errors)
     check_markdown_links(errors)
 
     if errors:
@@ -536,7 +833,8 @@ def main() -> int:
         "Repository audit passed: "
         f"{EXPECTED_SKILL_COUNT} canonical skills, "
         f"{EXPECTED_PACK_COUNT} curated packs, "
-        f"{EXPECTED_ROOT_JOURNAL_ENTRIES} root journal entries."
+        f"{EXPECTED_ROOT_JOURNAL_ENTRIES} root journal entries, "
+        f"{EXPECTED_SHOWCASE_CASES} executed showcase cases."
     )
     return 0
 

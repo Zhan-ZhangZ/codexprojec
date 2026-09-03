@@ -53,6 +53,23 @@ Always run:
 git diff --check
 ```
 
+### The two network-dependent generators
+
+Neither runs in CI and neither is needed for a content PR; both are maintainer passes
+whose output is committed and read.
+
+```bash
+python3 tools/fetch_abstracts.py                      # abstract term bags for the eval
+python3 tools/fetch_venue_topics.py --resolve --harvest   # the subject vocabulary
+```
+
+**Adding a pack changes the venue ordering**, and `topic-postings.tsv` addresses venues
+by row number. `python3 tools/fetch_venue_topics.py --check` (part of `run_checks.py`)
+fails the build when the two disagree, and re-running `--resolve --harvest` fixes it:
+responses are cached on disk, so a re-run after adding one pack costs one venue's worth
+of requests, not 744. Until it is re-run, the new pack simply has no subject vocabulary
+and `tools/match_venues.py` marks it `°` — a visible gap rather than a silent one.
+
 ## Journal-content quality bar
 
 - Use official journal pages first. If a fact cannot be verified, mark it
@@ -77,3 +94,70 @@ git diff --check
 - For source-map cleanup, use `python3 tools/source_map_audit.py` to find files
   with missing URLs, missing check dates, or heavy unresolved-flag loads. The
   tool is report-only unless run with `--strict`.
+
+## Minimum acceptance bar for a new pack（新 pack 最小验收线）
+
+A new depth pack is mergeable only when ALL of the following hold. This is the
+same bar the repo's own maintenance waves are held to:
+
+1. **Structure** — 8–20 skills (12 is the house norm; go past 14 only for a
+   deliberately deepened flagship), each a `skills/<name>/SKILL.md` with `name` +
+   `description` frontmatter; a pack `README.md` and `README.zh-CN.md`; a
+   `.claude-plugin/plugin.json`; registration in the root
+   `.claude-plugin/marketplace.json`.
+2. **Facts discipline** — `resources/official-source-map.md` with ≥1 official
+   URL and a visible check date; every volatile fact (fees, limits, dates,
+   acceptance) traces to it or is marked `待核实`/`UNVERIFIED`.
+3. **Substance** — every skill body carries real venue-specific guidance
+   (target ≈600 substance units/skill for depth packs); descriptions ≥200 chars
+   with a "Use when"/使用时机 trigger that names the venue (Latin-script form
+   included for Chinese venues).
+4. **Not a clone** — `python3 tools/clone_audit.py --threshold 0.75
+   --fail-threshold 0.90` reports no pairs involving the pack. A sibling-journal
+   reader must not be able to swap the venue name and keep the text.
+5. **Empirical packs** — vendor the shared `code/` kit or explain in
+   `resources/README.md` why no code applies, and link the shared
+   `execution-with-mcp.md` playbook from the analysis-facing skills.
+6. **Counters** — bump `tools/audit_repo.py` tripwires and both README count
+   blocks in the same commit; `python3 tools/run_checks.py --skip-reports`
+   passes end-to-end.
+7. **Conformance** — the pack passes every structural requirement on
+   `python3 tools/quality_scorecard.py --require-conformance`: both READMEs, a
+   resources README, a source anchor, worked examples, exemplars, a code library
+   or a stated reason there is none, a skill count inside its role's band, and
+   every skill description saying *when* to use it and naming its venue. This is
+   the gate CI enforces, and it is pass/fail.
+8. **Backlog score** — the same tool also prints a 0-100 score built only from the
+   things that still differ between packs: how recently the source map was
+   re-read, how many facts it still flags as unconfirmed, how deep the pack's
+   *thinnest* skill is, and how much of it reaches the execution layer. It ranks
+   remaining work; it is not a standard to hit. CI floors it at 40 purely as a
+   tripwire against a broken pack — a new pack landing near the median (≈79) is
+   healthy, and a pack landing at 97 has simply had its source map re-read
+   recently.
+
+## How to reuse a pack bundle（如何复用一个 pack bundle）
+
+Everything here is MIT-licensed: you may copy any pack's layout for your own
+target venue, in your own repo or as a contribution back. The rules below keep
+a replica from becoming the one failure mode this repo audits hardest against —
+the find-replace clone.
+
+1. **Reuse structure, not prose.** Copy the file layout (12-skill lifecycle,
+   `.claude-plugin/` metadata, bilingual READMEs, `resources/` roles) freely.
+   The skill *bodies* must be rewritten around the target venue's real
+   workflow; swapping the journal name in existing text is not a replica, it is
+   a clone and will be rejected by `tools/clone_audit.py` (0.75 review
+   threshold, 0.90 hard fail).
+2. **Re-source every volatile fact.** Fees, word/page limits, editor names,
+   platforms, policies: each one must trace to the *target* venue's official
+   page (URL + access date in `resources/official-source-map.md`) or be marked
+   `待核实`. Facts inherited from the source pack are wrong by default.
+3. **Contribute back or fork out.** A replica aimed at this repo goes through
+   the "Minimum acceptance bar for a new pack" above, counters and all. A
+   replica for your own repo has no obligations beyond the MIT license — but
+   opening a `bundle-replication-request` issue first gets you a maintainer
+   sanity-check on venue fit and a pointer to the closest existing template.
+4. **Pick the closest sibling as your base.** Same discipline, same review
+   platform, same publication form (conference vs journal, theory vs
+   empirical) — the fewer facts you must replace, the fewer you will miss.

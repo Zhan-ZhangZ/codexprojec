@@ -1,7 +1,7 @@
 # Awesome Journal Skills (AJS)
 
 <p align="center">
-  <img src="assets/banner-en.png" alt="Awesome Journal Skills (AJS) — a one-stop index of journal-specific AI submission workflows: 2902 agent skills, 195 packs, 519 top journals, 155 CS/AI venues" width="100%">
+  <img src="assets/banner-en.png" alt="Awesome Journal Skills (AJS): 4166 agent skills, 300 packs, and 744 journal and conference venues" width="100%">
 </p>
 
 [![Awesome](https://awesome.re/badge.svg)](https://awesome.re)
@@ -65,6 +65,8 @@ Click any discipline name to jump to its explanation. Representative subfields a
     <a href="#-quick-browsing--layout-guide">🧭 Layout Guide</a> ·
     <a href="#-the-skill-packs">📚 The Skill Packs</a> ·
     <a href="#-how-to-use">⚡ How to Use</a> ·
+    <a href="showcase/README.md">🧪 Executed Empirical Showcase</a> ·
+    <a href="shared-resources/journal-selection/venue-index.tsv">🔎 Venue Index (744 venues, machine-readable)</a> ·
     <a href="#-roadmap">🗺 Roadmap</a> ·
     <a href="README.md">🌐 简体中文</a>
   </sub>
@@ -341,14 +343,37 @@ Then hand your target journal's manuscript to its workflow skill:
 Use qje-workflow to assess how far my draft is from QJE's bar and what to do next.
 ```
 
-> Not sure where to submit yet? Use a **breadth bundle**'s router skill to pick a venue first, then install the matching **depth pack**. Full path in the [Quick Browsing & Layout Guide](#-quick-browsing--layout-guide) below.
+**Not sure where to submit yet?** Install the cross-journal toolkit instead and let it pick:
+
+```bash
+/plugin install research-toolkit-skills
+```
+
+```text
+Use rt-journal-match: here is my abstract — which venues should I target, in what order?
+```
+
+It profiles the paper, shortlists from an index of **744 venues** into reach / match / safe, and pre-writes the resubmission ladder.
+
+The shortlisting step is not an instruction to squint at a TSV — it is **a command you can run yourself**:
+
+```bash
+python3 tools/match_venues.py --title "..." --abstract "..." \
+        --discipline economics/labor --lane empirical --top 15
+```
+
+The evaluation scores that same code path. On a 1,738-paper gold set split into a tuning half and a held-out half, a **bare title** — the most pessimistic way to ask — puts the true venue in the top 10 for **65.3%** of papers. Pasting the abstract, which is what an author actually does, gives **71.9%**, and supplying the discipline **77.7%** ([`eval/RESULTS.md`](shared-resources/journal-selection/eval/RESULTS.md)). Every venue carries **two vocabularies**: one from the prose this repository wrote about it, one from the titles of the articles it actually published. The second was added in August 2026 and moves the bare-title figure on its own from 46.7% to 65.3%, cutting the share of papers whose true venue is unreachable at any depth from 15% to 3.8%. Retrieval only says *which packs to read*; the recommendation still comes from opening each venue's own pack and source-map.
+
+Once there is a ladder, `rt-ladder-ev` prices it: "top journal first, then descend" versus "start one rung down" becomes a difference in expected months and in the probability of ever placing. The **sequence** is what costs a year, not any single venue.
+
+> **Looking for one specific journal?** [**CATALOG.md**](CATALOG.md) lists all 744 venues by discipline with the plugin name to install for each ([`catalog.json`](catalog.json) for tooling).
 
 ### 🧭 Contents
 
 | 🧭 Start · Rationale | 📚 Browse · Index | 🚀 Use · Collaborate |
 |---|---|---|
 | [Quick Browsing & Layout Guide](#-quick-browsing--layout-guide) | [The Skill Packs](#-the-skill-packs) | [How to Use](#-how-to-use) |
-| [Why journal-specific](#-why-journal-specific-skills) | [200 Root Journal Folders](#-200-root-journal-folders) | [Pack Picker](#-pack-selection-cheat-sheet) |
+| [Why journal-specific](#-why-journal-specific-skills) | [201 Root Journal Folders](#-201-root-journal-folders) | [Pack Picker](#-pack-selection-cheat-sheet) |
 | [Roadmap](#-roadmap) | [Repository Layout](#-repository-layout) | [Contributing](#-contributing) |
 | [Related Projects](#-related-projects) | [Maintainers](#-maintainers) | [🌐 中文 README](README.md) |
 
@@ -364,11 +389,11 @@ Use qje-workflow to assess how far my draft is from QJE's bar and what to do nex
 | <a id="discipline-life-sciences"></a>🧬 **Life sciences** | cell · molecular · genomics · immunology · microbiology · neuroscience · plant science · ecology/evolution | Cell · Cancer Cell · Molecular Cell · Neuron · Immunity · The Plant Cell · eLife | depth packs + EN natural-science breadth bundle |
 | <a id="discipline-medicine-health"></a>🩺 **Medicine & health** | general medicine · oncology · cardiology · neurology · infectious disease · internal medicine · public health · translational medicine | NEJM · The Lancet · JAMA · BMJ · JCO · Circulation · Blood · Gastroenterology | depth packs + clinical medicine breadth bundle + EN natural-science breadth bundle |
 | <a id="discipline-engineering-tech"></a>⚙️ **Engineering & technology** | control · communications · signal processing · power · robotics · photonics · biomedical engineering · materials | Proceedings of the IEEE · TAC · Automatica · Optica · Nature Electronics · Acta Materialia | English engineering breadth bundle |
-| <a id="discipline-cs-ai"></a>🤖 **Computer science & AI** | AI/ML · CV · NLP · data mining · systems · databases · security · HCI · theory | NeurIPS · ICML · ICLR · AAAI · IJCAI · AISTATS + 155 venues | CS/AI depth packs + conference breadth bundle |
+| <a id="discipline-cs-ai"></a>🤖 **Computer science & AI** | AI/ML · CV · NLP · data mining · systems · databases · security · HCI · theory | NeurIPS · ICML · ICLR · AAAI · IJCAI · AISTATS · UAI · COLT · MLSys · KDD · WebConf · WSDM · SIGIR · CVPR · ICCV · ACL · EMNLP · ICRA · CHI · SOSP · OSDI · IEEE S&P · ACM CCS · ICSE · NAACL · ECCV · PLDI · SIGMOD · STOC · NSDI · USENIX Security · NDSS · FOCS · SODA · POPL · OOPSLA · VLDB · CIKM · EuroSys · ASPLOS · UIST · CSCW · ISCA · MICRO · RSS · CoRL · INTERSPEECH · COLM · HPCA · IROS · ICDE · ICDM · RecSys · MobiCom · ACM MM · ICASSP · SIGCOMM · EACL · AAMAS · WACV · MobiSys · SenSys · ISSTA · FSE · ASE · PODS · CoNEXT · IMC · IPSN · VIS · ICSME · ECAI · ATC · FAST · PPoPP · CAV · ICALP · PODC · SIGMETRICS · PerCom · SIGGRAPH · INFOCOM · ITCS · HRI · SoCC · DAC · EDBT · TACAS · FAccT · ICDT + 155 venues | CS/AI depth packs + conference breadth bundle |
 | <a id="discipline-agri-env-earth"></a>🌱 **Agriculture, environment & earth science** | agricultural systems · crops · environmental science · climate · conservation · earth systems | Field Crops Research · Agricultural Systems · ES&T · Global Environmental Change · Conservation Biology · Global Change Biology | depth packs + agriculture/environment breadth bundle |
 | <a id="discipline-sport-science"></a>🏅 **Sport science** | training · physical education · kinesiology · sport social science | 体育科学 · Journal of Beijing Sport University · Journal of Shanghai University of Sport | Chinese sport-science breadth bundle |
 
-<sub><b>195 packs / 2902 skills</b> total. A "depth pack" = one venue, end-to-end (~12 skills); a "breadth bundle" = one lightweight "venue-fit + house-style" skill per venue plus a router.</sub>
+<sub><b>300 packs / 4166 skills</b> total. A "depth pack" = one venue, end-to-end (~12 skills); a "breadth bundle" = one lightweight "venue-fit + house-style" skill per venue plus a router.</sub>
 
 ---
 
@@ -386,13 +411,13 @@ Use the repo in three passes:
 Rule of thumb: start from a root folder or cover card when browsing, use a breadth bundle when choosing between venues, and use a depth pack once the target journal is fixed.
 
 <details open>
-<summary><b>📂 Click to expand: the 200 root journal-entry folders</b> (100 Chinese pinyin folders + 100 English folders, for browsing by venue name on the GitHub home page)</summary>
+<summary><b>📂 Click to expand: the 201 root journal-entry folders</b> (100 Chinese pinyin folders + 100 English folders + 1 standalone depth-pack entry, for browsing by venue name on the GitHub home page)</summary>
 
 <!-- ROOT-JOURNAL-FOLDERS:START -->
 
-## 📂 200 Root Journal Folders
+## 📂 201 Root Journal Folders
 
-For visual browsing at the repository root, the 200 social-science breadth journals now also have one lightweight folder each: 100 Chinese roadmap journals in pinyin folder names, and 100 English econ / finance / management / business journals in title-style folder names. These folders are navigation entries only; the canonical installable `SKILL.md` files remain inside their bundle directories, so plugin paths and the 2902-skill count stay stable.
+For visual browsing at the repository root, there are 201 lightweight entry folders: 100 Chinese roadmap journals in pinyin folder names, 100 English econ / finance / management / business journals in title-style folder names, and 1 standalone depth-pack entry. These folders are navigation entries only; the canonical installable `SKILL.md` files remain inside their bundle directories, so plugin paths and the audited skill count stay stable.
 
 ### Chinese Roadmap Journals · 100 Pinyin Folders
 
@@ -454,6 +479,12 @@ For visual browsing at the repository root, the 200 social-science breadth journ
 | [Manufacturing-and-Service-Operations-Management/](Manufacturing-and-Service-Operations-Management/)<br><sub>Manufacturing & Service Operations Management</sub> | [Journal-of-Operations-Management/](Journal-of-Operations-Management/)<br><sub>Journal of Operations Management</sub> | [Production-and-Operations-Management/](Production-and-Operations-Management/)<br><sub>Production and Operations Management</sub> | [MIS-Quarterly/](MIS-Quarterly/)<br><sub>MIS Quarterly</sub> |
 | [Information-Systems-Research/](Information-Systems-Research/)<br><sub>Information Systems Research</sub> | [Journal-of-Management-Information-Systems/](Journal-of-Management-Information-Systems/)<br><sub>Journal of Management Information Systems</sub> | [Journal-of-the-Association-for-Information-Systems/](Journal-of-the-Association-for-Information-Systems/)<br><sub>Journal of the Association for Information Systems</sub> | [INFORMS-Journal-on-Computing/](INFORMS-Journal-on-Computing/)<br><sub>INFORMS Journal on Computing</sub> |
 
+### Standalone Depth-Pack Entry · 1 Folder
+
+|  |
+|---|
+| [Xitong-Gongcheng-Xuebao/](Xitong-Gongcheng-Xuebao/)<br><sub>《系统工程学报》</sub> |
+
 <!-- ROOT-JOURNAL-FOLDERS:END -->
 
 </details>
@@ -508,8 +539,115 @@ Take the most complete one — the **Economic Research depth pack** (18 skills) 
 | **AAAI** AAAI Conference on Artificial Intelligence | [AAAI-Skills/](AAAI-Skills/) | Main technical track submission, two-phase review, rebuttal, AI-assisted review handling, camera-ready, artifacts, reproducibility, supplementary material, writing style, experiments, workflow, and topic selection | 12 |
 | **IJCAI** International Joint Conference on Artificial Intelligence | [IJCAI-Skills/](IJCAI-Skills/) | Chairing Tool submission, two-phase review, one-page author response, camera-ready, artifacts, reproducibility, supplementary material, related work, experiments, workflow, and topic selection | 12 |
 | **AISTATS** International Conference on Artificial Intelligence and Statistics | [AISTATS-Skills/](AISTATS-Skills/) | OpenReview submission, text-only author-reviewer discussion, PMLR camera-ready, artifacts, reproducibility checklist, supplementary material, statistical writing, experiments, workflow, and topic selection | 12 |
+| **UAI** Conference on Uncertainty in Artificial Intelligence | [UAI-Skills/](UAI-Skills/) | AUAI main-conference OpenReview submission, author response, PMLR camera-ready, artifacts, reproducibility, supplementary material, probabilistic-modeling writing, experiments, workflow, and topic selection | 12 |
+| **COLT** Conference on Learning Theory | [COLT-Skills/](COLT-Skills/) | Learning-theory submission, proof organization and appendices, author response, PMLR camera-ready, theory-style reproducibility and code norms, review process, writing style, related work, workflow, and topic selection | 12 |
+| **MLSys** Conference on Machine Learning and Systems | [MLSys-Skills/](MLSys-Skills/) | Research/Industrial dual-track submission, artifact-evaluation badges, performance-measurement methodology, reproducibility, supplementary material, review process, systems writing, experiments, workflow, and topic selection | 12 |
+| **KDD** ACM SIGKDD Conference on Knowledge Discovery and Data Mining | [KDD-Skills/](KDD-Skills/) | Research/ADS track choice across two submission cycles, sigconf and ACM TAPS, rebuttal and Resubmit handling, deployment evidence, reproducibility, supplementary material, experiments, workflow, and topic selection | 12 |
+| **The Web Conference** ACM Web Conference (WWW) | [The-Web-Conference-Skills/](The-Web-Conference-Skills/) | Ten-research-track selection, EasyChair submission, author-list freeze at the abstract deadline, single-PDF 12-page arithmetic, the 7-submission cap, rebuttal, camera-ready, reproducibility, experiments, workflow, and topic selection | 12 |
+| **WSDM** ACM International Conference on Web Search and Data Mining | [WSDM-Skills/](WSDM-Skills/) | EasyChair submission, appendix-inclusive page budget, the required ethical-considerations section, desk-reject defense at a no-rebuttal venue, anonymization, review process, writing style, experiments, workflow, and topic selection | 12 |
+| **SIGIR** ACM SIGIR Conference on Research and Development in Information Retrieval | [SIGIR-Skills/](SIGIR-Skills/) | Full/short dual-format page budgets (appendices counted inside), per-track OpenReview groups, PC-nomination duty, IR evaluation rigor (test collections, significance testing), ACM TAPS, reproducibility, workflow, and topic selection | 12 |
+| **CVPR** IEEE/CVF Conference on Computer Vision and Pattern Recognition | [CVPR-Skills/](CVPR-Skills/) | Abstract-registration and OpenReview-profile duties, the 8-page figures-inclusive limit, the Compute Reporting Form, reviewer-duty enrollment, review at 10k+ scale, supplementary material, CVF open-access camera-ready, workflow, and topic selection | 12 |
+| **ICCV** IEEE/CVF International Conference on Computer Vision | [ICCV-Skills/](ICCV-Skills/) | Biennial cadence and the CVPR/ECCV retargeting triangle, OpenReview registration, review process, rebuttal, supplementary material, reproducibility, CVF open-access camera-ready, experiments, workflow, and topic selection | 12 |
+| **ACL** Annual Meeting of the Association for Computational Linguistics | [ACL-Skills/](ACL-Skills/) | ACL Rolling Review cycles plus the commitment step, long/short page rules, the Responsible NLP checklist, the Findings tier, meta-review handling, ACL Anthology camera-ready, workflow, and topic selection | 12 |
+| **EMNLP** Conference on Empirical Methods in Natural Language Processing | [EMNLP-Skills/](EMNLP-Skills/) | ARR submission and EMNLP commitment, the empirical benchmark and error-analysis culture, long/short formats, the Findings tier, ethics review, demo/industry tracks, reproducibility, experiments, workflow, and topic selection | 12 |
+| **ICRA** IEEE International Conference on Robotics and Automation | [ICRA-Skills/](ICRA-Skills/) | PaperPlaza submission, the 6+2 page rule, the RA-L versus direct-submission decision, video-attachment norms, real-robot experiment expectations, single-blind review, IEEE Xplore camera-ready, experiments, workflow, and topic selection | 12 |
+| **CHI** ACM CHI Conference on Human Factors in Computing Systems | [CHI-Skills/](CHI-Skills/) | PCS submission, subcommittee selection strategy, contribution-type diversity, word-count norms (no fixed page limit), 1AC/2AC review with rebuttal, accessible camera-ready, video figures, workflow, and topic selection | 12 |
+| **SOSP** ACM Symposium on Operating Systems Principles | [SOSP-Skills/](SOSP-Skills/) | HotCRP submission, the 12-page body rule, double-blind conflict discipline, author response, sysartifacts badges, the SIGOPS Hall of Fame lineage, the SOSP/OSDI both-annual retargeting calendar, workflow, and topic selection | 12 |
+| **OSDI** USENIX Symposium on Operating Systems Design and Implementation | [OSDI-Skills/](OSDI-Skills/) | USENIX open access, HotCRP submission, the 12-page no-appendix rule, artifact badges (Available/Functional/Reproduced), the response process, systems measurement methodology, workflow, and topic selection | 12 |
+| **IEEE S&P** IEEE Symposium on Security and Privacy | [IEEE-SP-Skills/](IEEE-SP-Skills/) | Multi-cycle submission with the Revise pathway, the compsoc 13+5 page format, mandatory ORCID matching, the Research Ethics Committee and responsible disclosure, the SoK paper type, artifact badges, workflow, and topic selection | 12 |
+| **ACM CCS** ACM Conference on Computer and Communications Security | [ACM-CCS-Skills/](ACM-CCS-Skills/) | Dual-cycle HotCRP submission, the sigconf 12-page body, the ethics-considerations appendix, minor-revision mechanics, the ACM artifact badge ladder, the Big-Four security retargeting calendar, workflow, and topic selection | 12 |
+| **ICSE** IEEE/ACM International Conference on Software Engineering | [ICSE-Skills/](ICSE-Skills/) | Dual-cycle research track, the 10+2 page IEEE format, double-anonymous review with the open-science policy, threats-to-validity culture, NIER/SEIP/Demo retargeting, artifact badges, workflow, and topic selection | 12 |
+| **NAACL** Nations of the Americas Chapter of the ACL | [NAACL-Skills/](NAACL-Skills/) | ARR submission and commitment, the 2024 renaming and Americas identity, the skipped-year reality (no 2026 edition), the Findings tier, the Responsible NLP checklist, theme tracks, workflow, and topic selection | 12 |
+| **ECCV** European Conference on Computer Vision | [ECCV-Skills/](ECCV-Skills/) | Even-year cadence and the CVPR/ICCV retargeting triangle, the 14-page single-column LNCS format (figures included), the one-page rebuttal, Springer + ECVA open access (not CVF), reviewer-duty enforcement, workflow, and topic selection | 12 |
+| **PLDI** ACM SIGPLAN Conference on Programming Language Design and Implementation | [PLDI-Skills/](PLDI-Skills/) | PACMPL journal-style publication, HotCRP double-blind, the 20-page acmsmall format, SIGPLAN Empirical Evaluation Guidelines, Zenodo artifact badges, SIGPLAN-family retargeting, workflow, and topic selection | 12 |
+| **SIGMOD** ACM SIGMOD International Conference on Management of Data | [SIGMOD-Skills/](SIGMOD-Skills/) | The PACMMOD multi-round model with revision outcomes, ARI reproducibility badges, cross-round anonymity, the industrial track, the VLDB/PVLDB retargeting decision, workflow, and topic selection | 12 |
+| **STOC** ACM Symposium on Theory of Computing | [STOC-Skills/](STOC-Skills/) | The SIGACT flagship theory venue, the arXiv full-version culture, proof organization and re-derivability, the STOC/FOCS retargeting calendar, TheoryFest, workflow, and topic selection | 12 |
+| **NSDI** USENIX Symposium on Networked Systems Design and Implementation | [NSDI-Skills/](NSDI-Skills/) | The two-deadline-per-year calendar, the networked-systems boundary versus OSDI/SOSP, USENIX open access, sysartifacts badges, deployment-evidence culture, workflow, and topic selection | 12 |
+| **USENIX Security** USENIX Security Symposium | [USENIX-Security-Skills/](USENIX-Security-Skills/) | Dual cycles with the Shepherd-Approval mechanic (Major Revision retired for '26), 13 pages plus mandatory ethics and open-science appendices, two-phase artifact evaluation, Big-Four security retargeting, workflow, and topic selection | 12 |
+| **NDSS** Network and Distributed System Security Symposium | [NDSS-Skills/](NDSS-Skills/) | Dual cycles with two-round review and early reject, Minor/Major Revision outcomes, the Ethics Review Board, Internet Society free open-access proceedings, secartifacts badges, workflow, and topic selection | 12 |
+| **FOCS** IEEE Symposium on Foundations of Computer Science | [FOCS-Skills/](FOCS-Skills/) | The IEEE TCMF theory flagship, the STOC/FOCS spring-fall retargeting rhythm, the arXiv full-version culture, proof organization, the Machtey Award lineage, workflow, and topic selection | 12 |
+| **SODA** ACM-SIAM Symposium on Discrete Algorithms | [SODA-Skills/](SODA-Skills/) | Joint ACM-SIAM machinery and the January slot, the theory-triangle calendar, SOSA/ALENEX/ANALCO satellite routing, SIAM format norms, workflow, and topic selection | 12 |
+| **POPL** ACM SIGPLAN Symposium on Principles of Programming Languages | [POPL-Skills/](POPL-Skills/) | PACMPL publication, the 25-page text limit, full double-blind since 2023, conditional acceptance with mandatory revision, the mechanized-proof artifact culture (no admits), workflow, and topic selection | 12 |
+| **OOPSLA** ACM SIGPLAN OOPSLA (SPLASH) | [OOPSLA-Skills/](OOPSLA-Skills/) | The two-round PACMPL model, four review outcomes with cross-round Major Revision, the 23/25-page acmsmall format, the Data-Availability Statement, the SPLASH umbrella, workflow, and topic selection | 12 |
+| **VLDB** International Conference on Very Large Data Bases | [VLDB-Skills/](VLDB-Skills/) | PVLDB monthly rolling submission with revision windows, month-picking strategy, reproducibility badges, the scalable-data-science and industrial tracks, the SIGMOD/PVLDB retargeting decision, workflow, and topic selection | 12 |
+| **CIKM** ACM International Conference on Information and Knowledge Management | [CIKM-Skills/](CIKM-Skills/) | The tri-community IR+DM+KM identity, full/short/resource tracks, the fall retargeting role versus SIGIR/WSDM/KDD, knowledge-graph and enterprise flavor, workflow, and topic selection | 12 |
+| **EuroSys** European Conference on Computer Systems | [EuroSys-Skills/](EuroSys-Skills/) | The European SIGOPS flagship, the dual-deadline calendar, the systems retargeting matrix, sysartifacts badges, HotCRP double-blind, workflow, and topic selection | 12 |
+| **ASPLOS** ACM ASPLOS | [ASPLOS-Skills/](ASPLOS-Skills/) | The architecture+PL+OS intersection identity, the multi-deadline cycle with revisions, hardware-evaluation methodology (simulators, silicon, FPGA), ACM artifact badges, workflow, and topic selection | 12 |
+| **UIST** ACM Symposium on User Interface Software and Technology | [UIST-Skills/](UIST-Skills/) | The interface-systems contribution bar (techniques, hardware, toolkits), PCS submission, the video-figure demo culture, CHI-vs-UIST routing, the single-track community, workflow, and topic selection | 12 |
+| **CSCW** ACM CSCW / PACMHCI | [CSCW-Skills/](CSCW-Skills/) | PACMHCI journal mechanics and the 2027 rolling-submission transition (both regimes taught), R&R culture, qualitative+quantitative methods pluralism, sensitive-community anonymization, workflow, and topic selection | 12 |
+| **ISCA** ACM/IEEE International Symposium on Computer Architecture | [ISCA-Skills/](ISCA-Skills/) | The June architecture flagship, rebuttal and revision mechanics, simulation-methodology rigor (gem5, workload selection), artifact evaluation, the ISCA/MICRO/ASPLOS/HPCA retargeting calendar, workflow, and topic selection | 12 |
+| **MICRO** IEEE/ACM International Symposium on Microarchitecture | [MICRO-Skills/](MICRO-Skills/) | The October microarchitecture flagship, double-blind with rebuttal, pipeline-level simulation and power-modeling evidence, the Test-of-Time lineage, workflow, and topic selection | 12 |
+| **RSS** Robotics: Science and Systems | [RSS-Skills/](RSS-Skills/) | The single-track selective identity and science-claim bar, free open access at roboticsproceedings, the ICRA/IROS/RSS/CoRL retargeting calendar, real-robot evidence, workflow, and topic selection | 12 |
+| **CoRL** Conference on Robot Learning | [CoRL-Skills/](CoRL-Skills/) | The robot-learning intersection (routing vs ICRA/RSS/NeurIPS/ICLR), OpenReview rebuttal, PMLR proceedings, sim-to-real and evaluation-episode rigor, workflow, and topic selection | 12 |
+| **INTERSPEECH** Annual Conference of ISCA | [INTERSPEECH-Skills/](INTERSPEECH-Skills/) | The speech flagship's 4-page-plus-references format, ISCA archive open access, WER/MOS evaluation with significance testing, corpus-license hygiene, workflow, and topic selection | 12 |
+| **COLM** Conference on Language Modeling | [COLM-Skills/](COLM-Skills/) | The young LM-focused venue (routing vs ACL/EMNLP/ICLR/NeurIPS), OpenReview rebuttal, evaluation contamination and compute disclosure, API-model reproducibility caveats, workflow, and topic selection | 12 |
+| **HPCA** IEEE International Symposium on High-Performance Computer Architecture | [HPCA-Skills/](HPCA-Skills/) | The winter-conference/July-deadline slot, IEEE-CS TCCA sponsorship with IEEE reproducibility badging (not ACM), the 11-page body with all-author references, the single rebuttal/revision window, ISCA/MICRO/ASPLOS/HPCA retargeting, workflow, and topic selection | 12 |
+| **IROS** IEEE/RSJ International Conference on Intelligent Robots and Systems | [IROS-Skills/](IROS-Skills/) | The fall IEEE/RSJ mega-venue, PaperPlaza submission, the 6+2 page budget with references counted, the 60s/10MB video, the 2026 move to double-anonymous, the ICRA/IROS/RSS/CoRL calendar, workflow, and topic selection | 12 |
+| **ICDE** IEEE International Conference on Data Engineering | [ICDE-Skills/](ICDE-Skills/) | Two-round submission with revision outcomes, Microsoft CMT, the IEEE 12-page format, the SIGMOD/VLDB/ICDE triangle routing, the TKDE relationship, the 10-Year Influential Paper lineage, workflow, and topic selection | 12 |
+| **ICDM** IEEE International Conference on Data Mining | [ICDM-Skills/](ICDM-Skills/) | The IEEE data-mining flagship (routing vs KDD/CIKM/WSDM/SDM), strict anonymization, the no-rebuttal tradition, the regular-to-short demotion mechanic at acceptance, the 10-Year Highest-Impact lineage, workflow, and topic selection | 12 |
+| **RecSys** ACM Conference on Recommender Systems | [RecSys-Skills/](RecSys-Skills/) | Single-community routing, the dedicated Reproducibility track, offline/online and off-policy evaluation, industry density, the ACM two-column 8-page format, the 2026 LBR-to-R&P-Notes change, workflow, and topic selection | 12 |
+| **MobiCom** ACM International Conference on Mobile Computing and Networking | [MobiCom-Skills/](MobiCom-Skills/) | The SIGMOBILE flagship (routing vs MobiSys/SenSys/NSDI), the two-deadline calendar with revisions, real-device testbeds and RF/energy-measurement rigor, artifact badges, workflow, and topic selection | 12 |
+| **ACM MM** ACM International Conference on Multimedia | [ACM-MM-Skills/](ACM-MM-Skills/) | The SIGMM flagship and the multimedia-vs-pure-CV boundary (routing vs CVPR/ICCV), the thematic-area submission structure, sigconf format with rebuttal, the Brave New Ideas/Grand Challenges tracks, workflow, and topic selection | 12 |
+| **ICASSP** IEEE International Conference on Acoustics, Speech and Signal Processing | [ICASSP-Skills/](ICASSP-Skills/) | The IEEE SPS full-signal-processing flagship (routing vs INTERSPEECH), the 4+1 page format, the single-blind no-rebuttal tradition, CMT, the September slot, SPL/TASLP journal continuity, workflow, and topic selection | 12 |
+| **SIGCOMM** ACM SIGCOMM Conference | [SIGCOMM-Skills/](SIGCOMM-Skills/) | The single annual deadline, research/experience tracks, early-reject + rebuttal + shepherd-run one-shot revision, TAPS publication, ACM artifact badges, SIGCOMM/NSDI/MobiCom routing, workflow, and topic selection | 12 |
+| **EACL** European Chapter of the ACL | [EACL-Skills/](EACL-Skills/) | The European *ACL chapter, ARR single-cycle and commitment, long/short plus Findings, the Responsible NLP checklist, regional-chapter routing (vs ACL/EMNLP/NAACL), workflow, and topic selection | 12 |
+| **AAMAS** Autonomous Agents and Multiagent Systems | [AAMAS-Skills/](AAMAS-Skills/) | The IFAAMAS multiagent flagship, OpenReview double-blind, the Main/AAAI/JAAMAS/Blue-Sky tracks, the 8-page-plus-references limit, the JAAMAS journal relationship, workflow, and topic selection | 12 |
+| **WACV** IEEE/CVF Winter Conference on Applications of Computer Vision | [WACV-Skills/](WACV-Skills/) | The two-round Revise-and-Resubmit model, the Applications/Algorithms tracks, CVF open access + IEEE Xplore, the CVPR/ICCV/ECCV/WACV winter routing, the 8-page format, workflow, and topic selection | 12 |
+| **MobiSys** ACM Conference on Mobile Systems, Applications, and Services | [MobiSys-Skills/](MobiSys-Skills/) | The SIGMOBILE mobile-systems-and-apps flagship, on-device evaluation rigor (energy/latency/deployment), artifact badges, routing vs MobiCom/SenSys/NSDI, workflow, and topic selection | 12 |
+| **SenSys** ACM Conference on Embedded Networked Sensor Systems | [SenSys-Skills/](SenSys-Skills/) | The SIGMOBILE sensor/embedded/IoT flagship, real-deployment and low-power measurement rigor, the strong artifact culture, routing vs MobiCom/MobiSys/IPSN, workflow, and topic selection | 12 |
+| **ISSTA** ACM SIGSOFT International Symposium on Software Testing and Analysis | [ISSTA-Skills/](ISSTA-Skills/) | The testing-and-analysis flagship, the 18-page rule, the Major-Revision two-phase process, ACM badges + Zenodo culture, Defects4J-style benchmark rigor, routing vs ICSE/FSE/ASE, workflow, and topic selection | 12 |
+| **ESEC/FSE** ACM Conference on the Foundations of Software Engineering | [FSE-Skills/](FSE-Skills/) | The SIGSOFT foundations-of-SE flagship, the PACMSE journal-style multi-cycle model, double-blind + open science, threats-to-validity culture (independent of ICSE), routing vs ICSE/ASE/ISSTA, workflow, and topic selection | 12 |
+| **ASE** IEEE/ACM International Conference on Automated Software Engineering | [ASE-Skills/](ASE-Skills/) | The automated-SE flagship, IEEE/ACM dual sponsorship + dual proceedings, acmart 10+2, double-anonymous + early rejection, Available/Reusable badges, the "automation-as-contribution" topic test, routing vs ICSE/FSE/ISSTA, workflow, and topic selection | 12 |
+| **ICSME** IEEE International Conference on Software Maintenance and Evolution | [ICSME-Skills/](ICSME-Skills/) | The maintenance-and-evolution flagship, the IEEE single-round early-decision model, IEEEtran 10+2, the Journal-First/Registered-Reports/RENE tracks, mining-software-repositories evidence culture, the ROSE research-object badges, routing vs ICSE/FSE/ASE, workflow, and topic selection | 12 |
+| **PODS** ACM Symposium on Principles of Database Systems | [PODS-Skills/](PODS-Skills/) | The database-theory flagship co-located with SIGMOD, multiple submission cycles, lightweight double-anonymous EasyChair review, the acmsmall 15-page-plus-appendix budget, proof-appendix/arXiv-full-version in place of artifacts, the shepherded revision round, routing vs SIGMOD/VLDB/ICDE, workflow, and topic selection | 12 |
+| **CoNEXT** ACM Conference on emerging Networking EXperiments and Technologies | [CoNEXT-Skills/](CoNEXT-Skills/) | The networking-experiments flagship, two submission cycles per year feeding one annual program, the PACMNET journal-style model, one-shot major revision + shepherd, the reproducibility-committee badge, routing vs SIGCOMM/NSDI/IMC, workflow, and topic selection | 12 |
+| **IMC** ACM Internet Measurement Conference | [IMC-Skills/](IMC-Skills/) | The internet-measurement flagship, vantage-point representativeness and dataset release, the mandatory Ethics gate with IRB/responsible disclosure, the two-deadline One-Shot-Revision model, the Replicability Track, the Community Contribution Award, routing vs SIGCOMM/NSDI/CoNEXT, workflow, and topic selection | 12 |
+| **IPSN** ACM/IEEE Conference on Information Processing in Sensor Networks | [IPSN-Skills/](IPSN-Skills/) | The sensor-networks flagship, the IP/SPOTS dual-track model, CPS-IoT Week co-location, the ACM primary template ≤12pp, hardware-artifact reproducibility, TinyML/compressive-sensing/localization, submission routing to the merged new SenSys, routing vs SenSys/MobiSys/MobiCom, workflow, and topic selection | 12 |
+| **VIS** IEEE Visualization Conference | [VIS-Skills/](VIS-Skills/) | The data-visualization flagship, papers published as IEEE TVCG journal articles, the two-phase review with conditional-accept, PCS/VGTC 9+2, the six-area model, the Graphics Replicability Stamp, the task-justified-encoding evaluation culture, workflow, and topic selection | 12 |
+| **ECAI** European Conference on Artificial Intelligence | [ECAI-Skills/](ECAI-Skills/) | The European general-AI flagship (EurAI), the dual-identity format (standalone IOS Press FAIA `ecai.cls` 7+1 + PAIS vs the joint IJCAI-ECAI 2026 `ijcai.sty` 7+2), abstract-then-paper two-deadline flow, summary-reject + single rebuttal, no artifact-badge track, routing vs AAMAS/KDD/UAI, workflow, and topic selection | 12 |
+| **ATC** USENIX / ACM SIGOPS Annual Technical Conference | [ATC-Skills/](ATC-Skills/) | The broad practical-systems flagship, the 2026 USENIX→ACM SIGOPS handover, the two-round extended-abstract gate, the Deployed Systems / experience-paper lane, shepherded conditional acceptance, USENIX-lineage artifact badges, routing vs OSDI/NSDI/EuroSys/SOSP, workflow, and topic selection | 12 |
+| **FAST** USENIX Conference on File and Storage Technologies | [FAST-Skills/](FAST-Skills/) | The storage-specialized flagship, real-device measurement and write-amplification/tail-latency/endurance/crash-consistency evidence, two deadlines + one-shot revision, the USENIX three badges, SNIA/YCSB trace culture, routing vs OSDI/ATC/EuroSys, workflow, and topic selection | 12 |
+| **PPoPP** ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming | [PPoPP-Skills/](PPoPP-Skills/) | The parallel-programming flagship, the "is the parallelism the point?" topic test, the twin correctness + scalability evidence bar, acmart sigplan two-column 10 pages, double-blind + rebuttal, the CGO-shared badge policy, routing vs PLDI/ASPLOS/POPL, workflow, and topic selection | 12 |
+| **CAV** International Conference on Computer Aided Verification | [CAV-Skills/](CAV-Skills/) | The formal-verification flagship, Springer LNCS open access, Regular/Tool/Application/Industrial tracks with partial anonymity, two-stage early-reject review, the AEC three badges, SV-COMP/SMT-COMP benchmark and proof-certificate culture, routing vs POPL/PLDI, workflow, and topic selection | 12 |
+| **ICALP** EATCS International Colloquium on Automata, Languages, and Programming | [ICALP-Skills/](ICALP-Skills/) | Europe's TCS flagship, the Track A/B two-committee split, a single February deadline, LIPIcs open access (15 pages + full version), lightweight double-blind, no artifact evaluation (proof rigor / checkable certificates instead), routing vs STOC/FOCS/SODA, workflow, and topic selection | 12 |
+| **PODC** ACM Symposium on Principles of Distributed Computing | [PODC-Skills/](PODC-Skills/) | The distributed-computing-theory flagship co-located with SPAA, the 10-page-merits rule + Brief Announcements, acmart lightweight double-blind, message-passing/shared-memory + failure-model proof culture (no artifacts), the PODC-vs-PODS distinction, routing vs STOC/SODA/DISC, workflow, and topic selection | 12 |
+| **SIGMETRICS** ACM SIGMETRICS Conference (Measurement & Modeling of Systems) | [SIGMETRICS-Skills/](SIGMETRICS-Skills/) | The systems-performance flagship, the POMACS three-cycle rolling journal model, one-shot revision + mandatory shepherding, the proven-bound + measurement-validation twin culture, acmsmall 20 pages, routing vs IMC/SIGCOMM/NSDI, workflow, and topic selection | 12 |
+| **PerCom** IEEE International Conference on Pervasive Computing and Communications | [PerCom-Skills/](PerCom-Skills/) | The human-centric ubicomp flagship, IEEEtran 9+1, the early-rejection-gated single-round rebuttal, leave-one-subject-out/F1/human-subjects-ethics evidence, the Mark Weiser Best Paper award, the UbiComp/IMWUT contrast, routing vs MobiSys/SenSys/IPSN, workflow, and topic selection | 12 |
+| **SIGGRAPH** ACM SIGGRAPH (Technical Papers) | [SIGGRAPH-Skills/](SIGGRAPH-Skills/) | The computer-graphics flagship, papers published as ACM TOG, Journal/Conference single-round co-review, two cycles per year, ≤1000-word plain-text rebuttal + conditional-accept second stage, results-video as primary evidence, the GRSI/CRCG replicability stamp, workflow, and topic selection | 12 |
+| **INFOCOM** IEEE International Conference on Computer Communications | [INFOCOM-Skills/](INFOCOM-Skills/) | IEEE's large networking flagship, EDAS double-blind + automated reviewer assignment, an early-reject phase, no author rebuttal (defensive writing), IEEEtran two-column 10 pages, a five-papers-per-author cap, the analytical/optimization tradition (scheduling/queueing/AoI/game theory), routing vs SIGCOMM/NSDI/CoNEXT, workflow, and topic selection | 12 |
+| **ITCS** Innovations in Theoretical Computer Science | [ITCS-Skills/](ITCS-Skills/) | The conceptual-novelty theory flagship, the "is this a new question worth asking?" topic test, LIPIcs open access, a single September deadline, lightweight double-blind, no rebuttal / no artifacts (proof rigor + conceptual contribution instead), the Graduating Bits culture, routing vs STOC/FOCS/SODA/ICALP, workflow, and topic selection | 12 |
+| **HRI** ACM/IEEE International Conference on Human-Robot Interaction | [HRI-Skills/](HRI-Skills/) | The interdisciplinary HRI flagship, mandatory embodied-robot human-subjects studies, five contribution-typed tracks, IRB ethics + Wizard-of-Oz, between/within-subjects design + effect sizes + qualitative rigor, two-phase double-blind + rebuttal, the video figure as first-class, routing vs CHI/ICRA/IROS/CoRL, workflow, and topic selection | 12 |
+| **SoCC** ACM Symposium on Cloud Computing | [SoCC-Skills/](SoCC-Skills/) | The cloud-computing flagship, the only SIGMOD+SIGOPS-jointly-sponsored venue, the systems-and-data intersection, two review rounds per year (no cross-round resubmission), acmart double-blind + per-round rebuttal, tail latency and cost as first-class, routing vs OSDI/NSDI/EuroSys/ATC, workflow, and topic selection | 12 |
+| **DAC** Design Automation Conference | [DAC-Skills/](DAC-Skills/) | The EDA/chip-design flagship, QoR/PPA on ISPD/EPFL benchmark suites, the Research-vs-Engineering track choice, single-round TPC review with no rebuttal, no artifact badges, the 6+1-page ACM double-column budget, ML-for-EDA/hardware security, routing vs ISCA/MICRO/HPCA, workflow, and topic selection | 12 |
+| **EDBT** International Conference on Extending Database Technology | [EDBT-Skills/](EDBT-Skills/) | The European database-systems flagship, OpenProceedings open access (CC-BY-NC-ND, no APC), a three-cycle rolling model with in-cycle revise-and-resubmit, ICDT theory co-location, Experiments-&-Analysis papers and reproducibility, routing vs SIGMOD/VLDB/ICDE/PODS, workflow, and topic selection | 12 |
+| **TACAS** International Conference on Tools and Algorithms for the Construction and Analysis of Systems | [TACAS-Skills/](TACAS-Skills/) | The ETAPS tools-and-algorithms verification flagship, four paper categories (research/tool/tool-demo/case-study) with per-category limits, per-category blinding, mandatory artifact evaluation running in parallel with the PC (gating tool papers), Springer LNCS gold open access, hosting SV-COMP, hard differentiation from CAV, routing vs POPL/PLDI, workflow, and topic selection | 12 |
+| **FAccT** ACM Conference on Fairness, Accountability, and Transparency | [FAccT-Skills/](FAccT-Skills/) | The interdisciplinary responsible-AI flagship, fairness/accountability/transparency as first-class contributions, a mixed CS+law+social-science reviewer pool, the 2026 firsts (OpenReview + Accept/Revise/Reject + Generative-AI-usage statement), Positionality/endmatter anonymity, datasheet/model-card documentation culture, routing vs NeurIPS/ICML/CHI, workflow, and topic selection | 12 |
+| **ICDT** International Conference on Database Theory | [ICDT-Skills/](ICDT-Skills/) | The European database-theory flagship co-located with EDBT, LIPIcs open access (vs PODS's ACM PACMMOD), two rounds per year (a Cycle-1 revision), anonymous review since 2024, complete-proofs / arXiv-full-version culture, routing vs PODS/SIGMOD/VLDB, workflow, and topic selection | 12 |
 
 This bundle puts AI conferences first: NeurIPS, ICML, ICLR, AAAI, IJCAI, AISTATS, UAI, COLT, MLSys, KDD, CVPR, ACL, EMNLP, SIGIR, ICRA, CHI, SOSP, IEEE S&P, ICSE, PLDI, SIGMOD, STOC, and 130+ more. Each profile is a conference-fit and current-cycle submission checklist; volatile facts such as deadlines, page limits, templates, AI-use policies, artifact rules, rebuttal formats, and camera-ready requirements must be re-checked on the live official CFP or author kit before submission.
+
+### Computer science · Chinese-journal depth packs
+
+Depth packs for the CCF-recommended **Chinese-language journals** (distinct from the English conferences above): the Chinese submission→review flow (first review → external review → re-review → editor-in-chief decision), GB/T 7714 references, bilingual abstracts with a TP subject code, special topics/issues, and honoraria-or-page-charge norms — **journals, not conferences**.
+
+| Venue | Pack | Coverage | Skills |
+|-------|------|----------|-------:|
+| **《计算机学报》** Chinese Journal of Computers (CJC) | [Chinese-Journal-of-Computers-Skills/](Chinese-Journal-of-Computers-Skills/) | The CCF-A whole-discipline flagship monthly, the original-long-paper tradition, three-stage review with multiple revisions, cjc.ict.ac.cn online submission, GB/T 7714, TP subject code, workflow, and topic selection | 12 |
+| **《软件学报》** Journal of Software (JOS) | [Journal-of-Software-Skills/](Journal-of-Software-Skills/) | The CCF-A software-discipline flagship (SE/systems/PL/DB/networking/security), ChinaSoft special issues, first→external→re-review→editor-in-chief chain, bilingual elements + GB/T 7714, workflow, and topic selection | 12 |
+| **《计算机研究与发展》** Journal of Computer Research and Development (JCRD) | [Journal-of-Computer-Research-and-Development-Skills/](Journal-of-Computer-Research-and-Development-Skills/) | The CCF-A whole-discipline journal, special-topic (guest-editor) organization with reviews + original work, double-blind review, crad.ict.ac.cn, workflow, and topic selection | 12 |
+| **《自动化学报》** Acta Automatica Sinica (AAS) | [Acta-Automatica-Sinica-Skills/](Acta-Automatica-Sinica-Skills/) | The control/pattern-recognition/robotics/intelligent-systems flagship, double-blind three-stage review, author-commitment gating, bilingual, honoraria (not page charges), aas-cn (ScholarOne), workflow, and topic selection | 12 |
+| **《中国科学：信息科学》** Scientia Sinica Informationis (SSI) | [Scientia-Sinica-Informationis-Skills/](Scientia-Sinica-Informationis-Skills/) | The national broad-information flagship (CS+control+comms+microelectronics), review/paper/letter four-column model, choose-one submission vs the English sister Science China Information Sciences, LaTeX, workflow, and topic selection | 12 |
+| **《电子学报》** Acta Electronica Sinica (AES) | [Acta-Electronica-Sinica-Skills/](Acta-Electronica-Sinica-Skills/) | The electronics-and-information flagship (electronics/signal/circuits/EM/ICs), double-blind multi-level review, the six-month reply deadline, split vs the English Chinese Journal of Electronics, workflow, and topic selection | 12 |
+| **《模式识别与人工智能》** Pattern Recognition and Artificial Intelligence (PR&AI) | [Pattern-Recognition-and-Artificial-Intelligence-Skills/](Pattern-Recognition-and-Artificial-Intelligence-Skills/) | The AI-focused specialty journal (pattern recognition/ML/CV/NLP/intelligent systems), Magtech submission, 18,000–44,000-character long papers, the official six-month review, workflow, and topic selection | 12 |
+| **《计算机辅助设计与图形学学报》** Journal of Computer-Aided Design & Computer Graphics (JCAD&CG) | [Journal-of-CAD-and-Computer-Graphics-Skills/](Journal-of-CAD-and-Computer-Graphics-Skills/) | The CCF-A graphics/geometry venue (graphics/CAD/geometric design/visualization/VR/imaging), geometric-accuracy and rendering-quality evidence, jcad.cn, workflow, and topic selection | 12 |
+| **《通信学报》** Journal on Communications (JOC) | [Journal-on-Communications-Skills/](Journal-on-Communications-Skills/) | The communications flagship (theory/wireless-mobile/networking/security-crypto/signal processing), link- and system-level simulation evidence, CBPT three-stage review, workflow, and topic selection | 12 |
+| **《计算机科学》** Computer Science journal (JSJKX) | [Computer-Science-Journal-Skills/](Computer-Science-Journal-Skills/) | The broad Chinese CS journal, active columns/special topics, single-blind review, long-paper friendly, jsjkx.com, explicitly a journal not a conference, workflow, and topic selection | 12 |
+
+### Engineering & technology · Chinese journals — depth packs
+
+| Cover | Journal | Pack | Field | Skills |
+|:----:|------|------|------|-------:|
+| — | **《系统工程学报》** Journal of Systems Engineering | [Journal-of-Systems-Engineering-Skills/](Journal-of-Systems-Engineering-Skills/) | Systems engineering | 12 |
 
 ### Social science · Chinese top journals — depth packs
 
@@ -530,6 +668,8 @@ This bundle puts AI conferences first: NeurIPS, ICML, ICLR, AAAI, IJCAI, AISTATS
 | <a href="China-Rural-Economy-Skills/"><img src="assets/covers/china-rural-economy.png" alt="《中国农村经济》" width="56"></a> | **《中国农村经济》** China Rural Economy | [China-Rural-Economy-Skills/](China-Rural-Economy-Skills/) | Agricultural & rural economics | 12 |
 | <a href="Journal-of-Finance-and-Economics-Skills/"><img src="assets/covers/journal-of-finance-and-economics.png" alt="《财经研究》" width="56"></a> | **《财经研究》** Journal of Finance and Economics | [Journal-of-Finance-and-Economics-Skills/](Journal-of-Finance-and-Economics-Skills/) | Economics & finance (comprehensive) | 12 |
 | <a href="Chinese-Public-Administration-Skills/"><img src="assets/covers/chinese-public-administration.png" alt="《中国行政管理》" width="56"></a> | **《中国行政管理》** Chinese Public Administration | [Chinese-Public-Administration-Skills/](Chinese-Public-Administration-Skills/) | Public administration & governance | 12 |
+| <a href="Finance-and-Trade-Economics-Skills/"><img src="Finance-and-Trade-Economics-Skills/assets/cover.svg" alt="《财贸经济》" width="56"></a> | **《财贸经济》** Finance & Trade Economics | [Finance-and-Trade-Economics-Skills/](Finance-and-Trade-Economics-Skills/) | Public finance · finance · trade | 12 |
+| <a href="Chinese-Journal-of-Management-Science-Skills/"><img src="Chinese-Journal-of-Management-Science-Skills/assets/cover.svg" alt="《中国管理科学》" width="56"></a> | **《中国管理科学》** Chinese Journal of Management Science | [Chinese-Journal-of-Management-Science-Skills/](Chinese-Journal-of-Management-Science-Skills/) | Management science & engineering | 12 |
 
 ### Social science · Chinese top journals — breadth bundle
 
@@ -740,8 +880,11 @@ This bundle puts AI conferences first: NeurIPS, ICML, ICLR, AAAI, IJCAI, AISTATS
 | <a href="Organization-Studies-Skills/"><img src="assets/covers/organization-studies.png" alt="Organization Studies" width="56"></a> | **Organization Studies** (OS) | [Organization-Studies-Skills/](Organization-Studies-Skills/) | Organization studies | 12 |
 | <a href="Academy-of-Management-Annals-Skills/"><img src="assets/covers/academy-of-management-annals.png" alt="Academy of Management Annals" width="56"></a> | **Academy of Management Annals** (AMA) | [Academy-of-Management-Annals-Skills/](Academy-of-Management-Annals-Skills/) | Management reviews | 12 |
 | <a href="Review-of-Accounting-Studies-Skills/"><img src="assets/covers/review-of-accounting-studies.png" alt="Review of Accounting Studies" width="56"></a> | **Review of Accounting Studies** (RAST) | [Review-of-Accounting-Studies-Skills/](Review-of-Accounting-Studies-Skills/) | Accounting | 12 |
+| <a href="Accounting-Organizations-and-Society-Skills/"><img src="assets/covers/accounting-organizations-and-society.png" alt="Accounting, Organizations and Society" width="56"></a> | **Accounting, Organizations and Society** (AOS) | [Accounting-Organizations-and-Society-Skills/](Accounting-Organizations-and-Society-Skills/) | Interdisciplinary accounting | 12 |
 | <a href="Journal-of-the-Academy-of-Marketing-Science-Skills/"><img src="assets/covers/journal-of-the-academy-of-marketing-science.png" alt="Journal of the Academy of Marketing Science" width="56"></a> | **Journal of the Academy of Marketing Science** (JAMS) | [Journal-of-the-Academy-of-Marketing-Science-Skills/](Journal-of-the-Academy-of-Marketing-Science-Skills/) | Marketing | 12 |
 | <a href="Journal-of-Consumer-Psychology-Skills/"><img src="assets/covers/journal-of-consumer-psychology.png" alt="Journal of Consumer Psychology" width="56"></a> | **Journal of Consumer Psychology** (JCP) | [Journal-of-Consumer-Psychology-Skills/](Journal-of-Consumer-Psychology-Skills/) | Consumer psychology | 12 |
+| <a href="Journal-of-International-Marketing-Skills/"><img src="Journal-of-International-Marketing-Skills/assets/cover.svg" alt="Journal of International Marketing" width="56"></a> | **Journal of International Marketing** (JIM) | [Journal-of-International-Marketing-Skills/](Journal-of-International-Marketing-Skills/) | International marketing | 12 |
+| <a href="Journal-of-Public-Policy-and-Marketing-Skills/"><img src="Journal-of-Public-Policy-and-Marketing-Skills/assets/cover.svg" alt="Journal of Public Policy &amp; Marketing" width="56"></a> | **Journal of Public Policy & Marketing** (JPP&M) | [Journal-of-Public-Policy-and-Marketing-Skills/](Journal-of-Public-Policy-and-Marketing-Skills/) | Marketing & public policy | 12 |
 | <a href="Human-Resource-Management-Skills/"><img src="assets/covers/human-resource-management.png" alt="Human Resource Management" width="56"></a> | **Human Resource Management** (HRM) | [Human-Resource-Management-Skills/](Human-Resource-Management-Skills/) | Human resource management | 12 |
 | <a href="Human-Relations-Skills/"><img src="assets/covers/human-relations.png" alt="Human Relations" width="56"></a> | **Human Relations** | [Human-Relations-Skills/](Human-Relations-Skills/) | Org. & management | 12 |
 | <a href="Entrepreneurship-Theory-and-Practice-Skills/"><img src="assets/covers/entrepreneurship-theory-and-practice.png" alt="Entrepreneurship Theory and Practice" width="56"></a> | **Entrepreneurship Theory and Practice** (ETP) | [Entrepreneurship-Theory-and-Practice-Skills/](Entrepreneurship-Theory-and-Practice-Skills/) | Entrepreneurship | 12 |
@@ -913,6 +1056,8 @@ Beyond business and economics, depth packs now extend to **sociology, political 
 | Art history | The Art Bulletin | [The-Art-Bulletin-Skills/](The-Art-Bulletin-Skills/) | 12 |
 | Philosophy | Mind | [Mind-Skills/](Mind-Skills/) | 12 |
 | Literature / language | PMLA | [PMLA-Skills/](PMLA-Skills/) | 12 |
+| Linguistics | Language (Linguistic Society of America) | [Language-Linguistic-Society-Skills/](Language-Linguistic-Society-Skills/) | 12 |
+| Geography | Progress in Human Geography (PiHG) | [Progress-in-Human-Geography-Skills/](Progress-in-Human-Geography-Skills/) | 12 |
 | Critical theory | Critical Inquiry | [Critical-Inquiry-Skills/](Critical-Inquiry-Skills/) | 12 |
 | Religion | Journal of the American Academy of Religion (JAAR) | [Journal-of-the-American-Academy-of-Religion-Skills/](Journal-of-the-American-Academy-of-Religion-Skills/) | 12 |
 
@@ -965,6 +1110,10 @@ Beyond business and economics, depth packs now extend to **sociology, political 
 | <a href="Physical-Review-Letters-Skills/"><img src="assets/covers/physical-review-letters.png" alt="Physical Review Letters" width="56"></a> | **Physical Review Letters** (PRL) | [Physical-Review-Letters-Skills/](Physical-Review-Letters-Skills/) | Physics (letters) | 12 |
 | <a href="Journal-of-the-American-Chemical-Society-Skills/"><img src="assets/covers/journal-of-the-american-chemical-society.png" alt="Journal of the American Chemical Society" width="56"></a> | **J. of the American Chemical Society** (JACS) | [Journal-of-the-American-Chemical-Society-Skills/](Journal-of-the-American-Chemical-Society-Skills/) | Chemistry | 12 |
 | <a href="Annals-of-Mathematics-Skills/"><img src="assets/covers/annals-of-mathematics.png" alt="Annals of Mathematics" width="56"></a> | **Annals of Mathematics** | [Annals-of-Mathematics-Skills/](Annals-of-Mathematics-Skills/) | Pure mathematics | 12 |
+| <a href="Advanced-Materials-Skills/"><img src="Advanced-Materials-Skills/assets/cover.svg" alt="Advanced Materials" width="56"></a> | **Advanced Materials** (Adv. Mater.) | [Advanced-Materials-Skills/](Advanced-Materials-Skills/) | Materials science | 12 |
+| <a href="Molecular-Cell-Skills/"><img src="Molecular-Cell-Skills/assets/cover.svg" alt="Molecular Cell" width="56"></a> | **Molecular Cell** (Cell Press) | [Molecular-Cell-Skills/](Molecular-Cell-Skills/) | Molecular biology (mechanism) | 12 |
+| <a href="Nature-Geoscience-Skills/"><img src="Nature-Geoscience-Skills/assets/cover.svg" alt="Nature Geoscience" width="56"></a> | **Nature Geoscience** (Nat. Geosci.) | [Nature-Geoscience-Skills/](Nature-Geoscience-Skills/) | Earth science | 12 |
+| <a href="Earth-and-Planetary-Science-Letters-Skills/"><img src="Earth-and-Planetary-Science-Letters-Skills/assets/cover.svg" alt="Earth and Planetary Science Letters" width="56"></a> | **Earth and Planetary Science Letters** (EPSL) | [Earth-and-Planetary-Science-Letters-Skills/](Earth-and-Planetary-Science-Letters-Skills/) | Earth & planetary science | 12 |
 
 Each natural-science pack is opinionated by venue: Science encodes the one-sentence summary and broad-significance desk filter; Cell encodes STAR Methods + the Key Resources Table and the Highlights/eTOC/graphical-abstract trio; PNAS encodes the ≤120-word Significance Statement and the Direct/Contributed submission tracks; **PNAS Nexus (PNAS's gold open-access sibling, published by OUP) encodes an entirely different set: gold OA + APC + CC BY/CC BY-NC license choice, no Direct/Contributed track, the transfer route from PNAS, a 50–120-word Significance Statement, page-based length with article types (incl. Registered Reports), mandatory data/code deposition, and references that are format-neutral at submission**; NEJM and The Lancet encode trial registration, CONSORT/STROBE/PRISMA reporting, structured clinical abstracts, ICMJE ethics/disclosures, and (for The Lancet) the *Research in context* panel.
 
@@ -1184,8 +1333,11 @@ This bundle is the natural-science sibling of the English social-science breadth
 |------|------------|-------|--------|
 | **Claude Scholar** | [claude-scholar](https://github.com/Galaxy-Dawn/claude-scholar) | Ideation → writing → publication (Claude Code / OpenCode / Codex) | upstream |
 | **Codex/Claude Academic Skills** | [codex-claude-academic-skills](https://github.com/zLanqing/codex-claude-academic-skills) | Reading · writing · scientific computing | upstream |
+| **Econ Writing Skill** | [econ-writing-skill](https://github.com/hanlulong/econ-writing-skill) | Economics paper writing distilled from 50+ authoritative guides (Claude Code / Codex) | upstream |
+| **Econ Paper Review Skill** | [econ-paper-review-skill](https://github.com/hanlulong/econ-paper-review-skill) | AI referee report for economics papers: verified comments + revision plan (Claude Code / Codex) | upstream |
+| **Econ Slides Skill** | [econ-slides-skill](https://github.com/hanlulong/econ-slides-skill) | Paper → Beamer talk + timed speaker script (Claude Code / Codex) | upstream |
 
-<sub><b>Count methodology.</b> The homepage <b>2902</b> = every in-repository <code>SKILL.md</code>, spread across <b>195 packs</b>. All nine breadth bundles and the standalone depth packs are counted, so venues covered both ways (as a breadth profile and a depth pack) are counted in both forms. Reconciliation (three parts): <b>2227</b> (185 in-repo depth packs, single venue end-to-end, ~12 skills each) + <b>668</b> (9 breadth bundles: CN social science 103 + EN social science 101 + EN natural science 155 + engineering technology 41 + agriculture environment 31 + clinical medicine 31 + English humanities 37 + Chinese sport science 13 + CS conferences 156) + <b>7</b> (1 cross-journal toolkit, Research-Toolkit-Skills) = <b>2902</b>. AER and Nature-family third-party packs are listed as external links, not vendored, so they are no longer included in this repository's <code>SKILL.md</code> count. The figure is enforced in CI by <code>python3 tools/audit_repo.py</code>; the README and the actual file count are not allowed to drift.</sub>
+<sub><b>Count methodology.</b> The homepage <b>4166</b> = every in-repository <code>SKILL.md</code>, spread across <b>300 packs</b>. All nine breadth bundles and the standalone depth packs are counted, so venues covered both ways (as a breadth profile and a depth pack) are counted in both forms. Reconciliation (three parts): <b>3487</b> (290 in-repo depth packs, single venue end-to-end, ~12 skills each) + <b>668</b> (9 breadth bundles: CN social science 103 + EN social science 101 + EN natural science 155 + engineering technology 41 + agriculture environment 31 + clinical medicine 31 + English humanities 37 + Chinese sport science 13 + CS conferences 156) + <b>11</b> (1 cross-journal toolkit, Research-Toolkit-Skills) = <b>4166</b>. AER and Nature-family third-party packs are listed as external links, not vendored, so they are no longer included in this repository's <code>SKILL.md</code> count. The figure is enforced in CI by <code>python3 tools/audit_repo.py</code>; the README and the actual file count are not allowed to drift.</sub>
 
 ---
 
@@ -1193,7 +1345,7 @@ This bundle is the natural-science sibling of the English social-science breadth
 
 All installable packs in this repo are **in-repo folder packs** (authored and maintained here) and are aggregated by the root [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json). Add this marketplace once with `/plugin marketplace add`, then install any in-repo pack by name. AER and third-party packs such as the Nature family, claude-scholar, and codex-claude-academic-skills are listed as external links instead of vendored git submodules, so `/plugin marketplace add` no longer recurses into upstream submodules.
 
-The root also includes **200 lightweight journal entry folders** for visual browsing: 100 Chinese roadmap journals in pinyin (`Jingji-Yanjiu/`, `Guanli-Shijie/`, …) and 100 English econ/business journals (`American-Economic-Review/`, `Journal-of-Finance/`, …). These folders contain only navigation READMEs; installable `SKILL.md` files remain in the canonical bundle paths below.
+The root also includes **201 lightweight journal entry folders** for visual browsing: 100 Chinese roadmap journals in pinyin (`Jingji-Yanjiu/`, `Guanli-Shijie/`, …), 100 English econ/business journals (`American-Economic-Review/`, `Journal-of-Finance/`, …), and 1 standalone depth-pack entry. These folders contain only navigation READMEs; installable `SKILL.md` files remain in the canonical bundle paths below.
 
 ```text
 awesome-journal-skills/
@@ -1202,6 +1354,7 @@ awesome-journal-skills/
 ├── Guanli-Shijie/                 → 《管理世界》 root entry
 ├── American-Economic-Review/      → American Economic Review root entry
 ├── Journal-of-Finance/            → Journal of Finance root entry
+├── Xitong-Gongcheng-Xuebao/       → 《系统工程学报》 root entry
 ├── ...                            → 196 more root journal entry folders
 │   # In-repo folder packs (first-party, authored / maintained here)
 ├── Economic-Research-Journal-Skills/      → 《经济研究》 (18 skills)
@@ -1212,6 +1365,7 @@ awesome-journal-skills/
 ├── Journal-of-Financial-Research-Skills/  → 《金融研究》 (12 skills)
 ├── China-Industrial-Economics-Skills/     → 《中国工业经济》 (13 skills)
 ├── Journal-of-Management-Sciences-in-China-Skills/  → 《管理科学学报》 (12 skills)
+├── Journal-of-Systems-Engineering-Skills/           → 《系统工程学报》 (12 skills)
 ├── Nankai-Business-Review-Skills/         → 《南开管理评论》 (12 skills)
 ├── Accounting-Research-Skills/            → 《会计研究》 (13 skills)
 ├── Sociological-Studies-Skills/           → 《社会学研究》 (12 skills)
@@ -1300,6 +1454,101 @@ awesome-journal-skills/
 ├── NeurIPS-Skills/                → NeurIPS main track (12 skills)
 ├── ICML-Skills/                   → ICML main track (12 skills)
 ├── ICLR-Skills/                   → ICLR main conference (12 skills)
+├── UAI-Skills/                    → UAI main conference (12 skills)
+├── COLT-Skills/                   → COLT main conference (12 skills)
+├── MLSys-Skills/                  → MLSys main conference (12 skills)
+├── KDD-Skills/                    → KDD main conference (12 skills)
+├── The-Web-Conference-Skills/     → The Web Conference main tracks (12 skills)
+├── WSDM-Skills/                   → WSDM main conference (12 skills)
+├── SIGIR-Skills/                  → SIGIR main conference (12 skills)
+├── CVPR-Skills/                   → CVPR main conference (12 skills)
+├── ICCV-Skills/                   → ICCV main conference (12 skills)
+├── ACL-Skills/                    → ACL main conference (12 skills)
+├── EMNLP-Skills/                  → EMNLP main conference (12 skills)
+├── ICRA-Skills/                   → ICRA main conference (12 skills)
+├── CHI-Skills/                    → CHI main conference (12 skills)
+├── SOSP-Skills/                   → SOSP main conference (12 skills)
+├── OSDI-Skills/                   → OSDI main conference (12 skills)
+├── IEEE-SP-Skills/                → IEEE S&P main conference (12 skills)
+├── ACM-CCS-Skills/                → ACM CCS main conference (12 skills)
+├── ICSE-Skills/                   → ICSE main conference (12 skills)
+├── NAACL-Skills/                  → NAACL main conference (12 skills)
+├── ECCV-Skills/                   → ECCV main conference (12 skills)
+├── PLDI-Skills/                   → PLDI main conference (12 skills)
+├── SIGMOD-Skills/                 → SIGMOD main conference (12 skills)
+├── STOC-Skills/                   → STOC main conference (12 skills)
+├── NSDI-Skills/                   → NSDI main conference (12 skills)
+├── USENIX-Security-Skills/        → USENIX Security main conference (12 skills)
+├── NDSS-Skills/                   → NDSS main conference (12 skills)
+├── FOCS-Skills/                   → FOCS main conference (12 skills)
+├── SODA-Skills/                   → SODA main conference (12 skills)
+├── POPL-Skills/                   → POPL main conference (12 skills)
+├── OOPSLA-Skills/                 → OOPSLA / SPLASH (12 skills)
+├── VLDB-Skills/                   → VLDB / PVLDB (12 skills)
+├── CIKM-Skills/                   → CIKM main conference (12 skills)
+├── EuroSys-Skills/                → EuroSys main conference (12 skills)
+├── ASPLOS-Skills/                 → ASPLOS main conference (12 skills)
+├── UIST-Skills/                   → UIST main conference (12 skills)
+├── CSCW-Skills/                   → CSCW / PACMHCI (12 skills)
+├── ISCA-Skills/                   → ISCA main conference (12 skills)
+├── MICRO-Skills/                  → MICRO main conference (12 skills)
+├── RSS-Skills/                    → RSS main conference (12 skills)
+├── CoRL-Skills/                   → CoRL main conference (12 skills)
+├── INTERSPEECH-Skills/            → INTERSPEECH main conference (12 skills)
+├── COLM-Skills/                   → COLM main conference (12 skills)
+├── HPCA-Skills/                   → HPCA main conference (12 skills)
+├── IROS-Skills/                   → IROS main conference (12 skills)
+├── ICDE-Skills/                   → ICDE main conference (12 skills)
+├── ICDM-Skills/                   → ICDM main conference (12 skills)
+├── RecSys-Skills/                 → RecSys main conference (12 skills)
+├── MobiCom-Skills/                → MobiCom main conference (12 skills)
+├── ACM-MM-Skills/                 → ACM MM main conference (12 skills)
+├── ICASSP-Skills/                 → ICASSP main conference (12 skills)
+├── SIGCOMM-Skills/                → SIGCOMM main conference (12 skills)
+├── EACL-Skills/                   → EACL main conference (12 skills)
+├── AAMAS-Skills/                  → AAMAS main conference (12 skills)
+├── WACV-Skills/                   → WACV main conference (12 skills)
+├── MobiSys-Skills/                → MobiSys main conference (12 skills)
+├── SenSys-Skills/                 → SenSys main conference (12 skills)
+├── ISSTA-Skills/                  → ISSTA main conference (12 skills)
+├── FSE-Skills/                    → ESEC/FSE main conference (12 skills)
+├── ASE-Skills/                    → ASE main conference (12 skills)
+├── ICSME-Skills/                  → ICSME main conference (12 skills)
+├── PODS-Skills/                   → PODS main conference (12 skills)
+├── CoNEXT-Skills/                 → CoNEXT main conference (12 skills)
+├── IMC-Skills/                    → IMC main conference (12 skills)
+├── IPSN-Skills/                   → IPSN main conference (12 skills)
+├── VIS-Skills/                    → IEEE VIS main conference (12 skills)
+├── ECAI-Skills/                   → ECAI main conference (12 skills)
+├── ATC-Skills/                    → USENIX/ACM SIGOPS ATC main conference (12 skills)
+├── FAST-Skills/                   → USENIX FAST main conference (12 skills)
+├── PPoPP-Skills/                  → PPoPP main conference (12 skills)
+├── CAV-Skills/                    → CAV main conference (12 skills)
+├── ICALP-Skills/                  → ICALP main conference (12 skills)
+├── PODC-Skills/                   → PODC main conference (12 skills)
+├── SIGMETRICS-Skills/             → SIGMETRICS main conference (12 skills)
+├── PerCom-Skills/                 → PerCom main conference (12 skills)
+├── SIGGRAPH-Skills/               → SIGGRAPH main conference (12 skills)
+├── INFOCOM-Skills/                → INFOCOM main conference (12 skills)
+├── ITCS-Skills/                   → ITCS main conference (12 skills)
+├── HRI-Skills/                    → HRI main conference (12 skills)
+├── SoCC-Skills/                   → ACM SoCC main conference (12 skills)
+├── DAC-Skills/                    → DAC main conference (12 skills)
+├── EDBT-Skills/                   → EDBT main conference (12 skills)
+├── TACAS-Skills/                  → TACAS main conference (12 skills)
+├── FAccT-Skills/                  → FAccT main conference (12 skills)
+├── ICDT-Skills/                   → ICDT main conference (12 skills)
+│   # Computer-science Chinese-journal depth packs (first-party)
+├── Chinese-Journal-of-Computers-Skills/ → Chinese Journal of Computers (CJC) (12 skills)
+├── Journal-of-Software-Skills/    → Journal of Software (JOS) (12 skills)
+├── Journal-of-Computer-Research-and-Development-Skills/ → Journal of Computer Research and Development (JCRD) (12 skills)
+├── Acta-Automatica-Sinica-Skills/ → Acta Automatica Sinica (AAS) (12 skills)
+├── Scientia-Sinica-Informationis-Skills/ → Scientia Sinica Informationis (SSI) (12 skills)
+├── Acta-Electronica-Sinica-Skills/ → Acta Electronica Sinica (AES) (12 skills)
+├── Pattern-Recognition-and-Artificial-Intelligence-Skills/ → Pattern Recognition and AI (PR&AI) (12 skills)
+├── Journal-of-CAD-and-Computer-Graphics-Skills/ → J. of CAD & Computer Graphics (JCAD&CG) (12 skills)
+├── Journal-on-Communications-Skills/ → Journal on Communications (JOC) (12 skills)
+├── Computer-Science-Journal-Skills/ → Computer Science journal (JSJKX) (12 skills)
 │   # Natural-science & clinical depth packs (first-party, authored / maintained here)
 ├── Science-Skills/                → Science (AAAS) (12 skills)
 ├── Cell-Skills/                   → Cell (Cell Press) (12 skills)
@@ -1319,7 +1568,7 @@ awesome-journal-skills/
 ├── Global-Environmental-Change-Skills/ → Global Environmental Change (12 skills)
 ├── Agricultural-Systems-Skills/   → Agricultural Systems (12 skills)
 ├── Field-Crops-Research-Skills/   → Field Crops Research (12 skills)
-│   # Root marketplace manifest (aggregates all 193 in-repo packs)
+│   # Root marketplace manifest (aggregates all 300 in-repo packs)
 └── .claude-plugin/marketplace.json
 ```
 
@@ -1329,6 +1578,20 @@ Clone this repository normally; it has no git submodules:
 git clone https://github.com/brycewang-stanford/awesome-journal-skills.git
 cd awesome-journal-skills
 ```
+
+---
+
+## 🧪 Executed Empirical Showcase (Real Run Evidence)
+
+The "automated empirical research" claim in this repository has a verifiable evidence layer: [`showcase/`](showcase/README.md) contains five **actually executed** end-to-end empirical cases (research question → design identification → estimation → robustness audit → paper-grade conclusion). Every number is quoted **verbatim** from real StatsPAI MCP tool calls, with the full call log and robustness checks attached. The five cases cover all five design families of the shared execution playbook ([`shared-resources/empirical-methods/execution-with-mcp.md`](shared-resources/empirical-methods/execution-with-mcp.md)) — they show users the real pipeline and give skill authors an acceptance benchmark.
+
+| Design | Case | Headline result |
+|---|---|---|
+| Synthetic control (SCM) | [California Prop 99 tobacco law](showcase/scm-california-prop99/README.md) | ATT −18.19 (placebo p=0.026) |
+| Staggered DiD (CS-DiD) | [Castle Doctrine laws & homicide](showcase/did-castle-doctrine/README.md) | ATT +0.110 (p=0.004, Honest-DiD robust) |
+| Instrumental variables (IV) | [Card 1995 college proximity & returns to schooling](showcase/iv-card-college-proximity/README.md) | 0.132, with AR/CLR/tF weak-IV panel |
+| Regression discontinuity (RDD) | [Close elections & legislator voting](showcase/rdd-close-elections/README.md) | RD effect 43.85 ADA points (density test p=0.72) |
+| Double machine learning (DML) | [DML returns to schooling](showcase/dml-returns-to-schooling/README.md) | 0.074 (flexible-controls benchmark) |
 
 ---
 
@@ -1399,7 +1662,7 @@ use next for my manuscript targeted at <journal>.
 
 ## 🗺 Roadmap
 
-**Status:** the nine breadth bundles are fully shipped (including the AI-first CS conference bundle, the engineering-technology bundle, the agriculture-environment bundle, the clinical-medicine bundle, the English-humanities bundle, and the Chinese sport-science bundle); depth packs now extend beyond business & economics into **humanities & broader social science** (51 flagship venues across sociology, anthropology, law, geography, political science, psychology, demography, communication, history, art, philosophy, literature, religion) and **environment / ecology / agriculture** (6 venues), for a repo-wide total of **195 packs / 2902 skills**. The Roadmap now tracks the next tier of expansion.
+**Status:** the nine breadth bundles are fully shipped (including the AI-first CS conference bundle, the engineering-technology bundle, the agriculture-environment bundle, the clinical-medicine bundle, the English-humanities bundle, and the Chinese sport-science bundle); depth packs now extend beyond business & economics into **humanities & broader social science** (51 flagship venues across sociology, anthropology, law, geography, political science, psychology, demography, communication, history, art, philosophy, literature, religion) and **environment / ecology / agriculture** (6 venues), the remaining flagship marketing & accounting venues (JIM · JPP&M · AOS), and a further batch of discipline flagships — natural science (Advanced Materials · Nature Geoscience · Molecular Cell · Earth and Planetary Science Letters), linguistics (Language), and Chinese key journals (Finance & Trade Economics · Chinese Journal of Management Science · Journal of Systems Engineering), with the geography review journal Progress in Human Geography rebuilt to the standard depth-pack spec, for a repo-wide total of **300 packs / 4166 skills**. The Roadmap now tracks the next tier of expansion.
 
 ### ✅ Shipped
 
@@ -1413,24 +1676,22 @@ use next for my manuscript targeted at <journal>.
   - [Clinical-Medicine-Journal-Skills](Clinical-Medicine-Journal-Skills/) — 30 English specialty clinical-medicine journals
   - [English-Humanities-Journal-Skills](English-Humanities-Journal-Skills/) — 36 English humanities journals
   - [Chinese-Sport-Science-Journal-Skills](Chinese-Sport-Science-Journal-Skills/) — 12 Chinese sport-science (体育学) journals
-- **Per-journal cover wall** for breadth journals, always-expanded cover galleries in both READMEs, and 200 lightweight root entry folders for repo-front browsing.
-- **Full end-to-end depth packs (~12 steps)** — 185 first-party venue packs across the full discipline map (AER and Nature are listed as external third-party resources):
+- **Per-journal cover wall** for breadth journals, always-expanded cover galleries in both READMEs, and 201 lightweight root entry folders for repo-front browsing.
+- **Full end-to-end depth packs (~12 steps)** — 290 first-party venue packs across the full discipline map (AER and Nature are listed as external third-party resources):
   - **English economics:** AER (external listing) · AER: Insights · AEJ Applied Economics · AEJ Economic Policy · AEJ Macroeconomics · AEJ Microeconomics · JEEA · IER · The Economic Journal · European Economic Review · Journal of Economic Literature · Journal of Economic Perspectives · Review of Economics and Statistics · QJE · JPE · Econometrica · REStud · Journal of Development Economics · Journal of Public Economics · Journal of Labor Economics · Journal of International Economics · Journal of Monetary Economics · JMCB · IMF Economic Review · Economic Policy · RAND Journal of Economics · Journal of Econometrics · Econometric Theory · Quantitative Economics · Journal of Applied Econometrics · JBES · The Econometrics Journal · Review of Economic Dynamics · Journal of Economic Growth · Journal of Economic Theory · Games and Economic Behavior · Journal of Human Resources · Journal of Health Economics · Journal of Urban Economics · JEEM · JEBO · Journal of Law and Economics · JLEO · World Development · World Bank Economic Review · Journal of Economic Geography · Journal of Risk and Uncertainty · Experimental Economics · Annual Review of Economics
   - **English finance:** Journal of Finance · Journal of Financial Economics · Review of Financial Studies · Review of Finance · JFQA · JFI · Journal of Corporate Finance · Journal of Banking & Finance · Journal of Financial Markets · Journal of International Money and Finance · Financial Management · Mathematical Finance
   - **English management / OM / IS:** AMJ · AMR · Academy of Management Annals · ASQ · SMJ · Organization Science · Organization Studies · Journal of Management · Journal of Management Studies · Human Relations · Human Resource Management · ETP · Research Policy · JIBS · JBV · Management Science · Operations Research · INFORMS Journal on Computing · M&SOM · JOM · POM · MISQ · ISR · JMIS · JAIS
-  - **English marketing / consumer research:** JM · JMR · JAMS · Marketing Science · JCR · Journal of Consumer Psychology
-  - **English accounting:** TAR · JAR · JAE · CAR · Review of Accounting Studies
+  - **English marketing / consumer research:** JM · JMR · JAMS · Marketing Science · JCR · Journal of Consumer Psychology · Journal of International Marketing · Journal of Public Policy & Marketing
+  - **English accounting:** TAR · JAR · JAE · CAR · Review of Accounting Studies · Accounting, Organizations and Society
   - **English natural science:** Science · Cell · PNAS · NEJM · The Lancet · JAMA · Cancer Cell · Physical Review Letters · JACS · Annals of Mathematics (plus Nature as a curated pack)
   - **English environment / ecology / agriculture:** Environmental Science & Technology · Conservation Biology · Global Change Biology · Global Environmental Change · Agricultural Systems · Field Crops Research
   - **Humanities & broader social science (24):** Sociology ASR · AJS · Social Forces · SPQ · JMF · Criminology; Demography; Political science / IR APSR · AJPS · JOP · World Politics · International Organization; Psychology JPSP · Psychological Bulletin · Psychological Science; Communication / opinion Journal of Communication · POQ; Education AERJ; Humanities The American Historical Review · The Art Bulletin · Mind · PMLA · Critical Inquiry · JAAR
-  - **CS/AI conferences:** NeurIPS · ICML · ICLR · AAAI · IJCAI · AISTATS
+  - **CS/AI conferences:** NeurIPS · ICML · ICLR · AAAI · IJCAI · AISTATS · UAI · COLT · MLSys · KDD · The Web Conference · WSDM · SIGIR · CVPR · ICCV · ACL · EMNLP · ICRA · CHI · SOSP · OSDI · IEEE S&P · ACM CCS · ICSE · NAACL · ECCV · PLDI · SIGMOD · STOC · NSDI · USENIX Security · NDSS · FOCS · SODA · POPL · OOPSLA · VLDB · CIKM · EuroSys · ASPLOS · UIST · CSCW · ISCA · MICRO · RSS · CoRL · INTERSPEECH · COLM · HPCA · IROS · ICDE · ICDM · RecSys · MobiCom · ACM MM · ICASSP · SIGCOMM · EACL · AAMAS · WACV · MobiSys · SenSys · ISSTA · FSE · ASE · PODS · CoNEXT · IMC · IPSN · VIS · ICSME · ECAI · ATC · FAST · PPoPP · CAV · ICALP · PODC · SIGMETRICS · PerCom · SIGGRAPH · INFOCOM · ITCS · HRI · SoCC · DAC · EDBT · TACAS · FAccT · ICDT
   - **Chinese flagships (15):** 经济研究 · 经济学（季刊）· 中国工业经济 · 世界经济 · 金融研究 · 数量经济技术经济研究 · 管理世界 · 管理科学学报 · 南开管理评论 · 会计研究 · 中国社会科学 · 社会学研究 · 中国农村经济 · 财经研究 · 中国行政管理
 
 ### 🚧 Pending — next expansion
 
-The previous roadmap's prioritized depth-pack candidates, plus the first wave of humanities / broader-social-science / environment / agriculture expansion, have all shipped. Open candidates for the next tier:
-
-- **Remaining English marketing & accounting depth packs:** JPP&M / JIM; Accounting, Organizations and Society.
+The previous roadmap's prioritized depth-pack candidates, the first wave of humanities / broader-social-science / environment / agriculture expansion, and the remaining English marketing & accounting depth packs (JPP&M / JIM / Accounting, Organizations and Society) have all shipped. Open candidates for the next tier:
 - **More subject-flagship natural science** beyond the current set (additional Cell Press / Nature Portfolio sub-journals; discipline leaders in earth science and materials).
 - **More humanities & broader-social-science flagships** beyond the current 51 (representative venues in law, anthropology, geography, linguistics, and more).
 - **More Chinese flagships** beyond the current 15 (additional CSSCI / FMS high-quality venues, by demand).
@@ -1894,7 +2155,7 @@ Before opening a PR that changes root navigation, manifests, or pack metadata, r
 python3 tools/run_checks.py
 ```
 
-The same hard checks run in GitHub Actions. They check the canonical skill count, curated-pack count, 200 root journal entries and their canonical skill targets, pack README / license presence, Chinese depth-pack source maps, plugin / marketplace drift, `SKILL.md` frontmatter, local README links, Python tool syntax, whitespace, and severe skill clones. CI reports clone pairs from `tools/clone_audit.py --threshold 0.75` and fails only at `--fail-threshold 0.90`.
+The same hard checks run in GitHub Actions. They check the canonical skill count, curated-pack count, 201 root journal entries and their canonical skill targets, pack README / license presence, Chinese depth-pack source maps, plugin / marketplace drift, `SKILL.md` frontmatter, local README links, Python tool syntax, whitespace, and severe skill clones. CI reports clone pairs from `tools/clone_audit.py --threshold 0.75` and fails only at `--fail-threshold 0.90`.
 
 Quality bar for inclusion in this index:
 

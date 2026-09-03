@@ -25,6 +25,100 @@ toolkits are infrastructure or coverage layers that can seed later depth-pack wo
 | `AER-Skills` | imported depth pack | 1 Econ & Management | reusable / upgrade only if needed |
 | `AAAI-Skills` | depth pack | 8 CS & AI | reusable; fourth category-8 Wave 25-A depth pack |
 | `AISTATS-Skills` | depth pack | 8 CS & AI | reusable; sixth category-8 Wave 25-A depth pack |
+| `UAI-Skills` | depth pack | 8 CS & AI | reusable; seventh category-8 Wave 25-A depth pack |
+| `COLT-Skills` | depth pack | 8 CS & AI | reusable; eighth category-8 Wave 25-A depth pack |
+| `MLSys-Skills` | depth pack | 8 CS & AI | reusable; ninth category-8 Wave 25-A depth pack |
+| `KDD-Skills` | depth pack | 8 CS & AI | reusable; tenth category-8 Wave 25-A depth pack |
+| `The-Web-Conference-Skills` | depth pack | 8 CS & AI | reusable; eleventh category-8 Wave 25-A depth pack |
+| `WSDM-Skills` | depth pack | 8 CS & AI | reusable; twelfth category-8 Wave 25-A depth pack |
+| `SIGIR-Skills` | depth pack | 8 CS & AI | reusable; thirteenth category-8 Wave 25-A depth pack |
+| `CVPR-Skills` | depth pack | 8 CS & AI | reusable; fourteenth category-8 Wave 25-A depth pack |
+| `ICCV-Skills` | depth pack | 8 CS & AI | reusable; fifteenth category-8 Wave 25-A depth pack |
+| `ACL-Skills` | depth pack | 8 CS & AI | reusable; sixteenth category-8 Wave 25-A depth pack |
+| `EMNLP-Skills` | depth pack | 8 CS & AI | reusable; seventeenth category-8 Wave 25-A depth pack |
+| `ICRA-Skills` | depth pack | 8 CS & AI | reusable; eighteenth category-8 Wave 25-A depth pack |
+| `CHI-Skills` | depth pack | 8 CS & AI | reusable; nineteenth category-8 Wave 25-A depth pack |
+| `SOSP-Skills` | depth pack | 8 CS & AI | reusable; twentieth category-8 Wave 25-A depth pack |
+| `OSDI-Skills` | depth pack | 8 CS & AI | reusable; twenty-first category-8 Wave 25-A depth pack |
+| `IEEE-SP-Skills` | depth pack | 8 CS & AI | reusable; twenty-second category-8 Wave 25-A depth pack |
+| `ACM-CCS-Skills` | depth pack | 8 CS & AI | reusable; twenty-third category-8 Wave 25-A depth pack |
+| `ICSE-Skills` | depth pack | 8 CS & AI | reusable; twenty-fourth category-8 Wave 25-A depth pack — Wave 25-A launch batch complete (24/24) |
+| `NAACL-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `ECCV-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `PLDI-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `SIGMOD-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `STOC-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `NSDI-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `USENIX-Security-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `NDSS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 second-tranche depth pack |
+| `FOCS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `SODA-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `POPL-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `OOPSLA-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `VLDB-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `CIKM-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `EuroSys-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `ASPLOS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 third-tranche depth pack |
+| `UIST-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `CSCW-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `ISCA-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `MICRO-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `RSS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `CoRL-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `INTERSPEECH-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `COLM-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fourth-tranche depth pack |
+| `HPCA-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `IROS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `ICDE-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `ICDM-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `RecSys-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `MobiCom-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `ACM-MM-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `ICASSP-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 fifth-tranche depth pack |
+| `SIGCOMM-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `EACL-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `AAMAS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `WACV-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `MobiSys-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `SenSys-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `ISSTA-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `FSE-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 sixth-tranche depth pack |
+| `ASE-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `PODS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `CoNEXT-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `IMC-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `IPSN-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `VIS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `ICSME-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `ECAI-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 seventh-tranche depth pack |
+| `ATC-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `FAST-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `PPoPP-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `CAV-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `ICALP-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `PODC-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `SIGMETRICS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `PerCom-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 eighth-tranche depth pack |
+| `SIGGRAPH-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `INFOCOM-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `ITCS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `HRI-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `SoCC-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `DAC-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `EDBT-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `TACAS-Skills` | depth pack | 8 CS & AI | reusable; EN core-61 ninth-tranche depth pack |
+| `Chinese-Journal-of-Computers-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Journal-of-Software-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Journal-of-Computer-Research-and-Development-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Acta-Automatica-Sinica-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Scientia-Sinica-Informationis-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Acta-Electronica-Sinica-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Pattern-Recognition-and-Artificial-Intelligence-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Journal-of-CAD-and-Computer-Graphics-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `Journal-on-Communications-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave (slug jonc- to avoid joc- collision) |
+| `Computer-Science-Journal-Skills` | depth pack | 8 CS & AI (CN journal) | reusable; Chinese CS-journal sub-wave |
+| `FAccT-Skills` | depth pack | 8 CS & AI | reusable; category-8 finale (responsible AI) |
+| `ICDT-Skills` | depth pack | 8 CS & AI | reusable; category-8 finale (database theory) — **category-8 100/100 COMPLETE** (90 EN conferences + 10 CN journals) |
 | `Academy-of-Management-Journal-Skills` | depth pack | 1 Econ & Management | reusable |
 | `Academy-of-Management-Review-Skills` | depth pack | 1 Econ & Management | reusable |
 | `Accounting-Research-Skills` | depth pack | 1 Econ & Management | reusable |
@@ -150,5 +244,5 @@ targets, 10 Chinese targets, a first 24-pack AI-first launch batch, and CS/AI pa
 `AISTATS-Skills` are the first six completed depth packs from that launch batch. Parallel W1 also
 added six category-1 field-economics depth packs: JDE, JPubE, JOLE, JIE, JME, and RJE.
 
-Next task: continue Wave 25-A depth-pack production with UAI, COLT, MLSys, and KDD, preserving
+Next task: category-8 at 56/100. Continue EN core-61 production (e.g. SIGCOMM, EACL, AAMAS, WACV, BMVC, MobiSys, SenSys, PODS, ISSTA, FSE), preserving
 official-source checks and clone-audit gates per pack.
