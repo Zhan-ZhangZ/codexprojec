@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "installerId": "chengfeng-videocut-github-npx-bootstrap-v1",
+  "source": "Agentchengfeng/chengfeng-videocut-skills",
+  "marketplace": "chengfeng-videocut",
+  "plugin": "chengfeng-videocut",
+  "marketplaceRef": "1487e02b1c0c39ea74d079e8ce45da56bf59bc32",
+  "pluginRef": "1487e02b1c0c39ea74d079e8ce45da56bf59bc32",
+  "runtimeInstall": false,
+  "allowedCommands": [
+    "codex plugin marketplace add",
+    "codex plugin marketplace upgrade",
+    "codex plugin marketplace remove",
+    "codex plugin add",
+    "codex plugin remove",
+    "codex plugin marketplace list",
+    "codex plugin list"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "chengfeng-videocut",
+  "version": "0.10.8",
+  "description": "Six task-facing chengfeng-videocut Skills: cut, subtitle, visual, export, safe bug reporting, and Marketplace update checks. Shared product boundaries are internal references, not a user-facing Skill.",
+  "author": {
+    "name": "Chengfeng",
+    "url": "https://github.com/Agentchengfeng"
+  },
+  "homepage": "https://github.com/Agentchengfeng/chengfeng-videocut",
+  "repository": "https://github.com/Agentchengfeng/chengfeng-videocut-skills",
+  "license": "Apache-2.0",
+  "keywords": [
+    "video",
+    "talking-head",
+    "transcript",
+    "hyperframes"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "chengfeng-videocut",
+    "shortDescription": "剪口播、成片、安全 Bug 与更新检查",
+    "longDescription": "提供两个口播业务入口，以及先脱敏确认的 Bug 上报和只经官方 Codex Marketplace 机制执行的 Skills 更新检查。共同产品边界以内置 reference 复用，不占用用户 Skill 入口；更新不覆盖本地 cache 或 Product Runtime，并要求可信来源和用户确认。",
+    "developerName": "Chengfeng",
+    "category": "Design",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "使用 $chengfeng-videocut:chengfeng-cut 剪掉这条视频里的口误，审核后生成删词账本。",
+      "使用 $chengfeng-videocut:chengfeng-visual 给剪好的口播配画面：圈重点或整屏动画。",
+      "使用 $chengfeng-videocut:chengfeng-export 把这个项目导出成成片并抽帧验收。"
+    ],
+    "brandColor": "#16A37A"
+  },
+  "mcpServers": "./.mcp.json"
+}

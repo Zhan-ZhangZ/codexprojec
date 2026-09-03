@@ -1,0 +1,22 @@
+{
+  "name": "chengfeng-videocut-skills-bootstrap",
+  "version": "0.5.1",
+  "private": true,
+  "description": "Thin GitHub npx bootstrap for the chengfeng-videocut Codex Plugin.",
+  "license": "Apache-2.0",
+  "bin": {
+    "chengfeng-videocut-skills": "bin/install.cjs"
+  },
+  "files": [
+    "bin/install.cjs",
+    "installer-manifest.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md",
+    "CITATION.cff",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
