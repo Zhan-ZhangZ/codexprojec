@@ -266,7 +266,7 @@
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/paperjsx"
   },
   {
-    "name": "anysearch-skill",
+    "name": "anysearch",
     "description": "全网聚合检索能力接口。支持多平台文献、百科与开源信息库并发查询，专为需要深度前置调研与多方信源交叉验证的内容创作工作流设计。Leading Words: 全网多态检索, 跨源聚合查询, 前置内容调研",
     "category": "04_内容创作与文档处理",
     "folder": "anysearch-skill",
@@ -476,7 +476,7 @@
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/html-anything"
   },
   {
-    "name": "html-ppt-skill",
+    "name": "html-ppt",
     "description": "纯文本极速渲染 HTML 演示文稿生成器。跳过繁琐的 Office 排版，直接将脑暴思路映射为轻量级、跨终端响应式、支持浏览器一键开启的 HTML 格式 PPT。Leading Words: HTML轻量级PPT, 跨终端响应式演示, 思路直出排版",
     "category": "05_多媒体与设计资产",
     "folder": "html-ppt-skill",
@@ -896,7 +896,7 @@
     "relative_path": "./00_全局大管家/07_智能体框架与协同/vibe-skills"
   },
   {
-    "name": "GoogleDrive-MCP",
+    "name": "google-drive-mcp",
     "description": "官方 Google Drive MCP 接入技能。允许智能体通过 OAuth 授权，在本地直接读取、搜索、管理您的谷歌云端硬盘文件，并将 Google Docs/Sheets 自动转换为可供分析的文本格式。Leading Words: 谷歌云盘接入, OAuth授权读取, GoogleDocs转换, 云端硬盘文件管理",
     "category": "08_MCP服务开发与评估",
     "folder": "GoogleDrive-MCP",
@@ -1274,7 +1274,7 @@
     "relative_path": "./00_全局大管家/13_社科研究与实证工具/AER-Skills"
   },
   {
-    "name": "Auto-Empirical-Research-Skills",
+    "name": "auto-empirical-research-skills",
     "description": "斯坦福 23k+ 超大规模实证经济学/社会科学 Agent Skills 工具列阵。专门应对高维度面板数据清理、内生性检验及 IV 工具变量挖掘，为量化社科研究提供航母级算法支持。Leading Words: 斯坦福社科实证经济学研究, 高维面板数据内生性检验, IV工具变量挖掘算法, 23k+超大规模量化工具列阵",
     "category": "13_社科研究与实证工具",
     "folder": "Auto-Empirical-Research-Skills",
@@ -1345,7 +1345,7 @@
   },
   {
     "name": "speak-human-tw",
-    "description": "「說人話」：繁體中文的去 AI 味改寫 skill。審查與改寫文字，去除 AI 味道、校正中國用語與半形標點，讓文字讀起來像真人寫的。觸發時機：用戶說「去 AI 味」「說人話」「這段好 AI」「改自然一點」「幫我潤稿去掉 AI 感」「校對一下再發」。Leading Words: 去AI味, 繁體中文潤稿, 校正中國用語, 人性化改寫",
+    "description": "「說人話」：繁體中文的去 AI 味改寫 skill。審查與改寫文字，去除 AI 味道、校正中國用語與半形標點，讓文字讀起來像真人寫的。 觸發時機：用戶說「去 AI 味」「說人話」「這段好 AI」「改自然一點」「幫我潤稿去掉 AI 感」「校對一下再發」，或要求檢查電子報、社群貼文、銷售頁、課程文案、客服回信、簡報、公告、Email 等對外文字的語感。 不要觸發：逐字翻譯、模仿特定品牌 voice、事實查核（非風格問題）、程式碼／log／設定檔、要求「潤成雷蒙的語氣」（那是 content-writing skill 的事，本 skill 只去 AI 味、不加個人風格）。",
     "category": "04_内容创作与文档处理",
     "folder": "speak-human-tw",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/speak-human-tw"
