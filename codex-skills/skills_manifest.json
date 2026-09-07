@@ -567,6 +567,31 @@
     "relative_path": "./00_全局大管家/06_商业与专业领域/AmazonSeller-mcp-server"
   },
   {
+    "name": "blender-mcp",
+    "description": "Blender 3D 建模 MCP 集成指南 (MCP for Blender)。让 AI 按双组件架构（uvx 运行的 MCP 服务器 + Blender 内 socket 插件）完成配置并接管 Blender，进行场景搭建、物体创建修改、材质灯光摄像机控制、任意 Python 代码执行与视口截图视觉自查，并直连 Poly Haven 资产库、Sketchfab/Poly Pizza 模型库与 Hyper3D Rodin/Hunyuan3D AI 生成 3D 模型，支持安全模式脚本校验与遥测开关。Leading Words: Blender 3D建模, MCP控制Blender, Blender配置指南, 场景搭建, 材质编辑, execute_blender_code, 视口截图自查, Poly Haven资产, Sketchfab模型, Poly Pizza低模, Hyper3D, Hunyuan3D, 安全模式",
+    "category": "06_商业与专业领域",
+    "folder": "blender-mcp",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/blender-mcp",
+    "aliases": [
+      "Blender建模",
+      "MCP for Blender",
+      "Blender MCP",
+      "Blender自动化",
+      "3D建模控制"
+    ],
+    "tags": [
+      "Blender",
+      "3D建模",
+      "bpy",
+      "材质",
+      "Poly Haven",
+      "Sketchfab",
+      "低多边形",
+      "Hyper3D",
+      "Hunyuan3D"
+    ]
+  },
+  {
     "name": "CAD-MCP",
     "description": "2D 平面工程制图 MCP 服务。作为通用翻译器，允许 AI 通过自然语言直接操控 AutoCAD、中望 CAD (ZWCAD) 和浩辰 CAD (GstarCAD) 进行绘图、图层管理和尺寸标注。仅支持 Windows 系统。",
     "category": "06_商业与专业领域",
