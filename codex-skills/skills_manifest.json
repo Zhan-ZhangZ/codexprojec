@@ -371,6 +371,30 @@
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/changelog-generator"
   },
   {
+    "name": "chubbyskills",
+    "description": "中文全渠道内容采集与个人知识库 AI 技能集（14 个子技能）。覆盖 B 站/抖音/YouTube/TikTok/微博/知乎/小宇宙播客/X/小红书/微信公众号等 10 个渠道的视频转录与图文采集，配套知识库管理、内容加工、学习笔记自动化、行业情报雷达四项整理能力；统一 CLI（tools/chubby.py）串起「采集→入库→检索→资料包导出」全链路；字幕优先策略（官方/自动字幕秒级、免 GPU）。Leading Words: 中文内容采集, 视频转录, 字幕优先, 个人知识库, Obsidian 整理, GBrain, GraphRAG, 小红书采集, 公众号采集, B站转录, 抖音转录, 知乎采集, 播客转录, X图文采集, 资料包导出, 知识库索引, MCP知识库",
+    "category": "04_内容创作与文档处理",
+    "folder": "chubbyskills",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/chubbyskills",
+    "aliases": [
+      "中文内容采集",
+      "Chubby Skills",
+      "知识库采集",
+      "KB采集",
+      "个人知识库技能集"
+    ],
+    "tags": [
+      "media-ingest",
+      "transcription",
+      "obsidian",
+      "knowledge-base",
+      "markdown",
+      "chinese-content",
+      "video-to-md",
+      "podcast-transcribe"
+    ]
+  },
+  {
     "name": "spreadsheet-formula-helper",
     "description": "极客级电子表格函数大师与跨方言调试专家。精通 Excel 与 Google Sheets 之间的公式翻译。自动编写嵌套数组公式、复杂数据透视表规则，并生成带边界用例（Edge-case checks）的数据验证测试台。Leading Words: 嵌套数组公式调试, 复杂数据透视表, Excel与Sheets方言翻译, 表格边界用例测试",
     "category": "04_内容创作与文档处理",
