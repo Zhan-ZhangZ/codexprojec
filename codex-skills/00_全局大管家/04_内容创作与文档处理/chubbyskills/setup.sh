@@ -42,8 +42,26 @@ run_doctor() {
     python3 tools/check_env.py
 }
 
+is_externally_managed() {
+    # PEP 668: Homebrew/Debian 等系统 Python 带 EXTERNALLY-MANAGED 标记，
+    # 直接 pip install 会被拒绝（externally-managed-environment）。
+    python3 - <<'PY' 2>/dev/null | grep -q yes
+import os, sysconfig
+print("yes" if os.path.exists(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")) else "no")
+PY
+}
+
 pip_install() {
-    python3 -m pip install "$@"
+    if is_externally_managed; then
+        if [ ! -d .venv ]; then
+            info "系统 Python 受 PEP 668 保护，创建本地虚拟环境 .venv ..."
+            python3 -m venv .venv || { error "创建 .venv 失败，请手动执行: python3 -m venv .venv"; return 1; }
+        fi
+        ./.venv/bin/python -m pip install "$@" || return 1
+        warn "依赖已装入 .venv：后续请用 .venv/bin/python 运行技能脚本，或先 source .venv/bin/activate"
+    else
+        python3 -m pip install "$@"
+    fi
 }
 
 install_ytdlp() {
@@ -180,8 +198,7 @@ echo "  安装步骤完成"
 echo "========================================="
 echo ""
 echo "下一步建议："
-echo "  python3 tools/install_skill.py <skill-name> --dest <Agent-skills目录>"
+# 仅建议本集成包内实际存在的命令（install_skill.py / platform_smoke.py /
+# golden_outputs.py 属集成策略删除的 dev 制品，不再向用户推荐）
 echo "  python3 tools/check_env.py"
 echo "  python3 tools/chubby.py quickstart"
-echo "  python3 tools/platform_smoke.py --mode all --check"
-echo "  python3 tools/golden_outputs.py examples/outputs"

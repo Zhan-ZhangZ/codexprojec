@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -217,6 +218,29 @@ def ensure_runtime_dirs(config):
         resolve_path(config["vault_dir"]).mkdir(parents=True, exist_ok=True)
 
 
+def scaffold_vault_template(vault_root):
+    """Idempotently lay out vault-template/ skeleton files into a vault.
+
+    Copies only files that do not exist yet, so re-running init never
+    overwrites user content. Returns the number of files copied.
+    """
+    template_dir = ROOT / "vault-template"
+    if not template_dir.is_dir() or not vault_root:
+        return 0
+    copied = 0
+    for src in sorted(template_dir.rglob("*")):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(template_dir)
+        dest = vault_root / rel
+        if dest.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        copied += 1
+    return copied
+
+
 def init_workspace(args):
     config_path = resolve_path(args.config) if args.config else ROOT / "chubby.yaml"
     if config_path.exists() and not args.force:
@@ -232,6 +256,11 @@ def init_workspace(args):
 
     config = load_config(str(config_path))
     ensure_runtime_dirs(config)
+    vault_root_value = config.get("vault_root")
+    if vault_root_value:
+        scaffold_copied = scaffold_vault_template(resolve_path(vault_root_value))
+        if scaffold_copied:
+            print(f"✅ 已铺设知识库骨架：{scaffold_copied} 个模板文件（来自 vault-template/，不覆盖已有内容）")
     state_file = resolve_path(config["state_file"])
     if not state_file.exists():
         state_file.write_text("", encoding="utf-8")

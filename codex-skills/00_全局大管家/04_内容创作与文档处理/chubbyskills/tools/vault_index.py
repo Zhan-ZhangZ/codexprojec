@@ -689,9 +689,15 @@ def like_query(conn, query, limit=10, platform=None, tag=None, exclude_content_t
     params = []
     where = []
     append_content_exclusions(where, params, exclude_content_types)
-    if query:
+    # AND per whitespace token: the old whole-string LIKE required the words
+    # to appear consecutively ("图书馆 指尖" never matched). FTS5 unicode61
+    # keeps punctuation-free CJK runs as single giant tokens, so substring
+    # CJK queries routinely fall through to this path — per-token AND is the
+    # correctness backstop for both cases.
+    tokens = [t for t in (query or "").split() if t]
+    for t in tokens:
         where.append("(LOWER(title) LIKE ? OR LOWER(body) LIKE ? OR LOWER(tags) LIKE ?)")
-        q = f"%{query.lower()}%"
+        q = f"%{t.lower()}%"
         params.extend([q, q, q])
     if platform:
         where.append("platform = ?")
@@ -722,7 +728,12 @@ def like_query(conn, query, limit=10, platform=None, tag=None, exclude_content_t
 def fts_query(conn, query, limit=10, platform=None, tag=None, exclude_content_types=()):
     if not query:
         return []
-    phrase = '"' + query.replace('"', '""') + '"'
+    # Split on whitespace and AND the tokens: quoting the WHOLE query made
+    # "图书馆 指尖" a literal consecutive-phrase match (only hits when the
+    # words appear adjacently). Each token is still quoted, so FTS syntax
+    # cannot be injected and single-token/CJK-run behavior is unchanged.
+    tokens = [t for t in query.split() if t]
+    phrase = " ".join('"' + t.replace('"', '""') + '"' for t in tokens)
     params = [phrase]
     where = ["notes_fts MATCH ?"]
     append_content_exclusions(where, params, exclude_content_types, "notes.content_type")
