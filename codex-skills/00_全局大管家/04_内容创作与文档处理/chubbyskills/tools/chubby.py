@@ -111,12 +111,14 @@ def parse_int(value, default):
         return default
 
 
-def resolve_path(value):
+def resolve_path(value, base=None):
     value = clean_scalar(value)
     value = os.path.expandvars(os.path.expanduser(value))
     path = Path(value)
     if not path.is_absolute():
-        path = ROOT / path
+        # Relative config paths anchor to the config file's directory when
+        # known (falls back to the repository root for legacy callers).
+        path = (base if base is not None else ROOT) / path
     return path
 
 
@@ -135,10 +137,32 @@ def parse_config_file(path):
     return config
 
 
+# Config keys holding filesystem paths. Relative values anchor to the
+# config file's directory (see load_config) so an external --config stops
+# creating runtime dirs inside the skill installation.
+PATH_CONFIG_KEYS = (
+    "output_dir",
+    "state_file",
+    "report_dir",
+    "queue_file",
+    "vault_dir",
+    "vault_root",
+    "index_db",
+)
+
+
 def load_config(path=None):
     config_path = resolve_path(path) if path else ROOT / "chubby.yaml"
     config = dict(DEFAULT_CONFIG)
     config.update(parse_config_file(config_path))
+    # Anchor relative path values to the config file's directory. For the
+    # default ROOT/chubby.yaml this is identical to the old ROOT anchoring;
+    # for `init --config /elsewhere/chubby.yaml` the runtime dirs now land
+    # next to the config instead of polluting the skill directory.
+    for key in PATH_CONFIG_KEYS:
+        value = config.get(key)
+        if value:
+            config[key] = str(resolve_path(value, base=config_path.parent))
     config["_config_path"] = str(config_path)
     config["_config_exists"] = config_path.exists()
     return config
@@ -147,7 +171,7 @@ def load_config(path=None):
 def write_default_config(path, vault=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     text = """# Chubby Skills pipeline config
-# Paths can be absolute or relative to this repository.
+# Paths can be absolute or relative to this config file's directory.
 output_dir: output
 vault_dir:
 vault_root:

@@ -158,7 +158,14 @@ def render_markdown(bundle, output_dir=None):
     ]
     for doc in bundle["documents"]:
         note_path = Path(bundle["vault_root"]) / doc["path"]
-        note_link = os.path.relpath(note_path, output_dir) if output_dir else str(note_path)
+        # Normalize both sides through realpath before relpath: vault_root is
+        # stored resolved (on macOS /tmp -> /private/tmp), while output_dir may
+        # keep the symlinked form, which previously produced links like
+        # ../../private/tmp/... that only resolved by accident.
+        note_link = (
+            os.path.relpath(os.path.realpath(note_path), os.path.realpath(output_dir))
+            if output_dir else str(note_path)
+        )
         lines.extend([
             f"## {doc['id']} · {plain_heading(doc['title'])}", "",
             f"笔记相对路径：`{doc['path'].replace('`', '&#96;')}`", "",
