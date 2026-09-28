@@ -1,0 +1,303 @@
+{
+  "name": "@hypit/hypit",
+  "version": "0.2.16",
+  "homepage": "https://hypit.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hypit-ai/hypit.git"
+  },
+  "description": "Hypit video authoring Distribution for AI agents",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "exports": {
+    "./browser-capture": {
+      "types": "./dist/public/browser-capture.d.ts",
+      "import": "./packages/browser-capture/src/index.ts"
+    },
+    "./artifact": {
+      "types": "./dist/public/artifact.d.ts",
+      "import": "./packages/artifact/src/index.ts"
+    },
+    "./author-kit": {
+      "types": "./dist/public/author-kit.d.ts",
+      "import": "./packages/author-kit/src/index.ts"
+    },
+    "./caption": {
+      "types": "./dist/public/caption.d.ts",
+      "import": "./packages/caption/src/index.ts"
+    },
+    "./composition": {
+      "types": "./dist/public/composition.d.ts",
+      "import": "./packages/composition/src/index.ts"
+    },
+    "./endpoint-kit": {
+      "types": "./dist/public/endpoint-kit.d.ts",
+      "import": "./packages/endpoint-kit/src/index.ts"
+    },
+    "./generation": {
+      "types": "./dist/public/generation.d.ts",
+      "import": "./packages/generation/src/index.ts"
+    },
+    "./media": {
+      "types": "./dist/public/media.d.ts",
+      "import": "./packages/media/src/index.ts"
+    },
+    "./model-kit": {
+      "types": "./dist/public/model-kit.d.ts",
+      "import": "./packages/model-kit/src/index.ts"
+    },
+    "./narrative": {
+      "types": "./dist/public/narrative.d.ts",
+      "import": "./packages/narrative/src/index.ts"
+    },
+    "./program-space": {
+      "types": "./dist/public/program-space.d.ts",
+      "import": "./packages/program-space/src/index.ts"
+    },
+    "./runtime-kit": {
+      "types": "./dist/public/runtime-kit.d.ts",
+      "import": "./packages/runtime-kit/src/index.ts"
+    },
+    "./timeline": {
+      "types": "./dist/public/timeline.d.ts",
+      "import": "./packages/timeline/src/index.ts"
+    },
+    "./spatial": {
+      "types": "./dist/public/spatial.d.ts",
+      "import": "./packages/spatial/src/index.ts"
+    },
+    "./speech": {
+      "types": "./dist/public/speech.d.ts",
+      "import": "./packages/speech/src/index.ts"
+    },
+    "./studio-adapter": {
+      "types": "./dist/public/studio-adapter.d.ts",
+      "import": "./packages/studio-adapter/src/index.ts"
+    },
+    "./svs": {
+      "types": "./dist/public/svs.d.ts",
+      "import": "./packages/svs/src/index.ts"
+    },
+    "./temporal": {
+      "types": "./dist/public/temporal.d.ts",
+      "import": "./packages/temporal/src/index.ts"
+    },
+    "./temporal-markup": {
+      "types": "./dist/public/temporal-markup.d.ts",
+      "import": "./packages/temporal-markup/src/index.ts"
+    },
+    "./text": {
+      "types": "./dist/public/text.d.ts",
+      "import": "./packages/text/src/index.ts"
+    },
+    "./visual-ir": {
+      "types": "./dist/public/visual-ir.d.ts",
+      "import": "./packages/visual-ir/src/index.ts"
+    },
+    "./hyperframes": {
+      "types": "./dist/public/hyperframes.d.ts",
+      "import": "./packages/hyperframes/src/index.ts"
+    },
+    "./performance": {
+      "types": "./dist/public/performance.d.ts",
+      "import": "./packages/performance/src/index.ts"
+    },
+    "./sound": {
+      "types": "./dist/public/sound.d.ts",
+      "import": "./packages/sound/src/index.ts"
+    }
+  },
+  "bin": {
+    "hypit": "./bin/hypit.mjs"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "files": [
+    "bin",
+    "dist/public/**/*.d.ts",
+    "packages/*/src/**/*",
+    "packages/*/bin/**/*",
+    "packages/*/runtime/**/*",
+    "packages/*/preview/**/*",
+    "packages/*/kits/**/*",
+    "packages/*/*.ts",
+    "packages/*/*.html",
+    "packages/*/package.json",
+    "packages/*/README.md",
+    "packages/temporal-markup/EDITING.md",
+    "packages/studio/INSPECTOR.md",
+    "packages/studio/LOCALIZATION.md",
+    "packages/studio/locales/*.json",
+    "services/image-opencv/pyproject.toml",
+    "services/image-opencv/package.json",
+    "services/image-opencv/uv.lock",
+    "services/image-opencv/README.md",
+    "services/whisperx/pyproject.toml",
+    "services/whisperx/package.json",
+    "services/whisperx/uv.lock",
+    "services/whisperx/README.md",
+    "services/whisperx/src/**/*.py",
+    "services/yt-dlp/pyproject.toml",
+    "services/yt-dlp/package.json",
+    "services/yt-dlp/uv.lock",
+    "services/yt-dlp/README.md",
+    "docs/public/hypit-logo-dark.svg",
+    "docs/public/hypit-logo-light.svg",
+    "examples/minimal-author-package/README.md",
+    "examples/minimal-author-package/packages/*/package.json",
+    "examples/minimal-author-package/packages/*/tsconfig.json",
+    "examples/minimal-author-package/packages/*/README.md",
+    "examples/minimal-author-package/packages/*/src/**/*",
+    "examples/minimal-author-package/packages/*/preview/**/*",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "examples/semantic-composition/README.md",
+    "examples/semantic-composition/packages/*/src/**/*",
+    "examples/semantic-composition/packages/*/package.json",
+    "examples/semantic-composition/packages/*/tsconfig.json",
+    "examples/semantic-composition/packages/*/README.md",
+    "examples/semantic-composition/*.svml",
+    "examples/semantic-composition/*.svrun",
+    "examples/semantic-composition/*.svs",
+    "examples/semantic-composition/hypit.runtime.json",
+    "examples/provider-package/README.md",
+    "examples/provider-package/packages/*/package.json",
+    "examples/provider-package/packages/*/tsconfig.json",
+    "examples/provider-package/packages/*/src/**/*",
+    "examples/provider-package/hypit.runtime.json"
+  ],
+  "scripts": {
+    "pack:distribution": "node scripts/pack-distribution.mjs",
+    "check:distribution": "node scripts/check-distribution.mjs",
+    "build:public-types": "node scripts/build-public-types.mjs",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "test": "node test/run.mjs",
+    "test:runtime-scale": "node test/run.mjs runtime-scale",
+    "test:whisperx-service": "uv run --project services/whisperx --frozen python -m unittest discover -s services/whisperx/tests -p \"test_*.py\"",
+    "test:image-opencv": "node test/run.mjs image-opencv",
+    "hypit": "node bin/hypit.mjs",
+    "studio": "node bin/hypit.mjs studio",
+    "prepack": "npm run build:public-types"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "devDependencies": {
+    "@hypit/artifact": "workspace:*",
+    "@hypit/audio-track": "workspace:*",
+    "@hypit/audio-track-studio": "workspace:*",
+    "@hypit/author-kit": "workspace:*",
+    "@hypit/background-removal": "workspace:*",
+    "@hypit/browser-capture": "workspace:*",
+    "@hypit/build-result": "workspace:*",
+    "@hypit/build-result-fs": "workspace:*",
+    "@hypit/build-result-kit": "workspace:*",
+    "@hypit/build-result-s3": "workspace:*",
+    "@hypit/caption": "workspace:*",
+    "@hypit/caption-fine": "workspace:*",
+    "@hypit/caption-fine-studio": "workspace:*",
+    "@hypit/comment-sticker": "workspace:*",
+    "@hypit/comment-sticker-studio": "workspace:*",
+    "@hypit/composition": "workspace:*",
+    "@hypit/credential-store-env": "workspace:*",
+    "@hypit/credential-store-file": "workspace:*",
+    "@hypit/credential-store-os": "workspace:*",
+    "@hypit/credential-store-platform": "workspace:*",
+    "@hypit/deck-track": "workspace:*",
+    "@hypit/deck-track-studio": "workspace:*",
+    "@hypit/elevenlabs-speech": "workspace:*",
+    "@hypit/estimate": "workspace:*",
+    "@hypit/film": "workspace:*",
+    "@hypit/film-studio": "workspace:*",
+    "@hypit/fishaudio-speech": "workspace:*",
+    "@hypit/fonts-open": "workspace:*",
+    "@hypit/generation": "workspace:*",
+    "@hypit/gpt-image": "workspace:*",
+    "@hypit/gpt-image-kits": "workspace:*",
+    "@hypit/grok-imagine": "workspace:*",
+    "@hypit/hyperframes": "workspace:*",
+    "@hypit/image-compose": "workspace:*",
+    "@hypit/image-transform": "workspace:*",
+    "@hypit/interview-emoji-reveal": "workspace:*",
+    "@hypit/media": "workspace:*",
+    "@hypit/media-pipeline": "workspace:*",
+    "@hypit/media-track": "workspace:*",
+    "@hypit/media-track-studio": "workspace:*",
+    "@hypit/mimo-speech": "workspace:*",
+    "@hypit/minimax-h3": "workspace:*",
+    "@hypit/nano-banana": "workspace:*",
+    "@hypit/narrative": "workspace:*",
+    "@hypit/performance": "workspace:*",
+    "@hypit/performance-studio": "workspace:*",
+    "@hypit/pixverse": "workspace:*",
+    "@hypit/program-space": "workspace:*",
+    "@hypit/project-context-node": "workspace:*",
+    "@hypit/protocol": "workspace:*",
+    "@hypit/provider-beatapi": "workspace:*",
+    "@hypit/provider-hiapi": "workspace:*",
+    "@hypit/provider-hyperframes-local": "workspace:*",
+    "@hypit/provider-hypihub": "workspace:*",
+    "@hypit/provider-image-opencv-local": "workspace:*",
+    "@hypit/provider-media-local": "workspace:*",
+    "@hypit/provider-monid": "workspace:*",
+    "@hypit/provider-pollo": "workspace:*",
+    "@hypit/provider-tokendance": "workspace:*",
+    "@hypit/provider-whisperx-local": "workspace:*",
+    "@hypit/ranking": "workspace:*",
+    "@hypit/ranking-studio": "workspace:*",
+    "@hypit/raster": "workspace:*",
+    "@hypit/render-hyperframes": "workspace:*",
+    "@hypit/resource-store-fs": "workspace:*",
+    "@hypit/resource-store-s3": "workspace:*",
+    "@hypit/run-markup": "workspace:*",
+    "@hypit/runtime-host-node": "workspace:*",
+    "@hypit/runtime-kit": "workspace:*",
+    "@hypit/runtime-local": "workspace:*",
+    "@hypit/screen-overlay": "workspace:*",
+    "@hypit/screen-overlay-studio": "workspace:*",
+    "@hypit/script": "workspace:*",
+    "@hypit/script-studio": "workspace:*",
+    "@hypit/seedance": "workspace:*",
+    "@hypit/seedance-kits": "workspace:*",
+    "@hypit/seedream": "workspace:*",
+    "@hypit/sound": "workspace:*",
+    "@hypit/sound-studio": "workspace:*",
+    "@hypit/spatial": "workspace:*",
+    "@hypit/speech": "workspace:*",
+    "@hypit/speech-alignment": "workspace:*",
+    "@hypit/speech-evidence": "workspace:*",
+    "@hypit/store-sqlite": "workspace:*",
+    "@hypit/studio-adapter": "workspace:*",
+    "@hypit/svs": "workspace:*",
+    "@hypit/temporal": "workspace:*",
+    "@hypit/temporal-markup": "workspace:*",
+    "@hypit/text": "workspace:*",
+    "@hypit/timeline": "workspace:*",
+    "@hypit/timeline-author": "workspace:*",
+    "@hypit/typography-track": "workspace:*",
+    "@hypit/typography-track-studio": "workspace:*",
+    "@hypit/visual-ir": "workspace:*",
+    "@hypit/volcengine-matting": "workspace:*",
+    "@hypit/wan": "workspace:*",
+    "@hypit/whisperx": "workspace:*",
+    "@types/node": "24.10.1",
+    "linkedom": "0.18.13",
+    "rollup": "4.62.4",
+    "rollup-plugin-dts": "6.2.3",
+    "vitepress": "^1.6.4"
+  },
+  "dependencies": {
+    "@puppeteer/browsers": "3.2.2",
+    "koffi": "3.2.1",
+    "puppeteer-core": "25.10.0",
+    "sharp": "0.35.4",
+    "cmu-pronouncing-dictionary": "3.0.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "cjs-module-lexer": "2.2.1"
+  }
+}
