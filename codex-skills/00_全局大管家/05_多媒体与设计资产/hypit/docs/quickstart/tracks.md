@@ -1,0 +1,571 @@
+---
+title: Tracks
+description: Peer track components — captions, media, typography and authored audio.
+---
+
+Every audiovisual contribution entering the final composition is a peer **Track**. Tracks are flat
+(no nesting), and visual z-order is determined by the `stack-order` property in SVS. This page
+covers Caption, Media, Typography and Audio Track authoring.
+
+## Caption system
+
+Caption uses a Script-owned document and a replaceable Style family:
+
+```text
+Script CaptionDocument + Timeline → complete timed Cues → Use presentation
+```
+
+```svml
+<import as="caption" from="@hypit/caption@1"/>
+<import as="caption-fine" from="@hypit/caption-fine@1"/>
+<import as="media" from="@hypit/media@1"/>
+<import as="fonts" from="@hypit/fonts-open@1"/>
+```
+
+`@hypit/caption` owns the common CaptionDocument contract, complete-unit Selection/Role projection,
+Style assignment and the timing join. `@hypit/caption-fine` is one Style family: it owns geometry,
+glyph/Cue/Pill Paint and layered local motion.
+
+### caption-fine:Style
+
+A Style is a rendering intent resolved from one package-owned SVS Recipe:
+
+```svs
+caption.primary {
+  stack-order: 70; x: 0.5; y: 0.88; width: 0.84;
+  height: 0.22;
+  anchor-x: center; anchor-y: bottom;
+  size: 58;
+  line-height: 0.96; letter-spacing: -0.5; word-gap: 14;
+  align: center; block-align: end; inline-size: fixed;
+  wrap: word; max-lines: 2; max-words-per-line: 4;
+  direction: ltr;
+  fill: #FFFFFF; opacity: 1;
+  stroke-color: #09090B; stroke-width: 2;
+  shadow-color: #000000; shadow-opacity: 0.72;
+  shadow-x: 0; shadow-y: 3; shadow-blur: 8;
+  glow-color: #FFFFFF; glow-opacity: 0.12; glow-blur: 8;
+  gradient-from: #FFFFFF; gradient-to: #93C5FD; gradient-angle: 120;
+  long-shadow-color: #111827; long-shadow-opacity: 0.35;
+  long-shadow-distance: 8; long-shadow-angle: 45;
+  background: #09090BCC; border-color: #FFFFFF20; border-width: 1;
+  padding: 16 24; radius: 18;
+  karaoke: trail; karaoke-transition: wipe;
+  active-fill: #FFD54A;
+  active-box: current; active-box-continuity: isolated;
+  active-box-background: #FFD54ACC; active-box-padding: 4 8; active-box-radius: 8;
+  active-underline: current; active-underline-color: #FFFFFF;
+  active-underline-thickness: 3; active-underline-offset: 5;
+  cue-enter: spring; cue-enter-frames: 4;
+  cue-enter-start-scale: 0.75;
+  cue-exit: none; cue-exit-frames: 0;
+  atom-reveal: all;
+  active-response: pop; active-response-frames: 5; active-scale: 1.08;
+  lead-frames: 4; tail-frames: 4; handoff: cut;
+}
+```
+
+```svml
+<fonts:Stack id="caption-fonts" family="inter" weight="700" style="normal" emoji="color">
+  <fonts:Fallback family="noto-sans-sc" weight="700" style="normal"/>
+</fonts:Stack>
+<caption-fine:Style id="primary-caption" recipe={recipes.caption.primary}
+  font={caption-fonts}/>
+```
+
+The required `font=` edge carries one byte-reproducible `FontStackRef`. Family, weight and style
+exist only on that edge; each fallback retains its own exact face metadata. Fine rejects a Style
+without that stack instead of falling back to machine fonts.
+
+Another Caption package may define a different rendering family without changing the common
+CaptionDocument contract.
+
+Fine's properties are orthogonal: normalized placement and anchor; layout and
+typography; base/active solid or gradient glyph Paint; stroke, shadow, directional long shadow,
+glow and underline; Cue/Pill Paint; three independent glyph/Pill/underline activation channels;
+and layered Cue, Alignment-Unit, active-response and loop motion. Missing optional dimensions resolve
+deterministically to no decoration or motion. Unknown properties are rejected.
+
+The package groups those properties as **Where**, **How** and **When** in its Surface declaration,
+so Studio can present the same author contract without maintaining a Caption-specific property list.
+`lead-frames` and `tail-frames` form an explicit visible Schedule around the spoken Cue;
+`handoff: cut` prevents adjacent visible envelopes from competing, while `overlap` preserves both.
+Neither form changes the Word frames used by Karaoke.
+
+`karaoke` is `off`, `current` or `trail`; `karaoke-transition` is `step` or `wipe`. Timing is always
+whole-Alignment-Unit timing already proven by Caption. A normal one-word unit therefore highlights
+per word, while a Dual Text unit remains one indivisible visible unit. Fine never guesses internal
+time.
+
+`active-box` is independently `off`, `current` or `trail`. `active-box-continuity: isolated` paints
+one capsule per activated Alignment Unit; `joined` turns a trail into one ordered prefix whose background is
+continuous on each real browser line. Thus trail-colored text with a current-only Pill is one
+Recipe—not a second renderer.
+
+With `wrap: word`, Fine wraps between complete Alignment Units and falls back inside a single
+over-wide display unit so it cannot escape the Region. `max-words-per-line` constructs explicit rows;
+when `max-lines` is present, a Cue that would construct more rows is rejected instead of having its
+text or Paint clipped. Cue boundaries come from Script segments, turns and authored
+`||`.
+
+Fine is the uniform-flow family: every token follows the same Recipe and may differ only by time,
+index or play state. A Cue with authored internal roles—different font/layout groups, full-frame
+inversion, tearing or cross-clause composition—requires another Caption package rather than a hidden
+Fine exception.
+
+CJK dialogue can be written directly. For a display-only emoji that still follows speech timing,
+author the correspondence explicitly, such as `<🌐 | globe>`; the system will not invent a spoken
+word for a bare symbol.
+
+### caption-fine:Track
+
+Caption content comes from Script and Timeline. Uses choose presentation in time; later Uses replace earlier treatments inside their windows, including Hidden.
+
+```svml
+<caption:Hidden id="hidden"/>
+<caption-fine:Track id="captions" document={story.caption} timeline={speech.timeline}>
+  <caption-fine:Use style={primary-caption}/>
+  <caption-fine:Use role="ALICE" style={alice-caption}/>
+  <caption-fine:Use role="BOB" style={bob-caption}/>
+  <caption-fine:Use during={story.selection.product-demo} style={dialogue-caption}/>
+  <caption-fine:Use during={story.selection.private} style={hidden}/>
+</caption-fine:Track>
+```
+
+`||` organizes Cues. A window can start inside a Cue while retaining its complete text and original word timing. `role` filters the speaker independently of time. `at`/`for`, `until`/`for` and `start`/`end` use the same time language as other tracks.
+
+## Media overlays and B-roll
+
+B-roll is an editorial use of the generic Media Track, not a separate Track family. One Item can
+place an image, generated video, prepared timed medium or compositable Surface at a semantic or
+absolute window.
+
+```svml
+<import as="media-track" from="@hypit/media-track@1"/>
+<import as="wording" from="@hypit/text@1"/>
+```
+
+### media-track:Track and media-track:Item
+
+Placement is an explicit Spatial Frame edge; appearance and motion remain reusable SVS values.
+
+```svml
+<wording:Value id="product-direction">
+  A clean vertical product film: the written script becomes semantic regions,
+  then those regions assemble into a finished video.
+</wording:Value>
+
+<seedance:ReferenceVideo id="product-motion" model="mini"
+  prompt={product-direction} duration="5">
+  <seedance:Reference image={product-reference} person-reference="false"/>
+</seedance:ReferenceVideo>
+
+<space:Frame id="product-frame" within={vertical}
+  left="8%" top="20%" right="92%" bottom="68%"/>
+
+<pipeline:Normalize id="product-media" source={product-motion.video}
+  video="primary-moving" audio="none" span-authority="video" frame-rate="30"/>
+
+<media-track:Track id="product-broll" timeline={speech.timeline} canvas={vertical}>
+  <media-track:Item media={product-media.media} frame={product-frame}
+    during={story.selection.product-demo}
+    appearance={recipes.media.product}
+    motion={recipes.motion.product}/>
+</media-track:Track>
+```
+
+`left`, `top`, `right` and `bottom` are edge coordinates inside the parent Frame; `right` and
+`bottom` are not CSS-style margins. A Frame covering the middle 84% of the canvas horizontally is
+`left="8%" right="92%"`, and `right="8%"` would place its right edge to the left of its left edge,
+which is rejected. The Selection contributes semantic points; Media performs the package-owned
+window projection.
+The same Item model also covers full-canvas cutaways, split screens and corner overlays. Ordered
+child layers, source occupancy and explicit Sequences are available when one source is not enough.
+
+Every Item, Member or sample Layer declares exactly one visual input form:
+
+| Input | Value | Meaning |
+|---|---|---|
+| `image={...}` + `extent={...}` | Blob + authored pixel extent | A durationless still image |
+| `media={...}` | `SynchronizedMedia` | Connect an explicitly prepared timed source directly |
+| `surface={...}` | `CompositableSurfaceRef` | Connect an alpha-aware still or timed surface directly |
+
+A generated or imported video Blob reaches a Track through `<pipeline:Normalize>`, which inspects it,
+selects its streams and puts them on one frame domain; its `.media` output is what `media=` connects
+to. `audio="none"` carries the picture alone, and `audio="default"` carries the source's own sound,
+which `audio-gain` then scales. These forms are explicit so a generic Blob is never guessed to be an
+image or a video.
+
+**Outputs:** `{product-broll.visual}` and, only when explicitly authored, `{product-broll.audio}`.
+
+## Audio tracks
+
+`@hypit/audio-track` places explicitly prepared audio on the same Timeline as the visual
+Tracks. An `Item` consumes `SynchronizedMedia`; normalize a declared or generated audio Blob first,
+then choose its exact program window and occupancy:
+
+```svml
+<import as="media" from="@hypit/media@1"/>
+<import as="pipeline" from="@hypit/media-pipeline@1"/>
+<import as="audio" from="@hypit/audio-track@1"/>
+
+<media:Audio id="music" src="./assets/music.wav"/>
+<pipeline:Normalize id="music-media" source={music}
+  video="none" audio="default" span-authority="audio" frame-rate="30"/>
+
+<audio:Track id="music-bed" timeline={speech.timeline}>
+  <audio:Item source={music-media.media} during="program"
+    playback="loop-end" gain="0.28" fade-in="600ms" fade-out="800ms"/>
+</audio:Track>
+```
+
+| Attribute | Required | Description |
+|---|---|---|
+| `Track.id` | yes | Stable Audio Track identity |
+| `Track.timeline` | yes | Timeline that defines the exact sample and frame domain |
+| `Item.source` | yes | Explicitly selected and normalized `SynchronizedMedia` |
+| `during`, `at`/`for`, or `start`/`end` | exactly one form | Whole-program, Selection, Moment, or explicit window |
+| `playback` | no | `once`, `once-end`, `loop`, `loop-end`, or bounded `stretch` |
+| `trim-start`, `trim-end` | no | Exact source trim |
+| `gain`, `fade-in`, `fade-out` | no | Explicit per-item mix values |
+
+The package performs no automatic extraction, normalization, ducking, or bus routing. Multiple
+Items in one Track and multiple peer Audio Tracks remain independent inputs to Film. The output is
+`{music-bed.audio}`, an ordinary `AudioTrack`.
+
+## Text overlays
+
+Static or timed text displayed on screen — titles, callouts, lower thirds.
+
+```svml
+<import as="text" from="@hypit/typography-track@1"/>
+<import as="wording" from="@hypit/text@1"/>
+```
+
+### text:Track
+
+Container for text items.
+
+```svml
+<space:Canvas id="vertical" width="1080" height="1920"/>
+<space:Frame id="title-frame" within={vertical}
+  left="6%" top="6%" right="94%" bottom="16%"/>
+<fonts:Stack id="title-font" family="inter" weight="900" style="normal"/>
+<text:Style id="title-style" recipe={recipes.text.title} font={title-font}/>
+<text:Track id="titles" timeline={speech.timeline}>
+  <text:Area id="title" placement={title-frame} style={title-style} during="program">
+    EDIT MEANING, NOT TIMELINES
+  </text:Area>
+</text:Track>
+```
+
+| Attribute | Required | Description |
+|---|---|---|
+| `id` | yes | Unique identifier |
+| `semantic` | yes | Timeline from `time:Timeline` — also resolves Selection-based item timing |
+
+### text:Point, text:Area and text:Path
+
+Each item has one explicit placement form, one exact Style and one temporal projection. `Area`
+places flowing text inside a `SpatialFrame`:
+
+```svml
+<text:Area id="meaning" placement={title-frame} style={title-style} during="program">
+  MEANING
+</text:Area>
+```
+
+| Attribute | Required | Description |
+|---|---|---|
+| `id` | yes | Stable item identity |
+| child content or `content` | yes | Inline plain/rich content, or an ordinary graph `Text` reference; the two forms are exclusive |
+| `during` | yes | `"program"` or a Selection reference; `at` and explicit `start`/`end` are also available |
+| `placement` | yes | `SpatialPoint`, `SpatialFrame` or `SpatialPath`, matching the item form |
+| `style` | yes | A `text:Style` compiled from an SVS Recipe plus exact font bytes |
+
+The `during` attribute accepts the literal string `"program"` for the complete Timeline,
+or a Selection or Segment reference for semantic timing. The same temporal interface also accepts
+authored `start`/`end` windows and `at`/`for` events:
+
+```svml
+<text:Style id="callout-style" recipe={recipes.text.callout} font={title-font}/>
+<text:Track id="callout" timeline={speech.timeline}>
+  <text:Area id="callout-copy" placement={callout-frame}
+    style={callout-style} during={story.selection.callout}>
+    EXACTLY THE RIGHT MOMENT
+  </text:Area>
+</text:Track>
+```
+
+Graph-produced copy remains visible as an edge:
+
+```svml
+<wording:Value id="headline">EXACTLY THE RIGHT MOMENT</wording:Value>
+<text:Track id="callout" timeline={speech.timeline}>
+  <text:Area id="callout-copy" content={headline}
+    placement={callout-frame} style={callout-style} during="program"/>
+</text:Track>
+```
+
+The generic Text value supplies only characters. Typography still owns the item document wrapper,
+placement, timing, style and motion. Use inline `P`/`Span`/`Break` when the author needs rich runs.
+
+**Output:** `{titles.track}` — a VisualTrack added to `film:Film`.
+
+## Ranking boards
+
+A ranking board animates an ordered list against the Script. The concrete container, item and Style
+vocabulary is package-owned; inspect the installed package before authoring it.
+
+| Container | Item | Style |
+|---|---|---|
+| `ranking:Column` | `ranking:ColumnItem` | `ranking:ColumnStyle` |
+| `ranking:TopThree` | `ranking:TopThreeItem` | `ranking:TopThreeStyle` |
+
+```svml
+<import as="ranking" from="@hypit/ranking@1"/>
+```
+
+### The style tag
+
+Empty, and all three attributes required: `id`, `recipe` (an SVS Recipe) and `font` (a Font Stack or
+Font artifact). The recipe is validated against the selected component variant; a Recipe from another
+family is refused by name.
+
+### The container tag
+
+| Attribute | Takes |
+|---|---|
+| `semantic` | the Timeline the board is timed against |
+| `frame` | a `space:Frame` — the board's declared placement |
+| `during` | the timing form declared by the selected component |
+| `style` | the matching style record, and only that variant's |
+| `appear-sound`, `move-sound` | optional Synchronized Media |
+| `terminal` | the Moment where the completed board settles. `TopThree` only |
+| `canvas` | an optional `space:Canvas` declared by the selected component |
+
+Use only the timing forms admitted by the selected package; do not infer a terminal or reveal model
+from another component family.
+
+Optional sounds and reveal phases are valid only when the selected package declares them.
+
+### The item tags
+
+Each variant takes its own, at least one, and ids must be unique within a board.
+
+- **`TopThreeItem`** — `label` and item-owned Moment `at` are required; `icon` and `stack` are optional.
+  At most three. TopThree reveal order comes from these Moments' actual frame order.
+- **`ColumnItem`** — `label` (required) and `rank` (required, a positive integer that decides the
+  numbered row and nothing else), optional `icon` and `stack`. Each item also owns its reveal time:
+  `during` names a Selection whose projected window is when it prefers to appear, and
+  `preset="true"` marks a row that starts already placed. Exactly one of the two — an item with
+  neither, or with both, is refused by name.
+
+```svml
+<ranking:ColumnStyle id="board-style" recipe={recipes.ranking.board} font={ui-font}/>
+<ranking:Column id="board" timeline={speech.timeline} canvas={vertical} frame={board-frame}
+  during={story.selection.board} style={board-style}>
+  <ranking:ColumnItem id="row-regen" rank="1" label="ReGen" icon={icon-regen}
+    during={story.selection.regen-reveal}/>
+  <ranking:ColumnItem id="row-chatgpt" rank="2" label="ChatGPT" icon={icon-chatgpt}
+    during={story.selection.chatgpt-reveal}/>
+  <ranking:ColumnItem id="row-remini" rank="3" preset="true" label="Remini" icon={icon-remini}/>
+</ranking:Column>
+```
+
+**Output:** `{board.visual}` — a VisualTrack. A board given a sound also exports `{board.audio}`, an
+AudioTrack; without one there is no audio output to add.
+
+## Card decks
+
+A deck holds cards in depth: one is in front, the others recede behind it, and each new card is dealt
+on a Moment. Where a Media Item places one shot in one Frame, a deck keeps a stack of them in the
+same Frame and moves the whole stack.
+
+```svml
+<import as="deck" from="@hypit/deck-track@1"/>
+```
+
+### deck:DepthStack
+
+`id`, `timeline`, `canvas`, `frame` and `appearance` are required. The same Timeline supplies authored
+times and any placed semantic anchors. `until` says
+what ends the deck: a Moment, a Selection or Segment boundary, or an authored time such as `8s`.
+With a Selection or Segment, `until-boundary="start" | "end"` chooses its edge; the default is `end`.
+
+### deck:Card
+
+A direct child of the stack, self-closing, at least one, and dealt in document order.
+
+| Attribute | Takes |
+|---|---|
+| `source` | required — a still image, a Synchronized Medium, or a Compositable Surface |
+| `extent` | required for a still image and refused for anything else |
+| `at` | required — the reveal event: a Moment or an authored time such as `2s` or `12f` |
+| `appearance` | optional — its own Recipe, otherwise the stack's |
+| `label` | optional — a `deck:Label` record |
+
+### deck:Label
+
+`id` and `font` are required. The copy is either the `content=` reference or the element's own text —
+give both and it is refused. `size`, `color`, `align`, `block` and `padding` are optional.
+
+```svml
+<space:Frame id="deck-frame" within={vertical} left="44%" top="60%" right="98%" bottom="88%"/>
+<deck:DepthStack id="deck" timeline={speech.timeline} canvas={vertical}
+  frame={deck-frame} appearance={recipes.deck.stack} until={story.moment.done}>
+  <deck:Card id="card-spatial" source={icon-spatial} extent={square} at={story.moment.deal-one}/>
+  <deck:Card id="card-type" source={icon-type} extent={square} at={story.moment.deal-two}/>
+</deck:DepthStack>
+```
+
+**Output:** `{deck.track}` — a VisualTrack, an ordinary peer of every other Track in the Film.
+
+## Screen overlays
+
+Effects that cover the picture rather than sit in a Frame: a flash on a cut, a vignette that holds
+for a Selection, grain over the whole programme. One Track carries them all, and each child is one
+effect bound to its own window.
+
+```svml
+<import as="screen" from="@hypit/screen-overlay@1"/>
+```
+
+`screen:Track` takes `id`, `canvas` and `timeline`. Its children are the effects, at least one, each
+empty, each with a required `z` for stacking order and a window that is one of:
+
+| Window | Written |
+|---|---|
+| The whole programme | `during="program"` |
+| A Selection | `during={story.selection.x}` on an item whose Track has `timeline={speech.timeline}` |
+| A Moment, for a length | `at={story.moment.x} for="12f"` on an item whose Track has `timeline={speech.timeline}` |
+| An explicit span | `start="…" end="…"`, optionally against a `selection=` or `moment=` |
+
+Lengths are `12f`, `250ms` or `1.5s`. A Selection
+names one contiguous interval and a Moment names one point; author another item when an effect should
+appear again.
+
+Eleven effects are available — `Flash`, `ColorWash`, `Vignette`, `ScanLines`, `DirectionalMatte`,
+`WhipVeil`, `GlitchVeil`, `Grain`, `LightLeak`, `Bokeh` and `TVStatic` — and each carries its own
+required attributes, such as `color` / `intensity` / `attack` / `hold` / `decay` on a `Flash`, or
+`center-x` / `center-y` / `radius-x` / `radius-y` / `softness` / `color` / `opacity` on a `Vignette`.
+None have defaults: an effect states its whole shape or is refused.
+
+```svml
+<screen:Track id="effects" timeline={speech.timeline} canvas={vertical}>
+  <screen:Flash during={story.selection.overlay} z="80"
+    color="#ffffff" intensity="0.6" attack="2" hold="2" decay="6"/>
+</screen:Track>
+```
+
+**Output:** `{effects.track}` — a VisualTrack.
+
+## Comment stickers
+
+Social-style comment cards placed in a Frame: an avatar, an author, the comment itself, and an
+optional metadata line.
+
+```svml
+<import as="comment" from="@hypit/comment-sticker@1"/>
+```
+
+`comment:Style` is empty and takes `id`, `recipe` and `font`, all required. The recipe carries the
+card's whole appearance — background, border, radius, tail, avatar, the three text rows, and the
+enter/hold/exit motion — and every key has a default, so a recipe may set only what it changes.
+
+`comment:Track` takes `id`, `canvas` and `timeline` for the complete work.
+
+`comment:Sticker` requires `id`, `frame` and `style`, and takes the same windows as a screen overlay
+above. Its copy is either the `comment=` attribute or the element's own text — both is refused. The
+optional `author`, `header` and `meta` each take a string or a Text reference, `avatar` takes an
+image, and there is no `z`: stacking order comes from the recipe's `stack-order`.
+
+```svml
+<comment:Style id="social" recipe={recipes.comment} font={ui-font}/>
+<comment:Track id="comments" canvas={vertical} timeline={speech.timeline}>
+  <comment:Sticker id="one" frame={comment-frame} style={social} avatar={viewer-avatar}
+    author="@viewer" meta="Featured" during={story.selection.reaction}>
+    Wait, it pinned the caption to the word, not the second.
+  </comment:Sticker>
+</comment:Track>
+```
+
+**Output:** `{comments.track}` — a VisualTrack.
+
+## Combination example
+
+All four track families together in one source file:
+
+```svml
+<import as="caption" from="@hypit/caption@1"/>
+<import as="caption-fine" from="@hypit/caption-fine@1"/>
+<import as="fonts" from="@hypit/fonts-open@1"/>
+<import as="media" from="@hypit/media@1"/>
+<import as="pipeline" from="@hypit/media-pipeline@1"/>
+<import as="media-track" from="@hypit/media-track@1"/>
+<import as="text" from="@hypit/typography-track@1"/>
+<import as="audio" from="@hypit/audio-track@1"/>
+<import as="space" from="@hypit/spatial@1"/>
+
+<!-- Captions: primary style for all text -->
+<fonts:Stack id="caption-font" family="inter" weight="700" style="normal"/>
+<fonts:Stack id="title-font" family="inter" weight="900" style="normal"/>
+<caption-fine:Style id="base-caption" recipe={recipes.caption.base} font={caption-font}/>
+<caption:Hidden id="hidden"/>
+
+<caption-fine:Track id="captions" document={story.caption}
+  timeline={speech.timeline}>
+    <caption-fine:Use style={base-caption}/>
+  </caption-fine:Track>
+
+<!-- Shared placement is an explicit edge, separate from Text appearance. -->
+<space:Canvas id="vertical" width="1080" height="1920"/>
+<space:Frame id="title-frame" within={vertical}
+  left="6%" top="6%" right="94%" bottom="16%"/>
+<space:Frame id="card-frame" within={vertical}
+  left="10%" top="20%" right="90%" bottom="70%"/>
+
+<!-- Media: one ordinary Item used editorially as B-roll -->
+<pipeline:Normalize id="card-media" source={motion.video}
+  video="primary-moving" audio="none" span-authority="video" frame-rate="30"/>
+<media-track:Track id="cards" timeline={speech.timeline} canvas={vertical}>
+  <media-track:Item media={card-media.media} frame={card-frame}
+    during={story.selection.demo} appearance={recipes.media.card} motion={recipes.motion.card}/>
+</media-track:Track>
+
+<!-- Text: persistent title overlay -->
+<text:Style id="title-style" recipe={recipes.text.title} font={title-font}/>
+<text:Track id="titles" timeline={speech.timeline}>
+  <text:Area id="meaning" placement={title-frame} style={title-style} during="program">
+    MEANING
+  </text:Area>
+</text:Track>
+
+<!-- Audio: normalize one declared source, then place it for the complete program -->
+<media:Audio id="music" src="./assets/music.wav"/>
+<pipeline:Normalize id="music-media" source={music}
+  video="none" audio="default" span-authority="audio" frame-rate="30"/>
+<audio:Track id="music-bed" timeline={speech.timeline}>
+  <audio:Item source={music-media.media} during="program"
+    playback="loop-end" gain="0.28" fade-in="600ms" fade-out="800ms"/>
+</audio:Track>
+
+<!-- All peer tracks feed into Film -->
+<import as="sound" from="@hypit/sound@1"/>
+<sound:Style id="voice-style"/>
+<sound:Track id="voice" timeline={speech.timeline}>
+  <sound:Use style={voice-style}/>
+</sound:Track>
+
+<film:Film id="main" canvas={vertical} timeline={speech.timeline} appearance={recipes.film.vertical}>
+  <film:Track source={performance.visual}/>
+  <film:Track source={voice.audio}/>
+  <film:Track source={cards.visual}/>
+  <film:Track source={captions.track}/>
+  <film:Track source={titles.track}/>
+  <film:Track source={music-bed.audio}/>
+</film:Film>
+```
+
+In this example, the Recipes place the performance picture at 10, media at 40, captions at 70 and
+text at 90. Higher values paint on top; the author chooses these relationships for the composition.

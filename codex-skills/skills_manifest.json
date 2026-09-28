@@ -521,6 +521,43 @@
     "relative_path": "./00_全局大管家/05_多媒体与设计资产/hyperframes"
   },
   {
+    "name": "hypit",
+    "description": "AI 智能体驱动的视频创作发行版（Hypit Distribution）。基于 SVML 标记语言与 SVS/SVRun 工作流，支持从参考视频克隆、脚本/语音/画面/字幕/特效编排到最终渲染的全链路视频生产；组件可插拔、可重用，支持本地 WhisperX 转写与 HypiHub 云端一体化。Leading Words: SVML视频创作, AI视频克隆, SVS语义快照, SVRun可重用工作流, AIGC分镜, B-roll自动生成, 词级字幕, 短视频矩阵量产",
+    "category": "05_多媒体与设计资产",
+    "folder": "hypit",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/hypit",
+    "aliases": [
+      "Hypit",
+      "hypit",
+      "SVML",
+      "SVS",
+      "SVRun",
+      "AI视频克隆",
+      "AI视频创作",
+      "视频创作发行版",
+      "词级字幕",
+      "B-roll自动生成",
+      "短视频矩阵"
+    ],
+    "tags": [
+      "视频创作",
+      "AI视频",
+      "视频克隆",
+      "SVML",
+      "SVS",
+      "SVRun",
+      "AIGC",
+      "分镜",
+      "B-roll",
+      "字幕",
+      "短视频",
+      "Agent视频",
+      "可重用工作流",
+      "HypiHub",
+      "WhisperX"
+    ]
+  },
+  {
     "name": "lottie",
     "description": "工业生产级 Lottie 矢量动效编码引擎。接受人类设计的意图描述，直接生成极度轻量级、可通过 JSON 文件部署至前端 Web/App 的交互式矢量动画 (Lottie)。Leading Words: 工业级Lottie JSON生成, 前端矢量交互动效, App UI动态设计, Web交互无损动画",
     "category": "05_多媒体与设计资产",
