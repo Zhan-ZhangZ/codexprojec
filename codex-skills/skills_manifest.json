@@ -1763,5 +1763,26 @@
       "苏格拉底式选题",
       "ars指令"
     ]
+  },
+  {
+    "name": "curated-github-projects",
+    "description": "经人工逐项筛选的优质 GitHub 项目清单（无分类平铺，专供 Agent 执行任务时做选型参考）。当任务涉及寻找成熟开源方案、技术选型、找参考实现、避免重复造轮子，或用户提到「优质项目」「GitHub 项目清单」「有没有现成的开源项目」时，必须先唤醒本技能查清单再动手；纯业务逻辑开发、写作翻译等不需要外部项目的任务不触发。清单只做 Agent 引导，不集成项目文件，下载配置使用一律交还项目自身文档。Leading Words: 优质GitHub项目清单, 人工筛选开源项目, 开源方案选型, 参考实现推荐, 避免重复造轮子, 现成开源项目",
+    "category": "15_优质GitHub项目清单",
+    "folder": "curated-github-projects",
+    "relative_path": "./00_全局大管家/15_优质GitHub项目清单/curated-github-projects",
+    "aliases": [
+      "优质项目清单",
+      "GitHub项目清单",
+      "开源项目选型",
+      "现成开源项目"
+    ],
+    "tags": [
+      "GitHub",
+      "开源项目",
+      "人工筛选",
+      "技术选型",
+      "Agent参考",
+      "避免重复造轮子"
+    ]
   }
 ]
