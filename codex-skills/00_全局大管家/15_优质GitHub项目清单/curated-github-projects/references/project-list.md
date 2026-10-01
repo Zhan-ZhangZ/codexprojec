@@ -27,3 +27,27 @@
 - Agent 介入方式：clone 后先读仓库根的 Agent 入口约定文档与 docs 下的行业定制指南（官方即为此场景设计）；定制集中在 `industry/` 目录——站名文案、信源清单、精选提示词、入选门槛、AI 专属模块开关各对应其中一份文件，打开仓库即可对号入座；精选校准用 scripts 目录下的 eval-selection 校准脚本配合人工标注样本验证选得准不准。
 - 许可：MIT（代码）；AIHOT 名称与 Logo 及第三方标志除外，见仓库 NOTICE。
 - 收录信息：本仓库维护者人工收录，2026-10-01，依据仓库 README 全文与仓库页面逐项核验。
+
+---
+
+### 2. text-to-cad · earthtojake/text-to-cad
+
+- 仓库：<https://github.com/earthtojake/text-to-cad>
+- 一句话定位：面向 Agent 的 CAD/CAE/CAM 技能库——用自然语言或图片生成、检查、采购、切片并交付 CAD 零件与机器人描述文件。
+- 作者/背景：earthtojake 主导、21 位贡献者；16.4k Stars / 1.7k Forks，1380 次提交、60 个 release，迭代极活跃（最新 v0.6.6，2026-09-21 发版）。
+- 收录理由：
+  1. 品质与热度双高且持续维护：16.4k Stars、发版节奏稳定、CI 测试常绿，文档站 www.texttocad.dev 独立成册；
+  2. 设计到制造全链闭环：参数化 CAD 建模（build123d 引擎，STEP 主交换格式，可导 STL/3MF/GLB）→ 带尺寸标注的工程图纸 PDF → DfAM/DFM 可制造性检查（壁厚/悬垂/支撑/取向；钣金/CNC/注塑）→ 切片生成打印 G-code → 对接 SendCutSend 激光切割与 Bambu Lab 打印机；
+  3. 机器人生态覆盖全：URDF、SRDF（MoveIt 规划组）、SDF 仿真模型等机器人描述文件技能齐备；
+  4. 原生为 Agent 设计：Skills CLI 一键安装，Codex/Claude/Grok 官方插件市场分发，自带 AGENTS 约定与安全模型文档（SECURITY 分册）；
+  5. MIT 许可，13 个子技能各自独立（入口清单见仓库 README 技能表）。
+- 适用场景：
+  1. 从自然语言或图片生成工业级参数化 CAD 零件并导出 STEP 主格式；
+  2. 机器人建模：生成/编辑 URDF、SRDF、SDF 结构与仿真文件；
+  3. 制造准备链任务：可制造性检查、切片出 FDM 打印 G-code、激光切割下单预检、Bambu 打印任务管理；
+  4. 本库用户可配合使用：06_商业与专业领域 分类下已有其集成版技能（当前 v0.4.28 快照，上游已至 v0.6.6 并新增工程图纸与 DFM 技能）。
+- 不适用/边界：面向机械 CAD 与制造，不是影视级 3D 建模/动画工具；需 Python 3.11+，内核依赖 OpenCascade（OCP）未签名原生模块，Windows 11 默认 Smart App Control 会拦截（需关闭该控制或改用 WSL）；仓库 models 目录为 LFS 测试夹具，使用技能无需拉取。
+- 技术栈与硬性依赖：Python 3.11+ · build123d/OCP（OpenCascade 绑定）· 各子技能独立依赖清单锁定配套 cadgen 版本（环境细节以仓库 README 与文档站为准）。
+- Agent 介入方式：优先按仓库 README 安装节用 Skills CLI 安装或经插件市场添加（具体命令以仓库为准，此处不代答）；仓库根有 AGENTS 约定与 CONTRIBUTING 指南，13 个子技能各自成目录，运行前先读对应子技能的入口说明；本库用户也可直接经大管家路由到 06 分类的集成版。
+- 许可：MIT。
+- 收录信息：本仓库维护者人工收录，2026-10-01，依据仓库 README 与页面实时核验（Stars/版本/技能清单），并对照本库 06 分类集成副本确认版本差。

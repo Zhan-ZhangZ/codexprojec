@@ -2,7 +2,7 @@
 name: curated-github-projects
 description: 经人工逐项筛选的优质 GitHub 项目清单（无分类平铺，专供 Agent 执行任务时做选型参考）。当任务涉及寻找成熟开源方案、技术选型、找参考实现、避免重复造轮子，或用户提到「优质项目」「GitHub 项目清单」「有没有现成的开源项目」时，必须先唤醒本技能查清单再动手；纯业务逻辑开发、写作翻译等不需要外部项目的任务不触发。清单只做 Agent 引导，不集成项目文件，下载配置使用一律交还项目自身文档。Leading Words: 优质GitHub项目清单, 人工筛选开源项目, 开源方案选型, 参考实现推荐, 避免重复造轮子, 现成开源项目
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   upstream: 本仓库自研
 ---
 
@@ -67,6 +67,7 @@ metadata:
 | # | 项目 | 仓库 | 一句话定位 |
 |---|---|---|---|
 | 1 | AIHOT | KKKKhazix/AIHOT | 自己找热点、自己写日报的行业热点站框架 |
+| 2 | text-to-cad | earthtojake/text-to-cad | Agent 原生的 CAD/CAE/CAM 技能库，自然语言到制造全链闭环 |
 
 > 完整条目见 `references/project-list.md`。
 
