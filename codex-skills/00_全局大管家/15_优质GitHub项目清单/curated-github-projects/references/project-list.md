@@ -51,3 +51,27 @@
 - Agent 介入方式：优先按仓库 README 安装节用 Skills CLI 安装或经插件市场添加（具体命令以仓库为准，此处不代答）；仓库根有 AGENTS 约定与 CONTRIBUTING 指南，13 个子技能各自成目录，运行前先读对应子技能的入口说明；本库用户也可直接经大管家路由到 06 分类的集成版。
 - 许可：MIT。
 - 收录信息：本仓库维护者人工收录，2026-10-01，依据仓库 README 与页面实时核验（Stars/版本/技能清单），并对照本库 06 分类集成副本确认版本差。
+
+---
+
+### 3. ClaudeAnimationBase · JohnHeibel/ClaudeAnimationBase
+
+- 仓库：<https://github.com/JohnHeibel/ClaudeAnimationBase>
+- 一句话定位：用 Claude（或任意 coding agent）拍手绘风二维卡通动画的启动套件——p5.js + p5.brush 笔刷渲染、Clawd 角色、31 种表演情绪、写给模型看的动画法则指南。
+- 作者/背景：JohnHeibel（X：@other__reality），用 Claude Opus 5.5 制作出圈手绘风音乐视频《I'm Upping My P(doom)》的创作者（该视频源码另开源于 PDoomVideo 仓库），本套件即其生产代码与经验复盘的提炼。
+- 收录理由：
+  1. 出身硬核：源自真实出圈作品的完整生产链路，而非玩具示例，作者对「模型做对了什么、做砸了什么」做过逐项分析；
+  2. 为 Agent 工作流深度设计：官方用法就是 clone 后交给 Claude Code 说「先读动画指南，再拍一部 15 秒的片子」——模型先出分镜、逐镜头构建、渲染 contact sheet 自检、最终产出 MP4；仓库根的动画指南（ANIMATION_GUIDE）是给模型看的规则+工作流+完整 API（手作感、每景必有事件、笔刷转场、boiling linework 等动画法则与观众节奏）；
+  3. 资产即生产力：Clawd 角色带 31 种表演情绪、多视角、眼口/帽子/舞蹈组件与 docs 模型表，支持换角色、造新情绪新服装、喂参考图；
+  4. 工程完整：无头渲染器支持 contact sheet/帧条/裁切/静帧/MP4；studio 审片页可在 Chrome 逐帧拖看；Linux 无 GPU（软件渲染旗标）与云端 NVIDIA（GPU 角度旗标）均有明确渲染路线；
+  5. 热度与许可：发布约 2 天 255 Stars、社区已开始二创（会话动画、生日祝福片等），MIT 许可。
+- 适用场景：
+  1. 让 Agent 生成分镜驱动的手绘风短视频（生日祝福、产品 Demo 片、社媒内容）；
+  2. 学习「给模型的创作法则」写法——如何用一份指南约束模型产出风格一致的手绘动画；
+  3. 需要程序化笔刷渲染管线（p5.brush 水彩填充、笔触媒介、笔刷转场）作参考实现；
+  4. p5.js 创意编码项目的角色表情系统与镜头/时间轴架构参考。
+- 不适用/边界：限定 2D 手绘卡通风格，不是 3D 动画/影视特效工具，更非 diffusion 文生视频替代品；需 Node.js + Chrome + ffmpeg；无独显时水彩填充渲染慢（约秒级/帧，核显机器建议让模型换用其他填充）；仓库很新（2026-09 末创建、2 位贡献者），API 稳定性待观察；效果以 Claude Opus 5.5 高推理档实测为准，换模型可能打折。
+- 技术栈与硬性依赖：JavaScript · p5.js + p5.brush · Node.js · Google Chrome（无头渲染）· ffmpeg（渲染旗标与环境细节以仓库 README 为准）。
+- Agent 介入方式：clone 后在 Claude Code（或任意 coding agent）里先读仓库根的动画指南再下需求（官方示例即此句式）；分镜 → 逐镜头 → contact sheet 自检 → 出片的工作流已内建；场景写在 scenes 目录，角色与渲染帮助在 src 下分层清晰；出片前用 studio 审片页人工过一遍。
+- 许可：MIT。
+- 收录信息：本仓库维护者人工收录，2026-10-01，依据仓库 README 两轮抓取与 Trendshift 元数据（许可/Stars/创建时间）及社区讨论核验。
