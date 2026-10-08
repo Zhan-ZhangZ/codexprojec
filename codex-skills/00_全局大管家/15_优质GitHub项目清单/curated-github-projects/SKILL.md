@@ -2,7 +2,7 @@
 name: curated-github-projects
 description: 经人工逐项筛选的优质 GitHub 项目清单（无分类平铺，专供 Agent 执行任务时做选型参考）。当任务涉及寻找成熟开源方案、技术选型、找参考实现、避免重复造轮子，或用户提到「优质项目」「GitHub 项目清单」「有没有现成的开源项目」时，必须先唤醒本技能查清单再动手；纯业务逻辑开发、写作翻译等不需要外部项目的任务不触发。清单只做 Agent 引导，不集成项目文件，下载配置使用一律交还项目自身文档。Leading Words: 优质GitHub项目清单, 人工筛选开源项目, 开源方案选型, 参考实现推荐, 避免重复造轮子, 现成开源项目
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   upstream: 本仓库自研
 ---
 
@@ -73,6 +73,8 @@ metadata:
 | 5 | superpowers | obra/superpowers | coding agent 的软件开发方法论框架：TDD + 子代理驱动（本库 01 已集成） |
 | 6 | science-skills | google-deepmind/science-skills | DeepMind 官方科研技能集：30+ 科学数据库 agent 接入 |
 | 7 | Vibe-Trading | HKUDS/Vibe-Trading | 个人交易智能体：自然语言量化投研 + 回测 + 证据审计 |
+| 8 | gathered-scenes-zine-skill | Zeejay0/gathered-scenes-zine-skill | 拾景纸刊：照片先读现场再创作（非商业许可，本库 05 已集成） |
+| 9 | gc-minimal-zine-poster | LiamGvchi/gc-minimal-zine-poster | 极简纸感 zine 海报：大留白 + prompt 编译（MIT，本库 05 已集成） |
 
 > 完整条目见 `references/project-list.md`。
 
