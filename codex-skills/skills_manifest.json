@@ -1784,5 +1784,47 @@
       "Agent参考",
       "避免重复造轮子"
     ]
+  },
+  {
+    "name": "gathered-scenes-zine-skill",
+    "description": "拾景纸刊生图技能集（4 个子技能）。把用户提供的普通照片先「阅读现场」（辨认主体、空间、色彩、动作与未说完的情绪），再选择保留真实现场（实景拼贴）或把现场蒸馏为纸上作品（影像蒸馏），生成 3:5 竖版、撕纸边界、留白呼吸的纸刊海报；并含莫兰迪电影感海报与 Apple 实况照片（Live Photo）动态纸刊两条扩展路径。Leading Words: 拾景纸刊, 实景拼贴海报, 影像蒸馏, 撕纸边界, 纸刊zine生成, 照片转海报, 莫兰迪电影海报, 实况照片纸刊",
+    "category": "05_多媒体与设计资产",
+    "folder": "gathered-scenes-zine-skill",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/gathered-scenes-zine-skill",
+    "aliases": [
+      "拾景纸刊",
+      "Gathered Scenes Zine",
+      "Zeejay纸刊",
+      "实景拼贴",
+      "影像蒸馏"
+    ],
+    "tags": [
+      "image-generation",
+      "zine",
+      "poster",
+      "photo-collage",
+      "paper-texture",
+      "chinese"
+    ]
+  },
+  {
+    "name": "gc-minimal-zine-poster",
+    "description": "极简纸感诗意 zine 海报生成与分析。大留白 + 小型编辑拼贴/焦点元素 + 实验性排版 + 单一明确色彩点缀；支持主题、句子、文章、情绪、物件、照片、内容简报、参考图或图片文件夹输入，产出最终海报图、可直接投产的生图 prompt、可复用风格规则或同视觉家族的多样版式。Leading Words: 极简zine海报, 纸感海报生成, 诗意海报, 大留白排版, 参考图风格提取, 海报prompt编译",
+    "category": "05_多媒体与设计资产",
+    "folder": "gc-minimal-zine-poster",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/gc-minimal-zine-poster",
+    "aliases": [
+      "Minimal Zine Poster",
+      "极简纸刊海报",
+      "LiamGvchi海报"
+    ],
+    "tags": [
+      "image-generation",
+      "zine",
+      "poster",
+      "minimal",
+      "negative-space",
+      "typography"
+    ]
   }
 ]
