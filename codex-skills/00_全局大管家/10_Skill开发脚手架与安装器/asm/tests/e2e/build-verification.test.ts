@@ -1,0 +1,786 @@
+import { fileURLToPath } from "url";
+import { describe, test, expect } from "vitest";
+import { join, resolve, dirname } from "path";
+import { readFileSync, existsSync, readdirSync, statSync } from "fs";
+import { MINISEARCH_OPTIONS } from "../../scripts/minisearch-options";
+
+const WEBSITE_DIR = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "website",
+);
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const DIST = join(ROOT, "dist");
+const ENTRY = join(DIST, "agent-skill-manager.js");
+const DATA_DIR = join(ROOT, "data", "skill-index");
+
+// ─── dist entry point ───────────────────────────────────────────────────────
+
+describe("build: dist entry point", () => {
+  test("dist/agent-skill-manager.js exists", () => {
+    expect(existsSync(ENTRY)).toBe(true);
+  });
+
+  test("first line is a node shebang", () => {
+    const first = readFileSync(ENTRY, "utf-8").split("\n")[0];
+    expect(first).toBe("#!/usr/bin/env node");
+  });
+
+  test("file size is reasonable (10 KB – 5 MB)", () => {
+    const size = statSync(ENTRY).size;
+    expect(size).toBeGreaterThan(10_000);
+    expect(size).toBeLessThan(5_000_000);
+  });
+});
+
+// ─── no bun:ffi leak (issue #35 regression) ─────────────────────────────────
+// The bun:ffi native dependency was removed in #224. This guard ensures it
+// never creeps back into a shipped artifact: a literal "bun:ffi" import would
+// make Node throw ERR_UNSUPPORTED_ESM_URL_SCHEME at runtime.
+
+describe("build: no bun:ffi leak (issue #35 regression)", () => {
+  test('no dist file contains a literal "bun:ffi" import', () => {
+    const files = readdirSync(DIST).filter((f) => f.endsWith(".js"));
+    for (const file of files) {
+      const content = readFileSync(join(DIST, file), "utf-8");
+      const hasBunFfi =
+        content.includes('from "bun:ffi"') ||
+        content.includes("from 'bun:ffi'") ||
+        content.includes('require("bun:ffi")');
+      expect(hasBunFfi).toBe(false);
+    }
+  });
+});
+
+// ─── data directory ─────────────────────────────────────────────────────────
+
+describe("build: data/skill-index shipped", () => {
+  test("data/skill-index/ directory exists", () => {
+    expect(existsSync(DATA_DIR)).toBe(true);
+  });
+
+  test("data/skill-index/ contains at least one JSON file", () => {
+    const jsons = readdirSync(DATA_DIR).filter((f) => f.endsWith(".json"));
+    expect(jsons.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─── website: best practices page ──────────────────────────────────────────
+// The legacy Best Practices page was part of the pre-refactor single-file
+// website/index.html. It was intentionally not ported to the React app in
+// #229 (out-of-scope surface — see the PR body follow-up list). The tests
+// that asserted on its HTML contents are removed here; when the page is
+// ported to React, add jsdom-based component tests under
+// `website-src/src/__tests__/` instead.
+
+// ─── chunk files ────────────────────────────────────────────────────────────
+
+describe("build: chunk files present", () => {
+  test("dist/ contains chunk files from code splitting", () => {
+    const chunks = readdirSync(DIST).filter(
+      (f) => f.startsWith("chunk-") && f.endsWith(".js"),
+    );
+    expect(chunks.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─── token count + eval enrichment (issues #188 + #187) ────────────────────
+
+describe("data/skill-index: token count + eval enrichment", () => {
+  test("at least one indexed skill has tokenCount", () => {
+    const files = readdirSync(DATA_DIR).filter((f) => f.endsWith(".json"));
+    let foundTokenCount = false;
+    for (const file of files) {
+      const data = JSON.parse(readFileSync(join(DATA_DIR, file), "utf-8"));
+      for (const skill of data.skills || []) {
+        if (typeof skill.tokenCount === "number" && skill.tokenCount > 0) {
+          foundTokenCount = true;
+          break;
+        }
+      }
+      if (foundTokenCount) break;
+    }
+    expect(foundTokenCount).toBe(true);
+  });
+
+  test("at least one indexed skill has evalSummary with required fields", () => {
+    const files = readdirSync(DATA_DIR).filter((f) => f.endsWith(".json"));
+    let foundEvalSummary = false;
+    let exampleSummary: any = null;
+    for (const file of files) {
+      const data = JSON.parse(readFileSync(join(DATA_DIR, file), "utf-8"));
+      for (const skill of data.skills || []) {
+        if (skill.evalSummary) {
+          foundEvalSummary = true;
+          exampleSummary = skill.evalSummary;
+          break;
+        }
+      }
+      if (foundEvalSummary) break;
+    }
+    expect(foundEvalSummary).toBe(true);
+    expect(typeof exampleSummary.overallScore).toBe("number");
+    expect(["A", "B", "C", "D", "F"].includes(exampleSummary.grade)).toBe(true);
+    expect(Array.isArray(exampleSummary.categories)).toBe(true);
+    expect(exampleSummary.categories.length).toBeGreaterThan(0);
+    expect(typeof exampleSummary.evaluatedAt).toBe("string");
+  });
+
+  test("evalSummary categories are slim — no findings/suggestions in payload", () => {
+    const files = readdirSync(DATA_DIR).filter((f) => f.endsWith(".json"));
+    for (const file of files) {
+      const data = JSON.parse(readFileSync(join(DATA_DIR, file), "utf-8"));
+      for (const skill of data.skills || []) {
+        if (!skill.evalSummary) continue;
+        for (const c of skill.evalSummary.categories) {
+          // The slim shape only includes id/name/score/max — keep it that way
+          // so the catalog payload doesn't bloat to ~MBs.
+          expect(c.findings).toBeUndefined();
+          expect(c.suggestions).toBeUndefined();
+        }
+      }
+    }
+  });
+});
+
+// ─── catalog dedup preserves distinct install paths (issue #201) ───────────
+
+const CATALOG_PATH = join(WEBSITE_DIR, "catalog.json");
+const catalogExists = existsSync(CATALOG_PATH);
+
+describe("catalog: preserves all distinct install targets (issue #201)", () => {
+  if (!catalogExists) {
+    test.skip("catalog.json not present — run `npx tsx scripts/build-catalog.ts` to generate it", () => {});
+    return;
+  }
+  const catalog = JSON.parse(readFileSync(CATALOG_PATH, "utf-8"));
+
+  test("catalog.totalSkills equals catalog.skills.length", () => {
+    expect(catalog.totalSkills).toBe(catalog.skills.length);
+  });
+
+  test("every catalog skill has a unique installUrl", () => {
+    const urls = catalog.skills.map(
+      (s: { installUrl: string }) => s.installUrl,
+    );
+    expect(new Set(urls).size).toBe(urls.length);
+  });
+
+  test("every repo's skillCount matches the number of catalog skills for that repo", () => {
+    const countsByRepo: Record<string, number> = {};
+    for (const s of catalog.skills) {
+      const key = `${s.owner}/${s.repo}`;
+      countsByRepo[key] = (countsByRepo[key] ?? 0) + 1;
+    }
+    for (const r of catalog.repos) {
+      const key = `${r.owner}/${r.repo}`;
+      expect(countsByRepo[key] ?? 0).toBe(r.skillCount);
+    }
+  });
+
+  test("plugin-bundle repos with same skill name at multiple relPaths are all preserved", () => {
+    // Find any repo that has multiple skills sharing a name (the pattern
+    // that used to trigger the broken dedup).
+    const skillsByRepoAndName: Record<string, number> = {};
+    for (const s of catalog.skills) {
+      const key = `${s.owner}/${s.repo}::${s.name}`;
+      skillsByRepoAndName[key] = (skillsByRepoAndName[key] ?? 0) + 1;
+    }
+    const hasMultiNameRepo = Object.values(skillsByRepoAndName).some(
+      (n) => n > 1,
+    );
+    // If no repo in the fixture ships a duplicated name, skip — the guard is
+    // exercised in the uniqueness + count tests above.
+    if (!hasMultiNameRepo) return;
+    // Otherwise every entry survived with a distinct installUrl.
+    const multiNameEntries = catalog.skills.filter(
+      (s: { owner: string; repo: string; name: string }) =>
+        skillsByRepoAndName[`${s.owner}/${s.repo}::${s.name}`] > 1,
+    );
+    const urls = multiNameEntries.map(
+      (s: { installUrl: string }) => s.installUrl,
+    );
+    expect(new Set(urls).size).toBe(urls.length);
+  });
+});
+
+// ─── website surfaces token count + eval (issues #188 + #187) ──────────────
+// Verify the React port still surfaces tokenCount + evalSummary. The
+// legacy HTML string checks are replaced with source-level checks against
+// the React components; proper render-time assertions live in the jsdom
+// tests under `website-src/src/__tests__/app-smoke.test.jsx`.
+
+const WEBSITE_SRC_DIR = resolve(ROOT, "website-src", "src");
+
+describe("website: token count + eval surfaces", () => {
+  // Storefront redesign: tokens + eval badges now live on SkillCard
+  // (the eval-score sticker + tokens badge). The reusable detail view
+  // was extracted from SkillDetailPage into components/SkillDetail.jsx.
+  const cardSrc = readFileSync(
+    join(WEBSITE_SRC_DIR, "components", "SkillCard.jsx"),
+    "utf-8",
+  );
+  const detailSrc = readFileSync(
+    join(WEBSITE_SRC_DIR, "components", "SkillDetail.jsx"),
+    "utf-8",
+  );
+  const utilsSrc = readFileSync(
+    join(WEBSITE_SRC_DIR, "lib", "utils.js"),
+    "utf-8",
+  );
+
+  test("SkillCard reads tokenCount and renders a tokens badge", () => {
+    expect(cardSrc).toContain("formatTokens");
+    expect(cardSrc).toContain('tone="tokens"');
+    expect(cardSrc).toContain("skill.tokenCount");
+  });
+
+  test("SkillCard reads evalSummary and renders an eval sticker", () => {
+    expect(cardSrc).toContain("skill.evalSummary");
+    expect(cardSrc).toContain("asm eval score");
+    expect(cardSrc).toContain("data-grade");
+  });
+
+  test("SkillDetail renders an eval section with empty-state fallback", () => {
+    expect(detailSrc).toContain("asm eval score");
+    // Always rendered even when there is no data — see issue #187 acceptance criteria
+    expect(detailSrc).toContain("No ");
+    expect(detailSrc).toContain("asm eval");
+    expect(detailSrc).toContain("is available");
+  });
+
+  test("SkillDetail exposes Est. tokens row when tokenCount is present", () => {
+    expect(detailSrc).toContain("Est. tokens");
+  });
+
+  test("formatTokens always prefixes its output with `~` (approximation)", () => {
+    expect(utilsSrc).toMatch(
+      /return\s+["']~["']\s*\+\s*count\s*\+\s*["'] tokens["']/,
+    );
+  });
+});
+
+// ─── split artifacts (issue #214) ──────────────────────────────────────────
+// The build emits three browser-facing artifacts derived from catalog.json so
+// the frontend can fetch only what it needs on page load. catalog.json stays
+// the authoritative internal source (tests above still pass against it).
+
+const SKILLS_MIN_PATH = join(WEBSITE_DIR, "skills.min.json");
+const SEARCH_IDX_PATH = join(WEBSITE_DIR, "search.idx.json");
+const SKILLS_DETAIL_DIR = join(WEBSITE_DIR, "skills");
+const AUTHOR_STATS_PATH = join(WEBSITE_DIR, "author-stats.json");
+const INDEX_STATS_PATH = join(WEBSITE_DIR, "index-stats.json");
+const BUNDLES_PATH = join(WEBSITE_DIR, "bundles.json");
+
+describe("catalog: split artifacts (issue #214)", () => {
+  if (!catalogExists || !existsSync(SKILLS_MIN_PATH)) {
+    test.skip("split artifacts not present — run `npx tsx scripts/build-catalog.ts` to generate them", () => {});
+    return;
+  }
+  const catalog = JSON.parse(readFileSync(CATALOG_PATH, "utf-8"));
+  const skillsMin = JSON.parse(readFileSync(SKILLS_MIN_PATH, "utf-8"));
+
+  test("skills.min.json mirrors catalog totalSkills and top-level aggregates", () => {
+    expect(skillsMin.totalSkills).toBe(catalog.totalSkills);
+    expect(skillsMin.totalRepos).toBe(catalog.totalRepos);
+    expect(skillsMin.categories).toEqual(catalog.categories);
+    expect(skillsMin.skills.length).toBe(catalog.skills.length);
+    expect(skillsMin.version).toBe(catalog.version);
+  });
+
+  test("every slim skill row carries the fields the card + filters need", () => {
+    for (const s of skillsMin.skills) {
+      expect(typeof s.id).toBe("string");
+      expect(typeof s.detailPath).toBe("string");
+      expect(s.detailPath).toMatch(/^skills\/[0-9a-f]{16}\.json$/);
+      expect(typeof s.name).toBe("string");
+      expect(typeof s.description).toBe("string");
+      expect(typeof s.owner).toBe("string");
+      expect(typeof s.repo).toBe("string");
+      expect(Array.isArray(s.categories)).toBe(true);
+      expect(typeof s.installUrl).toBe("string");
+      expect(typeof s.hasTools).toBe("boolean");
+      expect(typeof s.verified).toBe("boolean");
+    }
+  });
+
+  test("every detailPath resolves to an on-disk skill file", () => {
+    for (const s of skillsMin.skills) {
+      const p = join(WEBSITE_DIR, s.detailPath);
+      expect(existsSync(p)).toBe(true);
+    }
+  });
+
+  test("skills/ directory count matches catalog.skills.length", () => {
+    const files = readdirSync(SKILLS_DETAIL_DIR).filter((f) =>
+      f.endsWith(".json"),
+    );
+    expect(files.length).toBe(catalog.skills.length);
+  });
+
+  test("search.idx.json is a MiniSearch serialization with the expected shape", () => {
+    const idx = JSON.parse(readFileSync(SEARCH_IDX_PATH, "utf-8"));
+    expect(idx.documentCount).toBe(catalog.skills.length);
+    expect(idx.serializationVersion).toBeDefined();
+    // The build script uses numeric ids (row index in catalog.skills) to
+    // shrink the index — guard that invariant because the frontend relies on
+    // `catalog.skills[hit.id]` to map hits back to slim rows. Must be a
+    // real number, not a string-of-digits.
+    expect(typeof idx.documentIds).toBe("object");
+    const firstKey = Object.keys(idx.documentIds)[0];
+    expect(typeof idx.documentIds[firstKey]).toBe("number");
+  });
+
+  test("slim rows align 1:1 with catalog.skills by id + derived fields", () => {
+    // Ordering must match because the search index uses array indices as
+    // document IDs — if these ever diverge, `catalog.skills[hit.id]` maps
+    // to the wrong slim row silently.
+    for (let i = 0; i < catalog.skills.length; i++) {
+      const full = catalog.skills[i];
+      const slim = skillsMin.skills[i];
+      expect(slim.id).toBe(full.id);
+      expect(slim.name).toBe(full.name);
+      expect(slim.owner).toBe(full.owner);
+      expect(slim.repo).toBe(full.repo);
+      expect(slim.hasTools).toBe(
+        Array.isArray(full.allowedTools) && full.allowedTools.length > 0,
+      );
+      if (full.evalSummary) {
+        expect(slim.evalSummary?.grade).toBe(full.evalSummary.grade);
+        expect(slim.evalSummary?.overallScore).toBe(
+          full.evalSummary.overallScore,
+        );
+        expect(slim.evalSummary?.categories).toBeUndefined();
+        expect(slim.evalSummary?.evaluatedAt).toBeUndefined();
+      }
+    }
+  });
+
+  test("MiniSearch options match between build script and frontend loader", async () => {
+    // Guard against silent scoring drift: if any option (fields, idField,
+    // boost weights, fuzzy, prefix, storeFields) diverges between the
+    // build-time serialization and the frontend's loadJSON call, relevance
+    // ranking breaks without any thrown error. The build script imports
+    // MINISEARCH_OPTIONS directly from scripts/minisearch-options.ts; the
+    // React app re-exports a JS copy. We compare them structurally here.
+    const runtimeOptionsSrc = readFileSync(
+      join(WEBSITE_SRC_DIR, "lib", "minisearch-options.js"),
+      "utf-8",
+    );
+    // Parse the JS object literal out of `export const MINISEARCH_OPTIONS = { ... };`
+    const marker = "export const MINISEARCH_OPTIONS = {";
+    const start = runtimeOptionsSrc.indexOf(marker);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const braceStart = runtimeOptionsSrc.indexOf("{", start);
+    let depth = 0;
+    let end = -1;
+    for (let i = braceStart; i < runtimeOptionsSrc.length; i++) {
+      const ch = runtimeOptionsSrc[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    expect(end).toBeGreaterThan(braceStart);
+    const literal = runtimeOptionsSrc.slice(braceStart, end + 1);
+    const jsonLike = literal
+      .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
+      .replace(/'([^']*)'/g, '"$1"')
+      .replace(/,(\s*[}\]])/g, "$1");
+    const frontendOptions = JSON.parse(jsonLike);
+    expect(frontendOptions).toEqual(MINISEARCH_OPTIONS);
+  });
+
+  test("search.idx.json deserializes and finds a known query (smoke test)", async () => {
+    const idxText = readFileSync(SEARCH_IDX_PATH, "utf-8");
+    // Import dynamically so the tests don't pay the load cost when the
+    // artifact isn't present (already guarded above).
+    const { default: MiniSearch } = await import("minisearch");
+    const idx = MiniSearch.loadJSON(idxText, MINISEARCH_OPTIONS);
+    const hits = idx.search("skill");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(typeof hits[0].id).toBe("number");
+    expect(catalog.skills[hits[0].id]).toBeDefined();
+  });
+
+  test("search.idx.json and skills.min.json share the same generatedAt", () => {
+    // The frontend boot guard compares these two fields to detect CDN/cache
+    // skew between artifacts — without matching generatedAt values the array-
+    // index invariant (hit.id → catalog.skills[i]) silently misaligns.
+    const idx = JSON.parse(readFileSync(SEARCH_IDX_PATH, "utf-8"));
+    const slim = JSON.parse(readFileSync(SKILLS_MIN_PATH, "utf-8"));
+    expect(typeof idx.generatedAt).toBe("string");
+    expect(idx.generatedAt).toBe(slim.generatedAt);
+  });
+
+  test("skills.min.json is materially smaller than catalog.json (raw bytes)", () => {
+    const catalogSize = statSync(CATALOG_PATH).size;
+    const slimSize = statSync(SKILLS_MIN_PATH).size;
+    // Conservative lower-bound check — the whole point of the split. If this
+    // ever regresses, either the slim shape drifted or catalog.json shrunk
+    // for other reasons; either way, worth looking at.
+    expect(slimSize).toBeLessThan(catalogSize * 0.75);
+  });
+});
+
+// ─── category rankings + stable skill links (issue #398) ──────────────────
+
+describe("catalog: category rankings and stable skill links (issue #398)", () => {
+  const artifactsExist = [
+    CATALOG_PATH,
+    AUTHOR_STATS_PATH,
+    INDEX_STATS_PATH,
+    BUNDLES_PATH,
+  ].every(existsSync);
+
+  if (!artifactsExist) {
+    test.skip("ranking artifacts not present — run `npx tsx scripts/build-catalog.ts` to generate them", () => {});
+    return;
+  }
+
+  const catalog = JSON.parse(readFileSync(CATALOG_PATH, "utf-8"));
+  const indexStats = JSON.parse(readFileSync(INDEX_STATS_PATH, "utf-8")).stats;
+  const authorStats = JSON.parse(
+    readFileSync(AUTHOR_STATS_PATH, "utf-8"),
+  ).stats;
+  const bundles = JSON.parse(readFileSync(BUNDLES_PATH, "utf-8")).bundles;
+  const catalogById = new Map(
+    catalog.skills.map((skill: any) => [skill.id, skill]),
+  );
+
+  test("emits up to ten deterministically ordered skills for every category", () => {
+    expect(Object.keys(indexStats.categoryTopSkills)).toEqual(
+      catalog.categories,
+    );
+
+    for (const category of catalog.categories) {
+      const expected = catalog.skills
+        .filter(
+          (skill: any) =>
+            skill.categories.includes(category) && skill.evalSummary,
+        )
+        .sort(
+          (a: any, b: any) =>
+            b.evalSummary.overallScore - a.evalSummary.overallScore ||
+            a.id.localeCompare(b.id),
+        )
+        .slice(0, 10)
+        .map((skill: any) => skill.id);
+      const actual = indexStats.categoryTopSkills[category];
+      expect(actual).toHaveLength(expected.length);
+      expect(actual.map((skill: any) => skill.id)).toEqual(expected);
+    }
+  });
+
+  test("every ranked skill resolves and carries its full canonical breakdown", () => {
+    for (const rankedSkills of Object.values(
+      indexStats.categoryTopSkills,
+    ) as any[][]) {
+      for (const rankedSkill of rankedSkills) {
+        const source = catalogById.get(rankedSkill.id) as any;
+        expect(source).toBeDefined();
+        expect(rankedSkill.evalSummary).toEqual(source.evalSummary);
+        expect(rankedSkill.evalSummary.categories.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  test("every author top skill carries a catalog-resolvable id", () => {
+    for (const author of authorStats) {
+      for (const skill of author.topSkills) {
+        expect(catalogById.has(skill.id)).toBe(true);
+      }
+    }
+  });
+
+  test("bundle skills receive ids exactly when their install URL resolves", () => {
+    const catalogByInstallUrl = new Map(
+      catalog.skills.map((skill: any) => [skill.installUrl, skill]),
+    );
+    let linked = 0;
+
+    for (const bundle of bundles) {
+      for (const skill of bundle.skills) {
+        const source = catalogByInstallUrl.get(skill.installUrl) as any;
+        if (source) {
+          expect(skill.id).toBe(source.id);
+          linked++;
+        } else {
+          expect(skill.id).toBeUndefined();
+        }
+      }
+    }
+
+    expect(linked).toBeGreaterThan(0);
+  });
+});
+
+// ─── website loader swap (issue #214, ported to React in #229) ─────────────
+
+describe("website: loader uses split artifacts (issue #214)", () => {
+  const catalogHookSrc = readFileSync(
+    join(WEBSITE_SRC_DIR, "hooks", "useCatalog.jsx"),
+    "utf-8",
+  );
+  const detailSrc = readFileSync(
+    join(WEBSITE_SRC_DIR, "components", "SkillDetail.jsx"),
+    "utf-8",
+  );
+
+  test("boot fetches skills.min.json + search.idx.json in parallel", () => {
+    expect(catalogHookSrc).toMatch(/fetch\(["']skills\.min\.json["']\)/);
+    expect(catalogHookSrc).toMatch(/fetch\(["']search\.idx\.json["']\)/);
+    expect(catalogHookSrc).toContain("Promise.all");
+  });
+
+  test("boot no longer fetches catalog.json directly", () => {
+    expect(catalogHookSrc).not.toContain('fetch("catalog.json")');
+    expect(catalogHookSrc).not.toContain("fetch('catalog.json')");
+  });
+
+  test("MiniSearch runtime is sourced from the npm package (not a vendored CDN blob)", () => {
+    expect(catalogHookSrc).toContain('from "minisearch"');
+  });
+
+  test("SkillDetail fetches the per-skill detail on demand", () => {
+    expect(detailSrc).toContain("slim.detailPath");
+    // Cache-aware: uses `path` variable derived from slim.detailPath
+    expect(detailSrc).toMatch(/detailCache|fetch\(path\)/);
+  });
+});
+
+// ─── GitHub star counts never publish 0-on-failure (issue #598) ────────────
+// Unauthenticated star fetches were rate-limited (60 req/hour for ~73 repos)
+// and every failure path returned 0, sinking popular repos in the default
+// "Most popular" sort. Guards: token in workflows, null-on-failure plus
+// header-aware retries in the build, and a committed baseline fallback.
+
+describe("catalog: star counts degrade honestly (issue #598)", () => {
+  const buildSrc = readFileSync(
+    join(ROOT, "scripts", "build-catalog.ts"),
+    "utf-8",
+  );
+  // The fetch itself lives in src/repo-stars.ts (unit-tested); the build
+  // script only wires it in.
+  const starsSrc = readFileSync(join(ROOT, "src", "repo-stars.ts"), "utf-8");
+
+  test("build resolves star failures to null, never 0", () => {
+    expect(buildSrc).toContain("STAR_BASELINE_PATH");
+    expect(starsSrc).toContain("Promise<number | null>");
+    expect(starsSrc).not.toMatch(/return 0/);
+  });
+
+  test("build honours retry-after / x-ratelimit-reset", () => {
+    expect(starsSrc).toContain("retry-after");
+    expect(starsSrc).toContain("x-ratelimit-reset");
+  });
+
+  test("build falls back to the committed baseline and fails loudly", () => {
+    expect(buildSrc).toContain("STAR_BASELINE_PATH");
+    expect(buildSrc).toContain("process.exit(1)");
+  });
+
+  test("committed baseline covers a majority of indexed repos", () => {
+    const baseline = JSON.parse(
+      readFileSync(join(ROOT, "data", "repo-stars.json"), "utf-8"),
+    );
+    const indexFiles = readdirSync(DATA_DIR).filter((f) => f.endsWith(".json"));
+    const repos = new Set<string>();
+    for (const file of indexFiles) {
+      const data = JSON.parse(readFileSync(join(DATA_DIR, file), "utf-8"));
+      if (data.skills?.length) repos.add(`${data.owner}/${data.repo}`);
+    }
+    const covered = [...repos].filter((k) => baseline.stars[k] > 0);
+    expect(covered.length / repos.size).toBeGreaterThan(0.5);
+  });
+
+  test("workflows pass GITHUB_TOKEN to the catalog build", () => {
+    for (const wf of ["deploy-website.yml", "ci.yml"]) {
+      const src = readFileSync(join(ROOT, ".github", "workflows", wf), "utf-8");
+      expect(src).toContain("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
+    }
+  });
+});
+
+// ─── Category pages SEO ─────────────────────────────────────────────────────
+// The catalog's ?cat= filter views are HashRouter state — invisible to
+// crawlers. `scripts/category-seo.ts` generates one indexable static page
+// per category; the sitemap/llms.txt templates enumerate them; the SPA
+// canonicalizes single-category views to them and links badges at them.
+
+import {
+  CATEGORY_META,
+  SITE_BASE,
+  categoryMeta,
+  categoryPageUrl,
+  renderCategoryPage,
+  renderLlmsCategoryLines,
+  renderSitemapCategoryUrls,
+} from "../../scripts/category-seo";
+
+describe("category SEO: helpers", () => {
+  test("every known category has a label and description", () => {
+    expect(Object.keys(CATEGORY_META).length).toBeGreaterThanOrEqual(16);
+    for (const meta of Object.values(CATEGORY_META)) {
+      expect(meta.label.length).toBeGreaterThan(0);
+      expect(meta.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("unknown slugs fall back to a title-case label", () => {
+    expect(categoryMeta("brand-new-cat").label).toBe("Brand New Cat");
+    expect(categoryMeta("devops")).toEqual(CATEGORY_META["devops"]);
+  });
+
+  test("category URLs are real pages, not hash fragments", () => {
+    expect(categoryPageUrl("devops")).toBe(
+      `${SITE_BASE}/categories/devops.html`,
+    );
+    expect(categoryPageUrl("devops")).not.toContain("#");
+  });
+
+  test("rendered page carries unique title, canonical, H1 and JSON-LD", () => {
+    const html = renderCategoryPage({
+      slug: "testing",
+      skills: [
+        {
+          id: "o/r::s",
+          name: "s",
+          description: "d",
+          owner: "o",
+          repo: "r",
+          overallScore: 90,
+          grade: "A",
+        },
+      ],
+      totalRepos: 35,
+      lastmod: "2026-09-05",
+    });
+    expect(html).toContain("<title>Testing Skills (1)");
+    expect(html).toContain(
+      `<link rel="canonical" href="${SITE_BASE}/categories/testing.html" />`,
+    );
+    expect(html).toContain("<h1>Testing Skills</h1>");
+    expect(html).toContain('property="og:image"');
+    expect(html).toContain('"@type": "CollectionPage"');
+    expect(html).toContain('"@type": "ItemList"');
+    expect(html).toContain('"@type": "BreadcrumbList"');
+    expect(html).toContain("o/r");
+    // Visible list and ItemList describe the same skill.
+    expect(html).toContain(`${SITE_BASE}/#/skills/o%2Fr%3A%3As`);
+  });
+
+  test("descriptions are HTML-escaped", () => {
+    const html = renderCategoryPage({
+      slug: "testing",
+      skills: [
+        {
+          id: "a",
+          name: "<b>n</b>",
+          description: 'x "y"',
+          owner: "o",
+          repo: "r",
+        },
+      ],
+      totalRepos: 1,
+      lastmod: "2026-09-05",
+    });
+    // Visible HTML is escaped; JSON-LD escapes `<` so `</script>` can
+    // never break out of the block (skill names are untrusted input).
+    expect(html).toContain("&lt;b&gt;n&lt;/b&gt;");
+    expect(html).toContain(
+      `"name": ${JSON.stringify("<b>n</b>").replace(/</g, "\\u003c")}`,
+    );
+    expect(html).not.toContain("</script></script>");
+  });
+
+  test("skill names cannot break out of the JSON-LD script block", () => {
+    const html = renderCategoryPage({
+      slug: "testing",
+      skills: [
+        {
+          id: "a",
+          name: '</script><script>alert("xss")</script>',
+          description: "d",
+          owner: "o",
+          repo: "r",
+        },
+      ],
+      totalRepos: 1,
+      lastmod: "2026-09-05",
+    });
+    const blocks = html.match(
+      /<script type="application\/ld\+json">[\s\S]*?<\/script>/g,
+    );
+    expect(blocks).not.toBeNull();
+    for (const block of blocks ?? []) {
+      expect(block.slice(0, block.lastIndexOf("</script>"))).not.toContain(
+        "</script>",
+      );
+    }
+    expect(html).toContain("\\u003c/script>");
+  });
+
+  test("sitemap snippet lists real URLs with no fragments", () => {
+    const urls = renderSitemapCategoryUrls(["devops", "git"], "2026-09-05");
+    expect(urls).toContain(`${SITE_BASE}/categories/devops.html`);
+    expect(urls).toContain(`${SITE_BASE}/categories/git.html`);
+    expect(urls).not.toContain("#");
+  });
+
+  test("llms lines link every category to its page", () => {
+    const lines = renderLlmsCategoryLines(["devops"]);
+    expect(lines).toContain(`- [DevOps](${SITE_BASE}/categories/devops.html):`);
+  });
+});
+
+describe("category SEO: wiring", () => {
+  const SRC = join(ROOT, "website-src");
+
+  test("sitemap template lists categories, not hash routes", () => {
+    const sitemap = readFileSync(join(SRC, "sitemap.xml"), "utf-8");
+    expect(sitemap).toContain("{{CATEGORY_URLS}}");
+    expect(sitemap).not.toContain("#/");
+  });
+
+  test("llms.txt template renders category links from the catalog", () => {
+    const llms = readFileSync(join(SRC, "llms.txt"), "utf-8");
+    expect(llms).toContain("{{CATEGORY_LINKS}}");
+  });
+
+  test("build renders category tokens and static pages", () => {
+    const buildSrc = readFileSync(
+      join(ROOT, "scripts", "build-catalog.ts"),
+      "utf-8",
+    );
+    expect(buildSrc).toContain("{{CATEGORY_URLS}}");
+    expect(buildSrc).toContain("{{CATEGORY_LINKS}}");
+    expect(buildSrc).toContain("categories");
+    expect(buildSrc).toContain("renderCategoryPage");
+  });
+
+  test("CatalogPage sets per-category title and canonical", () => {
+    const src = readFileSync(
+      join(SRC, "src", "pages", "CatalogPage.jsx"),
+      "utf-8",
+    );
+    expect(src).toContain("categoryPageUrl");
+    expect(src).toContain("document.title");
+    expect(src).toContain('link[rel="canonical"]');
+  });
+
+  test("SkillCard badges link to static category pages", () => {
+    const src = readFileSync(
+      join(SRC, "src", "components", "SkillCard.jsx"),
+      "utf-8",
+    );
+    expect(src).toContain("categoryPageUrl");
+    expect(src).toContain("<a");
+  });
+});

@@ -1,0 +1,77 @@
+# Cortex Documentation Site
+
+project: cortex-docs
+title: Cortex Docs
+logo_dark: ./assets/logo_dark.svg
+logo_light: ./assets/logo_light.svg
+logoHeight: 24
+showLogoDocsLabel: true
+favicon: ./assets/favicon.svg
+theme: system
+primaryColor: '#ffffff'
+analytics:
+  google_analytics_id: G-KQW4ERPLHB
+  enabled_hosts:
+    - docs.cortexdocs.dev
+  privacy_url: https://cortexdocs.dev/privacy#cookies-and-analytics
+home:
+  title: Cortex Docs
+  description: Generate typed SDKs, documentation, and MCP servers from OpenAPI, AsyncAPI, GraphQL, Protocol Buffer, and OpenRPC sources.
+  cta:
+    label: Getting Started
+    href: /docs
+  sections:
+    - title: We love open source
+      description: Turn your existing Markdown into a free documentation site. Connect AI clients to current docs with local MCP.
+      badge: Free hosting
+      href: /docs/open-source-hosting
+      icon: assets/docs-icon.svg
+    - title: Documentation
+      description: Learn about SDK generation, request timeouts, connection recovery, heartbeats, and streaming APIs.
+      badge: Docs
+      href: /docs
+      icon: assets/docs-icon.svg
+    - title: MCP Server
+      description: Hook up AI coding agents via our MCP in seconds and integrate Cortex with your project.
+      badge: AI Agents
+      href: /mcp
+      icon: assets/mcp-icon.svg
+docs:
+  - section: Getting Started
+    sources:
+      - title: Quickstart
+        document: docs/quickstart.md
+      - title: Configuration
+        document: docs/configuration.md
+      - title: Open Source Hosting
+        document: docs/open-source-hosting.md
+  - section: SDK Generation
+    sources:
+      - title: OpenAPI
+        document: docs/sdk-generation.md
+      - title: WebSocket SDKs
+        document: docs/websocket-sdks.md
+      - title: GraphQL
+        document: docs/graphql.md
+      - title: gRPC
+        document: docs/grpc.md
+      - title: OpenRPC
+        document: docs/openrpc.md
+  - section: Features
+    sources:
+      - title: Documentation
+        document: docs/api-docs.md
+      - title: Custom Generators
+        document: docs/custom-generators.md
+      - title: MCP Servers
+        document: docs/mcp-servers.md
+      - title: Publishing
+        document: docs/publishing.md
+mcp:
+  package_name: '@cortex-docs/mcp'
+  github_repository: github.com/cortex-docs/cortex
+publish:
+  mcp:
+    url: https://registry.npmjs.org
+    token_env: NPM_TOKEN
+    access: public

@@ -1,0 +1,19 @@
+{
+  "_comment": "Single source of truth for sponsors. Edit this file, then run: python scripts/render_sponsors.py --write. Never hand-edit the generated blocks in README files or SPONSORS.md.",
+  "contact": "yusufkaraaslan.yk@pm.me",
+  "sponsors_url": "https://github.com/sponsors/yusufkaraaslan",
+  "policy": "SPONSORSHIP.md",
+  "partners": [],
+  "platinum": [],
+  "gold": [],
+  "silver": [],
+  "bronze": [
+    {
+      "name": "Fluxion AI",
+      "url": "https://fluxionai.world/register?utm_source=github&utm_medium=sponsor&utm_campaign=skillseekers",
+      "logo": "docs/assets/sponsors/fluxion-ai.png",
+      "since": "September 2026"
+    }
+  ],
+  "supporters": []
+}

@@ -1,0 +1,210 @@
+<% const hasQueries = it.queries.length > 0; -%>
+<% const hasMutations = it.mutations.length > 0; -%>
+<% const hasSubscriptions = it.subscriptions.length > 0; -%>
+import {
+<% if (hasQueries) { -%>
+  type QueryBuilder,
+  createQueryBuilder,
+<% } -%>
+<% if (hasMutations) { -%>
+  type MutationBuilder,
+  createMutationBuilder,
+<% } -%>
+<% if (hasSubscriptions) { -%>
+  type SubscriptionBuilder,
+  createSubscriptionBuilder,
+<% } -%>
+} from './gql-query-builder.js';
+<% if (hasSubscriptions) { -%>
+import { createClient, type Client as GqlWsClient, type ClientOptions } from 'graphql-ws';
+<% } -%>
+
+export interface <%= it.clientClass %>Options {
+  endpoint?: string;
+<% if (hasSubscriptions) { -%>
+  wsEndpoint?: string;
+  webSocketImpl?: ClientOptions['webSocketImpl'];
+  reconnect?: boolean;
+  reconnectInterval?: number;
+  maxReconnectAttempts?: number;
+  heartbeatInterval?: number;
+  connectionAckTimeout?: number;
+<% } -%>
+  headers?: Record<string, string>;
+  bearerToken?: string;
+  /** HTTP query and mutation timeout in milliseconds. Defaults to 15 seconds. */
+  timeout?: number;
+}
+
+export class <%= it.clientClass %> {
+  private endpoint: string;
+  private headers: Record<string, string>;
+  private timeout: number;
+<% if (hasSubscriptions) { -%>
+  private wsEndpoint: string;
+  private wsClient: GqlWsClient | null = null;
+  private webSocketImpl: ClientOptions['webSocketImpl'];
+  private reconnect: boolean;
+  private reconnectInterval: number;
+  private maxReconnectAttempts: number;
+  private heartbeatInterval: number;
+  private connectionAckTimeout: number;
+<% } -%>
+
+  constructor(options: <%= it.clientClass %>Options = {}) {
+    this.endpoint = options.endpoint ?? '<%= it.endpoint %>';
+    this.timeout = options.timeout ?? 15_000;
+    this.headers = { 'Content-Type': 'application/json', ...options.headers };
+    if (options.bearerToken) {
+      this.headers['Authorization'] = `Bearer ${options.bearerToken}`;
+    }
+<% if (hasSubscriptions) { -%>
+    this.wsEndpoint = options.wsEndpoint ?? this.endpoint.replace(/^http/, 'ws');
+    this.webSocketImpl = options.webSocketImpl;
+    this.reconnect = options.reconnect ?? true;
+    this.reconnectInterval = options.reconnectInterval ?? 3_000;
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+    this.heartbeatInterval = options.heartbeatInterval ?? 30_000;
+    this.connectionAckTimeout = options.connectionAckTimeout ?? 10_000;
+<% } -%>
+  }
+
+  private async execute<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    try {
+      const response = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({ query, variables }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new GqlError(`GraphQL HTTP error ${response.status}: ${response.statusText}`, []);
+      }
+
+      const json = await response.json() as { data?: T; errors?: Array<{ message: string }> };
+
+      if (json.errors?.length) {
+        throw new GqlError(json.errors.map((e) => e.message).join('; '), json.errors);
+      }
+
+      return json.data as T;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+<% if (hasQueries) { %>
+  async query<T extends {}>(fn: (q: QueryBuilder) => QueryBuilder<T>): Promise<T> {
+    const builder = createQueryBuilder();
+    fn(builder as QueryBuilder);
+    const { query, variables } = (builder as unknown as { __buildDocument(kind: string): { query: string; variables: Record<string, unknown> } }).__buildDocument('query');
+    return this.execute<T>(query, variables);
+  }
+<% } -%>
+<% if (hasMutations) { %>
+  async mutate<T extends {}>(fn: (m: MutationBuilder) => MutationBuilder<T>): Promise<T> {
+    const builder = createMutationBuilder();
+    fn(builder as MutationBuilder);
+    const { query, variables } = (builder as unknown as { __buildDocument(kind: string): { query: string; variables: Record<string, unknown> } }).__buildDocument('mutation');
+    return this.execute<T>(query, variables);
+  }
+<% } -%>
+<% if (hasSubscriptions) { %>
+  subscribe<T extends {}>(
+    fn: (s: SubscriptionBuilder) => SubscriptionBuilder<T>,
+    onData: (data: T) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
+    const builder = createSubscriptionBuilder();
+    fn(builder as SubscriptionBuilder);
+    const { query, variables } = (builder as unknown as { __buildDocument(kind: string): { query: string; variables: Record<string, unknown> } }).__buildDocument('subscription');
+
+    if (!this.wsClient) {
+      this.wsClient = createClient({
+        url: this.wsEndpoint,
+        webSocketImpl: this.webSocketImpl,
+        retryAttempts: this.reconnect ? this.maxReconnectAttempts : 0,
+        retryWait: async () => {
+          await new Promise((resolve) => setTimeout(resolve, this.reconnectInterval));
+        },
+        keepAlive: this.heartbeatInterval,
+        connectionAckWaitTimeout: this.connectionAckTimeout,
+        connectionParams: () => {
+          const params: Record<string, string> = {};
+          if (this.headers['Authorization']) {
+            params['Authorization'] = this.headers['Authorization'];
+          }
+          return params;
+        },
+      });
+    }
+
+    let disposed = false;
+    const dispose = this.wsClient.subscribe<T>(
+      { query, variables },
+      {
+        next: (result) => {
+          if (result.data && !disposed) onData(result.data);
+        },
+        error: (err) => {
+          if (!disposed) {
+            const error = err instanceof Error ? err : new GqlError(
+              Array.isArray(err) ? err.map((e: { message?: string }) => e.message || String(e)).join('; ') || 'subscription error' : String(err),
+              Array.isArray(err) ? err : []
+            );
+            if (onError) onError(error);
+          }
+        },
+        complete: () => {},
+      },
+    );
+
+    return () => {
+      disposed = true;
+      dispose();
+    };
+  }
+
+  subscribeOnce<T extends {}>(
+    fn: (s: SubscriptionBuilder) => SubscriptionBuilder<T>,
+    timeoutMs = 10_000,
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let unsubscribe: (() => void) | undefined;
+      const timeout = setTimeout(() => {
+        unsubscribe?.();
+        reject(new Error('subscription timeout'));
+      }, timeoutMs);
+
+      unsubscribe = this.subscribe(
+        fn,
+        (data) => {
+          clearTimeout(timeout);
+          unsubscribe?.();
+          resolve(data);
+        },
+        (error) => {
+          clearTimeout(timeout);
+          unsubscribe?.();
+          reject(error);
+        },
+      );
+    });
+  }
+
+  dispose(): void {
+    if (this.wsClient) {
+      this.wsClient.dispose();
+      this.wsClient = null;
+    }
+  }
+<% } -%>
+}
+
+export class GqlError extends Error {
+  constructor(message: string, public readonly errors: Array<{ message: string }>) {
+    super(message);
+    this.name = 'GqlError';
+  }
+}

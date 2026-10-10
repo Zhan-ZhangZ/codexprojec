@@ -1,0 +1,102 @@
+---
+version: 2026.5.12
+scanners:
+  enabled: []
+  disabled: []
+  overrides: {}
+fail_on: high
+exclude:
+  paths:
+    - node_modules/
+    - venv/
+    - .venv/
+    - env/
+    - .git/
+    - .svn/
+    - __pycache__/
+    - '*.egg-info/'
+    - dist/
+    - build/
+    - .tox/
+    - .pytest_cache/
+    - .mypy_cache/
+    # MEDUSA scan output folders
+    - .medusa/
+    - .medusa/reports/
+    - medusa_output/
+    # IDE/tool config folders
+    - .claude/
+    - .idea/
+    - .vscode/
+    - .cursor/
+    - tmp/
+    - docs/archived/
+    # Research/extraction folders (contain attack patterns)
+    - docs/research/nblm/
+    - docs/codex/
+    - docs/falsepositives/
+    - docs/docker/
+    # Test folders (intentional vulnerable code)
+    - tests/
+    - test-install/
+    - '**/fixtures/'
+    - '**/mocks/'
+  files:
+    - '*.min.js'
+    - '*.min.css'
+    - '*.bundle.js'
+    - '*.map'
+    # Opaque binary / media / archive files with no scannable text content.
+    # NOTE: ML model & serialization formats (*.pkl, *.pt, *.ckpt, *.safetensors,
+    # *.npy, *.bin, *.model …) are deliberately NOT excluded — detecting unsafe
+    # pickle deserialization and poisoned model weights is core MEDUSA functionality
+    # and must be routed to the model/pickle scanners, not skipped. Large-file
+    # timeouts are handled by per-file size limits, not by excluding these types.
+    - '*.pack'
+    - '*.idx'
+    - '*.rev'
+    - '*.gif'
+    - '*.png'
+    - '*.jpg'
+    - '*.jpeg'
+    - '*.ico'
+    - '*.woff'
+    - '*.woff2'
+    - '*.ttf'
+    - '*.eot'
+    - '*.tgz'
+    - '*.tar.gz'
+    - '*.zip'
+    # MEDUSA scan report files
+    - 'medusa-scan-*.html'
+    - 'medusa-scan-*.json'
+    - 'medusa-scan-*.yaml'
+    - 'medusa-scan-*.md'
+    - '*_scanner.yaml'
+    - '*_runtime.yaml'
+    # Linter/security tool configs (contain patterns that trigger FPs)
+    - '.hadolint.yaml'
+    - '.semgrep.yml'
+    - '.semgrep.yaml'
+    - '.gitleaks.toml'
+    - '.bandit'
+    - 'trivy.yaml'
+    - '.snyk'
+    - '.eslintrc*'
+    - '.stylelintrc*'
+    - '.markdownlint*'
+    - '.yamllint*'
+    - '.golangci.yml'
+ide:
+  claude_code:
+    enabled: true
+    auto_scan: true
+    inline_annotations: true
+  cursor:
+    enabled: false
+  vscode:
+    enabled: false
+  gemini_cli:
+    enabled: false
+workers: null
+cache_enabled: true

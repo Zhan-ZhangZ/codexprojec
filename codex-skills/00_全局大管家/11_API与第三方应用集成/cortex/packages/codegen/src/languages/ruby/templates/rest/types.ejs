@@ -1,0 +1,65 @@
+# frozen_string_literal: true
+<% const schemaNames = new Set(it.schemas.map(s => s.className)); -%>
+
+FileUpload = Struct.new(:filename, :data, :content_type, keyword_init: true) do
+  def initialize(filename:, data:, content_type: "application/octet-stream")
+    super
+  end
+end
+
+<% for (const schema of it.schemas) { -%>
+<% if (schema.isEnum) { -%>
+module <%= schema.className %>
+<% for (const v of schema.enumValues) { -%>
+  <%= String(v).replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase() %> = "<%= v %>"
+<% } -%>
+
+  ALL = [
+<% for (const v of schema.enumValues) { -%>
+    <%= String(v).replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase() %>,
+<% } -%>
+  ].freeze
+end
+
+<% } else if (schema.properties.length > 0) { -%>
+<%= schema.className %> = Struct.new(
+<% for (let i = 0; i < schema.properties.length; i++) { -%>
+  :<%= schema.properties[i].name %><%= i < schema.properties.length - 1 ? ',' : '' %>
+<% } -%>
+) do
+  def self.from_hash(hash)
+    return nil if hash.nil?
+    new(
+<% for (let i = 0; i < schema.properties.length; i++) { -%>
+<% const prop = schema.properties[i]; const arrayMatch = /^Array<(.+)>$/.exec(prop.type); -%>
+<% if (arrayMatch && schemaNames.has(arrayMatch[1])) { -%>
+      (hash["<%= prop.originalName %>"] || []).map { |item| Rest<%= arrayMatch[1] %>.from_hash(item) }<%= i < schema.properties.length - 1 ? ',' : '' %>
+<% } else if (schemaNames.has(prop.type)) { -%>
+      Rest<%= prop.type %>.from_hash(hash["<%= prop.originalName %>"])<%= i < schema.properties.length - 1 ? ',' : '' %>
+<% } else { -%>
+      hash["<%= prop.originalName %>"]<%= i < schema.properties.length - 1 ? ',' : '' %>
+<% } -%>
+<% } -%>
+    )
+  end
+
+  def to_hash
+    {
+<% for (let i = 0; i < schema.properties.length; i++) { -%>
+      "<%= schema.properties[i].originalName %>" => <%= schema.properties[i].name %><%= i < schema.properties.length - 1 ? ',' : '' %>
+<% } -%>
+    }
+  end
+end
+Rest<%= schema.className %> = <%= schema.className %>
+
+<% } -%>
+<% } -%>
+ListResponse = Struct.new(:data, :next_cursor) do
+  def self.from_hash(hash, item_class = nil)
+    return nil if hash.nil?
+    data = hash["data"] || []
+    data = data.map { |item| item_class.from_hash(item) } if item_class
+    new(data, hash["nextCursor"] || hash["next_cursor"])
+  end
+end

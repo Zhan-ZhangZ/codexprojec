@@ -1,0 +1,18 @@
+# Dev & CI
+.github/
+.claude/
+.pre-commit-config.yaml
+docs/
+src/
+bin/
+scripts/
+assets/
+*.test.ts
+
+# Assets not needed at runtime
+first-screenshot.png
+*.png
+
+# Config
+tsconfig.json
+bun.lock

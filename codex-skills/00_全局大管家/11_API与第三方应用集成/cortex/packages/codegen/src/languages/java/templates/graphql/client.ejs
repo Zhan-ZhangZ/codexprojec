@@ -1,0 +1,278 @@
+<% const pkg = it.packageName ? it.packageName.replace(/-/g, '.').toLowerCase() : 'com.example'; -%>
+<% const hasQueries = it.queries.length > 0; -%>
+<% const hasMutations = it.mutations.length > 0; -%>
+<% const hasSubscriptions = it.subscriptions.length > 0; -%>
+package <%= pkg %>;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+<% if (hasSubscriptions) { -%>
+import java.net.http.WebSocket;
+<% } -%>
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+<% if (hasSubscriptions) { -%>
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+<% } -%>
+import java.util.function.Function;
+
+public class <%= it.clientClass %> {
+
+    private final String endpoint;
+<% if (hasSubscriptions) { -%>
+    private final String wsEndpoint;
+<% } -%>
+    private final HttpClient httpClient;
+    private final Map<String, String> headers;
+    private final Gson gson;
+    private final Duration requestTimeout;
+<% if (hasSubscriptions) { -%>
+    private final boolean reconnect;
+    private final Duration reconnectInterval;
+    private final int maxReconnectAttempts;
+<% } -%>
+
+    public <%= it.clientClass %>(String endpoint) {
+        this(endpoint, null, null, Duration.ofSeconds(15)<% if (hasSubscriptions) { %>, true, Duration.ofSeconds(3), 10<% } %>);
+    }
+
+    public <%= it.clientClass %>(String endpoint, String wsEndpoint) {
+        this(endpoint, wsEndpoint, null, Duration.ofSeconds(15)<% if (hasSubscriptions) { %>, true, Duration.ofSeconds(3), 10<% } %>);
+    }
+
+    public <%= it.clientClass %>(String endpoint, String wsEndpoint, String bearerToken) {
+        this(endpoint, wsEndpoint, bearerToken, Duration.ofSeconds(15)<% if (hasSubscriptions) { %>, true, Duration.ofSeconds(3), 10<% } %>);
+    }
+
+    public <%= it.clientClass %>(String endpoint, String wsEndpoint, String bearerToken, Duration requestTimeout<% if (hasSubscriptions) { %>, boolean reconnect, Duration reconnectInterval, int maxReconnectAttempts<% } %>) {
+        this.endpoint = endpoint;
+        this.requestTimeout = requestTimeout;
+<% if (hasSubscriptions) { -%>
+        this.wsEndpoint = wsEndpoint != null ? wsEndpoint : endpoint.replaceFirst("^http", "ws");
+        this.reconnect = reconnect;
+        this.reconnectInterval = reconnectInterval;
+        this.maxReconnectAttempts = maxReconnectAttempts;
+<% } -%>
+        this.httpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(requestTimeout)
+            .build();
+        this.headers = new HashMap<>();
+        this.headers.put("Content-Type", "application/json");
+        this.gson = new Gson();
+
+        if (bearerToken != null) {
+            this.headers.put("Authorization", "Bearer " + bearerToken);
+        }
+    }
+
+    public void setHeader(String key, String value) {
+        this.headers.put(key, value);
+    }
+
+    private JsonObject execute(String query, Map<String, Object> variables) throws GqlException {
+        JsonObject requestBody = new JsonObject();
+        requestBody.addProperty("query", query);
+        if (variables != null && !variables.isEmpty()) {
+            requestBody.add("variables", gson.toJsonTree(variables));
+        }
+
+        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+            .uri(URI.create(endpoint))
+            .timeout(requestTimeout)
+            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(requestBody)));
+
+        headers.forEach(reqBuilder::header);
+
+        try {
+            HttpResponse<String> response = httpClient.send(reqBuilder.build(),
+                HttpResponse.BodyHandlers.ofString());
+
+            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+
+            if (json.has("errors") && json.getAsJsonArray("errors").size() > 0) {
+                JsonArray errors = json.getAsJsonArray("errors");
+                StringBuilder msg = new StringBuilder();
+                for (int i = 0; i < errors.size(); i++) {
+                    if (i > 0) msg.append("; ");
+                    msg.append(errors.get(i).getAsJsonObject().get("message").getAsString());
+                }
+                throw new GqlException(msg.toString());
+            }
+
+            return json.has("data") ? json.getAsJsonObject("data") : new JsonObject();
+        } catch (IOException | InterruptedException e) {
+            throw new GqlException(e.getMessage());
+        }
+    }
+<% if (hasQueries) { %>
+
+    public JsonObject query(Function<QueryBuilder, QueryBuilder> fn) throws GqlException {
+        QueryBuilder builder = new QueryBuilder();
+        fn.apply(builder);
+        GqlDocument doc = builder.buildDocument();
+        return execute(doc.query, doc.variables);
+    }
+
+    public <T> T query(Function<QueryBuilder, QueryBuilder> fn, Class<T> resultType) throws GqlException {
+        return gson.fromJson(query(fn), resultType);
+    }
+<% } -%>
+<% if (hasMutations) { %>
+
+    public JsonObject mutate(Function<MutationBuilder, MutationBuilder> fn) throws GqlException {
+        MutationBuilder builder = new MutationBuilder();
+        fn.apply(builder);
+        GqlDocument doc = builder.buildDocument();
+        return execute(doc.query, doc.variables);
+    }
+
+    public <T> T mutate(Function<MutationBuilder, MutationBuilder> fn, Class<T> resultType) throws GqlException {
+        return gson.fromJson(mutate(fn), resultType);
+    }
+<% } -%>
+<% if (hasSubscriptions) { %>
+
+    public JsonObject subscribeOnce(Function<SubscriptionBuilder, SubscriptionBuilder> fn) throws GqlException {
+        return subscribeOnce(fn, 10000);
+    }
+
+    public JsonObject subscribeOnce(Function<SubscriptionBuilder, SubscriptionBuilder> fn, long timeoutMs) throws GqlException {
+        CompletableFuture<JsonObject> result = new CompletableFuture<>();
+        Runnable unsubscribe = subscribe(fn, result::complete);
+        try {
+            return result.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof GqlException) throw (GqlException) cause;
+            throw new GqlException("Subscription failed: " + cause.getMessage());
+        } catch (Exception e) {
+            throw new GqlException("Subscription failed: " + e.getMessage());
+        } finally {
+            unsubscribe.run();
+        }
+    }
+
+    public <T> T subscribeOnce(Function<SubscriptionBuilder, SubscriptionBuilder> fn, Class<T> resultType) throws GqlException {
+        return gson.fromJson(subscribeOnce(fn), resultType);
+    }
+
+    public Runnable subscribe(Function<SubscriptionBuilder, SubscriptionBuilder> fn, Consumer<JsonObject> onData) throws GqlException {
+        SubscriptionBuilder builder = new SubscriptionBuilder();
+        fn.apply(builder);
+        GqlDocument doc = builder.buildDocument();
+        String subId = UUID.randomUUID().toString();
+        AtomicReference<WebSocket> wsRef = new AtomicReference<>();
+        AtomicBoolean stopped = new AtomicBoolean(false);
+        AtomicInteger reconnectAttempts = new AtomicInteger(0);
+
+        class SubscriptionConnector {
+            void open() {
+                httpClient.newWebSocketBuilder()
+                    .subprotocols("graphql-transport-ws")
+                    .buildAsync(URI.create(wsEndpoint), new WebSocket.Listener() {
+                    private final StringBuilder buffer = new StringBuilder();
+
+                    @Override
+                    public void onOpen(WebSocket ws) {
+                        wsRef.set(ws);
+                        reconnectAttempts.set(0);
+                        ws.sendText("{\"type\":\"connection_init\"}", true);
+                        ws.request(1);
+                    }
+
+                    @Override
+                    public CompletionStage<?> onText(WebSocket ws, CharSequence data, boolean last) {
+                        buffer.append(data);
+                        if (last) {
+                            String msg = buffer.toString();
+                            buffer.setLength(0);
+                            try {
+                                JsonObject json = JsonParser.parseString(msg).getAsJsonObject();
+                                String type = json.has("type") ? json.get("type").getAsString() : "";
+
+                                if ("connection_ack".equals(type)) {
+                                    JsonObject subscribe = new JsonObject();
+                                    subscribe.addProperty("id", subId);
+                                    subscribe.addProperty("type", "subscribe");
+                                    JsonObject payload = new JsonObject();
+                                    payload.addProperty("query", doc.query);
+                                    if (doc.variables != null && !doc.variables.isEmpty()) {
+                                        payload.add("variables", gson.toJsonTree(doc.variables));
+                                    }
+                                    subscribe.add("payload", payload);
+                                    ws.sendText(gson.toJson(subscribe), true);
+                                } else if ("next".equals(type) && !stopped.get()) {
+                                    JsonObject payload = json.getAsJsonObject("payload");
+                                    JsonObject eventData = payload.has("data") ? payload.getAsJsonObject("data") : new JsonObject();
+                                    onData.accept(eventData);
+                                } else if ("complete".equals(type) || "error".equals(type)) {
+                                    stopped.set(true);
+                                }
+                            } catch (Exception ignored) {}
+                        }
+                        ws.request(1);
+                        return null;
+                    }
+
+                    @Override
+                    public CompletionStage<?> onClose(WebSocket ws, int statusCode, String reason) {
+                        wsRef.compareAndSet(ws, null);
+                        scheduleReconnect();
+                        return null;
+                    }
+
+                    @Override
+                    public void onError(WebSocket ws, Throwable error) {
+                        wsRef.compareAndSet(ws, null);
+                        scheduleReconnect();
+                    }
+                }).whenComplete((ws, error) -> { if (error != null) scheduleReconnect(); });
+            }
+
+            void scheduleReconnect() {
+                int attempt = reconnectAttempts.getAndIncrement();
+                if (stopped.get() || !reconnect || attempt >= maxReconnectAttempts) return;
+                CompletableFuture.delayedExecutor(reconnectInterval.toMillis(), TimeUnit.MILLISECONDS).execute(this::open);
+            }
+        }
+
+        SubscriptionConnector connector = new SubscriptionConnector();
+        connector.open();
+        return () -> {
+            stopped.set(true);
+            WebSocket ws = wsRef.getAndSet(null);
+            if (ws != null) {
+                JsonObject complete = new JsonObject();
+                complete.addProperty("id", subId);
+                complete.addProperty("type", "complete");
+                ws.sendText(gson.toJson(complete), true);
+                ws.sendClose(WebSocket.NORMAL_CLOSURE, "");
+            }
+        };
+    }
+
+    public void dispose() {}
+<% } -%>
+}
+
+public class GqlException extends Exception {
+    public GqlException(String message) {
+        super(message);
+    }
+}

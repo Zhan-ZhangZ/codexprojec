@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cortex-demo-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": {
+    "graphql": "graphql/index.js",
+  },
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "api.demo.cortexdocs.dev",
+      "custom_domain": true,
+    },
+  ],
+  "assets": {
+    "directory": "static",
+    "html_handling": "none",
+    "not_found_handling": "none",
+  },
+  "observability": {
+    "enabled": true,
+  },
+}

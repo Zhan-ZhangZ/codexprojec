@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "name": "content-writing",
+  "description": "Content creation and marketing skills: blog drafting, social media posts, Reddit writing, and SEO optimization.",
+  "author": "ASM",
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "tags": ["content", "marketing", "social-media", "seo"],
+  "skills": [
+    {
+      "name": "affiliate-blog-builder",
+      "installUrl": "github:Affitor/affiliate-skills:skills/blog/affiliate-blog-builder",
+      "description": "Write SEO-optimized blog articles, reviews, and comparison posts"
+    },
+    {
+      "name": "content-pillar-atomizer",
+      "installUrl": "github:Affitor/affiliate-skills:skills/content/content-pillar-atomizer",
+      "description": "Turn one blog post into platform-native social media posts"
+    },
+    {
+      "name": "reddit-post-writer",
+      "installUrl": "github:Affitor/affiliate-skills:skills/content/reddit-post-writer",
+      "description": "Write Reddit posts and comments that read as genuine community content"
+    },
+    {
+      "name": "seo-ai-optimizer",
+      "installUrl": "github:luongnv89/skills:skills/seo-ai-optimizer",
+      "description": "Audit and optimize website codebases for search engine visibility"
+    }
+  ]
+}
