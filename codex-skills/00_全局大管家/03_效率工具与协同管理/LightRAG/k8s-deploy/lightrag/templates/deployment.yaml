@@ -1,0 +1,17 @@
+{{- if eq (include "lightrag.workloadKind" .) "Deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lightrag.fullname" . }}
+  labels:
+    {{- include "lightrag.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lightrag.selectorLabels" . | nindent 6 }}
+  template:
+    {{- include "lightrag.podTemplate" . | nindent 4 }}
+  strategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+{{- end }}

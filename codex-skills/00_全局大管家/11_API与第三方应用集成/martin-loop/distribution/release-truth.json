@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "cli": {
+    "package": "martin-loop",
+    "version": "0.5.3",
+    "install": "npx -y martin-loop@latest",
+    "releaseTag": "v0.5.3",
+    "releaseUrl": "https://github.com/Keesan12/martin-loop/releases/tag/v0.5.3"
+  },
+  "mcp": {
+    "package": "@martinloop/mcp",
+    "version": "0.5.3",
+    "registryName": "io.github.Keesan12/martin-loop",
+    "registryVersion": "0.5.3",
+    "install": "npx -y @martinloop/mcp",
+    "releaseTag": "mcp-v0.5.3",
+    "releaseUrl": "https://github.com/Keesan12/martin-loop/releases/tag/mcp-v0.5.3"
+  },
+  "mcpb": {
+    "version": "0.5.3",
+    "manifestSchema": "0.3",
+    "built": true,
+    "released": true,
+    "releaseUrl": "https://github.com/Keesan12/martin-loop/releases/download/v0.5.3/martinloop-0.5.3.mcpb",
+    "sha256": "913e7a9707b82b66012214f2780b44d2cb6eaa6112a875a264f50bb52e9fb907",
+    "sizeBytes": 8102303
+  },
+  "repository": "https://github.com/Keesan12/martin-loop",
+  "website": "https://martinloop.com"
+}

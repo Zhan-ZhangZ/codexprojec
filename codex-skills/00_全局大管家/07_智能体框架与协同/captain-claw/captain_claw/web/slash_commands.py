@@ -1,0 +1,2005 @@
+"""Slash command handling for the web UI (WebSocket commands)."""
+
+from __future__ import annotations
+
+import re
+
+import json
+import random
+import shlex as _shlex
+import shutil
+import time
+from typing import TYPE_CHECKING, Any
+
+from aiohttp import web
+
+from captain_claw.config import get_config
+from captain_claw.logging import get_logger
+
+if TYPE_CHECKING:
+    from captain_claw.web_server import WebServer
+
+log = get_logger(__name__)
+
+# Pending nuke confirmation codes.
+# Maps ws id() → (code, timestamp) so each connection has its own code.
+_pending_nuke: dict[int, tuple[int, float]] = {}
+
+# Session metadata that binds a session to a shared-agent member; it
+# survives /clear so the member keeps the same private session.
+_SPEAKER_META_KEYS = ("speaker_id", "speaker_lane", "speaker_name")
+
+
+def _is_view(server: Any) -> bool:
+    """A lane / member facade over the real server (not the server itself)."""
+    from captain_claw.web_server import _LaneServerView
+
+    return isinstance(server, _LaneServerView)
+
+
+def _held_elsewhere(server: Any, session_id: str) -> bool:
+    """Another live agent (main, a lane, a public or member instance) has
+    *session_id* open — two agents saving one session clobber each other."""
+    real = getattr(server, "_server", server)
+    me = server.agent
+    holders = [getattr(real, "agent", None)]
+    for pool in ("_lane_agents", "_public_agents", "_speaker_agents"):
+        holders.extend((getattr(real, pool, None) or {}).values())
+    return any(
+        agent is not None and agent is not me
+        and getattr(getattr(agent, "session", None), "id", None) == session_id
+        for agent in holders
+    )
+
+
+def _is_speaker_server(server: Any) -> bool:
+    """Commands are running for a shared-agent member's own instance."""
+    from captain_claw.speaker import is_speaker_agent
+
+    return is_speaker_agent(getattr(server, "agent", None))
+
+
+def rotation_cue(text: str) -> str | None:
+    """When *text* opens with a new-session cue ("Nova tema: …", "new topic"
+    on its own), the rest of the message (possibly ""); else None. The cue
+    must stand alone: followed by the end, a line break or punctuation, so
+    "nova tema za blog" is just a message."""
+    from captain_claw.config import get_config
+
+    cues = [str(c).strip() for c in (get_config().session.rotation_cues or []) if str(c).strip()]
+    if not cues:
+        return None
+    body = str(text or "").lstrip()
+    pattern = r"^(?:%s)(?:\s*(?:$|\n)|\s*[:\-–—.,!]\s*)" % "|".join(
+        re.escape(c).replace(r"\ ", r"\s+") for c in sorted(cues, key=len, reverse=True))
+    match = re.match(pattern, body, re.IGNORECASE)
+    if not match:
+        return None
+    return body[match.end():].strip()
+
+
+async def _create_new_session(server: Any, name: str | None) -> Any:
+    """Create the session `/new` (or `/session new`) switches to.
+
+    A member's instance reuses its current session while that is still
+    empty; otherwise it gets a new session tagged with the member (at most
+    ``MAX_SESSIONS_PER_SPEAKER`` — the server raises
+    ``SpeakerSessionLimitError`` beyond that), rebound through the server
+    (app_state mapping + speaker registry keys). Everyone else gets a plain
+    session.
+    """
+    agent = server.agent
+    if _is_speaker_server(server):
+        from captain_claw.speaker import session_name_reserved
+
+        p = agent._speaker_principal
+        if session_name_reserved(name):
+            # `default` / `lane-<X>` are looked up by name for the owner's
+            # agents; a member's session never takes one.
+            name = None
+        current = getattr(agent, "session", None)
+        if (
+            current is not None
+            and not current.messages
+            and (current.metadata or {}).get("speaker_id") == p.speaker_id
+        ):
+            # Nothing to leave behind: no new row for an empty conversation.
+            if name and name != current.name:
+                current.name = name
+                await agent.session_manager.save_session(current)
+            return current
+        session = await server._create_speaker_session(p, name=name)
+        await server._set_speaker_session(agent, session)
+        return session
+    # A lane's new session keeps the lane's name: lanes are found by name
+    # (newest first), so after a restart the lane opens on it, not the old one.
+    lane = getattr(server, "lane", "") if _is_view(server) else ""
+    session = await agent.session_manager.create_session(
+        name=name or (f"lane-{lane}" if lane else "web-session"))
+    agent.session = session
+    return session
+
+
+async def handle_command(server: WebServer, ws: web.WebSocketResponse, raw: str) -> None:
+    """Handle slash commands."""
+    if not server.agent:
+        return
+
+    parts = raw.strip().split(None, 1)
+    cmd = parts[0].lower()
+    args = parts[1] if len(parts) > 1 else ""
+
+    # A shared-agent member's instance: the speaker gate already filtered
+    # this; refuse again here so no other path can widen it.
+    if _is_speaker_server(server):
+        from captain_claw.speaker import NOT_ALLOWED_MESSAGE, slash_allowed
+
+        if not slash_allowed(raw):
+            await server._send(ws, {
+                "type": "command_result", "command": raw, "content": NOT_ALLOWED_MESSAGE,
+            })
+            return
+
+    # A public visitor has no commands over the deck's agents (they would run
+    # on the owner's agent): only /help.
+    if getattr(ws, "_public_session_id", None) and cmd not in ("/help", "/h"):
+        await server._send(ws, {
+            "type": "command_result", "command": raw,
+            "content": "Commands aren't available in this session.",
+        })
+        return
+
+    result = ""
+
+    try:
+        if cmd in ("/help", "/h"):
+            result = format_help(speaker=_is_speaker_server(server))
+
+        elif cmd in ("/clear",):
+            if server.agent.session:
+                server.agent.session.messages.clear()
+                # Preserve model selection across clear so the user's
+                # chosen model doesn't reset to the default.
+                _old_meta = server.agent.session.metadata or {}
+                saved_model = _old_meta.get("model_selection")
+                # A shared-agent member's session keeps its owner mapping.
+                _kept = {k: _old_meta[k] for k in _SPEAKER_META_KEYS if k in _old_meta}
+                # Reset session metadata so planning/pipeline state doesn't leak
+                server.agent.session.metadata = {}
+                if saved_model:
+                    server.agent.session.metadata["model_selection"] = saved_model
+                server.agent.session.metadata.update(_kept)
+                await server.agent.session_manager.save_session(server.agent.session)
+                # Reset agent runtime state to defaults (pipeline=loop, planning=off)
+                server.agent.refresh_session_runtime_flags()
+                server.agent.last_usage = server.agent._empty_usage()
+                server.agent.last_context_window = {}
+                server._broadcast({"type": "session_info", **server._session_info()})
+            result = "Session cleared (messages, planning state, and metadata reset)."
+
+        elif cmd in ("/nuke",):
+            ws_id = id(ws)
+            if args.strip():
+                # User provided a code — verify it.
+                pending = _pending_nuke.pop(ws_id, None)
+                if not pending:
+                    result = "No pending nuke. Run `/nuke` first."
+                else:
+                    code, ts = pending
+                    if time.time() - ts > 120:
+                        result = "Nuke code expired. Run `/nuke` again."
+                    elif args.strip() != str(code):
+                        result = f"Wrong code. Run `/nuke` again."
+                    else:
+                        result = await _execute_nuke(server)
+            else:
+                # Generate confirmation code.
+                code = random.randint(1000, 9999)
+                _pending_nuke[ws_id] = (code, time.time())
+                result = (
+                    "⚠️ **This will permanently delete:**\n"
+                    "- All files in the workspace (`saved/`)\n"
+                    "- All deep memory documents (Typesense)\n"
+                    "- All datastore tables\n"
+                    "- All sessions\n"
+                    "- All todos, contacts, scripts, apis\n"
+                    "- All insights, intuitions, cognitive metrics\n"
+                    "- All sister session tasks, briefings, watches\n\n"
+                    f"To confirm, run: `/nuke {code}`"
+                )
+
+        elif cmd in ("/config",):
+            cfg = get_config()
+            details = server.agent.get_runtime_model_details()
+            result = (
+                f"**Model:** {details.get('provider', '')}:{details.get('model', '')}\n"
+                f"**Temperature:** {details.get('temperature', '')}\n"
+                f"**Max tokens:** {details.get('max_tokens', '')}\n"
+                f"**Session:** {server.agent.session.name if server.agent.session else 'none'}\n"
+                f"**Pipeline:** {server.agent.pipeline_mode}\n"
+                f"**Planning:** {'on' if server.agent.planning_enabled else 'off'}\n"
+                f"**Plan-mode auto-route:** {'on' if getattr(server.agent, 'plan_mode_auto', False) else 'off'}\n"
+            )
+
+        elif cmd in ("/stop", "/cancel"):
+            if hasattr(server.agent, "cancel_event"):
+                server.agent.cancel_event.set()
+                result = "Stop signal sent. The agent will stop after the current step completes."
+            else:
+                result = "No active processing to stop."
+
+        elif cmd in ("/history",):
+            if server.agent.session:
+                msgs = server.agent.session.messages[-20:]
+                lines = []
+                for m in msgs:
+                    role = m.get("role", "?")
+                    content = str(m.get("content", ""))[:120]
+                    lines.append(f"**{role}**: {content}")
+                result = "\n".join(lines) if lines else "No messages in session."
+            else:
+                result = "No active session."
+
+        elif cmd in ("/compact",):
+            if server.agent.session:
+                await server.agent.compact_session(force=True, trigger="web_manual")
+                result = "Session compacted."
+            else:
+                result = "No active session."
+
+        elif cmd in ("/new",):
+            name = args.strip() or None
+            # Freeze the outgoing session into history before switching, so the
+            # conversation stays verbatim-searchable (same as before compaction).
+            server.agent.archive_current_session_to_history()
+            from captain_claw.web_server import SpeakerSessionLimitError
+
+            try:
+                session = await _create_new_session(server, name)
+            except SpeakerSessionLimitError as e:
+                from captain_claw.speaker import speaker_error
+
+                await server._send(ws, speaker_error("not_allowed", str(e)))
+                return
+            server.agent.refresh_session_runtime_flags()
+            # Lane / member views never move the owner's "last active" pointer.
+            if not _is_view(server):
+                await server.agent.session_manager.set_last_active_session(session.id)
+            server.agent.last_usage = server.agent._empty_usage()
+            server.agent.last_context_window = {}
+            result = f"New session created: **{session.name}** (`{session.id[:8]}`)"
+            server._broadcast({"type": "session_info", **server._session_info()})
+
+        elif cmd in ("/session",):
+            if not args.strip():
+                info = server._session_info()
+                result = (
+                    f"**Session:** {info.get('name', '?')}\n"
+                    f"**ID:** {info.get('id', '?')}\n"
+                    f"**Model:** {info.get('provider', '')}:{info.get('model', '')}\n"
+                    f"**Messages:** {info.get('message_count', 0)}\n"
+                    f"**Description:** {info.get('description', 'none')}"
+                )
+            else:
+                result = await handle_session_subcommand(server, args.strip())
+
+        elif cmd in ("/sessions",):
+            from captain_claw.speaker import list_owner_sessions
+
+            # Members' private sessions are not the owner's to list or index.
+            sessions = await list_owner_sessions(server.agent.session_manager, limit=20)
+            if sessions:
+                lines = []
+                for i, s in enumerate(sessions, 1):
+                    active = " (active)" if (server.agent.session and s.id == server.agent.session.id) else ""
+                    desc = (s.metadata or {}).get("description", "")
+                    desc_str = f" - {desc}" if desc else ""
+                    lines.append(f"{i}. **{s.name}**{active}{desc_str}")
+                result = "\n".join(lines)
+            else:
+                result = "No sessions found."
+
+        elif cmd in ("/models",):
+            models = server.agent.get_allowed_models()
+            current = server.agent.get_runtime_model_details()
+            lines = []
+            for m in models:
+                active = " (active)" if m.get("model") == current.get("model") else ""
+                mtype = m.get("model_type", "llm")
+                type_tag = f" [{mtype}]" if mtype and mtype != "llm" else ""
+                lines.append(f"- **{m.get('id', '?')}**: {m.get('provider', '')}:{m.get('model', '')}{type_tag}{active}")
+            result = "\n".join(lines) if lines else "No models configured."
+
+        elif cmd in ("/pipeline",):
+            if args.strip():
+                mode = args.strip().lower()
+                if mode in ("loop", "contracts"):
+                    server.agent.pipeline_mode = mode
+                    if mode == "contracts":
+                        server.agent.planning_enabled = True
+                    result = f"Pipeline mode set to **{mode}**."
+                else:
+                    result = "Invalid mode. Use `loop` or `contracts`."
+            else:
+                result = f"Pipeline mode: **{server.agent.pipeline_mode}**"
+
+        elif cmd in ("/planning",):
+            arg = args.strip().lower()
+            if arg == "on":
+                await server.agent.set_plan_mode_auto(True)
+                result = (
+                    "Plan-mode auto-routing **enabled**. "
+                    "Every chat message will be routed through `/plan` "
+                    "then `/plan-execute`. Use `/planning off` to disable."
+                )
+            elif arg == "off":
+                await server.agent.set_plan_mode_auto(False)
+                result = "Plan-mode auto-routing **disabled**."
+            elif arg.startswith("level"):
+                from captain_claw.plan_mode import PLAN_LEVELS, normalize_plan_level
+
+                # Accept "level", "level <name>", or "level=<name>".
+                rest = arg[len("level"):].lstrip(" =").strip()
+                if not rest:
+                    current = getattr(server.agent, "plan_mode_level", "plain")
+                    options = ", ".join(f"`{lvl}`" for lvl in PLAN_LEVELS)
+                    result = (
+                        f"Plan-mode level: **{current}**. "
+                        f"Use `/planning level <name>` where name is one of {options}. "
+                        "Levels are cumulative: plain (no enrichment) → enriched "
+                        "(+ latest reflection) → insightful (+ top insights) → "
+                        "complete (+ persona-aware planner template)."
+                    )
+                else:
+                    requested = rest.split()[0]
+                    normalized = normalize_plan_level(requested)
+                    if normalized != requested.lower():
+                        options = ", ".join(f"`{lvl}`" for lvl in PLAN_LEVELS)
+                        result = (
+                            f"Unknown plan level `{requested}`. "
+                            f"Valid levels: {options}."
+                        )
+                    else:
+                        applied = await server.agent.set_plan_mode_level(normalized)
+                        result = f"Plan-mode level set to **{applied}**."
+            else:
+                state = "on" if getattr(server.agent, "plan_mode_auto", False) else "off"
+                level = getattr(server.agent, "plan_mode_level", "plain")
+                result = (
+                    f"Plan-mode auto-routing: **{state}** (level: **{level}**). "
+                    "Use `/planning on` or `/planning off` to toggle, or "
+                    "`/planning level <name>` to change enrichment. "
+                    "(Pipeline planner+critic mode is set via `/pipeline contracts`.)"
+                )
+
+        elif cmd in ("/skills",):
+            skills = server.agent.discover_available_skills()
+            if skills:
+                lines = []
+                for sk in skills:
+                    name = getattr(sk, "name", "?")
+                    desc = getattr(sk, "description", "")[:80]
+                    lines.append(f"- **{name}**: {desc}")
+                result = "\n".join(lines)
+            else:
+                result = "No skills available."
+
+        elif cmd in ("/monitor",):
+            result = "Monitor is always visible in the web UI. Use the monitor panel on the right."
+
+        elif cmd in ("/exit", "/quit"):
+            result = "Use Ctrl+C on the server terminal or close this browser tab."
+
+        elif cmd in ("/approve",):
+            from captain_claw.web.telegram import handle_approve_command
+            result = await handle_approve_command(server, args.strip())
+
+        elif cmd in ("/plan",):
+            from captain_claw.web.plan_commands import handle_plan_command
+            result = await handle_plan_command(server, args.strip())
+
+        elif cmd in ("/plan-execute",):
+            from captain_claw.web.plan_commands import handle_plan_execute_command
+            result = await handle_plan_execute_command(server, args.strip())
+
+        elif cmd in ("/orchestrate",):
+            if not args.strip():
+                result = "Usage: `/orchestrate <request>`"
+            else:
+                from captain_claw.web.chat_handler import handle_chat
+                await handle_chat(server, ws, raw)
+                return
+
+        elif cmd in ("/orchestrate-execute",):
+            if not server._orchestrator:
+                result = "Orchestrator not available."
+            else:
+                task_overrides = None
+                variable_values = None
+                if args.strip():
+                    try:
+                        parsed = json.loads(args.strip())
+                        if isinstance(parsed, dict) and (
+                            "variable_values" in parsed or "task_overrides" in parsed
+                        ):
+                            task_overrides = parsed.get("task_overrides")
+                            variable_values = parsed.get("variable_values")
+                        else:
+                            task_overrides = parsed
+                    except json.JSONDecodeError:
+                        task_overrides = None
+                try:
+                    response = await server._orchestrator.execute(
+                        task_overrides, variable_values=variable_values,
+                    )
+                    server._broadcast({
+                        "type": "chat_message",
+                        "role": "assistant",
+                        "content": response,
+                    })
+                except Exception as e:
+                    server._broadcast({
+                        "type": "error",
+                        "message": f"Orchestrator execute failed: {e}",
+                    })
+                return
+
+        elif cmd in ("/todo",):
+            result = await handle_todo_command(server, args.strip())
+
+        elif cmd in ("/contacts",):
+            result = await handle_contacts_command(server, args.strip())
+
+        elif cmd in ("/scripts",):
+            result = await handle_scripts_command(server, args.strip())
+
+        elif cmd in ("/apis",):
+            result = await handle_apis_command(server, args.strip())
+
+        elif cmd in ("/insights",):
+            result = await handle_insights_command(server, args.strip())
+
+        elif cmd in ("/basna",):
+            result = await server.agent.run_basna_command(args.strip())
+
+        elif cmd in ("/code", "/publish"):
+            # Needs a MODEL turn — the request may reference the conversation
+            # ("/code what we talked about", "/publish that as 'weather'"), so
+            # route into the normal chat pipeline; agent.complete() rewrites
+            # /code and /publish into the code/hosting tool directive (or asks
+            # the user to clarify). The chat handler sends its own replies, so
+            # return without emitting a command_result.
+            from captain_claw.web.chat_handler import handle_chat
+            await handle_chat(server, ws, raw.strip())
+            return
+
+        elif cmd in ("/screenshot",):
+            result = await _handle_screenshot_command(server, ws, args.strip())
+
+        elif cmd in ("/reflection", "/reflect"):
+            result = await _handle_reflection_command(server, args.strip())
+
+        elif cmd in ("/intuition", "/intuitions", "/dream"):
+            result = await _handle_intuition_command(server, args.strip())
+
+        elif cmd in ("/briefing", "/briefings"):
+            result = await _handle_briefing_command(server, args.strip())
+
+        elif cmd == "/sister":
+            result = await _handle_sister_command(server, args.strip())
+
+        elif cmd == "/watch":
+            result = await _handle_watch_command(server, args.strip())
+
+        elif cmd in ("/flow", "/flows"):
+            # Flow control (/flow status|stop|pause|resume) — hand to the flow
+            # engine via the evaluate hook; it replies asynchronously (chat-push).
+            from captain_claw.web.chat_handler import _maybe_run_flow
+            flow = await _maybe_run_flow(server.agent, raw.strip(), is_public=False)
+            if flow is None:
+                result = ("No matching flow command. Try `/flow status`, `/flow pause`, "
+                          "`/flow resume`, or `/flow stop`.")
+            elif flow.get("output"):
+                result = flow["output"]
+            else:
+                return  # deferred — the flow engine delivers its own reply
+
+        else:
+            result = f"Unknown command: `{cmd}`. Type `/help` for available commands."
+
+    except Exception as e:
+        if _is_speaker_server(server):
+            # A member never sees the exception text (provider errors, paths).
+            log.error("Member command failed", command=cmd, error=str(e))
+            result = "That command couldn't be completed — try again."
+        else:
+            result = f"Command error: {str(e)}"
+
+    await server._send(ws, {
+        "type": "command_result",
+        "command": raw,
+        "content": result,
+    })
+
+
+async def _execute_nuke(server: WebServer) -> str:
+    """Execute the full workspace nuke — delete everything, start fresh."""
+    lines: list[str] = []
+    sm = server.agent.session_manager
+
+    # 1. Delete workspace files (saved/ folder).
+    saved_path = server.agent.tools.get_saved_base_path(create=False)
+    file_count = 0
+    if saved_path.exists():
+        for item in saved_path.rglob("*"):
+            if item.is_file():
+                file_count += 1
+        shutil.rmtree(saved_path)
+        saved_path.mkdir(parents=True, exist_ok=True)
+    lines.append(f"📁 Deleted **{file_count}** workspace files")
+
+    # 1b. Delete workspace runtime folders (workflows, logs, workflow-run).
+    workspace_root = saved_path.parent
+    for folder_name in ("workflows", "logs", "workflow-run", "output"):
+        folder = workspace_root / folder_name
+        if folder.exists() and folder.is_dir():
+            shutil.rmtree(folder)
+            lines.append(f"📁 Deleted **{folder_name}/** folder")
+
+    # 2. Clear deep memory (Typesense) — DROP the collection entirely.
+    #    This guarantees a clean slate: all documents, embeddings, and
+    #    schema state are removed.  The collection will be auto-recreated
+    #    on next use.  We use direct HTTP so it works regardless of
+    #    whether DeepMemoryIndex is initialized.
+    dm_count = 0
+    dm_cleared = False
+    try:
+        cfg = get_config()
+        ts_cfg = getattr(cfg, "tools", None)
+        ts_cfg = getattr(ts_cfg, "typesense", None) if ts_cfg else None
+        dm_cfg = getattr(cfg, "deep_memory", None)
+        # Resolve the collection name: prefer deep_memory config,
+        # fall back to typesense tool default_collection.
+        coll_name = ""
+        if dm_cfg:
+            coll_name = str(getattr(dm_cfg, "collection_name", "")).strip()
+        if not coll_name and ts_cfg:
+            coll_name = str(getattr(ts_cfg, "default_collection", "")).strip()
+        # Resolve connection params (try deep_memory first, then tool).
+        ts_host = ""
+        ts_port = 8108
+        ts_proto = "http"
+        ts_key = ""
+        if dm_cfg and str(getattr(dm_cfg, "api_key", "")).strip():
+            ts_host = str(getattr(dm_cfg, "host", "localhost")).strip()
+            ts_port = int(getattr(dm_cfg, "port", 8108))
+            ts_proto = str(getattr(dm_cfg, "protocol", "http")).strip()
+            ts_key = str(getattr(dm_cfg, "api_key", "")).strip()
+        elif ts_cfg:
+            ts_host = str(getattr(ts_cfg, "host", "localhost")).strip()
+            ts_port = int(getattr(ts_cfg, "port", 8108))
+            ts_proto = str(getattr(ts_cfg, "protocol", "http")).strip()
+            ts_key = str(getattr(ts_cfg, "api_key", "")).strip()
+        if coll_name and ts_key:
+            import httpx
+            base = f"{ts_proto}://{ts_host}:{ts_port}"
+            headers = {"X-TYPESENSE-API-KEY": ts_key}
+            try:
+                resp = httpx.delete(
+                    f"{base}/collections/{coll_name}",
+                    headers=headers,
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    dm_count = resp.json().get("num_documents", 0)
+                    dm_cleared = True
+                elif resp.status_code == 404:
+                    dm_cleared = True  # already gone
+            except Exception as e:
+                lines.append(f"⚠️ Typesense collection drop failed: {e}")
+            # Reset in-memory state so collection is recreated on next use.
+            dm = getattr(server.agent, "_deep_memory", None)
+            if dm is not None:
+                dm._collection_ensured = False
+            # Also reset the TypesenseTool's cached flag.
+            try:
+                ts_tool = server.agent.tools.get("typesense")
+                ts_tool._collection_ensured = False
+            except Exception:
+                pass  # tool not registered
+    except Exception:
+        pass  # config not available — skip
+    if dm_count:
+        lines.append(f"🧠 Dropped Typesense collection — **{dm_count}** documents removed")
+    elif dm_cleared:
+        lines.append("🧠 Typesense collection dropped (was empty)")
+    else:
+        lines.append("🧠 Deep memory: not configured")
+
+    # 2b. Clear semantic memory (SQLite FTS + embeddings).
+    #     Try via the memory object first, then fall back to direct
+    #     SQLite connection to the memory.db file.
+    sm_count = 0
+    memory = getattr(server.agent, "memory", None)
+    if memory is not None:
+        try:
+            sm_count = memory.clear_all()
+        except Exception as e:
+            lines.append(f"⚠️ Semantic memory clear failed: {e}")
+
+    # Fallback: directly clear the SQLite memory database file.
+    # This handles the case where memory.semantic is None (init failure)
+    # but the database file exists with stale data.
+    if sm_count == 0:
+        try:
+            import sqlite3
+            cfg = get_config()
+            mem_cfg = getattr(cfg, "memory", None)
+            mem_path = str(getattr(mem_cfg, "path", "~/.captain-claw/memory.db")) if mem_cfg else "~/.captain-claw/memory.db"
+            from pathlib import Path
+            mem_db = Path(mem_path).expanduser()
+            if mem_db.exists():
+                conn = sqlite3.connect(str(mem_db))
+                try:
+                    # Check if tables exist before trying to delete
+                    tables = [r[0] for r in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()]
+                    for tbl in ("memory_embeddings", "memory_chunks_fts",
+                                "memory_chunks", "memory_documents",
+                                "memory_sync_state", "memory_history"):
+                        if tbl in tables:
+                            conn.execute(f"DELETE FROM [{tbl}]")
+                    conn.execute("VACUUM")
+                    conn.commit()
+                    sm_count = -1  # sentinel: cleared via fallback
+                finally:
+                    conn.close()
+        except Exception as e:
+            lines.append(f"⚠️ Direct memory DB clear failed: {e}")
+    if sm_count > 0:
+        lines.append(f"🧠 Cleared **{sm_count}** semantic memory documents")
+    elif sm_count == -1:
+        lines.append("🧠 Cleared semantic memory database (direct)")
+    else:
+        lines.append("🧠 Semantic memory: nothing to clear")
+
+    # 3. Drop all datastore tables.
+    from captain_claw.datastore import get_datastore_manager
+
+    ds = get_datastore_manager()
+    table_count = 0
+    try:
+        tables = await ds.list_tables()
+        for t in tables:
+            try:
+                await ds.drop_table(t.name)
+                table_count += 1
+            except Exception:
+                pass  # protected tables skip silently
+    except Exception as e:
+        lines.append(f"⚠️ Datastore clear failed: {e}")
+    lines.append(f"🗄️ Dropped **{table_count}** datastore tables")
+
+    # 4. Delete all sessions.
+    session_count = 0
+    try:
+        all_sessions = await sm.list_sessions(limit=1000)
+        for s in all_sessions:
+            try:
+                await sm.delete_session(s.id)
+                session_count += 1
+            except Exception:
+                pass
+    except Exception as e:
+        lines.append(f"⚠️ Session cleanup failed: {e}")
+    lines.append(f"💬 Deleted **{session_count}** sessions")
+
+    # 5. Delete all todos, contacts, scripts, apis.
+    entity_count = 0
+    for list_fn, del_fn in [
+        (sm.list_todos, sm.delete_todo),
+        (sm.list_contacts, sm.delete_contact),
+        (sm.list_scripts, sm.delete_script),
+        (sm.list_apis, sm.delete_api),
+    ]:
+        try:
+            items = await list_fn(limit=10000)
+            for item in items:
+                try:
+                    await del_fn(item.id)
+                    entity_count += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    if entity_count:
+        lines.append(f"🗑️ Deleted **{entity_count}** entities (todos, contacts, scripts, apis)")
+
+    # 5b. Clear insights.
+    try:
+        from captain_claw.insights import get_insights_manager
+        insights_mgr = get_insights_manager()
+        insight_count = await insights_mgr.clear_all()
+        lines.append(f"💡 Deleted **{insight_count}** insights")
+    except Exception as e:
+        lines.append(f"⚠️ Insights clear failed: {e}")
+
+    # 5c. Clear intuitions (nervous system).
+    try:
+        from captain_claw.nervous_system import get_nervous_system_manager
+        ns_mgr = get_nervous_system_manager()
+        intuition_count = await ns_mgr.clear_all()
+        lines.append(f"🧠 Deleted **{intuition_count}** intuitions")
+    except Exception as e:
+        lines.append(f"⚠️ Intuitions clear failed: {e}")
+
+    # 5d. Clear cognitive metrics.
+    try:
+        from captain_claw.cognitive_metrics import get_cognitive_metrics_manager
+        cm_mgr = get_cognitive_metrics_manager()
+        cm_count = await cm_mgr.clear_all()
+        lines.append(f"📊 Deleted **{cm_count}** cognitive events/snapshots")
+    except Exception as e:
+        lines.append(f"⚠️ Cognitive metrics clear failed: {e}")
+
+    # 5e. Clear sister session tasks, briefings, watches.
+    try:
+        from captain_claw.sister_session import get_sister_session_manager
+        ss_mgr = get_sister_session_manager()
+        ss_count = await ss_mgr.clear_all()
+        lines.append(f"👯 Deleted **{ss_count}** sister session items (tasks, briefings, watches)")
+    except Exception as e:
+        lines.append(f"⚠️ Sister session clear failed: {e}")
+
+    # 6. Create fresh session and switch to it.
+    new_session = await sm.create_session(name="web-session")
+    server.agent.session = new_session
+    server.agent.refresh_session_runtime_flags()
+    await sm.set_last_active_session(new_session.id)
+    server.agent.last_usage = server.agent._empty_usage()
+    server.agent.last_context_window = {}
+    server._broadcast({"type": "session_info", **server._session_info()})
+    server._broadcast({"type": "session_switched"})
+    lines.append(f"✨ Fresh session created: **{new_session.name}**")
+
+    return "💥 **Nuked.**\n" + "\n".join(lines)
+
+
+async def handle_session_subcommand(server: WebServer, args: str) -> str:
+    """Handle /session subcommands."""
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd in ("list",):
+        from captain_claw.speaker import list_owner_sessions
+
+        sessions = await list_owner_sessions(server.agent.session_manager, limit=20)
+        lines = []
+        for i, s in enumerate(sessions, 1):
+            active = " (active)" if (server.agent.session and s.id == server.agent.session.id) else ""
+            lines.append(f"{i}. **{s.name}**{active}")
+        return "\n".join(lines) if lines else "No sessions."
+
+    elif subcmd in ("switch", "load"):
+        if not subargs:
+            return "Usage: `/session switch <id|name|#N>`"
+        from captain_claw.speaker import member_session_refusal, select_owner_session
+
+        session = await select_owner_session(server.agent.session_manager, subargs)
+        refusal = member_session_refusal(session)
+        if refusal:
+            # A member's private conversation on this shared agent: nobody
+            # (the owner included) takes it over by switching into it.
+            return refusal
+        if session and _held_elsewhere(server, session.id):
+            return ("That session is open on another lane or chat right now — "
+                    "switch to it there, or start a new one here.")
+        if session:
+            server.agent.session = session
+            if not _is_view(server):
+                await server.agent.session_manager.set_last_active_session(session.id)
+            server.agent._sync_runtime_flags_from_session()
+            server._broadcast({"type": "session_info", **server._session_info()})
+            server._broadcast({"type": "session_switched"})
+            return f"Switched to session **{session.name}**."
+        return f"Session not found: `{subargs}`"
+
+    elif subcmd in ("new",):
+        session = await _create_new_session(server, subargs or None)
+        server.agent.refresh_session_runtime_flags()
+        if not _is_view(server):
+            await server.agent.session_manager.set_last_active_session(session.id)
+        server.agent.last_usage = server.agent._empty_usage()
+        server.agent.last_context_window = {}
+        server._broadcast({"type": "session_info", **server._session_info()})
+        server._broadcast({"type": "session_switched"})
+        return f"Created and switched to session **{session.name}**."
+
+    elif subcmd in ("rename",):
+        if not subargs:
+            return "Usage: `/session rename <new-name>`"
+        if _is_speaker_server(server):
+            from captain_claw.speaker import session_name_reserved
+
+            if session_name_reserved(subargs):
+                return "That name is reserved on a shared agent — pick another."
+        if server.agent.session:
+            server.agent.session.name = subargs
+            await server.agent.session_manager.save_session(server.agent.session)
+            server._broadcast({"type": "session_info", **server._session_info()})
+            return f"Session renamed to **{subargs}**."
+        return "No active session."
+
+    elif subcmd in ("description",):
+        if not subargs:
+            return "Usage: `/session description <text>` or `/session description auto`"
+        if server.agent.session:
+            if subargs.lower() == "auto":
+                desc = await server.agent._auto_generate_session_description()
+                return f"Auto-generated description: {desc}"
+            server.agent.session.metadata = server.agent.session.metadata or {}
+            server.agent.session.metadata["description"] = subargs
+            await server.agent.session_manager.save_session(server.agent.session)
+            return f"Description set to: {subargs}"
+        return "No active session."
+
+    elif subcmd in ("model",):
+        if not subargs:
+            details = server.agent.get_runtime_model_details()
+            return f"Active model: **{details.get('provider', '')}:{details.get('model', '')}**"
+        await server.agent.set_session_model(subargs, persist=True)
+        details = server.agent.get_runtime_model_details()
+        server._broadcast({"type": "session_info", **server._session_info()})
+        return f"Model set to **{details.get('provider', '')}:{details.get('model', '')}**"
+
+    elif subcmd in ("protect",):
+        if server.agent.session:
+            if subargs.lower() == "on":
+                server.agent.session.metadata = server.agent.session.metadata or {}
+                server.agent.session.metadata["memory_protection"] = True
+                await server.agent.session_manager.save_session(server.agent.session)
+                return "Memory protection enabled."
+            elif subargs.lower() == "off":
+                server.agent.session.metadata = server.agent.session.metadata or {}
+                server.agent.session.metadata["memory_protection"] = False
+                await server.agent.session_manager.save_session(server.agent.session)
+                return "Memory protection disabled."
+            return "Usage: `/session protect on|off`"
+        return "No active session."
+
+    elif subcmd in ("export",):
+        if not server.agent.session:
+            return "No active session."
+        mode = subargs.strip().lower() or "all"
+        from captain_claw.session_export import export_session_history
+
+        try:
+            written = export_session_history(
+                mode=mode,
+                session_id=server.agent.session.id,
+                session_name=server.agent.session.name,
+                messages=server.agent.session.messages,
+                saved_base_path=server.agent.tools.get_saved_base_path(create=True),
+                metadata=server.agent.session.metadata,
+            )
+        except Exception as e:
+            return f"Export failed: {e}"
+        if not written:
+            return "No files exported."
+        lines = [f"Exported **{len(written)}** file(s):"]
+        for p in written:
+            lines.append(f"- `{p}`")
+        return "\n".join(lines)
+
+    return f"Unknown session subcommand: `{subcmd}`"
+
+
+# ── Entity command handlers ──────────────────────────────────────────
+
+
+async def handle_todo_command(server: WebServer, args: str) -> str:
+    """Handle /todo subcommands in the web UI."""
+    sm = server.agent.session_manager
+    if not args or args.lower() in ("list", "ls"):
+        items = await sm.list_todos(limit=50)
+        if not items:
+            return "No to-do items."
+        lines: list[str] = []
+        for idx, item in enumerate(items, 1):
+            tag_suffix = f" [{item.tags}]" if item.tags else ""
+            status_icon = {" ": " ", "pending": " ", "in_progress": ">", "done": "x", "cancelled": "-"}.get(item.status, " ")
+            lines.append(
+                f"[{status_icon}] #{idx} [{item.priority}/{item.responsible}] "
+                f"{item.content} ({item.status}){tag_suffix}  `{item.id[:8]}`"
+            )
+        return "**To-do items:**\n" + "\n".join(lines)
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "add":
+        if not subargs:
+            return "Usage: `/todo add <text>`"
+        session_id = server.agent.session.id if server.agent.session else None
+        item = await sm.create_todo(
+            content=subargs, responsible="human", source_session=session_id,
+        )
+        return f"Added todo: **{subargs}** (`{item.id[:8]}`)"
+
+    if subcmd in ("done", "complete", "finish"):
+        if not subargs:
+            return "Usage: `/todo done <id|#index>`"
+        item = await sm.select_todo(subargs)
+        if not item:
+            return f"Todo not found: `{subargs}`"
+        await sm.update_todo(item.id, status="done")
+        return f"Marked done: **{item.content}**"
+
+    if subcmd in ("remove", "rm", "delete", "del"):
+        if not subargs:
+            return "Usage: `/todo remove <id|#index>`"
+        item = await sm.select_todo(subargs)
+        if not item:
+            return f"Todo not found: `{subargs}`"
+        await sm.delete_todo(item.id)
+        return f"Removed: **{item.content}**"
+
+    if subcmd == "assign":
+        assign_parts = subargs.split(None, 1)
+        if len(assign_parts) < 2 or assign_parts[0] not in ("bot", "human"):
+            return "Usage: `/todo assign bot|human <id|#index>`"
+        responsible, selector = assign_parts
+        item = await sm.select_todo(selector)
+        if not item:
+            return f"Todo not found: `{selector}`"
+        await sm.update_todo(item.id, responsible=responsible)
+        return f"Assigned **{item.content}** to {responsible}"
+
+    # Fallback: treat entire args as an add
+    session_id = server.agent.session.id if server.agent.session else None
+    item = await sm.create_todo(
+        content=args, responsible="human", source_session=session_id,
+    )
+    return f"Added todo: **{args}** (`{item.id[:8]}`)"
+
+
+async def handle_contacts_command(server: WebServer, args: str) -> str:
+    """Handle /contacts subcommands in the web UI."""
+    sm = server.agent.session_manager
+    if not args or args.lower() in ("list", "ls"):
+        items = await sm.list_contacts(limit=50)
+        if not items:
+            return "No contacts."
+        lines: list[str] = []
+        for idx, c in enumerate(items, 1):
+            org_part = f" @ {c.organization}" if c.organization else ""
+            pos_part = f" ({c.position})" if c.position else ""
+            lines.append(
+                f"#{idx} [{c.importance}] {c.name}{pos_part}{org_part}"
+                f" [{c.relation or '-'}]  `{c.id[:8]}`"
+            )
+        return "**Contacts:**\n" + "\n".join(lines)
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "add":
+        if not subargs:
+            return "Usage: `/contacts add <name>`"
+        session_id = server.agent.session.id if server.agent.session else None
+        item = await sm.create_contact(
+            name=subargs, source_session=session_id,
+        )
+        return f"Added contact: **{subargs}** (`{item.id[:8]}`)"
+
+    if subcmd == "info":
+        if not subargs:
+            return "Usage: `/contacts info <id|#index|name>`"
+        item = await sm.select_contact(subargs)
+        if not item:
+            return f"Contact not found: `{subargs}`"
+        parts_out = [f"**{item.name}**  `{item.id}`"]
+        if item.position:
+            parts_out.append(f"Position: {item.position}")
+        if item.organization:
+            parts_out.append(f"Organization: {item.organization}")
+        if item.relation:
+            parts_out.append(f"Relation: {item.relation}")
+        if item.email:
+            parts_out.append(f"Email: {item.email}")
+        if item.phone:
+            parts_out.append(f"Phone: {item.phone}")
+        parts_out.append(f"Importance: {item.importance} (pinned={item.importance_pinned})")
+        parts_out.append(f"Mentions: {item.mention_count}")
+        if item.last_seen_at:
+            parts_out.append(f"Last seen: {item.last_seen_at}")
+        if item.tags:
+            parts_out.append(f"Tags: {item.tags}")
+        if item.description:
+            parts_out.append(f"Description: {item.description}")
+        if item.notes:
+            parts_out.append(f"Notes: {item.notes}")
+        parts_out.append(f"Privacy: {item.privacy_tier}")
+        return "\n".join(parts_out)
+
+    if subcmd == "search":
+        if not subargs:
+            return "Usage: `/contacts search <query>`"
+        items = await sm.search_contacts(subargs, limit=20)
+        if not items:
+            return f"No contacts matching: `{subargs}`"
+        lines = []
+        for idx, c in enumerate(items, 1):
+            org_part = f" @ {c.organization}" if c.organization else ""
+            lines.append(
+                f"#{idx} [{c.importance}] {c.name}{org_part}  `{c.id[:8]}`"
+            )
+        return "**Search results:**\n" + "\n".join(lines)
+
+    if subcmd in ("remove", "rm", "delete", "del"):
+        if not subargs:
+            return "Usage: `/contacts remove <id|#index|name>`"
+        item = await sm.select_contact(subargs)
+        if not item:
+            return f"Contact not found: `{subargs}`"
+        await sm.delete_contact(item.id)
+        return f"Removed: **{item.name}**"
+
+    if subcmd == "importance":
+        imp_parts = subargs.rsplit(None, 1)
+        if len(imp_parts) < 2:
+            return "Usage: `/contacts importance <id|#index|name> <1-10>`"
+        selector, score_str = imp_parts
+        try:
+            score = max(1, min(10, int(score_str)))
+        except ValueError:
+            return "Importance must be a number 1-10."
+        item = await sm.select_contact(selector)
+        if not item:
+            return f"Contact not found: `{selector}`"
+        await sm.update_contact(item.id, importance=score, importance_pinned=True)
+        return f"Set importance={score} (pinned) for **{item.name}**"
+
+    if subcmd == "update":
+        if not subargs:
+            return "Usage: `/contacts update <id|#index|name> <field=value ...>`"
+        update_parts = subargs.split(None, 1)
+        if len(update_parts) < 2:
+            return "Usage: `/contacts update <id|#index|name> <field=value ...>`"
+        selector = update_parts[0]
+        fields_str = update_parts[1]
+        item = await sm.select_contact(selector)
+        if not item:
+            return f"Contact not found: `{selector}`"
+        kwargs: dict[str, Any] = {}
+        valid_fields = {"name", "description", "position", "organization", "relation",
+                        "email", "phone", "tags", "notes", "privacy_tier"}
+        for token in _shlex.split(fields_str):
+            if "=" not in token:
+                continue
+            key, _, value = token.partition("=")
+            key = key.strip().lower()
+            if key in valid_fields:
+                if key == "notes":
+                    existing = item.notes or ""
+                    kwargs["notes"] = (existing.rstrip() + "\n" + value) if existing else value
+                else:
+                    kwargs[key] = value
+        if not kwargs:
+            return "No valid fields to update. Use `field=value` syntax."
+        ok = await sm.update_contact(item.id, **kwargs)
+        return f"Updated contact: **{item.name}**" if ok else "Update failed."
+
+    if subcmd == "import":
+        if not subargs:
+            return (
+                "Usage: `/contacts import <path-to-file>`\n"
+                "Supported formats:\n"
+                "- Google Contacts CSV export (`.csv`)\n"
+                "- vCard file (`.vcf`)\n\n"
+                "To export from Google: contacts.google.com → Export → Google CSV"
+            )
+        from pathlib import Path as _Path
+        file_path = _Path(subargs.strip()).expanduser().resolve()
+        if not file_path.exists():
+            return f"File not found: `{file_path}`"
+        if not file_path.is_file():
+            return f"Not a file: `{file_path}`"
+        ext = file_path.suffix.lower()
+        if ext not in (".csv", ".vcf"):
+            return f"Unsupported format `{ext}`. Use .csv (Google Contacts) or .vcf (vCard)."
+        file_bytes = file_path.read_bytes()
+        if not file_bytes:
+            return "File is empty."
+        from captain_claw.web.rest_entities import _import_google_csv, _import_vcard
+        if ext == ".vcf":
+            result = await _import_vcard(sm, file_bytes)
+        else:
+            result = await _import_google_csv(sm, file_bytes)
+        imported = result.get("imported", 0)
+        skipped = result.get("skipped", 0)
+        fmt = result.get("format", ext)
+        msg = f"**Import complete** ({fmt}): {imported} imported, {skipped} skipped."
+        errors = result.get("errors", [])
+        if errors:
+            msg += "\nErrors:\n" + "\n".join(f"- {e}" for e in errors[:10])
+        return msg
+
+    # Fallback: treat as search
+    items = await sm.search_contacts(args, limit=20)
+    if not items:
+        return f"No contacts matching: `{args}`"
+    lines = []
+    for idx, c in enumerate(items, 1):
+        org_part = f" @ {c.organization}" if c.organization else ""
+        lines.append(
+            f"#{idx} [{c.importance}] {c.name}{org_part}  `{c.id[:8]}`"
+        )
+    return "**Search results:**\n" + "\n".join(lines)
+
+
+async def handle_scripts_command(server: WebServer, args: str) -> str:
+    """Handle /scripts subcommands in the web UI."""
+    sm = server.agent.session_manager
+    if not args or args.lower() in ("list", "ls"):
+        items = await sm.list_scripts(limit=50)
+        if not items:
+            return "No scripts."
+        lines: list[str] = []
+        for idx, s in enumerate(items, 1):
+            lang_part = f" ({s.language})" if s.language else ""
+            lines.append(
+                f"#{idx} {s.name}{lang_part} [{s.file_path}]"
+                f"  uses={s.use_count}  `{s.id[:8]}`"
+            )
+        return "**Scripts:**\n" + "\n".join(lines)
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "add":
+        add_parts = subargs.split(None, 1)
+        if len(add_parts) < 2:
+            return "Usage: `/scripts add <name> <path>`"
+        session_id = server.agent.session.id if server.agent.session else None
+        item = await sm.create_script(
+            name=add_parts[0], file_path=add_parts[1], source_session=session_id,
+        )
+        return f"Added script: **{add_parts[0]}** at {add_parts[1]} (`{item.id[:8]}`)"
+
+    if subcmd == "info":
+        if not subargs:
+            return "Usage: `/scripts info <id|#index|name>`"
+        item = await sm.select_script(subargs)
+        if not item:
+            return f"Script not found: `{subargs}`"
+        parts_out = [f"**{item.name}**  `{item.id}`", f"Path: {item.file_path}"]
+        if item.language:
+            parts_out.append(f"Language: {item.language}")
+        if item.description:
+            parts_out.append(f"Description: {item.description}")
+        if item.purpose:
+            parts_out.append(f"Purpose: {item.purpose}")
+        if item.created_reason:
+            parts_out.append(f"Created reason: {item.created_reason}")
+        if item.tags:
+            parts_out.append(f"Tags: {item.tags}")
+        parts_out.append(f"Uses: {item.use_count}")
+        if item.last_used_at:
+            parts_out.append(f"Last used: {item.last_used_at}")
+        return "\n".join(parts_out)
+
+    if subcmd == "search":
+        if not subargs:
+            return "Usage: `/scripts search <query>`"
+        items = await sm.search_scripts(subargs, limit=20)
+        if not items:
+            return f"No scripts matching: `{subargs}`"
+        lines = []
+        for idx, s in enumerate(items, 1):
+            lang_part = f" ({s.language})" if s.language else ""
+            lines.append(f"#{idx} {s.name}{lang_part} [{s.file_path}]  `{s.id[:8]}`")
+        return "**Search results:**\n" + "\n".join(lines)
+
+    if subcmd in ("remove", "rm", "delete", "del"):
+        if not subargs:
+            return "Usage: `/scripts remove <id|#index|name>`"
+        item = await sm.select_script(subargs)
+        if not item:
+            return f"Script not found: `{subargs}`"
+        await sm.delete_script(item.id)
+        return f"Removed: **{item.name}**"
+
+    if subcmd == "update":
+        if not subargs:
+            return "Usage: `/scripts update <id|#index|name> <field=value ...>`"
+        update_parts = subargs.split(None, 1)
+        if len(update_parts) < 2:
+            return "Usage: `/scripts update <id|#index|name> <field=value ...>`"
+        selector = update_parts[0]
+        fields_str = update_parts[1]
+        item = await sm.select_script(selector)
+        if not item:
+            return f"Script not found: `{selector}`"
+        kwargs: dict[str, Any] = {}
+        valid_fields = {"name", "file_path", "description", "purpose", "language",
+                        "created_reason", "tags"}
+        for token in _shlex.split(fields_str):
+            if "=" not in token:
+                continue
+            key, _, value = token.partition("=")
+            key = key.strip().lower()
+            if key in valid_fields:
+                kwargs[key] = value
+        if not kwargs:
+            return "No valid fields to update. Use `field=value` syntax."
+        ok = await sm.update_script(item.id, **kwargs)
+        return f"Updated script: **{item.name}**" if ok else "Update failed."
+
+    # Fallback: search
+    items = await sm.search_scripts(args, limit=20)
+    if not items:
+        return f"No scripts matching: `{args}`"
+    lines = []
+    for idx, s in enumerate(items, 1):
+        lang_part = f" ({s.language})" if s.language else ""
+        lines.append(f"#{idx} {s.name}{lang_part} [{s.file_path}]  `{s.id[:8]}`")
+    return "**Search results:**\n" + "\n".join(lines)
+
+
+async def handle_apis_command(server: WebServer, args: str) -> str:
+    """Handle /apis subcommands in the web UI."""
+    sm = server.agent.session_manager
+    if not args or args.lower() in ("list", "ls"):
+        items = await sm.list_apis(limit=50)
+        if not items:
+            return "No APIs."
+        lines: list[str] = []
+        for idx, a in enumerate(items, 1):
+            auth_part = f" [{a.auth_type}]" if a.auth_type else ""
+            lines.append(
+                f"#{idx} {a.name}{auth_part} ({a.base_url})"
+                f"  uses={a.use_count}  `{a.id[:8]}`"
+            )
+        return "**APIs:**\n" + "\n".join(lines)
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "add":
+        add_parts = subargs.split(None, 1)
+        if len(add_parts) < 2:
+            return "Usage: `/apis add <name> <base_url>`"
+        session_id = server.agent.session.id if server.agent.session else None
+        item = await sm.create_api(
+            name=add_parts[0], base_url=add_parts[1], source_session=session_id,
+        )
+        return f"Added API: **{add_parts[0]}** ({add_parts[1]}) (`{item.id[:8]}`)"
+
+    if subcmd == "info":
+        if not subargs:
+            return "Usage: `/apis info <id|#index|name>`"
+        item = await sm.select_api(subargs)
+        if not item:
+            return f"API not found: `{subargs}`"
+        parts_out = [f"**{item.name}**  `{item.id}`", f"Base URL: {item.base_url}"]
+        if item.auth_type:
+            parts_out.append(f"Auth type: {item.auth_type}")
+        if item.credentials:
+            parts_out.append(f"Credentials: {item.credentials}")
+        if item.endpoints:
+            parts_out.append(f"Endpoints: {item.endpoints}")
+        if item.description:
+            parts_out.append(f"Description: {item.description}")
+        if item.purpose:
+            parts_out.append(f"Purpose: {item.purpose}")
+        if item.tags:
+            parts_out.append(f"Tags: {item.tags}")
+        parts_out.append(f"Uses: {item.use_count}")
+        if item.last_used_at:
+            parts_out.append(f"Last used: {item.last_used_at}")
+        return "\n".join(parts_out)
+
+    if subcmd == "search":
+        if not subargs:
+            return "Usage: `/apis search <query>`"
+        items = await sm.search_apis(subargs, limit=20)
+        if not items:
+            return f"No APIs matching: `{subargs}`"
+        lines = []
+        for idx, a in enumerate(items, 1):
+            auth_part = f" [{a.auth_type}]" if a.auth_type else ""
+            lines.append(f"#{idx} {a.name}{auth_part} ({a.base_url})  `{a.id[:8]}`")
+        return "**Search results:**\n" + "\n".join(lines)
+
+    if subcmd in ("remove", "rm", "delete", "del"):
+        if not subargs:
+            return "Usage: `/apis remove <id|#index|name>`"
+        item = await sm.select_api(subargs)
+        if not item:
+            return f"API not found: `{subargs}`"
+        await sm.delete_api(item.id)
+        return f"Removed: **{item.name}**"
+
+    if subcmd == "update":
+        if not subargs:
+            return "Usage: `/apis update <id|#index|name> <field=value ...>`"
+        update_parts = subargs.split(None, 1)
+        if len(update_parts) < 2:
+            return "Usage: `/apis update <id|#index|name> <field=value ...>`"
+        selector = update_parts[0]
+        fields_str = update_parts[1]
+        item = await sm.select_api(selector)
+        if not item:
+            return f"API not found: `{selector}`"
+        kwargs: dict[str, Any] = {}
+        valid_fields = {"name", "base_url", "endpoints", "auth_type", "credentials",
+                        "description", "purpose", "tags"}
+        for token in _shlex.split(fields_str):
+            if "=" not in token:
+                continue
+            key, _, value = token.partition("=")
+            key = key.strip().lower()
+            if key in valid_fields:
+                kwargs[key] = value
+        if not kwargs:
+            return "No valid fields to update. Use `field=value` syntax."
+        ok = await sm.update_api(item.id, **kwargs)
+        return f"Updated API: **{item.name}**" if ok else "Update failed."
+
+    # Fallback: search
+    items = await sm.search_apis(args, limit=20)
+    if not items:
+        return f"No APIs matching: `{args}`"
+    lines = []
+    for idx, a in enumerate(items, 1):
+        auth_part = f" [{a.auth_type}]" if a.auth_type else ""
+        lines.append(f"#{idx} {a.name}{auth_part} ({a.base_url})  `{a.id[:8]}`")
+    return "**Search results:**\n" + "\n".join(lines)
+
+
+async def _handle_reflection_command(server: WebServer, args: str) -> str:
+    """Handle /reflection command variants."""
+    from captain_claw.reflections import (
+        generate_reflection,
+        list_imported_reflections,
+        list_reflections,
+        load_latest_reflection,
+        merge_reflection_with_import,
+    )
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower() if parts else ""
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd in ("generate", "start", "new"):
+        if not server.agent:
+            return "Agent not available."
+        try:
+            r = await generate_reflection(server.agent)
+            return f"**New reflection generated** ({r.timestamp}):\n\n{r.summary}"
+        except Exception as exc:
+            return f"Reflection generation failed: {exc}"
+
+    elif subcmd == "list":
+        refs = list_reflections(limit=10)
+        if not refs:
+            return "No reflections yet. Use `/reflection generate` to create one."
+        lines = []
+        for r in refs:
+            preview = r.summary[:80].replace("\n", " ")
+            if len(r.summary) > 80:
+                preview += "..."
+            lines.append(f"- **{r.timestamp}**: {preview}")
+        return "**Recent reflections:**\n" + "\n".join(lines)
+
+    elif subcmd == "imported":
+        sources = list_imported_reflections()
+        if not sources:
+            return (
+                "No imported reflections staged. Import a memory bundle "
+                "(via Flight Deck or `/api/memory/import`) to stage some."
+            )
+        lines: list[str] = []
+        for s in sources:
+            lines.append(f"- **{s['label']}** ({s['count']} file(s)):")
+            for entry in s["reflections"][:3]:
+                preview = entry["summary"][:70].replace("\n", " ")
+                if len(entry["summary"]) > 70:
+                    preview += "..."
+                lines.append(f"  - `{entry['filename']}` — {entry['timestamp']}: {preview}")
+            if s["count"] > 3:
+                lines.append(f"  - ...and {s['count'] - 3} more")
+        lines.append("\nUse `/reflection merge <label>` to promote a staged personality.")
+        return "**Imported reflections:**\n" + "\n".join(lines)
+
+    elif subcmd == "merge":
+        if not server.agent:
+            return "Agent not available."
+        if not subargs:
+            return (
+                "Usage: `/reflection merge <label> [filename]`\n\n"
+                "Run `/reflection imported` to see available labels. The merge "
+                "preserves the current personality while absorbing knowledge "
+                "and directives from the imported reflection."
+            )
+        merge_parts = subargs.split(None, 1)
+        label = merge_parts[0]
+        filename = merge_parts[1].strip() if len(merge_parts) > 1 else None
+        try:
+            merged = await merge_reflection_with_import(
+                server.agent, label=label, filename=filename,
+            )
+        except FileNotFoundError as exc:
+            return f"**Merge failed:** {exc}"
+        except ValueError as exc:
+            return f"**Merge failed:** {exc}"
+        except Exception as exc:
+            return f"**Merge failed:** {exc}"
+        return (
+            f"**Reflection merged from `{label}`** ({merged.timestamp}):\n\n"
+            f"{merged.summary}\n\n"
+            f"_This is now the active personality. The imported file was left in place._"
+        )
+
+    else:
+        # Show latest
+        r = load_latest_reflection()
+        if r:
+            return f"**Latest reflection** ({r.timestamp}):\n\n{r.summary}"
+        return "No reflections yet. Use `/reflection generate` to create one."
+
+
+async def handle_insights_command(server: WebServer, args: str) -> str:
+    """Handle /insights subcommands in the web UI."""
+    from captain_claw.insights import get_insights_manager
+
+    mgr = get_insights_manager()
+
+    if not args or args.lower() in ("list", "ls"):
+        items = await mgr.list_recent(limit=20)
+        if not items:
+            return "No insights stored yet."
+        lines: list[str] = []
+        for idx, item in enumerate(items, 1):
+            cat = item.get("category", "fact")
+            imp = item.get("importance", 5)
+            tags = f" [{item['tags']}]" if item.get("tags") else ""
+            lines.append(
+                f"#{idx} [{cat}] (imp:{imp}) {item['content']}{tags}  `{item['id']}`"
+            )
+        total = await mgr.count()
+        return f"**Insights** ({len(items)} of {total}):\n" + "\n".join(lines)
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "search":
+        if not subargs:
+            return "Usage: `/insights search <query>`"
+        results = await mgr.search(subargs, limit=15)
+        if not results:
+            return f"No insights matching: `{subargs}`"
+        lines = []
+        for idx, item in enumerate(results, 1):
+            cat = item.get("category", "fact")
+            imp = item.get("importance", 5)
+            lines.append(f"#{idx} [{cat}] (imp:{imp}) {item['content']}  `{item['id']}`")
+        return f"**Search results for** `{subargs}`:\n" + "\n".join(lines)
+
+    if subcmd == "add":
+        if not subargs:
+            return "Usage: `/insights add <text>`"
+        session_id = server.agent.session.id if server.agent.session else None
+        insight_id = await mgr.add(
+            content=subargs,
+            category="fact",
+            importance=5,
+            source_tool="slash_command",
+            source_session=session_id,
+        )
+        if insight_id:
+            return f"Added insight: **{subargs}** (`{insight_id}`)"
+        return "Insight was deduped — a similar one already exists."
+
+    if subcmd in ("delete", "del", "remove", "rm"):
+        if not subargs:
+            return "Usage: `/insights delete <id>`"
+        ok = await mgr.delete(subargs.strip())
+        if not ok:
+            return f"Insight not found: `{subargs}`"
+        return f"Deleted insight `{subargs}`"
+
+    # Fallback: treat as search
+    results = await mgr.search(args, limit=15)
+    if not results:
+        return f"No insights matching: `{args}`"
+    lines = []
+    for idx, item in enumerate(results, 1):
+        cat = item.get("category", "fact")
+        imp = item.get("importance", 5)
+        lines.append(f"#{idx} [{cat}] (imp:{imp}) {item['content']}  `{item['id']}`")
+    return f"**Search results for** `{args}`:\n" + "\n".join(lines)
+
+
+async def _handle_intuition_command(server: "WebServer", args: str) -> str:
+    """Handle /intuition subcommands in the web UI."""
+    from captain_claw.nervous_system import dream, get_nervous_system_manager
+
+    mgr = get_nervous_system_manager()
+
+    if not args or args.lower() in ("list", "ls"):
+        items = await mgr.list_recent(limit=20)
+        if not items:
+            return "No intuitions yet. Use `/intuition dream` to trigger a dream cycle."
+        lines: list[str] = []
+        for idx, item in enumerate(items, 1):
+            tt = item.get("thread_type", "association")
+            conf = item.get("confidence", 0.5)
+            imp = item.get("importance", 5)
+            validated = " \u2713" if item.get("validated") else ""
+            tags = f" [{item['tags']}]" if item.get("tags") else ""
+            lines.append(
+                f"#{idx} [{tt}] (conf:{conf:.1f} imp:{imp}{validated}) {item['content']}{tags}  `{item['id']}`"
+            )
+        total = await mgr.count()
+        return f"**Intuitions** ({len(items)} of {total}):\n" + "\n".join(lines)
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "search":
+        if not subargs:
+            return "Usage: `/intuition search <query>`"
+        results = await mgr.search(subargs, limit=15)
+        if not results:
+            return f"No intuitions matching: `{subargs}`"
+        lines = []
+        for idx, item in enumerate(results, 1):
+            tt = item.get("thread_type", "association")
+            conf = item.get("confidence", 0.5)
+            lines.append(f"#{idx} [{tt}] (conf:{conf:.1f}) {item['content']}  `{item['id']}`")
+        return f"**Search results for** `{subargs}`:\n" + "\n".join(lines)
+
+    if subcmd in ("dream", "generate", "think"):
+        agent = getattr(server, "agent", None)
+        if not agent:
+            return "No active agent — cannot dream."
+        try:
+            results = await dream(agent)
+            if results:
+                lines = [f"- {r.get('content', '')}" for r in results]
+                return f"**Dream cycle produced {len(results)} intuition(s):**\n" + "\n".join(lines)
+            return "Dream cycle completed — no new intuitions formed."
+        except Exception as exc:
+            return f"Dream failed: {exc}"
+
+    if subcmd == "add":
+        if not subargs:
+            return "Usage: `/intuition add <text>`"
+        session_id = server.agent.session.id if server.agent and server.agent.session else None
+        intuition_id = await mgr.add(
+            content=subargs,
+            thread_type="association",
+            source_layers=["manual"],
+            source_session=session_id,
+            confidence=0.7,
+            importance=5,
+        )
+        if intuition_id:
+            return f"Added intuition: **{subargs}** (`{intuition_id}`)"
+        return "Intuition was deduped — a similar one already exists."
+
+    if subcmd in ("delete", "del", "remove", "rm"):
+        if not subargs:
+            return "Usage: `/intuition delete <id>`"
+        ok = await mgr.delete(subargs.strip())
+        if not ok:
+            return f"Intuition not found: `{subargs}`"
+        return f"Deleted intuition `{subargs}`"
+
+    if subcmd == "validate":
+        if not subargs:
+            return "Usage: `/intuition validate <id>`"
+        item = await mgr.get(subargs.strip())
+        if not item:
+            return f"Intuition not found: `{subargs}`"
+        await mgr.validate(subargs.strip())
+        return f"Validated intuition `{subargs}` — protected from decay, confidence boosted."
+
+    if subcmd == "stats":
+        data = await mgr.stats()
+        lines = [
+            f"**Nervous System Stats:**",
+            f"- Total intuitions: {data['total']}",
+            f"- Validated: {data['validated']}",
+            f"- Avg confidence: {data['avg_confidence']}",
+            f"- Avg importance: {data['avg_importance']}",
+        ]
+        dist = data.get("type_distribution", {})
+        if dist:
+            lines.append("- Types: " + ", ".join(f"{k}={v}" for k, v in dist.items()))
+        return "\n".join(lines)
+
+    # Fallback: treat as search.
+    results = await mgr.search(args, limit=15)
+    if not results:
+        return f"No intuitions matching: `{args}`"
+    lines = []
+    for idx, item in enumerate(results, 1):
+        tt = item.get("thread_type", "association")
+        conf = item.get("confidence", 0.5)
+        lines.append(f"#{idx} [{tt}] (conf:{conf:.1f}) {item['content']}  `{item['id']}`")
+    return f"**Search results for** `{args}`:\n" + "\n".join(lines)
+
+
+async def _handle_briefing_command(server: "WebServer", args: str) -> str:
+    """Handle /briefing subcommands in the web UI."""
+    from captain_claw.sister_session import get_sister_session_manager
+
+    mgr = get_sister_session_manager()
+
+    # Get current session ID for filtering
+    session_id = None
+    agent = getattr(server, "agent", None)
+    if agent and agent.session:
+        session_id = str(agent.session.id)
+
+    if not args or args.lower() in ("list", "ls"):
+        items = await mgr.list_briefings(session_id, status="unread", limit=20)
+        if not items:
+            # Check for any briefings at all
+            all_items = await mgr.list_briefings(session_id, limit=5)
+            if all_items:
+                return "No unread briefings. Use `/briefing all` to see all."
+            return "No briefings yet. Tasks from insights and dreams will produce briefings here."
+        lines: list[str] = []
+        for idx, item in enumerate(items, 1):
+            icon = "\u26a1" if item.get("actionable") else "\U0001f4cb"
+            src = item.get("source_type", "?")
+            conf = item.get("confidence", 0.0)
+            lines.append(
+                f"#{idx} {icon} [{src}] (conf:{conf:.1f}) {item['summary']}  `{item['id']}`"
+            )
+        return f"**Unread Briefings** ({len(items)}):\n" + "\n".join(lines)
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "all":
+        items = await mgr.list_briefings(session_id, limit=30)
+        if not items:
+            return "No briefings yet."
+        lines = []
+        for idx, item in enumerate(items, 1):
+            icon = "\u26a1" if item.get("actionable") else "\U0001f4cb"
+            src = item.get("source_type", "?")
+            status = item.get("status", "unread")
+            lines.append(
+                f"#{idx} {icon} [{src}] ({status}) {item['summary']}  `{item['id']}`"
+            )
+        total = await mgr.count_briefings(session_id)
+        return f"**All Briefings** ({len(items)} of {total}):\n" + "\n".join(lines)
+
+    if subcmd in ("dismiss", "close"):
+        if subargs.lower() == "all":
+            items = await mgr.list_briefings(session_id, status="unread", limit=100)
+            count = 0
+            for item in items:
+                await mgr.dismiss(item["id"])
+                count += 1
+            return f"Dismissed {count} briefing(s)."
+        if not subargs:
+            return "Usage: `/briefing dismiss <id>` or `/briefing dismiss all`"
+        ok = await mgr.dismiss(subargs.strip())
+        if not ok:
+            return f"Briefing not found: `{subargs}`"
+        return f"Dismissed briefing `{subargs}`."
+
+    if subcmd in ("delete", "del", "rm"):
+        if not subargs:
+            return "Usage: `/briefing delete <id>`"
+        ok = await mgr.delete_briefing(subargs.strip())
+        if not ok:
+            return f"Briefing not found: `{subargs}`"
+        return f"Deleted briefing `{subargs}`."
+
+    if subcmd == "stats":
+        data = await mgr.stats(session_id)
+        lines = [
+            "**Sister Session Stats:**",
+            f"- Total tasks: {data['total_tasks']}",
+            f"- Queued: {data['queued_tasks']}",
+            f"- Completed: {data['done_tasks']}",
+            f"- Total briefings: {data['total_briefings']}",
+            f"- Unread: {data['unread_briefings']}",
+            f"- Tokens today: {data['tokens_used_today']:,}",
+            f"- Tasks today: {data['tasks_run_today']}",
+        ]
+        return "\n".join(lines)
+
+    # Treat as briefing ID lookup
+    item = await mgr.get_briefing(args.strip())
+    if item:
+        if item.get("status") == "unread":
+            await mgr.mark_read(item["id"])
+        icon = "\u26a1" if item.get("actionable") else "\U0001f4cb"
+        src = item.get("source_type", "?")
+        lines = [
+            f"**{icon} Briefing** ({src})",
+            f"**Reason:** {item.get('trigger_reason', '')}",
+            f"**Confidence:** {item.get('confidence', 0.0):.1f}",
+            f"**Status:** {item.get('status', 'unread')}",
+            "",
+            item.get("body") or item.get("summary", ""),
+        ]
+        return "\n".join(lines)
+
+    return f"Briefing not found: `{args}`. Use `/briefing` to list unread briefings."
+
+
+async def _handle_sister_command(server: "WebServer", args: str) -> str:
+    """Handle /sister subcommands in the web UI."""
+    from captain_claw.sister_session import get_sister_session_manager, maybe_create_proactive_task
+
+    mgr = get_sister_session_manager()
+
+    if not args:
+        return (
+            "**Sister Session** — proactive autonomous work\n\n"
+            "Commands:\n"
+            "- `/sister investigate <query>` — create an investigation task\n"
+            "- `/sister status` — show sister session stats\n"
+            "- `/sister tasks` — list queued tasks\n"
+            "- `/sister delete <id>` — delete a task\n"
+            "- `/briefing` — view briefing results"
+        )
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd in ("investigate", "research", "check"):
+        if not subargs:
+            return "Usage: `/sister investigate <query>`"
+        agent = getattr(server, "agent", None)
+        if not agent or not agent.session:
+            return "No active session."
+        task_id = await maybe_create_proactive_task(
+            parent_session_id=str(agent.session.id),
+            source_type="manual",
+            source_id=f"manual-{subargs[:20]}",
+            trigger_reason=subargs,
+            priority=8,
+        )
+        if task_id:
+            return f"Investigation task created: **{subargs}** (`{task_id}`)"
+        return "Task not created — rate limit, budget cap, or duplicate."
+
+    if subcmd in ("status", "stats"):
+        session_id = None
+        agent = getattr(server, "agent", None)
+        if agent and agent.session:
+            session_id = str(agent.session.id)
+        data = await mgr.stats(session_id)
+        lines = [
+            "**Sister Session Status:**",
+            f"- Queued tasks: {data['queued_tasks']}",
+            f"- Completed tasks: {data['done_tasks']}",
+            f"- Unread briefings: {data['unread_briefings']}",
+            f"- Tokens used today: {data['tokens_used_today']:,}",
+            f"- Tasks run today: {data['tasks_run_today']}",
+        ]
+        return "\n".join(lines)
+
+    if subcmd in ("tasks", "queue"):
+        session_id = None
+        agent = getattr(server, "agent", None)
+        if agent and agent.session:
+            session_id = str(agent.session.id)
+        items = await mgr.list_tasks(session_id, status="queued", limit=20)
+        if not items:
+            return "No queued tasks."
+        lines = []
+        for idx, item in enumerate(items, 1):
+            src = item.get("source_type", "?")
+            pri = item.get("priority", 5)
+            lines.append(
+                f"#{idx} [{src}] (pri:{pri}) {item.get('trigger_reason', '')}  `{item['id']}`"
+            )
+        return f"**Queued Tasks** ({len(items)}):\n" + "\n".join(lines)
+
+    if subcmd in ("delete", "del", "rm", "cancel"):
+        if not subargs:
+            return "Usage: `/sister delete <id>`"
+        ok = await mgr.delete_task(subargs.strip())
+        if not ok:
+            return f"Task not found: `{subargs}`"
+        return f"Deleted task `{subargs}`."
+
+    return f"Unknown sister command: `{subcmd}`. Use `/sister` for help."
+
+
+async def _handle_watch_command(server: "WebServer", args: str) -> str:
+    """Handle /watch subcommands."""
+    from captain_claw.sister_session import get_sister_session_manager
+
+    mgr = get_sister_session_manager()
+    session_id = None
+    agent = getattr(server, "agent", None)
+    if agent and agent.session:
+        session_id = str(agent.session.id)
+
+    if not args:
+        return (
+            "**Watch** — periodic monitoring\n\n"
+            "Usage:\n"
+            "- `/watch <query> [every <interval>]` — create a watch\n"
+            "- `/watch list` — list active watches\n"
+            "- `/watch delete <id>` — remove a watch\n\n"
+            "Examples:\n"
+            "- `/watch check if PR #123 is merged every 30m`\n"
+            "- `/watch monitor HN front page for our launch every 1h`"
+        )
+
+    parts = args.split(None, 1)
+    subcmd = parts[0].lower()
+    subargs = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd in ("list", "ls"):
+        items = await mgr.list_watches(session_id, limit=20)
+        if not items:
+            return "No active watches."
+        lines: list[str] = []
+        for idx, item in enumerate(items, 1):
+            interval = item.get("interval_seconds", 3600)
+            if interval >= 3600:
+                interval_str = f"{interval // 3600}h"
+            else:
+                interval_str = f"{interval // 60}m"
+            enabled = "\u2713" if item.get("enabled") else "\u2717"
+            lines.append(
+                f"#{idx} {enabled} (every {interval_str}) {item.get('query', '')}  `{item['id']}`"
+            )
+        return f"**Active Watches** ({len(items)}):\n" + "\n".join(lines)
+
+    if subcmd in ("delete", "del", "rm", "remove"):
+        if not subargs:
+            return "Usage: `/watch delete <id>`"
+        ok = await mgr.delete_watch(subargs.strip())
+        if not ok:
+            return f"Watch not found: `{subargs}`"
+        return f"Deleted watch `{subargs}`."
+
+    # Parse "query every interval" pattern
+    query = args
+    interval_seconds = 3600  # Default: every hour
+
+    # Look for "every <interval>" at the end
+    import re
+    every_match = re.search(r'\s+every\s+(\d+)\s*(m|min|mins|minutes?|h|hr|hrs|hours?)\s*$', args, re.IGNORECASE)
+    if every_match:
+        query = args[:every_match.start()].strip()
+        amount = int(every_match.group(1))
+        unit = every_match.group(2).lower()
+        if unit.startswith("h"):
+            interval_seconds = amount * 3600
+        else:
+            interval_seconds = amount * 60
+
+    if not query:
+        return "Usage: `/watch <query> [every <interval>]`"
+    if not session_id:
+        return "No active session."
+
+    watch_id = await mgr.create_watch(
+        parent_session_id=session_id,
+        query=query,
+        interval_seconds=interval_seconds,
+    )
+    if interval_seconds >= 3600:
+        interval_str = f"{interval_seconds // 3600}h"
+    else:
+        interval_str = f"{interval_seconds // 60}m"
+    return f"Watch created (every {interval_str}): **{query}** (`{watch_id}`)"
+
+
+def format_help(speaker: bool = False) -> str:
+    """Format help text for the /help command (a member sees only theirs)."""
+    from captain_claw.web_server import COMMANDS
+
+    commands = COMMANDS
+    if speaker:
+        from captain_claw.speaker import speaker_commands
+
+        commands = speaker_commands()
+    categories: dict[str, list[dict[str, str]]] = {}
+    for cmd in commands:
+        cat = cmd["category"]
+        categories.setdefault(cat, []).append(cmd)
+    lines = ["## Captain Claw Commands\n"]
+    for cat, cmds in categories.items():
+        lines.append(f"### {cat}")
+        for c in cmds:
+            lines.append(f"- `{c['command']}` - {c['description']}")
+        lines.append("")
+    lines.append("**Tip:** Type `/` to see command suggestions. Press `Ctrl+K` for the command palette.")
+    return "\n".join(lines)
+
+
+async def _handle_screenshot_command(
+    server: "WebServer",
+    ws: web.WebSocketResponse,
+    args: str,
+) -> str:
+    """Handle ``/screenshot [prompt]`` — capture screen, optionally analyze."""
+
+    try:
+        from captain_claw.tools.screen_capture import (
+            _HAS_MSS,
+            _IS_MACOS,
+            capture_and_save,
+        )
+    except ImportError:
+        return (
+            "Screen capture not available. "
+            "Install with: `pip install captain-claw[screen]`"
+        )
+
+    if not _IS_MACOS and not _HAS_MSS:
+        return (
+            "Screen capture requires the `mss` package. "
+            "Install with: `pip install captain-claw[screen]`"
+        )
+
+    if not server.agent:
+        return "Agent not initialized."
+
+    from captain_claw.config import get_config
+
+    cfg = get_config()
+    session = getattr(server.agent, "session", None)
+    session_id = session.id if session else "screenshot"
+    workspace = cfg.resolved_workspace_path()
+    saved_root = workspace / "saved"
+
+    try:
+        path = await capture_and_save(
+            session_id=session_id,
+            saved_root=saved_root,
+            monitor_index=cfg.tools.screen_capture.default_monitor,
+            label="screenshot",
+        )
+    except Exception as exc:
+        return f"Screenshot failed: {exc}"
+
+    # Load the default screenshot prompt from the instructions system so
+    # users can customise it via ~/.captain-claw/instructions/.
+    prompt = args.strip()
+    if not prompt:
+        from captain_claw.instructions import InstructionLoader
+
+        try:
+            loader = InstructionLoader()
+            prompt = loader.load("screenshot_analysis_prompt.md")
+        except Exception:
+            prompt = (
+                "Use image_vision on the attached screenshot. "
+                "Briefly describe what is on screen. "
+                "List 2-3 suggestions for what I could do next. "
+                "Do NOT run any other tools."
+            )
+
+    from captain_claw.web.chat_handler import handle_chat
+
+    await handle_chat(server, ws, prompt, image_path=str(path))
+    return ""  # response will come from the agent stream

@@ -1,0 +1,405 @@
+# Changelog
+
+## [Unreleased]
+
+## [0.8.2] - 2026-10-08
+
+### Fixed
+- Proof-mode preflight now preserves the explicit non-live environment even when `MARTIN_LIVE=true`.
+- `--max-tokens` now rejects missing, non-finite, zero, and negative values before preflight or provider execution.
+- Unsupported single-dash run options such as `-proof` now fail closed as invalid input instead of being ignored.
+
+## [0.8.1] - 2026-10-08
+
+### Fixed
+- Retired `--verify-only` input now fails closed without launching a provider or creating a run store; `--proof` remains the supported verification-only path.
+- Unknown `run` flags, missing `--verify` commands, and malformed verifier input now return invalid input instead of falling through into execution.
+- Governed Codex runs on Windows now preserve writable workspace execution through capability-driven launch negotiation.
+- Live Codex preflight now rejects an explicitly configured token cap that cannot cover the minimum viable first turn, before provider launch or spend.
+- The deterministic Swarm demo now distinguishes local demo evidence from persisted Swarm run evidence.
+
+### Documentation
+- Added the explicit `martin enable --engine <engine>` step for multi-runtime machines.
+
+## [0.8.0] - 2026-10-04
+
+### Added
+- Added `martin-loop demo --swarm`, a deterministic 15-agent launch-board demonstration with bounded concurrency, parent-controlled integration, reassignment and recovery, inspectable evidence, and parent/global verification.
+- Added provider-free Swarm contracts, scheduling, isolation, evidence, receipt, dossier, verification, and packed-artifact primitives required by the demo.
+
+### Release boundary
+- The demo performs no provider execution and reports `$0` provider spend.
+- Provider-backed live Swarm plan, run, status, and cancel commands are not exposed by the default 0.8.0 CLI and remain deferred pending separate qualification.
+
+## [0.7.1] - 2026-10-01
+
+### Fixed
+- `martin sync flush` now surfaces safe hosted rejection details for authentication, Free-plan quota, scope, conflict, rate-limit, and temporary failures while preserving repairable queued runs for retry.
+- Signed runs rejected during receipt-key registration can be retried from the same queue entry after credentials or scopes are corrected, without rerunning the provider.
+
+## [0.7.0] - 2026-10-01
+
+### Fixed
+- Claude Code audits now retain tool calls when an assistant message is split across text and tool-use log entries. Turn costs remain deduplicated by message and request, while tool calls and edits are counted once per tool-use ID across copied or forked history.
+- Hosted sync claim handling preserves the queued upload when concurrent work changes its claim.
+- Run finalization stops signal polling before signing the receipt, preventing late diagnostic writes from invalidating ledger integrity.
+- Live release verification checks the MCPB asset on the standalone MCP release.
+
+## [0.6.9] - 2026-09-28
+
+### Added
+- Added `martin audit`, a local-first Claude Code history audit that estimates API-equivalent agent spend inside fix-and-retry loops, verifier failure counts, longest retry chains, stuck loops, sessions ending red, and edited sessions with no verifier run.
+- Added `martin audit --share` for a screenshot-ready SVG and Markdown summary, plus `--offline` for zero-network analysis.
+
+### Fixed
+- Verification-only `--proof` runs now return success when the configured verifier passes and verification failure when it fails, instead of inheriting the governed `NEEDS_REVIEW` exit solely because proof mode is not governance-claim eligible.
+- Proof-mode output now says `proof passed` or `proof failed` and does not render a governed `VERIFIED` handoff.
+
+### Trust boundary
+- Proof mode remains `verification_only` with `governanceClaimEligible=false`; a passing proof is verifier evidence, not a governed `VERIFIED` claim.
+- Existing safety and policy blocks retain precedence over proof success.
+
+### Changed
+- Anonymous product telemetry now uses an opt-out default on fresh interactive installs, with a one-time non-blocking disclosure shown before the first eligible event can be transmitted.
+- Existing telemetry preferences are preserved during migration, and explicit `martin telemetry on` / `martin telemetry off` choices remain authoritative.
+
+### Privacy / safety
+- Telemetry payloads are fail-closed to allowlisted event keys, finite command / experience / failure enums, bounded scalar values, and the hosted experience-ID slug contract.
+- Unapproved payload keys, arbitrary command/task/path strings, environment variables, secrets, receipt contents, emails, and raw exception text are rejected. `experienceId` is accepted only when it matches the bounded slug contract; remote IDs matching that syntax can still resemble repository names or other identifiers, so syntax validation alone does not establish provenance or non-identifying semantics.
+- `DO_NOT_TRACK`, `MARTIN_TELEMETRY_DISABLED`, and `CI` continue to disable telemetry. `MARTIN_TELEMETRY_DEBUG=1` prints the envelope locally and performs no network transmission.
+
+## [0.6.8] - 2026-09-25
+
+### Added
+- Hosted sync now automatically establishes workspace trust for a signed run's existing local per-run receipt key before uploading the run.
+- Customer API tokens use the explicit `receipt_keys:write` capability for receipt-key registration.
+
+### Security / behavior
+- The signing secret is never persisted in the sync queue or included in the receipt upload payload.
+- Core verifies locally that the persisted signing secret matches the run's key ID before registration.
+- Hosted `401` and `403` trust failures remain retryable, preserving queued evidence while a user replaces or upgrades a token.
+- Mismatched key material fails closed.
+- Hosted receipt-key registration is bound to the workspace authenticated by the API token.
+
+## [0.6.7] - 2026-09-24
+
+### Fixed
+- `martin sync flush` now fails clearly when hosted sync configuration is missing instead of returning a successful exit, while preserving queued evidence for retry.
+- Queued evidence can be uploaded later using the same run ID after hosted credentials become available; another provider run is not required.
+- Hosted event transport now stays bound to identifiers already present in signed run evidence rather than synthesizing receipt-bound identifiers.
+
+### Changed
+- Hosted sync carries the Core receipt, receipt integrity, and Verified Handoff together for dashboard ingestion.
+- Existing 0.6.6 run evidence remains compatible and can be synced after upgrading.
+
+## [0.6.6] - 2026-09-23
+
+### Fixed
+- Removed root-level JSON Schema combinators from MCP tool input schemas so Claude and Codex hosts can accept the tools while runtime selector validation remains strict.
+- Added Windows discovery for the Claude native installer and platform-appropriate install guidance.
+
+### Changed
+- Added explicit optional paired cost baselines and provenance for finance evidence, while keeping runs without a legitimate baseline benchmark-only.
+- Transported the canonical Verified Handoff with its digest bound into receipt integrity.
+- Added proactive governed-routing guidance for Codex agents without changing the read-only diagnosis path.
+
+## [0.6.5] - 2026-09-16
+
+### Fixed
+- Project-mode config writes and reads now canonicalize the working directory path (resolve + lowercase on Windows) so `martin mode --scope project` round-trips correctly on case-insensitive file systems.
+- Badge reliability score propagates an explicit `--runs-dir` flag to `listPersistedLoops` and `loadPersistedLoop` so workspaces with a non-default runs directory are scored correctly.
+- MCP `loopPreviewSchema` advertises `activeAttemptId` as an optional string property so MCP hosts can surface the active attempt without inferring it.
+- `proofCardInputFromLoop` maps a cleanly completed run (`status=completed`, `lifecycleState=completed`) to `rollbackStatus="not_required"` so the proof card can reach a `VERIFIED` verdict for runs that needed no rollback; receipt-integrity gating is preserved.
+
+### Changed
+- Updated root CLI, standalone MCP, plugin, MCPB, release-truth, and generated runtime version authority to `0.6.5`.
+
+## [0.6.4] - 2026-09-14
+
+### Fixed
+- Made the public portability hook fail closed and use the repository-managed scanner instead of silently passing when an ambient scanner is unavailable.
+- Persisted in-flight attempt identity before provider execution so status, wait, cancellation, and recovery paths cannot mistake a client timeout for a terminal run.
+- Hardened Codex 0.147 capability parsing and boundary probes while preserving fail-closed behavior on unsupported hosts.
+
+### Changed
+- Updated root CLI, standalone MCP, plugin, MCPB, release-truth, and generated runtime version authority to `0.6.4`.
+
+## [0.6.3] - 2026-09-12
+
+### Fixed
+- Receipt integrity sealing now reads `ledger.jsonl` from disk instead of `loop.events`, matching the bytes that `verifyReceiptIntegrityFromFiles` reads. Every successful governed run was returning `tamper_detected` on 0.6.2; this hotfix closes that deterministic P1.
+- Hosted sync transport re-signing now reads `ledger.jsonl` for integrity verification, consistent with the persistence fix.
+
+### Changed
+- Updated root CLI, standalone MCP, plugin, MCPB, release-truth, and generated runtime version authority to `0.6.3`.
+
+## [0.6.2] - 2026-09-08
+
+### Fixed
+- Kept Codex governed autonomy fixture coverage aligned with the launch-probe verification contract.
+- Restored the public README guard to the current product-facing README structure without reverting the improved public copy.
+- Pinned generated MCP install links to the deterministic `@martinloop/mcp@0.6.2` package line for the release.
+
+### Changed
+- Updated root CLI, standalone MCP, plugin, MCPB, release-truth, and generated runtime version authority to `0.6.2`.
+
+## [0.6.1] - 2026-09-07
+
+### Fixed
+- Made OpenAI-compatible models perform real governed workspace edits before verification instead of behaving as inference-only transports.
+- Blocked malformed, no-op, path-traversal, duplicate-path, denied-path, and symlink-escape edit plans before they can become accepted work.
+
+### Changed
+- Added an explicit model-support contract covering native Codex, Claude Code, Gemini CLI, and OpenAI-compatible models such as Kimi K2, Nemotron, DeepSeek, Qwen, Mistral/Codestral, OpenRouter routes, Ollama, LM Studio, and llama.cpp.
+- Preserved the same MartinLoop budget, scope, verifier, receipt, and integrity pipeline regardless of coding worker.
+
+## [0.5.6] - 2026-08-22
+
+- Added a read-only Arcade MCP App surface for run inspection without creating another execution authority.
+- Migrated hosted run synchronization to the canonical replay-safe sync contract.
+- Generated MCP runtime version metadata from the package release authority.
+- Canonicalized packed MCP smoke workspace paths across Windows, macOS, and Linux.
+- Added source and built release-authority gates to prevent version and generated-artifact drift.
+
+## [0.3.16]
+
+### Fixed
+- **`martin mcp install` hooks on re-install** — `installMcpConfig` returned early when `~/.claude.json` already contained a `martin-loop` entry, leaving the PreToolUse gate hook unwritten on every upgrade. All three code paths now call `installClaudeGovernanceHooks` (idempotent). After upgrading from any version prior to 0.3.12, run `martin mcp install --host claude --scope user`.
+- **Governance gate fires before engine-availability check** — `evaluateCliRunGate` now runs before the engine CLI presence check in the non-JSON code path. "Run estimate first" surfaces ahead of "install the engine CLI", and gate behavior is deterministic in environments where the engine binary is absent (CI, headless runners).
+- **Estimate receipt write failures surfaced** — `autoBootstrapGovernedRun` was catching estimate-receipt write failures with `.catch(() => {})`. Failures now go to `persistenceWarnings`, matching every other bootstrap step.
+- **OpenAI-compatible adapter: retry on 429/5xx** — transient rate-limit and server errors (429, 500, 502, 503, 504) now retry with 1s/2s/4s exponential backoff (max 3 attempts). Auth errors (401/403) are not retried.
+- **5 new regression tests** — governance hook install paths (×2), retry behavior (×3).
+
+## [0.3.15]
+
+### Added
+- **`martin mode`** — show or set working mode (`auto`/`plan`/`edits`). Stored in `~/.martin/config.json`.
+- **`martin clean`** — remove `_martin/` workflow state. `--runs` removes run records older than 30 days.
+- **`martin start`** shows current mode on first output line; recommends `automode` on first run.
+
+### Fixed
+- **Preflight gate objective-hash matching removed** — receipt match key is now `workingDirectory + engine` only. Previously an objective wording difference triggered a gate block on re-run.
+- **Session-start optional when estimate is present** — `evaluateCliRunGate` no longer requires a session-start receipt when a valid estimate receipt exists for the working directory.
+
+## [0.3.14]
+
+### Fixed
+- **Electron Node conflict in VS Code / Claude Code / Codex IDE** — when MartinLoop runs inside these hosts, `process.execPath` points to the host's bundled Electron Node, not the system Node. npm CLI shims executed with Electron's Node fail due to different module resolution. `resolveSystemNode()` in `cli-bridge.ts` now searches PATH for `node`/`node.exe`, skipping paths containing `electron`, `claude`, `vscode`, or `cursor`. Falls back to `process.execPath` if no system Node is found. Set `MARTIN_NODE_PATH` to override (CI/restricted environments). This is the fix for `martin run` completing but writing no files when invoked from VS Code's integrated terminal or agent panel.
+
+## [0.3.13]
+
+### Added
+- **Autonomous model selection** — `martin run` now auto-selects the right model tier (haiku/sonnet/opus) based on task complexity. Simple typo fix → claude-haiku; security migration → claude-opus. No `--model` flag needed.
+- **`martin start` reads budget preference from memory** — returns your stored default budget, not a hardcoded $2.
+- **Memory store tests** — 12 real tests for append-only memory store.
+- **Model auto-selection tests** — 16 real tests for resolveModelForTier, selectBestEngine, classifyRoute tiers.
+
+### Fixed
+- **Nested writes unblocked on Windows** — `martin run` inside VS Code terminals and agent panels now writes files correctly. The npm-shim extra process hop in `createSpawnPlan` is bypassed by resolving the `.cmd`/`.ps1` shim to its real `node` invocation target. Adds `sandbox_write_blocked` failure class for clear diagnostics. Non-Windows and non-shim paths are untouched.
+- **All new code portable** — no hardcoded paths, no Windows-only code. Uses `homedir()`, `path.join()`, `npx` — works on macOS, Linux, Windows.
+- **governance hooks use npx** — works on any machine without global install.
+
+## [0.3.12]
+
+### Fixed (Critical)
+- **Hard governance enforcement** — `martin estimate` now writes a receipt to workflow-state.json. `martin gate` requires this receipt before passing. `martin_run` MCP tool blocks until estimate receipt exists. No more silent bypassing.
+- **`martin mcp install --host claude` auto-installs PreToolUse hooks** — writes `martin gate` hook directly into `~/.claude/settings.json`. Bash/Edit/Write are blocked until doctor+estimate are run.
+- **Gate reads both CLI and MCP namespaces** — doctor run via CLI and estimate run via CLI both count toward gate. No more split-state confusion.
+- **MartinLoop memory store** — append-only `_martin/memory.jsonl` for user preferences, consent signals, and behavioral patterns. Never overwrites.
+- **`martin://agent/memory-summary` MCP resource** — agents read user preferences at session start.
+- **Trace store wired into estimate** — `historicalDirectSuccessRate` fed from real past runs into route classifier.
+
+## [0.3.11]
+
+### Added
+- **`martin estimate` command** — estimate cost, route, and Pre Work Burn for any objective without spending. Uses route classification to predict direct vs manager orchestration and recommend a budget. Available via CLI and MCP (`martin_estimate` tool).
+- **`martin://agent/governance-status` resource** — proactive MCP resource that tells agents whether the current session is governed, shows workflow receipt state, budget remaining, unreceipted runs, and the recommended next action.
+- **Host-specific governance hooks** — `martin mcp install` and `martin mcp print-config` now output governance configuration for every supported host: Claude Code (hooks), Codex (AGENTS.md), Gemini (GEMINI.md), Cursor (rules), Copilot (instructions), Continue (rules).
+- **Subpath exports** — `martin-loop/core`, `martin-loop/contracts`, and `martin-loop/adapters` are now importable subpaths for extracted engine repos.
+- **68 audit-ready tests** — real tests covering auto-governance, estimate, hooks for all hosts, route classification, cost-per-outcome, prework burn policy, adapter configuration, CLI command parsing, and budget enforcement.
+
+### Fixed
+- **MCP server conflict in governed Claude runs** — spawned Claude subprocesses now pass `--strict-mcp-config` to prevent the child process from loading the parent's MCP servers, which caused "MCP server being overwritten" errors.
+- **Budget cap enforcement hardened** — streaming usage inspector now terminates subprocesses that receive data for 30+ seconds without emitting usage events, preventing unmetered spend when Claude's event format changes. Byte-ceiling fallback retained as a second layer.
+
+## [0.3.10]
+
+### Fixed
+- **Codex governed launches no longer inherit operator MCP/plugin config** — spawned Codex subprocesses now pass `--ignore-user-config` to avoid auth-sensitive MCP servers and plugin surfaces poisoning governed runs. Default model changed from `codex` to `gpt-5.4` to avoid unsupported model errors under ChatGPT-account auth.
+- **CLI version now reports correctly** — the vendored CLI manifest version is aligned with the root package version so `--version` reports the installed version, not a stale build artifact.
+- **All CLI commands present** — `start`, `tour`, `env`, `review`, `receipts explain`, `enable` commands restored after the public repo merge. Previous 0.3.9 npm build was missing these.
+- **Stale `--ask-for-approval` reference removed** — Codex error guidance now references `--ignore-user-config --sandbox workspace-write` instead of the non-existent `--ask-for-approval never` flag.
+
+## [0.3.9]
+
+### Added
+- **Pre Work Burn** — every run receipt now shows how much was spent before the first meaningful code change. Exposes the hidden coordination cost in multi-agent workflows.
+- **First delta detection** — tracks when the agent actually changes a file vs when it's still thinking, planning, or routing. Filters out MartinLoop metadata, lockfiles, and cache writes.
+- **Routing economics on receipts** — `RoutingEconomics` on every `LoopRecord` with prework cost, execution cost, burn percentage, time-to-first-delta, cost-per-accepted-change, and a route recommendation.
+- **Routing policy types** — `RoutingPolicy` with configurable caps: `maxPreworkBudgetPct`, `maxPreworkCostUsd`, `maxManagerCalls`, `skipOrchestrationIfConfidenceAbove`.
+- **Cost-per-outcome metrics** — `calculateCostPerOutcome()` returns cost-per-accepted-change, cost-per-attempt, acceptance rate, and wasted coordination spend.
+- **Route classification** — `classifyRoute()` scores task complexity and recommends direct execution vs manager orchestration based on objective length, file scope, security/migration keywords, and historical success rates.
+- **Prework burn policy check** — `evaluatePreworkBurnPolicy()` checks live run state against routing policy caps.
+
+## [0.3.8]
+
+### Fixed
+- **Budget circuit breaker** — the streaming usage inspector previously only matched `type=assistant` events from Claude's `stream-json` output. If the event shape changed, the inspector silently did nothing and the subprocess ran unguarded. Now matches usage on any event, checks `total_cost_usd` mid-stream, applies an 80% safety margin, and falls back to a byte-ceiling kill switch when no usage events arrive at all.
+- **Shell operators in verify commands** — `bun run lint && bun run test` was tokenized literally (`["bun", "run", "lint", "&&", ...]`), which always failed. Commands with `&&`, `||`, `;`, or `|` now route through the platform shell.
+
+### Added
+- **Engine auto-discovery** — if `claude`, `codex`, or `gemini` isn't on PATH, the CLI searches common install directories (npm global, AppData, homebrew, `.local/bin`, nvm, scoop) before reporting unavailable. When truly missing, prints a copy-pasteable install command for the current platform.
+- **Diagnostic hints on failed attempts** — failed attempts now carry specific context into the next attempt's prompt: which tool is missing, which module failed to resolve, how many assertions broke.
+- **Git retry and fallback** — git operations retry once after 500ms (handles `.git/index.lock` contention). `git restore` falls back to `git checkout` on failure.
+
+### Changed
+- **Invalid CLI args default instead of crashing** — unknown `--profile` falls back to `minimal` with a warning. Invalid `--run-scan-limit` clamps to 50.
+
+### Fixed
+- **Verifier defaults are less prone to false stop exits on longer suites** - default verifier timeout is now `120_000ms` (up from `60_000ms`) across CLI adapter paths, reducing timeout-driven `verification_failure` exits on healthy runs that take longer than one minute.
+
+## [0.3.7]
+
+### Fixed
+- **Run history reads stay fast at scale** - `latest`/`list` read paths now use a bounded append-only run index before falling back to full directory scans, preventing timeout-style behavior in large local run stores.
+- **CLI/MCP run-store parity for index-backed reads** - root CLI and MCP run inspection paths now share the same index-first behavior, reducing host-specific drift across Cursor/Copilot/Continue and terminal workflows.
+
+## [0.3.6]
+
+### Fixed
+- **Root CLI version reporting now matches the installed package** - the packaged CLI manifest now uses the `martin-loop` package version, so `npx -y martin-loop@0.3.6 --version` reports `0.3.6`.
+- **Release guard now checks root/version parity** - root release validation fails if the vendored CLI manifest version drifts from the root package version again.
+
+## [0.3.5]
+
+### Added
+- **CLI-style proof receipts** - `share --latest` proof cards now render as dark terminal receipts with spend, budget, verifier, integrity, timeline, and evidence-boundary lines.
+- **Public proof receipt example** - README and receipt docs now include a real governed run receipt showing `$0.51` spend against a `$3.00` budget with signed integrity and an explicit evidence boundary.
+- **Proof receipt design guardrails** - Public agent docs and tests now block rounded-card, blue-palette, gradient, and inflated-proof regressions in proof-card output.
+- Restored pre-`0.2.8` public narrative sections in README (updated to current `0.3.4` behavior), including `See It In Action`, `Ralph-Style Loops`, CLI common options, and footer trust CTA.
+- Added canonical public failure taxonomy reference: [docs/oss/FAILURE-TAXONOMY-14.md](./docs/oss/FAILURE-TAXONOMY-14.md).
+- Added public historical diff note for `v0.2.7 -> v0.2.8`: [docs/oss/PRE-028-PUBLIC-SURFACE-DIFF.md](./docs/oss/PRE-028-PUBLIC-SURFACE-DIFF.md).
+
+### Changed
+- Root release docs now point to the `0.3.5` proof receipt line and keep the root package separate from the standalone `@martinloop/mcp` release line.
+
+## [0.3.4]
+
+### Fixed
+- **Allow/deny path policy now fails closed on traversal and absolute patterns** - governed preflight/run rejects unsafe `--allow-path` and `--deny-path` values before execution.
+- **Run verification now emits explicit integrity verdict classes** - `runs verify` classifies receipt problems as `tampered_payload`, `missing_integrity_material`, or `schema_unknown_fields`.
+- **Non-canonical run selectors now fail fast** - `runs verify --file` rejects selectors outside the configured runs root and points operators to canonical selector forms.
+- **OpenAI hosted preflight now blocks missing auth with actionable guidance** - missing `MARTIN_OPENAI_API_KEY` on hosted endpoints is now a hard blocker with model/quota hints.
+- **MCP scope errors now guide operators to valid alternatives** - unsupported `--scope local` host errors now include direct `user/project` and Claude-local alternatives.
+
+## [0.3.3]
+
+### Added
+- **Guided first-run entrypoint** - `martin-loop start` is now the default onboarding command, with `martin-loop tour` as a compatibility alias.
+
+### Changed
+- **Execution-first governed run startup** - `run` now auto-checks doctor/session-start/preflight prerequisites before enforcing the local gate, so healthy environments proceed without extra manual setup steps.
+- **Install prompt and docs clarity** - postinstall guidance, help output, and quickstart language now point to deterministic `npx -y martin-loop@latest ...` command paths.
+- **Release docs naming and readability** - public release notes now frame this line as reliability hardening with user-facing language.
+
+### Fixed
+- **Packaged smoke reliability coverage** - release validation now catches regressions where `--unsafe-allow-unguarded-run` could incorrectly fail through receipt-gate policy behavior in packaged installs.
+- **Command-center compatibility** - `phase session-start` now resolves to the documented session-start compatibility path.
+
+## [0.3.2]
+
+### Fixed
+- **`npx martin-loop` now reports the published CLI version deterministically** - doctor/version output no longer drifts when invoked from inside a monorepo workspace with local bins on path.
+- **Public MCP release docs now reflect live registry truth** - standalone MCP baseline references are aligned to `@martinloop/mcp@0.3.1`.
+- **Governed run gate parity is now consistent across CLI and MCP** - preflight receipts recorded without explicit path filters now satisfy run-gate validation correctly.
+
+### Added
+- **Public receipt specification for governed runs** - added a customer-facing receipt reference that documents receipt structure, trust boundaries, and replay expectations without internal-only language.
+
+### Changed
+- Root release docs now point to the `0.3.2` line with explicit claim-to-code language for governed workflow evidence.
+
+## [0.3.1]
+
+### Fixed
+- **Public benchmark repro is deterministic from source** - benchmark eval and report commands now execute built runtime output with pre-build hooks, removing fragile local toolchain assumptions.
+- **Public CLI now exposes a version command** - `martin-loop --version`/`version`/`-V` now return a clean version string for automation and operator checks.
+- **Doctor version reporting now matches the public release line** - `doctor --json` now reports the root package version in `cliVersion` for release clarity.
+
+### Changed
+- Root benchmark helper scripts now route through workspace benchmark commands (`bench:build`, `bench:test`, `bench:eval`, `bench:report:ralphy`) for consistent docs, CI checks, and local reproduction.
+- Public release notes and CLI docs now include explicit install/version verification before governed-run onboarding.
+
+## [0.3.0]
+
+### Added
+- **`martin share --latest`** - the public CLI can now write a local share bundle for the latest governed run, including a redacted JSON receipt, a Markdown recap, and a proof-card SVG.
+
+### Changed
+- Root public docs now treat share receipts as a first-class part of the governed workflow instead of an internal follow-up step.
+- Public release bookkeeping now reflects the live standalone MCP `0.3.0` baseline and keeps the root and MCP lines separate.
+
+## [0.2.11]
+
+### Fixed
+- **`runs verify --latest` now works on the public CLI** - the persisted verification view now honors `--latest` the same way `dossier` and `runs get` already do, including when `--runs-dir` points at an explicit store.
+- **Post-release selector parity is now aligned** - public phase guidance, release notes, and the shipped root package no longer disagree about the supported verification selector path.
+
+## [0.2.10]
+
+### Fixed
+- **Verifier receipts now stay trustworthy** - `verification.completed` now reflects the MartinLoop-launched verifier only, with persisted step-by-step evidence for launch state, exit code, timeout state, and concise command output.
+- **Contradictions are surfaced instead of hidden** - when adapter output says a tool or verifier failed before execution but MartinLoop’s own verifier passed, the run now keeps the pass result and records a warning/contradiction receipt instead of presenting a silent clean pass.
+- **`--runs-dir` is consistent across the governed flow** - `doctor`, `start`, `preflight`, `run`, `dossier`, and `badge` now honor the same explicit runs root without relying on `MARTIN_RUNS_DIR`.
+- **Public help is honest again** - `run --help` and `preflight --help` exit cleanly before any governed-flow checks, root-version reporting now uses the published `martin-loop` version, and `bench` is not part of the public `0.2.10` CLI surface while the public harness is being prepared.
+
+### Changed
+- CLI and MCP verification views now include verifier warnings plus step-level evidence, so operators can inspect what actually launched instead of trusting a single summary line.
+- Badge generation now uses a lightweight persisted-run probe for readiness evidence, which keeps the default command responsive even when the local runs store is large.
+
+## [0.2.9]
+
+### Fixed
+- **No-spend proof runs now complete honestly** - `martin-loop run ... --proof` no longer misclassifies a clean verifier-only pass as `no_code_change`, which previously cascaded into a false `budget_exit`.
+- **Portable Windows Codex execution** - Windows command resolution now handles npm-style `.cmd` shims correctly, including real `codex.cmd` and verifier commands launched through npm wrappers.
+- **Hosted OpenAI defaults** - `--engine openai` now targets the hosted OpenAI endpoint by default, so local proofs do not require `MARTIN_OPENAI_BASE_URL` just to avoid a localhost misroute.
+- **Claude live runs honor provider permissions again** - the public Claude adapter no longer force-adds `--dangerously-skip-permissions` on live governed runs.
+
+### Changed
+- Public CLI guidance now consistently uses `martin-loop` in help, tour, onboarding, workflow receipts, and MCP config hints.
+- The public root tarball no longer exposes the vendored internal CLI bin surface inside `dist/vendor/cli/package.json`.
+
+## [0.2.8]
+
+### Added
+- **Native phase command-center flow** - Adds local `martin-loop phase status`, `martin-loop phase contract`, `martin-loop phase preflight`, `martin-loop phase run`, and `martin-loop session-start` commands.
+- **Local phase contracts** - Converts local phase state into an explicit MartinLoop run contract with objective, allowed paths, blocked paths, verifier commands, budget, risk, and approval posture.
+- **Safe session start** - Shows the latest local run state, phase state, recommended next action, and common command hints without executing work.
+- **Built-in onboarding** - Adds `martin-loop start`, `martin-loop guide`, and `martin-loop tour` so the install flow, command tour, and MCP bootstrap path live inside the product.
+
+### Safety
+- `martin-loop phase preflight` and `martin-loop phase run` are dry-run by default and require `--execute` before they call the normal MartinLoop preflight/run path.
+- Missing phase state, missing allowed paths, or missing verifiers fail closed with `contract_requires_approval`.
+- Run-store inspection is bounded to recent run directories so large local histories do not stall session startup.
+- `martin-loop run` now hard-blocks by default until MartinLoop has recent local `doctor`, session, and `preflight` receipts for the same repo and task.
+
+## [0.1.5] - 2026-05-08
+
+### Added
+- **Context Integrity Pre-gate** - Scans user prompts and tool output for injection patterns before any attempt is admitted to the ADMIT phase. Detects authority inversion, instruction override, identity redefinition, and hidden command injection. Aborts with `human_escalation` lifecycle state on detection, with a signed artifact written to the run directory (`context-integrity-precheck.json`). Exported as `runContextIntegrityPrecheck` from `@martin/core`.
+
+## [0.1.4] - 2025-04-25
+
+- MCP server published as `@martinloop/mcp`
+- Windows smoke test hardening
+- One-line install docs updated
+
+## [0.1.0] - Initial release
+
+- Budget governance (maxUsd, softLimitUsd, maxIterations, maxTokens)
+- Verifier gate
+- 11-class failure taxonomy
+- Safety leash (verifier commands, file scope, approval, secrets)
+- Rollback evidence
+- Context distillation
+- JSONL run records

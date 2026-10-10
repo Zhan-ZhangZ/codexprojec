@@ -1,0 +1,1064 @@
+import json
+
+from aletheore.history import compute_diff, list_snapshots, save_snapshot, summarize_file_changes, to_sarif
+
+
+def make_evidence(scanned_at: str) -> dict:
+    return {"aletheore_version": "0.1.0", "scanned_at": scanned_at, "repo_path": "/tmp/repo"}
+
+
+def test_save_snapshot_creates_history_dir_if_absent(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    save_snapshot(make_evidence("2026-07-15T10:00:00.000000+00:00"), repo)
+
+    assert (repo / ".aletheore" / "history").is_dir()
+
+
+def test_save_snapshot_writes_readable_json(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    path = save_snapshot(make_evidence("2026-07-15T10:00:00.000000+00:00"), repo)
+
+    assert json.loads(path.read_text())["scanned_at"] == "2026-07-15T10:00:00.000000+00:00"
+
+
+def test_list_snapshots_returns_empty_list_when_no_history_dir(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert list_snapshots(repo) == []
+
+
+def test_list_snapshots_returns_chronological_order(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    save_snapshot(make_evidence("2026-07-15T10:00:00.000000+00:00"), repo)
+    save_snapshot(make_evidence("2026-07-15T09:00:00.000000+00:00"), repo)
+    save_snapshot(make_evidence("2026-07-15T11:00:00.000000+00:00"), repo)
+
+    snapshots = list_snapshots(repo)
+    scanned_ats = [json.loads(p.read_text())["scanned_at"] for p in snapshots]
+    assert scanned_ats == [
+        "2026-07-15T09:00:00.000000+00:00",
+        "2026-07-15T10:00:00.000000+00:00",
+        "2026-07-15T11:00:00.000000+00:00",
+    ]
+
+
+def test_list_snapshots_tolerates_a_non_utf8_file_in_the_history_dir(tmp_path):
+    # Flash Review finding: read_text() can raise UnicodeDecodeError for a
+    # non-UTF-8 *.json file, but the sort key only caught OSError and
+    # json.JSONDecodeError - one corrupt or unrelated non-UTF-8 file in
+    # the history directory made snapshot listing (and rotation, which
+    # calls the same sort) fail entirely for every real snapshot, a
+    # regression from the previous filename-only sort, which never
+    # inspected file contents at all.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    save_snapshot(make_evidence("2026-07-15T10:00:00.000000+00:00"), repo)
+    history_dir = repo / ".aletheore" / "history"
+    (history_dir / "not-real-utf8.json").write_bytes(b"\xff\xfe\x00\x01garbage")
+
+    snapshots = list_snapshots(repo)
+
+    assert len(snapshots) == 2
+    real_snapshot = next(p for p in snapshots if p.name != "not-real-utf8.json")
+    assert json.loads(real_snapshot.read_text())["scanned_at"] == "2026-07-15T10:00:00.000000+00:00"
+
+
+def test_save_snapshot_rotates_at_21st_save_keeping_the_20_newest(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    for hour in range(21):
+        save_snapshot(make_evidence(f"2026-07-15T{hour:02d}:00:00.000000+00:00"), repo)
+
+    snapshots = list_snapshots(repo)
+    assert len(snapshots) == 20
+    scanned_ats = [json.loads(p.read_text())["scanned_at"] for p in snapshots]
+    assert scanned_ats[0] == "2026-07-15T01:00:00.000000+00:00"
+    assert scanned_ats[-1] == "2026-07-15T20:00:00.000000+00:00"
+
+
+def test_save_snapshot_handles_same_timestamp_collision_without_losing_data(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    save_snapshot(make_evidence("2026-07-15T10:00:00.000000+00:00"), repo)
+    save_snapshot(make_evidence("2026-07-15T10:00:00.000000+00:00"), repo)
+
+    snapshots = list_snapshots(repo)
+    assert len(snapshots) == 2
+
+
+def test_rotation_keeps_the_chronologically_newest_snapshot_across_a_same_second_collision(tmp_path):
+    # Real bug found via audit: two snapshots saved within the same
+    # wall-clock second get a disambiguating "-N" suffix inserted before
+    # the .json extension - a plain filename-string sort put that
+    # suffixed (chronologically LATER) file BEFORE the unsuffixed one
+    # ('-' sorts before '.' in ASCII), so rotation deleted the wrong
+    # (older-looking but actually newer) snapshot, discarding a newer
+    # scan's real evidence while keeping an older one.
+    import time
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    same_second = "2026-07-15T10:00:00.000000+00:00"
+    first = save_snapshot({**make_evidence(same_second), "marker": "first"}, repo, keep=20)
+    time.sleep(0.01)
+    second = save_snapshot({**make_evidence(same_second), "marker": "second"}, repo, keep=20)
+    time.sleep(0.01)
+    save_snapshot({**make_evidence("2026-07-15T11:00:00.000000+00:00"), "marker": "third"}, repo, keep=2)
+
+    remaining = list_snapshots(repo)
+    markers = [json.loads(p.read_text())["marker"] for p in remaining]
+    assert markers == ["second", "third"]
+    assert first.name not in {p.name for p in remaining}
+    assert second.name in {p.name for p in remaining}
+
+
+def base_evidence() -> dict:
+    return {
+        "repository": {
+            "modules": [{"path": "a.py"}, {"path": "b.py"}],
+            "dependency_graph": {"nodes": ["a.py", "b.py"], "edges": [["a.py", "b.py"]]},
+            "api_endpoints": {
+                "checked": True,
+                "endpoints": [
+                    {
+                        "method": "GET",
+                        "path": "/users",
+                        "framework": "flask",
+                        "file": "app.py",
+                        "line": 1,
+                        "handler": "list_users",
+                        "unresolved": False,
+                    }
+                ],
+            },
+        },
+        "git": {"total_commits": 10},
+        "security": {
+            "secrets": {
+                "findings": [
+                    {
+                        "path": "a.py",
+                        "pattern": "aws_access_key_id",
+                        "match_preview": "AKIA...MNOP",
+                        "likely_placeholder": False,
+                    }
+                ],
+                "history_scanned_commits": 5,
+                "history_findings": [],
+            },
+            "dependency_vulnerabilities": {
+                "checked": True,
+                "reason": None,
+                "findings": [
+                    {
+                        "ecosystem": "PyPI",
+                        "package": "requests",
+                        "installed_version": "2.0.0",
+                        "advisory_id": "GHSA-1",
+                        "summary": "x",
+                        "severity": [],
+                    }
+                ],
+            },
+            "static_analysis": {
+                "checked": True,
+                "reason": None,
+                "findings": [
+                    {
+                        "tool": "semgrep",
+                        "rule_id": "some-rule",
+                        "severity": "major",
+                        "type": "bug",
+                        "path": "a.py",
+                        "line": 10,
+                        "message": "m",
+                    }
+                ],
+            },
+        },
+        "architecture": {
+            "layer_violations": {
+                "violations": [
+                    {"from": "app/routers/a.py", "to": "app/domain/b.py", "reason": "x"}
+                ]
+            }
+        },
+    }
+
+
+def test_compute_diff_reports_no_new_or_resolved_when_identical():
+    evidence = base_evidence()
+    diff = compute_diff(evidence, evidence)
+
+    assert diff["secrets"] == {"new": [], "resolved": []}
+    assert diff["vulnerabilities"] == {"new": [], "resolved": []}
+    assert diff["static_analysis"] == {"new": [], "resolved": [], "unexpected_tool_skips": []}
+    assert diff["layer_violations"] == {"new": [], "resolved": []}
+    assert diff["endpoints"] == {"new": [], "resolved": []}
+    assert diff["aggregate_deltas"] == {
+        "module_count": 0,
+        "dependency_graph_edge_count": 0,
+        "total_commits": 0,
+    }
+    assert "caveats" not in diff
+
+
+def test_compute_diff_does_not_crash_diffing_an_older_schema_snapshot():
+    # Real bug found via audit: history_scanned_commits and
+    # history_findings were added to the secrets section after this
+    # module's original schema, so a genuinely older on-disk snapshot (a
+    # real, plausible .aletheore/history/*.json file predating either
+    # field, diffed after a CLI upgrade) crashed with KeyError instead of
+    # degrading the same way _endpoint_block already does for
+    # api_endpoints - this module's own established pattern for exactly
+    # this case, applied inconsistently.
+    new = base_evidence()
+    old = base_evidence()
+    del old["security"]["secrets"]["history_scanned_commits"]
+    del old["security"]["secrets"]["history_findings"]
+
+    diff = compute_diff(old, new)
+
+    assert diff["history_secrets"] == {"new": [], "resolved": []}
+    assert "caveats" in diff
+    assert any("history" in caveat for caveat in diff["caveats"])
+
+
+def test_compute_diff_detects_a_new_secret_finding():
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["secrets"]["findings"].append(
+        {
+            "path": "c.py",
+            "pattern": "generic_credential_assignment",
+            "match_preview": "test****...cret",
+            "likely_placeholder": True,
+        }
+    )
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["secrets"]["new"]) == 1
+    assert diff["secrets"]["new"][0]["path"] == "c.py"
+    assert diff["secrets"]["resolved"] == []
+
+
+def test_compute_diff_detects_a_resolved_vulnerability():
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["dependency_vulnerabilities"]["findings"] = []
+
+    diff = compute_diff(old, new)
+
+    assert diff["vulnerabilities"]["new"] == []
+    assert len(diff["vulnerabilities"]["resolved"]) == 1
+    assert diff["vulnerabilities"]["resolved"][0]["advisory_id"] == "GHSA-1"
+
+
+def test_compute_diff_detects_a_new_static_analysis_finding():
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"].append(
+        {
+            "tool": "trivy",
+            "rule_id": "openai-api-key",
+            "severity": "critical",
+            "type": "privacy",
+            "path": "b.py",
+            "line": 3,
+            "message": "m2",
+        }
+    )
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["static_analysis"]["new"]) == 1
+    assert diff["static_analysis"]["new"][0]["path"] == "b.py"
+    assert diff["static_analysis"]["resolved"] == []
+
+
+def test_compute_diff_detects_a_resolved_static_analysis_finding():
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"] = []
+
+    diff = compute_diff(old, new)
+
+    assert diff["static_analysis"]["new"] == []
+    assert len(diff["static_analysis"]["resolved"]) == 1
+    assert diff["static_analysis"]["resolved"][0]["rule_id"] == "some-rule"
+
+
+def test_compute_diff_rename_aware_static_analysis_does_not_misreport_an_unchanged_finding():
+    # Real gap: static-analysis identity is (tool, rule_id, path, line) -
+    # a file rename with zero content change makes every finding in it
+    # "resolved" at the old path and "new" at the new path, 100% of the
+    # time, since path is part of the identity tuple and nothing told the
+    # diff the two paths are the same file. Passing renamed_paths (the
+    # same {old: new} mapping GitHub's compare API already reports via
+    # previous_filename, and that summarize_file_changes already consumes
+    # for the file-overview section) lets the identity check follow the
+    # rename instead of seeing two unrelated files.
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"][0]["path"] = "c.py"
+
+    diff = compute_diff(old, new, renamed_paths={"a.py": "c.py"})
+
+    assert diff["static_analysis"]["new"] == []
+    assert diff["static_analysis"]["resolved"] == []
+
+
+def test_compute_diff_without_renamed_paths_still_reports_the_old_false_positive():
+    # Documents the status quo for a caller that doesn't pass renamed_paths
+    # (e.g. full_diff mode, or any caller without PR rename data handy) -
+    # renamed_paths is opt-in, not a silent behavior change for existing
+    # callers.
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"][0]["path"] = "c.py"
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["static_analysis"]["new"]) == 1
+    assert len(diff["static_analysis"]["resolved"]) == 1
+
+
+def test_compute_diff_rename_aware_static_analysis_still_detects_a_real_new_finding_at_the_new_path():
+    # A rename must not suppress a genuinely NEW finding introduced at the
+    # new path alongside the carried-over one.
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"][0]["path"] = "c.py"
+    new["security"]["static_analysis"]["findings"].append(
+        {
+            "tool": "semgrep",
+            "rule_id": "another-rule",
+            "severity": "major",
+            "type": "bug",
+            "path": "c.py",
+            "line": 99,
+            "message": "m2",
+        }
+    )
+
+    diff = compute_diff(old, new, renamed_paths={"a.py": "c.py"})
+
+    assert len(diff["static_analysis"]["new"]) == 1
+    assert diff["static_analysis"]["new"][0]["rule_id"] == "another-rule"
+    assert diff["static_analysis"]["resolved"] == []
+
+
+def test_compute_diff_surfaces_an_unexpected_default_on_scanner_skip():
+    # Real gap: a default-on scanner (semgrep/gosec/bandit/trivy/pmd)
+    # failing to run - a registry outage, the binary disappearing, an
+    # unparseable-output edge case _run_scanner_safely() catches - was
+    # recorded in evidence's own tools_skipped list but never read by
+    # anything downstream of compute_diff, so new_findings staying empty
+    # (because the tool never ran, not because nothing was wrong) posted
+    # as a clean "all findings resolved" result with zero visible signal
+    # a scanner didn't run at all.
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["static_analysis"]["tools_skipped"] = [
+        {"tool": "semgrep", "reason": "semgrep exited 2: registry unreachable"},
+    ]
+
+    diff = compute_diff(old, new)
+
+    assert diff["static_analysis"]["unexpected_tool_skips"] == [
+        {"tool": "semgrep", "reason": "semgrep exited 2: registry unreachable"},
+    ]
+
+
+def test_compute_diff_does_not_surface_an_intentional_opt_in_skip():
+    # bearer/joern not being opted into, and SonarQube not being
+    # configured, are the normal, expected case on almost every scan -
+    # surfacing those as "unexpected" would make this fire on nearly
+    # every PR and defeat the point of a signal that's supposed to mean
+    # something broke.
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["static_analysis"]["tools_skipped"] = [
+        {
+            "tool": "bearer",
+            "reason": "skipped (opt-in - pass --check-bearer to include it; useful but "
+            "can take significantly longer than the other scanners on a large repo)",
+        },
+        {
+            "tool": "joern",
+            "reason": "skipped (opt-in - pass --check-joern to include it; requires Joern "
+            "installed separately, and a CPG build is real per-scan JVM/parsing cost, "
+            "not a fast stateless subprocess call like the other scanners here)",
+        },
+        {"tool": "sonarqube", "reason": "SonarQube not configured (set SONARQUBE_HOST_URL to enable)"},
+    ]
+
+    diff = compute_diff(old, new)
+
+    assert diff["static_analysis"]["unexpected_tool_skips"] == []
+
+
+def test_compute_diff_does_not_crash_diffing_evidence_missing_static_analysis_entirely():
+    new = base_evidence()
+    old = base_evidence()
+    del old["security"]["static_analysis"]
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["static_analysis"]["new"]) == 1
+    assert "caveats" in diff
+    assert any("static analysis" in caveat for caveat in diff["caveats"])
+
+
+def _static_analysis_finding(line: int, fingerprint: str = "fp-same", **overrides) -> dict:
+    finding = {
+        "tool": "bandit", "rule_id": "B607", "severity": "minor", "type": "vulnerability",
+        "path": "app.py", "line": line, "message": "subprocess call - check for execution of untrusted input",
+        "content_fingerprint": fingerprint,
+    }
+    finding.update(overrides)
+    return finding
+
+
+def test_compute_diff_does_not_misclassify_a_finding_whose_line_shifted_but_content_did_not():
+    # The real PR #888 case: an edit earlier in the file (unrelated to this
+    # finding) shifted every later line down. Same content_fingerprint
+    # (static_analysis/__init__.py hashes the source lines around the
+    # finding, not the line number itself), different line - must not
+    # read as one finding resolved plus a new one appearing in its place.
+    old = base_evidence()
+    old["security"]["static_analysis"]["findings"] = [_static_analysis_finding(line=10)]
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"] = [_static_analysis_finding(line=15)]
+
+    diff = compute_diff(old, new)
+
+    assert diff["static_analysis"]["new"] == []
+    assert diff["static_analysis"]["resolved"] == []
+
+
+def test_compute_diff_still_detects_a_genuinely_new_static_analysis_finding_with_fingerprints():
+    old = base_evidence()
+    old["security"]["static_analysis"]["findings"] = [_static_analysis_finding(line=10)]
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"] = [
+        _static_analysis_finding(line=10),
+        _static_analysis_finding(line=22, fingerprint="fp-different", rule_id="B602", path="b.py"),
+    ]
+
+    diff = compute_diff(old, new)
+
+    assert [f["path"] for f in diff["static_analysis"]["new"]] == ["b.py"]
+    assert diff["static_analysis"]["resolved"] == []
+
+
+def test_compute_diff_still_detects_a_resolved_static_analysis_finding_with_fingerprints():
+    old = base_evidence()
+    old["security"]["static_analysis"]["findings"] = [_static_analysis_finding(line=10)]
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"] = []
+
+    diff = compute_diff(old, new)
+
+    assert diff["static_analysis"]["new"] == []
+    assert len(diff["static_analysis"]["resolved"]) == 1
+
+
+def test_compute_diff_does_not_report_every_static_analysis_finding_as_new_when_fingerprinting_is_newly_added():
+    # Same straddling-upgrade problem as the secret match_preview format
+    # change (see test_diff_does_not_report_every_secret_as_new_when_the_
+    # preview_format_changes below): old evidence predates
+    # content_fingerprint existing at all; new evidence has it because it
+    # was freshly (re-)scanned with the newer code. Diffed naively every
+    # pre-existing finding would show as both newly added and resolved -
+    # exactly what `aletheore changes` (which diffs the two most recent
+    # stored snapshots) would hit on the first scan after upgrading.
+    old = base_evidence()
+    old["security"]["static_analysis"]["findings"] = [
+        {"tool": "bandit", "rule_id": "B607", "severity": "minor", "type": "vulnerability",
+         "path": "app.py", "line": 10, "message": "m"},
+    ]
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"] = [_static_analysis_finding(line=15)]
+
+    diff = compute_diff(old, new)
+
+    assert diff["static_analysis"]["new"] == []
+    assert diff["static_analysis"]["resolved"] == []
+
+
+def test_compute_diff_still_detects_a_genuinely_new_finding_across_the_fingerprinting_upgrade():
+    old = base_evidence()
+    old["security"]["static_analysis"]["findings"] = [
+        {"tool": "bandit", "rule_id": "B607", "severity": "minor", "type": "vulnerability",
+         "path": "app.py", "line": 10, "message": "m"},
+    ]
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"] = [
+        _static_analysis_finding(line=15),
+        _static_analysis_finding(line=30, fingerprint="fp-different", rule_id="B602", path="new.py"),
+    ]
+
+    diff = compute_diff(old, new)
+
+    assert [f["path"] for f in diff["static_analysis"]["new"]] == ["new.py"]
+    assert diff["static_analysis"]["resolved"] == []
+
+
+def test_compute_diff_uses_the_full_static_analysis_identity_once_both_sides_are_fingerprinted():
+    # Self-healing: the coarse (tool, rule_id, path) fallback only applies
+    # to the one straddling scan - once both sides carry real fingerprints,
+    # a finding that is genuinely different (different fingerprint) at the
+    # same rule+path is correctly both resolved and new again.
+    old = base_evidence()
+    old["security"]["static_analysis"]["findings"] = [_static_analysis_finding(line=10, fingerprint="fp-aaaa")]
+    new = base_evidence()
+    new["security"]["static_analysis"]["findings"] = [_static_analysis_finding(line=10, fingerprint="fp-bbbb")]
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["static_analysis"]["new"]) == 1
+    assert len(diff["static_analysis"]["resolved"]) == 1
+
+
+def test_compute_diff_filters_new_vulnerabilities_by_severity_threshold(tmp_path):
+    (tmp_path / ".aletheore.json").write_text(json.dumps({"severity_threshold": "high"}))
+
+    old = base_evidence()
+    old["repo_path"] = str(tmp_path)
+    old["security"]["dependency_vulnerabilities"]["findings"] = []
+    new = base_evidence()
+    new["repo_path"] = str(tmp_path)
+    # log4shell-shaped CVSS vector: base score 10.0, buckets "critical".
+    new["security"]["dependency_vulnerabilities"]["findings"] = [
+        {
+            "ecosystem": "Maven",
+            "package": "log4j-core",
+            "installed_version": "2.14.1",
+            "advisory_id": "GHSA-critical",
+            "summary": "critical rce",
+            "severity": [
+                {"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"}
+            ],
+        },
+        {
+            "ecosystem": "PyPI",
+            "package": "some-lib",
+            "installed_version": "1.0.0",
+            "advisory_id": "GHSA-low",
+            "summary": "low severity issue",
+            "severity": [
+                {"type": "CVSS_V3", "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N"}
+            ],
+        },
+    ]
+
+    diff = compute_diff(old, new)
+
+    new_advisory_ids = {f["advisory_id"] for f in diff["vulnerabilities"]["new"]}
+    assert new_advisory_ids == {"GHSA-critical"}
+
+
+def test_compute_diff_severity_threshold_never_touches_evidence_findings(tmp_path):
+    # The filter only affects the diff's "new"/"resolved" lists - the raw
+    # evidence.json findings list (what's actually persisted to disk by a
+    # real scan) is a completely separate object and is never mutated.
+    (tmp_path / ".aletheore.json").write_text(json.dumps({"severity_threshold": "critical"}))
+
+    old = base_evidence()
+    old["repo_path"] = str(tmp_path)
+    old["security"]["dependency_vulnerabilities"]["findings"] = []
+    new = base_evidence()
+    new["repo_path"] = str(tmp_path)
+    low_finding = {
+        "ecosystem": "PyPI",
+        "package": "some-lib",
+        "installed_version": "1.0.0",
+        "advisory_id": "GHSA-low",
+        "summary": "low severity issue",
+        "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N"}],
+    }
+    new["security"]["dependency_vulnerabilities"]["findings"] = [low_finding]
+
+    compute_diff(old, new)
+
+    assert new["security"]["dependency_vulnerabilities"]["findings"] == [low_finding]
+
+
+def test_compute_diff_detects_a_new_layer_violation():
+    old = base_evidence()
+    new = base_evidence()
+    new["architecture"]["layer_violations"]["violations"].append(
+        {"from": "app/routers/x.py", "to": "app/domain/y.py", "reason": "y"}
+    )
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["layer_violations"]["new"]) == 1
+
+
+def test_compute_diff_detects_a_new_endpoint():
+    old = base_evidence()
+    new = base_evidence()
+    new["repository"]["api_endpoints"]["endpoints"].append(
+        {
+            "method": "POST",
+            "path": "/users",
+            "framework": "flask",
+            "file": "app.py",
+            "line": 5,
+            "handler": "create_user",
+            "unresolved": False,
+        }
+    )
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["endpoints"]["new"]) == 1
+    assert diff["endpoints"]["new"][0]["path"] == "/users"
+    assert diff["endpoints"]["new"][0]["method"] == "POST"
+    assert diff["endpoints"]["resolved"] == []
+
+
+def test_compute_diff_detects_a_resolved_endpoint():
+    old = base_evidence()
+    new = base_evidence()
+    new["repository"]["api_endpoints"]["endpoints"] = []
+
+    diff = compute_diff(old, new)
+
+    assert len(diff["endpoints"]["resolved"]) == 1
+    assert diff["endpoints"]["new"] == []
+
+
+def test_compute_diff_aggregate_deltas_reflect_real_changes():
+    old = base_evidence()
+    new = base_evidence()
+    new["repository"]["modules"].append({"path": "c.py"})
+    new["git"]["total_commits"] = 13
+
+    diff = compute_diff(old, new)
+
+    assert diff["aggregate_deltas"]["module_count"] == 1
+    assert diff["aggregate_deltas"]["total_commits"] == 3
+
+
+def test_compute_diff_caveat_fires_when_vulnerability_checking_toggled():
+    old = base_evidence()
+    old["security"]["dependency_vulnerabilities"]["checked"] = False
+    old["security"]["dependency_vulnerabilities"]["findings"] = []
+    new = base_evidence()
+
+    diff = compute_diff(old, new)
+
+    assert "caveats" in diff
+    assert any("vulnerability" in c for c in diff["caveats"])
+
+
+def test_compute_diff_caveat_fires_when_static_analysis_checking_toggled():
+    old = base_evidence()
+    old["security"]["static_analysis"]["checked"] = False
+    old["security"]["static_analysis"]["findings"] = []
+    new = base_evidence()
+
+    diff = compute_diff(old, new)
+
+    assert "caveats" in diff
+    assert any("static analysis" in c for c in diff["caveats"])
+
+
+def test_compute_diff_caveat_fires_when_history_scanning_toggled():
+    old = base_evidence()
+    old["security"]["secrets"]["history_scanned_commits"] = 0
+    new = base_evidence()
+
+    diff = compute_diff(old, new)
+
+    assert "caveats" in diff
+    assert any("history" in c for c in diff["caveats"])
+
+
+def test_compute_diff_caveat_fires_when_endpoint_mapping_toggled():
+    old = base_evidence()
+    old["repository"]["api_endpoints"]["checked"] = False
+    old["repository"]["api_endpoints"]["endpoints"] = []
+    new = base_evidence()
+
+    diff = compute_diff(old, new)
+
+    assert "caveats" in diff
+    assert any("endpoint" in c for c in diff["caveats"])
+
+
+def test_compute_diff_no_caveat_when_configuration_unchanged():
+    evidence = base_evidence()
+
+    diff = compute_diff(evidence, evidence)
+
+    assert "caveats" not in diff
+
+
+def test_compute_diff_full_mode_shows_added_removed_changed():
+    old = {"a": 1, "b": {"c": 2}, "d": [1, 2]}
+    new = {"a": 1, "b": {"c": 3}, "e": "new"}
+
+    diff = compute_diff(old, new, full=True)
+
+    assert {"path": "e", "value": "new"} in diff["added"]
+    assert {"path": "d[0]", "value": 1} in diff["removed"]
+    assert {"path": "d[1]", "value": 2} in diff["removed"]
+    assert {"path": "b.c", "old_value": 2, "new_value": 3} in diff["changed"]
+
+
+def test_compute_diff_is_deterministic():
+    old = base_evidence()
+    new = base_evidence()
+    new["security"]["secrets"]["findings"].append(
+        {
+            "path": "c.py",
+            "pattern": "generic_credential_assignment",
+            "match_preview": "test****...cret",
+            "likely_placeholder": True,
+        }
+    )
+
+    first = compute_diff(old, new)
+    second = compute_diff(old, new)
+
+    assert first == second
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def _module(path, functions=(), classes=()):
+    return {
+        "path": path,
+        "symbols": {
+            "functions": [{"name": n, "start_line": 1, "end_line": 2} for n in functions],
+            "classes": [{"name": n, "start_line": 1, "end_line": 2} for n in classes],
+        },
+    }
+
+
+def _evidence_with_modules(modules):
+    return {"repository": {"modules": modules}}
+
+
+def test_summarize_file_changes_detects_added_and_removed_functions():
+    old = _evidence_with_modules([_module("app.py", functions=["a", "b"])])
+    new = _evidence_with_modules([_module("app.py", functions=["a", "c"])])
+    changed_files = [{"filename": "app.py", "status": "modified", "additions": 3, "deletions": 1}]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows == [{
+        "path": "app.py",
+        "status": "modified",
+        "additions": 3,
+        "deletions": 1,
+        "previous_path": None,
+        "functions_added": ["c"],
+        "functions_removed": ["b"],
+        "classes_added": [],
+        "classes_removed": [],
+        "has_module_data": True,
+    }]
+
+
+def test_summarize_file_changes_new_file_reports_only_additions():
+    old = _evidence_with_modules([])
+    new = _evidence_with_modules([_module("new_mod.py", functions=["f1", "f2"])])
+    changed_files = [{"filename": "new_mod.py", "status": "added", "additions": 20, "deletions": 0}]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows[0]["functions_added"] == ["f1", "f2"]
+    assert rows[0]["functions_removed"] == []
+    assert rows[0]["has_module_data"] is True
+
+
+def test_summarize_file_changes_removed_file_reports_only_removals():
+    old = _evidence_with_modules([_module("gone.py", functions=["f1"])])
+    new = _evidence_with_modules([])
+    changed_files = [{"filename": "gone.py", "status": "removed", "additions": 0, "deletions": 15}]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows[0]["functions_removed"] == ["f1"]
+    assert rows[0]["functions_added"] == []
+
+
+def test_summarize_file_changes_no_change_reports_empty_diffs():
+    old = _evidence_with_modules([_module("stable.py", functions=["f1"])])
+    new = _evidence_with_modules([_module("stable.py", functions=["f1"])])
+    changed_files = [{"filename": "stable.py", "status": "modified", "additions": 1, "deletions": 1}]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows[0]["functions_added"] == []
+    assert rows[0]["functions_removed"] == []
+    assert rows[0]["has_module_data"] is True
+
+
+def test_summarize_file_changes_rename_diffs_against_the_previous_path():
+    # The real bug this pins: looking up a renamed file at its NEW path in
+    # `old` evidence finds nothing there, and would misreport the whole
+    # function as freshly added even though only the filename changed.
+    old = _evidence_with_modules([_module("src/old_name.py", functions=["f1", "f2"])])
+    new = _evidence_with_modules([_module("src/new_name.py", functions=["f1", "f2"])])
+    changed_files = [{
+        "filename": "src/new_name.py",
+        "status": "renamed",
+        "additions": 0,
+        "deletions": 0,
+        "previous_filename": "src/old_name.py",
+    }]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows[0]["functions_added"] == []
+    assert rows[0]["functions_removed"] == []
+    assert rows[0]["previous_path"] == "src/old_name.py"
+
+
+def test_summarize_file_changes_non_code_file_has_no_module_data():
+    old = _evidence_with_modules([])
+    new = _evidence_with_modules([])
+    changed_files = [{"filename": "README.md", "status": "modified", "additions": 4, "deletions": 1}]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows[0]["has_module_data"] is False
+    assert rows[0]["functions_added"] == []
+
+
+def test_summarize_file_changes_tolerates_a_module_entry_missing_a_path():
+    # Real gap found by Flash Review on the PR itself: bracket indexing
+    # (m["path"]) raises KeyError if any module dict lacks the key, while
+    # the sibling count_direct_dependents (blast_radius_summary.py, same
+    # PR) defensively uses m.get("path") for the identical module list -
+    # an inconsistency this fixes by matching the safer sibling pattern.
+    old = _evidence_with_modules([{"symbols": {"functions": []}}, _module("app.py", functions=["a"])])
+    new = _evidence_with_modules([_module("app.py", functions=["a", "b"])])
+    changed_files = [{"filename": "app.py", "status": "modified", "additions": 1, "deletions": 0}]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows[0]["functions_added"] == ["b"]
+
+
+def test_summarize_file_changes_counts_a_removed_method_sharing_a_name_with_another_symbol():
+    # Real gap found on final review: aletheore's scanner stores methods in
+    # symbols.functions under bare names with no class qualifier (verified
+    # live: a file with A.run, B.run, and a top-level run() all show up as
+    # three unqualified "run" entries). A set-based diff collapses all three
+    # into one name, so deleting class B (and its run method) entirely while
+    # class A's own run survives elsewhere in the file reported ZERO removed
+    # functions - a real undercount for a section labelled "Deterministic".
+    # This fixture uses two "run" entries in `old` (standing in for two
+    # methods sharing that name) and one in `new` (one of them removed).
+    old = _evidence_with_modules([_module("multi.py", functions=["run", "run", "helper"])])
+    new = _evidence_with_modules([_module("multi.py", functions=["run", "helper"])])
+    changed_files = [{"filename": "multi.py", "status": "modified", "additions": 0, "deletions": 5}]
+
+    rows = summarize_file_changes(old, new, changed_files)
+
+    assert rows[0]["functions_removed"] == ["run"]
+    assert rows[0]["functions_added"] == []
+
+
+def test_to_sarif_has_valid_top_level_shape_with_no_findings():
+    sarif = to_sarif({})
+
+    assert sarif["version"] == "2.1.0"
+    assert sarif["runs"][0]["tool"]["driver"]["name"] == "aletheore"
+    assert sarif["runs"][0]["results"] == []
+
+
+def test_to_sarif_renders_a_real_secret_with_error_level_and_location():
+    curated = {
+        "secrets": {
+            "new": [
+                {
+                    "path": "config.py",
+                    "line": 3,
+                    "pattern": "aws_access_key_id",
+                    "match_preview": "AKIA...MNOP",
+                    "likely_placeholder": False,
+                    "accepted": False,
+                }
+            ]
+        }
+    }
+
+    results = to_sarif(curated)["runs"][0]["results"]
+
+    assert len(results) == 1
+    result = results[0]
+    assert result["ruleId"] == "aletheore/secret"
+    assert result["level"] == "error"
+    assert "aws_access_key_id" in result["message"]["text"]
+    assert result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "config.py"
+    assert result["locations"][0]["physicalLocation"]["region"]["startLine"] == 3
+
+
+def test_to_sarif_renders_a_placeholder_secret_at_note_level():
+    curated = {
+        "secrets": {
+            "new": [
+                {
+                    "path": "tests/fixture.py",
+                    "line": 1,
+                    "pattern": "aws_access_key_id",
+                    "match_preview": "AKIA...MPLE",
+                    "likely_placeholder": True,
+                    "accepted": False,
+                }
+            ]
+        }
+    }
+
+    result = to_sarif(curated)["runs"][0]["results"][0]
+
+    assert result["level"] == "note"
+
+
+def test_to_sarif_history_secret_has_no_line_region():
+    curated = {
+        "history_secrets": {
+            "new": [
+                {
+                    "commit": "abcdef1234567890",
+                    "path": "old.py",
+                    "pattern": "github_token",
+                    "match_preview": "ghp_****...7890",
+                    "likely_placeholder": False,
+                    "accepted": False,
+                }
+            ]
+        }
+    }
+
+    result = to_sarif(curated)["runs"][0]["results"][0]
+
+    assert result["ruleId"] == "aletheore/secret-history"
+    assert "abcdef123456" in result["message"]["text"]
+    assert result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "old.py"
+    assert "region" not in result["locations"][0]["physicalLocation"]
+
+
+def test_to_sarif_renders_a_vulnerability_with_no_location():
+    curated = {
+        "vulnerabilities": {
+            "new": [
+                {
+                    "ecosystem": "pip",
+                    "package": "requests",
+                    "advisory_id": "GHSA-xxxx",
+                    "summary": "Improper certificate validation",
+                }
+            ]
+        }
+    }
+
+    result = to_sarif(curated)["runs"][0]["results"][0]
+
+    assert result["ruleId"] == "aletheore/dependency-vulnerability"
+    assert "pip/requests" in result["message"]["text"]
+    assert "GHSA-xxxx" in result["message"]["text"]
+    assert "locations" not in result
+
+
+def test_to_sarif_renders_a_layer_violation():
+    curated = {
+        "layer_violations": {
+            "new": [
+                {"from": "app/db.py", "to": "app/routes/billing.py", "reason": "inner layer imports outer layer"}
+            ]
+        }
+    }
+
+    result = to_sarif(curated)["runs"][0]["results"][0]
+
+    assert result["ruleId"] == "aletheore/layer-violation"
+    assert result["message"]["text"] == "inner layer imports outer layer"
+    assert result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "app/db.py"
+
+
+def test_to_sarif_ignores_resolved_findings():
+    curated = {
+        "secrets": {
+            "new": [],
+            "resolved": [
+                {"path": "config.py", "line": 3, "pattern": "aws_access_key_id", "match_preview": "AKIA...MNOP"}
+            ],
+        }
+    }
+
+    assert to_sarif(curated)["runs"][0]["results"] == []
+
+
+def _evidence_with_secrets(findings):
+    evidence = json.loads(json.dumps(base_evidence()))
+    evidence["security"]["secrets"]["findings"] = findings
+    return evidence
+
+
+def test_diff_does_not_report_every_secret_as_new_when_the_preview_format_changes():
+    # The upgrade that replaced the first4...last4 preview with a salted hash
+    # changes the identity of every already-known secret. Diffed naively, a
+    # scan that introduced nothing would report the whole findings list as new
+    # - flooding PR comments and failing --fail-on-new-secrets everywhere.
+    old = _evidence_with_secrets(
+        [{"path": "config.py", "pattern": "aws_access_key_id", "match_preview": "AKIA****...MNOP"}]
+    )
+    new = _evidence_with_secrets(
+        [{"path": "config.py", "pattern": "aws_access_key_id", "match_preview": "sha256:abc123def456"}]
+    )
+
+    result = compute_diff(old, new)
+
+    assert result["secrets"]["new"] == []
+    assert result["secrets"]["resolved"] == []
+
+
+def test_diff_still_reports_a_genuinely_new_secret_across_the_format_change():
+    old = _evidence_with_secrets(
+        [{"path": "config.py", "pattern": "aws_access_key_id", "match_preview": "AKIA****...MNOP"}]
+    )
+    new = _evidence_with_secrets(
+        [
+            {"path": "config.py", "pattern": "aws_access_key_id", "match_preview": "sha256:abc123def456"},
+            {"path": "new.py", "pattern": "github_token", "match_preview": "sha256:999888777666"},
+        ]
+    )
+
+    result = compute_diff(old, new)
+
+    assert [f["path"] for f in result["secrets"]["new"]] == ["new.py"]
+
+
+def test_diff_uses_the_full_identity_once_both_sides_are_hashed():
+    # Self-healing: the fallback only applies to the one straddling scan.
+    old = _evidence_with_secrets(
+        [{"path": "config.py", "pattern": "aws_access_key_id", "match_preview": "sha256:aaaaaaaaaaaa"}]
+    )
+    new = _evidence_with_secrets(
+        [{"path": "config.py", "pattern": "aws_access_key_id", "match_preview": "sha256:bbbbbbbbbbbb"}]
+    )
+
+    result = compute_diff(old, new)
+
+    assert len(result["secrets"]["new"]) == 1
+    assert len(result["secrets"]["resolved"]) == 1

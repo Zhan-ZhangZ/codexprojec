@@ -1,0 +1,4 @@
+export const GITHUB_STRUCTURE_DEFAULTS = {
+  ENTRIES_PER_PAGE: 100,
+  MAX_ENTRIES_PER_PAGE: 200,
+} as const;

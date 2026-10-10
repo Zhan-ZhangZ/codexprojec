@@ -1,0 +1,88 @@
+import { create } from 'zustand'
+import { queueSave, registerHydrator } from '../services/settingsSync'
+import { useAuthStore } from './authStore'
+import type { Creator } from '../utils/sharedWorkspace'
+
+export interface PinnedFile {
+  id: string
+  agentId: string
+  agentName: string
+  /** Host:port for fetching the file */
+  host: string
+  port: number
+  auth: string
+  /** File metadata */
+  filename: string
+  extension: string
+  physical: string   // path on agent for download/view URLs
+  logical: string
+  size: number
+  mime_type: string
+  /** Where the listing got it (`'shared'` = a member's panel) and who created
+   *  it — copied from the listing so the viewer keeps its guards on a member's
+   *  file. Absent on pins made before shared agents had member files. */
+  source?: string
+  created_by?: Creator | null
+  /** Pin metadata */
+  pinnedAt: string
+  tags: string[]
+  note?: string
+}
+
+const STORAGE_KEY = 'fd:pinned-files'
+
+function load(): PinnedFile[] {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
+}
+function save(pins: PinnedFile[]) {
+  const val = JSON.stringify(pins)
+  if (useAuthStore.getState().authEnabled) queueSave(STORAGE_KEY, val)
+  else localStorage.setItem(STORAGE_KEY, val)
+}
+
+interface PinnedFilesStore {
+  pins: PinnedFile[]
+  pin: (file: Omit<PinnedFile, 'id' | 'pinnedAt' | 'tags' | 'note'>) => void
+  unpin: (id: string) => void
+  updatePin: (id: string, patch: Partial<Pick<PinnedFile, 'tags' | 'note'>>) => void
+  isPinned: (agentId: string, physical: string) => boolean
+}
+
+export const usePinnedFilesStore = create<PinnedFilesStore>((set, get) => ({
+  pins: load(),
+
+  pin: (file) => {
+    const id = `pf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const pin: PinnedFile = { ...file, id, pinnedAt: new Date().toISOString(), tags: [], note: '' }
+    const pins = [pin, ...get().pins]
+    save(pins)
+    set({ pins })
+  },
+
+  unpin: (id) => {
+    const pins = get().pins.filter((p) => p.id !== id)
+    save(pins)
+    set({ pins })
+  },
+
+  updatePin: (id, patch) => {
+    const pins = get().pins.map((p) => p.id === id ? { ...p, ...patch } : p)
+    save(pins)
+    set({ pins })
+  },
+
+  isPinned: (agentId, physical) => {
+    return get().pins.some((p) => p.agentId === agentId && p.physical === physical)
+  },
+}))
+
+// Absent key → reset, so a previous user's list can't linger in memory and be
+// saved into the next account on its first edit (see localAgentStore).
+registerHydrator((settings) => {
+  const raw = settings[STORAGE_KEY]
+  if (!raw) {
+    usePinnedFilesStore.setState({ pins: [] })
+    return
+  }
+  try { usePinnedFilesStore.setState({ pins: JSON.parse(raw) }) } catch { /* ignore */ }
+})

@@ -1,0 +1,1110 @@
+import json
+import urllib.error
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+from aletheore.licenses import categorize_license, check_dependency_licenses, detect_repo_license
+
+
+def _mock_response(payload: dict):
+    mock = MagicMock()
+    mock.read.return_value = json.dumps(payload).encode("utf-8")
+    mock.__enter__.return_value = mock
+    mock.__exit__.return_value = False
+    return mock
+
+
+def _mock_bytes_response(body: bytes):
+    mock = MagicMock()
+    mock.read.return_value = body
+    mock.__enter__.return_value = mock
+    mock.__exit__.return_value = False
+    return mock
+
+
+def test_categorize_license_recognizes_permissive():
+    assert categorize_license("MIT") == "permissive"
+    assert categorize_license("Apache 2.0") == "permissive"
+    assert categorize_license("BSD-3-Clause") == "permissive"
+    assert categorize_license("ISC") == "permissive"
+
+
+def test_categorize_license_recognizes_permissive_spdx_identifiers_missing_from_markers():
+    # Found via a real dependency-license scan of a large repo: these are real SPDX
+    # identifiers actual npm/PyPI registries return for real dependencies, all
+    # permissive/public-domain-equivalent licenses, that fell through to "unknown"
+    # because no marker matched them.
+    assert categorize_license("Python-2.0") == "permissive"  # PSF license, argparse
+    assert categorize_license("BlueOak-1.0.0") == "permissive"  # Blue Oak Model License, tar/minipass/etc
+    assert categorize_license("WTFPL") == "permissive"  # truncate-utf8-bytes
+
+
+def test_categorize_license_recognizes_strong_copyleft():
+    assert categorize_license("GPL v3") == "copyleft-strong"
+    assert categorize_license("GNU General Public License v2") == "copyleft-strong"
+
+
+def test_categorize_license_recognizes_agpl_before_generic_gpl_match():
+    # "agpl" contains "gpl" as a literal substring - this only passes if AGPL is
+    # checked before the generic GPL fallback, not incidentally.
+    assert categorize_license("AGPL-3.0") == "copyleft-strong"
+
+
+def test_categorize_license_recognizes_lgpl_before_generic_gpl_match():
+    # same substring trap as AGPL - "lgpl" also contains "gpl" literally.
+    assert categorize_license("LGPL-2.1") == "copyleft-weak"
+
+
+def test_categorize_license_recognizes_mpl_as_weak_copyleft():
+    assert categorize_license("MPL-2.0") == "copyleft-weak"
+
+
+def test_categorize_license_spdx_or_expression_uses_most_permissive_alternative():
+    # Real bug found via audit: an SPDX "OR" expression is a CHOICE - the
+    # licensee may comply under whichever alternative they prefer - a
+    # real, common idiom offered verbatim as the `license` field by npm's
+    # package.json, Cargo.toml, and PEP 639 pyproject.toml. The old
+    # marker-scan always returned the MOST restrictive category found
+    # anywhere in the string regardless of "OR" or alternative order -
+    # "GPL-3.0-only OR MIT" and "MIT OR GPL-3.0-only" both came back
+    # "copyleft-strong" even though either is legitimately usable under
+    # MIT alone.
+    assert categorize_license("MIT OR GPL-3.0-only") == "permissive"
+    assert categorize_license("GPL-3.0-only OR MIT") == "permissive"
+    assert categorize_license("(MIT OR Apache-2.0)") == "permissive"
+    assert categorize_license("MIT OR GPL-3.0-only OR BSD-3-Clause") == "permissive"
+    assert categorize_license("AGPL-3.0 OR LGPL-2.1") == "copyleft-weak"
+
+
+def test_categorize_license_or_split_does_not_false_match_hyphenated_or_later_suffix():
+    # A real SPDX id's own "-or-later" suffix (GPL-2.0-or-later,
+    # LGPL-3.0-or-later - both real, common identifiers) has no
+    # surrounding whitespace around "or", so it must not be mistaken for
+    # an OR-expression split point.
+    assert categorize_license("GPL-2.0-or-later") == "copyleft-strong"
+    assert categorize_license("LGPL-3.0-or-later") == "copyleft-weak"
+
+
+def test_categorize_license_and_expression_still_uses_most_restrictive_component():
+    # An "AND" expression means compliance is required with BOTH
+    # components simultaneously, the opposite of "OR" - the existing
+    # restrictive-first marker scan already gets this right (a real
+    # restriction can't be opted out of just because a permissive
+    # component is also present), so this locks in that this fix didn't
+    # change AND's own, already-correct behavior.
+    assert categorize_license("GPL-3.0-only AND MIT") == "copyleft-strong"
+    assert categorize_license("MIT AND Apache-2.0") == "permissive"
+
+
+def test_categorize_license_unknown_for_none_or_unrecognized():
+    assert categorize_license(None) == "unknown"
+    assert categorize_license("") == "unknown"
+    assert categorize_license("Some Custom Proprietary License") == "unknown"
+
+
+def test_categorize_license_recognizes_bsd_license_body_text_with_no_bsd_keyword():
+    # Found via a real-repo stress test (flask, gorilla/mux): neither the
+    # 2-clause nor 3-clause BSD license BODY text contains the literal word
+    # "bsd" anywhere - it's a purely descriptive redistribution-terms text
+    # that never names itself. A real BSD LICENSE file with no machine-
+    # readable metadata (no pyproject.toml/package.json license field)
+    # categorized "unknown" for this reason before this fix.
+    body = (
+        "Copyright (c) 2023 The Gorilla Authors. All rights reserved.\n\n"
+        "Redistribution and use in source and binary forms, with or without\n"
+        "modification, are permitted provided that the following conditions are\n"
+        "met:\n\n"
+        "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS...\n"
+    )
+    assert categorize_license(body) == "permissive"
+
+
+def test_categorize_license_recognizes_cddl():
+    # Found via a real-repo stress test (gson's own javax.annotation:jsr250-api
+    # dependency): CDDL is a real, standard weak-copyleft license family
+    # (same SPDX/OSI bucket as MPL/EPL), not an unrecognizable one.
+    assert categorize_license("COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0") == "copyleft-weak"
+
+
+def test_detect_repo_license_from_pyproject_toml_string_field(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text('[project]\nname = "x"\nlicense = "MIT"\n')
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "pyproject.toml" in result["detected_from"]
+
+
+def test_detect_repo_license_from_pyproject_toml_table_field(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nlicense = { text = "Apache-2.0" }\n'
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+
+
+def test_detect_repo_license_from_package_json(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "package.json").write_text(json.dumps({"license": "GPL-3.0"}))
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "copyleft-strong"
+    assert "package.json" in result["detected_from"]
+
+
+def test_detect_repo_license_from_cargo_toml(tmp_path):
+    # Real bug found via audit: this scanner already has a working
+    # dependency-license fetcher for Rust (_fetch_crates_license), but the
+    # repo's-OWN-license path only ever checked pyproject.toml/package.json
+    # - a Rust repo's own real, machine-readable Cargo.toml license field
+    # was silently invisible.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Cargo.toml").write_text('[package]\nname = "app"\nversion = "0.1.0"\nlicense = "MIT"\n')
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "Cargo.toml" in result["detected_from"]
+
+
+def test_detect_repo_license_from_composer_json_dual_license_array(tmp_path):
+    # Real bug found via audit: same gap as Cargo.toml above, for PHP.
+    # Composer's schema allows a dual/multi-license array, matching how
+    # _fetch_packagist_license already treats the identical shape.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "composer.json").write_text(json.dumps({"name": "vendor/app", "license": ["MIT", "GPL-2.0"]}))
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "composer.json" in result["detected_from"]
+
+
+def test_detect_repo_license_from_composer_json_dual_license_array_is_order_independent(tmp_path):
+    # Real bug found via audit: the test right above this one only ever
+    # exercised ["MIT", "GPL-2.0"] (permissive first) and passed for the
+    # wrong reason - the old code took array[0] unconditionally, not
+    # "whichever is most permissive". Reversing the array order used to
+    # flip the result to "copyleft-strong" even though the exact same
+    # licensing choice is being offered either way - fixed by joining
+    # the array into an SPDX "A OR B" expression and letting
+    # categorize_license's own OR-resolution (most permissive wins,
+    # order-independent) handle it.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "composer.json").write_text(json.dumps({"name": "vendor/app", "license": ["GPL-2.0", "MIT"]}))
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+
+
+def test_detect_repo_license_from_gemspec(tmp_path):
+    # Real bug found via audit: same gap for Ruby.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.gemspec").write_text('Gem::Specification.new do |s|\n  s.license = "MIT"\nend\n')
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "app.gemspec" in result["detected_from"]
+
+
+def test_detect_repo_license_from_gemspec_ignores_a_commented_out_assignment(tmp_path):
+    # Flash Review finding on PR #598: the gemspec regex searched the raw
+    # file text without excluding comments, so a commented-out assignment
+    # left over from an earlier relicensing (a real thing to find in a
+    # gemspec's history) could be matched before the real, active one if
+    # it appears first in the file, fabricating the wrong repo license.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "app.gemspec").write_text(
+        "Gem::Specification.new do |s|\n"
+        '  # s.license = "GPL-3.0"\n'
+        '  s.license = "MIT"\n'
+        "end\n"
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "MIT" in result["detected_from"]
+
+
+def test_detect_repo_license_from_csproj_nested_in_a_project_directory(tmp_path):
+    # Real bug found via audit: same gap for C#. Uses rglob (not a
+    # root-level check) since a real .csproj almost never sits at a .NET
+    # solution's repo root - matches how vulnerabilities.py's own
+    # csproj dependency parser already searches.
+    repo = tmp_path / "repo"
+    (repo / "src" / "MyApp").mkdir(parents=True)
+    (repo / "src" / "MyApp" / "MyApp.csproj").write_text(
+        "<Project><PropertyGroup><PackageLicenseExpression>Apache-2.0"
+        "</PackageLicenseExpression></PropertyGroup></Project>"
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "MyApp.csproj" in result["detected_from"]
+
+
+def test_detect_repo_license_csproj_does_not_hang_on_an_unclosed_tag(tmp_path):
+    # Real ReDoS reported live (GHSA-66qv-fmhr-gpj8): the old
+    # _CSPROJ_LICENSE_EXPRESSION_RE bracketed its capture group with `\s*`
+    # on both sides around a non-greedy `[^<]+?` - all three overlap
+    # (whitespace is itself inside `[^<]`), so a real file with an opening
+    # tag and no closing one made the regex engine try every way of
+    # partitioning a run of whitespace across the three sub-patterns -
+    # cubic in input size, confirmed independently (300 chars: 16ms; 1200:
+    # 961ms). A hosted scan-worker job evaluates this against arbitrary
+    # PR content, so this was a real, unauthenticated DoS vector. This
+    # payload (200,000 whitespace chars, no closing tag) must resolve
+    # near-instantly, not hang.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "App.csproj").write_text(
+        "<Project><PackageLicenseExpression>" + (" " * 200_000)
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "unknown"
+
+
+def test_detect_repo_license_from_pom_xml_without_a_namespace_declaration(tmp_path):
+    # Real bug found via audit: same gap for Java, plus a real, hand-
+    # written pom.xml commonly omits the xmlns Maven Central's own served
+    # POMs always carry - the namespaced lookup alone would silently miss it.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pom.xml").write_text(
+        "<project><licenses><license><name>MIT License</name></license></licenses></project>"
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "pom.xml" in result["detected_from"]
+
+
+# The real, verbatim opening of the Apache License 2.0 (as published at
+# apache.org/licenses/LICENSE-2.0.txt) - not a hand-typed guess at what an
+# Apache license file looks like. This used to be read live from this
+# repo's own LICENSE file, but that file is PolyForm Noncommercial as of
+# this project's own license change; embedding the real text here keeps the
+# test's original intent (verify against genuine license text) without
+# coupling a dependency-license-detection test to this repo's own license.
+_REAL_APACHE_2_0_TEXT = """\
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+"License" shall mean the terms and conditions for use, reproduction,
+and distribution as defined by Sections 1 through 9 of this document.
+
+"Licensor" shall mean the copyright owner or entity authorized by
+the copyright owner that is granting the License.
+
+"Legal Entity" shall mean the union of the acting entity and all
+other entities that control, are controlled by, or are under common
+control with that entity. For the purposes of this definition,
+"control" means (i) the power, direct or indirect, to cause the
+direction or management of such entity, whether by contract or
+otherwise, or (ii) ownership of fifty percent (50%) or more of the
+outstanding shares, or (iii) beneficial ownership of such entity.
+
+"You" (or "Your") shall mean an individual or Legal Entity
+exercising permissions granted by this License.
+
+"Source" form shall mean the preferred form for making modifications,
+including but not limited to software source code, documentation
+source, and configuration files.
+
+"Object" form shall mean any form resulting from mechanical
+transformation or translation of a Source form, including but
+not limited to compiled object code, generated documentation,
+and conversions to other media types.
+
+"Work" shall mean the work of authorship, whether in Source or
+Object form, made available under the License, as indicated by a
+copyright notice that is included in or attached to the work
+(an example is provided in the Appendix below).
+
+"Derivative Works" shall mean any work, whether in Source or Object
+form, that is based on (or derived from) the Work and for which the
+editorial revisions, annotations, elaborations, or other modifications
+represent, as a whole, an original work of authorship. For the purposes
+of this License, Derivative Works shall not include works that remain
+separable from, or merely link (or bind by nam"""
+
+
+def test_detect_repo_license_from_real_apache_license_file_text(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "LICENSE").write_text(_REAL_APACHE_2_0_TEXT)
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert "LICENSE" in result["detected_from"]
+
+
+def test_detect_repo_license_from_license_rst_file(tmp_path):
+    # Found via a real-repo stress test: Flask's own real repo uses exactly
+    # this filename (a common reStructuredText-docs-style Python project
+    # convention) and was invisible to the checked filename list entirely.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "LICENSE.rst").write_text(
+        "Copyright 2010 Pallets\n\n"
+        "Redistribution and use in source and binary forms, with or without\n"
+        "modification, are permitted provided that the following conditions are\n"
+        "met:\n"
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+    assert result["detected_from"] == "LICENSE.rst text match"
+
+
+def test_detect_repo_license_from_mit_license_file_text(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "LICENSE").write_text(
+        "MIT License\n\n"
+        "Copyright (c) 2026 Example\n\n"
+        'Permission is hereby granted, free of charge, to any person obtaining a copy...\n'
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "permissive"
+
+
+def test_detect_repo_license_from_gpl_license_file_text(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "LICENSE").write_text(
+        "                    GNU GENERAL PUBLIC LICENSE\n"
+        "                       Version 3, 29 June 2007\n"
+    )
+
+    result = detect_repo_license(repo)
+
+    assert result["category"] == "copyleft-strong"
+
+
+def test_detect_repo_license_unknown_when_nothing_present(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    result = detect_repo_license(repo)
+
+    assert result == {"category": "unknown", "detected_from": None}
+
+
+def test_check_dependency_licenses_no_pins_short_circuits_without_network_call(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    with patch("aletheore.licenses.urllib.request.urlopen") as mock_urlopen:
+        result = check_dependency_licenses(repo)
+
+    mock_urlopen.assert_not_called()
+    assert result["checked"] is True
+    assert result["findings"] == []
+
+
+def test_check_dependency_licenses_degrades_gracefully_when_a_manifest_read_fails(tmp_path):
+    # Same gap, same fix, as check_vulnerabilities' identical test in
+    # test_vulnerabilities.py: neither detect_repo_license nor any of the
+    # _parse_*_pins() functions guard their own read_text() against a
+    # manifest disappearing between its exists() check and the read (a
+    # real TOCTOU race on any OS) or a path exceeding Windows' legacy
+    # MAX_PATH limit - an OSError there used to crash the whole scan
+    # instead of degrading just this section.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "package.json").write_text('{"dependencies": {"left-pad": "1.0.0"}}')
+
+    with patch(
+        "aletheore.licenses.Path.read_text",
+        side_effect=OSError("simulated: path too long"),
+    ):
+        result = check_dependency_licenses(repo)
+
+    assert result["checked"] is False
+    assert "path too long" in result["reason"]
+    assert result["repo_license"] == {"category": "unknown", "detected_from": None}
+    assert result["findings"] == []
+
+
+def test_check_dependency_licenses_second_scan_skips_network_call_entirely(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("pyqt5==5.15.10\n")
+
+    response = _mock_response({"info": {"license": "GPL v3", "classifiers": []}})
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen", return_value=response
+    ) as mock_urlopen:
+        first = check_dependency_licenses(repo)
+    assert mock_urlopen.call_count == 1
+
+    # A second scan of the same repo (or, since this is a global cache, any
+    # other repo pinning the same exact package+version) must reuse the
+    # cached license instead of paying another registry round-trip.
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen",
+        side_effect=AssertionError("network must not be called on a cache hit"),
+    ) as mock_urlopen:
+        second = check_dependency_licenses(repo)
+
+    mock_urlopen.assert_not_called()
+    assert second == first
+
+
+def test_check_dependency_licenses_different_repo_reuses_the_same_global_cache(tmp_path):
+    # The license cache is keyed purely by (ecosystem, name, version), not
+    # by repo path - two entirely different repos pinning the same exact
+    # dependency version share one cached lookup.
+    repo_a = tmp_path / "repo_a"
+    repo_a.mkdir()
+    (repo_a / "requirements.txt").write_text("pyqt5==5.15.10\n")
+    repo_b = tmp_path / "repo_b"
+    repo_b.mkdir()
+    (repo_b / "requirements.txt").write_text("pyqt5==5.15.10\n")
+
+    response = _mock_response({"info": {"license": "GPL v3", "classifiers": []}})
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        check_dependency_licenses(repo_a)
+
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen",
+        side_effect=AssertionError("network must not be called on a cache hit"),
+    ) as mock_urlopen:
+        result = check_dependency_licenses(repo_b)
+
+    mock_urlopen.assert_not_called()
+    assert result["findings"][0]["package"] == "pyqt5"
+
+
+def test_check_dependency_licenses_reports_a_copyleft_pypi_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("pyqt5==5.15.10\n")
+
+    response = _mock_response({"info": {"license": "GPL v3", "classifiers": []}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert result["checked"] is True
+    assert len(result["findings"]) == 1
+    finding = result["findings"][0]
+    assert finding["package"] == "pyqt5"
+    assert finding["ecosystem"] == "PyPI"
+    assert finding["license"] == "GPL v3"
+    assert finding["category"] == "copyleft-strong"
+
+
+def test_check_dependency_licenses_omits_permissive_dependencies_from_findings(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("requests==2.31.0\n")
+
+    response = _mock_response({"info": {"license": "Apache 2.0", "classifiers": []}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert result["findings"] == []
+
+
+def test_check_dependency_licenses_reports_an_npm_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "package.json").write_text(json.dumps({"dependencies": {"some-gpl-lib": "1.0.0"}}))
+
+    response = _mock_response({"license": "GPL-3.0"})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "npm"
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_check_dependency_licenses_falls_back_to_classifiers_when_license_field_is_generic(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("somepkg==1.0.0\n")
+
+    response = _mock_response(
+        {
+            "info": {
+                "license": "UNKNOWN",
+                "classifiers": ["License :: OSI Approved :: GNU General Public License v3 (GPLv3)"],
+            }
+        }
+    )
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_check_dependency_licenses_degrades_gracefully_when_one_lookup_fails(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen",
+        side_effect=urllib.error.URLError("connection refused"),
+    ):
+        result = check_dependency_licenses(repo)
+
+    # A per-package lookup failure is not the same as the whole check being
+    # unreachable - it's reported as a finding with an "unknown" category rather
+    # than silently vanishing or failing the whole check.
+    assert result["checked"] is True
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["category"] == "unknown"
+    assert result["findings"][0]["license"] is None
+
+
+def test_check_dependency_licenses_includes_repo_license(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "package.json").write_text(json.dumps({"license": "MIT"}))
+
+    result = check_dependency_licenses(repo)
+
+    assert result["repo_license"]["category"] == "permissive"
+
+
+def test_check_dependency_licenses_reports_progress_per_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("flask==3.0.0\nrequests==2.31.0\n")
+
+    response = _mock_response({"info": {"license": "MIT", "classifiers": []}})
+    calls = []
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        check_dependency_licenses(repo, on_progress=lambda i, t, n: calls.append((i, t, n)))
+
+    assert calls == [(1, 2, "flask"), (2, 2, "requests")]
+
+
+def test_check_dependency_licenses_checks_dependencies_concurrently_not_serially(tmp_path):
+    # Real-world finding: a hosted PR scan against a repo with 441 pinned
+    # dependencies took ~3+ minutes on this step alone (one blocking HTTP
+    # call per dependency, fully serial), blowing the hosted worker's
+    # internal timeout budget. 30 dependencies here, each with a simulated
+    # 0.1s network round-trip: serial would take >= 3.0s; with real
+    # concurrency this must complete in a small fraction of that.
+    import time
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    requirements = "\n".join(f"pkg{i}==1.0.{i}" for i in range(30))
+    (repo / "requirements.txt").write_text(requirements + "\n")
+
+    def slow_urlopen(request, timeout=None, context=None):
+        time.sleep(0.1)
+        return _mock_response({"info": {"license": "MIT", "classifiers": []}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", side_effect=slow_urlopen):
+        start = time.monotonic()
+        result = check_dependency_licenses(repo)
+        elapsed = time.monotonic() - start
+
+    assert result["checked"] is True
+    assert elapsed < 1.0, f"took {elapsed:.2f}s - lookups are not running concurrently"
+
+
+def test_check_dependency_licenses_on_progress_not_called_with_no_pins(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    calls = []
+    check_dependency_licenses(repo, on_progress=lambda i, t, n: calls.append((i, t, n)))
+
+    assert calls == []
+
+
+def test_fetch_go_license_reads_types_field():
+    from aletheore.licenses import _fetch_go_license
+
+    response = _mock_response(
+        {"licenses": [{"types": ["MIT"], "filePath": "LICENSE", "contents": "MIT License..."}]}
+    )
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_go_license("github.com/gin-gonic/gin", "v1.9.0", timeout=10)
+
+    assert result == "MIT"
+
+
+def test_check_dependency_licenses_reports_a_go_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "go.mod").write_text("module x\n\nrequire github.com/some/gplthing v1.0.0\n")
+
+    response = _mock_response({"licenses": [{"types": ["GPL-3.0"]}]})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "Go"
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_fetch_crates_license_reads_version_license_field():
+    from aletheore.licenses import _fetch_crates_license
+
+    response = _mock_response({"version": {"license": "MIT OR Apache-2.0"}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_crates_license("serde", "1.0.219", timeout=10)
+
+    assert result == "MIT OR Apache-2.0"
+
+
+def test_fetch_swift_license_reads_spdx_id_from_real_response_shape():
+    from aletheore.licenses import _fetch_swift_license
+
+    # Real response shape from GitHub's Contents API license endpoint,
+    # confirmed live against api.github.com/repos/swift-server/async-http-client/license.
+    response = _mock_response({"license": {"spdx_id": "Apache-2.0"}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_swift_license("github.com/swift-server/async-http-client", "1.36.0", timeout=10)
+
+    assert result == "Apache-2.0"
+
+
+def test_fetch_swift_license_falls_back_past_a_404_tag_to_the_default_branch():
+    from aletheore.licenses import _fetch_swift_license
+
+    not_found = urllib.error.HTTPError(url="", code=404, msg="Not Found", hdrs=None, fp=None)
+    success = _mock_response({"license": {"spdx_id": "MIT"}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", side_effect=[not_found, not_found, success]):
+        result = _fetch_swift_license("github.com/example/pkg", "2.0.0", timeout=10)
+
+    assert result == "MIT"
+
+
+def test_fetch_swift_license_treats_noassertion_as_unknown():
+    from aletheore.licenses import _fetch_swift_license
+
+    response = _mock_response({"license": {"spdx_id": "NOASSERTION"}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_swift_license("github.com/example/pkg", "1.0.0", timeout=10)
+
+    assert result is None
+
+
+def test_fetch_swift_license_skips_non_github_hosts():
+    from aletheore.licenses import _fetch_swift_license
+
+    assert _fetch_swift_license("gitlab.com/example/pkg", "1.0.0", timeout=10) is None
+
+
+def test_fetch_swift_license_rejects_userinfo_trick_past_a_prefix_check(tmp_path):
+    # Real CodeQL finding (Incomplete URL substring sanitization) on this
+    # exact function: a plain name.startswith("github.com/") check doesn't
+    # rule out "github.com/@attacker.example/x" - the classic trusted-
+    # domain-as-userinfo trick - still passing it. `name` traces back to a
+    # scanned repo's own Package.resolved content, real untrusted input,
+    # not a value this codebase controls. Must be rejected outright, not
+    # reach urlopen at all.
+    from aletheore.licenses import _fetch_swift_license
+
+    with patch("aletheore.licenses.urllib.request.urlopen") as mock_urlopen:
+        result = _fetch_swift_license("github.com/@attacker.example/x", "1.0.0", timeout=10)
+
+    assert result is None
+    mock_urlopen.assert_not_called()
+
+
+def test_fetch_swift_license_rejects_extra_path_segments():
+    from aletheore.licenses import _fetch_swift_license
+
+    assert _fetch_swift_license("github.com/owner/repo/extra", "1.0.0", timeout=10) is None
+
+
+def test_check_dependency_licenses_does_not_hang_on_one_slow_drip_registry_response(tmp_path):
+    # Real production incident, reproduced: a registry response that drips
+    # data slowly enough that no single blocking read ever idles past the
+    # per-socket-operation `timeout` never raises a timeout error at all -
+    # confirmed live (three real npm packages stalled dependency-license
+    # checks for 1+ hour before their job was forcibly reaped). The fix is
+    # a wall-clock cap independent of the socket-level timeout, submitted
+    # per-future (not executor.map, whose ordered iterator would otherwise
+    # block every result behind the stuck one).
+    import time
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "package.json").write_text(
+        json.dumps({"dependencies": {"slow-pkg": "1.0.0", "fast-pkg": "1.0.0"}})
+    )
+
+    fast_response = _mock_response({"license": "MIT"})
+
+    def urlopen_side_effect(request, timeout=None, context=None):
+        if "slow-pkg" in request.full_url:
+            time.sleep(2)  # far longer than the patched wall-clock cap below
+            return fast_response
+        return fast_response
+
+    start = time.monotonic()
+    with (
+        patch("aletheore.licenses.urllib.request.urlopen", side_effect=urlopen_side_effect),
+        patch("aletheore.licenses.LICENSE_FETCH_WALL_CLOCK_TIMEOUT_SECONDS", 0.2),
+    ):
+        result = check_dependency_licenses(repo)
+    elapsed = time.monotonic() - start
+
+    # Real proof of the fix, not just "it returned something": returning in
+    # well under the 2s simulated hang means this function did not wait for
+    # the stuck future, and fast-pkg's already-available result still made
+    # it into the findings despite slow-pkg being stuck ahead of it.
+    assert elapsed < 1.5
+    findings_by_package = {f["package"]: f for f in result["findings"]}
+    # slow-pkg times out - reported as "unknown" (graceful degradation, the
+    # same outcome any other unresolvable license lookup already gets), not
+    # silently dropped and not left hanging.
+    assert findings_by_package["slow-pkg"]["category"] == "unknown"
+    # fast-pkg's MIT license resolved correctly despite being submitted
+    # after the stuck slow-pkg - the real proof this isn't executor.map's
+    # ordered-blocking behavior anymore. Permissive licenses aren't
+    # findings at all, so its absence here is the correct, positive signal.
+    assert "fast-pkg" not in findings_by_package
+
+
+def test_check_dependency_licenses_reports_a_rust_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Cargo.lock").write_text('[[package]]\nname = "somegpl"\nversion = "1.0.0"\n')
+
+    response = _mock_response({"version": {"license": "GPL-3.0"}})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "crates.io"
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_fetch_maven_license_parses_pom_xml():
+    from aletheore.licenses import _fetch_maven_license
+
+    pom_xml = (
+        b'<?xml version="1.0" encoding="UTF-8"?>\n'
+        b'<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+        b"  <licenses>\n"
+        b"    <license>\n"
+        b"      <name>Apache License, Version 2.0</name>\n"
+        b"    </license>\n"
+        b"  </licenses>\n"
+        b"</project>\n"
+    )
+
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen", return_value=_mock_bytes_response(pom_xml)
+    ):
+        result = _fetch_maven_license("org.springframework:spring-core", "6.1.14", timeout=10)
+
+    assert result == "Apache License, Version 2.0"
+
+
+def test_fetch_maven_license_falls_back_to_the_parent_pom(tmp_path):
+    # Found via a real-repo stress test (gson's own pom.xml, which pins
+    # Guava): a very common real Maven convention puts the <licenses>
+    # block on a shared parent POM, not the artifact's own - Guava's real
+    # pom.xml has no <licenses> element at all, only a <parent> reference;
+    # its parent POM is where "Apache License, Version 2.0" actually
+    # lives. A single-level fetch (the pre-fix behavior) always returned
+    # None for a real artifact shaped exactly like this.
+    from aletheore.licenses import _fetch_maven_license
+
+    artifact_pom = (
+        b'<project xmlns="http://maven.apache.org/POM/4.0.0">'
+        b"<parent><groupId>com.example</groupId><artifactId>example-parent</artifactId>"
+        b"<version>1.0.0</version></parent>"
+        b"<artifactId>example-lib</artifactId>"
+        b"</project>"
+    )
+    parent_pom = (
+        b'<project xmlns="http://maven.apache.org/POM/4.0.0">'
+        b"<licenses><license><name>Apache License, Version 2.0</name></license></licenses>"
+        b"</project>"
+    )
+
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen",
+        side_effect=[_mock_bytes_response(artifact_pom), _mock_bytes_response(parent_pom)],
+    ):
+        result = _fetch_maven_license("com.example:example-lib", "1.0.0", timeout=10)
+
+    assert result == "Apache License, Version 2.0"
+
+
+def test_fetch_maven_license_gives_up_past_the_max_parent_hops(tmp_path):
+    # Guard against a real network-loop risk: a parent chain that never
+    # terminates (a real cycle, or one deeper than any known real Maven
+    # project) must not turn one dependency's license lookup into an
+    # unbounded fetch loop.
+    from aletheore.licenses import _fetch_maven_license
+
+    def make_pom(next_version: str) -> bytes:
+        return (
+            b'<project xmlns="http://maven.apache.org/POM/4.0.0">'
+            b"<parent><groupId>com.example</groupId><artifactId>chain</artifactId>"
+            b"<version>" + next_version.encode() + b"</version></parent>"
+            b"</project>"
+        )
+
+    responses = [_mock_bytes_response(make_pom(f"{i}.0.0")) for i in range(1, 6)]
+    with patch("aletheore.licenses.urllib.request.urlopen", side_effect=responses):
+        result = _fetch_maven_license("com.example:chain", "0.0.0", timeout=10)
+
+    assert result is None
+
+
+def test_check_dependency_licenses_reports_a_maven_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pom.xml").write_text(
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+        "<dependencies><dependency>"
+        "<groupId>com.example</groupId><artifactId>gplthing</artifactId><version>1.0.0</version>"
+        "</dependency></dependencies></project>"
+    )
+
+    pom_xml = (
+        b'<project xmlns="http://maven.apache.org/POM/4.0.0">'
+        b"<licenses><license><name>GNU General Public License v3.0</name></license></licenses>"
+        b"</project>"
+    )
+
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen", return_value=_mock_bytes_response(pom_xml)
+    ):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "Maven"
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_fetch_rubygems_license_reads_licenses_array():
+    from aletheore.licenses import _fetch_rubygems_license
+
+    response = _mock_response({"licenses": ["MIT"]})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_rubygems_license("rails", "8.0.0", timeout=10)
+
+    assert result == "MIT"
+
+
+def test_fetch_rubygems_license_joins_a_dual_license_array_as_an_or_expression(tmp_path):
+    # Real bug found via audit: a dual/multi-licensed gem's `licenses`
+    # array is the same real "you may comply under whichever you
+    # prefer" choice an SPDX "OR" expression represents - taking
+    # licenses[0] picked whichever the gem's own author happened to
+    # list first, not the most permissive option actually available.
+    from aletheore.licenses import _fetch_rubygems_license, categorize_license
+
+    response = _mock_response({"licenses": ["GPL-2.0", "MIT"]})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_rubygems_license("somegem", "1.0.0", timeout=10)
+
+    assert result == "GPL-2.0 OR MIT"
+    assert categorize_license(result) == "permissive"
+
+
+def test_check_dependency_licenses_reports_a_ruby_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Gemfile.lock").write_text(
+        "GEM\n  remote: https://rubygems.org/\n  specs:\n    gplgem (1.0.0)\n"
+    )
+
+    response = _mock_response({"licenses": ["GPL-3.0"]})
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "RubyGems"
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_fetch_packagist_license_matches_exact_version():
+    from aletheore.licenses import _fetch_packagist_license
+
+    response = _mock_response(
+        {
+            "packages": {
+                "laravel/framework": [
+                    {"version": "11.30.0", "license": ["MIT"]},
+                    {"version": "11.29.0", "license": ["MIT"]},
+                ]
+            }
+        }
+    )
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_packagist_license("laravel/framework", "11.30.0", timeout=10)
+
+    assert result == "MIT"
+
+
+def test_fetch_packagist_license_joins_a_dual_license_array_as_an_or_expression():
+    # Same real gap as RubyGems above, for Packagist's own identical
+    # dual/multi-license array shape.
+    from aletheore.licenses import _fetch_packagist_license, categorize_license
+
+    response = _mock_response(
+        {
+            "packages": {
+                "vendor/pkg": [
+                    {"version": "1.0.0", "license": ["GPL-2.0", "MIT"]},
+                ]
+            }
+        }
+    )
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_packagist_license("vendor/pkg", "1.0.0", timeout=10)
+
+    assert result == "GPL-2.0 OR MIT"
+    assert categorize_license(result) == "permissive"
+
+
+def test_check_dependency_licenses_reports_a_php_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "composer.lock").write_text(
+        json.dumps({"packages": [{"name": "some/gplthing", "version": "1.0.0"}]})
+    )
+
+    response = _mock_response(
+        {"packages": {"some/gplthing": [{"version": "1.0.0", "license": ["GPL-3.0"]}]}}
+    )
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "Packagist"
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_fetch_nuget_license_matches_exact_version():
+    from aletheore.licenses import _fetch_nuget_license
+
+    response = _mock_response(
+        {
+            "items": [
+                {
+                    "items": [
+                        {"catalogEntry": {"version": "13.0.2", "licenseExpression": "MIT"}},
+                        {"catalogEntry": {"version": "13.0.3", "licenseExpression": "MIT"}},
+                    ]
+                }
+            ]
+        }
+    )
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = _fetch_nuget_license("Newtonsoft.Json", "13.0.3", timeout=10)
+
+    assert result == "MIT"
+
+
+def test_check_dependency_licenses_reports_a_nuget_dependency(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "packages.lock.json").write_text(
+        json.dumps({"dependencies": {"net8.0": {"Some.Gpl.Thing": {"resolved": "1.0.0"}}}})
+    )
+
+    response = _mock_response(
+        {
+            "items": [
+                {"items": [{"catalogEntry": {"version": "1.0.0", "licenseExpression": "GPL-3.0"}}]}
+            ]
+        }
+    )
+
+    with patch("aletheore.licenses.urllib.request.urlopen", return_value=response):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "NuGet"
+    assert result["findings"][0]["category"] == "copyleft-strong"
+
+
+def test_check_dependency_licenses_reports_a_gradle_dependency(tmp_path):
+    # Gradle coordinates resolve through the same Maven Central repository
+    # (and the same _fetch_maven_license fetcher) Java's pom.xml pins
+    # already use - this only proves _parse_gradle_pins is correctly wired
+    # into check_dependency_licenses's pin list, not new fetch logic.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "build.gradle.kts").write_text(
+        'dependencies {\n    implementation("com.example:some-gpl-thing:1.0.0")\n}\n'
+    )
+
+    pom_xml = (
+        b'<?xml version="1.0" encoding="UTF-8"?>\n'
+        b'<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+        b"  <licenses>\n"
+        b"    <license>\n"
+        b"      <name>GPL-3.0</name>\n"
+        b"    </license>\n"
+        b"  </licenses>\n"
+        b"</project>\n"
+    )
+
+    with patch(
+        "aletheore.licenses.urllib.request.urlopen", return_value=_mock_bytes_response(pom_xml)
+    ):
+        result = check_dependency_licenses(repo)
+
+    assert len(result["findings"]) == 1
+    assert result["findings"][0]["ecosystem"] == "Maven"
+    assert result["findings"][0]["package"] == "com.example:some-gpl-thing"
+    assert result["findings"][0]["category"] == "copyleft-strong"

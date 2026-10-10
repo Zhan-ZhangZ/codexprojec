@@ -1,0 +1,1919 @@
+/**
+ * Real agent-CLI adapters.
+ *
+ * Exports a generic factory (`createAgentCliAdapter`) and two pre-configured
+ * factories (`createClaudeCliAdapter`, `createCodexCliAdapter`) that spawn
+ * the respective AI coding CLI as a child subprocess.
+ *
+ * Usage in CLI:
+ *   createClaudeCliAdapter({ workingDirectory: process.cwd() })
+ *   createCodexCliAdapter({ workingDirectory: process.cwd() })
+ *
+ * MCP tools and integration tests use the same factories.
+ */
+
+import type {
+  FailureClass,
+  MartinAdapter,
+  MartinAdapterRequest,
+  MartinAdapterResult,
+  MartinObservedUsageGovernor
+} from "@martin/core";
+import {
+  DEFAULT_AGENT_EXECUTION_INTENT,
+  normalizeProviderExecutionTimeoutMs,
+  type AgentExecutionIntent
+} from "@martin/core";
+
+import {
+  readGitChangedFiles,
+  readGitExecutionArtifacts,
+  resolveGitRepositoryRoot,
+  runSubprocess,
+  runVerification,
+  type SpawnLike
+} from "./cli-bridge.js";
+import { buildCodexExecArgs } from "./codex-launcher.js";
+import {
+  createAdapterCapabilities,
+  normalizeStructuredErrors,
+  normalizeUsage
+} from "./runtime-support.js";
+
+// ---------------------------------------------------------------------------
+// Cost estimation
+//
+// Streaming enforcement needs a model-specific estimate until Claude emits
+// authoritative total_cost_usd on the final result event. Unknown Claude
+// models are never assigned another model's price.
+// ---------------------------------------------------------------------------
+
+const BLENDED_INPUT_COST_PER_1K = 0.003;   // $/1K input tokens
+const BLENDED_OUTPUT_COST_PER_1K = 0.012;  // $/1K output tokens
+
+interface ModelPricing {
+  inputPer1K: number;
+  cachedInputPer1K?: number;
+  cacheCreationInputPer1K?: number;
+  outputPer1K: number;
+  pricingVersion?: string;
+  longContext?: {
+    thresholdInputTokens: number;
+    inputPer1K: number;
+    cachedInputPer1K?: number;
+    cacheCreationInputPer1K?: number;
+    outputPer1K: number;
+  };
+}
+
+interface ModelPricingResolution {
+  status: "exact" | "alias" | "unknown";
+  canonicalModelId?: string;
+  pricing?: ModelPricing;
+}
+
+const PRICING_SNAPSHOT_2026_10_04 = "official-provider-pricing@2026-10-04";
+
+// USD per 1K tokens. Rates are standard/on-demand text-token prices from
+// official provider pricing pages as of 2026-10-04. Long-context tiers are
+// selected from the estimated/observed input-token count where providers
+// publish a threshold.
+const MODEL_PRICING: Record<string, ModelPricing> = {
+  // Anthropic current + supported legacy models.
+  "claude-fable-5-1":  { inputPer1K: 0.010, cachedInputPer1K: 0.00025, cacheCreationInputPer1K: 0.0125, outputPer1K: 0.050, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "claude-opus-5-5":   { inputPer1K: 0.004, cachedInputPer1K: 0.0002, cacheCreationInputPer1K: 0.005, outputPer1K: 0.020, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "claude-sonnet-5-5": { inputPer1K: 0.002, cachedInputPer1K: 0.0002, cacheCreationInputPer1K: 0.0025, outputPer1K: 0.010, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "claude-opus-4-6":   { inputPer1K: 0.005, cachedInputPer1K: 0.0005, cacheCreationInputPer1K: 0.00625, outputPer1K: 0.025, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "claude-sonnet-4-6": { inputPer1K: 0.003, cachedInputPer1K: 0.0003, cacheCreationInputPer1K: 0.00375, outputPer1K: 0.015, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "claude-haiku-4-5":  { inputPer1K: 0.001, cachedInputPer1K: 0.0001, cacheCreationInputPer1K: 0.00125, outputPer1K: 0.005, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+
+  // OpenAI / Codex. GPT-6-family long-context pricing applies above 272K input tokens.
+  "gpt-6-astra": {
+    inputPer1K: 0.010, cachedInputPer1K: 0.001, cacheCreationInputPer1K: 0.0125, outputPer1K: 0.050,
+    pricingVersion: PRICING_SNAPSHOT_2026_10_04,
+    longContext: { thresholdInputTokens: 272_000, inputPer1K: 0.020, cachedInputPer1K: 0.002, cacheCreationInputPer1K: 0.025, outputPer1K: 0.075 }
+  },
+  "gpt-6.1-sol": {
+    inputPer1K: 0.002, cachedInputPer1K: 0.0001, cacheCreationInputPer1K: 0.0025, outputPer1K: 0.010,
+    pricingVersion: PRICING_SNAPSHOT_2026_10_04,
+    longContext: { thresholdInputTokens: 272_000, inputPer1K: 0.004, cachedInputPer1K: 0.0002, cacheCreationInputPer1K: 0.005, outputPer1K: 0.015 }
+  },
+  "gpt-6-sol": {
+    inputPer1K: 0.002, cachedInputPer1K: 0.0002, cacheCreationInputPer1K: 0.0025, outputPer1K: 0.010,
+    pricingVersion: PRICING_SNAPSHOT_2026_10_04,
+    longContext: { thresholdInputTokens: 272_000, inputPer1K: 0.004, cachedInputPer1K: 0.0004, cacheCreationInputPer1K: 0.005, outputPer1K: 0.015 }
+  },
+  "gpt-6-luna": {
+    inputPer1K: 0.0001, cachedInputPer1K: 0.00001, cacheCreationInputPer1K: 0.000125, outputPer1K: 0.0005,
+    pricingVersion: PRICING_SNAPSHOT_2026_10_04,
+    longContext: { thresholdInputTokens: 272_000, inputPer1K: 0.0002, cachedInputPer1K: 0.00002, cacheCreationInputPer1K: 0.00025, outputPer1K: 0.00075 }
+  },
+  "gpt-5.6-sol": {
+    inputPer1K: 0.004, cachedInputPer1K: 0.0004, cacheCreationInputPer1K: 0.005, outputPer1K: 0.020,
+    pricingVersion: PRICING_SNAPSHOT_2026_10_04,
+    longContext: { thresholdInputTokens: 272_000, inputPer1K: 0.008, cachedInputPer1K: 0.0008, cacheCreationInputPer1K: 0.010, outputPer1K: 0.030 }
+  },
+  "gpt-5.3-codex":     { inputPer1K: 0.00175, cachedInputPer1K: 0.000175, outputPer1K: 0.014, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "codex":             { inputPer1K: 0.00125, cachedInputPer1K: 0.000125, outputPer1K: 0.010 },
+  "gpt-5-codex":       { inputPer1K: 0.00125, cachedInputPer1K: 0.000125, outputPer1K: 0.010 },
+  "gpt-5.1-codex":     { inputPer1K: 0.00125, cachedInputPer1K: 0.000125, outputPer1K: 0.010 },
+  "gpt-5.1-codex-max": { inputPer1K: 0.00125, cachedInputPer1K: 0.000125, outputPer1K: 0.010 },
+  "gpt-5.2-codex":     { inputPer1K: 0.00175, cachedInputPer1K: 0.000175, outputPer1K: 0.014 },
+  "codex-mini-latest": { inputPer1K: 0.0015, cachedInputPer1K: 0.000375, outputPer1K: 0.006 },
+
+  // Google Gemini current + common supported models.
+  "gemini-3.8-flash":       { inputPer1K: 0.00075, cachedInputPer1K: 0.000075, outputPer1K: 0.00375, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "gemini-3.7-flash":       { inputPer1K: 0.00075, cachedInputPer1K: 0.000075, outputPer1K: 0.00375, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "gemini-3.5-flash-lite":  { inputPer1K: 0.0003, cachedInputPer1K: 0.00003, outputPer1K: 0.0025, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "gemini-3.1-flash-lite":  { inputPer1K: 0.00025, cachedInputPer1K: 0.000025, outputPer1K: 0.0015, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "gemini-3.1-pro-preview": {
+    inputPer1K: 0.002, cachedInputPer1K: 0.0002, outputPer1K: 0.012, pricingVersion: PRICING_SNAPSHOT_2026_10_04,
+    longContext: { thresholdInputTokens: 200_000, inputPer1K: 0.004, cachedInputPer1K: 0.0004, outputPer1K: 0.018 }
+  },
+  "gemini-3-flash-preview": { inputPer1K: 0.0005, cachedInputPer1K: 0.00005, outputPer1K: 0.003, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "gemini-2.5-pro": {
+    inputPer1K: 0.00125, cachedInputPer1K: 0.000125, outputPer1K: 0.010, pricingVersion: PRICING_SNAPSHOT_2026_10_04,
+    longContext: { thresholdInputTokens: 200_000, inputPer1K: 0.0025, cachedInputPer1K: 0.00025, outputPer1K: 0.015 }
+  },
+  "gemini-2.5-flash":      { inputPer1K: 0.0003, cachedInputPer1K: 0.00003, outputPer1K: 0.0025, pricingVersion: PRICING_SNAPSHOT_2026_10_04 },
+  "gemini-2.5-flash-lite": { inputPer1K: 0.0001, cachedInputPer1K: 0.00001, outputPer1K: 0.0004, pricingVersion: PRICING_SNAPSHOT_2026_10_04 }
+};
+
+const CLAUDE_MODEL_ALIASES = [
+  { canonicalModelId: "claude-fable-5-1", aliases: [/^claude-fable-5-1-\d{8}$/u, /^claude-fable$/u, /^fable$/u] },
+  { canonicalModelId: "claude-opus-5-5", aliases: [/^claude-opus-5-5-\d{8}$/u, /^claude-opus$/u, /^opus$/u] },
+  { canonicalModelId: "claude-sonnet-5-5", aliases: [/^claude-sonnet-5-5-\d{8}$/u, /^claude-sonnet$/u, /^sonnet$/u] },
+  { canonicalModelId: "claude-opus-4-6", aliases: [/^claude-opus-4-6-\d{8}$/u] },
+  { canonicalModelId: "claude-sonnet-4-6", aliases: [/^claude-sonnet-4-6-\d{8}$/u] },
+  { canonicalModelId: "claude-haiku-4-5", aliases: [/^claude-haiku-4-5-\d{8}$/u, /^claude-haiku$/u, /^haiku$/u] }
+] as const;
+
+function resolveModelPricing(modelLabel: string | undefined): ModelPricingResolution {
+  const normalized = modelLabel?.trim().toLowerCase();
+  if (!normalized) {
+    return { status: "unknown" };
+  }
+
+  const exact = MODEL_PRICING[normalized];
+  if (exact) {
+    return { status: "exact", canonicalModelId: normalized, pricing: exact };
+  }
+
+  for (const family of CLAUDE_MODEL_ALIASES) {
+    if (family.aliases.some((alias) => alias.test(normalized))) {
+      return {
+        status: "alias",
+        canonicalModelId: family.canonicalModelId,
+        pricing: MODEL_PRICING[family.canonicalModelId]
+      };
+    }
+  }
+
+  return { status: "unknown" };
+}
+
+function effectivePricingForInput(pricing: ModelPricing, inputTokens: number): ModelPricing {
+  const long = pricing.longContext;
+  if (!long || inputTokens <= long.thresholdInputTokens) {
+    return pricing;
+  }
+  return {
+    inputPer1K: long.inputPer1K,
+    cachedInputPer1K: long.cachedInputPer1K,
+    cacheCreationInputPer1K: long.cacheCreationInputPer1K,
+    outputPer1K: long.outputPer1K,
+    pricingVersion: pricing.pricingVersion
+  };
+}
+
+function calculateUsageCost(
+  usage: {
+    inputTokens: number;
+    cachedInputTokens: number;
+    cacheCreationInputTokens: number;
+    outputTokens: number;
+  },
+  pricing: ModelPricing,
+  contextInputTokens = usage.inputTokens + usage.cachedInputTokens + usage.cacheCreationInputTokens
+): number {
+  const effective = effectivePricingForInput(pricing, contextInputTokens);
+  return (
+    (usage.inputTokens / 1000) * effective.inputPer1K +
+    (usage.cachedInputTokens / 1000) * (effective.cachedInputPer1K ?? effective.inputPer1K) +
+    (usage.cacheCreationInputTokens / 1000) * (effective.cacheCreationInputPer1K ?? effective.inputPer1K) +
+    (usage.outputTokens / 1000) * effective.outputPer1K
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Claude CLI JSON output shape (--output-format json)
+// ---------------------------------------------------------------------------
+
+interface ClaudeJsonOutput {
+  type: string;
+  subtype?: string;
+  result?: string;
+  error?: string;
+  /** Authoritative cumulative cost reported by Claude on the final `result` event (json/stream-json). */
+  total_cost_usd?: number;
+  usage?: {
+    // camelCase (older SDK versions)
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    // snake_case (Claude CLI --output-format json)
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+}
+
+interface CodexJsonEvent {
+  type?: string;
+  item?: {
+    id?: string;
+    type?: string;
+    text?: string;
+  };
+  usage?: {
+    input_tokens?: number;
+    cached_input_tokens?: number;
+    output_tokens?: number;
+    reasoning_output_tokens?: number;
+  };
+}
+
+interface GeminiJsonOutput {
+  session_id?: string;
+  response?: string;
+  stats?: {
+    cachedReadTokens?: number;
+    cachedWriteTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    thoughtTokens?: number;
+    totalTokens?: number;
+  };
+  error?: {
+    type?: string;
+    message?: string;
+    code?: number;
+  };
+}
+
+const EMBEDDED_PRICING_VERSION = "embedded-v1";
+// Source snapshot: https://developers.openai.com/api/docs/models/gpt-6.1-sol
+
+function extractClaudeObservedModel(stdout: string): string | undefined {
+  for (const line of stdout.split(/\r?\n/u)) {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (event.type === "system" && event.subtype === "init" && typeof event.model === "string") {
+        return event.model;
+      }
+    } catch {
+      // Ignore non-JSON stream fragments.
+    }
+  }
+  return undefined;
+}
+
+function extractUsage(
+  parsed: ClaudeJsonOutput | undefined,
+  modelLabel: string | undefined,
+  modelSource: "provider_reported" | "explicit_override" | "agent_default"
+): MartinAdapterResult["usage"] {
+  if (!parsed?.usage) {
+    return normalizeUsage({
+      actualUsd: 0,
+      tokensIn: 0,
+      tokensOut: 0,
+      provenance: "unavailable"
+    });
+  }
+
+  const promptTokens = parsed.usage.inputTokens ?? parsed.usage.input_tokens ?? 0;
+  const cacheCreationInputTokens =
+    parsed.usage.cacheCreationInputTokens ?? parsed.usage.cache_creation_input_tokens ?? 0;
+  const cachedInputTokens =
+    parsed.usage.cacheReadInputTokens ?? parsed.usage.cache_read_input_tokens ?? 0;
+  const tokensIn = promptTokens + cachedInputTokens + cacheCreationInputTokens;
+  const tokensOut = parsed.usage.outputTokens ?? parsed.usage.output_tokens ?? 0;
+
+  const pricingResolution = resolveModelPricing(modelLabel);
+
+  // Prefer Claude's own authoritative total_cost_usd (present on the final
+  // `result` event in json/stream-json output) over our pricing-table estimate,
+  // which can drift from real billed cost (cache discounts, surcharges, etc).
+  const hasAuthoritativeCost = typeof parsed.total_cost_usd === "number";
+  const actualUsd: number = hasAuthoritativeCost
+    ? (parsed.total_cost_usd as number)
+    : pricingResolution.pricing
+      ? calculateUsageCost({
+          inputTokens: promptTokens,
+          cachedInputTokens,
+          cacheCreationInputTokens,
+          outputTokens: tokensOut
+        }, pricingResolution.pricing)
+      : 0;
+
+  return normalizeUsage({
+    actualUsd: Number(actualUsd.toFixed(6)),
+    tokensIn,
+    tokensOut,
+    cachedInputTokens,
+    provenance: hasAuthoritativeCost ? "actual" : pricingResolution.pricing ? "calculated" : "unavailable",
+    providerSettlement: {
+      providerId: "claude",
+      ...(modelLabel ? { model: modelLabel } : {}),
+      transport: "cli",
+      source: "claude_json",
+      inputTokens: promptTokens + cacheCreationInputTokens,
+      cachedInputTokens,
+      cacheCreationInputTokens,
+      outputTokens: tokensOut,
+      billingMode: "unknown",
+      modelSource,
+      pricingSource: hasAuthoritativeCost
+        ? "provider_reported_total"
+        : pricingResolution.pricing
+          ? "static_catalog"
+          : "none",
+      ...(pricingResolution.pricing
+        ? { pricingVersion: pricingResolution.pricing.pricingVersion ?? EMBEDDED_PRICING_VERSION }
+        : {}),
+      rawUsageAvailable: true,
+      settledAt: new Date().toISOString()
+    }
+  });
+}
+
+function extractCodexJsonlResult(
+  stdout: string,
+  modelLabel: string | undefined
+): { summary: string; usage: MartinAdapterResult["usage"] } | undefined {
+  const events = stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as CodexJsonEvent;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((event): event is CodexJsonEvent => event !== undefined);
+
+  if (events.length === 0) {
+    return undefined;
+  }
+
+  const latestAgentMessage = [...events]
+    .reverse()
+    .find((event) => event.type === "item.completed" && event.item?.type === "agent_message");
+  const latestTurnCompleted = [...events]
+    .reverse()
+    .find((event) => event.type === "turn.completed" && event.usage !== undefined);
+
+  const summary =
+    typeof latestAgentMessage?.item?.text === "string" && latestAgentMessage.item.text.trim().length > 0
+      ? latestAgentMessage.item.text.trim()
+      : stdout.trim();
+
+  if (!latestTurnCompleted?.usage) {
+    return {
+      summary,
+      usage: normalizeUsage({
+        actualUsd: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+        provenance: "unavailable",
+        providerSettlement: {
+          providerId: "codex",
+          ...(modelLabel ? { model: modelLabel } : {}),
+          transport: "cli",
+          source: "unavailable",
+          inputTokens: 0,
+          outputTokens: 0,
+          rawUsageAvailable: false,
+          settledAt: new Date().toISOString()
+        }
+      })
+    };
+  }
+
+  const promptTokens = latestTurnCompleted.usage.input_tokens ?? 0;
+  const cachedInputTokens = latestTurnCompleted.usage.cached_input_tokens ?? 0;
+  const outputTokens = latestTurnCompleted.usage.output_tokens ?? 0;
+  const reasoningOutputTokens = latestTurnCompleted.usage.reasoning_output_tokens ?? 0;
+  // Codex exposes cached/reasoning token detail fields as subsets of the
+  // corresponding input/output totals. Do not add those details twice.
+  const tokensIn = promptTokens;
+  const tokensOut = outputTokens;
+  const pricingResolution = resolveModelPricing(modelLabel);
+  const exactPricing = pricingResolution.pricing;
+  const pricing =
+    exactPricing ?? MODEL_PRICING["codex"] ??
+    { inputPer1K: BLENDED_INPUT_COST_PER_1K, outputPer1K: BLENDED_OUTPUT_COST_PER_1K };
+  const actualUsd = calculateUsageCost({
+    inputTokens: Math.max(promptTokens - cachedInputTokens, 0),
+    cachedInputTokens,
+    cacheCreationInputTokens: 0,
+    outputTokens
+  }, pricing, promptTokens);
+
+  return {
+    summary,
+    usage: normalizeUsage({
+      actualUsd: Number(actualUsd.toFixed(6)),
+      tokensIn,
+      tokensOut,
+      cachedInputTokens,
+      reasoningTokensOut: reasoningOutputTokens,
+      provenance: exactPricing ? "calculated" : "estimated",
+      providerSettlement: {
+        providerId: "codex",
+        ...(modelLabel ? { model: modelLabel } : {}),
+        transport: "cli",
+        source: "codex_jsonl",
+        inputTokens: promptTokens,
+        cachedInputTokens,
+        outputTokens,
+        reasoningOutputTokens,
+        billingMode: "unknown",
+        modelSource: modelLabel ? "explicit_override" : "agent_default",
+        pricingSource: exactPricing ? "static_catalog" : "blended_fallback",
+        pricingVersion: exactPricing?.pricingVersion ?? EMBEDDED_PRICING_VERSION,
+        rawUsageAvailable: true,
+        settledAt: new Date().toISOString()
+      }
+    })
+  };
+}
+
+function extractGeminiJsonResult(
+  stdout: string,
+  modelLabel: string | undefined
+): { summary: string; usage: MartinAdapterResult["usage"] } | undefined {
+  let parsed: GeminiJsonOutput | undefined;
+  try {
+    parsed = JSON.parse(stdout) as GeminiJsonOutput;
+  } catch {
+    return undefined;
+  }
+
+  const summary =
+    typeof parsed.response === "string" && parsed.response.trim().length > 0
+      ? parsed.response.trim()
+      : typeof parsed.error?.message === "string" && parsed.error.message.trim().length > 0
+        ? parsed.error.message.trim()
+        : stdout.trim();
+
+  const promptTokens = parsed.stats?.inputTokens ?? 0;
+  const cachedInputTokens = parsed.stats?.cachedReadTokens ?? 0;
+  const outputTokens = parsed.stats?.outputTokens ?? 0;
+  const reasoningOutputTokens = parsed.stats?.thoughtTokens ?? 0;
+  const hasUsage =
+    parsed.stats !== undefined &&
+    (promptTokens > 0 || cachedInputTokens > 0 || outputTokens > 0 || reasoningOutputTokens > 0);
+
+  if (!hasUsage) {
+    return {
+      summary,
+      usage: normalizeUsage({
+        actualUsd: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+        provenance: "unavailable",
+        providerSettlement: {
+          providerId: "gemini",
+          ...(modelLabel ? { model: modelLabel } : {}),
+          transport: "cli",
+          source: "unavailable",
+          inputTokens: 0,
+          outputTokens: 0,
+          rawUsageAvailable: false,
+          settledAt: new Date().toISOString()
+        }
+      })
+    };
+  }
+
+  const tokensIn = promptTokens + cachedInputTokens;
+  const tokensOut = outputTokens + reasoningOutputTokens;
+  const pricingResolution = resolveModelPricing(modelLabel);
+  const exactPricing = pricingResolution.pricing;
+  const pricing =
+    exactPricing ??
+    { inputPer1K: BLENDED_INPUT_COST_PER_1K, outputPer1K: BLENDED_OUTPUT_COST_PER_1K };
+  const actualUsd = calculateUsageCost({
+    inputTokens: promptTokens,
+    cachedInputTokens,
+    cacheCreationInputTokens: 0,
+    outputTokens: tokensOut
+  }, pricing, promptTokens + cachedInputTokens);
+
+  return {
+    summary,
+    usage: normalizeUsage({
+      actualUsd: Number(actualUsd.toFixed(6)),
+      tokensIn,
+      tokensOut,
+      cachedInputTokens,
+      reasoningTokensOut: reasoningOutputTokens,
+      provenance: "estimated",
+      providerSettlement: {
+        providerId: "gemini",
+        ...(modelLabel ? { model: modelLabel } : {}),
+        transport: "cli",
+        source: "gemini_json",
+        inputTokens: promptTokens,
+        cachedInputTokens,
+        outputTokens,
+        reasoningOutputTokens,
+        billingMode: "unknown",
+        modelSource: modelLabel ? "explicit_override" : "agent_default",
+        pricingSource: exactPricing ? "static_catalog" : "blended_fallback",
+        pricingVersion: exactPricing?.pricingVersion ?? EMBEDDED_PRICING_VERSION,
+        rawUsageAvailable: true,
+        settledAt: new Date().toISOString()
+      }
+    })
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Streaming usage circuit breaker (stream-json)
+//
+// `claude --print --output-format json` only emits a single JSON blob at
+// process exit, so a runaway attempt's true cost/token consumption is
+// invisible until the whole subprocess has already finished — by which point
+// MartinLoop has no way to stop the spend (proven live: a $1 budget attempt
+// settled at $3.50 actual / ~93x the configured token cap). `stream-json`
+// emits one JSON object per turn, each carrying that turn's usage, so we can
+// track cumulative spend in real time and kill the subprocess the moment it
+// crosses the per-attempt cap — bounding the worst case to roughly one turn's
+// overshoot instead of the entire runaway session.
+// ---------------------------------------------------------------------------
+
+interface StreamingUsageSnapshot {
+  cumulativeUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+  turns: number;
+  finalResult?: ClaudeJsonOutput;
+}
+
+function createStreamingUsageInspector(
+  capUsd: number,
+  modelLabel: string | undefined,
+  promptTokenEstimate: number,
+  capTokens?: number,
+  detailTokensIncludedInTotals = false,
+  observedUsageGovernor?: MartinObservedUsageGovernor
+): {
+  onChunk: (chunk: Buffer, terminate: (reason: string) => void) => void;
+  snapshot: () => StreamingUsageSnapshot;
+} {
+  let pricingResolution = resolveModelPricing(modelLabel);
+
+  // Safety margin: terminate at 80% of cap to bound one-turn overshoot.
+  // Without this, a single expensive turn can blow past the cap before the
+  // next check fires (proven live: $1.50 cap → $28.42 actual).
+  const largeContext = promptTokenEstimate > 10_000;
+  const effectiveCapRatio = largeContext ? 0.7 : 0.8;
+  const effectiveCapUsd = capUsd * effectiveCapRatio;
+
+  // Token-count ceiling fallback: if no usage events are ever parsed (e.g.
+  // Claude changes its stream-json event format), use raw byte volume as a
+  // last-resort circuit breaker. Derived from budget / blended cost per char.
+  const resolveBlendedCostPerChar = () => {
+    const pricing = pricingResolution.pricing;
+    return pricing
+      ? (pricing.inputPer1K / 1000 / 4) + (pricing.outputPer1K / 1000 / 4)
+      : undefined;
+  };
+
+  // Time-based fallback: if we receive data but no usage events for this long,
+  // estimate spend from byte volume and enforce the cap. Prevents the inspector
+  // from going blind when Claude changes its stream-json event format.
+  const USAGE_BLIND_TIMEOUT_MS = 30_000;
+
+  let buffer = "";
+  let cumulativeUsd = 0;
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let turns = 0;
+  let totalBytes = 0;
+  let usageEventSeen = false;
+  let firstChunkAt: number | undefined;
+  let finalResult: ClaudeJsonOutput | undefined;
+  let finalObservationPublished = false;
+  const observedEventIdentities = new Set<string>();
+
+  const checkBudgetExceeded = (terminate: (reason: string) => void, final = false) => {
+    const cumulativeTokens = tokensIn + tokensOut;
+    if (observedUsageGovernor) {
+      if (final && finalObservationPublished) return;
+      if (final) finalObservationPublished = true;
+      try {
+        const decision = observedUsageGovernor({ cumulativeUsd, cumulativeTokens, turns, final });
+        if (decision.action === "terminate") {
+          terminate(`Parent observed-usage governor terminated the subprocess: ${decision.reason}.`);
+        }
+      } catch (error) {
+        terminate(`Parent observed-usage governor failed closed: ${error instanceof Error ? error.message : String(error)}.`);
+      }
+      return;
+    }
+    if (capTokens !== undefined && capTokens > 0 && cumulativeTokens > capTokens) {
+      terminate(
+        `Streaming token lease exceeded after ${String(turns)} turn(s): observed ${String(cumulativeTokens)} tokens ` +
+          `surpassed the per-attempt token cap ${String(capTokens)}. Subprocess terminated to prevent additional token usage.`
+      );
+      return;
+    }
+    if (capUsd > 0 && cumulativeUsd > effectiveCapUsd) {
+      terminate(
+        `Streaming usage cap exceeded after ${String(turns)} turn(s): cumulative cost ~$${cumulativeUsd.toFixed(4)} ` +
+          `surpassed the per-attempt cap $${capUsd.toFixed(4)} (${String(Math.round(effectiveCapRatio * 100))}% threshold: $${effectiveCapUsd.toFixed(4)}). ` +
+          `Subprocess terminated to bound runaway overspend.`
+      );
+    }
+  };
+
+  const extractUsageFromEvent = (
+    event: Record<string, unknown>,
+    terminate: (reason: string) => void,
+    final = false
+  ) => {
+    const nestedMessage = event.message && typeof event.message === "object"
+      ? event.message as Record<string, unknown>
+      : undefined;
+    const providerEventId = typeof event.id === "string"
+      ? event.id
+      : typeof nestedMessage?.id === "string" ? nestedMessage.id : undefined;
+    if (providerEventId) {
+      const identity = `${String(event.type ?? "event")}:${providerEventId}`;
+      if (observedEventIdentities.has(identity)) return;
+      observedEventIdentities.add(identity);
+    }
+    if (event.type === "system" && event.subtype === "init" && typeof event.model === "string") {
+      pricingResolution = resolveModelPricing(event.model);
+    }
+
+    // Check for authoritative total_cost_usd on ANY event — if Claude reports
+    // cost exceeding cap, terminate immediately regardless of event type.
+    const authoritativeCost = typeof event.total_cost_usd === "number" && event.total_cost_usd >= 0;
+    if (authoritativeCost) cumulativeUsd = Math.max(cumulativeUsd, event.total_cost_usd as number);
+
+    // Extract usage from any event shape that carries it:
+    //   - { type: "assistant", message: { usage: { ... } } }  (original format)
+    //   - { usage: { input_tokens, output_tokens, ... } }      (top-level usage)
+    //   - { message: { usage: { ... } } }                      (nested without type check)
+    const usage =
+      (nestedMessage && "usage" in nestedMessage
+        ? nestedMessage.usage
+        : undefined) ??
+      (event.usage && typeof event.usage === "object" ? event.usage : undefined);
+
+    if (!usage || typeof usage !== "object") {
+      if (authoritativeCost || final) checkBudgetExceeded(terminate, final);
+      return;
+    }
+
+    const usageRecord = usage as Record<string, number>;
+    const turnInputTokens = usageRecord.input_tokens ?? usageRecord.inputTokens ?? 0;
+    const turnCachedInputTokens =
+      usageRecord.cached_input_tokens ?? usageRecord.cachedInputTokens ??
+      usageRecord.cache_read_input_tokens ?? usageRecord.cacheReadInputTokens ?? 0;
+    const turnCacheCreationInputTokens =
+      usageRecord.cache_creation_input_tokens ?? usageRecord.cacheCreationInputTokens ?? 0;
+    const turnTokensIn = detailTokensIncludedInTotals
+      ? turnInputTokens
+      : turnInputTokens + turnCachedInputTokens + turnCacheCreationInputTokens;
+    const turnOutputTokens = usageRecord.output_tokens ?? usageRecord.outputTokens ?? 0;
+    const turnReasoningOutputTokens =
+      usageRecord.reasoning_output_tokens ?? usageRecord.reasoningOutputTokens ?? 0;
+    const turnTokensOut = detailTokensIncludedInTotals
+      ? turnOutputTokens
+      : turnOutputTokens + turnReasoningOutputTokens;
+
+    if (turnTokensIn === 0 && turnTokensOut === 0) {
+      if (authoritativeCost || final) checkBudgetExceeded(terminate, final);
+      return;
+    }
+
+    const turnUsd = pricingResolution.pricing
+      ? calculateUsageCost({
+          inputTokens: detailTokensIncludedInTotals
+            ? Math.max(turnInputTokens - turnCachedInputTokens - turnCacheCreationInputTokens, 0)
+            : turnInputTokens,
+          cachedInputTokens: turnCachedInputTokens,
+          cacheCreationInputTokens: turnCacheCreationInputTokens,
+          outputTokens: turnTokensOut
+        }, pricingResolution.pricing)
+      : undefined;
+    const remainingBudgetBeforeTurn = Math.max(capUsd - cumulativeUsd, 0);
+
+    if (
+      !observedUsageGovernor && !final && !authoritativeCost && turnUsd !== undefined &&
+      capUsd > 0 &&
+      remainingBudgetBeforeTurn > 0 &&
+      turnUsd > remainingBudgetBeforeTurn * 0.5
+    ) {
+      cumulativeUsd += turnUsd;
+      tokensIn += turnTokensIn;
+      tokensOut += turnTokensOut;
+      turns += 1;
+      usageEventSeen = true;
+      terminate(
+        `Single turn spend ~$${turnUsd.toFixed(4)} consumed more than 50% of the remaining per-attempt budget ` +
+          `($${remainingBudgetBeforeTurn.toFixed(4)} before the turn). Subprocess terminated to prevent a one-turn overshoot.`
+      );
+      return;
+    }
+
+    tokensIn += turnTokensIn;
+    tokensOut += turnTokensOut;
+    turns += 1;
+    usageEventSeen = true;
+    if (!authoritativeCost && turnUsd !== undefined) {
+      cumulativeUsd += turnUsd;
+    }
+
+    checkBudgetExceeded(terminate, final);
+  };
+
+  const ingestLine = (line: string, terminate: (reason: string) => void) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    if (event.type === "result") {
+      finalResult = event as unknown as ClaudeJsonOutput;
+      // Claude's final result usage is an aggregate repeat of usage already
+      // emitted on assistant events. Count it only when no incremental usage
+      // was observed, otherwise token leases are falsely doubled.
+      if (!usageEventSeen) {
+        extractUsageFromEvent(event, terminate, true);
+      } else {
+        if (typeof event.total_cost_usd === "number" && event.total_cost_usd >= 0) {
+          cumulativeUsd = Math.max(cumulativeUsd, event.total_cost_usd);
+        }
+        checkBudgetExceeded(terminate, true);
+      }
+      return;
+    }
+
+    extractUsageFromEvent(event, terminate);
+  };
+
+  return {
+    onChunk: (chunk, terminate) => {
+      const chunkStr = chunk.toString("utf8");
+      totalBytes += chunk.byteLength;
+      buffer += chunkStr;
+      firstChunkAt ??= Date.now();
+
+      // Token-count ceiling fallback: if we've ingested a lot of bytes but
+      // never seen a single usage event, the event format may have changed
+      // and the inspector is silently blind. Terminate as a last resort.
+      const blendedCostPerChar = resolveBlendedCostPerChar();
+      const bytesCeiling = blendedCostPerChar && blendedCostPerChar > 0
+        ? Math.ceil((capUsd / blendedCostPerChar) * 2)
+        : undefined;
+      if (!usageEventSeen && capUsd > 0 && bytesCeiling !== undefined && totalBytes > bytesCeiling) {
+        terminate(
+          `Streaming byte ceiling exceeded (${String(totalBytes)} bytes > ${String(bytesCeiling)} ceiling) ` +
+            `without any usage events parsed. The Claude stream-json event format may have changed. ` +
+            `Subprocess terminated as a fallback budget guard for cap $${capUsd.toFixed(4)}.`
+        );
+        return;
+      }
+
+      // Time-based fallback: if we've been receiving data for 30+ seconds
+      // without a single usage event, estimate spend from byte volume and
+      // enforce the cap. This catches cases where Claude's event format
+      // changed but bytes are still flowing.
+      if (
+        !usageEventSeen &&
+        capUsd > 0 &&
+        firstChunkAt !== undefined &&
+        Date.now() - firstChunkAt > USAGE_BLIND_TIMEOUT_MS &&
+        totalBytes > 10_000
+      ) {
+        const estimatedUsd = blendedCostPerChar === undefined ? undefined : totalBytes * blendedCostPerChar;
+        if (estimatedUsd !== undefined && estimatedUsd > effectiveCapUsd) {
+          terminate(
+            `No usage events received after ${String(Math.round((Date.now() - firstChunkAt) / 1000))}s ` +
+              `(${String(totalBytes)} bytes). Estimated cost ~$${estimatedUsd.toFixed(4)} exceeds cap ` +
+              `$${capUsd.toFixed(4)}. Subprocess terminated to prevent unmetered spend.`
+          );
+          return;
+        }
+      }
+
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        ingestLine(line, terminate);
+        newlineIndex = buffer.indexOf("\n");
+      }
+    },
+    snapshot: () => ({ cumulativeUsd, tokensIn, tokensOut, turns, ...(finalResult ? { finalResult } : {}) })
+  };
+}
+
+/**
+ * Parses Claude's `stream-json` output (one JSON object per line) and returns
+ * the final `result` event, which carries the same `result`/`usage`/
+ * `total_cost_usd` fields as the single-blob `json` format.
+ */
+function parseStreamJsonResult(stdout: string): ClaudeJsonOutput | undefined {
+  let lastResult: ClaudeJsonOutput | undefined;
+  for (const rawLine of stdout.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    try {
+      const event = JSON.parse(line) as ClaudeJsonOutput;
+      if (event.type === "result") {
+        lastResult = event;
+      }
+    } catch {
+      // Ignore non-JSON / partial lines.
+    }
+  }
+  return lastResult;
+}
+
+// ---------------------------------------------------------------------------
+// Structural failure hint detection
+//
+// Provides a classHint to failure-taxonomy based on structural evidence
+// rather than keyword scanning (which suffers from false positives).
+// ---------------------------------------------------------------------------
+
+function inferStructuralClassHint(
+  agentOutput: string,
+  verificationSummary: string,
+  exitCode: number,
+  objective: string
+): FailureClass | undefined {
+  // Exit code + stderr "Error:" pattern → syntax error
+  if (exitCode !== 0 && /\bError:/i.test(verificationSummary)) {
+    return "syntax_error";
+  }
+
+  // Agent output grossly longer than objective → scope creep signal
+  // (5× ratio heuristic: if the agent wrote 5× more than the objective length, flag it)
+  if (agentOutput.length > objective.length * 10 && agentOutput.length > 2000) {
+    return "scope_creep";
+  }
+
+  // Repeated identical short responses → stalled / hallucination
+  const trimmed = agentOutput.trim();
+  if (trimmed.length < 100 && trimmed.length > 0) {
+    // Very short response on a non-trivial task could be hallucination
+    return "hallucination";
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a prompt string, returns the full argv array to pass to spawn().
+ * Example for Claude:  () => ["--output-format", "json", "--print"]
+ * Example for Codex:   () => ["exec", "--sandbox", "workspace-write", "-"]
+ */
+export type CliArgsBuilder = (prompt: string, request: MartinAdapterRequest) => string[];
+export type CliStdinBuilder = (prompt: string) => string | undefined;
+
+export interface AgentCliAdapterOptions {
+  /** Stable provider identity (e.g. "claude", "codex"). */
+  command: string;
+  /** Exact executable to spawn when it differs from the provider identity. */
+  executionCommand?: string;
+  /** Converts a prompt string into the argv array passed to spawn(). */
+  argsBuilder: CliArgsBuilder;
+  /** Optional stdin payload for CLIs that accept prompt input via stdin or `-`. */
+  stdinBuilder?: CliStdinBuilder;
+  /** Adapter ID suffix. Defaults to command. */
+  adapterIdSuffix?: string;
+  /** Working directory for all subprocesses. Defaults to process.cwd(). */
+  workingDirectory?: string;
+  /** Timeout for the agent subprocess in ms. Defaults to 300_000 (5 min). */
+  timeoutMs?: number;
+  agentExecutionIntent?: AgentExecutionIntent;
+  providerExecutionTimeoutMs?: number;
+  /** Timeout per verification command in ms. Defaults to 120_000 (2 min). */
+  verifyTimeoutMs?: number;
+  /** Human-readable label shown in loop records. */
+  label?: string;
+  /** Model name surfaced in adapter metadata (also used for cost estimation). */
+  model?: string;
+  /**
+   * Whether the CLI outputs JSON when --output-format json is passed.
+   * Set to false for CLIs that don't support this flag (e.g. Codex).
+   * Defaults to true for Claude.
+   */
+  supportsJsonOutput?: boolean;
+  /**
+   * Set when `argsBuilder` requests `--output-format stream-json` (newline-
+   * delimited JSON events) rather than single-blob `json`. Enables (a)
+   * incremental result parsing that scans for the final `result` event, and
+   * (b) a live cumulative-cost circuit breaker that terminates the subprocess
+   * the moment projected spend crosses the remaining per-attempt budget,
+   * rather than only learning about an overspend after the process exits.
+   */
+  streamingUsageCap?: boolean;
+  /** Terminate after streamed provider usage reports request.context.remainingTokens was exceeded. */
+  streamingTokenCap?: boolean;
+  /** Provider detail-token fields are already included in input/output token totals. */
+  streamingUsageDetailsIncludedInTotals?: boolean;
+  /** Estimated floor used by the host to reject impossible token caps before spawning. */
+  budgetPreflight?: {
+    minimumViableTokens: number;
+    basis: string;
+  };
+  /** Test-only override for subprocess spawning. */
+  spawnImpl?: SpawnLike;
+}
+
+export interface ClaudeCliAdapterOptions {
+  workingDirectory?: string;
+  timeoutMs?: number;
+  agentExecutionIntent?: AgentExecutionIntent;
+  providerExecutionTimeoutMs?: number;
+  verifyTimeoutMs?: number;
+  label?: string;
+  /** Override the model passed via --model flag. */
+  model?: string;
+  /** Enforce Claude Code's non-mutating plan permission mode. */
+  readOnly?: boolean;
+  /** Extra args appended after core args (before prompt). */
+  extraArgs?: string[];
+  spawnImpl?: SpawnLike;
+}
+
+export interface CodexCliAdapterOptions {
+  /** Override the executable or absolute command path used to launch Codex. */
+  command?: string;
+  workingDirectory?: string;
+  timeoutMs?: number;
+  agentExecutionIntent?: AgentExecutionIntent;
+  providerExecutionTimeoutMs?: number;
+  verifyTimeoutMs?: number;
+  label?: string;
+  /** Override the model passed via --model flag. */
+  model?: string;
+  /**
+   * Deprecated no-op retained for compatibility.
+   *
+   * Codex CLI's supported non-interactive entrypoint is `codex exec`.
+   * MartinLoop now uses explicit sandboxing instead of the legacy
+   * `--full-auto` compatibility path, which can exit before verifier execution.
+   */
+  fullAuto?: boolean;
+  /** Codex sandbox mode for model-generated commands. Defaults to workspace-write. */
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  /** Extra args appended after core args (before prompt). */
+  extraArgs?: string[];
+  spawnImpl?: SpawnLike;
+}
+
+export interface GeminiCliAdapterOptions {
+  workingDirectory?: string;
+  timeoutMs?: number;
+  agentExecutionIntent?: AgentExecutionIntent;
+  providerExecutionTimeoutMs?: number;
+  verifyTimeoutMs?: number;
+  label?: string;
+  /** Explicit model override passed via --model. Omitted to preserve Gemini Auto. */
+  model?: string;
+  /** Enforce Gemini's non-mutating plan approval mode. */
+  readOnly?: boolean;
+  /** Approval mode for headless Gemini runs. Defaults to yolo for autonomous execution. */
+  approvalMode?: "default" | "auto_edit" | "yolo" | "plan";
+  /** Enable Gemini sandbox mode when the host is configured for it. Disabled by default. */
+  sandbox?: boolean;
+  /** Extra args appended after core args. */
+  extraArgs?: string[];
+  spawnImpl?: SpawnLike;
+}
+
+// ---------------------------------------------------------------------------
+// Generic factory
+// ---------------------------------------------------------------------------
+
+export function createAgentCliAdapter(options: AgentCliAdapterOptions): MartinAdapter {
+  const workingDirectory = options.workingDirectory ?? process.cwd();
+  const agentExecutionIntent = options.agentExecutionIntent ?? DEFAULT_AGENT_EXECUTION_INTENT;
+  const timeoutMs = normalizeProviderExecutionTimeoutMs(
+    options.providerExecutionTimeoutMs ?? options.timeoutMs
+  );
+  const verifyTimeoutMs = options.verifyTimeoutMs ?? 120_000;
+  const adapterId = `agent-cli:${options.adapterIdSuffix ?? options.command}`;
+  const supportsJsonOutput = options.supportsJsonOutput === true;
+  const supportsUsageSettlement =
+    supportsJsonOutput || options.command === "codex" || options.command === "gemini";
+
+  const adapter: MartinAdapter = {
+    adapterId,
+    kind: "agent-cli",
+    label: options.label ?? `${options.command} CLI adapter`,
+    metadata: {
+      providerId: options.command,
+      ...(options.model ? { model: options.model } : {}),
+      transport: "cli",
+      agentExecutionIntent,
+      providerExecutionTimeoutMs: timeoutMs,
+      ...(options.budgetPreflight ? { budgetPreflight: options.budgetPreflight } : {}),
+      capabilities: createAdapterCapabilities({
+        preflight: true,
+        usageSettlement: supportsUsageSettlement,
+        diffArtifacts: true,
+        structuredErrors: true,
+        cachingSignals: supportsUsageSettlement
+      })
+    },
+
+    async execute(request: MartinAdapterRequest): Promise<MartinAdapterResult> {
+      const prompt = buildPrompt(request);
+      const estimatedUsage = estimateUsage(prompt, options.model ?? options.command, options.command);
+      const repoRoot = (request.context as { repoRoot?: string }).repoRoot;
+      const gitRepoRoot = repoRoot ? resolveGitRepositoryRoot(repoRoot) : undefined;
+      // A governed run may begin in a deliberately dirty workspace. Capture that
+      // baseline so existing operator work is neither reported as this run's
+      // execution nor treated as scope creep.
+      const baselineChangedFiles = gitRepoRoot
+        ? new Set(await readGitChangedFiles(gitRepoRoot, 5_000, options.spawnImpl))
+        : new Set<string>();
+
+      // Preflight: bail if projected cost exceeds remaining budget
+      if (request.context.remainingBudgetUsd > 0) {
+        const projected = estimatePromptCost(prompt, options.model ?? "", options.command);
+        if (projected !== undefined && projected > request.context.remainingBudgetUsd * 0.95) {
+          return {
+            status: "failed",
+            summary: `Preflight: projected cost $${projected.toFixed(4)} exceeds remaining budget $${request.context.remainingBudgetUsd.toFixed(4)}.`,
+            usage: normalizeUsage({
+              actualUsd: projected,
+              estimatedUsd: projected,
+              tokensIn: estimatedUsage.tokensIn,
+              tokensOut: estimatedUsage.tokensOut,
+              provenance: "estimated"
+            }),
+            verification: { passed: false, summary: "Stopped before execution: budget preflight failed." },
+            failure: { message: "budget_preflight_exceeded", classHint: "budget_pressure" as FailureClass }
+          };
+        }
+      }
+
+      const args = options.argsBuilder(prompt, request);
+      const stdinData = options.stdinBuilder?.(prompt);
+      const executionTimeoutMs = normalizeProviderExecutionTimeoutMs(
+        request.context.providerExecutionTimeoutMs ?? timeoutMs
+      );
+
+      // Live cumulative-cost circuit breaker: a single attempt should never be
+      // allowed to spend more than the loop has left. `--output-format json`
+      // only reports usage once the process exits, so for `stream-json` we
+      // watch per-turn usage events as they arrive and kill the subprocess the
+      // instant projected spend crosses what remains — bounding the worst case
+      // to roughly one turn's overshoot rather than the entire runaway session.
+      const streamingUsage =
+        options.streamingUsageCap &&
+          (request.context.remainingBudgetUsd > 0 ||
+            (options.streamingTokenCap && (request.context.remainingTokens ?? 0) > 0))
+          ? createStreamingUsageInspector(
+            request.context.remainingBudgetUsd,
+            options.model ?? options.command,
+            estimatedUsage.tokensIn,
+            options.streamingTokenCap ? request.context.remainingTokens : undefined,
+            options.streamingUsageDetailsIncludedInTotals,
+            request.observedUsageGovernor
+          )
+          : undefined;
+
+      const agentResult = await runSubprocess(options.executionCommand ?? options.command, args, {
+        cwd: workingDirectory,
+        timeoutMs: executionTimeoutMs,
+        spawnImpl: options.spawnImpl,
+        ...(stdinData === undefined ? {} : { stdinData }),
+        ...(streamingUsage ? { onStdoutChunk: streamingUsage.onChunk } : {}),
+        ...(request.signal !== undefined ? { signal: request.signal } : {})
+      });
+
+      if (agentResult.terminationReason) {
+        const snapshot = streamingUsage?.snapshot();
+        const cumulativeUsd = snapshot?.cumulativeUsd ?? 0;
+        return {
+          status: "failed",
+          summary: `${options.command} subprocess terminated mid-run by the budget circuit breaker. ${agentResult.terminationReason}`,
+          usage: normalizeUsage({
+            actualUsd: Number(cumulativeUsd.toFixed(6)),
+            estimatedUsd: Number(cumulativeUsd.toFixed(6)),
+            tokensIn: snapshot?.tokensIn ?? 0,
+            tokensOut: snapshot?.tokensOut ?? 0,
+            provenance: "estimated"
+          }),
+          verification: {
+            passed: false,
+            summary: "Subprocess terminated by the streaming budget circuit breaker before verification could run."
+          },
+          failure: {
+            message: agentResult.terminationReason,
+            classHint: "budget_pressure" as FailureClass
+          }
+        };
+      }
+
+      if (agentResult.timedOut) {
+        return {
+          status: "failed",
+          summary: `${options.command} subprocess timed out before completing.`,
+          usage: normalizeUsage({
+            actualUsd: estimatedUsage.actualUsd,
+            estimatedUsd: estimatedUsage.actualUsd,
+            tokensIn: estimatedUsage.tokensIn,
+            tokensOut: estimatedUsage.tokensOut,
+            provenance: "estimated"
+          }),
+          verification: { passed: false, summary: "Subprocess timed out." },
+          failure: {
+            message: `${options.command} did not respond within ${String(timeoutMs)}ms. stalled`
+          }
+        };
+      }
+
+      if (agentResult.exitCode !== 0 && agentResult.stdout.trim().length === 0) {
+        const fullStderr = agentResult.stderr.trim();
+        const stderrSnippet = fullStderr ? fullStderr.slice(0, 2000) : "(no stderr)";
+        const stdoutLen = agentResult.stdout.length;
+        const diagnosticSummary = `${options.command} exited (code ${String(agentResult.exitCode)}) with empty stdout (${String(stdoutLen)} bytes). stderr: ${stderrSnippet}`;
+        const failureMessage = formatPreVerifierSubprocessFailure(options.command, agentResult.stderr, agentResult.exitCode);
+        return {
+          status: "failed",
+          summary: diagnosticSummary,
+          usage: normalizeUsage({
+            actualUsd: 0,
+            tokensIn: 0,
+            tokensOut: 0,
+            provenance: "unavailable"
+          }),
+          verification: { passed: false, summary: `Verifier not run: ${failureMessage}` },
+          failure: {
+            // Raw stderr is preserved in diagnosticSummary above; use the
+            // normalized/classified message here so downstream consumers and
+            // tests get a consistent, parseable failure signal.
+            message: failureMessage
+          }
+        };
+      }
+
+      // Parse JSON output if the CLI supports it. `stream-json` emits one JSON
+      // object per line — the final `result` event carries the same
+      // `result`/`usage`/`total_cost_usd` fields as single-blob `json` output.
+      let parsed: ClaudeJsonOutput | undefined;
+      if (supportsJsonOutput) {
+        try {
+          parsed = options.streamingUsageCap
+            ? parseStreamJsonResult(agentResult.stdout)
+            : (JSON.parse(agentResult.stdout) as ClaudeJsonOutput);
+        } catch {
+          // Fall through to plain-text handling
+        }
+      }
+
+      const codexJsonlResult =
+        !supportsJsonOutput && options.command === "codex"
+          ? extractCodexJsonlResult(agentResult.stdout, options.model)
+          : undefined;
+      const geminiJsonResult =
+        !supportsJsonOutput && options.command === "gemini"
+          ? extractGeminiJsonResult(agentResult.stdout, options.model)
+          : undefined;
+      const producedStructuredCompletion =
+        parsed?.result !== undefined ||
+        codexJsonlResult !== undefined ||
+        geminiJsonResult !== undefined;
+      if (agentResult.exitCode !== 0 && !producedStructuredCompletion) {
+        const failureMessage = formatPreVerifierSubprocessFailure(
+          options.command,
+          agentResult.stderr || agentResult.stdout,
+          agentResult.exitCode
+        );
+        return {
+          status: "failed",
+          summary: `${options.command} subprocess exited before verifier execution.`,
+          usage: normalizeUsage({
+            actualUsd: 0,
+            tokensIn: 0,
+            tokensOut: 0,
+            provenance: "unavailable"
+          }),
+          verification: { passed: false, summary: `Verifier not run: ${failureMessage}` },
+          failure: {
+            message: failureMessage
+          }
+        };
+      }
+      const agentText =
+        codexJsonlResult?.summary ??
+        geminiJsonResult?.summary ??
+        parsed?.result ??
+        agentResult.stdout.trim();
+      const summary = truncate(agentText, 2000);
+      const observedClaudeModel = options.streamingUsageCap
+        ? extractClaudeObservedModel(agentResult.stdout)
+        : undefined;
+      const usage = parsed?.usage
+        ? extractUsage(
+            parsed,
+            observedClaudeModel ?? options.model,
+            observedClaudeModel
+              ? "provider_reported"
+              : options.model
+                ? "explicit_override"
+                : "agent_default"
+          )
+        : codexJsonlResult?.usage ??
+          geminiJsonResult?.usage ??
+          normalizeUsage({
+            actualUsd: estimatedUsage.actualUsd,
+            estimatedUsd: estimatedUsage.actualUsd,
+            tokensIn: estimatedUsage.tokensIn,
+            tokensOut: Math.max(estimatedUsage.tokensOut, Math.ceil(agentText.length / 4)),
+            provenance: "estimated",
+            providerSettlement:
+              options.command === "codex"
+                ? {
+                    providerId: "codex",
+                    ...(options.model ? { model: options.model } : {}),
+                    transport: "cli",
+                    source: "estimated_fallback",
+                    inputTokens: estimatedUsage.tokensIn,
+                    outputTokens: Math.max(estimatedUsage.tokensOut, Math.ceil(agentText.length / 4)),
+                    rawUsageAvailable: false,
+                    settledAt: new Date().toISOString()
+                  }
+                : options.command === "gemini"
+                  ? {
+                      providerId: "gemini",
+                      ...(options.model ? { model: options.model } : {}),
+                      transport: "cli",
+                      source: "estimated_fallback",
+                      inputTokens: estimatedUsage.tokensIn,
+                      outputTokens: Math.max(estimatedUsage.tokensOut, Math.ceil(agentText.length / 4)),
+                      rawUsageAvailable: false,
+                      settledAt: new Date().toISOString()
+                    }
+                : undefined
+          });
+
+      const verificationStack = (request.context as { verificationStack?: Array<{ command: string; type: string; fastFail?: boolean }> }).verificationStack;
+      const verification = await runVerification(
+        request.context.verificationPlan,
+        workingDirectory,
+        verifyTimeoutMs,
+        verificationStack,
+        options.spawnImpl,
+        {
+          runId: request.loopId,
+          workspaceId: request.workspaceId,
+          attemptId: request.attemptId,
+          cwd: workingDirectory,
+          ...(request.context.runsRoot ? { runsRoot: request.context.runsRoot } : {}),
+          ...(request.context.executionProfile ? { executionProfile: request.context.executionProfile } : {}),
+          ...(request.context.allowedNetworkDomains?.length ? { allowedNetworkDomains: [...request.context.allowedNetworkDomains] } : {}),
+        },
+        request.signal
+      );
+      const verificationConfigured = verification.binding.commands.length > 0;
+
+      // Check for zero-diff (agent ran but made no file changes)
+      const postRunChangedFiles = gitRepoRoot
+        ? await readGitChangedFiles(gitRepoRoot, 5_000, options.spawnImpl)
+        : [];
+      const agentChangedFiles = postRunChangedFiles.filter(
+        (file) => !baselineChangedFiles.has(file)
+      );
+      const noDiff = gitRepoRoot !== undefined && agentChangedFiles.length === 0;
+
+      // Extract structured errors from stderr/stdout for better failure context
+      const structuredErrors = normalizeStructuredErrors(
+        extractStructuredErrors(agentResult.stderr, agentResult.stdout)
+      );
+      const rawExecutionArtifacts = gitRepoRoot
+        ? await readGitExecutionArtifacts(gitRepoRoot, 5000, options.spawnImpl, agentChangedFiles)
+        : undefined;
+      const executionArtifacts = rawExecutionArtifacts
+        ? {
+            ...(agentChangedFiles.length > 0 ? { changedFiles: agentChangedFiles } : {}),
+            ...(rawExecutionArtifacts.patch ? { patch: rawExecutionArtifacts.patch } : {}),
+            ...(baselineChangedFiles.size === 0 && rawExecutionArtifacts.diffStats
+              ? { diffStats: rawExecutionArtifacts.diffStats }
+              : {})
+          }
+        : undefined;
+
+      // Scope contract enforcement: check touched files against allowedPaths/deniedPaths
+      let scopeViolations: string[] = [];
+      const scopeCtx = request.context as { allowedPaths?: string[]; deniedPaths?: string[] };
+      if (gitRepoRoot && (scopeCtx.allowedPaths?.length || scopeCtx.deniedPaths?.length)) {
+        if (agentChangedFiles.length > 0) {
+          const touchedFiles = agentChangedFiles;
+          const allowed = scopeCtx.allowedPaths ?? [];
+          const denied = scopeCtx.deniedPaths ?? [];
+
+          for (const file of touchedFiles) {
+            // Check denied patterns (simple glob-like: prefix or exact)
+            if (denied.some((d) => file === d || file.startsWith(d.replace(/\*+$/, "")))) {
+              scopeViolations.push(file);
+              continue;
+            }
+            // If allowedPaths specified, file must match at least one
+            if (allowed.length > 0 && !allowed.some((a) => file === a || file.startsWith(a.replace(/\*+$/, "")))) {
+              scopeViolations.push(file);
+            }
+          }
+        }
+      }
+
+      // Derive structural classHint from evidence, not keyword scanning
+      const structuralHint = inferStructuralClassHint(
+        agentText,
+        verification.summary,
+        agentResult.exitCode,
+        request.context.objective
+      );
+
+      if (verification.passed || !verificationConfigured) {
+        return {
+          status: "completed",
+          summary,
+          usage,
+          verification,
+          ...(executionArtifacts
+            ? {
+                execution: {
+                  ...executionArtifacts,
+                  ...(structuredErrors.length > 0 ? { structuredErrors } : {})
+                }
+              }
+            : structuredErrors.length > 0
+              ? { execution: { structuredErrors } }
+              : {})
+        };
+      }
+
+      const classHint: FailureClass | undefined = scopeViolations.length > 0
+        ? "scope_creep"
+        : noDiff
+          ? "no_progress"
+          : (structuralHint ?? undefined);
+
+      const errorBlock = structuredErrors.length > 0
+        ? `\nSTRUCTURED ERRORS:\n${structuredErrors.map(e => `  ${e.file}${e.line !== undefined ? `:${String(e.line)}` : ""} — ${e.code ? `${e.code}: ` : ""}${e.message}`).join("\n")}`
+        : "";
+
+      const scopeBlock = scopeViolations.length > 0
+        ? `\n  Scope violations: ${scopeViolations.join(", ")}`
+        : "";
+
+      // PROGRESS.md is legacy adapter-local retry state. Never create it in a
+      // scope-constrained workspace: doing so manufactures an undeclared
+      // product change and causes the Core leash to hide the provider's real
+      // failure behind surface_write_not_allowed.
+      if (repoRoot && (request.context.allowedPaths?.length ?? 0) === 0) {
+        try {
+          const { writeFile, readFile, appendFile: appendFs } = await import("node:fs/promises");
+          const progressPath = `${repoRoot}/PROGRESS.md`;
+          const timestamp = new Date().toISOString();
+          const entry = `\n## Attempt ${String(request.previousAttempts.length + 1)} — ${timestamp}\n- Failure class: ${classHint ?? "verification_failure"}\n- Verification: ${verification.summary}${errorBlock}${scopeBlock}\n`;
+          let content: string;
+          try {
+            content = await readFile(progressPath, "utf8");
+          } catch {
+            content = `# Martin Loop Progress\n\n**Original objective:** ${request.context.objective}\n`;
+          }
+          await writeFile(progressPath, content + entry, "utf8");
+        } catch {
+          // Non-fatal
+        }
+
+        // Reset tracked files to HEAD so next attempt starts from clean state
+        try {
+          if (gitRepoRoot && baselineChangedFiles.size === 0) {
+            await runSubprocess("git", ["restore", "--staged", "--worktree", "."], {
+              cwd: gitRepoRoot,
+              timeoutMs: 5000
+            });
+          }
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      return {
+        status: "failed",
+        summary: (structuredErrors.length > 0 || scopeViolations.length > 0)
+          ? `${summary}${errorBlock}${scopeViolations.length > 0 ? `\nScope violations: ${scopeViolations.join(", ")}` : ""}`
+          : summary,
+        usage,
+        verification,
+        ...(executionArtifacts
+          ? {
+              execution: {
+                ...executionArtifacts,
+                ...(structuredErrors.length > 0 ? { structuredErrors } : {})
+              }
+            }
+          : structuredErrors.length > 0
+            ? { execution: { structuredErrors } }
+            : {}),
+        failure: {
+          message: verification.summary,
+          ...(classHint ? { classHint } : {})
+        }
+      };
+    }
+  };
+
+  return adapter;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-configured: Claude CLI
+// ---------------------------------------------------------------------------
+
+const CLAUDE_PERMISSION_CONTROL_ARGS = new Set([
+  "--allow-dangerously-skip-permissions",
+  "--allowed-tools",
+  "--allowedTools",
+  "--dangerously-skip-permissions",
+  "--permission-mode"
+]);
+
+function assertClaudePermissionControlsAreGoverned(extraArgs: readonly string[]): void {
+  const overridesPermissionControl = extraArgs.some((arg) => {
+    const [flag] = arg.split("=", 1);
+    return flag !== undefined && CLAUDE_PERMISSION_CONTROL_ARGS.has(flag);
+  });
+
+  if (overridesPermissionControl) {
+    throw new Error("Claude permission controls cannot be overridden via extraArgs.");
+  }
+}
+
+function hostOwnsVerification(request: MartinAdapterRequest): boolean {
+  return request.context.verificationExecutionOwner === "host_only";
+}
+
+function buildClaudeVerifierAllowedTools(request: MartinAdapterRequest): string[] {
+  if (hostOwnsVerification(request)) return [];
+
+  const commands = [...new Set(
+    request.context.verificationPlan.filter((command) => command.trim().length > 0)
+  )];
+
+  return commands.length > 0
+    ? ["--allowedTools", ...commands.map((command) => `Bash(${command})`)]
+    : [];
+}
+
+/**
+ * Spawns `claude --output-format stream-json --verbose --print "<prompt>" [extraArgs]`.
+ *
+ * `stream-json` emits one JSON event per line — including per-turn usage on
+ * each `assistant` message and a final `result` event carrying the same
+ * `result`/`usage`/`total_cost_usd` fields as single-blob `json` output — so
+ * MartinLoop can both (a) recover real token usage/cost as before, and
+ * (b) watch cumulative spend live and self-terminate the subprocess the
+ * moment it crosses the remaining per-attempt budget (see
+ * `streamingUsageCap` / `createStreamingUsageInspector`), instead of only
+ * discovering an overspend after the whole process has already exited.
+ *
+ * Requires the Claude Code CLI to be installed and authenticated:
+ *   https://docs.anthropic.com/claude-code
+ */
+export function createClaudeCliAdapter(options: ClaudeCliAdapterOptions = {}): MartinAdapter {
+  const modelArgs: string[] = options.model ? ["--model", options.model] : [];
+  const extraArgs = options.extraArgs ?? [];
+  assertClaudePermissionControlsAreGoverned(extraArgs);
+
+  return createAgentCliAdapter({
+    command: "claude",
+    adapterIdSuffix: "claude",
+    model: options.model,
+    label: options.label ?? "Claude CLI adapter",
+    workingDirectory: options.workingDirectory,
+    timeoutMs: options.timeoutMs,
+    agentExecutionIntent: options.agentExecutionIntent,
+    providerExecutionTimeoutMs: options.providerExecutionTimeoutMs,
+    verifyTimeoutMs: options.verifyTimeoutMs,
+    supportsJsonOutput: true,
+    streamingUsageCap: true,
+    streamingTokenCap: true,
+    spawnImpl: options.spawnImpl,
+    argsBuilder: (_prompt, request) => [
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--print",
+      ...(options.readOnly
+        ? ["--permission-mode", "plan"]
+        : ["--permission-mode", "acceptEdits"]),
+      ...buildClaudeVerifierAllowedTools(request),
+      // Subprocess isolation strategy:
+      // --bare: skips hooks (prevents SessionEnd/hook failures causing non-zero exits),
+      //   MCP server loading, LSP, CLAUDE.md discovery, and background prefetches.
+      //   Requires ANTHROPIC_API_KEY (OAuth/keychain auth not available in bare mode).
+      // --strict-mcp-config: fallback when ANTHROPIC_API_KEY is not set — still
+      //   prevents parent MCP servers from being inherited by the subprocess.
+      ...(process.env["ANTHROPIC_API_KEY"]
+        ? ["--bare"]
+        : ["--strict-mcp-config", "--setting-sources", "project", "--disable-slash-commands"]),
+      // NOTE: --max-tokens does not exist in the claude CLI. Token cap enforcement
+      // is handled at the MartinLoop layer via streamingUsageCap, not via subprocess flags.
+      ...modelArgs,
+      ...extraArgs
+    ],
+    stdinBuilder: (prompt) => prompt
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Pre-configured: OpenAI Codex CLI
+// ---------------------------------------------------------------------------
+
+/**
+ * Spawns `codex exec --cd <workspace> --sandbox <mode> [--model <model>] [extraArgs] -`.
+ *
+ * The prompt is delivered via stdin so Windows shell quoting cannot truncate or
+ * reinterpret long MartinLoop prompts that contain paths, deny rules, or budget
+ * context.
+ *
+ * Requires the Codex CLI to be installed and authenticated:
+ *   npm install -g @openai/codex
+ */
+export function createCodexCliAdapter(options: CodexCliAdapterOptions = {}): MartinAdapter {
+  const extraArgs = options.extraArgs ?? [];
+  const sandbox = options.sandbox ?? "workspace-write";
+  const workingDirectory = options.workingDirectory ?? process.cwd();
+  const command = options.command ?? "codex";
+  const launchModel = options.model;
+
+  return createAgentCliAdapter({
+    command,
+    adapterIdSuffix: "codex",
+    model: options.model,
+    label: options.label ?? "Codex CLI adapter",
+    workingDirectory,
+    timeoutMs: options.timeoutMs,
+    agentExecutionIntent: options.agentExecutionIntent,
+    providerExecutionTimeoutMs: options.providerExecutionTimeoutMs,
+    verifyTimeoutMs: options.verifyTimeoutMs,
+    supportsJsonOutput: false,
+    spawnImpl: options.spawnImpl,
+    argsBuilder: () =>
+      buildCodexExecArgs({
+        workingDirectory,
+        sandbox,
+        model: launchModel,
+        extraArgs,
+        mode: "prompt"
+      }),
+    stdinBuilder: (prompt) => prompt
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Pre-configured: Gemini CLI
+// ---------------------------------------------------------------------------
+
+/**
+ * Spawns `gemini [--model <explicit-model>] --prompt "" --approval-mode <mode> --output-format json [...]`.
+ *
+ * The prompt is delivered via stdin while forcing headless mode with `--prompt ""`,
+ * which keeps large MartinLoop prompts off the command line on Windows.
+ *
+ * Requires the Gemini CLI to be installed and authenticated:
+ *   npm install -g @google/gemini-cli
+ */
+export function createGeminiCliAdapter(options: GeminiCliAdapterOptions = {}): MartinAdapter {
+  const approvalMode = options.readOnly ? "plan" : options.approvalMode ?? "yolo";
+  if (!options.readOnly && approvalMode !== "yolo") {
+    throw new Error("governed-autonomous Gemini execution requires yolo approval mode; interactive downgrade rejected.");
+  }
+  if (options.readOnly && options.approvalMode !== undefined && options.approvalMode !== "plan") {
+    throw new Error("read-only Gemini execution requires plan approval mode.");
+  }
+  const extraArgs = options.extraArgs ?? [];
+  if (extraArgs.some((arg) => arg === "--approval-mode" || arg.startsWith("--approval-mode="))) {
+    throw new Error("Gemini approval mode cannot be overridden through extraArgs.");
+  }
+
+  return createAgentCliAdapter({
+    command: "gemini",
+    adapterIdSuffix: "gemini",
+    model: options.model,
+    label: options.label ?? "Gemini CLI adapter",
+    workingDirectory: options.workingDirectory,
+    timeoutMs: options.timeoutMs,
+    agentExecutionIntent: options.agentExecutionIntent,
+    providerExecutionTimeoutMs: options.providerExecutionTimeoutMs,
+    verifyTimeoutMs: options.verifyTimeoutMs,
+    supportsJsonOutput: false,
+    spawnImpl: options.spawnImpl,
+    argsBuilder: () => [
+      ...(options.model ? ["--model", options.model] : []),
+      "--prompt",
+      "",
+      "--approval-mode",
+      approvalMode,
+      ...(options.sandbox ? ["--sandbox"] : []),
+      "--output-format",
+      "json",
+      ...extraArgs
+    ],
+    stdinBuilder: (prompt) => prompt
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Prompt builder
+//
+// Implements Qralph-style context isolation:
+// - Each attempt gets a fresh, distilled prompt — NOT the full conversation history
+// - Prior attempts are summarized (last 3 max, via distillContext in core)
+// - Interventions translate into concrete prompt directives
+// - Context budget info surfaces remaining runway to the agent
+// ---------------------------------------------------------------------------
+
+function buildPrompt(request: MartinAdapterRequest): string {
+  const lines: string[] = [];
+  const mutationMode = request.context.mutationMode ?? "edit";
+  const verificationIsHostOwned = hostOwnsVerification(request);
+
+  lines.push("You are running in autonomous agentic mode.");
+  if (mutationMode === "read_only") {
+    lines.push("READ-ONLY EXECUTION. Do not create, edit, delete, rename, or move files.");
+    lines.push("Inspect and verify only; report evidence without changing the workspace.");
+  } else {
+    lines.push("MAKE ALL REQUIRED FILE EDITS NOW. Do not ask for confirmation. Do not ask clarifying questions.");
+    lines.push("Do not explain what you found without also making the changes. Edit the files and complete the task.");
+  }
+  lines.push("");
+
+  if ((request.context.allowedPaths?.length ?? 0) === 0) {
+    lines.push("If PROGRESS.md exists in your working directory, read it first for context from prior attempts.");
+    lines.push("If it does not exist, proceed with the objective below.");
+    lines.push("");
+  }
+
+  lines.push(mutationMode === "read_only"
+    ? "Complete the following inspection task without making file changes."
+    : "Complete the following coding task. Make all necessary file changes.");
+  if (verificationIsHostOwned) {
+    lines.push("MartinLoop owns verification and runs it after provider completion.");
+    lines.push("Do not execute these verifier commands yourself.");
+  } else {
+    lines.push("When you are done, the verification commands listed below must pass.");
+  }
+  lines.push("");
+
+  lines.push("OBJECTIVE:");
+  lines.push(sanitizeForPrompt(request.context.objective));
+  lines.push("");
+
+  // Acceptance criteria (from task contract)
+  if ((request.context as { acceptanceCriteria?: string[] }).acceptanceCriteria?.length) {
+    lines.push("ACCEPTANCE CRITERIA (all must be satisfied):");
+    for (const criterion of (request.context as { acceptanceCriteria?: string[] }).acceptanceCriteria ?? []) {
+      lines.push(`  - ${sanitizeForPrompt(criterion)}`);
+    }
+    lines.push("");
+  }
+
+  // Scope contract
+  const ctx = request.context as { allowedPaths?: string[]; deniedPaths?: string[] };
+  if (ctx.allowedPaths?.length || ctx.deniedPaths?.length) {
+    lines.push("SCOPE CONTRACT (immutable — do not expand):");
+    if (ctx.allowedPaths?.length) {
+      lines.push(`  Allowed paths: ${ctx.allowedPaths.join(", ")}`);
+    }
+    if (ctx.deniedPaths?.length) {
+      lines.push(`  Forbidden paths: ${ctx.deniedPaths.join(", ")}`);
+    }
+    lines.push("");
+  }
+
+  if (request.context.verificationPlan.length > 0) {
+    lines.push(verificationIsHostOwned
+      ? "HOST-OWNED VERIFICATION (success conditions only; do not execute):"
+      : "VERIFICATION (all commands must exit with code 0):");
+    for (const cmd of request.context.verificationPlan) {
+      lines.push(`  ${cmd}`);
+    }
+    lines.push("");
+  }
+
+  const attemptNumber = request.previousAttempts.length + 1;
+  lines.push("CONSTRAINTS:");
+  lines.push(`  Attempt ${String(attemptNumber)}`);
+  lines.push(`  Remaining budget: $${String(request.context.remainingBudgetUsd)} USD`);
+  lines.push(`  Remaining iterations: ${String(request.context.remainingIterations)}`);
+  lines.push("  Do not expand scope beyond what is needed to pass verification.");
+  lines.push("");
+
+  if (request.previousAttempts.length > 0) {
+    lines.push("PRIOR FAILED ATTEMPTS (learn from these — do not repeat the same mistakes):");
+    for (const attempt of request.previousAttempts) {
+      const failurePart = attempt.failureClass ? ` [${attempt.failureClass}]` : "";
+      const interventionPart = attempt.intervention ? ` -> intervention: ${attempt.intervention}` : "";
+      const diagPart = attempt.diagnosticHint ? `\n    DIAGNOSIS: ${sanitizeForPrompt(attempt.diagnosticHint)}` : "";
+      lines.push(`  Attempt ${String(attempt.index)}${failurePart}: ${sanitizeForPrompt(attempt.summary ?? "")}${interventionPart}${diagPart}`);
+    }
+    lines.push("");
+  }
+
+  // Intervention directives
+  const lastIntervention = request.previousAttempts.at(-1)?.intervention;
+  if (lastIntervention === "tighten_task") {
+    lines.push("SCOPE LOCK (prior attempt expanded scope — do not repeat):");
+    lines.push("  Only touch files directly required to make the verification commands pass.");
+    lines.push("  Do NOT add features, refactor unrelated code, or modify files outside the objective.");
+    lines.push("");
+  }
+  if (lastIntervention === "compress_context") {
+    lines.push("BREVITY MODE (prior attempt was too large — be concise):");
+    lines.push("  Keep changes minimal. Only output what changed and why.");
+    lines.push("");
+  }
+  if (lastIntervention === "run_verifier") {
+    lines.push("VERIFICATION FOCUS (prior attempt failed verification):");
+    lines.push("  Before finalizing, mentally simulate running each verification command.");
+    lines.push("  Only mark yourself done when confident all commands will pass.");
+    lines.push("");
+  }
+  if (lastIntervention === "change_model") {
+    lines.push("FRESH APPROACH (previous attempts did not converge):");
+    lines.push("  Do not repeat prior reasoning. Start from first principles on the objective.");
+    lines.push("");
+  }
+
+  lines.push(`FOCUS: ${sanitizeForPrompt(request.context.focus)}`);
+  if (verificationIsHostOwned && request.context.verificationPlan.length > 0) {
+    lines.push("FINAL BOUNDARY: stop after the scoped work and report it; MartinLoop will execute verification.");
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `...${text.slice(-(maxLength - 3))}`;
+}
+
+function formatPreVerifierSubprocessFailure(command: string, stderr: string, exitCode: number): string {
+  const detail = stderr.trim() || `Exit code ${String(exitCode)}`;
+  const lowerDetail = detail.toLowerCase();
+  const codexLaunchBlocked =
+    command === "codex" &&
+    /\b(full-auto|sandbox|approval|permission|trusted|safety|unexpected argument)\b/u.test(lowerDetail);
+
+  if (codexLaunchBlocked) {
+    return `Codex CLI failed before patch completion, likely due to its launch/sandbox configuration. MartinLoop invokes Codex through "codex exec --sandbox workspace-write"; verify Codex CLI auth and configuration if this persists. ${detail}. environment_mismatch`;
+  }
+
+  return `${detail}. environment_mismatch`;
+}
+
+const INJECTION_PATTERNS = [
+  /\[INST\]/gi,
+  /<\/?system>/gi,
+  /^(IGNORE|DISREGARD|FORGET|NEW INSTRUCTION|OVERRIDE)\b.+$/gim,
+  /<\/?s>/gi
+] as const;
+
+function sanitizeForPrompt(input: string): string {
+  let out = input;
+  for (const pattern of INJECTION_PATTERNS) {
+    out = out.replace(pattern, "[FILTERED]");
+  }
+  return redactSecretsForPrompt(out);
+}
+
+function estimatePromptCost(
+  promptText: string,
+  model: string,
+  providerCommand?: string
+): number | undefined {
+  const inputTokens = Math.ceil(promptText.length / 3.5);
+  const outputTokens = 2000;
+  const pricing = resolveModelPricing(model).pricing ?? (
+    providerCommand === "claude"
+      ? undefined
+      : { inputPer1K: BLENDED_INPUT_COST_PER_1K, outputPer1K: BLENDED_OUTPUT_COST_PER_1K }
+  );
+  if (!pricing) {
+    return undefined;
+  }
+  return calculateUsageCost({
+    inputTokens,
+    cachedInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    outputTokens
+  }, pricing, inputTokens);
+}
+
+function estimateUsage(
+  promptText: string,
+  model: string,
+  providerCommand?: string
+): MartinAdapterResult["usage"] {
+  const inputTokens = Math.ceil(promptText.length / 3.5);
+  const outputTokens = 2_000;
+  const estimatedUsd = estimatePromptCost(promptText, model, providerCommand);
+
+  return normalizeUsage({
+    actualUsd: estimatedUsd ?? 0,
+    ...(estimatedUsd === undefined ? {} : { estimatedUsd }),
+    tokensIn: inputTokens,
+    tokensOut: outputTokens,
+    provenance: estimatedUsd === undefined ? "unavailable" : "estimated"
+  });
+}
+
+function redactSecretsForPrompt(input: string): string {
+  return input
+    .replace(/\bOPENAI_API_KEY\s*=\s*[^\s"'`]+/giu, "OPENAI_API_KEY=[REDACTED_SECRET]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, "[REDACTED_SECRET]")
+    .replace(/\bghp_[A-Za-z0-9_]{16,}\b/gu, "[REDACTED_SECRET]")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/gu, "[REDACTED_SECRET]")
+    .replace(/\b(?:gho|ghu|ghs|ghr)_[A-Za-z0-9_]{16,}\b/gu, "[REDACTED_SECRET]")
+    .replace(/\bAKIA[0-9A-Z]{16}\b/gu, "[REDACTED_SECRET]")
+    .replace(/\b(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*[^\s"'`]+/giu, "AWS_SECRET_ACCESS_KEY=[REDACTED_SECRET]")
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/giu, "[REDACTED_SECRET]")
+    .replace(/\bAIza[0-9A-Za-z_-]{30,}\b/gu, "[REDACTED_SECRET]")
+    .replace(/-----BEGIN(?:\s+[A-Z0-9]+)*\s+PRIVATE KEY-----[\s\S]*?-----END(?:\s+[A-Z0-9]+)*\s+PRIVATE KEY-----/gu, "[REDACTED_SECRET]")
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gu, "[REDACTED_SECRET]")
+    .replace(/\b(?:api[_-]?key|secret|password|token)\s*[:=]\s*["']?[A-Za-z0-9_\-/+=]{8,}["']?/giu, "[REDACTED_SECRET]")
+    .replace(/\B\.env(?!\.example\b)(?:\.[A-Za-z0-9._-]+)?\b/giu, "[REDACTED_PATH]");
+}
+
+interface StructuredError {
+  file: string;
+  line?: number;
+  col?: number;
+  code?: string;
+  message: string;
+}
+
+function extractStructuredErrors(stderr: string, stdout: string): StructuredError[] {
+  const errors: StructuredError[] = [];
+  const combined = `${stderr}\n${stdout}`;
+
+  // TypeScript: file.ts(42,5): error TS2322: message
+  for (const m of combined.matchAll(/^(.+\.tsx?)\((\d+),(\d+)\): error (TS\d+): (.+)$/gm)) {
+    errors.push({ file: m[1] ?? "", line: Number(m[2]), col: Number(m[3]), code: m[4], message: m[5] ?? "" });
+  }
+
+  // ESLint / tsc path-style: ./src/foo.ts:42:5: error message
+  for (const m of combined.matchAll(/^(\.?\/[\w./-]+\.tsx?):(\d+):(\d+):\s+error\s+(.+)$/gm)) {
+    errors.push({ file: m[1] ?? "", line: Number(m[2]), col: Number(m[3]), message: m[4] ?? "" });
+  }
+
+  // Jest FAIL line: FAIL src/foo.test.ts
+  for (const m of combined.matchAll(/^FAIL\s+([\w./-]+\.test\.[jt]sx?)$/gm)) {
+    errors.push({ file: m[1] ?? "", message: "Test suite failed" });
+  }
+
+  return errors.slice(0, 10); // cap at 10 to avoid bloating prompts
+}

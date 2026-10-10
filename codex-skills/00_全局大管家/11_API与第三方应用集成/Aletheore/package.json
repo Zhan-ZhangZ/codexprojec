@@ -1,0 +1,24 @@
+{
+  "name": "aletheore",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Formatting, linting, and doc-check tooling for the Aletheore monorepo.",
+  "scripts": {
+    "format:check": "prettier --check \".github/**/*.{yml,yaml}\" \"package.json\"",
+    "format": "prettier --write \".github/**/*.{yml,yaml}\" \"package.json\"",
+    "lint:markdown": "markdownlint-cli2 \"*.md\" \"!STARTUP_AUDIT_REPORT.md\" \".github/**/*.md\" \"docs/**/*.md\" \"!docs/superpowers/**\"",
+    "lint:links": "lychee --config lychee.toml \"README.md\" \"docs/**/*.md\"",
+    "lint:spelling": "cspell --config cspell.json",
+    "lint:licenses": "cd src && pip-licenses --fail-on \"GPL;AGPL\" --format=plain-vertical && cd ../github-app && pip-licenses --fail-on \"GPL;AGPL\" --format=plain-vertical"
+  },
+  "devDependencies": {
+    "cspell": "10.3.6",
+    "markdownlint-cli2": "^0.23.3",
+    "prettier": "3.9.9"
+  },
+  "overrides": {
+    "js-yaml": "^5.4.2",
+    "smol-toml": "^1.9.0",
+    "katex": "^0.18.2"
+  }
+}

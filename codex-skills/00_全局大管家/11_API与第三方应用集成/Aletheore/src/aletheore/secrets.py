@@ -1,0 +1,828 @@
+import hashlib
+import math
+import os
+import re
+import stat
+import subprocess
+import threading
+import zlib
+from collections import Counter
+from pathlib import Path
+
+from aletheore.repo_config import is_ignored, load_repo_config
+from aletheore.scanner.detect import IGNORED_DIRS
+
+BINARY_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".svg",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".pdf",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".mp4",
+    ".mp3",
+    ".wav",
+    ".pyc",
+    ".so",
+    ".dylib",
+    ".dll",
+}
+
+# iter_all_files feeds full-file reads (find_secrets, mcp_server's
+# aletheore_search) on the shared scan-worker, where every installation's
+# scans compete for the same container's memory - a single unusually large
+# committed file (a data dump, a generated fixture, a vendored bundle) read
+# in full would risk OOMing that container for everyone. Skipped the same
+# way BINARY_EXTENSIONS files are: silently excluded from the walk, not
+# truncated (a truncated secrets scan could misreport line numbers).
+MAX_SCANNED_FILE_BYTES = 10 * 1024 * 1024
+
+PLACEHOLDER_PATH_MARKERS = ("example", "test", "fixture", "mock")
+
+# Substrings that show up in hand-written placeholder values themselves
+# (AWS's own documentation uses a well-known placeholder access key ending
+# in "EXAMPLE", for instance), independent of where the file lives. Not
+# spelled out literally here - this file's own aws_access_key_id pattern
+# below would match it, and this path doesn't carry a PLACEHOLDER_PATH_MARKERS
+# term, so it wouldn't get the placeholder benefit of the doubt.
+PLACEHOLDER_VALUE_MARKERS = (
+    "example", "xxxx", "changeme", "dummy", "placeholder", "sample", "fake", "yourkey", "default",
+)
+
+# Exact, publicly documented example/test values a vendor ships in its own
+# docs, common enough in real repos (copy-pasted into READMEs, tutorials,
+# Stack Overflow answers) that they're worth recognizing directly rather
+# than fitting a general pattern to them. High-entropy and non-repeating,
+# so neither PLACEHOLDER_VALUE_MARKERS nor _value_looks_synthetically_repeated
+# catches them - listed here, not guessed, each one lifted verbatim from the
+# vendor's own current documentation.
+KNOWN_VENDOR_EXAMPLE_VALUES = frozenset(
+    {
+        "sk_test_4eC39HqLyjWDarjtT1zdp7dc",  # Stripe's own API docs example key
+        # GitHub's own official OpenAPI spec (github/rest-api-description,
+        # commonly vendored verbatim into other repos - confirmed present
+        # this way in a real, unrelated open-source repo during this
+        # benchmark's real-repo validation run) uses these exact fixed
+        # values across its documented example App/installation JSON.
+        "1726be1638095a19edd134c77bde3aa2ece1e5d8",  # example client_secret
+        "e340154128314309424b7c8e90325147d99fdafa",  # example webhook_secret
+        "ghs_16C7e42F292c6912E7710c838347Ae178B4a",  # example installation token
+        "ghu_16C7e42F292c6912E7710c838347Ae178B4a",  # example user-to-server token
+    }
+)
+
+# Below this, Shannon entropy indicates a short or narrow-alphabet value
+# (repeated/sequential characters, e.g. "aaaaaaaa" or "12345678") rather
+# than the effectively-random output of a real credential generator - real
+# secrets measured well above this bar.
+_LOW_ENTROPY_THRESHOLD = 3.0
+
+# zlib-compressed length as a fraction of the raw value's length. A value
+# built from a repeated unit (a student hand-typing or padding out a fake
+# example, e.g. "abcdefghij1234567890" doubled) compresses well below 1.0;
+# genuinely random secrets don't compress at all past zlib's own per-value
+# overhead. Measured empirically against 1,000 real random secrets across
+# the length range these patterns actually match (16-44 chars): worst
+# (lowest, so closest to a false positive) observed ratio was 1.18. This
+# threshold leaves real margin on both sides of that measurement.
+_SYNTHETIC_REPETITION_RATIO_THRESHOLD = 1.1
+
+# Real bug found via audit: the 1.1 threshold above was only ever
+# validated within the "16-44 chars" range its own comment names -
+# generic_credential_assignment's value group has NO upper length bound
+# at all (`{16,}`), so a long real secret (a JWT, a long API token, any
+# base64 blob 100+ chars) also reaches this same check. Compression
+# ratio isn't actually measuring "synthetic repetition" past a certain
+# length - it's measuring the value's own alphabet size (a ~64-94
+# symbol charset has under 8 bits of entropy per byte, so DEFLATE finds
+# real, unavoidable compression headroom in ANY sufficiently long
+# string over that alphabet, genuinely random or not - basic
+# information theory, not a repetition signal). Measured directly
+# (2,000 random trials per length, the same charset generic_credential_
+# assignment's value class matches): zero false positives through
+# length 60, but real ones start appearing at 64 and grow with length
+# (24/2000 by length 76) - exactly the "no real secret should ever
+# trip this" guarantee the threshold comment above claims, silently
+# violated the moment a value runs past what was actually tested.
+# Without this cap, every sufficiently long, genuinely random real
+# secret this pattern can match - a JWT, a long API token - was
+# misclassified likely_placeholder=True and silently excluded from
+# every consumer of that flag (the dashboard, PR comments, MCP tool
+# results, CLI/history reporting all filter on it - see cli.py,
+# dashboard.py, history.py, mcp_server.py, pr_comment.py, scan_worker/
+# jobs.py, and the github-app frontend). Capped with real margin below
+# the first observed false positive (64), not right up against it.
+_SYNTHETIC_REPETITION_MAX_LENGTH = 48
+
+# Real bug found via audit: _SYNTHETIC_REPETITION_MAX_LENGTH's own 2,000-
+# trial measurement used the same charset generic_credential_assignment's
+# value class matches - a ~64-94 symbol alphabet - but never checked a
+# NARROWER real secret alphabet, and hex (0-9a-f, 16 symbols - SHA/MD5
+# digests, many session tokens and API keys, git commit-ish tokens) is
+# extremely common. A 16-symbol alphabet has under 4 bits of entropy per
+# byte, well under the ~64-94-symbol alphabet's ~6, so DEFLATE finds real
+# compression headroom in a genuinely random hex string at a MUCH shorter
+# length than 48. Measured directly (5,000 random hex trials per length):
+# 0% false positives through length 36, but a sharp cliff appears at 41
+# (41.2%) and above - not a gradual tail the way the general cutoff has,
+# a genuine step change in zlib's own block/table overhead behavior for
+# this alphabet size. Without this, a genuinely random 41-44 char hex
+# secret (well within _SYNTHETIC_REPETITION_MAX_LENGTH's own 48-char
+# window) was misclassified likely_placeholder=True 82-98% of the time -
+# not a rare tail, the common case for that length. Capped with the same
+# "real margin below the first observed false positive" philosophy as
+# the general cutoff, just for this narrower, separately-measured
+# alphabet.
+_HEX_ALPHABET_MAX_LENGTH = 36
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+# Pure-decimal values are a subset of the hex alphabet but narrower (10 vs 16
+# symbols, ~3.32 vs 4 bits/char), so they hit zlib's compression floor sooner:
+# measured over 5,000 random trials per length, 0% false placeholders through
+# 30 digits, 1.6% at 31, 7.5% at 32, 39% at 33, 96.8% at 36. The hex cap of 36
+# therefore misclassified random 31+ digit credentials as placeholders.
+_DECIMAL_MAX_LENGTH = 30
+
+# Each entry's third element is the regex group index holding the actual secret value to
+# redact. Most patterns match the credential directly, so group 0 (the whole match) IS the
+# value. generic_credential_assignment is different: it matches "KEYWORD=value" syntax, so
+# group 0 includes the keyword name (useless as a preview) and - critically - its tail end
+# overlaps the real value, meaning a naive redact(group(0)) leaks trailing characters of the
+# actual secret. Group 2 isolates just the captured value.
+SECRET_PATTERNS = [
+    ("aws_access_key_id", re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}"), 0),
+    ("github_token", re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,})"), 0),
+    ("stripe_key", re.compile(r"(sk|pk)_(live|test)_[A-Za-z0-9]{16,}"), 0),
+    ("private_key_header", re.compile(r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----"), 0),
+    ("slack_token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"), 0),
+    ("google_api_key", re.compile(r"AIza[0-9A-Za-z_-]{35}"), 0),
+    (
+        "generic_credential_assignment",
+        re.compile(
+            # The value class includes "." for key formats that embed one (e.g. newer
+            # Google AI Studio keys: "AQ.Ab8R..." rather than the older AIza-prefixed
+            # google_api_key shape above) - without it, GEMINI_API_KEY=AQ.Ab8R... matched
+            # only the 2 characters before the dot, fell under the 16-char minimum, and
+            # the whole credential silently went undetected rather than just unredacted.
+            #
+            # The left-boundary class includes "." too, alongside the pre-existing "_"
+            # and "-", so a dotted attribute assignment (self.PASSWORD=..., cfg.API_KEY=...
+            # - one of the most common hardcoded-credential shapes in object-oriented
+            # code) isn't silently invisible to this pattern the way a bare "." boundary
+            # was. MYPASSWORD= (no separator at all) still correctly does not match.
+            #
+            # The left-boundary class also includes '"' and "'", and an optional quote
+            # is now consumed right after the keyword too (['\"]? before \s*[:=]) - without
+            # both, a quoted-key credential ("API_KEY": "...", 'password': '...') was
+            # completely invisible: the keyword's own closing quote sat between it and
+            # the ':', which \s*[:=]\s* alone can't skip over. This is the single most
+            # common real shape a hardcoded secret takes in JSON/YAML/dict-literal config
+            # (docker-compose environment blocks, terraform.tfvars, settings.json, a
+            # Python/JS dict literal) - confirmed as a real, silent false negative by
+            # direct testing, not hypothetical: '{"API_KEY": "sk-..."}' never matched.
+            #
+            # The right-boundary class includes "}" and "]" alongside the pre-existing
+            # whitespace/end-of-line/",#;)" set, for the same reason: a quoted value that
+            # closes a JSON object or array (the overwhelmingly common case - the key is
+            # rarely the last thing on the line followed by nothing) was invisible too,
+            # since neither character was in the original lookahead's boundary set.
+            #
+            # An optional "]" is now also consumed right after the keyword's closing
+            # quote - bracket-subscript key assignment (os.environ["API_KEY"] = "...",
+            # config["SECRET"] = "...", JS process.env['API_KEY'] = '...') is an equally
+            # common real shape as the quoted dict-key case just above, and was just as
+            # invisible: the keyword's quote is followed by "]" before the "=", which
+            # \s*[:=]\s* alone can't skip over either. Confirmed as a real, silent false
+            # negative by direct testing: 'os.environ["API_KEY"] = "sk-..."' never
+            # matched, the same failure shape the quoted-key fix above already covers
+            # for a plain dict literal.
+            #
+            # TOKEN and SECRET_KEY were added to the keyword alternation as their own
+            # real-world-confirmed gaps. TOKEN alone (not just the pre-existing
+            # PASSWORD/SECRET/API_KEY) covers AUTH_TOKEN=/ACCESS_TOKEN=/API_TOKEN=/bare
+            # TOKEN= via the existing "_" left-boundary - every one of those was a
+            # silent false negative before (nothing in the old keyword list matched an
+            # opaque bearer/session token unless its VALUE happened to match a
+            # format-specific pattern like gh*_/xox*-, which an arbitrary token never
+            # will). SECRET_KEY is added explicitly rather than relying on bare "SECRET"
+            # matching a "_KEY" suffix: Django's and Flask's own settings variable is
+            # named exactly SECRET_KEY, and "SECRET" alone does NOT match at that
+            # position (it's followed by "_KEY=", not the separator) - confirmed
+            # directly: SECRET_KEY="django-insecure-..." matched zero findings before
+            # this fix despite SECRET being in the keyword list. A bare "KEY" was
+            # deliberately NOT added: PUBLIC_KEY="ssh-rsa ..." is a real, common, and
+            # genuinely non-secret shape (public keys are meant to be public) that a
+            # bare KEY keyword would false-positive on.
+            r"(?i)(?:^|[\s_.'\"-])(PASSWORD|SECRET|SECRET_KEY|API_KEY|TOKEN)['\"]?\]?\s*[:=]\s*"
+            r"['\"]?([A-Za-z0-9+/=_.-]{16,})['\"]?(?=\s|$|[,#;)}\]])"
+        ),
+        2,
+    ),
+]
+_PATTERNS_BY_NAME = {name: (pattern, value_group) for name, pattern, value_group in SECRET_PATTERNS}
+
+
+def _overlaps_a_specific_pattern_match(
+    value_span: tuple[int, int], claimed_spans: list[tuple[int, int]]
+) -> bool:
+    """True if `value_span` overlaps a span a dedicated, more specific
+    pattern already matched on this same line. generic_credential_assignment
+    is deliberately last in SECRET_PATTERNS, so callers only ever check this
+    for it - it can never suppress a dedicated pattern's own finding, only
+    its own redundant one.
+    """
+    start, end = value_span
+    return any(start < claimed_end and claimed_start < end for claimed_start, claimed_end in claimed_spans)
+
+
+def iter_all_files(repo_path: Path, ignored_paths: list[str] | None = None):
+    # os.walk(followlinks=False) rather than Path.rglob("*") - a symlinked
+    # directory anywhere in the tree (real case: a monorepo tool, or an
+    # accidental symlink to something outside the checkout) would otherwise
+    # have its contents walked and reported on as if they were part of this
+    # repo. followlinks only stops descent into symlinked *directories* -
+    # a symlinked file sitting directly in a real directory still needs its
+    # own explicit symlink check below.
+    #
+    # One lstat per file answers "regular file, not a symlink" and the size
+    # check together (lstat == stat once symlinks are excluded), and rel paths
+    # come from the walk rather than Path.relative_to. Same files, same order.
+    from aletheore.scanner.detect import _rel_dir
+
+    patterns = ignored_paths or []
+    root_str = str(repo_path)
+    for dirpath, dirnames, filenames in os.walk(repo_path, followlinks=False):
+        rel_dir = _rel_dir(repo_path, root_str, dirpath)
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in IGNORED_DIRS
+            and not is_ignored(f"{rel_dir}/{d}" if rel_dir != "." else d, patterns)
+        ]
+        for filename in filenames:
+            full = os.path.join(dirpath, filename)
+            try:
+                st = os.lstat(full)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode):
+                continue
+            path = Path(full)
+            if path.suffix in BINARY_EXTENSIONS:
+                continue
+            if st.st_size > MAX_SCANNED_FILE_BYTES:
+                continue
+            rel_path = f"{rel_dir}/{filename}" if rel_dir != "." else filename
+            if is_ignored(rel_path, patterns):
+                continue
+            yield path
+
+
+def _shannon_entropy(value: str) -> float:
+    if not value:
+        return 0.0
+    counts = Counter(value)
+    length = len(value)
+    return -sum((count / length) * math.log2(count / length) for count in counts.values())
+
+
+def _value_names_itself_a_placeholder(value: str) -> bool:
+    lower = value.lower()
+    return any(marker in lower for marker in PLACEHOLDER_VALUE_MARKERS)
+
+
+def _value_looks_synthetically_repeated(value: str) -> bool:
+    # See _SYNTHETIC_REPETITION_RATIO_THRESHOLD for the empirical basis of
+    # the cutoff. Real credential generators don't emit repeated
+    # substrings; a hand-typed or padded-out fake example often does.
+    if not value:
+        return False
+    # See _SYNTHETIC_REPETITION_MAX_LENGTH: past this length, a genuinely
+    # random value's own alphabet-entropy compression floor drops below
+    # the threshold too, making this check unreliable exactly where a
+    # false "looks synthetic" verdict matters most (a long value is the
+    # more valuable secret to actually catch). A long value simply isn't
+    # judged by this signal at all past this point - it still gets
+    # every other placeholder signal (marker words, truncation,
+    # identifier-reference, path+entropy), just not this one.
+    if len(value) > _SYNTHETIC_REPETITION_MAX_LENGTH:
+        return False
+    # See _HEX_ALPHABET_MAX_LENGTH: a value confined to hex digits reaches
+    # the same alphabet-entropy compression floor at a much shorter length
+    # than the general cutoff above accounts for - checked separately
+    # since it's a narrower, real, common secret alphabet (SHA/MD5
+    # digests, many session tokens and API keys) that the general
+    # measurement never covered.
+    if len(value) > _HEX_ALPHABET_MAX_LENGTH and all(c in _HEX_DIGITS for c in value):
+        return False
+    if len(value) > _DECIMAL_MAX_LENGTH and value.isascii() and value.isdigit():
+        return False
+    compressed_length = len(zlib.compress(value.encode("utf-8"), level=9))
+    return (compressed_length / len(value)) < _SYNTHETIC_REPETITION_RATIO_THRESHOLD
+
+
+# A run of 3+ literal dots is how documentation conventionally marks
+# elided/truncated content (e.g. "99ae8af...snip...ec0f262ac" - found this
+# way in a real repo's README during this benchmark's real-repo validation
+# run). No real credential format (base64, hex, JWT segments joined by
+# single dots) produces this substring, so it's an unambiguous signal
+# regardless of path, the same way a marker word is.
+_TRUNCATION_MARKER_RE = re.compile(r"\.\.\.")
+
+
+def _value_looks_truncated(value: str) -> bool:
+    return bool(_TRUNCATION_MARKER_RE.search(value))
+
+
+# Matches a bare dotted identifier/property-access chain (config.SECRET_KEY,
+# TokenRequest.ClientSecret, settings.SECRET_KEY) rather than a literal
+# value. generic_credential_assignment's value character class includes "."
+# specifically to support real dotted-key assignment shapes (self.PASSWORD=,
+# cfg.API_KEY=), but that same allowance means `secret = obj.Attribute` -
+# ordinary variable/property-reference code, not a hardcoded credential -
+# matches too. Confirmed as a real, repeated false positive across three
+# independent real codebases during this benchmark's real-repo validation
+# run: RestSharp's OAuth2 authenticators (C#, `client_secret = TokenRequest.ClientSecret`),
+# client-go's kubeconfig merging (Go, `Password = configAuthInfo.Password`),
+# and Django's own salted_hmac() (Python, `secret = settings.SECRET_KEY`).
+_IDENTIFIER_REFERENCE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
+
+# Real identifier/property names run short (the longest segment across the
+# three real cases above is "promptedCredentials" at 19 chars); a real
+# dotted credential value's segment can run much longer (Google AI Studio's
+# newer key format, e.g. "AQ.NotARealKey0123456789ABCDEFGHIJKLMNOPqrstuv",
+# has a 43-char second segment) - gating on segment length keeps this check
+# from swallowing that real, already-regression-tested format
+# (test_find_secrets_detects_credential_value_containing_a_dot). Set with
+# real margin above the longest known-real identifier segment and real
+# margin below the shortest known-real credential segment.
+_IDENTIFIER_SEGMENT_MAX_LENGTH = 32
+
+# Real bug found via audit: the segment-length gate alone doesn't actually
+# distinguish a real identifier chain from a random dotted credential of
+# similar shape - a JWT (header.payload.signature, each segment base64url)
+# has no dots inside a segment and each segment is well under 32 chars, so
+# it can satisfy every check above purely by chance whenever none of its
+# three segments happens to contain a literal "-" (base64url's one
+# alphanumeric-excluded character _IDENTIFIER_REFERENCE_RE's own char
+# class doesn't allow). Measured directly: ~58-60% of genuinely random
+# JWT-shaped values (20/17/9-char segments) were misclassified
+# likely_placeholder=True by this check alone - not a rare tail, the
+# common case, and JWTs are exactly the kind of long-lived, high-value
+# secret this scanner most needs to catch.
+#
+# None of this file's own real, empirically-validated identifier examples
+# (config.SECRET_KEY, TokenRequest.ClientSecret, settings.SECRET_KEY,
+# self.PASSWORD, cfg.API_KEY, obj.Attribute, configAuthInfo.Password,
+# self.promptedCredentials) contain a single digit - real identifier/
+# property names are overwhelmingly alphabetic, while a random credential
+# segment drawn from a mixed alphanumeric alphabet has a high probability
+# of containing at least one digit once it's more than a few characters
+# long. Requiring zero digits anywhere in the value cut the measured JWT
+# false-positive rate to 0-1% (down from ~58-60%) while still matching
+# every one of this file's own real identifier examples. Biased toward
+# stricter (a real identifier chain that happens to include a digit, e.g.
+# "oauth2Client.secret", is no longer auto-classified by this specific
+# check) rather than looser, on purpose: this check silently downgrades a
+# finding regardless of path, so a false "yes, placeholder" verdict hides
+# a possibly-real secret, while a false "no" here just leaves the finding
+# to be judged some other way (still visible, not silently hidden) - the
+# same asymmetry this whole scanner is built around.
+_IDENTIFIER_VALUE_CONTAINS_DIGIT_RE = re.compile(r"\d")
+
+
+def _value_looks_like_an_identifier_reference(value: str) -> bool:
+    if not _IDENTIFIER_REFERENCE_RE.fullmatch(value):
+        return False
+    if _IDENTIFIER_VALUE_CONTAINS_DIGIT_RE.search(value):
+        return False
+    return all(len(segment) <= _IDENTIFIER_SEGMENT_MAX_LENGTH for segment in value.split("."))
+
+
+# A real embedded PEM block always has several lines of near-pure base64
+# body between its BEGIN/END header lines (conventionally wrapped at 64-76
+# chars per RFC 7468) - boilerplate code that just emits the header/footer
+# text around a key computed elsewhere (e.g. Kotlin's
+# `append("-----BEGIN PRIVATE KEY-----\n")` followed by a function call,
+# not literal base64) has no such run. Confirmed as a real false positive
+# during this benchmark's real-repo validation run: okhttp's own
+# HeldCertificate.kt (the source of its `privateKeyPkcs8Pem()`/
+# `privateKeyPkcs1Pem()` PEM-formatting functions) matched
+# private_key_header at a normal (non-test) path with no key material
+# anywhere nearby - just the header string being built. 32 chars is well
+# above any single code identifier this benchmark's real-repo run
+# encountered next to a header match (the longest, "encodeBase64Lines(...",
+# breaks at "(" after 17) and well below a real base64 PEM line's length.
+_KEY_BODY_MIN_RUN_LENGTH = 32
+_KEY_BODY_RUN_RE = re.compile(rf"[A-Za-z0-9+/]{{{_KEY_BODY_MIN_RUN_LENGTH},}}")
+
+# How many non-blank lines after a header match to look at before
+# concluding no body follows - bounded so a huge file with a stray header
+# line can't turn this into an unbounded scan.
+_KEY_BODY_LOOKAHEAD_LINES = 3
+
+
+def _private_key_header_has_no_body(lines: list[str], header_line_no: int) -> bool:
+    """header_line_no is the 1-indexed line the header itself matched on;
+    lines is the full file, 0-indexed - so lines[header_line_no:] is
+    everything after it."""
+    checked = 0
+    for candidate in lines[header_line_no:]:
+        stripped = candidate.strip()
+        if not stripped:
+            continue
+        if _KEY_BODY_RUN_RE.search(stripped):
+            return False
+        checked += 1
+        if checked >= _KEY_BODY_LOOKAHEAD_LINES:
+            break
+    return True
+
+
+def _is_likely_placeholder(rel_path: str, value: str, pattern_name: str | None = None) -> bool:
+    # A value that names itself a placeholder (AWS's own docs example key
+    # literally spells "EXAMPLE"; Django's docs use "changeme", etc.) is an
+    # unambiguous signal on its own - no real credential generator emits
+    # those words, so this holds regardless of where the file lives. A
+    # student README pasting AWS's setup-docs example key is at least as
+    # common as pasting it into a file whose path happens to say
+    # "test"/"fixture", and the earlier path-gated version treated the
+    # exact same value differently depending on which one it landed in.
+    if _value_names_itself_a_placeholder(value):
+        return True
+
+    # Same reasoning for a value built from an obviously repeated unit
+    # (see _value_looks_synthetically_repeated) or an exact match to a
+    # vendor's own published example value (see KNOWN_VENDOR_EXAMPLE_VALUES)
+    # - both are unambiguous regardless of path, for the same reason a
+    # marker word is.
+    if _value_looks_synthetically_repeated(value) or value in KNOWN_VENDOR_EXAMPLE_VALUES:
+        return True
+
+    # A truncation marker (see _value_looks_truncated) or a bare
+    # variable/property reference (see _value_looks_like_an_identifier_reference)
+    # are the same kind of unambiguous, path-independent signal: neither
+    # shape is something a real credential's value would ever take.
+    if _value_looks_truncated(value) or _value_looks_like_an_identifier_reference(value):
+        return True
+
+    # Low entropy alone is a much weaker signal (a short, low-entropy value
+    # can still be someone's genuinely weak real password) - path alone used
+    # to be sufficient for this case too, and a real secret living at a path
+    # containing "test"/"fixture"/"mock"/"example" (a plausible place to
+    # accidentally commit one) was silently downgraded regardless of
+    # whether the value itself looked remotely like a placeholder. So this
+    # part stays gated: the path only qualifies a finding for the entropy
+    # check rather than deciding it outright.
+    path_suggests_placeholder = any(marker in rel_path.lower() for marker in PLACEHOLDER_PATH_MARKERS)
+    if not path_suggests_placeholder:
+        return False
+
+    # private_key_header's "value" (see SECRET_PATTERNS) is the fixed
+    # "-----BEGIN ... PRIVATE KEY-----" header line, not the key material
+    # itself - its entropy is essentially constant (~3.3-3.5) regardless of
+    # whether the key behind it is a real leaked credential or a throwaway
+    # self-signed test certificate, so it never crosses _LOW_ENTROPY_THRESHOLD
+    # and the check below always says "not a placeholder" even at an
+    # obviously test-suggestive path. Confirmed as a real false negative by
+    # scanning real repos: axios's and gin's own committed TLS test
+    # certificates (tests/unit/adapters/key.pem, testdata/certificate/key.pem)
+    # both went unflagged this way. The key material's own entropy would be
+    # uniformly high for a real OR fake key too (both are, or resemble,
+    # random bytes) - entropy can't distinguish them for this pattern either
+    # way, so path is the only usable signal here, same as the marker-word
+    # and repetition checks above being unambiguous regardless of path.
+    if pattern_name == "private_key_header":
+        return True
+
+    return _shannon_entropy(value) < _LOW_ENTROPY_THRESHOLD
+
+
+def _redact(value: str, salt: str) -> str:
+    # Salted with the finding's own (path, pattern) rather than a fixed or
+    # global salt - two identical secret values at different locations (or
+    # in different repos) hash differently, so match_preview can't be used
+    # as a lookup key to correlate/deanonymize a value across scan output.
+    # This is a display truncation, not a real cryptographic protection
+    # (whoever owns the repo can always read the raw value straight from
+    # path:line); the point is only that a match_preview pasted into a PR
+    # comment or dashboard, or scraped from either, no longer hands out 8
+    # real characters of the secret the way the old first4...last4 format
+    # did.
+    digest = hashlib.sha256(f"{salt}:{value}".encode("utf-8")).hexdigest()[:12]
+    return f"sha256:{digest}"
+
+
+def _legacy_redact(value: str) -> str:
+    # The pre-hash preview format (first 4 + last 4 raw characters) - kept
+    # only so an accepted_secrets baseline entry written before this fix
+    # still matches on the next scan. A finding's live value is re-derived
+    # fresh from the file every scan, so this can be recomputed and checked
+    # alongside the new format without needing to store or migrate
+    # anything; there's no way to derive it FROM an old match_preview
+    # (only 8 of the value's characters ever left the scan), so baseline
+    # entries can't be rewritten automatically - they keep working via this
+    # dual check indefinitely, and naturally end up in the new format
+    # whenever someone re-baselines from current scan output.
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}{'*' * 4}...{value[-4:]}"
+
+
+def load_secrets_baseline(repo_path: Path) -> list[dict]:
+    return load_repo_config(repo_path)["accepted_secrets"]
+
+
+def _baseline_keys(baseline: list[dict] | None) -> set[tuple]:
+    # Identity is (path, pattern, match_preview) for both current and history findings - not
+    # commit, even for history ones, since accepting a leaked-then-fixed secret is a judgment
+    # about that specific value at that path, not about one particular commit that happens to
+    # surface it.
+    return {(entry.get("path"), entry.get("pattern"), entry.get("match_preview")) for entry in (baseline or [])}
+
+
+def _is_accepted(accepted_keys: set[tuple], path: str | None, pattern_name: str, value: str) -> bool:
+    salt = f"{path}:{pattern_name}"
+    if (path, pattern_name, _redact(value, salt)) in accepted_keys:
+        return True
+    return (path, pattern_name, _legacy_redact(value)) in accepted_keys
+
+
+def _legacy_previews_at(repo_path: Path, finding: dict) -> set[str]:
+    """Legacy first4...last4 previews of the value behind one working-tree
+    finding, re-read from its line in the file. Only called when the baseline
+    holds a legacy-format entry for the finding's (path, pattern), so nothing
+    derived from the raw value is ever stored in the per-file cache."""
+    pattern_and_group = _PATTERNS_BY_NAME.get(finding["pattern"])
+    if pattern_and_group is None:
+        return set()
+    pattern, value_group = pattern_and_group
+    try:
+        text = (repo_path / finding["path"]).read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return set()
+    lines = text.split("\n")  # same line numbering as _scan_file_for_secrets
+    if not 1 <= finding["line"] <= len(lines):
+        return set()
+    salt = f"{finding['path']}:{finding['pattern']}"
+    return {
+        _legacy_redact(match.group(value_group))
+        for match in pattern.finditer(lines[finding["line"] - 1])
+        if _redact(match.group(value_group), salt) == finding["match_preview"]
+    }
+
+
+def _apply_baseline(findings: list[dict], baseline: list[dict] | None, repo_path: Path) -> list[dict]:
+    """Same result as _is_accepted on the raw value: match_preview *is* the
+    current-format redaction, and a legacy-format entry is checked against
+    the value re-read from the file (see _legacy_previews_at)."""
+    accepted_keys = _baseline_keys(baseline)
+    legacy: dict[tuple, set[str]] = {}
+    for path, pattern, preview in accepted_keys:
+        if isinstance(preview, str) and not preview.startswith("sha256:"):
+            legacy.setdefault((path, pattern), set()).add(preview)
+    out = []
+    for finding in findings:
+        finding = dict(finding)
+        key = (finding["path"], finding["pattern"])
+        finding["accepted"] = (*key, finding["match_preview"]) in accepted_keys or (
+            key in legacy and bool(_legacy_previews_at(repo_path, finding) & legacy[key])
+        )
+        out.append(finding)
+    return out
+
+
+def _scan_many_for_secrets(jobs: list[tuple[Path, str]]) -> list[list[dict]]:
+    from concurrent.futures.process import BrokenProcessPool
+
+    from aletheore.scanner.graph import (
+        PARALLEL_PARSE_MIN_FILES,
+        _map_in_pool_with_recovery,
+        _parallel_parse_disabled,
+    )
+
+    # Every file is independent, so large repos fan out across cores (same
+    # threshold and opt-out as the parallel module-graph parse). map keeps
+    # input order, so findings come back in the same order either way.
+    if len(jobs) >= PARALLEL_PARSE_MIN_FILES and not _parallel_parse_disabled():
+        results, complete = _map_in_pool_with_recovery(_scan_file_for_secrets, jobs, chunksize=64)
+        if not complete:
+            # Deliberately NOT degraded to "no findings": a file whose worker
+            # died was never scanned, and this stage is cached per file, so a
+            # fabricated empty result would be stored under the file's content
+            # hash and report it clean on every later scan. A secrets scan that
+            # cannot finish must fail, not pass.
+            raise BrokenProcessPool(
+                f"secret scan worker kept dying: {len(jobs) - len(results)} of {len(jobs)} files were not scanned"
+            )
+        return results
+    return [_scan_file_for_secrets(job) for job in jobs]
+
+
+def _scan_file_for_secrets(job: tuple[Path, str]) -> list[dict]:
+    path, rel_path = job
+    findings: list[dict] = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return findings
+
+    # split("\n"), never splitlines() - same bug class already fixed elsewhere in
+    # this codebase (see query.py's find_symbol_source): splitlines() also breaks
+    # on \v, \f, \x1c-\x1e, NEL, LS, and PS, none of which count as a line boundary
+    # here, so a file containing one earlier would shift every subsequent match's
+    # reported "line" off from its real \n-based line number.
+    lines = text.split("\n")
+    for line_no, line in enumerate(lines, start=1):
+        claimed_spans: list[tuple[int, int]] = []
+        for pattern_name, pattern, value_group in SECRET_PATTERNS:
+            for match in pattern.finditer(line):
+                value_span = match.span(value_group)
+                if pattern_name == "generic_credential_assignment" and _overlaps_a_specific_pattern_match(
+                    value_span, claimed_spans
+                ):
+                    # A dedicated pattern (github_token, aws_access_key_id, ...)
+                    # already matched this exact value on this line - e.g.
+                    # "token: ghs_..." matches both github_token AND, now that
+                    # TOKEN is a generic keyword, generic_credential_assignment
+                    # too. Without this, one real secret produced two findings
+                    # for the same value under two different pattern names,
+                    # which reads as the scanner double-counting rather than as
+                    # two real, independent secrets.
+                    continue
+                claimed_spans.append(value_span)
+                value = match.group(value_group)
+                match_preview = _redact(value, f"{rel_path}:{pattern_name}")
+                likely_placeholder = _is_likely_placeholder(rel_path, value, pattern_name)
+                # Only find_secrets (a full-file, current-tree scan) has
+                # convenient access to the lines following a match -
+                # find_secrets_in_history streams individual diff-added
+                # lines and doesn't have this context, so this check is
+                # scoped to here rather than folded into
+                # _is_likely_placeholder itself.
+                if (
+                    not likely_placeholder
+                    and pattern_name == "private_key_header"
+                    and _private_key_header_has_no_body(lines, line_no)
+                ):
+                    likely_placeholder = True
+                findings.append(
+                    {
+                        "path": rel_path,
+                        "line": line_no,
+                        "pattern": pattern_name,
+                        "match_preview": match_preview,
+                        "likely_placeholder": likely_placeholder,
+                        # Filled in by find_secrets from the baseline, so this per-file
+                        # result can be cached independent of it.
+                        "accepted": False,
+                    }
+                )
+
+    return findings
+
+
+def find_secrets(repo_path: Path, baseline: list[dict] | None = None) -> dict:
+    from aletheore.file_cache import cached_per_file, code_version
+
+    ignored_paths = load_repo_config(repo_path)["ignored_paths"]
+    # Absolute, so every walked path starts with this exact string: with a
+    # relative "." the walk yields "sub/f" (pathlib drops the "./"), and
+    # slicing off len(".") + 1 would cut real characters and collide cache
+    # keys (same fix as detect_languages, scanner/detect.py).
+    repo_path = Path(os.path.abspath(repo_path))
+    root_len = len(str(repo_path)) + 1
+    jobs = [(path, str(path)[root_len:].replace(os.sep, "/")) for path in iter_all_files(repo_path, ignored_paths)]
+    # Unchanged files reuse their findings from the last scan (file_cache.py).
+    per_file = cached_per_file(repo_path, "secrets", code_version(__file__), jobs, _scan_many_for_secrets)
+    findings = _apply_baseline([finding for file_findings in per_file for finding in file_findings], baseline, repo_path)
+    return {"scanned_files": len(jobs), "findings": findings}
+
+
+DEFAULT_SECRETS_HISTORY_TIMEOUT_SECONDS = 300.0
+
+
+def find_secrets_in_history(
+    repo_path: Path,
+    baseline: list[dict] | None = None,
+    *,
+    max_commits: int | None = None,
+    timeout_seconds: float | None = DEFAULT_SECRETS_HISTORY_TIMEOUT_SECONDS,
+) -> dict:
+    # `git log -p` generates a full unified diff for every commit in range -
+    # for a repo at torvalds/linux's scale (1.46M commits) that's over 2GB
+    # of diff text and ~50 minutes of git's own time, confirmed by direct
+    # measurement (1000 commits -> ~1.4MB / ~2s, extrapolated linearly).
+    # Streaming avoids buffering that text, but a hosted PR scan can't
+    # spend 50 minutes walking a repo's entire history on every run
+    # regardless - max_commits bounds it to the most recent N commits,
+    # same pattern as git_intel's depth_cap.
+    #
+    # max_commits is an explicit, known-cost bound. timeout_seconds guards
+    # the other failure mode: git blocked on a slow read (e.g. blob reads
+    # stalling on a network-backed filesystem) rather than genuinely
+    # working through a large history - reproduced directly (a `git log -p`
+    # that measured ~2s/1000 commits elsewhere took 7+ minutes at ~0% CPU
+    # on a stalled checkout). Without a timeout that hangs this call, and
+    # the CLI, forever with no feedback. A `threading.Timer` watchdog kills
+    # the process on expiry; the read loop below then hits EOF naturally
+    # and returns whatever was gathered before the stall, flagged as
+    # incomplete rather than presented as a full scan.
+    accepted_keys = _baseline_keys(baseline)
+    args = ["git", "log", "-p", "--format=COMMIT_START\x1f%H\x1f%ad", "--date=iso-strict"]
+    if max_commits is not None:
+        args += ["-n", str(max_commits)]
+    process = subprocess.Popen(
+        args,
+        cwd=repo_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+    )
+
+    timed_out = threading.Event()
+    watchdog: threading.Timer | None = None
+    if timeout_seconds is not None:
+        def _kill_on_timeout() -> None:
+            timed_out.set()
+            process.kill()
+
+        watchdog = threading.Timer(timeout_seconds, _kill_on_timeout)
+        watchdog.daemon = True
+        watchdog.start()
+
+    findings: list[dict] = []
+    scanned_commits: set[str] = set()
+    current_commit: str | None = None
+    current_commit_date: str | None = None
+    current_file: str | None = None
+
+    try:
+        assert process.stdout is not None
+        for raw_line in process.stdout:
+            line = raw_line.rstrip("\n")
+            if line.startswith("COMMIT_START\x1f"):
+                parts = line.split("\x1f")
+                current_commit = parts[1] if len(parts) > 1 else None
+                current_commit_date = parts[2] if len(parts) > 2 else None
+                if current_commit:
+                    scanned_commits.add(current_commit)
+                continue
+            if line.startswith("+++ b/"):
+                current_file = line[len("+++ b/"):]
+                continue
+            if line.startswith("+++"):
+                continue
+            if not line.startswith("+"):
+                continue
+
+            content = line[1:]
+            claimed_spans: list[tuple[int, int]] = []
+            for pattern_name, pattern, value_group in SECRET_PATTERNS:
+                for match in pattern.finditer(content):
+                    value_span = match.span(value_group)
+                    if pattern_name == "generic_credential_assignment" and _overlaps_a_specific_pattern_match(
+                        value_span, claimed_spans
+                    ):
+                        continue  # see find_secrets' identical check for why
+                    claimed_spans.append(value_span)
+                    value = match.group(value_group)
+                    match_preview = _redact(value, f"{current_file}:{pattern_name}")
+                    findings.append(
+                        {
+                            "commit": current_commit,
+                            "commit_date": current_commit_date,
+                            "path": current_file,
+                            "pattern": pattern_name,
+                            "match_preview": match_preview,
+                            "likely_placeholder": _is_likely_placeholder(current_file or "", value, pattern_name),
+                            "accepted": _is_accepted(accepted_keys, current_file, pattern_name, value),
+                        }
+                    )
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+
+    process.stdout.close()
+    process.wait()
+
+    if timed_out.is_set():
+        return {
+            "history_scanned_commits": len(scanned_commits),
+            "history_findings": findings,
+            "history_scan_timed_out": True,
+        }
+
+    if process.returncode != 0:
+        return {"history_scanned_commits": 0, "history_findings": []}
+
+    return {"history_scanned_commits": len(scanned_commits), "history_findings": findings}

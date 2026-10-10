@@ -1,0 +1,2677 @@
+"""Flight Deck SQLite database — users, settings, chat persistence."""
+
+from __future__ import annotations
+
+import re
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import aiosqlite
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _uuid() -> str:
+    return uuid.uuid4().hex
+
+
+def _with_run_labels(row: dict) -> dict:
+    """Shape a basna_runs row for readers: the raw column `success` is the judge's
+    automatic label, kept as `judge_success`; `success` becomes the effective label
+    (the human thumbs vote when there is one, else the judge's), so every consumer
+    keeps seeing the human override while the judge verdict survives for calibration.
+    """
+    judge = row.get("success")
+    human = row.get("human_success")
+    row["judge_success"] = judge
+    row["success"] = human if human is not None else judge
+    return row
+
+
+class FlightDeckDB:
+    """Async SQLite store for Flight Deck multi-tenant data."""
+
+    def __init__(self, db_path: Path | str):
+        self._db_path = Path(db_path)
+        self._db: aiosqlite.Connection | None = None
+
+    async def init(self) -> None:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._db = await aiosqlite.connect(str(self._db_path))
+        self._db.row_factory = aiosqlite.Row
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA foreign_keys=ON")
+        await self._create_tables()
+
+    async def close(self) -> None:
+        if self._db:
+            await self._db.close()
+            self._db = None
+
+    async def _create_tables(self) -> None:
+        assert self._db is not None
+        await self._db.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id           TEXT PRIMARY KEY,
+                email        TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                display_name TEXT NOT NULL DEFAULT '',
+                role         TEXT NOT NULL DEFAULT 'user',
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL,
+                metadata     TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id                 TEXT PRIMARY KEY,
+                user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                refresh_token_hash TEXT NOT NULL,
+                expires_at         TEXT NOT NULL,
+                created_at         TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_user
+                ON user_sessions(user_id);
+
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                key        TEXT NOT NULL,
+                value      TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, key)
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id         TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                agent_id   TEXT NOT NULL DEFAULT '',
+                agent_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_user
+                ON chat_sessions(user_id);
+
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL DEFAULT '',
+                metadata   TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_session
+                ON chat_messages(session_id);
+
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS usage_logs (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                detail     TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_usage_logs_user
+                ON usage_logs(user_id);
+            CREATE INDEX IF NOT EXISTS idx_usage_logs_type
+                ON usage_logs(event_type);
+            CREATE INDEX IF NOT EXISTS idx_usage_logs_created
+                ON usage_logs(created_at);
+
+            CREATE TABLE IF NOT EXISTS council_sessions (
+                id              TEXT PRIMARY KEY,
+                user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title           TEXT NOT NULL DEFAULT '',
+                topic           TEXT NOT NULL DEFAULT '',
+                session_type    TEXT NOT NULL DEFAULT 'brainstorm',
+                verbosity       TEXT NOT NULL DEFAULT 'message',
+                max_rounds      INTEGER NOT NULL DEFAULT 5,
+                current_round   INTEGER NOT NULL DEFAULT 0,
+                status          TEXT NOT NULL DEFAULT 'setup',
+                moderator_mode  TEXT NOT NULL DEFAULT 'round-robin',
+                moderator_agent TEXT NOT NULL DEFAULT '',
+                agents          TEXT NOT NULL DEFAULT '[]',
+                pinned_ids      TEXT NOT NULL DEFAULT '[]',
+                config          TEXT NOT NULL DEFAULT '{}',
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_council_sessions_user
+                ON council_sessions(user_id);
+
+            CREATE TABLE IF NOT EXISTS council_messages (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT NOT NULL REFERENCES council_sessions(id) ON DELETE CASCADE,
+                round           INTEGER NOT NULL DEFAULT 1,
+                agent_id        TEXT NOT NULL DEFAULT '',
+                agent_name      TEXT NOT NULL DEFAULT '',
+                role            TEXT NOT NULL,
+                action          TEXT NOT NULL DEFAULT '',
+                suitability     REAL NOT NULL DEFAULT 0.0,
+                target_agent_id TEXT NOT NULL DEFAULT '',
+                content         TEXT NOT NULL DEFAULT '',
+                pinned          INTEGER NOT NULL DEFAULT 0,
+                metadata        TEXT NOT NULL DEFAULT '{}',
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_council_messages_session
+                ON council_messages(session_id);
+            CREATE INDEX IF NOT EXISTS idx_council_messages_round
+                ON council_messages(session_id, round);
+
+            CREATE TABLE IF NOT EXISTS council_votes (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT NOT NULL REFERENCES council_sessions(id) ON DELETE CASCADE,
+                round           INTEGER NOT NULL,
+                agent_id        TEXT NOT NULL,
+                agent_name      TEXT NOT NULL DEFAULT '',
+                vote            TEXT NOT NULL,
+                reason          TEXT NOT NULL DEFAULT '',
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_council_votes_session
+                ON council_votes(session_id);
+
+            CREATE TABLE IF NOT EXISTS council_artifacts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT NOT NULL REFERENCES council_sessions(id) ON DELETE CASCADE,
+                kind            TEXT NOT NULL,
+                agent_id        TEXT NOT NULL DEFAULT '',
+                agent_name      TEXT NOT NULL DEFAULT '',
+                content         TEXT NOT NULL DEFAULT '',
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_council_artifacts_session
+                ON council_artifacts(session_id);
+
+            -- ── Basna: router → selective spawn → weighted merge → learning ──
+            CREATE TABLE IF NOT EXISTS basna_sessions (
+                id           TEXT PRIMARY KEY,
+                user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title        TEXT NOT NULL DEFAULT '',
+                intent       TEXT NOT NULL DEFAULT '',
+                domain       TEXT NOT NULL DEFAULT '',
+                difficulty   TEXT NOT NULL DEFAULT '',
+                merge_kind   TEXT NOT NULL DEFAULT 'converge',
+                status       TEXT NOT NULL DEFAULT 'routing',
+                route        TEXT NOT NULL DEFAULT '{}',
+                truth        TEXT NOT NULL DEFAULT '',
+                confidence   REAL NOT NULL DEFAULT 0.0,
+                config       TEXT NOT NULL DEFAULT '{}',
+                progress     TEXT NOT NULL DEFAULT '[]',  -- JSON: execution progress log
+                files        TEXT NOT NULL DEFAULT '[]',  -- JSON: attached files [{name,mime,size}]
+                analysis     TEXT NOT NULL DEFAULT '{}',  -- JSON: cross-agent analysis (agreement/diffs/blind spots)
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_basna_sessions_user
+                ON basna_sessions(user_id);
+
+            CREATE TABLE IF NOT EXISTS basna_runs (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id     TEXT NOT NULL REFERENCES basna_sessions(id) ON DELETE CASCADE,
+                archetype_id   TEXT NOT NULL DEFAULT '',
+                role           TEXT NOT NULL DEFAULT '',
+                provider       TEXT NOT NULL DEFAULT '',
+                model          TEXT NOT NULL DEFAULT '',
+                tier           TEXT NOT NULL DEFAULT '',
+                weight_at_run  REAL NOT NULL DEFAULT 0.0,
+                output         TEXT NOT NULL DEFAULT '',
+                actions        TEXT NOT NULL DEFAULT '[]',  -- JSON: per-agent tool actions
+                success        INTEGER,            -- judge/auto label: NULL until scored; 1 = success, 0 = fail
+                human_success  INTEGER,            -- human thumbs label: NULL until voted; 1 / 0
+                human_feedback_at TEXT,            -- when the human last voted
+                latency_ms     INTEGER NOT NULL DEFAULT 0,
+                created_at     TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_basna_runs_session
+                ON basna_runs(session_id);
+
+            -- Learned, per-user reliability of each archetype within a domain.
+            CREATE TABLE IF NOT EXISTS archetype_reliability (
+                user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                archetype_id TEXT NOT NULL,
+                domain       TEXT NOT NULL DEFAULT '',
+                successes    INTEGER NOT NULL DEFAULT 0,
+                fails        INTEGER NOT NULL DEFAULT 0,
+                runs         INTEGER NOT NULL DEFAULT 0,
+                weight       REAL NOT NULL DEFAULT 0.7,
+                updated_at   TEXT NOT NULL,
+                PRIMARY KEY (user_id, archetype_id, domain)
+            );
+
+            -- R2 automatic CONSTRAINT edge (opt-in `constraint_learning`): short,
+            -- reusable rules distilled from accepted/fixed runs, injected into the
+            -- splitter/planner/contract briefs of later runs. Additive — created on
+            -- demand, IF NOT EXISTS, no migration of existing tables. No users FK
+            -- (mirrors cost_ledger) so it is engine- and test-friendly.
+            CREATE TABLE IF NOT EXISTS learned_constraints (
+                id              TEXT PRIMARY KEY,
+                user_id         TEXT NOT NULL,
+                domain          TEXT NOT NULL DEFAULT '',
+                engine          TEXT NOT NULL DEFAULT '',   -- 'vatra' | 'code'
+                trigger_text    TEXT NOT NULL DEFAULT '',
+                constraint_text TEXT NOT NULL DEFAULT '',
+                severity        TEXT NOT NULL DEFAULT 'major',
+                source_id       TEXT NOT NULL DEFAULT '',    -- session/project id
+                hits            INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_learned_constraints_user
+                ON learned_constraints(user_id, domain);
+
+            -- Vatra blackboard: cross-agent "asks" a specialist posts when it needs
+            -- something outside its slice. The coordinator routes each to a helper
+            -- and writes the answer back; the reporter folds answered asks in.
+            CREATE TABLE IF NOT EXISTS basna_asks (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id   TEXT NOT NULL REFERENCES basna_sessions(id) ON DELETE CASCADE,
+                from_owner   TEXT NOT NULL DEFAULT '',   -- asker archetype id
+                from_subtask TEXT NOT NULL DEFAULT '',
+                text         TEXT NOT NULL DEFAULT '',
+                status       TEXT NOT NULL DEFAULT 'open',  -- open|claimed|answered|dropped
+                answer       TEXT NOT NULL DEFAULT '',
+                answered_by  TEXT NOT NULL DEFAULT '',
+                depth        INTEGER NOT NULL DEFAULT 0,
+                note         TEXT NOT NULL DEFAULT '',      -- e.g. drop reason
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_basna_asks_session
+                ON basna_asks(session_id);
+
+            -- Vatra shared board: every agent's notes, outputs, and files stream
+            -- here as they work, so teammates can read/search each other's work in
+            -- real time (a shared memory / clipboard for the run).
+            CREATE TABLE IF NOT EXISTS vatra_board (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id   TEXT NOT NULL REFERENCES basna_sessions(id) ON DELETE CASCADE,
+                from_owner   TEXT NOT NULL DEFAULT '',   -- archetype id of the author
+                from_subtask TEXT NOT NULL DEFAULT '',
+                kind         TEXT NOT NULL DEFAULT 'note',  -- note|narration|output|file
+                title        TEXT NOT NULL DEFAULT '',
+                content      TEXT NOT NULL DEFAULT '',
+                created_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_vatra_board_session
+                ON vatra_board(session_id);
+
+            -- Vatra resume checkpoint: one row per owner (subtask) capturing its
+            -- finished slice, so a stalled/cancelled run can be resumed — completed
+            -- owners are restored from here (no re-run, no re-spend) and only the
+            -- missing ones are re-dispatched. UPSERT-keyed on (session_id, subtask_id)
+            -- so a re-dispatched owner overwrites its own checkpoint idempotently.
+            CREATE TABLE IF NOT EXISTS vatra_runs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id    TEXT NOT NULL REFERENCES basna_sessions(id) ON DELETE CASCADE,
+                subtask_id    TEXT NOT NULL DEFAULT '',
+                archetype_id  TEXT NOT NULL DEFAULT '',
+                role          TEXT NOT NULL DEFAULT '',
+                weight        REAL NOT NULL DEFAULT 0.0,
+                output        TEXT NOT NULL DEFAULT '',
+                produced_file INTEGER NOT NULL DEFAULT 0,
+                status        TEXT NOT NULL DEFAULT 'done',  -- done|failed|skipped
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL,
+                UNIQUE (session_id, subtask_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_vatra_runs_session
+                ON vatra_runs(session_id);
+
+            -- Basna/Vatra projects: a bundle of runs sharing one theme (description +
+            -- instructions injected into each run) and one read-only VFS folder
+            -- (uploads, auto-added as a reference folder). Runs stay independent —
+            -- the project just groups them and seeds their context.
+            CREATE TABLE IF NOT EXISTS basna_projects (
+                id           TEXT PRIMARY KEY,
+                user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name         TEXT NOT NULL DEFAULT '',
+                description  TEXT NOT NULL DEFAULT '',
+                instructions TEXT NOT NULL DEFAULT '',
+                vfs_folder   TEXT NOT NULL DEFAULT '',   -- the project's VFS folder
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_basna_projects_user
+                ON basna_projects(user_id);
+
+            CREATE TABLE IF NOT EXISTS prompts (
+                id         TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title      TEXT NOT NULL DEFAULT '',
+                content    TEXT NOT NULL DEFAULT '',
+                files      TEXT NOT NULL DEFAULT '[]',
+                tags       TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_prompts_user
+                ON prompts(user_id);
+
+            -- Per-user (per-tenant) agent archetypes. The base set lives in
+            -- instructions/archetypes.json; rows here are added on top and, when
+            -- archetype_id matches a base one, shadow it for that user. `data`
+            -- holds the full archetype JSON (role, family, keywords,
+            -- cognitive_mode, tier, tools, description, fleet_instructions,
+            -- lead, reliability_seed).
+            CREATE TABLE IF NOT EXISTS user_archetypes (
+                id           TEXT PRIMARY KEY,
+                user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                archetype_id TEXT NOT NULL,
+                data         TEXT NOT NULL DEFAULT '{}',
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL,
+                UNIQUE(user_id, archetype_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_archetypes_user
+                ON user_archetypes(user_id);
+
+            -- Cross-user resource sharing. An owner grants another FD user
+            -- access to one of their resources. `resource_type` is one of
+            -- archetype | code | basna | council | vfs; `resource_id` is the
+            -- natural key within the owner's namespace (archetype slug, Basna
+            -- or Council session id, or a VFS/Code project folder name).
+            -- `permission` is 'view' (read-only) or 'edit' (collaborate);
+            -- archetypes are always use-only regardless of permission.
+            CREATE TABLE IF NOT EXISTS resource_shares (
+                id            TEXT PRIMARY KEY,
+                resource_type TEXT NOT NULL,
+                resource_id   TEXT NOT NULL,
+                owner_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                grantee_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                permission    TEXT NOT NULL DEFAULT 'view',
+                created_at    TEXT NOT NULL,
+                UNIQUE(resource_type, resource_id, owner_id, grantee_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_resource_shares_grantee
+                ON resource_shares(grantee_id, resource_type);
+            CREATE INDEX IF NOT EXISTS idx_resource_shares_owner
+                ON resource_shares(owner_id, resource_type, resource_id);
+
+            -- Persisted run costs (Iskra Phase 0, docs/living-beings-plan.md
+            -- §10). One row per finished run: the aggregate token usage +
+            -- dollar cost that pricing.summarize computed, which previously
+            -- lived only in the in-memory progress log. owner_type 'being'
+            -- rows carry the being slug in owner_ref; wallet debits stay in
+            -- beings.db — this table is the dollar/reporting side.
+            CREATE TABLE IF NOT EXISTS cost_ledger (
+                id              TEXT PRIMARY KEY,
+                owner_user_id   TEXT NOT NULL,
+                owner_type      TEXT NOT NULL DEFAULT 'user',
+                owner_ref       TEXT NOT NULL DEFAULT '',
+                run_kind        TEXT NOT NULL,
+                run_id          TEXT NOT NULL DEFAULT '',
+                usage           TEXT NOT NULL DEFAULT '{}',
+                usd             REAL,
+                elapsed_seconds REAL,
+                at              TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_cost_ledger_owner
+                ON cost_ledger(owner_user_id, at);
+            CREATE TABLE IF NOT EXISTS notifications (
+                id          TEXT PRIMARY KEY,
+                user_id     TEXT NOT NULL,
+                type        TEXT NOT NULL DEFAULT 'info',
+                title       TEXT NOT NULL DEFAULT '',
+                body        TEXT NOT NULL DEFAULT '',
+                ref_type    TEXT NOT NULL DEFAULT '',
+                ref_id      TEXT NOT NULL DEFAULT '',
+                read        INTEGER NOT NULL DEFAULT 0,
+                created_at  TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_user
+                ON notifications(user_id, read, created_at);
+            -- Gmail sends made through Flight Deck (POST /fd/google/gmail/send):
+            -- the audit trail the owner sees, and what the daily limit and the
+            -- duplicate check count. One row per message Gmail accepted
+            -- (status 'sent') or may have sent: the send call got a 5xx or no
+            -- answer (status 'unknown').
+            CREATE TABLE IF NOT EXISTS gmail_sends (
+                id               TEXT PRIMARY KEY,
+                owner_id         TEXT NOT NULL,
+                agent            TEXT NOT NULL DEFAULT '',
+                to_addrs         TEXT NOT NULL DEFAULT '',
+                cc_addrs         TEXT NOT NULL DEFAULT '',
+                bcc_addrs        TEXT NOT NULL DEFAULT '',
+                subject          TEXT NOT NULL DEFAULT '',
+                gmail_message_id TEXT NOT NULL DEFAULT '',
+                thread_id        TEXT NOT NULL DEFAULT '',
+                draft_id         TEXT NOT NULL DEFAULT '',
+                content_hash     TEXT NOT NULL DEFAULT '',
+                status           TEXT NOT NULL DEFAULT 'sent',
+                created_at       TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_gmail_sends_owner
+                ON gmail_sends(owner_id, created_at);
+            CREATE TABLE IF NOT EXISTS personal_access_tokens (
+                id           TEXT PRIMARY KEY,
+                user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash   TEXT NOT NULL,
+                name         TEXT NOT NULL DEFAULT '',
+                created_at   TEXT NOT NULL,
+                last_used_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_pat_hash
+                ON personal_access_tokens(token_hash);
+            CREATE INDEX IF NOT EXISTS idx_pat_user
+                ON personal_access_tokens(user_id);
+            CREATE TABLE IF NOT EXISTS oauth_clients (
+                id            TEXT PRIMARY KEY,
+                client_name   TEXT NOT NULL DEFAULT '',
+                redirect_uris TEXT NOT NULL DEFAULT '[]',
+                created_at    TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS oauth_codes (
+                id             TEXT PRIMARY KEY,
+                code_hash      TEXT NOT NULL UNIQUE,
+                client_id      TEXT NOT NULL,
+                user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                redirect_uri   TEXT NOT NULL,
+                code_challenge TEXT NOT NULL,
+                scope          TEXT NOT NULL DEFAULT 'mcp',
+                resource       TEXT,
+                created_at     TEXT NOT NULL,
+                expires_at     TEXT NOT NULL,
+                used_at        TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_oauth_codes_hash
+                ON oauth_codes(code_hash);
+            CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+                id           TEXT PRIMARY KEY,
+                token_hash   TEXT NOT NULL UNIQUE,
+                client_id    TEXT NOT NULL,
+                client_name  TEXT NOT NULL DEFAULT '',
+                user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                scope        TEXT NOT NULL DEFAULT 'mcp',
+                created_at   TEXT NOT NULL,
+                last_used_at TEXT,
+                revoked_at   TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_oauth_refresh_hash
+                ON oauth_refresh_tokens(token_hash);
+            CREATE INDEX IF NOT EXISTS idx_oauth_refresh_user
+                ON oauth_refresh_tokens(user_id, revoked_at);
+
+            -- Shared-agent context packs (PR B, see context_packs.py): a user
+            -- publishes one of their own resources (profile / VFS folder /
+            -- deep-memory pool) to an agent they own or are a member of.
+            -- Whether a row is in effect is computed per request (current
+            -- owner, live membership, the folder still being the same one).
+            CREATE TABLE IF NOT EXISTS context_packs (
+                id           TEXT PRIMARY KEY,
+                agent_ref    TEXT NOT NULL,
+                agent_owner  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                pack_owner   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                kind         TEXT NOT NULL,
+                resource_id  TEXT NOT NULL DEFAULT '',
+                resource_key TEXT NOT NULL DEFAULT '',
+                alias        TEXT NOT NULL DEFAULT '',
+                slice        TEXT NOT NULL DEFAULT '{}',
+                created_at   TEXT NOT NULL,
+                UNIQUE(agent_ref, pack_owner, kind, resource_id)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_context_packs_alias
+                ON context_packs(agent_ref, alias) WHERE alias != '';
+            CREATE INDEX IF NOT EXISTS idx_context_packs_owner
+                ON context_packs(pack_owner);
+            -- Alias tombstones: an alias, once used on an agent, stays that
+            -- publisher's there for good. No FK on pack_owner on purpose: the
+            -- reservation outlives the user.
+            CREATE TABLE IF NOT EXISTS context_pack_aliases (
+                agent_ref  TEXT NOT NULL,
+                alias      TEXT NOT NULL,
+                pack_owner TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (agent_ref, alias)
+            );
+        """)
+        # Lightweight migrations: add columns introduced after a table first shipped.
+        for table, col, ddl in [
+            ("basna_runs", "actions", "TEXT NOT NULL DEFAULT '[]'"),
+            ("basna_runs", "human_success", "INTEGER"),
+            ("basna_runs", "human_feedback_at", "TEXT"),
+            ("basna_sessions", "progress", "TEXT NOT NULL DEFAULT '[]'"),
+            ("basna_sessions", "files", "TEXT NOT NULL DEFAULT '[]'"),
+            ("basna_sessions", "analysis", "TEXT NOT NULL DEFAULT '{}'"),
+            ("basna_sessions", "title", "TEXT NOT NULL DEFAULT ''"),
+            ("gmail_sends", "status", "TEXT NOT NULL DEFAULT 'sent'"),
+        ]:
+            try:
+                await self._db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            except Exception:
+                pass  # column already exists
+        await self._db.commit()
+
+    # ── Users ────────────────────────────────────────────────────────
+
+    async def create_user(
+        self, email: str, password_hash: str, display_name: str = "",
+        role: str = "user",
+    ) -> dict:
+        now = _utcnow()
+        uid = _uuid()
+        assert self._db is not None
+        await self._db.execute(
+            "INSERT INTO users (id, email, password_hash, display_name, role, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (uid, email.lower().strip(), password_hash, display_name, role, now, now),
+        )
+        await self._db.commit()
+        return {"id": uid, "email": email.lower().strip(), "display_name": display_name,
+                "role": role, "created_at": now}
+
+    async def get_user_by_email(self, email: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM users WHERE email = ?", (email.lower().strip(),)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def get_user_by_id(self, user_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT id, email, display_name, role, created_at, updated_at, metadata"
+            " FROM users WHERE id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def update_user(self, user_id: str, **fields) -> bool:
+        assert self._db is not None
+        allowed = {"email", "password_hash", "display_name", "role", "metadata"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        updates["updated_at"] = _utcnow()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [user_id]
+        await self._db.execute(f"UPDATE users SET {set_clause} WHERE id = ?", vals)
+        await self._db.commit()
+        return True
+
+    async def count_users(self) -> int:
+        assert self._db is not None
+        async with self._db.execute("SELECT COUNT(*) FROM users") as cur:
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+    # ── Refresh sessions ─────────────────────────────────────────────
+
+    async def create_refresh_session(
+        self, user_id: str, refresh_token_hash: str, expires_at: str,
+    ) -> str:
+        sid = _uuid()
+        now = _utcnow()
+        assert self._db is not None
+        await self._db.execute(
+            "INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (sid, user_id, refresh_token_hash, expires_at, now),
+        )
+        await self._db.commit()
+        return sid
+
+    async def get_refresh_session(self, session_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM user_sessions WHERE id = ?", (session_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def delete_refresh_session(self, session_id: str) -> None:
+        assert self._db is not None
+        await self._db.execute("DELETE FROM user_sessions WHERE id = ?", (session_id,))
+        await self._db.commit()
+
+    async def delete_user_refresh_sessions(self, user_id: str) -> None:
+        assert self._db is not None
+        await self._db.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+        await self._db.commit()
+
+    async def cleanup_expired_sessions(self) -> None:
+        assert self._db is not None
+        now = _utcnow()
+        await self._db.execute("DELETE FROM user_sessions WHERE expires_at < ?", (now,))
+        await self._db.commit()
+
+    # ── Personal access tokens (long-lived; for MCP clients) ──────────
+    # Only the sha256 hash is stored; the raw token is shown to the user once
+    # at creation. A remote MCP client presents it as a Bearer credential.
+
+    async def create_pat(self, user_id: str, token_hash: str, name: str = "") -> str:
+        assert self._db is not None
+        pid = _uuid()
+        await self._db.execute(
+            "INSERT INTO personal_access_tokens (id, user_id, token_hash, name, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (pid, user_id, token_hash, name, _utcnow()),
+        )
+        await self._db.commit()
+        return pid
+
+    async def get_pat_by_hash(self, token_hash: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM personal_access_tokens WHERE token_hash = ?", (token_hash,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def list_pats(self, user_id: str) -> list[dict]:
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT id, name, created_at, last_used_at FROM personal_access_tokens"
+            " WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        )
+        return [dict(r) for r in rows]
+
+    async def touch_pat(self, pat_id: str) -> None:
+        assert self._db is not None
+        await self._db.execute(
+            "UPDATE personal_access_tokens SET last_used_at = ? WHERE id = ?",
+            (_utcnow(), pat_id),
+        )
+        await self._db.commit()
+
+    async def revoke_pat(self, pat_id: str, user_id: str) -> bool:
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM personal_access_tokens WHERE id = ? AND user_id = ?",
+            (pat_id, user_id),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) > 0
+
+    # ── OAuth 2.1 (inbound MCP; claude.ai custom connectors) ──────────
+
+    async def create_oauth_client(self, client_id: str, client_name: str, redirect_uris: list[str]) -> None:
+        assert self._db is not None
+        import json as _json
+        await self._db.execute(
+            "INSERT INTO oauth_clients (id, client_name, redirect_uris, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (client_id, client_name, _json.dumps(redirect_uris), _utcnow()),
+        )
+        await self._db.commit()
+
+    async def get_oauth_client(self, client_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM oauth_clients WHERE id = ?", (client_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        import json as _json
+        d = dict(row)
+        try:
+            d["redirect_uris"] = _json.loads(d.get("redirect_uris") or "[]")
+        except (_json.JSONDecodeError, TypeError):
+            d["redirect_uris"] = []
+        return d
+
+    async def create_oauth_code(
+        self, code_hash: str, client_id: str, user_id: str, redirect_uri: str,
+        code_challenge: str, scope: str, resource: str | None, expires_at: str,
+    ) -> None:
+        assert self._db is not None
+        await self._db.execute(
+            "INSERT INTO oauth_codes (id, code_hash, client_id, user_id, redirect_uri,"
+            " code_challenge, scope, resource, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_uuid(), code_hash, client_id, user_id, redirect_uri, code_challenge,
+             scope, resource, _utcnow(), expires_at),
+        )
+        await self._db.commit()
+
+    async def get_oauth_code_by_hash(self, code_hash: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM oauth_codes WHERE code_hash = ?", (code_hash,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def burn_oauth_code(self, code_id: str) -> bool:
+        """Atomically mark a code used; returns True only for the first caller."""
+        assert self._db is not None
+        async with self._db.execute(
+            "UPDATE oauth_codes SET used_at = ? WHERE id = ? AND used_at IS NULL",
+            (_utcnow(), code_id),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) == 1
+
+    async def create_oauth_refresh(
+        self, token_hash: str, client_id: str, client_name: str, user_id: str, scope: str,
+    ) -> str:
+        assert self._db is not None
+        rid = _uuid()
+        await self._db.execute(
+            "INSERT INTO oauth_refresh_tokens (id, token_hash, client_id, client_name,"
+            " user_id, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (rid, token_hash, client_id, client_name, user_id, scope, _utcnow()),
+        )
+        await self._db.commit()
+        return rid
+
+    async def get_oauth_refresh_by_hash(self, token_hash: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM oauth_refresh_tokens WHERE token_hash = ? AND revoked_at IS NULL",
+            (token_hash,),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def rotate_oauth_refresh(self, refresh_id: str) -> bool:
+        """Atomically revoke a refresh token (single-use rotation)."""
+        assert self._db is not None
+        async with self._db.execute(
+            "UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+            (_utcnow(), refresh_id),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) == 1
+
+    async def list_oauth_grants(self, user_id: str) -> list[dict]:
+        """Distinct connected apps for a user (non-revoked refresh tokens)."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT client_id, MAX(client_name) AS client_name,"
+            " MIN(created_at) AS connected_at, MAX(last_used_at) AS last_used_at,"
+            " COUNT(*) AS tokens"
+            " FROM oauth_refresh_tokens WHERE user_id = ? AND revoked_at IS NULL"
+            " GROUP BY client_id ORDER BY connected_at DESC",
+            (user_id,),
+        )
+        return [dict(r) for r in rows]
+
+    async def revoke_oauth_grant(self, user_id: str, client_id: str) -> int:
+        """Revoke every refresh token for one connected app (disconnect it)."""
+        assert self._db is not None
+        async with self._db.execute(
+            "UPDATE oauth_refresh_tokens SET revoked_at = ?"
+            " WHERE user_id = ? AND client_id = ? AND revoked_at IS NULL",
+            (_utcnow(), user_id, client_id),
+        ) as cur:
+            await self._db.commit()
+            return cur.rowcount or 0
+
+    async def prune_oauth(self) -> None:
+        """Best-effort GC: drop expired/used codes."""
+        assert self._db is not None
+        now = _utcnow()
+        try:
+            await self._db.execute(
+                "DELETE FROM oauth_codes WHERE expires_at < ? OR used_at IS NOT NULL", (now,))
+            await self._db.commit()
+        except Exception:
+            pass
+
+    # ── User settings ────────────────────────────────────────────────
+
+    async def get_all_settings(self, user_id: str) -> dict[str, str]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT key, value FROM user_settings WHERE user_id = ?", (user_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+            return {r["key"]: r["value"] for r in rows}
+
+    async def get_setting(self, user_id: str, key: str) -> str | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT value FROM user_settings WHERE user_id = ? AND key = ?",
+            (user_id, key),
+        ) as cur:
+            row = await cur.fetchone()
+            return row["value"] if row else None
+
+    async def set_settings(self, user_id: str, settings: dict[str, str]) -> None:
+        assert self._db is not None
+        now = _utcnow()
+        for key, value in settings.items():
+            await self._db.execute(
+                "INSERT INTO user_settings (user_id, key, value, updated_at)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value,"
+                " updated_at = excluded.updated_at",
+                (user_id, key, value, now),
+            )
+        await self._db.commit()
+
+    # ── System settings (no FK, for global config) ────────────────
+
+    async def get_system_setting(self, key: str) -> str | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT value FROM system_settings WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row["value"] if row else None
+
+    async def set_system_setting(self, key: str, value: str) -> None:
+        assert self._db is not None
+        now = _utcnow()
+        await self._db.execute(
+            "INSERT INTO system_settings (key, value, updated_at)"
+            " VALUES (?, ?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+            " updated_at = excluded.updated_at",
+            (key, value, now),
+        )
+        await self._db.commit()
+
+    async def get_all_system_settings(self) -> dict[str, str]:
+        assert self._db is not None
+        async with self._db.execute("SELECT key, value FROM system_settings") as cur:
+            rows = await cur.fetchall()
+            return {r["key"]: r["value"] for r in rows}
+
+    async def delete_setting(self, user_id: str, key: str) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "DELETE FROM user_settings WHERE user_id = ? AND key = ?", (user_id, key)
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def delete_setting_for_all_users(self, key: str) -> int:
+        """Drop one setting key from every user (e.g. a removed shared agent's
+        per-member opt-in). Returns how many rows went."""
+        assert self._db is not None
+        cur = await self._db.execute("DELETE FROM user_settings WHERE key = ?", (key,))
+        await self._db.commit()
+        return int(cur.rowcount or 0)
+
+    # ── Chat sessions ────────────────────────────────────────────────
+
+    async def list_chat_sessions(self, user_id: str) -> list[dict]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_chat_session(self, session_id: str, user_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def upsert_chat_session(
+        self, session_id: str, user_id: str, agent_id: str = "",
+        agent_name: str = "",
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        await self._db.execute(
+            "INSERT INTO chat_sessions (id, user_id, agent_id, agent_name, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET agent_name = excluded.agent_name,"
+            " updated_at = excluded.updated_at",
+            (session_id, user_id, agent_id, agent_name, now, now),
+        )
+        await self._db.commit()
+        return {"id": session_id, "user_id": user_id, "agent_id": agent_id,
+                "agent_name": agent_name, "updated_at": now}
+
+    async def delete_chat_session(self, session_id: str, user_id: str) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "DELETE FROM chat_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def get_chat_messages(
+        self, session_id: str, user_id: str,
+        limit: int = 100, before_id: int | None = None,
+    ) -> list[dict]:
+        assert self._db is not None
+        # Verify ownership
+        sess = await self.get_chat_session(session_id, user_id)
+        if not sess:
+            return []
+        query = "SELECT * FROM chat_messages WHERE session_id = ?"
+        params: list = [session_id]
+        if before_id is not None:
+            query += " AND id < ?"
+            params.append(before_id)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        async with self._db.execute(query, params) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+        rows.reverse()  # Return chronological order
+        return rows
+
+    async def add_chat_messages(
+        self, session_id: str, user_id: str, messages: list[dict],
+    ) -> list[int]:
+        assert self._db is not None
+        sess = await self.get_chat_session(session_id, user_id)
+        if not sess:
+            return []
+        now = _utcnow()
+        ids = []
+        for msg in messages:
+            cur = await self._db.execute(
+                "INSERT INTO chat_messages (session_id, role, content, metadata, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (session_id, msg.get("role", ""), msg.get("content", ""),
+                 msg.get("metadata", "{}"), now),
+            )
+            ids.append(cur.lastrowid)
+        # Touch session
+        await self._db.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE id = ?", (now, session_id)
+        )
+        await self._db.commit()
+        return ids
+
+    # ── Usage logs ───────────────────────────────────────────────────
+
+    async def log_usage(
+        self, user_id: str, event_type: str, detail: str = "{}",
+    ) -> int:
+        assert self._db is not None
+        now = _utcnow()
+        cur = await self._db.execute(
+            "INSERT INTO usage_logs (user_id, event_type, detail, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (user_id, event_type, detail, now),
+        )
+        await self._db.commit()
+        return cur.lastrowid or 0
+
+    async def get_usage_logs(
+        self, user_id: str | None = None, event_type: str | None = None,
+        since: str | None = None, limit: int = 200,
+    ) -> list[dict]:
+        assert self._db is not None
+        query = "SELECT * FROM usage_logs WHERE 1=1"
+        params: list = []
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        if event_type:
+            query += " AND event_type = ?"
+            params.append(event_type)
+        if since:
+            query += " AND created_at >= ?"
+            params.append(since)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_usage_summary(
+        self, user_id: str | None = None, since: str | None = None,
+    ) -> dict[str, int]:
+        """Return event counts grouped by event_type."""
+        assert self._db is not None
+        query = "SELECT event_type, COUNT(*) as cnt FROM usage_logs WHERE 1=1"
+        params: list = []
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        if since:
+            query += " AND created_at >= ?"
+            params.append(since)
+        query += " GROUP BY event_type"
+        async with self._db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+            return {r["event_type"]: r["cnt"] for r in rows}
+
+    # ── Admin helpers ────────────────────────────────────────────────
+
+    async def list_users(self, limit: int = 100, offset: int = 0) -> list[dict]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT id, email, display_name, role, created_at, updated_at, metadata"
+            " FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_user(self, user_id: str) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    # ── Council sessions ─────────────────────────────────────────────
+
+    async def create_council_session(
+        self, user_id: str, title: str, topic: str,
+        session_type: str = "brainstorm", verbosity: str = "message",
+        max_rounds: int = 5, moderator_mode: str = "round-robin",
+        moderator_agent: str = "", agents: str = "[]", config: str = "{}",
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        sid = _uuid()
+        await self._db.execute(
+            "INSERT INTO council_sessions"
+            " (id, user_id, title, topic, session_type, verbosity, max_rounds,"
+            "  current_round, status, moderator_mode, moderator_agent, agents,"
+            "  pinned_ids, config, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'setup', ?, ?, ?, '[]', ?, ?, ?)",
+            (sid, user_id, title, topic, session_type, verbosity, max_rounds,
+             moderator_mode, moderator_agent, agents, config, now, now),
+        )
+        await self._db.commit()
+        return {"id": sid, "user_id": user_id, "title": title, "topic": topic,
+                "session_type": session_type, "verbosity": verbosity,
+                "max_rounds": max_rounds, "current_round": 0, "status": "setup",
+                "moderator_mode": moderator_mode, "moderator_agent": moderator_agent,
+                "agents": agents, "pinned_ids": "[]", "config": config,
+                "created_at": now, "updated_at": now}
+
+    async def list_council_sessions(self, user_id: str) -> list[dict]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM council_sessions WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_council_session(self, session_id: str, user_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM council_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def council_access(
+        self, session_id: str, caller_id: str,
+    ) -> tuple[dict | None, str | None]:
+        """Resolve a caller's access to a council session (owner or shared).
+
+        Returns ``(row, access)`` with access ∈ {'owner','edit','view'}, or
+        ``(None, None)`` if invisible. The row's ``user_id`` is always the true
+        owner — use it for child lookups and VFS/file resolution.
+        """
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM council_sessions WHERE id = ?", (session_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None, None
+        row = dict(row)
+        if row["user_id"] == caller_id:
+            return row, "owner"
+        share = await self.get_share_for_grantee(
+            "council", session_id, caller_id, row["user_id"],
+        )
+        if share:
+            return row, share.get("permission") or "view"
+        return None, None
+
+    async def update_council_session(
+        self, session_id: str, user_id: str, **fields,
+    ) -> bool:
+        assert self._db is not None
+        allowed = {"title", "topic", "status", "current_round", "moderator_mode",
+                   "moderator_agent", "agents", "pinned_ids", "config"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        updates["updated_at"] = _utcnow()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [session_id, user_id]
+        cur = await self._db.execute(
+            f"UPDATE council_sessions SET {set_clause} WHERE id = ? AND user_id = ?", vals,
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def delete_council_session(self, session_id: str, user_id: str) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "DELETE FROM council_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    # ── Council messages ─────────────────────────────────────────────
+
+    async def get_council_messages(
+        self, session_id: str, user_id: str,
+        round_num: int | None = None, limit: int = 500,
+    ) -> list[dict]:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return []
+        query = "SELECT * FROM council_messages WHERE session_id = ?"
+        params: list = [session_id]
+        if round_num is not None:
+            query += " AND round = ?"
+            params.append(round_num)
+        query += " ORDER BY id ASC LIMIT ?"
+        params.append(limit)
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def add_council_messages(
+        self, session_id: str, user_id: str, messages: list[dict],
+    ) -> list[int]:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return []
+        now = _utcnow()
+        ids = []
+        for msg in messages:
+            cur = await self._db.execute(
+                "INSERT INTO council_messages"
+                " (session_id, round, agent_id, agent_name, role, action,"
+                "  suitability, target_agent_id, content, pinned, metadata, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (session_id, msg.get("round", 1), msg.get("agent_id", ""),
+                 msg.get("agent_name", ""), msg.get("role", "agent"),
+                 msg.get("action", ""), msg.get("suitability", 0.0),
+                 msg.get("target_agent_id", ""), msg.get("content", ""),
+                 msg.get("pinned", 0), msg.get("metadata", "{}"), now),
+            )
+            ids.append(cur.lastrowid)
+        await self._db.execute(
+            "UPDATE council_sessions SET updated_at = ? WHERE id = ?", (now, session_id),
+        )
+        await self._db.commit()
+        return ids
+
+    async def toggle_council_pin(
+        self, session_id: str, user_id: str, message_id: int,
+    ) -> bool:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return False
+        await self._db.execute(
+            "UPDATE council_messages SET pinned = CASE WHEN pinned = 0 THEN 1 ELSE 0 END"
+            " WHERE id = ? AND session_id = ?",
+            (message_id, session_id),
+        )
+        await self._db.commit()
+        return True
+
+    async def update_council_message(
+        self, session_id: str, user_id: str, message_id: int, fields: dict,
+    ) -> bool:
+        """Patch a single message (used to checkpoint/finalize a streaming turn)."""
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return False
+        allowed = ("content", "action", "suitability", "target_agent_id", "metadata")
+        sets, params = [], []
+        for k in allowed:
+            if k in fields:
+                sets.append(f"{k} = ?")
+                params.append(fields[k])
+        if not sets:
+            return False
+        params.extend([message_id, session_id])
+        await self._db.execute(
+            f"UPDATE council_messages SET {', '.join(sets)}"
+            " WHERE id = ? AND session_id = ?",
+            params,
+        )
+        await self._db.execute(
+            "UPDATE council_sessions SET updated_at = ? WHERE id = ?",
+            (_utcnow(), session_id),
+        )
+        await self._db.commit()
+        return True
+
+    async def delete_council_messages(
+        self, session_id: str, user_id: str, round_num: int,
+    ) -> int:
+        """Delete all messages for a given round (used to restart a round).
+
+        Returns the number of rows removed, or -1 if the session isn't owned by
+        the user / doesn't exist.
+        """
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return -1
+        cur = await self._db.execute(
+            "DELETE FROM council_messages WHERE session_id = ? AND round = ?",
+            (session_id, round_num),
+        )
+        await self._db.execute(
+            "UPDATE council_sessions SET updated_at = ? WHERE id = ?",
+            (_utcnow(), session_id),
+        )
+        await self._db.commit()
+        return cur.rowcount
+
+    # ── Council votes ────────────────────────────────────────────────
+
+    async def add_council_votes(
+        self, session_id: str, user_id: str, votes: list[dict],
+    ) -> list[int]:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return []
+        now = _utcnow()
+        ids = []
+        for v in votes:
+            cur = await self._db.execute(
+                "INSERT INTO council_votes"
+                " (session_id, round, agent_id, agent_name, vote, reason, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, v.get("round", 1), v.get("agent_id", ""),
+                 v.get("agent_name", ""), v.get("vote", "abstain"),
+                 v.get("reason", ""), now),
+            )
+            ids.append(cur.lastrowid)
+        await self._db.commit()
+        return ids
+
+    async def get_council_votes(
+        self, session_id: str, user_id: str, round_num: int | None = None,
+    ) -> list[dict]:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return []
+        query = "SELECT * FROM council_votes WHERE session_id = ?"
+        params: list = [session_id]
+        if round_num is not None:
+            query += " AND round = ?"
+            params.append(round_num)
+        query += " ORDER BY id ASC"
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    # ── Council artifacts ───────────────────────────────────────────
+
+    async def get_council_artifacts(
+        self, session_id: str, user_id: str, kind: str | None = None,
+    ) -> list[dict]:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return []
+        query = "SELECT * FROM council_artifacts WHERE session_id = ?"
+        params: list = [session_id]
+        if kind is not None:
+            query += " AND kind = ?"
+            params.append(kind)
+        query += " ORDER BY id ASC"
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def upsert_council_artifact(
+        self, session_id: str, user_id: str,
+        kind: str, agent_id: str, agent_name: str, content: str,
+    ) -> int:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return 0
+        now = _utcnow()
+        # Delete existing artifact with same key, then insert
+        await self._db.execute(
+            "DELETE FROM council_artifacts WHERE session_id = ? AND kind = ? AND agent_id = ?",
+            (session_id, kind, agent_id),
+        )
+        async with self._db.execute(
+            "INSERT INTO council_artifacts"
+            " (session_id, kind, agent_id, agent_name, content, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, kind, agent_id, agent_name, content, now),
+        ) as cur:
+            art_id = cur.lastrowid or 0
+        await self._db.commit()
+        return art_id
+
+    async def delete_council_artifacts(
+        self, session_id: str, user_id: str, kind: str | None = None,
+    ) -> bool:
+        assert self._db is not None
+        sess = await self.get_council_session(session_id, user_id)
+        if not sess:
+            return False
+        if kind:
+            await self._db.execute(
+                "DELETE FROM council_artifacts WHERE session_id = ? AND kind = ?",
+                (session_id, kind),
+            )
+        else:
+            await self._db.execute(
+                "DELETE FROM council_artifacts WHERE session_id = ?", (session_id,),
+            )
+        await self._db.commit()
+        return True
+
+    # ── Basna sessions ───────────────────────────────────────────────
+
+    async def create_basna_session(
+        self, user_id: str, intent: str, config: str = "{}", title: str = "",
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        sid = _uuid()
+        await self._db.execute(
+            "INSERT INTO basna_sessions"
+            " (id, user_id, title, intent, domain, difficulty, merge_kind, status,"
+            "  route, truth, confidence, config, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, '', '', 'converge', 'routing', '{}', '', 0.0, ?, ?, ?)",
+            (sid, user_id, title, intent, config, now, now),
+        )
+        await self._db.commit()
+        return {"id": sid, "user_id": user_id, "title": title, "intent": intent, "domain": "",
+                "difficulty": "", "merge_kind": "converge", "status": "routing",
+                "route": "{}", "truth": "", "confidence": 0.0, "config": config,
+                "created_at": now, "updated_at": now}
+
+    async def list_basna_sessions(self, user_id: str) -> list[dict]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM basna_sessions WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_basna_session(self, session_id: str, user_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM basna_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def basna_access(
+        self, session_id: str, caller_id: str,
+    ) -> tuple[dict | None, str | None]:
+        """Resolve access to a Basna session (owner or shared). See council_access."""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM basna_sessions WHERE id = ?", (session_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None, None
+        row = dict(row)
+        if row["user_id"] == caller_id:
+            return row, "owner"
+        share = await self.get_share_for_grantee(
+            "basna", session_id, caller_id, row["user_id"],
+        )
+        if share:
+            return row, share.get("permission") or "view"
+        return None, None
+
+    async def update_basna_session(
+        self, session_id: str, user_id: str, **fields,
+    ) -> bool:
+        assert self._db is not None
+        allowed = {"title", "intent", "domain", "difficulty", "merge_kind", "status",
+                   "route", "truth", "confidence", "config", "progress", "files", "analysis"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        updates["updated_at"] = _utcnow()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [session_id, user_id]
+        cur = await self._db.execute(
+            f"UPDATE basna_sessions SET {set_clause} WHERE id = ? AND user_id = ?", vals,
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def delete_basna_session(self, session_id: str, user_id: str) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "DELETE FROM basna_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    # ── Basna projects (run bundles) ─────────────────────────────────
+
+    async def create_basna_project(
+        self, user_id: str, name: str, vfs_folder: str,
+        description: str = "", instructions: str = "",
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        pid = _uuid()
+        await self._db.execute(
+            "INSERT INTO basna_projects"
+            " (id, user_id, name, description, instructions, vfs_folder, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, user_id, name, description, instructions, vfs_folder, now, now),
+        )
+        await self._db.commit()
+        return {"id": pid, "user_id": user_id, "name": name, "description": description,
+                "instructions": instructions, "vfs_folder": vfs_folder,
+                "created_at": now, "updated_at": now}
+
+    async def list_basna_projects(self, user_id: str) -> list[dict]:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM basna_projects WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_basna_project(self, project_id: str, user_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM basna_projects WHERE id = ? AND user_id = ?",
+            (project_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def update_basna_project(
+        self, project_id: str, user_id: str, **fields,
+    ) -> bool:
+        assert self._db is not None
+        allowed = {"name", "description", "instructions", "vfs_folder"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        updates["updated_at"] = _utcnow()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [project_id, user_id]
+        cur = await self._db.execute(
+            f"UPDATE basna_projects SET {set_clause} WHERE id = ? AND user_id = ?", vals,
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def delete_basna_project(self, project_id: str, user_id: str) -> bool:
+        """Delete the project. Its runs are NOT deleted — the caller decides
+        whether to cascade (they carry project_id in their config JSON)."""
+        assert self._db is not None
+        cur = await self._db.execute(
+            "DELETE FROM basna_projects WHERE id = ? AND user_id = ?",
+            (project_id, user_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    # ── Basna runs ───────────────────────────────────────────────────
+
+    async def add_basna_runs(
+        self, session_id: str, user_id: str, runs: list[dict],
+    ) -> list[int]:
+        assert self._db is not None
+        sess = await self.get_basna_session(session_id, user_id)
+        if not sess:
+            return []
+        now = _utcnow()
+        ids: list[int] = []
+        for r in runs:
+            cur = await self._db.execute(
+                "INSERT INTO basna_runs"
+                " (session_id, archetype_id, role, provider, model, tier,"
+                "  weight_at_run, output, actions, success, latency_ms, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (session_id, r.get("archetype_id", ""), r.get("role", ""),
+                 r.get("provider", ""), r.get("model", ""), r.get("tier", ""),
+                 float(r.get("weight_at_run", 0.0)), r.get("output", ""),
+                 r.get("actions", "[]"),
+                 r.get("success"), int(r.get("latency_ms", 0)), now),
+            )
+            ids.append(cur.lastrowid or 0)
+        await self._db.execute(
+            "UPDATE basna_sessions SET updated_at = ? WHERE id = ?", (now, session_id),
+        )
+        await self._db.commit()
+        return ids
+
+    async def list_basna_runs(self, session_id: str, user_id: str) -> list[dict]:
+        assert self._db is not None
+        sess = await self.get_basna_session(session_id, user_id)
+        if not sess:
+            return []
+        async with self._db.execute(
+            "SELECT * FROM basna_runs WHERE session_id = ? ORDER BY id ASC",
+            (session_id,),
+        ) as cur:
+            return [_with_run_labels(dict(r)) for r in await cur.fetchall()]
+
+    async def score_basna_run(
+        self, run_id: int, user_id: str, success: bool,
+    ) -> bool:
+        """Record the judge's automatic success/fail label, ownership-checked via
+        the parent session. Never touches the human label."""
+        assert self._db is not None
+        cur = await self._db.execute(
+            "UPDATE basna_runs SET success = ?"
+            " WHERE id = ? AND session_id IN"
+            " (SELECT id FROM basna_sessions WHERE user_id = ?)",
+            (1 if success else 0, run_id, user_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def set_basna_run_human_label(
+        self, run_id: int, user_id: str, success: bool,
+    ) -> bool:
+        """Record a human thumbs vote on a run, ownership-checked via the parent
+        session. Leaves the judge's `success` intact so the pair stays comparable."""
+        assert self._db is not None
+        cur = await self._db.execute(
+            "UPDATE basna_runs SET human_success = ?, human_feedback_at = ?"
+            " WHERE id = ? AND session_id IN"
+            " (SELECT id FROM basna_sessions WHERE user_id = ?)",
+            (1 if success else 0, _utcnow(), run_id, user_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def list_labeled_basna_runs(
+        self, user_id: str, since: str | None = None, include_text: bool = False,
+    ) -> list[dict]:
+        """Runs in this user's sessions that a human has voted on, with the judge's
+        label alongside (`judge_success`, NULL when the judge left it unscored) —
+        the raw material for judge-vs-human agreement. `since` keeps only runs
+        created at/after that ISO date or timestamp."""
+        assert self._db is not None
+        cols = ("r.id, r.session_id, r.archetype_id, r.role, r.tier, r.model,"
+                " r.weight_at_run, r.latency_ms, r.created_at,"
+                " r.success AS judge_success, r.human_success, r.human_feedback_at,"
+                " s.domain, s.merge_kind, s.config")
+        if include_text:
+            cols += ", s.intent, s.truth, r.output"
+        query = (f"SELECT {cols} FROM basna_runs r JOIN basna_sessions s ON r.session_id = s.id"
+                 " WHERE s.user_id = ? AND r.human_success IS NOT NULL")
+        params: list = [user_id]
+        if since:
+            query += " AND r.created_at >= ?"
+            params.append(since)
+        query += " ORDER BY r.id ASC"
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    # ── Vatra blackboard (cross-agent asks) ──────────────────────────
+
+    async def create_vatra_ask(
+        self, session_id: str, from_owner: str, from_subtask: str, text: str,
+        depth: int = 0,
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        cur = await self._db.execute(
+            "INSERT INTO basna_asks"
+            " (session_id, from_owner, from_subtask, text, status, depth, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, 'open', ?, ?, ?)",
+            (session_id, from_owner, from_subtask, text, depth, now, now),
+        )
+        await self._db.commit()
+        return {"id": cur.lastrowid, "session_id": session_id, "from_owner": from_owner,
+                "from_subtask": from_subtask, "text": text, "status": "open",
+                "answer": "", "answered_by": "", "depth": depth, "created_at": now}
+
+    async def list_vatra_asks(
+        self, session_id: str, status: str | None = None, from_owner: str | None = None,
+    ) -> list[dict]:
+        assert self._db is not None
+        query = "SELECT * FROM basna_asks WHERE session_id = ?"
+        params: list = [session_id]
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if from_owner:
+            query += " AND from_owner = ?"
+            params.append(from_owner)
+        query += " ORDER BY id ASC"
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def count_vatra_asks(self, session_id: str) -> int:
+        """Total asks ever created for this session — the budget counter."""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT COUNT(*) AS n FROM basna_asks WHERE session_id = ?", (session_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row["n"]) if row else 0
+
+    async def claim_vatra_ask(self, ask_id: int) -> bool:
+        """Atomically move an ask open → claimed. Returns False if already taken."""
+        assert self._db is not None
+        cur = await self._db.execute(
+            "UPDATE basna_asks SET status = 'claimed', updated_at = ?"
+            " WHERE id = ? AND status = 'open'",
+            (_utcnow(), ask_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def answer_vatra_ask(self, ask_id: int, answer: str, answered_by: str) -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "UPDATE basna_asks SET status = 'answered', answer = ?, answered_by = ?,"
+            " updated_at = ? WHERE id = ?",
+            (answer, answered_by, _utcnow(), ask_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    async def drop_vatra_ask(self, ask_id: int, note: str = "") -> bool:
+        assert self._db is not None
+        cur = await self._db.execute(
+            "UPDATE basna_asks SET status = 'dropped', note = ?, updated_at = ?"
+            " WHERE id = ? AND status IN ('open', 'claimed')",
+            (note, _utcnow(), ask_id),
+        )
+        await self._db.commit()
+        return cur.rowcount > 0
+
+    # ── Vatra shared board (real-time shared memory) ─────────────────
+
+    async def add_vatra_board(
+        self, session_id: str, from_owner: str, from_subtask: str,
+        kind: str, title: str, content: str,
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        cur = await self._db.execute(
+            "INSERT INTO vatra_board"
+            " (session_id, from_owner, from_subtask, kind, title, content, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session_id, from_owner, from_subtask, kind, title, content, now),
+        )
+        await self._db.commit()
+        return {"id": cur.lastrowid, "session_id": session_id, "from_owner": from_owner,
+                "from_subtask": from_subtask, "kind": kind, "title": title,
+                "content": content, "created_at": now}
+
+    async def list_vatra_board(
+        self, session_id: str, kinds: list[str] | None = None, limit: int = 100,
+        exclude_owner: str | None = None, exclude_subtask: str | None = None,
+    ) -> list[dict]:
+        assert self._db is not None
+        query = "SELECT * FROM vatra_board WHERE session_id = ?"
+        params: list = [session_id]
+        if kinds:
+            query += " AND kind IN (%s)" % ",".join("?" * len(kinds))
+            params.extend(kinds)
+        # Prefer per-subtask exclusion (two owners can share an archetype id, so
+        # excluding by owner hides a same-archetype teammate's posts too).
+        if exclude_subtask:
+            query += " AND from_subtask != ?"
+            params.append(exclude_subtask)
+        elif exclude_owner:
+            query += " AND from_owner != ?"
+            params.append(exclude_owner)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, int(limit)))
+        async with self._db.execute(query, params) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+        rows.reverse()  # oldest-first for readability
+        return rows
+
+    _BOARD_STOPWORDS = frozenset({
+        "the", "and", "for", "with", "from", "that", "this", "into", "your",
+        "their", "are", "was", "has", "have", "will", "not", "but", "its",
+    })
+
+    async def search_vatra_board(
+        self, session_id: str, query: str, limit: int = 20,
+        exclude_owner: str | None = None, exclude_subtask: str | None = None,
+    ) -> list[dict]:
+        """Board search that a multi-word 'keyword' wait can actually satisfy.
+
+        Matches the exact whole phrase in any row (legacy behaviour, first attempt),
+        OR — for a produced artifact — every content token (≥ 3 chars, minus
+        stopwords) appearing in an ``output``/``note``/``file`` row (so a narration
+        row can't spuriously satisfy a wait). ``exclude_subtask`` hides only the
+        caller's own posts, keeping a same-archetype teammate's visible.
+        """
+        assert self._db is not None
+        q = (query or "").strip()
+        like = f"%{q}%"
+        tokens = [t for t in re.findall(r"[a-z0-9]{3,}", q.lower())
+                  if t not in self._BOARD_STOPWORDS]
+        base = "SELECT * FROM vatra_board WHERE session_id = ?"
+        params: list = [session_id]
+        if tokens:
+            tok_parts = []
+            tok_params: list = []
+            for t in tokens:
+                tok_parts.append("(content LIKE ? OR title LIKE ?)")
+                tok_params.extend([f"%{t}%", f"%{t}%"])
+            tok_clause = ("(kind IN ('output','note','file') AND "
+                          + " AND ".join(tok_parts) + ")")
+            sql = base + " AND ((content LIKE ? OR title LIKE ?) OR " + tok_clause + ")"
+            params += [like, like] + tok_params
+        else:
+            sql = base + " AND (content LIKE ? OR title LIKE ?)"
+            params += [like, like]
+        if exclude_subtask:
+            sql += " AND from_subtask != ?"
+            params.append(exclude_subtask)
+        elif exclude_owner:
+            sql += " AND from_owner != ?"
+            params.append(exclude_owner)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, int(limit)))
+        async with self._db.execute(sql, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    # ── Vatra resume checkpoints (per-owner slice, restored on resume) ─
+
+    async def save_vatra_run(
+        self, session_id: str, subtask_id: str, archetype_id: str, role: str,
+        weight: float, output: str, produced_file: bool, status: str = "done",
+    ) -> None:
+        """Persist (UPSERT) one owner's finished slice as a resume checkpoint.
+
+        Keyed on (session_id, subtask_id) so re-dispatching the same owner (on a
+        resume, or across the main/finalize passes) overwrites its checkpoint in
+        place rather than accumulating rows. Called from the run coroutine, which
+        has already ownership-checked the session — no user_id gate here."""
+        assert self._db is not None
+        now = _utcnow()
+        await self._db.execute(
+            "INSERT INTO vatra_runs"
+            " (session_id, subtask_id, archetype_id, role, weight, output,"
+            "  produced_file, status, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(session_id, subtask_id) DO UPDATE SET"
+            "  archetype_id = excluded.archetype_id, role = excluded.role,"
+            "  weight = excluded.weight, output = excluded.output,"
+            "  produced_file = excluded.produced_file, status = excluded.status,"
+            "  updated_at = excluded.updated_at",
+            (session_id, subtask_id, archetype_id, role, float(weight or 0.0),
+             output or "", 1 if produced_file else 0, status, now, now),
+        )
+        await self._db.commit()
+
+    async def list_vatra_runs(self, session_id: str) -> list[dict]:
+        """All resume checkpoints for a session, oldest-first."""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM vatra_runs WHERE session_id = ? ORDER BY id ASC",
+            (session_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    # ── Archetype reliability (learned routing weights) ──────────────
+
+    @staticmethod
+    def _reliability_weight(
+        successes: int, fails: int, seed: float = 0.7, alpha: float = 4.0,
+    ) -> float:
+        """Bayesian-shrunk success rate toward `seed`, penalizing fails 2×.
+
+        No data → returns `seed`; as runs accrue it approaches the empirical
+        rate. Fails count double so an unreliable archetype decays quickly.
+        """
+        numerator = successes + alpha * seed
+        denominator = successes + 2.0 * fails + alpha
+        w = numerator / denominator if denominator > 0 else seed
+        return max(0.05, min(0.99, w))
+
+    async def get_archetype_reliability(
+        self, user_id: str, domain: str | None = None,
+    ) -> list[dict]:
+        assert self._db is not None
+        query = "SELECT * FROM archetype_reliability WHERE user_id = ?"
+        params: list = [user_id]
+        if domain is not None:
+            query += " AND domain = ?"
+            params.append(domain)
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def get_archetype_weight(
+        self, user_id: str, archetype_id: str, domain: str, seed: float = 0.7,
+    ) -> float:
+        """Current learned weight for an archetype in a domain; `seed` if unseen."""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT weight FROM archetype_reliability"
+            " WHERE user_id = ? AND archetype_id = ? AND domain = ?",
+            (user_id, archetype_id, domain),
+        ) as cur:
+            row = await cur.fetchone()
+            return float(row["weight"]) if row else seed
+
+    async def record_archetype_outcome(
+        self, user_id: str, archetype_id: str, domain: str,
+        success: bool, seed: float = 0.7,
+    ) -> dict:
+        """Upsert one outcome and recompute the learned weight."""
+        assert self._db is not None
+        now = _utcnow()
+        async with self._db.execute(
+            "SELECT successes, fails FROM archetype_reliability"
+            " WHERE user_id = ? AND archetype_id = ? AND domain = ?",
+            (user_id, archetype_id, domain),
+        ) as cur:
+            row = await cur.fetchone()
+        successes = (row["successes"] if row else 0) + (1 if success else 0)
+        fails = (row["fails"] if row else 0) + (0 if success else 1)
+        runs = successes + fails
+        weight = self._reliability_weight(successes, fails, seed)
+        await self._db.execute(
+            "INSERT INTO archetype_reliability"
+            " (user_id, archetype_id, domain, successes, fails, runs, weight, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(user_id, archetype_id, domain) DO UPDATE SET"
+            " successes = excluded.successes, fails = excluded.fails,"
+            " runs = excluded.runs, weight = excluded.weight,"
+            " updated_at = excluded.updated_at",
+            (user_id, archetype_id, domain, successes, fails, runs, weight, now),
+        )
+        await self._db.commit()
+        return {"user_id": user_id, "archetype_id": archetype_id, "domain": domain,
+                "successes": successes, "fails": fails, "runs": runs,
+                "weight": weight, "updated_at": now}
+
+    async def get_basna_run(self, run_id: int, user_id: str) -> dict | None:
+        """One run, ownership-checked via its parent session."""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT r.* FROM basna_runs r JOIN basna_sessions s ON r.session_id = s.id"
+            " WHERE r.id = ? AND s.user_id = ?",
+            (run_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return _with_run_labels(dict(row)) if row else None
+
+    async def adjust_archetype_reliability(
+        self, user_id: str, archetype_id: str, domain: str,
+        d_success: int, d_fail: int, seed: float = 0.7,
+    ) -> dict:
+        """Apply signed deltas to the success/fail counters and recompute weight.
+
+        Used to *revise* a learned outcome (e.g. a human thumbs flipping an
+        auto-scored run) without double-counting: move one from one bucket to the
+        other rather than appending a fresh outcome. Counters never go negative.
+        """
+        assert self._db is not None
+        now = _utcnow()
+        async with self._db.execute(
+            "SELECT successes, fails FROM archetype_reliability"
+            " WHERE user_id = ? AND archetype_id = ? AND domain = ?",
+            (user_id, archetype_id, domain),
+        ) as cur:
+            row = await cur.fetchone()
+        successes = max(0, (row["successes"] if row else 0) + d_success)
+        fails = max(0, (row["fails"] if row else 0) + d_fail)
+        runs = successes + fails
+        weight = self._reliability_weight(successes, fails, seed)
+        await self._db.execute(
+            "INSERT INTO archetype_reliability"
+            " (user_id, archetype_id, domain, successes, fails, runs, weight, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(user_id, archetype_id, domain) DO UPDATE SET"
+            " successes = excluded.successes, fails = excluded.fails,"
+            " runs = excluded.runs, weight = excluded.weight,"
+            " updated_at = excluded.updated_at",
+            (user_id, archetype_id, domain, successes, fails, runs, weight, now),
+        )
+        await self._db.commit()
+        return {"user_id": user_id, "archetype_id": archetype_id, "domain": domain,
+                "successes": successes, "fails": fails, "runs": runs,
+                "weight": weight, "updated_at": now}
+
+    # ── Learned constraints (R2 automatic CONSTRAINT edge, opt-in) ────
+
+    async def add_learned_constraint(
+        self, user_id: str, domain: str, engine: str,
+        trigger: str, constraint: str, severity: str = "major",
+        source_id: str = "", *, cap_per_domain: int = 50,
+    ) -> dict:
+        """Persist one distilled constraint. Dedups on (user_id, domain, text):
+        an identical rule bumps `hits`/updated_at instead of duplicating. Prunes
+        the oldest rows beyond `cap_per_domain` so storage stays bounded. Additive;
+        never migrates existing tables. Returns {"id", "deduped"}; {} for empty."""
+        assert self._db is not None
+        now = _utcnow()
+        domain = (domain or "").strip()
+        constraint = (constraint or "").strip()
+        if not constraint:
+            return {}
+        if severity not in ("critical", "major", "minor"):
+            severity = "major"
+        async with self._db.execute(
+            "SELECT id, hits FROM learned_constraints"
+            " WHERE user_id = ? AND domain = ? AND lower(constraint_text) = lower(?)",
+            (user_id, domain, constraint),
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            await self._db.execute(
+                "UPDATE learned_constraints SET hits = ?, severity = ?,"
+                " trigger_text = ?, updated_at = ? WHERE id = ?",
+                (int(row["hits"]) + 1, severity, (trigger or "").strip(), now, row["id"]))
+            await self._db.commit()
+            return {"id": row["id"], "deduped": True}
+        cid = _uuid()
+        await self._db.execute(
+            "INSERT INTO learned_constraints"
+            " (id, user_id, domain, engine, trigger_text, constraint_text,"
+            "  severity, source_id, hits, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+            (cid, user_id, domain, (engine or "").strip(), (trigger or "").strip(),
+             constraint, severity, (source_id or "").strip(), now, now))
+        # Bounded storage: keep only the newest `cap_per_domain` per (user, domain).
+        # LIMIT/OFFSET on the SELECT subquery (not the DELETE) is always supported.
+        await self._db.execute(
+            "DELETE FROM learned_constraints WHERE id IN ("
+            " SELECT id FROM learned_constraints WHERE user_id = ? AND domain = ?"
+            " ORDER BY updated_at DESC LIMIT -1 OFFSET ?)",
+            (user_id, domain, max(1, int(cap_per_domain))))
+        await self._db.commit()
+        return {"id": cid, "deduped": False}
+
+    async def get_learned_constraints(
+        self, user_id: str, domain: str | None = None, limit: int = 5,
+    ) -> list[dict]:
+        """Top learned constraints for a user (optionally one domain), most severe
+        then most recent first. `domain=None` returns across all domains (used at
+        the Vatra lead decompose, where the domain is still an unknown output)."""
+        assert self._db is not None
+        query = "SELECT * FROM learned_constraints WHERE user_id = ?"
+        params: list = [user_id]
+        if domain is not None:
+            query += " AND domain = ?"
+            params.append((domain or "").strip())
+        query += (" ORDER BY CASE severity WHEN 'critical' THEN 0"
+                  " WHEN 'major' THEN 1 ELSE 2 END, updated_at DESC LIMIT ?")
+        params.append(max(1, int(limit)))
+        async with self._db.execute(query, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    # ── Prompts ─────────────────────────────────────────────────────
+
+    async def list_prompts(self, user_id: str) -> list[dict]:
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT * FROM prompts WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,),
+        )
+        return [dict(r) for r in rows]
+
+    async def get_prompt(self, prompt_id: str, user_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM prompts WHERE id = ? AND user_id = ?",
+            (prompt_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def create_prompt(
+        self, user_id: str, title: str, content: str,
+        files: str = "[]", tags: str = "[]",
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        pid = _uuid()
+        await self._db.execute(
+            "INSERT INTO prompts (id, user_id, title, content, files, tags, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, user_id, title, content, files, tags, now, now),
+        )
+        await self._db.commit()
+        return {"id": pid, "user_id": user_id, "title": title, "content": content,
+                "files": files, "tags": tags, "created_at": now, "updated_at": now}
+
+    async def update_prompt(
+        self, prompt_id: str, user_id: str, **fields: str,
+    ) -> dict | None:
+        assert self._db is not None
+        existing = await self.get_prompt(prompt_id, user_id)
+        if not existing:
+            return None
+        allowed = {"title", "content", "files", "tags"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return existing
+        updates["updated_at"] = _utcnow()
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        vals = list(updates.values()) + [prompt_id, user_id]
+        await self._db.execute(
+            f"UPDATE prompts SET {sets} WHERE id = ? AND user_id = ?", vals,
+        )
+        await self._db.commit()
+        return await self.get_prompt(prompt_id, user_id)
+
+    async def delete_prompt(self, prompt_id: str, user_id: str) -> bool:
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM prompts WHERE id = ? AND user_id = ?",
+            (prompt_id, user_id),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) > 0
+
+    # ── User archetypes ──────────────────────────────────────────────
+
+    async def list_user_archetypes(self, user_id: str) -> list[dict]:
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT * FROM user_archetypes WHERE user_id = ? ORDER BY updated_at DESC",
+            (user_id,),
+        )
+        return [dict(r) for r in rows]
+
+    async def get_user_archetype(self, user_id: str, archetype_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM user_archetypes WHERE user_id = ? AND archetype_id = ?",
+            (user_id, archetype_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def create_user_archetype(
+        self, user_id: str, archetype_id: str, data: str,
+    ) -> dict:
+        assert self._db is not None
+        now = _utcnow()
+        aid = _uuid()
+        await self._db.execute(
+            "INSERT INTO user_archetypes (id, user_id, archetype_id, data, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (aid, user_id, archetype_id, data, now, now),
+        )
+        await self._db.commit()
+        return {"id": aid, "user_id": user_id, "archetype_id": archetype_id,
+                "data": data, "created_at": now, "updated_at": now}
+
+    async def update_user_archetype(
+        self, user_id: str, archetype_id: str, data: str,
+    ) -> dict | None:
+        assert self._db is not None
+        existing = await self.get_user_archetype(user_id, archetype_id)
+        if not existing:
+            return None
+        now = _utcnow()
+        await self._db.execute(
+            "UPDATE user_archetypes SET data = ?, updated_at = ?"
+            " WHERE user_id = ? AND archetype_id = ?",
+            (data, now, user_id, archetype_id),
+        )
+        await self._db.commit()
+        return await self.get_user_archetype(user_id, archetype_id)
+
+    async def delete_user_archetype(self, user_id: str, archetype_id: str) -> bool:
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM user_archetypes WHERE user_id = ? AND archetype_id = ?",
+            (user_id, archetype_id),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) > 0
+
+    # ── Resource shares (cross-user access grants) ───────────────────
+
+    async def create_share(
+        self, resource_type: str, resource_id: str, owner_id: str,
+        grantee_id: str, permission: str = "view",
+    ) -> dict | None:
+        """Grant (or re-grant, updating the permission) access to a resource."""
+        assert self._db is not None
+        now = _utcnow()
+        sid = _uuid()
+        await self._db.execute(
+            "INSERT INTO resource_shares"
+            " (id, resource_type, resource_id, owner_id, grantee_id, permission, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(resource_type, resource_id, owner_id, grantee_id)"
+            " DO UPDATE SET permission = excluded.permission",
+            (sid, resource_type, resource_id, owner_id, grantee_id, permission, now),
+        )
+        await self._db.commit()
+        return await self.get_share(resource_type, resource_id, owner_id, grantee_id)
+
+    async def get_share(
+        self, resource_type: str, resource_id: str, owner_id: str, grantee_id: str,
+    ) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM resource_shares"
+            " WHERE resource_type = ? AND resource_id = ? AND owner_id = ? AND grantee_id = ?",
+            (resource_type, resource_id, owner_id, grantee_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def get_share_for_grantee(
+        self, resource_type: str, resource_id: str, grantee_id: str,
+        owner_id: str | None = None,
+    ) -> dict | None:
+        """Access-check helper: is `resource_id` shared TO `grantee_id`?
+
+        Returns the share row (with owner_id + permission) or None. Pass
+        `owner_id` to disambiguate when a resource_id (e.g. a bare project
+        name) can collide across owners.
+        """
+        assert self._db is not None
+        q = ("SELECT * FROM resource_shares"
+             " WHERE resource_type = ? AND resource_id = ? AND grantee_id = ?")
+        params: list = [resource_type, resource_id, grantee_id]
+        if owner_id:
+            q += " AND owner_id = ?"
+            params.append(owner_id)
+        async with self._db.execute(q, tuple(params)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def delete_share(
+        self, resource_type: str, resource_id: str, owner_id: str, grantee_id: str,
+    ) -> bool:
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM resource_shares"
+            " WHERE resource_type = ? AND resource_id = ? AND owner_id = ? AND grantee_id = ?",
+            (resource_type, resource_id, owner_id, grantee_id),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) > 0
+
+    async def delete_shares_for_resource(
+        self, resource_type: str, resource_id: str, owner_id: str,
+    ) -> int:
+        """Drop every grant on one of ``owner_id``'s resources (it was removed)."""
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM resource_shares"
+            " WHERE resource_type = ? AND resource_id = ? AND owner_id = ?",
+            (resource_type, resource_id, owner_id),
+        ) as cur:
+            await self._db.commit()
+            return int(cur.rowcount or 0)
+
+    async def is_agent_member(self, agent_ref: str, owner_id: str, user_id: str) -> bool:
+        """Has ``owner_id`` shared agent ``agent_ref`` with ``user_id``?"""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT 1 FROM resource_shares"
+            " WHERE resource_type = 'agent' AND resource_id = ? AND owner_id = ?"
+            " AND grantee_id = ? LIMIT 1",
+            (agent_ref, owner_id, user_id),
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    async def list_agent_members(self, agent_ref: str, owner_id: str) -> list[dict]:
+        """Members of one of ``owner_id``'s shared agents."""
+        return await self.list_shares_for_resource("agent", agent_ref, owner_id)
+
+    async def list_agent_share_refs(self, user_id: str | None = None) -> list[str]:
+        """Agents with members — every one, or those ``user_id`` owns or is a member of."""
+        assert self._db is not None
+        if user_id is None:
+            rows = await self._db.execute_fetchall(
+                "SELECT DISTINCT resource_id FROM resource_shares"
+                " WHERE resource_type = 'agent' ORDER BY resource_id")
+        else:
+            rows = await self._db.execute_fetchall(
+                "SELECT DISTINCT resource_id FROM resource_shares"
+                " WHERE resource_type = 'agent' AND (owner_id = ? OR grantee_id = ?)"
+                " ORDER BY resource_id",
+                (user_id, user_id),
+            )
+        return [str(r[0]) for r in rows]
+
+    # ── Context packs (shared-agent shared context, PR B) ─────────────
+
+    async def create_context_pack(
+        self, *, agent_ref: str, agent_owner: str, pack_owner: str, kind: str,
+        resource_id: str = "", resource_key: str = "", alias: str = "",
+        slice_json: str = "{}", max_per_agent: int = 32, max_vfs_per_owner: int = 5,
+    ) -> dict | str:
+        """Insert one pack; the row dict, or ``"alias_taken"`` / ``"limit"`` /
+        ``"vfs_limit"``. Single statements, no explicit transaction (FD shares
+        one connection, so a ROLLBACK would undo other coroutines' work): every
+        check sits inside the statement that writes. ``sqlite3.IntegrityError``
+        (duplicate, alias clash, a deleted user) propagates after a commit."""
+        assert self._db is not None
+        now = _utcnow()
+        if alias:
+            # Reserve the alias for this publisher (a no-op when it already is).
+            await self._db.execute(
+                "INSERT INTO context_pack_aliases (agent_ref, alias, pack_owner, created_at)"
+                " VALUES (?, ?, ?, ?) ON CONFLICT(agent_ref, alias) DO NOTHING",
+                (agent_ref, alias, pack_owner, now),
+            )
+            async with self._db.execute(
+                "SELECT pack_owner FROM context_pack_aliases WHERE agent_ref = ? AND alias = ?",
+                (agent_ref, alias),
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None or row[0] != pack_owner:
+                await self._db.commit()
+                return "alias_taken"
+        pid = _uuid()
+        try:
+            async with self._db.execute(
+                "INSERT INTO context_packs (id, agent_ref, agent_owner, pack_owner, kind,"
+                " resource_id, resource_key, alias, slice, created_at)"
+                " SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+                " WHERE (SELECT COUNT(*) FROM context_packs WHERE agent_ref = ?) < ?"
+                " AND (? != 'vfs' OR (SELECT COUNT(*) FROM context_packs WHERE agent_ref = ?"
+                " AND pack_owner = ? AND kind = 'vfs') < ?)",
+                (pid, agent_ref, agent_owner, pack_owner, kind, resource_id, resource_key,
+                 alias, slice_json, now,
+                 agent_ref, int(max_per_agent),
+                 kind, agent_ref, pack_owner, int(max_vfs_per_owner)),
+            ) as cur:
+                inserted = int(cur.rowcount or 0)
+        except Exception:
+            await self._db.commit()  # keeps the caller's own alias reservation — harmless
+            raise
+        await self._db.commit()
+        if inserted == 0:
+            if kind == "vfs":
+                async with self._db.execute(
+                    "SELECT COUNT(*) FROM context_packs WHERE agent_ref = ? AND pack_owner = ?"
+                    " AND kind = 'vfs'", (agent_ref, pack_owner),
+                ) as cur:
+                    row = await cur.fetchone()
+                if row and int(row[0]) >= int(max_vfs_per_owner):
+                    return "vfs_limit"
+            return "limit"
+        return {"id": pid, "agent_ref": agent_ref, "agent_owner": agent_owner,
+                "pack_owner": pack_owner, "kind": kind, "resource_id": resource_id,
+                "resource_key": resource_key, "alias": alias, "slice": slice_json,
+                "created_at": now}
+
+    async def get_context_pack(self, pack_id: str) -> dict | None:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT * FROM context_packs WHERE id = ?", (pack_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def list_context_packs_for_agent(self, agent_ref: str) -> list[dict]:
+        """Every pack on one agent, with its publisher's display name and email,
+        oldest first."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT p.*, u.display_name AS owner_display_name, u.email AS owner_email"
+            " FROM context_packs p JOIN users u ON u.id = p.pack_owner"
+            " WHERE p.agent_ref = ? ORDER BY p.created_at, p.id",
+            (agent_ref,),
+        )
+        return [dict(r) for r in rows]
+
+    async def list_context_packs_for_owner(self, pack_owner: str) -> list[dict]:
+        """Every pack one user published, on any agent, oldest first."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT * FROM context_packs WHERE pack_owner = ? ORDER BY created_at, id",
+            (pack_owner,),
+        )
+        return [dict(r) for r in rows]
+
+    async def has_context_packs(self, kind: str) -> bool:
+        """Whether any agent has a pack of ``kind`` — a cheap gate the per-call
+        agent routes check before identifying their caller."""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT 1 FROM context_packs WHERE kind = ? LIMIT 1", (kind,),
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    async def count_context_packs_for_agent(self, agent_ref: str) -> int:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM context_packs WHERE agent_ref = ?", (agent_ref,),
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0
+
+    async def list_pack_aliases(self, agent_ref: str) -> dict[str, str]:
+        """The alias reservations on one agent: alias → publisher."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT alias, pack_owner FROM context_pack_aliases WHERE agent_ref = ?",
+            (agent_ref,),
+        )
+        return {str(r[0]): str(r[1]) for r in rows}
+
+    async def delete_context_pack(self, pack_id: str) -> bool:
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM context_packs WHERE id = ?", (pack_id,),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) > 0
+
+    async def delete_context_packs_for_agent(self, agent_ref: str) -> int:
+        """The agent is gone or changed hands: its packs AND its alias
+        reservations. Returns how many packs were deleted."""
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM context_packs WHERE agent_ref = ?", (agent_ref,),
+        ) as cur:
+            deleted = int(cur.rowcount or 0)
+        await self._db.execute(
+            "DELETE FROM context_pack_aliases WHERE agent_ref = ?", (agent_ref,))
+        await self._db.commit()
+        return deleted
+
+    async def delete_context_packs_for_member(self, agent_ref: str, pack_owner: str) -> int:
+        """A member lost access: their packs on the agent (their alias
+        reservations stay)."""
+        assert self._db is not None
+        async with self._db.execute(
+            "DELETE FROM context_packs WHERE agent_ref = ? AND pack_owner = ?",
+            (agent_ref, pack_owner),
+        ) as cur:
+            await self._db.commit()
+            return int(cur.rowcount or 0)
+
+    async def delete_context_packs_for_project(self, pack_owner: str, project: str) -> list[str]:
+        """``pack_owner`` deleted their VFS folder ``project``: drop their folder
+        packs of it on every agent (matched case-insensitively — Unicode
+        casefold, a superset of SQL NOCASE). Returns the agent refs touched."""
+        assert self._db is not None
+        folded = str(project or "").casefold()
+        rows = await self._db.execute_fetchall(
+            "SELECT id, agent_ref, resource_id FROM context_packs"
+            " WHERE pack_owner = ? AND kind = 'vfs'",
+            (pack_owner,),
+        )
+        hit = [(str(r[0]), str(r[1])) for r in rows if str(r[2]).casefold() == folded]
+        for pid, _ref in hit:
+            await self._db.execute("DELETE FROM context_packs WHERE id = ?", (pid,))
+        await self._db.commit()
+        return sorted({ref for _pid, ref in hit})
+
+    async def list_context_pack_refs(self, user_id: str | None = None) -> list[str]:
+        """Agents that have packs — every one, or those where ``user_id`` is a
+        publisher or the owner recorded when a pack was created."""
+        assert self._db is not None
+        if user_id is None:
+            rows = await self._db.execute_fetchall(
+                "SELECT DISTINCT agent_ref FROM context_packs ORDER BY agent_ref")
+        else:
+            rows = await self._db.execute_fetchall(
+                "SELECT DISTINCT agent_ref FROM context_packs"
+                " WHERE pack_owner = ? OR agent_owner = ? ORDER BY agent_ref",
+                (user_id, user_id),
+            )
+        return [str(r[0]) for r in rows]
+
+    # ── Cost ledger (persisted run costs) ─────────────────────────────
+
+    async def log_run_cost(
+        self, owner_user_id: str, run_kind: str, run_id: str, cost: dict,
+        owner_type: str = "user", owner_ref: str = "",
+    ) -> None:
+        """Persist one run's cost block (the pricing.summarize output)."""
+        assert self._db is not None
+        import json as _json
+        await self._db.execute(
+            "INSERT INTO cost_ledger (id, owner_user_id, owner_type, owner_ref,"
+            " run_kind, run_id, usage, usd, elapsed_seconds, at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_uuid(), owner_user_id, owner_type, owner_ref, run_kind, run_id,
+             _json.dumps(cost.get("tokens") or {}), cost.get("usd"),
+             cost.get("elapsed_seconds"), _utcnow()),
+        )
+        await self._db.commit()
+
+    async def list_run_costs(
+        self, owner_user_id: str, limit: int = 200, run_kind: str | None = None,
+    ) -> list[dict]:
+        assert self._db is not None
+        q = "SELECT * FROM cost_ledger WHERE owner_user_id = ?"
+        args: list = [owner_user_id]
+        if run_kind:
+            q += " AND run_kind = ?"
+            args.append(run_kind)
+        q += " ORDER BY at DESC LIMIT ?"
+        args.append(limit)
+        async with self._db.execute(q, args) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def aggregate_run_costs(
+        self, since: str | None = None, until: str | None = None,
+    ) -> dict:
+        """Team-wide cost rollup for the admin: totals by user and by run kind.
+
+        `since`/`until` are ISO timestamps bounding `at` (inclusive/exclusive is
+        loose — string compare on ISO works). Read-only over cost_ledger.
+        """
+        assert self._db is not None
+        where = ""
+        args: list = []
+        if since:
+            where += (" AND" if where else " WHERE") + " at >= ?"
+            args.append(since)
+        if until:
+            where += (" AND" if where else " WHERE") + " at < ?"
+            args.append(until)
+        by_user = await self._db.execute_fetchall(
+            "SELECT c.owner_user_id AS user_id, u.email AS email,"
+            " u.display_name AS display_name, COUNT(*) AS runs,"
+            " COALESCE(SUM(c.usd), 0) AS usd,"
+            " SUM(CASE WHEN c.usd IS NOT NULL THEN 1 ELSE 0 END) AS priced"
+            " FROM cost_ledger c LEFT JOIN users u ON u.id = c.owner_user_id"
+            + where +
+            " GROUP BY c.owner_user_id ORDER BY usd DESC",
+            tuple(args),
+        )
+        by_kind = await self._db.execute_fetchall(
+            "SELECT run_kind, COUNT(*) AS runs, COALESCE(SUM(usd), 0) AS usd"
+            " FROM cost_ledger" + where +
+            " GROUP BY run_kind ORDER BY usd DESC",
+            tuple(args),
+        )
+        total = 0.0
+        for r in by_user:
+            total += float(dict(r).get("usd") or 0)
+        return {
+            "by_user": [dict(r) for r in by_user],
+            "by_kind": [dict(r) for r in by_kind],
+            "total_usd": round(total, 6),
+        }
+
+    # ── Notifications (persistent in-app bell) ─────────────────────────
+
+    async def add_notification(
+        self, user_id: str, type: str, title: str, body: str = "",
+        ref_type: str = "", ref_id: str = "",
+    ) -> str:
+        """Insert one notification for `user_id`; returns its id."""
+        assert self._db is not None
+        nid = _uuid()
+        await self._db.execute(
+            "INSERT INTO notifications (id, user_id, type, title, body,"
+            " ref_type, ref_id, read, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+            (nid, user_id, type, title, body, ref_type, ref_id, _utcnow()),
+        )
+        await self._db.commit()
+        return nid
+
+    async def list_notifications(
+        self, user_id: str, limit: int = 50, unread_only: bool = False,
+    ) -> list[dict]:
+        assert self._db is not None
+        q = "SELECT * FROM notifications WHERE user_id = ?"
+        args: list = [user_id]
+        if unread_only:
+            q += " AND read = 0"
+        q += " ORDER BY created_at DESC LIMIT ?"
+        args.append(limit)
+        rows = await self._db.execute_fetchall(q, tuple(args))
+        return [dict(r) for r in rows]
+
+    async def count_unread_notifications(self, user_id: str) -> int:
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read = 0",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0
+
+    async def mark_notification_read(self, notif_id: str, user_id: str) -> bool:
+        assert self._db is not None
+        async with self._db.execute(
+            "UPDATE notifications SET read = 1 WHERE id = ? AND user_id = ?",
+            (notif_id, user_id),
+        ) as cur:
+            await self._db.commit()
+            return (cur.rowcount or 0) > 0
+
+    async def mark_all_notifications_read(self, user_id: str) -> int:
+        assert self._db is not None
+        async with self._db.execute(
+            "UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0",
+            (user_id,),
+        ) as cur:
+            await self._db.commit()
+            return cur.rowcount or 0
+
+    # ── Gmail sends (audit for /fd/google/gmail/send) ─────────────────
+
+    async def add_gmail_send(
+        self, owner_id: str, agent: str = "", to_addrs: str = "",
+        cc_addrs: str = "", bcc_addrs: str = "", subject: str = "",
+        gmail_message_id: str = "", thread_id: str = "", draft_id: str = "",
+        content_hash: str = "", status: str = "sent",
+    ) -> str:
+        """Record one email Gmail accepted (`status` 'sent') — or may have
+        sent ('unknown') — for `owner_id`; returns its id."""
+        assert self._db is not None
+        sid = _uuid()
+        await self._db.execute(
+            "INSERT INTO gmail_sends (id, owner_id, agent, to_addrs, cc_addrs,"
+            " bcc_addrs, subject, gmail_message_id, thread_id, draft_id,"
+            " content_hash, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (sid, owner_id, agent, to_addrs, cc_addrs, bcc_addrs, subject,
+             gmail_message_id, thread_id, draft_id, content_hash, status, _utcnow()),
+        )
+        await self._db.commit()
+        return sid
+
+    async def count_gmail_sends_since(self, owner_id: str, since_iso: str) -> int:
+        """How many emails `owner_id` sent (or may have sent) at or after
+        `since_iso` (ISO UTC)."""
+        assert self._db is not None
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM gmail_sends WHERE owner_id = ? AND created_at >= ?",
+            (owner_id, since_iso),
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0
+
+    async def list_gmail_sends(self, owner_id: str, limit: int = 20) -> list[dict]:
+        """`owner_id`'s sends, newest first."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT * FROM gmail_sends WHERE owner_id = ?"
+            " ORDER BY created_at DESC LIMIT ?",
+            (owner_id, limit),
+        )
+        return [dict(r) for r in rows]
+
+    async def find_gmail_send_by_hash(
+        self, owner_id: str, content_hash: str, since_iso: str,
+    ) -> dict | None:
+        """The newest send by `owner_id` with this content hash at or after
+        `since_iso`, else None — the duplicate check."""
+        assert self._db is not None
+        if not content_hash:
+            return None
+        async with self._db.execute(
+            "SELECT * FROM gmail_sends WHERE owner_id = ? AND content_hash = ?"
+            " AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
+            (owner_id, content_hash, since_iso),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def list_shares_for_resource(
+        self, resource_type: str, resource_id: str, owner_id: str,
+    ) -> list[dict]:
+        """Grants ON a resource I own — for rendering 'shared with X, Y'."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT s.*, u.email AS grantee_email, u.display_name AS grantee_name"
+            " FROM resource_shares s JOIN users u ON u.id = s.grantee_id"
+            " WHERE s.resource_type = ? AND s.resource_id = ? AND s.owner_id = ?"
+            " ORDER BY s.created_at",
+            (resource_type, resource_id, owner_id),
+        )
+        return [dict(r) for r in rows]
+
+    async def list_shares_for_owner(self, owner_id: str, resource_type: str) -> list[dict]:
+        """Every grant ``owner_id`` made on resources of one type."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT resource_id, grantee_id, created_at FROM resource_shares"
+            " WHERE owner_id = ? AND resource_type = ? ORDER BY created_at",
+            (owner_id, resource_type),
+        )
+        return [dict(r) for r in rows]
+
+    async def list_shares_for_grantee(
+        self, grantee_id: str, resource_type: str | None = None,
+    ) -> list[dict]:
+        """Resources shared TO me, with owner info — for badging shared lists."""
+        assert self._db is not None
+        q = ("SELECT s.*, u.email AS owner_email, u.display_name AS owner_name"
+             " FROM resource_shares s JOIN users u ON u.id = s.owner_id"
+             " WHERE s.grantee_id = ?")
+        params: list = [grantee_id]
+        if resource_type:
+            q += " AND s.resource_type = ?"
+            params.append(resource_type)
+        q += " ORDER BY s.created_at"
+        rows = await self._db.execute_fetchall(q, tuple(params))
+        return [dict(r) for r in rows]
+
+    async def list_shared_archetypes(self, grantee_id: str) -> list[dict]:
+        """User-archetype rows shared TO `grantee_id`, tagged with owner info."""
+        assert self._db is not None
+        rows = await self._db.execute_fetchall(
+            "SELECT a.*, s.owner_id AS shared_owner, s.permission AS shared_permission,"
+            " u.email AS shared_owner_email, u.display_name AS shared_owner_name"
+            " FROM resource_shares s"
+            " JOIN user_archetypes a"
+            "   ON a.user_id = s.owner_id AND a.archetype_id = s.resource_id"
+            " JOIN users u ON u.id = s.owner_id"
+            " WHERE s.resource_type = 'archetype' AND s.grantee_id = ?"
+            " ORDER BY a.updated_at DESC",
+            (grantee_id,),
+        )
+        return [dict(r) for r in rows]

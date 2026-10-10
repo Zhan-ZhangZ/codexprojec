@@ -1,0 +1,2327 @@
+"""Semantic memory index with hybrid retrieval and background sync."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import re
+import sqlite3
+import threading
+import time
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Protocol
+
+import httpx
+
+from captain_claw import retrieval
+from captain_claw.logging import get_logger
+
+log = get_logger(__name__)
+
+# Half-saturation point of the keyword score: a hit whose |bm25| equals this
+# scores 0.5. Real multi-term matches run |bm25| 10-35, a lone common term ~3.
+_BM25_SCALE = 4.0
+# Content words of a query searched at most (the longest; bm25 weighs them).
+_FTS_MAX_TERMS = 64
+
+_DEFAULT_TEXT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".rst",
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".sql",
+    ".csv",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".xml",
+    ".html",
+    ".css",
+}
+
+
+@dataclass
+class SemanticMemoryResult:
+    """One semantic-memory hit."""
+
+    chunk_id: str
+    source: str
+    reference: str
+    path: str
+    start_line: int
+    end_line: int
+    snippet: str
+    score: float
+    text_score: float
+    vector_score: float
+    updated_at: str
+    text_l1: str = ""
+    text_l2: str = ""
+    # Hybrid score before temporal decay: what the relevance floors compare
+    # against (decay only reorders hits that passed them).
+    relevance: float = 0.0
+
+
+@dataclass
+class _Document:
+    source: str
+    reference: str
+    path: str
+    signature: str
+    text: str
+    updated_at: str
+
+
+@dataclass
+class _Chunk:
+    chunk_id: str
+    chunk_index: int
+    start_line: int
+    end_line: int
+    text: str
+    updated_at: str
+    text_l1: str = ""
+    text_l2: str = ""
+
+
+class _EmbeddingProvider(Protocol):
+    provider_id: str
+    model: str
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Return one normalized embedding per text."""
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _normalize_embedding(values: Iterable[float]) -> list[float]:
+    vector = [float(v) if isinstance(v, (float, int)) and math.isfinite(float(v)) else 0.0 for v in values]
+    norm = math.sqrt(sum(v * v for v in vector))
+    if norm <= 1e-12:
+        return vector
+    return [v / norm for v in vector]
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    score = sum(x * y for x, y in zip(a, b, strict=False))
+    if not math.isfinite(score):
+        return 0.0
+    return max(-1.0, min(1.0, score))
+
+
+def _tokenize_fts(text: str) -> list[str]:
+    return [token.strip() for token in re.findall(r"[\w]+", text.lower()) if token.strip()]
+
+
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "was",
+    "were",
+    "with",
+}
+
+
+def _build_fts_query(query: str) -> str | None:
+    """The query's content words ORed (shared rules: EN+HR stopwords, long
+    words matched by stem; paths, commits and ids kept — an exact one is the
+    best match stored text has); very short queries fall back to their
+    2-letter words."""
+    from captain_claw import retrieval
+
+    terms = retrieval.query_terms(query, max_terms=_FTS_MAX_TERMS, keep_identifiers=True)
+    if terms:
+        return retrieval.fts_match(terms)
+    tokens = [token for token in _tokenize_fts(query) if len(token) >= 2]
+    if not tokens:
+        return None
+    return " OR ".join(f'"{token.replace(chr(34), "")}"' for token in tokens)
+
+
+def _parse_iso_to_timestamp(value: str) -> float | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        return datetime.fromisoformat(raw).timestamp()
+    except Exception:
+        return None
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8", errors="ignore")).hexdigest()
+
+
+class _LocalHashEmbeddingProvider:
+    provider_id = "local_hash"
+    model = "sha1-bow-256"
+
+    def __init__(self, dimensions: int = 256):
+        self._dimensions = max(64, int(dimensions))
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        embeddings: list[list[float]] = []
+        for text in texts:
+            bucket = [0.0] * self._dimensions
+            tokens = _tokenize_fts(text)
+            if not tokens:
+                embeddings.append(bucket)
+                continue
+            for token in tokens:
+                digest = hashlib.sha1(token.encode("utf-8", errors="ignore")).digest()
+                idx = int.from_bytes(digest[:4], byteorder="big", signed=False) % self._dimensions
+                sign = -1.0 if digest[4] % 2 else 1.0
+                bucket[idx] += sign
+            embeddings.append(_normalize_embedding(bucket))
+        return embeddings
+
+
+class _Model2VecEmbeddingProvider:
+    """In-process static-embedding provider (no server, no API key).
+
+    Uses ``model2vec`` static embeddings — a small (~30MB) distilled model that
+    runs purely on CPU with NumPy. Gives genuine semantic similarity (unlike the
+    bag-of-words ``local_hash`` fallback) while staying fully local, so history
+    and memory search work without Ollama or any cloud embedding API.
+
+    The model is loaded lazily on first use so importing this module never pays
+    the load cost, and an unavailable/unimportable model raises so the embedding
+    chain can fall through to ``local_hash``.
+    """
+
+    provider_id = "model2vec"
+
+    def __init__(self, model: str = "minishlab/potion-base-8M"):
+        self.model = str(model).strip() or "minishlab/potion-base-8M"
+        self._encoder: Any = None
+        self._lock = threading.Lock()
+
+    def _ensure_encoder(self) -> Any:
+        if self._encoder is not None:
+            return self._encoder
+        with self._lock:
+            if self._encoder is None:
+                from model2vec import StaticModel
+
+                self._encoder = StaticModel.from_pretrained(self.model)
+        return self._encoder
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        encoder = self._ensure_encoder()
+        vectors = encoder.encode(list(texts))
+        out: list[list[float]] = []
+        for vector in vectors:
+            out.append(_normalize_embedding([float(v) for v in vector]))
+        return out
+
+
+class _OllamaEmbeddingProvider:
+    provider_id = "ollama"
+
+    def __init__(self, model: str, base_url: str, timeout_seconds: int):
+        self.model = str(model).strip() or "nomic-embed-text"
+        self._base_url = str(base_url).rstrip("/") or "http://127.0.0.1:11434"
+        self._timeout = max(3, int(timeout_seconds))
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        with httpx.Client(timeout=self._timeout) as client:
+            for text in texts:
+                response = client.post(
+                    f"{self._base_url}/api/embeddings",
+                    json={"model": self.model, "prompt": text},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                embedding = payload.get("embedding")
+                if not isinstance(embedding, list):
+                    raise ValueError("Ollama embeddings response missing list 'embedding'")
+                vectors.append(_normalize_embedding([float(v) for v in embedding]))
+        return vectors
+
+
+class _LiteLLMEmbeddingProvider:
+    provider_id = "litellm"
+
+    def __init__(self, model: str, api_key: str = "", base_url: str = ""):
+        self.model = str(model).strip()
+        self._api_key = str(api_key or "").strip()
+        self._base_url = str(base_url or "").strip()
+        if not self.model:
+            raise ValueError("LiteLLM embedding model must be configured")
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        from litellm import embedding as litellm_embedding
+
+        kwargs: dict[str, Any] = {"model": self.model, "input": texts}
+        if self._api_key:
+            kwargs["api_key"] = self._api_key
+        if self._base_url:
+            kwargs["base_url"] = self._base_url
+        response = litellm_embedding(**kwargs)
+        data = response.get("data") if isinstance(response, dict) else getattr(response, "data", None)
+        if not isinstance(data, list):
+            raise ValueError("LiteLLM embedding response missing data")
+        vectors: list[list[float]] = []
+        for row in data:
+            raw = row.get("embedding") if isinstance(row, dict) else getattr(row, "embedding", None)
+            if not isinstance(raw, list):
+                raise ValueError("LiteLLM embedding row missing list embedding")
+            vectors.append(_normalize_embedding([float(v) for v in raw]))
+        return vectors
+
+
+class _EmbeddingProviderChain:
+    def __init__(self, providers: list[_EmbeddingProvider]):
+        self._providers = providers
+        self._active = 0
+        self._lock = threading.Lock()
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._providers)
+
+    @property
+    def active_provider_key(self) -> str:
+        if not self._providers:
+            return ""
+        provider = self._providers[self._active]
+        return f"{provider.provider_id}:{provider.model}"
+
+    def embed_batch(self, texts: list[str]) -> tuple[str, list[list[float]]]:
+        if not self._providers:
+            raise RuntimeError("No embedding providers configured")
+        providers = list(self._providers)
+        with self._lock:
+            start = self._active
+        errors: list[str] = []
+        for offset in range(len(providers)):
+            idx = (start + offset) % len(providers)
+            provider = providers[idx]
+            try:
+                vectors = provider.embed_batch(texts)
+                with self._lock:
+                    self._active = idx
+                return f"{provider.provider_id}:{provider.model}", vectors
+            except Exception as exc:
+                errors.append(f"{provider.provider_id}: {exc}")
+                continue
+        raise RuntimeError("All embedding providers failed: " + " | ".join(errors))
+
+
+class SemanticMemoryIndex:
+    """SQLite-backed semantic memory index with hybrid retrieval."""
+
+    def __init__(
+        self,
+        *,
+        db_path: Path,
+        session_db_path: Path,
+        workspace_path: Path,
+        index_workspace: bool = True,
+        index_sessions: bool = True,
+        cross_session_retrieval: bool = False,
+        max_workspace_files: int = 400,
+        max_file_bytes: int = 262_144,
+        include_extensions: list[str] | None = None,
+        exclude_dirs: list[str] | None = None,
+        chunk_chars: int = 1_400,
+        chunk_overlap_chars: int = 200,
+        cache_ttl_seconds: int = 45,
+        stale_after_seconds: int = 120,
+        auto_sync_on_search: bool = True,
+        max_results: int = 6,
+        candidate_limit: int = 80,
+        min_score: float = 0.1,
+        history_min_score: float = 0.35,
+        vector_weight: float = 0.65,
+        text_weight: float = 0.35,
+        temporal_decay_enabled: bool = True,
+        temporal_half_life_days: float = 21.0,
+        embedding_chain: _EmbeddingProviderChain | None = None,
+        layered_summaries: bool = True,
+    ):
+        self.db_path = Path(db_path).expanduser()
+        self.session_db_path = Path(session_db_path).expanduser()
+        self.workspace_path = Path(workspace_path).resolve()
+        self.index_workspace = bool(index_workspace)
+        self.index_sessions = bool(index_sessions)
+        self.cross_session_retrieval = bool(cross_session_retrieval)
+        self._active_session_reference: str | None = None
+        self._active_project_id: str | None = None
+        self._project_session_ids: list[str] | None = None  # cached session IDs for active project
+        self.max_workspace_files = max(1, int(max_workspace_files))
+        self.max_file_bytes = max(1024, int(max_file_bytes))
+        self.include_extensions = {
+            ext.lower() if ext.startswith(".") else f".{ext.lower()}"
+            for ext in (include_extensions or sorted(_DEFAULT_TEXT_EXTENSIONS))
+        }
+        self.exclude_dirs = {
+            value.strip().lower()
+            for value in (exclude_dirs or [".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", "logs"])
+            if value.strip()
+        }
+        self.chunk_chars = max(300, int(chunk_chars))
+        self.chunk_overlap_chars = max(0, min(self.chunk_chars // 2, int(chunk_overlap_chars)))
+        self.cache_ttl_seconds = max(1, int(cache_ttl_seconds))
+        self.stale_after_seconds = max(5, int(stale_after_seconds))
+        self.auto_sync_on_search = bool(auto_sync_on_search)
+        self.max_results = max(1, int(max_results))
+        self.candidate_limit = max(self.max_results, int(candidate_limit))
+        self.min_score = float(min_score)
+        # Verbatim transcript snapshots are large and keyword-match on common words,
+        # so they need a stricter floor than regular chunks — otherwise an off-topic
+        # past session surfaces and contaminates the answer. Always >= min_score.
+        self.history_min_score = max(float(min_score), float(history_min_score))
+        self.vector_weight = max(0.0, float(vector_weight))
+        self.text_weight = max(0.0, float(text_weight))
+        if self.vector_weight == 0 and self.text_weight == 0:
+            self.vector_weight = 0.65
+            self.text_weight = 0.35
+        self.temporal_decay_enabled = bool(temporal_decay_enabled)
+        self.temporal_half_life_days = max(1.0, float(temporal_half_life_days))
+        self.embedding_chain = embedding_chain or _EmbeddingProviderChain([])
+        self._sync_lock = threading.Lock()
+        self._db_lock = threading.RLock()
+        self._sync_running = False
+        self._dirty = False
+        self._reembed_checked = False
+        self._last_sync_started: float = 0.0
+        self._last_sync_completed: float = 0.0
+        self._cache: dict[str, tuple[float, list[SemanticMemoryResult]]] = {}
+        self._conn: sqlite3.Connection | None = None
+        self._closed = False
+        self.layered_summaries = bool(layered_summaries)
+        self._summarizer: Any = None  # callable(text) -> (l1, l2)
+        self._ensure_db()
+        self.schedule_sync("startup")
+
+    def set_active_session(self, session_reference: str | None) -> None:
+        """Set active session reference used to scope session-memory retrieval."""
+        normalized = str(session_reference or "").strip() or None
+        if normalized == self._active_session_reference:
+            return
+        self._active_session_reference = normalized
+        self._clear_cache()
+
+    def set_active_project(
+        self,
+        project_id: str | None,
+        project_session_ids: list[str] | None = None,
+    ) -> None:
+        """Set active project scope for retrieval.
+
+        When a project is active, session-memory searches include all sessions
+        belonging to the project (not just the active session).
+
+        *project_session_ids* is the list of session IDs linked to this project
+        (fetched from ``project_sessions`` table).  If provided, searches include
+        chunks whose ``reference`` matches any of these session IDs.
+        """
+        normalized = str(project_id or "").strip() or None
+        if normalized == self._active_project_id:
+            return
+        self._active_project_id = normalized
+        self._project_session_ids = list(project_session_ids or []) if normalized else None
+        self._clear_cache()
+
+    def search_in_project(
+        self,
+        query: str,
+        project_session_ids: list[str],
+        max_results: int | None = None,
+    ) -> list[SemanticMemoryResult]:
+        """Search across all sessions belonging to a project.
+
+        This allows an agent working *outside* a project to pull project memory
+        via the ``project_memory`` tool without changing its own active scope.
+        """
+        cleaned = str(query or "").strip()
+        if not cleaned or not project_session_ids or self._closed:
+            return []
+        effective_max = max(1, int(max_results or self.max_results))
+
+        if self.auto_sync_on_search:
+            now = time.time()
+            stale = (now - self._last_sync_completed) >= self.stale_after_seconds
+            if stale or self._dirty:
+                self.schedule_sync("project_search")
+
+        keyword_hits = self._keyword_search(
+            cleaned,
+            limit=self.candidate_limit,
+            active_session_reference=None,
+            include_all_sessions=False,
+            project_session_ids=project_session_ids,
+        )
+        vector_hits = self._vector_search(
+            cleaned,
+            limit=self.candidate_limit,
+            active_session_reference=None,
+            include_all_sessions=False,
+            project_session_ids=project_session_ids,
+        )
+        return list(self._merge_hybrid(keyword_hits, vector_hits, max_results=effective_max))
+
+    def set_summarizer(self, fn: Any) -> None:
+        """Set a callable ``fn(text: str) -> tuple[str, str]`` that returns (L1, L2) summaries."""
+        self._summarizer = fn
+
+    def close(self) -> None:
+        """Close SQLite resources."""
+        self._closed = True
+        with self._db_lock:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
+
+    def schedule_sync(self, reason: str = "manual") -> None:
+        """Trigger background sync (non-blocking)."""
+        if self._closed:
+            return
+        self._dirty = True
+        with self._sync_lock:
+            if self._sync_running:
+                return
+            self._sync_running = True
+            thread = threading.Thread(
+                target=self._sync_worker,
+                name=f"semantic-memory-sync:{reason}",
+                daemon=True,
+            )
+            thread.start()
+
+    def upsert_text(
+        self,
+        *,
+        source: str,
+        reference: str,
+        path: str,
+        text: str,
+        updated_at: str | None = None,
+    ) -> None:
+        """Insert/update one virtual document, useful for tests and ad-hoc memory."""
+        now_iso = updated_at or _utcnow_iso()
+        doc = _Document(
+            source=str(source).strip() or "manual",
+            reference=str(reference).strip() or f"manual:{_hash_text(path + text)}",
+            path=str(path).strip() or "manual",
+            signature=_hash_text(text),
+            text=str(text),
+            updated_at=now_iso,
+        )
+        with self._db_lock:
+            self._upsert_document(doc)
+            self._conn_or_raise().commit()
+            self._clear_cache()
+
+    def search(
+        self,
+        query: str,
+        max_results: int | None = None,
+        *,
+        exclude_active_session: bool = False,
+    ) -> list[SemanticMemoryResult]:
+        """Hybrid search across workspace + session memory.
+
+        ``exclude_active_session`` leaves out the active session's own
+        transcript chunks — for the passive context note, whose prompt
+        already carries that session (its compacted part stays reachable
+        through the session-history archive).
+        """
+        cleaned = str(query or "").strip()
+        if not cleaned:
+            return []
+        if self._closed:
+            return []
+        effective_max = max(1, int(max_results or self.max_results))
+        excluded_reference = self._active_session_reference if exclude_active_session else None
+        scope = (
+            "all_sessions"
+            if self.cross_session_retrieval
+            else (self._active_session_reference or "workspace_only")
+        )
+        key = f"{cleaned}::{effective_max}::{scope}::{'x' if excluded_reference else ''}"
+        now = time.time()
+        cached = self._cache.get(key)
+        if cached and cached[0] > now:
+            return list(cached[1])
+
+        if self.auto_sync_on_search:
+            stale = (now - self._last_sync_completed) >= self.stale_after_seconds
+            if stale or self._dirty:
+                self.schedule_sync("search")
+
+        # When a project is active, include all project sessions in the search scope.
+        project_sids = self._project_session_ids if self._active_project_id else None
+        if project_sids and exclude_active_session and self._active_session_reference:
+            project_sids = [sid for sid in project_sids if sid != self._active_session_reference]
+
+        keyword_hits = self._keyword_search(
+            cleaned,
+            limit=self.candidate_limit,
+            active_session_reference=self._active_session_reference,
+            include_all_sessions=self.cross_session_retrieval,
+            project_session_ids=project_sids,
+            exclude_session_reference=excluded_reference,
+        )
+        vector_hits = self._vector_search(
+            cleaned,
+            limit=self.candidate_limit,
+            active_session_reference=self._active_session_reference,
+            include_all_sessions=self.cross_session_retrieval,
+            project_session_ids=project_sids,
+            exclude_session_reference=excluded_reference,
+        )
+        # Pull extra candidates so holding history snapshots to a stricter floor
+        # (below) doesn't starve the note of good non-history results.
+        merged = self._merge_hybrid(keyword_hits, vector_hits, max_results=effective_max * 2)
+        # Verbatim transcript snapshots need a higher bar in the passive note too —
+        # a weak keyword match on a past, unrelated session must not be injected.
+        merged = [
+            r for r in merged
+            if r.source != "session_history" or r.relevance >= self.history_min_score
+        ][:effective_max]
+        self._cache[key] = (time.time() + self.cache_ttl_seconds, merged)
+        return list(merged)
+
+    def search_in_session(
+        self,
+        query: str,
+        session_reference: str,
+        max_results: int | None = None,
+    ) -> list[SemanticMemoryResult]:
+        """Search within a specific session regardless of cross_session_retrieval config.
+
+        This allows targeted retrieval from a named session without enabling
+        the global cross-session flag.
+        """
+        cleaned = str(query or "").strip()
+        ref = str(session_reference or "").strip()
+        if not cleaned or not ref or self._closed:
+            return []
+        effective_max = max(1, int(max_results or self.max_results))
+
+        if self.auto_sync_on_search:
+            now = time.time()
+            stale = (now - self._last_sync_completed) >= self.stale_after_seconds
+            if stale or self._dirty:
+                self.schedule_sync("cross_session_search")
+
+        keyword_hits = self._keyword_search(
+            cleaned,
+            limit=self.candidate_limit,
+            active_session_reference=ref,
+            include_all_sessions=False,
+        )
+        vector_hits = self._vector_search(
+            cleaned,
+            limit=self.candidate_limit,
+            active_session_reference=ref,
+            include_all_sessions=False,
+        )
+        return list(self._merge_hybrid(keyword_hits, vector_hits, max_results=effective_max))
+
+    def promote(self, chunk_ids: list[str], layer: str = "l3") -> list[SemanticMemoryResult]:
+        """Fetch specific chunks at the requested detail layer.
+
+        Use after an L1/L2 search to expand interesting hits to full detail.
+        """
+        if not chunk_ids or self._closed:
+            return []
+        conn = self._conn_or_raise()
+        placeholders = ",".join("?" for _ in chunk_ids)
+        rows = conn.execute(
+            f"""
+            SELECT chunk_id, source, reference, path, start_line, end_line,
+                   text, updated_at, text_l1, text_l2
+            FROM memory_chunks
+            WHERE chunk_id IN ({placeholders})
+            """,
+            chunk_ids,
+        ).fetchall()
+        results: list[SemanticMemoryResult] = []
+        for row in rows:
+            snippet = self._pick_layer_text(
+                layer, text=str(row[6]), text_l1=str(row[8]), text_l2=str(row[9]),
+            )
+            results.append(
+                SemanticMemoryResult(
+                    chunk_id=str(row[0]),
+                    source=str(row[1]),
+                    reference=str(row[2]),
+                    path=str(row[3]),
+                    start_line=int(row[4]),
+                    end_line=int(row[5]),
+                    snippet=snippet,
+                    score=1.0,
+                    text_score=0.0,
+                    vector_score=0.0,
+                    updated_at=str(row[7]),
+                    text_l1=str(row[8]),
+                    text_l2=str(row[9]),
+                    relevance=1.0,
+                )
+            )
+        return results
+
+    # ── Cross-machine transfer (text-only, no embeddings) ────────────────
+    #
+    # Unlike the curated memory bundle (insights + reflections), the
+    # semantic store is deliberately machine-local. These two methods let
+    # you ship raw chunks between agents WITHOUT moving the vectors
+    # themselves — avoiding the embedding-model-lock-in problem entirely.
+    # The target re-embeds on import using whatever provider it has
+    # configured, so two agents running different models can still share
+    # knowledge.
+    #
+    # Imported chunks are tagged with a ``source_label`` so they can be
+    # listed, re-imported idempotently, or purged as a set later.
+
+    def export_chunks(
+        self,
+        *,
+        min_chars: int = 100,
+        limit: int = 1000,
+        include_sources: list[str] | None = None,
+        exclude_sources: list[str] | None = None,
+        since: str | None = None,
+        include_imported: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Dump chunks as plain dicts (no embeddings).
+
+        Default filters skip tiny chunks, cap at 1000 rows, and exclude
+        already-imported rows (``source_label IS NULL``) so you only
+        ship your own memories — chains like A→B→C stay one-hop.
+        """
+        if self._closed:
+            return []
+        conn = self._conn_or_raise()
+        where: list[str] = ["LENGTH(c.text) >= ?"]
+        params: list[Any] = [max(0, int(min_chars))]
+        if include_sources:
+            placeholders = ",".join("?" for _ in include_sources)
+            where.append(f"c.source IN ({placeholders})")
+            params.extend(include_sources)
+        if exclude_sources:
+            placeholders = ",".join("?" for _ in exclude_sources)
+            where.append(f"c.source NOT IN ({placeholders})")
+            params.extend(exclude_sources)
+        if since:
+            where.append("c.updated_at >= ?")
+            params.append(str(since))
+        if not include_imported:
+            where.append("(c.source_label IS NULL OR c.source_label = '')")
+        sql = (
+            "SELECT c.chunk_id, c.doc_id, c.source, c.reference, c.path, "
+            "c.chunk_index, c.start_line, c.end_line, c.text, c.text_l1, "
+            "c.text_l2, c.updated_at, c.source_label, d.signature "
+            "FROM memory_chunks c "
+            "LEFT JOIN memory_documents d ON d.doc_id = c.doc_id "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY c.updated_at DESC, c.doc_id, c.chunk_index "
+            "LIMIT ?"
+        )
+        params.append(max(1, int(limit)))
+        rows = conn.execute(sql, params).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "chunk_id": str(r[0]),
+                    "doc_id": str(r[1]),
+                    "source": str(r[2]),
+                    "reference": str(r[3]),
+                    "path": str(r[4]),
+                    "chunk_index": int(r[5]),
+                    "start_line": int(r[6]),
+                    "end_line": int(r[7]),
+                    "text": str(r[8]),
+                    "text_l1": str(r[9] or ""),
+                    "text_l2": str(r[10] or ""),
+                    "updated_at": str(r[11]),
+                    "source_label": (str(r[12]) if r[12] else None),
+                    "doc_signature": (str(r[13]) if r[13] else ""),
+                }
+            )
+        return out
+
+    def import_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+        *,
+        source_label: str,
+        re_embed: bool = True,
+    ) -> dict[str, Any]:
+        """Import chunks dumped by ``export_chunks`` on another agent.
+
+        Chunks are grouped by their original ``(source, reference)``
+        pair and re-materialised under a deterministic target doc_id
+        (``imported:<label>:<source>:<reference>``) so re-imports are
+        idempotent and can be purged as a set via ``source_label``.
+        The target re-embeds with its own provider — the source's
+        embedding model is irrelevant.
+        """
+        label = str(source_label or "").strip() or "unknown"
+        stats = {
+            "docs_upserted": 0,
+            "chunks_inserted": 0,
+            "chunks_skipped": 0,
+            "embedded": 0,
+            "embedding_skipped": False,
+            "source_label": label,
+        }
+        if self._closed or not isinstance(chunks, list):
+            return stats
+
+        # Group by original doc identity so re-imports collapse to the
+        # same target doc_id (and re-inserting nukes prior chunks).
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        for c in chunks:
+            if not isinstance(c, dict):
+                stats["chunks_skipped"] += 1
+                continue
+            text = str(c.get("text") or "").strip()
+            if not text:
+                stats["chunks_skipped"] += 1
+                continue
+            src = str(c.get("source") or "imported").strip() or "imported"
+            ref = str(c.get("reference") or "").strip()
+            if not ref:
+                ref = f"unref:{_hash_text(text)[:16]}"
+            key = (src, ref)
+            g = groups.setdefault(
+                key,
+                {
+                    "source": src,
+                    "reference": ref,
+                    "path": str(c.get("path") or src).strip() or src,
+                    "signature": str(c.get("doc_signature") or "") or _hash_text(ref),
+                    "updated_at": str(c.get("updated_at") or _utcnow_iso()),
+                    "chunks": [],
+                },
+            )
+            g["chunks"].append(c)
+            ts = str(c.get("updated_at") or "")
+            if ts and ts > g["updated_at"]:
+                g["updated_at"] = ts
+
+        if not groups:
+            return stats
+
+        conn = self._conn_or_raise()
+        now_iso = _utcnow_iso()
+        # We only re-embed if the target has at least one provider.
+        can_embed = bool(re_embed and self.embedding_chain.enabled)
+        stats["embedding_skipped"] = not can_embed
+        to_embed: list[_Chunk] = []
+
+        with self._db_lock:
+            for (src, ref), g in groups.items():
+                target_doc_id = _hash_text(
+                    f"imported:{label}:{src}:{ref}"
+                )
+                # Upsert the doc row, then replace any existing chunks.
+                conn.execute(
+                    """
+                    INSERT INTO memory_documents
+                        (doc_id, source, reference, path, signature, updated_at, source_label)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(doc_id) DO UPDATE SET
+                        path=excluded.path,
+                        signature=excluded.signature,
+                        updated_at=excluded.updated_at,
+                        source_label=excluded.source_label
+                    """,
+                    (
+                        target_doc_id,
+                        src,
+                        ref,
+                        g["path"],
+                        g["signature"],
+                        g["updated_at"],
+                        label,
+                    ),
+                )
+                self._delete_chunks_for_doc(target_doc_id)
+                stats["docs_upserted"] += 1
+
+                # Stable sort: chunk_index, falling back to text hash.
+                g["chunks"].sort(key=lambda c: (int(c.get("chunk_index") or 0), str(c.get("text") or "")[:16]))
+                rows_chunks: list[tuple[Any, ...]] = []
+                rows_fts: list[tuple[Any, ...]] = []
+                for idx, c in enumerate(g["chunks"]):
+                    text = str(c.get("text") or "")
+                    text_l1 = str(c.get("text_l1") or "")
+                    text_l2 = str(c.get("text_l2") or "")
+                    chunk_index = int(c.get("chunk_index") or idx)
+                    start_line = int(c.get("start_line") or 1)
+                    end_line = int(c.get("end_line") or start_line)
+                    chunk_updated = str(c.get("updated_at") or now_iso)
+                    chunk_id = _hash_text(
+                        f"{target_doc_id}:{chunk_index}:{text[:64]}"
+                    )
+                    rows_chunks.append(
+                        (
+                            chunk_id,
+                            target_doc_id,
+                            src,
+                            ref,
+                            g["path"],
+                            chunk_index,
+                            start_line,
+                            end_line,
+                            text,
+                            text_l1,
+                            text_l2,
+                            chunk_updated,
+                            label,
+                        )
+                    )
+                    rows_fts.append(
+                        (chunk_id, text, text_l1, text_l2, g["path"], src, ref)
+                    )
+                    if can_embed:
+                        to_embed.append(
+                            _Chunk(
+                                chunk_id=chunk_id,
+                                chunk_index=chunk_index,
+                                start_line=start_line,
+                                end_line=end_line,
+                                text=text,
+                                updated_at=chunk_updated,
+                                text_l1=text_l1,
+                                text_l2=text_l2,
+                            )
+                        )
+                if rows_chunks:
+                    conn.executemany(
+                        """
+                        INSERT INTO memory_chunks (
+                            chunk_id, doc_id, source, reference, path,
+                            chunk_index, start_line, end_line, text,
+                            text_l1, text_l2, updated_at, source_label
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        rows_chunks,
+                    )
+                    conn.executemany(
+                        """
+                        INSERT INTO memory_chunks_fts
+                            (chunk_id, text, text_l1, text_l2, path, source, reference)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        rows_fts,
+                    )
+                    stats["chunks_inserted"] += len(rows_chunks)
+            conn.commit()
+
+        # Re-embed outside the write lock section would be nice, but
+        # _upsert_embeddings_for_chunks takes the conn directly — it's
+        # still fine inside the same thread. Any embedding failure is
+        # logged and falls back to keyword-only retrieval for those rows.
+        if can_embed and to_embed:
+            before = len(to_embed)
+            try:
+                self._upsert_embeddings_for_chunks(to_embed)
+                with self._db_lock:
+                    conn.commit()
+                stats["embedded"] = before
+            except Exception as exc:
+                log.warning(
+                    "Semantic import: embedding pass failed",
+                    error=str(exc),
+                    label=label,
+                )
+                stats["embedded"] = 0
+                stats["embedding_skipped"] = True
+
+        self._clear_cache()
+        self._dirty = True
+        return stats
+
+    def list_import_labels(self) -> list[dict[str, Any]]:
+        """Return one row per distinct ``source_label`` in the store."""
+        if self._closed:
+            return []
+        conn = self._conn_or_raise()
+        rows = conn.execute(
+            """
+            SELECT source_label,
+                   COUNT(*) AS chunks,
+                   COUNT(DISTINCT doc_id) AS docs,
+                   MAX(updated_at) AS latest
+            FROM memory_chunks
+            WHERE source_label IS NOT NULL AND source_label <> ''
+            GROUP BY source_label
+            ORDER BY latest DESC
+            """
+        ).fetchall()
+        return [
+            {
+                "source_label": str(r[0]),
+                "chunks": int(r[1] or 0),
+                "docs": int(r[2] or 0),
+                "latest": str(r[3] or ""),
+            }
+            for r in rows
+        ]
+
+    def delete_imported(self, source_label: str) -> dict[str, int]:
+        """Remove all chunks + docs + embeddings tagged with ``source_label``."""
+        label = str(source_label or "").strip()
+        result = {"chunks": 0, "docs": 0}
+        if not label or self._closed:
+            return result
+        conn = self._conn_or_raise()
+        with self._db_lock:
+            # Count chunks up-front so the return value reflects what
+            # was actually wiped (the delete cascade below runs through
+            # _delete_document which clears chunks+fts+embeddings).
+            chunk_count_row = conn.execute(
+                "SELECT COUNT(*) FROM memory_chunks WHERE source_label = ?",
+                (label,),
+            ).fetchone()
+            result["chunks"] = int(chunk_count_row[0] or 0) if chunk_count_row else 0
+
+            doc_rows = conn.execute(
+                "SELECT doc_id FROM memory_documents WHERE source_label = ?",
+                (label,),
+            ).fetchall()
+            doc_ids = [str(r[0]) for r in doc_rows]
+            for doc_id in doc_ids:
+                self._delete_document(doc_id)
+                result["docs"] += 1
+
+            # Catch any stray chunks tagged without a matching doc row
+            # (shouldn't happen, but clean them up defensively).
+            stray = conn.execute(
+                "SELECT chunk_id FROM memory_chunks WHERE source_label = ?",
+                (label,),
+            ).fetchall()
+            stray_ids = [str(r[0]) for r in stray]
+            if stray_ids:
+                conn.executemany(
+                    "DELETE FROM memory_chunks_fts WHERE chunk_id = ?",
+                    [(cid,) for cid in stray_ids],
+                )
+                conn.executemany(
+                    "DELETE FROM memory_embeddings WHERE chunk_id = ?",
+                    [(cid,) for cid in stray_ids],
+                )
+                conn.execute(
+                    "DELETE FROM memory_chunks WHERE source_label = ?",
+                    (label,),
+                )
+            conn.commit()
+        self._clear_cache()
+        return result
+
+    @staticmethod
+    def _pick_layer_text(
+        layer: str, *, text: str, text_l1: str, text_l2: str,
+    ) -> str:
+        """Return the best available text for the requested layer, falling back to deeper layers."""
+        if layer == "l1":
+            return text_l1 or text_l2 or text
+        if layer == "l2":
+            return text_l2 or text
+        return text  # l3 (default)
+
+    def build_context_note(
+        self,
+        query: str,
+        *,
+        max_items: int = 3,
+        max_snippet_chars: int = 360,
+        layer: str = "l3",
+        exclude_active_session: bool = False,
+    ) -> tuple[str, str]:
+        """Format top semantic hits as a prompt note + debug block.
+
+        *layer* controls the snippet granularity:
+        ``"l1"`` = one-liner, ``"l2"`` = summary, ``"l3"`` = full text (default).
+        """
+        results = self.search(
+            query=query, max_results=max_items, exclude_active_session=exclude_active_session,
+        )
+        if not results:
+            return "", "semantic_memory: no results"
+        if self.cross_session_retrieval:
+            lines = ["Semantic memory matches (all sessions + workspace):"]
+        elif exclude_active_session:
+            lines = ["Semantic memory matches (workspace + archived history):"]
+        else:
+            lines = ["Semantic memory matches (active session + workspace):"]
+        debug = [f"semantic_memory query={query!r} layer={layer}", f"result_count={len(results)}"]
+        for item in results[:max_items]:
+            raw = self._pick_layer_text(
+                layer, text=item.snippet, text_l1=item.text_l1, text_l2=item.text_l2,
+            )
+            snippet = re.sub(r"\s+", " ", raw).strip()
+            if len(snippet) > max_snippet_chars:
+                snippet = snippet[:max_snippet_chars].rstrip() + "... [truncated]"
+            citation = f"{item.path}:{item.start_line}"
+            created = (item.updated_at or "").strip() or "unknown"
+            lines.append(
+                f"- [{item.source}] {citation} (score={item.score:.3f}, created={created}) {snippet}"
+            )
+            debug.append(
+                f"- source={item.source} reference={item.reference} path={item.path} "
+                f"line={item.start_line} score={item.score:.3f} "
+                f"text={item.text_score:.3f} vector={item.vector_score:.3f}"
+            )
+        return "\n".join(lines), "\n".join(debug)
+
+    def _sync_worker(self) -> None:
+        while True:
+            if self._closed:
+                with self._sync_lock:
+                    self._sync_running = False
+                return
+            if not self._dirty:
+                with self._sync_lock:
+                    self._sync_running = False
+                return
+            self._dirty = False
+            self._last_sync_started = time.time()
+            try:
+                self._sync_once()
+                self._last_sync_completed = time.time()
+            except Exception as exc:
+                log.warning("Semantic memory sync failed", error=str(exc))
+                self._last_sync_completed = time.time()
+
+    def _ensure_db(self) -> None:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._db_lock:
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_documents (
+                    doc_id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    reference TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    signature TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_documents_source_ref
+                ON memory_documents(source, reference)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_chunks (
+                    chunk_id TEXT PRIMARY KEY,
+                    doc_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    reference TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    start_line INTEGER NOT NULL,
+                    end_line INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    text_l1 TEXT NOT NULL DEFAULT '',
+                    text_l2 TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memory_chunks_doc_id
+                ON memory_chunks(doc_id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memory_chunks_source_ref
+                ON memory_chunks(source, reference)
+                """
+            )
+            conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_chunks_fts
+                USING fts5(chunk_id, text, text_l1, text_l2, path, source, reference)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_embeddings (
+                    chunk_id TEXT PRIMARY KEY,
+                    provider_key TEXT NOT NULL,
+                    dims INTEGER NOT NULL,
+                    embedding TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_dims
+                ON memory_embeddings(provider_key, dims)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_sync_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            # Frozen, append-only raw transcript snapshots. Written before a
+            # session is compacted so the verbatim messages survive even after
+            # they are dropped from the live session. Indexed under the
+            # ``session_history`` source, which the retrieval scope filter
+            # always includes (never deleted, never re-embedded).
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_history (
+                    history_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    session_name TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    message_count INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_history_session "
+                "ON memory_history(session_id, created_at)"
+            )
+            # Migrate: add text_l1/text_l2 columns if missing (existing DBs).
+            try:
+                cols = {
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info(memory_chunks)").fetchall()
+                }
+                if "text_l1" not in cols:
+                    conn.execute("ALTER TABLE memory_chunks ADD COLUMN text_l1 TEXT NOT NULL DEFAULT ''")
+                if "text_l2" not in cols:
+                    conn.execute("ALTER TABLE memory_chunks ADD COLUMN text_l2 TEXT NOT NULL DEFAULT ''")
+                # source_label: identifies the origin agent for imported chunks.
+                # NULL for locally-produced content; set by import_chunks().
+                if "source_label" not in cols:
+                    conn.execute(
+                        "ALTER TABLE memory_chunks ADD COLUMN source_label TEXT"
+                    )
+            except Exception:
+                pass  # table may not exist yet on first run
+
+            # Migrate memory_documents: add source_label column.
+            try:
+                doc_cols = {
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info(memory_documents)").fetchall()
+                }
+                if "source_label" not in doc_cols:
+                    conn.execute(
+                        "ALTER TABLE memory_documents ADD COLUMN source_label TEXT"
+                    )
+            except Exception:
+                pass
+
+            try:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_memory_chunks_source_label "
+                    "ON memory_chunks(source_label)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_memory_documents_source_label "
+                    "ON memory_documents(source_label)"
+                )
+            except Exception:
+                pass
+
+            # Migrate FTS: recreate if it lacks the new columns.
+            try:
+                fts_cols = {
+                    row[1]
+                    for row in conn.execute("PRAGMA table_info(memory_chunks_fts)").fetchall()
+                }
+                if fts_cols and "text_l1" not in fts_cols:
+                    conn.execute("DROP TABLE IF EXISTS memory_chunks_fts")
+                    conn.execute(
+                        """
+                        CREATE VIRTUAL TABLE IF NOT EXISTS memory_chunks_fts
+                        USING fts5(chunk_id, text, text_l1, text_l2, path, source, reference)
+                        """
+                    )
+                    # Re-populate FTS from existing chunks.
+                    conn.execute(
+                        """
+                        INSERT INTO memory_chunks_fts (chunk_id, text, text_l1, text_l2, path, source, reference)
+                        SELECT chunk_id, text, text_l1, text_l2, path, source, reference
+                        FROM memory_chunks
+                        """
+                    )
+            except Exception:
+                pass
+
+            conn.commit()
+            self._conn = conn
+
+    def _conn_or_raise(self) -> sqlite3.Connection:
+        if self._conn is None:
+            raise RuntimeError("Semantic memory database is closed")
+        return self._conn
+
+    def _sync_once(self) -> None:
+        workspace_docs = self._collect_workspace_documents() if self.index_workspace else []
+        session_docs = self._collect_session_documents() if self.index_sessions else []
+        history_docs = self._collect_history_documents() if self.index_sessions else []
+        with self._db_lock:
+            self._sync_documents("workspace", workspace_docs)
+            self._sync_documents("session", session_docs)
+            self._sync_documents("session_history", history_docs)
+            self._clear_cache()
+        # After documents are indexed, make sure every chunk's embedding belongs
+        # to the *active* provider. Switching providers (e.g. local_hash →
+        # model2vec) leaves old vectors stranded under a stale provider_key/dims,
+        # which vector search silently skips — so the layer would look
+        # keyword-only until each doc happened to change. Re-embed them once.
+        if not self._reembed_checked:
+            self._reembed_checked = True
+            try:
+                self._reembed_stale_chunks()
+            except Exception as exc:
+                log.warning("Re-embed pass failed", error=str(exc))
+
+    def _reembed_stale_chunks(self, batch_size: int = 128) -> int:
+        """Re-embed chunks whose stored vector is missing or under a provider/dims
+        other than the active embedding provider. Returns the number re-embedded.
+
+        Idempotent and cheap when nothing is stale (one probe embed + one indexed
+        count query). Lets a provider switch take effect over the whole existing
+        corpus — including the frozen ``session_history`` snapshots — instead of
+        only newly-indexed documents.
+        """
+        if self._closed or not self.embedding_chain.enabled:
+            return 0
+        try:
+            active_key, probe = self.embedding_chain.embed_batch(["probe"])
+        except Exception as exc:
+            log.debug("Re-embed skipped; embedding provider unavailable", error=str(exc))
+            return 0
+        active_dims = len(probe[0]) if probe else 0
+        if active_dims <= 0:
+            return 0
+        with self._db_lock:
+            rows = self._conn_or_raise().execute(
+                """
+                SELECT c.chunk_id, c.text
+                FROM memory_chunks c
+                LEFT JOIN memory_embeddings e ON e.chunk_id = c.chunk_id
+                WHERE e.chunk_id IS NULL OR e.provider_key != ? OR e.dims != ?
+                """,
+                (active_key, active_dims),
+            ).fetchall()
+        if not rows:
+            return 0
+        total = 0
+        now_iso = _utcnow_iso()
+        for offset in range(0, len(rows), batch_size):
+            batch = rows[offset : offset + batch_size]
+            texts = [str(r[1]) for r in batch]
+            try:
+                provider_key, vectors = self.embedding_chain.embed_batch(texts)
+            except Exception as exc:
+                log.warning("Re-embed batch failed; stopping pass", error=str(exc))
+                break
+            if len(vectors) != len(batch):
+                log.warning("Re-embed provider returned mismatched batch size")
+                break
+            payload = [
+                (str(r[0]), provider_key, len(v), json.dumps(v, ensure_ascii=True), now_iso)
+                for r, v in zip(batch, vectors, strict=False)
+            ]
+            with self._db_lock:
+                conn = self._conn_or_raise()
+                conn.executemany(
+                    """
+                    INSERT INTO memory_embeddings (chunk_id, provider_key, dims, embedding, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(chunk_id) DO UPDATE SET
+                        provider_key=excluded.provider_key,
+                        dims=excluded.dims,
+                        embedding=excluded.embedding,
+                        updated_at=excluded.updated_at
+                    """,
+                    payload,
+                )
+                conn.commit()
+            total += len(payload)
+        if total:
+            with self._db_lock:
+                self._clear_cache()
+            log.info("Re-embedded stale memory chunks", count=total, provider=active_key)
+        return total
+
+    def _collect_workspace_documents(self) -> list[_Document]:
+        if not self.workspace_path.exists() or not self.workspace_path.is_dir():
+            return []
+        documents: list[_Document] = []
+        for root, dirs, files in os.walk(self.workspace_path):
+            dirs[:] = [d for d in dirs if d.strip().lower() not in self.exclude_dirs]
+            for filename in files:
+                if len(documents) >= self.max_workspace_files:
+                    return documents
+                file_path = Path(root) / filename
+                try:
+                    stat = file_path.stat()
+                except Exception:
+                    continue
+                if not file_path.is_file():
+                    continue
+                if stat.st_size <= 0 or stat.st_size > self.max_file_bytes:
+                    continue
+                suffix = file_path.suffix.lower()
+                if self.include_extensions and suffix not in self.include_extensions:
+                    continue
+                try:
+                    raw = file_path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                if not raw.strip():
+                    continue
+                rel_path = file_path.resolve().relative_to(self.workspace_path).as_posix()
+                updated_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
+                signature = f"{stat.st_size}:{int(stat.st_mtime_ns)}"
+                documents.append(
+                    _Document(
+                        source="workspace",
+                        reference=rel_path,
+                        path=rel_path,
+                        signature=signature,
+                        text=raw,
+                        updated_at=updated_at,
+                    )
+                )
+        return documents
+
+    def _collect_session_documents(self) -> list[_Document]:
+        if not self.session_db_path.exists():
+            return []
+        rows: list[tuple[str, str, str, str]] = []
+        try:
+            with sqlite3.connect(str(self.session_db_path)) as session_conn:
+                cursor = session_conn.execute(
+                    "SELECT id, name, messages, updated_at FROM sessions ORDER BY updated_at DESC"
+                )
+                rows = [(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in cursor.fetchall()]
+        except Exception as exc:
+            log.debug("Skipping session-memory sync; cannot read session db", error=str(exc))
+            return []
+
+        from captain_claw import member_privacy
+        from captain_claw.msg_origin import is_model_hidden_tool
+
+        documents: list[_Document] = []
+        for sid, name, raw_messages, updated_at in rows:
+            try:
+                messages = json.loads(raw_messages)
+            except Exception:
+                continue
+            if not isinstance(messages, list):
+                continue
+            lines: list[str] = []
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                if member_privacy.is_private(msg):
+                    continue             # PR D: members' private data is never indexed
+                if is_model_hidden_tool(msg):
+                    continue             # debug echoes would feed memory dumps back in
+                role = str(msg.get("role", "")).strip().lower() or "unknown"
+                content = re.sub(r"\s+", " ", str(msg.get("content", "")).strip())
+                if not content:
+                    continue
+                lines.append(f"[{role}] {content}")
+            if not lines:
+                continue
+            text = "\n".join(lines)
+            signature = f"{updated_at}:{len(lines)}:{_hash_text(text[:12000])}"
+            safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "-", name).strip("-") or sid
+            documents.append(
+                _Document(
+                    source="session",
+                    reference=sid,
+                    path=f"sessions/{safe_name}.txt",
+                    signature=signature,
+                    text=text,
+                    updated_at=updated_at or _utcnow_iso(),
+                )
+            )
+        return documents
+
+    @staticmethod
+    def _format_messages_as_text(messages: list[dict[str, Any]]) -> str:
+        """Render a list of session messages as ``[role] content`` lines."""
+        from captain_claw import member_privacy
+        from captain_claw.msg_origin import is_model_hidden_tool
+
+        lines: list[str] = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            if member_privacy.is_private(msg):
+                continue                 # PR D: never archived or indexed
+            if is_model_hidden_tool(msg):
+                continue                 # debug echoes are not memory
+            role = str(msg.get("role", "")).strip().lower() or "unknown"
+            content = re.sub(r"\s+", " ", str(msg.get("content", "")).strip())
+            if not content:
+                continue
+            lines.append(f"[{role}] {content}")
+        return "\n".join(lines)
+
+    def archive_session_history(
+        self,
+        *,
+        session_id: str,
+        session_name: str,
+        messages: list[dict[str, Any]],
+        created_at: str | None = None,
+    ) -> int:
+        """Freeze a window of raw messages before they are compacted away.
+
+        Stores the verbatim transcript in the append-only ``memory_history``
+        table and schedules a background sync that embeds it under the
+        ``session_history`` source.  Idempotent: re-archiving identical content
+        is a no-op (the ``history_id`` is a content hash).
+
+        Returns the number of messages archived (0 if nothing to store).
+        """
+        if self._closed:
+            return 0
+        text = self._format_messages_as_text(messages or [])
+        if not text.strip():
+            return 0
+        sid = str(session_id or "").strip() or "session"
+        name = str(session_name or "").strip() or sid
+        count = text.count("\n") + 1
+        history_id = _hash_text(f"{sid}:{text}")
+        now_iso = created_at or _utcnow_iso()
+        try:
+            with self._db_lock:
+                self._conn_or_raise().execute(
+                    """
+                    INSERT OR IGNORE INTO memory_history
+                        (history_id, session_id, session_name, text, message_count, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (history_id, sid, name, text, count, now_iso),
+                )
+                self._conn_or_raise().commit()
+        except Exception as exc:
+            log.warning("Failed to archive session history", error=str(exc))
+            return 0
+        self.schedule_sync("history")
+        return count
+
+    def _collect_history_documents(self) -> list[_Document]:
+        """Build virtual documents from the frozen history snapshots.
+
+        Signatures are stable (derived only from immutable row data) so a
+        snapshot is embedded exactly once and never re-embedded or deleted.
+        """
+        try:
+            with self._db_lock:
+                rows = self._conn_or_raise().execute(
+                    "SELECT history_id, session_id, session_name, text, message_count, created_at "
+                    "FROM memory_history ORDER BY created_at DESC"
+                ).fetchall()
+        except Exception as exc:
+            log.debug("Skipping history sync; cannot read history table", error=str(exc))
+            return []
+        documents: list[_Document] = []
+        for history_id, session_id, session_name, text, message_count, created_at in rows:
+            text = str(text or "")
+            if not text.strip():
+                continue
+            safe_name = re.sub(r"[^a-zA-Z0-9_.-]+", "-", str(session_name)).strip("-") or str(session_id)
+            documents.append(
+                _Document(
+                    source="session_history",
+                    reference=str(history_id),
+                    path=f"history/{safe_name}.txt",
+                    signature=f"{created_at}:{message_count}:{history_id}",
+                    text=text,
+                    updated_at=str(created_at) or _utcnow_iso(),
+                )
+            )
+        return documents
+
+    def search_history(
+        self,
+        query: str,
+        max_results: int | None = None,
+    ) -> list[SemanticMemoryResult]:
+        """Hybrid search restricted to the frozen ``session_history`` snapshots."""
+        cleaned = str(query or "").strip()
+        if not cleaned or self._closed:
+            return []
+        effective_max = max(1, int(max_results or self.max_results))
+        if self.auto_sync_on_search:
+            now = time.time()
+            if (now - self._last_sync_completed) >= self.stale_after_seconds or self._dirty:
+                self.schedule_sync("history_search")
+        keyword_hits = [
+            h for h in self._keyword_search(
+                cleaned, limit=self.candidate_limit,
+                active_session_reference=None, include_all_sessions=True,
+            )
+            if h.get("source") == "session_history"
+        ]
+        vector_hits = [
+            h for h in self._vector_search(
+                cleaned, limit=self.candidate_limit,
+                active_session_reference=None, include_all_sessions=True,
+            )
+            if h.get("source") == "session_history"
+        ]
+        merged = self._merge_hybrid(keyword_hits, vector_hits, max_results=effective_max)
+        # Apply the stricter history floor — better to return nothing than an
+        # off-topic snapshot the model would treat as current context.
+        return [r for r in merged if r.relevance >= self.history_min_score]
+
+    def list_history(self, limit: int = 20) -> list[dict[str, Any]]:
+        """List recent frozen snapshots (newest first)."""
+        if self._closed:
+            return []
+        try:
+            with self._db_lock:
+                rows = self._conn_or_raise().execute(
+                    "SELECT history_id, session_id, session_name, text, message_count, created_at "
+                    "FROM memory_history ORDER BY created_at DESC LIMIT ?",
+                    (max(1, int(limit)),),
+                ).fetchall()
+        except Exception as exc:
+            log.debug("Cannot list history snapshots", error=str(exc))
+            return []
+        out: list[dict[str, Any]] = []
+        for history_id, session_id, session_name, text, message_count, created_at in rows:
+            preview = re.sub(r"\s+", " ", str(text or "")).strip()[:200]
+            out.append({
+                "history_id": str(history_id),
+                "session_id": str(session_id),
+                "session_name": str(session_name),
+                "message_count": int(message_count),
+                "created_at": str(created_at),
+                "preview": preview,
+            })
+        return out
+
+    def get_history(self, history_id: str) -> dict[str, Any] | None:
+        """Return one frozen snapshot's full verbatim text."""
+        ref = str(history_id or "").strip()
+        if not ref or self._closed:
+            return None
+        try:
+            with self._db_lock:
+                row = self._conn_or_raise().execute(
+                    "SELECT history_id, session_id, session_name, text, message_count, created_at "
+                    "FROM memory_history WHERE history_id = ?",
+                    (ref,),
+                ).fetchone()
+        except Exception as exc:
+            log.debug("Cannot fetch history snapshot", error=str(exc))
+            return None
+        if not row:
+            return None
+        return {
+            "history_id": str(row[0]),
+            "session_id": str(row[1]),
+            "session_name": str(row[2]),
+            "text": str(row[3] or ""),
+            "message_count": int(row[4]),
+            "created_at": str(row[5]),
+        }
+
+    def _sync_documents(self, source: str, docs: list[_Document]) -> None:
+        conn = self._conn_or_raise()
+        existing_rows = conn.execute(
+            "SELECT doc_id, reference, signature FROM memory_documents WHERE source = ?",
+            (source,),
+        ).fetchall()
+        existing = {str(row[1]): (str(row[0]), str(row[2])) for row in existing_rows}
+        seen_refs: set[str] = set()
+
+        for doc in docs:
+            seen_refs.add(doc.reference)
+            prev = existing.get(doc.reference)
+            if prev and prev[1] == doc.signature:
+                continue
+            self._upsert_document(doc)
+
+        stale_doc_ids = [
+            doc_id
+            for ref, (doc_id, _signature) in existing.items()
+            if ref not in seen_refs
+        ]
+        for doc_id in stale_doc_ids:
+            self._delete_document(doc_id)
+
+        conn.commit()
+
+    def _upsert_document(self, doc: _Document) -> None:
+        conn = self._conn_or_raise()
+        doc_id = _hash_text(f"{doc.source}:{doc.reference}")
+        conn.execute(
+            """
+            INSERT INTO memory_documents (doc_id, source, reference, path, signature, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(doc_id) DO UPDATE SET
+                path=excluded.path,
+                signature=excluded.signature,
+                updated_at=excluded.updated_at
+            """,
+            (doc_id, doc.source, doc.reference, doc.path, doc.signature, doc.updated_at),
+        )
+        self._delete_chunks_for_doc(doc_id)
+        chunks = self._chunk_document(doc_id=doc_id, text=doc.text, updated_at=doc.updated_at)
+        if not chunks:
+            return
+        # Generate L1/L2 summaries if a summarizer is available.
+        if self.layered_summaries and self._summarizer is not None:
+            self._generate_summaries_for_chunks(chunks)
+        conn.executemany(
+            """
+            INSERT INTO memory_chunks (
+                chunk_id, doc_id, source, reference, path,
+                chunk_index, start_line, end_line, text, text_l1, text_l2, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    chunk.chunk_id,
+                    doc_id,
+                    doc.source,
+                    doc.reference,
+                    doc.path,
+                    chunk.chunk_index,
+                    chunk.start_line,
+                    chunk.end_line,
+                    chunk.text,
+                    chunk.text_l1,
+                    chunk.text_l2,
+                    chunk.updated_at,
+                )
+                for chunk in chunks
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO memory_chunks_fts (chunk_id, text, text_l1, text_l2, path, source, reference)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    chunk.chunk_id,
+                    chunk.text,
+                    chunk.text_l1,
+                    chunk.text_l2,
+                    doc.path,
+                    doc.source,
+                    doc.reference,
+                )
+                for chunk in chunks
+            ],
+        )
+        self._upsert_embeddings_for_chunks(chunks)
+
+    def _generate_summaries_for_chunks(self, chunks: list[_Chunk]) -> None:
+        """Call the summarizer to populate text_l1/text_l2 on each chunk."""
+        summarizer = self._summarizer
+        if summarizer is None:
+            return
+        for chunk in chunks:
+            if chunk.text_l1 and chunk.text_l2:
+                continue  # already populated
+            try:
+                l1, l2 = summarizer(chunk.text)
+                chunk.text_l1 = str(l1 or "").strip()
+                chunk.text_l2 = str(l2 or "").strip()
+            except Exception as exc:
+                log.debug("Chunk summarization failed", error=str(exc))
+
+    def _delete_document(self, doc_id: str) -> None:
+        conn = self._conn_or_raise()
+        self._delete_chunks_for_doc(doc_id)
+        conn.execute("DELETE FROM memory_documents WHERE doc_id = ?", (doc_id,))
+
+    def _delete_chunks_for_doc(self, doc_id: str) -> None:
+        conn = self._conn_or_raise()
+        rows = conn.execute(
+            "SELECT chunk_id FROM memory_chunks WHERE doc_id = ?",
+            (doc_id,),
+        ).fetchall()
+        chunk_ids = [str(row[0]) for row in rows]
+        if chunk_ids:
+            conn.executemany(
+                "DELETE FROM memory_chunks_fts WHERE chunk_id = ?",
+                [(chunk_id,) for chunk_id in chunk_ids],
+            )
+            conn.executemany(
+                "DELETE FROM memory_embeddings WHERE chunk_id = ?",
+                [(chunk_id,) for chunk_id in chunk_ids],
+            )
+        conn.execute("DELETE FROM memory_chunks WHERE doc_id = ?", (doc_id,))
+
+    def _chunk_document(self, *, doc_id: str, text: str, updated_at: str) -> list[_Chunk]:
+        lines = text.splitlines()
+        if not lines:
+            return []
+        chunks: list[_Chunk] = []
+        start = 0
+        chunk_index = 0
+        while start < len(lines):
+            end = start
+            used = 0
+            while end < len(lines):
+                line_len = len(lines[end]) + 1
+                if used and used + line_len > self.chunk_chars:
+                    break
+                used += line_len
+                end += 1
+            if end <= start:
+                end = min(len(lines), start + 1)
+            chunk_text = "\n".join(lines[start:end]).strip()
+            if chunk_text:
+                chunk_id = _hash_text(f"{doc_id}:{chunk_index}:{chunk_text[:64]}")
+                chunks.append(
+                    _Chunk(
+                        chunk_id=chunk_id,
+                        chunk_index=chunk_index,
+                        start_line=start + 1,
+                        end_line=end,
+                        text=chunk_text,
+                        updated_at=updated_at,
+                    )
+                )
+                chunk_index += 1
+            if end >= len(lines):
+                break
+            overlap_lines = 0
+            overlap_chars = 0
+            idx = end - 1
+            while idx >= start and overlap_chars < self.chunk_overlap_chars:
+                overlap_chars += len(lines[idx]) + 1
+                overlap_lines += 1
+                idx -= 1
+            start = max(start + 1, end - overlap_lines) if overlap_lines else end
+        return chunks
+
+    def _upsert_embeddings_for_chunks(self, chunks: list[_Chunk]) -> None:
+        if not chunks or not self.embedding_chain.enabled:
+            return
+        conn = self._conn_or_raise()
+        batch_size = 24
+        now_iso = _utcnow_iso()
+        for offset in range(0, len(chunks), batch_size):
+            batch = chunks[offset : offset + batch_size]
+            texts = [chunk.text for chunk in batch]
+            try:
+                provider_key, vectors = self.embedding_chain.embed_batch(texts)
+            except Exception as exc:
+                log.warning("Embedding batch failed; keeping keyword index only", error=str(exc))
+                return
+            if len(vectors) != len(batch):
+                log.warning("Embedding provider returned mismatched batch size")
+                return
+            payload = []
+            for chunk, vector in zip(batch, vectors, strict=False):
+                payload.append(
+                    (
+                        chunk.chunk_id,
+                        provider_key,
+                        len(vector),
+                        json.dumps(vector, ensure_ascii=True),
+                        now_iso,
+                    )
+                )
+            conn.executemany(
+                """
+                INSERT INTO memory_embeddings (chunk_id, provider_key, dims, embedding, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(chunk_id) DO UPDATE SET
+                    provider_key=excluded.provider_key,
+                    dims=excluded.dims,
+                    embedding=excluded.embedding,
+                    updated_at=excluded.updated_at
+                """,
+                payload,
+            )
+
+    def _keyword_search(
+        self,
+        query: str,
+        limit: int,
+        *,
+        active_session_reference: str | None,
+        include_all_sessions: bool,
+        project_session_ids: list[str] | None = None,
+        exclude_session_reference: str | None = None,
+    ) -> list[dict[str, Any]]:
+        conn = self._conn_or_raise()
+        fts_query = _build_fts_query(query)
+        if not fts_query:
+            return []
+        session_reference = str(active_session_reference or "").strip()
+
+        # Build the session-scoping WHERE clause.
+        if include_all_sessions:
+            where_clause = ""
+            params: tuple[Any, ...] = (fts_query, limit)
+        elif project_session_ids:
+            # Project mode: include workspace + all project sessions.
+            placeholders = ",".join("?" for _ in project_session_ids)
+            if session_reference:
+                where_clause = f"AND (c.source != 'session' OR c.reference = ? OR c.reference IN ({placeholders}))"
+                params = (fts_query, session_reference, *project_session_ids, limit)
+            else:
+                where_clause = f"AND (c.source != 'session' OR c.reference IN ({placeholders}))"
+                params = (fts_query, *project_session_ids, limit)
+        elif session_reference:
+            where_clause = "AND (c.source != 'session' OR c.reference = ?)"
+            params = (fts_query, session_reference, limit)
+        else:
+            where_clause = "AND c.source != 'session'"
+            params = (fts_query, limit)
+        if exclude_session_reference:
+            where_clause += " AND NOT (c.source = 'session' AND c.reference = ?)"
+            params = (*params[:-1], exclude_session_reference, params[-1])
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    c.chunk_id,
+                    c.source,
+                    c.reference,
+                    c.path,
+                    c.start_line,
+                    c.end_line,
+                    c.text,
+                    c.updated_at,
+                    bm25(memory_chunks_fts) AS rank,
+                    c.text_l1,
+                    c.text_l2
+                FROM memory_chunks_fts
+                JOIN memory_chunks c ON c.chunk_id = memory_chunks_fts.chunk_id
+                WHERE memory_chunks_fts MATCH ?
+                {where_clause}
+                ORDER BY rank ASC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        except Exception as exc:
+            log.debug("FTS search failed; fallbacking to LIKE search", error=str(exc))
+            like = f"%{query.strip()}%"
+            if include_all_sessions:
+                like_where = ""
+                like_params: tuple[Any, ...] = (like, limit)
+            elif project_session_ids:
+                placeholders = ",".join("?" for _ in project_session_ids)
+                if session_reference:
+                    like_where = f"AND (source != 'session' OR reference = ? OR reference IN ({placeholders}))"
+                    like_params = (like, session_reference, *project_session_ids, limit)
+                else:
+                    like_where = f"AND (source != 'session' OR reference IN ({placeholders}))"
+                    like_params = (like, *project_session_ids, limit)
+            elif session_reference:
+                like_where = "AND (source != 'session' OR reference = ?)"
+                like_params = (like, session_reference, limit)
+            else:
+                like_where = "AND source != 'session'"
+                like_params = (like, limit)
+            if exclude_session_reference:
+                like_where += " AND NOT (source = 'session' AND reference = ?)"
+                like_params = (*like_params[:-1], exclude_session_reference, like_params[-1])
+            rows = conn.execute(
+                f"""
+                SELECT
+                    chunk_id, source, reference, path, start_line, end_line, text, updated_at,
+                    999.0 AS rank, text_l1, text_l2
+                FROM memory_chunks
+                WHERE text LIKE ?
+                {like_where}
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                like_params,
+            ).fetchall()
+        hits: list[dict[str, Any]] = []
+        for row in rows:
+            rank = float(row[8]) if isinstance(row[8], (int, float)) and math.isfinite(float(row[8])) else 999.0
+            hits.append(
+                {
+                    "chunk_id": str(row[0]),
+                    "source": str(row[1]),
+                    "reference": str(row[2]),
+                    "path": str(row[3]),
+                    "start_line": int(row[4]),
+                    "end_line": int(row[5]),
+                    "snippet": str(row[6]),
+                    "updated_at": str(row[7]),
+                    # FTS5 bm25() is negative, more negative = better match:
+                    # map its magnitude into (0, 1) on a scale where a lone
+                    # common term (|bm25| ~3) stays well below a specific
+                    # multi-term match (|bm25| 10-35). The LIKE fallback's
+                    # 999.0 sentinel scores 0, as before.
+                    "text_score": retrieval.bm25_relevance(rank, _BM25_SCALE),
+                    "text_l1": str(row[9]) if len(row) > 9 else "",
+                    "text_l2": str(row[10]) if len(row) > 10 else "",
+                }
+            )
+        return hits
+
+    def _vector_search(
+        self,
+        query: str,
+        limit: int,
+        *,
+        active_session_reference: str | None,
+        include_all_sessions: bool,
+        project_session_ids: list[str] | None = None,
+        exclude_session_reference: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not self.embedding_chain.enabled:
+            return []
+        conn = self._conn_or_raise()
+        try:
+            provider_key, vectors = self.embedding_chain.embed_batch([query])
+        except Exception as exc:
+            log.debug("Query embedding failed; using keyword-only fallback", error=str(exc))
+            return []
+        if not vectors:
+            return []
+        query_vec = vectors[0]
+        dims = len(query_vec)
+        if dims <= 0:
+            return []
+        session_reference = str(active_session_reference or "").strip()
+        if include_all_sessions:
+            extra_where = ""
+            params: tuple[Any, ...] = (provider_key, dims)
+        elif project_session_ids:
+            placeholders = ",".join("?" for _ in project_session_ids)
+            if session_reference:
+                extra_where = f"AND (c.source != 'session' OR c.reference = ? OR c.reference IN ({placeholders}))"
+                params = (provider_key, dims, session_reference, *project_session_ids)
+            else:
+                extra_where = f"AND (c.source != 'session' OR c.reference IN ({placeholders}))"
+                params = (provider_key, dims, *project_session_ids)
+        elif session_reference:
+            extra_where = "AND (c.source != 'session' OR c.reference = ?)"
+            params = (provider_key, dims, session_reference)
+        else:
+            extra_where = "AND c.source != 'session'"
+            params = (provider_key, dims)
+        if exclude_session_reference:
+            extra_where += " AND NOT (c.source = 'session' AND c.reference = ?)"
+            params = (*params, exclude_session_reference)
+        rows = conn.execute(
+            f"""
+            SELECT
+                e.chunk_id,
+                c.source,
+                c.reference,
+                c.path,
+                c.start_line,
+                c.end_line,
+                c.text,
+                c.updated_at,
+                e.embedding,
+                c.text_l1,
+                c.text_l2
+            FROM memory_embeddings e
+            JOIN memory_chunks c ON c.chunk_id = e.chunk_id
+            WHERE e.provider_key = ? AND e.dims = ?
+            {extra_where}
+            """,
+            params,
+        ).fetchall()
+        if not rows:
+            # Index may still be stale for the active provider — re-embed existing
+            # chunks under the active provider on the next sync pass. (Not when
+            # the live session was filtered out: on a fresh agent that leaves
+            # nothing, which is no sign of a stale index.)
+            if not exclude_session_reference:
+                self._reembed_checked = False
+                self.schedule_sync("vector_provider_mismatch")
+            return []
+        scored: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                embedding = json.loads(str(row[8]))
+            except Exception:
+                continue
+            if not isinstance(embedding, list):
+                continue
+            vector = [float(v) for v in embedding]
+            score = _cosine_similarity(query_vec, vector)
+            if not math.isfinite(score):
+                continue
+            scored.append(
+                {
+                    "chunk_id": str(row[0]),
+                    "source": str(row[1]),
+                    "reference": str(row[2]),
+                    "path": str(row[3]),
+                    "start_line": int(row[4]),
+                    "end_line": int(row[5]),
+                    "snippet": str(row[6]),
+                    "updated_at": str(row[7]),
+                    "vector_score": max(0.0, score),
+                    "text_l1": str(row[9]) if len(row) > 9 else "",
+                    "text_l2": str(row[10]) if len(row) > 10 else "",
+                }
+            )
+        scored.sort(key=lambda item: item["vector_score"], reverse=True)
+        return scored[:limit]
+
+    def _merge_hybrid(
+        self,
+        keyword_hits: list[dict[str, Any]],
+        vector_hits: list[dict[str, Any]],
+        *,
+        max_results: int,
+    ) -> list[SemanticMemoryResult]:
+        by_id: dict[str, dict[str, Any]] = {}
+        for item in keyword_hits:
+            by_id[item["chunk_id"]] = {
+                **item,
+                "text_score": float(item.get("text_score", 0.0)),
+                "vector_score": 0.0,
+            }
+        for item in vector_hits:
+            existing = by_id.get(item["chunk_id"])
+            if existing is None:
+                by_id[item["chunk_id"]] = {
+                    **item,
+                    "text_score": 0.0,
+                    "vector_score": float(item.get("vector_score", 0.0)),
+                }
+                continue
+            existing["vector_score"] = float(item.get("vector_score", 0.0))
+            snippet = str(item.get("snippet", "")).strip()
+            if snippet:
+                existing["snippet"] = snippet
+
+        now = time.time()
+        merged: list[SemanticMemoryResult] = []
+        for payload in by_id.values():
+            text_score = float(payload.get("text_score", 0.0))
+            vector_score = float(payload.get("vector_score", 0.0))
+            score = (self.vector_weight * vector_score) + (self.text_weight * text_score)
+            # The floor gates relevance; age only reorders what passed it, so
+            # an old but on-point chunk is not dropped for being old.
+            relevance = score
+            if relevance < self.min_score:
+                continue
+            if self.temporal_decay_enabled:
+                timestamp = _parse_iso_to_timestamp(str(payload.get("updated_at", "")))
+                if timestamp is not None:
+                    age_days = max(0.0, (now - timestamp) / 86400.0)
+                    score = retrieval.decayed(score, age_days, self.temporal_half_life_days)
+            merged.append(
+                SemanticMemoryResult(
+                    chunk_id=str(payload.get("chunk_id", "")),
+                    source=str(payload.get("source", "")),
+                    reference=str(payload.get("reference", "")),
+                    path=str(payload.get("path", "")),
+                    start_line=int(payload.get("start_line", 1)),
+                    end_line=int(payload.get("end_line", 1)),
+                    snippet=str(payload.get("snippet", "")),
+                    score=score,
+                    text_score=text_score,
+                    vector_score=vector_score,
+                    updated_at=str(payload.get("updated_at", "")),
+                    text_l1=str(payload.get("text_l1", "")),
+                    text_l2=str(payload.get("text_l2", "")),
+                    relevance=relevance,
+                )
+            )
+        merged.sort(key=lambda item: item.score, reverse=True)
+        return merged[:max_results]
+
+    def _clear_cache(self) -> None:
+        self._cache.clear()
+
+    def clear_all(self) -> int:
+        """Delete all documents, chunks, embeddings, FTS, sync state, and the
+        frozen history snapshots. Returns count of deleted docs.
+
+        ``memory_history`` MUST be cleared here too: it's the append-only source
+        that ``_collect_history_documents`` re-indexes from on every sync, so
+        leaving it behind would (a) survive a full wipe (/nuke) and (b) resurrect
+        the session_history docs/chunks/embeddings on the next sync.
+        """
+        conn = self._conn_or_raise()
+        with self._db_lock:
+            count = conn.execute("SELECT COUNT(*) FROM memory_documents").fetchone()[0]
+            conn.execute("DELETE FROM memory_embeddings")
+            conn.execute("DELETE FROM memory_chunks_fts")
+            conn.execute("DELETE FROM memory_chunks")
+            conn.execute("DELETE FROM memory_documents")
+            conn.execute("DELETE FROM memory_sync_state")
+            conn.execute("DELETE FROM memory_history")
+            conn.commit()
+            self._clear_cache()
+        return int(count)
+
+
+def _build_embedding_chain(memory_cfg: Any) -> _EmbeddingProviderChain:
+    providers: list[_EmbeddingProvider] = []
+    cfg = getattr(memory_cfg, "embeddings", None)
+    if cfg is None:
+        return _EmbeddingProviderChain([_LocalHashEmbeddingProvider()])
+
+    provider_mode = str(getattr(cfg, "provider", "auto")).strip().lower()
+    request_timeout_seconds = int(getattr(cfg, "request_timeout_seconds", 4))
+    litellm_model = str(getattr(cfg, "litellm_model", "text-embedding-3-small")).strip()
+    litellm_api_key = str(getattr(cfg, "litellm_api_key", "")).strip()
+    litellm_base_url = str(getattr(cfg, "litellm_base_url", "")).strip()
+    ollama_model = str(getattr(cfg, "ollama_model", "nomic-embed-text")).strip()
+    ollama_base_url = str(getattr(cfg, "ollama_base_url", "http://127.0.0.1:11434")).strip()
+    model2vec_model = str(getattr(cfg, "model2vec_model", "minishlab/potion-base-8M")).strip()
+    fallback_to_local_hash = bool(getattr(cfg, "fallback_to_local_hash", True))
+
+    def maybe_add_model2vec() -> None:
+        try:
+            providers.append(_Model2VecEmbeddingProvider(model=model2vec_model))
+        except Exception as exc:
+            log.debug("model2vec embedding provider unavailable", error=str(exc))
+
+    def maybe_add_litellm() -> None:
+        try:
+            providers.append(
+                _LiteLLMEmbeddingProvider(
+                    model=litellm_model,
+                    api_key=litellm_api_key,
+                    base_url=litellm_base_url,
+                )
+            )
+        except Exception as exc:
+            log.debug("LiteLLM embedding provider unavailable", error=str(exc))
+
+    def add_ollama() -> None:
+        providers.append(
+            _OllamaEmbeddingProvider(
+                model=ollama_model,
+                base_url=ollama_base_url,
+                timeout_seconds=request_timeout_seconds,
+            )
+        )
+
+    if provider_mode in ("model2vec", "local"):
+        maybe_add_model2vec()
+    elif provider_mode == "litellm":
+        maybe_add_litellm()
+    elif provider_mode == "ollama":
+        add_ollama()
+    elif provider_mode == "none":
+        providers = []
+    else:
+        # ``auto`` (default): fully local & semantic — no Ollama, no cloud API.
+        # model2vec runs in-process; local_hash is the last-resort fallback.
+        maybe_add_model2vec()
+
+    if fallback_to_local_hash or not providers:
+        providers.append(_LocalHashEmbeddingProvider())
+    return _EmbeddingProviderChain(providers)
+
+
+def create_semantic_memory_index(
+    *,
+    memory_cfg: Any,
+    session_db_path: Path,
+    workspace_path: Path,
+) -> SemanticMemoryIndex:
+    """Create semantic memory index from configuration."""
+    db_path = Path(str(getattr(memory_cfg, "path", "~/.captain-claw/memory.db"))).expanduser()
+    include_extensions = list(getattr(memory_cfg, "include_extensions", [])) or sorted(_DEFAULT_TEXT_EXTENSIONS)
+    exclude_dirs = list(getattr(memory_cfg, "exclude_dirs", []))
+    search_cfg = getattr(memory_cfg, "search", None)
+    return SemanticMemoryIndex(
+        db_path=db_path,
+        session_db_path=session_db_path,
+        workspace_path=workspace_path,
+        index_workspace=bool(getattr(memory_cfg, "index_workspace", True)),
+        index_sessions=bool(getattr(memory_cfg, "index_sessions", True)),
+        cross_session_retrieval=bool(getattr(memory_cfg, "cross_session_retrieval", False)),
+        max_workspace_files=int(getattr(memory_cfg, "max_workspace_files", 400)),
+        max_file_bytes=int(getattr(memory_cfg, "max_file_bytes", 262_144)),
+        include_extensions=include_extensions,
+        exclude_dirs=exclude_dirs,
+        chunk_chars=int(getattr(memory_cfg, "chunk_chars", 1_400)),
+        chunk_overlap_chars=int(getattr(memory_cfg, "chunk_overlap_chars", 200)),
+        cache_ttl_seconds=int(getattr(memory_cfg, "cache_ttl_seconds", 45)),
+        stale_after_seconds=int(getattr(memory_cfg, "stale_after_seconds", 120)),
+        auto_sync_on_search=bool(getattr(memory_cfg, "auto_sync_on_search", True)),
+        max_results=int(getattr(search_cfg, "max_results", 6)) if search_cfg else 6,
+        candidate_limit=int(getattr(search_cfg, "candidate_limit", 80)) if search_cfg else 80,
+        min_score=float(getattr(search_cfg, "min_score", 0.1)) if search_cfg else 0.1,
+        history_min_score=float(getattr(search_cfg, "history_min_score", 0.35)) if search_cfg else 0.35,
+        vector_weight=float(getattr(search_cfg, "vector_weight", 0.65)) if search_cfg else 0.65,
+        text_weight=float(getattr(search_cfg, "text_weight", 0.35)) if search_cfg else 0.35,
+        temporal_decay_enabled=bool(getattr(search_cfg, "temporal_decay_enabled", True)) if search_cfg else True,
+        temporal_half_life_days=float(getattr(search_cfg, "temporal_half_life_days", 21.0)) if search_cfg else 21.0,
+        embedding_chain=_build_embedding_chain(memory_cfg),
+        layered_summaries=bool(getattr(memory_cfg, "layered_summaries", True)),
+    )

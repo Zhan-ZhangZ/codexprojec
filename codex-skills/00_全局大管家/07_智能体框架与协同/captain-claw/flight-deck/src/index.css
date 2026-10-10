@@ -1,0 +1,211 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+/* Use class-based dark mode so `dark:` variants work with our
+   manual html.light / html.dark switching (see themeStore.ts). */
+@custom-variant dark (&:where(html.dark, html.dark *));
+
+:root {
+  --fd-sidebar: 260px;
+  --fd-panel: 380px;
+}
+
+/* Safe area for notched devices */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  :root {
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+/* React Flow overrides for dark theme */
+.react-flow__background { background: #09090b !important; }
+.react-flow__minimap { background: #18181b !important; border: 1px solid #27272a !important; border-radius: 8px; }
+.react-flow__controls { background: #18181b !important; border: 1px solid #27272a !important; border-radius: 8px; }
+.react-flow__controls button { background: #18181b !important; color: #a1a1aa !important; border-bottom-color: #27272a !important; }
+.react-flow__controls button:hover { background: #27272a !important; }
+
+/* Chat markdown */
+.fd-markdown p { margin-bottom: 0.5em; }
+.fd-markdown p:last-child { margin-bottom: 0; }
+.fd-markdown strong { color: #e4e4e7; font-weight: 600; }
+.fd-markdown em { color: #a1a1aa; }
+.fd-markdown ul, .fd-markdown ol { margin: 0.4em 0; padding-left: 1.4em; }
+.fd-markdown li { margin-bottom: 0.2em; }
+.fd-markdown code { background: rgba(63,63,70,0.5); padding: 0.15em 0.35em; border-radius: 4px; font-size: 0.9em; }
+.fd-markdown pre { background: rgba(9,9,11,0.6); border: 1px solid #27272a; border-radius: 6px; padding: 0.6em 0.8em; margin: 0.5em 0; overflow-x: auto; }
+.fd-markdown pre code { background: none; padding: 0; }
+.fd-markdown h1, .fd-markdown h2, .fd-markdown h3 { font-weight: 600; color: #e4e4e7; margin: 0.6em 0 0.3em; }
+.fd-markdown h1 { font-size: 1.1em; }
+.fd-markdown h2 { font-size: 1.05em; }
+.fd-markdown h3 { font-size: 1em; }
+.fd-markdown a { color: #a78bfa; text-decoration: underline; }
+.fd-markdown blockquote { border-left: 2px solid #3f3f46; padding-left: 0.8em; color: #a1a1aa; margin: 0.4em 0; }
+.fd-markdown hr { border: none; border-top: 1px solid #27272a; margin: 0.6em 0; }
+.fd-markdown table { width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
+.fd-markdown th { text-align: left; font-weight: 600; color: #e4e4e7; padding: 0.4em 0.6em; border-bottom: 2px solid #3f3f46; }
+.fd-markdown td { padding: 0.35em 0.6em; border-bottom: 1px solid #27272a; }
+.fd-markdown tr:last-child td { border-bottom: none; }
+.fd-markdown tbody tr:hover { background: rgba(63,63,70,0.2); }
+
+/* ── File viewer markdown ── */
+.fd-file-markdown { color: #d4d4d8; line-height: 1.75; font-size: 0.9rem; }
+.fd-file-markdown h1 { font-size: 1.75em; font-weight: 700; color: #f4f4f5; margin: 1.5em 0 0.6em; padding-bottom: 0.3em; border-bottom: 2px solid #3f3f46; }
+.fd-file-markdown h2 { font-size: 1.4em; font-weight: 700; color: #f4f4f5; margin: 1.4em 0 0.5em; padding-bottom: 0.25em; border-bottom: 1px solid #27272a; }
+.fd-file-markdown h3 { font-size: 1.15em; font-weight: 600; color: #e4e4e7; margin: 1.2em 0 0.4em; }
+.fd-file-markdown h4 { font-size: 1.05em; font-weight: 600; color: #e4e4e7; margin: 1em 0 0.3em; }
+.fd-file-markdown h5, .fd-file-markdown h6 { font-size: 1em; font-weight: 600; color: #a1a1aa; margin: 0.8em 0 0.3em; text-transform: uppercase; letter-spacing: 0.03em; }
+.fd-file-markdown p { margin: 0.6em 0; }
+.fd-file-markdown strong { color: #f4f4f5; font-weight: 600; }
+.fd-file-markdown em { color: #a1a1aa; }
+.fd-file-markdown a { color: #a78bfa; text-decoration: underline; text-underline-offset: 2px; }
+.fd-file-markdown a:hover { color: #c4b5fd; }
+.fd-file-markdown ul, .fd-file-markdown ol { margin: 0.5em 0; padding-left: 1.5em; }
+.fd-file-markdown li { margin-bottom: 0.3em; }
+.fd-file-markdown li > ul, .fd-file-markdown li > ol { margin: 0.2em 0; }
+.fd-file-markdown code { background: rgba(63,63,70,0.5); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; color: #a7f3d0; }
+.fd-file-markdown pre { background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 1em 1.2em; margin: 0.8em 0; overflow-x: auto; }
+.fd-file-markdown pre code { background: none; padding: 0; color: #d4d4d8; font-size: 0.85em; }
+.fd-file-markdown blockquote { border-left: 3px solid #7c3aed; padding: 0.5em 1em; margin: 0.8em 0; background: rgba(124,58,237,0.05); color: #a1a1aa; border-radius: 0 6px 6px 0; }
+.fd-file-markdown hr { border: none; border-top: 1px solid #3f3f46; margin: 1.5em 0; }
+.fd-file-markdown table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.88em; border: 1px solid #3f3f46; border-radius: 8px; overflow: hidden; }
+.fd-file-markdown thead { background: #27272a; }
+.fd-file-markdown th { text-align: left; font-weight: 700; color: #f4f4f5; padding: 0.6em 0.8em; border-bottom: 2px solid #52525b; }
+.fd-file-markdown td { padding: 0.5em 0.8em; border-bottom: 1px solid #27272a; }
+.fd-file-markdown tr:last-child td { border-bottom: none; }
+.fd-file-markdown tbody tr:nth-child(even) { background: rgba(39,39,42,0.3); }
+.fd-file-markdown tbody tr:hover { background: rgba(63,63,70,0.3); }
+.fd-file-markdown img { max-width: 100%; border-radius: 8px; margin: 0.8em 0; }
+
+/* Light mode overrides for file viewer markdown */
+html.light .fd-file-markdown { color: #3f3f46; }
+html.light .fd-file-markdown h1 { color: #18181b; border-bottom-color: #d4d4d8; }
+html.light .fd-file-markdown h2 { color: #18181b; border-bottom-color: #e4e4e7; }
+html.light .fd-file-markdown h3, html.light .fd-file-markdown h4 { color: #27272a; }
+html.light .fd-file-markdown h5, html.light .fd-file-markdown h6 { color: #71717a; }
+html.light .fd-file-markdown strong { color: #18181b; }
+html.light .fd-file-markdown em { color: #52525b; }
+html.light .fd-file-markdown a { color: #7c3aed; }
+html.light .fd-file-markdown a:hover { color: #6d28d9; }
+html.light .fd-file-markdown code { background: rgba(228,228,231,0.5); color: #059669; }
+html.light .fd-file-markdown pre { background: #f4f4f5; border-color: #d4d4d8; }
+html.light .fd-file-markdown pre code { color: #3f3f46; }
+html.light .fd-file-markdown blockquote { border-left-color: #7c3aed; background: rgba(124,58,237,0.04); color: #52525b; }
+html.light .fd-file-markdown hr { border-top-color: #e4e4e7; }
+html.light .fd-file-markdown table { border-color: #d4d4d8; }
+html.light .fd-file-markdown thead { background: #f4f4f5; }
+html.light .fd-file-markdown th { color: #18181b; border-bottom-color: #a1a1aa; }
+html.light .fd-file-markdown td { border-bottom-color: #e4e4e7; }
+html.light .fd-file-markdown tbody tr:nth-child(even) { background: rgba(244,244,245,0.5); }
+html.light .fd-file-markdown tbody tr:hover { background: rgba(228,228,231,0.4); }
+
+/* ── FPV reading room markdown: always the game's warm night ──
+   The first-person reader panel is dark whatever the app theme is, so it
+   gets its own palette (cream on warm dark) with NO html.light override —
+   otherwise light theme paints near-black text onto a near-black panel. */
+.fd-fpv-markdown { color: #cfc7b0; line-height: 1.7; font-size: 0.9rem; }
+.fd-fpv-markdown > :first-child { margin-top: 0; }
+.fd-fpv-markdown h1 { font-size: 1.55em; font-weight: 700; color: #f4ecd6; margin: 1.2em 0 0.5em; padding-bottom: 0.3em; border-bottom: 2px solid #4a4436; }
+.fd-fpv-markdown h2 { font-size: 1.28em; font-weight: 700; color: #f4ecd6; margin: 1.3em 0 0.45em; padding-bottom: 0.25em; border-bottom: 1px solid #3a352a; }
+.fd-fpv-markdown h3 { font-size: 1.12em; font-weight: 600; color: #e8e2cf; margin: 1.1em 0 0.35em; }
+.fd-fpv-markdown h4 { font-size: 1.04em; font-weight: 600; color: #e8e2cf; margin: 0.9em 0 0.3em; }
+.fd-fpv-markdown h5, .fd-fpv-markdown h6 { font-size: 0.95em; font-weight: 600; color: #a89f88; margin: 0.8em 0 0.3em; text-transform: uppercase; letter-spacing: 0.03em; }
+.fd-fpv-markdown p { margin: 0.55em 0; }
+.fd-fpv-markdown strong { color: #f4ecd6; font-weight: 600; }
+.fd-fpv-markdown em { color: #c9c0a8; }
+.fd-fpv-markdown a { color: #c4b5fd; text-decoration: underline; text-underline-offset: 2px; }
+.fd-fpv-markdown a:hover { color: #ddd0ff; }
+.fd-fpv-markdown ul, .fd-fpv-markdown ol { margin: 0.5em 0; padding-left: 1.4em; }
+.fd-fpv-markdown li { margin-bottom: 0.28em; }
+.fd-fpv-markdown li > ul, .fd-fpv-markdown li > ol { margin: 0.2em 0; }
+.fd-fpv-markdown code { background: rgba(74,68,54,0.55); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; color: #f0c98a; }
+.fd-fpv-markdown pre { background: #12100b; border: 1px solid #3a352a; border-radius: 8px; padding: 0.9em 1.1em; margin: 0.7em 0; overflow-x: auto; }
+.fd-fpv-markdown pre code { background: none; padding: 0; color: #cfc7b0; font-size: 0.85em; }
+.fd-fpv-markdown blockquote { border-left: 3px solid #8b7bc4; padding: 0.4em 1em; margin: 0.7em 0; background: rgba(139,123,196,0.08); color: #c9c0a8; border-radius: 0 6px 6px 0; }
+.fd-fpv-markdown hr { border: none; border-top: 1px solid #4a4436; margin: 1.3em 0; }
+.fd-fpv-markdown table { width: 100%; border-collapse: collapse; margin: 0.9em 0; font-size: 0.88em; border: 1px solid #4a4436; border-radius: 8px; overflow: hidden; }
+.fd-fpv-markdown thead { background: #241f16; }
+.fd-fpv-markdown th { text-align: left; font-weight: 700; color: #f4ecd6; padding: 0.55em 0.8em; border-bottom: 2px solid #5a5240; }
+.fd-fpv-markdown td { padding: 0.5em 0.8em; border-bottom: 1px solid #3a352a; }
+.fd-fpv-markdown tr:last-child td { border-bottom: none; }
+.fd-fpv-markdown tbody tr:nth-child(even) { background: rgba(74,68,54,0.22); }
+.fd-fpv-markdown img { max-width: 100%; border-radius: 8px; margin: 0.7em 0; }
+
+/* ── Light theme overrides ── */
+html.light {
+  color-scheme: light;
+  /* Override Tailwind v4 CSS variables for zinc palette in light mode */
+  --color-zinc-950: #ffffff;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-500: #71717a;
+  --color-zinc-400: #52525b;
+  --color-zinc-300: #1a1a1e;
+  --color-zinc-200: #27272a;
+  --color-zinc-100: #18181b;
+}
+html.light body {
+  background: #fafafa;
+  color: #18181b;
+}
+/* Scrollbar in light mode */
+html.light ::-webkit-scrollbar-thumb { background: #d4d4d8; }
+html.light ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+/* Markdown in light mode */
+html.light .fd-markdown { color: #1a1a1e !important; }
+html.light .fd-markdown strong { color: #111113; }
+html.light .fd-markdown em { color: #52525b; }
+html.light .fd-markdown code { background: rgba(228,228,231,0.5); }
+html.light .fd-markdown pre { background: rgba(244,244,245,0.8); border-color: #d4d4d8; }
+html.light .fd-markdown h1, html.light .fd-markdown h2, html.light .fd-markdown h3 { color: #18181b; }
+html.light .fd-markdown th { color: #18181b; border-bottom-color: #d4d4d8; }
+html.light .fd-markdown td { border-bottom-color: #e4e4e7; }
+html.light .fd-markdown blockquote { border-left-color: #d4d4d8; color: #52525b; }
+html.light .fd-markdown hr { border-top-color: #e4e4e7; }
+html.light .fd-markdown a { color: #7c3aed; }
+/* Chat panel top bar in light mode */
+html.light .bg-zinc-900\/60 { background-color: rgba(244,244,245,0.85) !important; }
+html.light .bg-zinc-900\/80 { background-color: rgba(244,244,245,0.9) !important; }
+/* Border opacity variants */
+html.light .border-zinc-800\/20 { border-color: rgba(212,212,216,0.25) !important; }
+html.light .border-zinc-800\/50 { border-color: rgba(212,212,216,0.5) !important; }
+html.light .border-zinc-700\/50 { border-color: rgba(212,212,216,0.5) !important; }
+/* Hover states */
+html.light .hover\:bg-zinc-900:hover { background-color: #f4f4f5 !important; }
+html.light .hover\:bg-zinc-900\/50:hover { background-color: rgba(244,244,245,0.7) !important; }
+html.light .hover\:bg-zinc-900\/20:hover { background-color: rgba(244,244,245,0.3) !important; }
+html.light .hover\:bg-zinc-800:hover { background-color: #e4e4e7 !important; }
+/* Modal backdrop — lighter in light mode */
+html.light .bg-black\/60 { background-color: rgba(0,0,0,0.3) !important; }
+/* Checkbox borders */
+html.light .border-zinc-600 { border-color: #a1a1aa !important; }
+/* Focus borders */
+html.light .focus\:border-violet-500\/50:focus { border-color: rgba(139,92,246,0.5) !important; }
+/* Dividers */
+html.light .divide-zinc-800\/60 > * + * { border-color: rgba(212,212,216,0.6) !important; }
+html.light .divide-zinc-800 > * + * { border-color: #d4d4d8 !important; }
+/* Active button backgrounds */
+html.light .bg-zinc-700 { background-color: #d4d4d8 !important; }
+html.light .bg-zinc-700\/30 { background-color: rgba(212,212,216,0.4) !important; }
+/* Help hint banners & chips */
+html.light .fd-help-banner { border-color: rgba(139,92,246,0.35) !important; background: rgba(139,92,246,0.08) !important; }
+html.light .fd-help-banner .text-zinc-300 { color: #3f3f46 !important; }
+html.light .fd-help-banner .text-zinc-200 { color: #18181b !important; }
+html.light .fd-help-banner .text-violet-400 { color: #7c3aed !important; }
+html.light .fd-help-chip { border-color: rgba(139,92,246,0.4) !important; background: rgba(139,92,246,0.12) !important; color: #6d28d9 !important; }
+html.light .fd-help-chip:hover { background: rgba(139,92,246,0.2) !important; }
+/* Violet accent text in light mode */
+html.light .text-violet-300 { color: #6d28d9 !important; }
+html.light .text-violet-400 { color: #7c3aed !important; }
+html.light .text-amber-400 { color: #d97706 !important; }
+/* Violet selected cards/buttons */
+html.light .border-violet-500\/50 { border-color: rgba(139,92,246,0.45) !important; }
+html.light .bg-violet-500\/10 { background-color: rgba(139,92,246,0.1) !important; }
+html.light .bg-violet-500\/5 { background-color: rgba(139,92,246,0.06) !important; }

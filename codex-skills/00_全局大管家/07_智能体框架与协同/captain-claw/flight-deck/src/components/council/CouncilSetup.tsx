@@ -1,0 +1,405 @@
+import { useState, useRef } from 'react'
+import { Swords, Lightbulb, ClipboardCheck, Map, Play, Paperclip, X, MessageCircleQuestion, Bug, ShieldAlert, MessagesSquare, Sparkles, MousePointerClick, Loader2, Check } from 'lucide-react'
+import { AgentPicker, isOldManName } from './AgentPicker'
+import { formatSize } from '../../services/fileTransfer'
+import { useTierConfig } from '../../services/tierConfig'
+import type {
+  CouncilAgentDef, CreateSessionConfig, SessionType, Verbosity,
+} from '../../stores/councilStore'
+
+const SESSION_TYPES: { id: SessionType; label: string; icon: typeof Swords; desc: string }[] = [
+  { id: 'debate', label: 'Debate', icon: Swords, desc: 'Structured argumentation' },
+  { id: 'brainstorm', label: 'Brainstorm', icon: Lightbulb, desc: 'Creative ideation' },
+  { id: 'review', label: 'Review', icon: ClipboardCheck, desc: 'Critical analysis' },
+  { id: 'planning', label: 'Planning', icon: Map, desc: 'Task decomposition' },
+  { id: 'interview', label: 'Interview', icon: MessageCircleQuestion, desc: 'Knowledge extraction' },
+  { id: 'troubleshoot', label: 'Troubleshoot', icon: Bug, desc: 'Problem diagnosis' },
+  { id: 'critique', label: 'Critique', icon: ShieldAlert, desc: 'Adversarial stress-test' },
+  { id: 'freeform', label: 'Freeform', icon: MessagesSquare, desc: 'Open conversation' },
+]
+
+const VERBOSITY_OPTIONS: { id: Verbosity; label: string; desc: string }[] = [
+  { id: 'thought', label: 'Thought', desc: '1-2 sentences' },
+  { id: 'message', label: 'Message', desc: 'Up to 5 sentences' },
+  { id: 'short', label: 'Short', desc: 'Up to 3 paragraphs' },
+  { id: 'medium', label: 'Medium', desc: 'Up to 5 paragraphs' },
+  { id: 'long', label: 'Long', desc: 'Up to 10 paragraphs' },
+]
+
+interface CouncilSetupProps {
+  onStart: (cfg: CreateSessionConfig) => void | Promise<void>
+  onCancel: () => void
+}
+
+export function CouncilSetup({ onStart, onCancel }: CouncilSetupProps) {
+  const [title, setTitle] = useState('')
+  const [topic, setTopic] = useState('')
+  const [sessionType, setSessionType] = useState<SessionType>('brainstorm')
+  const [verbosity, setVerbosity] = useState<Verbosity>('message')
+  const [maxRounds, setMaxRounds] = useState(5)
+  const [agents, setAgents] = useState<CouncilAgentDef[]>([])
+  const [firstSpeaker, setFirstSpeaker] = useState('random')
+  const [files, setFiles] = useState<File[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  // Auto-assemble: spawn a task-modeled archetype panel instead of picking
+  // already-running agents.
+  const [autoAssemble, setAutoAssemble] = useState(true)
+  const [maxAgents, setMaxAgents] = useState(4)
+  // Optional hand-picked panel. Empty => the router auto-picks the specialists.
+  const [selectedArchetypes, setSelectedArchetypes] = useState<string[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const { tiers, envVars, registry } = useTierConfig()
+  const archetypes = registry?.archetypes || []
+  const toggleArchetype = (id: string) =>
+    setSelectedArchetypes(prev => prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id])
+
+  const oldMan = agents.find(a => isOldManName(a.name))
+  const moderatorMode = oldMan ? 'moderator' : 'round-robin'
+  const canStart = !!topic.trim() && (autoAssemble || agents.length >= 2)
+
+  const addFiles = (newFiles: FileList | File[]) => {
+    const arr = Array.from(newFiles)
+    setFiles(prev => {
+      const names = new Set(prev.map(f => f.name))
+      return [...prev, ...arr.filter(f => !names.has(f.name))]
+    })
+  }
+
+  const removeFile = (name: string) => setFiles(prev => prev.filter(f => f.name !== name))
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
+  }
+
+  const handleStart = async () => {
+    if (!canStart || submitting) return
+    setSubmitting(true)
+    try {
+      await onStart({
+        title: title.trim() || topic.slice(0, 60),
+        topic: topic.trim(),
+        sessionType,
+        verbosity,
+        maxRounds,
+        moderatorMode: autoAssemble ? 'round-robin' : moderatorMode,
+        moderatorAgentId: autoAssemble ? '' : (oldMan?.id || ''),
+        agents: autoAssemble ? [] : agents,
+        firstSpeaker: autoAssemble ? 'random' : firstSpeaker,
+        files,
+        autoAssemble,
+        maxAgents,
+        tiers: autoAssemble ? tiers : undefined,
+        envVars: autoAssemble ? envVars : undefined,
+        archetypeIds: autoAssemble && selectedArchetypes.length ? selectedArchetypes : undefined,
+      })
+    } catch (e) {
+      setSubmitting(false)
+      // Surface the failure inline rather than silently swallowing it.
+      alert(e instanceof Error ? e.message : 'Failed to start council')
+    }
+    // On success the page navigates away; no need to clear submitting.
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      {/* Title */}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-zinc-400">Title (optional)</label>
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Council session title..."
+          className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-violet-500/50 focus:outline-none"
+        />
+      </div>
+
+      {/* Topic */}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-zinc-400">Topic / Task *</label>
+        <textarea
+          value={topic}
+          onChange={e => setTopic(e.target.value)}
+          placeholder="What should the council discuss or work on?"
+          rows={3}
+          className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-violet-500/50 focus:outline-none resize-none"
+        />
+      </div>
+
+      {/* Session Type */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-zinc-400">Session Type</label>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {SESSION_TYPES.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setSessionType(t.id)}
+              className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-center transition-colors ${
+                sessionType === t.id
+                  ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                  : 'border-zinc-700/50 bg-zinc-800/30 text-zinc-400 hover:bg-zinc-700/30'
+              }`}
+            >
+              <t.icon className="h-5 w-5" />
+              <span className="text-xs font-medium">{t.label}</span>
+              <span className="text-[10px] opacity-60">{t.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Verbosity */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-zinc-400">Response Verbosity</label>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {VERBOSITY_OPTIONS.map(v => (
+            <button
+              key={v.id}
+              onClick={() => setVerbosity(v.id)}
+              className={`rounded-lg border px-3 py-2 text-center transition-colors ${
+                verbosity === v.id
+                  ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+                  : 'border-zinc-700/50 bg-zinc-800/30 text-zinc-400 hover:bg-zinc-700/30'
+              }`}
+            >
+              <div className="text-xs font-medium">{v.label}</div>
+              <div className="text-[10px] opacity-60">{v.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Max Rounds */}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-zinc-400">
+          Max Rounds: <span className="text-violet-400">{maxRounds}</span>
+        </label>
+        <input
+          type="range"
+          min={1}
+          max={20}
+          value={maxRounds}
+          onChange={e => setMaxRounds(parseInt(e.target.value))}
+          className="w-full accent-violet-500"
+        />
+        <div className="flex justify-between text-[10px] text-zinc-500">
+          <span>1</span><span>10</span><span>20</span>
+        </div>
+      </div>
+
+      {/* Panel composition: auto-assemble vs. pick running agents */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-zinc-400">Panel</label>
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setAutoAssemble(true)}
+            className={`flex items-start gap-2 rounded-lg border p-3 text-left transition-colors ${
+              autoAssemble
+                ? 'border-violet-500/50 bg-violet-500/10 text-violet-200'
+                : 'border-zinc-700/50 bg-zinc-800/30 text-zinc-400 hover:bg-zinc-700/30'
+            }`}
+          >
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <span className="block text-xs font-medium">Auto-assemble</span>
+              <span className="block text-[10px] opacity-70">Spawn a panel of specialists modeled to the topic</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAutoAssemble(false)}
+            className={`flex items-start gap-2 rounded-lg border p-3 text-left transition-colors ${
+              !autoAssemble
+                ? 'border-violet-500/50 bg-violet-500/10 text-violet-200'
+                : 'border-zinc-700/50 bg-zinc-800/30 text-zinc-400 hover:bg-zinc-700/30'
+            }`}
+          >
+            <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <span className="block text-xs font-medium">Pick agents</span>
+              <span className="block text-[10px] opacity-70">Choose from your already-running agents</span>
+            </span>
+          </button>
+        </div>
+
+        {autoAssemble ? (
+          <div className="space-y-3 rounded-lg border border-zinc-700/30 bg-zinc-800/30 p-3">
+            {selectedArchetypes.length === 0 ? (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-400">
+                  Panel size: <span className="text-violet-400">{maxAgents}</span> specialists
+                </label>
+                <input
+                  type="range"
+                  min={2}
+                  max={6}
+                  value={maxAgents}
+                  onChange={e => setMaxAgents(parseInt(e.target.value))}
+                  className="w-full accent-violet-500"
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500">
+                  <span>2</span><span>4</span><span>6</span>
+                </div>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  A router picks complementary archetypes for this topic and spawns each as a
+                  fresh agent. They're torn down when you delete the session.
+                </p>
+              </div>
+            ) : (
+              <p className="text-[11px] text-zinc-500">
+                Using <span className="text-violet-400">{selectedArchetypes.length}</span> hand-picked
+                specialist{selectedArchetypes.length !== 1 ? 's' : ''}. Each is spawned fresh and
+                briefed for this topic; torn down when you delete the session.
+              </p>
+            )}
+
+            {/* Optional: hand-pick the specialists instead of auto-routing. */}
+            {archetypes.length > 0 && (
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="text-xs font-medium text-zinc-400">
+                    Specialists {selectedArchetypes.length > 0
+                      ? <span className="text-zinc-500">({selectedArchetypes.length} selected)</span>
+                      : <span className="text-zinc-500">(optional — leave empty to auto-pick)</span>}
+                  </label>
+                  {selectedArchetypes.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedArchetypes([])}
+                      className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-48 space-y-1 overflow-auto pr-1">
+                  {archetypes.map(a => {
+                    const on = selectedArchetypes.includes(a.id)
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => toggleArchetype(a.id)}
+                        className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                          on
+                            ? 'border border-violet-500/40 bg-violet-500/15'
+                            : 'border border-zinc-700/30 bg-zinc-800/40 hover:bg-zinc-700/40'
+                        }`}
+                      >
+                        <div className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+                          on ? 'bg-violet-500 text-white' : 'border border-zinc-600'
+                        }`}>
+                          {on && <Check className="h-3 w-3" />}
+                        </div>
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-medium text-zinc-200">{a.role}</span>
+                          <span className="block truncate text-[10px] text-zinc-500">{a.family}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <label className="mb-2 block text-xs font-medium text-zinc-400">
+              Select Agents ({agents.length} selected)
+              {oldMan && <span className="ml-2 text-amber-400">Moderator mode (Old Man detected)</span>}
+              {!oldMan && agents.length >= 2 && <span className="ml-2 text-zinc-500">Round-robin mode</span>}
+            </label>
+            <AgentPicker selected={agents} onChange={setAgents} />
+          </>
+        )}
+      </div>
+
+      {/* File Attachments */}
+      <div>
+        <label className="mb-2 block text-xs font-medium text-zinc-400">
+          Attachments {files.length > 0 && <span className="text-zinc-500">({files.length} file{files.length !== 1 ? 's' : ''})</span>}
+        </label>
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-dashed p-4 text-center transition-colors ${
+            dragOver
+              ? 'border-violet-500 bg-violet-500/10'
+              : 'border-zinc-700/50 bg-zinc-800/30 hover:border-zinc-600 hover:bg-zinc-700/20'
+          }`}
+        >
+          <Paperclip className="h-5 w-5 text-zinc-500" />
+          <span className="text-xs text-zinc-400">Drop files here or click to browse</span>
+          <span className="text-[10px] text-zinc-500">Files will be uploaded to all agents at council start</span>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={e => { if (e.target.files?.length) { addFiles(e.target.files); e.target.value = '' } }}
+        />
+        {files.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {files.map(f => (
+              <div key={f.name} className="flex items-center gap-2 rounded-md bg-zinc-800/50 px-2 py-1.5 text-xs">
+                <Paperclip className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500" />
+                <span className="min-w-0 flex-1 truncate text-zinc-300">{f.name}</span>
+                <span className="flex-shrink-0 text-zinc-500">{formatSize(f.size)}</span>
+                <button
+                  onClick={e => { e.stopPropagation(); removeFile(f.name) }}
+                  className="flex-shrink-0 rounded p-0.5 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* First Speaker */}
+      {agents.length >= 2 && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-400">First Speaker</label>
+          <select
+            value={firstSpeaker}
+            onChange={e => setFirstSpeaker(e.target.value)}
+            className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-200 focus:border-violet-500/50 focus:outline-none"
+          >
+            <option value="random">Random</option>
+            {agents.filter(a => a.id !== oldMan?.id).map(a => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 pt-2">
+        <button
+          onClick={handleStart}
+          disabled={!canStart || submitting}
+          className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {submitting
+            ? <><Loader2 className="h-4 w-4 animate-spin" /> {autoAssemble ? 'Assembling panel…' : 'Starting…'}</>
+            : <><Play className="h-4 w-4" /> Start Council</>}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={submitting}
+          className="rounded-lg border border-zinc-700/50 px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-700/30 disabled:opacity-40"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}

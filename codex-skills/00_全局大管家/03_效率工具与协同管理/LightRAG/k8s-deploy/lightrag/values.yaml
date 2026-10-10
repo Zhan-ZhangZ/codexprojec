@@ -1,0 +1,121 @@
+# A workspace supports exactly ONE ingesting LightRAG instance, and instances
+# must never initialize concurrently. Storage initialization/migration and the
+# document pipeline are coordinated through per-host shared memory
+# (lightrag/kg/shared_storage.py), which does not span pods, so a second
+# replica started at the same time can race on first-boot storage creation,
+# run a schema migration concurrently with another instance, and process the
+# same documents twice. Keep this at 1 and scale vertically (resources /
+# WORKERS). Extra query-only instances are possible, but only with external
+# database backends, ordered startup (StatefulSet + OrderedReady, gated on
+# /health) and ingestion routed to a single instance -- see K8S-README.md
+# "Replica Count".
+replicaCount: 1
+
+image:
+  repository: ghcr.io/hkuds/lightrag
+  tag: latest
+  # Optionally specify imagePullSecrets if your image is in a private registry
+  # example:
+  # imagePullSecrets:
+  #   - name: my-registry-secret
+  imagePullSecrets: []
+
+# Workload kind: Deployment (default) or StatefulSet.
+# Use StatefulSet only when you need ordered startup for extra query-only
+# instances: podManagementPolicy OrderedReady creates one pod at a time and
+# waits for each to be Ready -- and LightRAG is Ready only once
+# initialize_storages() and check_and_migrate_data() have finished -- so no two
+# instances initialize or migrate storage concurrently. It does NOT stop the
+# pods already serving: ingestion must be quiesced until every pod is Ready,
+# including during upgrades, or a starting pod's migration can overwrite what
+# a serving pod just wrote. That and the other conditions (external database
+# backends, ingestion routed to a single pod) are NOT enforced by the chart;
+# read K8S-README.md "Replica Count" first.
+# Storage differs by kind: a Deployment mounts the shared PVCs below, while a
+# StatefulSet gives every pod its own claim through volumeClaimTemplates, so
+# switching kind on an existing release does not carry the old volume's data
+# over. volumeClaimTemplates is also immutable once the StatefulSet exists:
+# under kind StatefulSet the persistence settings below are fixed at creation,
+# and an upgrade that changes a size or turns persistence on is rejected, not
+# applied. See K8S-README.md for the per-PVC expansion procedure.
+workload:
+  kind: Deployment
+  # The two settings below apply to StatefulSet only.
+  # podManagementPolicy is immutable: changing it requires recreating the
+  # StatefulSet. Parallel gives up the ordering guarantee above.
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+
+# Deployment update strategy (ignored when workload.kind is StatefulSet -- set
+# workload.updateStrategy instead).
+# example:
+# updateStrategy:
+#   type: RollingUpdate
+#   rollingUpdate:
+#     maxUnavailable: 25%
+#     maxSurge: 25%
+# Default for now should be Recreate as any RollingUpdate will cause issues with
+# multiple instances trying to access the same persistent storage if not using RWX volumes.
+updateStrategy:
+  type: Recreate
+
+service:
+  type: ClusterIP
+  port: 9621
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+persistence:
+  enabled: true
+  ragStorage:
+    size: 10Gi
+  inputs:
+    size: 5Gi
+
+# Allow specifying additional environment variables from ConfigMaps or Secrets created outside of this chart
+envFrom:
+  configmaps: []
+    # - name: my-shiny-configmap-1
+  secrets: []
+    # - name: my-shiny-secret-1
+
+env:
+  HOST: 0.0.0.0
+  PORT: 9621
+  WEBUI_TITLE: Graph RAG Engine
+  WEBUI_DESCRIPTION: Simple and Fast Graph Based RAG System
+  LLM_BINDING: openai
+  LLM_MODEL: gpt-4o-mini
+  LLM_BINDING_HOST:
+  LLM_BINDING_API_KEY:
+  EMBEDDING_BINDING: openai
+  EMBEDDING_MODEL: text-embedding-ada-002
+  EMBEDDING_DIM: 1536
+  EMBEDDING_BINDING_API_KEY:
+  LIGHTRAG_KV_STORAGE: PGKVStorage
+  LIGHTRAG_VECTOR_STORAGE: PGVectorStorage
+  #  LIGHTRAG_KV_STORAGE: RedisKVStorage
+  #  LIGHTRAG_VECTOR_STORAGE: QdrantVectorDBStorage
+  LIGHTRAG_GRAPH_STORAGE: Neo4JStorage
+  LIGHTRAG_DOC_STATUS_STORAGE: PGDocStatusStorage
+  # Replace with your POSTGRES credentials
+  POSTGRES_HOST: pg-cluster-postgresql-postgresql
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD:
+  POSTGRES_DATABASE: postgres
+  POSTGRES_WORKSPACE: default
+  # Replace with your NEO4J credentials
+  NEO4J_URI: neo4j://neo4j-cluster-neo4j:7687
+  NEO4J_USERNAME: neo4j
+  NEO4J_PASSWORD:
+  # Replace with your Qdrant credentials
+  QDRANT_URL: http://qdrant-cluster-qdrant-qdrant:6333
+  # REDIS_URI: redis://default:${REDIS_PASSWORD}@redis-cluster-redis-redis:6379

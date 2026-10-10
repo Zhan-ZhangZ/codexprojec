@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Keesan12/martin-loop",
+  "title": "Martin Loop",
+  "description": "One system around coding agents to run, verify, recover, and hand off software work.",
+  "repository": {
+    "url": "https://github.com/Keesan12/martin-loop",
+    "source": "github"
+  },
+  "version": "0.8.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@martinloop/mcp",
+      "version": "0.8.2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

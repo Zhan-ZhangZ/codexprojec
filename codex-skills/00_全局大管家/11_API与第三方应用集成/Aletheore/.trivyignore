@@ -1,0 +1,63 @@
+# CVE-2026-4372 and CVE-2026-5241 (transformers, jina-embed image only):
+# both are fixed only in transformers>=5.3.0/5.5.0. Verified empirically
+# that transformers v5 breaks jina-embeddings-v2-base-code's vendored
+# remote code beyond a single importable function (find_pruneable_heads_
+# and_indices can be shimmed back in, but a v5 config attribute-access
+# change then fails deeper inside modeling_bert.py's JinaBertSelfAttention
+# init - fixing that would mean forking and maintaining someone else's
+# HuggingFace model code). Pinned to transformers==4.48.0 instead, which
+# closes the other 3 transformers CVEs this same scan found (all fixed at
+# 4.48.0) and is the newest version confirmed compatible.
+#
+# Accepted for jina-embed specifically because both CVEs concern loading
+# untrusted/attacker-supplied model files at runtime: this image only
+# ever loads one fixed model (jinaai/jina-embeddings-v2-base-code), baked
+# into the image at build time from HuggingFace's own hosted weights, and
+# takes no model input from any caller at runtime - there is no code path
+# for a caller to supply a different model to load.
+CVE-2026-4372
+CVE-2026-5241
+
+# stripe-secret-token: src/aletheore/secrets.py's KNOWN_VENDOR_EXAMPLE_VALUES
+# set intentionally contains Stripe's own published API-docs test key
+# (sk_test_4eC39HqLyjWDarjtT1zdp7dc) verbatim, so the secrets scanner can
+# recognize that exact value as a documented placeholder rather than flag it
+# as a real leaked credential (see that file's comment for the false-positive
+# this fixes). Trivy's own secret scanner then flags this literal string
+# inside the built image for the same reason it looks like a real key -
+# expected, not a leak: it's a real vendor-published test-mode key with no
+# live funds behind it, already publicly known in Stripe's own docs and in
+# GitHub's push-protection allowlist for this exact value in this repo.
+stripe-secret-token
+
+# CVE-2026-84304 and CVE-2026-84445 (google.golang.org/grpc, scan-worker
+# image only): both are gRPC-Go server-side denial-of-service bugs (malformed
+# RPC requests / a related HIGH-severity flaw), fixed only in grpc-go
+# 1.83.1+/1.82.2+. They ship inside the trivy binary itself (installed by
+# Dockerfile.scan-worker for static_analysis/trivy_scanner.py's own scanning
+# - see that file), which is the latest available release (v0.74.0, checked
+# 2026-09-22: no newer tag exists upstream) and has no newer build that
+# bumps this dependency.
+#
+# Accepted because trivy is invoked here only as `trivy fs <path>` - a
+# one-shot local filesystem scan, never `trivy server`/`trivy client` - and
+# gRPC-Go's vulnerable code is exclusively in its server-side RPC-handling
+# path. `trivy fs` never starts a gRPC server or opens a network listener,
+# so this dependency is linked into the binary but its vulnerable code path
+# is never reached in this image's actual usage.
+CVE-2026-84304
+CVE-2026-84445
+
+# github-app-token: same situation as stripe-secret-token above, added by
+# #527. KNOWN_VENDOR_EXAMPLE_VALUES also contains two of GitHub's own
+# published OpenAPI-spec example tokens verbatim (see secrets.py's own
+# comment on that block for the exact values and why they're there), for
+# the same reason: so the secrets scanner recognizes them as documented
+# placeholders rather than flagging them as real leaked credentials. Their
+# ghs_/ghu_ prefix is exactly what Trivy's github-app-token rule matches
+# on, so it flags the same literal strings inside the built image -
+# expected, not a leak: these are GitHub's own documented example values,
+# not real tokens for any account. (Not re-quoted here on purpose - this
+# file's own comment would otherwise trip Aletheore's own secrets check
+# the same way REPORT.md's prose quoting them did.)
+github-app-token

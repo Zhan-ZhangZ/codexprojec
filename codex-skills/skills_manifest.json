@@ -2363,5 +2363,114 @@
       "shell-use",
       "TUI测试框架"
     ]
+  },
+  {
+    "name": "codegraph",
+    "description": "代码知识图谱引擎（ASH knowledge-base 榜 #2，colbymchenry）。tree-sitter WASM 解析器全集（66M）+ 文法内核（55M）把代码库构建为可查询图谱，MCP 接入供智能体检索调用关系。Leading Words: 代码图谱, 调用关系检索, tree-sitter, 代码知识库, codegraph",
+    "category": "01_代码工程与架构",
+    "folder": "codegraph",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/codegraph",
+    "aliases": [
+      "CodeGraph",
+      "代码图谱"
+    ]
+  },
+  {
+    "name": "LightRAG",
+    "description": "轻量 RAG 引擎（港大 HKUDS 出品，ASH knowledge-base 榜 #3）。图+向量混合检索双层范式，实体关系图谱增强召回。Leading Words: 图RAG, 混合检索, 实体图谱, 港大LightRAG, lightrag",
+    "category": "03_效率工具与协同管理",
+    "folder": "LightRAG",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/LightRAG",
+    "aliases": [
+      "lightrag",
+      "图RAG"
+    ]
+  },
+  {
+    "name": "OpenSpace",
+    "description": "Agent Skills 管理层（港大 HKUDS，ASH skill-management 榜 #3）。技能检索/评估/随运行进化，让不断增长的技能库可被高效取用。Leading Words: 技能管理层, skills检索评估, 技能进化, openspace",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "OpenSpace",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/OpenSpace",
+    "aliases": [
+      "openspace",
+      "技能管理层"
+    ]
+  },
+  {
+    "name": "octocode-mcp",
+    "description": "Agentic 研究平台 MCP（ASH mcp-for-github 榜 #1，MCP 官方社区服务器）。跨仓库代码智能检索：依赖/引用/上下文一站式。Leading Words: GitHub代码检索, agentic研究, 跨仓库分析, octocode",
+    "category": "11_API与第三方应用集成",
+    "folder": "octocode-mcp",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/octocode-mcp",
+    "aliases": [
+      "Octocode",
+      "octocode"
+    ]
+  },
+  {
+    "name": "martin-loop",
+    "description": "编码智能体无人值守循环（ASH mcp-for-github 榜 #2）。给 agent 真实软件任务而不必逐步看管：自动分派/验证/汇报。Leading Words: 无人值守, agent循环, 自动分派, martin loop",
+    "category": "11_API与第三方应用集成",
+    "folder": "martin-loop",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/martin-loop",
+    "aliases": [
+      "MartinLoop",
+      "马丁循环"
+    ]
+  },
+  {
+    "name": "Aletheore",
+    "description": "可验证代码智能（ASH mcp-for-github 榜 #3）。确定性扫描器读仓写结构化证据，下游 AI 审计/PR 机器人/MCP 服务全部基于可出示的证据。Leading Words: 代码证据, 确定性扫描, AI审计, aletheore",
+    "category": "11_API与第三方应用集成",
+    "folder": "Aletheore",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/Aletheore",
+    "aliases": [
+      "aletheore",
+      "代码证据"
+    ]
+  },
+  {
+    "name": "backlot",
+    "description": "Backlot（ASH mcp-for-google 榜 #2，brekkylab）。Python 工具集，配合 Google Workspace 工作流。Leading Words: backlot, google工作流, python工具",
+    "category": "11_API与第三方应用集成",
+    "folder": "backlot",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/backlot",
+    "aliases": [
+      "Backlot"
+    ]
+  },
+  {
+    "name": "modular-context-obsidian-plugin",
+    "description": "Obsidian LLM 知识库 + 多账号 Google Workspace MCP（ASH mcp-for-google 榜 #3）。Vault 本地优先加密，Gmail/日历/Drive/Docs/Sheets/Slides 25 个 MCP 工具。Leading Words: Obsidian知识库, 多账号谷歌, 25 MCP工具, 本地优先, modular context",
+    "category": "03_效率工具与协同管理",
+    "folder": "modular-context-obsidian-plugin",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/modular-context-obsidian-plugin",
+    "aliases": [
+      "Modular Context",
+      "obsidian谷歌"
+    ]
+  },
+  {
+    "name": "opencrew",
+    "description": "OpenCrew 多智能体操作系统（ASH multi-agent 榜 #2，中文项目）。高效协同稳定迭代的 OpenClaw 团队，人人易上手。Leading Words: 多智能体系统, openclaw团队, 协同操作系统, opencrew",
+    "category": "07_智能体框架与协同",
+    "folder": "opencrew",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/opencrew",
+    "aliases": [
+      "OpenCrew",
+      "多智能体OS"
+    ]
+  },
+  {
+    "name": "captain-claw",
+    "description": "AI 舰队指挥官（ASH multi-agent 榜 #3，kstevica）。Command a fleet of AI agents：flight_deck 网页指挥台 + 工具与指令系统。Leading Words: AI舰队, 多agent指挥, flight deck, captain claw",
+    "category": "07_智能体框架与协同",
+    "folder": "captain-claw",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/captain-claw",
+    "aliases": [
+      "CaptainClaw",
+      "舰队指挥"
+    ]
   }
 ]

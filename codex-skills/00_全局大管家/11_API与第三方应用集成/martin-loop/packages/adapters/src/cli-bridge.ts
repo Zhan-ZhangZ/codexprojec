@@ -1,0 +1,820 @@
+import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+
+import { diffStatsFromNumstat } from "./runtime-support.js";
+import type { VerifierExecutionBinding } from "@martin/core";
+import type { ExternalOutcomeEvidenceReference } from "@martin/contracts";
+import {
+  spawnSupervisedProcess,
+  type ProcessTreeCleanupResult
+} from "./process-supervisor.js";
+
+export type SpawnLike = (
+  command: string,
+  args?: readonly string[],
+  options?: SpawnOptions
+) => ChildProcess;
+
+export interface SubprocessResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  completed: boolean;
+  crashed: boolean;
+  /**
+   * True when the subprocess was terminated early because its combined
+   * stdout+stderr exceeded `maxOutputBytes` — a circuit breaker against
+   * runaway agent sessions that would otherwise burn far more cost/tokens
+   * than the loop budget allows before MartinLoop can observe the final
+   * (post-hoc) usage report. See `claude-cli.ts` execute() for how this
+   * cap is derived from the remaining loop budget.
+   */
+  outputCapped: boolean;
+  /**
+   * Set to the inspector's reason string when an `onStdoutChunk` callback
+   * requested early termination (e.g. a streaming usage/cost circuit breaker
+   * that detected the agent is on track to blow through its budget). Distinct
+   * from `outputCapped`, which fires on raw byte volume rather than parsed
+   * semantic content.
+   */
+  terminationReason?: string;
+  launched: boolean;
+  cleanup: ProcessTreeCleanupResult;
+}
+
+export interface VerificationOutcome {
+  passed: boolean;
+  processCloseState: "closed" | "not_required" | "failed";
+  summary: string;
+  steps: VerificationStepOutcome[];
+  warnings?: string[];
+  binding: VerifierExecutionBinding;
+}
+
+export interface VerificationStepOutcome {
+  command: string;
+  launched: boolean;
+  completed: boolean;
+  crashed: boolean;
+  exitCode?: number;
+  timedOut: boolean;
+  fastFail: boolean;
+  detail?: string;
+  evidence?: ExternalOutcomeEvidenceReference;
+}
+
+const gitRepositoryRootCache = new Map<string, string | null>();
+
+export async function runSubprocess(
+  command: string,
+  args: string[],
+  options: {
+    cwd: string;
+    timeoutMs: number;
+    env?: NodeJS.ProcessEnv;
+    spawnImpl?: SpawnLike;
+    stdinData?: string;
+    /**
+     * Optional circuit breaker: terminate the subprocess once combined
+     * stdout+stderr bytes exceed this threshold, instead of waiting for
+     * natural completion. Used to bound runaway agent-CLI cost/token spend
+     * that can't otherwise be observed until the process exits.
+     */
+    maxOutputBytes?: number;
+    /**
+     * Optional semantic inspector invoked with each raw stdout chunk. Used to
+     * parse streaming structured output (e.g. Claude's `stream-json` usage
+     * events) and request early termination via the supplied `terminate`
+     * callback once a semantic threshold (such as cumulative cost) is
+     * crossed — well before the subprocess would exit naturally and report
+     * a runaway final usage figure.
+     */
+    onStdoutChunk?: (chunk: Buffer, terminate: (reason: string) => void) => void;
+    /** Optional abort signal — kills the subprocess when aborted. */
+    signal?: AbortSignal;
+    /** Require an owned process-tree sweep before successful completion. */
+    requireTreeClosureOnSuccess?: boolean;
+  }
+): Promise<SubprocessResult> {
+  const spawnPlan = createSpawnPlan(command, args, options.cwd, options.spawnImpl !== undefined);
+  return spawnSupervisedProcess(spawnPlan.command, spawnPlan.args, {
+    cwd: options.cwd,
+    timeoutMs: options.timeoutMs,
+    ...(options.env ? { env: options.env } : {}),
+    ...(options.spawnImpl ? { spawnImpl: options.spawnImpl } : {}),
+    ...(options.stdinData !== undefined ? { stdinData: options.stdinData } : {}),
+    ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
+    ...(options.onStdoutChunk ? { onStdoutChunk: options.onStdoutChunk } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.requireTreeClosureOnSuccess ? { requireTreeClosureOnSuccess: true } : {})
+  });
+}
+
+export async function runVerification(
+  commands: string[],
+  cwd: string,
+  timeoutMs: number,
+  verificationStack?: Array<{ command: string; type: string; fastFail?: boolean }>,
+  spawnImpl?: SpawnLike,
+  binding?: Omit<VerifierExecutionBinding, "commands">,
+  signal?: AbortSignal
+): Promise<VerificationOutcome> {
+  const steps = verificationStack && verificationStack.length > 0
+    ? verificationStack.map((step) => ({
+        command: step.command,
+        fastFail: step.fastFail !== false
+      }))
+    : commands.map((command) => ({ command, fastFail: true }));
+
+  const executionBinding: VerifierExecutionBinding = {
+    runId: binding?.runId ?? "unbound",
+    workspaceId: binding?.workspaceId ?? "unbound",
+    ...(binding?.attemptId ? { attemptId: binding.attemptId } : {}),
+    cwd: binding?.cwd ?? cwd,
+    ...(binding?.runsRoot ? { runsRoot: binding.runsRoot } : {}),
+    ...(binding?.executionProfile ? { executionProfile: binding.executionProfile } : {}),
+    ...(binding?.allowedNetworkDomains?.length ? { allowedNetworkDomains: [...binding.allowedNetworkDomains] } : {}),
+    commands: steps.map((step) => step.command),
+  };
+
+  const verifierEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    MARTIN_RUN_ID: executionBinding.runId,
+    MARTIN_WORKSPACE_ID: executionBinding.workspaceId,
+    ...(executionBinding.attemptId ? { MARTIN_ATTEMPT_ID: executionBinding.attemptId } : {}),
+    MARTIN_VERIFIER_CWD: executionBinding.cwd,
+    ...(executionBinding.runsRoot ? { MARTIN_RUNS_DIR: executionBinding.runsRoot } : {}),
+    ...(executionBinding.executionProfile ? { MARTIN_EXECUTION_PROFILE: executionBinding.executionProfile } : {}),
+    ...(executionBinding.allowedNetworkDomains?.length
+      ? { MARTIN_ALLOWED_NETWORK_DOMAINS: JSON.stringify(executionBinding.allowedNetworkDomains) }
+      : {}),
+  };
+
+  if (steps.length === 0) {
+    return {
+      passed: false,
+      processCloseState: "not_required",
+      summary: "No verification commands specified; execution is not VERIFIED.",
+      steps: [],
+      warnings: ["Execution completed without verifier evidence."],
+      binding: executionBinding,
+    };
+  }
+
+  const failedSteps: string[] = [];
+  const stepOutcomes: VerificationStepOutcome[] = [];
+  const warnings: string[] = [];
+  let processCloseState: VerificationOutcome["processCloseState"] = "not_required";
+
+  for (const step of steps) {
+    let bin: string;
+    let args: string[];
+
+    if (containsShellOperator(step.command)) {
+      // Shell operators (&&, ||, ;, |) cannot be passed as literal arguments
+      // to spawn(). Route through the platform shell so the operator is
+      // interpreted correctly.
+      if (process.platform === "win32") {
+        bin = process.env.ComSpec || "cmd.exe";
+        args = ["/d", "/c", step.command];
+      } else {
+        bin = "sh";
+        args = ["-c", step.command];
+      }
+    } else {
+      const parts = splitCommand(step.command);
+      const first = parts[0];
+      if (!first) {
+        continue;
+      }
+      bin = first;
+      args = parts.slice(1);
+    }
+
+    if (!bin) {
+      continue;
+    }
+
+    const result = await runSubprocess(bin, args, {
+      cwd,
+      timeoutMs,
+      env: verifierEnv,
+      spawnImpl,
+      ...(signal ? { signal } : {}),
+      requireTreeClosureOnSuccess: true
+    });
+    const detail = truncate(result.stderr.trim() || result.stdout.trim(), 500);
+    processCloseState = combineProcessCloseState(processCloseState, result.cleanup.state);
+
+    const evidence = parseExternalOutcomeEvidenceReference(result.stdout);
+    stepOutcomes.push({
+      command: step.command,
+      launched: result.launched,
+      completed: result.completed,
+      crashed: result.crashed,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      fastFail: step.fastFail,
+      ...(detail ? { detail } : {}),
+      ...(evidence ? { evidence } : {})
+    });
+
+    if (result.cleanup.state === "failed") {
+      return {
+        passed: false,
+        processCloseState,
+        summary: `Verifier process-tree closure failed: ${step.command}`,
+        steps: stepOutcomes,
+        binding: executionBinding,
+        warnings: [result.cleanup.message]
+      };
+    }
+
+    if (result.timedOut) {
+      return {
+        passed: false,
+        processCloseState,
+        summary: `Verification timed out: ${step.command}`,
+        steps: stepOutcomes,
+        binding: executionBinding,
+        ...(warnings.length ? { warnings } : {})
+      };
+    }
+
+    if (result.exitCode !== 0) {
+      const summary = `Verification failed: ${step.command}\n${detail}`;
+      if (!result.launched) {
+        warnings.push(`Verifier never launched: ${step.command}`);
+      }
+      if (step.fastFail) {
+        return { passed: false, processCloseState, summary, steps: stepOutcomes, binding: executionBinding, ...(warnings.length ? { warnings } : {}) };
+      }
+      failedSteps.push(step.command);
+    }
+  }
+
+  if (failedSteps.length > 0) {
+    return {
+      passed: false,
+      processCloseState,
+      summary: `Failed steps: ${failedSteps.join(", ")}`,
+      steps: stepOutcomes,
+      binding: executionBinding,
+      ...(warnings.length ? { warnings } : {})
+    };
+  }
+
+  return {
+    passed: true,
+    processCloseState,
+    summary: `All ${String(steps.length)} verification step(s) passed.`,
+    steps: stepOutcomes,
+    binding: executionBinding,
+    ...(warnings.length ? { warnings } : {})
+  };
+}
+
+function parseExternalOutcomeEvidenceReference(stdout: string): ExternalOutcomeEvidenceReference | undefined {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as { evidence?: Partial<ExternalOutcomeEvidenceReference> };
+    const evidence = parsed.evidence;
+    if (
+      evidence?.kind !== "external_outcome"
+      || typeof evidence.contractId !== "string"
+      || typeof evidence.path !== "string"
+      || typeof evidence.sha256 !== "string"
+      || !/^[a-f0-9]{64}$/u.test(evidence.sha256)
+    ) return undefined;
+    return {
+      kind: "external_outcome",
+      contractId: evidence.contractId,
+      path: evidence.path,
+      sha256: evidence.sha256,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function combineProcessCloseState(
+  current: VerificationOutcome["processCloseState"],
+  next: ProcessTreeCleanupResult["state"]
+): VerificationOutcome["processCloseState"] {
+  if (current === "failed" || next === "failed") return "failed";
+  if (current === "closed" || next === "closed") return "closed";
+  return "not_required";
+}
+
+export async function readGitExecutionArtifacts(
+  repoRoot: string,
+  timeoutMs: number,
+  spawnImpl?: SpawnLike,
+  requestedChangedFiles?: readonly string[]
+): Promise<{
+  changedFiles?: string[];
+  patch?: string;
+  diffStats?: ReturnType<typeof diffStatsFromNumstat>;
+}> {
+  if (!resolveGitRepositoryRoot(repoRoot)) {
+    return {};
+  }
+
+  const observedChangedFiles = requestedChangedFiles
+    ? [...requestedChangedFiles]
+    : await readGitChangedFiles(repoRoot, timeoutMs, spawnImpl);
+  const changedFiles = observedChangedFiles.filter(isSafeRepoRelativeGitPath);
+  const patchParts: string[] = [];
+  const numstatParts: string[] = [];
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+
+  for (const file of changedFiles) {
+    const trackedPatch = await runSubprocess(
+      "git",
+      ["diff", "--binary", "--no-ext-diff", "HEAD", "--", file],
+      { cwd: repoRoot, timeoutMs, spawnImpl }
+    );
+    const trackedNumstat = await runSubprocess(
+      "git",
+      ["diff", "--numstat", "HEAD", "--", file],
+      { cwd: repoRoot, timeoutMs, spawnImpl }
+    );
+
+    if (trackedPatch.exitCode === 0 && trackedPatch.stdout.length > 0) {
+      patchParts.push(trackedPatch.stdout);
+      if (trackedNumstat.exitCode === 0 && trackedNumstat.stdout.length > 0) {
+        numstatParts.push(trackedNumstat.stdout);
+      }
+      continue;
+    }
+
+    // Git does not include untracked files in `git diff HEAD`. Diff each such
+    // path against the null tree so the parent runtime receives its content,
+    // not merely a synthetic filename-only patch.
+    const untrackedPatch = await runSubprocess(
+      "git",
+      ["diff", "--binary", "--no-ext-diff", "--no-index", "--", nullDevice, file],
+      { cwd: repoRoot, timeoutMs, spawnImpl }
+    );
+    if ((untrackedPatch.exitCode === 0 || untrackedPatch.exitCode === 1) && untrackedPatch.stdout.length > 0) {
+      patchParts.push(untrackedPatch.stdout);
+    }
+
+    const untrackedNumstat = await runSubprocess(
+      "git",
+      ["diff", "--numstat", "--no-index", "--", nullDevice, file],
+      { cwd: repoRoot, timeoutMs, spawnImpl }
+    );
+    if ((untrackedNumstat.exitCode === 0 || untrackedNumstat.exitCode === 1) && untrackedNumstat.stdout.length > 0) {
+      numstatParts.push(untrackedNumstat.stdout);
+    }
+  }
+
+  const patch = patchParts.join("\n");
+  const numstat = numstatParts.join("\n");
+  const diffStats = numstat.length > 0 ? diffStatsFromNumstat(numstat) : undefined;
+
+  return {
+    ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    ...(patch.length > 0 ? { patch } : {}),
+    ...(diffStats ? { diffStats } : {})
+  };
+}
+
+function isSafeRepoRelativeGitPath(file: string): boolean {
+  if (file.length === 0 || file.includes("\u0000") || isAbsolute(file)) {
+    return false;
+  }
+
+  const segments = file.replace(/\\/gu, "/").split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+export async function readGitChangedFiles(
+  repoRoot: string,
+  timeoutMs: number,
+  spawnImpl?: SpawnLike
+): Promise<string[]> {
+  if (!resolveGitRepositoryRoot(repoRoot)) {
+    return [];
+  }
+
+  const statusResult = await runSubprocess(
+    "git",
+    ["status", "-z", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=all", "--", "."],
+    { cwd: repoRoot, timeoutMs, spawnImpl }
+  );
+
+  if (statusResult.exitCode !== 0) {
+    return [];
+  }
+
+  return parsePorcelainEntries(statusResult.stdout).filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0
+  );
+}
+
+// Ignore paths that are not meaningful code changes for first-delta detection
+const FIRST_DELTA_IGNORE = [
+  /^\.martin\//u,
+  /^PROGRESS\.md$/u,
+  /\.lock$/u,
+  /^node_modules\//u,
+  /^\.git\//u,
+  /^\.cache\//u,
+];
+
+/**
+ * Detects whether a meaningful workspace delta has occurred by checking
+ * git status for changed files that aren't MartinLoop metadata, lockfiles,
+ * or cache artifacts. Returns the first meaningful changed file if found.
+ */
+export async function detectFirstDelta(
+  repoRoot: string,
+  timeoutMs: number,
+  spawnImpl?: SpawnLike
+): Promise<{ detected: boolean; filePath?: string; changeType?: "create" | "modify" | "delete" }> {
+  const changedFiles = await readGitChangedFiles(repoRoot, timeoutMs, spawnImpl);
+
+  for (const file of changedFiles) {
+    if (FIRST_DELTA_IGNORE.some((pattern) => pattern.test(file))) {
+      continue;
+    }
+    // Classify: new file = create, deleted = delete, else modify
+    const diffResult = await runSubprocess(
+      "git", ["status", "--porcelain", "--", file],
+      { cwd: repoRoot, timeoutMs: 3000, spawnImpl }
+    );
+    const status = diffResult.stdout.trim().slice(0, 2);
+    const changeType = status.includes("?") ? "create" as const
+      : status.includes("D") ? "delete" as const
+      : "modify" as const;
+
+    return { detected: true, filePath: file, changeType };
+  }
+
+  return { detected: false };
+}
+
+export function resolveGitRepositoryRoot(workingDirectory: string): string | undefined {
+  const resolvedWorkingDirectory = resolve(workingDirectory);
+  const cached = gitRepositoryRootCache.get(resolvedWorkingDirectory);
+  if (cached !== undefined) {
+    return cached ?? undefined;
+  }
+
+  if (!existsSync(resolvedWorkingDirectory)) {
+    gitRepositoryRootCache.set(resolvedWorkingDirectory, null);
+    return undefined;
+  }
+
+  const visited: string[] = [];
+  let current = resolvedWorkingDirectory;
+
+  while (true) {
+    visited.push(current);
+
+    const currentCached = gitRepositoryRootCache.get(current);
+    if (currentCached !== undefined) {
+      for (const candidate of visited) {
+        gitRepositoryRootCache.set(candidate, currentCached);
+      }
+      return currentCached ?? undefined;
+    }
+
+    if (existsSync(resolve(current, ".git"))) {
+      for (const candidate of visited) {
+        gitRepositoryRootCache.set(candidate, current);
+      }
+      return current;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      for (const candidate of visited) {
+        gitRepositoryRootCache.set(candidate, null);
+      }
+      return undefined;
+    }
+
+    current = parent;
+  }
+}
+
+export interface SpawnPlan {
+  command: string;
+  args: string[];
+}
+
+export function createSpawnPlan(
+  command: string,
+  args: string[],
+  cwd: string,
+  preserveRawForInjectedSpawn: boolean
+): SpawnPlan {
+  if (preserveRawForInjectedSpawn || process.platform !== "win32") {
+    return { command, args };
+  }
+
+  // Try to resolve the command to an absolute path using the Windows PATH.
+  const resolvedOrUndefined = isAbsolute(command) ? command : resolveWindowsCommand(command, cwd);
+
+  // If resolution failed (command not found in PATH), fall back to cmd.exe shell execution so
+  // Windows can resolve the command itself — this covers cases like `pnpm` where the npm global
+  // bin directory is present in the shell PATH but not yet visible to this Node.js process.
+  if (resolvedOrUndefined === undefined) {
+    return {
+      command: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/c", command, ...args]
+    };
+  }
+
+  const extension = extname(resolvedOrUndefined).toLowerCase();
+  if (extension === ".cmd" || extension === ".bat" || extension === ".ps1") {
+    // npm-installed CLIs resolve to a generated shim on Windows. Wrapping that shim through an
+    // extra cmd.exe/powershell.exe hop adds a process layer that can lose the OS-level
+    // workspace-write sandbox permission when the whole tree is already nested inside another
+    // restricted parent process (e.g. VS Code's extension host), even though the same shim works
+    // fine from a top-level PowerShell window. When we can statically resolve the shim's real
+    // wrapped `node <script>` target, invoke that directly instead — this removes the extra hop
+    // for every Windows launch, nested or not, with no behavior change when resolution fails.
+    const directScript = resolveNpmShimScript(resolvedOrUndefined);
+    if (directScript !== undefined) {
+      // Use the system node rather than process.execPath. When MartinLoop runs
+      // inside Claude Code desktop or VS Code, process.execPath is Electron's
+      // bundled Node — which has different module resolution and may fail to
+      // load native CLI scripts. Prefer an explicit `node` from PATH instead.
+      const systemNode = resolveSystemNode();
+      return { command: systemNode, args: [directScript, ...args] };
+    }
+
+    if (extension === ".ps1") {
+      return {
+        command: "powershell.exe",
+        args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolvedOrUndefined, ...args]
+      };
+    }
+
+    return {
+      command: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/c", resolvedOrUndefined, ...args]
+    };
+  }
+
+  return { command: resolvedOrUndefined, args };
+}
+
+/**
+ * npm generates Windows shims (.cmd/.ps1, occasionally .bat) that ultimately just exec
+ * `node <real-cli-script>.js <args>` relative to the shim's own directory. Parse the shim text to
+ * find that real script path and return it if it resolves to a file that actually exists on disk;
+ * otherwise return undefined so callers fall back to the existing wrapper-shell behavior unchanged.
+ */
+export function resolveNpmShimScript(shimPath: string): string | undefined {
+  let contents: string;
+  try {
+    contents = readFileSync(shimPath, "utf8");
+  } catch {
+    return undefined;
+  }
+
+  const shimDir = dirname(shimPath);
+  const scriptPathPattern = /["']?(?:%~?dp0%?|\$basedir)[\\/]([^"'\s]+\.[cm]?js)["']?/gi;
+  const matches = [...contents.matchAll(scriptPathPattern)];
+
+  // Collect all candidate scripts that exist on disk.
+  const candidates: string[] = [];
+  for (const match of matches) {
+    const relativeScript = match[1];
+    if (!relativeScript) continue;
+    const segments = relativeScript.split(/[\\/]+/u).filter(Boolean);
+    const resolvedScript = resolve(shimDir, ...segments);
+    if (existsSync(resolvedScript)) {
+      candidates.push(resolvedScript);
+    }
+  }
+
+  if (candidates.length === 0) return undefined;
+
+  // npm.cmd / npm.ps1 / npm.bat shims reference both npm-prefix.js and npm-cli.js.
+  // npm-cli.js is the semantic npm CLI entry point — never pick npm-prefix.js for
+  // these. Fail closed: if npm-cli.js is not among the resolved candidates, return
+  // undefined so the caller falls back to wrapper-shell behavior.
+  const shimBasename = basename(shimPath).toLowerCase();
+  if (/^npm(\.(cmd|ps1|bat))?$/.test(shimBasename)) {
+    return candidates.find((p) => basename(p).toLowerCase() === "npm-cli.js");
+  }
+
+  // For all other npm-installed executables (codex.cmd, claude.ps1, etc.), the
+  // shim wraps exactly one package bin target — use the first resolving candidate.
+  return candidates[0];
+}
+
+/**
+ * Resolve a reliable `node` executable for spawning CLI scripts on Windows.
+ *
+ * When MartinLoop runs inside Claude Code desktop, VS Code, or the Codex IDE,
+ * `process.execPath` points to the host application's bundled Electron Node —
+ * not the system Node. Electron's Node has different module resolution paths
+ * and may fail to load native npm CLI scripts that expect the system Node.
+ *
+ * Strategy:
+ * 1. Use MARTIN_NODE_PATH env var if explicitly set (escape hatch for CI)
+ * 2. Look for `node` / `node.exe` on PATH — the system install
+ * 3. Fall back to process.execPath (Electron Node) if nothing else found
+ */
+function resolveSystemNode(): string {
+  // Explicit override — useful in CI or restricted environments
+  const envOverride = process.env.MARTIN_NODE_PATH?.trim();
+  if (envOverride && envOverride.length > 0 && existsSync(envOverride)) {
+    return envOverride;
+  }
+
+  // Search PATH for a real `node` executable, skipping Electron binaries.
+  // Electron's node path typically contains "electron" or "Claude" in it.
+  for (const dir of windowsPathDirectories()) {
+    for (const candidate of ["node.exe", "node.cmd", "node"]) {
+      const fullPath = join(dir, candidate);
+      if (existsSync(fullPath) && !isElectronNode(fullPath)) {
+        return fullPath;
+      }
+    }
+  }
+
+  // Last resort: use process.execPath even if it's Electron's node
+  return process.execPath;
+}
+
+function isElectronNode(nodePath: string): boolean {
+  const lower = nodePath.toLowerCase();
+  return (
+    lower.includes("electron") ||
+    lower.includes("claude") ||
+    lower.includes("vscode") ||
+    lower.includes("code.exe") ||
+    lower.includes("cursor")
+  );
+}
+
+function resolveWindowsCommand(command: string, cwd: string): string | undefined {
+  const hasPathSegment = command.includes("\\") || command.includes("/");
+  const baseCandidates = expandWindowsCommandCandidates(
+    hasPathSegment ? resolve(cwd, command) : command
+  );
+
+  if (hasPathSegment) {
+    return baseCandidates.find((candidate) => existsSync(candidate));
+  }
+
+  for (const directory of windowsPathDirectories()) {
+    for (const candidate of baseCandidates) {
+      const fullPath = join(directory, candidate);
+      if (existsSync(fullPath)) {
+        return fullPath;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function expandWindowsCommandCandidates(command: string): string[] {
+  if (extname(command)) {
+    return [command];
+  }
+
+  const pathExt = process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
+  const fromPathExt = pathExt
+    .split(";")
+    .map((extension) => extension.trim())
+    .filter(Boolean)
+    .map((extension) => `${command}${extension.toLowerCase()}`);
+
+  const candidates = [...fromPathExt, `${command}.ps1`];
+  return Array.from(new Set(candidates));
+}
+
+function parsePorcelainEntries(stdout: string): string[] {
+  const entries = stdout.split("\u0000").filter((entry) => entry.length > 0);
+  const changedFiles: string[] = [];
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry === undefined || entry.length < 4) {
+      continue;
+    }
+
+    const status = entry.slice(0, 2);
+    const payload = entry.slice(3);
+    if (!payload) {
+      continue;
+    }
+
+    if (status.includes("R") || status.includes("C")) {
+      const renamedPath = entries[index + 1];
+      if (renamedPath && renamedPath.length > 0) {
+        changedFiles.push(renamedPath);
+        index += 1;
+        continue;
+      }
+    }
+
+    changedFiles.push(payload);
+  }
+
+  return changedFiles;
+}
+
+function windowsPathDirectories(): string[] {
+  const rawPath = process.env.Path ?? process.env.PATH ?? "";
+  return rawPath
+    .split(delimiter)
+    .map((entry) => entry.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
+}
+
+/**
+ * Returns true if the command string contains shell operators that cannot be
+ * passed as literal arguments to spawn(). These must be routed through a
+ * platform shell (cmd.exe /c or sh -c) so the operator is interpreted.
+ */
+export function containsShellOperator(command: string): boolean {
+  // Match &&, ||, ;, or | that are NOT inside quotes.
+  // Simple heuristic: scan outside of single/double quoted regions.
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i];
+    if (ch === "'" && !inDouble) { inSingle = !inSingle; continue; }
+    if (ch === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (inSingle || inDouble) { continue; }
+    if (ch === "&" && command[i + 1] === "&") { return true; }
+    if (ch === "|" && command[i + 1] === "|") { return true; }
+    if (ch === ";") { return true; }
+    if (ch === "|" && command[i + 1] !== "|") { return true; }
+  }
+  return false;
+}
+
+export function splitCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | undefined;
+
+  const trimmed = command.trim();
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    const next = trimmed[index + 1];
+    if (char === undefined) {
+      continue;
+    }
+
+    if (char === "\\") {
+      const canEscape = quote !== "'" && (next === quote || next === "\\");
+      if (canEscape && next !== undefined) {
+        current += next;
+        index += 1;
+        continue;
+      }
+    }
+
+    if (char === '"' || char === "'") {
+      if (!quote) {
+        quote = char;
+        continue;
+      }
+
+      if (quote === char) {
+        quote = undefined;
+        continue;
+      }
+    }
+
+    if (!quote && /\s/u.test(char)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `...${text.slice(-(maxLength - 3))}`;
+}

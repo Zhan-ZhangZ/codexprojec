@@ -1,0 +1,213 @@
+import { RefreshCw, PanelLeft, Pin, FileText, ClipboardList, Sun, Moon, Keyboard, LogOut, Loader2, MessageSquare, Menu, Columns3 } from 'lucide-react'
+import { useAgentStore } from '../../stores/agentStore'
+import { useAuthStore, logoutUser } from '../../stores/authStore'
+import { useThemeStore } from '../../stores/themeStore'
+import { useUIStore } from '../../stores/uiStore'
+import { APP_VERSION } from '../../version'
+import { useChatStore } from '../../stores/chatStore'
+import { NotificationBell } from '../common/NotificationCenter'
+
+interface TopBarProps {
+  directorOpen?: boolean
+  onToggleDirector?: () => void
+  onTogglePinned?: () => void
+  onTogglePinnedFiles?: () => void
+  onToggleClipboard?: () => void
+  onToggleShortcuts?: () => void
+  pinnedOpen?: boolean
+  pinnedFilesOpen?: boolean
+  clipboardOpen?: boolean
+  isMobile?: boolean
+  isTablet?: boolean
+  onToggleSidebarDrawer?: () => void
+}
+
+export function TopBar({
+  directorOpen, onToggleDirector,
+  onTogglePinned, onTogglePinnedFiles, onToggleClipboard, onToggleShortcuts,
+  pinnedOpen, pinnedFilesOpen, clipboardOpen,
+  isMobile, isTablet, onToggleSidebarDrawer,
+}: TopBarProps) {
+  const { stats, fetchInstances, fetchStats, fetchConcerns } = useAgentStore()
+  const { authEnabled, user: authUser, signingOut } = useAuthStore()
+  const { theme, toggle: toggleTheme } = useThemeStore()
+  const mobilePanel = useUIStore((s) => s.mobilePanel)
+  const toggleMobilePanel = useUIStore((s) => s.toggleMobilePanel)
+  const setLayoutMode = useUIStore((s) => s.setLayoutMode)
+  const chatSessions = useChatStore((s) => s.sessions)
+
+  const compact = isMobile || isTablet
+
+  const refresh = () => {
+    fetchInstances()
+    fetchStats()
+    fetchConcerns(true)
+  }
+
+  return (
+    <header className="flex h-12 items-center justify-between border-b border-zinc-800 bg-zinc-900/30 px-3 md:px-4">
+      <div className="flex items-center gap-2 md:gap-3">
+        {/* Mobile: version label (sidebar not visible) */}
+        {isMobile && (
+          <span className="text-[9px] text-zinc-600 font-medium">v{APP_VERSION}</span>
+        )}
+
+        {/* Tablet: hamburger for sidebar drawer */}
+        {isTablet && onToggleSidebarDrawer && (
+          <button
+            onClick={onToggleSidebarDrawer}
+            className="rounded p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+            title="Menu"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        )}
+
+        {onToggleDirector && (
+          <button
+            onClick={onToggleDirector}
+            className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+              directorOpen || (compact && mobilePanel === 'director')
+                ? 'bg-violet-600/20 text-violet-400'
+                : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+            }`}
+            title="Director (Cmd+D)"
+          >
+            <PanelLeft className="h-3.5 w-3.5" />
+            {!isMobile && 'Director'}
+          </button>
+        )}
+
+        {/* Mobile/tablet: chat toggle button */}
+        {compact && (
+          <button
+            onClick={() => toggleMobilePanel('chat')}
+            className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+              mobilePanel === 'chat'
+                ? 'bg-violet-600/20 text-violet-400'
+                : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+            }`}
+            title="Chat"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            {!isMobile && 'Chat'}
+            {chatSessions.size > 0 && (
+              <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">
+                {chatSessions.size}
+              </span>
+            )}
+          </button>
+        )}
+
+        {!compact && <div className="h-4 w-px bg-zinc-800" />}
+
+        {/* Stats: hidden on mobile, shown on tablet/desktop */}
+        {!isMobile && stats && (
+          <div className="flex items-center gap-5">
+            <Stat label="Connected" value={stats.connected_instances} color="text-emerald-400" />
+            <Stat label="Active" value={stats.active_concerns} color="text-blue-400" />
+            {!isTablet && <Stat label="Completed" value={stats.completed_concerns} color="text-zinc-400" />}
+            {!isTablet && <Stat label="Failed" value={stats.failed_concerns} color="text-red-400" />}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1">
+        {/* Tool toggles */}
+        {onTogglePinned && (
+          <button
+            onClick={onTogglePinned}
+            className={`rounded p-1.5 transition-colors ${pinnedOpen ? 'bg-amber-600/20 text-amber-400' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}
+            title="Pinned Messages"
+          >
+            <Pin className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {onTogglePinnedFiles && (
+          <button
+            onClick={onTogglePinnedFiles}
+            className={`rounded p-1.5 transition-colors ${pinnedFilesOpen ? 'bg-blue-600/20 text-blue-400' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}
+            title="Pinned Files"
+          >
+            <FileText className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {onToggleClipboard && (
+          <button
+            onClick={onToggleClipboard}
+            className={`rounded p-1.5 transition-colors ${clipboardOpen ? 'bg-cyan-600/20 text-cyan-400' : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'}`}
+            title="Shared Clipboard"
+          >
+            <ClipboardList className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <div className="h-4 w-px bg-zinc-800 mx-0.5" />
+
+        {/* Simple view: agents · chat · files. Desktop only — the phone and
+            tablet layouts keep their own arrangement. */}
+        {!compact && (
+          <button
+            onClick={() => setLayoutMode('simple')}
+            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+            title="Simple view — agents, chat, files"
+          >
+            <Columns3 className="h-3.5 w-3.5" />
+          </button>
+        )}
+
+        <NotificationBell />
+
+        <button
+          onClick={toggleTheme}
+          className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+        >
+          {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+        </button>
+
+        {/* Hide keyboard shortcuts on mobile */}
+        {!isMobile && onToggleShortcuts && (
+          <button
+            onClick={onToggleShortcuts}
+            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+            title="Keyboard Shortcuts (Cmd+K)"
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+          </button>
+        )}
+
+        <button
+          onClick={refresh}
+          className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+          title="Refresh"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </button>
+
+        {authEnabled && authUser && (
+          <>
+            <div className="h-4 w-px bg-zinc-800 mx-1" />
+            {!isMobile && <span className="text-xs text-zinc-500">{authUser.display_name || authUser.email}</span>}
+            <button
+              onClick={logoutUser}
+              disabled={signingOut}
+              className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+              title={signingOut ? 'Signing out…' : 'Sign out'}
+            >
+              {signingOut ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
+            </button>
+          </>
+        )}
+      </div>
+    </header>
+  )
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs">
+      <span className="text-zinc-500">{label}</span>
+      <span className={`font-mono font-semibold ${color}`}>{value}</span>
+    </div>
+  )
+}

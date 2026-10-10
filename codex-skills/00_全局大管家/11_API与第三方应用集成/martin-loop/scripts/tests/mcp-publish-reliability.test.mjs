@@ -1,0 +1,79 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import packageJson from "../../packages/mcp/package.json" with { type: "json" };
+import serverJson from "../../packages/mcp/server.json" with { type: "json" };
+import { rewriteWorkspacePackageSpecifiers } from "../../packages/mcp/scripts/build-package-lib.mjs";
+
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("MCP package builder keeps sibling workspace imports inside its vendored topology", () => {
+  const distDir = path.join(ROOT_DIR, "packages", "mcp", "dist");
+  const targetPath = path.join(distDir, "vendor", "core", "swarm", "hosted-export.js");
+  const source = 'export { value } from "../../../contracts/dist/swarm-hosted.js";';
+
+  const rewritten = rewriteWorkspacePackageSpecifiers(source, { distDir, targetPath });
+
+  assert.equal(rewritten, 'export { value } from "../../contracts/swarm-hosted.js";');
+});
+
+test("MCP package metadata stays aligned with server metadata", () => {
+  const npmPackage = serverJson.packages.find((entry) => entry?.registryType === "npm");
+
+  assert.ok(npmPackage, "server.json must define an npm package entry");
+  assert.equal(packageJson.version, serverJson.version);
+  assert.equal(packageJson.version, npmPackage.version);
+  assert.equal(packageJson.name, npmPackage.identifier);
+  assert.equal(packageJson.mcpName, serverJson.name);
+  assert.equal(serverJson.name, "io.github.Keesan12/martin-loop");
+  assert.ok(serverJson.description.length <= 100, "server.json description must stay within the registry length limit");
+  assert.equal(npmPackage.transport?.type, "stdio");
+  assert.equal(packageJson.bin?.mcp, "./dist/server.js");
+  assert.equal(packageJson.bin?.["martin-loop-mcp"], "./dist/server.js");
+  assert.ok(packageJson.files.includes("dist"));
+  assert.ok(packageJson.files.includes("README.md"));
+  assert.ok(packageJson.files.includes("server.json"));
+  assert.ok(packageJson.keywords.includes("mcp-server"), "keywords must include mcp-server for registry discovery");
+  assert.ok(packageJson.keywords.includes("coding-agent"), "keywords must include coding-agent for registry discovery");
+  assert.ok(packageJson.keywords.includes("agent-verification"), "keywords must include agent-verification for registry discovery");
+});
+
+test("publish-mcp workflow keeps bounded npm view and smoke retries with backoff", async () => {
+  const workflowPath = path.join(ROOT_DIR, ".github", "workflows", "publish-mcp.yml");
+  const workflow = await readFile(workflowPath, "utf8");
+
+  assert.match(workflow, /MCP_PACKAGE_SPEC:/);
+  assert.match(workflow, /for attempt in 1 2 3 4 5; do/);
+  assert.match(workflow, /npm view "\$\{MCP_PACKAGE_SPEC\}" version/);
+  assert.match(workflow, /sleep \$\(\(attempt \* 15\)\)/);
+  assert.match(workflow, /for attempt in 1 2 3; do/);
+  assert.match(workflow, /pnpm --filter @martinloop\/mcp smoke:published/);
+  assert.match(workflow, /sleep \$\(\(attempt \* 20\)\)/);
+  assert.match(workflow, /after bounded retries/);
+});
+
+test("published smoke CLI rejects missing or flag-like package specs", () => {
+  const scriptPath = path.join(ROOT_DIR, "packages", "mcp", "scripts", "smoke-published-package.mjs");
+
+  const missingValue = spawnSync(process.execPath, [scriptPath, "--package-spec="], {
+    cwd: ROOT_DIR,
+    encoding: "utf8",
+  });
+  assert.notEqual(missingValue.status, 0);
+  assert.match(missingValue.stderr, /--package-spec requires a non-empty value/);
+
+  const flagValue = spawnSync(
+    process.execPath,
+    [scriptPath, "--package-spec", "--allow-local-fallback"],
+    {
+      cwd: ROOT_DIR,
+      encoding: "utf8",
+    },
+  );
+  assert.notEqual(flagValue.status, 0);
+  assert.match(flagValue.stderr, /expected a package spec but received another flag/);
+});

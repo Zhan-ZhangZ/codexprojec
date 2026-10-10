@@ -1,0 +1,43 @@
+# BotPort Configuration
+# Copy to ~/.botport/config.yaml or ./config.yaml
+
+server:
+  host: "0.0.0.0"
+  port: 33080
+  dashboard_enabled: true
+
+routing:
+  strategy: "auto"
+  fallback: "reject"
+
+concerns:
+  idle_timeout_seconds: 300    # 5 minutes - timeout concerns with no activity
+  max_follow_ups: 10           # max follow-up exchanges per concern
+  max_concurrent_per_instance: 5
+
+auth:
+  enabled: false
+  keys:
+    # Each key entry allows a CC instance to connect.
+    # The "instance" field is an optional human-readable name.
+    #
+    # - key: "my-instance-key"
+    #   secret: "my-instance-secret"
+    #   instance: "claw-alpha"
+    # - key: "another-key"
+    #   secret: "another-secret"
+    #   instance: "claw-beta"
+
+logging:
+  level: "INFO"                # DEBUG, INFO, WARNING, ERROR
+  concern_history: true        # log concern exchanges to store
+  retention_days: 30           # auto-cleanup concerns older than this
+
+# LLM-powered routing (uses litellm — supports all major providers).
+llm:
+  enabled: true
+  model: "gemini/gemini-2.0-flash"
+  base_url: ""
+  api_key: ""
+  temperature: 0.1
+  timeout: 30

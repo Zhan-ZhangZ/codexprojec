@@ -1,0 +1,1329 @@
+# Deployment Verification
+
+**Purpose:** Define the minimum verification required before treating hosted deployment as current.
+**Status:** Active baseline
+**Owner:** Arihant Kaul
+**Related Documents:** [README.md](README.md), [INCIDENT-RESPONSE.md](INCIDENT-RESPONSE.md), [../../github-app/README.md](../../github-app/README.md)
+**Last Updated:** 2026-10-09
+**Snapshot Freshness:** CURRENT as of 2026-10-09 - the scan workers, `health-worker` and `scheduler` run
+`master` at commit `9cf6f24e` (tag `github-app-deploy-2026-10-09-5`); `app-server` and `jina-embed` still run
+`e3182a9f` from the 2026-10-08 deploy below, because nothing under `github-app/app_server/` or
+`github-app/jina_embed/` changed after it, so a rebuild would have produced the same code. Re-verified live
+via SSH after each step. No migration, no Dockerfile or compose change, no lockfile change in any of these.
+
+Five worker-only deploys on 2026-10-09, each built from `master` and rolled one container at a time, waiting
+for that worker to be idle first so no running job was killed:
+
+1. `b3fc4796` (#991), tag `github-app-deploy-2026-10-09`: the managed-audit string-evidence path wrote
+   `air.toon` before `air.json`, so `ensure_air_toon` could rebuild the real evidence from the placeholder
+   JSON right before the LLM read it (a timestamp race, now pinned by a job-level test), plus `find_secrets`
+   with a relative repository path. Also brought the version string to 0.9.23.
+2. `b5292bb1` (#995), tag `github-app-deploy-2026-10-09-2`: an unused import in `cli.py`. No behaviour change.
+3. `8ef4e232` (#998), tag `github-app-deploy-2026-10-09-3`: a parse worker killed outright (OOM-killer,
+   SIGKILL, segfault) no longer aborts the scan. Finished results are kept, the unfinished files are retried in
+   a fresh pool with half the workers, and if a single worker still dies the secret and error-handling stages
+   fail with an error rather than reporting files that were never scanned as clean (they cache per file, so an invented
+   "no findings" would have been remembered). `health-worker` and `scheduler` were rolled onto this build too,
+   so no service runs older `scan_worker` or `aletheore` code than the workers do; their previous images
+   predated all three changes.
+4. `e79f3c73` (#1002), tag `github-app-deploy-2026-10-09-4`: `history_depth_limited` was derived from the cap
+   the current call asked for, so a later call with a different cap reported a capped graph as complete; it now
+   compares the commits the persisted graph holds with the repository's total (reproduced and checked on a
+   1,559-commit repository, including merge commits and a bot author). The in-memory file-hash cache is now
+   bounded (200,000 entries, oldest evicted first) and survives a concurrent eviction. The scan workers,
+   `health-worker` and `scheduler` were all rolled; the changes live in the `aletheore` package they all
+   install. Brought `aletheore.__version__` to 0.9.24 in the running containers (the version string of the
+   release published earlier that day).
+5. `9cf6f24e` (#1007), tag `github-app-deploy-2026-10-09-5`: the published wheel and the worker image left out
+   the semgrep rules and the Joern query, and `check_semgrep` passed the missing rules folder to semgrep, so
+   semgrep always exited with an error and was reported as "did not run". The files are now packaged (a test
+   fails if any data file is missing from the package-data list) and a missing folder no longer fails the run.
+   Hosted behaviour is deliberately unchanged: semgrep measured about 270 seconds on a large repository with a
+   timeout that scales to 30 minutes, so the worker sets `ALETHEORE_DISABLE_SEMGREP=1` and a hosted scan now
+   reports "semgrep disabled" instead of an error. `ALETHEORE_HOSTED_ENABLE_SEMGREP` (`1`, `true`, `yes`, `on`)
+   opts in. The scan workers, `health-worker` and `scheduler` were rolled idle-first (no busy RQ worker at any
+   step). Released to PyPI the same day as 0.9.26; a clean-venv install of 0.9.26 contains the rules and the
+   Joern query.
+
+
+Verified live: `docker ps` shows exactly `github-app-scan-worker-1` and `github-app-scan-worker-2-1`, all six
+app services `healthy`; zero lines matching `error|traceback|exception` in the logs of every recreated
+container since its restart; `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`;
+and the new code is in the *running* containers, not just the checkout (after the fifth deploy, in all four
+recreated containers: `jobs.py` has `_hosted_semgrep_enabled`, it returns false by default, and `check_semgrep` returns
+"semgrep disabled" under `ALETHEORE_DISABLE_SEMGREP`; after the fourth deploy, in all four
+recreated containers: the file-hash cache is an `OrderedDict` capped at 200,000 and `prepare_git_analysis`
+compares the stored commit count with the total; earlier: `air.json` is written before
+`air.toon` in the workers' `jobs.py`, `find_secrets` resolves the path first, `cli.py` has no `import re`,
+`_map_in_pool_with_recovery` is present in `scanner/graph.py` and used by the secrets and error-handling
+stages in the workers, `health-worker` and `scheduler`).
+
+The server's `github-app/.env.bak-pre-sentry-<timestamp>` that the 2026-10-08 entry below says to delete was
+deleted on 2026-10-09 at the operator's request; the live `.env` (mode 600, with the Sentry settings) is
+unchanged. Changes in this window that do not run on the server and were not deployed here: CI and dev-tooling
+(#992, #994, #997) and the marketing site (#990, which deploys itself on merge).
+
+**Previous:** CURRENT as of 2026-10-08 - production was redeployed to `master` (commit
+`e3182a9f`, tagged `github-app-deploy-2026-10-08`) and re-verified live via SSH the same session.
+238 commits (70 merged PRs) since the previous deploy (`6e921475`, 2026-10-04). All six app services
+were rebuilt and recreated, including `jina-embed`, which had not been rebuilt since 2026-09-26.
+
+What changed in production, grouped (PR numbers are the merged ones; `git log 6e921475..e3182a9f`
+is the exact range):
+
+- **Money and billing:** AIRview's shared spend-reservation scalar leaked money across worker threads
+  (#917), the overnight audit's three bugs including a crash-leak sweep for held reservations (#918),
+  a Paddle paid-setup claim consumed even when setup failed (#947), affiliate creation orphaning a live
+  Paddle discount (#958), seat buy and remove idempotency (#975).
+- **Flash Review:** a transient GitHub error no longer aborts the whole review (#921), per-file findings
+  cap scales (#923), cache-hit findings get the cross-file re-check (#924), patch reconstruction no
+  longer fails open (#946), incremental reviews no longer post on merged-in code, falsely resolve
+  untouched findings, or review files outside the PR (#968, #971), and the shared-state semantic check
+  stopped firing on constructors and imports (#987).
+- **Webhooks and platform:** login no longer 500s during a GitHub outage (#945), `/aletheore audit` and
+  `/dismiss` inside a code block no longer fire (#949, #980), org-wide install no longer blocks the event
+  loop (#948) and retries a failed repo enumeration (#974), check-run idempotency and rate-limit backoff
+  (#976), embedding provider switch and embeddings-token usage fixes (#953, #954).
+- **Scanners (the code the workers run):** CVE scanning now sees nested npm lockfile dependencies, legacy
+  lockfile v1, Maven property chains and Composer dev dependencies (#934, #938, #939, #940); git
+  analysis fixes for rewritten history, deleted files, shallow clones and renames (#937, #950, #951,
+  #977); and the large-repo scan performance work (#985), which also adds the per-file cache and the
+  default 50k and 20k history caps to local scans (hosted already used them).
+- **Security and infrastructure:** PMD 7.28.0 closes CVE-2026-75140 (jsoup) in the scan-worker image
+  (#964), semgrep now lives in its own venv with a patched protobuf (#962), plus the Dependabot bumps
+  that merged in the window.
+- **Observability:** Sentry error tracking across `app_server`, `scan_worker` and `jina_embed` (#961), with
+  a fix so a logged exception that also alerts is reported once, not twice (#978).
+
+One new migration, `072_llm_spend_reservations.sql` (additive and idempotent: `CREATE TABLE IF NOT
+EXISTS` plus an index), which the new reservation sweep job needs. Order of operations, chosen for that
+dependency: a fresh Postgres backup first (`backups/aletheore_app_2026-10-08T18-32-15Z.dump`, taken with
+`scripts/backup-postgres.sh`), `git reset --hard origin/master`, build all six images (exit 0, no errors),
+then `app-server` alone first so the migration was applied before any worker ran the new code, then the
+two scan workers, `health-worker`, `scheduler` and `jina-embed`, using `up -d --no-deps` and no `--scale`.
+
+Verified live the same session: `docker ps` shows exactly `github-app-scan-worker-1` and
+`github-app-scan-worker-2-1`, with `app-server`, both workers, `health-worker`, `scheduler` and
+`jina-embed` all `healthy` within about 25 seconds of recreation; zero lines matching
+`error|traceback|exception` in any of the six services' logs since restart; `/healthz` returns
+`200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`; `schema_migrations` shows `072` as the newest row and
+`to_regclass('public.llm_spend_reservations')` resolves; and the new code is in the *running* containers,
+not just the checkout (`reviewed_scope` in `scan_worker/jobs.py` x12, `_callable_handed_to_concurrency`
+in `semantic_checks.py`, `already_captured` in `error_alerts.py`, `webhooks/comment_commands.py`
+present, `aletheore.git_intel.history_meta`, `file_cache` and `sentry_reporting` import cleanly,
+semgrep 1.179.0 and PMD 7.28.0 on `PATH`).
+
+**Sentry is live.** `SENTRY_DSN` and `SENTRY_ENVIRONMENT=production` were added to the server's
+`github-app/.env` (the backend project, separate from the CLI's own project) before the services were
+recreated, so one restart picked them up; `jina-embed` receives them through compose interpolation of the
+same file. All six containers have `SENTRY_DSN` set. A logged test exception from inside the running
+`app-server` container (`init_sentry("deploy-smoke")`, SDK active, environment `production`,
+`send_default_pii` false) and a direct ingest request from the same container (HTTP 200) confirm the
+path to Sentry works from production. The server keeps `github-app/.env.bak-pre-sentry-<timestamp>`
+(mode 600, the file as it was before this edit); delete it when it is no longer needed, since it holds
+secrets. Rollback is `git reset --hard 6e921475`, rebuild and recreate; migration `072` is additive
+and needs no undo.
+
+Not re-verified this pass (no relevant Dockerfile or host changes beyond the scan-worker tool
+versions above): Docker socket mount absence, non-root users, CPU and memory limits, backup cron
+execution, base-image digest pinning, restore-drill target availability.
+
+**Previous:** CURRENT as of 2026-10-04 - production was redeployed to `master` (commit
+`6e921475`, tagged `github-app-deploy-2026-10-04`) and re-verified live via SSH the same session.
+This file's own tracking had drifted from reality before this deploy: the previous header entry
+below (tag `github-app-deploy-2026-09-30-2`, commit `f11d1bbe`) was stale, and the "Current Server
+Snapshot" section further down (dated 2026-10-02, commit `efa1f0e`) was also stale - direct SSH
+inspection found the server actually running commit `55233d34` (#906), several commits past both
+recorded snapshots, with no record of when or how it got there. Treat the header above, not either
+of those two sections, as authoritative going forward; both are left below for history rather than
+corrected, since reconstructing the untracked deploy(s) between them isn't possible from this
+session.
+
+18 commits since the actual previous commit (`55233d34`): five merged PRs plus one pre-existing
+fix already on master. **#913** - migrates AIRview, Docs, managed audits, and endpoint-health fix
+suggestions to IndieRouter (`deepseek-v4.1-flash` / `glm-5.3-flash`) as primary, with unchanged
+fallback to the previous direct providers; live-verified end to end against real IndieRouter
+credits for all four surfaces before merge (AIRview: a real module wrapped in one synthetic
+cluster, since this repo's evidence has no computed clusters yet, produced a correct, cited
+subsystem description for $0.0019; Docs: all 5 real undocumented functions in
+`audit_signing.py` got correct descriptions for $0.0004; managed audits and health-fix suggestions
+verified in earlier sessions). **#909** - bounds the audit's evidence reads (a single read could
+return ~1M characters, driving one audit to 4.5-4.9M input tokens and real OpenAI rate-limit
+failures); now pages or outlines anything over 30,000 chars, measured 5-10x cost reduction on this
+repo. **#911** - adds `repository.error_handling` evidence (raise/catch sites per language) and an
+AIRview paragraph on it, measured +0.61 overall vs the +0.59 baseline on a 12-question judged
+corpus. **#912** - six real bugs from a backward audit of PRs since the last sweep (a rename-aware
+diff never wired in, a Paddle webhook TTL gap, an affiliate-commission proration bug, AIR/Flash
+page-gating, a stale "Tests" subsystem cache, an overly-narrow Bandit regex). **#910** - removes
+the already-disabled second-model verification path (dead code, no behavior change in production).
+One new migration (`071_affiliate_commission_partial_reversal.sql`, additive and idempotent -
+`ADD COLUMN IF NOT EXISTS`, a backfill `UPDATE` that is a no-op on rows it's already run against,
+`CREATE TABLE IF NOT EXISTS`). All five app-relevant services (`app-server`, `scan-worker`,
+`scan-worker-2`, `health-worker`, `scheduler`) rebuilt and force-recreated; all five `Up` and
+Docker-healthcheck `healthy` within ~15 seconds of recreation. Zero errors, tracebacks, or
+exceptions in any of the five services' logs in the 3 minutes since restart. Migration confirmed
+applied in Postgres, not just logged: `schema_migrations` shows `071_affiliate_commission_partial_
+reversal.sql` as the newest row, and `\d affiliate_commissions` shows the real `charged_total_minor`
+and `reversed_usd` columns. `/healthz` returns `200 {"status":"ok","checks":{"database":"ok",
+"redis":"ok"}}`. Every PR's own fix confirmed present in the *running* `scan-worker` container's
+actual source, not re-read from the repo: `model_tiers.INDIEROUTER_DEEPSEEK_MODEL ==
+"deepseek-v4.1-flash"`, `writing_adapter_for_docs`/`writing_adapter_for_health_fix_suggestion`
+importable, `verification_adapter` gone; `aletheore.evidence_view.MAX_SECTION_CHARS == 30000`;
+`aletheore.error_handling` importable. The privacy-policy wording fix (#913's own follow-up,
+"three of them are not evidence") deploys independently via Vercel and was separately confirmed
+live at `www.aletheore.com/privacy` - not part of this docker stack. Not re-verified this pass (no
+relevant Dockerfile/host changes): Docker socket mount absence, non-root users, CPU/mem limits,
+backup cron execution, base-image digest pinning, restore-drill target availability, disk space.
+
+**Previous:** CURRENT as of 2026-09-30 (second deploy) - production was redeployed to
+`master` (commit `f11d1bbe`, tagged `github-app-deploy-2026-09-30-2`) and re-verified live via SSH
+the same session. 1 commit since the previous deploy tag (`github-app-deploy-2026-09-30`): #881, a
+Mermaid dependency-graph diagram (changed files -> their direct dependents, GitHub-native
+rendering, no image generation or hosting needed) added to the PR evidence-diff comment, right
+before the existing text "What changed" file overview - the diagram gives the shape, the text
+gives the exact detail. Built entirely from data already computed today
+(`blast_radius_summary.compute_blast_radius`'s already-deterministic direct-dependent data, the
+diff's already-computed `static_analysis["new"]` to mark a changed file with a new finding
+distinctly) - no new computation or failure mode, fails open like the file-overview section it
+sits alongside. One real Flash Review finding on the PR itself, fixed before merge: a bare
+basename (e.g. `utils.py`) couldn't distinguish `src/utils.py` from `tests/utils.py`, so colliding
+nodes would render identically-labeled with no way to tell them apart - fixed to fall back to the
+full path only for paths whose basename collides with another node in the same diagram, verified
+via a new RED-then-GREEN test reproducing the exact collision. No migrations; no lockfile changes.
+All five app-relevant services (`app-server`, `scan-worker`, `scan-worker-2`, `health-worker`,
+`scheduler`) rebuilt and force-recreated - `src/aletheore` and `scan_worker/jobs.py` both changed;
+`jina-embed` untouched (no lockfile change of its own). All five `Up`, all five reporting
+Docker-healthcheck `healthy` within ~25 seconds of recreation. Zero errors, tracebacks, or
+exceptions in any of the five services' logs in the 30 seconds since restart. `/healthz` returns
+`200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`. The fix (including the basename-
+collision disambiguation) confirmed present in the *running* `scan-worker` container's actual
+source, not re-read from the repo: `blast_radius_summary.build_change_diagram` importable, its
+source contains `basename_counts` (the collision-disambiguation fix) and the Mermaid fence marker.
+
+**Previous:** CURRENT as of 2026-09-30 (first deploy) - production was redeployed to `master`
+(commit `9be2a34`, tagged `github-app-deploy-2026-09-30`) and re-verified live via SSH the same
+session. 4 commits since the previous deploy tag (`github-app-deploy-2026-09-29`): #874 (fixes a self-
+referenced delegate in a C# file being counted against its own type-reference edge cap, crowding
+out real cross-file edges - the same bug independently found in two different code shapes,
+`src/aletheore/scanner/graph.py`), #878 and #879 (identical fix in two places -
+`search_index._is_test_path` and `dead_code.py`'s own test-path check - both missed PHP/Swift/Scala
+co-located test-file naming, e.g. `BarTest.php`, `BarTests.swift`, having only ever been extended
+for the JVM shape), and #877 (AIRview now synthesizes a dedicated "Tests" subsystem instead of just
+ranking-demoting individual test files 0.15x, so "how is this codebase tested" questions have a
+subsystem-shaped answer to retrieve - closes the one real, measured quality gap found via a
+36-question blind benchmark against RepoWise; live-verified for real after merge, not just
+unit-tested: Testing-category delta flipped from -1.778 to +1.222 on Flask, and a second,
+internal old-vs-new check on automapper (C#, 82% test files) showed +1.111, confirming the fix
+generalizes across languages, not just architecturally but empirically - see
+`~/.aletheore-bench/airview-tests-subsystem-verification-2026-09-30/` for the full writeup). No
+migrations; the only lockfile change was an already-merged, unrelated pyjwt bump
+(2.14.0 -> 2.15.0, #862). All five app-relevant services (`app-server`, `scan-worker`, `scan-worker-2`,
+`health-worker`, `scheduler`) rebuilt and force-recreated - `src/aletheore` changed (pip-installed
+by all five) and `scan_worker/live_wiki.py` changed directly (#877); `jina-embed` untouched (no
+lockfile change of its own). All five `Up`, all five reporting Docker-healthcheck `healthy` within
+~34 seconds of recreation. Zero errors, tracebacks, or exceptions in any of the five services' logs
+in the 60 seconds since restart. `/healthz` returns `200 {"status":"ok","checks":{"database":"ok",
+"redis":"ok"}}`. All four fixes confirmed present in the *running* `scan-worker` container's actual
+source, not re-read from the repo: `live_wiki.TESTS_SUBSYSTEM_ID == -1`,
+`live_wiki.TESTS_SUBSYSTEM_NAME == "Tests"`, and `_build_tests_subsystem_brief` importable (#877);
+`search_index._COLOCATED_TEST_SUFFIX_RE.pattern` includes `php|swift|scala` (#878); `dead_code.py`'s
+source contains the same `php|swift|scala` pattern (#879); `graph.py`'s source shows
+`own_type_names = set(_csharp_declared_type_names(...))` (#874).
+
+**Previous:** CURRENT as of 2026-09-29 - production was redeployed to `master` (commit
+`8288446`, tagged `github-app-deploy-2026-09-29`) and re-verified live via SSH the same session. 1
+commit since the previous deploy tag (`github-app-deploy-2026-09-28-2`): #859, a real fix to
+Aletheore's own hosted Deterministic Scan (Bandit's B608 SQL-injection rule) - its SQL-shape regex
+paired an `update` keyword with a `set` keyword using an unbounded `.*` under `re.DOTALL`, so it
+matched across arbitrary distance in a file; reproduced live against the real `bandit` binary,
+where it paired the word "update" in a code comment with the JS identifier `nodeSet` roughly 5,700
+characters later in `frontend.py`'s `WIKI_HTML` - a large f-string with no SQL involved anywhere in
+that module, and the exact false positive that had been repeatedly flagging PR #858. Fix: a new
+`_sql_injection_is_plausible()` AST re-check on B608 findings only, requiring a SQL-shaped keyword
+pair within 300 characters or the string being passed directly to a real `execute()`/`executemany()`
+call; fails open (keeps the finding) on anything it can't parse or recognize, so it never silently
+hides a real vulnerability of a shape it wasn't built to catch. Independently re-verified before
+merging, not just trusted: read the actual new function and its regex, confirmed the bounded
+`.{0,300}?` replaced the unbounded original, confirmed it's wired into `check_bandit`'s filtering,
+and confirmed the two Deterministic-Scan findings still showing on this PR's own diff
+(`bandit_scanner.py`'s pre-existing `import subprocess` and `subprocess.run(cmd, ...)` call to
+invoke the real `bandit` binary) are untouched-by-this-diff code, the same "whole file gets
+rescanned" pattern already seen elsewhere, not new issues. One CI failure
+(`pytest-macos (3.12)`, unrelated `test_aletheore_search_regex_mode`) confirmed flaky, not caused by
+this change - the sibling `pytest-macos (3.14)` job in the same run passed, and the retry passed
+clean. No migrations. All five app-relevant services rebuilt and force-recreated (`app-server`,
+`scan-worker`, `scan-worker-2`, `health-worker`, `scheduler` - the only file changed,
+`src/aletheore/static_analysis/bandit_scanner.py`, is pip-installed by all five); confirmed healthy
+via `docker compose ps` (`Up`, `healthy` within ~13s of recreation), zero errors in logs in the 30s
+since restart, `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`, and
+the fix confirmed present in the *running* `scan-worker` container's actual source via
+`inspect.getsource(aletheore.static_analysis.bandit_scanner)` - not re-read from the repo:
+`_sql_injection_is_plausible` present, the bounded `{0,300}` regex present, wired into `check_bandit`.
+
+**Previous:** CURRENT as of 2026-09-28 (second deploy) - production was redeployed to
+`master` (commit `e159e6b`, tagged `github-app-deploy-2026-09-28-2`) and re-verified live via SSH
+the same session. 3 commits since the previous deploy tag (`github-app-deploy-2026-09-28`): #871
+(a real thread-join race in `test_postgres_graph_store.py` that could leak a straggler thread's DB
+write into a later test's already-truncated `installations` table - test-only, no runtime impact)
+and #860 (this doc, no-op for running services) - only #861 had real runtime impact:
+`/dashboard`'s repo picker empty state (no installation, or one still on the free plan) now shows
+real "Install the Aletheore GitHub App" and "Subscribe to AIR" buttons instead of explanatory text
+with nothing clickable. No migrations. `app-server` alone rebuilt and force-recreated (the only
+image #861's `frontend.py` change touches; #871/#860 have no runtime code); confirmed healthy via
+`docker compose ps` (`Up`, `healthy` within ~13s of recreation), zero errors in its logs in the 30s
+since restart, `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`,
+and the fix confirmed present in the *running* container's actual source via
+`inspect.getsource(app_server.frontend)` - not re-read from the repo: both CTA strings present, the
+install URL wrapped in `escape()`, and `_picker_html` carrying a real `lru_cache`.
+
+**Correction to the entry directly below:** its tag `github-app-deploy-2026-09-28` was originally
+created pointing at `06a7eb6` (#858 merged, before #857 had) instead of the commit actually
+fast-forwarded to and built on the server (`5385ea8`, which includes #857) - caught while scoping
+this second deploy's own diff (scan_worker files spuriously appeared as "changed since last
+deploy" until this was found and fixed). The tag has been deleted and recreated at the correct
+`5385ea8`; the prose below was already accurate, only the git tag object was wrong.
+
+**Previous:** CURRENT as of 2026-09-28 (first deploy) - production was redeployed to `master` (commit
+`5385ea8`, tagged `github-app-deploy-2026-09-28`) and re-verified live via SSH the same session. 45
+commits since the previous deploy tag (`github-app-deploy-2026-09-26-2`), no migrations. Two real
+fixes of note, both independently re-verified before this deploy, not just trusted at merge time:
+
+- **#858 (P0 security fix)**: a live-reported cross-account access bug - a user with no real access
+  to the founder's private repos, qualified only via GitHub's coarse `/user/installations` set (read
+  access to a single repo an installation covers, including a public one, is enough), saw the
+  founder's private repo list on `/app/repos` and the founder's account as their own checkout target
+  on `/subscribe`. Traced to root cause via direct code reading, not guessed: the coarse set was
+  trusted directly by 6 endpoints (confirmed live against two real accounts), plus 4 more found
+  auditing every other call site of the same pattern - the worst being `/v1/cli-tokens`, which could
+  mint a real, usable API credential against someone else's installation, and
+  `/admin/{org}/{repo}/delete-all-data`, real full data erasure. Fixed with two shared helpers
+  (`_is_real_installation_member_or_admin`, `_require_real_admin_or_member`) requiring either seated
+  membership or real per-repo GitHub admin permission, verified against GitHub directly when
+  Aletheore has no scan history yet. A same-PR follow-up closed one more gap the same audit style
+  found: `_require_dashboard_installation` only ran its real check `if installation is not None`,
+  silently succeeding on the coarse set alone otherwise (repo_history's `ON DELETE CASCADE` FK means
+  a completed delete can't produce this state, but a delete racing the request could) - fixed to 404.
+  Every fix has its own regression test (including a mutation test on the most severe one, and a
+  concurrency test proving the parallelization fix is real, not just refactored); full suite green
+  (2229 passed, 8 skipped) before merge.
+- **#854**: `packet_cache`'s cache key collided across unrelated subsystems reading the same
+  underlying evidence packet.
+- **#857**: the PR evidence-diff comment gets a real per-file "what changed" section (blast-radius
+  summary + a computed, not LLM-guessed, file-change list).
+- Also included: Flash Review rank+severity surfaced on the PR comment (#843), the `aletheore mcp`
+  background evidence watcher (#841), Python 3.13/3.14 support (#840), and the routine
+  release/site-data bumps in between (#838-842).
+- All five app-relevant services rebuilt and force-recreated (`app-server` for the security fix;
+  `scan-worker`, `scan-worker-2`, `health-worker`, `scheduler` share the `scan-worker` image, which
+  changed for `packet_cache.py` and the `pr_comment`/`jobs.py` changes) - `jina-embed` left untouched
+  (no lockfile change).
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~52 seconds
+  of recreation. Zero errors, tracebacks, or exceptions in any of the five rebuilt services' logs in
+  the 10 minutes since restart (grepped, not eyeballed).
+- No pending migrations - confirmed via `git diff --stat` against the previous deploy tag showing no
+  new files under `github-app/migrations/`.
+- Post-deploy, verified live by executing directly inside the running containers, not by re-reading
+  the repo: inside `app-server` - `inspect.getsource(app_server.admin)` contains
+  `_verify_installation_ids` and the single-page (`per_page": 1`) fix to
+  `_fetch_any_covered_repo_sync`; `inspect.getsource(app_server.dashboard)` contains the
+  `if installation is None:` / `"no such repo"` fail-closed fix. Inside `scan-worker` -
+  `inspect.getsource(scan_worker.packet_cache)` references subsystem-scoping; `aletheore.pr_comment`
+  contains the new overview/file-changes content.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- Deploy required an admin override past a repo-wide GitHub ruleset (`code_quality`, zero open
+  error-severity code-scanning alerts) blocking all merges to `master` - unrelated to this PR, driven
+  by long-standing Scorecard findings and two pre-existing CodeQL alerts neither #858 nor #857
+  touches. Worth a real look separately; not addressed in this deploy.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+**Previous:** CURRENT as of 2026-09-26 - production was redeployed to `master` (commit
+`3c09867`, tagged `github-app-deploy-2026-09-26`) and re-verified live via SSH the same session. Only
+PR #828 since the previous tag (`github-app-deploy-2026-09-25-7`), no migrations. `app-server`,
+`scan-worker`, `scan-worker-2`, `health-worker` and `scheduler` rebuilt and force-recreated
+(`jina-embed` untouched); all `healthy`, zero errors in the logs after restart, `/healthz` and the
+public status API returning 200, and `reservation_state` (the Flash Review double-release fix)
+confirmed present by grepping `scan_worker/jobs.py` inside the running `scan-worker` container.
+Credit accounting was checked against the ledger after the deploy: the Aletheore install's balance
+drop (about $0.06 since it was restored to $18.00) matched its `llm_spend_events`, and the other
+paid install was unchanged. Six earlier deploys on 2026-09-25 (tags `-2` to `-7`: dashboard
+restructure, sidebar scroll, real logo and favicon, sign-in, and the credit leak fix) are written up
+in `github-app/CHANGELOG.md`; the evidence schema moved to 0.7.0 in `-3`.
+
+**Previous:** CURRENT as of 2026-09-25 (first deploy) - production was redeployed to `master` (commit
+`1d4da1f`, tagged `github-app-deploy-2026-09-25`) and re-verified live via SSH the same session.
+69 commits since the previous deploy tag (`github-app-deploy-2026-09-23-5`), 1 migration (069,
+`flash_review_history`, confirmed applied) - see `github-app/CHANGELOG.md` for the full writeup.
+`app-server`, `scan-worker`, `scan-worker-2`, `health-worker`, and `scheduler` rebuilt and
+force-recreated (`jina-embed` untouched); all `healthy`, zero errors in any of the five services'
+logs since restart, `/healthz` and the public status API returning 200. Fixes confirmed present in
+the *running* containers' source by grepping the files inside them (not re-read from the repo):
+`_recent_failed_job_count` and `insert_review_history` in `scan_worker/jobs.py`, `ON CONFLICT DO
+NOTHING` in `scan_worker/code_graph_store.py`, `ClientDisconnect` in `app_server/main.py`,
+`WEBHOOK_5XX_WINDOW_SECONDS = 300` in `app_server/redis_client.py`, and the new
+`blast_radius_summary.py`. The new failed-jobs alert logic was confirmed live: `ops_monitor` ran
+three times after the restart and left no `failed_jobs` first-seen key in Redis, so the 26 old
+failed scans no longer count. The 26 old failed-job records were exported to a local backup and are
+still in the registry (their removal was not run).
+
+**Previous:** CURRENT as of 2026-09-23 (third deploy) - production was redeployed to
+`master` (commit `1618369`, tagged `github-app-deploy-2026-09-23-3`) and re-verified live via SSH
+the same session. 3 commits since the previous deploy tag (`github-app-deploy-2026-09-23-2`), no
+migrations - see `github-app/CHANGELOG.md` for the full writeup. Two real production bugs, both
+found live investigating this session's own earlier deploy, plus one docs-only PR:
+`_post_flash_review_finding_comments` (#775) reported `len(findings_to_post)` in its summary
+comment - what was *attempted* - instead of what actually landed, overclaiming when GitHub's
+diff-position validation 422s a citation (caught live on PR #764: summary said 4 posted, only 3
+inline comments existed); and the shallow `git fetch --depth 1` this session's earlier deploy
+(`github-app-deploy-2026-09-23-2`) introduced for ephemeral checkouts (#774) turned out to be
+unsafe for every one of its callers (#776) - `_run_scan` always walks full git history
+(`find_secrets_in_history`, `analyze_git`), so a depth-1 base-commit checkout silently collapsed
+that history to one commit, making the PR-scan evidence-diff comment report the checkout's entire
+real history as newly introduced (caught live on PR #775: reported 1241 commits' worth of secrets
+as new). Fixed by fetching each ref's full ancestry instead - still a smaller transfer than the
+original `git clone --no-checkout` (which pulled every branch and tag), just not shallow.
+`app-server`, `scan-worker`, `scan-worker-2`, `health-worker`, and `scheduler` all rebuilt and
+force-recreated (both fixes touch `scan_worker/jobs.py`, shared by all five); confirmed healthy
+via `docker compose ps` (all `healthy`), zero errors in any of the five services' logs since
+restart, and both fixes confirmed present in the *running* `scan-worker` container's actual source
+via `inspect.getsource` and direct inspection of the real `git fetch` subprocess call arguments
+(no `--depth` flag; the string appears only in the function's own docstring explaining the bug it
+replaced) - not re-read from the repo, and not fooled by a naive substring match against the
+docstring.
+
+**Previous:** CURRENT as of 2026-09-21 - production was redeployed to `master` (commit
+`d832130`, tagged `github-app-deploy-2026-09-21`) and re-verified live via SSH the same session.
+2 commits since the previous deploy tag (`github-app-deploy-2026-09-19-2`), no migrations - see
+`github-app/CHANGELOG.md`'s "2026-09-21" entry for the full writeup. One real production
+incident, caught live (an alert email roughly every 3 minutes for 12+ hours) and fixed the same
+session: `error_alerts.py`'s alert-cooldown was a process-local dict that never actually survived
+`scan_worker.worker`'s fork-per-job RQ `Worker`, so `run_health_sweep_staleness_check_job` (and
+any other direct `send_error_alert` caller) re-alerted on every ~180s tick instead of respecting
+its intended 6-hour cooldown - moved to a Redis key with a TTL, atomic across every forked job
+process and both `scan-worker` replicas. `app-server`, `scan-worker`, `scan-worker-2`,
+`health-worker`, and `scheduler` all rebuilt and force-recreated (the fix touches
+`app_server/error_alerts.py` and `app_server/main.py`, both imported by every one of them);
+confirmed healthy via `docker compose ps` (all `healthy`), zero errors in any of the five
+services' logs since restart, and the fix confirmed present in the *running* `scan-worker`
+container's actual source via `inspect.getsource` (asserted `_ALERT_COOLDOWN_KEY_PREFIX` and
+`get_redis_client` present, `_last_alert_at` gone) - not re-read from the repo.
+
+**Previous:** CURRENT as of 2026-09-13 (second deploy) - production was redeployed to
+`master` (commit `47ee0ab`, tagged `github-app-deploy-2026-09-13-2`) and re-verified live via SSH
+the same session. 6 commits since the first 2026-09-13 deploy tag (`github-app-deploy-2026-09-13`),
+no migrations - see `github-app/CHANGELOG.md`'s "2026-09-13 (second deploy)" entry for the full
+writeup. Two substantive changes: Flash Review suggestions now render as real, one-click GitHub
+"Suggested change" blocks (#707) behind a mechanical safety gate (exact single-line match,
+deterministic re-indentation, no-op/similarity rejection, tree-sitter parse confirmation) plus a
+second, adversarially-framed `deepseek-v4-flash` call judging the suggestion's semantic
+correctness before it's ever rendered clickable - runs on Flash and AIR, explicitly excluded for
+free tier via a new `verify_suggestions` flag to avoid silently breaking an existing "never called
+for free tier" cost-accounting assumption; the aletheore MCP server's instructions now ask
+connecting agents to file a GitHub issue on a genuine tool-side gap instead of silently working
+around it (#708). All six services rebuilt and force-recreated; confirmed healthy via
+`docker compose ps` (all `healthy`) and `no pending migrations`/zero errors in `app-server`'s logs
+since restart, and both fixes confirmed present in the *running* containers' actual source via
+`inspect.getsource` - not re-read from the repo: `scan-worker` shows
+`SUGGESTION_CORRECTNESS_SYSTEM_PROMPT` and a `verify_suggestions` parameter on `review_diff`;
+`app-server` shows the real `github.com/Aletheore/Aletheore/issues` URL in `SERVER_INSTRUCTIONS`.
+The website's own copy fix (#706) deploys independently via Vercel and was separately confirmed
+live at `www.aletheore.com` - not part of this docker stack.
+
+**Previous:** CURRENT as of 2026-09-13 (first deploy) - production was redeployed to `master`
+(commit `4a5d808`, tagged `github-app-deploy-2026-09-13`) and re-verified live via SSH the same
+session. 8 commits since the previous deploy tag (`github-app-deploy-2026-09-11`), no migrations -
+see `github-app/CHANGELOG.md`'s 2026-09-13 entry for the full per-fix writeup covering PRs 688,
+689, 690, 692, 695, 700, 701, and 702. Highlights: a real cross-scan-worker-replica race in the
+git graph store closed with a Postgres advisory lock (#690); a GitHub OAuth quirk (200 status with
+an error body) that surfaced as an unhandled 500 on code exchange, mirroring a fix the
+refresh-token path already had (#692); the entire unused GitHub Marketplace webhook path removed
+after confirming live on GitHub that no listing has ever existed for this App (#702). All six
+services rebuilt and force-recreated (`app-server`; the shared `scan-worker` image backing
+`scan-worker`/`scan-worker-2`/`health-worker`/`scheduler`; `jina-embed`); confirmed healthy via
+`docker ps` and `/healthz` (both the container-internal check and the public
+`app.aletheore.com` endpoint), zero errors in `app-server`'s logs since restart, and each of the
+eight fixes confirmed present in the running containers' actual source via `inspect.getsource` -
+not re-read from the repo - checking a marker specific to each (see the CHANGELOG entry for the
+exact list).
+
+**Previous:** CURRENT as of 2026-09-11 - production was redeployed to `master` (commit `6451c41`,
+tagged `github-app-deploy-2026-09-11`) and re-verified live via SSH the same session. 4 commits
+since the previous deploy tag (`github-app-deploy-2026-09-10-3`), all real credit/billing and
+AIRview-caching bug fixes, no migrations: an out-of-order Paddle webhook could reset a newer
+billing period's credit back to a stale allotment (#656); Flash Review's own true-up path never
+drained the balance to zero on an insufficient-overage reservation failure (#657); cancelling an
+annual AIR subscription never disarmed its synthetic monthly credit-reset clock, so a cancelled
+installation could still get a free monthly top-up (#658); AIRview's single-target write path
+never cached its own output, so the wiki page it had just built was recomputed on the very next
+request that should have hit cache (#659). Both Docker images changed (`app-server` for #656/#658,
+the shared `scan-worker` image for #657/#659, which also backs `scan-worker-2`/`health-worker`/
+`scheduler`), so all five services were rebuilt and force-recreated; confirmed healthy, all four
+fixes present in the running containers' actual source (`inspect.getsource` checked for markers
+specific to each fix - "out-of-order"/"stale"/"disarm" in `app_server.db`, "overage" in
+`scan_worker.jobs` - not re-read from the repo), zero errors in logs, the pre-existing scheduled
+jobs (`run_monthly_credit_reset_sweep_job`, `run_ops_monitor_job`) still running cleanly on the
+recreated `scan-worker`.
+
+**Previous:** CURRENT as of 2026-09-10 (third deploy) - production's `app-server` was redeployed
+to `master` (commit `428e8fd`, tagged `github-app-deploy-2026-09-10-3`) and re-verified live via
+SSH the same session. Single-file fix (#654): PR #651's `align-items: start` fix for the
+settings-page column gap was a visual no-op (that property only repositions a shorter item within
+an already-tall grid row, it doesn't shrink the row) - the real fix moves "Managed audit content"
+into the left column instead of the right, the best 2-way height partition of the five settings
+cards, cutting the empty gap from ~400px to ~50px. `app-server` alone rebuilt and force-recreated;
+confirmed healthy, the fix present in the running container's actual source (`inspect.getsource`
+checked for the "Managed audit content sits in the LEFT column deliberately" comment, not re-read
+from the repo), zero errors in logs. The rest of this section (all five services, the migrations,
+the credit-balance schema) is unaffected and still accurate for everything except the `app-server`
+commit, which is now `428e8fd`.
+
+**Previous:** CURRENT as of 2026-09-10 (first deploy) - production was redeployed to `master`
+(commit `ee927c8`, tagged `github-app-deploy-2026-09-10`) and re-verified live via SSH the same
+session. 25 commits since the previous deploy tag (`github-app-deploy-2026-09-08-2`): the
+dollar-credit pricing launch (real per-installation LLM-spend balance replacing the flat cap, live
+Paddle top-up purchases, a new scheduled monthly-credit-reset job for annual AIR subscribers), a
+Flash Review prompt-caching fix, and an independent 10-PR hardening/feature batch. Full detail in
+`github-app/CHANGELOG.md`'s own 2026-09-10 entry - this section is the live-verification record,
+not a duplicate of the changelog.
+
+**Previous:** CURRENT as of 2026-09-08 (second deploy) - production was redeployed to `master` (commit `a6e2457`, tagged `github-app-deploy-2026-09-08-2`) and re-verified live via SSH the same day. 14 commits since the previous deploy tag (`github-app-deploy-2026-09-08`): a second, independent 10-PR hardening pass (a fresh adversarial audit round, disjoint from the first) plus one product removal. Real fixes in the audit batch: a Rails `reversible do |dir|` block's `dir.down` was read as forward-migration code (#593); Go/Rust/Java/C# compiled-language entry points always looked unreachable to dead-code detection (#594); the secret scanner missed `SECRET_KEY`/`*_TOKEN` assignments entirely (#595); a Flash Review hunk-scope correction fired a self-contradictory false positive on every Python class-header hunk (#596); Gin route groups silently dropped their `.Group()` prefix (#597); the repo's own license went undetected for Rust/PHP/Ruby/C#/Java (#598); a Maven `pom.xml` with no declared `xmlns` was invisible to vulnerability scanning (#599); JVM co-located test files (`FooTest.kt` beside `Foo.kt`) were invisible to test-path detection (#600); evidence resolution misattributed commits by whole-file recency and dropped risk findings on a package-name mismatch (#601); `aletheore_ast_pattern` ignored `.aletheore.json` exclusions and `mcp-install` could follow a symlink out of the repo (#603); a nested/nonstandard build-tool Dockerfile and Symfony's `.env.dist` convention were both invisible to detection (#602). Every one of these 10 PRs was independently reviewed before merge, not rubber-stamped: Flash Review's own inline findings were checked against the real diff, and 5 held up as genuine bugs the fix PRs hadn't fully closed - all fixed before merging, not shipped: the `dir.down` exclusion matched any receiver's `.down()` call, not just a real `reversible` block's (#593); three compiled-language entry-point regexes were simultaneously too loose (Rust matched a nested `fn main` inside `mod tests`) and too strict (Java's modifier order, C#'s cross-line static+Main) (#594); a gemspec license regex matched commented-out assignments (#598); Maven namespace-stripping removed every `{uri}` prefix, not just Maven's own, so a foreign-namespaced plugin config block could be parsed as real dependency metadata (#599); the Gin group-prefix binding table was keyed file-wide instead of per function scope, so two functions reusing the idiomatic "v1" group-variable name bled into each other's routes (#597). One finding (a claimed git-blame `^` boundary-commit marker in `--porcelain` output, #601) was checked against real git 2.52.0 behavior across both documented trigger cases and did not reproduce - dismissed with the evidence rather than fixed blind. **Product removal, with a real migration**: the public, unauthenticated "paste a repo" website demo was removed entirely (#605) - its own RQ worker, Docker-socket-holding sidecar, three Dockerfiles, docker-compose services, and website form, on the reasoning that the free CLI already covers what it offered and it was the only unauthenticated internet-facing attack surface in the system (this session's own audit had just found a real crash bug in it, #604, closed as superseded by the removal). Migration `061_drop_demo_scan_rate_limits.sql` drops the now-orphaned table (no FK references it, IP+timestamp rate-limit state only). Independently re-verified before merging, not just trusted: repo-wide grep for zero remaining references, the migration's safety, the CORS-narrowing change against `website/status.js`'s real cross-origin call, and both test suites run locally (1779/1779 `src`, 1742 passed + 8 skipped `github-app`, matching the PR's own claims exactly) - one real gap found and fixed before merge: the root `README.md`'s repository-layout line still described `website/` as carrying "the marketing site and live demo", missed by a literal demo-scan/demo-sandbox string search since it names neither.
+
+## Purpose
+
+This runbook prevents repository state from being confused with production state.
+
+## Required Checks
+
+Before claiming a hardening change is live, verify:
+
+- The server checkout path and remote.
+- The deployed branch and commit.
+- The working tree status.
+- Running Compose services.
+- Container startup commands.
+- App server, worker, scheduler, PostgreSQL, Redis, and Caddy health.
+- Absence of Docker socket mounts.
+- Non-root app and worker users.
+- CPU and memory limits for app server and scan worker.
+- Migration runner execution before app startup.
+- Backup script availability.
+- Restore drill target database availability.
+
+## Deploy Recipe
+
+The production host's address and login are deliberately not recorded in this public repo; the operator keeps them outside it, and example SSH commands in older docs use `$PROD_SSH` for them.
+
+Repo on the host: `/root/aletheore` (compose file in `github-app/`). `scan-worker` and
+`scan-worker-2` are two separate Compose services, each with its own image name, not one service
+scaled to two replicas. Roll them as separate services:
+
+```bash
+cd /root/aletheore && git fetch origin && git reset --hard origin/master && cd github-app
+docker compose build app-server scan-worker scan-worker-2 health-worker scheduler
+docker compose up -d --no-deps app-server scan-worker scan-worker-2 health-worker scheduler
+```
+
+Do not pass `--scale scan-worker=2`. The 2026-08-22 to 2026-08-24 snapshots below used it, and on
+2026-10-01 it created a third worker (`github-app-scan-worker-2`, a second replica of the
+`scan-worker` service) while the real `scan-worker-2` service kept running on its old image, so
+jobs could still be picked up by pre-deploy code. Building only `scan-worker` does not rebuild
+`scan-worker-2`: they have separate image tags even though they share a Dockerfile, so the
+second build is a fast cache hit but still has to be run. After any deploy, `docker ps` should
+list exactly `github-app-scan-worker-1` and `github-app-scan-worker-2-1`, both `healthy` and both
+recently started.
+
+## Current Server Snapshot
+
+As of 2026-10-02, following a redeploy to `master` (`git fetch`, `git reset --hard origin/master`,
+`docker compose build app-server scan-worker scan-worker-2 health-worker scheduler`, then
+`docker compose up -d --no-deps` for the same five services, no `--scale`), the operator read back:
+
+- Host: the production host, path `/root/aletheore`.
+- Commit: `efa1f0e` (#898), which includes #892 to #897. No migrations.
+- `docker ps`: `github-app-app-server-1`, `github-app-health-worker-1`, `github-app-scan-worker-1`,
+  `github-app-scan-worker-2-1` and `github-app-scheduler-1` all `healthy` and 28 seconds old;
+  `autoheal`, `caddy`, `jina-embed`, `postgres` and `redis` untouched. Exactly one replica of each
+  scan worker, as the recipe requires.
+- Verified live: inside `github-app-app-server-1`, `CREDIT_TOPUP_PRICE_ID` is
+  `pri_01m3xpabknvke00n5vsxn4wpe0` and `resolve_plan_for_price_id("pri_01m3xpabbam5t2gkzwzmg0y9eq")`
+  returns `flash`, so the new prices are in the running code; `https://app.aletheore.com/healthz`
+  returned `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- Not verified this pass: container logs, the `app-server` startup line, and every Required Checks
+  item that no change in this deploy touches.
+- Paddle: the old $8 Flash price (`pri_01m1dj0m1netz6ze1mmckz73nm`, zero subscribers in any state)
+  and the old $1.00 top-up price (`pri_01m23jw9qbsnm4zmv28bfebx4t`) are archived after this deploy
+  (read back from Paddle: both `archived`, the two new prices `active`). Only abandoned draft
+  checkouts from 2026-09-10 to 2026-09-27 referenced them.
+- Open follow-up: run a real $5 top-up and refund end to end, which has never been done with real
+  money.
+
+## 2026-10-01 Snapshot
+
+
+As of 2026-10-01, following a redeploy to `master` (`git fetch`, then `git reset --hard
+origin/master`, then `docker compose build app-server scan-worker health-worker scheduler`, then
+`docker compose up -d --no-deps --scale scan-worker=2` for those four, then a corrective
+`docker compose build scan-worker-2` and `docker compose up -d --no-deps --scale scan-worker=1
+scan-worker scan-worker-2`), a partial inspection found (host-side output was read back from the operator rather than run
+directly, and the pass covered less than the full Required Checks list; the gaps are the last
+bullet):
+
+- Host: the production host, path `/root/aletheore`.
+- Commit: `72ece8d` (#890), which includes #889. No migrations in either PR.
+- Changes live: the deterministic-scan hardening (#889: a scanner that silently failed or was
+  skipped now reports a neutral check instead of a false green, the new/resolved split follows
+  file renames, PMD's `CloseResource` rule is no longer blanket-silenced, `.repowise` is excluded,
+  and subprocess calls to `git` and the `aletheore` CLI resolve their full path first) and the
+  static-analysis dismissal wiring plus content-fingerprint identity (#890: a dismissed finding no
+  longer fails the check, and a finding whose line shifted is no longer reported as both new and
+  resolved).
+- First pass used the stale `--scale scan-worker=2` form: `scan-worker` and `scan-worker-2` ended up
+  as three containers, one of them (`github-app-scan-worker-2-1`) still on the old image. The
+  corrective command above rebuilt and recreated `scan-worker-2` and removed the extra replica.
+  Final `docker ps`: `github-app-scan-worker-1` and `github-app-scan-worker-2-1`, both `healthy`,
+  alongside `app-server`, `health-worker`, `scheduler` (all `healthy`), plus the untouched
+  `jina-embed`, `postgres`, `redis`, `caddy`, `autoheal`.
+- Verified live: `grep -c "_git_path" /app/scan_worker/jobs.py` inside `github-app-scan-worker-1`
+  returned 20 (the new code, not just the repo checkout); `docker logs --since 10m` on the same
+  container matched zero lines for `error|traceback`; the public `https://app.aletheore.com/healthz`
+  returned `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- Not re-verified this pass: working tree status, the `app-server` startup/migration log line, the
+  other containers' logs, and every item under Required Checks that no change in this deploy
+  touches (Docker socket mount absence, non-root users, CPU/memory limits, backup cron, base image
+  digest pinning, restore drill, disk space). `scan-worker-2-1` was not grep-checked for
+  `_git_path` directly; its image was built from the same cached layers as `scan-worker-1`'s.
+
+## 2026-09-11 Snapshot
+
+As of 2026-09-11, following a redeploy to `master` (`git fetch` + `git merge --ff-only
+origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker
+scheduler` + `docker compose up -d --no-deps --force-recreate` for those five - both images that
+changed, plus the three services that share the `scan-worker` image with the two that actually
+changed - no migrations, no lockfile changes), live inspection found:
+
+- Host: the production host.
+- Commit: `6451c41` (tag `github-app-deploy-2026-09-11`).
+- Working tree: clean aside from the expected untracked `backups/` directory.
+- 4 commits since the previous deploy tag (`github-app-deploy-2026-09-10-3`), all real bug fixes,
+  no migrations: an out-of-order Paddle webhook could reset a newer billing period's credit back
+  to a stale allotment (#656, `app_server/db.py`); Flash Review's own true-up path never drained
+  the balance to zero on an insufficient-overage reservation failure (#657, `scan_worker/jobs.py`);
+  cancelling an annual AIR subscription never disarmed its synthetic monthly credit-reset clock, so
+  a cancelled installation could still receive a free monthly top-up (#658, `app_server/db.py` +
+  `app_server/webhooks/paddle.py`); AIRview's single-target write path never cached its own output,
+  so the wiki page it had just built was recomputed on the very next request that should have hit
+  cache (#659, `scan_worker/live_wiki.py`).
+- All five app-relevant services rebuilt and force-recreated (`app-server`, `scan-worker`,
+  `scan-worker-2`, `health-worker`, `scheduler`) - `app-server`'s own image changed (#656, #658)
+  and the shared `scan-worker` image changed (#657, #659), which also backs `scan-worker-2`,
+  `health-worker`, and `scheduler`.
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~15
+  seconds of recreation.
+- No migrations to apply - confirmed via `ls github-app/migrations/` showing `065_...` as the
+  newest file both before and after this deploy, matching the diff's own file list (no new
+  `migrations/*.sql`).
+- Post-deploy, verified live by executing directly inside the running containers, not by re-reading
+  the repo: `inspect.getsource(app_server.db)` contains the "out-of-order"/"stale"/"disarm" markers
+  specific to #656/#658, and `inspect.getsource(scan_worker.jobs)` contains the "overage" marker
+  specific to #657 - all present, not assumed from source.
+- `docker logs` on `app-server` and `scan-worker` show zero errors and the pre-existing scheduled
+  jobs (`run_live_wiki_catchup_sweep_job`, `run_monthly_credit_reset_sweep_job`,
+  `run_ops_monitor_job`) still completing cleanly on the recreated worker.
+
+## 2026-09-10 (third deploy) Snapshot
+
+**Superseded by two same-day follow-ups:** two further, smaller redeploys landed after the
+snapshot below
+
+- commit `f8b2f36` (tag `github-app-deploy-2026-09-10-2`), `app-server` only (single-file frontend
+fix, #651 - settings-page CSS dead space and a stuck "Opening checkout..." status with no
+`eventCallback`). Rebuilt and force-recreated `app-server` alone; confirmed healthy, both fixes
+present in the running container's source (`inspect.getsource` checked for `align-items: start`
+and `eventCallback`, not re-read from the repo), zero errors in logs.
+- commit `428e8fd` (tag `github-app-deploy-2026-09-10-3`), `app-server` only (single-file frontend
+fix, #654 - the `align-items: start` fix above turned out to be a visual no-op; the real fix moves
+"Managed audit content" into the left settings column instead of the right, the best 2-way height
+partition of the five cards). Rebuilt and force-recreated `app-server` alone; confirmed healthy,
+the fix present in the running container's actual source, zero errors in logs.
+
+The rest of this section (all five services, the migrations, the credit-balance schema) is
+unaffected by either follow-up and still accurate for everything except the `app-server` commit,
+which is now `428e8fd`.
+
+As of 2026-09-10 (first deploy), following a redeploy to `master` (`git fetch` + `git merge --ff-only
+origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker
+scheduler` + `docker compose up -d --no-deps --force-recreate` for those five - the usual five, no
+lockfile changes in this batch), live inspection found:
+
+- Host: the production host.
+- Commit: `ee927c8`.
+- Working tree: clean aside from the expected untracked `backups/` directory.
+- 25 commits since the previous deploy tag (`github-app-deploy-2026-09-08-2`) - see
+  `github-app/CHANGELOG.md`'s 2026-09-10 entry for the full breakdown (dollar-credit pricing launch,
+  LLM cost cleanup, and an independent 10-PR hardening batch).
+- **Real migrations this deploy, all four confirmed applied live, not just "no pending" logged**:
+  `SELECT filename FROM schema_migrations ORDER BY filename DESC LIMIT 6` shows `065_annual_air_
+  monthly_credit_reset.sql`, `064_base_credit_allotment.sql`, `063_installation_credit_balance.sql`,
+  and `062_llm_spend_events.sql` as the four newest rows. Confirmed live in the running
+  `installations` table via `\d installations`: `base_credit_remaining_usd`, `topup_credit_balance_
+  usd`, `base_credit_allotment_usd`, and `next_monthly_credit_reset_at` all present with the
+  expected types/defaults, and the new partial index (`installations_next_monthly_credit_reset_at`,
+  `WHERE next_monthly_credit_reset_at IS NOT NULL`) exists via `\di`.
+- All five app-relevant services rebuilt and recreated (`app-server`, `scan-worker`,
+  `scan-worker-2`, `health-worker`, `scheduler`) - `jina-embed` left untouched (no lockfile change).
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~26
+  seconds of recreation.
+- **New scheduled job confirmed running, not just registered in code**: `run_monthly_credit_reset_
+  sweep_job` (added to `scheduler.py`'s existing `run_forever` tick) completed successfully on its
+  first tick post-deploy - `rq.worker` log shows it picked up, executed, and completed in ~10ms
+  (currently a no-op sweep, zero real annual-AIR subscribers exist yet).
+- Real Paddle top-up price confirmed live inside the running container, not re-read from source:
+  `python -c "from app_server.paddle_pricing import CREDIT_TOPUP_PRICE_ID; print(...)"` returns
+  `pri_01m23jw9qbsnm4zmv28bfebx4t`, matching the real price created via the Paddle MCP.
+- Real credit-allotment math confirmed live: `base_credit_for_plan('flash', 0)` returns `5.0`,
+  `base_credit_for_plan('air', 2)` returns `24.0` ($18 + $3 x 2 extra seats).
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok",
+  "redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in any of the five rebuilt services' logs after restart
+  (checked the full window since recreation, not a narrow grep).
+- Not re-verified this pass (out of scope, no relevant Dockerfile/host changes in this batch):
+  Docker socket mount absence, non-root users, CPU/mem limits, backup cron execution, base-image
+  digest pinning, restore-drill target availability, disk space. Each was last directly verified in
+  the 2026-08-10 deploy (restore drill itself upgraded 2026-08-24) - re-check if any host-level or
+  Dockerfile change touches them.
+
+## 2026-09-08 (second deploy) Snapshot
+
+As of 2026-09-08 (second deploy), following a redeploy to `master` (`git fetch` + `git merge --ff-only origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five - the usual five; the only lockfile change in this batch was `requirements-demo-scan-worker.lock.txt` itself being deleted, so nothing else needed rebuilding), live inspection found:
+
+- Host: the production host.
+- Commit: `a6e2457`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 14 commits since the previous deploy tag (`github-app-deploy-2026-09-08`) - see Snapshot
+  Freshness above for the second hardening batch, the 5 real findings caught before merge, and
+  the demo-scan removal. Full per-PR writeups in `github-app/CHANGELOG.md`.
+- **Real migration this deploy**: `git diff --stat` against the previous deploy tag showed one
+  new file under `github-app/migrations/` (`061_drop_demo_scan_rate_limits.sql`, a `DROP TABLE
+  IF EXISTS`) - confirmed no FK referenced the table before dropping, not assumed.
+- All five app-relevant services rebuilt (`app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, `scheduler`) - `jina-embed` left untouched (no lockfile change);
+  `demo-scan-worker`/`demo-sandbox`/`demo-sandbox-runner` no longer exist as of this deploy
+  (removed by #605, not merely left unrebuilt).
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~16
+  seconds of recreation.
+- Migration applied, not just "no pending" - confirmed live in Postgres, not just a log line:
+  `SELECT filename FROM schema_migrations ORDER BY filename DESC LIMIT 3` shows
+  `061_drop_demo_scan_rate_limits.sql` as the newest row, and `\dt demo_scan_rate_limits`
+  reports the table no longer exists.
+- Post-deploy, verified live by executing directly inside the running `app-server` container,
+  not by re-reading the repo: `import app_server.demo_scan_api` raises `ModuleNotFoundError` -
+  the module is genuinely gone from the running image, not just absent from source.
+- The removed public attack surface is closed live, not just in code: `POST
+  https://app.aletheore.com/v1/demo-scan` returned `202 Accepted` (queued, but orphaned - no
+  worker left to consume it) immediately after the container teardown but *before* this
+  redeploy, and returns `404` after it, confirmed by two real requests against the live
+  endpoint, not assumed from the diff.
+- Health checks: internal `/healthz` returns `200
+  {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in any of the five rebuilt services' logs after restart.
+- Not re-verified this pass (out of scope, no relevant Dockerfile/host changes in the diff other
+  than the three deleted demo-* Dockerfiles): Docker socket mount absence, non-root users,
+  CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill target
+  availability, disk space. Each was last directly verified in the 2026-08-10 deploy (restore
+  drill itself upgraded 2026-08-24) - re-check if any host-level or Dockerfile change touches
+  them.
+
+## 2026-09-08 (first deploy) Snapshot
+
+As of 2026-09-08 (first deploy), following a redeploy to `master` (`git fetch` + `git merge --ff-only origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five - back to the usual five, no lockfile changes in this batch so `jina-embed`/`demo-scan-worker` didn't need rebuilding), live inspection found:
+
+- Host: the production host.
+- Commit: `fd7c2c3`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 12 commits since the previous deploy tag (`github-app-deploy-2026-09-07`) - see Snapshot
+  Freshness above for the two regressions caught and fixed before merge, the real spend-leak
+  fix (#583), and the rest of the batch. Full per-PR writeups in `github-app/CHANGELOG.md`.
+- **Real migration this deploy** (unlike every deploy since 2026-09-06): `git diff --stat`
+  against the previous deploy tag showed one new file under `github-app/migrations/`
+  (`060_endpoint_health_selection.sql`, a new table) - confirmed idempotent
+  (`CREATE TABLE`/`CREATE INDEX IF NOT EXISTS`) before deploying, not assumed.
+- All five app-relevant services rebuilt (`app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, `scheduler`) - `jina-embed`/`demo-scan-worker`/`demo-sandbox-runner` left
+  untouched (no lockfile changes in this batch).
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~25
+  seconds of recreation.
+- Migration applied, not just "no pending" - `app-server`'s startup log shows
+  `applied 1 migration(s)`. Confirmed live in Postgres, not just the log line: `\d
+  endpoint_health_selection` shows the real schema (FK to `installations` with `ON DELETE
+  CASCADE`, the unique constraint, the lookup index) exactly matching the migration file.
+- Post-deploy, verified live by executing directly inside the running `scan-worker` container,
+  not by re-reading the repo: `scan_worker.jobs.rank_endpoints_by_selection` returns scan order
+  with no selection and the filtered/sorted set with one - the real ranking logic both the sweep
+  and the admin dashboard route share; `MAX_HEALTH_CHECK_ENDPOINTS_PER_TARGET` reads `64`;
+  `scan_worker.airview_scanner_context.MAX_SCHEMA_TABLES`/`MAX_ENDPOINTS` both read `50`;
+  `aletheore.model_associations._class_nodes` and `app_server.admin._monitored_endpoint_keys`
+  both import and call cleanly.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in any of the five rebuilt services' logs in the 60 seconds
+  after restart.
+- Not re-verified this pass (out of scope, no relevant Dockerfile/host changes in the diff): Docker
+  socket mount absence, non-root users, CPU/mem limits, backup cron execution, base-image digest
+  pinning, restore-drill target availability, disk space. Each was last directly verified in the
+  2026-08-10 deploy (restore drill itself upgraded 2026-08-24) - re-check if any host-level or
+  Dockerfile change touches them.
+
+## 2026-09-07 Snapshot
+
+As of 2026-09-07, following a redeploy to `master` (`git fetch` + `git merge --ff-only origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler jina-embed demo-scan-worker` + `docker compose up -d --no-deps --force-recreate` for those seven - two more than every prior deploy's usual five, since `jina-embed` and `demo-scan-worker` each pin `anyio` directly in their own lockfiles and #577's bump touched both), live inspection found:
+
+- Host: the production host.
+- Commit: `ce5ab60`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 18 commits since the previous deploy tag (`github-app-deploy-2026-09-06`) - see Snapshot
+  Freshness above for the two real fixes (installation-token retry, Slack/Teams hostname
+  detection) and the rest of the batch. Full per-PR writeups in `github-app/CHANGELOG.md`.
+- Confirmed before deploying, not assumed: `git diff --stat` against the previous deploy tag showed
+  no files under `github-app/migrations/` - a code-only deploy.
+- All seven affected services rebuilt (`app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, `scheduler`, `jina-embed`, `demo-scan-worker`) - `demo-sandbox-runner` left
+  untouched (its Dockerfile doesn't install from any of the changed lockfiles).
+- Services running: all seven `Up`, six reporting Docker-healthcheck `healthy` within ~46 seconds of
+  recreation (`demo-scan-worker` has no healthcheck defined, consistent with every prior deploy).
+- No pending migrations - `app-server`'s startup log shows `no pending migrations`.
+- Post-deploy, verified live by executing directly inside the running containers, not by re-reading
+  the repo: inside `scan-worker` - `app_server.github_auth.INSTALLATION_TOKEN_RETRY_DELAY_SECONDS`
+  reads `1.0`; `scan_worker.slack._detect_platform("https://notoffice.com.evil.example/webhook")`
+  correctly returns `"slack"` (the lookalike-domain fix); `app_server.llm_cost.PLAN_CAP_OVERRIDE_USD`
+  reads `{'flash': 6.0, 'air': 20.0}`; `scan_worker.github_api.MAX_CONTEXT_FILE_BYTES` reads
+  `100000`; `scan_worker.jobs.MAX_WIKI_FULL_BUILD_CLUSTERS`/`MAX_DOCS_FULL_BUILD_FILES` both read
+  `200`; `scan_worker.jobs.WIKI_FULL_BUILD_LLM_RESERVE_USD` reads `0.1`. Package versions confirmed
+  via `pip show` inside `app-server`: `psycopg` 3.3.5, `pydantic` 2.13.5, `pydantic-core` 2.46.5,
+  `rq` 2.12.0, `anyio` 4.15.0 - and inside `jina-embed`: `anyio` 4.15.0.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in any of the seven rebuilt services' logs in the 60 seconds
+  after restart.
+- Not re-verified this pass (out of scope, no relevant Dockerfile/host changes in the diff beyond
+  the lockfile bumps already covered above): Docker socket mount absence, non-root users, CPU/mem
+  limits, backup cron execution, base-image digest pinning, restore-drill target availability, disk
+  space. Each was last directly verified in the 2026-08-10 deploy (restore drill itself upgraded
+  2026-08-24) - re-check if any host-level or Dockerfile change touches them.
+
+## 2026-09-06 Snapshot
+
+As of 2026-09-06, following a redeploy to `master` (`git fetch` + `git merge --ff-only origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five - same five as every prior deploy; this batch touched both `github-app/app_server`/`github-app/scan_worker` directly and `src/aletheore/*`, which all five images `pip install` as a package), live inspection found:
+
+- Host: the production host.
+- Commit: `cf8d40f`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 19 commits since the previous deploy tag (`github-app-deploy-2026-09-04`) - see Snapshot
+  Freshness above for the two headline workstreams (schema/ORM-migration pipeline feeding Flash
+  Review and AIRview/Docs; Rails model-association clustering fix) and the smaller fixes bundled
+  alongside them. Full per-PR writeups in `github-app/CHANGELOG.md`.
+- Confirmed before deploying, not assumed: `git diff --stat` against the previous deploy tag showed
+  no files under `github-app/migrations/` - a code-only deploy despite 149 files and ~8,900
+  insertions changed overall.
+- All five app-relevant services rebuilt (`app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, `scheduler`) - `jina-embed` left untouched (its Dockerfile never copies
+  `src/aletheore`), `demo-scan-worker`/`demo-sandbox-runner` also untouched.
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~20
+  seconds of recreation (no in-flight job held up the recreate).
+- No pending migrations - `app-server`'s startup log shows `no pending migrations`.
+- Post-deploy, verified live by executing directly inside the running containers, not by re-reading
+  the repo: inside `scan-worker` - `aletheore.model_associations.rails_model_association_edges`
+  imports cleanly; `aletheore.architecture.build_clusters`'s live signature includes the new
+  `extra_edges` parameter; `aletheore.orm_migrations._pluralize` imports cleanly;
+  `aletheore.docs_reference._code_span` produces a correctly-widened fence for a value containing a
+  literal backtick (the #551 fix); `scan_worker.flash_review_hunk_scope`,
+  `scan_worker.flash_review_schema_context`, and `scan_worker.airview_scanner_context` all import
+  cleanly. Inside `app-server` - `app_server.dashboard`, `scan_worker.github_api`,
+  `aletheore.schema_map.extract_schema`, and `aletheore.scope_lookup` all import cleanly.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs in the 60 seconds after restart.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+## 2026-09-04 Snapshot
+
+As of 2026-09-04, following a redeploy to `master` (`git fetch` + `git merge --ff-only origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five - same five as every prior deploy, since none of this batch touched `github-app/app_server`/`github-app/scan_worker` directly, only `src/aletheore/*`, which all five images `pip install` as a package), live inspection found:
+
+- Host: the production host.
+- Commit: `8bf52ef`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 6 commits since the previous deploy tag (`github-app-deploy-2026-09-03`): #526 (this doc, no-op),
+  #527 (six real secrets-scanner gaps in `_is_likely_placeholder` - private-key-header path
+  suppression, generic-credential-assignment false-matching bare property references, missing
+  truncation-marker/`"default"` placeholder recognition, PEM-boilerplate-without-a-key-body), #532
+  (vulnerabilities pilot corpus completed for all 10 ecosystems - a clean pass, 10/10 recall, 0/7
+  false positives, no code changes), #529 (the real `unused_dependencies` bug described above -
+  see Snapshot Freshness for the root cause), #530 (docs-only - corrects `ast_pattern.py`'s and
+  `pyproject.toml`'s false claim that the tree-sitter segfault is 3.14-only), #531 (three real
+  license-detection gaps - BSD license bodies never contain the literal word "bsd" so
+  `flask`/`gorilla-mux` came back "unknown" despite being unambiguously BSD-licensed, `LICENSE.rst`
+  was missing from the checked filename list, Maven license lookup never followed `<parent>` POM
+  references so `Guava`/`Protobuf-java` came back "unknown" via `gson`'s real `pom.xml`; also added
+  CDDL to the weak-copyleft bucket).
+- All five app-relevant services rebuilt (`app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, `scheduler`) - `jina-embed` left untouched (its Dockerfile never copies
+  `src/aletheore`), `demo-scan-worker`/`demo-sandbox-runner` also untouched.
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~20
+  seconds of recreation.
+- No pending migrations - `app-server`'s startup log shows `no pending migrations` (none of this
+  batch touched the DB schema).
+- Post-deploy, verified live by executing directly inside the running `scan-worker` container, not
+  by re-reading the repo: `from aletheore.dead_code import _raw_external_import_roots` imports
+  cleanly (the new function #529 adds); `'cddl' in aletheore.licenses._WEAK_COPYLEFT_MARKERS` is
+  `True`; `len(aletheore.secrets.KNOWN_VENDOR_EXAMPLE_VALUES) == 5` (the two new GitHub-token
+  examples #527 adds, on top of the three pre-existing ones).
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs in the 60 seconds after restart.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+## 2026-09-03 Snapshot
+
+As of 2026-09-03, following a redeploy to `master` (`git fetch` + `git merge --ff-only origin/master` - a plain `git reset --hard` was blocked by this session's own destructive-command guard, but the working tree was already confirmed clean so a fast-forward merge landed the identical result - + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five), live inspection found:
+
+- Host: the production host.
+- Commit: `e655be2`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 13 commits since the previous deploy tag (`github-app-deploy-2026-08-26`): #513 (docs-only,
+  no-op), #514 (release 0.9.11, bundling #499/#503/#504/#505/#508/#509/#510/#511 - already covered
+  by earlier snapshots' own commit ranges), #515 (real token-based batching for hosted embedding
+  indexing), #517 (`watch`'s incremental rebuild skips architecture analysis and hotspots - a
+  deliberate perf trade-off, not a bug), #516 (local embedding now defaults to jina, matching the
+  hosted model), #518 (carries the pre-existing architecture analysis forward during that same
+  incremental rebuild, so #517's skip doesn't silently blank it out over time), #519/#520 (docs-only
+  comment fixes), #521 (`aletheore_ast_pattern` now caps results and doesn't crash on an unreadable
+  file), #522 (real correctness bug: unlike #517's deliberate skip, `watch`'s incremental rebuild
+  path was discarding real security findings too - fixed), #523 (docs-only), #524 (asyncpg pool
+  size), #525 (LLM prompt-cache hit-rate visibility). See each PR for its own full writeup;
+  `github-app/CHANGELOG.md` for the running log.
+- All five app-relevant services rebuilt (`app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, `scheduler` - `src/aletheore` changed extensively across this range, and all five
+  copy it into their image) - `jina-embed` left untouched (its Dockerfile never copies
+  `src/aletheore`; it's self-contained with its own baked-in model weights, so the new
+  `src/aletheore/data/jina_v2_base_code_tokenizer.json` file added in this range doesn't affect it),
+  `demo-scan-worker`/`demo-sandbox-runner` also untouched since neither's own source changed.
+- Services running: all five `Up`, all five reporting Docker-healthcheck `healthy` within ~30
+  seconds of recreation.
+- No pending migrations - `app-server`'s startup log shows `no pending migrations` (none of this
+  range's changes touched the DB schema).
+- Post-deploy, verified live (not just that the deploy succeeded) by executing directly inside the
+  running containers, not by re-reading the repo: `inspect.getsource` on `app_server.db.create_pool`
+  confirms `min_size=5, max_size=20`; `inspect.getsource` on
+  `scan_worker.jobs._IncrementalSpendBudget.record_usage` confirms the new cache-hit logging line.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`;
+  real production request traffic (dashboard, audit endpoints) flowing normally in the access log
+  immediately after restart.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs in the 60 seconds after restart.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+## 2026-08-27 (fifth deploy) Snapshot
+
+As of 2026-08-27 (fifth deploy), following a redeploy to `master` (`git fetch` + `git reset --hard origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five), live inspection found:
+
+- Host: the production host.
+- Commit: `17ffd99`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 2 commits since the previous deploy tag (`github-app-deploy-2026-08-27-4`): a docs-only deploy
+  record (#436, no-op for running services) and #437 - a second Claude session (`veridion-68`)
+  found `handle_installation_event` had no branch at all for `installation_repositories`/`removed`
+  (deselecting one repo from the GitHub App's repo list without uninstalling the whole app): the
+  repo's dashboard entry, scan history, and every scheduled/webhook-triggered work path stayed live
+  indefinitely, with no purge path anywhere in the codebase. Flagged as a real design decision
+  (hard-purge vs. soft-hide) rather than patched unilaterally; Arihant's call was soft-hide -
+  reversible, but a hidden repo must actually stop being processed, not just disappear from the
+  dashboard, since a hidden-but-still-scanning repo keeps burning real LLM spend. New `hidden_repos`
+  table (migration 057); `hide_repo`/`unhide_repo`/`is_repo_hidden` in `app_server/db.py`; gates
+  `list_repos_for_installations` (dashboard), the PR/push/`/aletheore audit` webhook paths
+  (`pull_request.py`, `push.py`, `issue_comment.py` - push specifically skips its compare-API call
+  too, since access is already revoked), and all three scheduled sweeps that generate new per-repo
+  work (health-check, docs catch-up, wiki catch-up, via a `hidden_repos` join in `scan_worker/db.py`);
+  reversed by `installation_repositories/added`. Independently re-reviewed line-by-line before
+  merge (not just the report taken at face value, per Arihant's explicit ask given this webhook
+  surface had been stable) - cross-checked every scheduled sweep in `scan_worker/jobs.py` against
+  its worklist function in `scan_worker/db.py` to confirm no sweep was missed, verified the
+  `hide_repo` branch runs after `upsert_installation` so `hidden_repos`' FK is always satisfied
+  regardless of webhook arrival order, and confirmed every changed test is additive (new hidden-repo
+  cases or a mechanical `pool`-param thread-through) with no existing assertion changed. Full suite:
+  1551 passed, 8 skipped, 0 failed. See `github-app/CHANGELOG.md` for the full writeup.
+- All five app-relevant services rebuilt (`app-server` for the webhook gating in
+  `app_server/webhooks/*.py`; `scan-worker`, `scan-worker-2`, `health-worker`, `scheduler` since
+  all four run off the same image as `scan_worker/db.py`, which changed) - `demo-scan-worker` and
+  `demo-sandbox-runner` left untouched since neither's own source changed.
+- `scan-worker`/`scan-worker-2` have a deliberate 30m30s `stop_grace_period` (lets an in-flight scan
+  job finish rather than killing it mid-run) and `health-worker` an 11m one - the recreate command
+  waited on this rather than being force-killed early; this run's old containers had no in-flight
+  job blocking it, so all five came up within seconds regardless.
+- Services running: same set as the previous snapshot, all `Up`; all five rebuilt services
+  reporting Docker-healthcheck `healthy` within seconds of recreation.
+- No pending migrations - `app-server`'s startup log shows `no pending migrations`; live-queried
+  `information_schema.columns` for the new `hidden_repos` table and confirmed its three columns
+  (`installation_id bigint`, `repo_full_name text`, `hidden_at timestamptz`) exist exactly as the
+  migration defines them.
+- Post-deploy, verified live (not just that the deploy succeeded) by executing directly inside the
+  running containers, not by re-reading the repo: `app_server.db.hide_repo`/`unhide_repo`/
+  `is_repo_hidden` import cleanly; `inspect.getsource` on all four `app_server.webhooks.*` handlers
+  confirms each contains the `is_repo_hidden`/`hide_repo` gating; `inspect.getsource` on all three
+  `scan_worker.db` sweep-worklist functions confirms each joins `hidden_repos`.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs in the 3 minutes after restart.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+## 2026-08-27 (fourth deploy) Snapshot
+
+As of 2026-08-27 (fourth deploy), following a redeploy to `master` (`git fetch` + `git reset --hard origin/master` + `docker compose build app-server` + `docker compose up -d --no-deps --force-recreate app-server`), live inspection found:
+
+- Host: the production host.
+- Commit: `084d5d2`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 3 commits since the previous deploy tag (`github-app-deploy-2026-08-27-3`): a version-number-only
+  release bump (#432) and #435 itself - reduced Aletheore AIR's included seats from 5 to 3 and
+  repriced the extra-seat add-on from $4.99 to $6.99/month (`db.py`'s `INCLUDED_SEATS`,
+  `paddle_pricing.py`'s `EXTRA_SEAT_PRICE_ID` swapped to a new Paddle price after confirming zero
+  live subscribers on the old one, which was archived rather than mutated). A second Claude session
+  (`veridion-68`) swept the branch for other places the price change could hit and found one real
+  bug this PR's own diff had missed: `llm_cost.py`'s `EXTRA_SEAT_PRICE_USD` was left at the old
+  4.99 - a separate constant, not derived from `paddle_pricing.py`, rendered directly into two
+  customer-facing surfaces (`frontend.py`'s "Buy extra seat" dashboard button and `admin.py`'s
+  seat-cap-reached error message), which would have shown "$4.99/mo" while Paddle actually charged
+  $6.99/mo on click - a real price-mismatch-at-checkout bug, fixed same-day in a follow-up commit
+  (`a180c96`) before merge. See `github-app/CHANGELOG.md` for the full writeup.
+- Only `app-server` rebuilt - verified first that `EXTRA_SEAT_PRICE_USD` and `INCLUDED_SEATS` are
+  consumed only by `app_server` code (`admin.py`, `frontend.py`); `scan_worker/jobs.py` imports
+  `base_cap_for_plan`/`monthly_cap_for_installation` from the same `llm_cost.py` module but neither
+  function reads either changed constant, so `scan-worker`'s behavior is unaffected and it was left
+  untouched.
+- Services running: same set as the previous snapshot, all `Up`; `app-server` reporting
+  Docker-healthcheck `healthy` within seconds of recreation.
+- No pending migrations - `app-server`'s startup log shows `no pending migrations`.
+- Post-deploy, verified live (not just that the deploy succeeded) by executing directly inside the
+  running container: `app_server.llm_cost.EXTRA_SEAT_PRICE_USD == 6.99`,
+  `app_server.db.INCLUDED_SEATS == {'air': 3}`, `app_server.paddle_pricing.EXTRA_SEAT_PRICE_ID ==
+  'pri_01m123rwvvtgbm6bmmxcbav4hh'`.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in `app-server` logs in the 3 minutes after restart.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+## 2026-08-27 (third deploy) Snapshot
+
+As of 2026-08-27 (third deploy), following a redeploy to `master` (`git fetch` + `git reset --hard origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five), live inspection found:
+
+- Host: the production host.
+- Commit: `12baf31`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 2 commits since the previous deploy tag (`github-app-deploy-2026-08-27-2`): #428 fixed
+  `_PUSHOVER_KEY_PATTERN`'s bare `$` (which, without `re.MULTILINE`, matches just before a single
+  trailing newline as well as true end-of-string) to `\Z`, so a 30-character Pushover key with a
+  copy-paste trailing newline is now correctly rejected instead of silently accepted; #430 fixed
+  `git_intel/incremental.py`'s `fold()` iterating `commits` in caller order (newest-first, matching
+  real `git log`) while building `recent_commits` with `insert(0, ...)` - the two compounded to put
+  the *oldest* commit at `recent_commits[0]` instead of the newest, which `jobs.py`'s
+  `_commit_attachment_from_graph`/`_owner_attachment_from_graph` read directly as "the latest
+  commit" for health-check-failure correlation and likely-owner inference on the hosted path.
+  #430's own CI catalogued and fixed three test fixtures with an oldest-first mirror-image ordering
+  bug that had been masking this; a fourth fixture (`github-app/tests/test_correlation.py`) was
+  found and fixed the same way after the first CI run on this session's push still failed against
+  it, verified locally against a real Postgres round-trip before re-pushing. See
+  `github-app/CHANGELOG.md` for the full per-PR writeup.
+- Rebuilt the same five services as the previous deploy (`admin.py` changed for #428;
+  `git_intel/incremental.py` - part of the shared `aletheore` package `scan_worker` installs -
+  changed for #430) - `demo-scan-worker` and `demo-sandbox-runner` again left untouched, neither's
+  own source changed.
+- Services running: same set as the previous snapshot, all `Up`; all five rebuilt services
+  reporting Docker-healthcheck `healthy` within seconds of recreation.
+- No pending migrations - `app-server`'s startup log shows `no pending migrations`.
+- Post-deploy, verified live (not just that the deploy succeeded) by executing directly inside the
+  running containers: `app_server.admin`'s live `_PUSHOVER_KEY_PATTERN` source contains `\Z`;
+  `aletheore.git_intel.incremental.fold`'s live source contains `reversed(commits)`.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs in the 2 minutes after restart.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+## 2026-08-27 (second deploy) Snapshot
+
+As of 2026-08-27 (second deploy), following a redeploy to `master` (`git reset --hard origin/master` + `docker compose build app-server scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those five), live inspection found:
+
+- Host: the production host.
+- Commit: `d90bd87`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 20 commits since the previous deploy tag (`github-app-deploy-2026-08-27`) - the headline changes:
+  #426 caps `ProcessPoolExecutor` parallel-parse worker count to the real available CPU quota
+  (cgroup-aware, not raw `os.cpu_count()`); #427 redesigns the marketing site and the hosted
+  dashboard's sign-in/repo-picker/overview with a light glass theme (dark mode changed from
+  OS-auto to an explicit `data-theme="dark"` opt-in); #429 fixes FastAPI endpoint-mapping missing
+  the mount prefix entirely for `include_router(module.router, prefix=...)`-style calls (only bare
+  identifiers were handled before), which fed both the dashboard's endpoint list and the hosted
+  health-check monitor with wrong paths; plus #409's `stop_grace_period` fix (`docker-compose.yml`,
+  30m30s on scan-worker/scan-worker-2, 11m on health-worker) and #410's spend-cap check-then-act
+  race fix were both already live at the previous deploy's commit but are included here for
+  completeness. See `github-app/CHANGELOG.md` for the full per-PR writeup.
+- Rebuilt all five app-relevant services this time (`app-server` included, unlike the previous
+  deploy) since both `app_server/frontend.py` and `app_server/demo_scan_api.py` changed alongside
+  `scan_worker/jobs.py` and `scan_worker/live_wiki.py` - `demo-scan-worker` and
+  `demo-sandbox-runner` were left untouched since neither's own source changed (they build from
+  separate Dockerfiles, confirmed via `docker-compose.yml`, not assumed).
+- Services running: same set as the previous snapshot, all `Up`; all five rebuilt services
+  reporting Docker-healthcheck `healthy` within a minute of recreation.
+- No pending migrations - `app-server`'s startup log shows `no pending migrations`.
+- Post-deploy, verified live (not just that the deploy succeeded) by executing directly inside the
+  running containers, not by re-reading the repo: `app_server.frontend`'s live source contains
+  `data-theme="dark"` (the explicit opt-in, replacing the old `@media (prefers-color-scheme: dark)`
+  auto-follow) and the light-glass sign-in background (`rgba(255, 255, 255, 0.65)`); `app_server.demo_scan_api`
+  imports cleanly; `scan_worker.jobs` has `_run_scan`.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs in the 2 minutes after restart (targeted grep for
+  `error|traceback|exception`).
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10 (restore drill itself
+  upgraded 2026-08-24, see below).
+
+## 2026-08-27 (first deploy) Snapshot
+
+As of 2026-08-27 (first deploy), following a redeploy to `master` (`git pull origin master` + `docker compose build scan-worker scan-worker-2 health-worker scheduler` + `docker compose up -d --no-deps --force-recreate` for those four - `app-server` deliberately left untouched, see below), live inspection found:
+
+- Host: the production host.
+- Commit: `3b89249`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 5 commits since the previous deploy tag (`github-app-deploy-2026-08-26-2`) - three real bugs in
+  `scan_worker/jobs.py`, found by a proactive dual-pass audit (this session plus a second,
+  independent Claude session auditing the same file for a fresh set of eyes) rather than a bug
+  report: #405 (free-tier Flash Review falsely claiming a diff was reviewed clean, and advancing
+  `last_reviewed_sha`, when every free-tier provider actually failed mid-review), #406 (PR scans
+  permanently polluting the persisted default-branch git graph with unmerged commits via
+  `_sync_persistent_git_graph`), and #407 (the direct sibling of #406 - `_sync_code_graph` had the
+  identical unconditional-`GRAPH_BRANCH="default"`-write bug, corrupting the durable code graph).
+  See `github-app/CHANGELOG.md`'s 2026-08-27 entry for the full writeup.
+- Only `scan-worker`, `scan-worker-2`, `health-worker`, and `scheduler` were rebuilt - all four
+  share `Dockerfile.scan-worker` and actually execute `scan_worker/jobs.py`, and (same gotcha as
+  every prior multi-image deploy) compose tags each as its own separately-built image despite the
+  shared Dockerfile, so each needed an explicit rebuild. `app-server` also bundles a copy of
+  `scan_worker/` in its image, but its own source was grepped directly: every reference to these
+  job functions is a string literal handed to RQ's `queue.enqueue(...)` (job name resolved and
+  imported by the *worker* process that dequeues it, never by `app-server` itself) - confirmed no
+  rebuild was needed for this fix to take effect.
+- Services running: same set as the 2026-08-24 snapshot below, all `Up`; the four rebuilt services
+  reporting Docker-healthcheck `healthy` within seconds of recreation.
+- No pending migrations - a code-only deploy, and `app-server` (the only service that runs
+  `scripts/migrate.py`) wasn't even restarted this time.
+- Post-deploy, verified live (not just that the deploy succeeded) by importing `scan_worker.jobs`
+  directly inside the running `scan-worker` container and inspecting real source via
+  `inspect.getsource`, not by re-reading the repo: `run_pr_scan_job`'s source contains no call to
+  `_sync_persistent_git_graph(` or `_sync_code_graph(` (both #406 and #407's fixes), and
+  `_run_flash_review`'s source contains the `if free_tier_exhausted["value"]: return False` bail-out
+  added by #405, ahead of the comment-posting/`set_last_reviewed_sha` calls it used to reach
+  unconditionally.
+- Health checks: internal `/healthz` returns `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions in `scan-worker`, `scan-worker-2`, `health-worker`, or
+  `scheduler` logs in the 5 minutes after restart (targeted grep for `error|traceback|exception`).
+- Not re-verified this pass (no relevant Dockerfile/host changes, and `app-server` wasn't touched):
+  Docker socket mount absence, non-root users, CPU/mem limits, backup cron execution, base-image
+  digest pinning, restore-drill target availability, disk space - each last directly verified
+  2026-08-10 (restore drill itself upgraded 2026-08-24, see below).
+
+## 2026-08-24 Snapshot
+
+As of 2026-08-24, following a redeploy to `master` (`git reset --hard origin/master` + `docker compose build app-server scan-worker health-worker scheduler` + `docker compose up -d --no-deps --scale scan-worker=2` for those four), live inspection found:
+
+- Host: the production host.
+- Commit: `23a94ab`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 6 commits since the previous deploy tag (`github-app-deploy-2026-08-23`) - two real fixes plus
+  docs. #369: live-wiki/docs incremental update jobs could reload evidence from a *different,
+  newer* scan than the one that enqueued them (`get_latest_evidence` read "whatever's newest
+  right now" instead of the exact row persisted by the enqueuing scan) - found by our own Flash
+  Review dogfooded on #364 the day before. Fixed by threading the specific `repo_history` row id
+  through the queue and reloading by that exact id (`get_evidence_by_id`). #370: the concurrency-
+  relevant two of five remaining second-pass-audit findings - health-check-target and API-token
+  creation were check-then-act under concurrent requests (#24), and `generate_token` re-derived
+  its id via a racy re-query instead of using `create_api_token`'s own return value (#25) - fixed
+  with the same advisory-lock-wrapped CTE pattern `add_installation_member_within_seat_limit`
+  already used, new lock namespaces 4/5 deliberately chosen to avoid the existing namespace-3
+  collision (a separate, unfixed finding, #30). The other three findings in #370 (#19, #22, #26)
+  live in the `aletheore` CLI package, not this backend - they ship with the next PyPI release,
+  not this deploy. See `github-app/CHANGELOG.md`'s 2026-08-24 entry for the full writeup.
+- `--scale scan-worker=2` on `up -d` again recreated both replicas cleanly under their expected
+  names, no orphan.
+- Services running: same set as the 2026-08-23 snapshot below, all `Up`; the four rebuilt services
+  and `scan-worker`'s second replica reporting Docker-healthcheck `healthy`.
+- No pending migrations - a code-only deploy.
+- Post-deploy, verified live (not just that the deploy succeeded): `scan_worker.db.get_evidence_by_id`
+  exists and is callable; both `run_live_wiki_incremental_update_job`/`run_live_docs_incremental_update_job`
+  take a `history_id` parameter; `app_server.db.add_health_check_target_within_limit`/
+  `create_api_token_within_limit` exist with `HEALTH_CHECK_TARGET_LOCK_NAMESPACE == 4`/
+  `API_TOKEN_LOCK_NAMESPACE == 5`; `app_server.admin.generate_token`'s source confirmed calling
+  `create_api_token_within_limit` and no longer referencing `list_api_tokens` - all checked by
+  importing directly / inspecting source in the running containers, not by re-reading the repo.
+- Health checks: internal and public `/healthz` both return `200 {"status":"ok",...}`.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker-1`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs in the 5 minutes after restart.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, disk space -
+  each last directly verified 2026-08-10. **Restore drill upgraded beyond "target availability"
+  this same day (2026-08-24) - see the dedicated section below**, a real restore-and-verify, not
+  just confirming a target database is reachable.
+
+## 2026-08-23 Snapshot
+
+As of 2026-08-23, following a redeploy to `master` (`git reset --hard origin/master` + `docker compose build app-server scan-worker health-worker scheduler` + `docker compose up -d --no-deps --scale scan-worker=2` for those four), live inspection found:
+
+- Host: the production host.
+- Commit: `f992751`.
+- Working tree: clean aside from the expected untracked `github-app/backups/` directory.
+- 5 commits since the previous deploy tag (`github-app-deploy-2026-08-22-2`) - triggered by a user
+  report of the `ops_monitor.failed_jobs.scans` alert repeatedly hitting `support@aletheore.com`.
+  Root-caused to two compounding bugs, both fixed this deploy: AIRview/Docs incremental updates
+  sharing the PR/push scan job's 300s `job_timeout` and getting killed mid-flight by RQ on large
+  repos (#364), and the ops/error alert cooldown being 900s (15min) instead of the intended 6
+  hours (#365) - see `github-app/CHANGELOG.md`'s 2026-08-23 entry for the full writeup.
+- `--scale scan-worker=2` on `up -d` again recreated both replicas cleanly under their expected
+  names, no orphan.
+- Services running: same set as the 2026-08-22 snapshot below, all `Up`; the four rebuilt services
+  and `scan-worker`'s second replica reporting Docker-healthcheck `healthy`.
+- No pending migrations - a code-only deploy.
+- Post-deploy, verified live (not just that the deploy succeeded): `scan_worker.jobs.OPS_ALERT_COOLDOWN_SECONDS == 21600`,
+  `app_server.error_alerts._ALERT_COOLDOWN_SECONDS == 21600`, `LIVE_WIKI_INCREMENTAL_UPDATE_JOB_TIMEOUT_SECONDS ==
+  LIVE_DOCS_INCREMENTAL_UPDATE_JOB_TIMEOUT_SECONDS == 600`, and both `run_live_wiki_incremental_update_job` /
+  `run_live_docs_incremental_update_job` exist and are callable - all checked by importing directly
+  in the running `scan-worker` container, not by re-reading source.
+- Inspected the `scans` queue's `FailedJobRegistry` directly (not assumed): found 5 stale entries
+  predating this deploy (2 from an already-explained orphan-container artifact of the first
+  2026-08-22 deploy, 3 from the timeout bug just fixed) - cleared all 5 so the new 6h cooldown
+  didn't start by re-alerting on already-resolved history. Confirmed both monitored queues
+  (`scans`, `health`) at `depth=0 failed=0` after clearing.
+- Watched a live `run_ops_monitor_job` execution in `scan-worker`'s logs mid-verification (it runs
+  every ~3min on the `scans` queue): one alert legitimately fired during the window before the
+  stale registry was cleared (Resend `POST /emails` returned `200 OK`), then set a ~6h Redis
+  cooldown key (`ops_monitor:alert_cooldown:ops_monitor.failed_jobs.scans`, confirmed via `TTL`)
+  - the exact "one alert, then quiet" behavior #365 was meant to produce, observed directly rather
+  than inferred from the diff.
+- Health checks: internal and public `/healthz` both return `200 {"status":"ok",...}`.
+- No errors, tracebacks, or exceptions in `app-server`, `scan-worker-1`, `scan-worker-2`,
+  `health-worker`, or `scheduler` logs after restart, aside from the one expected ops-alert log
+  line above.
+- Not re-verified this pass (no relevant Dockerfile/host changes): Docker socket mount absence,
+  non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill
+  target availability, disk space - each last directly verified 2026-08-10.
+
+## 2026-08-22 (second deploy) Snapshot
+
+As of 2026-08-22 (second deploy), following a redeploy to `master` (`git reset --hard origin/master` + `docker compose build app-server scan-worker health-worker scheduler` + `docker compose up -d --no-deps --scale scan-worker=2` for those four), live inspection found:
+
+- Host: the production host.
+- Deployment path: `/root/aletheore`.
+- Remote: `https://github.com/Aletheore/Aletheore.git`.
+- Branch: `master`.
+- Commit: `09cfdda8a26793e019ed95162964d5a1f34c1d2d`.
+- Working tree: clean aside from an untracked `github-app/backups/` directory (expected - backup script output, not repo content), no local diffs or stashes.
+- 6 commits since the first same-day deploy tag (`github-app-deploy-2026-08-22`) - see `github-app/CHANGELOG.md`'s "second deploy" entry. Headline changes: three crash/broken-feature bugs from the second-pass audit (an unguarded-`.decode()` scan-abort, an RRF-fusion `TypeError` crash in AIRview Q&A, and a `NameError` that silently broke AIRview's non-scanned-file fallback - #360), plus a new ops-monitor check alerting when a free-tier provider key goes missing (#357, closing the exact gap this same day's free-tier key-sync incident exposed).
+- Passing `--scale scan-worker=2` on the `up -d` command itself (not as a separate follow-up call) recreated both replicas cleanly under their expected names (`scan-worker-1`, `scan-worker-2`) with no orphan - confirms the 2026-08-22 (first deploy) finding: the plain service-name form doesn't reliably recreate every replica, but including `--scale` from the start avoids the problem entirely rather than needing a manual cleanup pass.
+- Services running: `app-server`, `scan-worker` (2 replicas), `health-worker`, `scheduler`, `autoheal`, `demo-scan-worker`, `demo-sandbox-runner`, `postgres`, `redis`, `caddy`, `jina-embed` - all `Up`; the four rebuilt services and `scan-worker`'s second replica all reporting Docker-healthcheck `healthy`.
+- App server starts via `python scripts/migrate.py && exec uvicorn ...`; this redeploy carried no pending migrations (`no pending migrations` in logs) - a code-only deploy.
+- Post-deploy, verified live (not just that the deploy succeeded) that all three #360 fixes and the #357 addition are actually present in the running code: `dashboard._fetch_wiki_file_content_sync` calls `_github_http_client()` not the unimported `get_github_api_client()`; `search_index._rrf_fuse` merges hit dicts (`by_key.get(key, {})`) instead of overwriting; `answer.answer_question` has the `top_score is not None` guard; `scanner.graph` has zero remaining bare `.decode()` calls (43 guarded); `scan_worker.jobs` has `_check_free_tier_provider_keys`. Also re-confirmed the four free-tier provider keys (synced earlier the same day) survived the restart - `has_api_key()` still returns `True` for all four.
+- Health checks: internal `http://127.0.0.1:8000/healthz` and public `https://app.aletheore.com/healthz` both return `200 {"status":"ok","checks":{"database":"ok","redis":"ok"}}`.
+- No errors, tracebacks, or exceptions found in `app-server`, `scan-worker-1`, `scan-worker-2`, `health-worker`, or `scheduler` logs after restart (targeted grep for `error|traceback|exception`).
+- Not re-verified this pass (out of scope, no relevant Dockerfile/script changes in the diff): Docker socket mount absence, non-root users, CPU/mem limits, backup cron execution, base-image digest pinning, restore-drill target availability, disk space. Each was last directly verified in the 2026-08-10 deploy - re-check if any host-level or Dockerfile change touches them.
+
+## Restore Drill (2026-08-24)
+
+Previously only "the backup file gets created on schedule" (2026-08-10) and "the restore-drill
+target database is reachable" (last checked with every deploy above) had been verified - neither
+proves a restore actually *works*. This is the first real restore-and-verify:
+
+Copied the latest real backup (`aletheore_app_2026-08-24T03-00-01Z.dump`, 35.7MB) off the
+production server via `scp`, confirmed byte-identical transfer (`md5sum` matched server vs. local
+copy before touching it), restored into a fresh, empty, throwaway local Postgres 16 container
+(matching prod's Postgres version) via `pg_restore`. Verified against live production, not just
+that the restore "looked" successful:
+
+- All 49 tables restored, zero `pg_restore` errors.
+- Row counts for 8 spot-checked tables matched live production exactly
+  (`installations`, `api_tokens`, `repo_history`, `affiliates`, `affiliate_referrals`, `sessions`,
+  `sent_emails`, `schema_migrations`).
+- Actual values matched too: all 3 `installations` rows identical (id/login/plan); the restored
+  snapshot's most-recent `repo_history` row confirmed (by exact timestamp) to still exist in live
+  prod's full history - proving real continuity, not coincidentally-equal counts.
+- Ran the app's real `scripts/migrate.py` against the restored DB: **"no pending migrations"** -
+  the restored schema is genuinely current with what the running application code expects.
+- Spot-checked a 273KB `evidence` JSONB blob for corruption: valid `jsonb_typeof`, real
+  `aletheore_version` field intact.
+- Local copy and throwaway container both destroyed immediately after verification - the dump
+  contains real production data and wasn't left lying around.
+
+**The backup-and-restore path genuinely works.** Re-run this drill if the backup script, Postgres
+major version, or schema-migration tooling changes in a way that could affect restorability.
+
+## Free-Tier Flash Review Provider Keys (live server config, not in git)
+
+`writing_adapter_chain_for_free_tier` in `scan_worker/model_tiers.py` builds its fallback chain
+from four env vars (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_FREE_TIER_API_KEY`,
+`OPENROUTER_API_KEY`), each silently skipped if unset - the code has no way to tell "no key
+configured" apart from "operator hasn't gotten to this provider yet", so an empty chain fails
+silent, not loud (`jobs.py` logs a warning and returns `False`, no user-facing error, no alert).
+
+As of 2026-08-22, confirmed all four keys are set in production's `github-app/.env` (checked via
+`has_api_key()` boolean return values only - the actual values never appear in any command output,
+log, or file under version control) and `scan-worker`/`health-worker` have been restarted to pick
+them up. Before this, all four had been present in the *local* `.env` for an unknown period but
+never synced to the server, meaning every free-tier Flash Review was silently no-op'ing in
+production despite the feature's code being fully implemented, tested, and deployed. If this
+regresses (e.g. a future server rebuild from a fresh `.env` template), the symptom is the same as
+before: free-tier reviews silently stop happening, with only a log line to notice by. Re-verify with
+the four `has_api_key()` checks above after any `.env`-affecting change, not just after a code
+redeploy - env drift is invisible to `git diff` and to every check in this document above this one.
+
+## Paddle Webhook Destination (live account config, not in git)
+
+The set of events Paddle actually delivers to `/webhooks/paddle` is configured on Paddle's side
+(notification destination `ntfset_01kyksktbmvr49pyygmxa3vfjz`), not in this repository - adding a
+new event handler in `app_server/webhooks/paddle.py` does **not** make Paddle start sending that
+event type. Confirmed via the Paddle API (`notificationSettings.list`/`.get`) that this destination
+is currently subscribed to `subscription.canceled`, `subscription.created`, `subscription.paused`,
+`subscription.resumed`, `subscription.updated`, and `transaction.completed`.
+
+`transaction.completed` was added 2026-08-10 alongside the affiliate-commission feature - it was
+initially missing (the destination predates that handler and was never updated), which would have
+made the entire commission-recording code path permanently unreachable in production despite
+passing all tests, since tests exercise the handler directly rather than real Paddle delivery. This
+is now a standing check: any new webhook handler for an event type not already in the list above
+needs both the code AND this destination's `subscribed_events` updated, verified live via
+`notificationSettings.get`, not assumed from the code change alone.
+
+## Recovery Rule
+
+If any deployed state differs from repository expectations, treat production as stale until the exact commit and Compose configuration are verified.
+
+## Deploy History
+
+This file is a snapshot of *current* production state — it gets overwritten on every redeploy, so
+it never shows what was live last week. For that, every production deploy is tagged
+`github-app-deploy-YYYY-MM-DD` (append `-N` for a second same-day deploy), and
+[`../../github-app/CHANGELOG.md`](../../github-app/CHANGELOG.md) has a dated, human-readable entry
+per deploy. `git tag -l 'github-app-deploy-*'` lists every tracked deploy point;
+`git log <prev-tag>..<tag>` gives the exact commit range for any one of them.
+

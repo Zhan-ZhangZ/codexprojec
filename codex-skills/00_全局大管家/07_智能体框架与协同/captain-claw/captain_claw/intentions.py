@@ -1,0 +1,659 @@
+"""Intentions — a control-plane primitive for *future actions under consideration*.
+
+An **intention** sits between *noticing* (insights) and *doing* (cron/scheduler):
+it carries a motivation (``why``), a trigger (when), and an approval lifecycle
+(announce vs. ask) before it ever becomes a committed, executing task.
+
+Two origins:
+  * ``user``  — notes-to-self, surfaced back contextually (no approval).
+  * ``agent`` — proactive proposals the agent announces (low-risk) or asks
+    permission for (anything that sends/changes data).
+
+Storage is a dedicated SQLite DB (``intentions.db``) next to ``sessions.db`` so
+it travels with the agent's data dir and is isolated per agent (Flight Deck
+sets a per-agent HOME). Decisions (the channel-agnostic "approve? / undo?"
+queue) live in a sibling table so any channel can surface and resolve them.
+
+Phase 1 = storage + CRUD + context injection. Channel wiring (delivery router,
+WhatsApp/Flight-Deck/glasses resolvers, materialize-to-scheduler) is Phase 2.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import aiosqlite
+
+from captain_claw.config import get_config
+from captain_claw.logging import get_logger
+
+log = get_logger(__name__)
+
+# ── Vocabulary ────────────────────────────────────────────────────────
+
+ORIGINS = frozenset({"user", "agent"})
+RISKS = frozenset({"low", "normal", "high"})
+APPROVAL_MODES = frozenset({"silent", "announce", "ask"})
+STATUSES = frozenset({
+    "proposed", "announced", "awaiting_approval", "active",
+    "snoozed", "done", "declined", "expired", "cancelled",
+})
+# Statuses considered "open" — surfaced to the agent / eligible for action.
+OPEN_STATUSES = frozenset({"proposed", "announced", "awaiting_approval", "active", "snoozed"})
+
+CATEGORIES = frozenset({
+    "reminder", "follow_up", "check_in", "automation", "suggestion", "other",
+})
+
+TRIGGER_TYPES = frozenset({"time", "event", "context", "manual"})
+ACTION_TYPES = frozenset({"nudge", "run_prompt", "deliver", "materialize_schedule"})
+
+DECISION_KINDS = frozenset({"approval", "announce_undo"})
+DECISION_RESOLUTIONS = frozenset({"approved", "declined", "snoozed", "undone", "timeout"})
+
+# JSON-serialised columns (parsed back to objects on read).
+_JSON_FIELDS = ("trigger_spec", "action_spec", "audience", "provenance")
+_DECISION_JSON_FIELDS = ("options", "target_hint")
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _new_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+MAX_TAGS = 5
+
+
+def _normalize_tags(tags: Any) -> str:
+    """Normalize tags (list or comma string) → deduped, lowercased, ≤5, comma-joined."""
+    if not tags:
+        return ""
+    items = tags.split(",") if isinstance(tags, str) else list(tags)
+    out: list[str] = []
+    for t in items:
+        t = str(t).strip().lower().replace(",", " ")
+        if t and t not in out:
+            out.append(t)
+        if len(out) >= MAX_TAGS:
+            break
+    return ",".join(out)
+
+
+def _default_db_path() -> Path:
+    """Place intentions.db alongside the session DB (respects per-agent HOME)."""
+    try:
+        base = Path(get_config().session.path).expanduser().parent
+    except Exception:
+        base = Path("~/.captain-claw").expanduser()
+    return base / "intentions.db"
+
+
+def _derive_approval_mode(origin: str, risk: str) -> str:
+    """User notes are silent; agent low-risk announces; otherwise ask."""
+    if origin == "user":
+        return "silent"
+    return "announce" if risk == "low" else "ask"
+
+
+# ── Manager ───────────────────────────────────────────────────────────
+
+
+class IntentionsManager:
+    """Persistent store for intentions and their pending decisions."""
+
+    def __init__(self, db_path: Path | None = None) -> None:
+        self.db_path = Path(db_path).expanduser() if db_path else _default_db_path()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._db: aiosqlite.Connection | None = None
+
+    async def _ensure_db(self) -> aiosqlite.Connection:
+        if self._db is not None:
+            return self._db
+        db = await aiosqlite.connect(str(self.db_path))
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS intentions (
+                id                  TEXT PRIMARY KEY,
+                origin              TEXT NOT NULL,
+                title               TEXT NOT NULL,
+                body                TEXT,
+                why                 TEXT,
+                category            TEXT,
+                risk                TEXT NOT NULL DEFAULT 'normal',
+                approval_mode       TEXT NOT NULL,
+                status              TEXT NOT NULL,
+                trigger_type        TEXT NOT NULL DEFAULT 'manual',
+                trigger_spec        TEXT,
+                action_type         TEXT NOT NULL DEFAULT 'nudge',
+                action_spec         TEXT,
+                repeat              TEXT,
+                materialized_job_id TEXT,
+                audience            TEXT,
+                provenance          TEXT,
+                source_session      TEXT,
+                created_at          TEXT NOT NULL,
+                updated_at          TEXT NOT NULL,
+                surfaced_at         TEXT,
+                decided_at          TEXT,
+                next_surface_at     TEXT,
+                undo_until          TEXT,
+                expires_at          TEXT,
+                tags                TEXT
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_int_status ON intentions(status)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_int_origin ON intentions(origin)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_int_next ON intentions(next_surface_at)")
+        # Migration: add tags column to intentions DBs created before tags existed.
+        try:
+            await db.execute("ALTER TABLE intentions ADD COLUMN tags TEXT")
+        except Exception:
+            pass  # column already exists
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS intention_decisions (
+                id            TEXT PRIMARY KEY,
+                intention_id  TEXT NOT NULL,
+                kind          TEXT NOT NULL,
+                prompt_text   TEXT NOT NULL,
+                options       TEXT,
+                status        TEXT NOT NULL DEFAULT 'pending',
+                resolution    TEXT,
+                resolved_via  TEXT,
+                target_hint   TEXT,
+                created_at    TEXT NOT NULL,
+                expires_at    TEXT,
+                resolved_at   TEXT
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_dec_status ON intention_decisions(status)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_dec_intention ON intention_decisions(intention_id)")
+
+        # Single-row state for the Phase 3 proposal generator (cooldown + budget).
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS generator_state (
+                id          INTEGER PRIMARY KEY CHECK (id = 1),
+                last_run_at TEXT,
+                day         TEXT,
+                count       INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        await db.execute(
+            "INSERT OR IGNORE INTO generator_state (id, last_run_at, day, count) VALUES (1, NULL, '', 0)"
+        )
+        await db.commit()
+        self._db = db
+        return db
+
+    async def get_generator_state(self) -> dict[str, Any]:
+        db = await self._ensure_db()
+        async with db.execute(
+            "SELECT last_run_at, day, count FROM generator_state WHERE id = 1"
+        ) as cur:
+            r = await cur.fetchone()
+        if not r:
+            return {"last_run_at": None, "day": "", "count": 0}
+        return {"last_run_at": r["last_run_at"], "day": r["day"], "count": int(r["count"] or 0)}
+
+    async def set_generator_state(self, *, last_run_at: str, day: str, count: int) -> None:
+        db = await self._ensure_db()
+        await db.execute(
+            "UPDATE generator_state SET last_run_at = ?, day = ?, count = ? WHERE id = 1",
+            (last_run_at, day, count),
+        )
+        await db.commit()
+
+    async def close(self) -> None:
+        if self._db is not None:
+            try:
+                await self._db.close()
+            finally:
+                self._db = None
+
+    # ── intentions CRUD ──────────────────────────────────────────────
+
+    async def create(
+        self,
+        *,
+        origin: str,
+        title: str,
+        body: str = "",
+        why: str = "",
+        category: str = "other",
+        risk: str = "normal",
+        approval_mode: str | None = None,
+        status: str | None = None,
+        trigger_type: str = "manual",
+        trigger_spec: dict | None = None,
+        action_type: str = "nudge",
+        action_spec: dict | None = None,
+        repeat: str | None = None,
+        audience: dict | None = None,
+        provenance: dict | None = None,
+        source_session: str = "",
+        next_surface_at: str | None = None,
+        expires_at: str | None = None,
+        tags: Any = None,
+    ) -> dict[str, Any]:
+        origin = origin if origin in ORIGINS else "agent"
+        risk = risk if risk in RISKS else "normal"
+        if approval_mode not in APPROVAL_MODES:
+            approval_mode = _derive_approval_mode(origin, risk)
+        if status not in STATUSES:
+            # Silent user notes go straight to active; agent proposals wait.
+            status = "active" if approval_mode == "silent" else "proposed"
+        now = _now_iso()
+        row = {
+            "id": _new_id(),
+            "origin": origin,
+            "title": title.strip(),
+            "body": (body or "").strip(),
+            "why": (why or "").strip(),
+            "category": category if category in CATEGORIES else "other",
+            "risk": risk,
+            "approval_mode": approval_mode,
+            "status": status,
+            "trigger_type": trigger_type if trigger_type in TRIGGER_TYPES else "manual",
+            "trigger_spec": json.dumps(trigger_spec) if trigger_spec else None,
+            "action_type": action_type if action_type in ACTION_TYPES else "nudge",
+            "action_spec": json.dumps(action_spec) if action_spec else None,
+            "repeat": repeat,
+            "materialized_job_id": None,
+            "audience": json.dumps(audience) if audience else None,
+            "provenance": json.dumps(provenance) if provenance else None,
+            "source_session": source_session or "",
+            "created_at": now,
+            "updated_at": now,
+            "surfaced_at": None,
+            "decided_at": None,
+            "next_surface_at": next_surface_at,
+            "undo_until": None,
+            "expires_at": expires_at,
+            "tags": _normalize_tags(tags),
+        }
+        db = await self._ensure_db()
+        cols = ", ".join(row.keys())
+        marks = ", ".join("?" for _ in row)
+        await db.execute(f"INSERT INTO intentions ({cols}) VALUES ({marks})", tuple(row.values()))
+        await db.commit()
+        return _row_to_dict(row)
+
+    async def get(self, intention_id: str) -> dict[str, Any] | None:
+        db = await self._ensure_db()
+        async with db.execute("SELECT * FROM intentions WHERE id = ?", (intention_id,)) as cur:
+            r = await cur.fetchone()
+        return _row_to_dict(dict(r)) if r else None
+
+    async def list(
+        self,
+        *,
+        origin: str | None = None,
+        status: str | None = None,
+        statuses: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        db = await self._ensure_db()
+        clauses, params = [], []
+        if origin:
+            clauses.append("origin = ?")
+            params.append(origin)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        elif statuses:
+            clauses.append(f"status IN ({', '.join('?' for _ in statuses)})")
+            params.extend(statuses)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(int(limit))
+        async with db.execute(
+            f"SELECT * FROM intentions {where} ORDER BY created_at DESC LIMIT ?", params
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_dict(dict(r)) for r in rows]
+
+    async def search_by_tags(
+        self,
+        tags: Any,
+        *,
+        match: str = "any",
+        statuses: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Find intentions by tag. match='any' (default) OR 'all'.
+
+        Tags are matched exactly against the stored comma list (delimiter-wrapped
+        LIKE), so 'cat' won't match 'category'.
+        """
+        norm = [t for t in _normalize_tags(tags).split(",") if t]
+        if not norm:
+            return []
+        # (',' || tags || ',') LIKE '%,<tag>,%'  → exact membership test.
+        per = "(',' || lower(COALESCE(tags,'')) || ',') LIKE '%,' || ? || ',%'"
+        joiner = " OR " if match != "all" else " AND "
+        where = "(" + joiner.join(per for _ in norm) + ")"
+        params: list[Any] = list(norm)
+        if statuses:
+            where += f" AND status IN ({', '.join('?' for _ in statuses)})"
+            params.extend(statuses)
+        params.append(int(limit))
+        db = await self._ensure_db()
+        async with db.execute(
+            f"SELECT * FROM intentions WHERE {where} ORDER BY created_at DESC LIMIT ?", params
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_row_to_dict(dict(r)) for r in rows]
+
+    async def update(self, intention_id: str, **fields: Any) -> bool:
+        if not fields:
+            return False
+        allowed = {
+            "title", "body", "why", "category", "risk", "approval_mode", "status",
+            "trigger_type", "trigger_spec", "action_type", "action_spec", "repeat",
+            "materialized_job_id", "audience", "provenance", "surfaced_at",
+            "decided_at", "next_surface_at", "undo_until", "expires_at", "tags",
+        }
+        sets, params = [], []
+        for k, v in fields.items():
+            if k not in allowed:
+                continue
+            if k == "tags":
+                v = _normalize_tags(v)
+            elif k in _JSON_FIELDS and v is not None and not isinstance(v, str):
+                v = json.dumps(v)
+            sets.append(f"{k} = ?")
+            params.append(v)
+        if not sets:
+            return False
+        sets.append("updated_at = ?")
+        params.append(_now_iso())
+        params.append(intention_id)
+        db = await self._ensure_db()
+        cur = await db.execute(
+            f"UPDATE intentions SET {', '.join(sets)} WHERE id = ?", params
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+    async def set_status(self, intention_id: str, status: str, **extra: Any) -> bool:
+        if status not in STATUSES:
+            return False
+        return await self.update(intention_id, status=status, **extra)
+
+    async def get_for_context(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Open intentions to surface in the agent's prompt (newest first)."""
+        return await self.list(statuses=list(OPEN_STATUSES), limit=limit)
+
+    # ── decisions (channel-agnostic approve/undo queue) ──────────────
+
+    async def create_decision(
+        self,
+        *,
+        intention_id: str,
+        kind: str,
+        prompt_text: str,
+        options: list[str] | None = None,
+        target_hint: dict | None = None,
+        expires_at: str | None = None,
+    ) -> dict[str, Any]:
+        kind = kind if kind in DECISION_KINDS else "approval"
+        row = {
+            "id": _new_id(),
+            "intention_id": intention_id,
+            "kind": kind,
+            "prompt_text": prompt_text.strip(),
+            "options": json.dumps(options or ["yes", "no", "later"]),
+            "status": "pending",
+            "resolution": None,
+            "resolved_via": None,
+            "target_hint": json.dumps(target_hint) if target_hint else None,
+            "created_at": _now_iso(),
+            "expires_at": expires_at,
+            "resolved_at": None,
+        }
+        db = await self._ensure_db()
+        cols = ", ".join(row.keys())
+        marks = ", ".join("?" for _ in row)
+        await db.execute(
+            f"INSERT INTO intention_decisions ({cols}) VALUES ({marks})", tuple(row.values())
+        )
+        await db.commit()
+        return _decision_to_dict(row)
+
+    async def list_pending_decisions(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        db = await self._ensure_db()
+        async with db.execute(
+            "SELECT * FROM intention_decisions WHERE status = 'pending' "
+            "ORDER BY created_at ASC LIMIT ?",
+            (int(limit),),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [_decision_to_dict(dict(r)) for r in rows]
+
+    async def resolve_decision(
+        self, decision_id: str, resolution: str, via: str = ""
+    ) -> dict[str, Any] | None:
+        """Mark a pending decision resolved. Returns the decision row, or None."""
+        if resolution not in DECISION_RESOLUTIONS:
+            return None
+        db = await self._ensure_db()
+        async with db.execute(
+            "SELECT * FROM intention_decisions WHERE id = ? AND status = 'pending'",
+            (decision_id,),
+        ) as cur:
+            r = await cur.fetchone()
+        if not r:
+            return None
+        await db.execute(
+            "UPDATE intention_decisions SET status='resolved', resolution=?, "
+            "resolved_via=?, resolved_at=? WHERE id = ?",
+            (resolution, via, _now_iso(), decision_id),
+        )
+        await db.commit()
+        out = dict(r)
+        out.update({"status": "resolved", "resolution": resolution, "resolved_via": via})
+        return _decision_to_dict(out)
+
+
+# ── row parsing ───────────────────────────────────────────────────────
+
+
+def _parse_json_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    out = dict(row)
+    for f in fields:
+        v = out.get(f)
+        if isinstance(v, str) and v:
+            try:
+                out[f] = json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                pass
+    return out
+
+
+def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
+    out = _parse_json_fields(row, _JSON_FIELDS)
+    # Tags are stored comma-joined; expose as a list.
+    raw_tags = out.get("tags")
+    out["tags"] = [t for t in str(raw_tags).split(",") if t] if raw_tags else []
+    return out
+
+
+def _decision_to_dict(row: dict[str, Any]) -> dict[str, Any]:
+    return _parse_json_fields(row, _DECISION_JSON_FIELDS)
+
+
+# ── singleton ─────────────────────────────────────────────────────────
+
+_manager: IntentionsManager | None = None
+
+
+def get_intentions_manager() -> IntentionsManager:
+    global _manager
+    if _manager is None:
+        _manager = IntentionsManager()
+    return _manager
+
+
+# ── Resolution follow-through (Phase 2) ───────────────────────────────
+
+
+async def follow_through(
+    intention_id: str,
+    resolution: str,
+    *,
+    source_waid: str = "",
+    source_session: str = "",
+) -> dict[str, Any]:
+    """Apply a resolved decision to its intention.
+
+    approved → activate (and, if repeatable + we have a delivery target,
+    materialize a Flight Deck scheduler job). declined → mark declined and
+    write a negative-feedback insight so the agent stops re-proposing.
+    snoozed → defer. undone → cancel (announce-undo).
+    """
+    from datetime import timedelta
+
+    mgr = get_intentions_manager()
+    it = await mgr.get(intention_id)
+    if not it:
+        return {"ok": False, "error": "intention not found"}
+    now = _now_iso()
+
+    if resolution == "approved":
+        job_id = ""
+        if it.get("repeat") and source_waid:
+            job_id = await _materialize_scheduler(it, source_waid)
+        await mgr.set_status(
+            intention_id, "active", decided_at=now, materialized_job_id=job_id or None
+        )
+        return {
+            "ok": True,
+            "outcome": "scheduled" if job_id else "activated",
+            "job_id": job_id,
+            "intention": it,
+        }
+    if resolution == "declined":
+        await mgr.set_status(intention_id, "declined", decided_at=now)
+        await _record_decline_insight(it, source_session)
+        return {"ok": True, "outcome": "declined", "intention": it}
+    if resolution == "snoozed":
+        until = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+        await mgr.set_status(intention_id, "snoozed", next_surface_at=until)
+        return {"ok": True, "outcome": "snoozed", "intention": it}
+    if resolution == "undone":
+        await mgr.set_status(intention_id, "cancelled", decided_at=now)
+        return {"ok": True, "outcome": "cancelled", "intention": it}
+    return {"ok": False, "error": f"unknown resolution: {resolution}"}
+
+
+async def _materialize_scheduler(it: dict[str, Any], source_waid: str) -> str:
+    """Create a Flight Deck scheduler job for an approved repeatable intention."""
+    import os
+
+    from captain_claw.fd_client import FDClient, flight_deck_base, flight_deck_slug
+
+    if not flight_deck_base():
+        return ""
+    action = it.get("action_spec")
+    prompt = ""
+    if isinstance(action, dict):
+        prompt = str(action.get("prompt") or "")
+    prompt = prompt or (it.get("body") or "").strip() or it.get("title") or "Run scheduled task."
+    payload = {
+        "name": (it.get("title") or "intention")[:60],
+        "schedule": it.get("repeat"),
+        "prompt": prompt,
+        "agent_slug": flight_deck_slug(),
+        "delivery_kind": "whatsapp",
+        "delivery_target": source_waid,
+    }
+    headers = {}
+    tok = (os.environ.get("FD_GLASSES_BRIDGE_TOKEN") or "").strip()
+    if tok:
+        headers["x-glasses-token"] = tok
+    fd = FDClient(timeout=15.0)
+    try:
+        resp = await fd.post("/scheduler/jobs", json=payload, headers=headers)
+        if resp.status_code in (200, 201):
+            return str((resp.json() or {}).get("id") or "")
+        log.warning("materialize scheduler rejected (%s): %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        log.warning("materialize scheduler failed: %s", exc)
+    finally:
+        await fd.close()
+    return ""
+
+
+async def create_proposal(
+    *,
+    title: str,
+    why: str = "",
+    risk: str = "normal",
+    repeat: str | None = None,
+    action_prompt: str | None = None,
+    source_session: str = "",
+    waid: str = "",
+) -> dict[str, Any]:
+    """Create an agent intention + its decision (ask/announce). Shared by the
+    intentions tool and the Phase 3 generator so both emit identical decisions.
+
+    Returns ``{"intention", "decision", "question"}`` — ``question`` is the text
+    to surface to the user (empty for silent).
+    """
+    mgr = get_intentions_manager()
+    it = await mgr.create(
+        origin="agent",
+        title=title,
+        why=why,
+        risk=risk,
+        category="suggestion",
+        repeat=repeat,
+        action_type="run_prompt" if action_prompt else "nudge",
+        action_spec={"prompt": action_prompt} if action_prompt else None,
+        source_session=source_session,
+    )
+    hint = {"waid": waid} if waid else None
+    question = ""
+    decision = None
+    if it["approval_mode"] == "ask":
+        question = f"Should I {title}?"
+        decision = await mgr.create_decision(
+            intention_id=it["id"], kind="approval", prompt_text=question,
+            options=["yes", "no", "later"], target_hint=hint,
+        )
+    elif it["approval_mode"] == "announce":
+        question = f"I'll {title} unless you say stop."
+        decision = await mgr.create_decision(
+            intention_id=it["id"], kind="announce_undo", prompt_text=question,
+            options=["stop"], target_hint=hint,
+        )
+    return {"intention": it, "decision": decision, "question": question}
+
+
+async def _record_decline_insight(it: dict[str, Any], source_session: str = "") -> None:
+    """Remember a decline as negative feedback so the agent won't re-propose."""
+    try:
+        from captain_claw.insights import get_insights_manager
+
+        await get_insights_manager().add(
+            content=(
+                f"User declined the proposal: {it.get('title', '')}. "
+                "Do not re-propose this unless they bring it up."
+            ),
+            category="feedback",
+            polarity="negative",
+            importance=4,
+            source_tool="intentions",
+            source_session=source_session or it.get("source_session", ""),
+            why=(it.get("why") or None),
+        )
+    except Exception as exc:
+        log.debug("decline insight skipped: %s", exc)

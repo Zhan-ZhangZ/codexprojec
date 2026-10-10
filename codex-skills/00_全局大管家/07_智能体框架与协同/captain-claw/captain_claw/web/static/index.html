@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Captain Claw</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <script src="/static/version.js" defer></script>
+</head>
+<body>
+    <!-- Header -->
+    <header id="header">
+        <div class="header-left">
+            <a href="/" class="logo" title="Captain Claw - Home">
+                <img src="/static/logo.svg" width="24" height="24" alt="" style="vertical-align:middle;margin-right:6px;border-radius:5px;">Captain Claw
+            </a>
+            <span class="version-badge" id="versionBadge" style="font-size:10px;color:#666;margin-left:4px;"></span>
+            <span class="divider"></span>
+            <span class="session-badge" id="sessionBadge" title="Click to manage sessions">
+                <span class="session-icon">&#9679;</span>
+                <span id="sessionName">loading...</span>
+            </span>
+        </div>
+        <div class="header-center">
+            <div class="persona-selector-wrap">
+                <button class="persona-badge" id="personaBadge" title="Select user profile — tells the agent who you are">
+                    <span class="persona-icon">&#x1F464;</span>
+                    <span id="personaName">No profile</span>
+                    <span class="model-caret">&#x25BE;</span>
+                </button>
+                <div class="persona-dropdown hidden" id="personaDropdown"></div>
+            </div>
+            <div class="model-selector-wrap">
+                <button class="model-badge" id="modelBadge" title="Click to change model">
+                    <span id="modelName">-</span>
+                    <span class="model-caret">&#x25BE;</span>
+                </button>
+                <div class="model-dropdown hidden" id="modelDropdown"></div>
+            </div>
+            <div class="playbook-selector-wrap">
+                <button class="playbook-badge" id="playbookBadge" title="Playbook override — auto, none, or pick a specific playbook">
+                    <span class="playbook-icon">&#x1F4D6;</span>
+                    <span id="playbookName">Auto</span>
+                    <span class="model-caret">&#x25BE;</span>
+                </button>
+                <div class="playbook-dropdown hidden" id="playbookDropdown"></div>
+            </div>
+        </div>
+        <div class="header-right">
+            <span class="status-indicator" id="statusIndicator" title="Agent status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">connecting</span>
+            </span>
+            <a href="/orchestrator" class="icon-btn" title="Orchestrator — parallel multi-task dashboard" style="text-decoration:none;">&#x1F3AF;</a>
+            <button class="icon-btn" id="skillsFolderBtn" title="Manage read folders">&#x1F4C2;</button>
+            <button class="icon-btn" id="sidebarToggle" title="Sidebar: Sessions, Instructions, Help (Ctrl+B)">&#9776;</button>
+        </div>
+    </header>
+
+    <!-- Main content -->
+    <div id="main">
+        <!-- Tools bar -->
+        <div id="toolsBar" class="tools-bar">
+            <span class="tools-bar-label">Tools</span>
+            <div id="toolsList" class="tools-list"></div>
+        </div>
+        <!-- Skills bar -->
+        <div id="skillsBar" class="tools-bar">
+            <span class="tools-bar-label">Skills</span>
+            <div id="skillsList" class="tools-list"></div>
+        </div>
+        <!-- Chat + Monitor split pane -->
+        <div id="panes">
+            <!-- Chat pane -->
+            <div id="chatPane">
+                <div class="pane-header">
+                    <span class="pane-title">Chat</span>
+                    <span id="contextInfo" class="context-info"></span>
+                    <span class="pane-hint" id="chatCount">0 messages</span>
+                </div>
+                <div id="dropOverlay" class="drop-overlay hidden">
+                    <div class="drop-overlay-text">Drop CSV or XLSX to import into datastore</div>
+                </div>
+                <div id="chatMessages" class="messages-area">
+                    <div class="empty-state" id="chatEmpty">
+                        <div class="empty-icon">&#x1F980;</div>
+                        <div class="empty-title">Welcome to Captain Claw</div>
+                        <div class="empty-text">
+                            Type a message to start a conversation, or use a <code>/command</code>.<br>
+                            Press <kbd>Ctrl+K</kbd> for the command palette. Press <kbd>?</kbd> button for help.
+                        </div>
+                        <div class="quick-actions">
+                            <button class="quick-btn" data-command="/help">&#x2753; Help</button>
+                            <button class="quick-btn" data-command="/models">&#x1F916; Models</button>
+                            <button class="quick-btn" data-command="/sessions">&#x1F4CB; Sessions</button>
+                            <button class="quick-btn" data-command="/skills">&#x26A1; Skills</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Resize handle -->
+            <div id="resizeHandle" title="Drag to resize panes"></div>
+
+            <!-- Monitor pane -->
+            <div id="monitorPane">
+                <div class="pane-header">
+                    <span class="pane-title">Monitor</span>
+                    <button class="pane-btn" id="clearMonitor" title="Clear monitor">Clear</button>
+                </div>
+                <div id="monitorMessages" class="messages-area monitor-area">
+                    <div class="empty-state" id="monitorEmpty">
+                        <div class="empty-icon">&#x1F4CA;</div>
+                        <div class="empty-text">Tool outputs and traces will appear here</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input area -->
+        <div id="inputArea">
+            <!-- Input toggles bar -->
+            <div class="input-toggles">
+                <label class="toggle-switch" title="Force script mode: LLM writes and executes a Python script instead of using internal tools">
+                    <input type="checkbox" id="forceScriptToggle" />
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">Script mode</span>
+                </label>
+            </div>
+            <!-- Command suggestions dropdown -->
+            <div id="commandSuggestions" class="suggestions-dropdown hidden"></div>
+            <div id="attachmentPreview" class="attachment-preview hidden"></div>
+            <div class="input-row">
+                <textarea id="messageInput"
+                    placeholder="Type a message or /command... (Ctrl+K command palette)"
+                    rows="1"
+                    autocomplete="off"
+                    spellcheck="true"></textarea>
+                <div class="input-buttons">
+                    <input type="file" id="fileInput" accept=".csv,.xlsx,.zip,.png,.jpg,.jpeg,.webp,.gif,.bmp" style="display:none" />
+                    <button class="icon-btn upload-btn" id="uploadBtn" title="Attach file">&#x1F4CE;</button>
+                    <button class="icon-btn mic-btn" id="micBtn" title="Voice input (click to record)">&#x1F399;</button>
+                    <button class="icon-btn send-btn" id="sendBtn" title="Send message (Enter)">&#x27A4;</button>
+                    <button class="icon-btn stop-btn" id="stopBtn" title="Stop processing (Esc)" style="display:none;">&#x25A0;</button>
+                    <button class="icon-btn" id="paletteBtn" title="Command palette (Ctrl+K)">&#x2318;K</button>
+                    <button class="icon-btn" id="helpBtn" title="Help & commands reference">?</button>
+                </div>
+            </div>
+            <div class="input-hints">
+                <span><kbd>Enter</kbd> send</span>
+                <span><kbd>Shift+Enter</kbd> new line</span>
+                <span><kbd>Ctrl+K</kbd> commands</span>
+                <span><kbd>Ctrl+N</kbd> new session</span>
+                <span><kbd>Esc</kbd> cancel</span>
+                <span><kbd>Ctrl+Shift+M</kbd> voice</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div id="sidebar" class="sidebar hidden">
+        <div class="sidebar-header">
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active" data-tab="files">Files</button>
+                <button class="sidebar-tab" data-tab="sessions">Sessions</button>
+                <button class="sidebar-tab" data-tab="help">Help</button>
+            </div>
+            <button class="icon-btn sidebar-close" id="sidebarClose" title="Close sidebar">&times;</button>
+        </div>
+
+        <!-- Sessions tab -->
+        <div class="sidebar-content" id="tabSessions">
+            <div class="sidebar-actions">
+                <button class="action-btn" id="newSessionBtn">+ New Session</button>
+            </div>
+            <div id="sessionsList" class="sidebar-list">
+                <div class="loading">Loading sessions...</div>
+            </div>
+        </div>
+
+        <!-- Files tab -->
+        <div class="sidebar-content active files-tab" id="tabFiles">
+            <div class="files-header-row">
+                <span class="files-count" id="filesCount">0 files</span>
+                <input type="text" class="files-search" id="filesSearch" placeholder="Filter files..." autocomplete="off">
+            </div>
+            <div id="filesList" class="sidebar-list files-list"></div>
+            <div id="filePreview" class="file-preview hidden">
+                <div class="file-preview-header">
+                    <span class="file-preview-name" id="filePreviewName">-</span>
+                    <div class="file-preview-actions">
+                        <a class="action-btn small" id="fileViewBtn" href="#" target="_blank" title="View in new tab" style="display:none">View</a>
+                        <button class="action-btn small" id="fileMdViewBtn" title="View rendered markdown" style="display:none">View</button>
+                        <a class="action-btn small" id="fileDownloadBtn" href="#" download title="Download file">Download</a>
+                        <button class="action-btn small secondary" id="filePreviewClose" title="Close preview">&#x2715;</button>
+                    </div>
+                </div>
+                <div class="file-preview-meta" id="filePreviewMeta"></div>
+                <div class="file-preview-body" id="filePreviewBody"></div>
+            </div>
+        </div>
+
+        <!-- Help tab -->
+        <div class="sidebar-content" id="tabHelp">
+            <div id="helpContent" class="help-content">
+                <h3>Keyboard Shortcuts</h3>
+                <table class="help-table">
+                    <tr><td><kbd>Enter</kbd></td><td>Send message</td></tr>
+                    <tr><td><kbd>Shift+Enter</kbd></td><td>New line</td></tr>
+                    <tr><td><kbd>Ctrl+K</kbd></td><td>Command palette</td></tr>
+                    <tr><td><kbd>Ctrl+N</kbd></td><td>New session</td></tr>
+                    <tr><td><kbd>Ctrl+B</kbd></td><td>Toggle sidebar</td></tr>
+                    <tr><td><kbd>Esc</kbd></td><td>Cancel / close</td></tr>
+                </table>
+                <h3>Tips</h3>
+                <ul>
+                    <li>Type <code>/</code> to see command suggestions</li>
+                    <li>Use <code>/help</code> for a full command reference</li>
+                    <li>Commands like <code>/new</code>, <code>/session switch</code> manage sessions</li>
+                    <li>Use <code>/models</code> to see and switch AI models</li>
+                    <li>The monitor panel shows tool execution details</li>
+                    <li>Edit instruction templates in the Instructions tab</li>
+                </ul>
+                <div id="commandReference"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Command palette overlay -->
+    <div id="commandPalette" class="palette-overlay hidden">
+        <div class="palette-dialog">
+            <input type="text" id="paletteInput" placeholder="Search commands..." autocomplete="off">
+            <div id="paletteResults" class="palette-results"></div>
+        </div>
+    </div>
+
+    <!-- Approval modal -->
+    <div id="approvalModal" class="modal-overlay hidden">
+        <div class="modal-dialog">
+            <div class="modal-icon">&#x1F512;</div>
+            <h3>Approval Required</h3>
+            <p id="approvalMessage">-</p>
+            <div class="modal-buttons">
+                <button class="action-btn" id="approveBtn">Approve</button>
+                <button class="action-btn danger" id="denyBtn">Deny</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Folder browser modal -->
+    <div id="folderModal" class="modal-overlay hidden">
+        <div class="folder-dialog">
+            <div class="folder-dialog-header">
+                <h3>Read Folders</h3>
+                <button class="icon-btn" id="folderModalClose" title="Close">&times;</button>
+            </div>
+            <!-- Tab bar -->
+            <div class="folder-tabs">
+                <button class="folder-tab active" data-tab="local">Local Folders</button>
+                <button class="folder-tab" data-tab="gdrive" id="folderTabGdriveBtn" style="display:none">Google Drive</button>
+            </div>
+            <!-- Local tab -->
+            <div class="folder-tab-content" id="folderTabLocal">
+                <div class="folder-current" id="folderCurrent">
+                    <div class="folder-section-label">Active folders</div>
+                    <div id="folderList" class="folder-list">
+                        <div class="folder-empty">No extra folders configured</div>
+                    </div>
+                </div>
+                <div class="folder-browser">
+                    <div class="folder-section-label">Browse &amp; add folder</div>
+                    <div id="folderDriveBar" class="folder-drive-bar hidden"></div>
+                    <div class="folder-breadcrumb" id="folderBreadcrumb"></div>
+                    <div class="folder-dirs" id="folderDirs">
+                        <div class="folder-empty">Loading...</div>
+                    </div>
+                    <div class="folder-actions">
+                        <span class="folder-selected-path" id="folderSelectedPath">-</span>
+                        <button class="action-btn small" id="folderAddBtn" disabled>Add this folder</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Google Drive tab -->
+            <div class="folder-tab-content hidden" id="folderTabGdrive">
+                <div class="folder-current">
+                    <div class="folder-section-label">Active Google Drive folders</div>
+                    <div id="gdriveList" class="folder-list">
+                        <div class="folder-empty">No Google Drive folders configured</div>
+                    </div>
+                </div>
+                <div class="folder-browser">
+                    <div class="folder-section-label">Browse &amp; add folder</div>
+                    <div class="folder-breadcrumb" id="gdriveBreadcrumb"></div>
+                    <div class="folder-dirs" id="gdriveDirs">
+                        <div class="folder-empty">Loading...</div>
+                    </div>
+                    <div class="folder-actions">
+                        <span class="folder-selected-path" id="gdriveSelectedName">My Drive</span>
+                        <button class="action-btn small" id="gdriveAddBtn" disabled>Add this folder</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Markdown viewer modal -->
+    <div id="mdViewerModal" class="modal-overlay hidden">
+        <div class="md-viewer-dialog">
+            <div class="md-viewer-header">
+                <span class="md-viewer-title" id="mdViewerTitle">-</span>
+                <div class="md-viewer-actions">
+                    <button class="action-btn small" id="mdExportPdf" title="Export as PDF">PDF</button>
+                    <button class="action-btn small" id="mdExportDocx" title="Export as DOCX">DOCX</button>
+                    <button class="icon-btn" id="mdViewerClose" title="Close">&times;</button>
+                </div>
+            </div>
+            <div class="md-viewer-body" id="mdViewerBody"></div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

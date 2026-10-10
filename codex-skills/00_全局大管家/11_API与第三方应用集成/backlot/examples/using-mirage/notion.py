@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Read Notion through mirage's virtual filesystem. Self-contained: run it directly.
+
+Mirage mounts Backlot's Notion API as a filesystem — ``pages/`` and ``databases/`` at the root,
+each entry a directory with a ``page.json`` / ``database.json`` — so an agent reads it with plain
+``ls`` / ``cat``. Notion's API host is a config knob (``NotionConfig(base_url=...)``), so we point
+it straight at Backlot — no monkeypatch (unlike Google). mirage sends ``Notion-Version:
+2025-09-03`` (``NotionConfig.api_version`` overrides it), so it reads a database through its data
+source, which is the half of the version-aware router that version serves.
+
+    uv sync --all-extras --locked
+    python examples/using-mirage/notion.py                                  # local throwaway server
+    python examples/using-mirage/notion.py --url http://localhost:8000
+    python examples/using-mirage/notion.py --url http://localhost:8000 --token <usr-token>
+    python examples/using-mirage/notion.py --url http://localhost:8000 --fuse   # real OS mount
+
+With ``--fuse`` the tree is exposed as an actual filesystem (needs macFUSE/fuse3) and read with
+plain ``os``/shell tools; otherwise it's driven in-process via ``ws.execute``.
+"""
+
+import argparse
+import os
+import subprocess
+
+from _helpers import FUSE_HELP, lines, run_mirage
+from mirage import MountMode, Workspace
+from mirage.resource.notion import NotionConfig, NotionResource
+
+from backlot import serve_or_connect
+
+CORPUS = [
+    {
+        "updated": "2026-02-01T09:00:00Z",
+        "author_email": "ava@acme.com",
+        "created": "2026-02-01T09:00:00Z",
+        "source_type": "notion",
+        "teamspace": "engineering",
+        "title": "On-call Runbook",
+        "content": "# On-call\n\nCheck dashboards, roll back, page on-call.",
+        "comments": [
+            {
+                "author_email": "bob@acme.com",
+                "created_ts": "2026-02-10T18:25:00Z",
+                "content": "add the rate-limiter rollback step",
+            }
+        ],
+    },
+    {
+        "updated": "2026-01-10T09:00:00Z",
+        "author_email": "ava@acme.com",
+        "created": "2026-01-10T09:00:00Z",
+        "source_type": "notion",
+        "teamspace": "engineering",
+        "subtype": "database",
+        "title": "Eng Tasks",
+        "content": "Team task tracker.",
+        "doc_id": "eng-tasks-db",
+        "properties": {"Status": {"type": "select"}, "Priority": {"type": "select"}},
+    },
+    {
+        "updated": "2026-02-02T10:00:00Z",
+        "author_email": "bob@acme.com",
+        "created": "2026-02-02T10:00:00Z",
+        "source_type": "notion",
+        "teamspace": "engineering",
+        "title": "Fix gateway 502s",
+        "content": "Investigate token-bucket refill.",
+        "parent": "eng-tasks-db",
+        "properties": {"Status": "In Progress", "Priority": "High"},
+    },
+]
+
+
+def build(s, token):
+    # Notion's host is a config knob — point it at Backlot (no monkeypatch needed).
+    # --token <usr-token> (from /_meta/users) → ACL-filtered to that user; else admin sees all.
+    return NotionResource(NotionConfig(api_key=token, base_url=f"{s.base_url}/notion/v1"))
+
+
+async def main(resource) -> None:
+    ws = Workspace({"/notion": resource}, mode=MountMode.READ)
+
+    print("=== ls /notion/ ===")
+    print((await (await ws.execute("ls /notion/")).stdout_str()).rstrip())
+
+    pages = lines(await (await ws.execute("ls /notion/pages/")).stdout_str())
+    print(f"\n=== {len(pages)} page(s) ===")
+    for p in pages:
+        print(f"  {p}")
+    if pages:
+        page_json = f"/notion/pages/{pages[0].rstrip('/')}/page.json"
+        print(f"\n$ cat {page_json}")
+        print((await (await ws.execute(f'cat "{page_json}"')).stdout_str()).rstrip()[:600])
+
+    dbs = lines(await (await ws.execute("ls /notion/databases/")).stdout_str())
+    print(f"\n=== {len(dbs)} database(s) ===")
+    for d in dbs:
+        print(f"  {d}")
+    if dbs:
+        db_json = f"/notion/databases/{dbs[0].rstrip('/')}/database.json"
+        print(f"\n$ cat {db_json}")
+        print((await (await ws.execute(f'cat "{db_json}"')).stdout_str()).rstrip()[:600])
+
+
+def main_fuse(resource) -> None:
+    """--fuse: mount the Notion tree as a *real* filesystem, then read it with ordinary tools."""
+    try:
+        with Workspace({"/notion": resource}, mode=MountMode.READ) as ws:
+            mnt = ws.add_fuse_mount("/notion")  # "/notion" is now a real directory on disk
+            print(f"=== mounted at {mnt} — an ordinary filesystem now ===")
+            pages = sorted(os.listdir(f"{mnt}/pages"))
+            if pages:
+                page_json = f"{mnt}/pages/{pages[0]}/page.json"
+                print(f"\n$ head -c 200 pages/{pages[0]}/page.json")
+                print(
+                    "  " + open(page_json).read(200).replace("\n", " ")
+                )  # a genuine open() via FUSE
+                count = subprocess.run(
+                    ["grep", "-c", ".", page_json], capture_output=True, text=True
+                )
+                print(
+                    f"\n$ grep -c . <that file>   # a separate process reads the mount → {count.stdout.strip()}"
+                )
+            print(f"\nexplore it live in another terminal:  ls {mnt}/pages {mnt}/databases")
+    except (ImportError, RuntimeError, OSError) as e:
+        raise SystemExit(FUSE_HELP.format(err=e))
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Read Notion through mirage against Backlot.")
+    p.add_argument(
+        "--url", help="Backlot base URL to drive (default: spin up a local throwaway server)"
+    )
+    p.add_argument(
+        "--token",
+        help="Backlot bearer token from GET /_meta/users "
+        "(default: the admin token, which sees everything)",
+    )
+    p.add_argument(
+        "--fuse", action="store_true", help="mount as a real FUSE filesystem (needs macFUSE/fuse3)"
+    )
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    with serve_or_connect(CORPUS, url=args.url) as s:
+        if args.token:
+            print("authenticating with --token → responses are ACL-filtered to that user")
+        resource = build(s, args.token or s.token)
+        if args.fuse:
+            main_fuse(resource)
+        else:
+            run_mirage(main(resource))

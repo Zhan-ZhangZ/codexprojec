@@ -1,0 +1,10 @@
+policyProfile: strict_local
+budget:
+  maxUsd: 2
+  softLimitUsd: 1
+  maxIterations: 2
+governance:
+  destructiveActionPolicy: approval
+  telemetryDestination: local-only
+  verifierRules:
+    - npm test

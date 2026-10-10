@@ -1,0 +1,1897 @@
+"""Tool-call parsing/execution helpers for Agent.
+
+This mixin handles:
+- Tool call extraction from LLM response content (multiple formats)
+- Tool call execution with guards, duplicate detection, and scale tracking
+- Tool output collection and friendly rewriting
+- Tool thinking summaries for UI indicators
+"""
+
+import asyncio
+import json
+import os
+import re
+from typing import Any
+
+from captain_claw.config import get_config
+from captain_claw.gmail_compose import is_repeat_refusal
+from captain_claw.llm import Message, ToolCall
+from captain_claw.logging import get_logger
+
+
+log = get_logger(__name__)
+
+
+class AgentToolLoopMixin:
+    """Extract commands, parse embedded tool calls, and execute tool loops."""
+
+    # ------------------------------------------------------------------
+    # Tool thinking summaries
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _tool_thinking_summary(tool_name: str, arguments: dict[str, Any]) -> str:
+        """Derive a short human-readable summary of a tool call for the thinking indicator."""
+        name = str(tool_name or "").strip().lower()
+        # ── Core tools ──────────────────────────────────────
+        if name == "read":
+            path = str(arguments.get("path", arguments.get("file_path", ""))).strip()
+            return f"Reading: {path.rsplit('/', 1)[-1]}" if path else "Reading file"
+        if name == "write":
+            path = str(arguments.get("path", arguments.get("file_path", ""))).strip()
+            return f"Writing: {path.rsplit('/', 1)[-1]}" if path else "Writing file"
+        if name == "shell":
+            cmd = str(arguments.get("command", "")).strip()
+            return f"Running: {cmd[:60]}" if cmd else "Running shell command"
+        if name == "web_fetch":
+            url = str(arguments.get("url", "")).strip()
+            return f"Fetching: {url[:60]}" if url else "Fetching URL"
+        if name == "web_get":
+            url = str(arguments.get("url", "")).strip()
+            return f"Fetching HTML: {url[:60]}" if url else "Fetching raw HTML"
+        if name == "web_search":
+            query = str(arguments.get("query", "")).strip()
+            return f"Searching: {query[:60]}" if query else "Searching the web"
+        if name == "send_mail":
+            to = str(arguments.get("to", "")).strip()
+            return f"Sending email to {to}" if to else "Sending email"
+        if name in {"todos", "contacts", "scripts", "apis"}:
+            action = str(arguments.get("action", "list")).strip()
+            return f"{action.capitalize()}: {name} memory"
+        # ── Document extractors ───────────────────────────────
+        if name in {"pdf_extract", "docx_extract", "xlsx_extract", "pptx_extract"}:
+            path = str(arguments.get("path", "")).strip()
+            label = name.replace("_extract", "").upper()
+            return f"Extracting {label}: {path.rsplit('/', 1)[-1]}" if path else f"Extracting {label}"
+        # ── Google Drive ─────────────────────────────────────
+        if name == "google_drive":
+            action = str(arguments.get("action", "")).strip()
+            return f"Google Drive: {action}" if action else "Google Drive"
+        # ── Memory & context ────────────────────────────────
+        if name == "memory_select":
+            query = str(arguments.get("query", "")).strip()
+            return f"Selecting memory context: {query[:50]}" if query else "Selecting memory context"
+        if name == "memory_semantic_select":
+            query = str(arguments.get("query", "")).strip()
+            return f"Semantic memory search: {query[:50]}" if query else "Semantic memory search"
+        # ── Pipeline & planning ─────────────────────────────
+        if name == "task_contract":
+            step = str(arguments.get("step", "")).strip()
+            return f"Task planner: {step}" if step else "Generating task contract"
+        if name == "completion_gate":
+            step = str(arguments.get("step", "")).strip()
+            return f"Completion check: {step}" if step else "Evaluating completion"
+        if name == "planning":
+            event = str(arguments.get("event", "")).strip()
+            # Prefer the deepest scope title from scope_progress (human-
+            # readable step name) over the raw numeric path like "5".
+            scope_progress = arguments.get("scope_progress")
+            title = ""
+            if isinstance(scope_progress, list) and scope_progress:
+                deepest = scope_progress[-1]
+                if isinstance(deepest, dict):
+                    title = str(deepest.get("title", "")).strip()
+            current_path = str(arguments.get("current_path", "")).strip()
+            label = title or current_path
+            if label:
+                label = label[:80]
+                if event and "completed" in event:
+                    return f"✓ {label}"
+                return f"▸ {label}"
+            return f"Planning: {event}" if event else "Updating plan"
+        if name == "pipeline_trace":
+            return "Pipeline trace"
+        # ── Guards ──────────────────────────────────────────
+        if name.startswith("guard_"):
+            guard_type = name[6:]
+            decision = str(arguments.get("decision", "")).strip()
+            return f"Guard ({guard_type}): {decision}" if decision else f"Checking guard: {guard_type}"
+        # ── Session management ──────────────────────────────
+        if name == "compaction":
+            trigger = str(arguments.get("trigger", "")).strip()
+            return f"Compacting messages: {trigger}" if trigger else "Compacting session messages"
+        if name == "session_procreate":
+            step = str(arguments.get("step", "")).strip()
+            return f"Session procreation: {step}" if step else "Procreating session"
+        # ── LLM tracing ────────────────────────────────────
+        if name == "llm_trace":
+            return "LLM trace"
+        # ── Media ──────────────────────────────────────────
+        if name == "pocket_tts":
+            return "Text-to-speech"
+        if name == "image_gen":
+            prompt = str(arguments.get("prompt", "")).strip()
+            return f"Generating image: {prompt[:50]}" if prompt else "Generating image"
+        if name == "image_ocr":
+            path = str(arguments.get("path", "")).strip()
+            fname = path.rsplit("/", 1)[-1] if "/" in path else path
+            return f"OCR: {fname[:50]}" if fname else "Extracting text from image"
+        if name == "image_vision":
+            path = str(arguments.get("path", "")).strip()
+            fname = path.rsplit("/", 1)[-1] if "/" in path else path
+            return f"Analyzing image: {fname[:50]}" if fname else "Analyzing image"
+        if name == "termux":
+            action = str(arguments.get("action", "")).strip()
+            if action == "photo":
+                cam = "front" if arguments.get("camera_id") == 1 else "back"
+                return f"Taking photo ({cam} camera)"
+            if action == "battery":
+                return "Checking battery status"
+            if action == "location":
+                return "Getting device location"
+            if action == "torch":
+                state = str(arguments.get("state", "on")).strip()
+                return f"Torch {state}"
+            return f"Termux: {action}" if action else "Termux API call"
+        # ── Approval ───────────────────────────────────────
+        if name == "approval":
+            return "Auto-approved action"
+        # ── Fallback ───────────────────────────────────────
+        return f"Running: {tool_name}"
+
+    # ------------------------------------------------------------------
+    # Shell command extraction from response
+    # ------------------------------------------------------------------
+
+    def _extract_command_from_response(self, content: str) -> str | None:
+        """Extract shell command from model response.
+
+        Looks for:
+        - ```bash\\ncommand\\n``` or ```shell\\ncommand\\n```
+        - "I'll run: command"
+        - "Running: command"
+        """
+        import re
+
+        if not content:
+            return None
+
+        # Only match explicit shell/code blocks or explicit commands
+        patterns = [
+            r'```(?:bash|shell|sh)\s*\n(.*?)\n```',  # ```bash\ncommand\n```
+            r'```\s*\n(.*?)\n```(?:\s|$)',  # ```\ncommand\n``` followed by whitespace or end
+            r"I'(?:ll| will) run[:\s]+[`\"]?(.+?)[`\"]?(?:\n|$)",  # I'll run: `command`
+            r"(?:exec|execute)[:\s]+[`\"](.+?)[`\"]",  # exec: `command`
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+            if match:
+                cmd = match.group(1).strip()
+                # Must look like a shell command (has spaces or special chars)
+                if cmd and len(cmd) > 2 and (' ' in cmd or '|' in cmd or '&' in cmd or '/' in cmd):
+                    # Reject tree-drawing characters and multi-line prose.
+                    if re.search(r'[└├│─┌┐┘┤┬┴┼╔╗╚╝║═]', cmd):
+                        continue
+                    # Reject bare file paths (e.g. saved/foo/bar.md, /tmp/file.txt)
+                    # These are not shell commands — just path references.
+                    if re.match(r'^[\w./_~-]+\.\w{1,10}$', cmd):
+                        continue
+                    # Reject paths that look like directory listings or references
+                    # (no spaces, no shell operators, just slashes and names)
+                    if re.match(r'^[\w./_~-]+$', cmd) and '/' in cmd and ' ' not in cmd:
+                        continue
+                    # Reject prose, bullet lists, and formatted text that ended
+                    # up inside a generic code block.  Real shell commands don't
+                    # contain bullet markers, arrows, checkmarks, or emoji.
+                    if re.search(r'[\-•→←✓✗❓❌✅🔗]', cmd):
+                        continue
+                    # Multi-line content with list-like structure is prose,
+                    # not a command (e.g. "Step 1:\n- do X\n- do Y").
+                    cmd_lines = [ln for ln in cmd.splitlines() if ln.strip()]
+                    if len(cmd_lines) > 1:
+                        bullet_lines = sum(1 for ln in cmd_lines if re.match(r'\s*[-*•→>]\s', ln))
+                        if bullet_lines >= 2:
+                            continue
+                    return cmd
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Model compatibility
+    # ------------------------------------------------------------------
+
+    def _supports_tool_result_followup(self) -> bool:
+        """Whether model can handle a follow-up turn with tool result messages."""
+        details = self.get_runtime_model_details()
+        provider = str(details.get("provider", "")).lower()
+        model = str(details.get("model", "")).lower()
+
+        # Known issue: Ollama cloud models often return HTTP 500 when tool role
+        # messages are included in the follow-up request.
+        if provider == "ollama" and model.endswith(":cloud"):
+            return False
+
+        return True
+
+    # ------------------------------------------------------------------
+    # Turn-level tool output management
+    # ------------------------------------------------------------------
+
+    def _collect_turn_tool_output(self, turn_start_idx: int) -> str:
+        """Collect tool outputs for the current turn."""
+        if not self.session:
+            return ""
+        outputs: list[str] = []
+        for msg in self.session.messages[turn_start_idx:]:
+            if msg.get("role") != "tool":
+                continue
+            if self._is_monitor_only_tool_name(str(msg.get("tool_name", ""))):
+                continue
+            content = str(msg.get("content", "")).strip()
+            if content:
+                outputs.append(content)
+        return "\n\n".join(outputs)
+
+    def _turn_has_successful_tool(self, turn_start_idx: int, tool_name: str) -> bool:
+        """Check whether a successful tool result exists in current turn."""
+        if not self.session:
+            return False
+        target = (tool_name or "").strip().lower()
+        for msg in self.session.messages[turn_start_idx:]:
+            if msg.get("role") != "tool":
+                continue
+            if str(msg.get("tool_name", "")).strip().lower() != target:
+                continue
+            content = str(msg.get("content", "")).strip().lower()
+            if not content.startswith("error:"):
+                return True
+        return False
+
+    def _turn_has_mail_write(self, turn_start_idx: int) -> bool:
+        """Whether a google_mail draft / send went through this turn, or was
+        refused because that email already exists (a repeat) — either way the
+        user's email is taken care of and must not be made again."""
+        if not self.session:
+            return False
+        for msg in self.session.messages[turn_start_idx:]:
+            if msg.get("role") != "tool":
+                continue
+            if str(msg.get("tool_name", "")).strip().lower() != "google_mail":
+                continue
+            args = msg.get("tool_arguments") or {}
+            if str(args.get("action", "")).strip().lower() not in (
+                "create_draft", "update_draft", "send", "send_draft",
+            ):
+                continue
+            content = str(msg.get("content", "")).strip()
+            if not content.lower().startswith("error:") or is_repeat_refusal(content):
+                return True
+        return False
+
+    def _turn_has_successful_datastore_export(self, turn_start_idx: int) -> bool:
+        """Check whether a successful datastore export was performed this turn."""
+        if not self.session:
+            return False
+        for msg in self.session.messages[turn_start_idx:]:
+            if msg.get("role") != "tool":
+                continue
+            if str(msg.get("tool_name", "")).strip().lower() != "datastore":
+                continue
+            args = msg.get("tool_arguments") or {}
+            if str(args.get("action", "")).strip().lower() != "export":
+                continue
+            content = str(msg.get("content", "")).strip().lower()
+            if not content.startswith("error:"):
+                return True
+        return False
+
+    def _turn_has_unexecuted_script(self, turn_start_idx: int) -> tuple[bool, str]:
+        """Check if a script was written this turn but never attempted.
+
+        Returns (has_unexecuted, script_path) — the path of the last unexecuted
+        script written during this turn.  Only considers .py files written to
+        a ``scripts/`` directory.
+
+        NOTE: This checks whether the script was *attempted* (regardless of
+        success or failure).  A script that was run but timed out or exited
+        with an error still counts as "executed" — the gate's purpose is to
+        catch cases where the LLM writes a script and forgets to run it, not
+        to enforce success.  A separate gate (failed shell + pip install)
+        handles retry-after-fix scenarios.
+        """
+        if not self.session:
+            return False, ""
+
+        messages = self.session.messages[turn_start_idx:]
+        # Collect script writes and their positions.
+        script_writes: list[tuple[int, str]] = []
+        # Collect ALL shell executions and their positions (including failures).
+        shell_executions: list[tuple[int, str]] = []
+
+        for idx, msg in enumerate(messages):
+            if msg.get("role") != "tool":
+                continue
+            tool = str(msg.get("tool_name", "")).strip().lower()
+            args = msg.get("tool_arguments") or {}
+
+            if tool == "write":
+                path = str(args.get("path", ""))
+                if path.endswith(".py") and "/scripts/" in path:
+                    script_writes.append((idx, path))
+
+            elif tool == "shell":
+                cmd = str(args.get("command", ""))
+                shell_executions.append((idx, cmd))
+
+        if not script_writes:
+            return False, ""
+
+        # For each written script, check if it was attempted AFTER the write.
+        # Only the last write of a given script matters.
+        last_write_idx, last_write_path = script_writes[-1]
+        script_basename = last_write_path.rsplit("/", 1)[-1]
+
+        for shell_idx, cmd in shell_executions:
+            if shell_idx > last_write_idx and script_basename in cmd:
+                return False, ""  # Script was attempted after write
+
+        return True, last_write_path
+
+    def _turn_has_successful_script_execution(self, turn_start_idx: int) -> bool:
+        """Check if a shell command successfully ran a written script this turn.
+
+        Stricter than ``_turn_has_successful_tool(idx, 'shell')`` which also
+        matches ``pip install``, ``mkdir``, etc.
+        """
+        if not self.session:
+            return False
+
+        messages = self.session.messages[turn_start_idx:]
+        # Collect script basenames written this turn.
+        script_basenames: set[str] = set()
+        for msg in messages:
+            if msg.get("role") != "tool":
+                continue
+            if str(msg.get("tool_name", "")).strip().lower() != "write":
+                continue
+            path = str((msg.get("tool_arguments") or {}).get("path", ""))
+            if path.endswith(".py"):
+                script_basenames.add(path.rsplit("/", 1)[-1])
+
+        if not script_basenames:
+            return False
+
+        # Check for a successful shell call that references one of those scripts.
+        for msg in messages:
+            if msg.get("role") != "tool":
+                continue
+            if str(msg.get("tool_name", "")).strip().lower() != "shell":
+                continue
+            content = str(msg.get("content", ""))
+            if content.strip().lower().startswith("error:"):
+                continue
+            cmd = str((msg.get("tool_arguments") or {}).get("command", ""))
+            for basename in script_basenames:
+                if basename in cmd:
+                    return True
+        return False
+
+    def _turn_collect_datastore_saves(self, turn_start_idx: int) -> list[dict[str, Any]]:
+        """Collect successful datastore save operations from this turn.
+
+        Returns list of dicts with keys: ``action``, ``table``, ``content``.
+        Only includes data-writing actions that should be verified:
+        ``create_table``, ``insert``, ``import_file``, ``update``,
+        ``update_column``.
+        """
+        _SAVE_ACTIONS = {"create_table", "insert", "upsert", "import_file", "update", "update_column"}
+        saves: list[dict[str, Any]] = []
+        if not self.session:
+            return saves
+        for msg in self.session.messages[turn_start_idx:]:
+            if msg.get("role") != "tool":
+                continue
+            if str(msg.get("tool_name", "")).strip().lower() != "datastore":
+                continue
+            args = msg.get("tool_arguments") or {}
+            action = str(args.get("action", "")).strip().lower()
+            if action not in _SAVE_ACTIONS:
+                continue
+            content = str(msg.get("content", "")).strip()
+            if content.lower().startswith("error:"):
+                continue
+            table = str(args.get("table", "")).strip()
+            if table:
+                saves.append({"action": action, "table": table, "content": content})
+        return saves
+
+    @staticmethod
+    def _clip_tool_output_for_rewrite(raw: str, max_chars: int) -> tuple[str, str]:
+        """Clip tool output while preserving coverage across multiple blocks/sources."""
+        text = (raw or "").strip()
+        if len(text) <= max_chars:
+            return text, ""
+
+        blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+        if len(blocks) <= 1:
+            return text[:max_chars], "\n\n[Tool output truncated before rewrite due to size limits.]"
+
+        target_blocks = min(len(blocks), 24)
+        per_block = max(350, max_chars // target_blocks)
+        kept: list[str] = []
+        used = 0
+        for block in blocks:
+            snippet = block
+            if len(snippet) > per_block:
+                snippet = snippet[:per_block].rstrip() + "... [truncated]"
+            projected = used + len(snippet) + (2 if kept else 0)
+            if projected > max_chars:
+                break
+            kept.append(snippet)
+            used = projected
+        if not kept:
+            kept = [text[:max_chars]]
+        clipped = "\n\n".join(kept)
+        return clipped, "\n\n[Tool output truncated before rewrite due to size limits.]"
+
+    async def _friendly_tool_output_response(
+        self,
+        user_input: str,
+        tool_output: str,
+        turn_usage: dict[str, int],
+    ) -> str:
+        """Ask model to rewrite raw tool output into a user-friendly answer."""
+        raw = (tool_output or "").strip() or "[no output]"
+
+        # Nano mode short-circuit: small local models take 10-30s on this
+        # second LLM call for a rewrite that adds little value on top of
+        # script output.  Return the raw output verbatim (truncated).
+        if getattr(self, "instructions", None) and self.instructions.use_nano:
+            _LIMIT = 4000
+            if len(raw) > _LIMIT:
+                raw = raw[:_LIMIT] + "\n…(truncated)"
+            log.info(
+                "Nano mode: skipped friendly tool-output rewrite",
+                sent_chars=len(raw),
+            )
+            return raw
+
+        max_tool_output_chars = 45000
+        clipped, clipped_note = self._clip_tool_output_for_rewrite(
+            raw,
+            max_chars=max_tool_output_chars,
+        )
+
+        rewrite_messages = [
+            Message(
+                role="system",
+                content=self.instructions.load("tool_output_rewrite_system_prompt.md"),
+            ),
+            Message(
+                role="user",
+                content=self.instructions.render(
+                    "tool_output_rewrite_user_prompt.md",
+                    user_input=user_input,
+                    tool_output=clipped,
+                    clipped_note=clipped_note,
+                ),
+            ),
+        ]
+
+        self._set_runtime_status("thinking")
+        try:
+            response = await self._complete_with_guards(
+                messages=rewrite_messages,
+                tools=None,
+                interaction_label="tool_output_rewrite",
+                turn_usage=turn_usage,
+            )
+            friendly = (response.content or "").strip()
+            if friendly:
+                friendly = self._validate_rewrite_claims(friendly, raw)
+                return friendly
+        except Exception as e:
+            log.warning("Friendly tool rewrite failed", error=str(e))
+
+        return f"Tool executed:\n{raw}"
+
+    # ------------------------------------------------------------------
+    # Post-rewrite validation
+    # ------------------------------------------------------------------
+
+    _FILE_CREATION_PHRASES = re.compile(
+        r"(?:created|generated|wrote|written|saved|produced|built)\s+"
+        r"(?:a\s+|the\s+|an\s+)?(?:file|page|document|app|game|script|program)",
+        re.IGNORECASE,
+    )
+    _WRITE_TOOL_INDICATORS = re.compile(
+        r"(?:file_write|write_file|save_file|create_file|WriteFile|tool_name['\"]?\s*[:=]\s*['\"]?(?:file_write|write_file|save|create))",
+        re.IGNORECASE,
+    )
+
+    def _validate_rewrite_claims(self, rewrite: str, raw_output: str) -> str:
+        """Strip false file-creation claims from a rewrite.
+
+        If the rewrite mentions creating/saving files but the raw tool
+        output contains no write-tool evidence, append a correction.
+        """
+        claims_creation = bool(self._FILE_CREATION_PHRASES.search(rewrite))
+        if not claims_creation:
+            return rewrite
+
+        has_write_evidence = bool(self._WRITE_TOOL_INDICATORS.search(raw_output))
+        if has_write_evidence:
+            return rewrite
+
+        log.warning(
+            "Rewrite claims file creation but raw output has no write actions — correcting",
+            rewrite_preview=rewrite[:200],
+        )
+        return (
+            rewrite
+            + "\n\n⚠️ **Note:** No file was actually created or saved during this step. "
+            "The above description is what *could* be built — ask me to create it if you'd like."
+        )
+
+    # ------------------------------------------------------------------
+    # Embedded tool call extraction
+    # ------------------------------------------------------------------
+
+    def _extract_tool_calls_from_content(self, content: str) -> list[ToolCall]:
+        """Extract tool calls from response content text.
+
+        Looks for various formats:
+        - @shell\\ncommand: value
+        - {tool => "shell", args => { --command "ls -la" }}
+        - ```tool\\ncommand\\n```
+        - <invoke name="shell"><command>value</command></invoke>
+        """
+        import re
+
+        tool_calls: list[ToolCall] = []
+        if not content:
+            return tool_calls
+
+        max_calls = 8
+        seen: set[str] = set()
+
+        def _append_tool_call(name: str, arguments: dict[str, Any]) -> None:
+            if len(tool_calls) >= max_calls:
+                return
+            normalized_name = str(name or "").strip().lower()
+            if not normalized_name or not isinstance(arguments, dict):
+                return
+            signature = json.dumps(
+                {"name": normalized_name, "arguments": arguments},
+                ensure_ascii=True,
+                sort_keys=True,
+            )
+            if signature in seen:
+                return
+            seen.add(signature)
+            tool_calls.append(
+                ToolCall(
+                    id=f"embedded_{len(tool_calls)}",
+                    name=normalized_name,
+                    arguments=arguments,
+                )
+            )
+
+        # Pattern 1: @tool\ncommand: value
+        pattern1 = r'@(\w+)\s*\n\s*command:\s*(.+?)(?:\n\n|\n\*|$)'
+
+        # Pattern 2: {tool => "name", args => { --key "value" }}
+        pattern2 = r'\{tool\s*=>\s*"([^"]+)"[^}]*args\s*=>\s*\{([^}]+)\}\}'
+
+        # Pattern 3: ```tool\ncommand\n```
+        # Only match known tool names — NOT arbitrary code-fence language
+        # identifiers (js, json, bash, python, css, html, jsx, tsx, etc.)
+        # which the LLM uses as markdown syntax highlighting hints.
+        _CODE_FENCE_LANGS = frozenset({
+            "bash", "sh", "zsh", "fish",
+            "js", "javascript", "ts", "typescript", "jsx", "tsx",
+            "json", "jsonl", "yaml", "yml", "toml", "xml", "csv",
+            "py", "python", "rb", "ruby", "java", "go", "rust", "rs",
+            "c", "cpp", "cs", "csharp", "swift", "kotlin", "scala",
+            "html", "css", "scss", "sass", "less",
+            "sql", "graphql", "gql",
+            "md", "markdown", "txt", "text", "plaintext",
+            "diff", "patch", "log",
+            "r", "lua", "perl", "php", "dart", "elixir", "haskell",
+            "dockerfile", "makefile", "cmake",
+            "ini", "conf", "env", "properties",
+            "svg", "asm", "wasm",
+        })
+        pattern3 = r'```(\w+)\s*\n(.*?)\n```'
+
+        # Pattern 4: <invoke name="shell"><command>value</command></invoke>
+        pattern4 = r'<invoke\s+name="(\w+)">\s*<command>(.+?)</command>\s*</invoke>'
+
+        all_patterns = [pattern1, pattern2, pattern3, pattern4]
+
+        for pattern in all_patterns:
+            for match in re.finditer(pattern, content, re.DOTALL | re.IGNORECASE):
+                if pattern == pattern4:
+                    # Pattern 4: <invoke name="..."><command>...</command></invoke>
+                    tool_name = match.group(1).strip().lower()
+                    command = match.group(2).strip()
+                    if tool_name and command:
+                        _append_tool_call(tool_name, {"command": command})
+                elif pattern == pattern1:
+                    tool_name = match.group(1).strip().lower()
+                    command = match.group(2).strip()
+                    if tool_name and command:
+                        _append_tool_call(tool_name, {"command": command})
+                elif pattern == pattern2:
+                    tool_name = match.group(1).strip()
+                    args_str = match.group(2).strip()
+                    args = {}
+                    arg_pattern = r'--(\w+)\s+"([^"]+)"'
+                    for arg_match in re.finditer(arg_pattern, args_str):
+                        key = arg_match.group(1)
+                        value = arg_match.group(2)
+                        args[key] = value
+                    if tool_name and args:
+                        _append_tool_call(tool_name, args)
+                elif pattern == pattern3:
+                    tool_name = match.group(1).strip().lower()
+                    command = match.group(2).strip()
+                    # Skip code-fence language identifiers that are NOT
+                    # tool names (e.g. ```js, ```bash, ```json).
+                    if tool_name in _CODE_FENCE_LANGS:
+                        continue
+                    if tool_name and command:
+                        _append_tool_call(tool_name, {"command": command})
+
+        # Pattern 5: JSON tool calls and pseudo-tool argument objects.
+        # Supports:
+        # - {"tool":"web_search","args":{"query":"..."}}
+        # - {"name":"web_fetch","arguments":{"url":"https://..."}}
+        # - {"tool":"web_search","input":"..."}
+        # - {"query":"..."}  -> web_search
+        # - {"url":"https://..."} -> web_fetch
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("{") or not line.endswith("}"):
+                continue
+            try:
+                payload = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+
+            explicit_tool = str(payload.get("tool", payload.get("name", "")) or "").strip().lower()
+            explicit_args = payload.get("args", payload.get("arguments"))
+            if explicit_tool and isinstance(explicit_args, dict):
+                args_obj = dict(explicit_args)
+                if explicit_tool == "web_search" and "max_results" in args_obj and "count" not in args_obj:
+                    try:
+                        args_obj["count"] = int(args_obj.get("max_results"))
+                    except Exception:
+                        pass
+                _append_tool_call(explicit_tool, args_obj)
+                continue
+            if explicit_tool:
+                args_obj: dict[str, Any] = {}
+                input_text = str(payload.get("input", "") or "").strip()
+                if explicit_tool == "web_search":
+                    query = str(payload.get("query", "") or "").strip()
+                    if not query and input_text:
+                        query = input_text
+                    if query:
+                        args_obj["query"] = query
+                    if "count" in payload:
+                        args_obj["count"] = payload.get("count")
+                    elif "max_results" in payload:
+                        args_obj["count"] = payload.get("max_results")
+                    for key in ("offset", "country", "search_lang", "freshness", "safesearch"):
+                        if key in payload:
+                            args_obj[key] = payload.get(key)
+                elif explicit_tool == "web_fetch":
+                    url = str(payload.get("url", "") or "").strip()
+                    if not url and input_text.startswith(("http://", "https://")):
+                        url = input_text
+                    if url.startswith(("http://", "https://")):
+                        args_obj["url"] = url
+                    if "max_chars" in payload:
+                        args_obj["max_chars"] = payload.get("max_chars")
+                    if "extract_mode" in payload:
+                        args_obj["extract_mode"] = payload.get("extract_mode")
+                elif explicit_tool == "shell":
+                    command = str(payload.get("command", "") or "").strip()
+                    if not command and input_text:
+                        command = input_text
+                    if command:
+                        args_obj["command"] = command
+                elif explicit_tool == "pocket_tts":
+                    text = str(payload.get("text", "") or "").strip()
+                    if not text and input_text:
+                        text = input_text
+                    if text:
+                        args_obj["text"] = text
+                    voice = str(payload.get("voice", "") or "").strip()
+                    if voice:
+                        args_obj["voice"] = voice
+                    output_path = str(payload.get("output_path", "") or "").strip()
+                    if output_path:
+                        args_obj["output_path"] = output_path
+                    if "sample_rate" in payload:
+                        args_obj["sample_rate"] = payload.get("sample_rate")
+                else:
+                    for key, value in payload.items():
+                        if key in {"tool", "name", "id", "input"}:
+                            continue
+                        args_obj[str(key)] = value
+                    if input_text and "input" not in args_obj:
+                        args_obj["input"] = input_text
+                if args_obj:
+                    _append_tool_call(explicit_tool, args_obj)
+                    continue
+
+            # Heuristic fallback: common pseudo-tool argument blobs.
+            if "query" in payload:
+                query = str(payload.get("query", "")).strip()
+                if query:
+                    args_obj: dict[str, Any] = {"query": query}
+                    if "count" in payload:
+                        args_obj["count"] = payload.get("count")
+                    elif "max_results" in payload:
+                        args_obj["count"] = payload.get("max_results")
+                    for key in ("offset", "country", "search_lang", "freshness", "safesearch"):
+                        if key in payload:
+                            args_obj[key] = payload.get(key)
+                    _append_tool_call("web_search", args_obj)
+                    continue
+
+            if "url" in payload:
+                url = str(payload.get("url", "")).strip()
+                if url.startswith(("http://", "https://")):
+                    args_obj = {"url": url}
+                    if "max_chars" in payload:
+                        args_obj["max_chars"] = payload.get("max_chars")
+                    if "extract_mode" in payload:
+                        args_obj["extract_mode"] = payload.get("extract_mode")
+                    _append_tool_call("web_fetch", args_obj)
+
+        return tool_calls
+
+    # ------------------------------------------------------------------
+    # Main tool call handler & execution engine
+    # ------------------------------------------------------------------
+
+    # Tool errors from the write-boundary guards (Increment 1) that a corrected
+    # re-issue can fix — a forced retry is warranted, not a dead-end error.
+    _GUARD_RETRYABLE_ERRORS = frozenset({
+        "placeholder_content_rejected", "empty_content_rejected",
+        "path_missing_extension", "content_below_floor", "write_verify_failed",
+    })
+
+    def _malformed_retries_allowed(self) -> int:
+        """How many malformed / cut-off / guard-refused tool calls to auto-correct.
+
+        0 (default) = today's behaviour: the model must notice the error itself.
+        Vatra workers get 2 via CLAW_MALFORMED_CALL_RETRIES; a caller can also set
+        tools.malformed_call_retries in config.
+        """
+        env = 0
+        try:
+            env = int(os.environ.get("CLAW_MALFORMED_CALL_RETRIES", "0") or 0)
+        except Exception:
+            env = 0
+        cfg = 0
+        try:
+            cfg = int(get_config().tools.malformed_call_retries)
+        except Exception:
+            cfg = 0
+        return max(0, env, cfg)
+
+    def _force_tool_choice_next(self) -> None:
+        """Force the next provider call to actually emit a tool call (not prose)."""
+        try:
+            setattr(self.provider, "_tool_choice_override", "required")
+        except Exception:
+            pass
+
+    def _length_truncation_corrective(self, response) -> str | None:
+        """Corrective for a response that hit the output cap mid write/edit call.
+
+        Returns the corrective text (and bumps the counter + forces the next tool
+        call) when malformed retries are enabled, the response's finish_reason is
+        "length", it carries a write/edit tool call, and the retry budget is not
+        spent. Returns None otherwise (the call proceeds normally). Extracted so
+        the decision is unit-testable without the full agent loop.
+        """
+        mret = self._malformed_retries_allowed()
+        if mret <= 0:
+            return None
+        if str(getattr(response, "finish_reason", "") or "").lower() != "length":
+            return None
+        if getattr(self, "_malformed_retry_count", 0) >= mret:
+            return None
+        tcs = getattr(response, "tool_calls", None) or []
+        if not any(str(getattr(c, "name", "")).lower()
+                   in ("write", "edit", "file_write", "file_edit") for c in tcs):
+            return None
+        self._malformed_retry_count = getattr(self, "_malformed_retry_count", 0) + 1
+        self._force_tool_choice_next()
+        return (
+            "Your last tool call was cut off by the output limit before its "
+            "arguments finished, so it was NOT executed. Do not try to write a "
+            "whole large file in one call. Write the FIRST part now with `write`, "
+            "then call `write` again with append=true for each remaining part."
+        )
+
+    def _tool_required_params(self, name: str) -> list[str]:
+        """Required parameter names for a registered tool (empty if unknown)."""
+        try:
+            tool = getattr(self, "tools", None)
+            reg = getattr(tool, "_tools", {}) if tool is not None else {}
+            t = reg.get(name)
+            if t is not None:
+                return list((getattr(t, "parameters", {}) or {}).get("required", []))
+        except Exception:
+            pass
+        return []
+
+    async def _handle_tool_calls(
+        self,
+        tool_calls: list[ToolCall],
+        turn_usage: dict[str, int] | None = None,
+        session_policy: dict[str, Any] | None = None,
+        task_policy: dict[str, Any] | None = None,
+        abort_event: asyncio.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        """Handle tool calls from LLM.
+
+        Args:
+            tool_calls: List of tool calls to execute
+
+        Returns:
+            List of tool results
+        """
+        results = []
+
+        # Reset per-batch extraction counter for scale guard.
+        sp = getattr(self, "_scale_progress", None)
+        if sp is not None:
+            sp["_batch_extractions"] = 0
+
+        _PATH_TOOLS = {"read", "pdf_extract", "docx_extract", "xlsx_extract", "pptx_extract"}
+        _URL_TOOLS = {"web_fetch", "web_get"}
+
+        for tc in tool_calls:
+            # Status reflects the phase START — the UI's "Using X..." must
+            # appear while the tool runs, not after it returns its output.
+            self._set_runtime_status(f"Using {tc.name}...")
+            log.info("Executing tool", tool=tc.name, call_id=tc.id)
+
+            # Parse arguments (could be string or dict)
+            arguments = tc.arguments
+            _malformed_json = False
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    _malformed_json = True
+                    arguments = {"raw": arguments}
+
+            # ── Malformed / truncated tool-call arguments (opt-in) ─────
+            # A fast/weak model often emits a `write` whose JSON is cut off
+            # mid-`content`; the provider hands us an unparseable string, which
+            # becomes {"raw": …} and then a plain "Missing required argument"
+            # error the model may ignore. When malformed retries are enabled
+            # (Vatra workers), do NOT execute a partial call — inject a
+            # corrective and force the next call to be a real, complete tool
+            # call. Bounded so a persistently-broken turn still terminates.
+            _mret = self._malformed_retries_allowed()
+            _required = self._tool_required_params(tc.name) if _malformed_json else []
+            if (
+                _malformed_json
+                and _mret > 0
+                and _required
+                and self._malformed_retry_count < _mret
+            ):
+                self._malformed_retry_count += 1
+                _rawstr = str(arguments.get("raw", ""))
+                _mp = re.search(r'"(?:path|file_path)"\s*:\s*"([^"]{1,200})', _rawstr)
+                _pathhint = f' (the path looked like "{_mp.group(1)}")' if _mp else ""
+                corrective = (
+                    f"Your `{tc.name}` call arrived with truncated or invalid JSON"
+                    f"{_pathhint}. Required arguments: {', '.join(_required)}. "
+                    "Re-issue the SAME call in full with valid JSON. For a large "
+                    "`write`, write the first part now, then call `write` again "
+                    "with append=true for each subsequent part — never one giant "
+                    "call that gets cut off."
+                )
+                log.warning("Malformed tool-call args — corrective retry",
+                            tool=tc.name, call_id=tc.id, attempt=self._malformed_retry_count)
+                self._add_session_message(
+                    role="tool", content=corrective,
+                    tool_call_id=tc.id, tool_name=tc.name, tool_arguments=None,
+                )
+                self._emit_tool_output(tc.name, {}, corrective)
+                results.append({"tool_call_id": tc.id, "role": "tool", "content": corrective})
+                self._force_tool_choice_next()
+                continue
+
+            # ── Scale guard: hard redirect for off-track calls ─────
+            # Must run before dup detection and execution. When the guard
+            # fires, we skip execution entirely and return a redirect
+            # message that tells the LLM what to process next.
+            guard_msg = self._scale_guard_intercept(
+                tc.name,
+                arguments if isinstance(arguments, dict) else {},
+            )
+            if guard_msg is not None:
+                log.info(
+                    "Scale guard blocked tool call",
+                    tool=tc.name,
+                    call_id=tc.id,
+                )
+                self._emit_thinking(
+                    f"🛡️ Scale guard: redirecting from {tc.name}",
+                    tool=tc.name,
+                    phase="tool",
+                )
+                self._add_session_message(
+                    role="tool",
+                    content=guard_msg,
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    tool_arguments=arguments if isinstance(arguments, dict) else None,
+                )
+                self._emit_tool_output(
+                    tc.name,
+                    arguments if isinstance(arguments, dict) else {},
+                    guard_msg,
+                )
+                results.append({
+                    "tool_call_id": tc.id,
+                    "role": "tool",
+                    "content": guard_msg,
+                })
+                continue
+
+            # Emit inline thinking indicator for the tool being executed.
+            args_dict = arguments if isinstance(arguments, dict) else {}
+            summary = self._tool_thinking_summary(tc.name, args_dict)
+            # When scale-progress is active, prefix extract/read calls
+            # with progress info like "📄 3 of 27 — ".
+            sp = getattr(self, "_scale_progress", None)
+            if sp is not None and sp.get("total", 0) >= 3:
+                tool_lower = str(tc.name or "").strip().lower()
+                _extractors = {"pdf_extract", "docx_extract", "xlsx_extract", "pptx_extract", "read"}
+                if tool_lower in _extractors:
+                    done = sp.get("completed", 0)
+                    total = sp["total"]
+                    # +1 because the next write(append) will complete this item
+                    current = min(done + 1, total)
+                    summary = f"📄 {current} of {total} — {summary}"
+            self._emit_thinking(summary, tool=tc.name, phase="tool")
+
+            # ── Duplicate tool call detection ─────────────────────
+            # If the LLM keeps requesting the same tool within a single
+            # turn (e.g. re-fetching the same URL 10 times, or re-extracting
+            # the same PDF with different max_chars), skip execution after
+            # the Nth call and return a warning instead.
+            # For path-based tools (read, pdf_extract, etc.) and URL-based
+            # tools (web_fetch, web_get), the key dimension is the path/URL
+            # — not the full args.  Re-reading the same file with different
+            # limits is still a duplicate.
+            _dup_max = max(1, int(get_config().tools.duplicate_call_max))
+            # Datastore actions that change the table (see the write-invalidates
+            # -reads rule below).
+            _DATASTORE_WRITE_ACTIONS = {
+                "insert", "upsert", "update", "update_column", "delete",
+                "import_file", "create_table", "drop_table", "rename_table",
+                "add_column", "rename_column", "drop_column", "change_column_type",
+            }
+            # Google actions that send or create something the user sees. A
+            # byte-identical repeat is a second email / event / file, not a
+            # re-read, so these keep the plain limit instead of the stateful
+            # headroom below.
+            _GOOGLE_WRITE_ACTIONS = {
+                "google_mail": {"send", "send_draft", "create_draft", "update_draft"},
+                "google_calendar": {"create_event", "update_event", "delete_event"},
+                # In-place Sheet/Doc edits too: a repeated append is a second
+                # set of rows, a repeated insert a second copy of the text.
+                "google_drive": {
+                    "upload", "create", "update",
+                    "sheet_update", "sheet_append", "sheet_clear",
+                    "doc_replace_text", "doc_append_text", "doc_insert_text",
+                },
+            }
+            _tool_lower = str(tc.name or "").strip().lower()
+            _call_action = (
+                str(arguments.get("action", "")).strip().lower()
+                if isinstance(arguments, dict) else ""
+            )
+            _google_write = _call_action in _GOOGLE_WRITE_ACTIONS.get(_tool_lower, ())
+            # Stateful tools that modify data between calls — allow more
+            # repeated calls (CRUD patterns) but still catch infinite loops.
+            _STATEFUL_TOOLS = {
+                "typesense", "todo", "contacts", "scripts", "apis", "send_mail",
+                "browser", "google_drive", "google_calendar", "google_mail",
+                "datastore",
+            }
+            # During scale-progress tasks, give extra headroom so the LLM
+            # can recover from a failed first attempt or a write-before-read
+            # situation without being permanently locked out of a file.
+            _sp = getattr(self, "_scale_progress", None)
+            if _sp is not None and _tool_lower in (_PATH_TOOLS | _URL_TOOLS | {"glob"}):
+                _dup_max = max(_dup_max, 2)
+            if _tool_lower in _PATH_TOOLS and isinstance(arguments, dict):
+                _sig_key = str(arguments.get("path", "")).strip()
+                # Normalize to absolute path so relative and absolute
+                # references to the same file share one dup-counter.
+                if _sig_key:
+                    _sig_key = os.path.abspath(_sig_key)
+                _dup_sig = f"{tc.name}|path={_sig_key}"
+            elif _tool_lower in _URL_TOOLS and isinstance(arguments, dict):
+                _sig_key = str(arguments.get("url", "")).strip()
+                _dup_sig = f"{tc.name}|url={_sig_key}"
+            elif _tool_lower == "glob" and isinstance(arguments, dict):
+                _sig_key = str(arguments.get("pattern", "")).strip()
+                _dup_sig = f"{tc.name}|pattern={_sig_key}"
+            else:
+                try:
+                    _sig_args = json.dumps(arguments, sort_keys=True, ensure_ascii=True) if isinstance(arguments, dict) else str(arguments)
+                except Exception:
+                    _sig_args = str(arguments)
+                _dup_sig = f"{tc.name}|{_sig_args}"
+            _dup_counts: dict[str, int] = getattr(self, "_turn_tool_call_counts", {})
+            _dup_count = _dup_counts.get(_dup_sig, 0)
+            # Stateful tools (index→search, CRUD operations) get a higher
+            # threshold — repeated calls with *different* args are normal,
+            # but identical args 3+ times is almost certainly a loop.
+            if _tool_lower in _STATEFUL_TOOLS and not _google_write:
+                _dup_max = max(_dup_max, 3)
+            # web_get answers differently on the second call for a URL: the first
+            # returns stripped readable text, the repeat returns the raw HTML the
+            # model asked for. Allow that one repeat; a third is still a loop.
+            if _tool_lower == "web_get":
+                _dup_max = max(_dup_max, 2)
+            if _dup_count >= _dup_max:
+                # During scale tasks, give a more actionable message that
+                # tells the LLM to write what it has or skip the item.
+                if _sp is not None and _tool_lower in (_PATH_TOOLS | _URL_TOOLS):
+                    dup_msg = (
+                        f"DUPLICATE CALL BLOCKED: You have already called `{tc.name}` on "
+                        f"this target {_dup_count} times this turn. "
+                        "If you have content from a previous call, write its summary "
+                        "now (write, append=true). If you cannot recall the content, SKIP "
+                        "this item and move on to the NEXT unprocessed item in the list. "
+                        "Do NOT attempt to re-fetch this item again."
+                    )
+                elif _tool_lower == "write":
+                    dup_msg = (
+                        f"DUPLICATE CALL BLOCKED: You have already called `{tc.name}` "
+                        f"on this target {_dup_count} times this turn. The file was "
+                        "ALREADY SAVED SUCCESSFULLY on the first call. Do NOT attempt "
+                        "to write it again. You are DONE writing. Now respond with a "
+                        "brief TEXT summary of what you created (file name, description). "
+                        "Do NOT call any more tools."
+                    )
+                elif _google_write:
+                    # A failed call rolls its count back, so the earlier one
+                    # went through — repeating it would do it again.
+                    dup_msg = (
+                        f"DUPLICATE CALL BLOCKED: `{tc.name}` action={_call_action} "
+                        f"already ran with these exact arguments {_dup_count} time(s) "
+                        "this turn and succeeded. Running it again would send or "
+                        "create it a second time (or apply the same edit twice). "
+                        "Do NOT repeat it — use the result "
+                        "of the first call and tell the user it is done."
+                    )
+                elif _tool_lower in _STATEFUL_TOOLS:
+                    # Don't claim "the content has not changed" about a store
+                    # the model may have written to — say what's actually true.
+                    dup_msg = (
+                        f"DUPLICATE CALL BLOCKED: `{tc.name}` has been called with these "
+                        f"exact arguments {_dup_count} times this turn with nothing "
+                        "written in between, so the answer would be the same. Use the "
+                        "result you already have. Do NOT reword the call to get around "
+                        "this — a different phrasing of the same question returns the "
+                        "same rows."
+                    )
+                else:
+                    dup_msg = (
+                        f"DUPLICATE CALL BLOCKED: You have already called `{tc.name}` on "
+                        f"this target {_dup_count} times this turn. The content has not "
+                        "changed. Use the data you already have and move on to the next "
+                        "item. Do NOT re-read, re-extract, or re-glob the same target."
+                    )
+                log.info("Blocking duplicate tool call", tool=tc.name, call_id=tc.id, count=_dup_count)
+                self._add_session_message(
+                    role="tool",
+                    content=dup_msg,
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    tool_arguments=arguments if isinstance(arguments, dict) else None,
+                )
+                self._emit_tool_output(
+                    tc.name,
+                    arguments if isinstance(arguments, dict) else {},
+                    dup_msg,
+                )
+                results.append({
+                    "tool_call_id": tc.id,
+                    "role": "tool",
+                    "content": dup_msg,
+                })
+                continue
+            _dup_counts[_dup_sig] = _dup_count + 1
+            if not hasattr(self, "_turn_tool_call_counts"):
+                self._turn_tool_call_counts = _dup_counts
+
+            # ── Blind-rewrite guard ────────────────────────────────
+            # A full (non-append) write to a path already written this
+            # turn, with NO feedback-gathering call in between (read,
+            # shell, browser, fetch, …), is almost always the model
+            # second-guessing itself and regenerating the file from
+            # scratch.  Redirect it to edit/finalize instead of burning
+            # the write.  Any feedback tool clears the tracked set, so
+            # legitimate write → test → rewrite iteration stays allowed,
+            # and reading the file first is the explicit escape hatch.
+            _BLIND_FEEDBACK_TOOLS = {
+                "read", "glob", "grep", "shell", "termux", "browser",
+                "screen_capture", "desktop_action", "web_fetch", "web_get",
+                "web_search", "web_fetch_batch", "edit", "file_edit",
+                "pdf_extract", "docx_extract", "xlsx_extract", "pptx_extract",
+            }
+            _blind_paths: set[str] = getattr(self, "_blind_write_paths", set())
+            self._blind_write_paths = _blind_paths
+            if _tool_lower in _BLIND_FEEDBACK_TOOLS:
+                _blind_paths.clear()
+            if (
+                _tool_lower in ("write", "file_write")
+                and isinstance(arguments, dict)
+                and not arguments.get("append")
+            ):
+                _bw_path = str(arguments.get("path", "")).strip()
+                _bw_key = os.path.abspath(_bw_path) if _bw_path else ""
+                if _bw_key and _bw_key in _blind_paths:
+                    blind_msg = (
+                        f"BLIND REWRITE BLOCKED: You already wrote `{_bw_path}` "
+                        "this turn and have gathered no new information since "
+                        "(no read/shell/browser/fetch call in between). The "
+                        "file is saved on disk and complete. Use the edit tool "
+                        "for targeted changes, or provide your final text "
+                        "response now. If you genuinely need a full rewrite, "
+                        "read the file first."
+                    )
+                    log.info(
+                        "Blind rewrite blocked",
+                        tool=tc.name,
+                        call_id=tc.id,
+                        path=_bw_path,
+                    )
+                    self._emit_thinking(
+                        f"🛡️ Blind rewrite blocked: {_bw_path}",
+                        tool=tc.name,
+                        phase="tool",
+                    )
+                    self._add_session_message(
+                        role="tool",
+                        content=blind_msg,
+                        tool_call_id=tc.id,
+                        tool_name=tc.name,
+                        tool_arguments={"path": _bw_path},
+                    )
+                    self._emit_tool_output(tc.name, {"path": _bw_path}, blind_msg)
+                    results.append({
+                        "tool_call_id": tc.id,
+                        "role": "tool",
+                        "content": blind_msg,
+                    })
+                    continue
+
+            # ── Scale-progress: track last action for write hint ──
+            # Instead of hard-blocking read-before-write (which caused
+            # deadlocks when interacting with the dup detector), we
+            # append a soft reminder to the tool result after execution
+            # if the LLM skipped a write step.  The LLM can still
+            # proceed — the hint nudges it without creating unrecoverable
+            # states.
+            sp = getattr(self, "_scale_progress", None)
+            _scale_write_hint = False
+            _content_tools = _PATH_TOOLS | _URL_TOOLS
+            if sp is not None and _tool_lower in _content_tools:
+                if sp.get("_last_action") == "extract":
+                    _scale_write_hint = True  # will append hint after execution
+            elif sp is not None and _tool_lower == "write":
+                sp["_last_action"] = "write"
+            elif sp is not None and _tool_lower == "typesense":
+                # typesense index acts as a sink (like write) for no_file flows
+                sp["_last_action"] = "write"
+
+            try:
+                # Execute tool
+                result = await self._execute_tool_with_guard(
+                    name=tc.name,
+                    arguments=arguments,
+                    interaction_label=f"tool_call:{tc.name}",
+                    turn_usage=turn_usage,
+                    session_policy=session_policy,
+                    task_policy=task_policy,
+                    abort_event=abort_event,
+                )
+
+                # Register successful full writes for the blind-rewrite
+                # guard — a later write to the same path this turn is
+                # blocked unless a feedback tool runs in between.
+                if (
+                    result.success
+                    and _tool_lower in ("write", "file_write")
+                    and isinstance(arguments, dict)
+                    and not arguments.get("append")
+                ):
+                    _bw_done = str(arguments.get("path", "")).strip()
+                    if _bw_done:
+                        self._blind_write_paths.add(os.path.abspath(_bw_done))
+
+                # Add result to session
+                _result_content = result.content if result.success else f"Error: {result.error}"
+
+                # ── Guard-refused write: show the guidance, force a retry ──
+                # Increment-1 write guards return a helpful ❌ message in
+                # `content` and a short code in `error`. Surface the guidance
+                # (not just the code) so the model knows how to fix it, un-block
+                # a corrected re-issue to the same path, and — when malformed
+                # retries are enabled (Vatra workers) — force the next call to be
+                # the corrected re-issue instead of prose. Scoped to the new
+                # guard codes, so every other tool's failure is byte-identical.
+                if (not result.success
+                        and result.error in self._GUARD_RETRYABLE_ERRORS):
+                    if result.content:
+                        _result_content = result.content
+                    if isinstance(arguments, dict):
+                        _gp = str(arguments.get("path", "")).strip()
+                        if _gp:
+                            try:
+                                self._blind_write_paths.discard(os.path.abspath(_gp))
+                            except Exception:
+                                pass
+                    if self._malformed_retries_allowed() > self._malformed_retry_count:
+                        self._malformed_retry_count += 1
+                        self._force_tool_choice_next()
+                        log.info("Guard-refused write — corrective retry armed",
+                                 tool=tc.name, error=result.error,
+                                 attempt=self._malformed_retry_count)
+
+                # ── Chunked processing: reduce oversized tool results ──
+                # When a content-extraction tool returns more text than
+                # fits in the model's context window, run the chunked
+                # processing pipeline to produce a condensed version
+                # that the LLM can actually see on the next turn.
+                _CONTENT_TOOLS = {
+                    "read", "pdf_extract", "docx_extract",
+                    "xlsx_extract", "pptx_extract", "web_fetch", "web_get",
+                }
+                if (
+                    result.success
+                    and _tool_lower in _CONTENT_TOOLS
+                    and hasattr(self, "_chunked_reduce_tool_result")
+                ):
+                    # The turn's own request — not the latest user-role row,
+                    # which can be a corrective or a fleet notice.
+                    _user_query = str(getattr(self, "_turn_user_text", "") or "")
+                    if not _user_query and self.session:
+                        from captain_claw import msg_origin
+
+                        for _m in reversed(self.session.messages):
+                            if msg_origin.is_turn_opener(_m):
+                                _user_query = str(_m.get("content", ""))
+                                break
+                    if _user_query:
+                        try:
+                            _reduced = await self._chunked_reduce_tool_result(
+                                tool_name=tc.name,
+                                tool_content=_result_content,
+                                user_query=_user_query,
+                                turn_usage=turn_usage,
+                            )
+                            if _reduced is not None and _reduced.strip():
+                                _result_content = _reduced
+                        except Exception as _chunk_err:
+                            log.warning(
+                                "Chunked tool result reduction failed, using original",
+                                tool=tc.name,
+                                error=str(_chunk_err),
+                            )
+
+                # Optional per-agent cap on one tool result (off by default),
+                # before the hints below are appended so they always survive.
+                _cap = int(getattr(get_config().context, "tool_result_max_chars", 0) or 0)
+                if _cap > 0 and len(_result_content) > _cap:
+                    _cut = len(_result_content) - _cap
+                    _result_content = (
+                        _result_content[:_cap]
+                        + f"\n\n[… {_cut} more characters cut by this agent's "
+                        "tool_result_max_chars limit. Narrow the request to see them.]"
+                    )
+
+                # Append a soft write-reminder when the LLM skipped writing
+                # the previous item's result before reading a new one.
+                # This is a HINT, not a hard block — execution still happened.
+                if _scale_write_hint and result.success:
+                    _result_content += (
+                        "\n\n⚠️ REMINDER: You have processed content from TWO items "
+                        "without writing a summary in between. Append the summary for "
+                        "the PREVIOUS item to the output first (write, append=true), "
+                        "then append the summary for THIS item. Do not skip any items."
+                    )
+
+                # ── Post-pip-install retry hint ──────────────────
+                # When a `pip install` succeeds after a prior shell
+                # command failed (likely due to missing dependency),
+                # remind the LLM to re-run the original command.
+                if (
+                    result.success
+                    and _tool_lower == "shell"
+                    and isinstance(arguments, dict)
+                    and "pip install" in str(arguments.get("command", "")).lower()
+                ):
+                    # Check for a prior failed shell call in recent messages.
+                    _had_prior_shell_failure = False
+                    if self.session:
+                        for _prev in self.session.messages[-20:]:
+                            if _prev.get("role") != "tool":
+                                continue
+                            if str(_prev.get("tool_name", "")).strip().lower() != "shell":
+                                continue
+                            _prev_content = str(_prev.get("content", ""))
+                            if _prev_content.strip().lower().startswith("error:"):
+                                _had_prior_shell_failure = True
+                                break
+                    if _had_prior_shell_failure:
+                        _result_content += (
+                            "\n\n⚠️ IMPORTANT: The package was installed successfully, "
+                            "but the original script/command that failed earlier has "
+                            "NOT been re-run. You MUST re-execute the original "
+                            "script/command now to actually produce the output file. "
+                            "Do NOT skip this step."
+                        )
+                        log.info("Post-pip-install retry hint appended")
+
+                # ── Post-write empty-content check ────────────────
+                # When the LLM writes a DATA file that is suspiciously
+                # small relative to tool data already in context, warn
+                # it so it rewrites with the actual content.
+                # Skip for code/script/config files — those are
+                # intentionally different from the tool data in context.
+                if (
+                    result.success
+                    and _tool_lower == "write"
+                    and isinstance(arguments, dict)
+                ):
+                    _write_path = str(arguments.get("path", "")).lower()
+                    _write_basename = _write_path.rsplit("/", 1)[-1]
+                    # Extensions that are inherently small or structural
+                    _SKIP_EXTS = (
+                        # Code / scripts
+                        ".py", ".sh", ".js", ".ts", ".rb", ".go", ".rs",
+                        ".java", ".c", ".cpp", ".h", ".hpp", ".swift",
+                        ".kt", ".lua", ".pl", ".r",
+                        # Config / env / manifest
+                        ".env", ".ini", ".cfg", ".conf", ".toml", ".yaml",
+                        ".yml", ".xml", ".properties",
+                        # Package manifests
+                        ".lock",
+                        # Web
+                        ".html", ".htm", ".css", ".scss", ".less",
+                        # Misc structural
+                        ".sql", ".graphql",
+                    )
+                    # Filenames that are inherently small config files
+                    _SKIP_NAMES = (
+                        "requirements.txt", "requirements-dev.txt",
+                        "constraints.txt", "package.json", "package-lock.json",
+                        "tsconfig.json", "pyproject.toml", "setup.py",
+                        "setup.cfg", "cargo.toml", "gemfile", "gemfile.lock",
+                        "dockerfile", "docker-compose.yml",
+                        "docker-compose.yaml", "makefile", "cmakelists.txt",
+                        ".gitignore", ".dockerignore", ".editorconfig",
+                        ".eslintrc", ".prettierrc", ".babelrc",
+                        "procfile", "runtime.txt", "manifest.json",
+                    )
+                    _is_skip_file = (
+                        any(_write_path.endswith(ext) for ext in _SKIP_EXTS)
+                        or _write_basename in _SKIP_NAMES
+                        or _write_basename.startswith(".env")  # .env, .env.example, .env.local, etc.
+                        or "/scripts/" in _write_path
+                    )
+                    if not _is_skip_file:
+                        written_len = len(str(arguments.get("content", "")))
+                        # Only count data from DATA-FETCH tools (not all
+                        # tool results).  Google Docs content, web scrapes,
+                        # and file reads are data sources.  Exclude write,
+                        # shell, glob, edit, image_vision — those are
+                        # action tools whose output is not "data to embed".
+                        _DATA_FETCH_TOOLS = frozenset({
+                            "google_drive", "google_mail", "google_calendar",
+                            "read_file", "scrape", "scrape_url",
+                            "web_fetch", "fetch_url", "read", "curl",
+                        })
+                        _data_in_context = 0
+                        if self.session:
+                            # Only look at the last 15 messages (not 30)
+                            # to reduce false positives from stale data.
+                            _recent = self.session.messages[-15:]
+                            for _prev in _recent:
+                                if _prev.get("role") != "tool":
+                                    continue
+                                _pname = str(_prev.get("tool_name", "")).strip().lower()
+                                if _pname not in _DATA_FETCH_TOOLS:
+                                    continue
+                                _pc = str(_prev.get("content", ""))
+                                if len(_pc) > 1000:
+                                    _data_in_context = max(_data_in_context, len(_pc))
+                        # Higher threshold: written file must be < 5% of
+                        # data (was 10%) and data must be > 1000 chars
+                        # (was 500) to reduce false positives.
+                        if _data_in_context > 1000 and written_len < _data_in_context * 0.05:
+                            _result_content += (
+                                "\n\nNote: The file you wrote is relatively small "
+                                f"({written_len} chars) compared to data "
+                                f"({_data_in_context} chars) available from "
+                                "fetched content in this conversation. If you "
+                                "intended to include that data in this file, "
+                                "consider rewriting it with the full content. "
+                                "Otherwise, continue with the next file."
+                            )
+                            log.info(
+                                "Post-write small-file note injected",
+                                written_len=written_len,
+                                data_in_context=_data_in_context,
+                            )
+
+                self._add_session_message(
+                    role="tool",
+                    content=_result_content,
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    tool_arguments=arguments if isinstance(arguments, dict) else None,
+                    system_hint=result.system_hint if result.success else None,
+                )
+                self._emit_tool_output(
+                    tc.name,
+                    arguments if isinstance(arguments, dict) else {},
+                    _result_content,
+                )
+
+                # ── Post-write context compaction ─────────────────
+                # After a successful file write the full content lives
+                # on disk.  Replace it in the parent assistant message's
+                # tool_calls with a compact reference to free context
+                # budget for subsequent iterations.
+                if (
+                    result.success
+                    and _tool_lower == "write"
+                    and isinstance(arguments, dict)
+                    and hasattr(self, "_compact_write_tool_call")
+                ):
+                    self._compact_write_tool_call(tc.id, arguments)
+
+                # ── Shell heredoc compaction ──────────────────────
+                # LLMs sometimes bypass the write tool and use shell
+                # heredocs (cat > file << 'EOF'...EOF) to write files.
+                # These can be thousands of tokens.  Compact the
+                # command argument after execution so subsequent
+                # iterations don't carry the full file content.
+                if (
+                    result.success
+                    and _tool_lower == "shell"
+                    and isinstance(arguments, dict)
+                    and len(str(arguments.get("command", ""))) >= 500
+                    and hasattr(self, "_compact_shell_tool_call")
+                ):
+                    self._compact_shell_tool_call(tc.id, arguments)
+
+                results.append({
+                    "tool_call_id": tc.id,
+                    "tool_name": tc.name,
+                    "success": result.success,
+                    "content": _result_content if result.success else result.error,
+                })
+
+                # ── A write invalidates this turn's read history ──
+                # query → upsert → query-to-verify is the prescribed
+                # datastore workflow, and the verify query is byte-identical
+                # to the first one. Blocking it as a duplicate tells the model
+                # "the content has not changed" about a table it JUST wrote
+                # to — which is false, and sends it inventing "fresh query
+                # patterns to avoid the duplicate guard" until the turn dies.
+                if (
+                    _tool_lower == "datastore"
+                    and result.success
+                    and isinstance(arguments, dict)
+                    and str(arguments.get("action", "")).strip().lower() in _DATASTORE_WRITE_ACTIONS
+                ):
+                    _dc = getattr(self, "_turn_tool_call_counts", {})
+                    for _k in [k for k in _dc if k.startswith("datastore|")]:
+                        _dc.pop(_k, None)
+
+                # ── Dup-counter rollback on failure ──────────────
+                # If the call failed (e.g. wrong path), roll back the
+                # duplicate counter so the LLM can retry with a
+                # corrected argument (e.g. absolute path) without
+                # being blocked by the dup detector.
+                if not result.success:
+                    _dup_counts = getattr(self, "_turn_tool_call_counts", {})
+                    if _dup_sig in _dup_counts and _dup_counts[_dup_sig] > 0:
+                        _dup_counts[_dup_sig] -= 1
+
+                # ── Scale-progress tracking ───────────────────────
+                # When a large-scale incremental task is running, track
+                # glob results (to learn total count) and write(append)
+                # calls (to count completed items) and emit a progress
+                # indicator to the thinking line.
+                #
+                # Also: set _last_action="extract" on success so the
+                # soft write-hint fires if the LLM reads another file
+                # before writing.  Only set on success — a failed
+                # extract should not trigger the hint on retry.
+                sp = getattr(self, "_scale_progress", None)
+                if result.success and sp is not None:
+                    tool_lower = str(tc.name or "").strip().lower()
+                    if tool_lower in _PATH_TOOLS:
+                        sp["_last_action"] = "extract"
+                    if tool_lower in _URL_TOOLS:
+                        sp["_last_action"] = "extract"
+                    if tool_lower == "glob" and result.content:
+                        # Count lines in glob output to determine total items
+                        # AND store the full list so we can inject a progress
+                        # note into every LLM call (preventing the LLM from
+                        # "forgetting" the list as context grows).
+                        # Filter out non-path lines like "Found 27 file(s):"
+                        # or other header/summary text the glob tool may emit.
+                        #
+                        # GUARD: Do not overwrite items when a glob has
+                        # already been absorbed (_glob_completed) — that
+                        # would replace a fully-populated item list with a
+                        # new discovery glob the LLM issued for unrelated
+                        # reasons (e.g. codebase exploration after a failed
+                        # early micro-loop).
+                        if not sp.get("_glob_completed", False):
+                            lines = [
+                                ln.strip() for ln in result.content.strip().splitlines()
+                                if ln.strip()
+                                and not re.match(r"^Found \d+", ln.strip())
+                                and (
+                                    "/" in ln
+                                    or "\\" in ln
+                                    or "." in ln.strip().rsplit("/", 1)[-1]
+                                )
+                            ]
+                            if lines:
+                                sp["total"] = len(lines)
+                                sp["completed"] = 0
+                                sp["items"] = list(lines)
+                                sp["done_items"] = set()
+                                sp["_extraction_mode"] = self._classify_item_extraction_mode(
+                                    lines,
+                                    per_member_action=str(sp.get("_per_member_action", "")),
+                                    user_input=str(sp.get("_per_member_action", "")),
+                                )
+                                # Mark glob as completed so the scale guard
+                                # blocks any subsequent re-glob attempts.
+                                sp["_glob_completed"] = True
+                    elif tool_lower == "write" and isinstance(arguments, dict):
+                        # Track the output file path so the scale guard
+                        # can block re-reads of it during the loop.
+                        # We store TWO paths:
+                        #   _output_file: the resolved absolute path (for
+                        #     comparison in scale guard read-blocking)
+                        #   _output_file_arg: the original arg passed to
+                        #     the write tool (for the micro-loop to reuse,
+                        #     since the write tool re-resolves its input)
+                        # Extract the real resolved path from the tool result.
+                        real_path = ""
+                        if result.content and " to " in result.content:
+                            after_to = result.content.split(" to ", 1)[-1]
+                            real_path = after_to.split(" (requested:")[0].strip()
+                        if not real_path:
+                            write_path = str(arguments.get("path", "")).strip()
+                            if write_path:
+                                real_path = os.path.abspath(write_path)
+                        if not sp.get("_output_file"):
+                            if real_path:
+                                sp["_output_file"] = real_path
+                            # Also keep the original argument for micro-loop
+                            original_arg = str(arguments.get("path", "")).strip()
+                            if original_arg:
+                                sp["_output_file_arg"] = original_arg
+                        # Track distinct output files.  When the LLM writes
+                        # to MULTIPLE different files (one per item), the
+                        # micro-loop cannot take over because it assumes a
+                        # single output file with appends.
+                        if real_path:
+                            output_files: set[str] = sp.setdefault("_output_files", set())
+                            output_files.add(real_path)
+                        # Track item completion.
+                        # For append=True: match written content against items.
+                        # For append=False: also try matching — the LLM may
+                        # write separate files per item (e.g. "report-2025-07-18.csv"
+                        # for item "2025-07-18 https://…").
+                        is_append = arguments.get("append") is True
+                        if is_append:
+                            sp["completed"] = sp.get("completed", 0) + 1
+                        # Build a search text from both file content and path.
+                        written_content = str(arguments.get("content", ""))
+                        write_path = str(arguments.get("path", "")).strip().lower()
+                        # Check a broader portion of written content —
+                        # not just the first line — to catch items
+                        # mentioned in markdown headers, sub-headings, etc.
+                        content_head = written_content[:500].lower()
+                        # For non-append writes, also search in the file path
+                        # (the LLM may embed the item identifier in the filename).
+                        search_text = content_head + " " + write_path
+                        done_items: set[str] = sp.get("done_items", set())
+                        items: list[str] = sp.get("items", [])
+                        for item in items:
+                            if item in done_items:
+                                continue
+                            # Build match candidates for this item:
+                            # - filename (last path component)
+                            # - URL domain+path for web URLs
+                            # - the item itself (lowered)
+                            candidates: list[str] = []
+                            if "/" in item:
+                                # Could be a file path or URL
+                                candidates.append(item.rsplit("/", 1)[-1].lower())
+                            # The item itself (e.g. "example.com/...", "Company Name")
+                            candidates.append(item.lower())
+                            # For URLs, also match just the path portion.
+                            # Handle both plain URLs and items with
+                            # embedded URLs (e.g. "18.07.2025 - https://…")
+                            _url_in_item = None
+                            if item.startswith(("http://", "https://")):
+                                _url_in_item = item
+                            else:
+                                _um = re.search(r"https?://[^\s)\]}>\"']+", item)
+                                if _um:
+                                    _url_in_item = _um.group(0)
+                            if _url_in_item:
+                                try:
+                                    from urllib.parse import urlparse
+                                    parsed = urlparse(_url_in_item)
+                                    path_part = parsed.path.strip("/")
+                                    if path_part:
+                                        candidates.append(path_part.lower())
+                                    # hostname + path for partial matching
+                                    if parsed.hostname:
+                                        candidates.append(
+                                            f"{parsed.hostname}{parsed.path}".lower()
+                                        )
+                                except Exception:
+                                    pass
+                            # Extract date-like tokens from items
+                            # (e.g. "18.07.2025" from "18.07.2025. https://…")
+                            _date_m = re.search(r"\d{2}\.\d{2}\.\d{4}", item)
+                            if _date_m:
+                                candidates.append(_date_m.group(0))
+                            # For non-path items (e.g. "Company Name"),
+                            # also try normalized form
+                            if " " in item:
+                                candidates.append(
+                                    re.sub(r"[^a-z0-9]+", " ", item.lower()).strip()
+                                )
+                            matched = any(
+                                c and c in search_text
+                                for c in candidates
+                                if len(c) >= 3
+                            )
+                            if matched:
+                                done_items.add(item)
+                                if not is_append:
+                                    sp["completed"] = sp.get("completed", 0) + 1
+                                break
+                        sp["done_items"] = done_items
+                        total = sp.get("total", 0)
+                        done = sp["completed"]
+                        path = str(arguments.get("path", "")).strip()
+                        filename = path.rsplit("/", 1)[-1] if path else ""
+                        if total >= 3 and done <= total:
+                            pct = int(done / total * 100)
+                            progress_text = f"{done} of {total} ({pct}%)"
+                        elif total >= 3:
+                            # done > total: items discovered at runtime
+                            progress_text = f"{done} items written"
+                        else:
+                            progress_text = f"{done} items written"
+                        # Show last-written filename in the indicator.
+                        # Look at the content to extract a section title
+                        # if it starts with "## " or "# ".
+                        content_str = str(arguments.get("content", ""))
+                        label = ""
+                        for cline in content_str.splitlines():
+                            cline = cline.strip()
+                            if cline.startswith("#"):
+                                label = cline.lstrip("#").strip()[:60]
+                                break
+                        if not label and filename:
+                            label = filename[:60]
+                        display = f"📄 {progress_text}"
+                        if label:
+                            display += f" — {label}"
+                        self._emit_thinking(display, tool="progress", phase="tool")
+                        # ── Context trimming ─────────────────────
+                        # After successfully writing a summary, the
+                        # full extracted content of previous items is
+                        # no longer needed.  Trim large tool results
+                        # from earlier in the turn to keep the context
+                        # lean and prevent the LLM from "forgetting"
+                        # where it is in the list.
+                        self._trim_processed_extracts_in_session()
+
+                    elif tool_lower == "typesense" and isinstance(arguments, dict):
+                        # Track typesense index calls for scale progress —
+                        # same purpose as the write tracking above.
+                        ts_action = str(arguments.get("action", "")).strip().lower()
+                        if ts_action == "index" and result.success:
+                            sp["completed"] = sp.get("completed", 0) + 1
+                            # Match the indexed item against the known item list
+                            # using the 'reference' argument (which the LLM passes
+                            # as the item label, e.g. the file path).
+                            reference = str(arguments.get("reference", "")).strip()
+                            done_items: set[str] = sp.get("done_items", set())
+                            items: list[str] = sp.get("items", [])
+                            ref_lower = reference.lower()
+                            for item in items:
+                                if item in done_items:
+                                    continue
+                                item_lower = item.lower()
+                                # Match: exact, ends-with (relative path),
+                                # or filename match.
+                                filename_part = item.rsplit("/", 1)[-1].lower() if "/" in item else item_lower
+                                if (
+                                    ref_lower == item_lower
+                                    or item_lower.endswith(ref_lower)
+                                    or ref_lower.endswith(item_lower)
+                                    or (filename_part and filename_part in ref_lower)
+                                    or (ref_lower and ref_lower in item_lower)
+                                ):
+                                    done_items.add(item)
+                                    break
+                            sp["done_items"] = done_items
+                            total = sp.get("total", 0)
+                            done = sp["completed"]
+                            label = reference[:60] if reference else "indexed"
+                            if total >= 3 and done <= total:
+                                pct = int(done / total * 100)
+                                progress_text = f"{done} of {total} ({pct}%)"
+                            else:
+                                progress_text = f"{done} items indexed"
+                            display = f"📀 {progress_text} — {label}"
+                            self._emit_thinking(display, tool="progress", phase="tool")
+                            self._trim_processed_extracts_in_session()
+
+                # The owner's contacts/scripts/APIs stores are never written
+                # from a shared-agent member's turn — nor (PR D) from a turn
+                # that read members' private data.
+                from captain_claw import member_privacy
+                _owner_capture = (result.success and getattr(self, "_speaker_scoped", False) is not True
+                                  and not member_privacy.private_turn(self))
+
+                # Auto-capture contacts from send_mail usage.
+                if _owner_capture and hasattr(self, "_auto_capture_contacts_from_tool_call"):
+                    try:
+                        await self._auto_capture_contacts_from_tool_call(
+                            tc.name, arguments if isinstance(arguments, dict) else {},
+                        )
+                    except Exception as _ac_err:
+                        log.warning("Auto-capture contacts failed", tool=tc.name, error=str(_ac_err))
+
+                # Auto-capture scripts from write tool usage.
+                if _owner_capture and hasattr(self, "_auto_capture_scripts_from_tool_call"):
+                    try:
+                        await self._auto_capture_scripts_from_tool_call(
+                            tc.name, arguments if isinstance(arguments, dict) else {},
+                        )
+                    except Exception as _ac_err:
+                        log.warning("Auto-capture scripts failed", tool=tc.name, error=str(_ac_err))
+
+                # Auto-capture APIs from web_fetch tool usage.
+                if _owner_capture and hasattr(self, "_auto_capture_apis_from_tool_call"):
+                    try:
+                        await self._auto_capture_apis_from_tool_call(
+                            tc.name, arguments if isinstance(arguments, dict) else {},
+                        )
+                    except Exception as _ac_err:
+                        log.warning("Auto-capture APIs failed", tool=tc.name, error=str(_ac_err))
+
+                # Auto-extract insights from key tool results.
+                if (result.success and not member_privacy.private_turn(self)
+                        and hasattr(self, "_maybe_extract_insights_from_tool")):
+                    try:
+                        await self._maybe_extract_insights_from_tool(
+                            tc.name,
+                            arguments if isinstance(arguments, dict) else {},
+                            _result_content,
+                        )
+                    except Exception as _ie:
+                        log.warning("Insight extraction hook failed", tool=tc.name, error=str(_ie))
+
+            except Exception as e:
+                log.error("Tool execution failed", tool=tc.name, error=str(e))
+
+                self._add_session_message(
+                    role="tool",
+                    content=f"Error: {str(e)}",
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                    tool_arguments=arguments if isinstance(arguments, dict) else None,
+                )
+                self._emit_tool_output(
+                    tc.name,
+                    arguments if isinstance(arguments, dict) else {},
+                    f"Error: {str(e)}",
+                )
+
+                results.append({
+                    "tool_call_id": tc.id,
+                    "tool_name": tc.name,
+                    "success": False,
+                    "error": str(e),
+                })
+                # Roll back dup counter on exception so a retry is allowed.
+                _dup_counts = getattr(self, "_turn_tool_call_counts", {})
+                if _dup_sig in _dup_counts and _dup_counts[_dup_sig] > 0:
+                    _dup_counts[_dup_sig] -= 1
+
+        # ── All-blocked detection ──────────────────────────────────
+        # When EVERY tool call in the batch was blocked (duplicate or
+        # scale guard), the LLM received no new data and is likely to
+        # repeat the same calls.  Inject a single clear directive and
+        # track consecutive all-blocked batches.  After a threshold,
+        # set a flag the orchestration loop can use to force finalize.
+        if results and all(
+            "DUPLICATE CALL BLOCKED" in str(r.get("content", ""))
+            or "DUPLICATE CALL BLOCKED" in str(r.get("role", ""))
+            or "Scale guard" in str(r.get("content", ""))
+            for r in results
+        ):
+            _streak_attr = "_all_blocked_streak"
+            _streak = getattr(self, _streak_attr, 0) + 1
+            setattr(self, _streak_attr, _streak)
+            log.warning(
+                "All tool calls in batch were blocked",
+                blocked_count=len(results),
+                streak=_streak,
+            )
+            if _streak >= 1:
+                stop_msg = (
+                    "STOP: All your tool calls were blocked as duplicates. "
+                    "You already have the data you need from earlier calls. "
+                    "Do NOT retry the same calls. Move on to the next step "
+                    "in your plan — write the next file, or respond with "
+                    "your final answer."
+                )
+                self._add_session_message(
+                    role="user",
+                    content=stop_msg,
+                )
+                log.warning(
+                    "Injected all-blocked stop directive",
+                    streak=_streak,
+                )
+        else:
+            # Reset streak when at least one call went through.
+            if hasattr(self, "_all_blocked_streak"):
+                self._all_blocked_streak = 0
+
+        self._set_runtime_status("thinking")
+        return results

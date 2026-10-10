@@ -1,0 +1,90 @@
+{
+  "name": "@martinloop/mcp",
+  "version": "0.8.2",
+  "mcpName": "io.github.Keesan12/martin-loop",
+  "private": false,
+  "type": "module",
+  "description": "MCP server for AI coding agents â€” verifier gates, stop limits, and Verified Handoffs.",
+  "license": "Apache-2.0",
+  "author": "MartinLoop contributors",
+  "homepage": "https://martinloop.com/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Keesan12/martin-loop.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/Keesan12/martin-loop/issues"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "coding-agent",
+    "coding-agents",
+    "ai-coding-agent",
+    "ai-coding-agents",
+    "autonomous-coding",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "cursor",
+    "vscode",
+    "agent-runtime",
+    "agent-verification",
+    "developer-tools",
+    "software-engineering",
+    "martin-loop"
+  ],
+  "bin": {
+    "mcp": "./dist/server.js",
+    "martin-loop-mcp": "./dist/server.js"
+  },
+  "exports": {
+    "./server.json": "./server.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "server.json"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node ./scripts/build-package.mjs",
+    "version:sync": "node ./scripts/version-sync.mjs",
+    "version:check": "node ./scripts/verify-version-consistency.mjs",
+    "prepack": "pnpm build",
+    "smoke:pack": "node ./scripts/smoke-package.mjs",
+    "smoke:published": "node ./scripts/smoke-published-package.mjs",
+    "smoke:published:pack": "node ./scripts/smoke-published-package.mjs --package-spec=pack",
+    "verify:release": "node --test ../../scripts/tests/publish-mcp-workflow.test.mjs ../../scripts/tests/mcp-publish-reliability.test.mjs ../../scripts/tests/mcp-release-docs.test.mjs",
+    "test:baseline": "node ./scripts/run-test-lane.mjs baseline",
+    "test": "vitest run --maxWorkers=1",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js",
+    "inspect:live": "node ./scripts/inspect-live.mjs",
+    "mcpb:build": "node ./mcpb/build-mcpb.mjs",
+    "mcpb:validate": "mcpb validate ./dist-mcpb/martinloop",
+    "mcpb:smoke": "node ./mcpb/smoke-mcpb.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@open-policy-agent/opa-wasm": "^1.10.0",
+    "@opentelemetry/api-logs": "^0.214.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.214.0",
+    "@opentelemetry/resources": "^2.6.1",
+    "@opentelemetry/sdk-logs": "^0.214.0",
+    "ts-morph": "^21.0.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
+    "@martin/contracts": "workspace:*",
+    "@martin/presentation": "workspace:*"
+  }
+}

@@ -1,0 +1,325 @@
+# Using MCP tools with agents
+
+Drive an LLM agent that retrieves corpus data through a **real MCP server** pointed at
+Backlot, with retrieval **ACL-scoped** by the credentials you give it. One self-contained file per
+service (like the other `examples/` dirs) — run the one you want:
+
+- **`atlassian.py`** (Jira + Confluence) via the community-official
+  [`mcp-atlassian`](https://github.com/sooperset/mcp-atlassian) (Docker).
+- **`notion.py`** via the **official**
+  [`@notionhq/notion-mcp-server`](https://github.com/makenotion/notion-mcp-server) (npx/Node) —
+  it takes a first-class `BASE_URL` override, so pointing it at Backlot is one env var.
+- **`s3.py`** via the **official**
+  [`awslabs.aws-api-mcp-server`](https://github.com/awslabs/mcp/tree/main/src/aws-api-mcp-server)
+  (uvx/Python) — it shells the AWS CLI, whose boto3 client honors a first-class
+  `AWS_ENDPOINT_URL` override and SigV4-signs every call; a broad AWS-CLI wrapper, so the agent
+  runs `aws s3api …` commands.
+- **`github.py`** via the **generic OpenAPI→MCP bridge** (`backlot mcp`, Python/FastMCP) — no vendor
+  MCP server exists that can be pointed at anything self-hosted, so instead the bridge turns
+  Backlot's own typed `/openapi.json` into MCP tools. See "How the OpenAPI→MCP bridge connects" below.
+  This unlocks the sources with no base-URL-switchable vendor server; more sources
+  (Gmail/Google Drive) are being added the same way.
+- **`slack.py`** via the same **OpenAPI→MCP bridge** — no maintained Slack MCP server accepts a
+  base-URL override (they hard-wire `slack.com`), so the bridge serves Backlot's Slack Web API
+  (`/slack/api/*`) as tools instead.
+- **`gmail.py`** via the same **OpenAPI→MCP bridge** — Gmail MCP servers hard-wire `googleapis.com`
+  and need real Google OAuth, so the bridge serves Backlot's Gmail API (`/gmail/*`) as tools.
+- **`gdrive.py`** via the same **OpenAPI→MCP bridge** — likewise for Google Drive, and for the three editors a Drive file opens in: the `gdrive` slice is `/drive/v3`, `/docs/v1`, `/sheets/v4` and `/slides/v1`, so an agent that finds a spreadsheet can read its cells in the next call.
+- **`hubspot.py`** via the same **OpenAPI→MCP bridge** — no HubSpot MCP server takes a base-URL
+  override. Because the CRM API is polymorphic over `{object_type}`, the agent gets five tools that
+  each work across every object type (list, read, search, batch-read, associations) rather than a set
+  per type, so "find the account, then its notes" is two calls with the object type as an argument.
+- **`linear.py`** and **`fireflies.py`** via the **generic GraphQL→MCP bridge**
+  (`backlot mcp`, Python/FastMCP). Both sources are GraphQL-only, so the OpenAPI bridge
+  cannot serve them at all — `/openapi.json` describes one `POST /<source>/graphql` operation,
+  which would derive a single raw-document tool rather than a usable toolset. This bridge reads the
+  endpoint's own **introspection** instead and turns each root `Query` field into a typed tool. See
+  "How the GraphQL→MCP bridge connects" below.
+
+Every source now has an MCP path. The two GraphQL ones use a bridge rather than a vendor server
+because **both vendors' official MCP servers are remote-hosted** — `https://mcp.linear.app/mcp` and
+Fireflies' equivalent, neither with a base-URL override — so nothing local can substitute for them,
+and the community servers hard-wire `api.linear.app` / `api.fireflies.ai` in source (details under
+"Why these need the bridge"). Both are of course still reachable the ordinary way too: hand an agent
+the GraphQL endpoint and a token (see `examples/using-official-sdk/`).
+
+Each service file builds its own MCP `StdioServerParameters` and calls `run_agent(...)`. Two shared
+helpers:
+
+| File | What it is |
+|---|---|
+| `_agent.py` | The agent loop for both backends: `--agent anthropic` (default, Anthropic SDK + its beta MCP tool runner) or `--agent openai` (OpenAI Agents SDK) |
+| `backlot.serve_or_connect` | Starts Backlot (`backlot.main`) on a small corpus, or connects to a `--url` one |
+
+Each service file declares its own CLI options with `argparse` — run `python <file> --help` to see
+exactly what that source takes (e.g. `s3.py` takes `--access-key`/`--secret-key`, required with
+`--url`; `atlassian.py` takes `--token`/`--username`). All accept `--url` and `--agent {anthropic,openai}`.
+
+Each example spins up its own small server by default, or pass `--url` to use an already-running one
+(unreachable → it falls back to spinning up its own). Note the demo question is tuned to each
+example's own seed corpus; against a `--url` server holding *different* data it may have no exact
+match, so the agent answers from the closest documents and notes what's missing (it's told to be
+decisive rather than exhaustively hunt).
+
+## Run
+
+```bash
+pip install -e ".[mcp]"          # mcp + openai-agents + anthropic[mcp]
+                                 # Atlassian needs Docker; Notion needs Node (npx); S3 needs uvx
+
+# prove retrieval + ACL end-to-end through the real MCP servers — no API key needed.
+# One test per service (each skips if its runtime — Docker / npx / uvx — is absent):
+python -m pytest tests/test_mcp.py
+#   Atlassian: admin reads an ACL-restricted Jira issue, a scoped user is blocked
+#   Notion:    admin reads an ACL-restricted page, an outsider is blocked
+#   S3:        admin lists bucket objects through a signed AWS CLI call, and again through the
+#              bridge's own SigV4 signing, where a scoped user cannot read the restricted object
+#   GitHub:    admin reads an ACL-restricted issue via the bridge, a scoped user is blocked
+#   Slack:     admin search surfaces a restricted-channel message via the bridge, a user can't
+#   HubSpot:   admin reads an ACL-restricted CRM record via the bridge, a scoped user is blocked;
+#              the polymorphic search tool round-trips filterGroups and returns `total`
+#   Linear/Fireflies: same via the GraphQL bridge — admin reads an ACL-restricted issue/transcript
+#              and a scoped user cannot; a nested `IssueFilter` round-trips and `pageInfo` comes back
+#   backlot mcp: over real stdio — every source namespaced, `--user` scoping each call, an unknown
+#              email refused, and the server it starts gone when the client hangs up
+
+# drive it with an LLM agent (needs an API key). --agent defaults to anthropic; add --agent openai.
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/atlassian.py
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/notion.py
+OPENAI_API_KEY=…    python examples/using-mcp-with-agents/notion.py --agent openai
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/s3.py
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/github.py   # via the OpenAPI→MCP bridge
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/slack.py    # via the OpenAPI→MCP bridge
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/hubspot.py  # via the OpenAPI→MCP bridge
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/linear.py    # via the GraphQL→MCP bridge
+ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/fireflies.py # via the GraphQL→MCP bridge
+```
+
+**Retrieval is ACL-scoped by the identity you pass**, and how you pass it depends on who is doing
+the authenticating:
+
+- **The seven `backlot mcp` launchers** (`github`, `slack`, `gmail`, `gdrive`, `hubspot`, `linear`,
+  `fireflies`) take `--user <email>` — one flag, because the command resolves that person's whole
+  credential set and spells it per source. Default is the admin, who sees everything.
+- **The vendor-server launchers** take the credential shape their vendor's own server accepts, since
+  Backlot is not the one parsing the flag: `atlassian.py` and `notion.py` take a Backlot **token**
+  (`--token` a per-user token from `GET /_meta/users`, which is what scopes the read),
+  and `s3.py` takes an AWS **access-key/secret pair** — `--access-key` / `--secret-key`, **required
+  with `--url`** (real AWS keys, or a pair from `GET <url>/_meta/users`, where each user and the
+  admin has an `s3_access_key_id` / `s3_secret_access_key`). Without `--url` the local throwaway
+  server uses its own admin keypair.
+
+- **Local** — `--url http://localhost:PORT`.
+- **Remote** — `--url https://host` plus the identity. For the seven above that is an email the
+  remote corpus knows; for the vendor-server launchers, credentials from `GET /_meta/users` (don't
+  reuse the built-in admin token/keys against someone else's server). `atlassian.py` additionally
+  **requires** `--username` for a remote target (see below).
+
+## How `atlassian.py` connects
+
+`mcp-atlassian` runs in Docker and only classifies a host as Atlassian **Cloud** (the v3 + `/wiki`
+API shape Backlot speaks) when the hostname ends in `.atlassian.net`. So the example:
+
+- uses a fake host `backlot.atlassian.net`, mapped with Docker's `--add-host` — to the host machine
+  (`host-gateway`) for a local server, or to a **remote** deployment's resolved IP;
+- sets `MCP_ALLOWED_URL_DOMAINS=atlassian.net` to pass the server's SSRF guard;
+- authenticates with HTTP Basic where the **api-token is a Backlot token** — Backlot resolves it to a
+  user and enforces that user's ACL. The Basic-auth **username** must be that token's own address,
+  as the real service requires; the placeholder (`svc@example.com`) stands in only for the admin
+  token, which has no address. For a **remote** target it must be explicit (`--username`), and because the
+  deployment's TLS cert is for its own name (not `backlot.atlassian.net`), cert verification is
+  disabled for that hop (`*_SSL_VERIFY=false`) — fine for a throwaway server.
+
+## How `notion.py` connects
+
+Much simpler — the official `notion-mcp-server` reads a **`BASE_URL`** env var and propagates it
+straight to its HTTP client, so the example just sets:
+
+- `BASE_URL=<url>/notion` — the server appends the `/v1/...` paths from its bundled OpenAPI spec,
+  landing on Backlot's `/notion/v1/...` routes. It runs on the host via `npx`, so a local
+  `localhost` server is reached directly (no Docker/host-gateway aliasing).
+- `NOTION_TOKEN=<token>` — sent as `Authorization: Bearer …`; Backlot resolves it to a user
+  and enforces that user's ACL.
+- `NOTION_VERSION=2025-09-03` — required, not a preference: Backlot refuses a request that
+  carries no version the way real Notion does, and this value is the one that reads a
+  database through its data source.
+
+## How `s3.py` connects
+
+`awslabs.aws-api-mcp-server` shells the AWS CLI (botocore underneath), which takes a first-class
+endpoint override, so the example just sets:
+
+- `AWS_ENDPOINT_URL=<url>/s3` — every AWS CLI call the server runs is routed at Backlot instead
+  of real AWS.
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — the required `--access-key` / `--secret-key` (the
+  keys Backlot's SigV4 verifier accepts; grab a pair from `GET /_meta/users`), so botocore's
+  signature resolves back to that identity and Backlot enforces its ACL.
+- `AWS_REGION=us-east-1` — the region Backlot presents; a credential scoped to another region is
+  refused, as real S3 refuses it.
+
+We intentionally do **not** set `READ_OPERATIONS_ONLY`. It sounds like the safe default, but it
+blocks `aws s3 cp s3://<bucket>/<key> -` — the one command that streams an object's **body** back to
+the model. (Under that flag `s3api get-object` writes the bytes to a sandboxed file and returns only
+metadata; `… /dev/stdout` is path-blocked/deadlocks.) So with it on, the agent can *list* objects but
+never *read* them, and it thrashes. The `/s3` surface it reaches answers `GET` and `HEAD` and nothing
+else, so dropping the guard is safe here. The example's question therefore tells the agent to read via `s3 cp … -`.
+
+Note this server is a **broad AWS-CLI wrapper**, not S3-specific — under the hood the agent runs
+`aws s3api …` commands (e.g. `list-objects-v2`, `get-object`) via the server's `call_aws` tool.
+Because it exposes *all* of the AWS CLI (not a domain search tool like the Notion/Atlassian
+servers), the agent has no way to know the corpus lives in S3 — left unguided it wanders off to
+AWS's actual search/config services (Kendra, SSM, …). So `s3.py`'s question **explicitly tells it
+to search S3 only** (list buckets → list objects → get object). This steering is the price of
+using a generic AWS-CLI MCP for retrieval.
+
+**Gotcha — loopback-only endpoint:** awslabs' server has an SSRF guard (`_validate_endpoint` in
+its command parser) that only accepts a **loopback** endpoint — `localhost` / `127.0.0.1` / `::1`.
+A hostname `--url` (e.g. an ALB-fronted `https://…` deployment) is rejected with `Could not resolve
+endpoint …`, and even a non-loopback IP is rejected with `Local endpoint was not a loopback
+address`. To drive a remote deployment, tunnel it to loopback and point `--url` there:
+`ssh -fN -L 18000:127.0.0.1:8000 user@host`, then
+`--url http://127.0.0.1:18000 --access-key … --secret-key …`. (boto3 and mirage have no such
+restriction — they take the hostname directly.)
+
+## `backlot mcp` — every source as MCP tools, one command
+
+The bridge both families below run is Backlot's own command, so an MCP client needs nothing from
+this directory:
+
+```bash
+pip install "backlot[mcp]" && claude mcp add backlot -- backlot mcp
+```
+
+With no `--source` it serves every source from one process, each tool namespaced
+`<source>_<tool>` (`slack_search_messages`, `atlassian_jira_get_issue`); `--source slack` serves one
+source under its plain tool names. Given `--url` it bridges that server and fails if nothing answers
+there — naming a server and getting a different corpus would be the wrong kind of help. Without
+`--url` it takes the one on `127.0.0.1:8000` if a Backlot server is there, else **starts one itself**
+over the data dir's corpus (the bundled corpus when the data dir is empty) and stops it when the
+client disconnects — which is what makes the install a single line.
+
+**One credential flag.** `--user <email>` answers every call as that person, so Backlot's
+per-document ACL decides each answer; without it, the admin, who sees everything. The command
+resolves that email through the server's own `GET /_meta/users` and spells the credential the way
+each source authenticates — `Bearer` for most, HTTP Basic `email:token` for Atlassian, a SigV4
+signature per request for S3 — so there is nothing per-service to pass. An email the corpus does not
+know is refused before a single tool exists. `--depth` is the GraphQL selection depth. The code is
+`backlot/mcp.py`.
+
+## How the OpenAPI→MCP bridge connects (`github.py` / `slack.py` / `gmail.py` / `gdrive.py` / `hubspot.py`)
+
+These sources have no vendor MCP server that accepts a base-URL override (see "Why these need
+the bridge" below). Instead of a vendor server, each launcher runs `backlot mcp --source <name>`
+(Python, [FastMCP](https://gofastmcp.com)) as a stdio subprocess. The bridge is deliberately thin —
+Backlot does the spec work:
+
+- Backlot serves an **MCP-ready spec per source** at **`GET /_meta/openapi/<source>`** — its own
+  typed `/openapi.json` (the routers declare query params and response models) sliced to that
+  source, each operation renamed to its route's own name (`search_messages`, not
+  `search_messages_slack_api_search_messages_get`), and the GET/POST and Jira v2/v3 fidelity
+  aliases collapsed to one operation each (the raw spec carries ~14 duplicate operationIds, which
+  an MCP tool set can't have). This lives in `backlot/openapi.py`, so there is nothing to clean up
+  client-side;
+- the bridge just fetches that spec and serves it over stdio via `FastMCP.from_openapi()` on an
+  `httpx2.AsyncClient` (what `from_openapi` takes — a legacy `httpx` one is accepted only under a
+  deprecation warning) whose base URL is Backlot and which carries the credential `--user` resolved
+  — so Backlot resolves it to a user and **enforces that user's ACL** on every call.
+
+stdio (not streamable-HTTP): FastMCP's HTTP mode has a known bug forwarding the client's
+`Authorization` header downstream. Adding a source is one entry in `backlot/openapi.py`'s
+`SOURCE_PREFIXES` plus a thin launcher.
+
+**Notion and Atlassian** already have vendor-server launchers above, but they also work through the
+generic bridge (no vendor server) — run `backlot mcp` directly:
+
+```bash
+backlot mcp --source notion    --url <url> --user someone@acme.com
+backlot mcp --source atlassian --url <url> --user someone@acme.com
+```
+
+Atlassian authenticates with HTTP Basic, the resolved user's own email as the username and their
+Backlot token as the password, and its `SOURCE_PREFIXES` entry is the single `/atlassian` root,
+which covers Jira and Confluence alike — Confluence is served under `/atlassian/wiki/…`.
+
+**S3 goes through the same path, signed rather than bearer-authenticated.** SigV4 signs each
+request, so a fixed `Authorization` header cannot serve it — the bridge signs every call with
+`backlot/sigv4.py`, the module the S3 router verifies inbound signatures with, using the access-key
+pair `--user` resolved. Its three tools are `list_buckets`, `bucket_get` and `object_get`, named for
+Backlot's own routes rather than the `aws s3api …` surface a vendor CLI gives; `s3.py` below still
+drives awslabs' server, because pointing a real vendor client at Backlot is its own thing to show.
+
+## How the GraphQL→MCP bridge connects (`linear.py` / `fireflies.py`)
+
+Linear and Fireflies are **GraphQL-only**, served at `POST /<source>/graphql` with
+`include_in_schema=False` — so there is no OpenAPI operation for the bridge above to slice, and
+`GET /_meta/openapi/linear` is a 404 by construction. What a GraphQL endpoint *does* publish is its
+schema, over standard introspection, so that is what `backlot mcp` reads. Same split as the
+OpenAPI bridge — the app does the schema work, the bridge is transport:
+
+- **`backlot/graphql/mcp_tools.py`** turns the introspection result into one tool per root `Query`
+  field: 15 for Linear (`issues`, `issue`, `teams`, `comments`, `viewer`, the by-id relation
+  roots …), 4 for Fireflies (`transcripts`, `transcript`, `user`, `users`). It derives each tool's
+  argument JSON Schema *and* its GraphQL document, which is the one thing OpenAPI never has to
+  decide: a REST operation returns a fixed body, a GraphQL field returns whatever was asked for.
+- **the bridge** posts `tool.document` with the caller's `Authorization: Bearer <token>` and passes
+  the GraphQL envelope back untouched, so Backlot's per-token ACL decides every result. One header
+  spelling serves both: Fireflies is the ordinary bearer path, and Linear accepts a bare API key or
+  a `Bearer` token on the same header exactly as the real API does.
+
+**Typed tools, not a `graphql(query:)` passthrough.** A passthrough is three lines and turns the
+exercise into "can the model write GraphQL against a schema it has not seen"; no other example here
+works that way.
+
+**How the selection set is chosen** (full rules in `mcp_tools`): leaf fields always; a Relay
+connection is transparent wherever it appears (`nodes { … } pageInfo { … }` — free at the root,
+costing a level below it, and `pageInfo` always present so a page an agent cannot advance never
+reads as a complete answer); object fields are followed while a depth budget lasts; a type already
+on the path is not re-entered; a field with a required argument is skipped. Input objects expand
+under that same path guard, so `IssueFilter` arrives with its real comparator keys —
+`{"filter": {"title": {"containsIgnoreCase": "latency"}}}` — rather than as an opaque blob.
+
+One rule is there purely for size: **a bare list of objects is not selected inside a repeated
+result**, because rows × their own list is a product with no page and no way to say it was cut. So
+`transcripts` returns each match's metadata and summary while `transcript(id:)` returns one
+meeting's utterances — the same split `examples/using-official-sdk/fireflies.py` writes by hand for
+its two queries, and the reason an agent searches and then reads. Connections are exempt, being
+bounded by their own page. And a many-row tool carries a **default page size**, because an unpaged
+call otherwise takes the server's default page — measured against a real agent, it narrows with a
+filter and never asks for a page size at all. The default is filled in only when the caller named
+none of its own and is not paging backward (Relay rejects `first` and `last` together), so
+`first: 3` and `last: 2` both still mean exactly what they say. Each tool's description names its
+paging arguments and the default.
+
+Depth is the one per-source knob, and both values are measured (see PR #77 for the figures).
+Fireflies uses the default **2**: `Analytics` has no leaf fields of its own, so anything shallower
+drops the sentiment split and per-speaker talk time entirely. Linear runs at **1**, because `Team` /
+`Project` / `Cycle` each carry dozens of configuration leaves that a second level would multiply
+across every issue; depth 1 still returns `state`, `assignee`, `team`, `project` and `labels`
+inline. Both launchers take `--depth` if you want to see the difference.
+
+**What this trades away**, stated plainly because it is the argument for the vendor servers above:
+the bridge exercises *our* tool surface, not the community tooling an agent meets in production.
+That is accepted here — for Fireflies especially, where no community server has meaningful adoption,
+there is no consensus tooling to be faithful to.
+
+## Why these need the bridge (no base-URL-switchable vendor server)
+
+These services' vendor MCP servers **cannot** be pointed at anything self-hosted — that is exactly why
+the OpenAPI→MCP bridge above exists (it needs no vendor server at all); each is now driven through
+it:
+
+- **GitHub** — the official `github/github-mcp-server` has `GITHUB_HOST`, but it strips the
+  port (so needs port 80), forces GitHub-Enterprise paths (`/api/v3`, `/api/graphql`), and
+  relies on GraphQL Backlot doesn't implement. **→ driven via the bridge (`github.py`) instead.**
+- **Slack** — no API-base override in any maintained server (hard-wired to `slack.com`).
+  **→ driven via the bridge (`slack.py`) instead.**
+- **Gmail / Google Drive** — official and community servers hard-wire `googleapis.com` and
+  require real Google OAuth; no endpoint override. **→ driven via the bridge (`gmail.py`, `gdrive.py`).**
+- **Linear** — the official server is **remote-hosted** (`https://mcp.linear.app/mcp`), so there is
+  no local process to redirect. The community servers hard-wire `https://api.linear.app` and take
+  only a token; because they run as `npx` subprocesses, the in-process URL rewrite backlot uses for
+  the LlamaIndex Linear reader cannot reach them either.
+  **→ driven via the GraphQL bridge (`linear.py`).**
+- **Fireflies** — the official server is likewise remote-only, and the maintained community one pins
+  its vendor endpoint as a module constant with the API key its sole configurable; none has enough
+  adoption to be worth forking. **→ driven via the GraphQL bridge (`fireflies.py`).**

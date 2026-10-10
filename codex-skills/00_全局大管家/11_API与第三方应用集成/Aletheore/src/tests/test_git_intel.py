@@ -1,0 +1,940 @@
+import os
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
+from unittest.mock import patch
+
+import pytest
+
+from aletheore.git_intel.analyzer import GitAnalysisError, analyze_git, compute_hotspots, compute_recently_updated
+from aletheore.git_intel.incremental import GitLogStreamError
+
+
+def run(repo: Path, *args: str):
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
+def commit(repo: Path, message: str, date: str):
+    env = os.environ.copy()
+    env["GIT_AUTHOR_DATE"] = date
+    env["GIT_COMMITTER_DATE"] = date
+    subprocess.run(
+        ["git", "commit", "-m", message], cwd=repo, check=True, capture_output=True, env=env
+    )
+
+
+def make_git_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "Alice")
+
+    (repo / "a.txt").write_text("1")
+    run(repo, "add", "a.txt")
+    commit(repo, "first", "2026-06-01T00:00:00+00:00")
+
+    (repo / "a.txt").write_text("2")
+    run(repo, "add", "a.txt")
+    commit(repo, "second", "2026-06-15T00:00:00+00:00")
+
+    run(repo, "checkout", "-b", "feature/old")
+    (repo / "b.txt").write_text("1")
+    run(repo, "add", "b.txt")
+    commit(repo, "feature work", "2026-06-16T00:00:00+00:00")
+    run(repo, "checkout", "main")
+
+    run(repo, "config", "user.name", "Bob")
+    run(repo, "config", "user.email", "b@example.com")
+    (repo / "a.txt").write_text("3")
+    run(repo, "add", "a.txt")
+    commit(repo, "third", "2026-07-01T00:00:00+00:00")
+
+    return repo
+
+
+def test_analyze_git_no_history_returns_unavailable(tmp_path):
+    repo = tmp_path / "empty"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    result = analyze_git(repo)
+    assert result == {"available": False}
+
+
+def test_analyze_git_not_a_repo_returns_unavailable(tmp_path):
+    repo = tmp_path / "not_a_repo"
+    repo.mkdir()
+    result = analyze_git(repo)
+    assert result == {"available": False}
+
+
+def test_analyze_git_branches_and_staleness(tmp_path):
+    repo = make_git_repo(tmp_path)
+    now = datetime(2026, 7, 14, tzinfo=timezone.utc)
+    result = analyze_git(repo, now=now)
+    assert result["available"] is True
+
+    by_name = {b["name"]: b for b in result["branches"]}
+    assert "main" in by_name
+    assert by_name["main"]["type"] == "local"
+    assert by_name["main"]["stale_days"] == 13
+
+    assert "feature/old" in by_name
+    assert by_name["feature/old"]["stale_days"] == 28
+
+
+def test_analyze_git_ownership(tmp_path):
+    repo = make_git_repo(tmp_path)
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    by_email = {o["email"]: o for o in result["ownership"]}
+    assert by_email["a@example.com"]["commit_count"] == 2
+    assert by_email["a@example.com"]["names"] == ["Alice"]
+    assert by_email["b@example.com"]["commit_count"] == 1
+    assert by_email["a@example.com"]["percent"] == 0.6667
+
+
+def test_analyze_git_file_ownership_includes_current_modules_only(tmp_path):
+    repo = make_git_repo(tmp_path)
+    result = analyze_git(
+        repo,
+        modules=[{"path": "a.txt"}],
+        now=datetime(2026, 7, 14, tzinfo=timezone.utc),
+    )
+    assert set(result["file_ownership"]) == {"a.txt"}
+    assert result["file_ownership"]["a.txt"][0]["email"] == "a@example.com"
+    assert sum(owner["percent"] for owner in result["file_ownership"]["a.txt"]) == 1.0
+
+
+def test_analyze_git_ownership_merges_same_email_different_names(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    run(repo, "config", "user.email", "person@example.com")
+    run(repo, "config", "user.name", "Nick")
+    (repo / "a.txt").write_text("1")
+    run(repo, "add", "a.txt")
+    commit(repo, "first", "2026-06-01T00:00:00+00:00")
+
+    run(repo, "config", "user.name", "Nicholas Smith")
+    (repo / "a.txt").write_text("2")
+    run(repo, "add", "a.txt")
+    commit(repo, "second", "2026-06-02T00:00:00+00:00")
+
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    assert len(result["ownership"]) == 1
+    entry = result["ownership"][0]
+    assert entry["email"] == "person@example.com"
+    assert entry["names"] == ["Nicholas Smith", "Nick"]
+    assert entry["commit_count"] == 2
+
+
+def test_analyze_git_ownership_merges_same_email_different_case(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    run(repo, "config", "user.email", "Person@Example.com")
+    run(repo, "config", "user.name", "Nick")
+    (repo / "a.txt").write_text("1")
+    run(repo, "add", "a.txt")
+    commit(repo, "first", "2026-06-01T00:00:00+00:00")
+
+    run(repo, "config", "user.email", "person@example.com")
+    (repo / "a.txt").write_text("2")
+    run(repo, "add", "a.txt")
+    commit(repo, "second", "2026-06-02T00:00:00+00:00")
+
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    assert len(result["ownership"]) == 1
+    assert result["ownership"][0]["commit_count"] == 2
+
+
+def test_analyze_git_survives_non_utf8_author_name(tmp_path):
+    # Found on a real scan of the Linux kernel's 20-year, 1.46M-commit
+    # history: git doesn't require commit metadata to be valid UTF-8, and an
+    # old commit's author name had a raw byte that isn't. Strict UTF-8
+    # decoding crashed the whole scan with UnicodeDecodeError.
+    #
+    # Setting GIT_AUTHOR_NAME to a raw invalid byte doesn't reproduce this -
+    # git itself repairs it (reinterprets as Latin-1, re-encodes to valid
+    # UTF-8) before storing the commit, confirmed directly. hash-object
+    # --stdin stores whatever bytes it's given with no such validation,
+    # which is the only reliable way to get a genuinely invalid byte into a
+    # real commit object for this test.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    (repo / "a.txt").write_text("1")
+    run(repo, "add", "a.txt")
+    tree_sha = subprocess.run(
+        ["git", "write-tree"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+    timestamp = b"1748736000 +0000"
+    commit_bytes = (
+        b"tree " + tree_sha.encode() + b"\n"
+        b"author Weird" + bytes([0xE9]) + b"Name <old@example.com> " + timestamp + b"\n"
+        b"committer Weird" + bytes([0xE9]) + b"Name <old@example.com> " + timestamp + b"\n"
+        b"\nold commit\n"
+    )
+    commit_sha = subprocess.run(
+        ["git", "hash-object", "-w", "-t", "commit", "--stdin"],
+        cwd=repo,
+        input=commit_bytes,
+        check=True,
+        capture_output=True,
+    ).stdout.decode().strip()
+    run(repo, "update-ref", "refs/heads/main", commit_sha)
+
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    assert result["available"] is True
+    assert result["ownership"][0]["email"] == "old@example.com"
+    assert result["ownership"][0]["commit_count"] == 1
+
+
+def _fail_only_on_git_log(returncode: int):
+    # _has_commits() (rev-parse/rev-list) must keep succeeding so analyze_git
+    # actually reaches the code path under test, rather than short-circuiting
+    # to {"available": False} the moment _run_git is patched to fail broadly.
+    def side_effect(repo_path, *args):
+        if args and args[0] == "log":
+            return subprocess.CompletedProcess(args=["git", *args], returncode=returncode, stdout="", stderr="")
+        if args == ("rev-parse", "--git-dir"):
+            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout=".git\n", stderr="")
+        if args == ("rev-list", "-1", "HEAD"):
+            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="abc123\n", stderr="")
+        if args == ("rev-list", "--count", "HEAD"):
+            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="5\n", stderr="")
+        if args == ("rev-list", "--max-parents=0", "HEAD"):
+            return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="root123\n", stderr="")
+        return subprocess.CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+
+    return side_effect
+
+
+def test_analyze_git_raises_clear_error_when_a_supporting_git_call_is_killed(tmp_path):
+    # Confirmed directly: a full scan of torvalds/linux under a 1GB memory
+    # cgroup got OOM-killed here, and the OS reports a signal-killed process
+    # via a negative returncode (Python's documented convention) - this used
+    # to surface downstream as an unrelated, confusing IndexError instead of
+    # a clear "this failed, likely out of memory" signal. This exercises the
+    # cheap supporting calls around the graph sync (e.g. the final
+    # `rev-parse HEAD`) - see the two tests below for the streaming
+    # ownership/cadence/hotspots walk itself being killed, which is the
+    # actual torvalds/linux failure mode.
+    repo = make_git_repo(tmp_path)
+
+    with patch("aletheore.git_intel.analyzer._run_git", side_effect=_fail_only_on_git_log(-9)):
+        with pytest.raises(GitAnalysisError, match="killed"):
+            analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+
+
+def test_analyze_git_raises_clear_error_on_non_signal_git_failure(tmp_path):
+    repo = make_git_repo(tmp_path)
+
+    with patch("aletheore.git_intel.analyzer._run_git", side_effect=_fail_only_on_git_log(128)):
+        with pytest.raises(GitAnalysisError, match="exit code 128"):
+            analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+
+
+def test_analyze_git_translates_stream_error_from_the_actual_history_walk(tmp_path):
+    # This is the real torvalds/linux failure mode: the streaming
+    # ownership/cadence/hotspots walk itself gets OOM-killed, not one of the
+    # cheap supporting calls around it. Patches at the exact translation
+    # boundary (_sync_graph catches GitLogStreamError from
+    # stream_commit_touches and re-raises as GitAnalysisError) rather than
+    # trying to make a real git subprocess die on cue.
+    repo = make_git_repo(tmp_path)
+
+    with patch(
+        "aletheore.git_intel.analyzer.stream_commit_touches",
+        side_effect=GitLogStreamError("git log HEAD was killed (likely out of memory)"),
+    ):
+        with pytest.raises(GitAnalysisError, match="killed"):
+            analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+
+
+def test_compute_hotspots_translates_stream_error_from_the_actual_history_walk(tmp_path):
+    repo = make_git_repo(tmp_path)
+
+    with patch(
+        "aletheore.git_intel.analyzer.stream_commit_touches",
+        side_effect=GitLogStreamError("git log HEAD was killed (likely out of memory)"),
+    ):
+        with pytest.raises(GitAnalysisError, match="killed"):
+            compute_hotspots(repo, modules=[])
+
+
+def test_analyze_git_ahead_behind_main(tmp_path):
+    repo = make_git_repo(tmp_path)
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    by_name = {b["name"]: b for b in result["branches"]}
+    assert by_name["main"]["ahead_of_main"] == 0
+    assert by_name["main"]["behind_main"] == 0
+    assert by_name["feature/old"]["ahead_of_main"] == 1
+    assert by_name["feature/old"]["behind_main"] == 1
+
+
+def test_analyze_git_commit_cadence_partial_week_flag(tmp_path):
+    repo = make_git_repo(tmp_path)
+    result_partial = analyze_git(repo, now=datetime(2026, 7, 4, tzinfo=timezone.utc))
+    assert result_partial["commit_cadence"]["most_recent_week_partial"] is True
+
+    result_complete = analyze_git(repo, now=datetime(2026, 7, 20, tzinfo=timezone.utc))
+    assert result_complete["commit_cadence"]["most_recent_week_partial"] is False
+
+
+def test_analyze_git_explicit_branch_isolates_detached_head_clones(tmp_path):
+    # Hosted PR scans clone via `git checkout <sha>` (detached HEAD, not a
+    # named branch) - without an explicit branch override, every such clone
+    # would collapse onto the same literal "HEAD" bucket regardless of
+    # which PR/commit it actually came from, letting one PR's scan corrupt
+    # another's incremental delta. An explicit branch argument must isolate
+    # them exactly like two genuinely different branches would.
+    from unittest.mock import MagicMock
+
+    from aletheore.git_intel.graph_store import GraphSnapshot
+
+    repo = make_git_repo(tmp_path)
+    store = MagicMock()
+    store.load.return_value = GraphSnapshot.empty()
+
+    analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc), store=store, branch="pr-123")
+
+    load_branches = {call.args[1] for call in store.load.call_args_list}
+    apply_branches = {call.args[1] for call in store.apply_commits.call_args_list}
+    assert load_branches == {"pr-123"}
+    assert apply_branches == {"pr-123"}
+
+
+def test_analyze_git_totals(tmp_path):
+    repo = make_git_repo(tmp_path)
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    assert result["total_commits"] == 3
+    assert result["repo_age_days"] == 43
+
+
+def test_first_commit_lookup_never_walks_full_history(tmp_path):
+    # Confirmed directly: `git log --reverse HEAD` (the old approach) was the
+    # exact query that got OOM-killed scanning torvalds/linux's 1.46M
+    # commits - it has to walk and format the entire history just to read
+    # its first line. The fix must never issue that call.
+    from aletheore.git_intel import analyzer
+
+    repo = make_git_repo(tmp_path)
+    real_run_git = analyzer._run_git
+    calls = []
+
+    def spy(repo_path, *args):
+        calls.append(args)
+        return real_run_git(repo_path, *args)
+
+    with patch("aletheore.git_intel.analyzer._run_git", side_effect=spy):
+        result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+
+    assert result["repo_age_days"] == 43
+    assert not any("--reverse" in call for call in calls)
+
+
+def test_analyze_git_repo_age_uses_oldest_of_multiple_root_commits(tmp_path):
+    # A repo merging unrelated histories (git merge --allow-unrelated-histories)
+    # can have more than one root commit - repo age must reflect the oldest
+    # one, not whichever `rev-list --max-parents=0` happens to list first.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "Alice")
+    (repo / "a.txt").write_text("1")
+    run(repo, "add", "a.txt")
+    commit(repo, "main root", "2026-06-01T00:00:00+00:00")
+
+    run(repo, "checkout", "--orphan", "grafted")
+    run(repo, "reset", "--hard")
+    (repo / "b.txt").write_text("1")
+    run(repo, "add", "b.txt")
+    commit(repo, "older independent root", "2026-01-01T00:00:00+00:00")
+
+    run(repo, "checkout", "main")
+    run(repo, "merge", "--allow-unrelated-histories", "-m", "merge", "grafted")
+
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    # Age measured from the older (January) root, not the newer (June) one.
+    assert result["repo_age_days"] == (
+        datetime(2026, 7, 14, tzinfo=timezone.utc) - datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ).days
+
+
+def test_analyze_git_repo_age_excludes_a_root_commit_with_a_malformed_date(tmp_path):
+    # Real regression this guards: parse_commit_date's own epoch fallback
+    # (1970-01-01) is deliberately "very old" so a malformed date never
+    # skews a *most-recent* ranking as if it just happened - but that same
+    # value is exactly wrong fed into _first_commit_at's min(), where it's
+    # the *oldest* value that wins. One root commit with a malformed date
+    # (a corrupted local clock at authorship time - the real #281 case)
+    # among several good ones used to silently set the whole repo's
+    # founding date to 1970-01-01 (reporting it as ~56 years old)
+    # regardless of what the other root commits' real dates said.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "Alice")
+    (repo / "a.txt").write_text("1")
+    run(repo, "add", "a.txt")
+    commit(repo, "main root", "2026-06-01T00:00:00+00:00")
+
+    run(repo, "checkout", "--orphan", "grafted")
+    run(repo, "reset", "--hard")
+    (repo / "b.txt").write_text("1")
+    run(repo, "add", "b.txt")
+    commit(repo, "older independent root, corrupted clock", "2026-01-01T00:00:00+00:00")
+    malformed_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+    run(repo, "checkout", "main")
+    run(repo, "merge", "--allow-unrelated-histories", "-m", "merge", "grafted")
+
+    from aletheore.git_intel import analyzer
+
+    real_run_git_or_raise = analyzer._run_git_or_raise
+
+    def fake_run_git_or_raise(repo_path, *args):
+        result = real_run_git_or_raise(repo_path, *args)
+        if (
+            args[:4] == ("log", "-1", "--format=%ad", "--date=iso-strict")
+            and len(args) == 5
+            and args[4] == malformed_sha
+        ):
+            # Genuinely unparseable, not just a malformed offset (a bad
+            # offset like '+518:00' recovers via parse_commit_date's own
+            # second-tier 19-char-prefix fallback - see incremental.py -
+            # and never reaches the epoch case this test needs to trigger).
+            result = subprocess.CompletedProcess(
+                result.args, result.returncode, "garbage\n", result.stderr
+            )
+        return result
+
+    with patch("aletheore.git_intel.analyzer._run_git_or_raise", side_effect=fake_run_git_or_raise):
+        result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+
+    # Falls back to the remaining good (June) root, not epoch (~56 years).
+    assert result["repo_age_days"] == (
+        datetime(2026, 7, 14, tzinfo=timezone.utc) - datetime(2026, 6, 1, tzinfo=timezone.utc)
+    ).days
+
+
+def test_analyze_git_ignores_remote_head_symbolic_ref(tmp_path):
+    repo = make_git_repo(tmp_path)
+    remote = tmp_path / "remote.git"
+    run(remote.parent, "init", "--bare", remote.name)
+    run(repo, "remote", "add", "origin", str(remote))
+    run(repo, "push", "-u", "origin", "main")
+    run(repo, "remote", "set-head", "origin", "main")
+
+    result = analyze_git(repo, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    branch_names = {branch["name"] for branch in result["branches"]}
+
+    assert "origin/main" in branch_names
+    assert "origin" not in branch_names
+    assert "origin/HEAD" not in branch_names
+
+
+def _init_repo_with_hotspot_commits(tmp_path):
+    repo = tmp_path / "hotspot_repo"
+    repo.mkdir()
+    run(repo, "init", "-q")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "A")
+
+    (repo / "a.py").write_text("1")
+    (repo / "b.py").write_text("1")
+    run(repo, "add", "-A")
+    run(repo, "commit", "-q", "-m", "initial")
+
+    (repo / "a.py").write_text("2")
+    (repo / "b.py").write_text("2")
+    run(repo, "add", "-A")
+    run(repo, "commit", "-q", "-m", "touch both")
+
+    (repo / "a.py").write_text("3")
+    run(repo, "add", "-A")
+    run(repo, "commit", "-q", "-m", "touch a only")
+    return repo
+
+
+def test_compute_hotspots_ranks_by_churn(tmp_path):
+    repo = _init_repo_with_hotspot_commits(tmp_path)
+    modules = [
+        {"path": "a.py", "imported_by": []},
+        {"path": "b.py", "imported_by": ["a.py"]},
+    ]
+    hotspots = compute_hotspots(repo, modules)
+    by_path = {hotspot["path"]: hotspot for hotspot in hotspots}
+    assert by_path["a.py"]["churn_count"] == 3
+    assert by_path["b.py"]["churn_count"] == 2
+    assert hotspots[0]["path"] == "a.py"
+
+
+def test_compute_hotspots_ranks_a_renamed_file_by_its_full_history_not_just_post_rename(tmp_path):
+    # Real audit finding, end-to-end: a file with a long pre-rename history,
+    # renamed once, must still rank by its FULL churn - not just the
+    # touches since the rename - or a genuinely hot file looks artificially
+    # cold under its current name right after being renamed.
+    repo = tmp_path / "rename_repo"
+    repo.mkdir()
+    run(repo, "init", "-q")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "A")
+
+    (repo / "old_name.py").write_text("x" * 50)
+    run(repo, "add", "-A")
+    commit(repo, "add old_name.py", "2026-01-01T00:00:00")
+    for i in range(4):
+        (repo / "old_name.py").write_text("x" * 50 + str(i))
+        run(repo, "add", "-A")
+        commit(repo, f"edit old_name.py {i}", f"2026-01-0{i + 2}T00:00:00")
+    # 5 touches total so far, well under the file - stays well above the
+    # -M default 50% similarity threshold.
+    run(repo, "mv", "old_name.py", "new_name.py")
+    run(repo, "add", "-A")
+    commit(repo, "rename old_name.py to new_name.py", "2026-01-06T00:00:00")
+
+    hotspots = compute_hotspots(repo, [{"path": "new_name.py", "imported_by": []}])
+    by_path = {hotspot["path"]: hotspot for hotspot in hotspots}
+    assert "old_name.py" not in by_path
+    # 5 pre-rename touches + the rename commit itself = 6, not 1 (what it
+    # would be if only the rename commit counted toward new_name.py).
+    assert by_path["new_name.py"]["churn_count"] == 6
+
+
+def test_compute_recently_updated_ranks_by_recency_not_churn(tmp_path):
+    # a.py and b.py tie on churn_count (both touched twice), but b.py's
+    # last touch is explicitly later - recently_updated must rank on that,
+    # not on churn_count, which is exactly what would make this
+    # indistinguishable from a slice of compute_hotspots' own ranking.
+    # Explicit commit dates (not just "commit it after the others") avoid
+    # this test being flaky against git's 1-second commit-timestamp
+    # resolution - two commits made back-to-back in a fast test run can
+    # otherwise land in the same second.
+    repo = tmp_path / "recency_repo"
+    repo.mkdir()
+    run(repo, "init", "-q")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "A")
+
+    (repo / "a.py").write_text("1")
+    (repo / "b.py").write_text("1")
+    run(repo, "add", "-A")
+    commit(repo, "initial", "2026-01-01T00:00:00")
+
+    (repo / "a.py").write_text("2")
+    run(repo, "add", "-A")
+    commit(repo, "touch a", "2026-01-02T00:00:00")
+
+    (repo / "b.py").write_text("2")
+    run(repo, "add", "-A")
+    commit(repo, "touch b last", "2026-01-03T00:00:00")
+
+    recent = compute_recently_updated(repo)
+    paths = [item["path"] for item in recent]
+    assert paths.index("b.py") < paths.index("a.py")
+    assert all(item["last_commit_at"] for item in recent)
+
+
+def test_compute_recently_updated_ranks_by_real_utc_instant_not_offset_string(tmp_path):
+    # Real bug found in a backward audit: committed_at keeps each commit's
+    # own original UTC offset (`--date=iso-strict`), and sorting on its
+    # isoformat() *string* instead of the real datetime instant gets the
+    # order wrong across a day boundary. '2026-01-01T23:00:00-08:00' (real
+    # UTC instant 2026-01-02T07:00) string-sorts BEFORE
+    # '2026-01-02T01:00:00+00:00' (real UTC instant 2026-01-02T01:00)
+    # purely because '01-01' < '01-02' in the date portion, even though
+    # the first commit's real instant is later. a.py's touch below is the
+    # later real instant; recently_updated must rank it first.
+    repo = tmp_path / "offset_repo"
+    repo.mkdir()
+    run(repo, "init", "-q")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "A")
+
+    (repo / "a.py").write_text("1")
+    (repo / "b.py").write_text("1")
+    run(repo, "add", "-A")
+    commit(repo, "initial", "2026-01-01T00:00:00+00:00")
+
+    (repo / "b.py").write_text("2")
+    run(repo, "add", "-A")
+    commit(repo, "touch b, real UTC 2026-01-02T01:00", "2026-01-02T01:00:00+00:00")
+
+    (repo / "a.py").write_text("2")
+    run(repo, "add", "-A")
+    commit(repo, "touch a, real UTC 2026-01-02T07:00 (later)", "2026-01-01T23:00:00-08:00")
+
+    recent = compute_recently_updated(repo)
+    paths = [item["path"] for item in recent]
+    assert paths.index("a.py") < paths.index("b.py")
+
+
+def test_compute_recently_updated_excludes_a_low_churn_file_the_hotspot_limit_would_miss(tmp_path):
+    # A file touched once, very recently, has churn_count 1 - real
+    # production repos can have far more than HOTSPOT_LIMIT (30) files
+    # with churn_count 1, so compute_hotspots' own churn-ranked, capped
+    # list has no guaranteed way to surface it. compute_recently_updated
+    # must still find it since it ranks by recency across every file, not
+    # a slice of the churn ranking. An explicit, clearly-later commit date
+    # (not just "commit it after the others") avoids this test being flaky
+    # against git's 1-second commit-timestamp resolution - two commits made
+    # back-to-back in a fast test run can otherwise land in the same second.
+    repo = _init_repo_with_hotspot_commits(tmp_path)
+    (repo / "z_lonely.py").write_text("1")
+    run(repo, "add", "-A")
+    commit(repo, "add a lonely file last", "2099-01-01T00:00:00")
+
+    recent = compute_recently_updated(repo)
+    assert recent[0]["path"] == "z_lonely.py"
+
+
+def test_compute_hotspots_finds_co_change_partner(tmp_path):
+    repo = _init_repo_with_hotspot_commits(tmp_path)
+    modules = [
+        {"path": "a.py", "imported_by": []},
+        {"path": "b.py", "imported_by": []},
+    ]
+    hotspots = compute_hotspots(repo, modules)
+    a = next(hotspot for hotspot in hotspots if hotspot["path"] == "a.py")
+    partners = {partner["path"]: partner["co_occurrences"] for partner in a["co_change_partners"]}
+    assert partners["b.py"] == 2
+
+
+def test_compute_hotspots_uses_dependents_count_from_imported_by(tmp_path):
+    repo = _init_repo_with_hotspot_commits(tmp_path)
+    modules = [
+        {"path": "a.py", "imported_by": ["b.py", "c.py"]},
+        {"path": "b.py", "imported_by": []},
+    ]
+    hotspots = compute_hotspots(repo, modules)
+    a = next(hotspot for hotspot in hotspots if hotspot["path"] == "a.py")
+    assert a["dependents_count"] == 2
+
+
+def test_compute_hotspots_excludes_mass_commits_from_co_change(tmp_path):
+    repo = tmp_path / "mass_repo"
+    repo.mkdir()
+    run(repo, "init", "-q")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "A")
+
+    many_files = [f"f{i}.py" for i in range(60)]
+    for name in many_files:
+        (repo / name).write_text("1")
+    run(repo, "add", "-A")
+    run(repo, "commit", "-q", "-m", "mass commit touching 60 files")
+
+    hotspots = compute_hotspots(repo, [{"path": name, "imported_by": []} for name in many_files])
+    f0 = next(hotspot for hotspot in hotspots if hotspot["path"] == "f0.py")
+    assert f0["co_change_partners"] == []
+    assert f0["churn_count"] == 1
+
+
+def test_compute_hotspots_normalizes_paths_when_scan_root_is_subdirectory(tmp_path):
+    repo = tmp_path / "repo"
+    subdir = repo / "prototype"
+    subdir.mkdir(parents=True)
+    run(repo, "init", "-q")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "A")
+    (subdir / "a.py").write_text("1")
+    (repo / "README.md").write_text("outside")
+    run(repo, "add", "-A")
+    run(repo, "commit", "-q", "-m", "initial")
+
+    hotspots = compute_hotspots(subdir, [{"path": "a.py", "imported_by": []}])
+    assert hotspots[0]["last_commit_at"] is not None
+    hotspots[0].pop("last_commit_at")
+
+    assert hotspots == [
+        {
+            "path": "a.py",
+            "churn_count": 1,
+            "co_change_partners": [],
+            "dependents_count": 0,
+        }
+    ]
+
+
+def test_hotspots_and_recently_updated_exclude_files_deleted_from_the_tree(tmp_path):
+    repo = _init_repo_with_hotspot_commits(tmp_path)
+    run(repo, "rm", "-q", "b.py")
+    run(repo, "commit", "-q", "-m", "delete b")
+    modules = [{"path": "a.py", "imported_by": []}]
+
+    hotspots = compute_hotspots(repo, modules)
+    recent = compute_recently_updated(repo)
+
+    assert [h["path"] for h in hotspots] == ["a.py"]
+    assert [r["path"] for r in recent] == ["a.py"]
+
+
+def test_analyze_git_resets_when_sync_pointer_was_rewritten_out_of_history(tmp_path):
+    # An amended-away commit still exists as an orphaned object until gc, so an
+    # existence-only check kept the stale sync pointer and double-counted the
+    # rewritten commit on the next incremental sync.
+    repo = make_git_repo(tmp_path)
+    now = datetime(2026, 7, 14, tzinfo=timezone.utc)
+    assert analyze_git(repo, now=now)["total_commits"] == 3
+
+    (repo / "a.txt").write_text("amended")
+    run(repo, "add", "a.txt")
+    env = os.environ.copy()
+    env["GIT_COMMITTER_DATE"] = "2026-07-02T00:00:00+00:00"
+    subprocess.run(
+        ["git", "commit", "--amend", "-m", "third amended", "--date", "2026-07-02T00:00:00+00:00"],
+        cwd=repo, check=True, capture_output=True, env=env,
+    )
+
+    result = analyze_git(repo, now=now)
+    counts = {o["email"]: o["commit_count"] for o in result["ownership"]}
+    assert counts == {"a@example.com": 2, "b@example.com": 1}
+
+
+def test_analyze_git_flags_a_shallow_clone_as_partial_history(tmp_path):
+    source = make_git_repo(tmp_path)
+    clone = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth=2", f"file://{source}", str(clone)],
+        check=True, capture_output=True,
+    )
+
+    result = analyze_git(clone, now=datetime(2026, 7, 14, tzinfo=timezone.utc))
+
+    assert result["history_depth_limited"] is True
+    assert analyze_git(source, now=datetime(2026, 7, 14, tzinfo=timezone.utc))[
+        "history_depth_limited"
+    ] is False
+
+
+def _make_repo_with_n_commits(tmp_path: Path, n: int) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run(repo, "init", "-b", "main")
+    run(repo, "config", "user.email", "a@example.com")
+    run(repo, "config", "user.name", "Alice")
+    for i in range(n):
+        (repo / "a.txt").write_text(str(i))
+        run(repo, "add", "a.txt")
+        commit(repo, f"commit {i}", f"2026-06-{i + 1:02d}T00:00:00+00:00")
+    return repo
+
+
+def test_history_depth_limited_stays_true_after_a_later_call_raises_the_cap(tmp_path):
+    # Real bug found via audit of PR #985 (#1004): history_depth_limited used
+    # to be derived from depth_cap is not None and total_commits > depth_cap -
+    # the CURRENT call's own cap, not anything persisted about the store. A
+    # capped rebuild (depth_cap=3 here) correctly flagged True, but a LATER
+    # call against the same store with depth_cap raised or removed (e.g. via
+    # ALETHEORE_GIT_HISTORY_DEPTH_CAP changing between scans) would then
+    # evaluate against the NEW cap and flip back to False, even though the
+    # store was never backfilled past the original 3 commits - incremental
+    # syncs never backfill older history. Fixed by comparing the store's own
+    # folded commit count (sum of every owner's commit_count, exact because
+    # incremental.py increments it exactly once per commit) against the real
+    # total, which is independent of whatever cap any particular call used.
+    from aletheore.git_intel.sqlite_store import SQLiteRepoGraphStore
+
+    repo = _make_repo_with_n_commits(tmp_path, 5)
+    store = SQLiteRepoGraphStore(tmp_path / "graph.db")
+    now = datetime(2026, 7, 14, tzinfo=timezone.utc)
+    try:
+        capped = analyze_git(repo, store=store, depth_cap=3, now=now)
+        assert capped["history_depth_limited"] is True
+        assert capped["ownership"][0]["commit_count"] == 3
+
+        # Same cap, no new commits - last_synced_sha is already HEAD, so this
+        # takes the incremental (no-op) path. Must stay True: this is the
+        # regression the existing code comment already guards against.
+        warm_same_cap = analyze_git(repo, store=store, depth_cap=3, now=now)
+        assert warm_same_cap["history_depth_limited"] is True
+
+        # The cap is raised past total_commits on this later call - the store
+        # still only has the original 3 commits folded in, never backfilled.
+        warm_raised_cap = analyze_git(repo, store=store, depth_cap=100, now=now)
+        assert warm_raised_cap["history_depth_limited"] is True
+
+        # The cap is removed entirely on this later call - same story.
+        warm_no_cap = analyze_git(repo, store=store, depth_cap=None, now=now)
+        assert warm_no_cap["history_depth_limited"] is True
+    finally:
+        store.close()
+
+
+def test_history_depth_limited_is_false_once_the_store_holds_full_history(tmp_path):
+    from aletheore.git_intel.sqlite_store import SQLiteRepoGraphStore
+
+    repo = _make_repo_with_n_commits(tmp_path, 5)
+    store = SQLiteRepoGraphStore(tmp_path / "graph.db")
+    now = datetime(2026, 7, 14, tzinfo=timezone.utc)
+    try:
+        result = analyze_git(repo, store=store, depth_cap=None, now=now)
+        assert result["history_depth_limited"] is False
+        assert result["total_commits"] == 5
+    finally:
+        store.close()
+
+
+def test_parse_branches_computes_ahead_behind_without_a_subprocess_per_branch(tmp_path):
+    from unittest.mock import patch
+
+    from aletheore.git_intel import analyzer
+
+    repo = make_git_repo(tmp_path)
+    for i in range(4):
+        run(repo, "branch", f"extra{i}", "main")
+    now = datetime(2026, 7, 14, tzinfo=timezone.utc)
+
+    with patch.object(analyzer, "_ahead_behind", wraps=analyzer._ahead_behind) as per_branch:
+        branches = analyzer._parse_branches(repo, now)
+
+    by_name = {b["name"]: b for b in branches}
+    assert by_name["feature/old"]["ahead_of_main"] == 1
+    assert by_name["feature/old"]["behind_main"] == 1
+    assert by_name["extra0"]["ahead_of_main"] == 0
+    assert per_branch.call_count == 0
+
+
+def _full_facts(repo):
+    count = int(subprocess.run(["git", "rev-list", "--count", "HEAD"], cwd=repo, capture_output=True, text=True).stdout)
+    roots = sorted(subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.split())
+    return count, roots
+
+
+def _fresh_facts(repo):
+    from aletheore.git_intel import history_meta
+
+    history_meta._memo.clear()
+    facts = history_meta.history_facts(repo)
+    return facts.total_commits, list(facts.root_shas)
+
+
+def test_history_facts_stay_exact_across_incremental_updates(tmp_path, monkeypatch):
+    # Total commits and root commits are updated from the last scan's values
+    # plus only the new commits; every step must equal a full recomputation,
+    # including a merge of an unrelated history (a new root commit) and a
+    # rewritten history (the cached HEAD is no longer an ancestor).
+    from aletheore.git_intel import history_meta
+
+    monkeypatch.delenv("ALETHEORE_DISABLE_LOCAL_SCAN_CACHE", raising=False)
+    repo = make_git_repo(tmp_path)
+    assert _fresh_facts(repo) == _full_facts(repo)
+    assert (repo / ".aletheore" / "git-meta.json").exists()
+
+    (repo / "b.txt").write_text("b")
+    run(repo, "add", "b.txt")
+    commit(repo, "third", "2026-07-01T00:00:00+00:00")
+    walks = []
+    real_run = history_meta.subprocess.run
+
+    def spy(args, *a, **k):
+        if args[:2] == ["git", "rev-list"]:
+            walks.append(args[-1])
+        return real_run(args, *a, **k)
+
+    expected = _full_facts(repo)
+    with patch.object(history_meta.subprocess, "run", side_effect=spy):
+        assert _fresh_facts(repo) == expected
+    assert walks and all(".." in w for w in walks)  # only the delta was walked
+
+    other = tmp_path / "other"
+    other.mkdir()
+    run(other, "init", "-b", "main")
+    run(other, "config", "user.email", "b@example.com")
+    run(other, "config", "user.name", "Bob")
+    (other / "z.txt").write_text("z")
+    run(other, "add", "z.txt")
+    commit(other, "unrelated root", "2025-01-01T00:00:00+00:00")
+    run(repo, "fetch", "-q", str(other), "main:unrelated")
+    run(repo, "merge", "-q", "--allow-unrelated-histories", "-m", "merge unrelated", "unrelated")
+    count, roots = _fresh_facts(repo)
+    assert (count, roots) == _full_facts(repo) and len(roots) == 2
+
+    run(repo, "reset", "-q", "--hard", "HEAD~1")
+    (repo / "c.txt").write_text("c")
+    run(repo, "add", "c.txt")
+    commit(repo, "rewritten", "2026-08-01T00:00:00+00:00")
+    assert _fresh_facts(repo) == _full_facts(repo)
+
+
+def test_history_facts_write_nothing_when_local_cache_is_disabled(tmp_path, monkeypatch):
+    # The hosted worker sets this: a checkout is someone else's repo, so no
+    # file from it is trusted and none is written.
+    monkeypatch.setenv("ALETHEORE_DISABLE_LOCAL_SCAN_CACHE", "1")
+    repo = make_git_repo(tmp_path)
+    (repo / ".aletheore").mkdir()
+    (repo / ".aletheore" / "git-meta.json").write_text(
+        '{"version": 1, "history": {"head": "x", "shallow": "full", "total_commits": 999, "root_shas": ["fake"]}}'
+    )
+    assert _fresh_facts(repo) == _full_facts(repo)
+    # The planted file was neither trusted nor overwritten.
+    assert '"total_commits": 999' in (repo / ".aletheore" / "git-meta.json").read_text()
+
+
+def test_ahead_behind_counts_are_reused_until_a_tip_moves(tmp_path, monkeypatch):
+    from aletheore.git_intel import history_meta
+
+    monkeypatch.delenv("ALETHEORE_DISABLE_LOCAL_SCAN_CACHE", raising=False)
+    repo = make_git_repo(tmp_path)
+    run(repo, "branch", "ahead-behind-topic")
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return {"main": (0, 0), "ahead-behind-topic": (0, 0)}
+
+    assert history_meta.cached_ahead_behind(repo, "main", compute) == {"main": (0, 0), "ahead-behind-topic": (0, 0)}
+    history_meta.cached_ahead_behind(repo, "main", compute)
+    assert len(calls) == 1
+    run(repo, "checkout", "-q", "ahead-behind-topic")
+    (repo / "f.txt").write_text("f")
+    run(repo, "add", "f.txt")
+    commit(repo, "feature work", "2026-07-02T00:00:00+00:00")
+    history_meta.cached_ahead_behind(repo, "main", compute)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("corrupt", [
+    {"total_commits": "12"}, {"total_commits": None}, {"root_shas": "abc"}, {"root_shas": [1, 2]},
+    {"head": 7}, "drop:total_commits", "drop:root_shas",
+])
+def test_history_facts_recompute_from_a_malformed_cache(tmp_path, monkeypatch, corrupt):
+    # A truncated, hand-edited or foreign git-meta.json must not crash the scan
+    # or be trusted: the facts are recomputed from git.
+    import json
+
+    monkeypatch.delenv("ALETHEORE_DISABLE_LOCAL_SCAN_CACHE", raising=False)
+    repo = make_git_repo(tmp_path)
+    _fresh_facts(repo)  # writes a valid file for the current HEAD
+    meta_path = repo / ".aletheore" / "git-meta.json"
+    meta = json.loads(meta_path.read_text())
+    if isinstance(corrupt, str):
+        del meta["history"][corrupt.split(":", 1)[1]]
+    else:
+        meta["history"].update(corrupt)
+    meta_path.write_text(json.dumps(meta))
+    assert _fresh_facts(repo) == _full_facts(repo)
+
+
+def test_ahead_behind_recomputes_from_malformed_cached_counts(tmp_path, monkeypatch):
+    import json
+
+    from aletheore.git_intel import history_meta
+
+    monkeypatch.delenv("ALETHEORE_DISABLE_LOCAL_SCAN_CACHE", raising=False)
+    repo = make_git_repo(tmp_path)
+    (repo / ".aletheore").mkdir(exist_ok=True)
+    history_meta.cached_ahead_behind(repo, "main", lambda: {"main": (0, 0)})
+    meta_path = repo / ".aletheore" / "git-meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["ahead_behind"]["counts"] = {"main": ["x"]}
+    meta_path.write_text(json.dumps(meta))
+    assert history_meta.cached_ahead_behind(repo, "main", lambda: {"main": (3, 4)}) == {"main": (3, 4)}

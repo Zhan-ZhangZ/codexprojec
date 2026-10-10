@@ -1,0 +1,702 @@
+"""Guard policy and guarded LLM completion helpers for Agent."""
+
+import asyncio
+import json
+import re
+from typing import Any
+
+from captain_claw.config import get_config
+from captain_claw.exceptions import GuardBlockedError
+from captain_claw.llm import Message, is_reasoning_backfill_placeholder
+from captain_claw.logging import get_logger
+
+
+log = get_logger(__name__)
+
+# A context-note block inside a prompt message (body in group 1). Notes in the
+# body are separated by blank lines; quoted block markers inside notes are
+# defused when the block is built, so the first END marker closes it.
+_GUARD_NOTES_BLOCK_RE = re.compile(
+    r"\[INTERNAL CONTEXT[^\]\n]*\]\n?(.*?)\n?\[END INTERNAL CONTEXT\]", re.DOTALL,
+)
+
+# Interaction labels of post-turn background jobs. Their LLM calls happen
+# while the agent is otherwise idle, so the runtime status must be reset
+# to "ready" when they finish (the UI treats "ready" as the idle state).
+_BACKGROUND_MAINTENANCE_LABELS = {
+    "reflection",
+    "reflection_merge",
+    "insight_extraction",
+    "nervous_system_dream",
+    "conversation_topics",
+}
+
+
+class AgentGuardMixin:
+    """Guard evaluation and guarded completion/tool execution."""
+    @staticmethod
+    def _build_pipeline_trace_payload(
+        source_tool: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build compact pipeline-only trace payload without large content bodies."""
+        payload: dict[str, Any] = {"source": str(source_tool or "").strip().lower()}
+        args = arguments if isinstance(arguments, dict) else {}
+        src = payload["source"]
+
+        if src == "planning":
+            for key in (
+                "event",
+                "mode",
+                "enabled",
+                "current_index",
+                "current_task_id",
+                "leaf_tasks",
+                "leaf_index",
+                "leaf_remaining",
+                "current_path",
+                "eta_seconds",
+                "eta_text",
+            ):
+                if key in args:
+                    payload[key] = args.get(key)
+            raw_scopes = args.get("scope_progress")
+            compact_scopes: list[dict[str, Any]] = []
+            if isinstance(raw_scopes, list):
+                for scope in raw_scopes:
+                    if not isinstance(scope, dict):
+                        continue
+                    compact_scopes.append({
+                        "level": scope.get("level"),
+                        "path": scope.get("path"),
+                        "index": scope.get("index"),
+                        "siblings_total": scope.get("siblings_total"),
+                        "siblings_remaining": scope.get("siblings_remaining"),
+                        "scope_leaf_total": scope.get("scope_leaf_total"),
+                        "scope_leaf_remaining": scope.get("scope_leaf_remaining"),
+                        "eta_seconds": scope.get("eta_seconds"),
+                        "eta_text": scope.get("eta_text"),
+                    })
+            payload["scope_progress"] = compact_scopes
+            return payload
+
+        if src == "completion_gate":
+            for key in (
+                "step",
+                "passed",
+                "failed_count",
+                "base_limit",
+                "effective_limit",
+                "hard_limit",
+                "previous_limit",
+                "new_limit",
+                "soft_limit",
+                "recent_progress",
+                "remaining_work",
+                "stagnant_iterations",
+                "iteration",
+            ):
+                if key in args:
+                    payload[key] = args.get(key)
+            return payload
+
+        if src == "task_contract":
+            for key in ("step", "missing"):
+                if key in args:
+                    payload[key] = args.get(key)
+            return payload
+
+        for key, value in args.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                payload[key] = value
+        return payload
+
+    def _emit_llm_trace(
+        self,
+        interaction_label: str,
+        response: Any,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None,
+        max_tokens: int | None,
+    ) -> None:
+        """Emit/export full intermediate LLM response for process analysis."""
+        if not self.monitor_trace_llm:
+            return
+        tool_calls: list[dict[str, Any]] = []
+        for call in list(getattr(response, "tool_calls", []) or []):
+            tool_calls.append({
+                "id": str(getattr(call, "id", "")),
+                "name": str(getattr(call, "name", "")),
+                "arguments": getattr(call, "arguments", {}),
+            })
+
+        model_name = str(getattr(response, "model", "") or "")
+        usage = getattr(response, "usage", {}) or {}
+        args = {
+            "interaction": interaction_label,
+            "model": model_name,
+            "messages": len(messages),
+            "tools_enabled": bool(tools),
+            "max_tokens": int(max_tokens) if isinstance(max_tokens, int) else None,
+            "tool_calls": len(tool_calls),
+            "usage": usage if isinstance(usage, dict) else {},
+        }
+        response_text = str(getattr(response, "content", "") or "")
+        output_lines = [
+            f"interaction={interaction_label}",
+            f"model={model_name or '(unknown)'}",
+            f"messages={len(messages)}",
+            f"tools_enabled={bool(tools)}",
+            f"max_tokens={max_tokens if isinstance(max_tokens, int) else '(default)'}",
+            f"tool_calls={len(tool_calls)}",
+            "",
+            "[assistant_response]",
+            response_text if response_text else "(empty)",
+        ]
+        if tool_calls:
+            output_lines.extend([
+                "",
+                "[tool_calls]",
+                json.dumps(tool_calls, ensure_ascii=True, indent=2),
+            ])
+        output = "\n".join(output_lines).rstrip()
+        self._emit_tool_output("llm_trace", args, output)
+        self._add_session_message(
+            role="tool",
+            content=output,
+            tool_name="llm_trace",
+            tool_arguments=args,
+        )
+
+    @staticmethod
+    def _truncate_guard_text(text: str, max_chars: int = 12000) -> str:
+        """Trim guard payloads to bounded size."""
+        cleaned = (text or "").strip()
+        if len(cleaned) <= max_chars:
+            return cleaned
+        return cleaned[:max_chars].rstrip() + "\n...[truncated for guard evaluation]"
+
+    def _guard_settings(self, guard_type: str) -> tuple[bool, str]:
+        """Return (enabled, level) for a guard type."""
+        cfg = get_config()
+        guards = getattr(cfg, "guards", None)
+        if guards is None:
+            return False, "stop_suspicious"
+        raw = getattr(guards, guard_type, None)
+        if raw is None:
+            return False, "stop_suspicious"
+        enabled = bool(getattr(raw, "enabled", False))
+        level = str(getattr(raw, "level", "stop_suspicious") or "stop_suspicious").strip().lower()
+        if level not in {"stop_suspicious", "ask_for_approval"}:
+            level = "stop_suspicious"
+        return enabled, level
+
+    def guards_enabled(self) -> bool:
+        """Whether any guard type is enabled."""
+        return any(self._guard_settings(kind)[0] for kind in ("input", "output", "script_tool"))
+
+    def _serialize_messages_for_guard(self, messages: list[Message], max_chars: int = 12000) -> str:
+        """Serialize outbound prompt messages for input guard checks."""
+        def _cut(text: str) -> str:
+            text = re.sub(r"\s+", " ", text).strip()
+            return text if len(text) <= 800 else text[:800].rstrip() + "... [truncated]"
+
+        lines: list[str] = []
+        for idx, msg in enumerate(messages, start=1):
+            role = str(getattr(msg, "role", "")).strip().lower() or "unknown"
+            content = str(getattr(msg, "content", "")).strip()
+            # Context-note blocks ride inside messages (background notes in
+            # front of the turn's question, task state after a tool result).
+            # Cut each note and the text around the blocks on its own, so
+            # neither the notes nor the question crowd the other out of view.
+            parts: list[str] = []
+            pos = 0
+            for block in _GUARD_NOTES_BLOCK_RE.finditer(content):
+                parts.append(_cut(content[pos:block.start()]))
+                notes = [_cut(note) for note in block.group(1).split("\n\n")]
+                parts.append(
+                    "[INTERNAL CONTEXT] "
+                    + " | ".join(note for note in notes if note)
+                    + " [END INTERNAL CONTEXT]"
+                )
+                pos = block.end()
+            parts.append(_cut(content[pos:]))
+            lines.append(f"{idx}. {role}: {' '.join(part for part in parts if part)}")
+        return self._truncate_guard_text("\n".join(lines), max_chars=max_chars)
+
+    @staticmethod
+    def _parse_guard_decision(raw_text: str) -> dict[str, Any]:
+        """Parse guard classifier output into a normalized decision payload."""
+        text = (raw_text or "").strip()
+        if not text:
+            return {"allow": False, "reason": "Guard model returned empty output."}
+
+        payload: dict[str, Any] | None = None
+        try:
+            value = json.loads(text)
+            if isinstance(value, dict):
+                payload = value
+        except Exception:
+            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+            if match:
+                try:
+                    value = json.loads(match.group(0))
+                    if isinstance(value, dict):
+                        payload = value
+                except Exception:
+                    payload = None
+
+        if payload is None:
+            lowered = text.lower()
+            if "allow" in lowered and not any(word in lowered for word in ("suspicious", "malicious", "deny", "block")):
+                return {"allow": True, "reason": "Allowed by non-JSON guard output."}
+            return {"allow": False, "reason": "Could not parse guard output as JSON."}
+
+        verdict = str(payload.get("verdict") or payload.get("decision") or "").strip().lower()
+        reason = str(payload.get("reason") or payload.get("explanation") or "").strip()
+        if verdict in {"allow", "safe", "ok", "pass"}:
+            return {"allow": True, "reason": reason or "Guard allowed."}
+        if verdict in {"suspicious", "block", "blocked", "deny", "denied", "malicious"}:
+            return {"allow": False, "reason": reason or "Guard flagged suspicious content."}
+
+        # Conservative fallback when model output shape is unexpected.
+        return {"allow": False, "reason": reason or "Guard decision was inconclusive."}
+
+    async def _run_guard_decision(
+        self,
+        guard_type: str,
+        interaction_label: str,
+        content: str,
+        turn_usage: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate guard decision using prompt templates."""
+        system_template = f"guard_{guard_type}_system_prompt.md"
+        user_template = f"guard_{guard_type}_user_prompt.md"
+        rendered_content = self._truncate_guard_text(content)
+        messages = [
+            Message(role="system", content=self.instructions.load(system_template)),
+            Message(
+                role="user",
+                content=self.instructions.render(
+                    user_template,
+                    interaction_label=interaction_label,
+                    content=rendered_content,
+                ),
+            ),
+        ]
+        try:
+            response = await self.provider.complete(
+                messages=messages,
+                tools=None,
+                max_tokens=400,
+            )
+            if turn_usage is not None:
+                self._accumulate_usage(turn_usage, response.usage or {})
+            parsed = self._parse_guard_decision(response.content or "")
+            parsed["raw"] = response.content or ""
+            return parsed
+        except Exception as e:
+            return {"allow": False, "reason": f"Guard evaluation failed: {e}", "raw": ""}
+
+    def _request_guard_approval(self, question: str) -> bool:
+        """Request user approval when guard level is ask_for_approval."""
+        if not self.approval_callback:
+            return False
+        try:
+            return bool(self.approval_callback(question))
+        except Exception:
+            return False
+
+    def _enforce_blast_radius(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        interaction_label: str,
+    ) -> tuple[bool, str]:
+        """Deterministic blast-radius gate (R5), layered alongside the LLM
+        script_tool guard. Default-disabled → no-op (the classifier is not even
+        called). When on, a high-blast-radius tool call is blocked or routed to
+        human approval per the configured level. No LLM call — pure pattern match."""
+        enabled, level = self._guard_settings("blast_radius")
+        if not enabled:
+            return True, ""
+        from captain_claw.flight_deck.blast_radius import classify_tool
+        hit, reason = classify_tool(name, arguments)
+        if not hit:
+            return True, ""
+        if level == "ask_for_approval":
+            question = (
+                f"Blast-radius gate: '{name}' looks high-impact ({reason}). Allow it?"
+            )
+            approved = self._request_guard_approval(question)
+            self._emit_tool_output(
+                "guard_blast_radius",
+                {"interaction": interaction_label, "tool": name,
+                 "decision": "high_blast_radius", "level": level,
+                 "approved": approved},
+                reason,
+            )
+            if approved:
+                return True, ""
+            return False, f"Blocked by blast_radius guard (approval denied): {reason}"
+        self._emit_tool_output(
+            "guard_blast_radius",
+            {"interaction": interaction_label, "tool": name,
+             "decision": "high_blast_radius", "level": level},
+            reason,
+        )
+        return False, f"Blocked by blast_radius guard: {reason}"
+
+    async def _enforce_guard(
+        self,
+        guard_type: str,
+        interaction_label: str,
+        content: str,
+        turn_usage: dict[str, int] | None = None,
+    ) -> tuple[bool, str]:
+        """Run one guard type and enforce configured policy."""
+        enabled, level = self._guard_settings(guard_type)
+        if not enabled:
+            return True, ""
+        if guard_type == "output" and not (content or "").strip():
+            return True, ""
+
+        decision = await self._run_guard_decision(
+            guard_type=guard_type,
+            interaction_label=interaction_label,
+            content=content,
+            turn_usage=turn_usage,
+        )
+        allow = bool(decision.get("allow", False))
+        reason = str(decision.get("reason", "")).strip() or "Suspicious content detected."
+        raw = str(decision.get("raw", "")).strip()
+
+        if allow:
+            self._emit_tool_output(
+                f"guard_{guard_type}",
+                {"interaction": interaction_label, "decision": "allow", "level": level},
+                reason,
+            )
+            return True, ""
+
+        if level == "ask_for_approval":
+            question = (
+                f"{guard_type} guard flagged suspicious content for {interaction_label}. "
+                f"Reason: {reason} Approve anyway?"
+            )
+            approved = self._request_guard_approval(question)
+            self._emit_tool_output(
+                f"guard_{guard_type}",
+                {
+                    "interaction": interaction_label,
+                    "decision": "suspicious",
+                    "level": level,
+                    "approved": approved,
+                },
+                reason if not raw else f"{reason}\nRaw guard output: {raw}",
+            )
+            if approved:
+                return True, ""
+            return False, f"Blocked by {guard_type} guard (approval denied): {reason}"
+
+        self._emit_tool_output(
+            f"guard_{guard_type}",
+            {"interaction": interaction_label, "decision": "suspicious", "level": level},
+            reason if not raw else f"{reason}\nRaw guard output: {raw}",
+        )
+        return False, f"Blocked by {guard_type} guard: {reason}"
+
+    async def _complete_with_guards(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        interaction_label: str = "conversation",
+        turn_usage: dict[str, int] | None = None,
+        max_tokens: int | None = None,
+    ):
+        """Run guarded LLM completion (input + output guards)."""
+        guard_payload = self._serialize_messages_for_guard(messages)
+        allowed_input, input_error = await self._enforce_guard(
+            guard_type="input",
+            interaction_label=interaction_label,
+            content=guard_payload,
+            turn_usage=turn_usage,
+        )
+        if not allowed_input:
+            raise GuardBlockedError("input", input_error)
+
+        import time as _time
+        _t0 = _time.monotonic()
+        _error_occurred = False
+        _stream_cb = getattr(self, "response_stream_callback", None)
+
+        # Background maintenance calls (reflection, insight extraction,
+        # dreaming) run AFTER the user's turn already finished and emitted
+        # "ready". They are internal housekeeping — surfacing a "Calling
+        # LLM..." busy status for them would flip the agent back to a busy
+        # state for tens of seconds after it told the user it was idle. So
+        # for these we suppress the status entirely and keep the agent in
+        # the waiting-for-input state throughout.
+        _label = str(interaction_label or "").strip()
+        _is_background = _label in _BACKGROUND_MAINTENANCE_LABELS
+
+        # Surface the LLM call as a live status — the call (especially
+        # time-to-first-token) is usually the slowest part of a turn, and
+        # without this the UI keeps showing the previous tool as "in use".
+        _on_chunk = _stream_cb
+        if not _is_background:
+            _model_label = str(getattr(self.provider, "model", "") or "").strip()
+            _llm_status = f"Calling LLM ({_model_label})" if _model_label else "Calling LLM"
+            if _label and _label != "conversation":
+                _llm_status += f" · {_label}"
+            _ctx = getattr(self, "last_context_window", {}) or {}
+            _ctx_tokens = int(_ctx.get("prompt_tokens", 0) or 0)
+            _ctx_budget = int(_ctx.get("context_budget_tokens", 0) or 0)
+            if _ctx_tokens:
+                _llm_status += f" · {_ctx_tokens:,} ctx tokens"
+                if _ctx_budget:
+                    _llm_status += f" ({round(_ctx_tokens / _ctx_budget * 100)}%)"
+            self._set_runtime_status(f"{_llm_status}...")
+
+            # On the first streamed chunk, keep the same LLM details visible
+            # and just prefix a streaming icon — the model/context info stays
+            # useful for the whole call, the icon marks that tokens are
+            # flowing.
+            if _stream_cb is not None:
+                _streaming_started = False
+
+                def _on_chunk(chunk: str) -> None:
+                    nonlocal _streaming_started
+                    if not _streaming_started:
+                        _streaming_started = True
+                        self._set_runtime_status(f"⚡ {_llm_status}...")
+                    _stream_cb(chunk)
+
+        try:
+            response = await self.provider.complete_with_callback(
+                messages=messages,
+                tools=tools if getattr(self.provider, "supports_tools", True) else None,
+                max_tokens=max_tokens,
+                on_chunk=_on_chunk,
+            )
+        except Exception:
+            _error_occurred = True
+            raise
+        finally:
+            _latency_ms = int((_time.monotonic() - _t0) * 1000)
+            # Safety net: if a background job somehow ran while a busy status
+            # was showing, make sure we land back in the idle state.
+            if _is_background:
+                self._set_runtime_status("ready")
+
+        if turn_usage is not None:
+            self._accumulate_usage(turn_usage, response.usage or {})
+            turn_usage.setdefault("latency_ms", 0)
+            turn_usage["latency_ms"] += _latency_ms
+            # Emit running cumulative usage so the UI can show input/output/
+            # cache tokens in the activity-panel header while the turn runs.
+            # Skipped for background maintenance (not part of the visible turn).
+            if not _is_background:
+                _bcast = getattr(self, "ws_broadcast", None)
+                if callable(_bcast):
+                    try:
+                        _bcast({
+                            "type": "turn_usage",
+                            "prompt_tokens": int(turn_usage.get("prompt_tokens", 0)),
+                            "completion_tokens": int(turn_usage.get("completion_tokens", 0)),
+                            "cache_read_input_tokens": int(turn_usage.get("cache_read_input_tokens", 0)),
+                            "cache_creation_input_tokens": int(turn_usage.get("cache_creation_input_tokens", 0)),
+                            "total_tokens": int(turn_usage.get("total_tokens", 0)),
+                        })
+                    except Exception:
+                        pass
+
+        # Stash thinking-mode reasoning_content for the next
+        # assistant-message persist call. ``_add_session_message``
+        # consumes the stash on writes with role=='assistant'. This
+        # is the only safe hand-off point because the call sites
+        # that ultimately persist the response are scattered (tool
+        # loop, completion mixin, stall handler, etc.) and
+        # threading the value through every helper signature would
+        # be invasive for a thing only DeepSeek currently uses.
+        try:
+            _rc = str(getattr(response, "reasoning_content", "") or "")
+            # Drop the backfill sentinel so it's never persisted or round-tripped.
+            self._pending_reasoning_content = "" if is_reasoning_backfill_placeholder(_rc) else _rc
+        except Exception:
+            pass
+
+        allowed_output, output_error = await self._enforce_guard(
+            guard_type="output",
+            interaction_label=interaction_label,
+            content=str(response.content or ""),
+            turn_usage=turn_usage,
+        )
+        if not allowed_output:
+            raise GuardBlockedError("output", output_error)
+
+        self._emit_llm_trace(
+            interaction_label=interaction_label,
+            response=response,
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens,
+        )
+
+        # ── File-based session logging ──
+        self._log_llm_call(
+            interaction_label=interaction_label,
+            messages=messages,
+            response=response,
+            tools_enabled=bool(tools),
+            max_tokens=max_tokens,
+        )
+
+        # ── Persist usage to DB (fire-and-forget) ──
+        self._record_usage_to_db(
+            interaction_label=interaction_label,
+            messages=messages,
+            response=response,
+            tools_enabled=bool(tools),
+            max_tokens=max_tokens,
+            latency_ms=_latency_ms,
+            error=_error_occurred,
+        )
+
+        return response
+
+    def _record_usage_to_db(
+        self,
+        interaction_label: str,
+        messages: list[Message],
+        response: Any,
+        tools_enabled: bool,
+        max_tokens: int | None,
+        latency_ms: int,
+        error: bool,
+    ) -> None:
+        """Fire-and-forget persist of LLM usage to SQLite."""
+        try:
+            usage = getattr(response, "usage", {}) or {}
+            model_name = str(getattr(response, "model", "") or "")
+            provider_name = str(getattr(self.provider, "provider", "") or "")
+            finish_reason = str(getattr(response, "finish_reason", "") or "")
+            content = str(getattr(response, "content", "") or "")
+            session_id = self._current_session_slug() if self.session else None
+            task_name = str(getattr(self, "_current_task_name", "") or "")
+
+            # Estimate bytes from message content
+            input_bytes = 0
+            for m in messages:
+                c = getattr(m, "content", None) or ""
+                if isinstance(c, str):
+                    input_bytes += len(c.encode("utf-8", errors="replace"))
+            output_bytes = len(content.encode("utf-8", errors="replace"))
+
+            # Calibrate the context trace: what the provider billed as input
+            # for this main-turn call, next to the estimate made before it.
+            if interaction_label.startswith("turn_"):
+                window = getattr(self, "last_context_window", None)
+                if isinstance(window, dict):
+                    _prompt = int(usage.get("prompt_tokens", 0) or 0)
+                    _cached = int(usage.get("cache_read_input_tokens", 0) or 0)
+                    _created = int(usage.get("cache_creation_input_tokens", 0) or 0)
+                    # LiteLLM's Anthropic usage already folds cache reads and
+                    # writes into prompt_tokens; elsewhere prompt_tokens is
+                    # the uncached part.
+                    if provider_name == "anthropic" and _prompt >= _cached + _created:
+                        window["provider_input_tokens"] = _prompt
+                    else:
+                        window["provider_input_tokens"] = _prompt + _cached + _created
+                    window["provider_cached_tokens"] = _cached
+
+            loop = asyncio.get_event_loop()
+            loop.create_task(self.session_manager.record_llm_usage(
+                session_id=session_id,
+                interaction=interaction_label,
+                provider=provider_name,
+                model=model_name,
+                prompt_tokens=int(usage.get("prompt_tokens", 0) or 0),
+                completion_tokens=int(usage.get("completion_tokens", 0) or 0),
+                total_tokens=int(usage.get("total_tokens", 0) or 0),
+                cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
+                cache_read_input_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+                input_bytes=input_bytes,
+                output_bytes=output_bytes,
+                streaming=False,
+                tools_enabled=tools_enabled,
+                max_tokens=max_tokens,
+                finish_reason=finish_reason,
+                error=error,
+                latency_ms=latency_ms,
+                task_name=task_name,
+                byok=bool(getattr(self, "_byok_active", False)),
+            ))
+        except Exception:
+            pass  # Never fail the main flow
+
+    async def _execute_tool_with_guard(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        interaction_label: str,
+        turn_usage: dict[str, int] | None = None,
+        session_policy: dict[str, Any] | None = None,
+        task_policy: dict[str, Any] | None = None,
+        abort_event: asyncio.Event | None = None,
+        session_id_override: str | None = None,
+    ):
+        """Execute a tool after script/tool guard policy check."""
+        guard_payload = json.dumps(
+            {
+                "tool_name": name,
+                "arguments": arguments,
+                "interaction": interaction_label,
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+        )
+        allowed, guard_error = await self._enforce_guard(
+            guard_type="script_tool",
+            interaction_label=interaction_label,
+            content=guard_payload,
+            turn_usage=turn_usage,
+        )
+        if not allowed:
+            raise GuardBlockedError("script_tool", guard_error)
+        # R5: deterministic blast-radius gate — layered alongside the LLM guard
+        # above (never replacing it). Default-disabled via config.guards.
+        # blast_radius, so this is a no-op unless a human opts in.
+        br_ok, br_error = self._enforce_blast_radius(name, arguments, interaction_label)
+        if not br_ok:
+            raise GuardBlockedError("blast_radius", br_error)
+        # Inject session object and peer-consult approval callback into
+        # arguments for tools that need them (e.g. consult_peer).
+        _session = getattr(self, "session", None)
+        if _session is not None:
+            arguments = {**arguments, "_session": _session}
+        # Pass agent ref so tools can access fallback attributes (e.g. _fd_url)
+        arguments = {**arguments, "_agent": self}
+        # Inject shared workspace for orchestration workspace tools.
+        _ws = getattr(self, "_shared_workspace", None)
+        if _ws is not None:
+            arguments = {**arguments, "_shared_workspace": _ws}
+            _ws_task_id = getattr(self, "_workspace_task_id", "")
+            if _ws_task_id:
+                arguments = {**arguments, "_workspace_task_id": _ws_task_id}
+        _pcac = getattr(self, "peer_consult_approval_callback", None)
+        if _pcac is not None:
+            arguments = {**arguments, "_peer_consult_approval_callback": _pcac}
+
+        return await self.tools.execute(
+            name=name,
+            arguments=arguments,
+            session_id=str(session_id_override or "").strip() or self._current_session_slug(),
+            session_policy=session_policy,
+            task_policy=task_policy,
+            abort_event=abort_event,
+            runtime_base_path=getattr(self, "workspace_base_path", None),
+            approval_callback=getattr(self, "approval_callback", None),
+            file_registry=getattr(self, "_file_registry", None),
+            stream_callback=getattr(self, "_tool_stream_callback", None),
+        )

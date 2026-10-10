@@ -1,0 +1,67 @@
+{
+  "name": "Lupa",
+  "tagline": "Your agentic research desk",
+  "locale": "en",
+  "theme": {
+    "accent": "#e07a2f",
+    "accent_soft": "#f2b27a",
+    "bg": "#101012",
+    "surface": "#1a1a1e",
+    "border": "#2a2a30",
+    "text": "#e8e6e1",
+    "text_dim": "#9a968e"
+  },
+  "vocabulary": {
+    "stream": "Stream",
+    "streams": "Streams",
+    "commission": "Commission",
+    "brief": "Brief",
+    "round": "Round",
+    "report": "Report",
+    "plan_gate_title": "Review the research plan",
+    "plan_gate_hint": "Your team drafted this coordination plan. Approve it to start the run, or cancel and rephrase the brief.",
+    "composer_placeholder": "What should the desk research? Be specific about scope, geography and time frame.",
+    "continue_placeholder": "Deepen this stream: what should the next round focus on?",
+    "empty_streams": "No streams yet. Commission your first piece of research.",
+    "new_stream": "New stream",
+    "receipts_title": "Receipts",
+    "receipts_hint": "How this report was verified, and what it cost.",
+    "facts_title": "Facts ledger",
+    "cost_title": "Cost",
+    "brief_title": "Standing brief",
+    "brief_hint": "The desk re-runs this question on a schedule and reports only what changed.",
+    "brief_placeholder": "What should the desk keep watching?",
+    "inbox_title": "Brief inbox"
+  },
+  "intake": {
+    "types": [
+      {
+        "id": "research",
+        "label": "Research commission",
+        "description": "A planned multi-agent research run with a verified report.",
+        "default_max_agents": 6
+      }
+    ]
+  },
+  "quality": {
+    "profile": "thorough"
+  },
+  "run": {
+    "execution_groups": true
+  },
+  "briefs": {
+    "presets": [
+      { "id": "hourly", "label": "Hourly", "hours": 1 },
+      { "id": "daily", "label": "Daily", "hours": 24 },
+      { "id": "weekly", "label": "Weekly", "hours": 168 }
+    ]
+  },
+  "roi": {
+    "analyst_hourly_usd": 60,
+    "analyst_label": "a human analyst"
+  },
+  "report": {
+    "primary_file_hint": "output",
+    "citation_style": "inline"
+  }
+}

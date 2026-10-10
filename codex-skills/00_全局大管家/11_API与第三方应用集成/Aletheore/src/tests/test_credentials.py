@@ -1,0 +1,311 @@
+import json
+import sys
+
+import pytest
+
+from aletheore.credentials import (
+    _restrict_windows_acl,
+    clear_api_key,
+    get_api_key,
+    has_api_key,
+    save_api_token,
+)
+
+# POSIX-only: Windows has no fchmod (skipped there entirely, see
+# _locked_rw_credentials_file) and st_mode's owner/group/other bits don't
+# mean the same thing there either - os.chmod on Windows only ever toggles
+# a single read-only attribute, never a real 0o600.
+_posix_only_permissions = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX file permission bits don't apply on Windows"
+)
+
+
+def test_has_api_key_true_from_env_var(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESTPROVIDER_API_KEY", "sk-abc123")
+    assert has_api_key("TESTPROVIDER_API_KEY", "testprovider", tmp_path / "creds.json") is True
+
+
+def test_has_api_key_false_when_nothing_present(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    assert has_api_key("TESTPROVIDER_API_KEY", "testprovider", tmp_path / "creds.json") is False
+
+
+def test_has_api_key_true_from_saved_credentials(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+    creds_path.write_text(json.dumps({"testprovider": "sk-saved"}))
+    assert has_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path) is True
+
+
+def test_get_api_key_returns_env_var_without_prompting(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESTPROVIDER_API_KEY", "sk-abc123")
+
+    def fail_if_called(_msg):
+        raise AssertionError("should not prompt when env var is set")
+
+    result = get_api_key(
+        "TESTPROVIDER_API_KEY", "testprovider", tmp_path / "creds.json", fail_if_called
+    )
+    assert result == "sk-abc123"
+
+
+def test_get_api_key_returns_saved_key_without_prompting(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+    creds_path.write_text(json.dumps({"testprovider": "sk-saved"}))
+
+    def fail_if_called(_msg):
+        raise AssertionError("should not prompt when a saved key exists")
+
+    result = get_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path, fail_if_called)
+    assert result == "sk-saved"
+
+
+def test_get_api_key_prompts_and_discards_when_choice_is_once(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+    responses = iter(["sk-entered", "once"])
+
+    result = get_api_key(
+        "TESTPROVIDER_API_KEY", "testprovider", creds_path, lambda _msg: next(responses)
+    )
+
+    assert result == "sk-entered"
+    assert not creds_path.exists()
+
+
+def test_get_api_key_prompts_and_saves_when_choice_is_save(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+    responses = iter(["sk-entered", "save"])
+
+    result = get_api_key(
+        "TESTPROVIDER_API_KEY", "testprovider", creds_path, lambda _msg: next(responses)
+    )
+
+    assert result == "sk-entered"
+    saved = json.loads(creds_path.read_text())
+    assert saved["testprovider"] == "sk-entered"
+
+
+def test_get_api_key_returns_none_when_prompt_cancelled(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+
+    result = get_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path, lambda _msg: "")
+
+    assert result is None
+
+
+def test_get_api_key_skips_prompt_when_not_a_tty_and_using_default_prompt_fn(monkeypatch, tmp_path):
+    # Regression test for a real production incident: a worker process (no
+    # stdin to answer a prompt) called get_api_key with the default
+    # prompt_fn=input, which blocked until EOFError killed the job instead
+    # of failing cleanly. Not passing prompt_fn here is the point - it
+    # exercises the real default, not a test double.
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    creds_path = tmp_path / "creds.json"
+
+    result = get_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path)
+
+    assert result is None
+
+
+def test_get_api_key_still_prompts_when_a_custom_prompt_fn_is_supplied_even_off_tty(monkeypatch, tmp_path):
+    # A caller that explicitly hands in its own prompt_fn (tests, or any
+    # future caller with its own answer source) has opted out of the tty
+    # guard - only the default input() path should be skipped.
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    creds_path = tmp_path / "creds.json"
+
+    result = get_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path, lambda _msg: "sk-from-double")
+
+    assert result == "sk-from-double"
+
+
+@_posix_only_permissions
+def test_save_key_sets_restrictive_permissions(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+    responses = iter(["sk-entered", "save"])
+
+    get_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path, lambda _msg: next(responses))
+
+    mode = creds_path.stat().st_mode & 0o777
+    assert mode == 0o600
+
+
+@_posix_only_permissions
+def test_save_key_tightens_permissions_on_a_pre_existing_looser_file(monkeypatch, tmp_path):
+    # A file that already exists (e.g. from before this restrictive-
+    # permissions fix, or seeded some other way) with looser permissions
+    # must still end up at 0o600 - os.open's mode argument is a no-op on
+    # an existing file, so this only holds if _save_key explicitly chmods.
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+    creds_path.write_text(json.dumps({}))
+    creds_path.chmod(0o644)
+    responses = iter(["sk-entered", "save"])
+
+    get_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path, lambda _msg: next(responses))
+
+    mode = creds_path.stat().st_mode & 0o777
+    assert mode == 0o600
+
+
+def test_save_key_preserves_other_providers_existing_keys(monkeypatch, tmp_path):
+    monkeypatch.delenv("PROVIDER_B_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+    creds_path.write_text(json.dumps({"provider_a": "sk-a"}))
+    responses = iter(["sk-b", "save"])
+
+    get_api_key("PROVIDER_B_KEY", "provider_b", creds_path, lambda _msg: next(responses))
+
+    saved = json.loads(creds_path.read_text())
+    assert saved == {"provider_a": "sk-a", "provider_b": "sk-b"}
+
+
+def test_concurrent_saves_do_not_silently_lose_each_others_keys(tmp_path):
+    # Real bug found via audit: _save_key used to read the whole file,
+    # modify a plain in-memory dict, then write the whole file back as
+    # three independent, UNLOCKED steps. Two CLI invocations started
+    # close together (a real, plausible scenario - two terminal tabs)
+    # could both read the file's original state before either wrote, so
+    # whichever wrote last silently discarded the other's saved key -
+    # with no error surfaced to the process whose own save call returned
+    # normally.
+    import threading
+
+    from aletheore.credentials import _save_key
+
+    creds_path = tmp_path / "creds.json"
+    creds_path.write_text(json.dumps({"openai": "sk-openai-existing"}))
+
+    barrier = threading.Barrier(2)
+
+    def save_anthropic():
+        barrier.wait()
+        _save_key("anthropic", "sk-anthropic-new", creds_path)
+
+    def save_gemini():
+        barrier.wait()
+        _save_key("gemini", "sk-gemini-new", creds_path)
+
+    t1 = threading.Thread(target=save_anthropic)
+    t2 = threading.Thread(target=save_gemini)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    saved = json.loads(creds_path.read_text())
+    assert saved == {
+        "openai": "sk-openai-existing",
+        "anthropic": "sk-anthropic-new",
+        "gemini": "sk-gemini-new",
+    }
+
+
+def test_write_all_loops_through_a_short_write_instead_of_dropping_bytes(monkeypatch):
+    # Flash Review finding: os.write's return value was ignored - a write
+    # to a regular file can write fewer bytes than requested (a full
+    # filesystem is the real, if rare, case), leaving credentials.json
+    # truncated with incomplete JSON while the call itself still returns
+    # normally, no exception raised. Simulates a short write (a real fd
+    # would only write 3 of 10 bytes here) and confirms the retry loop
+    # picks up exactly where the short write left off.
+    import os as os_module
+
+    from aletheore.credentials import _write_all
+
+    data = b"0123456789"
+    written_chunks = []
+    calls = {"n": 0}
+
+    def fake_write(fd, buf):
+        calls["n"] += 1
+        chunk_len = 3 if calls["n"] == 1 else len(buf)
+        written_chunks.append(buf[:chunk_len])
+        return chunk_len
+
+    monkeypatch.setattr(os_module, "write", fake_write)
+
+    _write_all(123, data)
+
+    assert b"".join(written_chunks) == data
+    assert calls["n"] == 2  # one short write, one that finishes it
+
+
+def test_save_api_token_is_readable_via_get_api_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("TESTPROVIDER_API_KEY", raising=False)
+    creds_path = tmp_path / "creds.json"
+
+    save_api_token("testprovider", "sk-from-device-flow", creds_path)
+
+    def fail_if_called(_msg):
+        raise AssertionError("should not prompt when a saved key exists")
+
+    result = get_api_key("TESTPROVIDER_API_KEY", "testprovider", creds_path, fail_if_called)
+    assert result == "sk-from-device-flow"
+
+
+def test_clear_api_key_removes_saved_key(tmp_path):
+    path = tmp_path / "credentials.json"
+    save_api_token("aletheore-managed-audit", "tok-123", path)
+    assert has_api_key("UNUSED_ENV", "aletheore-managed-audit", credentials_path=path)
+
+    removed = clear_api_key("aletheore-managed-audit", path)
+
+    assert removed is True
+    assert not has_api_key("UNUSED_ENV", "aletheore-managed-audit", credentials_path=path)
+
+
+@_posix_only_permissions
+def test_clear_api_key_repairs_existing_file_permissions(tmp_path):
+    path = tmp_path / "credentials.json"
+    save_api_token("provider-a", "tok-a", path)
+    path.chmod(0o644)
+
+    assert clear_api_key("provider-a", path) is True
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_clear_api_key_returns_false_when_nothing_to_clear(tmp_path):
+    path = tmp_path / "credentials.json"
+    assert clear_api_key("aletheore-managed-audit", path) is False
+
+
+def test_restrict_windows_acl_uses_getlogin_when_available(tmp_path, monkeypatch):
+    monkeypatch.setattr("os.getlogin", lambda: "realuser")
+    monkeypatch.setattr("shutil.which", lambda name: "/fake/icacls")
+    calls = []
+    monkeypatch.setattr("subprocess.run", lambda args, **kw: calls.append(args))
+    _restrict_windows_acl(tmp_path / "credentials.json")
+    assert calls and "realuser:F" in calls[0]
+
+
+def test_restrict_windows_acl_falls_back_to_username_env_when_getlogin_fails(tmp_path, monkeypatch):
+    def raise_oserror():
+        raise OSError("no controlling terminal")
+
+    monkeypatch.setattr("os.getlogin", raise_oserror)
+    monkeypatch.setenv("USERNAME", "envuser")
+    monkeypatch.setattr("shutil.which", lambda name: "/fake/icacls")
+    calls = []
+    monkeypatch.setattr("subprocess.run", lambda args, **kw: calls.append(args))
+    _restrict_windows_acl(tmp_path / "credentials.json")
+    assert calls and "envuser:F" in calls[0]
+
+
+def test_restrict_windows_acl_is_a_noop_when_no_identity_available(tmp_path, monkeypatch):
+    def raise_oserror():
+        raise OSError("no controlling terminal")
+
+    monkeypatch.setattr("os.getlogin", raise_oserror)
+    monkeypatch.delenv("USERNAME", raising=False)
+    calls = []
+    monkeypatch.setattr("subprocess.run", lambda args, **kw: calls.append(args))
+    _restrict_windows_acl(tmp_path / "credentials.json")
+    assert calls == []

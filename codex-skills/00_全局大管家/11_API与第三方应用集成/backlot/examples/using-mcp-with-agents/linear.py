@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""Drive Backlot's Linear GraphQL API as MCP tools via the GraphQL→MCP bridge. Self-contained.
+
+**Linear's official MCP server is remote-only** — vendor-hosted at `https://mcp.linear.app/mcp`
+with no base-URL override, so nothing local can be pointed at Backlot. The community servers hard-
+wire `https://api.linear.app` in source and take only a token, and they run as `npx` subprocesses,
+out of reach of the in-process URL rewrite backlot uses for the LlamaIndex Linear reader.
+
+So the tools come from Backlot's own schema instead: `backlot mcp --source linear` introspects
+`POST /linear/graphql` and serves each root `Query` field as a typed tool (`issues`, `issue`,
+`teams`, `comments`, `viewer`, the by-id relation roots …). That trade is worth stating plainly —
+this exercises *our* tool surface rather than the community tooling an agent meets in production,
+which is why `atlassian` / `notion` / `s3` use vendor servers where one can be redirected at all.
+
+**Depth 1, deliberately.** The bridge generates each tool's selection set (rules in
+`backlot/graphql/mcp_tools.py`) and Linear is the schema where the default of 2 costs too much:
+`Team`, `Project` and `Cycle` each carry dozens of configuration leaves that a second level would
+multiply across every issue. Depth 1 still returns `state`, `assignee`, `team`, `project` and
+`labels` inline. Pass `--depth 2` to see the difference.
+
+Prereqs: `pip install -e ".[mcp]"` (installs fastmcp); an LLM key for --agent
+(`ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` with `--agent openai`). Run from the repo root:
+    ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/linear.py [--url … --user … --agent openai]
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+from _agent import run_agent
+from mcp import StdioServerParameters
+
+from backlot import serve_or_connect
+
+CORPUS = [
+    {
+        "source_type": "linear",
+        "doc_id": "lin-checkout",
+        "team": "engineering",
+        "group": "engineering",
+        "title": "Checkout p95 latency regression after the payments migration",
+        "content": "p95 hit 2.1s once the payments migration shipped. Rolling back while we trace it.",
+        "author_email": "amaya.chen@acme.com",
+        "created": "2026-04-06T09:15:00Z",
+        "author_groups": ["engineering"],
+        "visibility": "public",
+        "identifier": "ENG-4912",
+        "state": "In Progress",
+        "priority": "P0",
+        "estimate": 5,
+        "labels": ["latency", "payments"],
+        "project": "checkout-reliability",
+        "assignee": "diego.martinez@acme.com",
+        "assigneeName": "Diego Martinez",
+        "comments": [
+            {
+                "content": "Traces point at the new settlement call being serial, not batched.",
+                "author_email": "diego.martinez@acme.com",
+                "created_ts": "2026-04-06T11:40:00Z",
+            },
+        ],
+    },
+    {
+        "source_type": "linear",
+        "doc_id": "lin-alert",
+        "team": "engineering",
+        "group": "engineering",
+        "title": "Alert when checkout p95 crosses 800ms",
+        "content": "No alert fired during the latency regression. Add one at 800ms for 5 minutes.",
+        "author_email": "diego.martinez@acme.com",
+        "created": "2026-04-07T14:20:00Z",
+        "author_groups": ["engineering"],
+        "visibility": "public",
+        "identifier": "ENG-4930",
+        "state": "Todo",
+        "priority": "P2",
+        "labels": ["observability"],
+    },
+]
+QUESTION = (
+    "Find the Linear issue about the checkout latency regression. What state is it in, who is "
+    "assigned, and what did the comments say the cause was? Cite the issue identifiers."
+)
+
+
+def build_params(base_url: str, user: str | None = None, depth: int = 1) -> StdioServerParameters:
+    """Run `backlot mcp --source linear` as a stdio MCP server pointed at Backlot.
+
+    `-m backlot` through this interpreter rather than the `backlot` script, so it works in an
+    environment whose bin/ is not on PATH. Without `--user` the command answers as the admin, so
+    there is nothing to pass for the default."""
+    args = ["-m", "backlot", "mcp", "--source", "linear", "--url", base_url]
+    if user:
+        args += ["--user", user]
+    return StdioServerParameters(command=sys.executable, args=args + ["--depth", str(depth)])
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Drive Backlot's Linear GraphQL API over MCP via the GraphQL bridge."
+    )
+    p.add_argument(
+        "--url", help="Backlot base URL to drive (default: spin up a local throwaway server)"
+    )
+    p.add_argument(
+        "--user",
+        metavar="EMAIL",
+        help="answer as this person, from GET /_meta/users "
+        "(default: the admin, who sees everything)",
+    )
+    p.add_argument(
+        "--depth",
+        type=int,
+        default=1,
+        help="object levels the generated selection sets reach (default: %(default)s — see the "
+        "module docstring for why Linear is shallower than the bridge default)",
+    )
+    p.add_argument(
+        "--agent",
+        choices=("anthropic", "openai"),
+        default="anthropic",
+        help="which LLM agent to run (default: anthropic)",
+    )
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    with serve_or_connect(CORPUS, url=args.url) as s:
+        if args.user:
+            print(f"answering as {args.user} → retrieval is ACL-filtered to that person")
+        params = build_params(s.base_url, args.user, args.depth)
+        run_agent(args.agent, params, QUESTION)

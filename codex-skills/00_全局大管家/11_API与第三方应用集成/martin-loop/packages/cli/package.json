@@ -1,0 +1,25 @@
+{
+  "name": "@martin/cli",
+  "version": "0.6.5",
+  "private": true,
+  "type": "module",
+  "description": "Open-source execution control for coding agents with verifier-gated completion, stop limits, rollback evidence, and Verified Handoffs.",
+  "bin": {
+    "martin": "dist/bin/martin.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "pnpm --filter @martin/contracts build && pnpm --filter @martin/presentation build && pnpm --filter @martin/core build && pnpm --filter @martin/adapters build && tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx --tsconfig tsconfig.json src/bin/martin.ts",
+    "verify:hosts:live": "node ./scripts/verify-host-matrix-live.mjs"
+  },
+  "dependencies": {
+    "@martin/adapters": "workspace:*",
+    "@martin/core": "workspace:*",
+    "@martin/contracts": "workspace:*",
+    "@martin/presentation": "workspace:*"
+  }
+}

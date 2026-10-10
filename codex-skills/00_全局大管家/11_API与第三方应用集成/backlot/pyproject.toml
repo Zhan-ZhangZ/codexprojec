@@ -1,0 +1,223 @@
+[build-system]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backlot"
+dynamic = ["version"]
+description = "A local emulator for enterprise SaaS APIs, served over your own corpus with per-document ACLs"
+readme = "README.pypi.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "nuri-yoo", email = "yoonuri1@gmail.com" },
+    { name = "khj809", email = "onsealeatang@gmail.com" },
+]
+keywords = ["mock", "rag", "slack", "gmail", "google-drive", "jira", "confluence", "github", "notion", "s3", "amazon-s3", "hubspot", "linear", "graphql", "benchmark"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: FastAPI",
+    "Topic :: Software Development :: Testing :: Mocking",
+]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "pyyaml>=6.0",
+    "python-multipart>=0.0.9",
+    "jsonschema>=4.20",
+    "typer>=0.27",
+    "pyjwt[crypto]>=2.8",
+    "httpx>=0.27",  # /batch self-dispatches sub-requests in-process via httpx.ASGITransport
+    # The GraphQL.js port: its parse/validate/error envelopes land close to what the real
+    # servers return, and introspection comes free. Pure Python, no transitive deps.
+    # Below 3.3: 3.3 follows GraphQL.js 17; Linear and Fireflies answer in GraphQL.js 16's words.
+    "graphql-core>=3.2,<3.3",
+    # The three xxhash checksums an S3 PutObject or DeleteObjects carries
+    # (`x-amz-checksum-xxhash64`, `-xxhash3`, `-xxhash128`), which real compares with the body; the
+    # standard library has none of them.
+    "xxhash>=3.0",
+    # SigV4a's ECDSA over P-256 (`backlot.sigv4a`), which the standard library has none of either;
+    # `pyjwt[crypto]` above installs it already, and this names the import the S3 router makes.
+    "cryptography>=3.4",
+]
+
+[project.optional-dependencies]
+# Every extra at once, for CI and for a contributor who wants a zero-skip run. pip has no
+# --all-extras, so the aggregate is a SELF-reference: pip resolves `backlot[...]` here to the
+# local directory being installed, not to the release on PyPI (measured — the resolution
+# report names a `file://` url and marks it direct). `tests/test_packaging.py` holds this list
+# to the extras defined below, so the one place that decides what CI installs cannot fall out
+# of step with them.
+all = ["backlot[dev,official-sdk,mcp,llamaindex,mirage,fsspec]"]
+dev = [
+    "pytest>=8.0",
+    "pytest-xdist>=3.6",
+    # starlette 1.6's TestClient wants httpx2; the httpx the tests also call directly is a core
+    # dependency.
+    "httpx2",
+    # Pinned, not a lower bound: a ruff minor can change both the formatter and the lint
+    # defaults. CI installs it from here, so local and CI cannot disagree.
+    "ruff>=0.15.22,<0.17.0",
+]
+# Official SDKs used by examples/using-official-sdk/, tests/test_sdk.py (one per service) + the ACL demo.
+official-sdk = [
+    "slack_sdk>=3.43",
+    "PyGithub>=2.3",
+    "atlassian-python-api>=3.41",
+    "google-api-python-client>=2.198",
+    "google-auth>=2.55",
+    "notion-client>=3.1",
+    "boto3>=1.34",
+    "hubspot-api-client>=12",
+]
+# MCP agent examples (examples/using-mcp-with-agents/): drive Backlot through a real MCP server.
+mcp = [
+    # `mcp` and `fastmcp` split into two incompatible generations, and the floors below pick the
+    # newer one on both sides. mcp 2.x renamed `McpError` -> `MCPError` and moved `mcp.types` to
+    # snake_case; `fastmcp` 3.x cannot see any of that, because it reaches `mcp` through
+    # fastmcp-slim, which caps `mcp<2`. fastmcp 4.x is the version that requires `mcp>=2`, so the
+    # two floors have to move together — leave either one behind and the resolver satisfies it by
+    # walking the other package backward instead of failing.
+    "mcp>=2",
+    "fastmcp>=4",
+    # The OpenAPI→MCP bridge hands `FastMCP.from_openapi()` its client, and fastmcp 4.x wants
+    # that to be an httpx2 one. fastmcp pulls httpx2 in regardless; this declares the import.
+    "httpx2",
+    "anthropic[mcp]>=0.40",
+    "openai>=1.40",
+    "openai-agents>=0.1",
+]
+# LlamaIndex reader examples (examples/using-llamaindex-readers/): point each official
+# llama-index reader at Backlot and load Documents. The client libs below are the ones the
+# examples configure directly; the readers pull the rest transitively.
+llamaindex = [
+    "llama-index-readers-slack>=0.5",
+    "llama-index-readers-google>=0.7",
+    "llama-index-readers-github>=0.11",
+    "llama-index-readers-jira>=0.6",
+    "llama-index-readers-confluence>=0.7",
+    "llama-index-readers-notion>=0.5",
+    "llama-index-readers-s3>=0.6",
+    "llama-index-readers-linear>=0.5",
+    # llama-index-readers-hubspot is deliberately absent: it pins hubspot-api-client<9, which no
+    # resolver can reconcile with the >=12 that [official-sdk] needs. The pin is over-restrictive, not a
+    # real incompatibility, so install it past it:
+    #     pip install --no-deps llama-index-readers-hubspot
+    "jira>=3.10",
+    "atlassian-python-api>=4.0",
+    "slack_sdk>=3.43",
+    "google-api-python-client>=2.198",
+    "google-auth>=2.55",
+    "boto3>=1.40",
+    "s3fs>=2026.6",
+]
+# Mirage examples (examples/using-mirage/): drive Backlot through mirage's virtual filesystem.
+# The [fuse] extra powers the optional `--fuse` real-OS mount, which also needs an OS FUSE driver
+# (macFUSE / fuse3) — the Python dep itself installs everywhere. [s3] carries aioboto3, which
+# mirage's S3 backend imports at module scope: without it `s3.py` dies on `import aioboto3` before
+# it reaches Backlot.
+mirage = [
+    # 0.0.6 is the floor: it holds the host constants `integrations.mirage` rebinds in
+    # `mirage.core.{google,github}.constants`, and it takes `GitHubResource(config)` alone, the
+    # signature `examples/using-mirage/github.py` calls. Earlier releases are not supported.
+    "mirage-ai[fuse,s3]>=0.0.6",
+]
+# fsspec examples (examples/using-fsspec/): read the mock through the filesystem interface that
+# pandas, pyarrow, dask and LlamaIndex all consume. pandas is here because the examples' point is
+# that an ordinary `read_csv("s3://…")` works — it is the demonstration, not a helper.
+fsspec = [
+    "fsspec>=2026.6",
+    "s3fs>=2026.6",
+    # The fsspec-registered `gdrive://` implementation. It builds its Drive service with a bare
+    # `build("drive", "v3")`, so `integrations.fsspec` supplies the endpoint (and works around
+    # three of its bugs).
+    "gdrive-fsspec>=0.1",
+    "google-api-python-client>=2.198",
+    "google-auth>=2.55",
+    "pandas>=2.2",
+]
+
+[project.scripts]
+backlot = "backlot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/brekkylab/backlot"
+Repository = "https://github.com/brekkylab/backlot"
+Issues = "https://github.com/brekkylab/backlot/issues"
+Changelog = "https://github.com/brekkylab/backlot/releases"
+Discord = "https://discord.gg/XCSsxYH6R"
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+# Spelled out rather than inherited: ruff's default selection went from 29 rules to 206 in 0.16,
+# so an implicit `select` lets a minor bump move the gate under the repository. NOT E501: the
+# formatter keeps code inside the limit, and what stays over it is long string literals and
+# measured-behaviour comment tables.
+select = ["E4", "E7", "E9", "F", "I"]
+# I never fights the E402 ignore below: isort sorts within a run of consecutive imports and never
+# lifts one over a statement, so the sys.path guards in the examples and scripts/gen_docs.py, and
+# the tests' imports below a module-level `importorskip` or a mid-file section break, all stay
+# where they are.
+ignore = ["E402"]  # module-level import not at top: those guards have to run before the import
+# flake8-bandit, minus what a mock of real SaaS APIs necessarily trips: S608 composes the FTS and
+# listing queries, which is most of what `--select S` finds under backlot/, S324 hashes etags, S104
+# is `--host 0.0.0.0`, S101 is every assert a test makes. What is left passes, so the selection
+# below is a gate and not a backlog.
+extend-select = [
+    "S102",  # exec
+    "S301",  # pickle
+    "S302",  # marshal
+    "S307",  # eval
+    "S602",  # subprocess with shell=True
+    "S604",  # a call with shell=True
+    "S605",  # os.system and friends
+    "S606",  # os.exec*
+    "S609",  # a wildcard in a shell command
+    "S611",  # RawSQL
+    "S612",  # logging.config.listen
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# loadfile, not the default: several modules share a module-scoped corpus.
+addopts = "-q -n auto --dist loadfile"
+# Several routes serve more than one HTTP method for vendor fidelity (Slack GET+POST, Jira v2/v3,
+# S3 GET+HEAD), so FastAPI warns about duplicate operationIds — expected, and collapsed by
+# backlot.openapi. Silenced at import there too, but pytest resets filters per test.
+filterwarnings = [
+    "ignore:Duplicate Operation ID:UserWarning",
+    # llama-index reads a pydantic field API pydantic itself deprecated; nothing here to change.
+    "ignore:Call to deprecated function \\(or staticmethod\\) extra_info:DeprecationWarning",
+]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0.dev0"
+
+[tool.setuptools.packages.find]
+include = ["backlot*"]
+
+[tool.setuptools.package-data]
+# Every non-.py file backlot/ ships. All are read at runtime, so a missing one breaks the install
+# rather than degrading it: no schemas and every BYO record fails validation, no .graphql and
+# `import backlot.main` raises. tests/test_packaging.py fails on an asset with no glob here.
+backlot = [
+    "schemas/*.json",
+    "schemas/*.md",
+    "graphql/*.graphql",
+    "data/*.json",
+    "data/*.jsonl",
+    "data/*.wadl",
+    "fidelity/baseline/*.json",
+]

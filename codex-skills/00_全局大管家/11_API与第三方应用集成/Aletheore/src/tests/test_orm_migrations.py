@@ -1,0 +1,1798 @@
+from pathlib import Path
+
+from aletheore.orm_migrations import (
+    extract_alembic_migrations,
+    extract_django_migrations,
+    extract_rails_migrations,
+)
+from aletheore.schema_map import extract_schema
+
+
+def write_files(tmp_path: Path, files: dict[str, str]) -> Path:
+    for rel_path, body in files.items():
+        path = tmp_path / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+    return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# Django
+# ---------------------------------------------------------------------------
+
+
+def test_django_create_model_infers_table_name_and_implicit_pk(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('title', models.CharField(max_length=200)),
+                ('published', models.BooleanField(default=False)),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    events, sources = extract_django_migrations(repo, ["blog/migrations"])
+    assert sources == ["blog/migrations/0001_initial.py"]
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert create["table"] == "blog_post"
+    names = [c["name"] for c in create["columns"]]
+    # No field in the migration is marked primary_key=True, so Django's
+    # implicit `id` column must be injected first.
+    assert names == ["id", "title", "published"]
+    assert create["columns"][0]["primary_key"] is True
+    assert create["columns"][2]["default"] == "False"
+
+
+def test_django_foreign_key_resolves_to_real_table_name(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('author', models.ForeignKey(to='accounts.User', on_delete=models.CASCADE)),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert len(create["relations"]) == 1
+    relation = create["relations"][0]
+    assert relation["from_column"] == "author_id"
+    assert relation["to_table"] == "accounts_user"
+    assert relation["to_column"] == "id"
+    assert relation["on_delete"] == "CASCADE"
+    assert relation["file"] == "blog/migrations/0001_initial.py"
+    assert any(c["name"] == "author_id" for c in create["columns"])
+
+
+def test_django_flexible_foreign_key_subclass_is_a_real_relation(tmp_path):
+    """Found via real-repo stress testing on Sentry: 249 real FK fields in
+    a single squashed migration use Sentry's own
+    sentry.db.models.fields.foreignkey.FlexibleForeignKey - a thin,
+    verified `django.db.models.ForeignKey` subclass (only defaults
+    on_delete) - which the field-type check missed entirely since it only
+    recognized the literal names ForeignKey/OneToOneField."""
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+import sentry.db.models.fields.foreignkey
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('owner', sentry.db.models.fields.foreignkey.FlexibleForeignKey(
+                    to='accounts.User', on_delete=models.CASCADE,
+                )),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert len(create["relations"]) == 1
+    relation = create["relations"][0]
+    assert relation["from_column"] == "owner_id"
+    assert relation["to_table"] == "accounts_user"
+
+
+def test_django_unresolvable_foreign_key_target_is_unsupported_not_a_broken_relation(tmp_path):
+    """Found via real-repo stress testing on Sentry: `to=settings.AUTH_USER_MODEL`
+    is a real, common idiom - not a static string literal, so the target
+    table can't be resolved. This used to still emit a "relation" with
+    to_table=None instead of recording the gap as unsupported."""
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.conf import settings
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('owner', models.ForeignKey(to=settings.AUTH_USER_MODEL, on_delete=models.CASCADE)),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert create["relations"] == []
+    assert any(c["name"] == "owner_id" for c in create["columns"])
+    unsupported = [e for e in events if e["kind"] == "unsupported"]
+    assert len(unsupported) == 1
+    assert "owner_id" in unsupported[0]["statement"]
+    assert "settings.AUTH_USER_MODEL" in unsupported[0]["statement"]
+
+
+def test_django_self_referential_foreign_key(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "org/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Employee',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('manager', models.ForeignKey(to='self', on_delete=models.SET_NULL, null=True)),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["org/migrations"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert create["relations"][0]["to_table"] == "org_employee"
+    assert create["relations"][0]["on_delete"] == "SET_NULL"
+
+
+def test_django_db_column_override_is_used_as_the_real_column_name(tmp_path):
+    # Real bug found via audit: db_column=... is a common real Django idiom
+    # (legacy-database integration, gradual renames) that overrides the
+    # ACTUAL database column name - Django uses it verbatim, ignoring the
+    # field's own Python attribute name entirely. This used to always use
+    # the Python field name regardless, fabricating a column that doesn't
+    # exist in the real database.
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('title', models.CharField(max_length=200, db_column='legacy_title')),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    table = next(t for t in result["tables"] if t["name"] == "blog_post")
+    names = [c["name"] for c in table["columns"]]
+    assert "legacy_title" in names
+    assert "title" not in names
+
+
+def test_django_db_column_override_on_a_foreign_key_replaces_the_id_suffix(tmp_path):
+    # Same gap, foreign-key shape: Django never appends "_id" to an
+    # explicit db_column - it uses it as the literal column name, so the
+    # relation's from_column must match, not the "<field>_id" convention.
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('author', models.ForeignKey(
+                    to='accounts.User', on_delete=models.CASCADE, db_column='author_uid',
+                )),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    table = next(t for t in result["tables"] if t["name"] == "blog_post")
+    names = [c["name"] for c in table["columns"]]
+    assert "author_uid" in names
+    assert "author_id" not in names
+    relation = result["relations"][0]
+    assert relation["from_column"] == "author_uid"
+    assert relation["to_table"] == "accounts_user"
+
+
+def test_django_foreign_key_to_field_overrides_the_target_column(tmp_path):
+    # Real bug found via audit: to_field=... is a real, documented Django
+    # option for referencing a unique field other than the target
+    # model's primary key (a slug/username/UUID-based FK - a common
+    # pattern, not a rare one). to_column was hardcoded to "id"
+    # unconditionally, so any such FK got a to_column that doesn't exist
+    # in the real target table's own schema for that role.
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('author', models.ForeignKey(
+                    to='accounts.User', to_field='username', on_delete=models.CASCADE,
+                )),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    relation = create["relations"][0]
+    assert relation["from_column"] == "author_id"
+    assert relation["to_table"] == "accounts_user"
+    assert relation["to_column"] == "username"
+
+
+def test_django_foreign_key_without_to_field_still_defaults_to_id(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('author', models.ForeignKey(to='accounts.User', on_delete=models.CASCADE)),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert create["relations"][0]["to_column"] == "id"
+
+
+def test_django_db_column_empty_string_is_not_treated_as_absent(tmp_path):
+    # Real bug found via Flash Review's own dogfooded review of the PR
+    # that introduced db_column support: `db_column or field_name` uses
+    # truthiness, so an explicit db_column="" was silently treated as if
+    # db_column had never been given at all. Django distinguishes an
+    # empty string from an unset value and uses it verbatim regardless -
+    # a degenerate real column name, but a real one, not a fabricated one.
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('title', models.CharField(max_length=200, db_column='')),
+            ],
+        ),
+    ]
+"""
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    table = next(t for t in result["tables"] if t["name"] == "blog_post")
+    names = [c["name"] for c in table["columns"]]
+    assert "" in names
+    assert "title" not in names
+
+
+def test_django_add_field_and_add_index(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[('id', models.AutoField(primary_key=True))],
+        ),
+    ]
+""",
+            "blog/migrations/0002_add_bits.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.AddField(model_name='post', name='slug', field=models.SlugField(unique=True)),
+        migrations.AddIndex(model_name='post', index=models.Index(fields=['slug'], name='post_slug_idx')),
+    ]
+""",
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    table = next(t for t in result["tables"] if t["name"] == "blog_post")
+    assert any(c["name"] == "slug" and c["unique"] for c in table["columns"])
+    assert len(result["indexes"]) == 1
+    index = result["indexes"][0]
+    assert index["name"] == "post_slug_idx"
+    assert index["table"] == "blog_post"
+    assert index["columns"] == ["slug"]
+    assert index["unique"] is False
+    assert index["file"] == "blog/migrations/0002_add_bits.py"
+    assert result["dialect"] == ["django"]
+
+
+def test_django_add_index_strips_descending_field_prefix(tmp_path):
+    # Real bug found via audit: a leading "-" in models.Index(fields=[...])
+    # is real, documented Django syntax for sorting that column descending
+    # WITHIN the index - it's DSL notation, not part of the real column
+    # name. Left unstripped, the recorded index column ("-created_at")
+    # never matches the table's own real column ("created_at").
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('created_at', models.DateTimeField()),
+                ('title', models.CharField(max_length=200)),
+            ],
+        ),
+        migrations.AddIndex(
+            model_name='post',
+            index=models.Index(fields=['-created_at', 'title'], name='post_recent_idx'),
+        ),
+    ]
+"""
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    index = result["indexes"][0]
+    assert index["columns"] == ["created_at", "title"]
+
+
+def test_django_remove_field_alter_field_rename_field_delete_model(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Post',
+            fields=[
+                ('id', models.AutoField(primary_key=True)),
+                ('title', models.CharField(max_length=100)),
+                ('old_field', models.TextField()),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Draft',
+            fields=[('id', models.AutoField(primary_key=True))],
+        ),
+    ]
+""",
+            "blog/migrations/0002_alter_bits.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.RemoveField(model_name='post', name='old_field'),
+        migrations.AlterField(model_name='post', name='title', field=models.CharField(max_length=300, unique=True)),
+        migrations.RenameField(model_name='post', old_name='title', new_name='headline'),
+        migrations.DeleteModel(name='Draft'),
+    ]
+""",
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    table = next(t for t in result["tables"] if t["name"] == "blog_post")
+    names = [c["name"] for c in table["columns"]]
+    assert "old_field" not in names
+    assert "title" not in names
+    headline = next(c for c in table["columns"] if c["name"] == "headline")
+    assert headline["type"] == "CHARFIELD"
+    assert headline["unique"] is True
+    assert not any(t["name"] == "blog_draft" for t in result["tables"])
+    assert result["unsupported"] == []
+
+
+def test_django_run_sql_replays_through_sql_parser(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.RunSQL(sql="CREATE TABLE legacy (id BIGINT PRIMARY KEY, note TEXT);"),
+    ]
+"""
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    assert [t["name"] for t in result["tables"]] == ["legacy"]
+    assert [c["name"] for c in result["tables"][0]["columns"]] == ["id", "note"]
+
+
+def test_django_run_sql_with_a_non_literal_argument_stays_unsupported(tmp_path):
+    # Real gap found via audit: RunSQL called with a module-level constant
+    # (a common real style for keeping migration files readable) instead
+    # of an inline string literal previously produced NO event at all -
+    # not even flagged as unsupported - even though RunSQL is one of this
+    # module's explicitly "modeled" operations. A migration with real
+    # DB-shape effects must never look identical to a no-op.
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations
+
+SQL_TEXT = "ALTER TABLE legacy ADD COLUMN note TEXT;"
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.RunSQL(SQL_TEXT),
+    ]
+"""
+        },
+    )
+    result = extract_schema(repo, ["blog/migrations"])
+    assert result["tables"] == []
+    assert len(result["unsupported"]) == 1
+    assert "RunSQL" in result["unsupported"][0]["statement"]
+    assert "SQL_TEXT" in result["unsupported"][0]["statement"]
+
+
+def test_django_run_python_and_alter_model_options_stay_unsupported(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0001_initial.py": """
+from django.db import migrations
+
+def seed_data(apps, schema_editor):
+    pass
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.RunPython(seed_data),
+        migrations.AlterModelOptions(name='post', options={'ordering': ['-id']}),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    assert len(events) == 2
+    assert all(e["kind"] == "unsupported" for e in events)
+    assert "RunPython" in events[0]["statement"]
+    assert "AlterModelOptions" in events[1]["statement"]
+
+
+def test_django_add_constraint_falls_through_to_catch_all_unsupported(tmp_path):
+    # Real bug found via audit: AddConstraint (and any other real Django
+    # operation not explicitly modeled or in the old, narrower
+    # _DJANGO_UNSUPPORTED_OPS deny-list) fell through the whole if/elif
+    # chain with zero event emitted - not even `unsupported` - making a
+    # migration with a real DB-shape effect (a CHECK constraint) look
+    # identical to a no-op migration.
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0002_add_constraint.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.AddConstraint(
+            model_name='post',
+            constraint=models.CheckConstraint(check=models.Q(views__gte=0), name='views_gte_0'),
+        ),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    assert len(events) == 1
+    assert events[0]["kind"] == "unsupported"
+    assert "AddConstraint" in events[0]["statement"]
+
+
+def test_django_catch_all_uses_the_real_receiver_not_a_hardcoded_migrations_prefix(tmp_path):
+    # Real bug found via audit: the catch-all's statement text hardcoded
+    # `migrations.{op_name}(...)` regardless of the call's actual receiver.
+    # A custom Operation subclass imported under its own module alias -
+    # common for django.contrib.postgres.operations (AddIndexConcurrently
+    # etc.) and hand-rolled Operation subclasses - got an invented
+    # `migrations.` prefix in a statement that's supposed to be a real,
+    # grounded citation of what the migration file actually says.
+    repo = write_files(
+        tmp_path,
+        {
+            "blog/migrations/0003_concurrent_index.py": """
+from django.db import migrations
+import myapp.custom_ops as custom
+
+class Migration(migrations.Migration):
+    operations = [
+        custom.AddIndexConcurrently(model_name='post', index=None),
+    ]
+"""
+        },
+    )
+    events, _ = extract_django_migrations(repo, ["blog/migrations"])
+    assert len(events) == 1
+    assert events[0]["kind"] == "unsupported"
+    assert events[0]["statement"] == "custom.AddIndexConcurrently(...) not modeled"
+
+
+def test_non_django_migrations_directory_is_ignored(tmp_path):
+    """A `migrations/` directory that isn't Django (no django import, no
+    Migration class) must not be mis-parsed."""
+    repo = write_files(
+        tmp_path,
+        {"tool/migrations/0001_something.py": "print('not django at all')\n"},
+    )
+    events, sources = extract_django_migrations(repo, ["tool/migrations"])
+    assert events == []
+    assert sources == []
+
+
+# ---------------------------------------------------------------------------
+# Rails
+# ---------------------------------------------------------------------------
+
+
+def test_rails_create_table_with_references_and_timestamps(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.string :title, null: false
+      t.text :body
+      t.references :author, foreign_key: true
+      t.timestamps
+    end
+  end
+end
+"""
+        },
+    )
+    events, sources = extract_rails_migrations(repo, ["db/migrate"])
+    assert sources == ["db/migrate/20230101000000_create_posts.rb"]
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert create["table"] == "posts"
+    names = [c["name"] for c in create["columns"]]
+    assert names == ["id", "title", "body", "author_id", "created_at", "updated_at"]
+    assert create["columns"][0]["primary_key"] is True
+    assert create["columns"][1]["nullable"] is False
+    assert create["columns"][2]["nullable"] is True
+    assert len(create["relations"]) == 1
+    relation = create["relations"][0]
+    assert relation["from_column"] == "author_id"
+    assert relation["to_table"] == "authors"
+    assert relation["to_column"] == "id"
+    assert relation["on_delete"] is None
+    assert relation["file"] == "db/migrate/20230101000000_create_posts.rb"
+
+
+def test_rails_references_without_explicit_foreign_key_adds_no_relation(tmp_path):
+    # Real bug found via audit: Rails' own default for foreign_key: on a
+    # references/belongs_to column is false - a real FK constraint is
+    # opt-in (foreign_key: true), not opt-out. The old code treated a
+    # missing kwarg as "assume true", fabricating a constraint that does
+    # not exist in the real schema for the common, undecorated
+    # `t.references :author` shape (no foreign_key: at all).
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.references :author
+      t.belongs_to :category, foreign_key: false
+    end
+  end
+end
+"""
+        },
+    )
+    events, _ = extract_rails_migrations(repo, ["db/migrate"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    names = [c["name"] for c in create["columns"]]
+    assert "author_id" in names
+    assert "category_id" in names
+    assert create["relations"] == []
+
+
+def test_rails_reference_foreign_key_to_table_override_is_honored(tmp_path):
+    # Real bug found via audit: `foreign_key: { to_table: :users }` -
+    # needed whenever a reference's own name doesn't match its real
+    # target table (approved_by/assigned_to/reviewer all pointing at
+    # users, not a table named "approved_bies") - was treated identically
+    # to `foreign_key: false` by the old code: `_rb_bool_kwarg`'s
+    # `value.type == "true"` check is false for a hash value just as much
+    # as for the literal `false`, so a real, explicit FK relationship was
+    # silently dropped entirely rather than just pointed at the wrong
+    # table. Covers both the create_table-block form and the standalone
+    # add_reference form, which duplicate this same logic.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.references :approved_by, foreign_key: { to_table: :users }
+    end
+    add_reference :posts, :last_editor, foreign_key: { to_table: :users }
+  end
+end
+"""
+        },
+    )
+    events, _ = extract_rails_migrations(repo, ["db/migrate"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert len(create["relations"]) == 1
+    block_relation = create["relations"][0]
+    assert block_relation["from_column"] == "approved_by_id"
+    assert block_relation["to_table"] == "users"
+
+    standalone_relation = next(e for e in events if e["kind"] == "add_relation")["relation"]
+    assert standalone_relation["from_column"] == "last_editor_id"
+    assert standalone_relation["to_table"] == "users"
+
+
+def test_rails_reference_foreign_key_hash_without_to_table_still_defaults(tmp_path):
+    # `foreign_key: { ... }` with no to_table: key still enables the FK
+    # (any truthy value does, per Rails' own semantics) and falls back to
+    # the pluralized reference name, same as bare `foreign_key: true`.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.references :author, foreign_key: { on_delete: :cascade }
+    end
+  end
+end
+"""
+        },
+    )
+    events, _ = extract_rails_migrations(repo, ["db/migrate"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert len(create["relations"]) == 1
+    assert create["relations"][0]["to_table"] == "authors"
+
+
+def test_rails_up_down_migration_only_reads_up_not_down(tmp_path):
+    # Real bug, found via a real Discourse migration from 2012
+    # (db/migrate/20120423151548_remove_last_post_id.rb): older Rails
+    # migrations use a separate up/down pair instead of one reversible
+    # `change` method. down is rollback-only code, never applied by a
+    # real deploy - but the tree-walk had no notion of "which method am
+    # I inside", so down's add_column was read right alongside up's
+    # remove_column, as if this migration both removed AND re-added the
+    # same column.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20120423151548_remove_last_post_id.rb": """
+class RemoveLastPostId < ActiveRecord::Migration[4.2]
+  def up
+    remove_column :forum_threads, :last_post_id
+  end
+
+  def down
+    add_column :forum_threads, :last_post_id, :integer, default: 0
+  end
+end
+"""
+        },
+    )
+    events, _sources = extract_rails_migrations(repo, ["db/migrate"])
+    assert len(events) == 1
+    assert events[0] == {
+        "kind": "remove_column", "table": "forum_threads", "name": "last_post_id",
+        "file": "db/migrate/20120423151548_remove_last_post_id.rb", "line": 4,
+    }
+
+
+def test_rails_reversible_dir_down_block_is_not_read_as_forward_migration(tmp_path):
+    # Real bug found via audit: `reversible do |dir| ... end` is the modern
+    # equivalent of the separate def up/def down pair above, but dir.down
+    # is a `call` node named "down" (receiver `dir`), not a `method` node -
+    # the up/down exclusion above only matched the latter shape. Without
+    # this fix, dir.down's block was walked right alongside dir.up's,
+    # fabricating a forward add_column from code that only runs on
+    # rollback, inside a single def change that never uses def up/def down
+    # at all.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_remove_last_post_id.rb": """
+class RemoveLastPostId < ActiveRecord::Migration[7.0]
+  def change
+    reversible do |dir|
+      dir.up { remove_column :topics, :last_post_id }
+      dir.down { add_column :topics, :last_post_id, :integer }
+    end
+  end
+end
+"""
+        },
+    )
+    events, _sources = extract_rails_migrations(repo, ["db/migrate"])
+    assert len(events) == 1
+    assert events[0] == {
+        "kind": "remove_column", "table": "topics", "name": "last_post_id",
+        "file": "db/migrate/20230101000000_remove_last_post_id.rb", "line": 5,
+    }
+
+
+def test_rails_down_call_on_an_unrelated_receiver_is_not_treated_as_rollback_only(tmp_path):
+    # Flash Review finding on the fix above: matching every call named
+    # "down" by method name alone (regardless of receiver) would also
+    # silently drop forward-migration code that happens to call a
+    # ".down" method on some other object - not just dir.down inside a
+    # real `reversible` block. Scoping the exclusion to receivers bound
+    # by an actual `reversible do |dir| ... end` block parameter means a
+    # same-named method on an unrelated receiver is read normally.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_add_status.rb": """
+class AddStatus < ActiveRecord::Migration[7.0]
+  def change
+    migration_helper.down { add_column :posts, :status, :string }
+  end
+end
+"""
+        },
+    )
+    events, _sources = extract_rails_migrations(repo, ["db/migrate"])
+    assert len(events) == 1
+    assert events[0] == {
+        "kind": "add_column", "table": "posts", "relation": None,
+        "file": "db/migrate/20230101000000_add_status.rb", "line": 4,
+        "column": {
+            "name": "status", "type": "STRING", "primary_key": False,
+            "nullable": True, "unique": False, "default": None,
+            "file": "db/migrate/20230101000000_add_status.rb", "line": 4,
+        },
+    }
+
+
+def test_rails_create_table_block_index_and_foreign_key_are_not_silently_dropped(tmp_path):
+    # Real bug found via audit: t.index and t.foreign_key inside a
+    # create_table do |t| ... end block aren't type methods and aren't
+    # references/belongs_to, so _rails_column_from_typed_call returned
+    # (None, None) for both with no unsupported fallback - a real, common
+    # Rails idiom vanished from the schema with zero trace.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.string :title
+      t.index :title
+      t.bigint :author_id
+      t.foreign_key :authors
+    end
+  end
+end
+"""
+        },
+    )
+    events, _sources = extract_rails_migrations(repo, ["db/migrate"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert create["relations"] == []
+    index_events = [e for e in events if e["kind"] == "create_index"]
+    assert index_events == [
+        {"kind": "create_index", "table": "posts", "name": "index_posts_on_title",
+         "columns": ["title"], "unique": False,
+         "file": "db/migrate/20230101000000_create_posts.rb", "line": 6}
+    ]
+    relation_events = [e for e in events if e["kind"] == "add_relation"]
+    assert relation_events == [
+        {"kind": "add_relation", "table": "posts",
+         "file": "db/migrate/20230101000000_create_posts.rb", "line": 8,
+         "relation": {"from_column": "author_id", "to_table": "authors", "to_column": "id",
+                      "on_delete": None,
+                      "file": "db/migrate/20230101000000_create_posts.rb", "line": 8}}
+    ]
+
+
+def test_rails_change_table_block_foreign_key_is_not_silently_dropped(tmp_path):
+    # Same gap as create_table above, but change_table's block previously
+    # only special-cased t.index (not t.foreign_key) before falling
+    # through to the same silent (None, None) drop.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_add_author_to_posts.rb": """
+class AddAuthorToPosts < ActiveRecord::Migration[7.0]
+  def change
+    change_table :posts do |t|
+      t.foreign_key :authors, column: :writer_id
+    end
+  end
+end
+"""
+        },
+    )
+    events, _sources = extract_rails_migrations(repo, ["db/migrate"])
+    assert len(events) == 1
+    assert events[0] == {
+        "kind": "add_relation", "table": "posts",
+        "file": "db/migrate/20230101000000_add_author_to_posts.rb", "line": 5,
+        "relation": {"from_column": "writer_id", "to_table": "authors", "to_column": "id",
+                     "on_delete": None,
+                     "file": "db/migrate/20230101000000_add_author_to_posts.rb", "line": 5},
+    }
+
+
+def test_rails_id_false_omits_primary_key(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_join.rb": """
+class CreateJoin < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts_tags, id: false do |t|
+      t.integer :post_id
+      t.integer :tag_id
+    end
+  end
+end
+"""
+        },
+    )
+    events, _ = extract_rails_migrations(repo, ["db/migrate"])
+    create = next(e for e in events if e["kind"] == "create_table")
+    assert [c["name"] for c in create["columns"]] == ["post_id", "tag_id"]
+
+
+def test_rails_standalone_add_column_add_index_add_foreign_key(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.string :title
+      t.string :old
+    end
+  end
+end
+""",
+            "db/migrate/20230102000000_alter_posts.rb": """
+class AlterPosts < ActiveRecord::Migration[7.0]
+  def change
+    add_column :posts, :views, :integer, null: false, default: 0
+    add_index :posts, [:title], unique: true, name: "idx_posts_title"
+    add_foreign_key :posts, :accounts, column: :account_id, on_delete: :cascade
+    remove_column :posts, :old
+  end
+end
+""",
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    table = next(t for t in result["tables"] if t["name"] == "posts")
+    views = next(c for c in table["columns"] if c["name"] == "views")
+    assert views["nullable"] is False
+    assert views["default"] == "0"
+    assert not any(c["name"] == "old" for c in table["columns"])
+    assert len(result["indexes"]) == 1
+    index = result["indexes"][0]
+    assert index["name"] == "idx_posts_title"
+    assert index["table"] == "posts"
+    assert index["columns"] == ["title"]
+    assert index["unique"] is True
+    assert index["file"] == "db/migrate/20230102000000_alter_posts.rb"
+    fk = next(r for r in result["relations"] if r["from_column"] == "account_id")
+    assert fk["to_table"] == "accounts"
+    assert fk["on_delete"] == "CASCADE"
+    assert result["unsupported"] == []
+
+
+def test_rails_standalone_add_reference_and_add_belongs_to(tmp_path):
+    # Real bug found via audit: add_reference/add_belongs_to (Rails 5+
+    # idiom for adding a FK column outside create_table/change_table, e.g.
+    # `add_reference :posts, :author, foreign_key: true`) weren't in
+    # _RAILS_KNOWN_METHODS, so they were silently ignored like ordinary
+    # non-DSL Ruby - not even flagged unsupported - despite having a real
+    # DB-shape effect identical to the already-modeled `t.references`.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.string :title
+    end
+  end
+end
+""",
+            "db/migrate/20230102000000_add_refs.rb": """
+class AddRefs < ActiveRecord::Migration[7.0]
+  def change
+    add_reference :posts, :author, foreign_key: true
+    add_belongs_to :posts, :category
+  end
+end
+""",
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    table = next(t for t in result["tables"] if t["name"] == "posts")
+    names = [c["name"] for c in table["columns"]]
+    assert "author_id" in names
+    assert "category_id" in names
+    fk = next(r for r in result["relations"] if r["from_column"] == "author_id")
+    assert fk["to_table"] == "authors"
+    assert fk["to_column"] == "id"
+    assert not any(r["from_column"] == "category_id" for r in result["relations"])
+    assert result["unsupported"] == []
+
+
+def test_rails_add_index_with_constant_name_falls_back_to_auto_name(tmp_path):
+    """Found via real-repo stress testing on Discourse: `add_index` with a
+    `name:` kwarg that references a constant (not a static string/symbol
+    literal) can't be resolved by `_rb_symbol_text`, so `index_name` was left
+    None instead of falling back to Rails' own auto-generated name - which
+    then crashed `extract_schema`'s final `indexes.sort()` on a NoneType
+    comparison instead of degrading gracefully."""
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_events.rb": """
+class CreateEvents < ActiveRecord::Migration[7.0]
+  def change
+    create_table :events do |t|
+      t.string :kind
+    end
+  end
+end
+""",
+            "db/migrate/20230102000000_add_kind_index.rb": """
+class AddKindIndex < ActiveRecord::Migration[7.0]
+  INDEX_NAME = "idx_events_kind"
+
+  def up
+    add_index :events, :kind, name: INDEX_NAME
+  end
+end
+""",
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    assert len(result["indexes"]) == 1
+    index = result["indexes"][0]
+    assert index["table"] == "events"
+    assert index["columns"] == ["kind"]
+    assert index["name"] == "index_events_on_kind"
+
+
+def test_rails_rename_column_rename_table_drop_table(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_things.rb": """
+class CreateThings < ActiveRecord::Migration[7.0]
+  def change
+    create_table :widgets do |t|
+      t.string :name
+    end
+    create_table :scratch do |t|
+      t.string :x
+    end
+  end
+end
+""",
+            "db/migrate/20230102000000_alter_things.rb": """
+class AlterThings < ActiveRecord::Migration[7.0]
+  def change
+    rename_column :widgets, :name, :label
+    rename_table :widgets, :gadgets
+    drop_table :scratch
+  end
+end
+""",
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    table_names = [t["name"] for t in result["tables"]]
+    assert "gadgets" in table_names
+    assert "widgets" not in table_names
+    assert "scratch" not in table_names
+    gadgets = next(t for t in result["tables"] if t["name"] == "gadgets")
+    assert [c["name"] for c in gadgets["columns"]] == ["id", "label"]
+
+
+def test_rails_change_table_block(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.string :title
+      t.string :subtitle
+    end
+  end
+end
+""",
+            "db/migrate/20230102000000_change_posts.rb": """
+class ChangePosts < ActiveRecord::Migration[7.0]
+  def change
+    change_table :posts do |t|
+      t.remove :subtitle
+      t.rename :title, :headline
+      t.integer :views
+      t.timestamps
+    end
+  end
+end
+""",
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    table = next(t for t in result["tables"] if t["name"] == "posts")
+    names = [c["name"] for c in table["columns"]]
+    assert "subtitle" not in names
+    assert "title" not in names
+    assert set(["headline", "views", "created_at", "updated_at"]) <= set(names)
+
+
+def test_rails_change_column_and_null_and_default(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.string :views
+    end
+  end
+end
+""",
+            "db/migrate/20230102000000_alter_posts.rb": """
+class AlterPosts < ActiveRecord::Migration[7.0]
+  def change
+    change_column :posts, :views, :integer
+    change_column_null :posts, :views, false
+    change_column_default :posts, :views, 0
+  end
+end
+""",
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    table = next(t for t in result["tables"] if t["name"] == "posts")
+    views = next(c for c in table["columns"] if c["name"] == "views")
+    assert views["type"] == "INTEGER"
+    assert views["nullable"] is False
+    assert views["default"] == "0"
+
+
+def test_rails_change_column_default_reversible_from_to_form(tmp_path):
+    # Real bug found via audit: change_column_default(table, column,
+    # from: ..., to: ...) is Rails' own officially recommended form for
+    # this operation specifically because a plain value has no way to be
+    # reversed on rollback - Rails' own migration guides push this form,
+    # not a rare alternative. `to:` is a keyword pair, not a 3rd
+    # positional argument, so a `len(positional) < 3` check made this
+    # whole call invisible - not just imprecise, no event at all.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_create_posts.rb": """
+class CreatePosts < ActiveRecord::Migration[7.0]
+  def change
+    create_table :posts do |t|
+      t.string :status
+    end
+  end
+end
+""",
+            "db/migrate/20230102000000_alter_posts.rb": """
+class AlterPosts < ActiveRecord::Migration[7.0]
+  def change
+    change_column_default :posts, :status, from: nil, to: "draft"
+  end
+end
+""",
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    table = next(t for t in result["tables"] if t["name"] == "posts")
+    status = next(c for c in table["columns"] if c["name"] == "status")
+    assert status["default"] == '"draft"'
+
+
+def test_rails_execute_replays_through_sql_parser(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_raw.rb": """
+class Raw < ActiveRecord::Migration[7.0]
+  def change
+    execute "CREATE TABLE legacy (id BIGINT PRIMARY KEY, note TEXT);"
+  end
+end
+"""
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    assert [t["name"] for t in result["tables"]] == ["legacy"]
+
+
+def test_rails_execute_with_a_non_literal_argument_stays_unsupported(tmp_path):
+    # Same real gap as Django's RunSQL and Alembic's op.execute, fixed
+    # alongside them: execute called with a local variable/heredoc instead
+    # of an inline string literal previously produced NO event at all,
+    # even though execute is one of this module's explicitly "modeled"
+    # operations - unlike a genuinely unrecognized Ruby method call, which
+    # this module deliberately does ignore without flagging.
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_raw.rb": """
+class Raw < ActiveRecord::Migration[7.0]
+  def change
+    sql = "ALTER TABLE legacy ADD COLUMN note TEXT;"
+    execute sql
+  end
+end
+"""
+        },
+    )
+    result = extract_schema(repo, ["db/migrate"])
+    assert result["tables"] == []
+    assert len(result["unsupported"]) == 1
+    assert "execute" in result["unsupported"][0]["statement"]
+    assert "sql" in result["unsupported"][0]["statement"]
+
+
+def test_rails_create_join_table_and_remove_foreign_key_stay_unsupported(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "db/migrate/20230101000000_misc.rb": """
+class Misc < ActiveRecord::Migration[7.0]
+  def change
+    create_join_table :posts, :tags
+    remove_foreign_key :posts, :accounts
+  end
+end
+"""
+        },
+    )
+    events, _ = extract_rails_migrations(repo, ["db/migrate"])
+    assert len(events) == 2
+    assert all(e["kind"] == "unsupported" for e in events)
+
+
+# ---------------------------------------------------------------------------
+# Alembic
+# ---------------------------------------------------------------------------
+
+
+def test_alembic_create_table_only_reads_upgrade(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('accounts',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('name', sa.String(length=100), nullable=False),
+    )
+
+def downgrade():
+    op.drop_table('accounts')
+"""
+        },
+    )
+    events, sources = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert sources == ["alembic/versions/abc123_init.py"]
+    kinds = [e["kind"] for e in events]
+    assert kinds == ["create_table"]
+    create = events[0]
+    assert create["table"] == "accounts"
+    assert [c["name"] for c in create["columns"]] == ["id", "name"]
+    assert create["columns"][0]["primary_key"] is True
+    assert create["columns"][1]["type"] == "STRING"
+
+
+def test_alembic_inline_foreign_key_and_add_column_and_index(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('accounts', sa.Column('id', sa.Integer(), primary_key=True))
+""",
+            "alembic/versions/def456_add_posts.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('posts',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('account_id', sa.Integer(), sa.ForeignKey('accounts.id'), nullable=False),
+    )
+    op.add_column('posts', sa.Column('title', sa.String(length=200), nullable=True))
+    op.create_index('ix_posts_title', 'posts', ['title'], unique=False)
+"""
+        },
+    )
+    result = extract_schema(repo, ["alembic/versions"])
+    posts = next(t for t in result["tables"] if t["name"] == "posts")
+    assert [c["name"] for c in posts["columns"]] == ["id", "account_id", "title"]
+    fk = next(r for r in result["relations"] if r["from_column"] == "account_id")
+    assert fk["to_table"] == "accounts"
+    assert fk["to_column"] == "id"
+    assert result["indexes"][0]["name"] == "ix_posts_title"
+    assert result["dialect"] == ["alembic"]
+
+
+def test_alembic_drop_table_and_execute_are_modeled(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('legacy', sa.Column('id', sa.Integer(), primary_key=True))
+    op.execute("CREATE TABLE audit (id INTEGER PRIMARY KEY, note TEXT);")
+    op.drop_table('legacy')
+"""
+        },
+    )
+    result = extract_schema(repo, ["alembic/versions"])
+    table_names = [t["name"] for t in result["tables"]]
+    assert "legacy" not in table_names
+    assert "audit" in table_names
+
+
+def test_alembic_execute_with_a_non_literal_argument_stays_unsupported(tmp_path):
+    # Same real gap as Django's RunSQL, fixed alongside it: op.execute
+    # called with a variable/expression instead of an inline string
+    # literal previously produced NO event at all, even though op.execute
+    # is one of this module's explicitly "modeled" operations.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    sql_text = "ALTER TABLE legacy ADD COLUMN note TEXT;"
+    op.execute(sql_text)
+"""
+        },
+    )
+    result = extract_schema(repo, ["alembic/versions"])
+    assert result["tables"] == []
+    assert len(result["unsupported"]) == 1
+    assert "op.execute" in result["unsupported"][0]["statement"]
+    assert "sql_text" in result["unsupported"][0]["statement"]
+
+
+def test_alembic_drop_column_alter_column_drop_index_rename_table(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('accounts',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('name', sa.String(length=50), nullable=True),
+        sa.Column('legacy_flag', sa.Boolean()),
+    )
+    op.create_index('ix_accounts_name', 'accounts', ['name'])
+    op.drop_column('accounts', 'legacy_flag')
+    op.alter_column('accounts', 'name', nullable=False, type_=sa.String(length=100))
+    op.drop_index('ix_accounts_name', table_name='accounts')
+    op.rename_table('accounts', 'users')
+"""
+        },
+    )
+    result = extract_schema(repo, ["alembic/versions"])
+    table_names = [t["name"] for t in result["tables"]]
+    assert "users" in table_names
+    assert "accounts" not in table_names
+    users = next(t for t in result["tables"] if t["name"] == "users")
+    names = [c["name"] for c in users["columns"]]
+    assert "legacy_flag" not in names
+    name_col = next(c for c in users["columns"] if c["name"] == "name")
+    assert name_col["nullable"] is False
+    assert name_col["type"] == "STRING"
+    assert result["indexes"] == []
+
+
+def test_alembic_alter_column_new_column_name_renames_it(tmp_path):
+    # Real bug found via audit: alter_column's new_column_name kwarg is a
+    # real, documented Alembic idiom for renaming a column - the only way
+    # op.* offers to rename one at all (there is no op.rename_column). A
+    # pure rename (no type_/nullable/server_default alongside it)
+    # produced no event whatsoever before this fix - not just imprecise,
+    # completely invisible, so the column kept its old name in the
+    # tracked schema forever.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('users',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('old_email', sa.String(length=100)),
+    )
+    op.alter_column('users', 'old_email', new_column_name='email')
+"""
+        },
+    )
+    result = extract_schema(repo, ["alembic/versions"])
+    users = next(t for t in result["tables"] if t["name"] == "users")
+    names = [c["name"] for c in users["columns"]]
+    assert "email" in names
+    assert "old_email" not in names
+
+
+def test_alembic_alter_column_rename_combined_with_another_change(tmp_path):
+    # A rename combined with a real change (nullable=False here) must
+    # apply that change to the column's NEW name, not silently keep
+    # applying it to (and leaving the column tracked under) the old one.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('users',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('old_phone', sa.String(length=20), nullable=True),
+    )
+    op.alter_column('users', 'old_phone', new_column_name='phone', nullable=False)
+"""
+        },
+    )
+    result = extract_schema(repo, ["alembic/versions"])
+    users = next(t for t in result["tables"] if t["name"] == "users")
+    names = [c["name"] for c in users["columns"]]
+    assert "phone" in names
+    assert "old_phone" not in names
+    phone_col = next(c for c in users["columns"] if c["name"] == "phone")
+    assert phone_col["nullable"] is False
+
+
+def test_alembic_batch_alter_table_new_column_name_renames_it(tmp_path):
+    # Same bug, reached through the batch_op form (SQLite's ALTER TABLE
+    # workaround) rather than a top-level op.alter_column call.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('users',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('old_email', sa.String(length=100)),
+    )
+    with op.batch_alter_table('users') as batch_op:
+        batch_op.alter_column('old_email', new_column_name='email')
+"""
+        },
+    )
+    result = extract_schema(repo, ["alembic/versions"])
+    users = next(t for t in result["tables"] if t["name"] == "users")
+    names = [c["name"] for c in users["columns"]]
+    assert "email" in names
+    assert "old_email" not in names
+
+
+def test_alembic_drop_constraint_stays_unsupported(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.drop_constraint('fk_accounts_user_id', 'accounts', type_='foreignkey')
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert len(events) == 1
+    assert events[0]["kind"] == "unsupported"
+    assert "drop_constraint" in events[0]["statement"]
+
+
+def test_alembic_create_check_constraint_and_unique_constraint_stay_unsupported(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_check_constraint('ck_accounts_age', 'accounts', 'age >= 0')
+    op.create_unique_constraint('uq_accounts_email', 'accounts', ['email'])
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert len(events) == 2
+    assert all(e["kind"] == "unsupported" for e in events)
+    assert "create_check_constraint" in events[0]["statement"]
+    assert "create_unique_constraint" in events[1]["statement"]
+
+
+def test_alembic_unmodeled_op_falls_through_to_catch_all_unsupported(tmp_path):
+    # Real bug found via audit: any op.* call not explicitly modeled and
+    # not in the old, narrower _ALEMBIC_UNSUPPORTED_OPS deny-list (e.g.
+    # add_constraint) fell through with zero event emitted.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.add_constraint(sa.CheckConstraint('age >= 0', name='ck_accounts_age'))
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert len(events) == 1
+    assert events[0]["kind"] == "unsupported"
+    assert "add_constraint" in events[0]["statement"]
+
+
+def test_alembic_op_f_naming_helper_is_not_flagged_unsupported(tmp_path):
+    # op.f(...) wraps a naming-convention string (autogenerate's default
+    # output) and has no DDL meaning of its own - it must never be
+    # misread as an unmodeled top-level operation just because it's a
+    # nested `op.*` call inside another op.* call's arguments.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_index(op.f('ix_users_email'), 'users', ['email'])
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert len(events) == 1
+    assert events[0]["kind"] == "create_index"
+    assert events[0]["name"] == "ix_users_email"
+
+
+def test_alembic_batch_alter_table_add_drop_column_and_index(tmp_path):
+    # Real bug found via audit: `with op.batch_alter_table(table) as
+    # batch_op:` (the required pattern for SQLite migrations, since
+    # SQLite can't do most ALTER TABLE directly) was invisible twice
+    # over - the batch_alter_table call itself wasn't modeled or flagged,
+    # and every batch_op.<method>(...) call inside the block has receiver
+    # "batch_op" not "op", so the `if receiver != "op": continue` guard
+    # skipped them all, silently.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    with op.batch_alter_table('accounts') as batch_op:
+        batch_op.add_column(sa.Column('nickname', sa.String(length=50), nullable=True))
+        batch_op.drop_column('legacy_flag')
+        batch_op.create_index('ix_accounts_nickname', ['nickname'])
+        batch_op.alter_column('nickname', nullable=False)
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    add_col = next(e for e in events if e["kind"] == "add_column")
+    assert add_col["table"] == "accounts"
+    assert add_col["column"]["name"] == "nickname"
+    drop_col = next(e for e in events if e["kind"] == "remove_column")
+    assert drop_col == {
+        "kind": "remove_column", "table": "accounts", "name": "legacy_flag",
+        "file": "alembic/versions/abc123_init.py", "line": 11,
+    }
+    index = next(e for e in events if e["kind"] == "create_index")
+    assert index["table"] == "accounts"
+    assert index["name"] == "ix_accounts_nickname"
+    assert index["columns"] == ["nickname"]
+    alter = next(e for e in events if e["kind"] == "alter_column")
+    assert alter["table"] == "accounts"
+    assert alter["name"] == "nickname"
+    assert alter["changes"]["nullable"] is False
+    assert not any(e["kind"] == "unsupported" for e in events)
+
+
+def test_alembic_batch_alter_table_drop_constraint_stays_unsupported(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    with op.batch_alter_table('accounts') as batch_op:
+        batch_op.drop_constraint('uq_accounts_email', type_='unique')
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert len(events) == 1
+    assert events[0]["kind"] == "unsupported"
+    assert "drop_constraint" in events[0]["statement"]
+
+
+def test_alembic_batch_alter_table_unmodeled_method_falls_through_to_unsupported(tmp_path):
+    # Real bug found via this PR's own Flash Review: a batch_op method
+    # that's neither modeled nor in _ALEMBIC_BATCH_UNSUPPORTED_METHODS
+    # (e.g. add_constraint) fell through _alembic_batch_op_events' own
+    # `return []` fallback with zero event and no `unsupported` flag -
+    # the exact silent-drop bug class this PR exists to fix, reintroduced
+    # for batch mode specifically.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_init.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    with op.batch_alter_table('accounts') as batch_op:
+        batch_op.add_constraint(sa.CheckConstraint('age >= 0', name='ck_accounts_age'))
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert len(events) == 1
+    assert events[0]["kind"] == "unsupported"
+    assert "add_constraint" in events[0]["statement"]
+
+
+# ---------------------------------------------------------------------------
+# extract_schema integration: dialect list + no cross-parser interference
+# ---------------------------------------------------------------------------
+
+
+def test_extract_schema_reports_dialect_list(tmp_path):
+    repo = write_files(
+        tmp_path,
+        {
+            "app/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(name='Thing', fields=[('id', models.AutoField(primary_key=True))]),
+    ]
+"""
+        },
+    )
+    result = extract_schema(repo, ["app/migrations"])
+    assert result["dialect"] == ["django"]
+
+    empty = extract_schema(repo, [])
+    assert empty["dialect"] is None
+
+
+def test_alembic_create_table_without_explicit_pk_gets_no_implicit_id(tmp_path):
+    # Alembic/SQLAlchemy never synthesizes an id column the way Django's
+    # AutoField or Rails' create_table default does - a table genuinely
+    # created without one has no primary key at all.
+    repo = write_files(
+        tmp_path,
+        {
+            "alembic/versions/abc123_audit.py": """
+from alembic import op
+import sqlalchemy as sa
+
+revision = "abc123"
+down_revision = None
+
+def upgrade():
+    op.create_table('audit', sa.Column('message', sa.Text()))
+"""
+        },
+    )
+    events, _ = extract_alembic_migrations(repo, ["alembic/versions"])
+    assert len(events) == 1
+    create = events[0]
+    assert create["table"] == "audit"
+    assert [c["name"] for c in create["columns"]] == ["message"]
+
+
+def test_extract_schema_replays_mixed_sql_and_orm_sources_in_path_order(tmp_path):
+    # A Django migration creates `app_item`; a raw .sql migration then
+    # alters it. "app/migrations/..." sorts before "db/sql/..." so the
+    # correct replay order is Django-first. Applying every .sql file before
+    # any ORM migration (regardless of path) would run the ALTER before the
+    # table exists, dropping the column into `unsupported` instead of the
+    # schema.
+    repo = write_files(
+        tmp_path,
+        {
+            "app/migrations/0001_initial.py": """
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    operations = [
+        migrations.CreateModel(
+            name='Item',
+            fields=[('id', models.AutoField(primary_key=True))],
+        ),
+    ]
+""",
+            "db/sql/0002_add_description.sql": (
+                "ALTER TABLE app_item ADD COLUMN description text;"
+            ),
+        },
+    )
+    result = extract_schema(repo, ["app/migrations", "db/sql"])
+    item = next(t for t in result["tables"] if t["name"] == "app_item")
+    assert [c["name"] for c in item["columns"]] == ["id", "description"]
+    assert result["unsupported"] == []

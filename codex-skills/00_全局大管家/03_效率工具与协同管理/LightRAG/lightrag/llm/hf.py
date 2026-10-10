@@ -1,0 +1,389 @@
+import asyncio
+import copy
+import contextvars
+import os
+import threading
+import warnings
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+
+import pipmaster as pm  # Pipmaster for dynamic library install
+
+# install specific modules
+if not pm.is_installed("transformers"):
+    pm.install("transformers")
+if not pm.is_installed("torch"):
+    pm.install("torch")
+if not pm.is_installed("numpy"):
+    pm.install("numpy")
+
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+from lightrag.exceptions import (
+    APIConnectionError,
+    RateLimitError,
+    APITimeoutError,
+)
+import torch
+import numpy as np
+from lightrag.utils import TruncatedResponse, logger, wrap_embedding_func_with_attrs
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+@lru_cache(maxsize=1)
+def initialize_hf_model(model_name):
+    hf_tokenizer = AutoTokenizer.from_pretrained(
+        model_name, device_map="auto", trust_remote_code=True
+    )
+    hf_model = AutoModelForCausalLM.from_pretrained(
+        model_name, device_map="auto", trust_remote_code=True
+    )
+    if hf_tokenizer.pad_token is None:
+        hf_tokenizer.pad_token = hf_tokenizer.eos_token
+
+    return hf_model, hf_tokenizer
+
+
+_HF_INFERENCE_EXECUTOR = None
+_HF_INFERENCE_EXECUTOR_GUARD = threading.Lock()
+
+
+def _reset_hf_inference_executor_after_fork() -> None:
+    """A forked child (e.g. a gunicorn pre-fork worker) inherits a copy of
+    the parent's ThreadPoolExecutor object, but fork() only carries the
+    calling thread into the child -- the pool's own worker thread does not
+    exist there. Submitting through the stale executor would hang forever
+    (the job sits queued with no live worker to pick it up). The guard lock
+    is just as unsafe to inherit: if fork happens while some other thread
+    holds it, the child sees it permanently locked, since only the forking
+    thread survives to ever release it. Reset both so the next call in the
+    child lazily builds a fresh executor and lock instead.
+    """
+    global _HF_INFERENCE_EXECUTOR, _HF_INFERENCE_EXECUTOR_GUARD
+    _HF_INFERENCE_EXECUTOR = None
+    _HF_INFERENCE_EXECUTOR_GUARD = threading.Lock()
+
+
+# os.fork() (and therefore os.register_at_fork) doesn't exist on Windows --
+# there is no post-fork state to repair there.
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_hf_inference_executor_after_fork)
+
+
+def _get_hf_inference_executor() -> ThreadPoolExecutor:
+    """Return the process-wide worker used for local HF inference."""
+    global _HF_INFERENCE_EXECUTOR
+    if _HF_INFERENCE_EXECUTOR is None:
+        with _HF_INFERENCE_EXECUTOR_GUARD:
+            if _HF_INFERENCE_EXECUTOR is None:
+                _HF_INFERENCE_EXECUTOR = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="lightrag-hf-inference"
+                )
+    return _HF_INFERENCE_EXECUTOR
+
+
+async def _run_hf_inference(fn, /, *args, **kwargs):
+    """Run one inference job without binding synchronisation to an event loop."""
+    concurrent_future = _get_hf_inference_executor().submit(
+        contextvars.copy_context().run, lambda: fn(*args, **kwargs)
+    )
+    async_future = asyncio.wrap_future(concurrent_future)
+    async_future.add_done_callback(
+        lambda future: None if future.cancelled() else future.exception()
+    )
+    try:
+        return await asyncio.shield(async_future)
+    except asyncio.CancelledError:
+        # This succeeds only while the job is still queued. A running job keeps
+        # occupying the sole worker until the underlying model call returns.
+        concurrent_future.cancel()
+        raise
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(
+        (RateLimitError, APIConnectionError, APITimeoutError)
+    ),
+)
+async def hf_model_if_cache(
+    model,
+    prompt,
+    system_prompt=None,
+    history_messages=[],
+    enable_cot: bool = False,
+    **kwargs,
+) -> str:
+    if enable_cot:
+        logger.debug(
+            "enable_cot=True is not supported for Hugging Face local models and will be ignored."
+        )
+    model_name = model
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": prompt})
+    kwargs.pop("hashing_kv", None)
+    max_tokens = kwargs.pop("max_tokens", 512)
+    max_new_tokens = kwargs.pop("max_new_tokens", max_tokens)
+
+    # initialize_hf_model(), tokenization/prompt-building, generate(), and
+    # decoding/truncation all run inside this closure, as a single job
+    # submitted to the single-worker executor, rather than split around the
+    # await. initialize_hf_model() is an lru_cache(maxsize=1): resolving it
+    # on the event loop before suspending lets a second concurrent call with
+    # a different model_name evict and load its own model while the first
+    # call's model is still resident and mid-generate(), doubling peak GPU
+    # memory. Returning hf_model/inputs/output for the caller to decode
+    # afterwards reopens the same window at a smaller scale: those
+    # references would stay alive in this coroutine's locals -- keeping
+    # model A resident -- while the now-free worker starts loading model B
+    # for a second queued call. Decoding inside the closure means nothing
+    # referencing the model crosses back to the caller, so the model is
+    # only ever referenced while this job holds the sole worker.
+    def _run_generate():
+        hf_model, hf_tokenizer = initialize_hf_model(model_name)
+        local_messages = messages
+        input_prompt = ""
+        try:
+            input_prompt = hf_tokenizer.apply_chat_template(
+                local_messages, tokenize=False, add_generation_prompt=True
+            )
+        except Exception:
+            try:
+                ori_message = copy.deepcopy(local_messages)
+                if local_messages[0]["role"] == "system":
+                    local_messages[1]["content"] = (
+                        "<system>"
+                        + local_messages[0]["content"]
+                        + "</system>\n"
+                        + local_messages[1]["content"]
+                    )
+                    local_messages = local_messages[1:]
+                    input_prompt = hf_tokenizer.apply_chat_template(
+                        local_messages, tokenize=False, add_generation_prompt=True
+                    )
+            except Exception:
+                len_message = len(ori_message)
+                for msgid in range(len_message):
+                    input_prompt = (
+                        input_prompt
+                        + "<"
+                        + ori_message[msgid]["role"]
+                        + ">"
+                        + ori_message[msgid]["content"]
+                        + "</"
+                        + ori_message[msgid]["role"]
+                        + ">\n"
+                    )
+
+        input_ids = hf_tokenizer(
+            input_prompt, return_tensors="pt", padding=True, truncation=True
+        )
+        # Move to wherever the model actually is, rather than assuming CUDA.
+        # hf_model is loaded with device_map="auto" (see initialize_hf_model),
+        # so hf_model.device already reflects accelerate's placement.
+        inputs = {k: v.to(hf_model.device) for k, v in input_ids.items()}
+        output = hf_model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            num_return_sequences=1,
+            early_stopping=True,
+        )
+        generated_ids = output[0][len(inputs["input_ids"][0]) :]
+        response_text = hf_tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+        eos_token_id = getattr(
+            getattr(hf_model, "generation_config", None), "eos_token_id", None
+        )
+        if eos_token_id is None:
+            eos_token_id = getattr(hf_tokenizer, "eos_token_id", None)
+        eos_token_ids = (
+            set(eos_token_id)
+            if isinstance(eos_token_id, (list, tuple, set))
+            else {eos_token_id}
+            if eos_token_id is not None
+            else set()
+        )
+        last_token_id = generated_ids[-1].item() if len(generated_ids) else None
+        if (
+            max_new_tokens is not None
+            and len(generated_ids) >= max_new_tokens
+            and last_token_id not in eos_token_ids
+        ):
+            response_text = TruncatedResponse(response_text)
+
+        return response_text
+
+    # generate() runs the actual model inference synchronously and can take
+    # seconds to minutes -- calling it directly here would block the whole
+    # event loop for that duration, stalling every other concurrent task.
+    #
+    # Cancelling this await (e.g. an outer execution timeout) only cancels
+    # the asyncio wrapper: CPython cannot forcibly stop a running thread, so
+    # generate() keeps running -- and keeps holding whatever GPU memory it
+    # allocated -- until it finishes on its own. This is an inherent limit
+    # of bridging synchronous PyTorch inference through a worker thread,
+    # not something fixable at this call site.
+    try:
+        return await _run_hf_inference(_run_generate)
+    except asyncio.CancelledError:
+        logger.warning(
+            "hf_model_if_cache: cancelled while awaiting generate(); "
+            "if generation already started, the model keeps running in "
+            "the background thread until it completes"
+        )
+        raise
+
+
+async def hf_model_complete(
+    prompt,
+    system_prompt=None,
+    history_messages=[],
+    keyword_extraction=False,
+    entity_extraction=False,
+    enable_cot: bool = False,
+    **kwargs,
+) -> str:
+    """Run local Hugging Face inference with LightRAG-compatible shims.
+
+    Structured output note:
+    - This adapter does not support OpenAI-style ``response_format`` JSON mode.
+    - If callers pass ``response_format``, it is stripped before generation.
+    - Deprecated ``keyword_extraction`` and ``entity_extraction`` booleans are
+      accepted only as compatibility shims; they emit warnings and are ignored.
+    """
+    # HuggingFace local inference has no JSON mode; drop response_format and
+    # warn when legacy shim flags are set.
+    if kwargs.pop("keyword_extraction", False) or keyword_extraction:
+        warnings.warn(
+            "hf_model_complete(keyword_extraction=True) is deprecated; "
+            "pass response_format={'type': 'json_object'} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if kwargs.pop("entity_extraction", False) or entity_extraction:
+        warnings.warn(
+            "hf_model_complete(entity_extraction=True) is deprecated; "
+            "pass response_format={'type': 'json_object'} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    kwargs.pop("response_format", None)
+    model_name = kwargs["hashing_kv"].global_config["llm_model_name"]
+    result = await hf_model_if_cache(
+        model_name,
+        prompt,
+        system_prompt=system_prompt,
+        history_messages=history_messages,
+        enable_cot=enable_cot,
+        **kwargs,
+    )
+    return result
+
+
+@wrap_embedding_func_with_attrs(
+    embedding_dim=1024,
+    max_token_size=8192,
+    model_name="hf_embedding_model",
+    supports_asymmetric=True,
+)
+async def hf_embed(
+    texts: list[str],
+    tokenizer,
+    embed_model,
+    context: str = "document",
+    query_prefix: str | None = None,
+    document_prefix: str | None = None,
+) -> np.ndarray:
+    """Generate embeddings for a list of texts using a Hugging Face model.
+
+    Args:
+        texts (list[str]): List of input texts to embed.
+        tokenizer: Hugging Face tokenizer.
+        embed_model: Hugging Face model for generating embeddings.
+        context (str): Context indicating whether the texts are "query" or "document".
+        query_prefix (str | None): Optional prefix to add to query texts.
+        document_prefix (str | None): Optional prefix to add to document texts.
+
+    Returns:
+        np.ndarray: Array of embeddings.
+    """
+    # Detect the appropriate device
+    if torch.cuda.is_available():
+        device = next(embed_model.parameters()).device  # Use CUDA if available
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")  # Use MPS for Apple Silicon
+    else:
+        device = torch.device("cpu")  # Fallback to CPU
+
+    # Move the model to the detected device
+    embed_model = embed_model.to(device)
+
+    # Apply context-based prefixes if provided
+    if context == "query" and query_prefix:
+        texts = [query_prefix + text for text in texts]
+    elif context == "document" and document_prefix:
+        texts = [document_prefix + text for text in texts]
+
+    # Tokenize the input texts and move them to the same device
+    encoded_texts = tokenizer(
+        texts, return_tensors="pt", padding=True, truncation=True
+    ).to(device)
+
+    # Perform inference. The forward pass is synchronous model compute that
+    # can take seconds -- run it off the event loop thread, same reasoning
+    # as hf_model_if_cache's generate() call.
+    def _run_forward():
+        with torch.no_grad():
+            attention_mask = encoded_texts["attention_mask"]
+            outputs = embed_model(
+                input_ids=encoded_texts["input_ids"],
+                attention_mask=attention_mask,
+            )
+            # Plain .mean(dim=1) counts padding-token hidden states, so the
+            # same text's embedding shifts depending on what else is in the
+            # batch. Weight by attention_mask instead. The reduction runs in
+            # float32 regardless of the model's own dtype: accumulating in
+            # fp16/bf16 risks the summed hidden states overflowing to
+            # infinity on long inputs, and token counts above ~2048 (fp16)
+            # or ~256 (bf16) can't be represented exactly, biasing the mean.
+            # clamp_min(1) keeps a fully-masked row finite (all-padding
+            # input) rather than dividing by zero. The result is cast back
+            # to the original hidden-state dtype so output dtype behaviour
+            # is unchanged.
+            mask = attention_mask.unsqueeze(-1).to(torch.float32)
+            hidden_fp32 = outputs.last_hidden_state.to(torch.float32)
+            summed = (hidden_fp32 * mask).sum(dim=1)
+            counts = mask.sum(dim=1).clamp_min(1)
+            embeddings = (summed / counts).to(outputs.last_hidden_state.dtype)
+
+        # Convert to NumPy in the same thread: .cpu() on a CUDA tensor
+        # synchronizes the device (waits for pending GPU work to finish),
+        # which can block just as long as the forward pass itself -- doing
+        # it back on the event loop thread would defeat the point of
+        # offloading generate()/the forward pass in the first place.
+        if embeddings.dtype == torch.bfloat16:
+            return embeddings.detach().to(torch.float32).cpu().numpy()
+        return embeddings.detach().cpu().numpy()
+
+    # Same cancellation caveat as hf_model_if_cache's generate() call: a
+    # timeout here cannot stop the forward pass early, only stop waiting
+    # for it.
+    try:
+        return await _run_hf_inference(_run_forward)
+    except asyncio.CancelledError:
+        logger.warning(
+            "hf_embed: cancelled while awaiting the forward pass; the "
+            "model keeps running in the background thread if inference "
+            "already started"
+        )
+        raise

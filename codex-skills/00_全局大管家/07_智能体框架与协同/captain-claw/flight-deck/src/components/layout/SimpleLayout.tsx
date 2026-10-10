@@ -1,0 +1,1059 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  Radio,
+  ChevronLeft,
+  ChevronRight,
+  LayoutDashboard,
+  Search,
+  Plus,
+  Box,
+  Cpu,
+  Server,
+  Power,
+  Loader2,
+  Sun,
+  Moon,
+  RefreshCw,
+  LogOut,
+  MessagesSquare,
+  FolderOpen,
+  Database,
+  Settings,
+  Plug,
+  IdCard,
+  Users,
+  X,
+} from 'lucide-react'
+import { useUIStore } from '../../stores/uiStore'
+import { useAgentStore } from '../../stores/agentStore'
+import { useAuthStore, logoutUser } from '../../stores/authStore'
+import { useChatStore, parseLaneKey } from '../../stores/chatStore'
+import { useNotificationStore } from '../../stores/notificationStore'
+import { useContainerStore } from '../../stores/containerStore'
+import { useLocalAgentStore } from '../../stores/localAgentStore'
+import { useProcessStore } from '../../stores/processStore'
+import { useThemeStore } from '../../stores/themeStore'
+import { useSharedAgentStore } from '../../stores/sharedAgentStore'
+import { isManagedAgent } from '../../utils/managedAgents'
+import { SHARED_PREFIX, sharedCaps, sharedContainerId } from '../../utils/sharedAgent'
+import { CHAT_ONLY_TEXT, workspaceVisible } from '../../utils/sharedWorkspace'
+import { usePersistedSize } from '../../hooks/usePersistedSize'
+import { ChatPanel } from '../agents/ChatPanel'
+import { AgentFilesPanel } from '../agents/AgentFilesPanel'
+import { AgentDatastorePanel } from '../agents/AgentDatastorePanel'
+import { SharedFilesPanel } from '../agents/SharedFilesPanel'
+import { SharedDatastorePanel } from '../agents/SharedDatastorePanel'
+import { AgentConfigEditor } from '../agents/AgentConfigEditor'
+import { ArchetypeSpawnDialog } from './ArchetypeSpawnDialog'
+import ConnectionsPage from '../../pages/ConnectionsPage'
+import { ProfilePage } from '../../pages/ProfilePage'
+import { NotificationBell } from '../common/NotificationCenter'
+import { APP_VERSION, BUILD_DATE } from '../../version'
+
+// ── Simple layout ────────────────────────────────────────────────────
+//
+// A chat-first arrangement of the same Flight Deck: agents on the left, the
+// conversation in the middle, the active agent's files and datastore on the
+// right. No nav, no pages, no director — those all live in the full layout,
+// one click away. Both side columns collapse to a thin rail and remember
+// their state.
+
+type AgentState = 'running' | 'starting' | 'stopped' | 'unknown'
+
+interface SimpleAgent {
+  /** Chat id: docker container id, `proc-<slug>`, the local agent id, or
+   *  `shared:<agent_ref>` for an agent another user shared with you. */
+  id: string
+  kind: 'docker' | 'process' | 'local' | 'shared'
+  name: string
+  description: string
+  state: AgentState
+  /** Running AND listening on a web port — a chat can open right now. */
+  reachable: boolean
+  host: string
+  port: number
+  auth: string
+  /** What the power button needs: the container id or the process slug. */
+  startKey: string
+  /** Flight Deck runs this one itself (a run's worker, a being's body): not the user's to switch. */
+  managed: boolean
+  /** Shared with you: its agent_ref, and whose it is. */
+  sharedRef?: string
+  ownerId?: string
+  ownerName?: string
+}
+
+const STATE_RANK: Record<AgentState, number> = { running: 0, starting: 1, unknown: 2, stopped: 3 }
+
+function dockerState(status: string): AgentState {
+  if (/running/i.test(status)) return 'running'
+  if (/created|restarting/i.test(status)) return 'starting'
+  if (/exited|stopped|dead|paused/i.test(status)) return 'stopped'
+  return 'unknown'
+}
+
+function stateLabel(a: SimpleAgent): string {
+  if (a.state === 'running') return a.reachable ? 'Running' : 'Running — no web port'
+  if (a.state === 'starting') return 'Starting…'
+  if (a.state === 'stopped') return a.kind === 'local' ? 'Offline' : 'Stopped'
+  return a.kind === 'local' ? 'Checking…' : 'Unknown'
+}
+
+function initials(name: string): string {
+  const words = name.trim().split(/[\s_-]+/).filter(Boolean)
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase()
+  return name.trim().slice(0, 2).toUpperCase() || '?'
+}
+
+const iconBtn = 'rounded p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300'
+
+export function SimpleLayout({ locked = false }: { locked?: boolean }) {
+  const { containers, fetchContainers, checkHealth, startContainer, stopContainer, descriptionOverrides: dockerDesc } = useContainerStore()
+  const { processes, fetchProcesses, startProcess, stopProcess, descriptionOverrides: procDesc } = useProcessStore()
+  const { agents: localAgents, probeAll, probeAgent } = useLocalAgentStore()
+  // Do NOT subscribe to the whole `sessions` Map — its identity churns on every
+  // streaming event, which would re-render this always-mounted layout (and the
+  // ChatPanel it hosts) on every token. Subscribe instead to a PRIMITIVE
+  // signature that changes only when a per-agent busy/unread flag flips, and to
+  // whether the active session exists; read the Map non-reactively where needed.
+  const activeChatId = useChatStore((s) => s.activeChatId)
+  const hasActiveSession = useChatStore((s) => (s.activeChatId ? s.sessions.has(s.activeChatId) : false))
+  const activeSessionName = useChatStore((s) => (s.activeChatId ? s.sessions.get(s.activeChatId)?.containerName ?? '' : ''))
+  const sessionSig = useChatStore((s) => {
+    let sig = ''
+    for (const x of s.sessions.values()) sig += `${x.containerId} ${x.busy ? 1 : 0} ${x.unread ? 1 : 0}\n`
+    return sig
+  })
+  const openChat = useChatStore((s) => s.openChat)
+  const openSharedChat = useChatStore((s) => s.openSharedChat)
+  // Narrow selectors: the list keeps its identity across polls when nothing changed.
+  const sharingEnabled = useSharedAgentStore((s) => s.enabled)
+  const sharedAgents = useSharedAgentStore((s) => s.agents)
+  const fetchShared = useSharedAgentStore((s) => s.fetch)
+  const leaveShared = useSharedAgentStore((s) => s.leave)
+  const setLayoutMode = useUIStore((s) => s.setLayoutMode)
+  const setView = useUIStore((s) => s.setView)
+  const authEnabled = useAuthStore((s) => s.authEnabled)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+
+  // Agents being powered on or off right now.
+  const [switching, setSwitching] = useState<Set<string>>(() => new Set())
+  const [optionsAgent, setOptionsAgent] = useState<SimpleAgent | null>(null)
+  // Kiosk "New agent" picker.
+  const [archetypeOpen, setArchetypeOpen] = useState(false)
+  // Agents just spawned or powered on: Flight Deck lists one as running the
+  // moment it launches, seconds before its web server binds — a chat opened
+  // then fails. They stay "starting" until they answer.
+  const [booting, setBooting] = useState<Set<string>>(() => new Set())
+  // The one booting agent whose chat opens by itself once it answers: a new
+  // agent always (`force`), a powered-on one only if nothing else is open then.
+  const autoOpen = useRef<{ id: string; force: boolean } | null>(null)
+  const bootTries = useRef(new Map<string, number>())
+  // Kiosk Connections dialog — the full layout's Connections page, which the
+  // lock otherwise puts out of reach.
+  const [connectionsOpen, setConnectionsOpen] = useState(false)
+  // Kiosk Profile dialog — the owner profile every agent of theirs receives.
+  const [profileOpen, setProfileOpen] = useState(false)
+
+  // Keep the agent list fresh — the Desktop page normally does this polling,
+  // and it isn't mounted here. Same auth guard as there: with auth on and no
+  // session yet, every request would only 401.
+  useEffect(() => {
+    if (authEnabled === true && !isAuthenticated) return
+    checkHealth()
+    fetchContainers()
+    fetchProcesses()
+    fetchShared()
+    probeAll()
+    const interval = setInterval(() => { fetchContainers(); fetchProcesses(); fetchShared() }, 10000)
+    return () => clearInterval(interval)
+  }, [checkHealth, fetchContainers, fetchProcesses, fetchShared, probeAll, authEnabled, isAuthenticated])
+
+  const agents: SimpleAgent[] = useMemo(() => {
+    const list: SimpleAgent[] = []
+    for (const c of containers) {
+      const state = dockerState(c.status)
+      list.push({
+        id: c.id, kind: 'docker',
+        name: c.agent_name || c.name,
+        description: dockerDesc[c.id] || c.description || '',
+        state, reachable: state === 'running' && !!c.web_port,
+        host: 'localhost', port: c.web_port ?? 0, auth: c.web_auth || '',
+        startKey: c.id, managed: false,
+      })
+    }
+    for (const p of processes) {
+      const state: AgentState = p.status === 'running' ? 'running' : 'stopped'
+      list.push({
+        id: `proc-${p.slug}`, kind: 'process',
+        name: p.name || p.slug,
+        description: procDesc[p.slug] || p.description || '',
+        state, reachable: state === 'running' && !!p.web_port,
+        host: 'localhost', port: p.web_port, auth: p.web_auth || '',
+        startKey: p.slug, managed: isManagedAgent(p.slug, p.description || ''),
+      })
+    }
+    for (const a of localAgents) {
+      const state: AgentState = a.status === 'online' ? 'running' : a.status === 'offline' ? 'stopped' : 'unknown'
+      list.push({
+        id: a.id, kind: 'local',
+        name: a.name, description: a.description || '',
+        state, reachable: state === 'running',
+        host: a.host, port: a.port, auth: a.authToken || '',
+        startKey: a.id, managed: false,
+      })
+    }
+    // Shared with you: chat only, through Flight Deck — no host, port or token.
+    if (sharingEnabled) {
+      for (const sa of sharedAgents) {
+        const running = sa.status === 'running'
+        list.push({
+          id: sharedContainerId(sa.agent_ref), kind: 'shared',
+          name: sa.name || sa.slug, description: sa.description || '',
+          state: running ? 'running' : 'stopped', reachable: running,
+          host: '', port: 0, auth: '', startKey: '', managed: false,
+          sharedRef: sa.agent_ref, ownerId: sa.owner_id, ownerName: sa.owner_name,
+        })
+      }
+    }
+    list.sort((x, y) => STATE_RANK[x.state] - STATE_RANK[y.state] || x.name.localeCompare(y.name))
+    return list
+  }, [containers, processes, localAgents, dockerDesc, procDesc, sharingEnabled, sharedAgents])
+
+  // Per-agent chat state, folded across lanes: busy if any lane is, unread if
+  // any lane finished something while the user looked elsewhere.
+  const sessionInfo = useMemo(() => {
+    const m = new Map<string, { busy: boolean; unread: boolean }>()
+    for (const s of useChatStore.getState().sessions.values()) {
+      const cur = m.get(s.containerId) ?? { busy: false, unread: false }
+      cur.busy = cur.busy || s.busy
+      cur.unread = cur.unread || !!s.unread
+      m.set(s.containerId, cur)
+    }
+    return m
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionSig])
+
+  const activeAgentId = hasActiveSession ? parseLaneKey(activeChatId!).containerId : null
+  const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : null
+
+  const handleOpen = (a: SimpleAgent) => {
+    // An existing session survives the agent stopping; openChat just
+    // re-activates it (stale host/port are ignored for a known key).
+    if (!a.reachable && !useChatStore.getState().sessions.has(a.id)) return
+    if (a.kind === 'shared') { openSharedChat(a.sharedRef!, a.name, a.ownerName || ''); return }
+    openChat(a.id, a.name, a.host, a.port, a.auth)
+  }
+
+  // Give up an agent somebody shared with you. Its chats close here.
+  const handleLeave = async (a: SimpleAgent) => {
+    if (a.kind !== 'shared' || !a.sharedRef) return
+    const owner = a.ownerName || 'its owner'
+    if (!confirm(`Leave ${a.name}? You'll lose access until ${owner} shares it again.`)) return
+    try {
+      await leaveShared(a.sharedRef, a.ownerId || '')
+    } catch (e) {
+      useNotificationStore.getState().add('error', 'Could not leave agent',
+        `${a.name}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const startBoot = (id: string, force: boolean) => {
+    // A new agent's promise to open is not given up for a power-on.
+    if (force || !autoOpen.current?.force) {
+      autoOpen.current = force || !useChatStore.getState().activeChatId ? { id, force } : autoOpen.current
+    }
+    bootTries.current.delete(id)
+    setBooting((prev) => new Set(prev).add(id))
+  }
+  const endBoot = (id: string) => {
+    if (autoOpen.current?.id === id) autoOpen.current = null
+    bootTries.current.delete(id)
+    setBooting((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
+  }
+
+  // Power an agent on or off — the one switch a kiosk user has over an agent
+  // of theirs (Flight Deck only lets them act on their own). A local agent
+  // isn't ours to start or stop: "on" just checks whether it's back.
+  const handlePower = async (a: SimpleAgent, on: boolean) => {
+    if (!on && a.kind === 'local') return
+    if (!on) {
+      // This tab only knows what ITS open chats show — an agent can be at
+      // work with none of them open — so powering off is always confirmed.
+      const chat = useChatStore.getState()
+      const busy = [...chat.sessions.values()].some((x) => x.containerId === a.id && x.busy)
+      const parks = chat.parkQueues(a.id, true)
+      if (!confirm(
+        (busy ? `${a.name} is working right now. Power it off anyway?` : `Power off ${a.name}?`)
+        + ' Anything it is doing will be interrupted.'
+        + (parks ? ' Its queue will wait — switch Auto back on to continue it.' : ''),
+      )) return
+    }
+    setSwitching((prev) => new Set(prev).add(a.id))
+    // Whether its chat was the one in front — to bring it back if the stop fails.
+    const wasActive = !on && useChatStore.getState().activeChatId != null
+      && parseLaneKey(useChatStore.getState().activeChatId!).containerId === a.id
+    try {
+      if (!on) {
+        endBoot(a.id)
+        // Its chats go first: a session left open reconnects to an agent that
+        // is no longer there and fills with "Connection failed" — already
+        // while the agent is shutting down. The conversation is the agent's;
+        // it comes back when the chat is opened again. A queue on Auto is
+        // parked — on every lane, open here or not: what was interrupted must
+        // not re-run by itself when the chat next connects.
+        const chat = useChatStore.getState()
+        chat.parkQueues(a.id)
+        for (const [key, session] of [...chat.sessions]) {
+          if (session.containerId === a.id) chat.disconnectChat(key)
+        }
+      }
+      if (a.kind === 'docker') await (on ? startContainer : stopContainer)(a.startKey)
+      else if (a.kind === 'process') await (on ? startProcess : stopProcess)(a.startKey)
+      else await probeAgent(a.startKey)
+      if (on && a.kind !== 'local') startBoot(a.id, false)
+      // The list before the switch is released — until then the row still
+      // shows the state the agent just left.
+      if (a.kind === 'docker') await fetchContainers()
+      else if (a.kind === 'process') await fetchProcesses()
+    } catch (e) {
+      useNotificationStore.getState().add('error', on ? 'Could not start agent' : 'Could not stop agent',
+        `${a.name}: ${e instanceof Error ? e.message : String(e)}`)
+      // Still running: its chat comes back (a parked queue stays parked — Auto
+      // is the user's to switch on again).
+      if (wasActive) handleOpen(a)
+    } finally {
+      setSwitching((prev) => { const n = new Set(prev); n.delete(a.id); return n })
+    }
+  }
+
+  const refresh = () => { fetchContainers(); fetchProcesses(); fetchShared(); probeAll() }
+
+  // The full Spawner leaves the chat surface, which the kiosk lock can't — so
+  // there spawning means the archetype picker instead.
+  const goSpawn = () => {
+    if (locked) { setArchetypeOpen(true); return }
+    useChatStore.setState({ chatFullscreen: false }); setLayoutMode('full'); setView('spawner')
+  }
+
+  // Watch the booting agents until each one answers (or ~90s pass), then let
+  // it be opened — and open the one that was promised.
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
+  const bootingRef = useRef(booting)
+  bootingRef.current = booting
+  const anyBooting = booting.size > 0
+  useEffect(() => {
+    if (!anyBooting) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+    const tick = async () => {
+      for (const id of [...bootingRef.current]) {
+        const a = agentsRef.current.find((x) => x.id === id)
+        let up = false
+        if (a?.reachable) {
+          const { token } = useAuthStore.getState()
+          up = await fetch(`/fd/probe?host=${encodeURIComponent(a.host)}&port=${a.port}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: 'include',
+          }).then((r) => (r.ok ? r.json() : null)).then((d) => !!d?.ok).catch(() => false)
+          if (cancelled) return
+        }
+        const tries = (bootTries.current.get(id) ?? 0) + 1
+        bootTries.current.set(id, tries)
+        if (!up && tries < 60) continue
+        const promised = autoOpen.current?.id === id ? autoOpen.current : null
+        endBoot(id)
+        // Whatever the user opened in the meantime stays in front of a
+        // powered-on agent; a newly created one opens as announced.
+        if (up && a && promised && (promised.force || !useChatStore.getState().activeChatId)) handleOpen(a)
+      }
+      if (!cancelled) timer = setTimeout(tick, 1500)
+    }
+    timer = setTimeout(tick, 1500)
+    return () => { cancelled = true; clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyBooting])
+
+  return (
+    <div className="flex h-screen overflow-hidden">
+      <AgentsColumn
+        agents={agents}
+        activeAgentId={activeAgentId}
+        sessionInfo={sessionInfo}
+        switching={switching}
+        booting={booting}
+        onOpen={handleOpen}
+        onPower={handlePower}
+        onLeave={handleLeave}
+        onRefresh={refresh}
+        onSpawn={goSpawn}
+        onOptions={setOptionsAgent}
+        onConnections={locked ? () => setConnectionsOpen(true) : undefined}
+        onProfile={locked ? () => setProfileOpen(true) : undefined}
+        locked={locked}
+      />
+
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden" style={{ minWidth: 320 }}>
+        {hasActiveSession
+          ? <ChatPanel variant="simple" />
+          : <EmptyChat hasAgents={agents.length > 0} onSpawn={goSpawn} locked={locked} />}
+      </main>
+
+      <ContextColumn
+        agentId={activeAgentId}
+        agentName={activeSessionName}
+        onOptions={!locked && activeAgent && activeAgent.kind !== 'shared' ? () => setOptionsAgent(activeAgent) : undefined}
+      />
+
+      {archetypeOpen && (
+        <ArchetypeSpawnDialog
+          takenSlugs={new Set(processes.map((p) => p.slug))}
+          onClose={() => setArchetypeOpen(false)}
+          onSpawned={(slug) => {
+            setArchetypeOpen(false)
+            startBoot(`proc-${slug}`, true)
+            useNotificationStore.getState().add('info', 'Agent starting', `${slug} will open here as soon as it's up.`)
+          }}
+        />
+      )}
+
+      {locked && connectionsOpen && <KioskConnectionsDialog onClose={() => setConnectionsOpen(false)} />}
+      {locked && profileOpen && <KioskProfileDialog onClose={() => setProfileOpen(false)} />}
+
+      {!locked && optionsAgent && optionsAgent.kind !== 'shared' && createPortal(
+        <AgentConfigEditor
+          kind={optionsAgent.kind}
+          identifier={optionsAgent.startKey}
+          agentName={optionsAgent.name}
+          onClose={() => setOptionsAgent(null)}
+        />,
+        document.body,
+      )}
+    </div>
+  )
+}
+
+// ── Kiosk: the Connections page in a dialog ──────────────────────────
+//
+// The same page the full layout shows, minus the deck-setup cards (see
+// ConnectionsPage's `kiosk`), so a kiosk user can link their own Google
+// account and the MCP servers without leaving the chat surface.
+
+function KioskConnectionsDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <KioskDialog label="Connections" onClose={onClose}>
+      <ConnectionsPage kiosk />
+    </KioskDialog>
+  )
+}
+
+// ── Kiosk: the Profile page in a dialog ──────────────────────────────
+//
+// About me / my company / my standing preferences — what every agent working
+// for this user receives. Long-form text, so closing asks before it drops an
+// unsaved edit.
+
+function KioskProfileDialog({ onClose }: { onClose: () => void }) {
+  const dirty = useRef(false)
+  const close = useCallback(() => {
+    if (dirty.current && !window.confirm('Discard your unsaved profile changes?')) return
+    onClose()
+  }, [onClose])
+  return (
+    <KioskDialog label="Profile" onClose={close}>
+      <ProfilePage kiosk onDirtyChange={(d) => { dirty.current = d }} />
+    </KioskDialog>
+  )
+}
+
+function KioskDialog({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label={label}
+        className="relative flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          title="Close"
+          className="absolute right-3 top-3 z-10 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <div className="min-h-0 flex-1">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// ── Left: agents ─────────────────────────────────────────────────────
+
+function AgentsColumn({
+  agents, activeAgentId, sessionInfo, switching, booting, onOpen, onPower, onLeave, onRefresh, onSpawn, onOptions, onConnections, onProfile, locked = false,
+}: {
+  agents: SimpleAgent[]
+  activeAgentId: string | null
+  sessionInfo: Map<string, { busy: boolean; unread: boolean }>
+  switching: Set<string>
+  /** Started moments ago and not answering yet — not openable until they do. */
+  booting: Set<string>
+  onOpen: (a: SimpleAgent) => void
+  /** Power an agent on (or, for a local one, check it again) or off. */
+  onPower: (a: SimpleAgent, on: boolean) => void
+  /** Leave an agent somebody shared with you. */
+  onLeave: (a: SimpleAgent) => void
+  onRefresh: () => void
+  onSpawn: () => void
+  onOptions: (a: SimpleAgent) => void
+  /** Kiosk only: open the Connections dialog. */
+  onConnections?: () => void
+  /** Kiosk only: open the Profile dialog. */
+  onProfile?: () => void
+  locked?: boolean
+}) {
+  const open = useUIStore((s) => s.simpleLeftOpen)
+  const setOpen = useUIStore((s) => s.setSimpleLeftOpen)
+  const setLayoutMode = useUIStore((s) => s.setLayoutMode)
+  const wsConnected = useAgentStore((s) => s.wsConnected)
+  const { authEnabled, user: authUser, signingOut } = useAuthStore()
+  const { theme, toggle: toggleTheme } = useThemeStore()
+  const width = usePersistedSize('fd:simple-left-width', 260, 200, 440, 'x')
+  const [search, setSearch] = useState('')
+  // The search box only renders past a threshold; gate the filter on the SAME
+  // condition so a stale query can't strand the list once the box is gone.
+  const searchable = agents.length > 6
+
+  const shown = useMemo(() => {
+    const q = searchable ? search.trim().toLowerCase() : ''
+    if (!q) return agents
+    return agents.filter((a) => a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q))
+  }, [agents, search, searchable])
+
+  // ── Collapsed rail ──
+  if (!open) {
+    return (
+      <aside className="flex w-14 shrink-0 flex-col border-r border-zinc-800 bg-zinc-900/50">
+        <div className="flex flex-col items-center gap-0.5 border-b border-zinc-800 py-2">
+          <button onClick={() => setOpen(true)} className={iconBtn} title="Show agents">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          {!locked && (
+            <button onClick={() => setLayoutMode('full')} className={iconBtn} title="Full view — all pages and panels">
+              <LayoutDashboard className="h-4 w-4" />
+            </button>
+          )}
+          {/* Bell lives at the TOP so its downward dropdown isn't clipped by
+              the h-screen overflow-hidden root when the rail is collapsed. */}
+          <NotificationBell align="left" />
+        </div>
+        <div className="flex flex-1 flex-col items-center gap-1.5 overflow-y-auto py-2">
+          {agents.map((a) => {
+            const info = sessionInfo.get(a.id)
+            const active = a.id === activeAgentId
+            const hasChat = sessionInfo.has(a.id)
+            const isBooting = booting.has(a.id) && a.state !== 'stopped'
+            const openable = !switching.has(a.id) && ((a.reachable && !isBooting) || hasChat)
+            const canStart = a.kind === 'local' ? a.state !== 'running' && !locked
+              : a.kind !== 'shared' && a.state === 'stopped' && !a.managed
+            const railStart = canStart && !switching.has(a.id)
+            return (
+              <button
+                key={a.id}
+                onClick={() => openable ? onOpen(a) : railStart ? onPower(a, true) : undefined}
+                aria-disabled={!openable && !railStart}
+                title={openable
+                  ? `Chat with ${a.name}`
+                  : railStart
+                    ? `${a.name} — ${stateLabel(a)} · click to ${a.kind === 'local' ? 'check again' : 'start'}`
+                    : `${a.name} — ${isBooting ? 'Starting…' : stateLabel(a)}`}
+                className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold transition-colors ${
+                  active
+                    ? 'bg-violet-600/20 text-violet-300 ring-1 ring-violet-500/40'
+                    : openable
+                      ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                      : 'bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                {switching.has(a.id) || isBooting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : initials(a.name)}
+                <StateDot agent={a} className="absolute -bottom-0.5 -right-0.5 ring-2 ring-zinc-900" />
+                {info?.busy && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-amber-500 ring-2 ring-zinc-900 dark:bg-amber-400" />
+                )}
+                {info?.unread && !active && !info.busy && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-sky-400 ring-2 ring-zinc-900" />
+                )}
+              </button>
+            )
+          })}
+          <button onClick={onSpawn} className={`${iconBtn} mt-1`} title={locked ? 'New agent from an archetype' : 'Spawn a new agent'}>
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-col items-center gap-0.5 border-t border-zinc-800 py-2">
+          <button onClick={toggleTheme} className={iconBtn} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+            {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          </button>
+          <button onClick={onRefresh} className={iconBtn} title="Refresh agents">
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+          {onConnections && (
+            <button onClick={onConnections} className={iconBtn} title="Connections — Google and MCP">
+              <Plug className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onProfile && (
+            <button onClick={onProfile} className={iconBtn} title="Profile — about you, your company, your preferences">
+              <IdCard className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {/* Sign-out stays in the kiosk lock too — it's how a shared kiosk
+              hands the screen to the next person. */}
+          {authEnabled && authUser && (
+            <button onClick={logoutUser} disabled={signingOut} className={iconBtn} title={signingOut ? 'Signing out…' : `Sign out ${authUser.display_name || authUser.email}`}>
+              {signingOut ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
+            </button>
+          )}
+        </div>
+      </aside>
+    )
+  }
+
+  // ── Expanded column ──
+  return (
+    <aside
+      className="relative flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-900/50"
+      style={{ width: width.size }}
+    >
+      {/* Header */}
+      <div className="flex h-14 items-center justify-between border-b border-zinc-800 px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Radio className={`h-4 w-4 shrink-0 ${wsConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-600'}`} />
+          <div className="min-w-0">
+            <span className="text-sm font-semibold tracking-tight">Flight Deck</span>
+            <div className="text-[9px] leading-none text-zinc-600">v{APP_VERSION} &middot; {BUILD_DATE}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-0.5">
+          <NotificationBell align="left" />
+          {!locked && (
+            <button onClick={() => setLayoutMode('full')} className={iconBtn} title="Full view — all pages and panels">
+              <LayoutDashboard className="h-4 w-4" />
+            </button>
+          )}
+          <button onClick={() => setOpen(false)} className={iconBtn} title="Hide agents">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* List header */}
+      <div className="flex items-center justify-between px-3 pt-3 pb-1">
+        <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          Agents ({agents.length})
+        </span>
+        <button onClick={onSpawn} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300" title={locked ? 'New agent from an archetype' : 'Spawn a new agent'}>
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Search (only once the list is long enough to need it) */}
+      {searchable && (
+        <div className="px-2 pb-1.5">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-zinc-600" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search agents…"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-950 py-1 pl-7 pr-2 text-[11px] text-zinc-200 placeholder-zinc-600 focus:border-violet-500/60 focus:outline-none"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Agents */}
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
+        {agents.length === 0 && (
+          <p className="px-2.5 py-6 text-center text-xs text-zinc-600">No agents yet.</p>
+        )}
+        {agents.length > 0 && shown.length === 0 && (
+          <p className="px-2.5 py-6 text-center text-xs text-zinc-600">No agents match your search.</p>
+        )}
+        <ul className="flex flex-col gap-0.5">
+          {shown.map((a) => {
+            const info = sessionInfo.get(a.id)
+            const active = a.id === activeAgentId
+            const busy = !!info?.busy
+            const KindIcon = a.kind === 'docker' ? Box : a.kind === 'process' ? Cpu : a.kind === 'shared' ? Users : Server
+            const shared = a.kind === 'shared'
+            const hasChat = sessionInfo.has(a.id)
+            const isBooting = booting.has(a.id) && a.state !== 'stopped'
+            const working = switching.has(a.id)
+            const openable = !working && ((a.reachable && !isBooting) || hasChat)
+            // A power switch for the agents Flight Deck runs; a local one can
+            // only be checked again (and not from the kiosk).
+            const powered = a.state === 'running'
+            const canPower = a.kind !== 'local' && !shared && !a.managed && (powered || a.state === 'stopped')
+            const canRecheck = a.kind === 'local' && a.state !== 'running' && !locked
+            return (
+              <li key={a.id} className="group flex items-center gap-0.5">
+                <button
+                  onClick={() => onOpen(a)}
+                  disabled={!openable}
+                  title={openable ? `Chat with ${a.name}` : `${a.name} — ${isBooting ? 'Starting…' : stateLabel(a)}`}
+                  className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                    active
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : busy
+                        ? 'bg-amber-500/10 text-zinc-100 hover:bg-amber-500/20'
+                        : openable
+                          ? 'text-zinc-300 hover:bg-zinc-800/50 hover:text-zinc-100'
+                          : 'text-zinc-500'
+                  }`}
+                >
+                  <StateDot agent={a} className="shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="min-w-0 truncate font-medium">{a.name}</span>
+                      {busy && (
+                        <span
+                          className="flex shrink-0 items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-700 dark:text-amber-400"
+                          title="Working"
+                        >
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 dark:bg-amber-400" />
+                          Busy
+                        </span>
+                      )}
+                      {info?.unread && !active && !busy && (
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" title="New reply" />
+                      )}
+                      {shared && (
+                        <span
+                          className="flex shrink-0 items-center gap-0.5 rounded border border-sky-500/25 bg-sky-500/15 px-1 py-0.5 text-[9px] font-medium leading-none text-sky-700 dark:text-sky-300"
+                          title={`Shared by ${a.ownerName || 'another user'}`}
+                        >
+                          <Users className="h-2.5 w-2.5" />shared
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate text-[11px] text-zinc-500">
+                      {isBooting
+                        ? 'Starting…'
+                        : shared && a.state === 'running'
+                          ? `Shared by ${a.ownerName || 'another user'}`
+                          : a.state === 'running' && a.reachable && a.description ? a.description : stateLabel(a)}
+                    </div>
+                  </div>
+                  <KindIcon className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
+                </button>
+                {!locked && !shared && (
+                  <button
+                    onClick={() => onOptions(a)}
+                    title={`Options — ${a.name}`}
+                    className="shrink-0 rounded p-1.5 text-zinc-500 opacity-0 transition-colors hover:bg-zinc-800 hover:text-zinc-200 focus:opacity-100 group-hover:opacity-100"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {canPower && (
+                  <button
+                    onClick={() => onPower(a, !powered)}
+                    disabled={working}
+                    role="switch"
+                    aria-checked={powered}
+                    aria-label={`${a.name} power`}
+                    title={working ? (powered ? 'Powering off…' : 'Powering on…') : powered ? `Power off ${a.name}` : `Power on ${a.name}`}
+                    className={`shrink-0 rounded p-1.5 transition-colors hover:bg-zinc-800 disabled:opacity-60 ${
+                      powered
+                        ? 'text-emerald-600 hover:text-red-600 dark:text-emerald-400 dark:hover:text-red-400'
+                        : 'text-zinc-500 hover:text-emerald-600 dark:hover:text-emerald-400'
+                    }`}
+                  >
+                    {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
+                  </button>
+                )}
+                {shared && (
+                  <button
+                    onClick={() => onLeave(a)}
+                    title={`Leave ${a.name}`}
+                    aria-label={`Leave ${a.name}`}
+                    className="shrink-0 rounded p-1.5 text-zinc-500 opacity-0 transition-colors hover:bg-zinc-800 hover:text-red-600 focus:opacity-100 group-hover:opacity-100 dark:hover:text-red-400"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {canRecheck && (
+                  <button
+                    onClick={() => onPower(a, true)}
+                    disabled={working}
+                    title="Check again"
+                    className="shrink-0 rounded p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-emerald-600 dark:hover:text-emerald-400 disabled:opacity-60"
+                  >
+                    {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between gap-2 border-t border-zinc-800 px-2 py-1.5">
+        <div className="flex items-center gap-0.5">
+          <button onClick={toggleTheme} className={iconBtn} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
+            {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          </button>
+          <button onClick={onRefresh} className={iconBtn} title="Refresh agents">
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+          {onConnections && (
+            <button onClick={onConnections} className={iconBtn} title="Connections — Google and MCP">
+              <Plug className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {onProfile && (
+            <button onClick={onProfile} className={iconBtn} title="Profile — about you, your company, your preferences">
+              <IdCard className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {authEnabled && authUser && (
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-xs text-zinc-500">{authUser.display_name || authUser.email}</span>
+            <button onClick={logoutUser} disabled={signingOut} className={iconBtn} title={signingOut ? 'Signing out…' : 'Sign out'}>
+              {signingOut ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Right edge: drag to resize */}
+      <div
+        onMouseDown={width.onResizeStart}
+        title="Drag to resize"
+        className="absolute right-0 top-0 z-20 h-full w-1.5 cursor-col-resize transition-colors hover:bg-violet-500/30 active:bg-violet-500/40"
+      />
+    </aside>
+  )
+}
+
+function StateDot({ agent, className = '' }: { agent: SimpleAgent; className?: string }) {
+  const cls = agent.state === 'running'
+    ? (agent.reachable ? 'bg-emerald-600 dark:bg-emerald-400' : 'bg-amber-500 dark:bg-amber-400')
+    : agent.state === 'starting'
+      ? 'animate-pulse bg-amber-400'
+      : agent.state === 'unknown'
+        ? 'bg-zinc-500'
+        : 'bg-zinc-600'
+  return <span className={`h-2 w-2 rounded-full ${cls} ${className}`} />
+}
+
+// ── Centre: nothing open yet ─────────────────────────────────────────
+
+function EmptyChat({ hasAgents, onSpawn, locked = false }: { hasAgents: boolean; onSpawn: () => void; locked?: boolean }) {
+  return (
+    <div className="flex h-full items-center justify-center bg-zinc-950/80 p-6">
+      <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-violet-600/20 text-violet-400">
+          <MessagesSquare className="h-6 w-6" />
+        </div>
+        <h2 className="mb-1.5 text-lg font-semibold text-zinc-100">
+          {hasAgents ? 'Pick an agent' : 'No agents available'}
+        </h2>
+        <p className="text-sm text-zinc-400">
+          {hasAgents
+            ? 'Choose an agent on the left to start a conversation. Its files and data show up on the right.'
+            : locked
+              ? 'Create an agent from an archetype to start chatting.'
+              : 'Spawn your first agent to start chatting.'}
+        </p>
+        {!hasAgents && (
+          <button
+            onClick={onSpawn}
+            className="mt-6 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500"
+          >
+            {locked ? 'New agent' : 'Spawn an agent'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Right: files + datastore of the active agent ─────────────────────
+
+function ContextColumn({ agentId, agentName, onOptions }: { agentId: string | null; agentName: string; onOptions?: () => void }) {
+  // A shared agent: on a process agent, on a deck that serves them, the
+  // member's commons panels (the agent's saved/ files and datastore, read
+  // through Flight Deck's member routes); otherwise chat only — a Docker
+  // agent, an older Flight Deck.
+  const shared = !!agentId && agentId.startsWith(SHARED_PREFIX)
+  const memberWorkspace = useSharedAgentStore((s) => s.memberWorkspace)
+  const sharedRow = useSharedAgentStore((s) =>
+    shared ? s.agents.find((a) => sharedContainerId(a.agent_ref) === agentId) : undefined)
+  const vis = workspaceVisible(memberWorkspace, sharedCaps(sharedRow))
+  const open = useUIStore((s) => s.simpleRightOpen)
+  const setOpen = useUIStore((s) => s.setSimpleRightOpen)
+  // The handle is on the LEFT edge of a right-docked column, so dragging left
+  // makes it wider.
+  const width = usePersistedSize('fd:simple-right-width', 320, 240, 640, 'x', 'backward')
+  // Measure the height available to the files+datastore split so the files
+  // pane can never be taller than (region − a datastore minimum).
+  const regionRef = useRef<HTMLDivElement>(null)
+  const [regionH, setRegionH] = useState(0)
+  // Which region is mounted (own split, a member's panels, chat-only): the
+  // observer follows it when the chat or the member panels change.
+  const region = !agentId ? '' : !shared ? 'own' : sharedRow && (vis.files || vis.datastore) ? 'member' : 'chat'
+  useEffect(() => {
+    const el = regionRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setRegionH(el.clientHeight))
+    ro.observe(el)
+    setRegionH(el.clientHeight)
+    return () => ro.disconnect()
+  }, [open, region])
+  const DATASTORE_MIN = 140
+  const filesLiveMax = regionH > 0 ? Math.max(120, regionH - DATASTORE_MIN) : undefined
+  const filesH = usePersistedSize('fd:simple-right-files-height', 360, 120, 1400, 'y', 'forward', filesLiveMax)
+
+  if (!open) {
+    return (
+      <aside className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-l border-zinc-800 bg-zinc-900/50 py-2">
+        <button onClick={() => setOpen(true)} className={iconBtn} title="Show files and data">
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        {onOptions && (
+          <button onClick={onOptions} className={iconBtn} title="Agent options">
+            <Settings className="h-4 w-4" />
+          </button>
+        )}
+        <button onClick={() => setOpen(true)} className={iconBtn} title="Files">
+          <FolderOpen className="h-4 w-4 text-violet-400" />
+        </button>
+        <button onClick={() => setOpen(true)} className={iconBtn} title="Datastore">
+          <Database className="h-4 w-4 text-emerald-400" />
+        </button>
+      </aside>
+    )
+  }
+
+  return (
+    <aside
+      className="relative flex shrink-0 flex-col border-l border-zinc-800 bg-zinc-950/40"
+      style={{ width: width.size }}
+    >
+      {/* Left edge: drag to resize */}
+      <div
+        onMouseDown={width.onResizeStart}
+        title="Drag to resize"
+        className="absolute left-0 top-0 z-20 h-full w-1.5 cursor-col-resize transition-colors hover:bg-violet-500/30 active:bg-violet-500/40"
+      />
+
+      {/* Header */}
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-zinc-800 px-3">
+        <span className="min-w-0 truncate text-xs font-medium text-zinc-400" title={agentName || undefined}>
+          {agentId ? agentName : 'Files & data'}
+        </span>
+        <div className="flex items-center gap-0.5">
+          {onOptions && (
+            <button onClick={onOptions} className={iconBtn} title="Agent options">
+              <Settings className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button onClick={() => setOpen(false)} className={iconBtn} title="Hide files and data">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {agentId && shared && sharedRow && (vis.files || vis.datastore) ? (
+        <div ref={regionRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {vis.files && vis.datastore ? (
+            <>
+              {/* Same split as the owner's: files on top, datastore below. */}
+              <div className="min-h-[120px] overflow-hidden" style={{ height: filesH.size }}>
+                <SharedFilesPanel
+                  key={agentId}
+                  agentRef={sharedRow.agent_ref}
+                  agentName={agentName}
+                  ownerName={sharedRow.owner_name || sharedRow.owner_email}
+                />
+              </div>
+              <div
+                onMouseDown={filesH.onResizeStart}
+                title="Drag to resize"
+                className="h-1 shrink-0 cursor-row-resize border-y border-zinc-800 bg-zinc-900 transition-colors hover:bg-violet-500/40"
+              />
+              <div className="min-h-[120px] flex-1 overflow-hidden">
+                <SharedDatastorePanel
+                  key={agentId}
+                  agentRef={sharedRow.agent_ref}
+                  agentName={agentName}
+                  ownerName={sharedRow.owner_name || sharedRow.owner_email}
+                />
+              </div>
+            </>
+          ) : vis.files ? (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <SharedFilesPanel
+                key={agentId}
+                agentRef={sharedRow.agent_ref}
+                agentName={agentName}
+                ownerName={sharedRow.owner_name || sharedRow.owner_email}
+              />
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <SharedDatastorePanel
+                key={agentId}
+                agentRef={sharedRow.agent_ref}
+                agentName={agentName}
+                ownerName={sharedRow.owner_name || sharedRow.owner_email}
+              />
+            </div>
+          )}
+        </div>
+      ) : agentId && shared ? (
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-zinc-500">
+          {CHAT_ONLY_TEXT}
+        </div>
+      ) : agentId ? (
+        <div ref={regionRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* Top: files. Shrinkable with a floor so a stale oversized height
+              can't push the datastore off-screen. */}
+          <div className="min-h-[120px] overflow-hidden" style={{ height: filesH.size }}>
+            <AgentFilesPanel key={agentId} containerId={agentId} />
+          </div>
+          {/* Divider (drag to resize files vs datastore) */}
+          <div
+            onMouseDown={filesH.onResizeStart}
+            title="Drag to resize"
+            className="h-1 shrink-0 cursor-row-resize border-y border-zinc-800 bg-zinc-900 transition-colors hover:bg-violet-500/40"
+          />
+          {/* Bottom: datastore tables — keeps a floor so it never hits 0. */}
+          <div className="min-h-[120px] flex-1 overflow-hidden">
+            <AgentDatastorePanel key={agentId} containerId={agentId} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-zinc-500">
+          Open a chat to see that agent's files and datastore here.
+        </div>
+      )}
+    </aside>
+  )
+}

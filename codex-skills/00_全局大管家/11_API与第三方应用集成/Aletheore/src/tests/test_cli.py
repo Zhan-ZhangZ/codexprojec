@@ -1,0 +1,3142 @@
+import json
+import subprocess
+import sys
+import time
+import tomllib
+import urllib.error
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import httpx
+import pytest
+import typer.main
+from typer.testing import CliRunner
+
+from aletheore.cli import (
+    QUERY_KIND_CHOICES,
+    QUERY_KIND_GROUPS,
+    _resolve_path,
+    _aletheore_command,
+    _claude_desktop_config_path,
+    _claude_desktop_server_name,
+    _ElapsedTicker,
+    _MCP_CLIENT_CONFIGS,
+    _make_progress_printer,
+    _opencode_entry,
+    _print_query_result,
+    _stdio_entry,
+    _write_config_file_no_symlink_follow,
+    _write_json_mcp_client_config,
+    _write_toml_mcp_client_config,
+    app,
+)
+from aletheore.device_auth import DeviceFlowError
+from aletheore.preferences import is_crash_reporting_enabled, set_crash_reporting_enabled
+from aletheore.evidence import EVIDENCE_VERSION
+from aletheore.query import QUERY_FUNCTIONS
+from aletheore.git_intel.analyzer import GIT_ANALYSIS_RESOURCE_EXIT_CODE, GitAnalysisError
+from tests.air_fixtures import minimal_air_evidence
+from aletheore.report import (
+    AmbiguousAdapterError,
+    NoAdapterAvailableError,
+    build_instruction,
+    run_reasoning_phase,
+    select_adapter,
+)
+
+runner = CliRunner()
+
+
+def test_print_query_result_falls_back_to_json_on_encoding_failure(capsys, monkeypatch):
+    from aletheore.toon_encoding import ToonEncodingError
+
+    def _boom(_data):
+        raise ToonEncodingError("simulated failure")
+
+    monkeypatch.setattr("aletheore.cli.to_toon", _boom)
+
+    _print_query_result({"symbols": ["a", "b"]})
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "falling back to JSON" in combined
+    assert '"symbols"' in combined
+    assert '"a"' in combined
+    assert '"b"' in combined
+
+
+def test_importing_cli_does_not_eagerly_load_heavy_dependencies():
+    # dashboard/mcp_server/search_index pull in lancedb+pyarrow+pandas+mcp+jsonschema -
+    # importing aletheore.cli must not drag that stack in for every single command
+    # (scan, audit, query, --help, ...), only for the specific commands that need it
+    # (dashboard, mcp, query answer/search-codebase). Run in a fresh subprocess since
+    # other test modules in this same pytest session may have already imported these
+    # heavy modules, which would make an in-process check meaningless.
+    result = subprocess.run(
+        [sys.executable, "-c", "import aletheore.cli; import sys; print('lancedb' in sys.modules)"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
+
+
+def make_adapter(name: str, available: bool):
+    adapter = MagicMock()
+    adapter.name = name
+    adapter.is_available.return_value = available
+    return adapter
+
+
+def test_select_adapter_returns_only_available_one():
+    a = make_adapter("claude", True)
+    b = make_adapter("cursor", False)
+    with patch("builtins.input", return_value="1"):
+        result = select_adapter([a, b], forced_name=None, interactive=True)
+    assert result is a
+
+
+def test_select_adapter_raises_when_none_available():
+    a = make_adapter("claude", False)
+    with pytest.raises(NoAdapterAvailableError):
+        select_adapter([a], forced_name=None, interactive=False)
+
+
+def test_select_adapter_raises_when_multiple_and_not_interactive_and_no_flag():
+    a = make_adapter("claude", True)
+    b = make_adapter("cursor", True)
+    with pytest.raises(AmbiguousAdapterError):
+        select_adapter([a, b], forced_name=None, interactive=False)
+
+
+def test_select_adapter_always_prompts_interactively_even_with_one_available():
+    a = make_adapter("claude", True)
+    with patch("builtins.input", return_value="1") as mock_input:
+        result = select_adapter([a], forced_name=None, interactive=True)
+    assert result is a
+    mock_input.assert_called_once()
+
+
+def test_select_adapter_raises_when_not_interactive_even_with_one_available():
+    a = make_adapter("claude", True)
+    with pytest.raises(AmbiguousAdapterError):
+        select_adapter([a], forced_name=None, interactive=False)
+
+
+def test_select_adapter_honors_forced_name():
+    a = make_adapter("claude", True)
+    b = make_adapter("cursor", True)
+    result = select_adapter([a, b], forced_name="cursor", interactive=False)
+    assert result is b
+
+
+def test_select_adapter_reprompts_on_non_numeric_input():
+    # Real bug found via audit: a non-numeric answer raised a raw
+    # ValueError from int(choice), uncaught by this function's only
+    # caller (cli.py only catches NoAdapterAvailableError/
+    # AmbiguousAdapterError) - a mistyped answer crashed the whole
+    # command with an unhandled traceback instead of a clean re-prompt.
+    a = make_adapter("claude", True)
+    b = make_adapter("cursor", True)
+    with patch("builtins.input", side_effect=["not a number", "2"]):
+        result = select_adapter([a, b], forced_name=None, interactive=True)
+    assert result is b
+
+
+def test_select_adapter_reprompts_on_out_of_range_choice():
+    # Same bug, the out-of-range half: an IndexError from the list access,
+    # equally uncaught by the only caller.
+    a = make_adapter("claude", True)
+    b = make_adapter("cursor", True)
+    with patch("builtins.input", side_effect=["99", "0", "1"]):
+        result = select_adapter([a, b], forced_name=None, interactive=True)
+    assert result is a
+
+
+def test_select_adapter_raises_after_repeated_invalid_input():
+    a = make_adapter("claude", True)
+    with patch("builtins.input", return_value="not a number"):
+        with pytest.raises(NoAdapterAvailableError):
+            select_adapter([a], forced_name=None, interactive=True)
+
+
+def test_build_instruction_references_manual_and_evidence():
+    instruction = build_instruction(manual_dir="manual")
+    assert "manual" in instruction
+    assert ".aletheore/air.toon" in instruction
+
+
+def test_run_reasoning_phase_writes_report(tmp_path):
+    repo = tmp_path
+    (repo / ".aletheore").mkdir()
+    (repo / ".aletheore" / "air.json").write_text("{}")
+
+    adapter = MagicMock()
+    adapter.invoke.return_value = "# Audit Report\n\nfindings here\n"
+
+    report_path = run_reasoning_phase(adapter, repo_path=str(repo), manual_dir="manual")
+
+    written = Path(report_path)
+    assert written == repo / ".aletheore" / "audit-report.md"
+    # The agent never wrote the file itself (only mtime-checked, and this
+    # MagicMock's invoke() has no side effect), so the fallback path applies
+    # and prepends a provenance notice ahead of the agent's raw output.
+    content = written.read_text()
+    assert content.startswith("> **Note:**")
+    assert content.endswith("# Audit Report\n\nfindings here\n")
+    adapter.invoke.assert_called_once()
+
+
+def test_run_reasoning_phase_does_not_clobber_report_the_agent_wrote_itself(tmp_path):
+    repo = tmp_path
+    (repo / ".aletheore").mkdir()
+    (repo / ".aletheore" / "air.json").write_text("{}")
+    report_file = repo / ".aletheore" / "audit-report.md"
+
+    def fake_invoke(instruction, cwd):
+        # Simulate an agent (e.g. Claude Code with tool access) that writes
+        # the report itself via its own file tools, per the instruction, and
+        # only returns a short wrap-up message as its actual return value -
+        # not the report content.
+        report_file.write_text("# Real Audit Report\n\nreal findings here\n")
+        return "I read the manual and evidence, then wrote the audit report."
+
+    adapter = MagicMock()
+    adapter.invoke.side_effect = fake_invoke
+
+    report_path = run_reasoning_phase(adapter, repo_path=str(repo), manual_dir="manual")
+
+    written = Path(report_path)
+    assert written.read_text() == "# Real Audit Report\n\nreal findings here\n"
+
+
+def test_main_with_no_command_shows_banner_and_exits_cleanly():
+    with patch("aletheore.cli._check_for_update", return_value="up to date"):
+        result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "ALETHEORE" in result.output
+    assert "scan" in result.output and "audit" in result.output
+
+
+def test_main_with_no_command_shows_support_contact():
+    with patch("aletheore.cli._check_for_update", return_value="up to date"):
+        result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "support@aletheore.com" in result.output
+
+
+def test_main_pins_stdout_and_stderr_to_utf8_before_running_the_cli(monkeypatch):
+    # Real risk, same root cause as the file-I/O encoding fixes elsewhere in
+    # this codebase (see test_evidence.py): PEP 528 forces UTF-8 for
+    # Windows' literal interactive console since Python 3.6, but that
+    # guarantee doesn't extend to redirected/piped stdout
+    # (`aletheore scan > out.txt`) - those still fall back to the OS's
+    # legacy locale-default codepage. This CLI's dozens of print()/
+    # console.print() calls can carry non-ASCII, repo-derived content
+    # (file paths, commit metadata, exception messages), so main() pins
+    # both streams to UTF-8 once, before app() runs.
+    from aletheore.cli import main
+
+    reconfigure_calls = []
+
+    class _FakeStream:
+        def reconfigure(self, **kwargs):
+            reconfigure_calls.append(kwargs)
+
+    monkeypatch.setattr("aletheore.cli.sys.stdout", _FakeStream())
+    monkeypatch.setattr("aletheore.cli.sys.stderr", _FakeStream())
+    monkeypatch.setattr("aletheore.cli.app", lambda: None)
+    # Unrelated to this test's concern (stream encoding) - without this,
+    # main()'s new first-run crash-reporting notice tries to console.print
+    # to the fake stream above, which has no .write().
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+
+    main()
+
+    assert reconfigure_calls == [
+        {"encoding": "utf-8", "errors": "backslashreplace"},
+        {"encoding": "utf-8", "errors": "backslashreplace"},
+    ]
+
+
+def test_main_tolerates_a_stdout_stream_with_no_reconfigure_method(monkeypatch):
+    # pytest's own capture, some CI runners, and frozen/embedded
+    # interpreters can replace sys.stdout/stderr with a stream that has no
+    # reconfigure() (added to TextIOWrapper in Python 3.7) - main() must
+    # not crash the CLI on startup just because encoding-pinning isn't
+    # available in that environment.
+    from aletheore.cli import main
+
+    class _StreamWithNoReconfigure:
+        pass
+
+    monkeypatch.setattr("aletheore.cli.sys.stdout", _StreamWithNoReconfigure())
+    monkeypatch.setattr("aletheore.cli.sys.stderr", _StreamWithNoReconfigure())
+    monkeypatch.setattr("aletheore.cli.app", lambda: None)
+    # Unrelated to this test's concern (stream encoding) - without this,
+    # main()'s new first-run crash-reporting notice tries to console.print
+    # to the fake stream above, which has no .write().
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+
+    main()  # must not raise
+
+
+def test_main_initializes_cli_sentry_before_running_the_cli(monkeypatch):
+    from aletheore.cli import main
+
+    calls = []
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: calls.append("init"))
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+    monkeypatch.setattr("aletheore.cli.app", lambda: calls.append("app"))
+
+    main()
+
+    assert calls == ["init", "app"]
+
+
+def test_main_prints_first_run_notice_once(monkeypatch):
+    from aletheore.cli import main
+
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: None)
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: False)
+    marked = []
+    monkeypatch.setattr(
+        "aletheore.cli.mark_crash_reporting_notice_shown", lambda: marked.append(True)
+    )
+    monkeypatch.setattr("aletheore.cli.app", lambda: None)
+
+    main()
+
+    assert marked == [True]
+
+
+def test_main_omits_first_run_notice_when_already_shown(monkeypatch, capsys):
+    from aletheore.cli import main
+
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: None)
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+    monkeypatch.setattr("aletheore.cli.app", lambda: None)
+
+    main()
+
+    output = capsys.readouterr()
+    assert "crashes" not in output.out
+    assert "crashes" not in output.err
+
+
+def test_main_first_run_notice_goes_to_stderr_not_stdout(monkeypatch, capsys):
+    from aletheore.cli import main
+
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: None)
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: False)
+    monkeypatch.setattr("aletheore.cli.mark_crash_reporting_notice_shown", lambda: None)
+    monkeypatch.setattr("aletheore.cli.app", lambda: None)
+
+    main()
+
+    output = capsys.readouterr()
+    assert "crashes" not in output.out
+    assert "crashes" in output.err
+    # Product decision (2026-10-08): the first-run disclosure must say
+    # explicitly that only crashes - not general usage - are ever
+    # monitored, closing the privacy-stance tension the backward PR audit
+    # of #915-977 flagged on PR #961.
+    assert "crashes only" in output.err
+
+
+def test_main_reports_an_unhandled_exception_to_sentry_and_reraises(monkeypatch, capsys):
+    from aletheore.cli import main
+
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: None)
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+    monkeypatch.setattr("aletheore.cli.is_crash_reporting_enabled", lambda: True)
+
+    def _boom():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("aletheore.cli.app", _boom)
+    captured = []
+    monkeypatch.setattr(
+        "aletheore.cli.sentry_sdk.capture_exception", lambda exc: captured.append(exc)
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        main()
+
+    assert len(captured) == 1
+    output = capsys.readouterr()
+    # Final-review finding: `aletheore mcp` uses stdout as a JSON-RPC
+    # protocol channel, and `diff`/`--format sarif` output is often
+    # redirected or piped - an unrelated crash-reporting line on stdout
+    # would corrupt either. Must go to stderr.
+    assert "This crash report" not in output.out
+    assert "This crash report" in output.err
+    # Product decision (2026-10-08): the per-crash disclosure must say what
+    # a report contains and that no usage data is collected. It must not
+    # claim "no other data": the event also carries the exception message
+    # and breadcrumbs (home directory redacted), not just the stack trace.
+    assert "stack trace" in output.err
+    assert "No usage data is collected" in output.err
+    assert "no other data" not in output.err
+
+
+def test_main_does_not_report_when_crash_reporting_is_disabled(monkeypatch):
+    from aletheore.cli import main
+
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: None)
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+    monkeypatch.setattr("aletheore.cli.is_crash_reporting_enabled", lambda: False)
+    monkeypatch.setattr(
+        "aletheore.cli.app", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    captured = []
+    monkeypatch.setattr(
+        "aletheore.cli.sentry_sdk.capture_exception", lambda exc: captured.append(exc)
+    )
+
+    with pytest.raises(RuntimeError):
+        main()
+
+    assert captured == []
+
+
+def test_main_does_not_report_keyboard_interrupt(monkeypatch):
+    from aletheore.cli import main
+
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: None)
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+    monkeypatch.setattr(
+        "aletheore.cli.app", lambda: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
+    captured = []
+    monkeypatch.setattr(
+        "aletheore.cli.sentry_sdk.capture_exception", lambda exc: captured.append(exc)
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        main()
+
+    assert captured == []
+
+
+def test_main_does_not_crash_when_sentry_capture_itself_raises(monkeypatch, capsys):
+    from aletheore.cli import main
+
+    monkeypatch.setattr("aletheore.cli.init_cli_sentry", lambda: None)
+    monkeypatch.setattr("aletheore.cli.has_shown_crash_reporting_notice", lambda: True)
+    monkeypatch.setattr("aletheore.cli.is_crash_reporting_enabled", lambda: True)
+    monkeypatch.setattr(
+        "aletheore.cli.app", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+
+    def _broken_capture(exc):
+        raise OSError("sentry transport unavailable")
+
+    monkeypatch.setattr("aletheore.cli.sentry_sdk.capture_exception", _broken_capture)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        main()
+
+    # Aletheore's own Deterministic Scan flagged the prior bare
+    # `except Exception: pass` here (cli.py's real self-dogfooding catch,
+    # same class of finding ast_pattern.py already fixed once for this
+    # exact pattern) - a failure in the capture path itself must be
+    # visible, not silently invisible, even though it's diagnostic-only
+    # and the real exception still propagates unchanged.
+    assert "could not report this crash" in capsys.readouterr().err
+
+
+def test_main_with_no_command_prints_update_notice_when_available():
+    with patch("aletheore.cli._check_for_update", return_value="update available: 9.9.9"):
+        result = runner.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Update available" in result.output
+    assert "9.9.9" in result.output
+    assert "pipx upgrade aletheore" in result.output
+
+
+def test_main_with_no_command_omits_update_notice_when_up_to_date():
+    with patch("aletheore.cli._check_for_update", return_value="up to date"):
+        result = runner.invoke(app, [])
+
+    assert "Update available" not in result.output
+
+
+def test_main_with_no_command_omits_update_notice_when_check_fails():
+    with patch("aletheore.cli._check_for_update", return_value="couldn't check for updates"):
+        result = runner.invoke(app, [])
+
+    assert "Update available" not in result.output
+
+
+def test_version_flag_prints_version_and_exits():
+    import importlib.metadata
+
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert importlib.metadata.version("aletheore") in result.stdout
+
+
+def test_main_unknown_command_still_errors():
+    result = runner.invoke(app, ["bogus-command"])
+    assert result.exit_code != 0
+
+
+def test_mcp_client_configs_cover_the_six_json_targets():
+    assert set(_MCP_CLIENT_CONFIGS.keys()) == {
+        "claude-code",
+        "cursor",
+        "vscode",
+        "kiro",
+        "opencode",
+        "antigravity",
+    }
+
+
+def _no_command_resolvable(monkeypatch, tmp_path):
+    # Point sys.executable at a directory with no "aletheore" sibling, and
+    # make a PATH search fail too, so _aletheore_command() genuinely falls
+    # through both resolution strategies to the bare-name fallback -
+    # otherwise this venv's own real, installed aletheore (sitting right
+    # next to the real sys.executable running these tests) would resolve
+    # first and shadow whatever a test is trying to isolate.
+    monkeypatch.setattr("aletheore.cli.sys.executable", str(tmp_path / "python3"))
+    monkeypatch.setattr("aletheore.cli.shutil.which", lambda cmd: None)
+
+
+def test_aletheore_command_prefers_the_sibling_of_the_running_interpreter(monkeypatch, tmp_path):
+    interpreter_dir = tmp_path / "venv" / "bin"
+    interpreter_dir.mkdir(parents=True)
+    (interpreter_dir / "aletheore").write_text("#!/bin/sh\n")
+    monkeypatch.setattr("aletheore.cli.sys.executable", str(interpreter_dir / "python3"))
+    # A which() hit that disagrees with the interpreter sibling must lose -
+    # this is exactly the scenario the sibling-first order exists to avoid.
+    monkeypatch.setattr("aletheore.cli.shutil.which", lambda cmd: "/some/other/aletheore")
+
+    assert _aletheore_command() == str(interpreter_dir / "aletheore")
+
+
+def test_aletheore_command_falls_back_to_path_search_when_no_sibling(monkeypatch, tmp_path):
+    monkeypatch.setattr("aletheore.cli.sys.executable", str(tmp_path / "python3"))
+    monkeypatch.setattr("aletheore.cli.shutil.which", lambda cmd: "/usr/local/bin/aletheore")
+
+    assert _aletheore_command() == "/usr/local/bin/aletheore"
+
+
+def test_aletheore_command_falls_back_to_bare_name_when_not_resolvable(monkeypatch, tmp_path):
+    _no_command_resolvable(monkeypatch, tmp_path)
+
+    assert _aletheore_command() == "aletheore"
+
+
+def test_stdio_entry_includes_type_only_when_asked(monkeypatch, tmp_path):
+    # str(Path("/repo")), not a hardcoded "/repo" literal: _stdio_entry just
+    # stringifies whatever Path it's given, and on Windows that renders with
+    # backslashes ("\\repo") - correctly reflecting how a real Windows repo
+    # path would look to the MCP client actually spawning this command, not
+    # a bug. A hardcoded POSIX-style literal here tested this test's own
+    # assumption, not the function.
+    repo_path_str = str(Path("/repo"))
+    _no_command_resolvable(monkeypatch, tmp_path)
+
+    entry_with_type = _stdio_entry(Path("/repo"), include_type=True)
+    entry_without_type = _stdio_entry(Path("/repo"), include_type=False)
+
+    assert entry_with_type == {"type": "stdio", "command": "aletheore", "args": ["mcp", repo_path_str]}
+    assert entry_without_type == {"command": "aletheore", "args": ["mcp", repo_path_str]}
+
+
+def test_stdio_entry_writes_resolved_absolute_path_when_found(monkeypatch, tmp_path):
+    monkeypatch.setattr("aletheore.cli.sys.executable", str(tmp_path / "python3"))
+    monkeypatch.setattr("aletheore.cli.shutil.which", lambda cmd: "/usr/local/bin/aletheore")
+
+    entry = _stdio_entry(Path("/repo"), include_type=False)
+
+    assert entry == {"command": "/usr/local/bin/aletheore", "args": ["mcp", str(Path("/repo"))]}
+
+
+def test_opencode_entry_uses_single_command_array_not_command_plus_args(monkeypatch, tmp_path):
+    _no_command_resolvable(monkeypatch, tmp_path)
+
+    entry = _opencode_entry(Path("/repo"))
+
+    assert entry == {"type": "local", "command": ["aletheore", "mcp", str(Path("/repo"))], "enabled": True}
+
+
+def test_write_json_mcp_client_config_refuses_a_symlinked_config_file(tmp_path):
+    # Real bug found via audit: mcp-install is commonly run against a
+    # freshly cloned or downloaded repository, which is attacker-
+    # controlled input the same way a scanned repo's source is elsewhere
+    # in this codebase - config_path.exists()/.write_text() followed a
+    # symlink transparently, so a malicious repo shipping .mcp.json as a
+    # symlink to an arbitrary path outside the repo had that target
+    # silently overwritten (a shell rc file, another project's real
+    # config, anything the OS user can write to) - not merely something
+    # inside the scanned repo.
+    repo = tmp_path / "malicious-repo"
+    repo.mkdir()
+    outside_target = tmp_path / "outside_secret.json"
+    outside_target.write_text(json.dumps({"do_not_touch": True}))
+    (repo / ".mcp.json").symlink_to(outside_target)
+    entry = {"command": "aletheore", "args": ["mcp", str(repo)]}
+
+    message = _write_json_mcp_client_config(
+        repo / ".mcp.json", "mcpServers", entry, repo_path=repo
+    )
+
+    assert "skipped" in message
+    assert "escapes the repo" in message
+    assert json.loads(outside_target.read_text()) == {"do_not_touch": True}
+
+
+def test_write_json_mcp_client_config_refuses_a_symlinked_parent_directory(tmp_path):
+    # Same risk, one level up: a symlinked intermediate directory
+    # (.cursor/.vscode/.kiro) resolves outside the repo even though the
+    # config file itself doesn't exist yet - Path.resolve() on a
+    # nonexistent final segment still resolves every existing parent.
+    repo = tmp_path / "malicious-repo"
+    repo.mkdir()
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    (repo / ".cursor").symlink_to(outside_dir)
+    entry = {"command": "aletheore", "args": ["mcp", str(repo)]}
+
+    message = _write_json_mcp_client_config(
+        repo / ".cursor" / "mcp.json", "mcpServers", entry, repo_path=repo
+    )
+
+    assert "skipped" in message
+    assert "escapes the repo" in message
+    assert list(outside_dir.iterdir()) == []
+
+
+def test_write_json_mcp_client_config_without_repo_path_keeps_the_prior_global_behavior(tmp_path):
+    # claude-desktop's config file is deliberately global (shared across
+    # every project on this machine), not under any one repo - passing no
+    # repo_path (its actual call site) must skip the boundary check
+    # entirely, preserving today's behavior for that legitimate case.
+    config_path = tmp_path / "claude_desktop_config.json"
+    entry = {"command": "aletheore", "args": ["mcp", "/some/repo"]}
+
+    message = _write_json_mcp_client_config(config_path, "mcpServers", entry)
+
+    assert "wrote" in message
+    assert json.loads(config_path.read_text()) == {"mcpServers": {"aletheore": entry}}
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="O_NOFOLLOW doesn't exist on Windows - _write_config_file_no_symlink_follow's "
+    "own docstring already documents this exact platform limitation: no O_NOFOLLOW support "
+    "means falling back to the pre-existing follow-symlink behavior there, not a bug this "
+    "test should fail on",
+)
+def test_write_config_file_no_symlink_follow_refuses_a_symlinked_leaf(tmp_path):
+    # Flash Review finding on PR #603: _config_path_escapes_repo's
+    # resolve()-then-check happens as a separate step from the later
+    # write, leaving a TOCTOU window where a symlink put in place (or
+    # swapped in) between the two would still be followed by a plain
+    # write_text() call. This exercises the O_NOFOLLOW write directly -
+    # even with no prior "does this escape the repo" check at all, the
+    # open() call itself must refuse a symlinked leaf, atomically.
+    outside_target = tmp_path / "outside_secret.json"
+    outside_target.write_text("do not touch")
+    leaf = tmp_path / "repo" / ".mcp.json"
+    leaf.parent.mkdir()
+    leaf.symlink_to(outside_target)
+
+    with pytest.raises(OSError):
+        _write_config_file_no_symlink_follow(leaf, "clobbered")
+
+    assert outside_target.read_text() == "do not touch"
+
+
+def test_write_json_mcp_client_config_without_repo_path_still_follows_a_symlink(tmp_path):
+    # The O_NOFOLLOW hardening is deliberately scoped to repo-relative
+    # writes only - claude-desktop's global config (repo_path=None) has
+    # no attacker-controlled repo boundary to defend, and a symlink there
+    # is the user's own legitimate choice (e.g. dotfiles synced through a
+    # symlinked config directory), so that case must keep following it
+    # exactly like before this fix.
+    real_target = tmp_path / "real_claude_desktop_config.json"
+    real_target.write_text("{}")
+    config_path = tmp_path / "claude_desktop_config.json"
+    config_path.symlink_to(real_target)
+    entry = {"command": "aletheore", "args": ["mcp", "/some/repo"]}
+
+    message = _write_json_mcp_client_config(config_path, "mcpServers", entry)
+
+    assert "wrote" in message
+    assert json.loads(real_target.read_text()) == {"mcpServers": {"aletheore": entry}}
+
+
+def test_mcp_install_skips_a_symlinked_config_path_end_to_end(tmp_path):
+    repo = tmp_path / "malicious-repo"
+    repo.mkdir()
+    outside_target = tmp_path / "outside_secret.json"
+    outside_target.write_text(json.dumps({"do_not_touch": True}))
+    (repo / ".mcp.json").symlink_to(outside_target)
+
+    result = runner.invoke(app, ["mcp-install", str(repo), "--target", "claude-code"])
+
+    assert result.exit_code == 0
+    assert "escapes the repo" in result.stdout
+    assert json.loads(outside_target.read_text()) == {"do_not_touch": True}
+
+
+def test_write_json_mcp_client_config_creates_new_file(tmp_path):
+    config_path = tmp_path / ".mcp.json"
+    entry = {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+
+    message = _write_json_mcp_client_config(config_path, "mcpServers", entry)
+
+    assert "wrote" in message
+    assert json.loads(config_path.read_text()) == {"mcpServers": {"aletheore": entry}}
+
+
+def test_write_json_mcp_client_config_creates_parent_directories(tmp_path):
+    config_path = tmp_path / ".vscode" / "mcp.json"
+    entry = {"type": "stdio", "command": "aletheore", "args": ["mcp", str(tmp_path)]}
+
+    _write_json_mcp_client_config(config_path, "servers", entry)
+
+    assert json.loads(config_path.read_text()) == {"servers": {"aletheore": entry}}
+
+
+def test_write_json_mcp_client_config_preserves_other_servers(tmp_path):
+    config_path = tmp_path / ".mcp.json"
+    config_path.write_text(
+        json.dumps({"mcpServers": {"other-tool": {"command": "npx", "args": ["-y", "other"]}}})
+    )
+    entry = {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+
+    _write_json_mcp_client_config(config_path, "mcpServers", entry)
+
+    data = json.loads(config_path.read_text())
+    assert data["mcpServers"]["other-tool"] == {"command": "npx", "args": ["-y", "other"]}
+    assert data["mcpServers"]["aletheore"] == entry
+
+
+def test_write_json_mcp_client_config_updates_existing_aletheore_entry(tmp_path):
+    config_path = tmp_path / ".mcp.json"
+    config_path.write_text(
+        json.dumps({"mcpServers": {"aletheore": {"command": "aletheore", "args": ["mcp", "/old"]}}})
+    )
+    new_entry = {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+
+    message = _write_json_mcp_client_config(config_path, "mcpServers", new_entry)
+
+    assert "updated" in message
+    data = json.loads(config_path.read_text())
+    assert data["mcpServers"]["aletheore"] == new_entry
+    assert len(data["mcpServers"]) == 1
+
+
+def test_write_json_mcp_client_config_skips_invalid_json_without_crashing(tmp_path):
+    config_path = tmp_path / ".mcp.json"
+    config_path.write_text("{not valid json")
+
+    message = _write_json_mcp_client_config(
+        config_path, "mcpServers", {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+    )
+
+    assert "skipped" in message
+    assert config_path.read_text() == "{not valid json"
+
+
+def test_write_json_mcp_client_config_skips_when_top_level_key_is_not_an_object(tmp_path):
+    config_path = tmp_path / ".mcp.json"
+    config_path.write_text(json.dumps({"mcpServers": "not-an-object"}))
+
+    message = _write_json_mcp_client_config(
+        config_path, "mcpServers", {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+    )
+
+    assert "skipped" in message
+    assert json.loads(config_path.read_text()) == {"mcpServers": "not-an-object"}
+
+
+def test_write_toml_mcp_client_config_creates_new_file(tmp_path):
+    config_path = tmp_path / ".codex" / "config.toml"
+    entry = {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+
+    message = _write_toml_mcp_client_config(config_path, "mcp_servers", entry)
+
+    assert "wrote" in message
+    data = tomllib.loads(config_path.read_text())
+    assert data == {"mcp_servers": {"aletheore": entry}}
+
+
+def test_write_toml_mcp_client_config_preserves_other_servers(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[mcp_servers.other-tool]\ncommand = "uvx"\nargs = ["other"]\n')
+    entry = {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+
+    _write_toml_mcp_client_config(config_path, "mcp_servers", entry)
+
+    data = tomllib.loads(config_path.read_text())
+    assert data["mcp_servers"]["other-tool"] == {"command": "uvx", "args": ["other"]}
+    assert data["mcp_servers"]["aletheore"] == entry
+
+
+def test_write_toml_mcp_client_config_updates_existing_aletheore_entry(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[mcp_servers.aletheore]\ncommand = "aletheore"\nargs = ["mcp", "/old"]\n')
+    new_entry = {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+
+    message = _write_toml_mcp_client_config(config_path, "mcp_servers", new_entry)
+
+    assert "updated" in message
+    data = tomllib.loads(config_path.read_text())
+    assert data["mcp_servers"]["aletheore"] == new_entry
+    assert len(data["mcp_servers"]) == 1
+
+
+def test_write_toml_mcp_client_config_skips_invalid_toml_without_crashing(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("not [ valid toml")
+
+    message = _write_toml_mcp_client_config(
+        config_path, "mcp_servers", {"command": "aletheore", "args": ["mcp", str(tmp_path)]}
+    )
+
+    assert "skipped" in message
+    assert config_path.read_text() == "not [ valid toml"
+
+
+def _isolate_claude_desktop_home(monkeypatch, tmp_path) -> Path:
+    """Default `mcp-install` now targets claude-desktop too, which writes
+    outside the repo entirely - every test that runs a default (no
+    --target) install must isolate this or it would write into whatever
+    machine happens to run the suite. Forces macOS so behavior is
+    deterministic across dev machines and CI regardless of host OS.
+
+    Real gap found on Windows CI: setting $HOME doesn't actually achieve
+    that stated goal - Path.home() ignores $HOME on Windows entirely (it
+    reads %USERPROFILE% instead), so _claude_desktop_config_path()'s darwin
+    branch (Path.home() / "Library" / ...) silently fell back to the real
+    machine's actual home directory instead of fake_home whenever this
+    suite ran on a real Windows box, regardless of the sys.platform patch.
+    Patching Path.home itself is genuinely OS-independent, unlike patching
+    the env var it happens to read on POSIX.
+    """
+    fake_home = tmp_path / "fake-home"
+    monkeypatch.setattr("aletheore.cli.sys.platform", "darwin")
+    monkeypatch.setattr("aletheore.cli.Path.home", lambda: fake_home)
+    return fake_home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+
+
+def test_mcp_install_writes_all_json_targets_by_default(tmp_path, monkeypatch):
+    claude_desktop_path = _isolate_claude_desktop_home(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["mcp-install", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert (tmp_path / ".mcp.json").exists()
+    assert (tmp_path / ".cursor" / "mcp.json").exists()
+    assert (tmp_path / ".vscode" / "mcp.json").exists()
+    assert (tmp_path / ".kiro" / "settings" / "mcp.json").exists()
+    assert (tmp_path / "opencode.json").exists()
+    assert (tmp_path / ".agents" / "mcp_config.json").exists()
+    assert claude_desktop_path.exists()
+
+
+def test_mcp_install_writes_antigravity_target(tmp_path, monkeypatch):
+    install_target = tmp_path / "install-target"
+    install_target.mkdir()
+    _no_command_resolvable(monkeypatch, tmp_path)
+    result = runner.invoke(app, ["mcp-install", str(install_target), "--target", "antigravity"])
+
+    assert result.exit_code == 0
+    config_path = install_target / ".agents" / "mcp_config.json"
+    assert config_path.exists()
+    entry = json.loads(config_path.read_text())["mcpServers"]["aletheore"]
+    # Same shape as Cursor's entry: no "type" field, verified against
+    # Antigravity's own published schema (antigravity.google/docs/ide/mcp/).
+    assert entry == {"command": "aletheore", "args": ["mcp", str(install_target.resolve())]}
+
+
+def test_mcp_install_default_now_includes_codex_cli(tmp_path, monkeypatch):
+    _isolate_claude_desktop_home(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["mcp-install", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert (tmp_path / ".codex" / "config.toml").exists()
+
+
+def test_claude_desktop_config_path_on_macos(monkeypatch, tmp_path):
+    # Path.home patched directly, not $HOME - see _isolate_claude_desktop_home's
+    # docstring, same gap, same fix: Path.home() ignores $HOME on Windows
+    # entirely (it reads %USERPROFILE% instead), so this test's simulated
+    # darwin branch silently fell back to the real machine's actual home
+    # directory whenever the suite ran on a real Windows box.
+    monkeypatch.setattr("aletheore.cli.sys.platform", "darwin")
+    monkeypatch.setattr("aletheore.cli.Path.home", lambda: tmp_path)
+
+    assert _claude_desktop_config_path() == (
+        tmp_path / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    )
+
+
+def test_claude_desktop_config_path_on_windows(monkeypatch, tmp_path):
+    monkeypatch.setattr("aletheore.cli.sys.platform", "win32")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+    assert _claude_desktop_config_path() == tmp_path / "Claude" / "claude_desktop_config.json"
+
+
+def test_claude_desktop_config_path_on_windows_without_appdata_is_none(monkeypatch):
+    monkeypatch.setattr("aletheore.cli.sys.platform", "win32")
+    monkeypatch.delenv("APPDATA", raising=False)
+
+    assert _claude_desktop_config_path() is None
+
+
+def test_claude_desktop_config_path_on_linux_is_none(monkeypatch):
+    monkeypatch.setattr("aletheore.cli.sys.platform", "linux")
+
+    assert _claude_desktop_config_path() is None
+
+
+def test_mcp_install_writes_claude_desktop_target(tmp_path, monkeypatch):
+    # Path.home patched directly, not $HOME - see _isolate_claude_desktop_home's
+    # docstring, same gap, same fix.
+    fake_home = tmp_path / "fake-home"
+    monkeypatch.setattr("aletheore.cli.sys.platform", "darwin")
+    monkeypatch.setattr("aletheore.cli.Path.home", lambda: fake_home)
+    install_target = tmp_path / "install-target"
+    install_target.mkdir()
+    _no_command_resolvable(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["mcp-install", str(install_target), "--target", "claude-desktop"])
+
+    assert result.exit_code == 0
+    config_path = fake_home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    assert config_path.exists()
+    data = json.loads(config_path.read_text())
+    # Keyed by repo name plus a hash of its resolved path, not plain
+    # "aletheore" or just the repo name alone - this file is shared across
+    # every project on the machine, unlike every other target's per-repo file.
+    entry = data["mcpServers"][_claude_desktop_server_name(install_target)]
+    assert entry == {"command": "aletheore", "args": ["mcp", str(install_target.resolve())]}
+
+
+def test_mcp_install_claude_desktop_keys_by_repo_so_a_second_repo_does_not_clobber_the_first(
+    tmp_path, monkeypatch
+):
+    # Path.home patched directly, not $HOME - see _isolate_claude_desktop_home's
+    # docstring, same gap, same fix.
+    fake_home = tmp_path / "fake-home"
+    monkeypatch.setattr("aletheore.cli.sys.platform", "darwin")
+    monkeypatch.setattr("aletheore.cli.Path.home", lambda: fake_home)
+    _no_command_resolvable(monkeypatch, tmp_path)
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    runner.invoke(app, ["mcp-install", str(repo_a), "--target", "claude-desktop"])
+    runner.invoke(app, ["mcp-install", str(repo_b), "--target", "claude-desktop"])
+
+    config_path = fake_home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    servers = json.loads(config_path.read_text())["mcpServers"]
+    assert servers[_claude_desktop_server_name(repo_a)]["args"] == ["mcp", str(repo_a.resolve())]
+    assert servers[_claude_desktop_server_name(repo_b)]["args"] == ["mcp", str(repo_b.resolve())]
+
+
+def test_mcp_install_claude_desktop_keys_by_full_path_not_just_basename(tmp_path, monkeypatch):
+    # Real bug found via audit: keying purely by repo_path.name still
+    # collided for two different repos sharing a directory basename (a
+    # common real pattern - e.g. `~/work/client-a/backend` and
+    # `~/work/client-b/backend`), silently overwriting one repo's entry
+    # with the other's - exactly the class of bug this keying scheme was
+    # written to prevent, just not fully closed by name alone.
+    # Path.home patched directly, not $HOME - see _isolate_claude_desktop_home's
+    # docstring, same gap, same fix.
+    fake_home = tmp_path / "fake-home"
+    monkeypatch.setattr("aletheore.cli.sys.platform", "darwin")
+    monkeypatch.setattr("aletheore.cli.Path.home", lambda: fake_home)
+    _no_command_resolvable(monkeypatch, tmp_path)
+    client_a = tmp_path / "client-a" / "backend"
+    client_b = tmp_path / "client-b" / "backend"
+    client_a.mkdir(parents=True)
+    client_b.mkdir(parents=True)
+
+    runner.invoke(app, ["mcp-install", str(client_a), "--target", "claude-desktop"])
+    runner.invoke(app, ["mcp-install", str(client_b), "--target", "claude-desktop"])
+
+    config_path = fake_home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    servers = json.loads(config_path.read_text())["mcpServers"]
+    key_a = _claude_desktop_server_name(client_a)
+    key_b = _claude_desktop_server_name(client_b)
+    assert key_a != key_b
+    assert servers[key_a]["args"] == ["mcp", str(client_a.resolve())]
+    assert servers[key_b]["args"] == ["mcp", str(client_b.resolve())]
+
+
+def test_claude_desktop_server_name_is_stable_for_the_same_path():
+    path = Path("/some/repo")
+    assert _claude_desktop_server_name(path) == _claude_desktop_server_name(path)
+
+
+def test_mcp_install_skips_claude_desktop_on_unsupported_platform(tmp_path, monkeypatch):
+    monkeypatch.setattr("aletheore.cli.sys.platform", "linux")
+
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "claude-desktop"])
+
+    assert result.exit_code == 0
+    assert "skipped" in result.stdout
+    assert "macOS and Windows" in result.stdout
+
+
+def test_mcp_install_respects_target_flag(tmp_path):
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "cursor"])
+
+    assert result.exit_code == 0
+    assert (tmp_path / ".cursor" / "mcp.json").exists()
+    assert not (tmp_path / ".mcp.json").exists()
+    assert not (tmp_path / "opencode.json").exists()
+
+
+def test_mcp_install_accepts_multiple_target_flags(tmp_path):
+    result = runner.invoke(
+        app, ["mcp-install", str(tmp_path), "--target", "cursor", "--target", "opencode"]
+    )
+
+    assert result.exit_code == 0
+    assert (tmp_path / ".cursor" / "mcp.json").exists()
+    assert (tmp_path / "opencode.json").exists()
+    assert not (tmp_path / ".mcp.json").exists()
+
+
+def test_mcp_install_rejects_unknown_target(tmp_path):
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "notatool"])
+
+    assert result.exit_code == 1
+    assert "notatool" in result.stdout
+
+
+def test_mcp_install_written_entry_points_at_the_resolved_repo_path(tmp_path):
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "claude-code"])
+
+    assert result.exit_code == 0
+    entry = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["aletheore"]
+    assert entry["args"] == ["mcp", str(tmp_path.resolve())]
+
+
+def test_mcp_install_opencode_entry_uses_command_array(tmp_path, monkeypatch):
+    install_target = tmp_path / "install-target"
+    install_target.mkdir()
+    _no_command_resolvable(monkeypatch, tmp_path)
+    runner.invoke(app, ["mcp-install", str(install_target), "--target", "opencode"])
+
+    entry = json.loads((install_target / "opencode.json").read_text())["mcp"]["aletheore"]
+    assert entry["command"] == ["aletheore", "mcp", str(install_target.resolve())]
+    assert "args" not in entry
+
+
+def test_mcp_install_writes_codex_cli_target(tmp_path, monkeypatch):
+    install_target = tmp_path / "install-target"
+    install_target.mkdir()
+    _no_command_resolvable(monkeypatch, tmp_path)
+    result = runner.invoke(app, ["mcp-install", str(install_target), "--target", "codex-cli"])
+
+    assert result.exit_code == 0
+    config_path = install_target / ".codex" / "config.toml"
+    assert config_path.exists()
+    entry = tomllib.loads(config_path.read_text())["mcp_servers"]["aletheore"]
+    assert entry == {"command": "aletheore", "args": ["mcp", str(install_target.resolve())]}
+
+
+def test_mcp_install_writes_resolved_absolute_path_when_aletheore_is_on_path(tmp_path, monkeypatch):
+    install_target = tmp_path / "install-target"
+    install_target.mkdir()
+    monkeypatch.setattr("aletheore.cli.sys.executable", str(tmp_path / "python3"))
+    monkeypatch.setattr("aletheore.cli.shutil.which", lambda cmd: "/opt/venv/bin/aletheore")
+
+    result = runner.invoke(app, ["mcp-install", str(install_target), "--target", "claude-code"])
+
+    assert result.exit_code == 0
+    entry = json.loads((install_target / ".mcp.json").read_text())["mcpServers"]["aletheore"]
+    assert entry["command"] == "/opt/venv/bin/aletheore"
+
+
+def test_mcp_install_is_idempotent_and_does_not_duplicate_entries(tmp_path):
+    runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "cursor"])
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "cursor"])
+
+    assert result.exit_code == 0
+    data = json.loads((tmp_path / ".cursor" / "mcp.json").read_text())
+    assert list(data["mcpServers"].keys()) == ["aletheore"]
+
+
+def test_mcp_install_preserves_other_servers_already_in_the_file(tmp_path):
+    cursor_dir = tmp_path / ".cursor"
+    cursor_dir.mkdir()
+    (cursor_dir / "mcp.json").write_text(
+        json.dumps({"mcpServers": {"other-tool": {"command": "npx", "args": ["-y", "other"]}}})
+    )
+
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "cursor"])
+
+    assert result.exit_code == 0
+    data = json.loads((cursor_dir / "mcp.json").read_text())
+    assert "other-tool" in data["mcpServers"]
+    assert "aletheore" in data["mcpServers"]
+
+
+def test_mcp_install_prints_pycharm_and_terminal_editor_guidance(tmp_path, monkeypatch):
+    _isolate_claude_desktop_home(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["mcp-install", str(tmp_path)])
+
+    assert "PyCharm" in result.stdout
+    assert "Import a Claude MCP config" in result.stdout
+    assert "avante.nvim" in result.stdout or "no native MCP" in result.stdout
+
+
+def test_mcp_install_prints_a_copyable_claude_mcp_add_command(tmp_path):
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "claude-code"])
+
+    assert result.exit_code == 0
+    assert "claude mcp add aletheore -- " in result.stdout
+    assert f"mcp {tmp_path.resolve()}" in result.stdout
+
+
+def test_mcp_install_omits_the_claude_mcp_add_command_when_claude_code_not_targeted(tmp_path):
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "cursor"])
+
+    assert result.exit_code == 0
+    assert "claude mcp add" not in result.stdout
+
+
+def test_mcp_install_does_not_claim_files_it_never_wrote(tmp_path):
+    # Regression: PyCharm/Codex CLI guidance used to print unconditionally
+    # regardless of --target, so `--target cursor` alone still told the user
+    # "wrote .codex/config.toml" and to point PyCharm at "the .mcp.json
+    # written above" - neither file exists after a cursor-only run.
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "cursor"])
+
+    assert result.exit_code == 0
+    assert not (tmp_path / ".codex" / "config.toml").exists()
+    assert not (tmp_path / ".mcp.json").exists()
+    assert "PyCharm" not in result.stdout
+    assert ".codex/config.toml" not in result.stdout
+
+
+def test_mcp_install_codex_only_target_still_prints_its_own_guidance(tmp_path):
+    result = runner.invoke(app, ["mcp-install", str(tmp_path), "--target", "codex-cli"])
+
+    assert result.exit_code == 0
+    assert (tmp_path / ".codex" / "config.toml").exists()
+    assert "wrote .codex/config.toml" in result.stdout
+    assert "PyCharm" not in result.stdout
+
+
+def test_progress_printer_prints_each_distinct_phase_on_its_own_line(capsys):
+    report = _make_progress_printer(is_tty=False)
+    report("Detecting languages, frameworks, and build tools")
+    report("Building module dependency graph (parsing source with tree-sitter)")
+
+    captured = capsys.readouterr()
+    lines = [line for line in captured.out.split("\n") if line]
+    assert len(lines) == 2
+    assert "Detecting languages" in lines[0]
+    assert "Building module dependency graph" in lines[1]
+
+
+def test_progress_printer_overwrites_repeated_license_progress_on_a_tty(capsys):
+    report = _make_progress_printer(is_tty=True)
+    report("Checking dependency licenses: 1/3 (flask)")
+    report("Checking dependency licenses: 2/3 (requests)")
+    report("Done")
+
+    captured = capsys.readouterr()
+    # both license lines share one terminal line via \r, so only two real
+    # newlines appear: one closing out the in-place license line, one from "Done"
+    assert captured.out.count("\n") == 2
+    assert "requests" in captured.out
+    assert "Done" in captured.out
+
+
+def test_progress_printer_prints_every_license_line_when_not_a_tty(capsys):
+    report = _make_progress_printer(is_tty=False)
+    report("Checking dependency licenses: 1/3 (flask)")
+    report("Checking dependency licenses: 2/3 (requests)")
+    report("Done")
+
+    captured = capsys.readouterr()
+    lines = [line for line in captured.out.split("\n") if line]
+    assert len(lines) == 3
+    assert "flask" in lines[0]
+    assert "requests" in lines[1]
+    assert "Done" in lines[2]
+
+
+def test_progress_printer_overwrites_repeated_embedding_progress_on_a_tty(capsys):
+    # index's own progress messages, not license checking - a run that can
+    # take over an hour on a large repo (thrift: 553 sequential hosted
+    # batches at the old char cap) deserves the same in-place treatment.
+    report = _make_progress_printer(is_tty=True)
+    report("Embedding chunks: 100/515")
+    report("Embedding chunks: 515/515")
+
+    captured = capsys.readouterr()
+    assert "\r" in captured.out
+    assert "515/515" in captured.out
+
+
+def test_progress_printer_finish_closes_a_pending_in_place_line(capsys):
+    # index's last progress update can genuinely be the last thing that
+    # happens before the caller's own console.print("Indexed N chunks.") -
+    # unlike license checking, which is always followed by another report()
+    # call in scan's flow that closes the line as a side effect. Without an
+    # explicit finish(), the next line printed directly would concatenate
+    # onto the same terminal line instead of starting a new one.
+    report = _make_progress_printer(is_tty=True)
+    report("Embedding chunks: 515/515")
+    report.finish()
+
+    captured = capsys.readouterr()
+    assert captured.out.endswith("\n")
+
+
+def test_progress_printer_finish_is_a_no_op_when_nothing_was_in_place(capsys):
+    # A repo re-indexed with nothing changed never calls report() at all
+    # (build_index's fast path reuses every vector by hash) - finish() must
+    # not print a spurious blank line in that case.
+    report = _make_progress_printer(is_tty=True)
+    report.finish()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
+def test_elapsed_ticker_updates_in_place_on_a_tty(capsys):
+    # Wait for the ticker thread to actually print a frame instead of
+    # sleeping a fixed ~2 intervals: on a loaded CI runner the thread can
+    # miss that short window, leaving only the final newline in the output.
+    seen = ""
+    with _ElapsedTicker("Waiting", interval=0.05, is_tty=True):
+        deadline = time.monotonic() + 10.0
+        while "elapsed" not in seen and time.monotonic() < deadline:
+            time.sleep(0.02)
+            seen += capsys.readouterr().out
+
+    seen += capsys.readouterr().out
+    assert "Waiting" in seen
+    assert "elapsed" in seen
+
+
+def test_elapsed_ticker_prints_start_and_done_once_when_not_a_tty(capsys):
+    with _ElapsedTicker("Waiting", is_tty=False):
+        pass
+
+    captured = capsys.readouterr()
+    lines = [line for line in captured.out.split("\n") if line]
+    assert len(lines) == 2
+    assert "Waiting..." in lines[0]
+    assert "done" in lines[1]
+
+
+def test_main_audit_invokes_audit_flow(tmp_path):
+    # No --check-*/--no-check-* flags passed: each resolves to None here,
+    # not True - _scan() (called inside _audit) is what resolves None
+    # against .aletheore.json's disabled_checks, defaulting to True when
+    # there's no config. See test_scan_command_* tests below for the
+    # explicit-flag and config-driven resolution behavior end to end.
+    with patch("aletheore.cli._audit", return_value=0) as mock_audit:
+        result = runner.invoke(app, ["audit", str(tmp_path), "--agent", "claude"])
+
+    assert result.exit_code == 0
+    mock_audit.assert_called_once_with(str(tmp_path), "claude", None, None, None, None, None, None, None, None)
+
+
+def test_scan_command_reports_git_analysis_error_cleanly(tmp_path):
+    # Found on a real scan of the Linux kernel under a memory-constrained
+    # container: a git subprocess getting OOM-killed used to surface as a
+    # raw, unrelated IndexError traceback instead of a clear message.
+    with patch(
+        "aletheore.cli.scan_repository",
+        side_effect=GitAnalysisError("git log was killed (likely out of memory)"),
+    ):
+        result = runner.invoke(app, ["scan", str(tmp_path)])
+
+    assert result.exit_code == GIT_ANALYSIS_RESOURCE_EXIT_CODE
+    assert "killed" in result.output
+    assert "Traceback" not in result.output
+    assert not isinstance(result.exception, GitAnalysisError)
+
+
+def test_scan_command_nudges_free_tier_users_toward_the_github_app(tmp_path):
+    (tmp_path / "main.py").write_text("x = 1\n")
+
+    result = runner.invoke(app, ["scan", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "github.com/apps/aletheore/installations/new" in result.output
+
+
+def test_scan_command_nudge_stays_honest_about_the_rate_limit(tmp_path):
+    # The install CTA itself shouldn't lead with the hedge (that undercuts
+    # the ask), but the rate-limit disclosure must still be there somewhere -
+    # softer placement isn't license to drop it.
+    (tmp_path / "main.py").write_text("x = 1\n")
+
+    result = runner.invoke(app, ["scan", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "rate-limited" in result.output
+
+
+def test_scan_command_does_not_nudge_after_a_git_analysis_error(tmp_path):
+    with patch(
+        "aletheore.cli.scan_repository",
+        side_effect=GitAnalysisError("git log was killed (likely out of memory)"),
+    ):
+        result = runner.invoke(app, ["scan", str(tmp_path)])
+
+    assert result.exit_code == GIT_ANALYSIS_RESOURCE_EXIT_CODE
+    assert "github.com/apps/aletheore/installations/new" not in result.output
+
+
+def test_audit_command_bails_out_cleanly_when_scan_hits_git_analysis_error(tmp_path):
+    with patch(
+        "aletheore.cli.scan_repository",
+        side_effect=GitAnalysisError("git log was killed (likely out of memory)"),
+    ):
+        with patch("aletheore.cli.select_adapter") as mock_select_adapter:
+            result = runner.invoke(app, ["audit", str(tmp_path)])
+
+    assert result.exit_code == GIT_ANALYSIS_RESOURCE_EXIT_CODE
+    assert "killed" in result.output
+    mock_select_adapter.assert_not_called()
+
+
+def test_known_adapters_includes_every_provider():
+    from aletheore.cli import KNOWN_ADAPTERS
+
+    names = {a.name for a in KNOWN_ADAPTERS}
+    assert names == {
+        "claude",
+        "anthropic",
+        "opencode",
+        "codex",
+        "openai",
+        "gemini-cli",
+        "gemini",
+        "mistral-vibe",
+        "mistral",
+        "grok-build",
+        "grok",
+        "ollama",
+        "deepseek",
+    }
+
+
+def test_audit_shows_consent_prompt_for_api_based_adapter_and_proceeds_on_yes(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "openai"
+    fake_adapter.requires_consent = True
+    fake_adapter.invoke.return_value = "## Summary\n\nreport text"
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch("builtins.input", return_value="y") as mock_input:
+            result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code == 0
+    assert any("Continue" in call.args[0] for call in mock_input.call_args_list)
+    fake_adapter.invoke.assert_called_once()
+
+
+def test_audit_sponsor_panel_does_not_claim_nothing_left_the_machine(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "openai"
+    fake_adapter.requires_consent = True
+    fake_adapter.invoke.return_value = "## Summary\n\nreport text"
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch("builtins.input", return_value="y"):
+            result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code == 0
+    assert "nothing leaves this machine" not in result.output.lower()
+
+
+def test_audit_helper_itself_does_not_print_the_free_tier_nudge(tmp_path, capsys):
+    # The nudge must live in the top-level `audit` command body, not inside
+    # _audit() - _audit() has exactly one caller today, but a comment
+    # claiming "top-level command bodies only" that's only true by
+    # coincidence of call-site count isn't actually enforcing anything.
+    # Flagged by Aletheore's own Flash Review on PR #385.
+    from aletheore.cli import _audit
+
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "openai"
+    fake_adapter.requires_consent = True
+    fake_adapter.invoke.return_value = "## Summary\n\nreport text"
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch("builtins.input", return_value="y"):
+            exit_code = _audit(str(repo), None, None, None, None, None, None)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "github.com/apps/aletheore/installations/new" not in captured.out
+
+
+def test_audit_command_nudges_free_tier_users_toward_the_github_app(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "openai"
+    fake_adapter.requires_consent = True
+    fake_adapter.invoke.return_value = "## Summary\n\nreport text"
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch("builtins.input", return_value="y"):
+            result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code == 0
+    assert "github.com/apps/aletheore/installations/new" in result.output
+
+
+def test_audit_cancels_cleanly_when_consent_is_declined(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "openai"
+    fake_adapter.requires_consent = True
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch("builtins.input", return_value="n"):
+            result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code == 0
+    fake_adapter.invoke.assert_not_called()
+    assert "Cancelled" in result.output
+
+
+def test_audit_skips_consent_prompt_for_cli_based_adapter(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "claude"
+    fake_adapter.requires_consent = False
+    fake_adapter.invoke.return_value = "## Summary\n\nreport text"
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch("builtins.input") as mock_input:
+            result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code == 0
+    mock_input.assert_not_called()
+    fake_adapter.invoke.assert_called_once()
+
+
+def test_audit_appends_citation_verification_section_to_report(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "claude"
+    fake_adapter.requires_consent = False
+    fake_adapter.invoke.return_value = "The bug is at `main.py:1`."
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code == 0
+    report_text = (repo / ".aletheore" / "audit-report.md").read_text()
+    assert "Citation Verification" in report_text
+    assert "1 of 1" in report_text
+
+
+def test_audit_warns_in_output_when_a_citation_cannot_be_verified(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "claude"
+    fake_adapter.requires_consent = False
+    fake_adapter.invoke.return_value = "See `ghost.py:1` for details."
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        result = runner.invoke(app, ["audit", str(repo)])
+
+    assert result.exit_code == 0
+    assert "could not be verified" in result.output
+    report_text = (repo / ".aletheore" / "audit-report.md").read_text()
+    assert "`ghost.py:1`" in report_text
+
+
+def test_verify_reports_verified_citations_and_exits_zero(tmp_path):
+    repo = tmp_path
+    (repo / "app.py").write_text("one\ntwo\nthree\n")
+    (repo / ".aletheore").mkdir()
+    evidence = {"aletheore_version": EVIDENCE_VERSION, "repository": {"modules": [{"path": "app.py"}]}}
+    (repo / ".aletheore" / "air.json").write_text(json.dumps(evidence))
+    report = repo / "report.md"
+    report.write_text("The bug is at `app.py:2`.")
+
+    result = runner.invoke(app, ["verify", str(report), "--path", str(repo)])
+
+    assert result.exit_code == 0
+    assert "1 of 1" in result.output
+    assert "All citations verified" in result.output
+
+
+def test_verify_exits_nonzero_and_lists_unverified_citations(tmp_path):
+    repo = tmp_path
+    (repo / "app.py").write_text("one\n")
+    (repo / ".aletheore").mkdir()
+    evidence = {"aletheore_version": EVIDENCE_VERSION, "repository": {"modules": [{"path": "app.py"}]}}
+    (repo / ".aletheore" / "air.json").write_text(json.dumps(evidence))
+    report = repo / "report.md"
+    report.write_text("See `ghost.py:1` for details.")
+
+    result = runner.invoke(app, ["verify", str(report), "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "0 of 1" in result.output
+    assert "ghost.py:1" in result.output
+
+
+def test_verify_errors_cleanly_when_report_file_is_missing(tmp_path):
+    repo = tmp_path
+
+    result = runner.invoke(app, ["verify", str(repo / "nope.md"), "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_verify_errors_cleanly_when_no_evidence_exists(tmp_path):
+    repo = tmp_path
+    report = repo / "report.md"
+    report.write_text("See `app.py:1`.")
+
+    result = runner.invoke(app, ["verify", str(report), "--path", str(repo)])
+
+    assert result.exit_code == 1
+    collapsed_output = result.output.replace("\n", "")
+    assert "aletheore scan" in collapsed_output
+
+
+def test_verify_errors_cleanly_when_report_path_is_unreadable(tmp_path):
+    # Same class of bug as the MCP crashes fixed alongside this (#848): the
+    # .exists() check two lines above the real read only proves the path
+    # was there at that moment, not that it's a readable file - a
+    # directory (this test) or a file that vanishes/loses permissions in
+    # that window both raise OSError from read_text() uncaught otherwise.
+    # A directory reproduces this deterministically, unlike a chmod-based
+    # race, which is unreliable when a test suite runs as root.
+    repo = tmp_path
+    (repo / ".aletheore").mkdir()
+    evidence = {"aletheore_version": EVIDENCE_VERSION, "repository": {"modules": [{"path": "app.py"}]}}
+    (repo / ".aletheore" / "air.json").write_text(json.dumps(evidence))
+    report_dir = repo / "report.md"
+    report_dir.mkdir()
+
+    result = runner.invoke(app, ["verify", str(report_dir), "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "could not read" in result.output
+
+
+def test_verify_errors_cleanly_on_non_utf8_report(tmp_path):
+    repo = tmp_path
+    (repo / ".aletheore").mkdir()
+    evidence = {"aletheore_version": EVIDENCE_VERSION, "repository": {"modules": [{"path": "app.py"}]}}
+    (repo / ".aletheore" / "air.json").write_text(json.dumps(evidence))
+    report = repo / "report.md"
+    report.write_bytes(b"\xff\xfe not valid utf-8")
+
+    result = runner.invoke(app, ["verify", str(report), "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "not valid UTF-8" in result.output
+
+
+def test_main_audit_threads_no_check_vulnerabilities_flag(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    runner.invoke(
+        app,
+        ["audit", str(repo), "--no-check-vulnerabilities", "--agent", "nonexistent"],
+    )
+
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["security"]["dependency_vulnerabilities"]["checked"] is False
+    assert (
+        evidence["security"]["dependency_vulnerabilities"]["reason"]
+        == "skipped (--no-check-vulnerabilities)"
+    )
+
+
+def test_main_audit_threads_no_check_licenses_flag(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    runner.invoke(app, ["audit", str(repo), "--no-check-licenses", "--agent", "nonexistent"])
+
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["security"]["dependency_licenses"]["checked"] is False
+    assert evidence["security"]["dependency_licenses"]["reason"] == "skipped (--no-check-licenses)"
+
+
+def test_main_audit_threads_no_map_schema_flag(tmp_path):
+    # audit defines --map-schema/--no-map-schema identically to scan, but
+    # never forwarded it to _audit at either call site - --no-map-schema on
+    # `aletheore audit` was completely inert, silently ignoring the user's
+    # explicit opt-out from sending schema off-machine.
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    runner.invoke(app, ["audit", str(repo), "--no-map-schema", "--agent", "nonexistent"])
+
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["repository"]["database"]["schema"]["checked"] is False
+    assert evidence["repository"]["database"]["schema"]["reason"] == "skipped (--no-map-schema)"
+
+
+def test_main_scan_maps_schema_by_default_with_no_entitlement_check(tmp_path, monkeypatch):
+    # Schema mapping used to require a paid-plan entitlement, resolved via a
+    # saved token and a /v1/whoami call - free/offline installs got an empty
+    # schema with "requires a paid plan" even with no flag passed at all. It
+    # now follows the exact same free, opt-out-only pattern as every other
+    # scanner (vulnerabilities/licenses/endpoints/secrets_history).
+    import aletheore.credentials as credentials
+
+    monkeypatch.delenv("ALETHEORE_API_TOKEN", raising=False)
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", Path("/nonexistent/creds.json"))
+
+    repo = tmp_path
+    (repo / "migrations").mkdir()
+    (repo / "migrations" / "001.sql").write_text("CREATE TABLE widgets (id BIGINT PRIMARY KEY);")
+
+    result = runner.invoke(app, ["scan", str(repo)])
+
+    assert result.exit_code == 0
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    schema = evidence["repository"]["database"]["schema"]
+    assert schema["checked"] is True
+    assert any(t["name"] == "widgets" for t in schema["tables"])
+
+
+def test_main_managed_audit_threads_no_map_schema_flag(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    with patch("aletheore.cli.get_api_key", return_value="fake-token"), patch(
+        "aletheore.cli.run_managed_audit_request", return_value="fake report"
+    ):
+        runner.invoke(
+            app,
+            ["audit", str(repo), "--managed", "--no-map-schema"],
+        )
+
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["repository"]["database"]["schema"]["checked"] is False
+    assert evidence["repository"]["database"]["schema"]["reason"] == "skipped (--no-map-schema)"
+
+
+def test_audit_warns_when_token_passed_without_managed(tmp_path):
+    # --token only has any effect when --managed is also passed - passing
+    # it alone silently did nothing before this fix, with no indication to
+    # the user that the flag they set had no effect.
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    with patch("aletheore.cli._audit", return_value=0):
+        result = runner.invoke(app, ["audit", str(repo), "--token", "sometoken"])
+
+    assert "--token has no effect without --managed" in result.stdout
+
+
+def test_audit_warns_when_agent_passed_with_managed(tmp_path):
+    # --agent is silently dropped when --managed is set (the managed
+    # branch never reads forced_agent) - before this fix, nothing told the
+    # user their --agent choice was being ignored.
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    with patch("aletheore.cli._managed_audit", return_value=0):
+        result = runner.invoke(
+            app, ["audit", str(repo), "--managed", "--agent", "claude-code"]
+        )
+
+    assert "--agent has no effect with --managed" in result.stdout
+
+
+def test_audit_does_not_warn_when_flags_are_used_correctly(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    with patch("aletheore.cli._audit", return_value=0):
+        result = runner.invoke(app, ["audit", str(repo), "--agent", "claude-code"])
+    assert "has no effect" not in result.stdout
+
+    with patch("aletheore.cli._managed_audit", return_value=0):
+        result = runner.invoke(app, ["audit", str(repo), "--managed", "--token", "sometoken"])
+    assert "has no effect" not in result.stdout
+
+
+def test_main_scan_threads_no_check_licenses_flag(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    runner.invoke(app, ["scan", str(repo), "--no-check-licenses"])
+
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["security"]["dependency_licenses"]["checked"] is False
+
+
+def test_main_scan_positive_check_licenses_flag_is_also_accepted(tmp_path):
+    # Typer's boolean-pair syntax additively exposes the positive counterpart
+    # of every existing --no-X flag (--check-licenses alongside
+    # --no-check-licenses) - purely additive, but worth confirming it actually
+    # does the right thing rather than silently being a no-op.
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    result = runner.invoke(app, ["scan", str(repo), "--check-licenses", "--no-check-vulnerabilities"])
+
+    assert result.exit_code == 0
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["security"]["dependency_licenses"]["checked"] is True
+
+
+def test_main_scan_honors_disabled_checks_from_config(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    (repo / ".aletheore.json").write_text(json.dumps({"disabled_checks": ["licenses"]}))
+
+    result = runner.invoke(app, ["scan", str(repo)])
+
+    assert result.exit_code == 0
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["security"]["dependency_licenses"]["checked"] is False
+
+
+def test_main_scan_explicit_flag_overrides_disabled_checks_config(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    (repo / ".aletheore.json").write_text(json.dumps({"disabled_checks": ["licenses"]}))
+
+    result = runner.invoke(app, ["scan", str(repo), "--check-licenses"])
+
+    assert result.exit_code == 0
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["security"]["dependency_licenses"]["checked"] is True
+
+
+def test_every_subcommand_help_runs_cleanly():
+    for command in (
+        "audit",
+        "scan",
+        "query",
+        "diff",
+        "verify",
+        "mcp",
+        "dashboard",
+        "healthcheck",
+        "init",
+        "login",
+        "logout",
+        "status",
+    ):
+        result = runner.invoke(app, [command, "--help"])
+        assert result.exit_code == 0, f"{command} --help failed: {result.output}"
+        assert "Usage" in result.output
+
+
+def test_main_scan_threads_no_map_endpoints_flag(tmp_path):
+    repo = tmp_path
+    (repo / "app.py").write_text('@app.route("/users")\ndef list_users():\n    pass\n')
+
+    runner.invoke(app, ["scan", str(repo), "--no-map-endpoints"])
+
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["repository"]["api_endpoints"]["checked"] is False
+
+
+def test_main_audit_threads_no_scan_git_history_flag(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    runner.invoke(
+        app,
+        [
+            "audit",
+            str(repo),
+            "--no-check-vulnerabilities",
+            "--no-scan-git-history",
+            "--agent",
+            "nonexistent",
+        ],
+    )
+
+    evidence = json.loads((repo / ".aletheore" / "air.json").read_text())
+    assert evidence["security"]["secrets"]["history_scanned_commits"] == 0
+    assert evidence["security"]["secrets"]["history_findings"] == []
+
+
+def test_main_scan_writes_evidence_without_invoking_an_agent(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    result = runner.invoke(app, ["scan", str(repo)])
+
+    assert result.exit_code == 0
+    assert (repo / ".aletheore" / "air.json").exists()
+    assert "audit-report.md" not in result.output
+    assert "Running audit with" not in result.output
+
+
+def test_index_command_builds_index_from_existing_evidence(tmp_path):
+    repo = tmp_path
+    (repo / "app.py").write_text("def greet():\n    return 'hi'\n")
+    result = runner.invoke(app, ["scan", str(repo)])
+    assert result.exit_code == 0
+
+    with patch("aletheore.search_index.build_index", return_value=3) as mock_build:
+        result = runner.invoke(app, ["index", str(repo)])
+
+    assert result.exit_code == 0
+    assert "3" in result.output
+    mock_build.assert_called_once()
+
+
+def test_index_command_explains_incremental_re_embedding(tmp_path):
+    # A user who only ever sees "Building semantic search index..." then a
+    # near-instant "Indexed N chunks" on a repeat run has no way to know
+    # that's the cache working as intended, not something skipped.
+    repo = tmp_path
+    (repo / "app.py").write_text("def greet():\n    return 'hi'\n")
+    result = runner.invoke(app, ["scan", str(repo)])
+    assert result.exit_code == 0
+
+    with patch("aletheore.search_index.build_index", return_value=3):
+        result = runner.invoke(app, ["index", str(repo)])
+
+    assert result.exit_code == 0
+    assert "re-embedded" in result.output
+    assert "first index" in result.output.lower()
+
+
+def test_index_command_fails_clearly_without_prior_scan(tmp_path):
+    result = runner.invoke(app, ["index", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "scan" in result.output.lower()
+
+
+def test_index_command_rejects_evidence_from_an_incompatible_schema_version(tmp_path):
+    repo = tmp_path
+    (repo / ".aletheore").mkdir()
+    evidence = {"aletheore_version": "9.9.9", "repository": {"modules": []}}
+    (repo / ".aletheore" / "air.json").write_text(json.dumps(evidence))
+
+    result = runner.invoke(app, ["index", str(repo)])
+
+    assert result.exit_code == 1
+    assert "re-run" in result.output.lower() or "re-scan" in result.output.lower()
+
+
+def test_query_search_codebase_prints_toon_results(tmp_path):
+    with patch(
+        "aletheore.search_index.search_index",
+        return_value=[
+            {
+                "module_path": "auth.py",
+                "symbol_name": "login",
+                "start_line": 1,
+                "end_line": 2,
+                "score": 0.1,
+            }
+        ],
+    ):
+        result = runner.invoke(
+            app, ["query", "search-codebase", "how does auth work", "--path", str(tmp_path)]
+        )
+    assert result.exit_code == 0
+    assert "auth.py" in result.output
+
+
+def test_query_search_codebase_prints_friendly_error_on_dimension_mismatch(tmp_path):
+    from aletheore.search_index import IndexDimensionMismatchError
+
+    with patch(
+        "aletheore.search_index.search_index",
+        side_effect=IndexDimensionMismatchError("the index at ... holds 1536-dimension vectors ..."),
+    ):
+        result = runner.invoke(
+            app, ["query", "search-codebase", "how does auth work", "--path", str(tmp_path)]
+        )
+    assert result.exit_code == 1
+    assert "1536-dimension" in result.output
+
+
+def test_query_ast_pattern_prints_a_real_match(tmp_path):
+    (tmp_path / "app.py").write_text("def f():\n    pass\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "ast-pattern",
+            "(function_definition name: (identifier) @name) @whole",
+            "--language",
+            "python",
+            "--path",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "app.py" in result.output
+
+
+def test_query_ast_pattern_requires_target(tmp_path):
+    result = runner.invoke(
+        app, ["query", "ast-pattern", "--language", "python", "--path", str(tmp_path)]
+    )
+    assert result.exit_code == 1
+    assert "requires a tree-sitter query" in result.output
+
+
+def test_query_ast_pattern_requires_language(tmp_path):
+    result = runner.invoke(
+        app, ["query", "ast-pattern", "(function_definition) @f", "--path", str(tmp_path)]
+    )
+    assert result.exit_code == 1
+    assert "--language" in result.output
+
+
+def test_query_ast_pattern_prints_friendly_error_on_unknown_language(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "ast-pattern",
+            "(anything)",
+            "--language",
+            "cobol",
+            "--path",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "unknown language" in result.output.lower()
+
+
+def test_query_ast_pattern_prints_friendly_error_on_invalid_query(tmp_path):
+    (tmp_path / "app.py").write_text("def f():\n    pass\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "ast-pattern",
+            "(this_node_type_does_not_exist)",
+            "--language",
+            "python",
+            "--path",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "invalid tree-sitter query" in result.output.lower()
+
+
+def test_query_answer_reuses_selected_adapter(tmp_path):
+    fake_adapter = MagicMock()
+    fake_adapter.name = "ollama"
+    fake_adapter.requires_consent = False
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch(
+            "aletheore.answer.answer_question",
+            return_value={
+                "answer": "Login uses auth.py::login.",
+                "cited_chunks": ["auth.py::login"],
+                "confidence_gated": False,
+            },
+        ) as mock_answer:
+            result = runner.invoke(
+                app,
+                [
+                    "query",
+                    "answer",
+                    "how does auth work",
+                    "--path",
+                    str(tmp_path),
+                    "--agent",
+                    "ollama",
+                ],
+            )
+
+    assert result.exit_code == 0
+    assert "Login uses auth.py::login" in result.output
+    mock_answer.assert_called_once()
+
+
+def test_query_answer_prints_friendly_error_on_dimension_mismatch(tmp_path):
+    from aletheore.search_index import IndexDimensionMismatchError
+
+    fake_adapter = MagicMock()
+    fake_adapter.name = "ollama"
+    fake_adapter.requires_consent = False
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        with patch(
+            "aletheore.answer.answer_question",
+            side_effect=IndexDimensionMismatchError(
+                "the index at ... holds 1536-dimension vectors ..."
+            ),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "query",
+                    "answer",
+                    "how does auth work",
+                    "--path",
+                    str(tmp_path),
+                    "--agent",
+                    "ollama",
+                ],
+            )
+
+    assert result.exit_code == 1
+    assert "1536-dimension" in result.output
+
+
+def test_main_mcp_invokes_mcp_flow(tmp_path):
+    with patch("aletheore.cli._mcp", return_value=0) as mock_mcp:
+        result = runner.invoke(app, ["mcp", str(tmp_path)])
+
+    assert result.exit_code == 0
+    mock_mcp.assert_called_once_with(str(tmp_path), None, watch=True)
+
+
+def test_main_mcp_threads_answer_agent(tmp_path):
+    with patch("aletheore.cli._mcp", return_value=0) as mock_mcp:
+        result = runner.invoke(app, ["mcp", str(tmp_path), "--agent", "ollama"])
+
+    assert result.exit_code == 0
+    mock_mcp.assert_called_once_with(str(tmp_path), "ollama", watch=True)
+
+
+def test_main_dashboard_invokes_dashboard_flow(tmp_path):
+    with patch("aletheore.cli._dashboard", return_value=0) as mock_dashboard:
+        result = runner.invoke(app, ["dashboard", str(tmp_path)])
+
+    assert result.exit_code == 0
+    mock_dashboard.assert_called_once_with(str(tmp_path), 8420)
+
+
+def test_main_dashboard_threads_custom_port(tmp_path):
+    with patch("aletheore.cli._dashboard", return_value=0) as mock_dashboard:
+        result = runner.invoke(app, ["dashboard", str(tmp_path), "--port", "9000"])
+
+    assert result.exit_code == 0
+    mock_dashboard.assert_called_once_with(str(tmp_path), 9000)
+
+
+def test_dashboard_refuses_to_start_when_port_already_bound(tmp_path, capsys):
+    import socket
+
+    from aletheore.cli import _dashboard
+
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen(1)
+    taken_port = blocker.getsockname()[1]
+
+    try:
+        with patch("aletheore.cli.webbrowser.open") as mock_open:
+            exit_code = _dashboard(str(tmp_path), taken_port)
+    finally:
+        blocker.close()
+
+    assert exit_code == 1
+    mock_open.assert_not_called()
+    captured = capsys.readouterr()
+    assert "already in use" in captured.out
+    assert "Dashboard running at" not in captured.out
+
+
+def test_main_healthcheck_reports_results(tmp_path):
+    repo = tmp_path
+    (repo / "app.py").write_text('@app.route("/health")\ndef health():\n    pass\n')
+    runner.invoke(app, ["scan", str(repo)])
+
+    response = MagicMock()
+    response.status = 200
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
+
+    with patch("aletheore.healthcheck._NO_REDIRECT_OPENER.open", return_value=response):
+        result = runner.invoke(
+            app, ["healthcheck", str(repo), "--base-url", "http://localhost:5000"]
+        )
+
+    assert result.exit_code == 0
+    assert "/health" in result.output
+    assert "200" in result.output
+
+
+def test_main_healthcheck_fails_when_every_endpoint_is_unreachable(tmp_path):
+    repo = tmp_path
+    (repo / "app.py").write_text('@app.route("/health")\ndef health():\n    pass\n')
+    runner.invoke(app, ["scan", str(repo)])
+
+    with patch(
+        "aletheore.healthcheck._NO_REDIRECT_OPENER.open",
+        side_effect=urllib.error.URLError("connection refused"),
+    ):
+        result = runner.invoke(
+            app, ["healthcheck", str(repo), "--base-url", "http://localhost:5000"]
+        )
+
+    assert result.exit_code == 1
+    assert "0 of 1 endpoint(s) reachable" in result.output
+
+
+def test_main_healthcheck_without_evidence_errors_clearly(tmp_path):
+    result = runner.invoke(
+        app, ["healthcheck", str(tmp_path), "--base-url", "http://localhost:5000"]
+    )
+
+    assert result.exit_code == 1
+    assert "aletheore scan" in result.output
+
+
+def test_main_healthcheck_rejects_evidence_from_an_incompatible_schema_version(tmp_path):
+    repo = tmp_path
+    (repo / ".aletheore").mkdir()
+    evidence = {"aletheore_version": "9.9.9", "repository": {}}
+    (repo / ".aletheore" / "air.json").write_text(json.dumps(evidence))
+
+    result = runner.invoke(
+        app, ["healthcheck", str(repo), "--base-url", "http://localhost:5000"]
+    )
+
+    assert result.exit_code == 1
+    assert "re-run" in result.output.lower()
+
+
+def test_login_saves_token_when_installation_auto_resolved(tmp_path, monkeypatch):
+    import aletheore.credentials as credentials
+
+    creds_path = tmp_path / "creds.json"
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", creds_path)
+
+    with patch("aletheore.device_auth.request_device_code") as mock_request_code, \
+         patch("aletheore.device_auth.poll_for_access_token") as mock_poll, \
+         patch("aletheore.device_auth.resolve_installation") as mock_resolve, \
+         patch("aletheore.device_auth.mint_cli_token") as mock_mint:
+        mock_request_code.return_value = MagicMock(
+            verification_uri="https://github.com/login/device",
+            user_code="ABCD-1234",
+        )
+        mock_poll.return_value = "gho_faketoken"
+        mock_resolve.return_value = {"installation_id": 100, "account_login": "acme"}
+        mock_mint.return_value = "aletheore-tok-xyz"
+
+        result = runner.invoke(app, ["login"])
+
+    assert result.exit_code == 0
+    assert "acme" in result.output
+    assert "already saved" not in result.output.lower()
+    saved = json.loads(creds_path.read_text())
+    assert saved["aletheore-managed-audit"] == "aletheore-tok-xyz"
+
+
+def test_login_acknowledges_an_already_saved_token_before_replacing_it(tmp_path, monkeypatch):
+    # Regression: login() previously gave no sign it knew a token already
+    # existed until after a brand new one had already been minted and
+    # saved - running it while already logged in looked identical to
+    # running it for the first time.
+    import aletheore.credentials as credentials
+
+    creds_path = tmp_path / "creds.json"
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", creds_path)
+    credentials.save_api_token("aletheore-managed-audit", "old-token", creds_path)
+
+    with patch("aletheore.device_auth.request_device_code") as mock_request_code, \
+         patch("aletheore.device_auth.poll_for_access_token") as mock_poll, \
+         patch("aletheore.device_auth.resolve_installation") as mock_resolve, \
+         patch("aletheore.device_auth.mint_cli_token") as mock_mint:
+        mock_request_code.return_value = MagicMock(
+            verification_uri="https://github.com/login/device",
+            user_code="ABCD-1234",
+        )
+        mock_poll.return_value = "gho_faketoken"
+        mock_resolve.return_value = {"installation_id": 100, "account_login": "acme"}
+        mock_mint.return_value = "aletheore-tok-new"
+
+        result = runner.invoke(app, ["login"])
+
+    assert result.exit_code == 0
+    assert "already saved" in result.output.lower()
+    saved = json.loads(creds_path.read_text())
+    assert saved["aletheore-managed-audit"] == "aletheore-tok-new"
+
+
+def test_login_prompts_when_installation_ambiguous(tmp_path, monkeypatch):
+    import aletheore.credentials as credentials
+
+    creds_path = tmp_path / "creds.json"
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", creds_path)
+
+    with patch("aletheore.device_auth.request_device_code") as mock_request_code, \
+         patch("aletheore.device_auth.poll_for_access_token") as mock_poll, \
+         patch("aletheore.device_auth.resolve_installation") as mock_resolve, \
+         patch("aletheore.device_auth.mint_cli_token") as mock_mint:
+        mock_request_code.return_value = MagicMock(
+            verification_uri="https://github.com/login/device",
+            user_code="ABCD-1234",
+        )
+        mock_poll.return_value = "gho_faketoken"
+        mock_resolve.return_value = [
+            {"installation_id": 100, "account_login": "acme"},
+            {"installation_id": 200, "account_login": "other"},
+            {"installation_id": 300, "account_login": "third"},
+        ]
+        mock_mint.return_value = "aletheore-tok-xyz"
+
+        result = runner.invoke(app, ["login"], input="0\n-1\n4\nabc\n\n2\n")
+
+    assert result.exit_code == 0
+    called_installation_id = mock_mint.call_args[0][1]
+    assert called_installation_id == 200
+    assert result.output.count("enter a number between 1 and 3") == 5
+
+
+def test_login_prints_error_and_exits_nonzero_on_device_flow_error():
+    with patch("aletheore.device_auth.request_device_code") as mock_request_code, \
+         patch("aletheore.device_auth.poll_for_access_token") as mock_poll:
+        mock_request_code.return_value = MagicMock(
+            verification_uri="https://github.com/login/device",
+            user_code="ABCD-1234",
+        )
+        mock_poll.side_effect = DeviceFlowError("authorization was denied")
+
+        result = runner.invoke(app, ["login"])
+
+    assert result.exit_code == 1
+    assert "denied" in result.output
+
+
+def test_logout_clears_saved_token(tmp_path, monkeypatch):
+    import aletheore.credentials as credentials
+
+    creds_path = tmp_path / "credentials.json"
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", creds_path)
+    credentials.save_api_token("aletheore-managed-audit", "tok-123", creds_path)
+
+    result = runner.invoke(app, ["logout"])
+
+    assert result.exit_code == 0
+    assert not credentials.has_api_key(
+        "UNUSED_ENV", "aletheore-managed-audit", credentials_path=creds_path
+    )
+
+
+def test_logout_when_not_logged_in_says_so(tmp_path, monkeypatch):
+    import aletheore.credentials as credentials
+
+    creds_path = tmp_path / "credentials.json"
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", creds_path)
+
+    result = runner.invoke(app, ["logout"])
+
+    assert result.exit_code == 0
+    assert "not logged in" in result.stdout.lower()
+
+
+def test_init_writes_aletheore_json_with_defaults(tmp_path):
+    result = runner.invoke(app, ["init", str(tmp_path)])
+
+    assert result.exit_code == 0
+    config_path = tmp_path / ".aletheore.json"
+    assert config_path.exists()
+    data = json.loads(config_path.read_text())
+    assert data == {
+        "layer_markers": {},
+        "cluster_resolution": 1.0,
+        "dead_code_entry_points": [],
+        "accepted_secrets": [],
+        "ignored_paths": [],
+        "disabled_checks": [],
+        "severity_threshold": None,
+    }
+
+
+def test_init_refuses_to_overwrite_existing_config(tmp_path):
+    config_path = tmp_path / ".aletheore.json"
+    config_path.write_text('{"cluster_resolution": 2.0}')
+
+    result = runner.invoke(app, ["init", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert json.loads(config_path.read_text()) == {"cluster_resolution": 2.0}
+
+
+def test_check_for_update_reports_up_to_date():
+    from aletheore.cli import _check_for_update
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"info": {"version": "0.3.0"}})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://pypi.org")
+    assert _check_for_update("0.3.0", http_client=client) == "up to date"
+
+
+def test_check_for_update_reports_available_update():
+    from aletheore.cli import _check_for_update
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"info": {"version": "0.4.0"}})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://pypi.org")
+    assert _check_for_update("0.3.0", http_client=client) == "update available: 0.4.0"
+
+
+def test_check_for_update_degrades_gracefully_on_network_error():
+    from aletheore.cli import _check_for_update
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://pypi.org")
+    assert _check_for_update("0.3.0", http_client=client) == "couldn't check for updates"
+
+
+def test_fetch_whoami_returns_account_info():
+    from aletheore.cli import _fetch_whoami
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == "Bearer real-token"
+        return httpx.Response(200, json={"account_login": "acme", "plan": "pro"})
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://app.aletheore.com"
+    )
+    assert _fetch_whoami("real-token", http_client=client) == {
+        "account_login": "acme",
+        "plan": "pro",
+    }
+
+
+def test_fetch_whoami_returns_none_on_invalid_token():
+    from aletheore.cli import _fetch_whoami
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "invalid or revoked token"})
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://app.aletheore.com"
+    )
+    assert _fetch_whoami("bad-token", http_client=client) is None
+
+
+def test_fetch_whoami_returns_none_on_malformed_json_body():
+    # A 200 with a body that isn't valid JSON (captive portal, misconfigured
+    # proxy, CDN error page returned with a 200 status) must degrade to None
+    # like any other failure, not raise json.JSONDecodeError uncaught.
+    from aletheore.cli import _fetch_whoami
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<html>not json</html>")
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://app.aletheore.com"
+    )
+    assert _fetch_whoami("real-token", http_client=client) is None
+
+
+def test_status_reports_not_logged_in(monkeypatch):
+    import aletheore.credentials as credentials
+
+    monkeypatch.delenv("ALETHEORE_API_TOKEN", raising=False)
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", Path("/nonexistent/creds.json"))
+
+    with patch("aletheore.cli._check_for_update", return_value="up to date"), \
+         patch("aletheore.cli._fetch_whoami") as mock_whoami:
+        result = runner.invoke(app, ["status"])
+
+    mock_whoami.assert_not_called()
+
+    assert result.exit_code == 0
+    assert "Not logged in" in result.output
+    assert "aletheore login" in result.output
+
+
+def test_status_reports_logged_in_org_when_token_saved(tmp_path, monkeypatch):
+    import aletheore.credentials as credentials
+
+    creds_path = tmp_path / "creds.json"
+    creds_path.write_text(json.dumps({"aletheore-managed-audit": "real-token"}))
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", creds_path)
+    monkeypatch.delenv("ALETHEORE_API_TOKEN", raising=False)
+
+    with patch("aletheore.cli._check_for_update", return_value="up to date"), \
+         patch(
+             "aletheore.cli._fetch_whoami",
+             return_value={"account_login": "acme", "plan": "pro"},
+         ) as mock_whoami:
+        result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "acme" in result.output
+    assert "pro" in result.output
+    mock_whoami.assert_called_once_with("real-token")
+
+
+def test_status_reports_unverifiable_token(tmp_path, monkeypatch):
+    import aletheore.credentials as credentials
+
+    creds_path = tmp_path / "creds.json"
+    creds_path.write_text(json.dumps({"aletheore-managed-audit": "stale-token"}))
+    monkeypatch.setattr(credentials, "DEFAULT_CREDENTIALS_PATH", creds_path)
+    monkeypatch.delenv("ALETHEORE_API_TOKEN", raising=False)
+
+    with patch("aletheore.cli._check_for_update", return_value="up to date"), \
+         patch("aletheore.cli._fetch_whoami", return_value=None):
+        result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "couldn't be verified" in result.output
+
+
+def test_main_query_imports_prints_result(tmp_path):
+    repo = tmp_path
+    (repo / "app").mkdir()
+    (repo / "app" / "config.py").write_text("SETTING = 1\n")
+    (repo / "app" / "auth.py").write_text("from app import config\n")
+    runner.invoke(app, ["scan", str(repo)])
+
+    result = runner.invoke(app, ["query", "imports", "app/auth.py", "--path", str(repo)])
+
+    assert result.exit_code == 0
+    assert "app/config.py" in result.output
+
+
+def test_main_query_symbol_source_prints_toon_result(tmp_path):
+    repo = tmp_path
+    (repo / "app.py").write_text("x = 1\n\ndef greet():\n    return 'hi'\n")
+    runner.invoke(app, ["scan", str(repo)])
+
+    result = runner.invoke(app, ["query", "symbol-source", "app.py", "greet", "--path", str(repo)])
+
+    assert result.exit_code == 0
+    assert "def greet" in result.output
+    assert "return 'hi'" in result.output
+
+
+def test_main_query_ownership_does_not_require_a_target(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo)])
+
+    result = runner.invoke(app, ["query", "ownership", "--path", str(repo)])
+
+    assert result.exit_code == 0
+
+
+def test_main_query_missing_target_errors_clearly(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo)])
+
+    result = runner.invoke(app, ["query", "imports", "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "requires a target" in result.output
+
+
+def test_main_query_without_evidence_errors_clearly(tmp_path):
+    repo = tmp_path
+
+    result = runner.invoke(app, ["query", "imports", "app/auth.py", "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "aletheore scan" in result.output
+
+
+def test_main_query_rejects_evidence_from_an_incompatible_schema_version(tmp_path):
+    repo = tmp_path
+    (repo / ".aletheore").mkdir()
+    evidence = {"aletheore_version": "9.9.9", "repository": {"modules": []}}
+    (repo / ".aletheore" / "air.json").write_text(json.dumps(evidence))
+
+    result = runner.invoke(app, ["query", "ownership", "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "re-run" in result.output.lower()
+
+
+def test_main_query_unknown_module_errors_clearly(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo)])
+
+    result = runner.invoke(
+        app, ["query", "imports", "does/not/exist.py", "--path", str(repo)]
+    )
+
+    assert result.exit_code == 1
+    assert "not present in evidence" in result.output
+
+
+def test_main_query_unknown_kind_errors_clearly(tmp_path):
+    result = runner.invoke(app, ["query", "bogus-kind", "--path", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "not a valid query kind" in result.output
+
+
+def make_evidence_file(
+    path: Path,
+    findings: list[dict] | None = None,
+    vulnerabilities: list[dict] | None = None,
+    layer_violations: list[dict] | None = None,
+) -> Path:
+    # Built on the full schema skeleton rather than a hand-picked subset:
+    # `aletheore diff` reads these through load_evidence_file, which rejects
+    # anything that isn't a complete AIR document - and no real snapshot has
+    # ever been anything less.
+    evidence = minimal_air_evidence()
+    evidence["security"]["secrets"]["findings"] = findings or []
+    evidence["security"]["dependency_vulnerabilities"]["checked"] = True
+    evidence["security"]["dependency_vulnerabilities"]["findings"] = vulnerabilities or []
+    evidence["architecture"]["layer_violations"]["violations"] = layer_violations or []
+    path.write_text(json.dumps(evidence))
+    return path
+
+
+def test_main_diff_shows_curated_diff_between_two_files(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        findings=[
+            {
+                "path": "a.py",
+                "pattern": "aws_access_key_id",
+                "match_preview": "AKIA...MNOP",
+                "likely_placeholder": False,
+            }
+        ],
+    )
+
+    result = runner.invoke(app, ["diff", str(old_path), str(new_path)])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed["secrets"]["new"]) == 1
+
+
+def test_main_diff_sarif_format_renders_a_valid_sarif_log(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        findings=[
+            {
+                "path": "a.py",
+                "line": 1,
+                "pattern": "aws_access_key_id",
+                "match_preview": "AKIA...MNOP",
+                "likely_placeholder": False,
+            }
+        ],
+    )
+
+    result = runner.invoke(app, ["diff", str(old_path), str(new_path), "--format", "sarif"])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["version"] == "2.1.0"
+    results = parsed["runs"][0]["results"]
+    assert len(results) == 1
+    assert results[0]["ruleId"] == "aletheore/secret"
+
+
+def test_main_diff_sarif_format_rejects_full_flag(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(tmp_path / "new.json")
+
+    result = runner.invoke(app, ["diff", str(old_path), str(new_path), "--format", "sarif", "--full"])
+
+    assert result.exit_code == 1
+    assert "incompatible with --full" in result.output
+
+
+def test_main_diff_rejects_unknown_format(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(tmp_path / "new.json")
+
+    result = runner.invoke(app, ["diff", str(old_path), str(new_path), "--format", "xml"])
+
+    assert result.exit_code == 1
+    assert "unknown --format" in result.output
+
+
+def test_main_diff_rejects_an_evidence_file_from_an_incompatible_schema_version(tmp_path):
+    old_path = tmp_path / "old.json"
+    old_path.write_text(json.dumps({"aletheore_version": "9.9.9", "repository": {}}))
+    new_path = make_evidence_file(tmp_path / "new.json")
+
+    result = runner.invoke(app, ["diff", str(old_path), str(new_path)])
+
+    assert result.exit_code == 1
+    assert "re-run" in result.output.lower()
+
+
+def test_main_diff_full_flag_returns_raw_diff(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(tmp_path / "new.json")
+
+    result = runner.invoke(app, ["diff", str(old_path), str(new_path), "--full"])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert set(parsed.keys()) == {"added", "removed", "changed"}
+
+
+def test_main_diff_fail_on_new_secrets_exits_1_for_a_real_secret(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        findings=[
+            {
+                "path": "a.py",
+                "pattern": "aws_access_key_id",
+                "match_preview": "AKIA...MNOP",
+                "likely_placeholder": False,
+            }
+        ],
+    )
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--fail-on-new-secrets"]
+    )
+
+    assert result.exit_code == 1
+
+
+def test_main_diff_fail_on_new_secrets_exits_0_for_a_placeholder_only(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        findings=[
+            {
+                "path": "tests/fixture.py",
+                "pattern": "generic_credential_assignment",
+                "match_preview": "test****...cret",
+                "likely_placeholder": True,
+            }
+        ],
+    )
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--fail-on-new-secrets"]
+    )
+
+    assert result.exit_code == 0
+
+
+def test_main_diff_fail_on_new_secrets_exits_0_for_an_accepted_baseline_secret(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        findings=[
+            {
+                "path": "app/aws_client.py",
+                "pattern": "aws_access_key_id",
+                "match_preview": "AKIA...MNOP",
+                "likely_placeholder": False,
+                "accepted": True,
+            }
+        ],
+    )
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--fail-on-new-secrets"]
+    )
+
+    assert result.exit_code == 0
+
+
+def test_main_diff_fail_on_new_secrets_works_even_with_full_flag(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        findings=[
+            {
+                "path": "a.py",
+                "pattern": "aws_access_key_id",
+                "match_preview": "AKIA...MNOP",
+                "likely_placeholder": False,
+            }
+        ],
+    )
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--full", "--fail-on-new-secrets"]
+    )
+
+    assert result.exit_code == 1
+    parsed = json.loads(result.output)
+    assert set(parsed.keys()) == {"added", "removed", "changed"}
+
+
+def test_main_diff_fail_on_new_vulnerabilities_exits_1_for_a_new_vulnerability(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        vulnerabilities=[
+            {
+                "ecosystem": "PyPI",
+                "package": "requests",
+                "installed_version": "2.25.0",
+                "advisory_id": "GHSA-xxxx",
+                "summary": "...",
+                "severity": [],
+            }
+        ],
+    )
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--fail-on-new-vulnerabilities"]
+    )
+
+    assert result.exit_code == 1
+
+
+def test_main_diff_fail_on_new_vulnerabilities_exits_0_with_no_new_vulnerabilities(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(tmp_path / "new.json")
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--fail-on-new-vulnerabilities"]
+    )
+
+    assert result.exit_code == 0
+
+
+def test_main_diff_fail_on_new_layer_violations_exits_1_for_a_new_violation(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        layer_violations=[
+            {
+                "from": "app/routes.py",
+                "to": "app/db.py",
+                "reason": "inner layer 'routes' imports outer layer 'db'",
+            }
+        ],
+    )
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--fail-on-new-layer-violations"]
+    )
+
+    assert result.exit_code == 1
+
+
+def test_main_diff_fail_on_new_layer_violations_exits_0_with_no_new_violations(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(tmp_path / "new.json")
+
+    result = runner.invoke(
+        app, ["diff", str(old_path), str(new_path), "--fail-on-new-layer-violations"]
+    )
+
+    assert result.exit_code == 0
+
+
+def test_main_diff_fail_flags_combine_any_one_triggering_causes_exit_1(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    new_path = make_evidence_file(
+        tmp_path / "new.json",
+        layer_violations=[
+            {
+                "from": "app/routes.py",
+                "to": "app/db.py",
+                "reason": "inner layer 'routes' imports outer layer 'db'",
+            }
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "diff",
+            str(old_path),
+            str(new_path),
+            "--fail-on-new-secrets",
+            "--fail-on-new-vulnerabilities",
+            "--fail-on-new-layer-violations",
+        ],
+    )
+
+    assert result.exit_code == 1
+
+
+def test_main_diff_missing_file_errors_cleanly(tmp_path):
+    old_path = make_evidence_file(tmp_path / "old.json")
+    missing_path = tmp_path / "does_not_exist.json"
+
+    result = runner.invoke(app, ["diff", str(old_path), str(missing_path)])
+
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_main_scan_saves_a_history_snapshot(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+
+    history_files = list((repo / ".aletheore" / "history").glob("*.json"))
+    assert len(history_files) == 1
+
+
+def test_main_query_changes_reports_no_prior_snapshot_on_first_scan(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+
+    result = runner.invoke(app, ["query", "changes", "--path", str(repo)])
+
+    assert result.exit_code == 0
+    assert "no prior snapshot" in result.output
+
+
+def test_main_query_changes_reports_corrupt_snapshot(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+
+    history_dir = repo / ".aletheore" / "history"
+    oldest = sorted(history_dir.glob("*.json"))[0]
+    oldest.write_text("{not valid json")
+
+    result = runner.invoke(app, ["query", "changes", "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "unreadable" in result.output
+
+
+def test_main_query_changes_rejects_a_snapshot_from_an_incompatible_schema_version(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+
+    history_dir = repo / ".aletheore" / "history"
+    oldest = sorted(history_dir.glob("*.json"))[0]
+    stale = json.loads(oldest.read_text())
+    stale["aletheore_version"] = "9.9.9"
+    oldest.write_text(json.dumps(stale))
+
+    result = runner.invoke(app, ["query", "changes", "--path", str(repo)])
+
+    assert result.exit_code == 1
+    assert "re-run" in result.output.lower()
+
+
+def test_main_query_changes_shows_a_real_diff_between_two_scans(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+
+    (repo / "second.py").write_text("y = 2\n")
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+
+    result = runner.invoke(app, ["query", "changes", "--path", str(repo)])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert parsed["aggregate_deltas"]["module_count"] == 1
+
+
+def test_main_query_changes_full_flag_returns_raw_diff(tmp_path):
+    repo = tmp_path
+    (repo / "main.py").write_text("x = 1\n")
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+    runner.invoke(app, ["scan", str(repo), "--no-check-vulnerabilities"])
+
+    result = runner.invoke(app, ["query", "changes", "--path", str(repo), "--full"])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert set(parsed.keys()) == {"added", "removed", "changed"}
+
+
+# --- CLI discoverability: query kind listing, --path alias, healthcheck hint ---
+
+
+def test_bare_query_lists_every_kind_grouped_instead_of_a_usage_error():
+    """A bare `aletheore query` used to hit Typer's "Missing argument 'KIND'",
+    which names none of the kinds - leaving 23 capabilities discoverable only
+    through --help."""
+    result = CliRunner().invoke(app, ["query"])
+
+    assert result.exit_code == 0, result.output
+    for group in QUERY_KIND_GROUPS:
+        assert group in result.output
+    for kind in QUERY_KIND_CHOICES:
+        assert kind in result.output
+
+
+def test_query_kind_groups_cover_every_dispatchable_kind():
+    """The grouped listing is the only map of what `query` does, so a kind
+    added to QUERY_FUNCTIONS without a group would vanish from it."""
+    assert set(QUERY_FUNCTIONS) <= set(QUERY_KIND_CHOICES)
+
+
+def test_query_help_kind_count_matches_the_real_number_of_kinds():
+    # Regression: --help's kind count used to be a hardcoded "23" that
+    # drifted the moment a 24th kind was added and nobody thought to grep
+    # for the stale literal - it's computed from QUERY_KIND_CHOICES now, so
+    # this can't go stale again, but pins the count is still self-consistent.
+    result = runner.invoke(app, ["query", "--help"])
+
+    assert result.exit_code == 0
+    assert f"one of the {len(QUERY_KIND_CHOICES)} query kinds" in result.output
+
+
+def test_unknown_query_kind_suggests_the_closest_match():
+    result = CliRunner().invoke(app, ["query", "secret"])
+
+    assert result.exit_code == 1
+    assert "Did you mean" in result.output
+    assert "secrets" in result.output
+
+
+def test_unknown_query_kind_with_no_close_match_still_lists_the_kinds():
+    result = CliRunner().invoke(app, ["query", "zzzzzzzz"])
+
+    assert result.exit_code == 1
+    assert "is not a valid query kind" in result.output
+    assert "Structure" in result.output
+
+
+def test_every_path_taking_command_accepts_the_path_option():
+    """`--path` worked on `query` alone, so a user who learned it there got
+    "No such option '--path'" from the other eight - reproduced live against
+    `aletheore dashboard --path .`.
+
+    Checks the registered click params directly rather than grepping rendered
+    `--help` text: rich wraps long option names across lines (and inserts ANSI
+    resets between characters) once the render width is narrow enough, which
+    made a substring check on the rendered text flaky under CI's terminal
+    width rather than the local one.
+    """
+    command_group = typer.main.get_command(app)
+    for name in (
+        "scan", "audit", "init", "index", "mcp", "mcp-install", "dashboard", "healthcheck", "query",
+    ):
+        command = command_group.commands[name]
+        opts = {opt for param in command.params for opt in getattr(param, "opts", [])}
+        assert "--path" in opts, f"{name} does not accept --path"
+
+
+def test_resolve_path_prefers_the_option_but_keeps_the_positional_default():
+    assert _resolve_path(".", None) == "."
+    assert _resolve_path(".", "/somewhere") == "/somewhere"
+    # Not `option or positional` - an explicit empty string is still a choice.
+    assert _resolve_path(".", "") == ""
+
+
+def test_healthcheck_without_base_url_explains_what_a_base_url_is():
+    result = CliRunner().invoke(app, ["healthcheck", "."])
+
+    assert result.exit_code == 1
+    assert "running" in result.output
+    assert "http://localhost:8000" in result.output
+
+
+# --- aletheore mcp: background watching is on by default, with an off switch ---
+
+
+def _run_mcp_command(tmp_path, monkeypatch, *, watch: bool = True, env: str | None = None):
+    """Runs _mcp with build_server stubbed, returning the kwargs it was given."""
+    from aletheore.cli import _mcp
+
+    if env is None:
+        monkeypatch.delenv("ALETHEORE_MCP_WATCH", raising=False)
+    else:
+        monkeypatch.setenv("ALETHEORE_MCP_WATCH", env)
+    fake_server = MagicMock()
+    with patch("aletheore.mcp_server.build_server", return_value=fake_server) as build:
+        _mcp(str(tmp_path), None, watch=watch)
+    assert fake_server.run.called
+    return build.call_args.kwargs
+
+
+def test_mcp_watches_by_default(tmp_path, monkeypatch):
+    assert _run_mcp_command(tmp_path, monkeypatch)["watch"] is True
+
+
+def test_mcp_no_watch_flag_turns_watching_off(tmp_path, monkeypatch):
+    assert _run_mcp_command(tmp_path, monkeypatch, watch=False)["watch"] is False
+
+
+@pytest.mark.parametrize("value", ["0", "false", "OFF", "no"])
+def test_mcp_watch_env_var_turns_watching_off(tmp_path, monkeypatch, value):
+    assert _run_mcp_command(tmp_path, monkeypatch, env=value)["watch"] is False
+
+
+@pytest.mark.parametrize("value", ["1", "true", "", "disable"])
+def test_mcp_watch_env_var_other_values_leave_the_default_on(tmp_path, monkeypatch, value):
+    assert _run_mcp_command(tmp_path, monkeypatch, env=value)["watch"] is True
+
+
+def test_main_mcp_no_watch_flag_reaches_the_mcp_flow(tmp_path):
+    with patch("aletheore.cli._mcp", return_value=0) as mock_mcp:
+        result = runner.invoke(app, ["mcp", str(tmp_path), "--no-watch"])
+
+    assert result.exit_code == 0
+    mock_mcp.assert_called_once_with(str(tmp_path), None, watch=False)
+
+
+def test_the_mcp_command_documents_no_watch():
+    # Inspect the option itself, not the rendered --help: rich wraps and colours
+    # that text differently on every terminal and CI runner, which splits the
+    # flag across ANSI codes.
+    command = typer.main.get_command(app).commands["mcp"]
+    option = next(param for param in command.params if "--no-watch" in getattr(param, "opts", []))
+
+    assert option.is_flag
+    assert "ALETHEORE_MCP_WATCH" in option.help
+
+
+def test_config_crash_reporting_shows_current_state_when_enabled(monkeypatch):
+    monkeypatch.setenv("ALETHEORE_CRASH_REPORTING", "1")
+
+    result = runner.invoke(app, ["config", "crash-reporting"])
+
+    assert result.exit_code == 0
+    assert "Crash reporting: on" in result.output
+
+
+def test_config_crash_reporting_shows_current_state_when_disabled(monkeypatch):
+    monkeypatch.setenv("ALETHEORE_CRASH_REPORTING", "0")
+
+    result = runner.invoke(app, ["config", "crash-reporting"])
+
+    assert result.exit_code == 0
+    assert "Crash reporting: off" in result.output
+
+
+def test_config_crash_reporting_off_persists_the_preference(monkeypatch):
+    monkeypatch.delenv("ALETHEORE_CRASH_REPORTING", raising=False)
+
+    result = runner.invoke(app, ["config", "crash-reporting", "off"])
+
+    assert result.exit_code == 0
+    assert "turned off" in result.output
+    assert is_crash_reporting_enabled() is False
+
+
+def test_config_crash_reporting_on_persists_the_preference(monkeypatch):
+    monkeypatch.delenv("ALETHEORE_CRASH_REPORTING", raising=False)
+    set_crash_reporting_enabled(False)
+
+    result = runner.invoke(app, ["config", "crash-reporting", "on"])
+
+    assert result.exit_code == 0
+    assert "turned on" in result.output
+    assert is_crash_reporting_enabled() is True
+
+
+def test_config_crash_reporting_rejects_an_invalid_value(monkeypatch):
+    monkeypatch.delenv("ALETHEORE_CRASH_REPORTING", raising=False)
+
+    result = runner.invoke(app, ["config", "crash-reporting", "maybe"])
+
+    assert result.exit_code == 1
+    assert "expected 'on' or 'off'" in result.output
+
+
+def test_status_shows_crash_reporting_on(monkeypatch):
+    monkeypatch.setenv("ALETHEORE_CRASH_REPORTING", "1")
+    monkeypatch.delenv("ALETHEORE_API_TOKEN", raising=False)
+
+    result = runner.invoke(app, ["status"])
+
+    assert "Crash reporting: on" in result.output
+
+
+def test_status_shows_crash_reporting_off(monkeypatch):
+    monkeypatch.setenv("ALETHEORE_CRASH_REPORTING", "0")
+    monkeypatch.delenv("ALETHEORE_API_TOKEN", raising=False)
+
+    result = runner.invoke(app, ["status"])
+
+    assert "Crash reporting: off" in result.output
+
+
+def test_audit_exits_cleanly_when_consent_prompt_has_no_stdin(tmp_path):
+    (tmp_path / "main.py").write_text("x = 1\n")
+    fake_adapter = MagicMock()
+    fake_adapter.name = "openai"
+    fake_adapter.requires_consent = True
+
+    with patch("aletheore.cli.select_adapter", return_value=fake_adapter):
+        result = runner.invoke(app, ["audit", str(tmp_path)], input="")
+
+    # Closed stdin is treated as "no": nothing is sent, and no EOFError escapes.
+    assert result.exit_code == 0
+    assert "no data was sent" in result.output
+    assert not isinstance(result.exception, EOFError)
+    fake_adapter.invoke.assert_not_called()
+
+
+def test_login_exits_cleanly_on_network_error():
+    import httpx
+
+    with patch("aletheore.device_auth.request_device_code") as mock_request_code:
+        mock_request_code.side_effect = httpx.ConnectError("boom")
+
+        result = runner.invoke(app, ["login"])
+
+    assert result.exit_code == 1
+    assert "boom" in result.output
+
+
+def test_managed_audit_reports_network_error_instead_of_traceback(tmp_path):
+    import httpx
+
+    (tmp_path / "main.py").write_text("x = 1\n")
+    with patch("aletheore.cli.get_api_key", return_value="fake-token"), patch(
+        "aletheore.cli.run_managed_audit_request", side_effect=httpx.ConnectError("down")
+    ):
+        result = runner.invoke(app, ["audit", str(tmp_path), "--managed"])
+
+    assert result.exit_code == 1
+    assert "Evidence is still available" in result.output

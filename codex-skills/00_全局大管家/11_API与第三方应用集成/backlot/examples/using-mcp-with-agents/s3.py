@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Drive the awslabs aws-api MCP server against Backlot's S3. Self-contained.
+
+Runs `awslabs.aws-api-mcp-server` via **uvx** (Python) pointed at Backlot's `/s3`, then lets an
+LLM agent answer a question by calling its MCP tools (which shell the AWS CLI). The CLI's boto3
+client honors a first-class `AWS_ENDPOINT_URL` override and SigV4-signs every call, so pointing it
+at Backlot is a handful of env vars — no Docker/host-gateway tricks.
+
+NOTE: awslabs' server (an SSRF guard in its parser's `_validate_endpoint`) only accepts a
+**loopback** endpoint — `localhost` / `127.0.0.1` / `::1`. A hostname is rejected ("Could not
+resolve endpoint …") and even a non-loopback IP is rejected ("Local endpoint was not a loopback
+address"). So to drive a remote deployment, tunnel it to loopback and point `--url` there:
+    ssh -fN -L 18000:127.0.0.1:8000 user@host
+    python examples/using-mcp-with-agents/s3.py --url http://127.0.0.1:18000 --access-key … --secret-key …
+
+S3 authenticates with an AWS access-key/secret pair (not a bearer token). With `--url` (a running
+server) `--access-key` / `--secret-key` are **required** — pass real AWS keys, or a pair from
+`GET <url>/_meta/users` (each user, and the admin, has an `s3_access_key_id` / `s3_secret_access_key`
+there). Without `--url` the local throwaway server uses its own admin keypair.
+
+Prereqs: uvx (Astral `uv`); `pip install -e ".[mcp]"`; an LLM key for `--agent` (`ANTHROPIC_API_KEY`,
+or `OPENAI_API_KEY` with `--agent openai`). Run from the repo root:
+    ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/s3.py            # local server
+    ANTHROPIC_API_KEY=… python examples/using-mcp-with-agents/s3.py \
+        --url https://host --access-key <AKIA…> --secret-key <secret> [--agent openai]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import urllib.request
+
+from _agent import run_agent
+from mcp import StdioServerParameters
+
+from backlot import serve_or_connect
+
+CORPUS = [
+    {
+        "author_email": "ava@acme.com",
+        "created": "2026-02-11T09:00:00Z",
+        "source_type": "s3",
+        "bucket": "payments",
+        "key": "incidents/sev2.md",
+        "title": "SEV2: checkout latency spike",
+        "content": "p95 checkout latency jumped to 2.1s after the payments migration; rolling back.",
+    },
+    {
+        "author_email": "ava@acme.com",
+        "created": "2025-12-05T09:00:00Z",
+        "source_type": "s3",
+        "bucket": "runbooks",
+        "key": "oncall/checkout.md",
+        "title": "On-call Runbook: checkout latency & bad deploys",
+        "content": "When a deploy or migration spikes checkout latency: check the payments "
+        "dashboards, roll back the last change, and page the on-call engineer.",
+    },
+]
+QUESTION = (
+    "The company's knowledge base is stored as objects in S3 buckets — use the S3 API only "
+    "(no other AWS services). List the buckets, list a bucket's objects, and read an "
+    "object's contents with `aws s3 cp s3://<bucket>/<key> -` (the trailing dash streams "
+    "the body to stdout; `s3api get-object` only writes to a file and won't return the "
+    "body). Find the incident about checkout latency and summarize it, then find the "
+    "on-call runbook. Cite the object keys."
+)
+
+
+def build_params(base_url: str, access_key: str, secret_key: str) -> StdioServerParameters:
+    """`uvx` args pointing the awslabs aws-api MCP server at Backlot via AWS_ENDPOINT_URL.
+
+    We deliberately do NOT set READ_OPERATIONS_ONLY: it blocks `aws s3 cp s3://… -`, which is the
+    only way this server streams an object's *body* back to the model (a read-only `s3api
+    get-object` just writes the bytes to a sandboxed file and returns metadata, so the agent can
+    list objects but never read them). Backlot has no write endpoints, so dropping the read-only
+    guard is safe here; against real AWS you'd weigh read-only vs. being able to read object bodies."""
+    return StdioServerParameters(
+        command="uvx",
+        # `--with mcp<2`: uvx resolves this server in an env of its own, and the server is still
+        # on mcp v1 — it declares `mcp>=1.23.0` with no upper bound, yet imports
+        # `mcp.shared.exceptions.McpError`, which v2 renamed to `MCPError`. What used to hold that
+        # resolve on v1 was the server's own `fastmcp>=3.4.3`, whose fastmcp-slim capped `mcp<2`;
+        # fastmcp 4.0 lifted the cap, so unconstrained it now takes mcp 2.x and dies on the
+        # ImportError before speaking a byte of protocol. Our own env is on v2 (see the `mcp`
+        # extra) — the two never share a process, only the wire protocol, which negotiates.
+        args=["--with", "mcp<2", "awslabs.aws-api-mcp-server@latest"],
+        env={
+            "AWS_ENDPOINT_URL": f"{base_url.rstrip('/')}/s3",
+            "AWS_ACCESS_KEY_ID": access_key,
+            "AWS_SECRET_ACCESS_KEY": secret_key,
+            "AWS_REGION": "us-east-1",
+        },
+    )
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Drive awslabs aws-api-mcp-server over MCP against Backlot's S3."
+    )
+    p.add_argument(
+        "--url", help="Backlot base URL to drive (default: spin up a local throwaway server)"
+    )
+    p.add_argument(
+        "--access-key",
+        help="AWS access key id (S3 uses a keypair, not a token); "
+        "required with --url — from GET <url>/_meta/users, or real AWS",
+    )
+    p.add_argument("--secret-key", help="AWS secret access key (required with --url)")
+    p.add_argument(
+        "--agent",
+        choices=("anthropic", "openai"),
+        default="anthropic",
+        help="which LLM agent to run (default: anthropic)",
+    )
+    args = p.parse_args()
+    if args.url and not (args.access_key and args.secret_key):
+        p.error(
+            "--access-key and --secret-key are required with --url "
+            "(grab a pair from GET <url>/_meta/users)"
+        )
+    return args
+
+
+def _admin_keys(base_url: str) -> tuple[str, str]:
+    """The local throwaway server's admin S3 keypair, read from its /_meta/users."""
+    with urllib.request.urlopen(f"{base_url.rstrip('/')}/_meta/users") as r:
+        data = json.load(r)
+    return data["admin_s3_access_key_id"], data["admin_s3_secret_access_key"]
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    with serve_or_connect(CORPUS, url=args.url) as s:
+        # with --url you pass your own AWS keys; the local throwaway server uses its admin keypair
+        ak, sk = (args.access_key, args.secret_key) if args.url else _admin_keys(s.base_url)
+        run_agent(args.agent, build_params(s.base_url, ak, sk), QUESTION)

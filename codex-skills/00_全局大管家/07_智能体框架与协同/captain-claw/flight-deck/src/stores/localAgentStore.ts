@@ -1,0 +1,106 @@
+import { create } from 'zustand'
+import { queueSave, registerHydrator } from '../services/settingsSync'
+import { useAuthStore } from './authStore'
+
+const STORAGE_KEY = 'fd:local-agents'
+
+export interface LocalAgent {
+  id: string
+  name: string
+  description: string
+  host: string
+  port: number
+  authToken: string
+  status: 'unknown' | 'online' | 'offline'
+  forwardingTask?: string
+  consultApproval?: boolean
+}
+
+interface LocalAgentStore {
+  agents: LocalAgent[]
+  addAgent: (name: string, description: string, host: string, port: number, authToken: string) => void
+  removeAgent: (id: string) => void
+  updateAgent: (id: string, patch: Partial<Pick<LocalAgent, 'name' | 'description' | 'host' | 'port' | 'authToken' | 'forwardingTask' | 'consultApproval'>>) => void
+  probeAgent: (id: string) => Promise<void>
+  probeAll: () => Promise<void>
+}
+
+function load(): LocalAgent[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    return JSON.parse(raw)
+  } catch { return [] }
+}
+
+function save(agents: LocalAgent[]) {
+  const val = JSON.stringify(agents)
+  if (useAuthStore.getState().authEnabled) queueSave(STORAGE_KEY, val)
+  else localStorage.setItem(STORAGE_KEY, val)
+}
+
+export const useLocalAgentStore = create<LocalAgentStore>((set, get) => ({
+  agents: load(),
+
+  addAgent: (name, description, host, port, authToken) => {
+    const id = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const agent: LocalAgent = { id, name, description, host, port, authToken, status: 'unknown' }
+    const agents = [...get().agents, agent]
+    save(agents)
+    set({ agents })
+    // Probe immediately
+    get().probeAgent(id)
+  },
+
+  removeAgent: (id) => {
+    const agents = get().agents.filter((a) => a.id !== id)
+    save(agents)
+    set({ agents })
+  },
+
+  updateAgent: (id, patch) => {
+    const agents = get().agents.map((a) => a.id === id ? { ...a, ...patch } : a)
+    save(agents)
+    set({ agents })
+  },
+
+  probeAgent: async (id) => {
+    const agent = get().agents.find((a) => a.id === id)
+    if (!agent) return
+    try {
+      // Probe via FD backend to avoid CORS issues
+      const res = await fetch(`/fd/probe?host=${encodeURIComponent(agent.host)}&port=${agent.port}`)
+      if (res.ok) {
+        const data = await res.json()
+        const status = data.ok ? 'online' : 'offline'
+        const agents = get().agents.map((a) => a.id === id ? { ...a, status: status as LocalAgent['status'] } : a)
+        set({ agents })
+      } else {
+        throw new Error('probe failed')
+      }
+    } catch {
+      const agents = get().agents.map((a) => a.id === id ? { ...a, status: 'offline' as const } : a)
+      set({ agents })
+    }
+  },
+
+  probeAll: async () => {
+    const agents = get().agents
+    await Promise.all(agents.map((a) => get().probeAgent(a.id)))
+  },
+}))
+
+// Server settings are authoritative once signed in (same as uiStore): a key
+// that's ABSENT resets the list, so a previous user's agents — host, port and
+// authToken — can't linger for the next account in this tab. Safe against the
+// localStorage → server migration: hydrateAllStores runs it BEFORE hydrators
+// (a migrated list is already in `settings`), skips hydrators when the fetch
+// fails, and drops the localStorage copy of absent keys itself.
+registerHydrator((settings) => {
+  const raw = settings[STORAGE_KEY]
+  if (!raw) {
+    useLocalAgentStore.setState({ agents: [] })
+    return
+  }
+  try { useLocalAgentStore.setState({ agents: JSON.parse(raw) }) } catch { /* ignore */ }
+})

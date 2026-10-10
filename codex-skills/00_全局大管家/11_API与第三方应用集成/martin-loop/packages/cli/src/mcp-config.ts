@@ -1,0 +1,1317 @@
+import { access, mkdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+
+import { recordMartinMcpInstall, writeFileAtomically } from "./mcp-install-state.js";
+import { CliCommandError } from "./ux.js";
+
+export const MARTIN_STARTER_TOOLS = [
+  "martin_doctor",
+  "martin_plan",
+  "martin_preflight",
+  "martin_estimate",
+  "martin_run",
+  "martin_triage_runs",
+  "martin_dossier"
+] as const;
+
+export const MARTIN_MINIMAL_TOOLS = [
+  "martin_doctor",
+  "martin_plan",
+  "martin_preflight",
+  "martin_estimate",
+  "martin_list_runs",
+  "martin_triage_runs",
+  "martin_dossier"
+] as const;
+
+export const MARTIN_DIAGNOSTIC_TOOLS = [
+  "martin_doctor",
+  "martin_plan",
+  "martin_preflight",
+  "martin_estimate",
+  "martin_logs",
+  "martin_list_runs",
+  "martin_triage_runs",
+  "martin_get_run",
+  "martin_get_attempt",
+  "martin_get_verification_results",
+  "martin_dossier",
+  "martin_eval"
+] as const;
+
+export const MARTIN_GITHUB_REVIEW_TOOLS = [
+  "martin_doctor",
+  "martin_plan",
+  "martin_preflight",
+  "martin_dossier",
+  "martin_eval",
+  "martin_pr_summary",
+  "martin_create_pr",
+  "martin_review_pr"
+] as const;
+
+export const MARTIN_FULL_TOOLS = [
+  "martin_run",
+  "martin_inspect",
+  "martin_status",
+  "martin_doctor",
+  "martin_plan",
+  "martin_preflight",
+  "martin_estimate",
+  "martin_logs",
+  "martin_pause",
+  "martin_cancel",
+  "martin_continue",
+  "martin_list_runs",
+  "martin_triage_runs",
+  "martin_get_run",
+  "martin_get_attempt",
+  "martin_get_verification_results",
+  "martin_run_dossier",
+  "martin_dossier",
+  "martin_eval",
+  "martin_pr_summary",
+  "martin_create_pr",
+  "martin_review_pr"
+] as const;
+
+export const MARTIN_PAID_REMOTE_TOOLS = [
+  "martin_doctor",
+  "martin_plan",
+  "martin_preflight",
+  "martin_estimate",
+  "martin_run",
+  "martin_list_runs",
+  "martin_triage_runs",
+  "martin_get_run",
+  "martin_get_verification_results",
+  "martin_dossier",
+  "martin_eval"
+] as const;
+
+export type MartinMcpHost = "codex" | "claude" | "gemini" | "generic" | "cursor" | "vscode" | "copilot" | "continue";
+export type MartinMcpScope = "user" | "project" | "local";
+export type MartinMcpTransport = "stdio" | "remote";
+export type MartinMcpProfile = "minimal" | "diagnostic" | "github-review" | "full-local" | "paid-remote" | "starter" | "full";
+export type MartinMcpPlatform = "windows" | "macos" | "linux";
+
+export interface MartinMcpConfigInput {
+  host: MartinMcpHost;
+  scope: MartinMcpScope;
+  cwd: string;
+  runsRoot: string;
+  transport?: MartinMcpTransport;
+  profile?: MartinMcpProfile;
+  remoteUrl?: string;
+  remoteTokenEnv?: string;
+  experimentalRemoteHosts?: boolean;
+  platform?: MartinMcpPlatform;
+}
+
+export interface MartinMcpInstallPlan extends Required<Omit<MartinMcpConfigInput, "remoteUrl">> {
+  remoteUrl?: string;
+  targetPath: string;
+  content: string;
+  serverId: string;
+  enabledTools: string[];
+  installMethod: "file" | "command" | "instructions";
+  governanceHooks: GovernanceHooksOutput;
+}
+
+export interface GovernanceHooksOutput {
+  host: MartinMcpHost;
+  supported: boolean;
+  mechanism: string;
+  targetPath: string | null;
+  content: string;
+  instructions: string;
+}
+
+export interface MartinMcpInstallOptions {
+  installGovernance?: boolean;
+  stateRoot?: string;
+}
+
+const DEFAULT_REMOTE_URL = "https://remote.martinloop.local/mcp";
+const DEFAULT_REMOTE_TOKEN_ENV = "MARTIN_REMOTE_TOKEN";
+const REMOTE_EXPERIMENTAL_HOSTS = new Set<MartinMcpHost>(["cursor", "vscode", "copilot", "continue"]);
+
+export function buildMcpInstallPlan(input: MartinMcpConfigInput): MartinMcpInstallPlan {
+  const normalized = normalizeInput(input);
+  const targetPath = resolveTargetPath(normalized);
+  const content = buildHostConfig(normalized);
+  const serverId =
+    normalized.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+
+  return {
+    ...normalized,
+    targetPath,
+    content,
+    serverId,
+    enabledTools: [...selectTools(normalized.profile)],
+    installMethod:
+      normalized.host === "claude" && normalized.scope === "local"
+        ? "command"
+        : (normalized.host === "vscode" || normalized.host === "copilot") && normalized.scope === "user"
+          ? "instructions"
+          : "file",
+    governanceHooks: buildGovernanceHooks(normalized.host, normalized.scope)
+  };
+}
+
+export async function installMcpConfig(
+  input: MartinMcpConfigInput,
+  options: MartinMcpInstallOptions = {}
+): Promise<MartinMcpInstallPlan> {
+  const plan = buildMcpInstallPlan(input);
+  if (plan.installMethod === "instructions") {
+    return plan;
+  }
+  if (plan.installMethod === "command") {
+    await installClaudeLocalScope(plan);
+    await maybeInstallGovernance(plan, options);
+    return plan;
+  }
+
+  const targetExists = await access(plan.targetPath).then(() => true).catch(() => false);
+
+  if (targetExists) {
+    const existing = await readFile(plan.targetPath, "utf8");
+    // F7 fix: always merge/overwrite the martin-loop key, even if a stale entry
+    // already exists (e.g. @keean12/mcp from a prior version). The merge function
+    // spreads existingServers then overwrites with generatedServers, so unrelated
+    // server entries are preserved while the martin-loop key is always correct.
+    const merged = mergeHostConfig(plan.host, plan.serverId, existing, plan.content);
+    if (merged) {
+      await recordMartinMcpInstall({
+        host: plan.host,
+        scope: plan.scope,
+        targetPath: plan.targetPath,
+        content: merged,
+        previousContent: existing,
+        stateRoot: options.stateRoot
+      });
+      await maybeInstallGovernance(plan, options);
+      return plan;
+    }
+
+    throw new CliCommandError(
+      "environment",
+      `Refusing to overwrite existing MCP config: ${plan.targetPath}`,
+      {
+        suggestion:
+          "Use `martin-loop mcp print-config` and merge the Martin Loop block into the existing host config."
+      }
+    );
+  }
+
+  await recordMartinMcpInstall({
+    host: plan.host,
+    scope: plan.scope,
+    targetPath: plan.targetPath,
+    content: plan.content,
+    stateRoot: options.stateRoot
+  });
+  await maybeInstallGovernance(plan, options);
+  return plan;
+}
+
+async function maybeInstallGovernance(
+  plan: MartinMcpInstallPlan,
+  options: MartinMcpInstallOptions
+): Promise<void> {
+  if (options.installGovernance && plan.host === "claude") {
+    await installClaudeGovernanceHooks();
+  }
+  if (options.installGovernance && plan.host === "codex") {
+    await installCodexGovernanceInstructions(plan, options);
+  }
+}
+
+/**
+ * Write MartinLoop governance hooks into ~/.claude/settings.json.
+ *
+ * Adds PreToolUse hooks that run `martin gate` before Bash/Edit/Write,
+ * and a Stop hook that generates a session dossier. Merges with existing
+ * hooks — never overwrites non-Martin entries.
+ */
+async function installClaudeGovernanceHooks(): Promise<void> {
+  const settingsPath = path.join(homedir(), ".claude", "settings.json");
+  let settings: Record<string, unknown> = {};
+
+  try {
+    const existing = await readFile(settingsPath, "utf8");
+    settings = JSON.parse(existing) as Record<string, unknown>;
+  } catch {
+    // File doesn't exist or is invalid — start fresh
+  }
+
+  const martinPreToolHook = {
+    matcher: "Bash|Edit|Write|MultiEdit",
+    hooks: [
+      {
+        type: "command",
+        command: "npx martin-loop gate --quiet",
+        timeout: 10
+      }
+    ]
+  };
+
+  const martinStopHook = {
+    matcher: "*",
+    hooks: [
+      {
+        type: "command",
+        command: "npx martin-loop dossier --latest --quiet",
+        timeout: 10,
+        async: true
+      }
+    ]
+  };
+
+  const hooks = (settings.hooks as Record<string, unknown[]> | undefined) ?? {};
+  const preToolUse = (hooks.PreToolUse as unknown[] | undefined) ?? [];
+  const alreadyHasGate = preToolUse.some(
+    (h) => typeof h === "object" && h !== null &&
+    JSON.stringify(h).includes("martin-loop gate")
+  );
+  if (!alreadyHasGate) {
+    preToolUse.unshift(martinPreToolHook);
+  }
+
+  const stop = (hooks.Stop as unknown[] | undefined) ?? [];
+  const alreadyHasDossier = stop.some(
+    (h) => typeof h === "object" && h !== null &&
+    JSON.stringify(h).includes("martin-loop dossier")
+  );
+  if (!alreadyHasDossier) {
+    stop.push(martinStopHook);
+  }
+
+  settings.hooks = { ...hooks, PreToolUse: preToolUse, Stop: stop };
+  await mkdir(path.join(homedir(), ".claude"), { recursive: true });
+  await writeFileAtomically(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+}
+
+const MARTIN_CODEX_GOVERNANCE_BEGIN = "<!-- BEGIN MARTINLOOP GOVERNANCE -->";
+const MARTIN_CODEX_GOVERNANCE_END = "<!-- END MARTINLOOP GOVERNANCE -->";
+
+async function installCodexGovernanceInstructions(
+  plan: MartinMcpInstallPlan,
+  options: MartinMcpInstallOptions
+): Promise<void> {
+  const targetPath = plan.governanceHooks.targetPath;
+  if (!targetPath) {
+    throw new CliCommandError(
+      "environment",
+      "Codex governance installation needs an explicit instruction target.",
+      {
+        suggestion: plan.governanceHooks.instructions
+      }
+    );
+  }
+  const resolvedTargetPath = isAbsoluteAnyPlatform(targetPath)
+    ? targetPath
+    : joinTargetPath(plan.cwd, targetPath);
+
+  const existing = await readFile(resolvedTargetPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  const merged = mergeMartinCodexGovernanceSection(existing ?? "", plan.governanceHooks.content);
+
+  if (existing === merged) {
+    return;
+  }
+
+  await recordMartinMcpInstall({
+    host: plan.host,
+    scope: plan.scope,
+    targetPath: resolvedTargetPath,
+    content: merged,
+    ...(existing !== undefined ? { previousContent: existing } : {}),
+    stateRoot: options.stateRoot
+  });
+}
+
+function mergeMartinCodexGovernanceSection(existing: string, content: string): string {
+  const eol = detectDominantEol(existing);
+  const managedSection = renderMartinCodexGovernanceSection(content, eol);
+  const beginIndexes = findAllIndexes(existing, MARTIN_CODEX_GOVERNANCE_BEGIN);
+  const endIndexes = findAllIndexes(existing, MARTIN_CODEX_GOVERNANCE_END);
+  const beginIndex = beginIndexes[0] ?? -1;
+  const endIndex = endIndexes[0] ?? -1;
+
+  if (
+    beginIndexes.length > 1 ||
+    endIndexes.length > 1 ||
+    beginIndexes.length !== endIndexes.length ||
+    (beginIndex !== -1 && endIndex < beginIndex)
+  ) {
+    throw new CliCommandError(
+      "environment",
+      "Refusing to modify Codex instructions because the MartinLoop managed section is malformed.",
+      {
+        suggestion:
+          "Fix or remove the partial MartinLoop governance section, then rerun `martin mcp install --install-governance`."
+      }
+    );
+  }
+
+  if (beginIndex !== -1) {
+    return [
+      existing.slice(0, beginIndex),
+      managedSection,
+      existing.slice(endIndex + MARTIN_CODEX_GOVERNANCE_END.length)
+    ].join("");
+  }
+
+  if (existing.length === 0) {
+    return `${managedSection}${eol}`;
+  }
+
+  return `${existing}${buildAppendSeparator(existing, eol)}${managedSection}${eol}`;
+}
+
+function renderMartinCodexGovernanceSection(content: string, eol: string): string {
+  return [
+    MARTIN_CODEX_GOVERNANCE_BEGIN,
+    content.trimEnd().replace(/\r\n|\n|\r/gu, eol),
+    MARTIN_CODEX_GOVERNANCE_END
+  ].join(eol);
+}
+
+function buildAppendSeparator(existing: string, eol: string): string {
+  if (existing.endsWith(`${eol}${eol}`)) {
+    return "";
+  }
+  if (existing.endsWith(eol)) {
+    return eol;
+  }
+  return `${eol}${eol}`;
+}
+
+function detectDominantEol(content: string): "\r\n" | "\n" {
+  const crlfCount = content.match(/\r\n/gu)?.length ?? 0;
+  const lfCount = content.match(/\n/gu)?.length ?? 0;
+  const lfOnlyCount = lfCount - crlfCount;
+  return crlfCount > lfOnlyCount ? "\r\n" : "\n";
+}
+
+function findAllIndexes(haystack: string, needle: string): number[] {
+  const indexes: number[] = [];
+  let offset = 0;
+  while (offset < haystack.length) {
+    const index = haystack.indexOf(needle, offset);
+    if (index === -1) break;
+    indexes.push(index);
+    offset = index + needle.length;
+  }
+  return indexes;
+}
+
+function normalizeInput(input: MartinMcpConfigInput): Required<Omit<MartinMcpConfigInput, "remoteUrl">> & {
+  remoteUrl?: string;
+} {
+  return {
+    host: input.host,
+    scope: input.scope,
+    cwd: input.cwd,
+    runsRoot: input.runsRoot,
+    transport: input.transport ?? "stdio",
+    profile: input.profile ?? "minimal",
+    remoteUrl: input.remoteUrl ?? DEFAULT_REMOTE_URL,
+    remoteTokenEnv: input.remoteTokenEnv ?? DEFAULT_REMOTE_TOKEN_ENV,
+    experimentalRemoteHosts: input.experimentalRemoteHosts ?? false,
+    platform: input.platform ?? detectPlatform()
+  };
+}
+
+function buildHostConfig(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  switch (input.host) {
+    case "codex":
+      return buildCodexConfigSnippet(input);
+    case "claude":
+      return buildClaudeConfigSnippet(input);
+    case "gemini":
+      return buildGeminiConfigSnippet(input);
+    case "cursor":
+      return buildCursorConfigSnippet(input);
+    case "vscode":
+    case "copilot":
+      return buildCopilotConfigSnippet(input);
+    case "continue":
+      return buildContinueConfigSnippet(input);
+    case "generic":
+      return buildGenericConfigSnippet(input);
+  }
+}
+
+function buildCodexConfigSnippet(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const tools = selectTools(input.profile).map((tool) => `"${tool}"`).join(", ");
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+
+  if (input.transport === "remote") {
+    return [
+      "# Martin Loop MCP",
+      `# Codex ${input.profile} profile over remote Streamable HTTP.`,
+      `[mcp_servers."${serverId}"]`,
+      `url = "${escapeTomlString(input.remoteUrl ?? DEFAULT_REMOTE_URL)}"`,
+      `bearer_token_env_var = "${escapeTomlString(input.remoteTokenEnv)}"`,
+      "required = true",
+      "startup_timeout_sec = 20",
+      "tool_timeout_sec = 180",
+      `enabled_tools = [${tools}]`,
+      ""
+    ].join("\n");
+  }
+
+  const launcher = buildStdioLauncher(input.platform);
+  return [
+    "# Martin Loop MCP",
+    `# Codex ${input.profile} profile over local stdio.`,
+    `[mcp_servers."${serverId}"]`,
+    `command = "${escapeTomlString(launcher.command)}"`,
+    `args = [${launcher.args.map((value) => `"${escapeTomlString(value)}"`).join(", ")}]`,
+    `cwd = "${escapeTomlString(input.cwd)}"`,
+    "startup_timeout_sec = 20",
+    "tool_timeout_sec = 180",
+    `enabled_tools = [${tools}]`,
+    `env = { MARTIN_RUNS_DIR = "${escapeTomlString(input.runsRoot)}" }`,
+    ""
+  ].join("\n");
+}
+
+function buildClaudeConfigSnippet(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+
+  if (input.scope === "local") {
+    return renderClaudeLocalInstallCommand(input);
+  }
+
+  if (input.transport === "remote") {
+    return (
+      JSON.stringify(
+        {
+          mcpServers: {
+            [serverId]: {
+              type: "http",
+              url: input.remoteUrl ?? DEFAULT_REMOTE_URL,
+              headers: {
+                Authorization: `Bearer \${${input.remoteTokenEnv}}`
+              }
+            }
+          }
+        },
+        null,
+        2
+      ) + "\n"
+    );
+  }
+
+  const launcher = buildStdioLauncher(input.platform);
+  return (
+    JSON.stringify(
+      {
+        mcpServers: {
+          [serverId]: {
+            command: launcher.command,
+            args: launcher.args,
+            cwd: input.cwd,
+            env: {
+              MARTIN_RUNS_DIR: input.runsRoot
+            }
+          }
+        }
+      },
+      null,
+      2
+    ) + "\n"
+  );
+}
+
+function buildGeminiConfigSnippet(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+  const tools = selectTools(input.profile);
+
+  if (input.transport === "remote") {
+    return (
+      JSON.stringify(
+        {
+          mcp: {
+            allowed: [serverId]
+          },
+          mcpServers: {
+            [serverId]: {
+              httpUrl: input.remoteUrl ?? DEFAULT_REMOTE_URL,
+              headers: {
+                Authorization: `Bearer $${input.remoteTokenEnv}`
+              },
+              trust: true,
+              includeTools: tools
+            }
+          }
+        },
+        null,
+        2
+      ) + "\n"
+    );
+  }
+
+  const launcher = buildStdioLauncher(input.platform);
+  return (
+    JSON.stringify(
+      {
+        mcp: {
+          allowed: [serverId]
+        },
+        mcpServers: {
+          [serverId]: {
+            command: launcher.command,
+            args: launcher.args,
+            cwd: input.cwd,
+            env: {
+              MARTIN_RUNS_DIR: input.runsRoot
+            },
+            includeTools: tools
+          }
+        }
+      },
+      null,
+      2
+    ) + "\n"
+  );
+}
+
+function buildGenericConfigSnippet(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+  const launcher = buildStdioLauncher(input.platform);
+  const tools = selectTools(input.profile);
+
+  return (
+    JSON.stringify(
+      {
+        version: 1,
+        generatedBy: "martin-loop mcp print-config",
+        host: "generic",
+        transport: input.transport,
+        profile: input.profile,
+        platform: input.platform,
+        serverId,
+        mcpServers: {
+          [serverId]:
+            input.transport === "remote"
+              ? {
+                  url: input.remoteUrl ?? DEFAULT_REMOTE_URL,
+                  auth: {
+                    bearerTokenEnvVar: input.remoteTokenEnv
+                  },
+                  includeTools: tools
+                }
+              : {
+                  command: launcher.command,
+                  args: launcher.args,
+                  cwd: input.cwd,
+                  env: {
+                    MARTIN_RUNS_DIR: input.runsRoot
+                  },
+                  includeTools: tools
+                }
+        }
+      },
+      null,
+      2
+    ) + "\n"
+  );
+}
+
+function resolveTargetPath(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  if (input.host === "codex") {
+    return input.scope === "user"
+      ? joinTargetPath(resolveCodexHome(), "config.toml")
+      : joinTargetPath(input.cwd, ".codex", "config.toml");
+  }
+
+  if (input.host === "claude") {
+    if (input.scope === "local") {
+      return "Claude Code local scope (managed by `claude mcp add --scope local`)";
+    }
+
+    return input.scope === "user"
+      ? path.join(homedir(), ".claude.json")
+      : joinTargetPath(input.cwd, ".mcp.json");
+  }
+
+  if (input.host === "gemini") {
+    return input.scope === "user"
+      ? path.join(homedir(), ".gemini", "settings.json")
+      : joinTargetPath(input.cwd, ".gemini", "settings.json");
+  }
+
+  if (input.host === "cursor") {
+    return input.scope === "user"
+      ? path.join(homedir(), ".cursor", "mcp.json")
+      : joinTargetPath(input.cwd, ".cursor", "mcp.json");
+  }
+
+  if (input.host === "vscode" || input.host === "copilot") {
+    return input.scope === "user"
+      ? "VS Code user MCP configuration (use `MCP: Add Server` in the command palette)"
+      : joinTargetPath(input.cwd, ".vscode", "mcp.json");
+  }
+
+  if (input.host === "continue") {
+    return input.scope === "user"
+      ? path.join(homedir(), ".continue", "config.json")
+      : joinTargetPath(input.cwd, ".continue", "config.json");
+  }
+
+  return input.scope === "user"
+    ? path.join(homedir(), ".martin-loop", "mcp.generic.json")
+    : joinTargetPath(input.cwd, ".martin-loop", "mcp.generic.json");
+}
+
+function detectPlatform(): MartinMcpPlatform {
+  switch (process.platform) {
+    case "win32":
+      return "windows";
+    case "darwin":
+      return "macos";
+    default:
+      return "linux";
+  }
+}
+
+function resolveCodexHome(env: NodeJS.ProcessEnv = process.env): string {
+  const codexHome = env["CODEX_HOME"]?.trim();
+  return codexHome && codexHome.length > 0 ? codexHome : path.join(homedir(), ".codex");
+}
+
+function joinTargetPath(basePath: string, ...segments: string[]): string {
+  return usesWindowsSeparators(basePath)
+    ? path.win32.join(basePath, ...segments)
+    : path.join(basePath, ...segments);
+}
+
+function isAbsoluteAnyPlatform(value: string): boolean {
+  return path.isAbsolute(value) || path.win32.isAbsolute(value);
+}
+
+function buildCursorConfigSnippet(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const launcher = buildStdioLauncher(input.platform);
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+  return (
+    JSON.stringify(
+      {
+        mcpServers: {
+          [serverId]: {
+            ...(input.transport === "remote"
+              ? {
+                  url: input.remoteUrl ?? DEFAULT_REMOTE_URL,
+                  headers: {
+                    Authorization: `Bearer $${input.remoteTokenEnv}`
+                  }
+                }
+              : {
+                  command: launcher.command,
+                  args: launcher.args,
+                  env: {
+                    MARTIN_RUNS_DIR: input.runsRoot
+                  }
+                })
+          }
+        }
+      },
+      null,
+      2
+    ) + "\n"
+  );
+}
+
+function buildCopilotConfigSnippet(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const launcher = buildStdioLauncher(input.platform);
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+  return (
+    JSON.stringify(
+      {
+        servers: {
+          [serverId]: {
+            ...(input.transport === "remote"
+              ? {
+                  type: "http",
+                  url: input.remoteUrl ?? DEFAULT_REMOTE_URL,
+                  headers: {
+                    Authorization: `Bearer $${input.remoteTokenEnv}`
+                  }
+                }
+              : {
+                  command: launcher.command,
+                  args: launcher.args,
+                  env: {
+                    MARTIN_RUNS_DIR: input.runsRoot
+                  }
+                })
+          }
+        }
+      },
+      null,
+      2
+    ) + "\n"
+  );
+}
+
+function buildContinueConfigSnippet(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const launcher = buildStdioLauncher(input.platform);
+  const tools = selectTools(input.profile);
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+  return (
+    JSON.stringify(
+      {
+        mcpServers: [
+          {
+            name: serverId,
+            ...(input.transport === "remote"
+              ? {
+                  type: "http",
+                  url: input.remoteUrl ?? DEFAULT_REMOTE_URL,
+                  headers: {
+                    Authorization: `Bearer $${input.remoteTokenEnv}`
+                  }
+                }
+              : {
+                  command: launcher.command,
+                  args: launcher.args,
+                  env: {
+                    MARTIN_RUNS_DIR: input.runsRoot
+                  }
+                }),
+            includeTools: tools
+          }
+        ]
+      },
+      null,
+      2
+    ) + "\n"
+  );
+}
+
+function usesWindowsSeparators(pathValue: string): boolean {
+  return /^[A-Za-z]:([\\/]|$)/u.test(pathValue) || pathValue.includes("\\");
+}
+
+function buildStdioLauncher(platform: MartinMcpPlatform): {
+  command: string;
+  args: string[];
+} {
+  if (platform === "windows") {
+    return {
+      command: "cmd",
+      args: ["/c", "npx", "-y", "@martinloop/mcp"]
+    };
+  }
+
+  return {
+    command: "npx",
+    args: ["-y", "@martinloop/mcp"]
+  };
+}
+
+function selectTools(profile: MartinMcpProfile): readonly string[] {
+  switch (profile) {
+    case "minimal":
+      return MARTIN_MINIMAL_TOOLS;
+    case "diagnostic":
+      return MARTIN_DIAGNOSTIC_TOOLS;
+    case "github-review":
+      return MARTIN_GITHUB_REVIEW_TOOLS;
+    case "full-local":
+    case "full":
+      return MARTIN_FULL_TOOLS;
+    case "paid-remote":
+      return MARTIN_PAID_REMOTE_TOOLS;
+    case "starter":
+      return MARTIN_STARTER_TOOLS;
+  }
+}
+
+function escapeTomlString(value: string): string {
+  return value.replace(/\\/gu, "\\\\").replace(/"/gu, '\\"');
+}
+
+function existingConfigAlreadyContainsMartin(
+  host: MartinMcpHost,
+  serverId: string,
+  existing: string
+): boolean {
+  if (host === "codex") {
+    const quotedServerId = serverId.replace(/[\/\\^$*+?.()|[\]{}]/gu, "\\$&");
+    const legacyServerId = serverId.replace(/-/gu, "_");
+    return (
+      new RegExp(String.raw`(^|\r?\n)\[mcp_servers\."${quotedServerId}"\]\s*$`, "mu").test(existing) ||
+      new RegExp(String.raw`(^|\r?\n)\[mcp_servers\.${legacyServerId}\]\s*$`, "mu").test(existing)
+    );
+  }
+
+  try {
+    const parsed = JSON.parse(existing) as Record<string, unknown>;
+    return hasMartinServerInParsedConfig(host, serverId, parsed);
+  } catch {
+    return false;
+  }
+}
+
+function hasMartinServerInParsedConfig(
+  host: MartinMcpHost,
+  serverId: string,
+  parsed: Record<string, unknown>
+): boolean {
+  if (host === "vscode" || host === "copilot") {
+    const servers = parsed.servers;
+    return isRecord(servers) && serverId in servers;
+  }
+
+  if (host === "continue") {
+    const servers = parsed.mcpServers;
+    if (Array.isArray(servers)) {
+      return servers.some((entry) => isRecord(entry) && entry.name === serverId);
+    }
+    return isRecord(servers) && serverId in servers;
+  }
+
+  const servers = parsed.mcpServers;
+  return isRecord(servers) && serverId in servers;
+}
+
+function mergeHostConfig(
+  host: MartinMcpHost,
+  serverId: string,
+  existing: string,
+  generated: string
+): string | undefined {
+  if (host === "codex") {
+    return mergeCodexConfig(serverId, existing, generated);
+  }
+
+  if (host === "claude" && generated.startsWith("claude mcp add")) {
+    return undefined;
+  }
+
+  try {
+    const existingParsed = JSON.parse(existing) as Record<string, unknown>;
+    const generatedParsed = JSON.parse(generated) as Record<string, unknown>;
+    const merged = mergeHostParsedConfig(host, serverId, existingParsed, generatedParsed);
+    if (!merged) {
+      return undefined;
+    }
+    return `${JSON.stringify(merged, null, 2)}\n`;
+  } catch {
+    return undefined;
+  }
+}
+
+function mergeCodexConfig(serverId: string, existing: string, generated: string): string {
+  const newline = existing.includes("\r\n") ? "\r\n" : "\n";
+  const legacyServerId = serverId.replace(/-/gu, "_");
+  const escapedServerId = serverId.replace(/[\/\\^$*+?.()|[\]{}]/gu, "\\$&");
+  const escapedLegacyServerId = legacyServerId.replace(/[\/\\^$*+?.()|[\]{}]/gu, "\\$&");
+  const targetHeader = new RegExp(
+    String.raw`^\s*\[mcp_servers\.(?:"${escapedServerId}"|${escapedLegacyServerId})\]\s*$`,
+    "u"
+  );
+  const existingLines = existing.split(/\r?\n/u);
+  const sectionStart = existingLines.findIndex((line) => targetHeader.test(line));
+  const generatedLines = generated.trimEnd().split(/\r?\n/u);
+
+  if (sectionStart === -1) {
+    return `${existing.trimEnd()}${newline}${newline}${generatedLines.join(newline)}${newline}`;
+  }
+
+  const nextSectionOffset = existingLines
+    .slice(sectionStart + 1)
+    .findIndex((line) => /^\s*\[[^\]\r\n]+\]\s*$/u.test(line));
+  const sectionEnd = nextSectionOffset === -1
+    ? existingLines.length
+    : sectionStart + 1 + nextSectionOffset;
+  const mergedLines = [
+    ...existingLines.slice(0, sectionStart),
+    ...generatedLines,
+    ...existingLines.slice(sectionEnd),
+  ];
+
+  return `${mergedLines.join(newline).trimEnd()}${newline}`;
+}
+
+function mergeHostParsedConfig(
+  host: MartinMcpHost,
+  serverId: string,
+  existing: Record<string, unknown>,
+  generated: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  if (host === "vscode" || host === "copilot") {
+    const existingServers = isRecord(existing.servers)
+      ? { ...existing.servers }
+      : {};
+    const generatedServers = isRecord(generated.servers)
+      ? generated.servers
+      : undefined;
+    if (!generatedServers) {
+      return undefined;
+    }
+    return {
+      ...existing,
+      servers: {
+        ...existingServers,
+        ...generatedServers
+      }
+    };
+  }
+
+  if (host === "continue") {
+    const generatedServers = generated.mcpServers;
+    if (!Array.isArray(generatedServers)) {
+      return undefined;
+    }
+    const generatedServer = generatedServers.find((entry) => isRecord(entry) && entry.name === serverId);
+    if (!generatedServer) {
+      return undefined;
+    }
+
+    const existingServers = existing.mcpServers;
+    if (Array.isArray(existingServers)) {
+      const withoutMartin = existingServers.filter(
+        (entry) => !(isRecord(entry) && entry.name === serverId)
+      );
+      return {
+        ...existing,
+        mcpServers: [...withoutMartin, generatedServer]
+      };
+    }
+
+    if (isRecord(existingServers)) {
+      return {
+        ...existing,
+        mcpServers: {
+          ...existingServers,
+          [serverId]: generatedServer
+        }
+      };
+    }
+
+    return {
+      ...existing,
+      mcpServers: [generatedServer]
+    };
+  }
+
+  const generatedServers = generated.mcpServers;
+  if (!isRecord(generatedServers)) {
+    return undefined;
+  }
+
+  const existingServers = isRecord(existing.mcpServers) ? existing.mcpServers : {};
+  return {
+    ...existing,
+    mcpServers: {
+      ...existingServers,
+      ...generatedServers
+    }
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function buildGovernanceHooks(host: MartinMcpHost, scope: MartinMcpScope): GovernanceHooksOutput {
+  switch (host) {
+    case "claude":
+      return {
+        host,
+        supported: true,
+        mechanism: "Claude Code hooks in ~/.claude/settings.json",
+        targetPath: path.join(homedir(), ".claude", "settings.json"),
+        content: JSON.stringify({
+          hooks: {
+            PreToolUse: [{
+              matcher: "Bash|Edit|Write",
+              command: "npx martin-loop gate --quiet",
+              description: "MartinLoop governance gate — blocks unverified work"
+            }],
+            Stop: [{
+              command: "npx martin-loop dossier --latest --quiet",
+              description: "MartinLoop session receipt on exit"
+            }]
+          }
+        }, null, 2),
+        instructions: "Merge the hooks block into your existing ~/.claude/settings.json to enable automatic governance checks."
+      };
+
+    case "codex":
+      return {
+        host,
+        supported: true,
+        mechanism: "Codex AGENTS.md governance instructions",
+        targetPath: scope === "user" ? joinTargetPath(resolveCodexHome(), "AGENTS.md") : "AGENTS.md",
+        content: [
+          "## MartinLoop Governance",
+          "",
+          "MartinLoop is available in this Codex environment.",
+          "",
+          "Use MartinLoop proactively for non-trivial software implementation, debugging, risky changes, failed prior attempts, and release-readiness questions.",
+          "When routing through MartinLoop, briefly tell the user which workflow you are routing through and why. Do not ask the user to choose MartinLoop commands — select the appropriate workflow yourself.",
+          "",
+          "For a fresh non-trivial governed change, use this default sequence:",
+          "1. `martin_doctor` — confirm environment",
+          "2. `martin_estimate` — preview cost and recommended route",
+          "3. `martin_plan` — scope the approach",
+          "4. `martin_preflight` — validate the run contract",
+          "5. `martin_run` — execute only after contract is validated",
+          "6. `martin_dossier` — surface verifier-backed evidence",
+          "",
+          "For read-only diagnosis, prefer `martin_doctor`, `martin_triage_runs`, and evidence/dossier reads before recommending next steps. Do not invoke `martin_run`.",
+          "When continuing a session with valid existing Martin context, reuse it — do not blindly repeat completed setup steps.",
+          "",
+          "Do not use MartinLoop for unrelated conversation, trivial text edits, or non-software tasks.",
+          "Do not mutate code when the user only asked for diagnosis or explanation.",
+          "Stop and ask when policy, budget, credentials, scope, or destructive risk requires explicit consent.",
+          "Never claim success without verifier-backed completion evidence from MartinLoop.",
+          ""
+        ].join("\n"),
+        instructions:
+          scope === "user"
+            ? "Install the Martin-managed governance section into CODEX_HOME/AGENTS.md."
+            : "Install the Martin-managed governance section into the project AGENTS.md."
+      };
+
+    case "gemini":
+      return {
+        host,
+        supported: true,
+        mechanism: "Gemini CLI GEMINI.md governance rules",
+        targetPath: scope === "project" ? "GEMINI.md" : path.join(homedir(), ".gemini", "GEMINI.md"),
+        content: [
+          "## MartinLoop Governance",
+          "",
+          "Before any coding work, follow the MartinLoop governed sequence:",
+          "1. `martin_doctor` — confirm environment",
+          "2. `martin_estimate` — preview cost and recommended route",
+          "3. `martin_plan` — scope the approach",
+          "4. `martin_preflight` — validate the run contract",
+          "5. `martin_run` — execute only after contract is safe",
+          "6. `martin_dossier` — inspect what happened",
+          "",
+          "Do not execute real coding work until doctor and preflight are complete.",
+          "Do not claim success without MartinLoop verifier-backed completion.",
+          ""
+        ].join("\n"),
+        instructions: "Add to your GEMINI.md (project) or ~/.gemini/GEMINI.md (user) for automatic governance."
+      };
+
+    case "cursor":
+      return {
+        host,
+        supported: true,
+        mechanism: "Cursor rules file for governance",
+        targetPath: scope === "project" ? ".cursor/rules/martin-governance.mdc" : null,
+        content: [
+          "---",
+          "description: MartinLoop governance rules for Cursor AI",
+          "globs: \"**/*\"",
+          "---",
+          "",
+          "## MartinLoop Governance",
+          "",
+          "Before any coding task, follow the governed sequence:",
+          "1. Call `martin_doctor` to confirm environment",
+          "2. Call `martin_estimate` to preview cost",
+          "3. Call `martin_plan` to scope the approach",
+          "4. Call `martin_preflight` to validate the contract",
+          "5. Call `martin_run` to execute",
+          "6. Call `martin_dossier` for the receipt",
+          "",
+          "Never skip preflight. Never claim success without verifier evidence.",
+          ""
+        ].join("\n"),
+        instructions: "Save to .cursor/rules/martin-governance.mdc in your project."
+      };
+
+    case "vscode":
+    case "copilot":
+      return {
+        host,
+        supported: true,
+        mechanism: "GitHub Copilot instructions file",
+        targetPath: scope === "project" ? ".github/copilot-instructions.md" : null,
+        content: [
+          "## MartinLoop Governance",
+          "",
+          "When MartinLoop MCP server is available, follow the governed coding sequence:",
+          "1. `martin_doctor` — confirm environment readiness",
+          "2. `martin_estimate` — preview cost and recommended route",
+          "3. `martin_plan` — scope the bounded approach",
+          "4. `martin_preflight` — validate the run contract before spend",
+          "5. `martin_run` — execute only after the contract is validated",
+          "6. `martin_dossier` — generate completion receipt",
+          "",
+          "Do not skip any step. Do not claim success without verifier-backed evidence.",
+          ""
+        ].join("\n"),
+        instructions: "Save to .github/copilot-instructions.md in your repository."
+      };
+
+    case "continue":
+      return {
+        host,
+        supported: true,
+        mechanism: "Continue.dev rules for governance",
+        targetPath: scope === "project" ? ".continue/rules/martin-governance.md" : path.join(homedir(), ".continue", "rules", "martin-governance.md"),
+        content: [
+          "## MartinLoop Governance",
+          "",
+          "Before making code changes, follow the MartinLoop governed workflow:",
+          "1. Call `martin_doctor` to confirm environment",
+          "2. Call `martin_estimate` to preview cost and route",
+          "3. Call `martin_plan` to scope the approach",
+          "4. Call `martin_preflight` to validate the contract",
+          "5. Call `martin_run` to execute governed work",
+          "6. Call `martin_dossier` to produce the receipt",
+          "",
+          "Never bypass governance. Never claim success without verifier evidence.",
+          ""
+        ].join("\n"),
+        instructions: "Save to .continue/rules/martin-governance.md for automatic governance."
+      };
+
+    case "generic":
+      return {
+        host,
+        supported: false,
+        mechanism: "Manual governance — no native hook support",
+        targetPath: null,
+        content: [
+          "## MartinLoop Governance (Manual)",
+          "",
+          "Follow this sequence before any agent coding work:",
+          "1. martin_doctor → martin_estimate → martin_plan → martin_preflight → martin_run → martin_dossier",
+          "",
+          "Add this instruction to your agent's system prompt or rules file.",
+          ""
+        ].join("\n"),
+        instructions: "Copy the governance sequence into your agent's system prompt or configuration."
+      };
+  }
+}
+
+export function hostRequiresExperimentalRemoteOptIn(host: MartinMcpHost): boolean {
+  return REMOTE_EXPERIMENTAL_HOSTS.has(host);
+}
+
+function renderClaudeLocalInstallCommand(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): string {
+  const args = buildClaudeLocalInstallArgs(input);
+  return [args.command, ...args.args].join(" ");
+}
+
+function buildClaudeLocalInstallArgs(
+  input: Required<Omit<MartinMcpConfigInput, "remoteUrl">> & { remoteUrl?: string }
+): {
+  command: string;
+  args: string[];
+} {
+  const serverId = input.transport === "remote" ? "martin-loop-remote" : "martin-loop";
+
+  if (input.transport === "remote") {
+    return {
+      command: input.platform === "windows" ? "claude.cmd" : "claude",
+      args: [
+        "mcp",
+        "add",
+        "--transport",
+        "http",
+        "--scope",
+        "local",
+        serverId,
+        input.remoteUrl ?? DEFAULT_REMOTE_URL,
+        "--header",
+        `Authorization: Bearer \${${input.remoteTokenEnv}}`
+      ]
+    };
+  }
+
+  const launcher = buildStdioLauncher(input.platform);
+  return {
+    command: input.platform === "windows" ? "claude.cmd" : "claude",
+    args: [
+      "mcp",
+      "add",
+      "--transport",
+      "stdio",
+      "--scope",
+      "local",
+      "-e",
+      `MARTIN_RUNS_DIR=${input.runsRoot}`,
+      serverId,
+      "--",
+      launcher.command,
+      ...launcher.args
+    ]
+  };
+}
+
+async function installClaudeLocalScope(plan: MartinMcpInstallPlan): Promise<void> {
+  const { command, args } = buildClaudeLocalInstallArgs(plan);
+  const outcome = await new Promise<{ code: number | null; stdout: string; stderr: string }>(
+    (resolvePromise, rejectPromise) => {
+      const child = spawn(command, args, {
+        cwd: plan.cwd,
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.on("error", rejectPromise);
+      child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
+    }
+  );
+
+  const combinedOutput = `${outcome.stdout}\n${outcome.stderr}`;
+  if (outcome.code === 0 || /already exists|already configured/iu.test(combinedOutput)) {
+    return;
+  }
+
+  throw new CliCommandError(
+    "environment",
+    "Claude Code local-scope MCP installation failed.",
+    {
+      suggestion: combinedOutput.trim() || renderClaudeLocalInstallCommand(plan)
+    }
+  );
+}
