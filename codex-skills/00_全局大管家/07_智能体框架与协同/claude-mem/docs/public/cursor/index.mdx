@@ -1,0 +1,79 @@
+---
+title: "Cursor Integration"
+description: "Persistent memory for Cursor — install with npx, no git clone"
+---
+
+# Cursor Integration
+
+Give Cursor a memory that lasts across chats. The installer wires Cursor hooks (small scripts Cursor runs when a session starts, a file is read, or a tool runs), starts the local worker (the program that stores notes), and uses **CMEM Pro** (the hosted memory service) unless you pick another provider.
+
+<CardGroup cols={2}>
+  <Card title="One command" icon="terminal">
+    `npx claude-mem install` — do not clone the repo to install.
+  </Card>
+  <Card title="CMEM Pro default" icon="cloud">
+    Memory notes are written off-plan through the hosted service unless you pick Gemini, OpenRouter, or your Anthropic plan.
+  </Card>
+  <Card title="Cursor hooks" icon="bolt">
+    Cursor has hooks. Grok Bot does not — that host is a [different guide](/grok-bot).
+  </Card>
+  <Card title="Memory viewer" icon="eye">
+    Open the worker URL printed at install to browse saved notes.
+  </Card>
+</CardGroup>
+
+## Install
+
+```bash
+npx claude-mem install
+```
+
+When the installer lists your apps, pick **Cursor**. The three stages are: install runtime, sign in (device code, no email in the CLI), then pick a memory provider. **CMEM Pro is pre-selected.**
+
+Other provider choices: your Gemini key, your OpenRouter key, or your Anthropic plan (`--provider claude`, which skips the sign-in step; local installs contact cmem.ai once, at signup, to create the sign-in link, with a numbers-only usage summary (observation counts and token totals, no prompts, paths, or project names), and nothing else is sent to cmem.ai). Details: [Installation](/installation).
+
+<Warning>
+`npm install -g claude-mem` installs the library only. It does **not** register Cursor hooks or start the worker. Always use `npx claude-mem install`.
+</Warning>
+
+Do not clone this repository to install. Clone is for people changing the code.
+
+## How it works
+
+1. **Hooks** record what the agent does in Cursor.
+2. **Worker** stores those notes on your machine (default `127.0.0.1`, port in `~/.claude-mem/.worker.port`).
+3. **Next chat** gets relevant past notes.
+4. **Viewer** at the worker URL shows the knowledge base.
+
+Never restart a healthy worker. The note queue sits in memory; a restart drops it.
+
+## Gemini or OpenRouter instead of CMEM Pro
+
+- [Gemini](/cursor/gemini-setup) — your Google key, memory off-plan
+- [OpenRouter](/cursor/openrouter-setup) — your OpenRouter key. **Never** send a personal `sk-or-` key to `https://cmem.ai/api/inference`
+
+## Verify it worked
+
+1. Restart Cursor after install so hooks load.
+2. Health: `curl -s "http://127.0.0.1:${CLAUDE_MEM_WORKER_PORT}/api/health"` (or the port in `~/.claude-mem/.worker.port`).
+3. Do a small unit of work, then open the worker URL. New notes should appear.
+
+## Troubleshooting
+
+### Nothing is being stored
+
+- Confirm the worker is up. Do **not** restart it if it is already healthy.
+- Confirm you used `npx claude-mem install`, not a global `npm install`.
+- Restart Cursor once after install.
+- Logs: `~/.claude-mem/logs/worker-YYYY-MM-DD.log`
+
+### Hooks not firing
+
+Restart Cursor. Hooks live under `.cursor/` in the project or your user Cursor config after install.
+
+## Next steps
+
+- [Installation](/installation) — installer stages and CMEM Pro
+- [CMEM Pro (manual / headless)](/cmem-pro-headless) — settings the installer writes
+- [Gemini](/cursor/gemini-setup) / [OpenRouter](/cursor/openrouter-setup)
+- [Search Tools](/usage/search-tools) — query project history

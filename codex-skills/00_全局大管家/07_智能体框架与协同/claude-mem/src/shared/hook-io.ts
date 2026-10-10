@@ -1,0 +1,193 @@
+/**
+ * Hook IO Discipline (issue #2292)
+ *
+ * This module is the ONLY place in the hook execution path that calls
+ * process.stdout.write / process.stderr.write / process.exit. Every emit point declares
+ * an intent and routes through here so stdout (MODEL_CONTEXT), stderr
+ * (DIAGNOSTIC) and the exit code (EXIT_SIGNAL) never get conflated.
+ *
+ * Intent vocabulary:
+ *  - DIAGNOSTIC        operator-visible logs, never reaches the model. stderr.
+ *  - MODEL_CONTEXT     content the assistant consumes. stdout payload (JSON envelope, or raw text when the adapter returns a string — e.g. kimi context injection).
+ *  - USER_HINT         short advisory shown to the human, via HookResult.systemMessage.
+ *  - EXIT_SIGNAL       pure status, no payload (exit 0).
+ *
+ * Nothing here exits 2. Claude Code treats exit 2 as "block" (a dropped
+ * prompt, a denied tool, a re-woken Stop), and claude-mem is an optional
+ * background service, so no failure of its own may block the user
+ * (plan-17 step 2).
+ *
+ * Lives in src/shared/ (not src/cli/) so that src/shared/worker-utils.ts and
+ * src/utils/logger.ts can route their stderr through emitDiagnostic without a
+ * shared->cli runtime dependency. Only the HookResult / PlatformAdapter TYPES
+ * are imported from src/cli, and `import type` is erased at runtime.
+ */
+import type { PlatformAdapter, HookResult } from '../cli/types.js';
+
+export interface HookStderrBuffer {
+  /** Write buffered bytes to real stderr, then clear the buffer. */
+  flush(): void;
+  /** Discard buffered bytes without writing them. */
+  drop(): void;
+  /** Un-replace process.stderr.write (idempotent). */
+  restore(): void;
+}
+
+type StderrWriter = (chunk: string | Uint8Array) => boolean;
+
+/**
+ * The bypass channel: emitDiagnostic and the buffer's flush() write through
+ * this so they skip the buffered window.
+ *
+ * - When NO buffer is installed it resolves to the live process.stderr.write
+ *   (so non-hook callers — worker daemon, CLI — write straight to stderr).
+ * - installHookStderrBuffer() pins it to the writer that was active at install
+ *   time (the real fd writer), so flushing the buffer never re-enters the
+ *   buffered writer.
+ */
+let pinnedBypassWrite: StderrWriter | null = null;
+
+function bypassWrite(chunk: string | Uint8Array): boolean {
+  const writer = pinnedBypassWrite
+    ?? (process.stderr.write.bind(process.stderr) as StderrWriter);
+  return writer(chunk);
+}
+
+let bufferedChunks: string[] | null = null;
+let bufferInstalled = false;
+
+/**
+ * Replace process.stderr.write with a buffered writer. Direct
+ * process.stderr.write calls (including unsolicited third-party library noise)
+ * are captured into a buffer; emitDiagnostic writes through the bypass channel
+ * (realStderrWrite). exitGraceful drops the buffer.
+ */
+export function installHookStderrBuffer(): HookStderrBuffer {
+  // Pin the currently-active stderr writer as the bypass channel BEFORE we
+  // replace process.stderr.write, so flush()/emitDiagnostic write to the real
+  // fd and never re-enter the buffered writer.
+  const realStderrWrite = process.stderr.write.bind(process.stderr) as StderrWriter;
+  pinnedBypassWrite = realStderrWrite;
+  bufferedChunks = [];
+  bufferInstalled = true;
+
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    if (bufferedChunks) {
+      bufferedChunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+    }
+    return true;
+  }) as typeof process.stderr.write;
+
+  return {
+    flush(): void {
+      if (bufferedChunks && bufferedChunks.length > 0) {
+        realStderrWrite(bufferedChunks.join(''));
+      }
+      bufferedChunks = [];
+    },
+    drop(): void {
+      bufferedChunks = [];
+    },
+    restore(): void {
+      if (!bufferInstalled) return;
+      process.stderr.write = realStderrWrite as typeof process.stderr.write;
+      bufferInstalled = false;
+      bufferedChunks = null;
+      pinnedBypassWrite = null;
+    },
+  };
+}
+
+/**
+ * Operator-visible diagnostic. Always reaches real stderr (bypasses the
+ * buffer). Use for logger fallback, fail-loud counter, and any "we want this
+ * in the operator's terminal" message. Takes a raw string; keep logger.* as
+ * the structured-logging path.
+ */
+export function emitDiagnostic(line: string): void {
+  bypassWrite(line);
+}
+
+/** A failed stdout delivery cannot be repaired by emitting another envelope. */
+export class HookStdoutError extends Error {
+  constructor(cause: unknown) {
+    super(`Hook stdout write failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.name = 'HookStdoutError';
+  }
+}
+
+/**
+ * Emit the model-bound payload to stdout. Calls adapter.formatOutput once, then
+ * writes either the raw string it returned or a JSON-stringified object. Throws
+ * if called twice in the same emitter lifetime (guards against double-emit
+ * corrupting the stdout stream).
+ *
+ * Preserve the trailing newline expected by Claude Code, Codex, and Kimi.
+ * Track the write callback so exitGraceful can wait for piped stdout to flush;
+ * console.log followed by process.exit can otherwise truncate the payload.
+ */
+export function emitModelContext(adapter: PlatformAdapter, result: HookResult): void {
+  if (moduleHasEmitted) {
+    throw new Error('emitModelContext called twice');
+  }
+  const output = adapter.formatOutput(result);
+  if (output === '') {
+    return;
+  }
+  moduleHasEmitted = true;
+  const line = typeof output === 'string' ? output : JSON.stringify(output);
+  pendingModelContext = new Promise<void>((resolve, reject) => {
+    const fail = (error: unknown) => reject(new HookStdoutError(error));
+    const onError = (error: Error) => fail(error);
+    const removeErrorListener = () => process.stdout.removeListener('error', onError);
+    process.stdout.once('error', onError);
+    try {
+      process.stdout.write(`${line}\n`, (error) => {
+        if (error) {
+          fail(error);
+          // Node can emit the stream error after calling the write callback.
+          // Keep the listener through that event, then remove it if no event came.
+          setImmediate(removeErrorListener);
+        } else {
+          removeErrorListener();
+          resolve();
+        }
+      });
+    } catch (error) {
+      removeErrorListener();
+      fail(error);
+    }
+  });
+}
+
+let moduleHasEmitted = false;
+let pendingModelContext: Promise<void> = Promise.resolve();
+
+export interface ExitOptions {
+  skipExit?: boolean;
+}
+
+/**
+ * EXIT_SIGNAL: drop any buffered stderr (preserving the quiet-on-success /
+ * Windows Terminal tab-management behavior), wait for any emitted stdout
+ * payload to flush, and exit 0.
+ */
+export async function exitGraceful(options: ExitOptions = {}): Promise<void> {
+  if (bufferedChunks) {
+    bufferedChunks = [];
+  }
+  await pendingModelContext;
+  if (!options.skipExit) {
+    process.exit(0);
+  }
+}
+
+/**
+ * Reset the per-invocation emit flag. hookCommand calls this at the start of
+ * each invocation so the emitModelContext double-emit guard is per-hook, not
+ * per-process (matters for the in-process test harness and skipExit tests).
+ */
+export function resetHookIoState(): void {
+  moduleHasEmitted = false;
+  pendingModelContext = Promise.resolve();
+}

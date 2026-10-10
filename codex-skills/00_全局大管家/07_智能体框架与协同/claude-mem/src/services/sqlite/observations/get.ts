@@ -1,0 +1,71 @@
+
+import { Database } from 'bun:sqlite';
+import { projectScopeSql } from '../project-read-keys.js';
+import type { ObservationRecord } from '../../../types/database.js';
+import { DEFAULT_PLATFORM_SOURCE, normalizePlatformSource } from '../../../shared/platform-source.js';
+import { logger } from '../../../utils/logger.js';
+
+export function getObservationsByFilePath(
+  db: Database,
+  filePath: string | string[],
+  options?: { projects?: string[]; limit?: number; platformSource?: string }
+): ObservationRecord[] {
+  const rawLimit = options?.limit;
+  const limit = Number.isInteger(rawLimit) && (rawLimit as number) > 0
+    ? Math.min(rawLimit as number, 100)
+    : 15;
+
+  // #2691 — PreToolUse:Read and PostToolUse can disagree on the stored path
+  // form (absolute vs project-root-relative vs cwd-relative). Accept multiple
+  // candidate path forms and match observations whose files_read/files_modified
+  // contain ANY of them, so context injection keyed on path is consistent
+  // across the two events. De-duplicate to keep the IN() clause minimal.
+  const candidatePaths = Array.from(
+    new Set((Array.isArray(filePath) ? filePath : [filePath]).filter(p => typeof p === 'string' && p.length > 0))
+  );
+  if (candidatePaths.length === 0) {
+    logger.debug('DB', 'Skipping observation file lookup with no candidate paths');
+    return [];
+  }
+
+  const pathPlaceholders = candidatePaths.map(() => '?').join(',');
+  // Params order mirrors the two json_each subqueries (files_read, then files_modified).
+  const params: (string | number)[] = [...candidatePaths, ...candidatePaths];
+
+  let projectClause = '';
+  if (options?.projects?.length) {
+    const scope = projectScopeSql('o', options.projects, { includeMerged: true });
+    projectClause = `AND ${scope.sql}`;
+    params.push(...scope.params);
+  }
+
+  let platformClause = '';
+  if (options?.platformSource) {
+    platformClause = `AND COALESCE(NULLIF(s.platform_source, ''), '${DEFAULT_PLATFORM_SOURCE}') = ?`;
+    params.push(normalizePlatformSource(options.platformSource));
+  }
+
+  params.push(limit);
+
+  // An array can start with '[' or one of JSON's four whitespace characters.
+  // This inexpensive prefix filter skips other shapes before JSON parsing;
+  // validity and array-type checks still reject padded non-arrays below.
+  const arrayJson = (column: string): string =>
+    `CASE WHEN ${column} GLOB '[' || char(32, 9, 10, 13) || '[]*' THEN CASE WHEN json_valid(${column}) THEN CASE WHEN json_type(${column}) = 'array' THEN ${column} ELSE '[]' END ELSE '[]' END ELSE '[]' END`;
+
+  const stmt = db.prepare(`
+    SELECT o.*
+    FROM observations o
+    LEFT JOIN sdk_sessions s ON s.memory_session_id = o.memory_session_id
+    WHERE (
+      EXISTS (SELECT 1 FROM json_each(${arrayJson('o.files_read')}) WHERE value IN (${pathPlaceholders}))
+      OR EXISTS (SELECT 1 FROM json_each(${arrayJson('o.files_modified')}) WHERE value IN (${pathPlaceholders}))
+    )
+    ${projectClause}
+    ${platformClause}
+    ORDER BY created_at_epoch DESC
+    LIMIT ?
+  `);
+
+  return stmt.all(...params) as ObservationRecord[];
+}

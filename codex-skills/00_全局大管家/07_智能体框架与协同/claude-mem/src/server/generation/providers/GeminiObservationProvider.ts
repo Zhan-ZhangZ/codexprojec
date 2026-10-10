@@ -1,0 +1,299 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import { logger } from '../../../utils/logger.js';
+import {
+  ServerClassifiedProviderError,
+  classifyHttpProviderError,
+  parseRetryAfterMs,
+} from './shared/error-classification.js';
+import { buildServerGenerationPrompt } from './shared/prompt-builder.js';
+import { readGeminiAnswerText, type GeminiPart } from '../../../shared/gemini-answer-text.js';
+import { geminiRegionRefusalMessage, isGeminiRegionRefusal, parseGeminiErrorDetails } from '../../../shared/gemini-error-details.js';
+import type {
+  ServerGenerationContext,
+  ServerGenerationProvider,
+  ServerGenerationResult,
+} from './shared/types.js';
+import { readCappedErrorBody } from '../../../shared/capped-error-body.js';
+
+// v1beta is required: current Gemini 3.x models and the `-latest` aliases are
+// only served under v1beta, and the retired v1-only 2.x models 404 for new keys.
+export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+// `gemini-flash-latest` is a Google-maintained alias for the current GA Flash
+// model, so it stays valid for new API keys instead of pinning a retired ID.
+const DEFAULT_MODEL = 'gemini-flash-latest';
+
+export interface GeminiObservationProviderOptions {
+  apiKey: string;
+  model?: string;
+  maxOutputTokens?: number;
+  fetchImpl?: typeof fetch;
+}
+
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: { parts?: GeminiPart[] };
+  }>;
+  usageMetadata?: { totalTokenCount?: number };
+  error?: { code?: number; status?: string; message?: string };
+}
+
+export type GeminiBadRequestCategory =
+  | 'role_sequence'
+  | 'context_limit'
+  | 'model_unsupported'
+  | 'api_key'
+  | 'unknown_bad_request';
+
+export function categorizeGeminiBadRequest(bodyText: string): GeminiBadRequestCategory {
+  const lower = bodyText.toLowerCase();
+
+  if (
+    lower.includes('api key not valid') ||
+    lower.includes('api_key_invalid') ||
+    lower.includes('api key expired') ||
+    lower.includes('invalid api key')
+  ) {
+    return 'api_key';
+  }
+
+  if (
+    lower.includes('please ensure that multiturn requests alternate') ||
+    lower.includes('alternate between user and model') ||
+    lower.includes('first content should be with role') ||
+    (lower.includes('contents') && lower.includes('role') && (lower.includes('user') || lower.includes('model')))
+  ) {
+    return 'role_sequence';
+  }
+
+  if (
+    lower.includes('context limit') ||
+    lower.includes('context length') ||
+    lower.includes('too many tokens') ||
+    lower.includes('input is too long') ||
+    lower.includes('prompt is too long') ||
+    lower.includes('request payload size exceeds') ||
+    (lower.includes('token') && (lower.includes('exceed') || lower.includes('maximum') || lower.includes('limit')))
+  ) {
+    return 'context_limit';
+  }
+
+  if (
+    lower.includes('model not found') ||
+    lower.includes('model_unsupported') ||
+    lower.includes('unsupported model') ||
+    lower.includes('not supported for generatecontent') ||
+    lower.includes('not supported by this model') ||
+    (lower.includes('model') && lower.includes('not supported')) ||
+    (lower.includes('models/') && lower.includes('not found'))
+  ) {
+    return 'model_unsupported';
+  }
+
+  return 'unknown_bad_request';
+}
+
+interface ClassifyGeminiServerErrorInput {
+  status?: number;
+  bodyText?: string;
+  headers?: Headers | { get(name: string): string | null };
+  cause: unknown;
+}
+
+function isQuotaBody(bodyText: string): boolean {
+  const lower = bodyText.toLowerCase();
+  return (
+    lower.includes('quota exceeded') ||
+    lower.includes('insufficient credits') ||
+    lower.includes('insufficient_quota') ||
+    lower.includes('resource_exhausted')
+  );
+}
+
+export function classifyGeminiServerError(input: ClassifyGeminiServerErrorInput): ServerClassifiedProviderError {
+  const status = input.status;
+  const bodyText = input.bodyText ?? '';
+
+  // Outside the regions Google serves, the worker's refusal too
+  // (gemini-error-details.ts): not a malformed request, and no retry helps.
+  if (status !== undefined && isGeminiRegionRefusal(status, bodyText)) {
+    return new ServerClassifiedProviderError(geminiRegionRefusalMessage(status), {
+      kind: 'auth_invalid',
+      cause: new Error(`Gemini HTTP error (status ${status})`),
+    });
+  }
+
+  if (status === 400 && !isQuotaBody(bodyText)) {
+    const category = categorizeGeminiBadRequest(bodyText);
+    // Google also answers a refused key with HTTP 400. That is a refused
+    // credential, as on 401/403 and in the worker's classifyGeminiError.
+    if (category === 'api_key') {
+      return new ServerClassifiedProviderError('Gemini auth invalid (status 400)', {
+        kind: 'auth_invalid',
+        cause: new Error('Gemini HTTP error (status 400)'),
+      });
+    }
+    return new ServerClassifiedProviderError(`Gemini bad request: ${category}`, {
+      kind: 'unrecoverable',
+      cause: new Error('Gemini HTTP error (status 400)'),
+    });
+  }
+
+  // A 429 is decided BEFORE the shared body markers, because every Gemini 429
+  // carries `RESOURCE_EXHAUSTED` whatever it is actually refusing. Letting the
+  // marker decide made a per-minute throttle indistinguishable from a spent
+  // allowance here, and dropped the retry hint on the floor with it.
+  // The window and the retry hint come from the body's structured details,
+  // read by the same parser as the worker (src/shared/gemini-error-details.ts).
+  if (status === 429) {
+    const details = parseGeminiErrorDetails(bodyText);
+    const retryAfterMs =
+      (input.headers ? parseRetryAfterMs(input.headers.get('retry-after')) : undefined)
+      ?? details.retryDelayMs;
+    const exhausted = details.periodQuotaExhausted;
+    return new ServerClassifiedProviderError(
+      exhausted ? 'Gemini quota exhausted (status 429)' : 'Gemini rate limit (429)',
+      {
+        kind: exhausted ? 'quota_exhausted' : 'rate_limit',
+        cause: new Error('Gemini HTTP error (status 429)'),
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      },
+    );
+  }
+
+  return classifyHttpProviderError({
+    ...input,
+    providerLabel: 'Gemini',
+  });
+}
+
+export class GeminiObservationProvider implements ServerGenerationProvider {
+  readonly providerLabel = 'gemini' as const;
+  private readonly apiKey: string;
+  private readonly model: string;
+  private readonly maxOutputTokens: number;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: GeminiObservationProviderOptions) {
+    if (!options.apiKey) {
+      throw new ServerClassifiedProviderError('Gemini API key not configured', {
+        kind: 'auth_invalid',
+        cause: new Error('apiKey is required'),
+      });
+    }
+    this.apiKey = options.apiKey;
+    this.model = options.model ?? DEFAULT_MODEL;
+    this.maxOutputTokens = options.maxOutputTokens ?? 4096;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async generate(
+    context: ServerGenerationContext,
+    signal?: AbortSignal,
+  ): Promise<ServerGenerationResult> {
+    const { prompt, skippedAll, noEvents } = buildServerGenerationPrompt(context);
+    // Nothing was loaded, so there is nothing to summarise and no question to
+    // ask a model. Answering it anyway bought `<skip_summary />` and recorded
+    // the result as an ordinary completion; the reason below names it instead.
+    if (noEvents) {
+      return {
+        rawText: '<skip_summary reason="no_events_loaded" />',
+        providerLabel: this.providerLabel,
+        modelId: this.model,
+      };
+    }
+    if (skippedAll) {
+      return {
+        rawText: '<skip_summary reason="all_events_private" />',
+        providerLabel: this.providerLabel,
+        modelId: this.model,
+      };
+    }
+
+    const url = `${GEMINI_API_URL}/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+
+    let response: Response;
+    try {
+      response = await this.postGenerateContent(url, prompt, signal);
+    } catch (networkError) {
+      const err = networkError instanceof Error ? networkError : new Error(String(networkError));
+      throw classifyGeminiServerError({
+        cause: err,
+      });
+    }
+
+    if (!response.ok) {
+      const bodyText = await safeReadBody(response);
+      throw classifyGeminiServerError({
+        status: response.status,
+        bodyText,
+        headers: response.headers,
+        cause: new Error(`Gemini HTTP error (status ${response.status})`),
+      });
+    }
+
+    let data: GeminiResponse;
+    try {
+      data = (await response.json()) as GeminiResponse;
+    } catch (parseError) {
+      const err = parseError instanceof Error ? parseError : new Error(String(parseError));
+      throw new ServerClassifiedProviderError('Gemini returned invalid JSON', {
+        kind: 'parse_error',
+        cause: err,
+      });
+    }
+
+    if (data.error) {
+      throw classifyGeminiServerError({
+        status: response.status,
+        bodyText: `${data.error.status ?? ''} ${data.error.message ?? ''}`,
+        headers: response.headers,
+        cause: new Error(`Gemini HTTP error (status ${response.status})`),
+      });
+    }
+
+    const rawText = readGeminiAnswerText(data.candidates?.[0]?.content?.parts).trim();
+    if (!rawText) {
+      logger.warn('SDK', 'Gemini returned empty content', { provider: 'gemini', model: this.model });
+    }
+
+    const tokensUsed = typeof data.usageMetadata?.totalTokenCount === 'number'
+      ? data.usageMetadata.totalTokenCount
+      : undefined;
+
+    return {
+      rawText,
+      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
+      providerLabel: this.providerLabel,
+      modelId: this.model,
+    };
+  }
+
+  private postGenerateContent(url: string, prompt: string, signal?: AbortSignal): Promise<Response> {
+    return this.fetchImpl(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: this.maxOutputTokens,
+        },
+      }),
+      signal,
+    });
+  }
+}
+
+// Re-export for tests/auditing parity with worker classifier surface.
+export { parseRetryAfterMs };
+
+async function safeReadBody(response: Response): Promise<string> {
+  try {
+    return await readCappedErrorBody(response);
+  } catch (readError) {
+    const err = readError instanceof Error ? readError : new Error(String(readError));
+    logger.warn('SDK', 'Failed to read Gemini error response body', { provider: 'gemini', status: response.status }, err);
+    return '';
+  }
+}

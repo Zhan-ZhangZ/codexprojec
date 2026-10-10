@@ -1,0 +1,159 @@
+import { execFileSync } from 'child_process';
+import { existsSync, readdirSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+import { IS_WINDOWS } from '../utils/paths.js';
+import { t3CodeSettingsPath } from '../../services/integrations/T3CodeInstaller.js';
+
+export interface IDEInfo {
+  id: string;
+  label: string;
+  detected: boolean;
+  hint?: string;
+}
+
+export function initialIDESelection(ides: IDEInfo[]): string[] {
+  const detected = ides.filter(ide => ide.detected).map(ide => ide.id);
+  return detected.length ? detected : ['claude-code'];
+}
+
+function isCommandInPath(command: string): boolean {
+  try {
+    if (IS_WINDOWS) {
+      execFileSync('where.exe', [command], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      execFileSync('which', [command], { stdio: 'ignore' });
+    }
+    return true;
+  } catch (error: unknown) {
+    if (process.env.DEBUG) {
+      console.error(`[ide-detection] ${command} not in PATH:`, error instanceof Error ? error.message : String(error));
+    }
+    return false;
+  }
+}
+
+function hasVscodeExtension(extensionNameFragment: string): boolean {
+  const extensionsDirectory = join(homedir(), '.vscode', 'extensions');
+  if (!existsSync(extensionsDirectory)) return false;
+  try {
+    const entries = readdirSync(extensionsDirectory);
+    return entries.some((entry) => entry.toLowerCase().includes(extensionNameFragment.toLowerCase()));
+  } catch (error: unknown) {
+    console.warn('[ide-detection] Failed to read VS Code extensions directory:', error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
+export function detectInstalledIDEs(): IDEInfo[] {
+  const home = homedir();
+
+  return [
+    {
+      id: 'claude-code',
+      label: 'Claude Code',
+      detected: isCommandInPath('claude'),
+      hint: 'recommended',
+    },
+    {
+      id: 'opencode',
+      label: 'OpenCode',
+      detected:
+        existsSync(join(home, '.config', 'opencode')) || isCommandInPath('opencode'),
+      hint: 'plugin-based integration',
+    },
+    {
+      id: 'openclaw',
+      label: 'OpenClaw',
+      detected: existsSync(join(home, '.openclaw')),
+      hint: 'plugin-based integration',
+    },
+    {
+      id: 'windsurf',
+      label: 'Windsurf',
+      detected: existsSync(join(home, '.codeium', 'windsurf')),
+    },
+    {
+      id: 'codex-cli',
+      label: 'Codex CLI',
+      detected: existsSync(join(home, '.codex')),
+      hint: 'native hooks integration',
+    },
+    {
+      id: 't3code',
+      label: 'T3 Code',
+      detected: existsSync(t3CodeSettingsPath()),
+      hint: 'Codex + Claude native hooks and MCP',
+    },
+    {
+      id: 'kimi',
+      label: 'Kimi Code',
+      detected: existsSync(join(home, '.kimi-code')) || isCommandInPath('kimi'),
+      hint: 'hooks + MCP integration',
+    },
+    {
+      id: 'cursor',
+      label: 'Cursor',
+      detected: existsSync(join(home, '.cursor')),
+      hint: 'hooks + MCP integration',
+    },
+    {
+      id: 'grok-bot',
+      label: 'Grok Bot',
+      detected: existsSync(join(home, '.cursor')),
+      hint: 'transcript watch + MCP integration',
+    },
+    {
+      id: 'copilot-cli',
+      label: 'Copilot CLI',
+      detected: isCommandInPath('copilot'),
+      hint: 'MCP-based integration',
+    },
+    {
+      id: 'antigravity',
+      label: 'Antigravity',
+      detected: existsSync(join(home, '.gemini', 'antigravity')) || isCommandInPath('agy'),
+      hint: 'hooks + MCP integration',
+    },
+    {
+      id: 'omp',
+      label: 'OMP',
+      detected: isCommandInPath('omp') || existsSync(join(home, '.omp')),
+      hint: 'native hooks integration',
+    },
+    {
+      id: 'pi',
+      label: 'Pi',
+      detected: isCommandInPath('pi') || existsSync(process.env.PI_CODING_AGENT_DIR || join(home, '.pi', 'agent')),
+      hint: 'manual recall; check automatic capture compatibility',
+    },
+    {
+      id: 'dsh',
+      label: 'DeepSeek Harness',
+      detected: isCommandInPath('dsh') || existsSync(process.env.DSH_HOME || join(home, '.dsh')),
+      hint: 'native plugin + transcript capture',
+    },
+    {
+      id: 'goose',
+      label: 'Goose',
+      detected:
+        existsSync(join(home, '.config', 'goose')) || isCommandInPath('goose'),
+      hint: 'MCP-based integration',
+    },
+    {
+      id: 'roo-code',
+      label: 'Roo Code',
+      detected: hasVscodeExtension('roo-code'),
+      hint: 'MCP-based integration',
+    },
+    {
+      id: 'warp',
+      label: 'Warp',
+      detected: existsSync(join(home, '.warp')) || isCommandInPath('warp'),
+      hint: 'MCP-based integration',
+    },
+  ];
+}

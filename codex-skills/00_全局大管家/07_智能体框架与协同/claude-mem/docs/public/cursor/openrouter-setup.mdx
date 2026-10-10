@@ -1,0 +1,117 @@
+---
+title: "Cursor + OpenRouter Setup"
+description: "Use Claude-Mem in Cursor with your OpenRouter key"
+---
+
+# Cursor + OpenRouter Setup
+
+Use your OpenRouter key so memory notes run off-plan on your OpenRouter credit. You do **not** clone the repo.
+
+<Warning>
+**Never** send a personal `sk-or-` key to `https://cmem.ai/api/inference`. For your own OpenRouter account, leave the base URL empty (or `https://openrouter.ai/api/v1`). CMEM Pro uses the cmem.ai inference URL with a **CMEM Pro** key, not your OpenRouter key.
+</Warning>
+
+## Install
+
+1. Create a key at [OpenRouter API Keys](https://openrouter.ai/keys).
+2. Run:
+
+```bash
+npx claude-mem install
+```
+
+Pick **Cursor**, then pick **your OpenRouter key** as the memory provider.
+
+<Warning>
+`npm install -g claude-mem` is the library only. Always install with `npx claude-mem install`.
+</Warning>
+
+### Settings by hand (optional)
+
+```bash
+mkdir -p ~/.claude-mem
+cat > ~/.claude-mem/settings.json << 'EOF'
+{
+  "CLAUDE_MEM_PROVIDER": "openrouter",
+  "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY"
+}
+EOF
+```
+
+Leave `CLAUDE_MEM_OPENROUTER_BASE_URL` unset for OpenRouter itself. Then re-run `npx claude-mem install` so Cursor hooks and the worker are in place. Do not restart a healthy worker.
+
+## Restart Cursor
+
+Close and reopen Cursor so hooks load.
+
+## Verify
+
+Health: `curl -s "http://127.0.0.1:${CLAUDE_MEM_WORKER_PORT}/api/health"`. Open the worker URL from install to see notes.
+
+## Models
+
+Set `CLAUDE_MEM_OPENROUTER_MODEL` if you do not want the default. Free model ids on OpenRouter often end in `:free` — check the [model list](https://openrouter.ai/models?show_free=true).
+
+```json
+{
+  "CLAUDE_MEM_PROVIDER": "openrouter",
+  "CLAUDE_MEM_OPENROUTER_API_KEY": "your-key",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "poolside/laguna-xs-2.1:free"
+}
+```
+
+## Other OpenAI-shaped servers
+
+The OpenRouter provider is a generic OpenAI-compatible client. Set `CLAUDE_MEM_OPENROUTER_BASE_URL` to DeepSeek, LM Studio, or any gateway that speaks `/chat/completions`. The model id is sent as-is.
+
+<Info>
+**Base URL resolution:** When `CLAUDE_MEM_OPENROUTER_BASE_URL` is empty (default), requests go to OpenRouter unchanged. When set, claude-mem POSTs to `<base_url>/chat/completions` — you can supply either a base like `https://api.deepseek.com/v1` (the `/chat/completions` path is appended automatically) or a full `.../chat/completions` URL (kept as-is). Trailing slashes are normalized, and the base URL must be an `http`/`https` URL (the settings UI rejects anything else; a hand-edited value that is not one makes requests fail until it is fixed). A query string or fragment on the base URL is preserved while the `/chat/completions` suffix stays in the request path, so `https://my-gateway.example.com/v1?key=abc` resolves to `https://my-gateway.example.com/v1/chat/completions?key=abc`. The environment variable `OPENROUTER_BASE_URL` is honored as a fallback. With the claude-mem observer the base URL is managed by `npx claude-mem install`, and the settings UI shows it read-only.
+</Info>
+
+### DeepSeek
+
+```json
+{
+  "CLAUDE_MEM_PROVIDER": "openrouter",
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://api.deepseek.com",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "deepseek-chat",
+  "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_DEEPSEEK_API_KEY"
+}
+```
+
+### LM Studio (local)
+
+```json
+{
+  "CLAUDE_MEM_PROVIDER": "openrouter",
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "http://localhost:1234/v1",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "your-local-model-id"
+}
+```
+
+### IO Intelligence (io.net)
+
+```json
+{
+  "CLAUDE_MEM_PROVIDER": "openrouter",
+  "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://api.intelligence.io.solutions/api/v1",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "meta-llama/Llama-3.3-70B-Instruct",
+  "CLAUDE_MEM_OPENROUTER_API_KEY": "YOUR_IO_INTELLIGENCE_API_KEY"
+}
+```
+
+Model ids are org/name pairs from the [IO Intelligence model list](https://api.intelligence.io.solutions/api/v1/models), for example `deepseek-ai/DeepSeek-R1-0528` or `zai-org/GLM-4.6`.
+
+## Troubleshooting
+
+**Key not configured** — `cat ~/.claude-mem/settings.json` should show provider `openrouter` and your key.
+
+**Model not found** — check the id at [OpenRouter Models](https://openrouter.ai/models).
+
+**Worker idle** — read `~/.claude-mem/logs/worker-YYYY-MM-DD.log`. Do not restart a healthy worker.
+
+## Next steps
+
+- [Cursor Integration](/cursor) — default CMEM Pro install
+- [Gemini](/cursor/gemini-setup)
+- [Configuration](/configuration)

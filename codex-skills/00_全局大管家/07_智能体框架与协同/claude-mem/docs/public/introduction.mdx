@@ -1,0 +1,104 @@
+---
+title: "Introduction"
+description: "Persistent memory compression system for Claude Code"
+---
+
+# Claude-Mem
+
+**Persistent memory compression system for Claude Code**
+
+Claude-Mem seamlessly preserves context across sessions by automatically capturing tool usage observations, generating semantic summaries, and making them available to future sessions. This enables Claude to maintain continuity of knowledge about projects even after sessions end or reconnect.
+
+## Quick Start
+
+Install with a single command:
+
+```bash
+npx claude-mem install
+```
+
+Or install from the plugin marketplace inside Claude Code:
+
+```bash
+/plugin marketplace add thedotmack/claude-mem
+/plugin install claude-mem
+```
+
+Restart Claude Code. Context from previous sessions will automatically appear in new sessions.
+
+## Key Features
+
+- 🧠 **Persistent Memory** - Context survives across sessions
+- 📁 **Folder Context Files** - Auto-generated `CLAUDE.md` in project folders with activity timelines
+- 🌐 **Multilingual Modes** - Supports 28 languages (Spanish, Chinese, French, Japanese, etc.)
+- 🎭 **Mode System** - Switch between workflows (Code, Email Investigation, Chill)
+- 🔍 **MCP Search Tools** - Query your project history with natural language
+- 🧠 **Knowledge Agents** - Build queryable "brains" from your observation history
+- 🌐 **Web Viewer UI** - Real-time memory stream visualization served by the local worker
+- 🔒 **Privacy Control** - Use [`<private>` tags](/usage/private-tags) for manual blocks, or enable [auto-redaction](/usage/auto-redaction) for regex-based secret detection.
+- ⚙️ **Context Configuration** - Fine-grained control over what context gets injected
+- 🤖 **Automatic Operation** - No manual intervention required
+- 📊 **FTS5 Search** - Fast full-text search across observations
+- 🔗 **Citations** - Reference past observations with IDs
+
+## How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Session Start → Inject context from last 10 sessions       │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│ User Prompts → Create session, save user prompts           │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Tool Executions → Capture observations (Read, Write, etc.)  │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Worker Processes → Extract learnings via Claude Agent SDK   │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Session Ends → Generate summary, ready for next session     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Core Components:**
+1. **5 Lifecycle Hooks** - SessionStart, UserPromptSubmit, PostToolUse, Summary (Stop), SessionEnd
+2. **Worker Service** - Express HTTP API managed by Bun on a per-user port (default `37700 + (uid % 100)`)
+3. **SQLite Database** - Stores sessions, observations, summaries with FTS5 search
+4. **Chroma Vector Index** - Optional embedding-based semantic search
+5. **MCP / Skill Search Tools** - Query historical context with natural language
+6. **Web Viewer UI** - Real-time visualization with SSE and infinite scroll
+
+See [Architecture Overview](architecture/overview) for details.
+
+## System Requirements
+
+- **Node.js**: 20.0.0 or higher
+- **Bun** ≥ 1.0 (auto-installed by `npx claude-mem install` if missing)
+- **uv** (auto-installed if missing — provides Python for Chroma)
+- **Claude Code** (or another supported IDE: Cursor, Windsurf, OpenCode, Codex CLI, Antigravity CLI, OpenClaw)
+- **SQLite 3** — bundled via `bun:sqlite`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Quick start & advanced installation
+  </Card>
+  <Card title="Getting Started" icon="rocket" href="/usage/getting-started">
+    Learn how Claude-Mem works automatically
+  </Card>
+  <Card title="Folder Context" icon="folder-open" href="/usage/folder-context">
+    Auto-generated folder CLAUDE.md files
+  </Card>
+  <Card title="Search Tools" icon="magnifying-glass" href="/usage/search-tools">
+    Query your project history
+  </Card>
+  <Card title="Knowledge Agents" icon="brain" href="/usage/knowledge-agents">
+    Build queryable corpora from your history
+  </Card>
+</CardGroup>
