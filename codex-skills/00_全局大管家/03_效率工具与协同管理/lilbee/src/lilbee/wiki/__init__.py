@@ -1,0 +1,70 @@
+"""Wiki layer: LLM-maintained synthesis pages with citation provenance."""
+
+from lilbee.core.text import make_slug
+from lilbee.wiki.browse import (
+    WikiPageContent,
+    WikiPageInfo,
+    build_page_info,
+    find_page,
+    list_draft_pages,
+    list_md_files,
+    list_pages,
+    read_page,
+)
+from lilbee.wiki.citations import (
+    CitationStatus,
+    ParsedCitation,
+    find_unmarked_claims,
+    parse_wiki_citations,
+    render_citation_block,
+    strip_citation_block,
+    verify_citation,
+)
+from lilbee.wiki.generation import (
+    build_wiki,
+    generate_synthesis_pages,
+    run_full_build,
+    run_full_synthesize,
+)
+from lilbee.wiki.index import append_wiki_log, update_wiki_index
+from lilbee.wiki.lint import lint_all, lint_wiki_page
+from lilbee.wiki.prune import prune_wiki
+from lilbee.wiki.shared import (
+    SUBDIR_TO_TYPE,
+    PageTarget,
+    parse_frontmatter,
+)
+from lilbee.wiki.wipe import WipeReport, wipe_wiki
+
+__all__ = [
+    "SUBDIR_TO_TYPE",
+    "CitationStatus",
+    "PageTarget",
+    "ParsedCitation",
+    "WikiPageContent",
+    "WikiPageInfo",
+    "WipeReport",
+    "append_wiki_log",
+    "build_page_info",
+    "build_wiki",
+    "find_page",
+    "find_unmarked_claims",
+    "generate_synthesis_pages",
+    "lint_all",
+    "lint_wiki_page",
+    "list_draft_pages",
+    "list_md_files",
+    "list_pages",
+    "make_slug",
+    "parse_frontmatter",
+    "parse_wiki_citations",
+    "prune_wiki",
+    "read_page",
+    "render_citation_block",
+    "run_full_build",
+    "run_full_synthesize",
+    "strip_citation_block",
+    "update_wiki_index",
+    "verify_citation",
+    "wipe_wiki",
+]

@@ -1,0 +1,44 @@
+"""Code-file ingestion via tree-sitter chunking."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from lilbee.app.services import get_services
+from lilbee.data.extract.chunk import enforce_chunk_limit
+from lilbee.data.extract.code_chunker import CodeChunk, chunk_code
+from lilbee.data.store import ChunkType
+from lilbee.data.types import ChunkRecord
+from lilbee.runtime.progress import DetailedProgressCallback, noop_callback
+
+
+def ingest_code_sync(
+    path: Path,
+    source_name: str,
+    on_progress: DetailedProgressCallback = noop_callback,
+) -> list[ChunkRecord]:
+    """Parse code with tree-sitter, chunk, embed, and return store-ready records."""
+    code_chunks: list[CodeChunk] = chunk_code(path, source_name=source_name)
+    if not code_chunks:
+        return []
+
+    enforce_chunk_limit(len(code_chunks))
+    texts = [cc.chunk for cc in code_chunks]
+    embedder = get_services().embedder
+    vectors = embedder.embed_batch(texts, source=source_name, on_progress=on_progress)
+
+    return [
+        ChunkRecord(
+            source=source_name,
+            content_type="code",
+            chunk_type=ChunkType.RAW,
+            page_start=0,
+            page_end=0,
+            line_start=cc.line_start,
+            line_end=cc.line_end,
+            chunk=cc.chunk,
+            chunk_index=cc.chunk_index,
+            vector=vec,
+        )
+        for cc, vec in zip(code_chunks, vectors, strict=True)
+    ]

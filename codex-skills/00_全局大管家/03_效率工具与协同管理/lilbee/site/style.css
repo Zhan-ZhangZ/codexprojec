@@ -1,0 +1,1076 @@
+/* lilbee site
+   Rose-pine-moon. Same palette as the TUI demo recordings; the site and
+   the demos read as one piece. Body soft-lavender on deep plum, primary
+   accent rose, trust accent foam (cyan). No flicker, no scanline overlay
+   on copy. */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+
+:root {
+  /* surfaces (rose-pine main, the darker variant; moon is too bright for body
+     copy at this column width and against the lavender ink) */
+  --bg: #191724;          /* base */
+  --bg-elev: #1f1d2e;     /* surface */
+  --bg-card: #26233a;     /* overlay */
+
+  /* text */
+  --ink: #e0def4;         /* primary readable lavender */
+  --ink-2: #908caa;       /* secondary text (subtle) */
+  --ink-3: #6e6a86;       /* tertiary / metadata (muted) */
+
+  /* rules */
+  --rule: #26233a;        /* overlay-grade, near-invisible */
+  --rule-2: #393552;      /* highlight med */
+
+  /* accents */
+  --accent: #ebbcba;      /* rose-soft: primary accent. Quieter than the harder
+                             #ea9a97 (still rose-pine, just less saturated) so
+                             it lives well next to lavender body copy. */
+  --accent-hot: #f1cfcd;  /* rose-soft, a hair brighter, for hover */
+  --trust: #9ccfd8;       /* foam (cyan): trust/safety accent, replaces green */
+  --iris: #c4a7e7;        /* iris (purple): secondary accent for variety */
+  --gold: #f6c177;        /* gold: tertiary accent (used sparingly) */
+
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+
+  --content-w: 760px;
+  --gutter: 2rem;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { background: var(--bg); }
+
+body {
+  font-family: var(--mono);
+  font-weight: 400;
+  color: var(--ink);
+  font-size: 15.5px;
+  line-height: 1.7;
+  min-height: 100vh;
+  padding: 2.5rem var(--gutter) 4rem;
+  position: relative;
+  overflow-x: hidden;
+  /* clip, not hidden: hidden makes body a scroll container on mobile browsers,
+     which breaks the sticky nav. clip never creates one. */
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* very soft rose + iris wash, off the copy column so it never sits under text */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(900px 600px at 80% -15%, rgba(235, 188, 186, 0.04), transparent 60%),
+    radial-gradient(700px 500px at -10% 100%, rgba(196, 167, 231, 0.03), transparent 65%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 140ms, border-color 140ms;
+}
+a:hover {
+  color: var(--accent-hot);
+  border-bottom-color: var(--accent-hot);
+}
+
+pre { font: inherit; white-space: pre; }
+
+/* page-load: one quiet staggered settle, top to bottom ---------------- */
+@keyframes lb-rise {
+  from { opacity: 0; transform: translateY(9px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes lb-fade {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nav { animation: lb-fade 400ms ease both; }
+  .topstrip,
+  .main > section { animation: lb-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .topstrip                       { animation-delay: 0ms; }
+  .main > section:nth-of-type(1)  { animation-delay: 90ms; }
+  .main > section:nth-of-type(2)  { animation-delay: 150ms; }
+  .main > section:nth-of-type(3)  { animation-delay: 210ms; }
+  .main > section:nth-of-type(4)  { animation-delay: 270ms; }
+  .main > section:nth-of-type(5)  { animation-delay: 330ms; }
+  .main > section:nth-of-type(6)  { animation-delay: 390ms; }
+  .main > section:nth-of-type(7)  { animation-delay: 450ms; }
+  .main > section:nth-of-type(8)  { animation-delay: 510ms; }
+  .bee-art { animation: lb-fade 1100ms ease 260ms both; }
+}
+
+/* Reset h1 defaults so .tagline (now an h1) keeps its tagline styling without
+   browser-default margin / font-size leaking in. Same for h2: section eyebrows
+   are .label headings and take their sizing/margin from .label. */
+h1 { font-size: inherit; font-weight: inherit; margin: 0; }
+h2.label { font-size: inherit; font-weight: inherit; }
+
+.layout {
+  position: relative;
+  z-index: 1;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, var(--content-w)) auto;
+  gap: 3.5rem;
+  align-items: flex-start;
+}
+
+.main { min-width: 0; }
+
+/* mega-nav -------------------------------------------------------------
+   Sticky site header. Full-bleed bar: the negative margins cancel the body
+   padding so the border runs edge to edge, while .nav-inner keeps the
+   content on the same 1240px column as .layout. */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  margin: -2.5rem calc(-1 * var(--gutter)) 1.7rem;
+  padding: 0 var(--gutter);
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+}
+.nav-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  padding: 0.4rem 0;
+}
+.nav-brand {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border-bottom: none;
+}
+.nav-brand:hover { color: var(--accent-hot); }
+.nav-menus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 1;
+}
+.menu { position: relative; }
+.menu.open { z-index: 70; }
+.menu-btn {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-2);
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+  transition: color 130ms, border-color 130ms, background-color 130ms;
+}
+.menu-btn::after {
+  content: "▾";
+  margin-left: 0.45em;
+  font-size: 9px;
+  color: var(--ink-3);
+}
+.menu-btn:hover { color: var(--ink); border-color: var(--rule-2); }
+.menu.open .menu-btn { color: var(--accent); border-color: var(--rule-2); background: var(--bg-elev); }
+.menu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.menu-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 11.5rem;
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 0.5rem;
+  box-shadow: 0 22px 60px -26px rgba(0, 0, 0, 0.78);
+}
+.menu.open .menu-panel { display: block; }
+.menu.open .menu-panel.menu-cols { display: flex; gap: 1.2rem; }
+.menu-col { min-width: 10.5rem; }
+.menu.align-right .menu-panel { left: auto; right: 0; }
+.menu-group {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0.45rem 0 0.2rem;
+  padding: 0 0.55rem;
+}
+.menu-panel > .menu-group:first-child,
+.menu-col > .menu-group:first-child { margin-top: 0; }
+.menu-panel a {
+  display: block;
+  padding: 0.26rem 0.55rem;
+  border-bottom: none;
+  border-radius: 3px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.menu-panel a:hover { color: var(--accent-hot); background: rgba(235, 188, 186, 0.07); }
+.menu-panel a:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.menu-panel a.menu-hl { color: var(--accent); }
+.menu-panel a[aria-current="page"] { color: var(--accent); }
+.menu-panel a[aria-current="page"]::after { content: " ·"; color: var(--ink-3); }
+.nav-star {
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 0.26rem 0.6rem;
+  margin-left: auto;
+}
+.nav-star:hover { color: var(--accent-hot); border-color: var(--accent); background: rgba(235, 188, 186, 0.07); }
+
+/* keep anchored sections clear of the sticky nav when jumping to them */
+section[id] { scroll-margin-top: 4.2rem; }
+
+/* top strip ---------------------------------------------------------- */
+.topstrip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--rule);
+}
+.topstrip .badge {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.topstrip .pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  margin-right: 6px;
+  color: var(--ink-2);
+}
+
+/* hero --------------------------------------------------------------- */
+.hero { margin: 2.2rem 0 2.4rem; }
+
+.wordmark {
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(235, 188, 186, 0.10);
+  margin-bottom: 1.5rem;
+  display: block;
+}
+
+.tagline {
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--ink);
+  max-width: 36ch;
+  margin-bottom: 0.9rem;
+}
+.tagline strong {
+  color: var(--accent);
+  font-weight: 500;
+}
+.tagline + .sub {
+  color: var(--ink-2);
+  font-size: 14.5px;
+  max-width: 78ch;
+}
+.trust {
+  margin-top: 0.95rem;
+  padding-left: 0.95rem;
+  border-left: 2px solid var(--trust);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 54ch;
+}
+.trust strong { color: var(--trust); font-weight: 500; }
+
+.surfaces {
+  margin-top: 1.15rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.surfaces-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-right: 0.3rem;
+}
+.surface {
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 2px 9px;
+  cursor: default;
+}
+
+/* section labels ----------------------------------------------------- */
+.label {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  margin: 2.6rem 0 1rem;
+}
+.label::before { content: ""; width: 12px; height: 1px; background: var(--rule-2); }
+.label::after  { content: ""; flex: 1; height: 1px; background: var(--rule); }
+
+.lede {
+  font-size: 14.5px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  max-width: 56ch;
+  margin-bottom: 1rem;
+}
+
+/* preview demo ------------------------------------------------------- */
+.demo {
+  background: var(--bg-card);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow: hidden;
+  box-shadow: 0 20px 55px -24px rgba(0, 0, 0, 0.75), 0 0 26px -6px rgba(235, 188, 186, 0.05);
+}
+.demo .titlebar {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.55rem 0.95rem;
+  background: #191724;
+  border-bottom: 1px solid var(--rule-2);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.demo .titlebar .title { color: var(--ink-2); }
+.demo .body {
+  padding: 0.85rem 1.05rem 1.1rem;
+}
+.demo .line { margin: 0.05rem 0; }
+.demo .prompt { color: var(--trust); margin-right: 0.5em; }
+.demo .answer { color: var(--ink); }
+.demo sup { color: var(--accent); font-size: 0.78em; }
+.demo .rule {
+  color: var(--ink-3);
+  margin: 0.6rem 0 0.25rem;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+}
+.demo .cite { color: var(--ink-3); font-size: 12.5px; }
+.demo .cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  margin-left: 2px;
+  animation: blink 1.05s steps(2, end) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* features grid ------------------------------------------------------ */
+.caps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.cap {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  padding: 1rem 1.1rem;
+  transition: border-color 160ms, transform 160ms;
+}
+.cap:hover { border-color: var(--rule-2); border-left-color: var(--accent-hot); transform: translateY(-1px); }
+.cap h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  margin-bottom: 0.45rem;
+}
+.cap p {
+  font-size: 14px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+/* a note on answers -------------------------------------------------- */
+.note {
+  font-size: 14px;
+  color: var(--ink-2);
+  line-height: 1.65;
+  max-width: 58ch;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  padding: 0.85rem 1.05rem;
+}
+.note strong { color: var(--accent); font-weight: 500; }
+
+/* one-program comparison --------------------------------------------- */
+.shape {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.shape-box {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.9rem 1.05rem;
+}
+.shape-box.one { border-left: 2px solid var(--accent); }
+.shape-h {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.55rem;
+}
+.shape-box.many .shape-h { color: var(--ink-3); }
+.shape-box.one .shape-h { color: var(--accent); }
+.shape-box ul { list-style: none; }
+.shape-box li {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  padding-left: 1.05em;
+  position: relative;
+  margin: 0.1rem 0;
+}
+.shape-box li::before { content: "·"; position: absolute; left: 0; color: var(--ink-3); }
+.shape-box.one li::before { color: var(--accent); }
+.shape-note {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+}
+
+/* install ------------------------------------------------------------ */
+.install {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  font-size: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.install .prompt { color: var(--trust); padding: 0.7rem 0.9rem 0.7rem 1.05rem; }
+.install .cmd {
+  flex: 1;
+  padding: 0.7rem 0.4rem;
+  color: var(--ink);
+  font-weight: 500;
+  word-break: break-word;
+}
+.install .copy {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--rule-2);
+  color: var(--ink-2);
+  padding: 0 1.1rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.install .copy:hover { color: var(--accent-hot); background: rgba(235, 188, 186, 0.07); }
+
+/* hardware variants (older CPU, NVIDIA): same install-line aesthetic, labelled */
+.variant { margin-top: 0.85rem; }
+.variant-tag {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 0.3rem;
+}
+.variant .install { margin-top: 0; }
+.variant-note { margin-top: 0.3rem; font-size: 13px; color: var(--ink-3); }
+.variant-note code { color: var(--ink-2); }
+.variant-note a { color: var(--trust); }
+
+/* color-coded per variant, in-palette: gold = older CPU, iris = NVIDIA */
+.variant.compat .variant-tag { color: var(--gold); }
+.variant.compat .install { border-left: 2px solid var(--gold); }
+.variant.compat .variant-note { border-left: 2px solid var(--gold); padding-left: 0.7rem; }
+.variant.rocm .variant-tag { color: var(--trust); }
+.variant.rocm .install { border-left: 2px solid var(--trust); }
+.variant.rocm .variant-note { border-left: 2px solid var(--trust); padding-left: 0.7rem; }
+.variant.cuda .variant-tag { color: var(--iris); }
+.variant.cuda .install { border-left: 2px solid var(--iris); }
+.variant.cuda .variant-note { border-left: 2px solid var(--iris); padding-left: 0.7rem; }
+.binary-section.compat { color: var(--gold); }
+.binary-section.cuda { color: var(--iris); }
+.binary-section.rocm { color: var(--trust); }
+
+/* labelled section divider inside the binary tab (older CPU, NVIDIA) */
+.binary-section {
+  margin: 1.2rem 0 0.2rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--rule-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* install: which route ----------------------------------------------- */
+.routes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 1.3rem;
+}
+.route {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--rule-2);
+  border-radius: 3px;
+  padding: 0.85rem 1.05rem;
+}
+.route.recommended { border-left-color: var(--accent); }
+.route-h {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  margin-bottom: 0.4rem;
+}
+.route.recommended .route-h { color: var(--accent); }
+.route p {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+/* install method tabs ------------------------------------------------ */
+.installtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 0.5rem;
+}
+.installpane { padding-top: 1rem; }
+.installpane[hidden] { display: none; }
+.oschips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 0.65rem;
+  font-size: 11.5px;
+}
+.oschip {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  color: var(--ink-2);
+  letter-spacing: 0.04em;
+}
+.oschip.dim { color: var(--ink-3); }
+
+/* binary pane: per-OS rows ------------------------------------------ */
+.binary-intro {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  margin-bottom: 0.9rem;
+}
+.binary-row { margin-bottom: 0.85rem; }
+.binary-row:last-of-type { margin-bottom: 0.35rem; }
+.binary-row-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0.35rem;
+  font-size: 12.5px;
+}
+.binary-dl {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--accent);
+}
+.binary-dl:hover { color: var(--accent-hot); border-bottom-color: var(--accent-hot); }
+
+.installmeta {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-top: 1.1rem;
+}
+
+/* per-method "details" disclosure ------------------------------------ */
+.notes-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  padding: 0.25rem 0.6rem;
+  margin-top: 0.65rem;
+  transition: color 140ms, border-color 140ms, background 140ms;
+}
+.notes-toggle::before {
+  content: "▸";
+  margin-right: 0.5em;
+  font-size: 10px;
+  display: inline-block;
+  transition: transform 140ms;
+}
+.notes-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.notes-toggle:hover { color: var(--accent-hot); border-color: var(--accent-hot); background: rgba(235, 188, 186, 0.07); }
+.notes-body[hidden] { display: none; }
+.notes-body { padding-top: 0.1rem; }
+.notes-body .extras:first-child { margin-top: 0.4rem; }
+
+/* optional extras ---------------------------------------------------- */
+.installextras {
+  margin-top: 1.4rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+.installextras .extras-h {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 0.15rem;
+}
+.installextras .extras-sub {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-bottom: 0.7rem;
+}
+.installextras .extras-sub code {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  color: var(--ink-2);
+}
+.extras-grid { display: grid; gap: 7px; }
+.extra {
+  display: flex;
+  gap: 0.85rem;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  padding: 0.5rem 0.8rem;
+  transition: border-color 160ms;
+}
+.extra:hover { border-color: var(--rule-2); border-left-color: var(--accent-hot); }
+.extra .tag { color: var(--accent); font-weight: 700; flex: none; min-width: 5.4em; }
+
+.extras {
+  font-size: 13px;
+  margin-top: 0.55rem;
+  color: var(--ink-2);
+}
+.extras code {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  color: var(--ink);
+}
+.extras .tag {
+  color: var(--accent);
+  font-weight: 500;
+}
+.extras .k {
+  color: var(--ink-3);
+  margin-right: 0.3em;
+}
+
+/* go-deeper links ---------------------------------------------------- */
+.links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 2.5rem;
+  font-size: 14px;
+}
+.links a {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 6px 0;
+  border-bottom: none;
+  color: var(--ink);
+}
+.links a .num { color: var(--accent); width: 2.6em; flex: none; }
+.links a .dots {
+  color: var(--rule-2);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  letter-spacing: 0.12em;
+}
+.links a .desc {
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+.links a:hover .num { color: var(--accent-hot); }
+.links a:hover .desc { color: var(--ink); }
+
+/* built-on credit ---------------------------------------------------- */
+.built-intro {
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.6;
+  max-width: 60ch;
+  margin-bottom: 0.55rem;
+}
+.deps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 2.5rem;
+  font-size: 13px;
+}
+.deps li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  padding: 4px 0;
+  color: var(--ink-3);
+}
+.deps li::before { content: "·"; color: var(--rule-2); flex: none; }
+.dep-name { color: var(--ink-3); flex: none; }
+.dep-name a { color: var(--ink-2); border-bottom-color: var(--rule-2); }
+.dep-name a:hover { color: var(--accent-hot); border-bottom-color: var(--accent-hot); }
+.dep-role { color: var(--ink-3); }
+.deps-flat {
+  font-size: 13px;
+  color: var(--ink-3);
+  line-height: 1.9;
+  max-width: 80ch;
+  margin-top: 0.4rem;
+}
+.deps-flat a {
+  color: var(--ink-2);
+  border-bottom-color: var(--rule-2);
+  white-space: nowrap;
+}
+.deps-flat a:hover { color: var(--accent-hot); border-bottom-color: var(--accent-hot); }
+
+/* footer ------------------------------------------------------------- */
+footer {
+  margin-top: 3rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+  color: var(--ink-3);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+footer a { color: var(--ink-2); }
+footer pre {
+  font-size: 10.5px;
+  line-height: 1.15;
+  color: var(--ink-2);
+  white-space: pre;
+}
+footer .meta { text-align: right; font-size: 12px; }
+
+/* bee aside ---------------------------------------------------------- */
+.bee-art {
+  position: sticky;
+  top: 2rem;
+  color: var(--ink-3);
+  user-select: none;
+  opacity: 0.85;
+}
+.bee-art pre {
+  font-size: 7.5px;
+  line-height: 1.1;
+  color: var(--accent);
+  text-shadow: 0 0 9px rgba(235, 188, 186, 0.08);
+}
+
+/* tutorial reel ---------------------------------------------------------- */
+.tutorial { margin: 0.3rem 0 1.8rem; }
+
+.tutorialtabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-bottom: 1.3rem;
+}
+.tutorialtabs-row { display: flex; flex-direction: column; gap: 0.45rem; }
+.tutorialtabs-group {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.tutorialtabs-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+
+/* clickable chip tabs, shared by the tutorial reel and the install methods */
+.tutorialtabs .tutorialtab,
+.installtabs .tab {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  background: var(--bg-elev);
+  border: 1px solid var(--rule-2);
+  border-radius: 5px;
+  color: var(--ink-2);
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  transition: color 130ms, background-color 130ms, border-color 130ms, transform 110ms, box-shadow 130ms;
+}
+.tutorialtabs .tutorialtab:hover,
+.installtabs .tab:hover {
+  color: var(--ink);
+  background: var(--bg-card);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px -8px rgba(0, 0, 0, 0.7);
+}
+.tutorialtabs .tutorialtab:focus-visible,
+.installtabs .tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.tutorialtabs .tutorialtab[aria-selected="true"],
+.installtabs .tab[aria-selected="true"] {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.tutorialpane[hidden] { display: none; }
+
+.tutorial-frame {
+  background: var(--bg-card);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 22px 60px -26px rgba(0, 0, 0, 0.78);
+  /* Keep the frame from collapsing to ~0 height while the GIF streams in,
+     so a click never lands on an empty void. 1400x900 = 9:14 ratio. */
+  aspect-ratio: 1400 / 900;
+  position: relative;
+}
+.tutorial-frame::before {
+  /* Subtle "loading" wash so a fresh pane doesn't look empty for the seconds
+     it takes the multi-MB GIF to arrive from raw.githubusercontent.com. */
+  content: "loading recording.";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 8px, rgba(255, 255, 255, 0.012) 8px 16px),
+    var(--bg-card);
+}
+.tutorial-frame img {
+  /* Transparent until the GIF starts decoding, so the ::before "loading"
+     placeholder shows through during the first roundtrip. */
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+}
+/* Video clip (crisp, full-resolution mp4) — same box as .tutorial-frame but
+   without the loading overlay, so the video isn't hidden behind it. */
+.tutorial-clip {
+  background: #000;
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 22px 60px -26px rgba(0, 0, 0, 0.78);
+  aspect-ratio: 1400 / 900;
+}
+.tutorial-clip video,
+.tutorial-clip img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.tutorial-caption {
+  margin-top: 0.8rem;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  max-width: 64ch;
+}
+.tutorial-caption code {
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.tutorial-caption em { color: var(--accent); font-style: normal; font-weight: 500; }
+
+.tutorial-watch {
+  text-align: center;
+  margin-bottom: 1.3rem;
+}
+.tutorial-cta {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 0.6rem 1.25rem;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.tutorial-cta:hover {
+  border-color: var(--accent);
+  background: rgba(235, 188, 186, 0.10);
+  color: var(--accent-hot);
+}
+
+.lede kbd {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 0 0.35rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  color: var(--ink-2);
+  background: var(--bg-card);
+  margin: 0 0.05rem;
+  vertical-align: 1px;
+}
+
+/* responsive --------------------------------------------------------- */
+@media (max-width: 1060px) {
+  .layout { grid-template-columns: 1fr; gap: 2rem; }
+  .bee-art { display: none; }
+}
+@media (max-width: 720px) {
+  :root { --gutter: 1.1rem; }
+  .nav-menus { order: 3; flex-basis: 100%; }
+  .menu-panel { max-width: calc(100vw - 2 * var(--gutter)); }
+  .menu.open .menu-panel.menu-cols { flex-wrap: wrap; }
+  body { padding: 1.4rem 1.1rem 3rem; font-size: 14.5px; }
+  .wordmark { font-size: 9.5px; }
+  .caps, .links, .shape, .routes, .deps { grid-template-columns: 1fr; }
+  .tagline { font-size: 17px; }
+  .installtabs .tab { padding: 0.45rem 0.6rem; font-size: 12px; }
+  .extra { flex-direction: column; gap: 0.2rem; }
+}
+
+/* satellite landing pages: FAQ disclosure ------------------------------ */
+.faq { display: flex; flex-direction: column; gap: 0.5rem; }
+.faq details {
+  border: 1px solid var(--rule-2);
+  border-radius: 6px;
+  background: var(--bg-elev);
+  padding: 0.1rem 0.9rem;
+}
+.faq summary {
+  cursor: pointer;
+  padding: 0.7rem 0;
+  color: var(--ink);
+  font-weight: 600;
+  list-style: none;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::before { content: '+'; color: var(--accent); margin-right: 0.6rem; }
+.faq details[open] summary::before { content: '−'; }
+.faq details[open] summary { border-bottom: 1px solid var(--rule); }
+.faq p { color: var(--ink-2); margin: 0.6rem 0 0.9rem; }
+.faq a { color: var(--accent); }
+
+/* comparison table --------------------------------------------------- */
+.cmp-wrap { overflow-x: auto; margin: 0.4rem 0 0.5rem; border: 1px solid var(--rule); border-radius: 4px; }
+.cmp { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 12.5px; }
+.cmp th, .cmp td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.5; }
+.cmp tbody tr:last-child th, .cmp tbody tr:last-child td { border-bottom: none; }
+.cmp thead th { color: var(--ink-3); font-weight: 500; letter-spacing: 0.04em; border-bottom: 1px solid var(--rule-2); background: var(--bg-elev); }
+.cmp tbody th { font-weight: 400; color: var(--ink-2); }
+.cmp td { color: var(--ink-2); }
+.cmp .lb { color: var(--ink); background: rgba(235, 188, 186, 0.05); border-left: 2px solid var(--accent); }
+.cmp thead .lb { color: var(--accent); font-weight: 700; }
+.cmp .yes { color: var(--trust); }
+.cmp .no { color: var(--ink-3); }
+.cmp a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+.cmp a:hover { border-bottom-color: var(--accent); }
+.cmp-hint { font-size: 11px; color: var(--ink-3); margin: 0 0 1rem; letter-spacing: 0.04em; }

@@ -1,0 +1,63 @@
+ConfirmDialog {
+    align: center middle;
+}
+
+ConfirmDialog > Vertical {
+    width: 60;
+    height: auto;
+    max-height: 14;
+    border: $rail-heavy $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+ConfirmDialog #confirm-title {
+    text-style: bold;
+    width: 100%;
+    content-align: center middle;
+    margin-bottom: 1;
+    color: $text;
+}
+
+ConfirmDialog #confirm-message {
+    width: 100%;
+    content-align: center middle;
+    margin-bottom: 1;
+    color: $text;
+}
+
+ConfirmDialog Center {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+}
+
+ConfirmDialog #confirm-buttons {
+    width: auto;
+    height: 1;
+}
+
+ConfirmDialog ConfirmPill {
+    width: auto;
+    height: 1;
+    padding: 0 2;
+    margin: 0 1;
+    background: $boost;
+    color: $text;
+    text-style: bold;
+    content-align: center middle;
+}
+
+ConfirmDialog #confirm-yes {
+    background: $primary 20%;
+}
+
+/* $boost is the contrast text at 4% alpha and cannot mark focus. Per id
+ * because #confirm-yes's resting colour outranks a type selector. */
+ConfirmDialog #confirm-yes:focus,
+ConfirmDialog #confirm-yes:hover,
+ConfirmDialog #confirm-no:focus,
+ConfirmDialog #confirm-no:hover {
+    background: $accent;
+    color: $text;
+}

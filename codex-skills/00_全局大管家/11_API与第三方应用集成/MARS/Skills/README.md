@@ -1,0 +1,46 @@
+# MARS skills for Claude (Claude Code / Cowork)
+
+This folder contains [Agent Skills](https://code.claude.com/docs/en/skills) for working with MARS-Curiosity:
+
+- **`mars-new-project/`** — scaffold a new MARS server project (template files included) and deploy it (service, ISAPI, Apache, FastCGI, Linux daemon).
+- **`mars-development/`** — develop with MARS: resources (JAX-RS style) and, as an addition, routes in code with middlewares; attributes, parameter binding, JWT auth, datasets with FireDAC and Devart UniDAC/MyDAC/IBDAC, SSE, WebStencils, client components, configuration.
+- **`mars-mcp-server/`** — build MCP servers for AI agents (Claude, ChatGPT, Open WebUI/Ollama): expose Delphi methods as MCP tools with `[MCPTool]`, database tools via FireDAC, Bearer/OAuth 2.1 authentication.
+
+## Install as a plugin (recommended)
+
+This repository is also a Claude plugin marketplace. From Claude Code:
+
+```
+/plugin marketplace add andrea-magni/MARS
+/plugin install mars-curiosity@mars
+```
+
+Skills become available automatically (also invocable as `/mars-curiosity:mars-development`, `/mars-curiosity:mars-new-project` and `/mars-curiosity:mars-mcp-server`) and get updated when new versions are published.
+
+## Install with npx (any AI tool)
+
+If you use other agentic tools besides Claude Code (Cursor, Codex, ...) or prefer not to use plugins, the [skills CLI](https://github.com/vercel-labs/skills) installs the same skills into any compatible tool with one command (requires Node.js, no permanent install):
+
+```
+npx skills add andrea-magni/MARS
+```
+
+Pick the skills and target tools when prompted (`--all` installs everything for every detected tool), and update later with `npx skills update`.
+
+## Manual install
+
+Alternatively, copy the skill folders into one of:
+
+- `.claude/skills/` inside your own project (project-level, shared with your team via git);
+- `~/.claude/skills/` (personal, available in every project).
+
+Example (from your project root):
+
+```
+git clone https://github.com/andrea-magni/MARS
+xcopy /E /I MARS\Skills\mars-development .claude\skills\mars-development
+xcopy /E /I MARS\Skills\mars-new-project .claude\skills\mars-new-project
+xcopy /E /I MARS\Skills\mars-mcp-server .claude\skills\mars-mcp-server
+```
+
+Verify with `/skills` or just ask Claude to create a MARS server.

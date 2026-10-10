@@ -1,0 +1,655 @@
+unit MARS.OpenAPI.v3.Utils;
+
+interface
+
+{$I MARS.inc}
+
+uses
+  Classes, SysUtils, System.Rtti, System.TypInfo, MARS.Rtti.Utils
+, MARS.OpenAPI.v3
+, MARS.Core.Engine.Interfaces
+, MARS.Core.Application.Interfaces
+, MARS.Core.Activation.Interfaces, MARS.Utils.Parameters
+, MARS.Metadata
+;
+
+
+type
+  TOpenAPIHelper = class helper for TOpenAPI
+  private
+    procedure ReadBearerSecurityScheme(const AName: string; const AParams: TMARSParameters);
+    procedure ReadCookieSecurityScheme(const AName: string; const AParams: TMARSParameters);
+    procedure ReadInfoFromParams(const AParams: TMARSParameters);
+    function AddServerFromEngine(const AEngine: IMARSEngine): TServer;
+    procedure ReadApplication(const AApplicationMetadata: TMARSApplicationMetadata);
+    // tag of the operations of a resource (or of a group of routes): its path, its name for an empty path
+    function TagOf(const AResourceMetadata: TMARSResourceMetadata): string;
+    procedure ReadOperation(const AOperation: TOperation;
+      const AResourceMetadata: TMARSResourceMetadata; const AMethodMetadata: TMARSMethodMetadata);
+    // media type of the request body of a method without Consumes ('' when it has no body)
+    function DefaultRequestMediaType(const AMethodMetadata: TMARSMethodMetadata): string;
+    function MediaTypeForBodyType(const AType: TRttiType): string;
+    // the type of [MetaRequestBody] of the method, nil when absent or not found
+    function RequestBodyTypeOf(const AMethodMetadata: TMARSMethodMetadata): TRttiType;
+    // describes the request body with the type of [MetaRequestBody], if any
+    procedure ApplyMetaRequestBody(const AMethodMetadata: TMARSMethodMetadata;
+      const ARequestBody: TRequestBody; const AContent: TMediaTypeObj);
+  public
+    class procedure FillSchemaForObjectOrRecord(const ASchema: TSchema; const AType: TRttiType; const AddTo: TOpenAPI);
+    function EnsureTypeInComponentsSchemas(const AType: TRttiType): Boolean;
+    function MARSKindToOpenAPIKind(const AString: string): string;
+    function MARSDataTypeToOpenAPIType(const AType: TRttiType; const ARefPrefix: string = '#/components/schemas/'): string;
+    // the QUERY operation exists since OpenAPI 3.2 (see the OpenAPI.openapi parameter)
+    function SupportsQueryOperation: Boolean;
+    class function BuildFrom(const AEngine: IMARSEngine; const AApplication: IMARSApplication): TOpenAPI; overload;
+    class function BuildFrom(const AActivation: IMARSActivation): TOpenAPI; overload;
+  end;
+
+
+implementation
+
+uses
+  StrUtils
+, MARS.Core.Registry.Utils, MARS.Core.URL, MARS.Utils.JWT, MARS.Core.Utils
+, MARS.Metadata.Reader, MARS.Metadata.Attributes
+, MARS.Core.MediaType, MARS.Core.JSON
+{$IFDEF MARS_YAML}, MARS.YAML.ReadersAndWriters{$ENDIF}
+;
+
+{ TOpenAPIHelper }
+
+class function TOpenAPIHelper.BuildFrom(const AEngine: IMARSEngine;
+  const AApplication: IMARSApplication): TOpenAPI;
+var
+  LOpenAPI: TOpenAPI;
+  LReader: TMARSMetadataReader;
+  LServer: TServer;
+  LApplicationBasePath: string;
+begin
+  Assert(Assigned(AEngine));
+
+  LOpenAPI := TOpenAPI.Create;
+  try
+    // 3.0.2 keeps the bundled Swagger UI happy; raise it to 3.2.0 to document QUERY endpoints
+    LOpenAPI.openapi := AEngine.Parameters.ByNameText('OpenAPI.openapi', '3.0.2').AsString;
+    LOpenAPI.ReadInfoFromParams(AEngine.Parameters);
+
+    LServer := LOpenAPI.AddServerFromEngine(AEngine);
+
+    LApplicationBasePath := TMARSURL.EnsureFirstPathDelimiter(AApplication.BasePath);
+    if LApplicationBasePath <> '' then
+    begin
+      LServer.url := LServer.url + '{application}';
+      LServer.variables.Add('application', TServerVariable.Create([], LApplicationBasePath, 'Application'));
+    end;
+
+    if AApplication.Parameters.ByNameText(JWT_SECRET_PARAM, JWT_SECRET_PARAM_DEFAULT).AsString <> '' then
+      LOpenAPI.ReadBearerSecurityScheme('JWT_bearer', AApplication.Parameters);
+    if AApplication.Parameters.ByNameText(JWT_COOKIEENABLED_PARAM, JWT_COOKIEENABLED_PARAM_DEFAULT).AsBoolean then
+      LOpenAPI.ReadCookieSecurityScheme('JWT_cookie', AApplication.Parameters);
+
+    LReader := TMARSMetadataReader.Create(AEngine);
+    try
+      LOpenAPI.ReadApplication(LReader.Metadata.ApplicationByName(AApplication.Name));
+    finally
+      LReader.Free;
+    end;
+
+  except
+    FreeAndNil(LOpenAPI);
+    raise;
+  end;
+
+  Result := LOpenAPI;
+end;
+
+class function TOpenAPIHelper.BuildFrom(
+  const AActivation: IMARSActivation): TOpenAPI;
+ begin
+  Result := BuildFrom(AActivation.Engine, AActivation.Application);
+end;
+
+function TOpenAPIHelper.EnsureTypeInComponentsSchemas(
+  const AType: TRttiType): Boolean;
+var
+  LSchema: TSchema;
+  LSchemaExists: Boolean;
+//  LMember: TRttiMember;
+//  LJSONName, LYAMLName: string;
+//  LProperty: TSchema;
+begin
+  //AM TODO Add some mechanism to deal with special types
+  // (i.e. TDataset descendants, TStream descendants, TJSONValue descendants, TYamlNode descendants...)
+
+  Result := False;
+  LSchemaExists := components.HasSchema(AType.Name);
+  if not LSchemaExists then
+  begin
+    Result := True;
+    LSchema := components.AddSchema(AType.Name);
+
+    if (AType.IsInstance) or (AType.IsRecord) then
+      FillSchemaForObjectOrRecord(LSchema, AType, Self)
+    else if AType is TRttiEnumerationType then
+    begin
+      LSchema.SetType('string');
+      LSchema.description := 'Schema for type ' + AType.QualifiedName;
+      LSchema.enum := TRttiEnumerationType(AType).GetNames;
+    end;
+
+  end;
+end;
+
+class procedure TOpenAPIHelper.FillSchemaForObjectOrRecord(
+  const ASchema: TSchema; const AType: TRttiType; const AddTo: TOpenAPI);
+begin
+      ASchema.SetType('object');
+      ASchema.description := 'Schema for type ' + AType.QualifiedName;
+
+      var LTypeDescriptionAttr := AType.GetAttribute<OAPIDescriptionAttribute>;
+      if Assigned(LTypeDescriptionAttr) then
+        ASchema.description := LTypeDescriptionAttr.Value;
+
+      for var LMember in AType.GetPropertiesAndFields do
+      begin
+        if (LMember.Visibility < TMemberVisibility.mvPublic) or (not LMember.IsReadable) then
+          Continue;
+
+        var LJSONName := LMember.Name;
+        LMember.HasAttribute<JSONNameAttribute>(
+          procedure (AAttr: JSONNameAttribute)
+          begin
+            LJSONName := AAttr.Name;
+          end
+        );
+{$IFDEF MARS_YAML}
+        var LYAMLName := LMember.Name;
+        LMember.HasAttribute<YAMLNameAttribute>(
+          procedure (AAttr: YAMLNameAttribute)
+          begin
+            LYAMLName := AAttr.Name;
+          end
+        );
+{$ELSE}
+        var LYAMLName := '';
+{$ENDIF}
+        if (LJSONName = '') and (LYAMLName = '') then
+          Continue;
+
+        if Assigned(AddTo) then
+        begin
+          var LProperty := ASchema.GetProperty(LJSONName);
+          LProperty.SetType(LMember.GetRttiType, AddTo);
+
+          var LDescriptionAttr := LMember.GetAttribute<OAPIDescriptionAttribute>;
+          if Assigned(LDescriptionAttr) then
+            LProperty.description := LDescriptionAttr.Value;
+
+          LProperty.FillFromAttributes(LMember);
+        end;
+      end;
+
+end;
+
+function TOpenAPIHelper.RequestBodyTypeOf(
+  const AMethodMetadata: TMARSMethodMetadata): TRttiType;
+var
+  LAttribute: MetaRequestBodyAttribute;
+begin
+  Result := nil;
+  if not Assigned(AMethodMetadata.RttiMethod) then
+    Exit;
+  LAttribute := AMethodMetadata.RttiMethod.GetAttribute<MetaRequestBodyAttribute>;
+  if Assigned(LAttribute) then
+    Result := LAttribute.FindType;
+end;
+
+procedure TOpenAPIHelper.ApplyMetaRequestBody(const AMethodMetadata: TMARSMethodMetadata;
+  const ARequestBody: TRequestBody; const AContent: TMediaTypeObj);
+var
+  LAttribute: MetaRequestBodyAttribute;
+  LType: TRttiType;
+begin
+  if not Assigned(AMethodMetadata.RttiMethod) then
+    Exit;
+  LAttribute := AMethodMetadata.RttiMethod.GetAttribute<MetaRequestBodyAttribute>;
+  if not Assigned(LAttribute) then
+    Exit;
+  LType := LAttribute.FindType;
+  if not Assigned(LType) then // a wrong name never breaks the document
+    Exit;
+
+  AContent.schema.SetType(LType, Self);
+  if LAttribute.Description <> '' then
+    ARequestBody.description := LAttribute.Description
+  else
+    ARequestBody.description := LType.Name;
+end;
+
+function TOpenAPIHelper.DefaultRequestMediaType(
+  const AMethodMetadata: TMARSMethodMetadata): string;
+var
+  LParamMD: TMARSRequestParamMetadata;
+  LType: TRttiType;
+begin
+  // without Consumes the server reads the body as application/json or */* (see the
+  // TMARSMessageBodyReaderRegistry defaults): document the media type a client would use
+  Result := '';
+  if Length(AMethodMetadata.ParametersByKind('FormParam')) > 0 then
+    Exit(TMediaType.APPLICATION_FORM_URLENCODED_TYPE);
+
+  LParamMD := AMethodMetadata.ParameterByKind('BodyParam');
+  if not Assigned(LParamMD) or not Assigned(LParamMD.DataTypeRttiType) then
+  begin
+    // [MetaRequestBody] describes a body read by the method itself
+    if Assigned(RequestBodyTypeOf(AMethodMetadata)) then
+      Result := MediaTypeForBodyType(RequestBodyTypeOf(AMethodMetadata));
+    Exit;
+  end;
+
+  LType := LParamMD.DataTypeRttiType;
+  Result := MediaTypeForBodyType(LType);
+end;
+
+function TOpenAPIHelper.MediaTypeForBodyType(const AType: TRttiType): string;
+var
+  LType: TRttiType;
+begin
+  LType := AType;
+  if LType.IsObjectOfType<TStream> or LType.IsDynamicArrayOf<Byte> then
+    Result := TMediaType.APPLICATION_OCTET_STREAM
+  else if (LType.Handle = TypeInfo(TFormParam)) or LType.IsDynamicArrayOf<TFormParam>(False) then
+    Result := TMediaType.MULTIPART_FORM_DATA
+  else if LType.Handle = TypeInfo(string) then
+    Result := TMediaType.TEXT_PLAIN
+  else
+    Result := TMediaType.APPLICATION_JSON;
+end;
+
+function TOpenAPIHelper.MARSDataTypeToOpenAPIType(
+  const AType: TRttiType; const ARefPrefix: string): string;
+var
+  LPrimitiveType: Boolean;
+  LElementType: TRttiType;
+begin
+
+{
+  type    format
+  ------------------------------------------
+  integer	int32	signed 32 bits
+  integer	int64	signed 64 bits (a.k.a long)
+  number	float
+  number	double
+  string
+  string	byte	base64 encoded characters
+  string	binary	any sequence of octets
+  boolean
+  string	date	As defined by full-date - RFC3339
+  string	date-time	As defined by date-time - RFC3339
+  string	password	A hint to UIs to obscure input.
+}
+
+  Result := AType.Name;
+
+  if IndexStr(AType.QualifiedName, ['System.TDate', 'System.TDateTime', 'System.TTime']) <> -1 then
+    Result := 'string';
+  if IndexStr(AType.QualifiedName, [
+      'System.Integer', 'System.Int64', 'System.UInt64', 'System.Int32', 'System.UInt32'
+    ,  'System.SmallInt', 'System.LongInt', 'System.Word', 'System.LongWord'
+    ]) <> -1 then
+    Result := 'integer'; //AM TODO format !
+  if IndexStr(AType.QualifiedName, ['System.Currency', 'System.Single', 'System.Double', 'System.Extended']) <> -1 then
+    Result := 'number'; //AM TODO format
+
+  LPrimitiveType := IndexText(Result.ToLower, ['string', 'integer', 'boolean', 'number']) <> -1;
+  if LPrimitiveType then
+    Result := Result.ToLower
+  else if (ARefPrefix <> '') then
+  begin
+    Result := ARefPrefix + Result;
+    if AType.IsArray(LElementType) then
+      EnsureTypeInComponentsSchemas(LElementType)
+    else if AType.IsDictionaryOfStringAndT(LElementType) then
+      EnsureTypeInComponentsSchemas(LElementType)
+    else if AType.IsObjectListOfT(LElementType) then
+      EnsureTypeInComponentsSchemas(LElementType)
+    else
+      EnsureTypeInComponentsSchemas(AType);
+  end;
+end;
+
+function TOpenAPIHelper.MARSKindToOpenAPIKind(
+  const AString: string): string;
+begin
+  Result := AString.Replace('Param', '').ToLower;
+end;
+
+procedure TOpenAPIHelper.ReadApplication(const AApplicationMetadata: TMARSApplicationMetadata);
+begin
+  AApplicationMetadata.ForEachResource(
+    procedure (AResourceMetadata: TMARSResourceMetadata)
+    begin
+      if not AResourceMetadata.Visible then
+        Exit;
+
+      // routes (MARS.Core.Routes) have no RTTI type: Summary and Description only
+      var LResourceDescription := AResourceMetadata.Description;
+      var LResourceSummary := AResourceMetadata.Summary;
+      const LResourceType = AResourceMetadata.RttiType;
+      if Assigned(LResourceType) then
+      begin
+        const LDescriptionAttr = LResourceType.GetAttribute<OAPIDescriptionAttribute>;
+        if Assigned(LDescriptionAttr) then
+          LResourceDescription := LDescriptionAttr.Value;
+
+        const LSummaryAttr = LResourceType.GetAttribute<OAPISummaryAttribute>;
+        if Assigned(LSummaryAttr) then
+          LResourceSummary := LSummaryAttr.Value;
+      end;
+
+      // one tag for each name (a resource and a group of routes may share a path)
+      var LTagExists := False;
+      for var LTag in tags do
+        if SameText(LTag.name, TagOf(AResourceMetadata)) then
+          LTagExists := True;
+      if not LTagExists then
+        AddTag(TagOf(AResourceMetadata), StringFallback([LResourceSummary, LResourceDescription, AResourceMetadata.Name]));
+
+      AResourceMetadata.ForEachMethod(
+        procedure (AMethodMetadata: TMARSMethodMetadata)
+        var
+          LPath: TPathItem;
+          LOperation: TOperation;
+        begin
+          if not AMethodMetadata.Visible then
+            Exit;
+
+          // OpenAPI added the QUERY operation in 3.2: leave it out of older documents
+          if SameText(AMethodMetadata.HttpMethodLowerCase, 'query') and not SupportsQueryOperation then
+            Exit;
+
+          const LMethod = AMethodMetadata.RttiMethod;
+
+          LPath := GetPath(TMARSURL.CombinePath([AResourceMetadata.Path, AMethodMetadata.Path], True, False));
+
+          LPath.description := AResourceMetadata.Description;
+          LPath.summary := AResourceMetadata.Name + ' resource';
+          if Assigned(LMethod) then
+          begin
+            const LDescriptionAttr = LMethod.GetAttribute<OAPIDescriptionAttribute>;
+            if Assigned(LDescriptionAttr) then
+              LPath.description := LDescriptionAttr.Value;
+
+            const LSummaryAttr = LMethod.GetAttribute<OAPISummaryAttribute>;
+            if Assigned(LSummaryAttr) then
+              LPath.summary := LSummaryAttr.Value;
+          end
+          else if AResourceMetadata.Summary <> '' then
+            LPath.summary := AResourceMetadata.Summary;
+
+          LOperation := LPath.OperationByHttpMethod(AMethodMetadata.HttpMethodLowerCase);
+          if Assigned(LOperation) then
+            ReadOperation(LOperation, AResourceMetadata, AMethodMetadata);
+        end
+      );
+
+    end
+  );
+end;
+
+function TOpenAPIHelper.TagOf(const AResourceMetadata: TMARSResourceMetadata): string;
+begin
+  Result := StringFallback([AResourceMetadata.Path, AResourceMetadata.Name]);
+end;
+
+function TOpenAPIHelper.SupportsQueryOperation: Boolean;
+var
+  LParts: TArray<string>;
+  LMajor, LMinor: Integer;
+begin
+  LParts := openapi.Split(['.']);
+  Result := (Length(LParts) >= 2)
+    and TryStrToInt(LParts[0], LMajor) and TryStrToInt(LParts[1], LMinor)
+    and ((LMajor > 3) or ((LMajor = 3) and (LMinor >= 2)));
+end;
+
+procedure TOpenAPIHelper.ReadBearerSecurityScheme(const AName: string;
+  const AParams: TMARSParameters);
+var
+  LSchema: TSecurityScheme;
+begin
+  LSchema := components.AddSecurityScheme(AName, 'http');
+  LSchema.scheme := 'bearer';
+  LSchema.bearerFormat := 'JWT';
+  LSchema.name := ''; // name is not required for http bearer schema and would raise a warning
+  LSchema.description := AParams.ByNameText(JWT_ISSUER_PARAM, JWT_ISSUER_PARAM_DEFAULT).AsString;
+  FBearerSecurityConfigured := True;
+end;
+
+procedure TOpenAPIHelper.ReadCookieSecurityScheme(const AName: string;
+  const AParams: TMARSParameters);
+var
+  LSchema: TSecurityScheme;
+begin
+  LSchema := components.AddSecurityScheme(AName, 'apiKey');
+  LSchema.&in := 'cookie';
+  LSchema.name := AParams.ByNameText(JWT_COOKIENAME_PARAM, JWT_COOKIENAME_PARAM_DEFAULT).AsString;
+  LSchema.description := AParams.ByNameText(JWT_ISSUER_PARAM, JWT_ISSUER_PARAM_DEFAULT).AsString;
+  FCookieSecurityConfigured := True;
+end;
+
+procedure TOpenAPIHelper.ReadInfoFromParams(const AParams: TMARSParameters);
+
+  function FromParams(const AName: string; const ADefault: TValue): TValue;
+  begin
+    Result := AParams.ByNameText('OpenAPI.' + AName, ADefault);
+  end;
+
+begin
+  info.title          := FromParams('info.title', 'MARS API').AsString;
+  info.summary        := FromParams('info.summary', '').AsString;
+  info.description    := FromParams('info.description', '').AsString;
+  info.termsOfService := FromParams('info.termsOfService', '').AsString;
+
+  info.contact.name   := FromParams('info.contact.name', 'MARS Developer').AsString;
+  info.contact.url    := FromParams('info.contact.url', 'https://mars.space').AsString;
+  info.contact.email  := FromParams('info.contact.email', 'me@mars.space').AsString;
+
+  info.license.name       := FromParams('info.license.name', '').AsString;
+  info.license.identifier := FromParams('info.license.identifier', '').AsString;
+  info.license.url        := FromParams('info.license.url', '').AsString;
+
+  info.x_logo.url := FromParams('info.x-logo.url', 'https://andreamagni.eu/images/MARS-Curiosity-d.png').AsString;
+  info.x_logo.backgroundColor := FromParams('info.x-logo.backgroundColor', '#FFFFFF').AsString;
+  info.x_logo.altText := FromParams('info.x-logo.altText', 'Powered by MARS-Curiosity REST library').AsString;
+  info.x_logo.href := FromParams('info.x-logo.href', 'https://github.com/andrea-magni/MARS').AsString;
+
+  info.version := FromParams('info.version', '0.1.0').AsString;
+end;
+
+procedure TOpenAPIHelper.ReadOperation(const AOperation: TOperation;
+  const AResourceMetadata: TMARSResourceMetadata;
+  const AMethodMetadata: TMARSMethodMetadata);
+begin
+  var LMethodSummary := StringFallback([AMethodMetadata.Summary, AMethodMetadata.Description, AMethodMetadata.Name]);
+
+  AOperation.operationId := AMethodMetadata.Name;
+  AOperation.summary := LMethodSummary;
+  AOperation.description := AMethodMetadata.Description;
+  AOperation.tags := [TagOf(AResourceMetadata)];
+
+  var LDescriptionAttr: OAPIDescriptionAttribute;
+  const LMethod = AMethodMetadata.RttiMethod;
+  if Assigned(LMethod) then // routes (MARS.Core.Routes) have no RTTI method
+  begin
+    LDescriptionAttr := LMethod.GetAttribute<OAPIDescriptionAttribute>;
+    if Assigned(LDescriptionAttr) then
+      AOperation.description := LDescriptionAttr.Value;
+
+    var LSummaryAttr := LMethod.GetAttribute<OAPISummaryAttribute>;
+    if Assigned(LSummaryAttr) then
+      AOperation.summary := LSummaryAttr.Value;
+  end;
+
+  AMethodMetadata.ForEachParameter(
+    procedure (AParam: TMARSRequestParamMetadata)
+    var
+      LIn: string;
+    begin
+      LIn := MARSKindToOpenAPIKind(AParam.Kind);
+      if IndexText(LIn, ['query', 'header', 'path', 'cookie']) <> -1 then
+      begin
+        var LParam := AOperation.AddParameter(AParam.Name, LIn);
+        LParam.description := AParam.Description;
+        LParam.schema.SetType(AParam.DataTypeRttiType, Self);
+        LParam.required := AParam.Required;
+
+        // path params coming from the resource's [Path] (e.g. '{id}', '{*}') have no method parameter
+        const LParameter = AParam.RttiParameter;
+        if Assigned(LParameter) then
+        begin
+          var LDescriptionAttr := LParameter.GetAttribute<OAPIDescriptionAttribute>;
+          if Assigned(LDescriptionAttr) then
+            LParam.description := LDescriptionAttr.Value;
+
+          LParam.schema.FillFromAttributes(LParameter);
+
+          LParam.required := LParam.schema.required;
+        end;
+      end;
+    end);
+
+  // REQUEST BODY
+  var LConsumes := AMethodMetadata.Consumes;
+  if LConsumes = '' then
+    LConsumes := DefaultRequestMediaType(AMethodMetadata);
+  if LConsumes <> '' then
+  begin
+    var LRequestBody := AOperation.requestBody;
+    LRequestBody.description := 'Request body';
+    for var LMediaType in LConsumes.Split([',']) do
+    begin
+      var LContent := LRequestBody.AddContent(LMediaType);
+
+      // x-www-form-urlencoded
+      if LMediaType = TMediaType.APPLICATION_FORM_URLENCODED_TYPE then
+      begin
+        LContent.schema.SetType('object');
+        var LHasFormParams := False;
+        for var LParamMD in AMethodMetadata.ParametersByKind('FormParam') do
+        begin
+          var LProperty := LContent.schema.GetProperty(LParamMD.Name);
+          LProperty.description := LParamMD.Description;
+          LProperty.SetType(LParamMD.DataTypeRttiType, Self);
+
+          if Assigned(LParamMD.RttiParameter) then
+          begin
+            LDescriptionAttr := LParamMD.RttiParameter.GetAttribute<OAPIDescriptionAttribute>;
+            if Assigned(LDescriptionAttr) then
+              LProperty.description := LDescriptionAttr.Value;
+
+            LContent.schema.FillFromAttributes(LParamMD.RttiParameter);
+          end;
+
+          LHasFormParams := True;
+        end;
+        if not LHasFormParams and (Length(AMethodMetadata.ParametersByKind('BodyParam')) = 0) then
+          ApplyMetaRequestBody(AMethodMetadata, LRequestBody, LContent);
+        if not LHasFormParams then
+          for var LParamMD in AMethodMetadata.ParametersByKind('BodyParam') do
+          begin
+//            if LParamMD.DataTypeRttiType.Name = 'TArray<MARS.Core.Utils.TFormParam>' then
+//            begin
+//              LContent.schema.SetType('');
+//              LContent.schema.additionalProperties := True;
+//            end
+//            else begin
+              LContent.schema.SetType(LParamMD.DataTypeRttiType, Self);
+              LRequestBody.description := LParamMD.Name + ': ' + LParamMD.DataTypeRttiType.Name;
+              if Assigned(LParamMD.RttiParameter) then
+              begin
+                LDescriptionAttr := LParamMD.RttiParameter.GetAttribute<OAPIDescriptionAttribute>;
+                if Assigned(LDescriptionAttr) then
+                  LRequestBody.description := LDescriptionAttr.Value;
+
+                LContent.schema.FillFromAttributes(LParamMD.RttiParameter);
+              end;
+//            end;
+          end;
+      end
+      else // all other request body types
+      begin
+        var LParamMD := AMethodMetadata.ParameterByKind('BodyParam');
+        if Assigned(LParamMD) then
+        begin
+          LContent.schema.SetType(LParamMD.DataTypeRttiType, Self);
+          LRequestBody.description := LParamMD.Description;
+          if LRequestBody.description = ''then
+            LRequestBody.description := LParamMD.Name + ': ' + LParamMD.DataTypeRttiType.Name;
+          if Assigned(LParamMD.RttiParameter) then
+          begin
+            LDescriptionAttr := LParamMD.RttiParameter.GetAttribute<OAPIDescriptionAttribute>;
+            if Assigned(LDescriptionAttr) then
+              LRequestBody.description := LDescriptionAttr.Value;
+
+            LContent.schema.FillFromAttributes(LParamMD.RttiParameter);
+          end;
+        end
+        else
+          ApplyMetaRequestBody(AMethodMetadata, LRequestBody, LContent);
+      end;
+    end;
+  end;
+
+  // responses
+  var LResponse := AOperation.AddResponse('200');
+  LResponse.description := 'Successful response';
+  for var LMediaType in AMethodMetadata.Produces.Split([',']) do
+    LResponse.AddContent(LMediaType).schema.SetType(AMethodMetadata.DataTypeRttiType, Self);
+
+  if LResponse.content.Count = 0 then
+    LResponse.AddContent('*/*').schema.SetType(AMethodMetadata.DataTypeRttiType, Self);
+
+  AOperation.AddResponse('500').description := 'Internal server error';
+
+  // authorization
+  var LMetAuthorization := AMethodMetadata.FullAuthorization;
+  if LMetAuthorization <> '' then //AM TODO Check what happens with Deny DenyAll etc
+  begin
+    if FBearerSecurityConfigured then
+      AOperation.AddSecurityRequirement('JWT_bearer', LMetAuthorization.Split([',']));
+    if FCookieSecurityConfigured then
+      AOperation.AddSecurityRequirement('JWT_cookie', LMetAuthorization.Split([',']));
+
+    if FBearerSecurityConfigured or FCookieSecurityConfigured then
+      AOperation.AddResponse('403').description := 'Token missing, not valid or expired';
+  end;
+end;
+
+function TOpenAPIHelper.AddServerFromEngine(const AEngine: IMARSEngine): TServer;
+var
+  LEngineBasePath: string;
+begin
+  Result := AddServer;
+  Result.url := '{protocol}://{hostname}:{port}';
+  Result.description := AEngine.Name;
+
+  Result.variables.Add('hostname'
+  , TServerVariable.Create([], 'localhost', 'Host name'));
+
+  LEngineBasePath := TMARSURL.EnsureFirstPathDelimiter(AEngine.BasePath);
+  if LEngineBasePath <> '' then
+  begin
+    Result.url := Result.url + '{engine}';
+    Result.variables.Add('engine', TServerVariable.Create([], LEngineBasePath, 'Engine base path'));
+  end;
+
+  Result.variables.Add('port'
+  , TServerVariable.Create([AEngine.Port.ToString, AEngine.PortSSL.ToString]
+    , AEngine.Port.ToString, 'Port number'));
+
+  Result.variables.Add('protocol'
+  , TServerVariable.Create(['http', 'https'], 'http', 'Protocol'));
+end;
+
+end.

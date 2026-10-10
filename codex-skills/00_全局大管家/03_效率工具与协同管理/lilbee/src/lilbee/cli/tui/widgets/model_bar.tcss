@@ -1,0 +1,110 @@
+ModelBar {
+    height: auto;
+    width: 100%;
+}
+
+.model-bar-roles {
+    height: 1;
+    width: 100%;
+}
+
+RoleRow {
+    layout: horizontal;
+    height: 1;
+    width: auto;
+    margin: 0 2 0 0;
+}
+
+RoleRow .model-bar-pill {
+    width: auto;
+    height: 1;
+    margin: 0 1 0 0;
+}
+
+RoleRow ModelPickerButton {
+    width: auto;
+    max-width: 18;
+    height: 1;
+    color: $text;
+    background: transparent;
+    padding: 0;
+    text-overflow: ellipsis;
+}
+
+RoleRow.-off ModelPickerButton {
+    color: $text-muted;
+}
+
+/* $accent, matching the mode pills: $boost resolves to the contrast text at
+   4% alpha, so over the bar's own background the cursor was effectively
+   invisible and the strip read as mouse-only even though Tab walks it. */
+RoleRow ModelPickerButton:focus {
+    background: $accent;
+    color: $text;
+    text-style: bold;
+}
+
+RoleRow ModelPickerButton.-missing {
+    color: $warning;
+    text-style: italic;
+}
+
+ModelBar.-narrow RoleRow.-off {
+    display: none;
+}
+
+ModelBar.-narrow RoleRow ModelPickerButton {
+    max-width: 12;
+}
+
+ModelBar.-narrow #chat-mode-toggle {
+    dock: right;
+}
+
+ModelBar #chat-mode-toggle {
+    width: auto;
+    height: 1;
+    margin: 0 0 0 1;
+    padding: 0;
+    background: transparent;
+}
+
+ModelBar #chat-mode-toggle Horizontal {
+    height: 1;
+    width: auto;
+}
+
+ModelBar .chat-mode-pill {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    margin: 0 1 0 0;
+    background: $boost;
+    color: $text-muted;
+}
+
+ModelBar .chat-mode-pill.-active {
+    background: $success;
+    color: $text;
+}
+
+ModelBar .chat-mode-pill.-disabled {
+    color: $text 40%;
+    text-style: dim;
+}
+
+ModelBar .chat-mode-pill:focus {
+    text-style: bold;
+    background: $accent;
+    color: $text;
+}
+
+ModelBar .cloud-warning {
+    display: none;
+    height: auto;
+    color: $warning;
+}
+
+ModelBar .cloud-warning.-visible {
+    display: block;
+}

@@ -1,0 +1,240 @@
+"""spaCy NER entity extractor (default strategy).
+
+Produces typed NER entities only. LLM-curated concept pages are
+proposed downstream by the per-source batched call in
+:mod:`lilbee.wiki.generation`.
+"""
+
+from __future__ import annotations
+
+import functools
+import logging
+import re
+import threading
+from typing import TYPE_CHECKING, Any
+
+from lilbee.core.text import collapse_whitespace, is_valid_label, make_slug, strip_possessive
+from lilbee.wiki.entity_extractor.base import (
+    ChunkRef,
+    EntityKind,
+    ExtractedEntity,
+)
+
+if TYPE_CHECKING:
+    from lilbee.core.config import Config
+    from lilbee.data.store import SearchChunk
+    from lilbee.providers.base import LLMProvider
+
+log = logging.getLogger(__name__)
+
+
+# Pre-spaCy markdown-noise strippers. Compiled once at module scope so
+# the extractor's hot path does not recompile them per chunk. Match on
+# line boundaries via re.MULTILINE; each sub() empties the matched
+# line so downstream line-joins collapse the hole to a single newline.
+_TABLE_ROW_RE = re.compile(r"^\|.*\|\s*$", re.MULTILINE)
+_PAGE_NUMBER_RE = re.compile(r"^\s*\d{1,4}\s*$", re.MULTILINE)
+_NAV_CHROME_RE = re.compile(
+    r"^\s*(?:Home|Menu|Navigation|Edit this page|Jump to navigation|Jump to search)\s*$",
+    re.MULTILINE,
+)
+
+
+def pre_clean_for_ner(text: str) -> str:
+    """Strip markdown-structural noise before handing text to spaCy.
+
+    Removes whole-line markdown-table rows (``| Designer | Irv ... |``),
+    standalone page-number lines from PDF extraction (``42``), and
+    Wikipedia / CMS navigation chrome (``Edit this page``). Leaves
+    prose untouched: every regex anchors to a full line and emits an
+    empty line in place of the match, which spaCy treats as a sentence
+    break.
+
+    Only targets the noise patterns actually observed in the bb-8b7s
+    QA corpus. Fuller markdown parsing is deferred; a regex pre-clean
+    is sufficient for the current signal-to-noise ratio.
+    """
+    text = _TABLE_ROW_RE.sub("", text)
+    text = _PAGE_NUMBER_RE.sub("", text)
+    return _NAV_CHROME_RE.sub("", text)
+
+
+class NerConceptsExtractor:
+    """Emit typed NER entities (``EntityKind.ENTITY`` only).
+
+    LLM-curated concept pages are produced downstream by the per-source
+    batched call in :mod:`lilbee.wiki.generation`.
+    """
+
+    def __init__(self, provider: LLMProvider, config: Config) -> None:
+        self._provider = provider
+        self._config = config
+
+    def available(self) -> bool:
+        """True when the spaCy pipeline is loadable. Cached, so this is cheap."""
+        return _load_spacy() is not None
+
+    def extract(self, chunks: list[SearchChunk]) -> list[ExtractedEntity]:
+        if not chunks:
+            return []
+        nlp = _load_spacy()
+        if nlp is None:
+            return []
+
+        entity_records: dict[str, _Aggregate] = {}
+        allowed_ent_types = self._config.concept_allowed_ent_types
+
+        debug_enabled = log.isEnabledFor(logging.DEBUG)
+        funnel: dict[str, int] = {
+            "raw_ents": 0,
+            "type_filter_dropped": 0,
+            "label_sanity_dropped_entities": 0,
+            "kept_entity_surfaces": 0,
+        }
+        cleaned_texts = (pre_clean_for_ner(c.chunk) for c in chunks)
+        # _load_spacy returns a process-global Language shared by every extractor
+        # instance; a spaCy Language is not safe for concurrent processing, so
+        # serialize the whole lazy nlp.pipe iteration behind the module lock.
+        with _NLP_LOCK:
+            for chunk, doc in zip(chunks, nlp.pipe(cleaned_texts), strict=True):
+                ref = ChunkRef(source=chunk.source, chunk_index=chunk.chunk_index)
+                _accumulate_doc_entities(
+                    doc, ref, entity_records, allowed_ent_types, funnel, debug_enabled
+                )
+
+        _merge_possessives(entity_records)
+
+        if debug_enabled:
+            log.debug(
+                "ner funnel: raw_ents=%(raw_ents)d "
+                "type_filter_dropped=%(type_filter_dropped)d "
+                "label_sanity_dropped_entities=%(label_sanity_dropped_entities)d "
+                "kept_entity_surfaces=%(kept_entity_surfaces)d",
+                funnel,
+            )
+
+        min_mentions = self._config.wiki_entity_min_mentions
+        results: list[ExtractedEntity] = []
+        for agg in entity_records.values():
+            record = _make_record(agg, EntityKind.ENTITY, min_mentions)
+            if record is not None:
+                results.append(record)
+        results.sort(key=lambda e: (e.kind.value, e.slug))
+        return results
+
+
+def _accumulate_doc_entities(
+    doc: Any,
+    ref: ChunkRef,
+    entity_records: dict[str, _Aggregate],
+    allowed_ent_types: set[str] | frozenset[str],
+    funnel: dict[str, int],
+    debug_enabled: bool,
+) -> None:
+    """Fold one spaCy doc's entities into ``entity_records`` (mutated in place)."""
+    for ent in doc.ents:
+        funnel["raw_ents"] += 1
+        if ent.label_ not in allowed_ent_types:
+            funnel["type_filter_dropped"] += 1
+            continue
+        # Collapse first: spaCy spans cross wrapped lines constantly in PDF
+        # text, and the label is interpolated raw into a single-line marker.
+        # Rejecting the wrapped form instead would lose the mention entirely.
+        surface = collapse_whitespace(ent.text)
+        if not is_valid_label(surface):
+            funnel["label_sanity_dropped_entities"] += 1
+            if debug_enabled:
+                log.debug("label-sanity: rejected entity %r", surface)
+            continue
+        # Key by slug, not the normalized surface: the index keys stubs on
+        # make_slug, so two surfaces that slug alike ("Ford Motor Co." and
+        # "Ford Motor Co") are one subject. Keyed by surface they stay two
+        # aggregates that an incremental refresh sums, double-counting mentions
+        # and duplicating refs past the floor.
+        key = make_slug(surface)
+        rec = entity_records.setdefault(key, _Aggregate(label=surface, type_hint=ent.label_))
+        rec.refs.add(ref)
+        funnel["kept_entity_surfaces"] += 1
+
+
+def _merge_possessives(entity_records: dict[str, _Aggregate]) -> None:
+    """Fold each possessive surface into its standalone base entity, in place.
+
+    "Solar System's" and "Solar System" are one subject, but a name whose
+    canonical form carries the clitic (McDonald's) has no standalone base in
+    the corpus, so a possessive with no base aggregate stays as it is.
+    """
+    for key in list(entity_records):
+        agg = entity_records[key]
+        base = strip_possessive(agg.label)
+        if base == agg.label:
+            continue
+        base_agg = entity_records.get(make_slug(base))
+        if base_agg is None or base_agg is agg:
+            continue
+        base_agg.refs |= agg.refs
+        del entity_records[key]
+
+
+class _Aggregate:
+    """Mutable accumulator used only while folding per-chunk hits."""
+
+    __slots__ = ("label", "refs", "type_hint")
+
+    def __init__(self, label: str, type_hint: str) -> None:
+        self.label = label
+        self.type_hint = type_hint
+        self.refs: set[ChunkRef] = set()
+
+
+def _sorted_refs(refs: set[ChunkRef]) -> tuple[ChunkRef, ...]:
+    return tuple(sorted(refs, key=lambda r: (r.source, r.chunk_index)))
+
+
+def _make_record(agg: _Aggregate, kind: EntityKind, min_mentions: int) -> ExtractedEntity | None:
+    """Turn an aggregate into an ``ExtractedEntity`` or drop it.
+
+    Filters records below the mention threshold and records whose label
+    slug-cleans to an empty string (e.g. labels of only punctuation);
+    without the empty-slug guard those would try to write files named
+    just ``.md`` on disk.
+    """
+    if len(agg.refs) < min_mentions:
+        return None
+    slug = make_slug(agg.label)
+    if not slug:
+        return None
+    return ExtractedEntity(
+        slug=slug,
+        kind=kind,
+        label=agg.label,
+        type_hint=agg.type_hint,
+        chunk_refs=_sorted_refs(agg.refs),
+    )
+
+
+_NLP_LOCK = threading.Lock()
+"""Serializes use of the shared (``@functools.cache``d) spaCy Language.
+
+A spaCy Language is not safe for concurrent processing; every extract() call
+runs ``nlp.pipe`` on the same cached instance, so the daemon serializes them."""
+
+
+@functools.cache
+def _load_spacy() -> Any | None:
+    """Load the shared spaCy pipeline, or return None if unavailable.
+
+    Cached so the "spaCy unavailable" warning fires at most once per process.
+    Without the cache, every chunk-extract call repeats the warning; on a
+    corpus with 1 000 chunks the user got 1 000 identical lines.
+    """
+    try:
+        from lilbee.retrieval.concepts import load_spacy_pipeline
+    except ImportError:
+        log.warning("Entity extraction disabled: lilbee.concepts unavailable")
+        return None
+    try:
+        return load_spacy_pipeline()
+    except ImportError:
+        log.warning("Entity extraction disabled: spaCy model unavailable")
+        return None

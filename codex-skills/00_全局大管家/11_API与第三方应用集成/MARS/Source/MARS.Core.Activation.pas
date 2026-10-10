@@ -1,0 +1,1310 @@
+(*
+  Copyright 2025, MARS-Curiosity library
+
+  Home: https://github.com/andrea-magni/MARS
+*)
+unit MARS.Core.Activation;
+
+{$I MARS.inc}
+
+interface
+
+uses
+  SysUtils, Classes, Generics.Collections, Rtti, Diagnostics
+
+, MARS.Core.Classes, MARS.Core.URL, MARS.Core.MediaType
+, MARS.Core.Application.Interfaces
+, MARS.Core.Engine.Interfaces
+, MARS.Core.Token
+, MARS.Core.Registry.Utils, MARS.Core.Injection.Types, MARS.Core.Activation.Interfaces
+, MARS.Core.MessageBodyWriter, MARS.Core.RequestAndResponse.Interfaces
+, MARS.Core.Routes
+;
+
+type
+  TMARSActivation = class;
+
+  TMARSActivationFactoryFunc = reference to function (const AEngine: IMARSEngine;
+    const AApplication: IMARSApplication;
+    const ARequest: IMARSRequest; const AResponse: IMARSResponse;
+    const AURL: TMARSURL
+  ): IMARSActivation;
+
+
+  TMARSAfterContextCleanupProc = reference to procedure(const AActivation: IMARSActivation);
+  TMARSBeforeInvokeProc = reference to procedure(const AActivation: IMARSActivation; out AIsAllowed: Boolean);
+  TMARSAfterInvokeProc = reference to procedure(const AActivation: IMARSActivation);
+  TMARSInvokeErrorProc = reference to procedure(const AActivation: IMARSActivation;
+    const AException: Exception; var AHandled: Boolean);
+
+  TMARSAuthorizationInfo = record
+  public
+    DenyAll, PermitAll: Boolean;
+    AllowedRoles: TArray<string>;
+    function NeedsAuthentication: Boolean;
+    function NeedsAuthorization: Boolean;
+    constructor Create(const ADenyAll, APermitAll: Boolean; const AAllowedRoles: TArray<string>);
+  end;
+
+  TMARSActivation = class(TInterfacedObject, IMARSActivation)
+  private
+    FId: string;
+    FRequest: IMARSRequest;
+    FResponse: IMARSResponse;
+    class var FAfterContextCleanupProcs: TArray<TMARSAfterContextCleanupProc>;
+    class var FBeforeInvokeProcs: TArray<TMARSBeforeInvokeProc>;
+    class var FAfterInvokeProcs: TArray<TMARSAfterInvokeProc>;
+    class var FInvokeErrorProcs: TArray<TMARSInvokeErrorProc>;
+  protected
+    FRttiContext: TRttiContext;
+    FConstructorInfo: TMARSConstructorInfo;
+    FApplication: IMARSApplication;
+    FEngine: IMARSEngine;
+    FURL: TMARSURL;
+    FURLPrototype: TMARSURL;
+    FToken: TMARSToken;
+    FContext: TList<TValue>;
+    FMethod: TRttiMethod;
+    FMethodReturnType: TRttiType;
+    FMethodAttributes: TArray<TCustomAttribute>;
+    FResource: TRttiType;
+    FResourceMethods: TArray<TRttiMethod>;
+    FResourceAttributes: TArray<TCustomAttribute>;
+    FResourcePath: string;
+    FResourceInstance: TObject;
+    FMethodArguments: TArray<TValue>;
+    FMethodResult: TValue;
+    FWriter: IMessageBodyWriter;
+    FWriterMediaType: TMediaType;
+    FInvocationTime: TStopWatch;
+    FSetupTime: TStopWatch;
+    FTeardownTime: TStopWatch;
+    FSerializationTime: TStopWatch;
+    FAuthorizationInfo: TMARSAuthorizationInfo;
+    FAddMethodResultToContext: Boolean;
+    FRoute: TMARSRoute;
+    FRouteAllowedMethods: string;
+
+    procedure CallEachMethodWithAttribute<A: TCustomAttribute>();
+
+    procedure ContextCleanup; virtual;
+    procedure DoAfterContextCleanup; virtual;
+    procedure Cleanup(const AValue: TValue; const ADestroyed: TList<TObject>); virtual;
+    procedure ContextInjection; virtual;
+    function GetContextValue(const ADestination: TRttiObject): TInjectionValue; virtual;
+    function GetMethodArgument(const AParam: TRttiParameter): TValue; virtual;
+    procedure FillResourceMethodParameters; virtual;
+    procedure FindMethodToInvoke; virtual;
+    procedure InvokeResourceMethod; virtual;
+    procedure SerializeMethodResult(const AOriginalContentType: string); virtual;
+    procedure SetCustomHeaders; virtual;
+    procedure WriteToResponse(const AValue: TValue;
+      const AValueContentType: string; const AOriginalContentType: string;
+      const ARewriteAccept: Boolean = False;
+      const AReturnType: TRttiType = nil); virtual;
+
+    function DoBeforeInvoke: Boolean;
+    procedure DoAfterInvoke;
+    procedure DoInvokeError(const E: Exception); virtual;
+
+    function MatchRoute: Boolean; virtual;
+    procedure CheckResource; virtual;
+    procedure CheckMethod; virtual;
+    procedure ReadAuthorizationInfo; virtual;
+    procedure CheckAuthentication; virtual;
+    procedure CheckAuthorization; virtual;
+  public
+    constructor Create(const AEngine: IMARSEngine; const AApplication: IMARSApplication;
+      const ARequest: IMARSRequest; const AResponse: IMARSResponse; const AURL: TMARSURL); virtual;
+    destructor Destroy; override;
+
+    // --- IMARSActivation implementation --------------
+    procedure AddToContext(AValue: TValue); virtual;
+    function HasToken: Boolean; virtual;
+    procedure Invoke; virtual;
+
+    function GetId: string; inline;
+    function GetApplication: IMARSApplication; inline;
+    function GetEngine: IMARSEngine; inline;
+    function GetInvocationTime: TStopwatch; inline;
+    function GetSetupTime: TStopwatch; inline;
+    function GetTeardownTime: TStopwatch; inline;
+    function GetSerializationTime: TStopwatch; inline;
+    function GetMethod: TRttiMethod; inline;
+    function GetMethodReturnType: TRttiType; inline;
+    function GetMethodArguments: TArray<TValue>; inline;
+    function GetMethodAttributes: TArray<TCustomAttribute>; inline;
+    function GetMethodResult: TValue; inline;
+    function GetRequest: IMARSRequest; inline;
+    function GetResource: TRttiType; inline;
+    function GetResourceAttributes: TArray<TCustomAttribute>; inline;
+    function GetResourceInstance: TObject; inline;
+    function GetResourcePath: string; inline;
+    function GetResponse: IMARSResponse; inline;
+    function GetURL: TMARSURL; inline;
+    function GetURLPrototype: TMARSURL; inline;
+    function GetToken: TMARSToken; inline;
+    function GetEndpointName: string;
+    // ---
+
+    property Id: string read FId;
+    property Application: IMARSApplication read FApplication;
+    property Engine: IMARSEngine read FEngine;
+    property InvocationTime: TStopwatch read FInvocationTime;
+    property Method: TRttiMethod read FMethod;
+    property MethodArguments: TArray<TValue> read FMethodArguments;
+    property Request: IMARSRequest read FRequest;
+    property Resource: TRttiType read FResource;
+    property ResourceInstance: TObject read FResourceInstance;
+    property Response: IMARSResponse read FResponse;
+    property URL: TMARSURL read FURL;
+    property URLPrototype: TMARSURL read FURLPrototype;
+    property Token: TMARSToken read GetToken;
+    property Route: TMARSRoute read FRoute;
+
+    class procedure RegisterBeforeInvoke(const ABeforeInvoke: TMARSBeforeInvokeProc);
+//    class procedure UnregisterBeforeInvoke(const ABeforeInvoke: TMARSBeforeInvokeProc);
+
+    class procedure ClearAfterContextCleanups;
+    class procedure RegisterAfterContextCleanup(const AAfterContextCleanup: TMARSAfterContextCleanupProc);
+    class procedure ClearBeforeInvokes;
+    class procedure RegisterAfterInvoke(const AAfterInvoke: TMARSAfterInvokeProc);
+//    class procedure UnregisterAfterInvoke(const AAfterInvoke: TMARSAfterInvokeProc);
+    class procedure ClearAfterInvokes;
+    class procedure RegisterInvokeError(const AInvokeError: TMARSInvokeErrorProc);
+    class procedure ClearInvokeErrors;
+
+
+    class var CreateActivationFunc: TMARSActivationFactoryFunc;
+    class function CreateActivation(
+      const AEngine: IMARSEngine;
+      const AApplication: IMARSApplication;
+      const ARequest: IMARSRequest; const AResponse: IMARSResponse;
+      const AURL: TMARSURL
+    ): IMARSActivation;
+
+    class function GetValueByName(const AName: string; const AActivation: IMARSActivation): TValue;
+  end;
+
+implementation
+
+uses
+  TypInfo, StrUtils, Generics.Defaults
+, MARS.Core.Attributes, MARS.Core.Response, MARS.Core.MessageBodyReader
+, MARS.Core.Exceptions, MARS.Core.Utils, MARS.Utils.Parameters, MARS.Rtti.Utils
+, MARS.Core.Injection, MARS.Core.Activation.InjectionService
+;
+
+{ TMARSActivation }
+
+function TMARSActivation.GetMethod: TRttiMethod;
+begin
+  Result := FMethod;
+end;
+
+function TMARSActivation.GetMethodArgument(const AParam: TRttiParameter): TValue;
+var
+  LParamValue: TValue;
+begin
+
+  AParam.HasAttribute<ContextAttribute>(
+    procedure (AContextAttr: ContextAttribute)
+    begin
+      LParamValue := GetContextValue(AParam).Value;
+    end
+  );
+
+  if LParamValue.IsEmpty then
+    TValue.Make(nil, AParam.ParamType.Handle, LParamValue);
+
+  Result := LParamValue;
+end;
+
+function TMARSActivation.GetMethodArguments: TArray<TValue>;
+begin
+  Result := FMethodArguments;
+end;
+
+function TMARSActivation.GetMethodAttributes: TArray<TCustomAttribute>;
+begin
+  Result := FMethodAttributes;
+end;
+
+function TMARSActivation.GetMethodResult: TValue;
+begin
+  Result := FMethodResult;
+end;
+
+function TMARSActivation.GetMethodReturnType: TRttiType;
+begin
+  Result := FMethodReturnType;
+end;
+
+function TMARSActivation.GetRequest: IMARSRequest;
+begin
+  Result := FRequest;
+end;
+
+function TMARSActivation.GetResource: TRttiType;
+begin
+  Result := FResource;
+end;
+
+function TMARSActivation.GetResourceAttributes: TArray<TCustomAttribute>;
+begin
+  Result := FResourceAttributes;
+end;
+
+function TMARSActivation.GetResourceInstance: TObject;
+begin
+  Result := FResourceInstance;
+end;
+
+function TMARSActivation.GetResponse: IMARSResponse;
+begin
+  Result := FResponse;
+end;
+
+function TMARSActivation.GetSerializationTime: TStopwatch;
+begin
+  Result := FSerializationTime;
+end;
+
+function TMARSActivation.GetSetupTime: TStopwatch;
+begin
+  Result := FSetupTime;
+end;
+
+function TMARSActivation.GetTeardownTime: TStopwatch;
+begin
+  Result := FTeardownTime;
+end;
+
+function TMARSActivation.GetToken: TMARSToken;
+begin
+  if not Assigned(FToken) then
+  begin
+    FToken := GetContextValue(FRttiContext.GetType(Self.ClassType).GetField('FToken')).Value.AsType<TMARSToken>;
+    if not Assigned(FToken) then
+      raise EMARSException.Create('Token injection failed in MARSActivation. '
+        + 'Check you have added at least one Token implementation to your uses clause. '
+        + 'On Windows, try adding MARS.mORMotJWT.Token unit to your uses clause.');
+  end;
+  Result := FToken;
+end;
+
+function TMARSActivation.GetURL: TMARSURL;
+begin
+  Result := FURL;
+end;
+
+function TMARSActivation.GetEndpointName: string;
+begin
+  Result := '';
+  if Assigned(FRoute) then
+    Result := FRoute.RouteName
+  else if Assigned(FResource) and Assigned(FMethod) then
+    Result := FResource.Name + '.' + FMethod.Name
+  else if Assigned(FResource) then
+    Result := FResource.Name;
+end;
+
+function TMARSActivation.GetURLPrototype: TMARSURL;
+begin
+  Result := FURLPrototype;
+end;
+
+class function TMARSActivation.GetValueByName(const AName: string;
+  const AActivation: IMARSActivation): TValue;
+const NAME_DELIMITER = '_';
+var
+  LFirstToken, LSecondToken: string;
+  LHasThirdToken: Boolean;
+  LSecondTokenAndAll, LThirdTokenAndAll: string;
+  LNameTokens: TArray<string>;
+  LFirstDelim, LSecondDelim: Integer;
+  LIndex: Integer;
+begin
+  Result := TValue.Empty;
+  LNameTokens := AName.Split([NAME_DELIMITER]);
+  if Length(LNameTokens) < 2 then
+    Exit;
+
+  LFirstToken := LNameTokens[0];
+  LSecondToken := LNameTokens[1];
+  LFirstDelim := AName.IndexOf(NAME_DELIMITER);
+  LSecondTokenAndAll := AName.Substring(LFirstDelim + 1);
+  LHasThirdToken := Length(LNameTokens) > 2;
+  if LHasThirdToken then
+  begin
+    LSecondDelim := AName.IndexOf(NAME_DELIMITER, LFirstDelim + Length(NAME_DELIMITER));
+    LThirdTokenAndAll := AName.Substring(LSecondDelim + 1);
+  end;
+
+  if SameText(LFirstToken, 'Token') then
+  begin
+    Result := ReadPropertyValue(AActivation.Token, LSecondToken);
+
+    if SameText(LSecondToken, 'HasRole') and LHasThirdToken then
+      Result := AActivation.Token.HasRole(LThirdTokenAndAll)
+    else if SameText(LSecondToken, 'Claim') and LHasThirdToken then
+      Result := AActivation.Token.Claims.ByNameText(LThirdTokenAndAll);
+  end
+  else if SameText(LFirstToken, 'PathParam') then
+  begin
+    LIndex := AActivation.URLPrototype.GetPathParamIndex(LSecondTokenAndAll);
+    if (LIndex > -1) and (LIndex < Length(AActivation.URL.PathTokens)) then
+      Result := AActivation.URL.PathTokens[LIndex] { TODO -oAndrea : Try to convert according to ADesiredType }
+    else
+      raise EMARSException.CreateFmt('PathParam not found: %s', [LSecondTokenAndAll]);
+  end
+  else if SameText(LFirstToken, 'QueryParam') then
+    Result := AActivation.URL.QueryTokenByName(LSecondTokenAndAll)
+  else if SameText(LFirstToken, 'FormParam') then
+    Result := AActivation.Request.GetFormParamValue(LSecondTokenAndAll)
+  else if SameText(LFirstToken, 'Request') then
+    Result := ReadPropertyValue(TValue.From<IMARSRequest>(AActivation.Request), LSecondTokenAndAll, False)
+//  else if SameText(LFirstToken, 'Response') then
+//    Result := ReadPropertyValue(AActivation.Response, LSecondToken)
+  else if SameText(LFirstToken, 'URL') then
+    Result := ReadPropertyValue(AActivation.URL, LSecondTokenAndAll)
+  else if SameText(LFirstToken, 'URLPrototype') then
+    Result := ReadPropertyValue(AActivation.URLPrototype, LSecondTokenAndAll);
+end;
+
+function TMARSActivation.HasToken: Boolean;
+begin
+  Result := Assigned(FToken);
+end;
+
+procedure TMARSActivation.FillResourceMethodParameters;
+var
+  LParameters: TArray<TRttiParameter>;
+  LIndex: Integer;
+  LParameter: TRttiParameter;
+begin
+  Assert(Assigned(FMethod));
+  try
+    LParameters := FMethod.GetParameters;
+    SetLength(FMethodArguments, Length(LParameters));
+    for LIndex := Low(LParameters) to High(LParameters) do
+    begin
+      LParameter := LParameters[LIndex];
+      FMethodArguments[LIndex] := GetMethodArgument(LParameter);
+    end;
+  except
+    // Preserve status, content type and reason of HTTP exceptions (i.e. 400 of
+    // malformed body raised by MessageBodyReader) instead of
+    // raising default 500 status in all cases.
+    on E: EMARSHttpException do
+      raise EMARSApplicationException.CreateFmt(
+        'Bad parameter value for method %s.%s (%s). %s', [FResource.Name, FMethod.Name, FURLPrototype.Path, E.Message]
+      , E.Status, E.ContentType, E.ReasonString);
+    on E: Exception do
+      raise EMARSApplicationException.CreateFmt(
+        'Bad parameter value for method %s.%s (%s). %s', [FResource.Name, FMethod.Name, FURLPrototype.Path, E.Message]);
+
+  end;
+end;
+
+procedure TMARSActivation.FindMethodToInvoke;
+var
+  LMethod: TRttiMethod;
+  LAttribute: TCustomAttribute;
+  LPathMatches: Boolean;
+  LHttpMethodMatches: Boolean;
+  LMethodPath: string;
+begin
+  FMethod := nil;
+  FMethodReturnType := nil;
+  FMethodAttributes := [];
+  FAddMethodResultToContext := False;
+  FreeAndNil(FURLPrototype);
+
+  for LMethod in FResourceMethods do
+  begin
+    if (LMethod.Visibility < TMemberVisibility.mvPublic)
+      or LMethod.IsConstructor or LMethod.IsDestructor
+    then
+      Continue;
+
+    LMethodPath := '';
+    LHttpMethodMatches := False;
+
+    for LAttribute in LMethod.GetAttributes do
+    begin
+      if LAttribute is PathAttribute then
+        LMethodPath := PathAttribute(LAttribute).Value;
+
+      if LAttribute is HttpMethodAttribute then
+        LHttpMethodMatches := HttpMethodAttribute(LAttribute).Matches(Request);
+
+      { TODO -oAndrea : Check MediaType (you might have multiple methods matching, so let's discriminate using Request.Accept and Resource+Method's Produces attribute) }
+    end;
+
+    if LHttpMethodMatches then
+    begin
+      FURLPrototype := TMARSURL.CreateDummy([Engine.BasePath, Application.BasePath, FResourcePath, LMethodPath]);
+      try
+        LPathMatches := FURLPrototype.MatchPath(URL);
+        if LPathMatches and LHttpMethodMatches then
+        begin
+          FMethod := LMethod;
+          FMethodAttributes := FMethod.GetAllAttributes(False);
+          FMethodReturnType := FMethod.ReturnType;
+          FAddMethodResultToContext := Assigned(FMethodReturnType) and not FMethod.HasAttribute<IsReference>(nil);
+          Break;
+        end;
+      finally
+        if not Assigned(FMethod) then
+          FreeAndNil(FURLPrototype);
+      end;
+    end;
+  end;
+end;
+
+procedure TMARSActivation.Cleanup(const AValue: TValue; const ADestroyed: TList<TObject>);
+
+  procedure FreeOnlyOnce(const AValueToFree: TValue);
+  var
+    LObj: TObject;
+  begin
+    if AValueToFree.IsArray then Exit; //AM workaround, somehow we can get here with a TValue that is not an object
+
+    LObj := AValueToFree.AsObject;
+    if not ADestroyed.Contains(LObj) then
+    begin
+      ADestroyed.Add(LObj);
+      LObj.Free;
+    end;
+  end;
+
+var
+  LIndex: Integer;
+  LValue: TValue;
+begin
+  case AValue.Kind of
+    tkClass: FreeOnlyOnce(AValue);
+    tkArray,
+    tkDynArray:
+    begin
+      for LIndex := 0 to AValue.GetArrayLength -1 do
+      begin
+        LValue := AValue.GetArrayElement(LIndex);
+        case LValue.Kind of
+          tkClass: FreeOnlyOnce(LValue);
+          tkArray, tkDynArray: Cleanup(LValue, ADestroyed); //recursion
+        end;
+      end;
+    end;
+  end;
+end;
+
+class procedure TMARSActivation.ClearAfterContextCleanups;
+begin
+  FAfterContextCleanupProcs := [];
+end;
+
+class procedure TMARSActivation.ClearAfterInvokes;
+begin
+  FAfterInvokeProcs := [];
+end;
+
+class procedure TMARSActivation.ClearBeforeInvokes;
+begin
+  FBeforeInvokeProcs := [];
+end;
+
+class procedure TMARSActivation.ClearInvokeErrors;
+begin
+  FInvokeErrorProcs := [];
+end;
+
+procedure TMARSActivation.ContextCleanup;
+var
+  LDestroyed: TList<TObject>;
+  LIndex: Integer;
+  LValue: TValue;
+begin
+  if FContext.Count = 0 then
+    Exit;
+  try
+    LDestroyed := TList<TObject>.Create;
+    try
+      while FContext.Count > 0 do
+      begin
+        LIndex := FContext.Count-1; // last one first
+        LValue := FContext[LIndex];
+        Cleanup(LValue, LDestroyed);
+        FContext.Delete(LIndex);
+      end;
+    finally
+      LDestroyed.Free;
+    end;
+  finally
+    DoAfterContextCleanup;
+  end;
+end;
+
+procedure TMARSActivation.WriteToResponse(const AValue: TValue;
+  const AValueContentType: string; const AOriginalContentType: string;
+  const ARewriteAccept: Boolean;
+  const AReturnType: TRttiType);
+var
+  LContentStream: TBytesStream;
+  LAccept: string;
+  LReturnType: TRttiType;
+  LBodyStreamProvider: IMessageBodyStreamProvider;
+  LServerSideEventsProvider: IMessageServerSideEventsProvider;
+begin
+  // 1 - TMARSResponse (override)
+  if (not AValue.IsEmpty) // workaround for IsInstanceOf returning True on empty value (https://quality.embarcadero.com/browse/RSP-15301)
+     and AValue.IsInstanceOf(TMARSResponse)
+  then
+    TMARSResponse(AValue.AsObject).CopyTo(Response)
+  // 2 - MessageBodyWriter mechanism (standard)
+  else begin
+    LAccept := Request.Accept;
+    if ARewriteAccept then
+      LAccept := string.Join(';', [AValueContentType, AOriginalContentType]);
+
+    LReturnType := AReturnType;
+    if not Assigned(LReturnType) then
+      LReturnType := Self.FMethodReturnType;
+
+    TMARSMessageBodyRegistry.Instance.FindWriter(Self, LAccept, LReturnType, FWriter, FWriterMediaType);
+    try
+      if not Assigned(FWriter) then
+      begin
+        // a writer for the result exists, but not for what the client accepts: 406.
+        // No writer at all (or a server-chosen content type): a server error, 500.
+        if not ARewriteAccept then
+        begin
+          var LWritableMediaTypes := TMARSMessageBodyRegistry.Instance.GetWritableMediaTypes(Self, LReturnType);
+          if Length(LWritableMediaTypes) > 0 then
+            raise EMARSHttpException.CreateFmt('Not Acceptable: %s produces %s'
+              , [GetEndpointName, string.Join(', ', LWritableMediaTypes)], 406);
+        end;
+        raise EMARSHttpException.CreateFmt('MessageBodyWriter not found for %s', [GetEndpointName]);
+      end;
+
+      if AValueContentType = AOriginalContentType then
+        Response.ContentType := FWriterMediaType.ToString;
+
+      LBodyStreamProvider := nil;
+      if Supports(FWriter, IMessageBodyStreamProvider, LBodyStreamProvider) then
+      begin
+        Response.ContentStream := LBodyStreamProvider.GetStream(AValue, FWriterMediaType, Self);
+        FAddMethodResultToContext := False;
+      end
+      else
+      begin
+        LServerSideEventsProvider := nil;
+        if Supports(FWriter, IMessageServerSideEventsProvider, LServerSideEventsProvider) then
+        begin
+          LServerSideEventsProvider.GenerateEvents(AValue, FWriterMediaType, Self);
+          FAddMethodResultToContext := False;
+        end
+        else begin
+          LContentStream := TBytesStream.Create();
+          try
+            FWriter.WriteTo(AValue, FWriterMediaType, LContentStream, Self);
+            LContentStream.Position := 0;
+            Response.ContentStream := LContentStream;
+          except
+            LContentStream.Free;
+            raise;
+          end;
+        end;
+      end
+
+    finally
+      FWriter := nil;
+      FreeAndNil(FWriterMediaType);
+    end;
+  end;
+end;
+
+procedure TMARSActivation.InvokeResourceMethod();
+var
+  LContentType: string;
+  LHasMethodResult: Boolean;
+begin
+  Assert(Assigned(FMethod) or Assigned(FRoute));
+
+  LHasMethodResult := Assigned(FMethodReturnType);
+
+  // cache initial ContentType value to check later if it has been changed
+  LContentType := string(Response.ContentType);
+  try
+    // set attribute-based custom header's values
+    SetCustomHeaders;
+
+    // actual method invocation
+    if Assigned(FRoute) then
+      // route middlewares (MARS.Core.Routes) around the handler and the serialization
+      FRoute.Execute(Self,
+        procedure
+        begin
+          FMethodResult := FRoute.Invoke(Self);
+          if LHasMethodResult then
+            SerializeMethodResult(LContentType);
+        end
+      )
+    else if Application.RouteTable is TMARSRouteTable then
+      // middlewares of the application, when enabled for resources (Middlewares.Resources)
+      TMARSRouteTable(Application.RouteTable).ExecuteResource(Self,
+        procedure
+        begin
+          FMethodResult := FMethod.Invoke(FResourceInstance, FMethodArguments);
+          if LHasMethodResult then
+            SerializeMethodResult(LContentType);
+        end
+      )
+    else
+    begin
+      FMethodResult := FMethod.Invoke(FResourceInstance, FMethodArguments);
+      if LHasMethodResult then
+        SerializeMethodResult(LContentType);
+    end;
+  finally
+    if FAddMethodResultToContext then
+      AddToContext(FMethodResult);
+  end;
+end;
+
+procedure TMARSActivation.SerializeMethodResult(const AOriginalContentType: string);
+begin
+  FSerializationTime := TStopWatch.StartNew;
+  WriteToResponse(FMethodResult, string(Response.ContentType), AOriginalContentType);
+  FSerializationTime.Stop;
+end;
+
+procedure TMARSActivation.ReadAuthorizationInfo;
+var
+  LProcessAuthorizationAttribute: TProc<AuthorizationAttribute>;
+  LAllowedRoles: TStringList;
+begin
+  FAuthorizationInfo := TMARSAuthorizationInfo.Create(False, False, []);
+
+  LAllowedRoles := TStringList.Create;
+  try
+    LAllowedRoles.Sorted := True;
+    LAllowedRoles.Duplicates := TDuplicates.dupIgnore;
+
+    LProcessAuthorizationAttribute :=
+      procedure (AAttribute: AuthorizationAttribute)
+      begin
+        if AAttribute is DenyAllAttribute then
+          FAuthorizationInfo.DenyAll := True
+        else if AAttribute is PermitAllAttribute then
+          FAuthorizationInfo.PermitAll := True
+        else if AAttribute is RolesAllowedAttribute then
+          LAllowedRoles.AddStrings(RolesAllowedAttribute(AAttribute).Roles);
+      end;
+
+    TRttiHelper.ForEachAttribute<AuthorizationAttribute>(FMethodAttributes, LProcessAuthorizationAttribute);
+    TRttiHelper.ForEachAttribute<AuthorizationAttribute>(FResourceAttributes, LProcessAuthorizationAttribute);
+
+    FAuthorizationInfo.AllowedRoles := LAllowedRoles.ToStringArray;
+  finally
+    LAllowedRoles.Free;
+  end;
+end;
+
+class procedure TMARSActivation.RegisterAfterContextCleanup(
+  const AAfterContextCleanup: TMARSAfterContextCleanupProc);
+begin
+  FAfterContextCleanupProcs := FAfterContextCleanupProcs + [TMARSAfterContextCleanupProc(AAfterContextCleanup)];
+end;
+
+class procedure TMARSActivation.RegisterAfterInvoke(
+  const AAfterInvoke: TMARSAfterInvokeProc);
+begin
+  FAfterInvokeProcs := FAfterInvokeProcs + [TMARSAfterInvokeProc(AAfterInvoke)];
+end;
+
+class procedure TMARSActivation.RegisterBeforeInvoke(
+  const ABeforeInvoke: TMARSBeforeInvokeProc);
+begin
+  FBeforeInvokeProcs := FBeforeInvokeProcs + [TMARSBeforeInvokeProc(ABeforeInvoke)];
+end;
+
+class procedure TMARSActivation.RegisterInvokeError(
+  const AInvokeError: TMARSInvokeErrorProc);
+begin
+  FInvokeErrorProcs := FInvokeErrorProcs + [TMARSInvokeErrorProc(AInvokeError)];
+end;
+
+procedure TMARSActivation.SetCustomHeaders;
+var
+  LCustomAtributeProcessor: TProc<CustomHeaderAttribute>;
+
+begin
+  LCustomAtributeProcessor :=
+    procedure (ACustomHeader: CustomHeaderAttribute)
+    begin
+      Response.SetHeader(ACustomHeader.HeaderName, ACustomHeader.Value);
+    end;
+  TRttiHelper.ForEachAttribute<CustomHeaderAttribute>(FResourceAttributes, LCustomAtributeProcessor);
+  TRttiHelper.ForEachAttribute<CustomHeaderAttribute>(FMethodAttributes, LCustomAtributeProcessor);
+end;
+
+//class procedure TMARSActivation.UnregisterAfterInvoke(
+//  const AAfterInvoke: TMARSAfterInvokeProc);
+//begin
+//  FAfterInvokeProcs := FAfterInvokeProcs - [TMARSAfterInvokeProc(AAfterInvoke)];
+//end;
+//
+//class procedure TMARSActivation.UnregisterBeforeInvoke(
+//  const ABeforeInvoke: TMARSBeforeInvokeProc);
+//begin
+//  FBeforeInvokeProcs := FBeforeInvokeProcs - [TMARSBeforeInvokeProc(ABeforeInvoke)];
+//end;
+
+procedure TMARSActivation.Invoke;
+
+  procedure HandleException(const AException: Exception);
+  var
+    LHttpException: EMARSHttpException;
+    LWithResponseException: EMARSWithResponseException;
+    LResponseContent: TValue;
+    LResponseType: TRttiType;
+  begin
+    if AException is EMARSWithResponseException then
+    begin
+      LWithResponseException := EMARSWithResponseException(AException);
+
+      Response.StatusCode := LWithResponseException.Status;
+      Response.ContentType := LWithResponseException.ContentType;
+      Response.ReasonString := LWithResponseException.ReasonString;
+
+      if LWithResponseException.UseMBW then
+        try
+          LResponseContent := LWithResponseException.ResponseContent;
+          LResponseType := FRttiContext.GetType(LResponseContent.TypeInfo);
+
+          FSerializationTime := TStopwatch.StartNew;
+          WriteToResponse(LResponseContent
+          , LWithResponseException.ContentType, LWithResponseException.ContentType
+          , True
+          , LResponseType
+          );
+          FSerializationTime.Stop;
+        finally
+          if not LWithResponseException.IsReference then
+            AddToContext(LResponseContent);
+        end
+      else
+        Response.Content := LWithResponseException.ResponseContent.ToString;
+
+    end
+    else if AException is EMARSHttpException then
+    begin
+      LHttpException := EMARSHttpException(AException);
+
+      Response.StatusCode := LHttpException.Status;
+      Response.Content := LHttpException.Message;
+      Response.ContentType := LHttpException.ContentType;
+      Response.ReasonString := LHttpException.ReasonString;
+    end
+    else begin
+      Response.StatusCode := 500;
+      Response.Content := 'Internal server error';
+      {$IFDEF DEBUG}
+      Response.Content := 'Internal server error: [' + AException.ClassName + '] ' + AException.Message;
+      {$ENDIF}
+      // explicit charset: the message may contain non-ASCII characters (i.e. localized exception text)
+      Response.ContentType := TMediaType.TEXT_PLAIN_UTF8;
+    end;
+
+    DoInvokeError(AException);
+  end;
+
+begin
+  try
+    try
+      Request.CheckWorkaroundForISAPI;
+
+      // setup phase
+      FSetupTime := TStopWatch.StartNew;
+      CheckResource;
+      CheckMethod;
+
+      ReadAuthorizationInfo;
+      CheckAuthentication;
+      CheckAuthorization;
+
+      if not Assigned(FRoute) then
+      begin
+        FResourceInstance := FConstructorInfo.ConstructorFunc(Self);
+        FillResourceMethodParameters;
+
+        ContextInjection;
+      end;
+      FSetupTime.Stop;
+
+      // invocation phase
+      FInvocationTime := TStopwatch.StartNew;
+      if DoBeforeInvoke then
+      begin
+        InvokeResourceMethod;
+        FInvocationTime.Stop;
+        DoAfterInvoke;
+      end;
+
+    except on E:Exception do
+      HandleException(E);
+    end;
+
+  finally
+    // teardown phase
+    FTeardownTime := TStopwatch.StartNew;
+    ContextCleanup;
+    if Assigned(FResourceInstance) then
+      FResourceInstance.Free;
+    FMethodArguments := [];
+    FTeardownTime.Stop;
+  end;
+end;
+
+procedure TMARSActivation.CallEachMethodWithAttribute<A>;
+begin
+  TRttiHelper.ForEachMethodWithAttribute<A>(FResourceMethods
+  , function (AMethod: TRttiMethod; AAttribute: A): Boolean
+    var
+      LReturnValue: TValue;
+    begin
+      Result := True;
+      LReturnValue := AMethod.Invoke(FResourceInstance, []);
+      if Assigned(AMethod.ReturnType) and (AMethod.ReturnType.Handle = TypeInfo(Boolean)) then
+        Result := LReturnValue.AsBoolean;
+    end
+  );
+end;
+
+procedure TMARSActivation.CheckAuthentication;
+begin
+  if (Token.Token <> '') and Token.IsExpired then
+    Token.Clear;
+
+  if FAuthorizationInfo.NeedsAuthentication then
+  begin
+    // a protected resource needs a usable JWT.Secret: raises when it is not configured
+    // (public resources never get here, so applications not using JWT need no JWT setup)
+    TMARSToken.SecretFromParameters(Application.Parameters);
+
+    if ((Token.Token = '') or not Token.IsVerified) then
+    begin
+      Token.Clear;
+      raise EMARSAuthenticationException.Create('Token missing, not valid or expired', 403);
+    end;
+  end;
+end;
+
+procedure TMARSActivation.CheckAuthorization;
+begin
+  if FAuthorizationInfo.NeedsAuthorization then
+    if FAuthorizationInfo.DenyAll // DenyAll (stronger than PermitAll and Roles-based authorization)
+       or (
+         not FAuthorizationInfo.PermitAll  // PermitAll (stronger than Role-based authorization)
+         and ((Length(FAuthorizationInfo.AllowedRoles) > 0) and (not Token.HasRole(FAuthorizationInfo.AllowedRoles)))
+       ) then
+      raise EMARSAuthorizationException.Create('Forbidden', 403);
+end;
+
+procedure TMARSActivation.CheckMethod;
+begin
+  if Assigned(FRoute) then
+  begin
+    FMethod := nil;
+    FMethodAttributes := FRoute.Attributes;
+    FMethodReturnType := nil;
+    if Assigned(FRoute.ResultType) then
+      FMethodReturnType := FRttiContext.GetType(FRoute.ResultType);
+    FAddMethodResultToContext := Assigned(FMethodReturnType)
+      and not TRttiHelper.IfHasAttribute<IsReference>(FMethodAttributes, nil);
+    FreeAndNil(FURLPrototype);
+    FURLPrototype := TMARSURL.CreateDummy([Engine.BasePath, Application.BasePath, FRoute.PrototypePath]);
+    Exit;
+  end;
+
+  FindMethodToInvoke;
+
+  if not Assigned(FMethod) then
+    raise EMARSMethodNotFoundException.Create(
+      Format('[%s] No implementation found for http method %s', [URL.Resource, Request.Method]), 404);
+end;
+
+procedure TMARSActivation.CheckResource;
+var
+  LFound: Boolean;
+  LResourcesKeys: TArray<string>;
+  LURLBasePath, LURLPath, LURLRelativePath, LAppResourcePath: TArray<string>;
+  LAppResourceKey: string;
+  LURLRelativePathLength, LAppResourcePathLength: Integer;
+  LCompareFunc: TStringCompareFunc;
+  LURLRelativePathStr, LAppResourcePathStr: string;
+begin
+  // routes first (MARS.Core.Routes), then resources
+  if MatchRoute then
+    Exit;
+
+  LURLBasePath := URL.BasePath.Split([TMARSURL.URL_PATH_SEPARATOR], TStringSplitOptions.ExcludeEmpty);
+  LURLPath := URL.PathTokens;
+
+  LURLRelativePath := [];
+  if LURLPath.StartsWith(LURLBasePath, True) then
+    LURLRelativePath := LURLPath.SubArray(Length(LURLBasePath));
+
+  LCompareFunc :=
+    function (const AString1, AString2: string): Boolean
+    begin
+      Result := SameText(AString1, AString2) // 1 - exact match
+        or (
+          (AString2.Length >= 2) and (AString2.StartsWith('{') and AString2.EndsWith('}'))
+        );
+    end;
+
+  LResourcesKeys := Application.Resources.Keys.ToArray;
+  // ND20260729: Dictionary key order is not deterministic; 
+  // if the application registers a catch-all {*} alongside more 
+  // specific resources (e.g. '{*}' and 'images/{*}'), the catch-all 
+  // could intercept everything. We sort by specificity: keys 
+  // with more segments first, and among those with the same 
+  // number of segments, the ones without wildcards first
+  // so the most specific match always wins.
+  TArray.Sort<string>(LResourcesKeys, TComparer<string>.Construct(
+    function(const ALeft, ARight: string): Integer
+    begin
+      Result :=
+        Length(ARight.Split([TMARSURL.URL_PATH_SEPARATOR], TStringSplitOptions.ExcludeEmpty)) -
+        Length(ALeft.Split([TMARSURL.URL_PATH_SEPARATOR], TStringSplitOptions.ExcludeEmpty));
+      if Result = 0 then
+        Result := Ord(ALeft.Contains(TMARSURL.PATH_PARAM_WILDCARD)) -
+          Ord(ARight.Contains(TMARSURL.PATH_PARAM_WILDCARD));
+      if Result = 0 then
+        Result := CompareText(ALeft, ARight);
+    end));
+  LFound := False;
+  LURLRelativePathLength := Length(LURLRelativePath);
+  for LAppResourceKey in LResourcesKeys do
+  begin
+    LAppResourcePath := LAppResourceKey.Split([TMARSURL.URL_PATH_SEPARATOR], TStringSplitOptions.ExcludeEmpty);
+    LAppResourcePathLength := Length(LAppResourcePath);
+
+    if ((LAppResourcePathLength > 0) and (LURLRelativePath.StartsWith(LAppResourcePath, LCompareFunc)))
+       or ((LAppResourcePathLength = 0) and (LURLRelativePathLength = 0))
+    then
+    begin
+      LFound := True;
+      if not Application.Resources.TryGetValue(LAppResourceKey, FConstructorInfo) then
+        raise Exception.CreateFmt('Resource matching error: %s, relative path: %s', [LAppResourceKey, LURLRelativePath]);
+      Break;
+    end
+    else if LAppResourcePath.Contains(TMARSURL.PATH_PARAM_WILDCARD) then
+    begin
+      LURLRelativePathStr := string.join(TMARSURL.URL_PATH_SEPARATOR, LURLRelativePath);
+      LAppResourcePathStr := string.join(TMARSURL.URL_PATH_SEPARATOR, LAppResourcePath);
+      if MatchesMask(LURLRelativePathStr, LAppResourcePathStr.Replace(TMARSURL.PATH_PARAM_WILDCARD, '*')) then
+      begin
+        LFound := True;
+        if not Application.Resources.TryGetValue(LAppResourceKey, FConstructorInfo) then
+          raise Exception.CreateFmt('Resource matching error: %s, relative path: %s', [LAppResourcePath, LURLRelativePath]);
+        Break;
+      end;
+
+      if LAppResourcePathStr.EndsWith(TMARSURL.URL_PATH_SEPARATOR + TMARSURL.PATH_PARAM_WILDCARD)
+         and SameText(LURLRelativePathStr, LAppResourcePathStr.Substring(0,
+               LAppResourcePathStr.Length - Length(TMARSURL.URL_PATH_SEPARATOR + TMARSURL.PATH_PARAM_WILDCARD)))
+      then begin
+        LFound := True;
+        if not Application.Resources.TryGetValue(LAppResourceKey, FConstructorInfo) then
+          raise Exception.CreateFmt('Resource matching error: %s, relative path: %s', [LAppResourcePath, LURLRelativePath]);
+        Break;
+      end;
+
+    end;
+  end;
+
+  // another attempt: check DefaultResourcePath
+  if (not LFound) and (Application.DefaultResourcePath <> '') then
+    LFound := Application.Resources.TryGetValue(Application.DefaultResourcePath, FConstructorInfo);
+
+  // a route matches the path, not the http method
+  if (not LFound) and (FRouteAllowedMethods <> '') then
+  begin
+    Response.SetHeader('Allow', FRouteAllowedMethods);
+    raise EMARSMethodNotFoundException.Create(
+      Format('Method %s not allowed for [%s]', [Request.Method, URL.Path]), 405);
+  end;
+
+  if not LFound then
+    raise EMARSResourceNotFoundException.Create(Format('Resource [%s] not found', [URL.Resource]), 404);
+
+  FResource := FConstructorInfo.RttiType;
+  FResourceAttributes := FConstructorInfo.Attributes;
+  FResourceMethods := FConstructorInfo.Methods;
+  FResourcePath := FConstructorInfo.Path;
+end;
+
+function TMARSActivation.MatchRoute: Boolean;
+var
+  LTable: TMARSRouteTable;
+  LRoute: TMARSRoute;
+  LURLBasePath, LURLPath, LURLRelativePath: TArray<string>;
+  LAllowedMethods: string;
+begin
+  Result := False;
+  FRoute := nil;
+  FRouteAllowedMethods := '';
+  if not (Application.RouteTable is TMARSRouteTable) then
+    Exit;
+  LTable := TMARSRouteTable(Application.RouteTable);
+
+  LURLBasePath := URL.BasePath.Split([TMARSURL.URL_PATH_SEPARATOR], TStringSplitOptions.ExcludeEmpty);
+  LURLPath := URL.PathTokens;
+  if not LURLPath.StartsWith(LURLBasePath, True) then
+    Exit;
+  LURLRelativePath := LURLPath.SubArray(Length(LURLBasePath));
+
+  if LTable.Match(LURLRelativePath, Request.Method, LRoute, LAllowedMethods) then
+  begin
+    FRoute := LRoute;
+    FConstructorInfo := nil;
+    FResource := nil;
+    FResourceAttributes := LRoute.GroupAttributes;
+    FResourceMethods := [];
+    FResourcePath := LRoute.Router.FullPath;
+    Result := True;
+  end
+  else
+    FRouteAllowedMethods := LAllowedMethods;
+end;
+
+procedure TMARSActivation.AddToContext(AValue: TValue);
+begin
+  if not AValue.IsEmpty then
+    FContext.Add(AValue);
+end;
+
+procedure TMARSActivation.ContextInjection();
+var
+  LType: TRttiType;
+begin
+  LType := FRttiContext.GetType(FResourceInstance.ClassType);
+
+  // fields
+  LType.ForEachFieldWithAttribute<ContextAttribute>(
+    function (AField: TRttiField; AAttrib: ContextAttribute): Boolean
+    begin
+      Result := True; // enumerate all
+      AField.SetValue(FResourceInstance, GetContextValue(AField).Value);
+    end
+  );
+
+  // properties
+  LType.ForEachPropertyWithAttribute<ContextAttribute>(
+    function (AProperty: TRttiProperty; AAttrib: ContextAttribute): Boolean
+    begin
+      Result := True; // enumerate all
+      AProperty.SetValue(FResourceInstance, GetContextValue(AProperty).Value);
+    end
+  );
+end;
+
+function TMARSActivation.GetResourcePath: string;
+begin
+  Result := FResourcePath;
+end;
+
+function TMARSActivation.GetApplication: IMARSApplication;
+begin
+  Result := FApplication;
+end;
+
+function TMARSActivation.GetContextValue(const ADestination: TRttiObject): TInjectionValue;
+begin
+  Result := TMARSInjectionServiceRegistry.Instance.GetValue(ADestination, Self);
+  if not Result.IsReference then
+    AddToContext(Result.Value);
+end;
+
+
+function TMARSActivation.GetEngine: IMARSEngine;
+begin
+  Result := FEngine;
+end;
+
+function TMARSActivation.GetId: string;
+begin
+  Result := FId;
+end;
+
+function TMARSActivation.GetInvocationTime: TStopwatch;
+begin
+  Result := FInvocationTime;
+end;
+
+constructor TMARSActivation.Create(
+  const AEngine: IMARSEngine;
+  const AApplication: IMARSApplication;
+  const ARequest: IMARSRequest; const AResponse: IMARSResponse;
+  const AURL: TMARSURL
+);
+begin
+  inherited Create;
+  FEngine := AEngine;
+  FApplication := AApplication;
+  FRequest := ARequest;
+  FResponse := AResponse;
+  FURL := AURL;
+
+  FId := TGUID.NewGuid.ToString;
+
+  FURLPrototype := nil;
+  FToken := nil;
+
+  FRttiContext := TRttiContext.Create;
+  FContext := TList<TValue>.Create;
+
+  FMethod := nil;
+  FMethodReturnType := nil;
+  FMethodAttributes := [];
+  FMethodArguments := [];
+  FMethodResult := TValue.Empty;
+
+  FResource := nil;
+  FResourcePath := '';
+  FResourceMethods := [];
+  FResourceAttributes := [];
+  FResourceInstance := nil;
+
+  FInvocationTime.Reset;
+  FSetupTime.Reset;
+  FTeardownTime.Reset;
+  FSerializationTime.Reset;
+end;
+
+class function TMARSActivation.CreateActivation(
+  const AEngine: IMARSEngine;
+  const AApplication: IMARSApplication; const ARequest: IMARSRequest;
+  const AResponse: IMARSResponse; const AURL: TMARSURL
+): IMARSActivation;
+begin
+  if Assigned(CreateActivationFunc) then
+    Result := CreateActivationFunc(AEngine, AApplication, ARequest, AResponse, AURL)
+  else
+    Result := TMARSActivation.Create(AEngine, AApplication, ARequest, AResponse, AURL);
+end;
+
+destructor TMARSActivation.Destroy;
+begin
+  if not (FContext.Count = 0) then
+    ContextCleanup;
+  FContext.Free;
+  FreeAndNil(FURLPrototype);
+  inherited;
+end;
+
+procedure TMARSActivation.DoAfterContextCleanup;
+var
+  LSubscriber: TMARSAfterContextCleanupProc;
+begin
+  for LSubscriber in FAfterContextCleanupProcs do
+    LSubscriber(Self);
+
+  if not Assigned(FResourceInstance) then
+    Exit;
+
+  CallEachMethodWithAttribute<AfterContextCleanupAttribute>;
+end;
+
+procedure TMARSActivation.DoAfterInvoke;
+var
+  LSubscriber: TMARSAfterInvokeProc;
+begin
+  for LSubscriber in FAfterInvokeProcs do
+    LSubscriber(Self);
+
+  CallEachMethodWithAttribute<AfterInvokeAttribute>;
+end;
+
+function TMARSActivation.DoBeforeInvoke: Boolean;
+var
+  LSubscriber: TMARSBeforeInvokeProc;
+  LResult: Boolean;
+begin
+  LResult := True;
+  for LSubscriber in FBeforeInvokeProcs do
+    LSubscriber(Self, LResult);
+
+  if LResult then
+    TRttiHelper.ForEachMethodWithAttribute<BeforeInvokeAttribute>(FResourceMethods
+    , function (AMethod: TRttiMethod; AAttribute: BeforeInvokeAttribute): Boolean
+      var
+        LReturnValue: TValue;
+      begin
+        Result := True;
+        LReturnValue := AMethod.Invoke(FResourceInstance, []);
+        if Assigned(AMethod.ReturnType) and (AMethod.ReturnType.Handle = TypeInfo(Boolean)) then
+        begin
+          LResult := LReturnValue.AsBoolean;
+          Result := LReturnValue.AsBoolean;
+        end;
+      end
+    );
+
+  Result := LResult;
+end;
+
+procedure TMARSActivation.DoInvokeError(const E: Exception);
+var
+  LSubscriber: TMARSInvokeErrorProc;
+  LHandled: Boolean;
+begin
+  LHandled := False;
+  for LSubscriber in FInvokeErrorProcs do
+  begin
+    LSubscriber(Self, E, LHandled);
+    if LHandled then
+      Break;
+  end;
+
+  if Assigned(FResourceInstance) and (not LHandled) then
+    TRttiHelper.ForEachMethodWithAttribute<InvokeErrorAttribute>(FResourceMethods
+    , function (AMethod: TRttiMethod; AAttribute: InvokeErrorAttribute): Boolean
+      var
+        LReturnValue: TValue;
+      begin
+        Result := True;
+        if TRttiHelper.MethodParametersMatch<Exception>(AMethod) then
+        begin
+          LReturnValue := AMethod.Invoke(FResourceInstance, [E]);
+          if Assigned(AMethod.ReturnType) and (AMethod.ReturnType.Handle = TypeInfo(Boolean)) then
+            Result := LReturnValue.AsBoolean;
+        end;
+      end
+    );
+end;
+
+{ TMARSAuthorizationInfo }
+
+constructor TMARSAuthorizationInfo.Create(const ADenyAll, APermitAll: Boolean; const AAllowedRoles: TArray<string>);
+begin
+  DenyAll := ADenyAll;
+  PermitAll := APermitAll;
+  AllowedRoles := AAllowedRoles;
+end;
+
+function TMARSAuthorizationInfo.NeedsAuthentication: Boolean;
+begin
+  Result := Length(AllowedRoles) > 0;
+end;
+
+function TMARSAuthorizationInfo.NeedsAuthorization: Boolean;
+begin
+  Result := (Length(AllowedRoles) > 0) or DenyAll;
+end;
+
+end.

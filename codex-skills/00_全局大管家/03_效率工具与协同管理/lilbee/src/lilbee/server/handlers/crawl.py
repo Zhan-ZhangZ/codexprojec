@@ -1,0 +1,58 @@
+"""Crawl streaming handler."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncGenerator
+from pathlib import Path
+
+from lilbee.core.config.enums import CrawlRenderMode
+from lilbee.server.handlers.sse import SseStream
+
+
+async def crawl_stream(
+    url: str,
+    depth: int | None = None,
+    max_pages: int | None = None,
+    render_mode: CrawlRenderMode | None = None,
+    include_subdomains: bool = False,
+) -> AsyncGenerator[str, None]:
+    """Stream crawl progress as SSE events.
+
+    Emits crawl_start, crawl_page, crawl_done events, then a final done event
+    with the list of files written. On error emits crawl_error.
+    Sets a cancel event on client disconnect so the crawl stops between pages.
+
+    A browser crawl that finds no Chromium installed inlines
+    setup_start/progress/done events before the crawl begins, so a consumer can
+    render a matching 'setup' progress indicator. These are not part of every
+    stream: an http crawl never launches a browser, and that is the default
+    render mode, so a client must not block waiting for a setup phase.
+    """
+    sse = SseStream()
+
+    async def _run_crawl() -> list[Path]:
+        from lilbee.crawler import crawl_and_save
+
+        # crawl_and_save runs the Chromium bootstrap itself on first use,
+        # relaying setup_* events through the same on_progress callback
+        # so the SSE stream carries them before any crawl_* events.
+        try:
+            return await crawl_and_save(
+                url,
+                depth=depth,
+                max_pages=max_pages,
+                on_progress=sse.callback,
+                cancel=sse.cancel,
+                include_subdomains=include_subdomains,
+                render_mode=render_mode,
+            )
+        finally:
+            sse.queue.put_nowait(None)
+
+    task = asyncio.create_task(_run_crawl())
+    async for event in sse.drain(task, "Crawl stream"):
+        yield event
+    frame = sse.terminal_frame(task, lambda paths: {"files_written": [str(p) for p in paths]})
+    if frame is not None:
+        yield frame

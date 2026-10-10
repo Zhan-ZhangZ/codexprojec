@@ -1,0 +1,122 @@
+"""lilbee: local knowledge base."""
+
+from __future__ import annotations
+
+import os
+import threading
+
+# Suppress HF-default tqdm bars (metadata probes, snapshot summaries) that
+# leak cursor escapes into the TUI. Our custom tqdm_class is NOT a subclass
+# of huggingface_hub.utils.tqdm, so huggingface_hub's `_create_progress_bar`
+# instantiates it directly without honoring this flag. Download callbacks
+# continue to fire. See lilbee/catalog/download_progress.py::_CallbackProgressBar.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
+
+def _install_thread_only_tqdm_lock() -> None:
+    """Pin ``tqdm.std.tqdm._lock`` to a threading RLock.
+
+    Bypasses tqdm's lazy multiprocessing-lock init, which tries to
+    fork_exec the MP resource tracker with ``sys.stderr.fileno() == -1``
+    under Textual and crashes with ``bad value(s) in fds_to_keep``.
+    Matches huggingface_hub PR #4065 but applied at the base class so
+    every tqdm instance in the process inherits the lock via MRO.
+    """
+    try:
+        from tqdm.std import tqdm as _tqdm_base
+    except ImportError:
+        return
+    if getattr(_tqdm_base, "_lock", None) is None:
+        _tqdm_base._lock = threading.RLock()
+
+
+def _prestart_mp_resource_tracker() -> None:
+    """Start the multiprocessing resource tracker before Textual swaps stderr.
+
+    The tracker launches lazily on the first semaphore creation, which in
+    the TUI is a worker's ``Value(lock=True)`` abort flag, spawned after
+    Textual has replaced ``sys.stderr`` with a stream whose ``fileno()``
+    returns -1. The tracker's launch passes that -1 into
+    ``_posixsubprocess.fork_exec`` and crashes with ``bad value(s) in
+    fds_to_keep``. Launching it here, at import time with a real stderr,
+    caches a valid tracker fd that every later ``Process.start()`` reuses.
+
+    Runs in frozen builds too (Nuitka onefile): the tracker re-executes
+    ``sys.executable`` with ``-c "from multiprocessing.resource_tracker
+    import main;main(N)"``, which ``__main__._dispatch_frozen_child``
+    intercepts and execs before typer sees it. No-op on Windows, which
+    does not use ``_posixsubprocess``.
+    """
+    import sys as _sys
+
+    if _sys.platform == "win32":
+        return
+    try:
+        from multiprocessing import resource_tracker
+
+        resource_tracker.ensure_running()
+    except (OSError, RuntimeError, ValueError, ImportError):
+        # Best-effort: if the tracker already crashed or cannot be started
+        # in the current env, leave the state alone. The worker's own
+        # spawn will surface a real error at call time.
+        pass
+
+
+_install_thread_only_tqdm_lock()
+_prestart_mp_resource_tracker()
+
+
+def _shrink_hf_download_chunk_size() -> None:
+    """Shrink huggingface_hub's 10MB download chunk to 200KB.
+
+    The HTTP path fires the progress callback once per chunk, so the default
+    leaves multi-second gaps. Patched rather than configured: there is no env
+    override.
+    """
+    try:
+        from huggingface_hub import constants as _hf_constants
+
+        _hf_constants.DOWNLOAD_CHUNK_SIZE = 200 * 1024
+    except ImportError:
+        pass  # huggingface_hub may be absent in stripped-down environments
+
+
+_shrink_hf_download_chunk_size()
+
+
+# HF and LiteLLM log filters live next to their respective implementations
+# (catalog/hf_client.py and providers/litellm_sdk.py). They install themselves
+# on module import; this package's __init__.py stays free of HF/LiteLLM
+# implementation detail.
+
+
+# Must follow HF environment / constants setup above.
+from typing import TYPE_CHECKING  # noqa: E402
+
+if TYPE_CHECKING:
+    from lilbee.api import Lilbee
+
+__all__ = ["Lilbee"]
+
+
+def __getattr__(name: str) -> object:
+    """Lazy-load ``Lilbee`` and fall back to normal submodule import."""
+    if name == "Lilbee":
+        from lilbee.api import Lilbee
+
+        return Lilbee
+    if name.startswith("__") and name.endswith("__"):
+        # Introspection probes (__wrapped__, __all__ fallbacks, copy/pickle
+        # dunders) are frequent and never name a submodule; skip the import.
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    # PEP 562: `lilbee.<submodule>` must behave like a plain package attribute
+    # even when the submodule has not been imported yet (dotted-path resolvers
+    # such as monkeypatch.setattr and mock.patch rely on getattr succeeding).
+    import importlib
+
+    try:
+        return importlib.import_module(f".{name}", __name__)
+    except ModuleNotFoundError as exc:
+        if exc.name == f"{__name__}.{name}":
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+        raise

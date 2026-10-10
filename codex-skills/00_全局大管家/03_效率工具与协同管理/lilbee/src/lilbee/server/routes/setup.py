@@ -1,0 +1,76 @@
+"""Setup routes: status and bootstrap for optional runtime components.
+
+Currently exposes Playwright Chromium bootstrap (needed for /crawl). The
+SSE event sequence mirrors what the TUI does in
+``TaskBarController.ensure_chromium`` so a stream consumer can render a
+matching ``setup`` progress indicator.
+
+Endpoints:
+    GET  /setup/crawler/status → { installed, package_installed,
+                                   chromium_installed, component, browsers_path }
+    POST /setup/crawler         → text/event-stream of setup_start →
+                                   setup_progress → setup_done → done
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from litestar import get, post
+from litestar.response import Stream
+
+from lilbee.crawler import (
+    bootstrap_chromium,
+    chromium_installed,
+    crawler_available,
+    crawler_browsers_path,
+)
+from lilbee.server.handlers import SseStream
+from lilbee.server.handlers.sse import SSE_MEDIA_TYPE
+
+
+@get("/setup/crawler/status")
+async def setup_crawler_status_route() -> dict[str, Any]:
+    """Return whether the crawler is fully ready (Python package + Chromium)."""
+    package_installed = crawler_available()
+    chromium_ok = chromium_installed()
+    return {
+        "installed": package_installed and chromium_ok,
+        "package_installed": package_installed,
+        "chromium_installed": chromium_ok,
+        "component": "chromium",
+        "browsers_path": str(crawler_browsers_path()),
+    }
+
+
+async def _bootstrap_crawler_stream() -> AsyncGenerator[str, None]:
+    sse = SseStream()
+
+    async def _run() -> None:
+        try:
+            await bootstrap_chromium(on_progress=sse.callback)
+        finally:
+            sse.queue.put_nowait(None)
+
+    task = asyncio.create_task(_run())
+    async for event in sse.drain(task, "Crawler setup stream"):
+        yield event
+    # This copy used to skip the cancel check and emit a done frame even to a
+    # client that had already disconnected; the shared helper does not.
+    frame = sse.terminal_frame(task, lambda _: {})
+    if frame is not None:
+        yield frame
+
+
+@post("/setup/crawler", media_type=SSE_MEDIA_TYPE)
+async def setup_crawler_route() -> Stream:
+    """Stream the Chromium bootstrap subprocess as SSE events."""
+    return Stream(_bootstrap_crawler_stream(), media_type=SSE_MEDIA_TYPE)
+
+
+__all__ = [
+    "setup_crawler_route",
+    "setup_crawler_status_route",
+]

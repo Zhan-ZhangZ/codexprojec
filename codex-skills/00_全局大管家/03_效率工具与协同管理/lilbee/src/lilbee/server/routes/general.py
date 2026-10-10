@@ -1,0 +1,131 @@
+"""General routes: health, status, config, source, warm.
+
+Every route needs the token, ``/api/health`` included: it reports the chat
+engine's last error, which carries model paths and loader failures. A local
+probe reads the token from server.json like every other local client.
+"""
+
+from __future__ import annotations
+
+import signal
+from pathlib import Path
+from typing import Any
+
+from litestar import Response, get, patch, post
+from litestar.background_tasks import BackgroundTask
+from litestar.exceptions import HTTPException, NotFoundException, ValidationException
+from litestar.params import FromQuery
+from litestar.response import Stream
+from litestar.status_codes import HTTP_202_ACCEPTED, HTTP_503_SERVICE_UNAVAILABLE
+from pydantic import ValidationError
+
+from lilbee.app.services import request_server_exit
+from lilbee.app.settings import config_write_failure_message
+from lilbee.server import handlers
+from lilbee.server.content_disposition import CONTENT_DISPOSITION, attachment_disposition
+from lilbee.server.handlers.sse import SSE_MEDIA_TYPE
+from lilbee.server.models import (
+    ConfigResponse,
+    ConfigSchemaResponse,
+    ConfigUpdateResponse,
+    HealthResponse,
+    ShutdownResponse,
+    SourceContentResponse,
+    StatusResponse,
+)
+
+
+@get("/api/health")
+async def health_route() -> HealthResponse:
+    """Service health check returning server version and uptime status."""
+    return await handlers.health()
+
+
+@get("/api/warm/stream", media_type=SSE_MEDIA_TYPE)
+async def warm_stream_route() -> Stream:
+    """Stream chat-model cold-load progress as SSE for a launcher's warm indicator."""
+    return Stream(handlers.warm_stream(), media_type=SSE_MEDIA_TYPE)
+
+
+@get("/api/status")
+async def status_route() -> StatusResponse:
+    """Current configuration, indexed document sources, and chunk counts."""
+    return await handlers.status()
+
+
+async def _stop_server() -> None:
+    """Stop the serving loop when one runs; otherwise raise SIGTERM."""
+    if not request_server_exit():
+        signal.raise_signal(signal.SIGTERM)
+
+
+@post("/api/shutdown", status_code=HTTP_202_ACCEPTED)
+async def shutdown_route() -> Response[ShutdownResponse]:
+    """Gracefully stop the server through its serving loop.
+
+    The stop rides a background task so it runs after the response has
+    been handed to the transport, rather than after a guessed delay that a
+    slow flush could lose.
+    """
+    return Response(
+        await handlers.shutdown(),
+        status_code=HTTP_202_ACCEPTED,
+        background=BackgroundTask(_stop_server),
+    )
+
+
+@get("/api/config")
+async def config_route() -> ConfigResponse:
+    """Return all user-facing configuration values."""
+    return await handlers.get_config()
+
+
+@get("/api/config/defaults")
+async def config_defaults_route() -> ConfigResponse:
+    """Return canonical defaults for every writable, public configuration field."""
+    return await handlers.get_config_defaults()
+
+
+@get("/api/config/schema")
+async def config_schema_route() -> ConfigSchemaResponse:
+    """Return type, choices, writability and reindex metadata for every public field."""
+    return await handlers.get_config_schema()
+
+
+@patch("/api/config")
+async def config_update_route(data: dict[str, Any]) -> ConfigUpdateResponse:
+    """Partial update of writable configuration fields."""
+    try:
+        return await handlers.update_config(data)
+    except (ValueError, ValidationError) as exc:
+        raise ValidationException(str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=HTTP_503_SERVICE_UNAVAILABLE, detail=config_write_failure_message(exc)
+        ) from exc
+
+
+@get("/api/source")
+async def source_content_route(
+    source: FromQuery[str], raw: FromQuery[bool] = False
+) -> SourceContentResponse | Response[bytes]:
+    """Return stored source file as JSON (``raw=0``) or raw bytes (``raw=1``)."""
+    try:
+        result = await handlers.get_source_content(source, raw=raw)
+    except FileNotFoundError as exc:
+        raise NotFoundException(f"source not found: {source}") from exc
+    except ValueError as exc:
+        raise ValidationException(str(exc)) from exc
+
+    # ``raw=True`` returns ``(bytes, content_type)``; narrow via ``isinstance``
+    # so mypy sees the tuple branch without leaning on ``type: ignore``.
+    if isinstance(result, tuple):
+        body, content_type = result
+        # nosniff blocks browser MIME-sniffing fallbacks; attachment forces a
+        # download for any type the handler degraded to octet-stream so
+        # attacker-named files don't render inline anywhere.
+        headers = {"X-Content-Type-Options": "nosniff"}
+        if content_type == "application/octet-stream":
+            headers[CONTENT_DISPOSITION] = attachment_disposition(Path(source).name)
+        return Response(content=body, media_type=content_type, status_code=200, headers=headers)
+    return result

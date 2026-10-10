@@ -1,0 +1,77 @@
+"""Application configuration for lilbee.
+
+All settings can be overridden via environment variables prefixed with LILBEE_.
+Uses pydantic-settings for automatic env var loading with TOML config file support.
+"""
+
+# ruff: noqa: I001
+from .defaults import (
+    CHUNK_CONCEPTS_TABLE as CHUNK_CONCEPTS_TABLE,
+    ENTITIES_TABLE as ENTITIES_TABLE,
+    ENTITY_SCHEMA_TABLE as ENTITY_SCHEMA_TABLE,
+    CHUNKS_TABLE as CHUNKS_TABLE,
+    INGEST_SOURCE_COLUMNS as INGEST_SOURCE_COLUMNS,
+    CITATIONS_TABLE as CITATIONS_TABLE,
+    CONCEPT_EDGES_TABLE as CONCEPT_EDGES_TABLE,
+    CONCEPT_NODES_TABLE as CONCEPT_NODES_TABLE,
+    CONFIG_FILE_NAME as CONFIG_FILE_NAME,
+    DEFAULT_CRAWL_EXCLUDE_PATTERNS as DEFAULT_CRAWL_EXCLUDE_PATTERNS,
+    DEFAULT_HTTP_TIMEOUT as DEFAULT_HTTP_TIMEOUT,
+    DEFAULT_IGNORE_DIRS as DEFAULT_IGNORE_DIRS,
+    DEFAULT_NUM_CTX as DEFAULT_NUM_CTX,
+    MEMORIES_TABLE as MEMORIES_TABLE,
+    META_TABLE as META_TABLE,
+    PAGE_TEXTS_TABLE as PAGE_TEXTS_TABLE,
+    WIKI_MENTIONS_TABLE as WIKI_MENTIONS_TABLE,
+    SOURCES_TABLE as SOURCES_TABLE,
+)
+from .context import (
+    active_config as active_config,
+    config_scope as config_scope,
+    validate_ocr_timeout as validate_ocr_timeout,
+)
+from .enums import (
+    ClustererBackend as ClustererBackend,
+    WikiEntityMode as WikiEntityMode,
+)
+from .load_warnings import (
+    RefusedVariableError as RefusedVariableError,
+)
+from .model import (
+    Config as Config,
+    cfg as cfg,
+    load_warnings as load_warnings,
+    refuse_environment as refuse_environment,
+)
+from .validators import (
+    ConfigField as ConfigField,
+)
+
+__all__ = [
+    "CHUNKS_TABLE",
+    "CHUNK_CONCEPTS_TABLE",
+    "CITATIONS_TABLE",
+    "CONCEPT_EDGES_TABLE",
+    "CONCEPT_NODES_TABLE",
+    "DEFAULT_CRAWL_EXCLUDE_PATTERNS",
+    "DEFAULT_HTTP_TIMEOUT",
+    "DEFAULT_IGNORE_DIRS",
+    "DEFAULT_NUM_CTX",
+    "ENTITIES_TABLE",
+    "ENTITY_SCHEMA_TABLE",
+    "MEMORIES_TABLE",
+    "META_TABLE",
+    "PAGE_TEXTS_TABLE",
+    "SOURCES_TABLE",
+    "ClustererBackend",
+    "Config",
+    "ConfigField",
+    "RefusedVariableError",
+    "WikiEntityMode",
+    "active_config",
+    "cfg",
+    "config_scope",
+    "load_warnings",
+    "refuse_environment",
+    "validate_ocr_timeout",
+]

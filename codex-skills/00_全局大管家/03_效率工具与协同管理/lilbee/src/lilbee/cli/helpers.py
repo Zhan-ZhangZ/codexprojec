@@ -1,0 +1,345 @@
+"""CLI-specific helpers: JSON formatter, Rich rendering, and CLI workflows."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import signal
+import threading
+from collections.abc import Callable, Generator, Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from rich.console import RenderableType
+from rich.table import Table
+from rich.text import Text
+
+from lilbee.app.ingest import RegisterResult, register_sources
+from lilbee.app.settings import SCANNED_PAGES_LABEL
+from lilbee.app.status import StatusResult
+from lilbee.cli import theme
+from lilbee.core.config import cfg
+from lilbee.runtime.console import PlainConsole, styled
+
+if TYPE_CHECKING:
+    from lilbee.cli.sync import SyncStatus
+
+
+def json_output(data: dict) -> None:
+    """Print a JSON object to stdout."""
+    print(json.dumps(data))
+
+
+def announce_cold_start(role: object, model: str) -> PlainConsole | None:
+    """Print a "Starting <role> engine (loading <model>)..." stderr line if cold.
+
+    Returns a stderr console to print the matching "ready" line through when the
+    blocking call returns, or ``None`` when the role's server is already warm (no
+    status needed) or output is JSON (machine-readable, no chatter). The role
+    parameter is a ``WorkerRole``; typed as ``object`` to keep this CLI helper
+    free of a provider-layer import at module top.
+    """
+    from lilbee.app.services import get_services
+    from lilbee.providers.roles import WorkerRole
+
+    if cfg.json_mode or not isinstance(role, WorkerRole):
+        return None
+    if get_services().provider.role_ready(role):
+        return None
+    err = PlainConsole(stderr=True)
+    err.print(
+        Text.assemble(
+            (f"Starting {role.value} engine (loading ", theme.MUTED),
+            model,
+            (")...", theme.MUTED),
+        ),
+        soft_wrap=True,
+    )
+    return err
+
+
+def announce_ready(err: PlainConsole | None, role: object) -> None:
+    """Print the matching "<role> engine ready." stderr line, if cold-start announced.
+
+    A token arriving is not evidence the chat model came up: in RAG mode a grounded
+    refusal streams without it. When warm-up recorded a load failure, that reason is
+    printed instead of a readiness line.
+    """
+    from lilbee.providers.roles import WorkerRole
+
+    if err is None or not isinstance(role, WorkerRole):
+        return
+    failure = _chat_warm_error(role)
+    if failure is not None:
+        err.print(failure, style=theme.ERROR, soft_wrap=True)
+        return
+    err.print(f"{role.value} engine ready.", style=theme.MUTED)
+
+
+def announce_retrieval_query(query: str) -> None:
+    """Print the "Searching for: <query>" stderr line for a rewritten follow-up."""
+    line = SEARCHING_FOR.format(query=query)
+    PlainConsole(stderr=True).print(line, style=theme.MUTED, soft_wrap=True)
+
+
+def _chat_warm_error(role: object) -> str | None:
+    """The chat warm-up's recorded failure, or None when it did not fail.
+
+    Read from the warm tracker rather than re-probing readiness: llama-swap can
+    report a freshly loaded model as not-yet-running, which would turn a healthy
+    engine into a spurious failure line.
+    """
+    from lilbee.app.services import get_services
+    from lilbee.providers.roles import WorkerRole
+    from lilbee.providers.warm_progress import WarmPhase
+
+    if role is not WorkerRole.CHAT:
+        return None
+    snapshot = get_services().provider.warm_progress()
+    if snapshot is None or snapshot.phase is not WarmPhase.ERROR:
+        return None
+    return snapshot.error or "The chat model did not finish loading."
+
+
+_LABEL_WIDTH = len("Chat model:")
+
+
+def _label_line(label: str, value: object) -> Text:
+    """An aligned ``Label: value`` line with *value* as literal text."""
+    gap = " " * max(1, _LABEL_WIDTH - len(label))
+    return Text.assemble((f"{label}:", theme.LABEL), gap, str(value))
+
+
+def render_status_result(status: StatusResult) -> Generator[RenderableType, None, None]:
+    """Yield Rich renderables for a :class:`StatusResult`."""
+    yield _label_line("Documents", status.config.documents_dir)
+    yield _label_line("Database", status.config.data_dir)
+    yield _label_line("Chat model", status.config.chat_model)
+    yield _label_line("Embeddings", status.config.embedding_model)
+    if status.index is not None:
+        yield _label_line(
+            "Index built with",
+            f"{status.index.embedding_model} ({status.index.embedding_dim} dims)",
+        )
+    vision = status.config.vision_model or "(disabled)"
+    reranker = status.config.reranker_model or "(disabled)"
+    yield _label_line("Vision", vision)
+    yield _label_line("Reranker", reranker)
+    yield _label_line(SCANNED_PAGES_LABEL, status.ocr_note)
+    if status.entities is not None:
+        names = ", ".join(status.entities.types) or "schema pending (induced on next sync)"
+        yield _label_line("Entities", f"{status.entities.rows} entities extracted ({names})")
+    yield ""
+
+    if status.skipped:
+        held = Table(title="Held out of the index")
+        held.add_column("File", style=theme.ACCENT)
+        held.add_column("Reason", style=theme.MUTED)
+        for skipped in status.skipped:
+            held.add_row(Text(skipped.filename), Text(skipped.reason))
+        yield held
+        hidden = status.skipped_total - len(status.skipped)
+        more = f" ({hidden} more not shown)" if hidden > 0 else ""
+        yield styled(
+            (str(status.skipped_total), theme.LABEL),
+            f" held out{more}; 'lilbee sync --retry-skipped' retries failed files",
+        )
+        yield ""
+
+    if not status.sources:
+        yield (
+            "No documents indexed. Drop files into the documents directory and run 'lilbee sync'."
+        )
+        return
+
+    table = Table(title="Indexed Documents")
+    table.add_column("File", style=theme.ACCENT)
+    table.add_column("Hash", style=theme.MUTED, max_width=12)
+    table.add_column("Chunks", justify="right")
+    table.add_column("Ingested", style=theme.MUTED)
+    for s in status.sources:
+        table.add_row(Text(s.filename), s.file_hash, str(s.chunk_count), s.ingested_at)
+    yield table
+    yield styled(
+        "\n",
+        (str(len(status.sources)), theme.LABEL),
+        " documents, ",
+        (str(status.total_chunks), theme.LABEL),
+        " chunks",
+    )
+
+
+def render_status(con: PlainConsole) -> None:
+    """Print status info (documents, paths, chunk counts)."""
+    from lilbee.app.status import gather_status
+
+    for renderable in render_status_result(gather_status()):
+        con.print(renderable)
+
+
+NAME_TAKEN_WARNING = "The name {name} is taken by another source (use --force to overwrite)."
+"""Said when a label belongs to a different source, the one case --force fixes.
+
+The TUI states the same thing in its own words (``messages.CMD_ADD_NAME_TAKEN``);
+the two surfaces do not share a string because ``cli.tui.messages`` pulls the
+fleet and wiki import chains that a plain CLI command has no reason to pay for.
+"""
+CONTAINS_SOURCE = "contains a source lilbee already indexes, not added: {names}"
+"""Said of a directory that is the parent of a registered source; its other files stay out."""
+SEARCHING_FOR = "Searching for: {query}"
+"""The stderr line ``ask`` prints when retrieval ran on a rewritten follow-up."""
+
+
+def print_prefixed(con: PlainConsole, prefix: str, detail: object, *, style: str) -> None:
+    """Print *prefix* in *style*, then *detail* as literal text (never markup)."""
+    con.print(Text.assemble((prefix, style), str(detail)), soft_wrap=True)
+
+
+def register_paths(paths: list[Path], con: PlainConsole, *, force: bool = False) -> RegisterResult:
+    """Register *paths* as source roots, reporting what happened to each."""
+    result = register_sources(paths, force=force)
+    for name in result.name_taken:
+        warning = NAME_TAKEN_WARNING.format(name=name)
+        print_prefixed(con, "Warning: ", warning, style=theme.WARNING)
+    return result
+
+
+def describe_registration(result: RegisterResult) -> str:
+    """One line saying what ``add`` did with the paths it was given.
+
+    A bare count reads as a failure when the answer is "already tracked, and
+    the sync below covers it" -- which is what re-adding a source lilbee
+    already knows about does.
+    """
+    parts = []
+    if result.registered:
+        parts.append(f"Registered {len(result.registered)} source(s)")
+    if result.tracked:
+        parts.append(f"already tracked: {', '.join(result.tracked)}")
+    if result.overlapping_inside:
+        parts.append(f"overlaps a registered source: {', '.join(result.overlapping_inside)}")
+    if result.containing:
+        parts.append(CONTAINS_SOURCE.format(names=", ".join(result.containing)))
+    return ", ".join(parts) if parts else "Registered 0 source(s)"
+
+
+def add_paths(
+    paths: list[Path],
+    con: PlainConsole,
+    *,
+    force: bool = False,
+    background: bool = False,
+    chat_mode: bool = False,
+    sync_status: SyncStatus | None = None,
+    run_sync: Callable[[RegisterResult], object] | None = None,
+    sync_anyway: bool = False,
+) -> None:
+    """Register *paths* as source roots and sync (human output).
+    When *background* is True (chat ``/add``), sync runs in a background thread
+    and this function returns immediately after registering. *run_sync*
+    overrides the foreground sync call and receives the registration result
+    (the CLI passes a Ctrl+C-cancellable runner); it defaults to a plain
+    ``asyncio.run(sync())``. The sync runs when a path reached the corpus, or
+    when *sync_anyway* says the caller has other new content to index.
+    """
+    registration = register_paths(paths, con, force=force)
+    summary = describe_registration(registration)
+    if chat_mode:
+        print(summary)
+    else:
+        con.print(Text(summary, style=theme.MUTED), soft_wrap=True)
+    if not (registration.reached_corpus or sync_anyway):
+        return
+
+    if background:
+        from lilbee.cli.sync import run_sync_background
+
+        run_sync_background(con, chat_mode=chat_mode, sync_status=sync_status)
+        return
+
+    result = run_sync(registration) if run_sync is not None else _run_foreground_sync()
+    con.print(result)
+
+
+def _run_foreground_sync() -> object:
+    """Run a blocking sync with no cancellation hook (default for non-CLI callers)."""
+    from lilbee.data.ingest import sync
+
+    return asyncio.run(sync())
+
+
+def sync_result_to_json(result: object) -> dict:
+    """Convert a SyncResult to the JSON output envelope."""
+    from lilbee.data.ingest import SyncResult
+
+    if not isinstance(result, SyncResult):
+        raise TypeError(f"Expected SyncResult, got {type(result).__name__}")
+    return {"command": "sync", **result.model_dump()}
+
+
+def auto_sync(
+    con: PlainConsole, run_sync: Callable[[], object], *, background: bool = False
+) -> None:
+    """Run document sync before queries.
+    When *background* is True, sync runs in a background thread and this
+    function returns immediately (for chat/REPL).  When False (default),
+    *run_sync* (the CLI's Ctrl+C-cancellable runner) blocks until the sync
+    completes (for ``lilbee ask``).
+    """
+    if background:
+        from lilbee.cli.sync import run_sync_background
+
+        run_sync_background(con)
+        return
+
+    from lilbee.cli.sync import _format_sync_summary
+    from lilbee.data.ingest import SyncResult
+
+    try:
+        result = run_sync()
+    except RuntimeError as exc:
+        print_prefixed(con, "Error: ", exc, style=theme.ERROR)
+        raise SystemExit(1) from None
+    # The sync runner is typed to return object; narrow it before reading counts.
+    if not isinstance(result, SyncResult):
+        raise TypeError(f"Expected SyncResult, got {type(result).__name__}")
+    summary = _format_sync_summary(
+        len(result.added),
+        len(result.updated),
+        len(result.removed),
+        len(result.failed),
+        len(result.skipped),
+    )
+    if summary:
+        con.print(f"Synced: {summary}", style=theme.MUTED)
+
+
+@contextmanager
+def sigint_cancel() -> Iterator[threading.Event]:
+    """Turn Ctrl-C into a token the wiki pass polls, not a mid-page abort.
+
+    A build runs for hours and writes pages as it goes, so the default
+    KeyboardInterrupt drops it wherever the interpreter happened to be. Setting
+    a token instead lets it stop at a source boundary with what it wrote intact.
+    The previous handler is restored as soon as it fires, so a second Ctrl-C
+    still hard-exits a pass that is not checking the token.
+
+    signal.signal only works on the main thread; off it (pytest-xdist workers)
+    the token is simply never set and Ctrl-C keeps its default behaviour.
+    """
+    token = threading.Event()
+    if threading.current_thread() is not threading.main_thread():
+        yield token
+        return
+    previous = signal.getsignal(signal.SIGINT)
+
+    def _on_sigint(_signum: int, _frame: object) -> None:
+        signal.signal(signal.SIGINT, previous)
+        token.set()
+
+    signal.signal(signal.SIGINT, _on_sigint)
+    try:
+        yield token
+    finally:
+        signal.signal(signal.SIGINT, previous)

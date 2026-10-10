@@ -2472,5 +2472,113 @@
       "CaptainClaw",
       "舰队指挥"
     ]
+  },
+  {
+    "name": "phoenix",
+    "description": "LLM 可观测性平台（Arize 出品，ASH prompt-engineering 榜 #1）。追踪/评估/实验追踪：prompt 版本对比、LLM trace、数据集评估。文档层集成。Leading Words: LLM可观测, prompt评估, Arize, trace追踪, phoenix",
+    "category": "02_DevOps与自动化",
+    "folder": "phoenix",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/phoenix",
+    "aliases": [
+      "Arize Phoenix",
+      "LLM观测"
+    ]
+  },
+  {
+    "name": "MARS",
+    "description": "MATLAB Agent RPC Server（ASH mcp-api 榜 #1，andrea-magni）。把 MATLAB 全能力暴露给 AI 智能体：Skills/Packages/Utils/Demos 完整生态。Leading Words: MATLAB接入, MATLAB MCP, 工程计算智能体, MARS",
+    "category": "11_API与第三方应用集成",
+    "folder": "MARS",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/MARS",
+    "aliases": [
+      "MATLAB MCP",
+      "MATLAB智能体"
+    ]
+  },
+  {
+    "name": "lilbee",
+    "description": "Lilbee（ASH local-llm 榜 #3，tobocop2）。本地智能体 CLI 工具。Leading Words: lilbee, 本地CLI智能体, local llm",
+    "category": "03_效率工具与协同管理",
+    "folder": "lilbee",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/lilbee",
+    "aliases": [
+      "Lilbee"
+    ]
+  },
+  {
+    "name": "mcp-toolbox",
+    "description": "谷歌官方 Databases MCP Toolbox（ASH mcp-database 榜 #3）。一套工具集把 SQL/BigQuery/Spanner 等数据库快速封装为 MCP 服务器。Leading Words: 谷歌MCP工具箱, 数据库MCP, SQL接入, mcp toolbox",
+    "category": "08_MCP服务开发与评估",
+    "folder": "mcp-toolbox",
+    "relative_path": "./00_全局大管家/08_MCP服务开发与评估/mcp-toolbox",
+    "aliases": [
+      "MCP Toolbox",
+      "谷歌工具箱"
+    ]
+  },
+  {
+    "name": "WrenAI",
+    "description": "开源 Text-to-SQL 数据智能体（ASH mcp-database 榜 #2，Canner）。自然语言问数：语义层+SQL 生成+可视化。Leading Words: Text2SQL, 数据问答, wren ai, 语义层",
+    "category": "08_MCP服务开发与评估",
+    "folder": "WrenAI",
+    "relative_path": "./00_全局大管家/08_MCP服务开发与评估/WrenAI",
+    "aliases": [
+      "Wren AI",
+      "问数"
+    ]
+  },
+  {
+    "name": "agentic-signal",
+    "description": "可视化 AI 工作流自动化平台（ASH local-llm 榜 #2，code-forge-temple）。本地智能体智力驱动的节点式工作流。Leading Words: 可视化工作流, 节点编排, 本地智能体, agentic signal",
+    "category": "03_效率工具与协同管理",
+    "folder": "agentic-signal",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/agentic-signal",
+    "aliases": [
+      "AgenticSignal",
+      "工作流平台"
+    ]
+  },
+  {
+    "name": "agent-rules-books",
+    "description": "智能体规则书库（ASH refactoring 榜 #1，ciembor）。按语言/框架组织的编码规则书，供 agent 加载遵循。Leading Words: 规则书, 编码规范, agent rules, 语言规则库",
+    "category": "01_代码工程与架构",
+    "folder": "agent-rules-books",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/agent-rules-books",
+    "aliases": [
+      "规则书库"
+    ]
+  },
+  {
+    "name": "smell-check",
+    "description": "代码与测试坏味道审计（ASH refactoring 榜 #2，Zhen-Bo）。code smell/test smell 双清单扫描。Leading Words: 代码坏味道, 测试坏味道, smell审计, 重构前检查",
+    "category": "01_代码工程与架构",
+    "folder": "smell-check",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/smell-check",
+    "aliases": [
+      "SmellCheck",
+      "坏味道"
+    ]
+  },
+  {
+    "name": "kru",
+    "description": "KRU 本地 MCP 密码凭证管理器（ASH secret-detection 榜 #1）。为 AI agent 提供本地凭据保险箱。Leading Words: 凭证管理, 密码保险箱, MCP凭据, kru",
+    "category": "02_DevOps与自动化",
+    "folder": "kru",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/kru",
+    "aliases": [
+      "KRU",
+      "凭证箱"
+    ]
+  },
+  {
+    "name": "vahta",
+    "description": "Vahta 密钥检测与预防（ASH secret-detection 榜 #2/#3 同项目——key-amnesia 为其归档旧名）。提交前拦截密钥泄漏。Leading Words: 密钥检测, 泄漏拦截, vahta, key amnesia",
+    "category": "02_DevOps与自动化",
+    "folder": "vahta",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/vahta",
+    "aliases": [
+      "Vahta",
+      "key-amnesia"
+    ]
   }
 ]

@@ -1,0 +1,292 @@
+"""Autocomplete dropdown overlay for the chat input."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from pathlib import Path
+from typing import ClassVar
+
+from textual.app import ComposeResult
+from textual.binding import Binding, BindingType
+from textual.containers import Vertical
+from textual.content import Content
+from textual.widgets import OptionList
+from textual.widgets.option_list import Option
+
+from lilbee.app.ingest import removable_names
+from lilbee.app.services import get_services
+from lilbee.app.settings import _is_settable
+from lilbee.app.settings_map import SETTINGS_MAP
+from lilbee.app.themes import DARK_THEMES
+from lilbee.cli.tui.command_registry import COMMANDS, completion_names
+from lilbee.cli.tui.widgets.clamped_option_list import ClampedOptionList
+
+log = logging.getLogger(__name__)
+
+_SLASH_COMMANDS = completion_names()
+_COMMAND_HELP: dict[str, str] = {
+    name: cmd.help_text for cmd in COMMANDS for name in (cmd.name, *cmd.aliases)
+}
+
+
+def _option_prompt(value: str) -> Content:
+    """Render a dropdown row: bare *value*, plus dim registry help for commands."""
+    help_text = _COMMAND_HELP.get(value, "")
+    if not help_text:
+        return Content(value)
+    return Content.assemble(value, Content.styled(f"  {help_text}", "$text-muted"))
+
+
+_MAX_VISIBLE = 8  # max dropdown items shown at once
+# Hard cap on path completions surfaced for path-argument commands so a deep
+# directory doesn't stall the dropdown rebuild.
+_MAX_PATH_COMPLETIONS = 20
+
+# Commands whose argument is a filesystem path. They share _path_options and
+# the path-specific accept rules (typed-directory prefix kept, existing-path
+# collapse).
+PATH_ARG_COMMANDS = frozenset({"/add", "/import", "/export", "/export-chat"})
+
+_CSS_FILE = Path(__file__).parent / "autocomplete.tcss"
+
+
+def get_completions(text: str) -> list[str]:
+    """Return completion options for the current input text."""
+    if not text.startswith("/"):
+        return []
+
+    if " " not in text:
+        return [c for c in _SLASH_COMMANDS if c.startswith(text) and c != text]
+
+    cmd, _, partial = text.partition(" ")
+    cmd = cmd.lower()
+    return _get_arg_completions(cmd, partial)
+
+
+def _get_arg_completions(cmd: str, partial: str) -> list[str]:
+    """Get argument completions for a specific command.
+
+    Drops the option that exactly equals what the user has typed so a
+    fully-typed argument collapses the dropdown and lets Enter submit,
+    mirroring the command-discovery rule for slash commands.
+    """
+    sources = _ARG_SOURCES.get(cmd)
+    if sources is None:
+        return []
+    if cmd in PATH_ARG_COMMANDS:
+        # A fully-typed existing path (no trailing separator) should submit on
+        # Enter rather than keep offering completions, so collapse the dropdown.
+        # Without this a complete directory path lists its contents forever and
+        # Enter accepts a child instead of submitting. A trailing separator still
+        # descends to list the directory's contents.
+        if partial and not partial.endswith(_PATH_SEPARATORS) and _path_exists(partial):
+            return []
+        # _path_options already prefix-filters against the basename and returns
+        # bare segment names (not the typed prefix), so the generic startswith
+        # filter below would wrongly wipe them.
+        options = _path_options(partial)
+    else:
+        options = sources()
+        if partial:
+            # Substring match so a model's human name ("smol") finds its full
+            # ref without the HF org; prefix matches keep first place.
+            low = partial.lower()
+            prefixed = [o for o in options if o.lower().startswith(low)]
+            contained = [o for o in options if low in o.lower() and not o.lower().startswith(low)]
+            options = prefixed + contained
+    return [o for o in options if o.lower() != partial.lower()]
+
+
+def _model_options() -> list[str]:
+    try:
+        from lilbee.modelhub.models import list_installed_models
+
+        return list_installed_models()
+    except Exception:
+        log.debug("Failed to list models for autocomplete", exc_info=True)
+        return []
+
+
+def _setting_options() -> list[str]:
+    # Only settable keys, in map order: a non-writable entry (e.g. wiki_dir)
+    # would be offered then refused by /set.
+    return [k for k in SETTINGS_MAP if _is_settable(k)]
+
+
+def _indexed_names() -> list[str]:
+    """Indexed-source names in store order; empty on any store error."""
+    try:
+        return [s.get("filename", s.get("source", "")) for s in get_services().store.get_sources()]
+    except Exception:
+        log.debug("Failed to list documents for autocomplete", exc_info=True)
+        return []
+
+
+def _document_options() -> list[str]:
+    """``/delete`` targets: indexed sources, then held-out sources not indexed."""
+    return removable_names(_indexed_names())
+
+
+def _theme_options() -> list[str]:
+    return list(DARK_THEMES)
+
+
+def _path_exists(partial: str) -> bool:
+    """True if *partial* resolves to an existing file or directory."""
+    try:
+        return Path(partial).expanduser().exists()
+    except Exception:
+        log.debug("Failed to check path existence for autocomplete", exc_info=True)
+        return False
+
+
+def _path_options(partial: str = "") -> list[str]:
+    """Return basename completions for the path segment being typed.
+
+    Handles relative paths, absolute paths, and ~ expansion. Only the final
+    segment is returned (the caller keeps whatever prefix the user typed, so
+    ``~/`` stays ``~/``); directories get a trailing ``/`` to invite descent.
+    """
+    try:
+        expanded = Path(partial).expanduser() if partial else Path(".")
+        if partial and not expanded.is_dir():
+            parent = expanded.parent
+            prefix = expanded.name.lower()
+        else:
+            parent = expanded
+            prefix = ""
+
+        if not parent.is_dir():
+            return []
+
+        results: list[str] = []
+        for p in sorted(parent.iterdir()):
+            if p.name.startswith("."):
+                continue
+            if prefix and not p.name.lower().startswith(prefix):
+                continue
+            results.append(p.name + "/" if p.is_dir() else p.name)
+            if len(results) >= _MAX_PATH_COMPLETIONS:
+                break
+        return results
+    except Exception:
+        log.debug("Failed to list paths for autocomplete", exc_info=True)
+        return []
+
+
+_PATH_SEPARATORS = ("/", "\\")
+
+
+def path_completion_prefix(partial: str) -> str:
+    """Directory prefix of *partial* up to and including the last path separator.
+
+    Splits on both ``/`` and ``\\`` so accepting an /add path completion keeps
+    the directory the user typed instead of collapsing to the basename. On
+    Windows the typed path uses backslashes, so a ``/``-only split would drop
+    the whole directory and turn ``C:\\dir\\file.md`` into ``file.md``.
+    """
+    cut = max(partial.rfind(sep) for sep in _PATH_SEPARATORS)
+    return partial[: cut + 1]
+
+
+def longest_common_prefix(values: list[str]) -> str:
+    """Return the longest string that prefixes every value (``""`` if none)."""
+    if not values:
+        return ""
+    shortest = min(values, key=len)
+    for i, ch in enumerate(shortest):
+        if any(v[i] != ch for v in values):
+            return shortest[:i]
+    return shortest
+
+
+_ARG_SOURCES: dict[str, Callable[[], list[str]]] = {
+    "/model": _model_options,
+    "/set": _setting_options,
+    "/delete": _document_options,
+    "/remove": _model_options,
+    "/theme": _theme_options,
+    "/add": _path_options,
+    "/import": _path_options,
+    "/export": _path_options,
+    "/export-chat": _path_options,
+}
+
+
+class CompletionOverlay(Vertical):
+    """Dropdown overlay showing completion options above the input."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "dismiss_overlay", show=False),
+    ]
+
+    DEFAULT_CSS: ClassVar[str] = _CSS_FILE.read_text(encoding="utf-8")
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._options: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        yield ClampedOptionList(id="completion-list")
+
+    def show_completions(self, options: list[str]) -> None:
+        """Populate and show the overlay."""
+        self._options = options[:_MAX_VISIBLE]
+        ol = self.query_one("#completion-list", OptionList)
+        ol.clear_options()
+        for opt in self._options:
+            ol.add_option(Option(_option_prompt(opt)))
+        if self._options:
+            ol.highlighted = 0
+            self.display = True
+        else:
+            self.display = False
+
+    def _cycle(self, step: int) -> str | None:
+        """Move the OptionList cursor by *step* (wrapping) and return the option.
+
+        ``OptionList.highlighted`` is the single source of truth for the
+        cursor; a shadow index here drifted from it whenever the list moved
+        by other means (mouse hover, page keys).
+        """
+        if not self._options:
+            return None
+        ol = self.query_one("#completion-list", OptionList)
+        index = ((ol.highlighted or 0) + step) % len(self._options)
+        ol.highlighted = index
+        return self._options[index]
+
+    def cycle_next(self) -> str | None:
+        """Cycle to next option and return it."""
+        return self._cycle(1)
+
+    def cycle_prev(self) -> str | None:
+        """Cycle to previous option and return it."""
+        return self._cycle(-1)
+
+    def get_current(self) -> str | None:
+        """Get the currently highlighted option."""
+        if not self._options:
+            return None
+        index = self.query_one("#completion-list", OptionList).highlighted
+        if index is None or index >= len(self._options):
+            return None
+        return self._options[index]
+
+    @property
+    def options(self) -> list[str]:
+        """The currently shown completion options."""
+        return list(self._options)
+
+    def hide(self) -> None:
+        """Hide the overlay."""
+        self.display = False
+        self._options = []
+
+    @property
+    def is_visible(self) -> bool:
+        return bool(self.display) and bool(self._options)
+
+    def action_dismiss_overlay(self) -> None:
+        self.hide()

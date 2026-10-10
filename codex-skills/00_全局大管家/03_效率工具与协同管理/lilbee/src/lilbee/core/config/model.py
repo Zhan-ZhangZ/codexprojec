@@ -1,0 +1,1728 @@
+"""The :class:`Config` dataclass and the ``cfg`` singleton.
+
+The settings sources and the TOML parser live here too. Every
+``from lilbee.core.config import cfg`` resolves through ``lilbee.core.config.__init__``
+to the same instance defined at module bottom.
+"""
+
+import logging
+import os
+import re
+from enum import Enum
+from pathlib import Path
+from typing import Any, ClassVar
+
+from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
+from pydantic_core import ErrorDetails
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from lilbee.core.system import scaled_chat_ctx_target_default
+
+from .defaults import (
+    CONFIG_FILE_NAME,
+    DEFAULT_ALLOWED_NER_LABELS,
+    DEFAULT_CORS_ORIGIN_REGEX,
+    DEFAULT_CRAWL_EXCLUDE_PATTERNS,
+    DEFAULT_GENERAL_SYSTEM_PROMPT,
+    DEFAULT_IGNORE_DIRS,
+    DEFAULT_RAG_SYSTEM_PROMPT,
+)
+from .enums import (
+    ChatMode,
+    ClustererBackend,
+    CrawlRenderMode,
+    FtsLanguage,
+    KvCacheType,
+    LlmProvider,
+    OcrMode,
+    OcrPageStrategy,
+    ReasoningMode,
+    RerankerType,
+    TableModel,
+    WikiEntityMode,
+)
+from .load_warnings import collecting, refuse_variable, warn_on_load
+from .parsing import (
+    migrate_ocr_keys,
+    parse_bool,
+    refuse_retired_ocr_env,
+    refused_value_fallback,
+    warn_retired_ocr_keys,
+)
+from .validators import ConfigField
+
+log = logging.getLogger(__name__)
+
+# Sentinel for unset Path-typed fields. ``Field(default=Path())`` produces an
+# instance equal to this, so the model_validator can distinguish "user passed
+# the default" from "user explicitly set a value".
+_UNSET_PATH = Path()
+
+# A Tesseract language code: ISO 639 letters plus script or orientation suffixes
+# (eng, en, chi_sim, jpn_vert). xberg rejects anything else before extracting.
+_TESSERACT_LANGUAGE_CODE = re.compile(r"[a-z]{2,3}(?:_[a-z]+)*")
+
+# Model roles that can be off. An empty LILBEE_<FIELD> or config.toml value
+# clears one of these; on every other field an empty value counts as unset.
+CLEARABLE_MODEL_FIELDS = frozenset({"vision_model", "reranker_model"})
+
+# What a refused value is not, by pydantic error type. An error outside this
+# map carries its own text.
+_EXPECTED_BY_ERROR: dict[str, str] = {
+    "int_parsing": "a whole number",
+    "int_from_float": "a whole number",
+    "int_type": "a whole number",
+    "float_parsing": "a number",
+    "float_type": "a number",
+    "bool_parsing": "true or false",
+    "bool_type": "true or false",
+    "string_type": "text",
+    "path_type": "a path",
+    "list_type": "a list",
+    "dict_type": "a table of names and values",
+    "greater_than_equal": "{ge} or more",
+    "greater_than": "more than {gt}",
+    "less_than_equal": "{le} or less",
+    "less_than": "less than {lt}",
+}
+_VALUE_ERROR_PREFIX = "Value error, "
+_USES_ITS_DEFAULT = "uses its default"
+
+# A variable its setting refuses stops the command and a write of one is refused,
+# except on these: each takes its default, automatic or off, with a warning.
+_TAKES_DEFAULT_WHEN_REFUSED = frozenset(
+    {"flash_attention", "n_gpu_layers", "main_gpu", "gpu_devices", "semantic_chunking"}
+)
+
+
+def value_is_set(field_name: str, raw: object) -> bool:
+    """Whether an env or config.toml value is set: not blank, or blank on a clearable model role."""
+    if raw is None:
+        return False
+    # A source hands over a string or any TOML type; only a string can be blank.
+    blank = isinstance(raw, str) and not raw.strip()
+    return not blank or field_name in CLEARABLE_MODEL_FIELDS
+
+
+def _as_int(item: Any) -> int:
+    """A force_ocr_pages entry as an int: an int, or a string of digits."""
+    if isinstance(item, str) and item.strip().lstrip("-").isdigit():
+        return int(item)
+    # bool is an int subclass; True is not a page number.
+    if isinstance(item, int) and not isinstance(item, bool):
+        return item
+    raise ValueError(f"force_ocr_pages: {item!r} is not a page number")
+
+
+def _split_page_item(item: Any) -> list[Any]:
+    """A string force_ocr_pages item split on commas and newlines; other items as-is."""
+    if isinstance(item, str):
+        return item.replace("\n", ",").split(",")
+    return [item]
+
+
+def _page_number(item: Any) -> int:
+    """One force_ocr_pages entry as a 1-indexed page."""
+    page = _as_int(item)
+    if page < 1:
+        raise ValueError(f"force_ocr_pages: page numbers start at 1 (got {page})")
+    return page
+
+
+class Config(BaseSettings):
+    """Runtime configuration: one singleton instance, mutated by CLI overrides."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="LILBEE_",
+        validate_assignment=True,
+        arbitrary_types_allowed=True,
+        extra="ignore",
+    )
+
+    # Paths: resolved from env/defaults in model_validator(mode='before')
+    data_root: Path = Field(
+        default=Path(),
+        description=(
+            "Root directory for this library. Resolved at start from LILBEE_DATA, "
+            "then a .lilbee/ directory walked up from the working directory, then "
+            "the platform default. Every other path below hangs off it"
+        ),
+    )
+    # Writable so plugin-managed servers can pivot storage to a vault path on
+    # first boot; rebuild the index after migrating.
+    documents_dir: Path = ConfigField(default=Path(), writable=True)
+    # External source roots ``add`` registered, mapping label -> absolute path.
+    # lilbee indexes the files where they live (no copy, no symlink); the label
+    # prefixes their source keys so a root at /data/corpus keys as ``corpus/…``.
+    # Managed by ``add`` / ``remove``, so it is writable (persisted to
+    # config.toml) but not surfaced in the settings UI.
+    linked_roots: dict[str, str] = ConfigField(
+        default_factory=dict,
+        writable=True,
+        public=False,
+        from_env=False,
+        description=(
+            "External source roots that `add` registered, as label -> absolute path. "
+            "`add` and `remove` maintain it; do not edit it by hand"
+        ),
+    )
+    data_dir: Path = Field(
+        default=Path(),
+        description="Directory holding the database. Defaults to data_root/data",
+    )
+    lancedb_dir: Path = Field(
+        default=Path(),
+        description=(
+            "Directory holding the LanceDB vector tables. Defaults to data_root/data/lancedb"
+        ),
+    )
+    models_dir: Path = Field(
+        default=Path(),
+        description=(
+            "Directory holding downloaded model files. Shared across libraries, so a "
+            "model pulled for one is available to all"
+        ),
+    )
+    # Markdown vault root; when set, search results carry a vault-relative
+    # ``vault_path`` so a host UI can deep-link into the vault.
+    vault_base: Path | None = ConfigField(default=None, writable=True)
+
+    # Human-readable label for the active lilbee. Empty falls back to
+    # "global" for the platform default dir, otherwise the project path
+    # (~-substituted and left-truncated to a hard cap).
+    lilbee_name: str = ConfigField(default="", writable=True)
+    # If True, the status bar pill shows the full absolute path: expands
+    # "global" to the on-disk platform-default path and skips the
+    # ~-substitution / left-truncation for project paths. Toggled by F4.
+    show_lilbee_path: bool = ConfigField(default=False, writable=True)
+
+    # Whether an agent launcher (opencode, hermes) registers lilbee's MCP search
+    # tool into the agent's config. Per-launch --mcp/--no-mcp overrides it.
+    agent_mcp_enabled: bool = ConfigField(default=True, writable=True)
+
+    # Empty = not configured, same convention as vision_model. A fresh install
+    # has no models; the catalog assigns these on the first download.
+    chat_model: str = Field(default="")
+    embedding_model: str = Field(default="")
+    # Vision OCR model for scanned PDFs and image-only pages. Empty = disabled;
+    # there is no cross-role fallback onto the chat model even if multimodal.
+    vision_model: str = ConfigField(default="", public=True)
+    embedding_dim: int = Field(
+        default=768,
+        ge=1,
+        description=(
+            "Vector width the index is built with. The embedding model sets it; "
+            "change it only to match a model lilbee cannot introspect"
+        ),
+    )
+    chunk_size: int = ConfigField(default=512, ge=64, writable=True, reindex=True)
+    chunk_overlap: int = ConfigField(default=100, ge=0, writable=True, reindex=True)
+    # A file over this many chunks is skipped before embedding; 0 lifts the ceiling.
+    max_chunks_per_file: int = ConfigField(default=3_000, ge=0, writable=True)
+    # Workers for the parallel discovery/hash planning pass. 0 = auto, sized to
+    # the container-aware CPU budget (see runtime.cpu.available_cpu_count).
+    # `add --max-cpus N` sets this per invocation. Sizes only the planning pass,
+    # not the GPU-fed extract/embed batch.
+    ingest_workers: int = ConfigField(default=0, ge=0, writable=True)
+    # Worker PROCESSES for a bulk ingest (distinct from ingest_workers, which sizes
+    # the planning pass's threads). Each owns a GPU, a private store and its own
+    # slice of the corpus, and the shards are folded into one index at the end.
+    # 0 = auto: one worker per visible card, used once the corpus is big enough to
+    # pay for them. N pins the count; worker i takes card i % card_count, so more
+    # workers than cards share a card's engine rather than double-booking it.
+    ingest_processes: int = ConfigField(default=0, ge=0, writable=True)
+    # Passages packed into one embed request. Larger batches keep a GPU's
+    # continuous-batching slots full: small per-passage requests leave the card
+    # batch-starved (~96% util, low throughput). The engine still re-splits to
+    # its physical batch, so raising this only helps up to the server's --batch.
+    embed_batch_sequences: int = ConfigField(
+        default=64,
+        ge=1,
+        writable=True,
+        description=(
+            "Passages packed into one embed request. Larger batches keep a GPU's "
+            "continuous-batching slots full. The engine re-splits to its physical "
+            "batch, so raising this helps only up to the server's --batch"
+        ),
+    )
+    # Files allowed in their compute phase at once during ingest. 0 = auto: the
+    # ceiling scales with the detected embed fleet (replicas x per-replica
+    # in-flight) so a multi-GPU box is kept fed without a manual cap, falling back
+    # to the CPU quota on a single card. Set a positive value only to override the
+    # auto sizing. Sizes the extract+embed fan-out, not the plan pass.
+    ingest_max_inflight: int = ConfigField(
+        default=0,
+        ge=0,
+        writable=True,
+        description=(
+            "Files allowed in their compute phase at once during ingest. 0 = auto, "
+            "scaled to the detected embed fleet. Sizes the extract and embed fan-out, "
+            "not the planning pass"
+        ),
+    )
+    # Gate for the pre-ask sync; --no-sync overrides per invocation.
+    auto_sync: bool = ConfigField(default=True, writable=True)
+    max_embed_chars: int = Field(
+        default=2000,
+        ge=1,
+        description="Maximum characters sent to the embedding model per chunk. Longer text is cut",
+    )
+    top_k: int = ConfigField(default=12, ge=1, writable=True)
+    max_distance: float = ConfigField(default=0.75, ge=0.0, writable=True)
+    # Abstention floor against the [0, 1] fused relevance score (0.0 = no
+    # filtering). When every retrieved chunk falls below it, ask refuses instead
+    # of feeding noise as context. The fused score normalizes against the
+    # configured weight budget (a constant), so an arm's top hit scores a stable
+    # share of it; useful floors start around 0.4. Tune against your own corpus.
+    min_relevance_score: float = ConfigField(default=0.0, ge=0.0, writable=True)
+    adaptive_threshold: bool = ConfigField(default=False, writable=True)
+    rag_system_prompt: str = ConfigField(
+        default=DEFAULT_RAG_SYSTEM_PROMPT, min_length=1, writable=True
+    )
+    general_system_prompt: str = ConfigField(
+        default=DEFAULT_GENERAL_SYSTEM_PROMPT, min_length=1, writable=True
+    )
+    chat_mode: ChatMode = ConfigField(default=ChatMode.SEARCH, writable=True)
+    ignore_dirs: frozenset[str] = Field(
+        default=DEFAULT_IGNORE_DIRS,
+        description=(
+            "Directory names ingest never walks (.git, node_modules, and similar). "
+            "Use a .lilbeeignore file for per-library patterns"
+        ),
+    )
+    # Which pages OCR reads; vision_model picks the engine (set: vision, empty: Tesseract).
+    ocr: OcrMode = ConfigField(default=OcrMode.AUTO, writable=True)
+    # Per-page timeout in seconds for vision OCR (0 = no limit). Sized so a dense
+    # full-page scan finishes on modest hardware; a raised vision_ocr_max_tokens
+    # needs matching headroom here.
+    ocr_timeout: float = ConfigField(default=300.0, ge=0.0, writable=True)
+    # Outer wall-clock budget for the streamed pool drain: load grace plus
+    # per_page * pages. Tune up for slow hardware (M1 Pro vision is
+    # ~5min/page) or down for fast hardware. ocr_timeout still governs the
+    # per-page expectation that drives the total budget.
+    vision_load_budget_s: float = ConfigField(default=300.0, ge=0.0, writable=True)
+    # Hard cap on tokens generated per OCR page. A real page is well under this;
+    # the vision request's repeat penalty stops a page looping one line, and the cap
+    # bounds any loop that still escapes it. Raising it lengthens per-page
+    # generation on dense scans, so give ocr_timeout matching headroom.
+    vision_ocr_max_tokens: int = ConfigField(default=4096, ge=256, writable=True)
+    # Pages OCR'd concurrently, and the vision server's continuous-batching slots.
+    # A single-page decode underutilizes a modern GPU (~half SM); batching several
+    # pages raises throughput. Each slot adds KV cache, so lower it on small GPUs.
+    vision_ocr_concurrency: int = ConfigField(default=4, ge=1, writable=True)
+
+    # Tesseract OCR language codes for the scanned-document fallback (used when no
+    # vision model is set), e.g. ["eng"] or ["eng", "deu"]. Set via env as
+    # LILBEE_OCR_LANGUAGE="eng+deu". xberg requires a non-empty list.
+    ocr_language: list[str] = ConfigField(default_factory=lambda: ["eng"], writable=True)
+    # PDF pages xberg OCRs. auto = pages whose native text fails its quality
+    # check; scanned_pages also OCRs every page graded as a scan.
+    ocr_strategy: OcrPageStrategy = ConfigField(default=OcrPageStrategy.AUTO, writable=True)
+    # Scan-grade threshold for scanned_pages. A slide with a full-bleed
+    # background image grades 0.5, so lower this to OCR such slides too.
+    ocr_scan_confidence: float = ConfigField(default=0.7, ge=0.0, le=1.0, writable=True)
+    # 1-indexed pages that lilbee OCRs in every PDF; while set, it replaces the
+    # ocr_strategy page selection. Env form: LILBEE_FORCE_OCR_PAGES="1,3".
+    force_ocr_pages: list[int] = ConfigField(default_factory=list, writable=True)
+    # Typed entity table for exact counting/cross-referencing; corpus-scale pass, off by default.
+    entity_extraction: bool = ConfigField(default=False, writable=True)
+    semantic_chunking: bool = ConfigField(default=False, writable=True)
+    topic_threshold: float = ConfigField(default=0.75, ge=0.0, le=1.0, writable=True)
+    # Size chunks in real tokens via the embedder's tokenizer backend, not the
+    # chars-per-token heuristic. Plain/heading chunkers only; semantic sizes by chars.
+    token_sizing: bool = ConfigField(default=False, writable=True, reindex=True)
+    # Index each recognized table as its own markdown-serialized chunk.
+    table_extraction: bool = ConfigField(default=False, writable=True, reindex=True)
+    # Layout-aware PDF extraction (reading-order sort, header/footer stripping),
+    # run in xberg's AUTO strategy so detection only fires when it helps. Off by
+    # default: enabling it downloads the ONNX layout and table-structure models
+    # and adds per-page inference, which a CPU-only ingest pays for.
+    layout_detection: bool = ConfigField(default=False, writable=True, reindex=True)
+    # Table structure model; only applied when layout_detection is on.
+    table_model: TableModel = ConfigField(
+        default=TableModel.SLANET_AUTO, writable=True, reindex=True
+    )
+    # Wall-clock cap per file for one xberg extraction, seconds. 0 = no cap.
+    # xberg's own default is 600s and applies on its batch path, so leaving this
+    # unset drops a slow file at ten minutes with no lilbee knob to raise it.
+    # Zero matches the uncapped single-file path, and ingest is background work.
+    extraction_timeout: int = ConfigField(default=0, ge=0, writable=True)
+    # Coalesce concurrent extractions into one xberg extract_batch call.
+    batch_extraction: bool = ConfigField(default=False, writable=True)
+    batch_extraction_size: int = ConfigField(default=8, ge=1, writable=True)
+    # xberg's shared thread budget: PDF rendering, OCR and ONNX inference. It
+    # also bounds concurrent Tesseract sessions, which xberg further limits to
+    # what free memory holds. 0 = auto, runtime.cpu.cpu_quota() (half the usable
+    # CPUs). The rayon pool is fixed at the first extraction, so a change takes
+    # full effect after a restart.
+    extraction_threads: int = ConfigField(default=0, ge=0, writable=True)
+    # Size of anyio's thread pool: synchronous handlers (MCP tools, sync routes)
+    # that may run off the event loop at once. The ceiling on agents one daemon
+    # serves before their calls queue.
+    mcp_tool_threads: int = ConfigField(default=40, ge=1, writable=True)
+    # Crawled pages converted to markdown on anyio's thread pool at once. The
+    # conversion is synchronous, so this keeps it off the event loop that serves
+    # requests. 0 converts inline on the loop.
+    crawl_convert_workers: int = ConfigField(default=2, ge=0, writable=True)
+    server_host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Address `lilbee serve` binds. Loopback by default; set 0.0.0.0 to accept "
+            "connections from the network"
+        ),
+    )
+    server_port: int = Field(
+        default=0,
+        ge=0,
+        le=65535,
+        description="Port `lilbee serve` binds. 0 picks a free port and prints it",
+    )
+    cors_origins: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra browser origins the HTTP server accepts, in addition to cors_origin_regex"
+        ),
+    )
+    cors_origin_regex: str = Field(
+        default=DEFAULT_CORS_ORIGIN_REGEX,
+        description="Regular expression matching browser origins the HTTP server accepts",
+    )
+    # Seconds between SSE heartbeat events when the producer queue is idle.
+    # Must stay well below the plugin's STREAM_IDLE_TIMEOUT_MS (120s) so a
+    # single long-running vision OCR page can't starve the client into aborting.
+    sse_heartbeat_interval: float = ConfigField(default=30.0, ge=0.0, writable=True)
+    json_mode: bool = Field(
+        default=False,
+        description=(
+            "Emit structured JSON from CLI commands. The --json flag sets it for one invocation"
+        ),
+    )
+    temperature: float | None = ConfigField(default=0.1, ge=0.0, writable=True)
+    top_p: float | None = ConfigField(default=0.9, ge=0.0, le=1.0, writable=True)
+    top_k_sampling: int | None = ConfigField(default=40, ge=1, writable=True)
+    # 1.1 is llama.cpp's default. Leaving this at None caused n-gram loops
+    # ("tire tire tire...") on some open-weights models.
+    repeat_penalty: float | None = ConfigField(default=1.1, ge=0.0, writable=True)
+    num_ctx: int | None = ConfigField(default=None, ge=1, writable=True)
+    max_tokens: int | None = ConfigField(default=4096, ge=1, writable=True)
+    seed: int | None = ConfigField(default=None, writable=True)
+    llm_provider: LlmProvider = ConfigField(default=LlmProvider.AUTO, writable=True)
+    # Path to a llama-server binary. Empty = use the bundled lilbee-engine
+    # wheel binary, else a llama-server on PATH.
+    llama_server_path: str = ConfigField(default="", writable=True)
+    # Per-server local model-manager URLs. Blank means "use the server's spec
+    # default" (resolved in providers.local_servers.config_urls); the default
+    # URL literal lives only in the spec, which core must not import.
+    ollama_base_url: str = ConfigField(default="", writable=True)
+    lm_studio_base_url: str = ConfigField(default="", writable=True)
+    llm_api_key: str = ConfigField(default="", writable=True, write_only=True)
+    openrouter_api_key: str = ConfigField(default="", writable=True, write_only=True)
+    gemini_api_key: str = ConfigField(default="", writable=True, write_only=True)
+    anthropic_api_key: str = ConfigField(default="", writable=True, write_only=True)
+    openai_api_key: str = ConfigField(default="", writable=True, write_only=True)
+    mistral_api_key: str = ConfigField(default="", writable=True, write_only=True)
+    deepseek_api_key: str = ConfigField(default="", writable=True, write_only=True)
+    hf_token: str = ConfigField(default="", writable=True, write_only=True)
+
+    # Retrieval quality knobs.
+
+    # Max chunks per source in top-k; prevents one large file monopolizing results.
+    diversity_max_per_source: int = ConfigField(default=5, ge=1, writable=True)
+
+    # MMR relevance/diversity tradeoff; 0 = max diversity, 1 = pure relevance
+    # (Carbonell & Goldstein 1998).
+    mmr_lambda: float = ConfigField(default=0.5, ge=0.0, le=1.0, writable=True)
+
+    # Vector-only search retrieves this many candidates per final result so
+    # MMR reranking has a pool to diversify from. Hybrid search ignores it:
+    # fusion arms stay exactly top_k deep.
+    candidate_multiplier: int = ConfigField(default=3, ge=1, writable=True)
+
+    # Third lexical arm in hybrid search: BM25 over document titles, fused with
+    # the vector and chunk arms so a query naming a document by title surfaces
+    # its chunks. Off by default until the eval harness measures it.
+    title_search: bool = ConfigField(default=False, writable=True)
+
+    # Title arm weight relative to a full arm in rank fusion (1.0 = equal voice
+    # with the vector and chunk arms).
+    title_search_weight: float = ConfigField(default=0.5, ge=0.0, le=1.0, writable=True)
+
+    # Lexical (BM25) arm weight relative to the vector arm in rank fusion.
+    # 1.0 gives the two arms equal voice; lowering it lets
+    # a strong dense embedder dominate on corpora where the lexical arm adds
+    # noise rather than signal. The right value is corpus-dependent and set by
+    # the retrieval benchmark, not guessed here.
+    lexical_fusion_weight: float = ConfigField(default=1.0, ge=0.0, le=1.0, writable=True)
+
+    # Adaptive fusion: scale the BM25 arm per query by vector-arm confidence
+    # instead of a fixed lexical_fusion_weight (a peaked dense ranking downweights
+    # lexical, a flat one keeps it). OFF by default, pending a benchmark run to
+    # confirm it beats the fixed weight. lexical_fusion_weight is the ceiling the
+    # rule scales down from. Set adaptive_fusion=true to enable it.
+    adaptive_fusion: bool = ConfigField(default=False, writable=True)
+
+    # Vector-similarity margin at which the lexical arm is fully silenced; smaller
+    # = more aggressive downweighting. 0 disables adaptation entirely (the lexical
+    # arm keeps its full fixed weight).
+    adaptive_fusion_margin: float = ConfigField(default=0.15, ge=0.0, le=2.0, writable=True)
+
+    # Stemmer/stop-word language for the BM25 (FTS) indexes, a tantivy language
+    # name ("English", "German", "French", ...). Applied when an index is
+    # (re)built, so changing it needs `lilbee rebuild` on an existing store.
+    # A bad name would otherwise fail index creation quietly and hybrid search
+    # would degrade to vector-only.
+    fts_language: FtsLanguage = ConfigField(
+        default=FtsLanguage.ENGLISH, writable=True, reindex=True
+    )
+
+    @field_validator("fts_language", mode="before")
+    @classmethod
+    def _validate_fts_language(cls, value: Any) -> FtsLanguage:
+        """Accept a language name in any casing, with surrounding whitespace."""
+        try:
+            return FtsLanguage(str(value).strip().title())
+        except ValueError as exc:
+            valid = ", ".join(member.value for member in FtsLanguage)
+            raise ValueError(f"fts_language must be one of: {valid}") from exc
+
+    # Prefix each chunk's document title to its embedding input (the stored
+    # chunk text is unchanged). Changes the embedding space: toggling it needs
+    # `lilbee rebuild`, so it ships off.
+    embed_titles: bool = ConfigField(default=False, writable=True, reindex=True)
+
+    # Contextual retrieval: prepend one LLM-written sentence situating each
+    # chunk in its document to the embedding input. One generation per chunk,
+    # so ingest slows substantially; stored text and citations stay verbatim.
+    # Toggling needs `lilbee rebuild`.
+    contextual_enrichment: bool = ConfigField(default=False, writable=True, reindex=True)
+
+    # Drop tables-of-contents and classification-banner cover/title pages from
+    # search results. OFF by default; validate per corpus, since the cover-page
+    # heuristic can also fire on short banner-carrying body pages. A query-matched
+    # or top-ranked page is never dropped, so removal is limited to structural
+    # chunks the query did not hit.
+    filter_structural_chunks: bool = ConfigField(default=False, writable=True)
+
+    # Chunk count at/above which sync builds an approximate (ANN) vector index
+    # so search stays fast at millions of vectors. Below this, search uses exact
+    # flat scan (faster and exact for small vaults). 0 disables the ANN index.
+    ann_index_threshold: int = ConfigField(default=50_000, ge=0, writable=True)
+
+    # Condense a follow-up question into a standalone retrieval query using
+    # the chat history (one LLM call; skipped when there is no history).
+    # Without it, "what about his brother?" is embedded and BM25-matched
+    # with its pronouns.
+    history_rewrite: bool = ConfigField(default=False, writable=True)
+
+    # Route questions by shape before top-k retrieval: a question naming a
+    # document resolves to that document's chunks; a count-shaped question
+    # runs a full-corpus scan (a count is a corpus property top-k cannot
+    # answer). Unrecognized shapes take the topical path unchanged.
+    intent_routing: bool = ConfigField(default=True, writable=True)
+
+    # Ask the chat model to classify count questions the deterministic
+    # patterns miss (phrasing variants, other languages). Adds one short LLM
+    # call to every turn the patterns don't already route, so it's opt-in.
+    intent_llm: bool = ConfigField(default=False, writable=True)
+
+    # LLM-generated alternative queries for expansion. 0 disables.
+    query_expansion_count: int = ConfigField(default=3, ge=0, writable=True)
+
+    # Skip LLM expansion when tokenized query length ≤ this. The LLM round-trip
+    # dominates latency on small local models; short queries already have strong
+    # BM25/vector signal. Concept-graph expansion still runs. 0 disables the skip.
+    expansion_short_query_tokens: int = ConfigField(default=2, ge=0, writable=True)
+
+    # Cosine-distance step when adaptive-widening retry kicks in.
+    adaptive_threshold_step: float = ConfigField(default=0.2, gt=0.0, writable=True)
+
+    # Reject expansion variants below expansion_similarity_threshold.
+    expansion_guardrails: bool = ConfigField(default=True, writable=True)
+
+    # Min cosine similarity between question and variant embeddings.
+    expansion_similarity_threshold: float = ConfigField(default=0.5, ge=0.0, le=1.0, writable=True)
+
+    # Saturating BM25 confidence (s / (s + 5)) above which query expansion is
+    # skipped; 0.8 corresponds to a raw BM25 score of 20.
+    expansion_skip_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Saturating BM25 confidence above which query expansion is skipped. "
+            "0.8 corresponds to a raw BM25 score of 20"
+        ),
+    )
+
+    # Min relative BM25 top-1 vs top-2 gap ((top - second) / top) to skip expansion.
+    expansion_skip_gap: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum relative BM25 gap between the top two hits that skips query expansion"
+        ),
+    )
+
+    # Chunks included in LLM context after adaptive selection.
+    max_context_sources: int = ConfigField(default=8, ge=1, writable=True)
+
+    # Adjacent chunks pulled from the same source on each side of every
+    # selected chunk and merged into one contiguous passage, so a hit that
+    # lands mid-argument regains the text before and after it. 0 disables.
+    # Capped: it is a small chunk radius (useful values are single digits), and
+    # the merged text is token-budget-bounded anyway, so a large value only
+    # inflates per-query fetch cost -- and a misread as a token count (e.g.
+    # 50000) would build a megabyte-long IN-predicate per source.
+    neighbor_expansion: int = ConfigField(default=0, ge=0, le=100, writable=True)
+
+    # HyDE (Gao et al. 2022): hypothetical-answer embedding search. +~500ms.
+    hyde: bool = ConfigField(default=False, writable=True)
+
+    # HyDE result weight relative to real-doc search (0.0-1.0).
+    hyde_weight: float = ConfigField(default=0.7, ge=0.0, le=1.0, writable=True)
+
+    # HyDE prompt template. Must contain {question} placeholder.
+    hyde_prompt: str = Field(
+        default=(
+            "Write a 50-100 word passage that directly answers this question as if "
+            "it were an excerpt from a real document. Do not include any preamble, "
+            "just write the passage.\n\nQuestion: {question}"
+        ),
+        description=(
+            "Prompt template HyDE uses to write the hypothetical answer. Must contain {question}"
+        ),
+    )
+
+    # Reranker model ref. Empty disables reranking. Native GGUFs run on
+    # llama-server (rank pooling or LLM logprob scoring); hosted refs
+    # (cohere/voyage/jina/together/hf-tei) need the backend extra.
+    reranker_model: str = ConfigField(default="", public=True)
+
+    # auto detects cross-encoder vs LLM reranker by GGUF arch; override forces one.
+    reranker_type: RerankerType = ConfigField(default=RerankerType.AUTO, writable=True, public=True)
+    # Relevance prompt for LLM rerankers; empty uses the built-in generic template.
+    # A format string with {query} and {document} placeholders.
+    reranker_prompt: str = ConfigField(default="", writable=True, public=True)
+
+    # Recommend safety-stripped models in Picks and Discover. Off keeps them
+    # in browse and search only; on restores them to the recommendations.
+    include_uncensored: bool = ConfigField(default=False, writable=True)
+
+    # Long-term chat memory. Off by default (opt-in): when disabled the whole
+    # subsystem is dormant and the write surfaces respond with an enable hint.
+    memory_enabled: bool = ConfigField(default=False, writable=True)
+
+    # Facts recalled by similarity per turn (preferences are always injected).
+    memory_top_k: int = ConfigField(default=5, ge=0, writable=True)
+
+    # Cosine-distance ceiling for fact recall; stricter than the document default
+    # because a tiny memory corpus floods at the wider document threshold.
+    memory_max_distance: float = ConfigField(default=0.6, ge=0.0, le=1.0, writable=True)
+
+    # Char/4 token budget for the injected memory block.
+    memory_token_budget: int = ConfigField(default=512, ge=0, writable=True)
+
+    # Per-owner soft cap; oldest memories evicted past it (runaway-write guard).
+    memory_max_per_owner: int = ConfigField(default=200, ge=1, writable=True)
+
+    # Cosine distance below which a new memory is treated as a duplicate of an
+    # existing same-owner memory and updates it in place instead of inserting.
+    memory_dedup_distance: float = ConfigField(default=0.05, ge=0.0, le=1.0, writable=True)
+
+    # LLM pass that extracts memories from the chat loop. Off by default; extracted
+    # memories are saved directly and recalled like any other memory.
+    memory_auto_extract: bool = ConfigField(default=False, writable=True)
+
+    # Candidate count sent to the reranker.
+    rerank_candidates: int = ConfigField(default=60, ge=1, writable=True, public=True)
+
+    # Blend reranker scores with the retrieval fusion signal (position-aware).
+    # Off = the cross-encoder's own ordering stands unblended, which isolates
+    # the reranker's effect when measuring it.
+    rerank_blend: bool = ConfigField(default=True, writable=True, public=True)
+
+    # Drop candidates whose RAW reranker score falls below this; unset = off.
+    # The scale is provider/model specific (bge logits can be negative, hosted
+    # rerankers use 0..1), so set it against observed scores.
+    rerank_min_score: float | None = ConfigField(default=None, writable=True, public=True)
+
+    # Date-range filter; only fires when a temporal keyword is detected.
+    temporal_filtering: bool = ConfigField(default=True, writable=True)
+
+    # If True, emit <think>…</think> content as separate SSE reasoning events;
+    # if False, strip it silently.
+    show_reasoning: bool = ConfigField(default=False, writable=True)
+
+    # How /v1/chat/completions presents a reasoning model's thinking. ``separate``
+    # reports it in ``reasoning_content`` (OpenAI-compatible); ``inline`` keeps it
+    # in ``content`` as <think> text for clients that never render
+    # ``reasoning_content``; ``off`` asks the model not to think. A request's
+    # ``reasoning`` field overrides this per call.
+    completions_reasoning: ReasoningMode = ConfigField(
+        default=ReasoningMode.SEPARATE, writable=True
+    )
+
+    # How /v1/messages presents a reasoning model's thinking. ``separate`` reports
+    # it as a ``thinking`` block (Anthropic-compatible); ``inline`` folds it into
+    # the answer text for clients that never render thinking blocks; ``off`` asks
+    # the model not to think and drops any thinking it produces anyway. A
+    # request's ``thinking`` parameter overrides this per call.
+    messages_reasoning: ReasoningMode = ConfigField(default=ReasoningMode.SEPARATE, writable=True)
+
+    # Maximum reasoning characters before lilbee forces the model to answer.
+    # Per-model overrides apply on top of this default. Approx N/4 tokens.
+    # 0 disables the cap (unlimited reasoning; accept the runaway-loop risk).
+    max_reasoning_chars: int = ConfigField(default=64_000, ge=0, writable=True)
+
+    # Web crawling.
+
+    # How crawls fetch pages. ``http`` (default) uses a plain HTTP client with
+    # no browser, the lightweight path for static / server-rendered sites.
+    # ``browser`` launches a tuned Chromium with JavaScript enabled for sites
+    # that render content client-side, at a much higher memory cost.
+    crawl_render_mode: CrawlRenderMode = ConfigField(default=CrawlRenderMode.HTTP, writable=True)
+
+    # Browser-mode memory levers (only used when crawl_render_mode is browser).
+    # Recycle the Chromium process every N fetched pages to cap RSS growth on a
+    # long recursive crawl; 0 disables recycling. Raise on a roomy machine for
+    # fewer restarts, lower it if memory is tight.
+    crawl_browser_recycle_pages: int = ConfigField(default=50, ge=0, writable=True)
+
+    # Extra Chromium launch flags for browser-mode crawls. Defaults trim shared
+    # memory and GPU use; override to pass site- or environment-specific flags.
+    crawl_browser_extra_args: list[str] = ConfigField(
+        default_factory=lambda: ["--disable-dev-shm-usage", "--disable-gpu"],
+        writable=True,
+    )
+
+    # Optional global ceilings. None = no ceiling.
+    crawl_max_depth: int | None = ConfigField(default=None, ge=0, writable=True)
+    crawl_max_pages: int | None = ConfigField(default=None, ge=1, writable=True)
+
+    # Default page bound for an unbounded crawl (no explicit max_pages /
+    # crawl_max_pages), so a hostile site can't exhaust the disk by default.
+    # An explicit limit overrides it; raise this to crawl larger sites unbounded.
+    crawl_safety_max_pages: int = ConfigField(default=5_000, ge=1, writable=True)
+
+    # Per-URL fetch timeout, seconds.
+    crawl_timeout: int = ConfigField(default=30, ge=1, writable=True)
+
+    # 0 = unlimited, default = CPU count.
+    crawl_max_concurrent: int = Field(
+        default=0,
+        ge=0,
+        description="Pages fetched in parallel during a crawl. 0 = unlimited; default = CPU count",
+    )
+
+    # Seconds between periodic syncs during crawl. 0 = sync only at end.
+    crawl_sync_interval: int = ConfigField(default=30, ge=0, writable=True)
+
+    # Per-request delay + jitter (defaults chosen to be gentler than crawl4ai's).
+    crawl_mean_delay: float = ConfigField(default=0.5, ge=0.0, writable=True)
+    crawl_max_delay_range: float = ConfigField(default=0.5, ge=0.0, writable=True)
+
+    # In-flight requests per crawl.
+    crawl_concurrent_requests: int = ConfigField(default=3, ge=1, writable=True)
+
+    # Per-domain rate-limiter that backs off on HTTP 429/503 and retries.
+    crawl_retry_on_rate_limit: bool = ConfigField(default=True, writable=True)
+    crawl_retry_base_delay_min: float = ConfigField(default=1.0, ge=0.0, writable=True)
+    crawl_retry_base_delay_max: float = ConfigField(default=3.0, ge=0.0, writable=True)
+    crawl_retry_max_backoff: float = ConfigField(default=30.0, ge=0.0, writable=True)
+    crawl_retry_max_attempts: int = ConfigField(default=3, ge=0, writable=True)
+
+    # Regex patterns dropped at link-discovery time. Defaults block CMS
+    # scaffolding (WordPress admin, archives, tracking params, etc.).
+    crawl_exclude_patterns: list[str] = ConfigField(
+        default_factory=lambda: list(DEFAULT_CRAWL_EXCLUDE_PATTERNS),
+        writable=True,
+    )
+
+    # Fraction of GPU/unified memory reserved for loaded models.
+    gpu_memory_fraction: float = ConfigField(default=0.75, ge=0.1, le=1.0, writable=True)
+
+    # Share of a card placement may charge, leaving room for allocator
+    # fragmentation and driver overhead. Tunable because it decides admission: at
+    # the default, a 16 GB machine whose chat model needs 12-13 GB can be refused
+    # chat entirely, and the owner is the one who knows whether that card has the
+    # room. Raising it trades safety margin for the ability to serve at all.
+    usable_vram_fraction: float = ConfigField(default=0.9, ge=0.5, le=1.0, writable=True)
+
+    # RAM held back for the OS when placing against system memory, in GiB. Capped
+    # at a quarter of total RAM either way, so a small host keeps its proportional
+    # reserve however this is set.
+    system_memory_reserve_gb: float = ConfigField(default=4.0, ge=0.0, le=64.0, writable=True)
+
+    # Data-parallel replicas of the embed / vision role across GPUs: N independent
+    # servers, round-robined, so large-scale ingest fans the embedding / OCR work
+    # across the whole box. 0 means "auto": one replica per detected GPU, capped by
+    # the VRAM left after the persistent query fleet (chat, one embed, rerank, one
+    # vision) is reserved. A positive value pins the count. The extra replicas are
+    # ingest-only and reclaimed when ingest ends; the persistent query embedder /
+    # vision (replica 0) always exists if its model fits.
+    embed_replicas: int = ConfigField(default=0, ge=0, writable=True)
+    vision_replicas: int = ConfigField(default=0, ge=0, writable=True)
+
+    # Seconds a model stays loaded after last use. 0 = unload immediately.
+    model_keep_alive: int = ConfigField(default=300, ge=0, writable=True)
+
+    # Spawn every configured role server at startup instead of on first use.
+    # Trades a slower TUI mount (the role servers cold-start in parallel) for a
+    # responsive first interaction. Roles whose model is unset are skipped, so a
+    # setup with only chat + embed never spawns rerank or vision. Set to false
+    # for headless / scripted use where the first call doesn't need to be fast.
+    worker_pool_eager_start: bool = ConfigField(default=True, writable=True)
+
+    # Leave the engine fleet running on quit so the next launch adopts it warm.
+    # On keeps the engine process alive across app close so the next launch
+    # binds instantly; its weights still follow engine_idle_ttl_minutes. Off
+    # (default): the engine stops when the last lilbee process exits, leaving
+    # the machine clean.
+    keep_engine_warm: bool = ConfigField(default=False, writable=True)
+
+    # Hugging Face's high-performance transfer mode: more connections and much
+    # larger in-flight buffers. Off by default, those ceilings suit a server
+    # rather than a laptop also holding a model in memory.
+    fast_model_downloads: bool = ConfigField(default=False, writable=True)
+
+    # Idle minutes before the engine unloads its weights (llama-swap ttl), in
+    # every mode: even a persistent engine naps when unused. 0 keeps weights
+    # loaded until the engine stops.
+    engine_idle_ttl_minutes: int = ConfigField(default=5, writable=True)
+
+    # Working n_ctx the dynamic picker aims for. Default scales with
+    # total host RAM (see core.system.chat_ctx_target_for_total_bytes):
+    # <16 GiB -> 8192, 16-32 -> 12288, 32-64 -> 16384, 64-128 -> 24576,
+    # >=128 -> 65536 (an agent-capable window on server-class hosts).
+    # 8192 is the floor; the picker still clamps to training_ctx and
+    # host headroom.
+    chat_n_ctx_target: int = ConfigField(
+        default_factory=scaled_chat_ctx_target_default,
+        ge=512,
+        writable=True,
+    )
+
+    # Condense turns that outgrow chat_n_ctx_target into carried notes instead
+    # of dropping them. Off: zero model calls; the oldest turns drop and the
+    # context chip shows it. On: each firing blocks on a summarize call
+    # (measured: 1.3-2.5s per 60-turn fold on a datacenter GPU, 0.7-2s on an
+    # 8-core CPU with a 0.6B-4B model).
+    chat_compaction: bool = ConfigField(default=False, writable=True)
+
+    # Persist conversations and expose the Sessions drawer, tab, and commands.
+    # On by default; turning it off stops chats being written to disk, hides the
+    # ctrl+o binding from the footer, and gates the Sessions view behind a notice.
+    # Governs the human surfaces (TUI, HTTP, CLI); agent sessions have their own
+    # flag below, so the two domains the store already separates stay separate.
+    sessions_enabled: bool = ConfigField(default=True, writable=True)
+
+    # The agent (MCP) half of the same feature, off by default: agent hosts
+    # generally track their own conversation history, and the seven session
+    # tools cost schema on every request whether or not anything uses them.
+    mcp_sessions_enabled: bool = ConfigField(default=False, writable=True)
+
+    # Explicit ceiling for the dynamic n_ctx picker. ``None`` (default)
+    # lets the model's training_ctx from GGUF metadata be the ceiling,
+    # so a 128K-context model can reach for it on a host with the RAM
+    # to back it. Set explicitly to cap below the model's training_ctx.
+    num_ctx_max: int | None = ConfigField(default=None, ge=512, writable=True)
+
+    # Flash attention. None (default) = on, True = force on, False = off
+    # for backends or models where it misbehaves.
+    # Resolves the 'padding V cache to 1024' warning on models with
+    # uneven per-layer V dims (e.g. Gemma3) and saves ~25% KV memory.
+    flash_attention: bool | None = ConfigField(default=None, writable=True)
+
+    # KV cache element type. q8_0 (default) halves cache memory vs f16
+    # with no measurable quality loss for chat; q4_0 quarters it with a
+    # small quality cost. Both require flash attention to be enabled.
+    kv_cache_type: KvCacheType = ConfigField(default=KvCacheType.Q8_0, writable=True)
+
+    # Number of model layers to offload to GPU. None (default) = all
+    # layers, 0 = CPU only, positive int = partial offload. Useful when a
+    # discrete GPU has less VRAM than the model needs.
+    n_gpu_layers: int | None = ConfigField(default=None, writable=True)
+
+    # Keep a MoE model's expert weights in system memory, attention and shared
+    # layers on the GPU. Lets a sparse model run on a card too small to hold it.
+    # No effect on dense models, which have no expert tensors.
+    cpu_moe: bool = ConfigField(default=False, writable=True)
+
+    # Offload only the first N layers' experts. Takes precedence over cpu_moe;
+    # a smaller N keeps more of the model resident.
+    n_cpu_moe: int | None = ConfigField(default=None, writable=True)
+
+    # GPU device picker for dual-GPU machines (typical laptop case:
+    # discrete NVIDIA + integrated Intel/AMD). The Vulkan backend
+    # enumerates every adapter the system exposes and may pick the
+    # integrated one first, producing stalls or OOMs that look like
+    # llama.cpp bugs. Setting ``gpu_devices`` constrains visibility
+    # before the servers spawn, pinning inference to the chosen device(s).
+    #
+    # Accepts a comma-separated list of device indexes ("0", "1",
+    # "0,1") and applies it to every backend simultaneously:
+    # ``GGML_VK_VISIBLE_DEVICES`` for Vulkan, ``CUDA_VISIBLE_DEVICES``
+    # for CUDA, ``HIP_VISIBLE_DEVICES`` / ``ROCR_VISIBLE_DEVICES`` for
+    # ROCm. Setting one variable that the active backend ignores is
+    # harmless, so we set all four rather than detecting the build.
+    #
+    # Must be set before the first llama.cpp call; in practice that
+    # means via ``LILBEE_GPU_DEVICES`` or ``config.toml`` (TUI edits
+    # only take effect after a restart). ``None`` (default) hands off
+    # to the autodetect in ``providers/fleet/gpu_select.py``,
+    # which parses ``vulkaninfo --summary`` and pins the discrete
+    # adapter when one is present. The autodetect is silent on failure
+    # (no vulkaninfo, single device, parse error), leaving the
+    # Vulkan-loader's default ordering in place.
+    gpu_devices: str | None = ConfigField(default=None, writable=True)
+
+    # Primary GPU index passed to ``Llama(main_gpu=...)``. Only matters
+    # when multiple devices remain visible after ``gpu_devices``; with
+    # a single visible device, llama.cpp ignores this. ``None``
+    # (default) lets llama.cpp pick (index 0).
+    main_gpu: int | None = ConfigField(default=None, writable=True)
+
+    # Manual GPU placement override stored as a JSON scalar (the config.toml store
+    # is flat, and core must not depend on the provider PlacementSpec type). When
+    # set, it fully replaces the automatic placement planner: each active role pins
+    # to the listed device indices, with an optional tensor_split and replica count.
+    # Edited via the placement CLI/MCP/HTTP/TUI surfaces rather than the generic
+    # settings list, so public=False. None hands off to the VRAM-aware auto planner.
+    placement: str | None = ConfigField(
+        default=None,
+        writable=True,
+        public=False,
+        description=(
+            "Manual multi-GPU placement spec. It fully replaces the automatic planner: "
+            "each active role pins to the listed device indices. Edit it with the "
+            "placement commands, not the settings list. Empty uses the VRAM-aware planner"
+        ),
+    )
+
+    # Allow PUT/DELETE /api/placement to apply or clear placement over HTTP.
+    # Off by default because applying placement restarts the shared fleet's moved roles, which
+    # is unsafe across concurrent HTTP clients. Turn it on (LILBEE_ALLOW_HTTP_PLACEMENT=1)
+    # only for a single-client / owned deployment: the plugin's managed local
+    # server, or a personally-owned pod where one operator runs `lilbee serve`.
+    allow_http_placement: bool = Field(
+        default=False,
+        description=(
+            "Let PUT and DELETE /api/placement change model placement over HTTP. Off by "
+            "default because applying placement restarts the moved roles, which is unsafe "
+            "with concurrent clients. Turn it on only for a deployment you alone use"
+        ),
+    )
+
+    # True = Markdown widget for chat; False = plain Static (faster).
+    markdown_rendering: bool = Field(
+        default=True,
+        description=(
+            "Render chat replies as Markdown in the TUI. Off draws plain text, which is faster"
+        ),
+    )
+
+    # TUI theme name; persists the last Ctrl+T pick across sessions.
+    theme: str = ConfigField(default="rose-pine", writable=True)
+
+    # Per-model generation defaults set via apply_model_defaults().
+    _model_defaults: Any = None
+
+    # Wiki layer. LLM-maintained synthesis pages with citation provenance.
+    # Off by default; flip to True (or set LILBEE_WIKI=1) to enable. When off,
+    # the Wiki view tab and the chat ModelBar's scope picker are both hidden.
+    wiki: bool = ConfigField(default=False, writable=True)
+    # Whether a sync regenerates touched wiki pages on its own. Off by
+    # default: enabling the wiki never starts generating by itself, the
+    # user wikifies explicitly via `lilbee wiki build` / `wiki update`.
+    wiki_auto_update: bool = ConfigField(default=False, writable=True)
+    # Read-only: changing the directory at runtime strands prior wiki pages
+    # under the old path. Users who want a different location set it via
+    # LILBEE_WIKI_DIR / config.toml before the first wiki_build.
+    wiki_dir: str = "wiki"
+    wiki_prune_raw: bool = ConfigField(default=False, writable=True)
+
+    # Minimum cosine similarity between a page body and the mean of its
+    # source chunk vectors before a page is published (below → drafts).
+    # Replaces the old LLM-based faithfulness score: mean-of-chunks is a
+    # deterministic, zero-LLM-call signal that routes topic-drifted
+    # pages to drafts without the 0.0 to 1.0 ambiguity of a model-emitted
+    # number. Tuning knob: swap to per-chunk max or top-K-mean if the
+    # default 0.5 produces false drafts.
+    wiki_embedding_faithfulness_threshold: float = ConfigField(
+        default=0.5, ge=0.0, le=1.0, writable=True
+    )
+
+    # Per-call output token cap for wiki generation. Without this a
+    # reasoning model (Qwen3, DeepSeek-R1) can burn the full context
+    # window emitting <think> tokens before the actual answer, taking
+    # minutes per page. Default leaves headroom for a typical reasoning
+    # budget plus a real response (~1000 output + ~1000 slack).
+    wiki_summary_max_tokens: int = ConfigField(default=2048, ge=256, writable=True)
+
+    # Wiki generation is a structured-output task: the model must emit the
+    # block separators, the citation footnotes, and verbatim quotes. The
+    # usual chat default (~0.8) is too creative for that. Lowering the
+    # sampling temperature makes the model stick to the template and quote
+    # more faithfully. 0.1 leaves just enough slack to avoid hard loops.
+    wiki_temperature: float = ConfigField(default=0.1, ge=0.0, le=2.0, writable=True)
+
+    # Fraction of citations that must be stale before a wiki page is flagged.
+    wiki_stale_citation_threshold: float = ConfigField(default=0.5, ge=0.0, le=1.0, writable=True)
+
+    # Fraction of content changed that triggers human-review drift guard.
+    wiki_drift_threshold: float = ConfigField(default=0.3, ge=0.0, le=1.0, writable=True)
+
+    # LLM prompt templates for wiki page generation: wiki_synthesis_prompt
+    # for cross-source synthesis pages, wiki_entity_batch_prompt (below)
+    # for the per-source batched call. Writable so advanced users can
+    # override them from /settings, config.toml, or ``LILBEE_WIKI_*_PROMPT``
+    # env vars. Templates must keep the expected ``{placeholders}``. If you
+    # remove one the generator will crash on first use.
+    wiki_synthesis_prompt: str = ConfigField(
+        writable=True,
+        default=(
+            "You are a knowledge compiler. Given source chunks from MULTIPLE documents "
+            "about related concepts, write a synthesis wiki page in markdown that connects "
+            "ideas across sources.\n\n"
+            "Rules:\n"
+            "1. Every factual claim MUST have an inline citation [^src1], [^src2], etc. "
+            "Never cite by chunk label: [Chunk N] labels only organize the "
+            "chunks below and must not appear in the page.\n"
+            "2. Cite the EXACT text from the source that supports each claim by quoting it.\n"
+            "3. For connections, interpretations, or patterns you identify across sources, "
+            "mark with [*inference*].\n"
+            "4. Use blockquotes (>) for directly cited facts.\n"
+            "5. Reference each source by its filename when drawing connections.\n"
+            "6. End with a citation block in this format:\n\n"
+            "---\n"
+            "<!-- citations (auto-generated from _citations table -- do not edit) -->\n"
+            '[^src1]: {{source_name}}, excerpt: "exact quoted text"\n'
+            '[^src2]: {{source_name}}, excerpt: "exact quoted text"\n\n'
+            "Topic: {topic}\n\n"
+            "Sources:\n{source_list}\n\n"
+            "Chunks:\n{chunks_text}\n\n"
+            "Write the synthesis page now. Start with a heading."
+        ),
+    )
+
+    # Wiki synthesis clusterer backend. CONCEPTS requires the [graph] extra
+    # and falls back to EMBEDDING when unavailable.
+    wiki_clusterer: ClustererBackend = ConfigField(
+        default=ClustererBackend.EMBEDDING, writable=True
+    )
+
+    # Neighborhood size for the mutual-kNN graph. 0 = auto-scale from corpus size.
+    wiki_clusterer_k: int = ConfigField(default=0, ge=0, writable=True)
+
+    # LazyGraphRAG-style concept graph. Requires the [graph] extra.
+    concept_graph: bool = ConfigField(default=True, writable=True)
+
+    # Weight of concept overlap boost relative to vector similarity.
+    concept_boost_weight: float = ConfigField(default=0.3, ge=0.0, le=1.0, writable=True)
+
+    # Max noun-phrase concepts extracted per chunk.
+    concept_max_per_chunk: int = ConfigField(default=5, ge=1, writable=True)
+
+    # spaCy NER labels kept by the wiki entity extractor. Anything not
+    # in this set (QUANTITY, CARDINAL, DATE, TIME, MONEY, PERCENT,
+    # ORDINAL, ...) is dropped before aggregation. Override via
+    # LILBEE_CONCEPT_ALLOWED_ENT_TYPES as a comma-separated list.
+    concept_allowed_ent_types: frozenset[str] = Field(
+        default=DEFAULT_ALLOWED_NER_LABELS,
+        description=(
+            "spaCy NER labels the wiki entity extractor keeps. It drops everything else "
+            "(QUANTITY, CARDINAL, DATE, and so on) before aggregation"
+        ),
+    )
+
+    # Strategy used to extract entities for the concept/entity wiki.
+    # NER_ENTITIES (default) pulls typed NER entities with spaCy; concept
+    # pages are proposed by the LLM inside the per-source batched call,
+    # not by the extractor. NER_CONCEPTS_PLUS_LLM_TYPES layers an
+    # LLM-proposed domain schema on top. LLM_TAGGED asks the LLM to tag
+    # every chunk (most expensive). Unimplemented modes fall back to
+    # NER_ENTITIES.
+    wiki_entity_mode: WikiEntityMode = ConfigField(
+        default=WikiEntityMode.NER_ENTITIES, writable=True
+    )
+
+    # Minimum distinct chunk mentions before an entity or concept earns
+    # its own wiki page. Filters one-off noise.
+    wiki_entity_min_mentions: int = ConfigField(default=3, ge=1, writable=True)
+    wiki_stub_max_chunk_refs: int = ConfigField(default=50, ge=1, writable=True)
+
+    # Auto-update cap: if a single sync touches more than this many
+    # concept or entity pages, skip the per-slug regeneration and tell
+    # the user to run `lilbee wiki update` explicitly. Keeps a surprise
+    # bulk import from firing hundreds of LLM calls.
+    wiki_ingest_update_cap: int = ConfigField(default=20, ge=1, writable=True)
+
+    # Whether the per-source batched call asks the LLM to curate
+    # concept pages alongside the pre-extracted entity list. False →
+    # entity sections only, no concept curation (incremental ingest
+    # path uses this to avoid churning concept slugs per source-touch).
+    wiki_extract_concepts: bool = ConfigField(default=True, writable=True)
+
+    # Minimum chunk count a source must contribute before it is eligible
+    # for concept curation. Sources below the floor still get a batched
+    # call when they have entities (the prompt writes entity-only
+    # sections); sources below the floor with zero entities are skipped
+    # entirely. Prevents boilerplate / TOC / appendix documents from
+    # burning an LLM call to invent "concepts".
+    wiki_batch_min_chunks: int = ConfigField(default=3, ge=1, writable=True)
+
+    # Prompt template for the per-source batched call. Placeholders:
+    # {source}, {entity_list}, {chunks_text}, {concept_instruction}.
+    # {concept_instruction} is filled with a concept-curation paragraph
+    # when concepts are requested, or the empty string otherwise.
+    # Single-entity page written on demand from that entity's chunks across
+    # every source naming it. The batched prompt above cannot serve this: it
+    # writes every section for one source in one call.
+    wiki_entity_page_prompt: str = ConfigField(
+        writable=True,
+        default=(
+            "You are a knowledge compiler. Given source chunks that mention "
+            "ONE subject, write a wiki page about that subject in markdown.\n\n"
+            "Rules:\n"
+            "1. Every factual claim MUST have an inline citation [^src1], [^src2], etc. "
+            "Never cite by chunk label: [Chunk N] labels only organize the "
+            "chunks below and must not appear in the page.\n"
+            "2. Cite the EXACT text from the source that supports each claim by quoting it.\n"
+            "3. Write only what the chunks support. Mark anything you infer with "
+            "[*inference*].\n"
+            "4. Use blockquotes (>) for directly cited facts.\n"
+            "5. When sources disagree, say so and cite both.\n"
+            "6. End with a citation block in this format:\n\n"
+            "---\n"
+            "<!-- citations (auto-generated from _citations table -- do not edit) -->\n"
+            '[^src1]: {{source_name}}, excerpt: "exact quoted text"\n'
+            '[^src2]: {{source_name}}, excerpt: "exact quoted text"\n\n'
+            "Subject: {topic}\n\n"
+            "Sources:\n{source_list}\n\n"
+            "Chunks:\n{chunks_text}\n\n"
+            "Write the page now. Start with a heading naming the subject."
+        ),
+    )
+    wiki_entity_batch_prompt: str = ConfigField(
+        writable=True,
+        default=(
+            "You are writing wiki sections based on these chunks from {source}.\n\n"
+            "{concept_instruction}"
+            "Write a wiki section for each of these NER ENTITIES: {entity_list}\n\n"
+            "Format each section exactly as:\n"
+            "## Name\n"
+            "{{content with [^src1]-style citations}}\n\n"
+            "Rules:\n"
+            "1. Every factual claim MUST have an inline citation [^src1], [^src2], etc. "
+            "Never cite by chunk label: [Chunk N] labels only organize the "
+            "chunks below and must not appear in the page.\n"
+            "2. Cite the EXACT text from the source that supports each claim by quoting it.\n"
+            "3. For interpretations or connections not directly stated, mark with [*inference*].\n"
+            "4. Use blockquotes (>) for directly cited facts.\n"
+            "5. End the response with a citation block in this format:\n\n"
+            "---\n"
+            "<!-- citations (auto-generated from _citations table -- do not edit) -->\n"
+            '[^src1]: {{source_name}}, excerpt: "exact quoted text"\n'
+            '[^src2]: {{source_name}}, excerpt: "exact quoted text"\n\n'
+            "Source chunks:\n{chunks_text}\n"
+        ),
+    )
+
+    # Class variable: not a settings field
+    _toml_cache: ClassVar[dict[str, Any]] = {}
+
+    @field_validator("lilbee_name", mode="after")
+    @classmethod
+    def _strip_lilbee_name(cls, value: str) -> str:
+        """Strip whitespace; an empty string signals 'use the path-derived label'."""
+        return value.strip()
+
+    @field_validator(
+        "temperature",
+        "top_p",
+        "repeat_penalty",
+        "top_k_sampling",
+        "num_ctx",
+        "seed",
+        mode="before",
+    )
+    @classmethod
+    def _empty_string_to_none(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
+    @field_validator("chat_mode", mode="before")
+    @classmethod
+    def _normalize_chat_mode(cls, v: Any) -> ChatMode:
+        """Coerce chat_mode to a ChatMode value; default ChatMode.SEARCH."""
+        if v is None or v == "":
+            return ChatMode.SEARCH
+        candidate = str(v).strip().lower()
+        try:
+            return ChatMode(candidate)
+        except ValueError as exc:
+            valid = ", ".join(repr(m.value) for m in ChatMode)
+            raise ValueError(f"chat_mode must be one of {{{valid}}}, got {v!r}") from exc
+
+    @field_validator("ocr_language", mode="before")
+    @classmethod
+    def _parse_ocr_language(cls, v: Any) -> list[str]:
+        """Accept a list or a ``+``/comma/newline-separated string; never empty.
+
+        Tesseract joins languages with ``+`` (e.g. ``eng+deu``), so that is the
+        canonical user-facing form. Commas are also accepted. Newlines are
+        accepted because ``app.settings`` joins list values with ``\\n`` when it
+        persists them to config.toml; without splitting on it a multi-language
+        value would reload as one malformed token. Blank input falls back to
+        English, since xberg errors on an empty list.
+        """
+        if isinstance(v, str):
+            v = v.replace("+", ",").replace("\n", ",").split(",")
+        items = v or []
+        langs = [s.strip() for s in items if isinstance(s, str) and s.strip()]
+        for lang in langs:
+            if not _TESSERACT_LANGUAGE_CODE.fullmatch(lang):
+                raise ValueError(
+                    f"ocr_language: {lang!r} is not a Tesseract language code "
+                    "(examples: eng, deu, chi_sim, jpn_vert)"
+                )
+        return langs or ["eng"]
+
+    @field_validator("force_ocr_pages", mode="before")
+    @classmethod
+    def _parse_force_ocr_pages(cls, v: Any) -> list[int]:
+        """Accept a list, a string or one int; split string items on commas and newlines.
+
+        Newlines are accepted because ``app.settings`` joins list values with
+        ``\\n`` when it persists them to config.toml. Returns sorted unique pages.
+        """
+        items = v if isinstance(v, list) else [v]
+        parts = [p for item in items for p in _split_page_item(item)]
+        return sorted({_page_number(part) for part in parts if str(part).strip()})
+
+    @field_validator("flash_attention", mode="before")
+    @classmethod
+    def _parse_flash_attention(cls, v: Any) -> bool | None:
+        """Auto/on/off tri-state: empty/auto/none -> None, else parse bool."""
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            if v.strip().lower() in ("", "auto", "none"):
+                return None
+            try:
+                return parse_bool(v)
+            except ValueError:
+                raise ValueError("use true, false or auto") from None
+        return bool(v)
+
+    @field_validator("n_gpu_layers", mode="before")
+    @classmethod
+    def _parse_n_gpu_layers(cls, v: Any) -> int | None:
+        """Auto -> None, ``cpu`` alias -> 0, integers parsed verbatim."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            label = v.strip().lower()
+            if label in ("", "auto", "none"):
+                return None
+            if label == "cpu":
+                return 0
+            try:
+                return int(label)
+            except ValueError:
+                raise ValueError("use a whole number, cpu or auto") from None
+        return int(v)
+
+    @field_validator("main_gpu", mode="before")
+    @classmethod
+    def _parse_main_gpu(cls, v: Any) -> int | None:
+        """Empty/auto strings -> None, integers parsed verbatim."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            label = v.strip().lower()
+            if label in ("", "auto", "none"):
+                return None
+            try:
+                return int(label)
+            except ValueError:
+                raise ValueError("use a whole number or auto") from None
+        return int(v)
+
+    @field_validator("gpu_devices", mode="before")
+    @classmethod
+    def _parse_gpu_devices(cls, v: Any) -> str | None:
+        """Normalize device list: strip whitespace, drop empties, keep order."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            label = v.strip().lower()
+            if label in ("", "auto", "all", "none"):
+                return None
+            parts = [p.strip() for p in v.split(",") if p.strip()]
+            if not parts:
+                return None
+            for part in parts:
+                if not part.lstrip("-").isdigit():
+                    raise ValueError("use GPU indexes separated by commas, or auto")
+            return ",".join(parts)
+        return str(v)
+
+    @field_validator("placement", mode="before")
+    @classmethod
+    def _parse_placement(cls, v: Any) -> str | None:
+        """Blank/None -> None; validate a JSON string or PlacementSpec; store JSON."""
+        from lilbee.providers.fleet.placement_spec import PlacementError, PlacementSpec
+
+        if v is None:
+            return None
+        if isinstance(v, PlacementSpec):
+            json_str = v.to_json()
+            PlacementSpec.from_json(json_str)  # re-validate a directly-built spec
+            return json_str
+        if isinstance(v, str):
+            if v.strip() == "":
+                return None
+            PlacementSpec.from_json(v)
+            return v
+        raise PlacementError("placement must be a JSON string or PlacementSpec")
+
+    @field_validator("semantic_chunking", mode="before")
+    @classmethod
+    def _parse_semantic_chunking(cls, v: Any) -> bool:
+        """A bool as it stands, a string through parse_bool."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            try:
+                return parse_bool(v)
+            except ValueError:
+                raise ValueError("use true or false") from None
+        return bool(v)
+
+    @field_validator(
+        "chat_model", "embedding_model", "vision_model", "reranker_model", mode="after"
+    )
+    @classmethod
+    def _normalize_model_tag(cls, v: str, info: ValidationInfo) -> str:
+        """Validate and canonicalize a model ref; blank means the role is unconfigured."""
+        if not v or not v.strip():
+            return ""
+        from lilbee.providers.model_ref import parse_model_ref
+
+        return parse_model_ref(v).for_openai_prefix()
+
+    @field_validator("ollama_base_url", "lm_studio_base_url", mode="after")
+    @classmethod
+    def _strip_trailing_slash(cls, v: str) -> str:
+        """Canonicalize a local-server URL once at the write boundary."""
+        return v.rstrip("/")
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
+    @field_validator("crawl_browser_extra_args", mode="before")
+    @classmethod
+    def _split_crawl_browser_extra_args(cls, v: Any) -> Any:
+        """Accept a newline-separated string, matching how the field is persisted.
+
+        ``app.settings`` joins list values with newlines before writing them to
+        ``config.toml`` as a scalar string. Without this inverse, reload cannot
+        coerce that string to ``list[str]`` and the whole config.toml is dropped.
+        TOML lists and JSON arrays pass through unchanged.
+        """
+        if isinstance(v, str):
+            return [a.strip() for a in v.splitlines() if a.strip()]
+        return v
+
+    @field_validator("crawl_exclude_patterns", mode="before")
+    @classmethod
+    def _split_crawl_exclude_patterns(cls, v: Any) -> Any:
+        """Accept newline-separated strings from env vars / plain-text config.
+
+        Regex commonly uses commas (e.g. `{2,4}`) and pipes (alternation), so
+        newline is the only separator safe to use for this field. TOML lists
+        and JSON arrays pass through unchanged.
+        """
+        if isinstance(v, str):
+            return [p.strip() for p in v.splitlines() if p.strip()]
+        return v
+
+    @field_validator("crawl_exclude_patterns", mode="after")
+    @classmethod
+    def _validate_crawl_exclude_patterns(cls, v: list[str]) -> list[str]:
+        """Reject any entry that isn't a valid Python regex.
+
+        These patterns are compiled at crawl time. An invalid pattern there
+        surfaces as an opaque mid-crawl error; catching it at PATCH time gives
+        the user a 400 with a pointer to the bad entry.
+        """
+        import re
+
+        bad: list[str] = []
+        for i, pattern in enumerate(v):
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                bad.append(f"[{i}] {pattern!r}: {exc}")
+        if bad:
+            raise ValueError("invalid regex in crawl_exclude_patterns:\n  " + "\n  ".join(bad))
+        return v
+
+    @field_validator("ignore_dirs", mode="before")
+    @classmethod
+    def _merge_ignore_dirs(cls, v: Any) -> frozenset[str]:
+        if isinstance(v, str):
+            extra = frozenset(name.strip() for name in v.split(",") if name.strip())
+            return DEFAULT_IGNORE_DIRS | extra
+        if isinstance(v, (set, frozenset, list)):
+            return DEFAULT_IGNORE_DIRS | frozenset(v)
+        return DEFAULT_IGNORE_DIRS
+
+    @field_validator("concept_allowed_ent_types", mode="before")
+    @classmethod
+    def _parse_ent_types(cls, v: Any) -> frozenset[str]:
+        """Replace-semantics override: a narrowed set is used as-is,
+        not unioned with defaults. A user asking for ``PERSON,ORG``
+        wants exactly those kinds. Accepts comma-separated strings
+        from env and list / set / frozenset from code. Empty input
+        falls back to :data:`DEFAULT_ALLOWED_NER_LABELS` so an empty
+        env var does not silently disable the gate.
+        """
+        if isinstance(v, str):
+            parts = frozenset(name.strip().upper() for name in v.split(",") if name.strip())
+            return parts or DEFAULT_ALLOWED_NER_LABELS
+        if isinstance(v, (set, frozenset, list)):
+            parts = frozenset(str(x).upper() for x in v)
+            return parts or DEFAULT_ALLOWED_NER_LABELS
+        return DEFAULT_ALLOWED_NER_LABELS
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_retired_ocr_keys(cls, data: Any) -> Any:
+        """Replace a stored enable_ocr value with the ocr mode it stands for."""
+        if not isinstance(data, dict):
+            return data
+        warn_retired_ocr_keys(data)
+        return migrate_ocr_keys(data, str(data.get("vision_model") or ""))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_defaults(cls, data: Any) -> Any:
+        from lilbee.core.system import (
+            canonical_data_root,
+            canonical_models_dir,
+            default_data_dir,
+            find_local_root,
+        )
+
+        if not isinstance(data, dict):
+            return data
+
+        # An empty LILBEE_DATA_ROOT (delivered as "") must fall through to default
+        # resolution like an unset one, not become Path(".") = the process cwd.
+        if isinstance(data.get("data_root"), str) and not data["data_root"].strip():
+            data["data_root"] = None
+        if data.get("data_root") in (None, _UNSET_PATH):
+            data_env = os.environ.get("LILBEE_DATA", "").strip()
+            if data_env:
+                data["data_root"] = Path(data_env)
+            else:
+                local = find_local_root()
+                data["data_root"] = local if local is not None else default_data_dir()
+        # Every child path below derives from this, and the server lock keys on
+        # those, so canonicalizing here is what makes one directory key one lock.
+        # Also coerces a raw string (LILBEE_DATA_ROOT) to Path.
+        root = canonical_data_root(data["data_root"])
+        data["data_root"] = root
+        if data.get("documents_dir") in (None, _UNSET_PATH):
+            data["documents_dir"] = root / "documents"
+        if data.get("data_dir") in (None, _UNSET_PATH):
+            data["data_dir"] = root / "data"
+        if data.get("lancedb_dir") in (None, _UNSET_PATH):
+            data["lancedb_dir"] = root / "data" / "lancedb"
+        if data.get("models_dir") in (None, _UNSET_PATH):
+            data["models_dir"] = canonical_models_dir()
+
+        return data
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: Any,
+        env_settings: Any,
+        dotenv_settings: Any,
+        file_secret_settings: Any,
+    ) -> tuple[Any, ...]:
+        plain_env = _PlainEnvSource(settings_cls)
+        sources: list[Any] = [init_settings, plain_env]
+        toml_path = _config_file()
+        if toml_path is not None:
+            sources.append(_TomlSource(settings_cls, toml_path))
+        return tuple(sources)
+
+    @property
+    def model_defaults(self) -> Any:
+        """Per-model generation defaults (read-only). Set via apply_model_defaults()."""
+        return self._model_defaults
+
+    def apply_model_defaults(self, defaults: Any) -> None:
+        """Store per-model generation defaults for 3-layer merge."""
+        object.__setattr__(self, "_model_defaults", defaults)
+
+    def clear_model_defaults(self) -> None:
+        """Reset per-model defaults to None."""
+        object.__setattr__(self, "_model_defaults", None)
+
+    def generation_options(self, **overrides: Any) -> dict[str, Any]:
+        """Merge model defaults, user config, and per-call overrides, dropping None."""
+        result = _model_defaults_dict(self._model_defaults)
+        # One name for the output cap inside lilbee; the provider translators rename it.
+        if "max_tokens" in result:
+            result["num_predict"] = result.pop("max_tokens")
+        user_fields: dict[str, Any] = {
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k_sampling,
+            "repeat_penalty": self.repeat_penalty,
+            "num_ctx": self.num_ctx,
+            "seed": self.seed,
+            "num_predict": self.max_tokens,
+        }
+        for k, v in user_fields.items():
+            if v is not None:
+                result[k] = v
+        for k, v in overrides.items():
+            if v is not None:
+                result[k] = v
+        return result
+
+
+def _model_defaults_dict(defaults: Any) -> dict[str, Any]:
+    """Non-None fields of a ModelDefaults instance as a dict."""
+    if defaults is None:
+        return {}
+    from dataclasses import fields as dc_fields
+
+    return {
+        f.name: getattr(defaults, f.name)
+        for f in dc_fields(defaults)
+        if getattr(defaults, f.name) is not None
+    }
+
+
+def _config_file() -> Path | None:
+    """The config.toml a load reads, or None when there is none or the load skips it."""
+    from lilbee.core.system import canonical_data_root, default_data_dir, find_local_root
+
+    # .strip() to match _resolve_defaults; a padded value would otherwise
+    # send the root and its config.toml to different directories.
+    data_env = os.environ.get("LILBEE_DATA", "").strip()
+    if data_env:
+        toml_dir = Path(data_env)
+    else:
+        local = find_local_root()
+        toml_dir = local if local else default_data_dir()
+    # Same call as the root itself, so this looks where the root resolves to;
+    # a "~/lilbee" value would otherwise search a literal ./~ and find nothing.
+    toml_path = canonical_data_root(toml_dir) / CONFIG_FILE_NAME
+    if toml_path.exists() and os.environ.get("LILBEE_SKIP_TOML_CONFIG") != "1":
+        return toml_path
+    return None
+
+
+def _enum_of(settings_cls: type[BaseSettings], key: str) -> type[Enum] | None:
+    """The enum the field *key* is typed as, or None for any other type."""
+    annotation = settings_cls.model_fields[key].annotation
+    # An annotation is a class, a union or a generic alias; only a class can be an enum.
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return annotation
+    return None
+
+
+def _variable(settings_cls: type[BaseSettings], field_name: str) -> str:
+    """The environment variable that sets *field_name*."""
+    return f"{settings_cls.model_config.get('env_prefix', '')}{field_name.upper()}"
+
+
+def _expected(error: ErrorDetails) -> str:
+    """What one validation error says about the value, in the words of a settings file."""
+    words = _EXPECTED_BY_ERROR.get(error["type"])
+    if words is None:
+        return f"is refused ({error['msg'].removeprefix(_VALUE_ERROR_PREFIX)})"
+    return "is not " + words.format(**error.get("ctx", {}))
+
+
+def _refusal(probe: BaseSettings, key: str, value: Any) -> str | None:
+    """Why the field's own validators refuse *value* on the throwaway *probe*, or None."""
+    settings_cls = type(probe)
+    try:
+        settings_cls.__pydantic_validator__.validate_assignment(probe, key, value)
+    except ValidationError as exc:
+        enum = _enum_of(settings_cls, key)
+        if enum is not None:
+            return "is not one of " + ", ".join(str(member.value) for member in enum)
+        return _expected(next(iter(exc.errors())))
+    except TypeError:
+        # A validator handed a TOML type it has no branch for.
+        return f"is not a value {key} accepts"
+    return None
+
+
+def _refusals(settings_cls: type[BaseSettings], values: dict[str, Any]) -> dict[str, str]:
+    """Why its own field refuses each of *values* that one refuses, by key."""
+    known = [key for key in values if key in settings_cls.model_fields]
+    if not known:
+        return {}
+    probe = settings_cls.model_construct()
+    reasons = {key: _refusal(probe, key, values[key]) for key in known}
+    return {key: reason for key, reason in reasons.items() if reason is not None}
+
+
+class _PlainEnvSource:
+    """Reads LILBEE_* env vars as plain strings; a refused one stops the load or falls back."""
+
+    def __init__(self, settings_cls: type[BaseSettings]) -> None:
+        self._settings_cls = settings_cls
+
+    def _read(self) -> tuple[dict[str, Any], dict[str, str]]:
+        """Each set variable's string by field, and why its setting refuses the ones it does."""
+        values: dict[str, Any] = {}
+        for field_name in self._settings_cls.model_fields:
+            raw = os.environ.get(_variable(self._settings_cls, field_name))
+            if value_is_set(field_name, raw):
+                values[field_name] = raw
+        return values, _refusals(self._settings_cls, values)
+
+    def _stop(self, values: dict[str, Any], refused: dict[str, str]) -> None:
+        """Refuse the variables in *refused*, less the ones that take their default."""
+        lines = [
+            f"{_variable(self._settings_cls, key)} = {values[key]!r} {reason}"
+            for key, reason in refused.items()
+            if key not in _TAKES_DEFAULT_WHEN_REFUSED
+        ]
+        if lines:
+            refuse_variable("; ".join(lines))
+
+    def refuse(self) -> None:
+        """Raise RefusedVariableError for the variables that stop a command."""
+        self._stop(*self._read())
+
+    def __call__(self) -> dict[str, Any]:
+        values, refused = self._read()
+        self._stop(values, refused)
+        for key in [key for key in refused if key in _TAKES_DEFAULT_WHEN_REFUSED]:
+            variable = _variable(self._settings_cls, key)
+            warn_on_load(f"{variable} = {values[key]!r} {refused[key]}; {key} uses its default")
+            values[key] = self._settings_cls.model_fields[key].default
+            del refused[key]
+        return {key: value for key, value in values.items() if key not in refused}
+
+
+class _TomlSource:
+    """Reads config.toml as a settings source; *label* names the file in a warning."""
+
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        path: Path,
+        label: str = CONFIG_FILE_NAME,
+        otherwise: str = _USES_ITS_DEFAULT,
+        reported: tuple[str, ...] = (),
+    ) -> None:
+        self._settings_cls = settings_cls
+        self._path = path
+        self._label = label
+        self._otherwise = otherwise
+        self._reported = reported
+
+    def _line(
+        self, label: str, otherwise: str, refused: tuple[str, str], values: dict[str, Any]
+    ) -> str:
+        """The warning for one *refused* key and reason, as a read under *label* words it."""
+        key, reason = refused
+        fallback = refused_value_fallback(key, values, otherwise)
+        if env_value(key) is not None:
+            fallback = f"{_variable(self._settings_cls, key)} sets {key}"
+        return f"{label}: {key} = {values[key]!r} {reason}; {fallback}"
+
+    def __call__(self) -> dict[str, Any]:
+        import tomllib
+
+        try:
+            with self._path.open("rb") as f:
+                data = tomllib.load(f)
+        except (ValueError, OSError):
+            warn_on_load(f"Failed to read {self._path}, ignoring")
+            return {}
+        # A blank string is unset (the field default applies, since pydantic
+        # cannot coerce "" to int|None), except on a clearable model role,
+        # where it clears the model. TOML's native types pass through as-is.
+        values = {k: v for k, v in data.items() if value_is_set(k, v)}
+        refused = _refusals(self._settings_cls, values)
+        for item in refused.items():
+            # The load that built cfg words its report of this file its own way.
+            if self._line(CONFIG_FILE_NAME, _USES_ITS_DEFAULT, item, values) not in self._reported:
+                warn_on_load(self._line(self._label, self._otherwise, item, values))
+        return {key: value for key, value in values.items() if key not in refused}
+
+
+def env_value(field_name: str) -> str | None:
+    """What LILBEE_<FIELD_NAME> holds, or None when it is unset or blank."""
+    raw = os.environ.get(_variable(Config, field_name))
+    return raw if value_is_set(field_name, raw) else None
+
+
+def written_value(key: str, value: Any) -> Any:
+    """What a write of *value* stores in *key*: its default, with a warning, where one applies."""
+    # These settings refuse only text they cannot read; any other type goes to the validator.
+    if key not in _TAKES_DEFAULT_WHEN_REFUSED or not isinstance(value, str):
+        return value
+    reason = _refusals(Config, {key: value}).get(key)
+    if reason is None:
+        return value
+    log.warning("%s = %r %s; %s uses its default", key, value, reason, key)
+    return Config.model_fields[key].default
+
+
+def toml_values(path: Path) -> dict[str, Any]:
+    """What the config.toml at *path* sets over a loaded cfg, less each value Config refuses."""
+    return _TomlSource(
+        Config,
+        path,
+        label=str(path),
+        otherwise="keeps its value",
+        reported=load_warnings if path == loaded_config_file else (),
+    )()
+
+
+def refuse_environment() -> None:
+    """Raise RefusedVariableError for a retired OCR variable or a value its setting refuses."""
+    refuse_retired_ocr_env(os.environ)
+    _PlainEnvSource(Config).refuse()
+
+
+def _build_cfg() -> tuple[Config, tuple[str, ...]]:
+    """Build cfg, with the warnings its sources reported about refused values."""
+    with collecting() as found:
+        built = Config()
+    return built, tuple(found)
+
+
+# The config.toml that cfg is built from; a later read of it reports only what is new.
+loaded_config_file = _config_file()
+cfg, load_warnings = _build_cfg()
+
+# Canonicalize LILBEE_DATA at the cfg.data_root resolution boundary so
+# spawn-context worker subprocesses inherit the same data root.
+# ``setdefault`` preserves a user-set value.
+os.environ.setdefault("LILBEE_DATA", str(cfg.data_root))

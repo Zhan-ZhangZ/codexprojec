@@ -1,0 +1,678 @@
+(*
+  Copyright 2025, MARS-Curiosity library
+
+  Home: https://github.com/andrea-magni/MARS
+*)
+unit MARS.Core.MessageBodyReaders;
+
+{$I MARS.inc}
+
+interface
+
+uses
+  Classes, SysUtils, System.Rtti, System.TypInfo
+
+, MARS.Core.Attributes, MARS.Core.Activation.Interfaces, MARS.Core.Declarations
+, MARS.Core.MediaType, MARS.Core.MessageBodyReader
+, MARS.Core.RequestAndResponse.Interfaces
+;
+
+type
+  [Consumes(TMediaType.APPLICATION_JSON)]
+  TObjectReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+  [Consumes(TMediaType.APPLICATION_JSON)]
+  TArrayOfObjectReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+
+  [Consumes(TMediaType.APPLICATION_JSON)]
+  TJSONValueReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+
+    class function ReadJSONValue(
+      const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue;
+
+  end;
+
+  [Consumes(TMediaType.APPLICATION_XML)]
+  TXMLReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+
+    class function ReadXML(
+      const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue;
+  end;
+
+  [Consumes(TMediaType.APPLICATION_JSON)
+ , Consumes(TMediaType.APPLICATION_FORM_URLENCODED_TYPE)
+ , Consumes(TMediaType.MULTIPART_FORM_DATA)
+  ]
+  TRecordReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+  [Consumes(TMediaType.APPLICATION_JSON)]
+  TArrayOfRecordReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+  [Consumes(TMediaType.APPLICATION_OCTET_STREAM), Consumes(TMediaType.WILDCARD)]
+  TStreamReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+  [Consumes(TMediaType.TEXT_PLAIN)]
+  TStringReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+  [Consumes(TMediaType.APPLICATION_FORM_URLENCODED_TYPE)
+ , Consumes(TMediaType.MULTIPART_FORM_DATA)
+  ]
+  TFormParamReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+  [Consumes(TMediaType.APPLICATION_FORM_URLENCODED_TYPE)
+ , Consumes(TMediaType.MULTIPART_FORM_DATA)
+  ]
+  TArrayOfTFormParamReader = class(TInterfacedObject, IMessageBodyReader)
+  public
+    function ReadFrom(
+    const AInputData: TBytes;
+      const ADestination: TRttiObject; const AMediaType: TMediaType;
+      const AActivation: IMARSActivation
+    ): TValue; virtual;
+  end;
+
+
+implementation
+
+uses
+  StrUtils, NetEncoding, Generics.Collections
+, System.JSON
+, Xml.XMLIntf, XMLDoc
+, MARS.Core.JSON, MARS.Core.Utils, MARS.Rtti.Utils, MARS.Core.Exceptions
+;
+
+{ TJSONValueReader }
+
+
+function TJSONValueReader.ReadFrom(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation
+): TValue;
+var
+  LJSONValue: TJSONValue;
+begin
+  Result := TValue.Empty;
+
+  LJSONValue := TJSONObject.ParseJSONValue(AInputData, 0);
+  if Assigned(LJSONValue) then
+    Result := LJSONValue;
+end;
+
+class function TJSONValueReader.ReadJSONValue(
+  const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation): TValue;
+var
+  LJSONReader: TJSONValueReader;
+begin
+  LJSONReader := TJSONValueReader.Create;
+  try
+    Result := LJSONReader.ReadFrom(AInputData, ADestination, AMediaType, AActivation);
+  finally
+    LJSONReader.Free;
+  end;
+end;
+
+{ TStreamReader }
+
+function TStreamReader.ReadFrom(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation
+): TValue;
+var
+  LStream: TStream;
+begin
+  LStream := TBytesStream.Create(AInputData);
+  try
+    LStream.Position := 0;
+    Result := LStream;
+  except
+    LStream.Free;
+    raise;
+  end;
+end;
+
+{ TRecordReader }
+
+function TRecordReader.ReadFrom(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation
+): TValue;
+var
+  LJSON: TJSONValue;
+  LRequest: IMARSRequest;
+begin
+  Result := TValue.Empty;
+
+  if AMediaType.Matches(TMediaType.APPLICATION_FORM_URLENCODED_TYPE)
+    or AMediaType.Matches(TMediaType.MULTIPART_FORM_DATA)
+  then
+  begin
+    LRequest := AActivation.Request;
+    Result := StringsToRecord(LRequest.GetFormParams, ADestination.GetRttiType
+    , procedure (const AName: string; const AField: TRttiField; var AValue: TValue)
+      begin
+        if AField.FieldType.Handle = TypeInfo(TFormParamFile) then
+          AValue := TValue.From<TFormParamFile>(
+            TFormParamFile.CreateFromRequest(LRequest, AName)
+          );
+      end
+    );
+  end
+  else
+  begin
+    // Missing body, or body not parsable as JSON. Without this guard the reader
+    // returned TValue.Empty, the record parameter of the resource method was
+    // injected as a "ghost" value and the first access to its fields ended up in
+    // an Access Violation (500). A malformed body is a client error: 400.
+    LJSON := TJSONValueReader.ReadJSONValue(
+      AInputData, ADestination, AMediaType, AActivation).AsType<TJSONValue>;
+    if not Assigned(LJSON) then
+      raise EMARSHttpException.Create(
+        'Malformed or missing request body (JSON object expected)', 400);
+    try
+      // valid JSON, but not an object where a record is expected: still a client error
+      if not (LJSON is TJSONObject) then
+        raise EMARSHttpException.Create(
+          'Malformed request body (JSON object expected)', 400);
+
+      Result := TJSONObject(LJSON).ToRecord(ADestination.GetRttiType, JSONSerializationOptionsFor(AActivation));
+    finally
+      LJSON.Free;
+    end;
+  end;
+end;
+
+{ TObjectReader }
+
+function TObjectReader.ReadFrom(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation): TValue;
+var
+  LJSON: TJSONValue;
+begin
+  Result := TValue.Empty;
+
+  LJSON := TJSONValueReader.ReadJSONValue(AInputData, ADestination, AMediaType, AActivation).AsType<TJSONValue>;
+  // Missing body, body not parsable, or JSON that is not an object, for a
+  // [BodyParam] of a class type. Without this guard the reader returned
+  // TValue.Empty, the resource method received a nil instance and the first
+  // access to its fields ended up in an Access Violation (500). Client error: 400.
+  if not Assigned(LJSON) then
+    raise EMARSHttpException.Create(
+      'Malformed or missing request body (JSON expected)', 400);
+  try
+    if (LJSON is TJSONObject) and (ADestination.GetRttiType is TRttiInstanceType) then
+      Result := TJSONObject.JSONToObject(
+        TRttiInstanceType(ADestination.GetRttiType).MetaclassType
+        , TJSONObject(LJSON)
+        , JSONSerializationOptionsFor(AActivation)
+        )
+    else
+      raise EMARSHttpException.Create(
+        'Malformed request body (JSON object expected)', 400);
+  finally
+    LJSON.Free;
+  end;
+end;
+
+
+{ TArrayOfObjectReader }
+
+function TArrayOfObjectReader.ReadFrom(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation): TValue;
+var
+  LJSONArray: TJSONArray;
+  LJSONValue: TJSONValue;
+  LJSONObject: TJSONObject;
+  LElementType: TRttiType;
+  LArray: TValue;
+  LArrayType: TRttiType;
+  LIndex: Integer;
+  LNewLength: NativeInt;
+  LOptions: TMARSJSONSerializationOptions;
+begin
+  Result := TValue.Empty;
+  LArrayType := ADestination.GetRttiType;
+  LElementType := LArrayType.GetArrayElementType;
+  if not Assigned(LElementType) then
+    Exit;
+
+  if not (LElementType is TRttiInstanceType) then
+    Exit;
+  LOptions := JSONSerializationOptionsFor(AActivation);
+
+  // A missing (or unparsable) body keeps yielding an empty array, but a body the
+  // client got wrong (JSON that is not an array of objects) is a 400, not a 500.
+  LJSONValue := TJSONValueReader.ReadJSONValue(
+    AInputData, ADestination, AMediaType, AActivation).AsType<TJSONValue>;
+  if not Assigned(LJSONValue) then
+    Exit;
+  try
+    TValue.Make(nil, LArrayType.Handle, LArray);
+    if LJSONValue is TJSONArray then
+    begin
+      LJSONArray := TJSONArray(LJSONValue);
+      // validate the whole array before building anything: a partially built
+      // array would leak the elements created so far
+      for LIndex := 0 to LJSONArray.Count-1 do
+        if not (LJSONArray.Items[LIndex] is TJSONObject) then
+          raise EMARSHttpException.CreateFmt(
+            'Malformed request body (JSON object expected at index %d)', [LIndex], 400);
+
+      LNewLength := LJSONArray.Count;
+      SetArrayLength(LArray, LArrayType, @LNewLength);
+      //------------------------
+      for LIndex := 0 to LJSONArray.Count-1 do //AM Refactor using ForEach<TJSONObject>
+      begin
+        LJSONObject := TJSONObject(LJSONArray.Items[LIndex]);
+        LArray.SetArrayElement(
+            LIndex
+          , TJSONObject.JSONToObject(
+              TRttiInstanceType(LElementType).MetaclassType
+            , LJSONObject
+            , LOptions
+          )
+        );
+      end;
+    end
+    else if LJSONValue is TJSONObject then // a single obj, let's build an array of one element
+    begin
+      LNewLength := 1;
+      SetArrayLength(LArray, LArrayType, @LNewLength);
+      //------------------------
+      LArray.SetArrayElement(
+          0
+        , TJSONObject.JSONToObject(
+              TRttiInstanceType(LElementType).MetaclassType
+            , TJSONObject(LJSONValue)
+            , LOptions
+          )
+      );
+    end
+    else
+      raise EMARSHttpException.Create(
+        'Malformed request body (JSON array expected)', 400);
+
+    Result := LArray;
+  finally
+    LJSONValue.Free;
+  end;
+end;
+
+
+{ TArrayOfRecordReader }
+
+function TArrayOfRecordReader.ReadFrom(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation
+): TValue;
+var
+  LJSONArray: TJSONArray;
+  LJSONValue: TJSONValue;
+  LJSONObject: TJSONObject;
+  LElementType: TRttiType;
+  LArray: TValue;
+  LArrayType: TRttiType;
+  LIndex: Integer;
+  LNewLength: NativeInt;
+  LOptions: TMARSJSONSerializationOptions;
+begin
+  Result := TValue.Empty;
+  LArrayType := ADestination.GetRttiType;
+  LElementType := LArrayType.GetArrayElementType;
+  if not Assigned(LElementType) then
+    Exit;
+  LOptions := JSONSerializationOptionsFor(AActivation);
+
+  // Fast path: one element at a time, the JSON tree of the whole array is never built
+  // (large arrays would exhaust memory on 32 bit targets otherwise). Anything unexpected
+  // (not an array, malformed JSON, an element that is not an object) falls through the
+  // full parse here below, that knows how to deal with it.
+  LNewLength := CountJSONArrayElements(AInputData);
+  if LNewLength >= 0 then
+  begin
+    TValue.Make(nil, LArrayType.Handle, LArray);
+    SetArrayLength(LArray, LArrayType, @LNewLength);
+    LIndex := 0;
+    if ForEachJSONArrayElement(AInputData
+      , function (AElement: TJSONValue): Boolean
+        begin
+          Result := AElement is TJSONObject;
+          if Result then
+          begin
+            LArray.SetArrayElement(LIndex, TJSONObject(AElement).ToRecord(LElementType, LOptions));
+            Inc(LIndex);
+          end;
+        end
+    ) then
+    begin
+      Result := LArray;
+      Exit;
+    end;
+    LArray := TValue.Empty;
+  end;
+
+  // A missing (or unparsable) body keeps yielding an empty array, but a body the
+  // client got wrong (JSON that is not an array of objects) is a 400, not a 500.
+  LJSONValue := TJSONValueReader.ReadJSONValue(
+    AInputData, ADestination, AMediaType, AActivation).AsType<TJSONValue>;
+  if not Assigned(LJSONValue) then
+    Exit;
+  try
+    TValue.Make(nil, LArrayType.Handle, LArray);
+    if LJSONValue is TJSONArray then
+    begin
+      LJSONArray := TJSONArray(LJSONValue);
+      // validate the whole array before building anything, as in TArrayOfObjectReader
+      for LIndex := 0 to LJSONArray.Count-1 do
+        if not (LJSONArray.Items[LIndex] is TJSONObject) then
+          raise EMARSHttpException.CreateFmt(
+            'Malformed request body (JSON object expected at index %d)', [LIndex], 400);
+
+      LNewLength := LJSONArray.Count;
+      SetArrayLength(LArray, LArrayType, @LNewLength);
+      //------------------------
+      for LIndex := 0 to LJSONArray.Count-1 do //AM Refactor using ForEach<TJSONObject>
+      begin
+        LJSONObject := TJSONObject(LJSONArray.Items[LIndex]);
+        LArray.SetArrayElement(LIndex, LJSONObject.ToRecord(LElementType, LOptions));
+      end;
+    end
+    else if LJSONValue is TJSONObject then // a single obj, let's build an array of one element
+    begin
+      LNewLength := 1;
+      SetArrayLength(LArray, LArrayType, @LNewLength);
+      //------------------------
+      LArray.SetArrayElement(0, TJSONObject(LJSONValue).ToRecord(LElementType, LOptions));
+    end
+    else
+      raise EMARSHttpException.Create(
+        'Malformed request body (JSON array expected)', 400);
+
+    Result := LArray;
+  finally
+    LJSONValue.Free;
+  end;
+end;
+
+{ TStringReader }
+
+function TStringReader.ReadFrom(
+  const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation): TValue;
+var
+  LType: TRttiType;
+  LEncoding: TEncoding;
+  LText: string;
+begin
+  Result := TValue.Empty;
+  LType := ADestination.GetRttiType;
+
+  if not TMARSMessageBodyReader.GetDesiredEncoding(AActivation, LEncoding) then
+    LEncoding := TEncoding.UTF8; // UTF8 by default
+  LText := LEncoding.GetString(AInputData);
+
+  if LType.IsDynamicArrayOf<string> then
+    Result := TValue.From<TArray<string>>( LText.Split([sLineBreak]) )
+  else if LType.Handle = TypeInfo(string) then
+    Result := LText;
+end;
+
+{ TFormParamReader }
+
+function TFormParamReader.ReadFrom(
+  const AInputData: TBytes;
+    const ADestination: TRttiObject; const AMediaType: TMediaType;
+    const AActivation: IMARSActivation
+): TValue;
+var
+  LNamedObject: TRttiNamedObject;
+  LName: string;
+begin
+  Result := TValue.Empty;
+  LNamedObject := ADestination as TRttiNamedObject;
+  if Assigned(LNamedObject) then
+  begin
+    LName := LNamedObject.Name;
+    ADestination.HasAttribute<FormParamAttribute>(
+      procedure (AAttribute: FormParamAttribute)
+      begin
+        if AAttribute.Name <> '' then
+          LName := AAttribute.Name;
+      end
+    );
+
+    Result := TValue.From<TFormParam>(
+      TFormParam.CreateFromRequest(AActivation.Request, LName)
+    );
+  end;
+end;
+
+{ TArrayOfTFormParamReader }
+
+function TArrayOfTFormParamReader.ReadFrom(
+  const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation
+): TValue;
+var
+  LResult: TArray<TFormParam>;
+  LRequest: IMARSRequest;
+  LIndex: Integer;
+begin
+  LResult := [];
+
+  if AMediaType.Matches(TMediaType.APPLICATION_FORM_URLENCODED_TYPE)
+    or AMediaType.Matches(TMediaType.MULTIPART_FORM_DATA)
+  then
+  begin
+    LRequest := AActivation.Request;
+
+    for LIndex := 0 to LRequest.GetFormParamCount - 1 do
+      LResult := LResult + [TFormParam.CreateFromRequest(LRequest, LRequest.GetFormParamName(LIndex))];
+
+    for LIndex := 0 to LRequest.GetFilesCount - 1 do
+      LResult := LResult + [TFormParam.CreateFromRequest(LRequest, LIndex)];
+  end;
+
+  Result := TValue.From<TArray<TFormParam>>(LResult);
+end;
+
+
+{ TXMLReader }
+
+function TXMLReader.ReadFrom(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation): TValue;
+var
+  LXMLDoc: IXMLDocument;
+  LEncoding: TEncoding;
+begin
+  Result := TValue.Empty;
+
+  LEncoding := TEncoding.UTF8;
+
+  LXMLDoc := TXMLDocument.Create(nil);
+  LXMLDoc.LoadFromXML(LEncoding.GetString(AInputData));
+  Result := TValue.From<IXMLDocument>(LXMLDoc);
+end;
+
+class function TXMLReader.ReadXML(
+const AInputData: TBytes;
+  const ADestination: TRttiObject; const AMediaType: TMediaType;
+  const AActivation: IMARSActivation): TValue;
+var
+  LXMLReader: TXMLReader;
+begin
+  LXMLReader := TXMLReader.Create;
+  try
+    Result := LXMLReader.ReadFrom(AInputData, ADestination, AMediaType, AActivation);
+  finally
+    LXMLReader.Free;
+  end;
+end;
+
+
+procedure RegisterReaders;
+begin
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader(
+    TObjectReader
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Boolean
+      begin
+        Result := AType.IsObjectOfType<TObject>;
+      end
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Integer
+      begin
+        Result := TMARSMessageBodyReaderRegistry.AFFINITY_LOW;
+      end
+  );
+
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader(
+    TArrayOfObjectReader
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Boolean
+      begin
+        Result := AType.IsDynamicArrayOf<TObject>;
+      end
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Integer
+      begin
+        Result := TMARSMessageBodyReaderRegistry.AFFINITY_LOW;
+      end
+  );
+
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader<TJSONValue>(TJSONValueReader);
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader<IXMLDocument>(TXMLReader);
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader<TStream>(TStreamReader);
+
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader(
+    TRecordReader
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Boolean
+      begin
+        Result := AType.IsRecord;
+      end
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Integer
+      begin
+        Result := TMARSMessageBodyReaderRegistry.AFFINITY_MEDIUM;
+      end
+  );
+
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader(
+    TArrayOfRecordReader
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Boolean
+      begin
+        Result := AType.IsDynamicArrayOfRecord;
+      end
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Integer
+      begin
+        Result := TMARSMessageBodyReaderRegistry.AFFINITY_MEDIUM;
+      end
+  );
+
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader(
+    TStringReader
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Boolean
+      begin
+        Result := (AType.Handle = TypeInfo(string)) or AType.IsDynamicArrayOf<string>;
+      end
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Integer
+      begin
+        Result := TMARSMessageBodyReaderRegistry.AFFINITY_MEDIUM;
+      end
+  );
+
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader<TFormParam>(TFormParamReader);
+  TMARSMessageBodyReaderRegistry.Instance.RegisterReader(
+    TArrayOfTFormParamReader
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Boolean
+      begin
+        Result := AType.IsDynamicArrayOf<TFormParam>(false);
+      end
+    , function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Integer
+      begin
+        Result := TMARSMessageBodyReaderRegistry.AFFINITY_MEDIUM;
+      end
+  );
+
+end;
+
+initialization
+  RegisterReaders;
+
+end.

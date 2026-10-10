@@ -1,0 +1,208 @@
+"""Background sync, executor management, and sync status for chat mode."""
+
+from __future__ import annotations
+
+import asyncio
+import threading
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import TYPE_CHECKING
+
+from rich.text import Text
+
+from lilbee.cli import theme
+from lilbee.cli.helpers import print_prefixed
+from lilbee.data.ingest import sync
+from lilbee.runtime.asyncio_loop import is_executor_shutdown
+from lilbee.runtime.console import PlainConsole
+from lilbee.runtime.progress import (
+    EventType,
+    ExtractEvent,
+    FileStartEvent,
+    OcrStartEvent,
+    ProgressEvent,
+    SyncDoneEvent,
+)
+
+if TYPE_CHECKING:
+    from lilbee.runtime.progress import DetailedProgressCallback
+
+
+def _format_sync_summary(
+    added: int, updated: int, removed: int, failed: int, skipped: int = 0, relocated: int = 0
+) -> str | None:
+    """Format sync counts into a human-readable summary, or None if nothing changed."""
+    counts = {
+        "added": added,
+        "updated": updated,
+        "removed": removed,
+        "relocated": relocated,
+        "skipped": skipped,
+        "failed": failed,
+    }
+    parts = [f"{n} {label}" for label, n in counts.items() if n]
+    return ", ".join(parts) if parts else None
+
+
+def _print_file_start(con: PlainConsole, data: ProgressEvent) -> None:
+    if not isinstance(data, FileStartEvent):
+        raise TypeError(f"Expected FileStartEvent, got {type(data).__name__}")
+    con.print(
+        Text(
+            f"Syncing [{data.current_file}/{data.total_files}]: {data.file}",
+            style=theme.MUTED,
+        ),
+        soft_wrap=True,
+    )
+
+
+def _print_done(con: PlainConsole, data: ProgressEvent) -> None:
+    if not isinstance(data, SyncDoneEvent):
+        raise TypeError(f"Expected SyncDoneEvent, got {type(data).__name__}")
+    summary = _format_sync_summary(
+        data.added, data.updated, data.removed, data.failed, data.skipped, data.relocated
+    )
+    if summary:
+        con.print(f"Synced: {summary}", style=theme.MUTED)
+
+
+def _sync_progress_printer(con: PlainConsole) -> DetailedProgressCallback:
+    """Return a callback that prints one-line status for FILE_START and SYNC_DONE events."""
+    handlers: dict[EventType, Callable[[PlainConsole, ProgressEvent], None]] = {
+        EventType.FILE_START: _print_file_start,
+        EventType.SYNC_DONE: _print_done,
+    }
+
+    def _callback(event_type: EventType, data: ProgressEvent) -> None:
+        handler = handlers.get(event_type)
+        if handler is not None:
+            handler(con, data)
+
+    return _callback
+
+
+_bg_executor: ThreadPoolExecutor | None = None
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    """Lazy-init a single-worker executor."""
+    global _bg_executor
+    if _bg_executor is None:
+        _bg_executor = ThreadPoolExecutor(max_workers=1)
+    return _bg_executor
+
+
+def shutdown_executor() -> None:
+    """Shut down the background executor without blocking.
+    Uses wait=False + cancel_futures to avoid blocking the main thread.
+    """
+    global _bg_executor
+    if _bg_executor is None:
+        return
+
+    _bg_executor.shutdown(wait=False, cancel_futures=True)
+    _bg_executor = None
+
+
+def _on_sync_done(con: PlainConsole, future: Future[object], *, chat_mode: bool = False) -> None:
+    """Callback attached to background sync futures: logs errors."""
+    exc = future.exception()
+    if exc is None:
+        return
+    if isinstance(exc, asyncio.CancelledError):
+        return
+    if is_executor_shutdown(exc):
+        return
+    if chat_mode:
+        print(f"Background sync error: {exc}")
+    else:
+        print_prefixed(con, "Background sync error: ", exc, style=theme.ERROR)
+
+
+class SyncStatus:
+    """Thread-safe holder for background sync status text.
+    The background sync callback writes here; prompt_toolkit's
+    ``bottom_toolbar`` reads it on every render cycle: no cursor
+    manipulation, no flickering.
+    """
+
+    def __init__(self) -> None:
+        self.text: str = ""
+        self.pending: int = 0
+        self._pending_lock = threading.Lock()
+
+    def clear(self) -> None:
+        self.text = ""
+
+    def adjust_pending(self, delta: int) -> None:
+        """Atomically change the queued-sync counter (mutated from two threads)."""
+        with self._pending_lock:
+            self.pending += delta
+
+
+def _tesseract_status(data: ProgressEvent) -> str:
+    """The status line for an OCR_START event: Tesseract running on the file's pages."""
+    if not isinstance(data, OcrStartEvent):
+        raise TypeError(f"Expected OcrStartEvent, got {type(data).__name__}")
+    return f"⟳ {data.status_text}"
+
+
+def _chat_sync_callback(status: SyncStatus) -> DetailedProgressCallback:
+    """Return a progress callback for chat-mode background sync.
+    FILE_START updates *status.text* (rendered by prompt_toolkit's bottom
+    toolbar).  On DONE the status is cleared and the summary is printed via
+    ``print()`` (goes through StdoutProxy → appears above the prompt).
+    """
+    status.clear()
+
+    def _callback(event_type: EventType, data: ProgressEvent) -> None:
+        queue_suffix = f" (+{status.pending} queued)" if status.pending > 0 else ""
+        if event_type == EventType.FILE_START:
+            if not isinstance(data, FileStartEvent):
+                raise TypeError(f"Expected FileStartEvent, got {type(data).__name__}")
+            status.text = (
+                f"⟳ Syncing [{data.current_file}/{data.total_files}]: {data.file}{queue_suffix}"
+            )
+        elif event_type == EventType.EXTRACT:
+            if not isinstance(data, ExtractEvent):
+                raise TypeError(f"Expected ExtractEvent, got {type(data).__name__}")
+            status.text = (
+                f"⟳ {data.step} [{data.page}/{data.total_pages}]: {data.file}{queue_suffix}"
+            )
+        elif event_type == EventType.OCR_START:
+            status.text = _tesseract_status(data) + queue_suffix
+        elif event_type == EventType.SYNC_DONE:
+            status.clear()
+            if not isinstance(data, SyncDoneEvent):
+                raise TypeError(f"Expected SyncDoneEvent, got {type(data).__name__}")
+            summary = _format_sync_summary(
+                data.added, data.updated, data.removed, data.failed, data.skipped, data.relocated
+            )
+            if summary:
+                print(f"✓ Synced: {summary}")
+
+    return _callback
+
+
+def run_sync_background(
+    con: PlainConsole,
+    *,
+    chat_mode: bool = False,
+    sync_status: SyncStatus | None = None,
+) -> Future[object]:
+    """Submit sync to a background thread. Returns the Future."""
+    status = sync_status or SyncStatus()
+
+    callback = _chat_sync_callback(status) if chat_mode else _sync_progress_printer(con)
+
+    def _run() -> object:
+        if chat_mode:
+            status.adjust_pending(-1)
+        return asyncio.run(sync(quiet=True, on_progress=callback))
+
+    if chat_mode:
+        status.adjust_pending(1)
+
+    future = _get_executor().submit(_run)
+    future.add_done_callback(lambda f: _on_sync_done(con, f, chat_mode=chat_mode))
+    return future

@@ -1,0 +1,466 @@
+"""Public dataclasses, TypedDicts, enums, and constants for the store package."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import timedelta
+from enum import StrEnum
+from typing import NamedTuple, NotRequired, TypedDict
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# How often readers re-check the manifest for new versions from other processes.
+# Zero means strong consistency (every read checks); higher values reduce disk I/O
+# on slow media (HDD) at the cost of serving slightly stale data.
+READ_CONSISTENCY_INTERVAL = timedelta(seconds=5)
+
+
+@dataclass
+class ConceptRecords:
+    """Rows for the three concept tables, built from one or more files' chunks."""
+
+    nodes: list[dict]
+    edges: list[dict]
+    chunk_concepts: list[dict]
+
+    @classmethod
+    def merged(cls, batches: list[ConceptRecords]) -> ConceptRecords:
+        """Concatenate several record sets into one batched write unit."""
+        return cls(
+            nodes=[row for batch in batches for row in batch.nodes],
+            edges=[row for batch in batches for row in batch.edges],
+            chunk_concepts=[row for batch in batches for row in batch.chunk_concepts],
+        )
+
+
+class SourceType(StrEnum):
+    """Values for the ``_sources.source_type`` column.
+
+    ``DOCUMENT`` mirrors a file under ``documents/`` and is managed by the
+    file-driven sync. ``IMPORTED`` is detached: it came from ``lilbee import``
+    and has no backing file, so sync must not treat it as a missing document.
+    """
+
+    DOCUMENT = "document"
+    IMPORTED = "imported"
+
+
+class SourceMeta(NamedTuple):
+    """Document-level metadata captured at extraction time.
+
+    ``title`` is always derivable (extraction metadata or the cleaned filename
+    stem); ``authors`` and ``created_at`` are only present when the extractor
+    reports them. Empty strings persist as NULL so old and new rows read alike.
+    """
+
+    title: str = ""
+    authors: str = ""
+    created_at: str = ""
+
+
+class ChunkWrite(NamedTuple):
+    """One document's chunks plus its source-table update, for a batched write.
+
+    ``Store.write_chunks_batch`` folds many of these into a single locked
+    transaction so bulk ingest doesn't pay a write-lock acquisition per document.
+    ``page_texts`` rows land in the same transaction, after the cleanup delete
+    and before the source row. ``source_type`` lets the detached import path
+    reuse the same atomic write while still tagging its rows ``IMPORTED``.
+    """
+
+    source: str
+    file_hash: str
+    records: list[dict]
+    needs_cleanup: bool
+    stat: SourceStat | None = None
+    page_texts: list[dict] | None = None
+    source_type: SourceType = SourceType.DOCUMENT
+    meta: SourceMeta | None = None
+
+
+class ChunkType(StrEnum):
+    """Values for the ``chunk_type`` column.
+
+    Documents ingest as ``RAW``, extracted tables as ``TABLE`` (when table
+    extraction is on), and wiki pages written by the wiki producer as
+    ``WIKI``. Callers filter with ``Store.search(chunk_type=...)``; a ``RAW``
+    filter also covers table chunks, since both are document content.
+    """
+
+    RAW = "raw"
+    TABLE = "table"
+    WIKI = "wiki"
+
+
+# ``schema_version`` is an integer for forward-compat. Bump only if we ever need to
+# add or rename a meta column without forcing every store to drop_all.
+# 2: nomic-embed document prefixes are stamped at ingest (see
+# lilbee.retrieval.embedding_profiles doc_prefix_since).
+META_SCHEMA_VERSION = 2
+
+# Always-true predicate used to clear the single-row ``_meta`` table before re-insert.
+# Lance's ``Table.delete`` requires a SQL where clause; this matches every row without
+# coupling the deletion to any specific column's value domain.
+META_DELETE_ALL_PREDICATE = "schema_version IS NOT NULL"
+
+# Same, for the single-row ``_entity_schema`` table.
+ENTITY_SCHEMA_DELETE_ALL_PREDICATE = "updated_at IS NOT NULL"
+
+
+class EntitySchemaState(TypedDict):
+    """Single-row state of the induced entity schema.
+
+    ``applied`` records whether a full extraction pass completed under this
+    schema; an interrupted pass leaves it False so the next sync redoes the
+    (idempotent) pass. ``source_count`` is how many documents the index held
+    when the schema was induced, which is what the next sync compares against
+    to decide the corpus has drifted far enough to re-induce.
+    """
+
+    schema_json: str
+    applied: bool
+    source_count: int
+    updated_at: str
+
+
+class SearchScope(StrEnum):
+    """What the user wants to search over.
+
+    Values are used as-is on CLI flags, MCP params, and HTTP query strings.
+    ``BOTH`` resolves to a ``None`` ``chunk_type`` (no filter); the two
+    others map 1:1 to the chunks-table values.
+    """
+
+    RAW = ChunkType.RAW
+    WIKI = ChunkType.WIKI
+    BOTH = "both"
+
+
+def scope_to_chunk_type(scope: SearchScope | str | None) -> ChunkType | None:
+    """Translate a user-facing scope into a ``Store.search`` ``chunk_type`` arg.
+
+    ``None``/``"both"`` → no filter. ``"raw"`` / ``"wiki"`` → the matching
+    ``ChunkType``. Raises ``ValueError`` on any other string.
+    """
+    if scope is None:
+        return None
+    normalized = SearchScope(scope)
+    if normalized is SearchScope.BOTH:
+        return None
+    return ChunkType(normalized.value)
+
+
+class SearchChunk(BaseModel):
+    """A search result from LanceDB.
+    Every store search path sets ``score``: canonical [0, 1] relevance,
+    higher = better. Ranking, filtering, and selection compare only this
+    field; the arm-specific fields below it are provenance.
+    Vector-arm rows carry ``distance``; FTS-arm rows carry ``bm25_score``;
+    reranked rows additionally carry ``rerank_score`` (higher = better).
+    Memory pseudo-rows carry ``memory_id`` and a ``memory:<id>`` source.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    source: str
+    content_type: str
+    chunk_type: ChunkType = ChunkType.RAW
+
+    @field_validator("chunk_type", mode="before")
+    @classmethod
+    def _coerce_none_chunk_type(cls, v: str | None) -> str:
+        """LanceDB rows from before the chunk_type column was added return None."""
+        return v if v is not None else ChunkType.RAW
+
+    # Document title at ingest time; None on rows written before the column
+    # existed (or by writers that carry no title, e.g. wiki pages).
+    title: str | None = None
+
+    page_start: int
+    page_end: int
+    line_start: int
+    line_end: int
+    chunk: str
+    chunk_index: int
+    vector: list[float] = Field(repr=False)
+    distance: float | None = Field(None, alias="_distance")
+    # Legacy ``_relevance_score`` passthrough. No store path populates it and
+    # no ranking code reads it; it survives only as a display-compatible field
+    # for rows produced by external LanceDB rerankers.
+    relevance_score: float | None = Field(None, validation_alias="_relevance_score")
+    # FTS/BM25-only rows carry a raw, unbounded ``_score``. It lives in its own
+    # field so it never contaminates the canonical ``score``; the
+    # confidence-based expansion-skip reads it (squashed to [0, 1]), and the
+    # relevance filter treats its presence as lexical support.
+    bm25_score: float | None = Field(None, validation_alias="_score")
+    rerank_score: float | None = None
+    # Canonical relevance in [0, 1], set by the store on every search path:
+    # normalized reciprocal-rank fusion on the hybrid path, clamped cosine
+    # similarity on vector-only, list-normalized BM25 on FTS-only probes.
+    score: float | None = None
+    # Set only on memory pseudo-rows built from a recalled MemoryRow (never by
+    # the store): the memory id, so consumers can tell a memory source apart
+    # from a retrieved passage and link it back to /api/memories.
+    memory_id: str | None = None
+
+
+class SourceRecord(TypedDict):
+    """A tracked source document record.
+
+    The stat columns are absent on rows read from stores created before they
+    existed; ``source_stat`` is the accessor that folds absence and the
+    ``SOURCE_STAT_UNKNOWN`` sentinel into ``None``.
+    """
+
+    filename: str
+    file_hash: str
+    ingested_at: str
+    chunk_count: int
+    source_type: str
+    size_bytes: NotRequired[int]
+    mtime_ns: NotRequired[int]
+    stat_captured_ns: NotRequired[int]
+    # Extraction-time document metadata; absent or None on rows written
+    # before the columns existed, and None when the extractor reported none.
+    title: NotRequired[str | None]
+    authors: NotRequired[str | None]
+    created_at: NotRequired[str | None]
+
+
+# Sentinel for the stat columns on rows written before they existed (or for
+# detached imports with no backing file). Planning treats it as "unknown: re-hash".
+SOURCE_STAT_UNKNOWN = -1
+
+
+class SourceStat(NamedTuple):
+    """File size and mtime captured when a source was hashed, plus the capture time.
+
+    ``captured_ns`` is the wall-clock time the stat was taken; the sync planner
+    hashes a file whose mtime is not strictly older than it (racily clean).
+    """
+
+    size_bytes: int
+    mtime_ns: int
+    captured_ns: int = SOURCE_STAT_UNKNOWN
+
+
+def source_stat(record: SourceRecord) -> SourceStat | None:
+    """Stored stat for a source row, or None when unknown.
+
+    The stat columns are nullable ``int64``, so a row can carry an explicit
+    ``None`` (an import, or a write before the columns existed) as well as a
+    missing key or the ``SOURCE_STAT_UNKNOWN`` sentinel. All three mean "no
+    usable stat": return None so the caller re-hashes instead of crashing on
+    ``int(None)``.
+    """
+    size = record.get("size_bytes")
+    mtime = record.get("mtime_ns")
+    captured = record.get("stat_captured_ns")
+    if size is None or mtime is None or size == SOURCE_STAT_UNKNOWN or mtime == SOURCE_STAT_UNKNOWN:
+        return None
+    captured_ns = SOURCE_STAT_UNKNOWN if captured is None else int(captured)
+    return SourceStat(int(size), int(mtime), captured_ns)
+
+
+class SourceStatBackfill(NamedTuple):
+    """An already-tracked source row paired with its freshly verified stat."""
+
+    record: SourceRecord
+    stat: SourceStat
+
+
+class PageTextRecord(TypedDict):
+    """One row of the per-page text dataset, matching ``_page_texts``.
+
+    The export dataset additionally carries the source's extraction metadata
+    (denormalized onto every page row) so an export/import cycle preserves it;
+    these are absent on rows read from the ``_page_texts`` table and on datasets
+    exported before the columns existed.
+    """
+
+    source: str
+    page: int
+    text: str
+    content_type: str
+    title: NotRequired[str | None]
+    authors: NotRequired[str | None]
+    created_at: NotRequired[str | None]
+
+
+class CitationRecord(TypedDict):
+    """A citation linking a wiki chunk to a specific source location."""
+
+    wiki_source: str
+    wiki_chunk_index: int
+    citation_key: str
+    claim_type: str
+    source_filename: str
+    source_hash: str
+    page_start: int
+    page_end: int
+    line_start: int
+    line_end: int
+    excerpt: str
+    created_at: str
+
+
+class MemoryKind(StrEnum):
+    """Whether a memory is an always-injected preference or a similarity-recalled fact."""
+
+    PREFERENCE = "preference"
+    FACT = "fact"
+
+
+class MemorySource(StrEnum):
+    """Provenance of a memory: user-typed, LLM-extracted, or agent-written."""
+
+    MANUAL = "manual"
+    EXTRACTED = "extracted"
+    AGENT = "agent"
+
+
+# Memory owner namespaces. ``"local"`` is the single human (TUI/CLI/REST); agents own
+# ``"agent:<id>"`` namespaces. The prefix lives only here so it is never hand-spliced.
+LOCAL_OWNER = "local"
+AGENT_OWNER_PREFIX = "agent:"
+
+# Memory pseudo-source values on SearchChunk: ``"memory:<id>"`` with a
+# ``"memory"`` content type. Built by retrieval, never stored in the chunks
+# table, so recalled facts show in sources without a backing document.
+MEMORY_SOURCE_PREFIX = "memory:"
+MEMORY_CONTENT_TYPE = "memory"
+
+
+def agent_owner(agent_id: str) -> str:
+    """Owner string for an agent identity (``"opencode"`` -> ``"agent:opencode"``)."""
+    return f"{AGENT_OWNER_PREFIX}{agent_id}"
+
+
+def is_agent_owner(owner: str) -> bool:
+    """True when *owner* is an agent namespace rather than the local human."""
+    return owner.startswith(AGENT_OWNER_PREFIX)
+
+
+def memory_source(memory_id: str) -> str:
+    """Source value for a recalled memory (``"abc"`` -> ``"memory:abc"``)."""
+    return f"{MEMORY_SOURCE_PREFIX}{memory_id}"
+
+
+def is_memory_source(source: str) -> bool:
+    """True when *source* names a recalled memory rather than a document."""
+    return source.startswith(MEMORY_SOURCE_PREFIX)
+
+
+class MemoryRow(BaseModel):
+    """A long-term memory entry in the per-library ``_memories`` table.
+
+    Built from a LanceDB row via ``MemoryRow(**row)`` (which coerces the ``kind``
+    and ``source`` strings to enums) and written back via ``model_dump(mode="json")``.
+    Extra keys like a search ``_distance`` are ignored on construction.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    owner: str
+    shared: bool
+    kind: MemoryKind
+    source: MemorySource
+    text: str
+    vector: list[float] = Field(repr=False)
+    created_at: str
+    updated_at: str
+
+
+class StoreMeta(TypedDict):
+    """Single-row store metadata recording the embedding model used to build the store.
+
+    Compatibility is checked before every read and write. When ``cfg.embedding_model``
+    or ``cfg.embedding_dim`` drifts from the persisted row, the store refuses to serve
+    until ``lilbee rebuild`` (CLI) or ``POST /api/sync {"force_rebuild": true}`` (HTTP)
+    rewrites the chunks under the new model.
+
+    ``updated_at`` is an ISO 8601 UTC timestamp produced by ``datetime.isoformat()``;
+    kept as ``str`` to match the LanceDB ``utf8`` schema column.
+    """
+
+    embedding_model: str
+    embedding_dim: int
+    schema_version: int
+    updated_at: str
+
+
+class IndexMismatch(BaseModel):
+    """The embedder drift between a persisted index and the configured model.
+
+    ``adoptable`` is true when the dimensions agree, so switching the embedding
+    model back to ``persisted_model`` makes the index searchable without a rebuild.
+    """
+
+    persisted_model: str
+    persisted_dim: int
+    current_model: str
+    current_dim: int
+    adoptable: bool
+    message: str
+
+
+class EmbeddingModelMismatchError(RuntimeError):
+    """Raised when stored vectors were built with a different embedder than ``cfg``.
+
+    Carries the persisted and configured refs and dims so each surface renders its
+    own recovery affordance (TUI prompt, CLI command, REST body) from the facts.
+    """
+
+    def __init__(
+        self,
+        *,
+        persisted_model: str,
+        persisted_dim: int,
+        current_model: str,
+        current_dim: int,
+    ) -> None:
+        self.persisted_model = persisted_model
+        self.persisted_dim = persisted_dim
+        self.current_model = current_model
+        self.current_dim = current_dim
+        super().__init__(self._build_message())
+
+    @property
+    def dims_match(self) -> bool:
+        """True when the index is adoptable by switching embedder alone (same dim)."""
+        return self.persisted_dim == self.current_dim
+
+    def describe(self) -> IndexMismatch:
+        """The drift as a serializable record for sync results and status payloads."""
+        return IndexMismatch(
+            persisted_model=self.persisted_model,
+            persisted_dim=self.persisted_dim,
+            current_model=self.current_model,
+            current_dim=self.current_dim,
+            adoptable=self.dims_match,
+            message=str(self),
+        )
+
+    def _build_message(self) -> str:
+        if self.dims_match:
+            return (
+                f"This index was built with embedding model '{self.persisted_model}', "
+                f"but lilbee is configured to use '{self.current_model}'. Configure lilbee "
+                f"to use '{self.persisted_model}' to search this index, or rebuild it under "
+                f"'{self.current_model}'."
+            )
+        return (
+            f"This index was built with embedding model '{self.persisted_model}' "
+            f"(dim {self.persisted_dim}), which differs from the current "
+            f"'{self.current_model}' (dim {self.current_dim}). The dimensions differ, "
+            f"so rebuild the index under '{self.current_model}' to use it."
+        )
+
+
+@dataclass
+class RemoveResult:
+    """Result of a remove: *removed* can also name held-out files and root labels."""
+
+    removed: list[str]
+    not_found: list[str]

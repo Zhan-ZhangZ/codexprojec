@@ -1,0 +1,67 @@
+program MARSTestsProject;
+
+
+{$IFNDEF TESTINSIGHT}
+{$APPTYPE CONSOLE}
+{$ENDIF}{$STRONGLINKTYPES ON}
+
+{$R *.res}
+
+uses
+  SysUtils,
+  {$IFDEF TESTINSIGHT}
+  TestInsight.DUnitX,
+  {$ENDIF }
+  DUnitX.TestFramework,
+  DUnitX.Loggers.Console,
+  DUnitX.Loggers.XML.NUnit,
+  Tests.Core in 'Tests.Core.pas',
+  Tests.MessageBodyWriters in 'Tests.MessageBodyWriters.pas',
+  Tests.MessageBodyReaders in 'Tests.MessageBodyReaders.pas',
+  Tests.Records.Types in 'Tests.Records.Types.pas',
+  Tests.FireDAC in 'Tests.FireDAC.pas',
+  Tests.JWT in 'Tests.JWT.pas',
+  Tests.Data in 'Tests.Data.pas',
+  Tests.Client in 'Tests.Client.pas',
+  Tests.Client.Resources in 'Tests.Client.Resources.pas',
+  Tests.Client.TestServer in 'Tests.Client.TestServer.pas',
+  Tests.Client.Log in 'Tests.Client.Log.pas',
+  Tests.DCS in 'Tests.DCS.pas',
+  Tests.MARSParameters in 'Tests.MARSParameters.pas',
+  Tests.Activation in 'Tests.Activation.pas',
+  Tests.OpenAPI3 in 'Tests.OpenAPI3.pas',
+  Tests.Objects.Types in 'Tests.Objects.Types.pas',
+  Tests.DefaultEngine.Definition in 'Tests.DefaultEngine.Definition.pas',
+  Tests.DefaultEngine.Resources in 'Tests.DefaultEngine.Resources.pas',
+  Tests.DefaultEngine in 'Tests.DefaultEngine.pas',
+  Tests.MCP.Resources in 'Tests.MCP.Resources.pas',
+  Tests.MCP in 'Tests.MCP.pas',
+  Tests.ReqRespLogger.JSON in 'Tests.ReqRespLogger.JSON.pas',
+  Tests.Routes in 'Tests.Routes.pas',
+  Tests.Cookies in 'Tests.Cookies.pas',
+  Tests.IndyIOHandler in 'Tests.IndyIOHandler.pas',
+  Mock.IMARSRequest in 'Mock.IMARSRequest.pas',
+  Mock.IMARSResponse in 'Mock.IMARSResponse.pas';
+
+{$IFDEF TESTINSIGHT}
+begin
+  ReportMemoryLeaksOnShutdown := True;
+  // string assertions are case sensitive (DUnitX ignores case by default)
+  Assert.IgnoreCaseDefault := False;
+  RunRegisteredTests;
+{$ELSE}
+var LResults: IRunResults;
+begin
+  ReportMemoryLeaksOnShutdown := True;
+  // string assertions are case sensitive (DUnitX ignores case by default)
+  Assert.IgnoreCaseDefault := False;
+  LResults := TDUnitX.CreateRunner([
+    TDUnitXConsoleLogger.Create(),
+    TDUnitXXMLNUnitFileLogger.Create()
+  ]).Execute;
+
+//  if (LResults.ErrorCount > 0) or (LResults.FailureCount > 0) then
+    Readln;
+{$ENDIF}
+end.
+

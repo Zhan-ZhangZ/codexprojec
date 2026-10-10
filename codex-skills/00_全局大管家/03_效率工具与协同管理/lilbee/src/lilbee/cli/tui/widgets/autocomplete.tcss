@@ -1,0 +1,13 @@
+CompletionOverlay {
+    height: auto;
+    max-height: 10;
+    width: 100%;
+    background: $surface;
+    border: $rail $primary;
+    display: none;
+}
+
+CompletionOverlay OptionList {
+    height: auto;
+    max-height: 8;
+}

@@ -1,0 +1,907 @@
+"""Document extraction: one xberg pass that natively extracts text and OCRs
+scanned pages/images through the registered backend; chunk + embed the result."""
+
+from __future__ import annotations
+
+import asyncio
+import contextvars
+import logging
+import time
+from collections.abc import AsyncGenerator, Generator, Sequence
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
+
+from lilbee.app.services import get_services
+from lilbee.core.config import active_config
+from lilbee.core.config.enums import OcrMode, OcrPageStrategy
+from lilbee.data.offload import to_ingest_thread
+from lilbee.data.store import ChunkType, PageTextRecord, SourceMeta
+from lilbee.data.title import derive_title, source_meta_from_extraction
+from lilbee.data.types import (
+    IMAGE_CONTENT_TYPE,
+    MARKDOWN_OUTPUT,
+    PDF_CONTENT_TYPE,
+    ChunkRecord,
+    DocumentRecords,
+    ExtractMode,
+    MemberRecords,
+    OcrBackendName,
+    OcrReport,
+)
+from lilbee.providers.base import aux_options
+from lilbee.runtime.cancellation import CancelSignal
+from lilbee.runtime.progress import (
+    DetailedProgressCallback,
+    EventType,
+    ExtractEvent,
+    OcrBackendUsed,
+    OcrStartEvent,
+    noop_callback,
+)
+
+from .backends.vision_ocr import backend_options_for, ocr_request
+from .batch import active_extract_batcher
+from .chunk import ChunkLimitError, build_chunking_config, chunk_text, enforce_chunk_limit
+from .trace import ExtractionTrace, trace_extraction, trace_log
+
+if TYPE_CHECKING:
+    from xberg import (
+        ExtractedDocument,
+        ExtractionConfig,
+        LayoutDetectionConfig,
+        OcrConfig,
+        OcrStrategy,
+        PdfConfig,
+    )
+
+    from .batch import ExtractBatcher
+
+log = logging.getLogger(__name__)
+
+
+class _ExtractedTable(Protocol):
+    """The table fields lilbee indexes as dedicated chunks.
+
+    Structural, so it is satisfied by both xberg's public ``Table`` and the native
+    type that ``ExtractedDocument.tables`` actually yields.
+    """
+
+    @property
+    def markdown(self) -> str: ...
+
+    @property
+    def page_number(self) -> int: ...
+
+
+def content_type_to_mode(content_type: str) -> ExtractMode:
+    """Map a content_type to the extraction mode (paginated for PDFs and images)."""
+    if content_type in (PDF_CONTENT_TYPE, IMAGE_CONTENT_TYPE):
+        return ExtractMode.PAGINATED
+    return ExtractMode.MARKDOWN
+
+
+def _page_text_record(source: str, page: int, text: str, content_type: str) -> PageTextRecord:
+    """Build one per-page text row for the export dataset."""
+    return PageTextRecord(source=source, page=page, text=text, content_type=content_type)
+
+
+_ocr_mode_override: contextvars.ContextVar[OcrMode | None] = contextvars.ContextVar(
+    "lilbee_ocr_mode_override", default=None
+)
+_ocr_timeout_override: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "lilbee_ocr_timeout_override", default=None
+)
+
+
+# Per-file title for embedding input; a ContextVar (like the OCR overrides) so the
+# call chains need no signature threading and concurrent ingests don't leak titles.
+_embed_title: contextvars.ContextVar[str] = contextvars.ContextVar("lilbee_embed_title", default="")
+
+
+@contextmanager
+def _title_scope(title: str) -> Generator[None, None, None]:
+    token = _embed_title.set(title or "")
+    try:
+        yield
+    finally:
+        _embed_title.reset(token)
+
+
+def _embed_inputs(texts: list[str], title: str | None = None) -> list[str]:
+    """Embedding inputs, title-prefixed when ``cfg.embed_titles`` is on.
+
+    Only the vector sees the title; the stored chunk text is unchanged.
+    ``None`` falls back to the scoped per-file title (the OCR chains).
+    """
+    effective = title if title is not None else _embed_title.get()
+    if not effective or not active_config().embed_titles:
+        return texts
+    return [f"{effective}\n{text}" for text in texts]
+
+
+# Contextual enrichment: characters of document head shown to the model, and
+# the reply budget for the one situating sentence.
+_ENRICH_HEAD_CHARS = 2000
+_ENRICH_CHUNK_CHARS = 2000
+_ENRICH_MAX_TOKENS = 60
+_ENRICH_PROMPT = (
+    "Document beginning:\n{head}\n\nChunk from the same document:\n{chunk}\n\n"
+    "Write one short sentence situating this chunk within the document, to "
+    "improve search retrieval of the chunk. Answer with only the sentence."
+)
+
+
+def _enrich_texts(texts: list[str], doc_head: str, source_name: str) -> list[str]:
+    """Embedding inputs with one LLM-written situating sentence per chunk.
+
+    Anthropic-style contextual retrieval, opt-in (``cfg.contextual_enrichment``):
+    one generation per chunk, so ingest slows accordingly. Only the vector sees
+    the sentence; stored chunk text and citations stay verbatim. Any failure
+    keeps that chunk's bare text.
+    """
+    if not active_config().contextual_enrichment or not texts:
+        return texts
+    from lilbee.retrieval.reasoning import strip_reasoning
+
+    provider = get_services().provider
+    head = doc_head[:_ENRICH_HEAD_CHARS]
+    enriched: list[str] = []
+    failed = 0
+    for text in texts:
+        prompt = _ENRICH_PROMPT.format(head=head, chunk=text[:_ENRICH_CHUNK_CHARS])
+        try:
+            response = provider.chat(
+                [{"role": "user", "content": prompt}],
+                stream=False,
+                options=aux_options(_ENRICH_MAX_TOKENS),
+            )
+            lines = strip_reasoning(response.text).strip().splitlines()
+            sentence = lines[0].strip() if lines else ""
+        except Exception:
+            failed += 1
+            sentence = ""
+        enriched.append(f"{sentence}\n{text}" if sentence else text)
+    if failed:
+        log.warning(
+            "Contextual enrichment failed for %d of %d chunks in %s; those embed bare",
+            failed,
+            len(texts),
+            source_name,
+        )
+    return enriched
+
+
+def _effective_ocr_mode() -> OcrMode:
+    """``cfg.ocr`` unless a per-request OCR override is active.
+
+    The override is a ContextVar, not a global cfg mutation, so concurrent
+    ingests on the shared HTTP daemon each see their own setting.
+    """
+    override = _ocr_mode_override.get()
+    return active_config().ocr if override is None else override
+
+
+def _extraction_timeout_secs() -> int | None:
+    """``cfg.extraction_timeout`` as xberg's per-file cap; None when uncapped.
+
+    xberg defaults this to 600s. Passing lilbee's own value on every call keeps
+    the cap something a user can see and raise instead of an inherited default.
+    """
+    timeout = active_config().extraction_timeout
+    return timeout if timeout > 0 else None
+
+
+def _effective_ocr_timeout() -> float:
+    """``cfg.ocr_timeout`` unless a per-request OCR timeout override is active."""
+    override = _ocr_timeout_override.get()
+    return active_config().ocr_timeout if override is None else override
+
+
+@contextmanager
+def ocr_override(
+    ocr: OcrMode | None = None, ocr_timeout: float | None = None
+) -> Generator[None, None, None]:
+    """Scope per-request OCR settings without mutating the global cfg.
+
+    A ``None`` argument leaves that setting at its cfg default. Each override is
+    isolated to the entering context, so overlapping ingests never clobber one
+    another's OCR config.
+    """
+    tokens: list[tuple[contextvars.ContextVar[Any], contextvars.Token[Any]]] = []
+    try:
+        if ocr is not None:
+            tokens.append((_ocr_mode_override, _ocr_mode_override.set(ocr)))
+        if ocr_timeout is not None:
+            tokens.append((_ocr_timeout_override, _ocr_timeout_override.set(ocr_timeout)))
+        yield
+    finally:
+        for var, token in reversed(tokens):
+            var.reset(token)
+
+
+def ocr_backend() -> OcrBackendUsed:
+    """The OCR backend for this extraction: none when OCR is off, else vision or Tesseract."""
+    return OcrBackendUsed.chosen(_effective_ocr_mode(), active_config().vision_model)
+
+
+def _ocr_config(ocr_token: str | None) -> OcrConfig | None:
+    """xberg's OcrConfig for the backend ``ocr_backend`` picks, or None when OCR is off.
+
+    xberg OCRs the pages without usable text, and every page of a PDF with almost no text.
+    """
+    from xberg import OcrConfig
+
+    config = active_config()
+    backend = ocr_backend()
+    if backend is OcrBackendUsed.NONE:
+        return None
+    if backend is OcrBackendUsed.VISION:
+        options = backend_options_for(ocr_token) if ocr_token else None
+        return OcrConfig(
+            backend=OcrBackendName.LILBEE_VISION,
+            backend_options=options,
+        )
+    # xberg requires a non-empty language list (4.x defaulted to English;
+    # xberg 1.0 errors on an empty one). cfg.ocr_language is validated non-empty.
+    return OcrConfig(
+        backend=OcrBackendName.TESSERACT,
+        language=list(config.ocr_language),
+    )
+
+
+def _ocr_strategy() -> OcrStrategy:
+    """xberg's page-selection strategy for cfg.ocr_strategy; auto when OCR is off."""
+    from xberg import OcrStrategy
+
+    config = active_config()
+    # xberg rejects scanned_pages when OCR is disabled.
+    if ocr_backend() is OcrBackendUsed.NONE or config.ocr_strategy is OcrPageStrategy.AUTO:
+        return OcrStrategy(OcrPageStrategy.AUTO.value)
+    return OcrStrategy.scanned_pages(config.ocr_scan_confidence)
+
+
+def _force_ocr_pages() -> list[int] | None:
+    """cfg.force_ocr_pages for xberg; None when empty or OCR is off."""
+    if ocr_backend() is OcrBackendUsed.NONE:
+        return None
+    return list(active_config().force_ocr_pages) or None
+
+
+# Header/footer band stripped when layout detection is on: outermost 5%.
+_TOP_MARGIN_FRACTION = 0.05
+_BOTTOM_MARGIN_FRACTION = 0.05
+
+
+def _pdf_options() -> PdfConfig | None:
+    """PdfConfig for the enabled opt-in features (tables, layout), or None when all off."""
+    config = active_config()
+    if not (config.table_extraction or config.layout_detection):
+        return None
+    from xberg import PdfConfig
+
+    kwargs: dict[str, Any] = {}
+    if config.table_extraction:
+        kwargs["extract_tables"] = True
+    if config.layout_detection:
+        kwargs.update(
+            reading_order=True,
+            top_margin_fraction=_TOP_MARGIN_FRACTION,
+            bottom_margin_fraction=_BOTTOM_MARGIN_FRACTION,
+        )
+    return PdfConfig(**kwargs)
+
+
+def warn_if_table_model_ignored() -> None:
+    """Warn when table extraction runs with layout_detection off: xberg only
+    applies table_model inside layout detection, so the model is silently ignored.
+    """
+    config = active_config()
+    if config.table_extraction and not config.layout_detection:
+        log.warning(
+            "table_model=%s is ignored while layout_detection is off: tables use "
+            "the native extractor, not the structure model. Enable layout_detection "
+            "to apply the table model.",
+            config.table_model.value,
+        )
+
+
+def _layout_config() -> LayoutDetectionConfig | None:
+    """AUTO-strategy layout config when enabled, else None."""
+    config = active_config()
+    if not config.layout_detection:
+        return None
+    from xberg import LayoutDetectionConfig, LayoutStrategy
+
+    return LayoutDetectionConfig(strategy=LayoutStrategy.AUTO, table_model=config.table_model)
+
+
+def extraction_config(mode: ExtractMode, *, ocr_token: str | None = None) -> ExtractionConfig:
+    """Build ExtractionConfig for the given extraction mode."""
+    from xberg import ExtractionConfig, PageConfig
+
+    # Files are extracted one per call; xberg parallelizes OCR across a document's
+    # pages internally, and cross-file concurrency is the pipeline's semaphore.
+    chunking = build_chunking_config()
+    ocr = _ocr_config(ocr_token)
+    # OCR off sends no OCR block (xberg 1.2.7 OCRs page images under any block, even
+    # disabled; 1.2.9 fixes that) and sets disable_ocr (without it, xberg auto-OCRs a
+    # PDF that has no text layer).
+    disable_ocr = ocr is None
+    # ocr = all defeats xberg's text-layer short-circuit for either engine; xberg
+    # rejects force_ocr together with disable_ocr.
+    force_ocr = ocr is not None and _effective_ocr_mode() is OcrMode.ALL
+    if mode is ExtractMode.PAGINATED:
+        paginated = ExtractionConfig(
+            chunking=chunking,
+            pages=PageConfig(extract_pages=True, insert_page_markers=False),
+            ocr=ocr,
+            disable_ocr=disable_ocr,
+            force_ocr=force_ocr,
+            pdf_options=_pdf_options(),
+            extraction_timeout_secs=_extraction_timeout_secs(),
+            ocr_strategy=_ocr_strategy(),
+            force_ocr_pages=_force_ocr_pages(),
+        )
+        # The layout fields keep xberg's defaults when layout detection is off.
+        layout = _layout_config()
+        if layout is None:
+            return paginated
+        return replace(paginated, layout=layout, use_layout_for_markdown=True)
+    return ExtractionConfig(
+        chunking=chunking,
+        output_format=MARKDOWN_OUTPUT,
+        ocr=ocr,
+        disable_ocr=disable_ocr,
+        force_ocr=force_ocr,
+        extraction_timeout_secs=_extraction_timeout_secs(),
+        ocr_strategy=_ocr_strategy(),
+        force_ocr_pages=_force_ocr_pages(),
+    )
+
+
+def make_extract_batcher() -> ExtractBatcher | None:
+    """The extraction batcher for this ingest run, or None when batching is off."""
+    config = active_config()
+    if not config.batch_extraction:
+        return None
+    from .batch import ExtractBatcher
+    from .xberg import aextract_batch
+
+    return ExtractBatcher(
+        size=config.batch_extraction_size,
+        config_fn=extraction_config,
+        ocr_fn=_ocr_config,
+        batch_fn=aextract_batch,
+    )
+
+
+@asynccontextmanager
+async def extract_batching() -> AsyncGenerator[None]:
+    """Activate extraction batching for the enclosed ingest, when the toggle is on.
+
+    The batcher is set before the block runs so the ingest tasks created inside it
+    inherit it in their copied context; off (the default) is a no-op.
+    """
+    batcher = make_extract_batcher()
+    if batcher is None:
+        yield
+        return
+    from .batch import reset_active_batcher, set_active_batcher
+
+    token = set_active_batcher(batcher)
+    try:
+        yield
+    finally:
+        await batcher.close()
+        reset_active_batcher(token)
+
+
+def _chunk_pages(page_texts: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Chunk each page's text. Semantic chunking is off: a single page rarely spans
+    multiple topics, so the semantic round-trip is not worth it."""
+    return [
+        (page_num, chunk)
+        for page_num, text in page_texts
+        for chunk in chunk_text(text, use_semantic=False)
+    ]
+
+
+async def chunk_and_embed_pages(
+    page_texts: Sequence[tuple[int, str]],
+    source_name: str,
+    content_type: str,
+    on_progress: DetailedProgressCallback,
+) -> list[ChunkRecord]:
+    """Chunk per-page text and embed every chunk. Used by the dataset import path."""
+    if not page_texts:
+        return []
+
+    # chunk_text runs xberg's synchronous extractor; offload it so a long
+    # document does not stall sibling files sharing this event loop.
+    all_chunks = await to_ingest_thread(_chunk_pages, page_texts)
+    if not all_chunks:
+        return []
+    texts = [c for _, c in all_chunks]
+    embed_texts = await to_ingest_thread(_enrich_texts, texts, page_texts[0][1], source_name)
+    vectors = await to_ingest_thread(
+        get_services().embedder.embed_batch,
+        _embed_inputs(embed_texts),
+        source=source_name,
+        on_progress=on_progress,
+    )
+    return [
+        ChunkRecord(
+            source=source_name,
+            content_type=content_type,
+            chunk_type=ChunkType.RAW,
+            page_start=page_num,
+            page_end=page_num,
+            line_start=0,
+            line_end=0,
+            chunk=text,
+            chunk_index=i,
+            vector=vec,
+        )
+        for i, ((page_num, text), vec) in enumerate(zip(all_chunks, vectors, strict=True))
+    ]
+
+
+def _capture_result_page_texts(
+    doc: ExtractedDocument,
+    source_name: str,
+    content_type: str,
+    page_texts_out: list[PageTextRecord] | None,
+) -> None:
+    """Append an extraction's page texts to the export accumulator.
+
+    Paginated documents yield one row per ``doc.pages`` entry; others have no
+    page split, so the full ``doc.content`` is recorded as page 0.
+    """
+    if page_texts_out is None:
+        return
+    if doc.pages:
+        page_texts_out.extend(
+            _page_text_record(source_name, page.page_number, page.content, content_type)
+            for page in doc.pages
+        )
+    elif doc.content.strip():
+        page_texts_out.append(_page_text_record(source_name, 0, doc.content, content_type))
+
+
+def _document_tables(doc: ExtractedDocument) -> list[_ExtractedTable]:
+    """The result tables to index as dedicated chunks, when table extraction is on.
+
+    Each table becomes its own chunk carrying xberg's markdown serialization and
+    page metadata. The table's flattened text also stays inside the content
+    chunks: stripping it there would tear holes in reading-order prose and the
+    page-text export, so both are indexed deliberately. The dedicated table
+    chunk adds the structured serialization for targeted retrieval.
+    """
+    if not active_config().table_extraction:
+        return []
+    return [t for t in (doc.tables or []) if t.markdown and t.markdown.strip()]
+
+
+def _warn_empty_ocr(source_name: str, media: str, backend: OcrBackendUsed) -> None:
+    """Warn that extraction yielded no text, with advice that matches the backend that ran."""
+    if backend is OcrBackendUsed.NONE:
+        log.warning(
+            "Skipped %s: text extraction produced no usable text. "
+            "OCR is off (ocr = off); set ocr to auto to read %s.",
+            source_name,
+            media,
+        )
+        return
+    if backend is OcrBackendUsed.VISION:
+        log.warning(
+            "Skipped %s: the vision model returned no usable text for %s.",
+            source_name,
+            media,
+        )
+        return
+    log.warning(
+        "Skipped %s: text extraction produced no usable text. "
+        "For better results on %s, configure a vision model via PUT /api/models/vision.",
+        source_name,
+        media,
+    )
+
+
+def _warn_skipped_scanned_pages(doc: ExtractedDocument, source_name: str) -> None:
+    """Warn that OCR being off left the scanned pages of an indexed PDF unread."""
+    skipped = _scanned_pages(doc)
+    if skipped:
+        log.warning(
+            "Indexed %s without its scanned pages %s: OCR is off (ocr = off). "
+            "Set ocr to auto to read them.",
+            source_name,
+            ", ".join(str(page) for page in skipped),
+        )
+
+
+async def ingest_document(
+    path: Path,
+    source_name: str,
+    content_type: str,
+    *,
+    quiet: bool = False,
+    on_progress: DetailedProgressCallback = noop_callback,
+    page_texts_out: list[PageTextRecord] | None = None,
+    cancel: CancelSignal | None = None,
+) -> DocumentRecords:
+    """Extract, chunk, and embed a document in a single xberg pass, with its metadata.
+
+    xberg extracts native text and, where a page has none, OCRs it through the
+    registered backend (lilbee's vision model, or tesseract). Vision OCR progress
+    is streamed per page via ``ocr_request``; Tesseract reports no pages, so a
+    scanned file gets one OCR_START event before its extraction. ``quiet`` is
+    accepted for pipeline call compatibility. The returned metadata carries the document's
+    extraction title/authors/date and is derived even when extraction yields nothing;
+    the OCR report says which backend the extraction ran and how many pages it OCR'd.
+    """
+    del quiet
+    doc, ocr = await _extract_document(
+        path, source_name, content_type, content_type_to_mode(content_type), on_progress, cancel
+    )
+    records, meta = await _records_from_document(
+        doc,
+        source_name,
+        content_type,
+        on_progress=on_progress,
+        page_texts_out=page_texts_out,
+        ocr_backend=ocr.backend,
+    )
+    return DocumentRecords(records, meta, ocr)
+
+
+async def ingest_archive(
+    path: Path,
+    source_name: str,
+    content_type: str,
+    *,
+    on_progress: DetailedProgressCallback = noop_callback,
+    cancel: CancelSignal | None = None,
+) -> list[MemberRecords]:
+    """Extract an archive once and build records for every member, nested archives included.
+
+    The archive itself contributes no chunks. Each member is its own source named
+    ``<archive>/<member path>``. xberg unpacks to ``max_archive_depth`` under its
+    zip-bomb limits, so depth and size are enforced before this runs.
+    """
+    doc, ocr = await _extract_document(
+        path, source_name, content_type, ExtractMode.PAGINATED, on_progress, cancel
+    )
+    members: list[MemberRecords] = []
+    await _collect_members(doc, source_name, members, on_progress, ocr.backend)
+    return members
+
+
+async def _collect_members(
+    doc: ExtractedDocument,
+    prefix: str,
+    members: list[MemberRecords],
+    on_progress: DetailedProgressCallback,
+    ocr_backend: OcrBackendUsed,
+) -> None:
+    # circular: document -> ingest.discovery via the ingest package's pipeline import
+    from lilbee.data.ingest.discovery import archive_content_types, classify_file
+
+    unsupported: list[str] = []
+    for entry in doc.children or []:
+        name = f"{prefix}/{entry.path}"
+        # The same gate discovery applies on disk: a member of an unsupported format
+        # is never chunked, so an archive of machine output cannot flood the index.
+        content_type = classify_file(Path(entry.path))
+        if content_type is None:
+            unsupported.append(entry.path)
+            continue
+        if content_type in archive_content_types():
+            await _collect_members(entry.result, name, members, on_progress, ocr_backend)
+            continue
+        page_texts: list[PageTextRecord] = []
+        try:
+            records, meta = await _records_from_document(
+                entry.result,
+                name,
+                content_type,
+                on_progress=on_progress,
+                page_texts_out=page_texts,
+                ocr_backend=ocr_backend,
+            )
+        except ChunkLimitError as exc:
+            raise ChunkLimitError(exc.count, exc.limit, member=name) from None
+        members.append(MemberRecords(name, content_type, records, page_texts, meta))
+    if unsupported:
+        log.info(
+            "Skipped %d member(s) of %s, unsupported format: %s",
+            len(unsupported),
+            prefix,
+            ", ".join(sorted(unsupported)),
+        )
+
+
+def _page_count_config() -> ExtractionConfig:
+    """A metadata-only ExtractionConfig: OCR and page bodies off, structure kept."""
+    from xberg import ExtractionConfig, PageConfig
+
+    # No OCR block at all: xberg 1.2.7 OCRs a PDF's page images whenever one is present,
+    # even disabled (fixed in 1.2.9).
+    return ExtractionConfig(
+        pages=PageConfig(extract_pages=False, insert_page_markers=False),
+        disable_ocr=True,
+        enable_quality_processing=False,
+    )
+
+
+@dataclass(frozen=True)
+class _PageProbe:
+    """What the metadata-only pass read: the page count and whether any page is a scan."""
+
+    pages: int = 0
+    has_scanned_pages: bool = False
+
+
+def _scanned_pages(doc: ExtractedDocument) -> list[int]:
+    """The PDF pages xberg found with no usable text layer."""
+    fmt = doc.metadata.format
+    pdf = fmt.pdf if fmt is not None else None
+    return list(pdf.scanned_pages or []) if pdf is not None else []
+
+
+async def _probe_pages(data: bytes, filename: str) -> _PageProbe:
+    """Read *data*'s page count and scanned pages in a metadata-only xberg pass.
+
+    Costs a second structural parse of *data* with OCR and page bodies both off.
+    Any failure here returns an empty probe rather than raising, so the caller's
+    real extraction still runs and reports its own error.
+    """
+    from .xberg import aextract_document
+
+    try:
+        doc = await aextract_document(data, filename=filename, config=_page_count_config())
+    except Exception:
+        log.debug("Page-count probe failed for %s; OCR progress total stays unknown", filename)
+        return _PageProbe()
+    return _PageProbe(pages=doc.counts.pages, has_scanned_pages=bool(_scanned_pages(doc)))
+
+
+def _announce_tesseract_ocr(
+    probe: _PageProbe, source_name: str, on_progress: DetailedProgressCallback
+) -> None:
+    """Emit OCR_START when Tesseract will OCR this file; it reports no per-page progress."""
+    if probe.has_scanned_pages and ocr_backend() is OcrBackendUsed.TESSERACT:
+        on_progress(EventType.OCR_START, OcrStartEvent(file=source_name, total_pages=probe.pages))
+
+
+async def _extract_document(
+    path: Path,
+    source_name: str,
+    content_type: str,
+    mode: ExtractMode,
+    on_progress: DetailedProgressCallback,
+    cancel: CancelSignal | None,
+) -> tuple[ExtractedDocument, OcrReport]:
+    """Run one xberg pass over *path*, with per-page OCR progress and the extraction trace.
+
+    A set *cancel* stops vision OCR before its next page, and a pass that
+    ends under a set *cancel* raises ``CancelledError`` instead of returning a
+    partial document.
+    """
+    from .xberg import aextract_document
+
+    data = path.read_bytes()
+    probe = _PageProbe()
+    # content_type_to_mode(content_type), not the *mode* argument: ingest_archive
+    # always requests PAGINATED regardless of the archive's own content_type, and
+    # an archive has no single page count to probe for.
+    if content_type_to_mode(content_type) is ExtractMode.PAGINATED:
+        probe = await _probe_pages(data, path.name)
+    _announce_tesseract_ocr(probe, source_name, on_progress)
+
+    page_seen = 0
+
+    def _tick() -> None:
+        nonlocal page_seen
+        page_seen += 1
+        on_progress(
+            EventType.EXTRACT,
+            ExtractEvent(
+                file=source_name,
+                page=page_seen,
+                total_pages=probe.pages,
+                ocr_backend=OcrBackendUsed.VISION,
+            ),
+        )
+
+    trace_log.debug("extract-start source=%r type=%s", source_name, content_type)
+    backend = ocr_backend()
+    started = time.perf_counter()
+    with ocr_request(on_page=_tick, timeout=_effective_ocr_timeout(), cancel=cancel) as token:
+        batcher = active_extract_batcher()
+        if batcher is not None:
+            doc = await batcher.submit(mode, data, path.name, token)
+        else:
+            config = extraction_config(mode, ocr_token=token)
+            # xberg's extract is async; awaiting it keeps the OCR page loop off this thread.
+            doc = await aextract_document(data, filename=path.name, config=config)
+    if cancel is not None and cancel.is_set():
+        raise asyncio.CancelledError
+    elapsed = time.perf_counter() - started
+    ocr = OcrReport(backend=backend, pages=_ocr_page_count(doc))
+
+    # One trace line per extraction (filename, timing, counts, OCR pages), plus a
+    # vision line for scanned files. Emitted for empty results too (a slow file
+    # that yields nothing is worth surfacing).
+    trace_extraction(
+        ExtractionTrace(
+            source=source_name,
+            content_type=content_type,
+            elapsed_s=elapsed,
+            page_count=len(doc.pages or []) or len(doc.chunks or []),
+            chunk_count=len(doc.chunks or []),
+            ocr=ocr,
+        )
+    )
+
+    return doc, ocr
+
+
+def _ocr_page_count(doc: ExtractedDocument) -> int:
+    """Pages xberg OCR'd, which are the pages it attaches an OCR confidence to."""
+    return sum(1 for page in doc.pages or [] if page.ocr_confidence is not None)
+
+
+async def _records_from_document(
+    doc: ExtractedDocument,
+    source_name: str,
+    content_type: str,
+    *,
+    on_progress: DetailedProgressCallback,
+    page_texts_out: list[PageTextRecord] | None,
+    ocr_backend: OcrBackendUsed,
+) -> tuple[list[ChunkRecord], SourceMeta]:
+    """Chunk-cap, page-capture, and embed one extracted document into its records."""
+    # Derived before the empty-result return so a scan's title/authors survive zero chunks.
+    meta = source_meta_from_extraction(doc.metadata, source_name)
+
+    tables = _document_tables(doc)
+    if not doc.chunks and not tables:
+        if content_type in (PDF_CONTENT_TYPE, IMAGE_CONTENT_TYPE):
+            _warn_empty_ocr(source_name, "scanned documents", ocr_backend)
+        return [], meta
+
+    if ocr_backend is OcrBackendUsed.NONE:
+        _warn_skipped_scanned_pages(doc, source_name)
+    enforce_chunk_limit(len(doc.chunks or []) + len(tables))
+    _capture_result_page_texts(doc, source_name, content_type, page_texts_out)
+
+    # One EXTRACT event per file so progress subscribers show "extracted N pages"
+    # before embedding; result.pages, or the chunk count for non-paginated docs.
+    page_count = len(doc.pages or []) or len(doc.chunks or [])
+    ran = ocr_backend if _ocr_page_count(doc) else OcrBackendUsed.NONE
+    on_progress(
+        EventType.EXTRACT,
+        ExtractEvent(file=source_name, page=page_count, total_pages=page_count, ocr_backend=ran),
+    )
+
+    # Content chunks and table serializations share one embed batch; the vector
+    # list is split back apart below by position.
+    texts = [chunk.content for chunk in doc.chunks or []]
+    table_texts = [table.markdown for table in tables]
+    embed_texts = await to_ingest_thread(
+        _enrich_texts, texts + table_texts, texts[0] if texts else "", source_name
+    )
+    vectors = await to_ingest_thread(
+        get_services().embedder.embed_batch,
+        _embed_inputs(embed_texts, meta.title),
+        source=source_name,
+        on_progress=on_progress,
+    )
+    records = [
+        ChunkRecord(
+            source=source_name,
+            content_type=content_type,
+            chunk_type=ChunkType.RAW,
+            page_start=chunk.metadata.first_page or 0,
+            page_end=chunk.metadata.last_page or 0,
+            line_start=0,
+            line_end=0,
+            chunk=text,
+            chunk_index=chunk.metadata.chunk_index,
+            vector=vec,
+        )
+        for chunk, text, vec in zip(doc.chunks or [], texts, vectors[: len(texts)], strict=True)
+    ]
+    # Table chunk indices continue after the content chunks so a source's
+    # (source, chunk_index) pairs stay unique.
+    records.extend(
+        ChunkRecord(
+            source=source_name,
+            content_type=content_type,
+            chunk_type=ChunkType.TABLE,
+            page_start=table.page_number,
+            page_end=table.page_number,
+            line_start=0,
+            line_end=0,
+            chunk=text,
+            chunk_index=len(texts) + i,
+            vector=vec,
+        )
+        for i, (table, text, vec) in enumerate(
+            zip(tables, table_texts, vectors[len(texts) :], strict=True)
+        )
+    )
+    return records, meta
+
+
+def _markdown_h1(text: str) -> str | None:
+    """The document's leading ``# Heading``, the best title a note carries.
+
+    Only a top-level ATX heading counts; ``##`` and deeper are sections, not the
+    document title. None when the note opens without one.
+    """
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# "):
+            return stripped[2:].strip() or None
+        return None
+    return None
+
+
+async def ingest_markdown(
+    path: Path,
+    source_name: str,
+    on_progress: DetailedProgressCallback = noop_callback,
+    page_texts_out: list[PageTextRecord] | None = None,
+) -> tuple[list[ChunkRecord], SourceMeta]:
+    """Chunk a markdown file with heading context prepended to each chunk.
+
+    Each chunk gets the heading hierarchy path (e.g. "# Setup > ## Install")
+    prepended for better retrieval context. When ``page_texts_out`` is given,
+    the full text is appended as page 0 for export. The returned metadata's
+    title is the note's leading ``# Heading`` when it has one, else the stem.
+    """
+    raw_text = await to_ingest_thread(path.read_text, encoding="utf-8", errors="replace")
+    meta = SourceMeta(title=derive_title(source_name, _markdown_h1(raw_text)))
+    if not raw_text.strip():
+        return [], meta
+
+    # chunk_text runs xberg's synchronous extractor; offload it so a large
+    # markdown doc does not stall sibling files sharing this event loop.
+    texts = await to_ingest_thread(
+        chunk_text, raw_text, mime_type="text/markdown", heading_context=True
+    )
+    if not texts:
+        return [], meta
+
+    enforce_chunk_limit(len(texts))
+    if page_texts_out is not None:
+        page_texts_out.append(_page_text_record(source_name, 0, raw_text, "text"))
+
+    embed_texts = await to_ingest_thread(_enrich_texts, texts, raw_text, source_name)
+    vectors = await to_ingest_thread(
+        get_services().embedder.embed_batch,
+        _embed_inputs(embed_texts, meta.title),
+        source=source_name,
+        on_progress=on_progress,
+    )
+    records = [
+        ChunkRecord(
+            source=source_name,
+            content_type="text",
+            chunk_type=ChunkType.RAW,
+            page_start=0,
+            page_end=0,
+            line_start=0,
+            line_end=0,
+            chunk=t,
+            chunk_index=idx,
+            vector=vec,
+        )
+        for idx, (t, vec) in enumerate(zip(texts, vectors, strict=True))
+    ]
+    return records, meta

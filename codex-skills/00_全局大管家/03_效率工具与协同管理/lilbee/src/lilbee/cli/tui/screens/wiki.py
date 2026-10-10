@@ -1,0 +1,708 @@
+"""Wiki screen: browse wiki pages as a navigable tree with markdown preview."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, ClassVar, cast
+
+if TYPE_CHECKING:
+    from lilbee.cli.tui.app import LilbeeApp
+    from lilbee.cli.tui.widgets.task_bar_controller import ProgressReporter
+    from lilbee.data.store import Store
+    from lilbee.runtime.progress import DetailedProgressCallback, ProgressEvent
+    from lilbee.wiki.browse import WikiPageInfo
+
+from rich.text import Text
+from textual import on
+from textual.app import ComposeResult
+from textual.binding import Binding, BindingType
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.content import Content
+from textual.screen import Screen
+from textual.timer import Timer
+from textual.widgets import Input, Markdown, Static, Tree
+from textual.widgets.tree import TreeNode
+
+from lilbee.app.services import get_services
+from lilbee.cli.tui import messages as msg
+from lilbee.cli.tui.browse_bindings import BROWSE_LIST_BINDINGS, browse_back_bindings
+from lilbee.cli.tui.task_queue import TaskType
+from lilbee.cli.tui.thread_safe import call_from_thread
+from lilbee.cli.tui.widgets.task_bar import TaskBar
+from lilbee.core.config import cfg
+from lilbee.runtime.progress import EventType, WikiPageEvent, WikiPhaseEvent
+from lilbee.wiki.stubs import WikiStub, load_stub_index, ungenerated_stubs
+
+log = logging.getLogger(__name__)
+
+# Tree node data carries the full wiki-page slug when present. Group folders
+# (page-type headings, per-source branches, inner-section branches) use None.
+_INDEX_STEM = "index"
+# Wiki slugs of the form ``<subdir>/<name>`` carry a meaningful page type;
+# bare slugs (no slash) do not.
+_SLUG_WITH_TYPE_MIN_PARTS = 2
+
+
+def _wiki_root() -> Path:
+    """Resolve the wiki root directory from config."""
+    return cfg.data_root / cfg.wiki_dir
+
+
+def _root_shortcuts() -> list[tuple[str, str]]:
+    """The auto-generated root pages that exist, as ``(slug, label)`` pairs.
+
+    Returned rather than mounted so the caller filters them alongside the pages.
+    """
+    return [
+        (slug, label)
+        for slug, label in (("index", msg.WIKI_INDEX_LABEL), ("log", msg.WIKI_LOG_LABEL))
+        if (_wiki_root() / f"{slug}.md").is_file()
+    ]
+
+
+def _safe_float(value: object) -> float | None:
+    """Coerce an untyped frontmatter value to float, or None if not numeric."""
+    try:
+        return float(cast("float", value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    """Coerce an untyped frontmatter value to int, or *default* if not numeric."""
+    try:
+        return int(cast("float", value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _format_page_header(
+    title: str,
+    page_type: str,
+    source_count: int,
+    created_at: str,
+    faithfulness: float | None,
+) -> Content:
+    """Build the header line for the content pane, with the title as literal text."""
+    parts: list[tuple[str, str]] = [(title, "bold"), (f"  {page_type}", "dim")]
+    if source_count > 0:
+        parts.append((f"  {source_count} sources", "dim"))
+    if created_at:
+        parts.append((f"  {created_at}", "dim"))
+    if faithfulness is not None:
+        parts.append((f"  faithfulness {int(faithfulness * 100)}%", "dim"))
+    return Content.assemble(*parts)
+
+
+def _short_label(slug_part: str) -> str:
+    """Render a slug component as a human-friendly tree label."""
+    return slug_part.replace("-", " ").replace("_", " ").strip()
+
+
+def _breadcrumb_for_slug(slug: str, title: str) -> Content:
+    """Build the breadcrumb chapter > section > page, with every part as literal text."""
+    parts = slug.split("/")
+    if len(parts) <= 1:
+        return Content("")
+    display_parts = [Content(_short_label(p)) for p in parts[:-1]]
+    display_parts.append(Content(title))
+    return Content.assemble(" ", Content.styled(">", "dim"), " ").join(display_parts)
+
+
+class WikiScreen(Screen[None]):
+    """Wiki page browser with a tree sidebar and markdown content viewer."""
+
+    app: LilbeeApp  # type: ignore[assignment]
+
+    CSS_PATH = "wiki.tcss"
+    AUTO_FOCUS = "#wiki-page-list"
+    HELP = (
+        "Browse wiki pages. h/l collapse/expand, j/k navigate, Enter opens a page, "
+        "/ searches, b generates pages from your documents (GPU-heavy)."
+    )
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        *browse_back_bindings(escape_action="dismiss_or_back"),
+        *BROWSE_LIST_BINDINGS,
+        Binding("slash", "focus_search", "Search", show=True),
+        Binding("D", "open_drafts", "Drafts", show=False),
+        Binding("b", "wikify", "Wikify", show=True),
+        Binding("W", "wipe", "Wipe", show=False),
+        Binding("h", "cursor_left", "Collapse", show=False),
+        Binding("l", "cursor_right", "Expand", show=False),
+    ]
+
+    _SEARCH_FILTER_DEBOUNCE_SECONDS = 0.12
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._page_slugs: list[str] = []
+        self._pages: list[WikiPageInfo] = []
+        self._stubs: dict[str, WikiStub] = {}
+        self._load_error: str | None = None
+        self._search_filter_timer: Timer | None = None
+        # Filter the last paint ran under. Only a change to it drops the scroll
+        # offset; a plain reload keeps the reader's place.
+        self._painted_filter: str = ""
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import Footer
+
+        from lilbee.cli.tui.widgets.bottom_bars import BottomBars
+        from lilbee.cli.tui.widgets.status_bar import ViewTabs
+        from lilbee.cli.tui.widgets.top_bars import TopBars
+
+        with TopBars():
+            yield ViewTabs()
+        tree: Tree[str | None] = Tree("Wiki", id="wiki-page-list")
+        tree.show_root = False
+        yield Horizontal(
+            Vertical(
+                Input(
+                    placeholder=msg.WIKI_SEARCH_PLACEHOLDER,
+                    id="wiki-search",
+                ),
+                tree,
+                id="wiki-sidebar",
+            ),
+            Vertical(
+                Static("", id="wiki-breadcrumb"),
+                Static("", id="wiki-page-header"),
+                VerticalScroll(
+                    Markdown("", id="wiki-content"),
+                    id="wiki-content-scroll",
+                ),
+                id="wiki-main",
+            ),
+            id="wiki-layout",
+        )
+        with BottomBars():
+            yield TaskBar()
+            yield Footer()
+
+    def on_screen_resume(self) -> None:
+        """Re-scan on every activation so out-of-band builds (`lilbee wiki build`
+        from a sibling shell), incremental updates, and builds that finished while
+        this screen was out of view land without a TUI restart.
+
+        Resume fires on the initial push and on each switch back; Show fires only
+        once per screen, so it cannot carry this.
+        """
+        self.reload()
+
+    def reload(self) -> None:
+        """Re-walk the wiki from disk, then repaint under the live search filter.
+
+        Public entry point for external callers (the task bar refreshes an
+        open wiki screen after a sync or a wikify run). The walk parses every
+        page's frontmatter, so it runs here and not on every filter keystroke.
+        """
+        from lilbee.wiki.browse import list_pages
+
+        self._pages = []
+        self._stubs = {}
+        self._load_error = None
+        if cfg.wiki:
+            try:
+                self._pages = list_pages(_wiki_root())
+                self._stubs = {
+                    stub.wiki_slug: stub
+                    for stub in ungenerated_stubs(load_stub_index(), _wiki_root())
+                }
+            except Exception as exc:
+                log.warning("Failed to list wiki pages", exc_info=True)
+                self._load_error = msg.WIKI_LOAD_FAILED.format(error=exc)
+                self._show_load_failure(self._load_error)
+                return
+        self._load_pages(filter_text=self.query_one("#wiki-search", Input).value.strip())
+
+    def _show_load_failure(self, detail: str) -> None:
+        """Render the listing failure in both panes."""
+        tree = self._empty_tree()
+        tree.root.add_leaf(msg.WIKI_LOAD_FAILED_LEAF)
+        self._show_detail(detail)
+
+    def _empty_tree(self) -> Tree[str | None]:
+        """Clear the sidebar tree and the slug list it indexes."""
+        tree = self.query_one("#wiki-page-list", Tree)
+        tree.reset("Wiki")
+        self._page_slugs = []
+        return tree
+
+    def _load_pages(self, filter_text: str = "") -> None:
+        """Populate the sidebar tree from the cached page list, optionally filtered."""
+        if self._load_error is not None:
+            # The cache is empty because listing failed, not because the wiki is.
+            self._show_load_failure(self._load_error)
+            return
+        tree = self._empty_tree()
+        filter_changed = filter_text != self._painted_filter
+        self._painted_filter = filter_text
+        if filter_changed:
+            # The offset belongs to the previous result set. Keeping it parks
+            # the sidebar past the end of a shorter one (Textual clamps to the
+            # new max), so the matches render above the visible area.
+            tree.scroll_to(y=0, animate=False)
+        if not self._pages and not self._stubs:
+            tree.root.add_leaf(msg.wiki_empty_state_leaf())
+            self._show_placeholder()
+            return
+
+        needle = filter_text.lower()
+        pages = [p for p in self._pages if needle in p.title.lower()]
+        stubs = [s for s in self._stubs.values() if needle in s.label.lower()]
+        shortcuts = [(slug, label) for slug, label in _root_shortcuts() if needle in label.lower()]
+        if not pages and not stubs and not shortcuts:
+            # Pages exist but none match: leave the content pane untouched
+            # rather than rendering the empty-wiki state.
+            tree.root.add_leaf(Text(msg.WIKI_NO_MATCHES.format(filter=filter_text)))
+            return
+
+        self._populate_tree(tree, pages, shortcuts)
+        # Under a filter every stub in the group is a match, so it opens.
+        # Unfiltered it stays collapsed; stubs outnumber the written pages.
+        self._add_stub_group(tree, stubs, expand=bool(needle))
+
+    def _populate_tree(
+        self,
+        tree: Tree[str | None],
+        pages: list[WikiPageInfo],
+        shortcuts: list[tuple[str, str]],
+    ) -> None:
+        """Build the sidebar tree from a flat list of wiki pages.
+
+        Slugs like ``summaries/cv-manual/01-brakes/page-0042`` become nested
+        branches under their page-type group, with leaves for leaf pages and
+        expandable branches for intermediate heading folders. *shortcuts* are
+        the auto-generated root pages (``index.md``, ``log.md``) that survived
+        the caller's filter, surfaced as top-level leaves.
+        """
+        for slug, label in shortcuts:
+            tree.root.add_leaf(label, data=slug)
+            self._page_slugs.append(slug)
+        grouped = _group_pages(pages)
+        branches: dict[str, TreeNode[str | None]] = {}
+        for page_type, group_pages in grouped:
+            heading = msg.WIKI_TYPE_HEADINGS.get(page_type, page_type.capitalize())
+            group_node = tree.root.add(heading, expand=True)
+            for page in group_pages:
+                self._page_slugs.append(page.slug)
+                self._insert_page(group_node, page, branches)
+
+    def _add_stub_group(
+        self, tree: Tree[str | None], stubs: list[WikiStub], *, expand: bool
+    ) -> None:
+        """List the pages the corpus names but nothing has written yet.
+
+        Rendered distinctly, following the red-link convention: a reader must
+        never wonder whether a page is blank because nothing was written or
+        because generation failed. *expand* opens the group; the caller sets it
+        while a filter is active, when every stub in it is a match.
+        """
+        if not stubs:
+            return
+        group = tree.root.add(msg.WIKI_STUBS_HEADING, expand=expand)
+        for stub in stubs:
+            label = Text.assemble((stub.label, "dim"), " ", (msg.WIKI_STUB_SUFFIX, "dim italic"))
+            group.add_leaf(label, data=stub.wiki_slug)
+            self._page_slugs.append(stub.wiki_slug)
+
+    def _insert_page(
+        self,
+        group_node: TreeNode[str | None],
+        page: WikiPageInfo,
+        branches: dict[str, TreeNode[str | None]],
+    ) -> None:
+        """Walk the slug path and add/reuse branches until the leaf position.
+
+        Slugs begin with the page-type prefix (``summaries/``/``synthesis/``),
+        which is already reflected in the enclosing group node. The remaining
+        path components form the nested tree inside the group. *branches* is
+        the per-build reuse map, keyed by raw slug path.
+        """
+        parts = page.slug.split("/")
+        if len(parts) <= 1:
+            group_node.add_leaf(Text(page.title), data=page.slug)
+            return
+
+        # Skip the leading page-type component since the group node represents it.
+        node = group_node
+        *branch_parts, leaf_part = parts[1:]
+        path = parts[0]
+        for part in branch_parts:
+            path = f"{path}/{part}"
+            node = _find_or_add_branch(node, part, path, branches)
+
+        if leaf_part == _INDEX_STEM:
+            # An inner-node index.md file: show its title on the enclosing branch.
+            node.label = Text(page.title)
+            node.data = page.slug
+            return
+
+        label = _short_label(leaf_part)
+        node.add_leaf(Text(page.title or label), data=page.slug)
+
+    def _show_detail(self, markdown: str) -> None:
+        """Clear the breadcrumb and header rows, then render *markdown* alone."""
+        self.query_one("#wiki-breadcrumb", Static).update("")
+        self.query_one("#wiki-page-header", Static).update("")
+        self.query_one("#wiki-content", Markdown).update(markdown)
+
+    def _show_placeholder(self) -> None:
+        """Show the no-content placeholder in the main area."""
+        self._show_detail(msg.wiki_empty_state_detail())
+
+    @on(Tree.NodeSelected, "#wiki-page-list")
+    def _on_node_selected(self, event: Tree.NodeSelected[str | None]) -> None:
+        """Load and display the selected wiki page when the node carries a slug."""
+        slug = event.node.data
+        if not isinstance(slug, str):
+            return
+        stub = self._stubs.get(slug)
+        if stub is not None:
+            # Opening a stub asks rather than generating. The detail pane
+            # explains the page either way, so dismissing the dialog leaves
+            # the reader looking at why the page is blank.
+            self._show_detail(
+                msg.WIKI_STUB_DETAIL.format(
+                    title=stub.label, label=stub.label, sources=_describe_sources(stub)
+                )
+            )
+            confirm_stub_generation(self.app, stub)
+            return
+        self._display_page(slug)
+
+    def _display_page(self, slug: str) -> None:
+        """Read and render a wiki page by slug."""
+        from lilbee.wiki.browse import read_page
+
+        root = _wiki_root()
+        page = read_page(root, slug)
+        if page is None:
+            self._show_detail(msg.WIKI_NO_CONTENT)
+            return
+
+        # Frontmatter is arbitrary parsed YAML; a non-numeric value must not
+        # crash the node-select handler that calls this.
+        faith_val = _safe_float(page.frontmatter.get("faithfulness_score"))
+
+        page_type = ""
+        parts = slug.split("/")
+        if len(parts) >= _SLUG_WITH_TYPE_MIN_PARTS:
+            from lilbee.wiki.shared import SUBDIR_TO_TYPE
+
+            page_type = SUBDIR_TO_TYPE.get(parts[0], "")
+
+        source_count = page.frontmatter.get("source_count", 0)
+        created_at = page.frontmatter.get("generated_at", "")
+
+        header_text = _format_page_header(
+            title=page.title,
+            page_type=page_type,
+            source_count=_safe_int(source_count),
+            created_at=str(created_at),
+            faithfulness=faith_val,
+        )
+        self.query_one("#wiki-breadcrumb", Static).update(_breadcrumb_for_slug(slug, page.title))
+        self.query_one("#wiki-page-header", Static).update(header_text)
+        self.query_one("#wiki-content", Markdown).update(page.content)
+
+    @on(Input.Changed, "#wiki-search")
+    def _on_search_changed(self, event: Input.Changed) -> None:
+        """Re-filter after a short debounce so a multi-key term repaints the
+        tree once on pause, not once per keystroke."""
+        filter_text = event.value.strip()
+        if self._search_filter_timer is not None:
+            self._search_filter_timer.stop()
+        self._search_filter_timer = self.set_timer(
+            self._SEARCH_FILTER_DEBOUNCE_SECONDS,
+            lambda: self._load_pages(filter_text=filter_text),
+        )
+
+    def action_focus_search(self) -> None:
+        """Focus the search input -- bound to / key."""
+        self.query_one("#wiki-search", Input).focus()
+
+    def action_open_drafts(self) -> None:
+        """Open the drafts review screen -- bound to capital D."""
+        from lilbee.cli.tui.screens.wiki_drafts import WikiDraftsScreen
+
+        self.app.push_screen(WikiDraftsScreen())
+
+    def action_dismiss_or_back(self) -> None:
+        """Clear search if active, otherwise go back."""
+        search = self.query_one("#wiki-search", Input)
+        if search.value:
+            search.value = ""
+            return
+        self.action_go_back()
+
+    def action_go_back(self) -> None:
+        self.app.go_back()
+
+    def _tree_or_none(self) -> Tree[str | None] | None:
+        if isinstance(self.focused, Input):
+            return None
+        return self.query_one("#wiki-page-list", Tree)
+
+    def action_cursor_down(self) -> None:
+        tree = self._tree_or_none()
+        if tree is not None:
+            tree.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        tree = self._tree_or_none()
+        if tree is not None:
+            tree.action_cursor_up()
+
+    def action_cursor_left(self) -> None:
+        tree = self._tree_or_none()
+        if tree is not None:
+            tree.action_cursor_parent()
+
+    def action_cursor_right(self) -> None:
+        tree = self._tree_or_none()
+        if tree is not None:
+            tree.action_toggle_node()
+
+    def action_jump_top(self) -> None:
+        tree = self._tree_or_none()
+        if tree is not None:
+            tree.action_scroll_home()
+
+    def action_jump_bottom(self) -> None:
+        tree = self._tree_or_none()
+        if tree is not None:
+            tree.action_scroll_end()
+
+    def action_wikify(self) -> None:
+        """Generate wiki pages from the ingested corpus -- bound to b."""
+        start_wikify(self.app)
+
+    def action_wipe(self) -> None:
+        """Delete every generated page and its indexed rows -- bound to W."""
+        confirm_wiki_wipe(self.app)
+
+
+def _build_progress(reporter: ProgressReporter) -> DetailedProgressCallback:
+    """Map wiki build events onto task-bar progress updates."""
+
+    def _on_progress(event_type: EventType, data: ProgressEvent) -> None:
+        if event_type is EventType.WIKI_PHASE and isinstance(data, WikiPhaseEvent):
+            reporter.update(
+                0, msg.WIKI_BUILD_PHASE.format(phase=data.phase.value), indeterminate=True
+            )
+        elif event_type is EventType.WIKI_PAGE and isinstance(data, WikiPageEvent):
+            percent = int(data.current * 100 / data.total) if data.total else 0
+            reporter.update(
+                percent,
+                msg.WIKI_BUILD_PAGE.format(
+                    label=data.label, current=data.current, total=data.total
+                ),
+                indeterminate=False,
+            )
+
+    return _on_progress
+
+
+def start_wikify(app: LilbeeApp) -> None:
+    """Run a full wiki build on the task bar.
+
+    Shared by the wiki screen's ``b`` binding and the command palette so both
+    surfaces get the same progress, serialization and completion refresh. The
+    build takes the wiki mutex, so it must never run on the event loop.
+    """
+    if not cfg.wiki:
+        app.notify(msg.CMD_WIKI_DISABLED, severity="warning")
+        return
+
+    queue = app.task_bar.queue
+    pending = queue.active_tasks + queue.queued_tasks
+    if any(t.task_type == TaskType.WIKI and t.name == msg.TASK_NAME_WIKI for t in pending):
+        app.notify(msg.WIKI_ALREADY_ACTIVE, severity="warning")
+        return
+
+    def _target(reporter: ProgressReporter) -> None:
+        from lilbee.wiki.generation import run_full_build
+
+        try:
+            summary = run_full_build(on_progress=_build_progress(reporter))
+            reporter.check_cancelled()
+        except Exception:
+            # Pages already written must show; the done hook only fires on success.
+            call_from_thread(app, app.task_bar.reload_wiki_screens)
+            raise
+        call_from_thread(app, app.notify, msg.WIKI_BUILD_DONE.format(count=summary["count"]))
+
+    app.task_bar.start_task(msg.TASK_NAME_WIKI, TaskType.WIKI, _target, indeterminate=True)
+
+
+def _describe_sources(stub: WikiStub) -> str:
+    """Name the documents a stub's page would be written from."""
+    count = len(stub.sources)
+    if count == 1:
+        return stub.sources[0]
+    return f"{count} documents"
+
+
+def confirm_stub_generation(app: LilbeeApp, stub: WikiStub) -> None:
+    """Ask before writing a page, then write it on the task bar.
+
+    Generation always asks. It spends real GPU time on the user's own machine,
+    so the prompt names that cost and says how to stop being asked at all.
+    """
+    from lilbee.cli.tui.widgets.confirm_dialog import ConfirmDialog
+
+    def _on_confirm(confirmed: bool | None) -> None:
+        if confirmed:
+            start_stub_generation(app, stub)
+
+    app.push_screen(
+        ConfirmDialog(
+            msg.WIKI_STUB_CONFIRM_TITLE,
+            msg.WIKI_STUB_CONFIRM_MESSAGE.format(label=stub.label, sources=_describe_sources(stub)),
+        ),
+        _on_confirm,
+    )
+
+
+def start_stub_generation(app: LilbeeApp, stub: WikiStub) -> None:
+    """Write one page on the task bar and refresh the wiki screens after it."""
+
+    def _target(reporter: ProgressReporter) -> None:
+        from lilbee.wiki.lazy import generate_stub_page
+
+        reporter.update(0, stub.label, indeterminate=True)
+        try:
+            path = generate_stub_page(stub.slug, get_services().store)
+        except Exception as exc:
+            call_from_thread(
+                app,
+                app.notify,
+                msg.WIKI_STUB_FAILED.format(label=stub.label, error=exc),
+                severity="error",
+            )
+            raise
+        finally:
+            call_from_thread(app, app.task_bar.reload_wiki_screens)
+        if path is None:
+            message = msg.WIKI_STUB_STALE.format(label=stub.label)
+            call_from_thread(app, app.notify, message, severity="warning")
+            raise RuntimeError(message)
+        call_from_thread(app, app.notify, msg.WIKI_STUB_DONE.format(label=stub.label))
+
+    app.task_bar.start_task(
+        msg.WIKI_STUB_TASK.format(label=stub.label),
+        TaskType.WIKI,
+        _target,
+        indeterminate=True,
+    )
+
+
+def wiki_has_content(store: Store) -> bool:
+    """Whether anything generated is still on disk or in the store.
+
+    Read before offering a wipe so the offer only appears when there is
+    something to remove.
+    """
+    wiki_root = _wiki_root()
+    if wiki_root.is_dir() and any(wiki_root.rglob("*.md")):
+        return True
+    return bool(store.wiki_chunk_sources() or store.wiki_citation_sources())
+
+
+def confirm_wiki_wipe(
+    app: LilbeeApp,
+    *,
+    title: str = msg.WIKI_WIPE_CONFIRM_TITLE,
+    message: str = msg.WIKI_WIPE_CONFIRM_MESSAGE,
+    notify_when_empty: bool = True,
+) -> None:
+    """Ask before deleting the wiki, then run the wipe on the task bar.
+
+    Offered from the wiki screen and from turning the wiki setting off, so
+    both routes get the same warning and the same task-bar progress. The
+    turn-off route passes its own wording and stays silent when there is
+    nothing to delete, since the user asked to disable, not to clean up.
+    """
+    from lilbee.cli.tui.widgets.confirm_dialog import ConfirmDialog
+
+    if not wiki_has_content(get_services().store):
+        if notify_when_empty:
+            app.notify(msg.WIKI_WIPE_NOTHING)
+        return
+
+    def _on_confirm(confirmed: bool | None) -> None:
+        if confirmed:
+            start_wiki_wipe(app)
+
+    app.push_screen(ConfirmDialog(title, message), _on_confirm)
+
+
+def start_wiki_wipe(app: LilbeeApp) -> None:
+    """Run the wipe on the task bar and refresh the wiki screens after it.
+
+    The wipe takes the wiki mutex, so it must never run on the event loop.
+    """
+
+    def _target(reporter: ProgressReporter) -> None:
+        from lilbee.wiki.wipe import wipe_wiki
+
+        reporter.update(0, msg.WIKI_WIPE_RUNNING, indeterminate=True)
+        try:
+            report = wipe_wiki(get_services().store)
+        finally:
+            # Pages are gone whether or not the row delete landed; the tree
+            # must show the disk state either way.
+            call_from_thread(app, app.task_bar.reload_wiki_screens)
+        if not report.rows_deleted:
+            call_from_thread(app, app.notify, report.summary(), severity="error")
+            raise RuntimeError(report.summary())
+        call_from_thread(app, app.notify, msg.WIKI_WIPE_DONE.format(count=report.pages_removed))
+
+    app.task_bar.start_task(msg.TASK_NAME_WIKI_WIPE, TaskType.WIKI, _target, indeterminate=True)
+
+
+def _find_or_add_branch(
+    parent: TreeNode[str | None],
+    label_part: str,
+    path: str,
+    branches: dict[str, TreeNode[str | None]],
+) -> TreeNode[str | None]:
+    """Return the branch registered for *path*, adding it under *parent* if absent.
+
+    Reuse is keyed on the raw slug path, so components that render to the
+    same display label ("cv-manual" and "cv_manual") stay separate, and a
+    branch renamed by an inner index page is still found.
+    """
+    node = branches.get(path)
+    if node is None:
+        node = parent.add(Text(_short_label(label_part)), expand=True)
+        branches[path] = node
+    return node
+
+
+def _group_pages(
+    pages: list[WikiPageInfo],
+) -> list[tuple[str, list[WikiPageInfo]]]:
+    """Group pages by page_type in sidebar order: concepts, entities, then legacy."""
+    from lilbee.wiki.shared import WikiPageType
+
+    groups: dict[str, list[WikiPageInfo]] = {}
+    type_order: tuple[str, ...] = (
+        WikiPageType.CONCEPT,
+        WikiPageType.ENTITY,
+        WikiPageType.SUMMARY,
+        WikiPageType.SYNTHESIS,
+    )
+    for t in type_order:
+        group = [p for p in pages if p.page_type == t]
+        if group:
+            groups[t] = group
+    for p in pages:
+        if p.page_type not in groups:
+            groups[p.page_type] = []
+        if p.page_type not in type_order:
+            groups[p.page_type].append(p)
+    return [(k, v) for k, v in groups.items() if v]

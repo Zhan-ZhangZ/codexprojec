@@ -1,0 +1,504 @@
+/************************************************************************
+ *    Copyright (C) 2025 Code Forge Temple                              *
+ *    This file is part of agentic-signal project                       *
+ *    See the LICENSE file in the project root for license details.     *
+ ************************************************************************/
+
+import {ReactFlow, Background, Controls, MiniMap, BackgroundVariant, useReactFlow, useNodesInitialized, ReactFlowProvider, FitViewOptions} from '@xyflow/react';
+import {flushSync} from 'react-dom';
+import '@xyflow/react/dist/style.css';
+import './App.scss';
+import {useWorkflow} from '../../hooks/useWorkflow';
+import {nodeFactory, nodeTypes} from '../nodes';
+import {DEFAULT_EDGE_TYPE, edgeTypes} from '../edges';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {Dock} from '../Dock';
+import {v4 as uuidv4} from 'uuid';
+import {useSnackbar} from 'notistack'
+import {AppNodeType} from '../nodes/workflow.gen';
+import {toolRegistry} from '../nodes/ToolNode/tools/toolRegistry.gen';
+import {nodeRegistry} from '../nodes/nodeRegistry.gen';
+import {NODE_TYPE as TOOL_NODE_TYPE} from '../nodes/ToolNode/constants';
+import {useFullscreen} from '../../hooks/useFullscreen';
+import {assertValidWorkflowEdges} from './utils/workflowUtils';
+import {getDefaultUserConfigValues} from '../../types/ollama.types';
+import {z} from 'zod';
+import {Chip, Backdrop, CircularProgress} from '@mui/material';
+import {ConfirmDialog} from '../ConfirmDialog';
+import {ErrorBoundary} from '../ErrorBoundary/ErrorBoundary';
+
+
+const ZOD_PATH_SEPARATOR = '→';
+
+const FIT_VIEW_TOP_BUFFER_PX = 16;
+
+const getId = () => uuidv4();
+
+function deleteByPath (obj: Record<string, any>, path: string): void {
+    const parts = path.split(".");
+
+    if (parts.length === 1) {
+        delete obj[parts[0]];
+    } else {
+        let current: any = obj;
+
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (!current || typeof current !== "object") return;
+
+            current = current[parts[i]];
+        }
+
+        if (current && typeof current === "object") {
+            delete current[parts[parts.length - 1]];
+        }
+    }
+}
+
+function remapNodeAndEdgeIds (nodes: any[], edges: any[]) {
+    const idMap = new Map<string, string>(
+        nodes.map((node: any) => [node.id, getId()])
+    );
+
+    const remappedNodes = nodes.map((node: any) => ({
+        ...node,
+        id: idMap.get(node.id)!
+    }));
+
+    const remappedEdges = edges.map((edge: any) => {
+        const newSource = idMap.get(edge.source) ?? edge.source;
+        const newTarget = idMap.get(edge.target) ?? edge.target;
+        const newId = `xy-edge__${newSource}${edge.sourceHandle ?? ''}-${newTarget}${edge.targetHandle ?? ''}`;
+
+        return {
+            ...edge,
+            source: newSource,
+            target: newTarget,
+            id: newId
+        };
+    });
+
+    return {remappedNodes, remappedEdges};
+}
+
+const descriptorMap = Object.fromEntries(
+    nodeRegistry.map(desc => [desc.type, desc])
+);
+
+const NodeSchema = z.object({
+    id: z.string().min(1, '"id" must be a non-empty string'),
+    type: z.string().min(1, '"type" must be a non-empty string'),
+    data: z.record(z.unknown()),
+    position: z.object({x: z.number(), y: z.number()}, {required_error: '"position" with {x, y} is required'}),
+}).passthrough();
+
+const EdgeSchema = z.object({
+    source: z.string().min(1, '"source" must be a non-empty string'),
+    target: z.string().min(1, '"target" must be a non-empty string'),
+}).passthrough();
+
+const WorkflowSchema = z.object({
+    nodes: z.array(NodeSchema),
+    edges: z.array(EdgeSchema).optional().default([]),
+});
+
+function AppFlow () {
+    const {
+        nodes,
+        edges,
+        addNode,
+        onNodesChange,
+        onEdgesChange,
+        onEdgesDelete,
+        onNodesDelete,
+        onConnect,
+        setNodes,
+        setEdges,
+    } = useWorkflow();
+    const {enqueueSnackbar} = useSnackbar();
+    const [pendingWorkflow, setPendingWorkflow] = useState<{nodes: any[], edges: any[]} | null>(null);
+    const [isLoadingWorkflow, setIsLoadingWorkflow] = useState(false);
+    const reactFlowInstance = useReactFlow();
+    const nodesInitialized = useNodesInitialized();
+    const fitViewOnLoadRef = useRef(false);
+    const dockRef = useRef<HTMLDivElement>(null);
+
+    useFullscreen();
+
+    // Measured rather than hardcoded: the dock's height isn't fixed (it can wrap/resize with its
+    // content), so a constant would drift out of sync and let nodes end up hidden behind it again.
+    const getFitViewPadding = useCallback((): FitViewOptions['padding'] => {
+        const dockHeight = dockRef.current?.getBoundingClientRect().height ?? 0;
+
+        return {top: `${dockHeight + FIT_VIEW_TOP_BUFFER_PX}px`, x: '20%', bottom: '20%'};
+    }, []);
+
+    useEffect(() => {
+        if (nodesInitialized && fitViewOnLoadRef.current) {
+            fitViewOnLoadRef.current = false;
+            reactFlowInstance.fitView({padding: getFitViewPadding(), duration: 400});
+        }
+        // `nodes` is intentionally included: replacing an existing workflow keeps
+        // nodesInitialized `true` throughout (no false->true edge to react to), so
+        // this effect must also re-run whenever the node set itself changes.
+    }, [nodesInitialized, nodes, reactFlowInstance, getFitViewPadding]);
+
+    const handleGetWorkflowJson = useCallback((): string => {
+        const sanitizedNodes = nodes.map(node => {
+            const nodeData = JSON.parse(JSON.stringify(node.data));
+            const toSanitize = Array.isArray(nodeData.toSanitize) ? nodeData.toSanitize : [];
+
+            for (const path of toSanitize) {
+                deleteByPath(nodeData, path);
+            }
+
+            deleteByPath(nodeData, "toSanitize");
+
+            return {
+                ...node,
+                data: nodeData
+            };
+        });
+
+        return JSON.stringify({nodes: sanitizedNodes, edges}, null, 4);
+    }, [nodes, edges]);
+
+    const handleSave = () => {
+        if (nodes.length === 0 && edges.length === 0) {
+            enqueueSnackbar('Nothing to save.', {variant: 'info'});
+
+            return;
+        }
+
+        const data = handleGetWorkflowJson();
+        const blob = new Blob([data], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+
+        a.href = url;
+        a.download = "workflow.json";
+        a.click();
+
+        URL.revokeObjectURL(url);
+
+        enqueueSnackbar('Workflow saved!', {variant: 'success'});
+    };
+
+    const handleClear = () => {
+        setNodes([]);
+        setEdges([]);
+    };
+
+    const handleLoadWorkflowFromJson = useCallback((jsonString: string, onError?: (error: string) => void) => {
+        flushSync(() => setIsLoadingWorkflow(true));
+
+        setTimeout(() => {
+            try {
+                const raw = JSON.parse(jsonString);
+
+                // Auto-assign positions for nodes missing them (models often omit position)
+                if (Array.isArray(raw.nodes)) {
+                    raw.nodes = raw.nodes.map((node: any, idx: number) => {
+                        const x = typeof node.position?.x === 'number' ? node.position.x : idx * 300;
+                        const y = typeof node.position?.y === 'number' ? node.position.y : 0;
+
+                        return {...node, position: {x, y}};
+                    });
+                }
+
+                const {nodes: parsedNodes, edges: parsedEdgesRaw} = WorkflowSchema.parse(raw);
+
+                const parsedEdges = parsedEdgesRaw.map((edge: any) => ({...edge, type: DEFAULT_EDGE_TYPE}));
+
+                assertValidWorkflowEdges(parsedNodes, parsedEdges);
+
+                const hydratedNodes = parsedNodes.map((node: any, idx: number) => {
+                    if (!descriptorMap[node.type]) {
+                        const valid = Object.keys(descriptorMap).join(', ');
+
+                        throw new Error(`unknown node type "${node.type}". Valid types are: ${valid}`);
+                    }
+
+                    const descriptor = descriptorMap[node.type];
+
+                    if (descriptor?.migrate) {
+                        node = {...node, data: descriptor.migrate(node.data)};
+                    }
+
+                    let updatedNode = node;
+
+                    if (node.type === TOOL_NODE_TYPE) {
+                        const tool = toolRegistry.find(t => t.toolSubtype === node.data.toolSubtype);
+
+                        if (tool) {
+                            const defaultUserConfig = getDefaultUserConfigValues(tool.userConfigSchema || {});
+
+                            updatedNode = {
+                                ...node,
+                                data: {
+                                    ...node.data,
+                                    toolSchema: tool.toolSchema,
+                                    userConfigSchema: tool.userConfigSchema,
+                                    userConfig: {
+                                        ...defaultUserConfig,
+                                        ...node.data.userConfig
+                                    },
+                                    title: tool.title,
+                                    handler: undefined,
+                                    toSanitize: [...descriptor?.defaultData.toSanitize || [], ...tool.toSanitize]
+                                }
+                            };
+                        } else {
+                            updatedNode = {
+                                ...node,
+                                data: {
+                                    ...node.data,
+                                    toolSchema: {},
+                                    title: descriptor?.defaultData.title || node.data.title,
+                                    handler: undefined,
+                                    toSanitize: [...descriptor?.defaultData.toSanitize || []]
+                                }
+                            };
+                        }
+                    } else {
+                        updatedNode = {
+                            ...node,
+                            data: {
+                                ...node.data,
+                                title: descriptor?.defaultData.title || node.data.title,
+                                toSanitize: descriptor?.defaultData.toSanitize
+                            }
+                        };
+                    }
+
+                    try {
+                        descriptor?.assertion(updatedNode.data);
+                    } catch (assertionError) {
+                        if (assertionError instanceof z.ZodError) {
+
+                            const fields = assertionError.errors.map(e => {
+                                const path = ['data', ...e.path].join(ZOD_PATH_SEPARATOR);
+
+                                return `${path}: ${e.message}`;
+                            }).join('; ');
+
+                            throw new Error(`nodes[${idx}] (type "${node.type}"): ${fields}`);
+                        }
+
+                        throw assertionError;
+                    }
+
+                    return updatedNode;
+                });
+
+                const {remappedNodes, remappedEdges} = remapNodeAndEdgeIds(hydratedNodes, parsedEdges);
+
+                if (nodes.length > 0) {
+                    setPendingWorkflow({nodes: remappedNodes, edges: remappedEdges});
+                } else {
+                    fitViewOnLoadRef.current = true;
+
+                    setNodes(remappedNodes);
+                    setEdges(remappedEdges);
+                }
+            } catch (error) {
+                let rawMessage: string;
+
+                if (error instanceof z.ZodError) {
+                    rawMessage = error.errors.map(e => {
+                        const path = e.path.join(ZOD_PATH_SEPARATOR);
+
+                        return path ? `${path}: ${e.message}` : e.message;
+                    }).join('; ');
+                } else {
+                    rawMessage = error instanceof Error ? error.message : String(error);
+                }
+
+                const message = 'Failed to load workflow: ' + rawMessage;
+
+                enqueueSnackbar(message, {variant: 'error'});
+                onError?.(message);
+            } finally {
+                setIsLoadingWorkflow(false);
+            }
+        }, 100);
+    }, [nodes, setNodes, setEdges, enqueueSnackbar]);
+
+    const handleLoad = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+
+        if (!file) return;
+
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            handleLoadWorkflowFromJson(e.target?.result as string);
+            event.target.value = '';
+        };
+        reader.readAsText(file);
+    };
+
+    const handleMergeWorkflow = () => {
+        if (!pendingWorkflow) return;
+
+        const pending = pendingWorkflow;
+
+        flushSync(() => {
+            setPendingWorkflow(null);
+            setIsLoadingWorkflow(true);
+        });
+
+        setTimeout(() => {
+            try {
+                const maxY = Math.max(...nodes.map(n => n.position.y + (n.measured?.height ?? 40)));
+                const minX = Math.min(...nodes.map(n => n.position.x));
+                const yOffset = maxY + 100;
+                const pendingMinY = Math.min(...pending.nodes.map((n: any) => n.position.y));
+                const pendingMinX = Math.min(...pending.nodes.map((n: any) => n.position.x));
+                const dx = minX - pendingMinX;
+                const dy = yOffset - pendingMinY;
+
+                const shiftedNodes = pending.nodes.map((node: any) => ({
+                    ...node,
+                    position: {
+                        x: node.position.x + dx,
+                        y: node.position.y + dy
+                    }
+                }));
+
+                const shiftedEdges = pending.edges.map((edge: any) => {
+                    if (!edge.data?.bend) return edge;
+
+                    return {
+                        ...edge,
+                        data: {...edge.data, bend: {x: edge.data.bend.x + dx, y: edge.data.bend.y + dy}}
+                    };
+                });
+
+                setNodes([...nodes, ...shiftedNodes]);
+                setEdges([...edges, ...shiftedEdges]);
+            } finally {
+                setIsLoadingWorkflow(false);
+            }
+        }, 100);
+    };
+
+    const handleReplaceWorkflow = () => {
+        if (!pendingWorkflow) return;
+
+        flushSync(() => {
+            setPendingWorkflow(null);
+            setIsLoadingWorkflow(true);
+        });
+
+        setTimeout(() => {
+            try {
+                fitViewOnLoadRef.current = true;
+
+                setNodes(pendingWorkflow.nodes);
+                setEdges(pendingWorkflow.edges);
+            } finally {
+                setIsLoadingWorkflow(false);
+            }
+        }, 100);
+    };
+
+    const onDragOver = useCallback((event: React.DragEvent) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+    }, []);
+
+    const onDrop = useCallback(
+        (event: React.DragEvent) => {
+            event.preventDefault();
+
+            const nodeType = event.dataTransfer.getData('application/reactflow') as AppNodeType;
+
+            if (typeof nodeType === 'undefined' || !nodeType) {
+                return;
+            }
+
+            const zoom = reactFlowInstance.getZoom?.() ?? 1;
+            const position = reactFlowInstance.screenToFlowPosition({
+                x: event.clientX - 20 * zoom,
+                y: event.clientY - 20 * zoom,
+            });
+
+            addNode(nodeFactory(nodeType, getId(), position));
+        }, [addNode, reactFlowInstance]);
+
+    return (
+        <>
+            <Backdrop open={isLoadingWorkflow} sx={{zIndex: 9999, color: '#fff'}}>
+                <CircularProgress color="inherit" />
+            </Backdrop>
+            <Dock ref={dockRef} onSave={handleSave} onLoad={handleLoad} onClear={handleClear} onLoadWorkflow={handleLoadWorkflowFromJson} getWorkflowJson={handleGetWorkflowJson} />
+            <ConfirmDialog
+                open={pendingWorkflow !== null}
+                onClose={() => setPendingWorkflow(null)}
+                title="Load Workflow"
+                message="A workflow is already loaded. Would you like to add to the existing workflow or replace it?"
+                confirmLabel="Add to Existing"
+                cancelLabel="Replace"
+                onConfirm={handleMergeWorkflow}
+                onCancel={handleReplaceWorkflow}
+            />
+            <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onEdgesDelete={onEdgesDelete}
+                onNodesDelete={onNodesDelete}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                onConnect={onConnect}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                defaultEdgeOptions={{
+                    type: DEFAULT_EDGE_TYPE,
+                    animated: false
+                }}
+                colorMode={'dark'}
+                deleteKeyCode="Delete"
+                defaultViewport={{x: 0, y: 0, zoom: 2}}
+            >
+                <Background
+                    variant={BackgroundVariant.Dots}
+                    gap={16}
+                    size={1}
+                    color="#333"
+                />
+                <MiniMap />
+                <Controls fitViewOptions={{padding: getFitViewPadding()}} />
+            </ReactFlow>
+        </>
+    );
+}
+
+function AppFlowWithBoundary () {
+    const {enqueueSnackbar} = useSnackbar();
+
+    return (
+        <ErrorBoundary onError={(error) => enqueueSnackbar(
+            'An unexpected error occurred: ' + error.message,
+            {variant: 'error'}
+        )}>
+            <AppFlow />
+        </ErrorBoundary>
+    );
+}
+
+export function App () {
+    return (
+        <div style={{width: '100vw', height: '100vh', position: 'relative'}}>
+            <Chip
+                label={`v${__APP_VERSION__}`}
+                size="small"
+                className="version-tag"
+            />
+            <ReactFlowProvider>
+                <AppFlowWithBoundary />
+            </ReactFlowProvider>
+        </div>
+    );
+}

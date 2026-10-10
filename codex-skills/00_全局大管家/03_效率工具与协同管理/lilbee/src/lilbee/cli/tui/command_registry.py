@@ -1,0 +1,202 @@
+"""Single source of truth for TUI slash commands.
+
+Every slash command is defined once here. All other modules (chat dispatch,
+suggester, help modal, autocomplete) read from this registry.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class SlashCommand:
+    """Definition of a single slash command."""
+
+    name: str
+    handler: str
+    aliases: tuple[str, ...] = ()
+    args_hint: str = ""
+    help_text: str = ""
+    # Reachable from the command bar while an answer is streaming. Off by
+    # default: a command that touches the index, the fleet or the transcript
+    # would race the live turn.
+    allowed_while_streaming: bool = False
+
+
+COMMANDS: tuple[SlashCommand, ...] = (
+    SlashCommand(
+        "/model",
+        "_cmd_model",
+        aliases=(),
+        args_hint="[name]",
+        help_text="Switch chat model (no arg opens the catalog)",
+        # The chat screen queues a mid-answer switch, so this never cuts a turn.
+        allowed_while_streaming=True,
+    ),
+    SlashCommand(
+        "/add",
+        "_cmd_add",
+        aliases=(),
+        args_hint="<path>",
+        help_text="Add file or folder to the knowledge base",
+    ),
+    SlashCommand(
+        "/crawl",
+        "_cmd_crawl",
+        aliases=(),
+        args_hint="[url]",
+        help_text="Crawl a URL (no arg opens the dialog)",
+    ),
+    SlashCommand(
+        "/delete",
+        "_cmd_delete",
+        aliases=(),
+        args_hint="<name>",
+        help_text="Remove a document from the index",
+    ),
+    SlashCommand(
+        "/prune-ignored",
+        "_cmd_prune_ignored",
+        aliases=(),
+        args_hint="",
+        help_text="Drop indexed documents a .lilbeeignore now excludes",
+    ),
+    SlashCommand(
+        "/set",
+        "_cmd_set",
+        aliases=(),
+        args_hint="<key> <value>",
+        help_text="Change a setting",
+    ),
+    SlashCommand(
+        "/theme",
+        "_cmd_theme",
+        aliases=(),
+        args_hint="[name]",
+        help_text="Switch theme (no arg opens the theme list)",
+    ),
+    SlashCommand(
+        "/reset",
+        "_cmd_reset",
+        help_text="Factory reset (asks for confirmation)",
+    ),
+    SlashCommand(
+        "/rebuild",
+        "_cmd_rebuild",
+        help_text="Re-index the documents directory from scratch (asks for confirmation)",
+    ),
+    SlashCommand(
+        "/export",
+        "_cmd_export",
+        aliases=(),
+        args_hint="<path>",
+        help_text="Export a per-page text dataset (parquet or jsonl)",
+    ),
+    SlashCommand(
+        "/import",
+        "_cmd_import",
+        aliases=(),
+        args_hint="<path>",
+        help_text="Import a per-page text dataset, re-embedding it",
+    ),
+    SlashCommand("/status", "_cmd_status", help_text="Show knowledge-base status"),
+    SlashCommand("/settings", "_cmd_settings", help_text="Open settings"),
+    SlashCommand(
+        "/models",
+        "_cmd_catalog",
+        aliases=("/m", "/catalog"),
+        help_text="Browse the model catalog",
+    ),
+    SlashCommand(
+        "/remember",
+        "_cmd_remember",
+        args_hint="<text>",
+        help_text="Save a memory (prefix with 'pref:' for a preference)",
+    ),
+    SlashCommand(
+        "/memories",
+        "_cmd_memories",
+        help_text="Browse and manage your saved memories",
+    ),
+    SlashCommand(
+        "/wiki",
+        "_cmd_wiki",
+        help_text="Open the wiki view",
+    ),
+    SlashCommand(
+        "/remove",
+        "_cmd_remove",
+        aliases=(),
+        args_hint="<name>",
+        help_text="Uninstall a downloaded model",
+    ),
+    SlashCommand(
+        "/login",
+        "_cmd_login",
+        args_hint="[token]",
+        help_text="Log in to Hugging Face (no arg opens the token page)",
+    ),
+    SlashCommand("/help", "_cmd_help", aliases=("/h",), help_text="Show the slash-command catalog"),
+    SlashCommand("/version", "_cmd_version", help_text="Show the lilbee version"),
+    SlashCommand(
+        "/cancel",
+        "_cmd_cancel",
+        help_text="Cancel any in-flight operations",
+        # Stopping the live turn is the point, so it must reach a live stream.
+        allowed_while_streaming=True,
+    ),
+    SlashCommand("/clear", "_cmd_clear", help_text="Clear the conversation"),
+    SlashCommand("/sessions", "_cmd_sessions", help_text="Toggle the sessions drawer"),
+    SlashCommand(
+        "/fork",
+        "_cmd_fork",
+        help_text="Branch this conversation into a new session after any answer",
+    ),
+    SlashCommand(
+        "/export-chat",
+        "_cmd_export_chat",
+        args_hint="[path]",
+        help_text="Export this conversation as markdown (default: the current directory)",
+    ),
+    SlashCommand("/quit", "_cmd_quit", aliases=("/q", "/exit"), help_text="Exit lilbee"),
+)
+
+
+def build_dispatch_dict() -> dict[str, str]:
+    """Build a mapping from command name (and aliases) to handler method name."""
+    dispatch: dict[str, str] = {}
+    for cmd in COMMANDS:
+        dispatch[cmd.name] = cmd.handler
+        for alias in cmd.aliases:
+            dispatch[alias] = cmd.handler
+    return dispatch
+
+
+def get_command(name: str) -> SlashCommand:
+    """Return the registry entry whose name is exactly *name* (aliases excluded)."""
+    for cmd in COMMANDS:
+        if cmd.name == name:
+            return cmd
+    raise KeyError(name)
+
+
+def runs_while_streaming(name: str) -> bool:
+    """Whether *name* (command or alias) may be submitted mid-answer.
+
+    Unknown names are False so the streaming gate keeps rejecting them; the
+    unknown-command toast is the caller's job.
+    """
+    for cmd in COMMANDS:
+        if name == cmd.name or name in cmd.aliases:
+            return cmd.allowed_while_streaming
+    return False
+
+
+def completion_names() -> tuple[str, ...]:
+    """All command names including aliases, for tab completion."""
+    names: list[str] = []
+    for cmd in COMMANDS:
+        names.append(cmd.name)
+        names.extend(cmd.aliases)
+    return tuple(names)

@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "target": "ES2020",
+        "skipLibCheck": true,
+        "noEmit": true
+    },
+    "exclude": [
+        "client",
+        "docs",
+        "node_modules"
+    ]
+}

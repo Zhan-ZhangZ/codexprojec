@@ -1,0 +1,95 @@
+# Ollama and App Configuration
+
+## Ollama Host Configuration
+
+Ensure that the [Ollama](https://ollama.com/download) host is installed on your local machine or available on your LAN. Then:
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs>
+   <TabItem value="linux" label="Linux" default>
+      1. Edit the systemd service file by running:
+
+         ```sh
+         sudo nano /etc/systemd/system/ollama.service
+         ```
+      2. Add the following environment variables in the `[Service]` section:
+
+         ```
+         Environment="OLLAMA_HOST=0.0.0.0"
+         Environment="OLLAMA_ORIGINS=http://tauri.localhost"
+         ```
+         > **Note:** The `OLLAMA_HOST=0.0.0.0` setting is optional if the Ollama server is running on localhost and you do not need the Ollama server to be accessed from LAN.  
+         
+         > **Note:** The `OLLAMA_ORIGINS=http://tauri.localhost` setting is required only if you use the [Windows app version of Agentic Signal](./windows-app/quick-start) to let Ollama know to accept requests from that origin.  
+
+      3. Save the file, then reload and restart the service:
+
+         ```sh
+         sudo systemctl daemon-reload
+         sudo systemctl restart ollama.service
+         ```
+   </TabItem>
+   <TabItem value="windows" label="Windows">
+      1. On the machine running Ollama, set the environment variables:
+
+         ```
+         OLLAMA_HOST=0.0.0.0
+         OLLAMA_ORIGINS=http://tauri.localhost
+         ```
+         You can do this via the System Properties or using PowerShell.
+         > **Note:** The `OLLAMA_HOST=0.0.0.0` setting is optional if the Ollama server is running on localhost and you do not need the Ollama server to be accessed from LAN.  
+         
+         > **Note:** The `OLLAMA_ORIGINS=http://tauri.localhost` setting is required only if you use the [Windows app version of Agentic Signal](./windows-app/quick-start) to let Ollama know to accept requests from that origin.  
+      2. Restart Ollama app.
+   </TabItem>
+</Tabs>
+
+---
+
+## Minimum Recommended System Requirements for LLMs
+
+<div className="fullWidthTable">
+
+    | Model           | RAM (CPU-only) | GPU (VRAM)   | Recommended GPU      | Disk Space |
+    |-----------------|---------------|--------------|----------------------|------------|
+    | Llama 3 8B      | 16GB          | 8GB+         | RTX 3060/3070/4060   | ~4GB       |
+    | Llama 2 7B      | 12GB          | 6GB+         | GTX 1660/RTX 2060+   | ~4GB       |
+    | Mistral 7B      | 12GB          | 6GB+         | GTX 1660/RTX 2060+   | ~4GB       |
+    | Gemma 4 31B     | 48GB+         | 24GB+        | RTX 3090/4090        | ~20GB      |
+    | Llama 3 70B     | 64GB+         | 48GB+        | RTX 6000/A100/H100   | ~40GB      |
+    | Mixtral 8x7B    | 64GB+         | 48GB+        | RTX 6000/A100/H100   | ~50GB      |
+    | Phi-3 Mini      | 8GB           | 4GB+         | GTX 1650/RTX 3050+   | ~1.8GB     |
+
+</div>
+
+**Notes:**
+- More RAM/VRAM = faster inference and ability to run larger models.
+- CPU-only is possible for small models, but much slower.
+- For best performance, use a modern NVIDIA GPU with CUDA support.
+- Disk space is for the model file only; additional space may be needed for dependencies.
+
+
+## Configure Agentic Signal Client Settings
+
+![Current Time Workflow](/img/settings-preview.webp)
+
+1. Open the **Settings** panel from the dock in the `Agentic Signal` client.
+2. **Browser Executable Path:** You  need to provide the path to your Chrome browser executable. This is required for web browsing capabilities.
+3. **Ollama Host:** Enter the URL of your Ollama server in the "Ollama Host" field (e.g., `http://localhost:11434`).
+4. In the **Ollama Models** section:
+   - **Add a model:** Enter the model name (e.g., `llama3.1:8b`) and click the plus (+) button. Download progress will be shown.
+   - **Remove a model:** Click the trash icon next to any installed model to delete it.
+
+### Advanced: Manual Ollama CLI
+
+If you prefer, you can still use the Ollama CLI:
+
+```bash
+# Pull a lightweight model (recommended for testing but it will be more error prone)
+ollama pull llama3.2:1b
+
+# Or pull a more capable model
+ollama pull llama3.1:8b
+```

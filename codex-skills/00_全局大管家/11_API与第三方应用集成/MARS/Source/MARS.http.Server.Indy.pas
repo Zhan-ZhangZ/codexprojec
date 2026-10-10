@@ -1,0 +1,922 @@
+(*
+  Copyright 2025, MARS-Curiosity library
+
+  Home: https://github.com/andrea-magni/MARS
+*)
+unit MARS.http.Server.Indy;
+
+{$I MARS.inc}
+
+interface
+
+uses
+  Classes, SysUtils, TimeSpan, SyncObjs, Web.HttpApp
+// Indy
+, IdContext, IdCustomHTTPServer, IdException, IdTCPServer, IdIOHandlerSocket
+, IdSchedulerOfThreadPool, IdHeaderList
+, idHTTPWebBrokerBridge, idGlobal
+// to enable standalone SSL
+, IdBaseComponent, IdComponent, IdServerIOHandler, IdSSL, IdSSLOpenSSL
+// MARS
+, MARS.Core.Exceptions
+, MARS.Core.Engine.Interfaces
+, MARS.Core.Token, MARS.Core.RequestAndResponse.Interfaces
+;
+
+type
+  TBeforeCommandGetFunc = reference to function (AContext: TIdContext;
+    ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo): Boolean;
+
+  TMARSWebRequest = class(TInterfacedObject, IMARSRequest)
+  private
+    FWebRequest: TWebRequest;
+  public
+    // IMARSRequest ------------------------------------------------------------
+    function AsObject: TObject; inline;
+    function GetAccept: string; inline;
+    function GetAuthorization: string; inline;
+    function GetContent: string; inline;
+
+    function GetCookieParamIndex(const AName: string): Integer; inline;
+    function GetCookieParamValue(const AIndex: Integer): string; overload; inline;
+    function GetCookieParamValue(const AName: string): string; overload; inline;
+    function GetCookieParamCount: Integer;
+    function GetCookies: TMARSCookies;
+
+    function GetFilesCount: Integer; inline;
+    function GetFormParamCount: Integer; inline;
+    function GetFormParamIndex(const AName: string): Integer; inline;
+    function GetFormParamName(const AIndex: Integer): string; inline;
+    function GetFormParamValue(const AIndex: Integer): string; overload; inline;
+    function GetFormParamValue(const AName: string): string; overload; inline;
+    function GetFormFileParamIndex(const AName: string): Integer; inline;
+    function GetFormFileParam(const AIndex: Integer; out AFieldName, AFileName: string;
+      out ABytes: TBytes; out AContentType: string): Boolean;
+    function GetFormParams: string; inline;
+
+    function GetHeaderParamCount: Integer; inline;
+    function GetHeaderParamIndex(const AName: string): Integer; inline;
+    function GetHeaderParamName(const AIndex: Integer): string; inline;
+    function GetHeaderParamValue(const AHeaderName: string): string; overload; inline;
+    function GetHeaderParamValue(const AIndex: Integer): string; overload; inline;
+    function GetHeaders: TMARSHeaders; inline;
+
+    function GetHostName: string; inline;
+    function GetMethod: string; inline;
+    function GetPort: Integer; inline;
+    function GetDate: TDateTime; inline;
+    function GetQueryParamIndex(const AName: string): Integer; inline;
+    function GetQueryParamName(const AIndex: Integer): string; inline;
+    function GetQueryParamValue(const AIndex: Integer): string; overload; inline;
+    function GetQueryParamValue(const AName: string): string; overload; inline;
+    function GetQueryParamCount: Integer;
+    function GetQueryString: string; inline;
+    function GetQueryParams: TMARSQueryParams;
+
+    function GetRawContent: TBytes; inline;
+    function GetRawPath: string; inline;
+    function GetContentFields: TArray<string>;
+    function GetQueryFields: TArray<string>;
+    function GetRemoteIP: string;
+    function GetUserAgent: string;
+    function GetIsSecure: Boolean;
+
+    procedure CheckWorkaroundForISAPI;
+    // -------------------------------------------------------------------------
+    constructor Create(AWebRequest: TWebRequest); virtual;
+
+    property WebRequest: TWebRequest read FWebRequest;
+  end;
+
+  TMARSWebResponse = class(TInterfacedObject, IMARSResponse)
+  private
+    FWebResponse: TWebResponse;
+  public
+    // IMARSResponse -----------------------------------------------------------
+    function GetContent: string; inline;
+    function GetContentEncoding: string; inline;
+    function GetContentStream: TStream; inline;
+    function GetContentType: string; inline;
+    function GetContentLength: Integer; inline;
+    function GetStatusCode: Integer; inline;
+    function GetReasonString: string; inline;
+    procedure SetContent(const AContent: string); inline;
+    procedure SetContentEncoding(const AContentEncoding: string); inline;
+    procedure SetContentStream(const AContentStream: TStream); inline;
+    procedure SetContentType(const AContentType: string); inline;
+    procedure SetContentLength(const ALength: Integer); inline;
+    procedure SetHeader(const AName: string; const AValue: string); inline;
+    procedure SetStatusCode(const AStatusCode: Integer); inline;
+    procedure SetReasonString(const AReasonString: string); inline;
+    procedure SetCookie(const AName, AValue, ADomain, APath: string; const AExpiration: TDateTime; const ASecure: Boolean); overload;
+    procedure SetCookie(const AName, AValue, ADomain, APath: string; const AExpiration: TDateTime;
+      const ASecure, AHttpOnly: Boolean; const ASameSite: TMARSCookieSameSite); overload;
+    procedure RedirectTo(const AURL: string);
+    // -------------------------------------------------------------------------
+    constructor Create(AWebResponse: TWebResponse); virtual;
+
+    property WebResponse: TWebResponse read FWebResponse;
+  end;
+
+  TMARSIdHTTPAppRequest = class(TIdHTTPAppRequest)
+  private
+    function GetRequestInfo: TIdHTTPRequestInfo;
+    function GetResponseInfo: TIdHTTPResponseInfo;
+  public
+    // True when the connection uses TLS (SSL IOHandler not in pass-through mode)
+    function IsSecure: Boolean;
+    property RequestInfo: TIdHTTPRequestInfo read GetRequestInfo;
+    property ResponseInfo: TIdHTTPResponseInfo read GetResponseInfo;
+  end;
+
+  TMARShttpServerIndy = class;
+
+  // Creates the SSL IOHandler of the server (any TIdServerIOHandlerSSLBase descendant, i.e. the
+  // one of an OpenSSL 3 library for Indy) and configures it: AServer.Engine.Parameters holds the
+  // settings (i.e. Indy.SSL.CertFile). The server owns the IOHandler and frees it when it stops.
+  TMARSSSLIOHandlerFactory = reference to function (const AServer: TMARShttpServerIndy): TIdServerIOHandlerSSLBase;
+
+  TMARShttpServerIndy = class(TIdCustomHTTPServer)
+  private
+    FEngine: IMARSEngine;
+    FStartedAt: TDateTime;
+    FStoppedAt: TDateTime;
+    FBeforeCommandGet: TBeforeCommandGetFunc;
+    FQuerySSLPortFunc: TFunc<UInt16, Boolean>;
+    FSSLIOHandlerFactory: TMARSSSLIOHandlerFactory;
+    FIOHandlerByMARS: Boolean;       // created by MARS (default, SSLIOHandler or a factory)
+    FIOHandlerFromFactory: Boolean;  // configured by the factory, not by SetupSSLIOHandler
+    FKeepIOHandler: Boolean;         // assigned by the user: not freed when the server stops
+    function GetUpTime: TTimeSpan;
+    function GetSSLIOHandler: TIdServerIOHandlerSSLOpenSSL;
+  protected
+    // The IOHandler for PortSSL: SSLIOHandlerFactory, else DefaultSSLIOHandlerFactory, else
+    // Indy's TIdServerIOHandlerSSLOpenSSL (configured with the Indy.SSL.* parameters)
+    function CreateSSLIOHandler: TIdServerIOHandlerSSLBase; virtual;
+    procedure SetCookies(const AResponseInfo: TIdHTTPResponseInfo; const AResponse: TIdHTTPAppResponse); virtual;
+    procedure Startup; override;
+    procedure Shutdown; override;
+
+    procedure DoCommandGet(AContext: TIdContext;
+      ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo); override;
+    procedure DoCommandOther(AContext: TIdContext;
+      ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo); override;
+
+    procedure DoCommandError(AContext: TIdContext; ARequestInfo: TIdHTTPRequestInfo;
+      AResponseInfo: TIdHTTPResponseInfo; AException: Exception); override;
+    procedure DoException(AContext: TIdContext; AException: Exception); override;
+
+    procedure ParseAuthenticationHandler(AContext: TIdContext;
+      const AAuthType, AAuthData: String; var VUsername, VPassword: String;
+      var VHandled: Boolean); virtual;
+
+    procedure SetupThreadPooling(const APoolSize: Integer = 25);
+    procedure SetupSSLIOHandler(); virtual;
+    function DoQuerySSLPort(APort: TIdPort): Boolean; override;
+  public
+    constructor Create(AEngine: IMARSEngine); virtual;
+    destructor Destroy; override;
+
+
+    property Engine: IMARSEngine read FEngine;
+    property StartedAt: TDateTime read FStartedAt;
+    property StoppedAt: TDateTime read FStoppedAt;
+    property UpTime: TTimeSpan read GetUpTime;
+    // Indy's OpenSSL IOHandler (created on first use); raises when another SSL IOHandler is in use
+    property SSLIOHandler: TIdServerIOHandlerSSLOpenSSL read GetSSLIOHandler;
+    // the SSL IOHandler of this server; when not assigned, DefaultSSLIOHandlerFactory
+    property SSLIOHandlerFactory: TMARSSSLIOHandlerFactory read FSSLIOHandlerFactory write FSSLIOHandlerFactory;
+    // the SSL IOHandler of every server without SSLIOHandlerFactory (i.e. set once in
+    // Server.Ignition for all the host flavors); when not assigned, Indy's OpenSSL IOHandler
+    class var DefaultSSLIOHandlerFactory: TMARSSSLIOHandlerFactory;
+    property QuerySSLPortFunc: TFunc<UInt16, Boolean> read FQuerySSLPortFunc write FQuerySSLPortFunc;
+
+    property BeforeCommandGet: TBeforeCommandGetFunc read FBeforeCommandGet write FBeforeCommandGet;
+  end;
+
+implementation
+
+uses
+  StrUtils, DateUtils, System.Rtti
+, IdCookie
+, MARS.Core.Utils, MARS.Utils.Parameters
+;
+
+{ TMARShttpServerIndy }
+
+constructor TMARShttpServerIndy.Create(AEngine: IMARSEngine);
+begin
+  inherited Create(nil);
+  OnParseAuthentication := ParseAuthenticationHandler;
+  FEngine := AEngine;
+  FBeforeCommandGet := nil;
+end;
+
+destructor TMARShttpServerIndy.Destroy;
+begin
+  FEngine := nil;
+  inherited;
+end;
+
+procedure TMARShttpServerIndy.DoCommandError(AContext: TIdContext;
+  ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo;
+  AException: Exception);
+begin
+  inherited;
+
+end;
+
+procedure TMARShttpServerIndy.DoCommandGet(AContext: TIdContext;
+  ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+var
+  LRequest: TIdHTTPAppRequest;
+  LResponse: TIdHTTPAppResponse;
+begin
+  inherited;
+
+  if Assigned(FBeforeCommandGet) then
+    if not FBeforeCommandGet(AContext, ARequestInfo, AResponseInfo) then
+      Exit;
+
+  LRequest := TMARSIdHTTPAppRequest.Create(AContext, ARequestInfo, AResponseInfo);
+  try
+    LResponse := TIdHTTPAppResponse.Create(LRequest, AContext, ARequestInfo, AResponseInfo);
+    try
+      // WebBroker will free it and we cannot change this behaviour
+      LResponse.FreeContentStream := False;
+      AResponseInfo.FreeContentStream := True;
+      try
+        if not FEngine.HandleRequest(TMARSWebRequest.Create(LRequest), TMARSWebResponse.Create(LResponse)) then
+        begin
+          LResponse.ContentType := 'application/json';
+          LResponse.Content :=
+            '{"success": false, "details": '
+            + '{'
+              + '"error": "Request not found",'
+              + '"pathinfo": "' + string(LRequest.PathInfo) + '"'
+            + '}'
+          + '}';
+        end;
+      finally
+        AResponseInfo.CustomHeaders.AddStrings(LResponse.CustomHeaders);
+        SetCookies(AResponseInfo, LResponse);
+
+//        AResponseInfo.CloseConnection := False;
+//        AResponseInfo.Connection := 'close';
+      end;
+    finally
+      FreeAndNil(LResponse);
+    end;
+  finally
+    FreeAndNil(LRequest);
+  end;
+end;
+
+procedure TMARShttpServerIndy.DoCommandOther(AContext: TIdContext;
+  ARequestInfo: TIdHTTPRequestInfo; AResponseInfo: TIdHTTPResponseInfo);
+begin
+  inherited;
+  DoCommandGet(AContext, ARequestInfo, AResponseInfo);
+end;
+
+procedure TMARShttpServerIndy.DoException(AContext: TIdContext;
+  AException: Exception);
+begin
+  inherited;
+  if Assigned(FEngine) and Assigned(FEngine.OnException) then
+    FEngine.OnException(AException);
+end;
+
+function TMARShttpServerIndy.DoQuerySSLPort(APort: TIdPort): Boolean;
+begin
+  if Assigned(QuerySSLPortFunc) then
+    Result := QuerySSLPortFunc(APort)
+  else
+    Result := Assigned(FEngine) and (APort = FEngine.PortSSL);
+end;
+
+function TMARShttpServerIndy.GetSSLIOHandler: TIdServerIOHandlerSSLOpenSSL;
+begin
+  if not Assigned(IOHandler) then
+  begin
+    IOHandler := TIdServerIOHandlerSSLOpenSSL.Create(Self);
+    FIOHandlerByMARS := True;
+    FIOHandlerFromFactory := False;
+  end;
+  if not (IOHandler is TIdServerIOHandlerSSLOpenSSL) then
+    raise EMARSException.CreateFmt('SSLIOHandler: the IOHandler of the server is a %s, not Indy''s '
+      + 'TIdServerIOHandlerSSLOpenSSL; use the IOHandler property', [IOHandler.ClassName]);
+  Result := TIdServerIOHandlerSSLOpenSSL(IOHandler);
+end;
+
+function TMARShttpServerIndy.CreateSSLIOHandler: TIdServerIOHandlerSSLBase;
+var
+  LFactory: TMARSSSLIOHandlerFactory;
+begin
+  LFactory := FSSLIOHandlerFactory;
+  if not Assigned(LFactory) then
+    LFactory := DefaultSSLIOHandlerFactory;
+
+  FIOHandlerFromFactory := Assigned(LFactory);
+  if FIOHandlerFromFactory then
+  begin
+    Result := LFactory(Self);
+    if not Assigned(Result) then
+      raise EMARSException.Create('The SSL IOHandler factory of the Indy server returned nil');
+  end
+  else
+    Result := TIdServerIOHandlerSSLOpenSSL.Create(Self);
+end;
+
+function TMARShttpServerIndy.GetUpTime: TTimeSpan;
+begin
+  if Active then
+    Result := TTimeSpan.FromSeconds(SecondsBetween(FStartedAt, Now))
+  else if StoppedAt > 0 then
+    Result := TTimeSpan.FromSeconds(SecondsBetween(FStartedAt, FStoppedAt))
+  else
+    Result := TTimeSpan.Zero;
+end;
+
+procedure TMARShttpServerIndy.ParseAuthenticationHandler(AContext: TIdContext;
+  const AAuthType, AAuthData: String; var VUsername, VPassword: String;
+  var VHandled: Boolean);
+begin
+  // Allow JWT Bearer authentication's scheme
+  if SameText(AAuthType, 'Bearer') then
+    VHandled := True;
+end;
+
+procedure TMARShttpServerIndy.SetCookies(
+  const AResponseInfo: TIdHTTPResponseInfo; const AResponse: TIdHTTPAppResponse);
+var
+  LCookie: TCookie;
+  LIdCookie: TIdCookie;
+  LIndex: Integer;
+begin
+  for LIndex := 0 to AResponse.Cookies.Count-1 do
+  begin
+    LCookie := AResponse.Cookies[LIndex];
+
+    LIdCookie := AResponseInfo.Cookies.Add;
+    LIdCookie.CookieName := LCookie.Name;
+    LIdCookie.Domain := LCookie.Domain;
+    LIdCookie.Expires := LCookie.Expires;
+    LIdCookie.Path := LCookie.Path;
+    LIdCookie.Secure := LCookie.Secure;
+    LIdCookie.Value := LCookie.Value;
+    {$IFDEF MARS_NATIVE_COOKIE_ATTRIBUTES}
+    LIdCookie.HttpOnly := LCookie.HttpOnly;
+    LIdCookie.SameSite := LCookie.SameSite;
+    {$ELSE}
+    // HttpOnly and SameSite travel in the path (TMARSWebResponse.SetCookie)
+    LIdCookie.HttpOnly := not ContainsText(LCookie.Path, '; HttpOnly');
+    {$ENDIF}
+  end;
+end;
+
+procedure TMARShttpServerIndy.SetupSSLIOHandler();
+var
+  LParams: TMARSParameters;
+begin
+  LParams := FEngine.Parameters;
+  SSLIOHandler.SSLOptions.RootCertFile := LParams.ByNameText('Indy.SSL.RootCertFile', 'localhost.pem').AsString;
+  SSLIOHandler.SSLOptions.CertFile := LParams.ByNameText('Indy.SSL.CertFile', 'localhost.crt').AsString;
+  SSLIOHandler.SSLOptions.KeyFile := LParams.ByNameText('Indy.SSL.KeyFile', 'localhost.key').AsString;
+  SSLIOHandler.SSLOptions.Method := TRttiEnumerationType.GetValue<TIdSSLVersion>(
+    LParams.ByNameText('Indy.SSL.Version', 'sslvTLSv1_2').AsString);
+
+  SSLIOHandler.SSLOptions.Mode := TRttiEnumerationType.GetValue<TIdSSLMode>(
+    FEngine.Parameters.ByNameText('Indy.SSL.Mode', 'sslmServer').AsString);
+end;
+
+procedure TMARShttpServerIndy.SetupThreadPooling(const APoolSize: Integer);
+var
+  LScheduler: TIdSchedulerOfThreadPool;
+begin
+  if Assigned(Scheduler) then
+  begin
+    Scheduler.Free;
+    Scheduler := nil;
+  end;
+
+  LScheduler := TIdSchedulerOfThreadPool.Create(Self);
+  LScheduler.PoolSize := APoolSize;
+  Scheduler := LScheduler;
+  MaxConnections := LScheduler.PoolSize;
+//  MaxConnections := LScheduler.PoolSize * 2;
+//  MaxConnections := 0;
+//  KeepAlive := False;
+//  ReuseSocket := TIdReuseSocket.rsTrue;
+end;
+
+procedure TMARShttpServerIndy.Shutdown;
+begin
+  inherited;
+  Bindings.Clear;
+  // the IOHandler created by MARS or by Indy; one assigned by the user stays (and is the user's)
+  if Assigned(IOHandler) and not FKeepIOHandler then
+  begin
+    IOHandler.Free;
+    IOHandler := nil;
+  end;
+  FIOHandlerByMARS := False;
+  FIOHandlerFromFactory := False;
+  FStoppedAt := Now;
+end;
+
+procedure TMARShttpServerIndy.Startup;
+begin
+  // an IOHandler assigned before starting, not by MARS, is the user's
+  FKeepIOHandler := Assigned(IOHandler) and not FIOHandlerByMARS;
+
+  if FEngine.Port <> 0 then
+    Bindings.Add.Port := FEngine.Port;
+
+  if (FEngine.PortSSL <> 0) then
+  begin
+    if not Assigned(IOHandler) then
+    begin
+      IOHandler := CreateSSLIOHandler;
+      FIOHandlerByMARS := True;
+    end;
+    // Indy's OpenSSL IOHandler created by MARS: the Indy.SSL.* parameters (a factory or the user
+    // configure their own IOHandler)
+    if FIOHandlerByMARS and not FIOHandlerFromFactory and (IOHandler is TIdServerIOHandlerSSLOpenSSL) then
+      SetupSSLIOHandler();
+    Bindings.Add.Port := FEngine.PortSSL;
+  end;
+
+  AutoStartSession := False;
+  SessionState := False;
+  // Indy.KeepAlive parameter (default: the KeepAlive property, False): HTTP keep-alive. Each open
+  // connection holds a thread of the pool (ThreadPoolSize is also the maximum of connections)
+  KeepAlive := FEngine.Parameters.ByName('Indy.KeepAlive', KeepAlive).AsBoolean;
+  SetupThreadPooling(FEngine.ThreadPoolSize);
+  FStartedAt := Now;
+  FStoppedAt := 0;
+
+  inherited;
+end;
+
+{ TMARSWebRequest }
+
+function TMARSWebRequest.AsObject: TObject;
+begin
+  Result := Self;
+end;
+
+procedure TMARSWebRequest.CheckWorkaroundForISAPI;
+begin
+  FWebRequest.ReadTotalContent; // workaround for https://quality.embarcadero.com/browse/RSP-14674
+end;
+
+constructor TMARSWebRequest.Create(AWebRequest: TWebRequest);
+begin
+  inherited Create;
+  FWebRequest := AWebRequest;
+end;
+
+function TMARSWebRequest.GetAccept: string;
+begin
+  Result := FWebRequest.Accept;
+end;
+
+function TMARSWebRequest.GetAuthorization: string;
+begin
+  Result := FWebRequest.Authorization;
+end;
+
+function TMARSWebRequest.GetContent: string;
+begin
+  Result := FWebRequest.Content;
+end;
+
+function TMARSWebRequest.GetContentFields: TArray<string>;
+begin
+  Result := FWebRequest.ContentFields.ToStringArray;
+end;
+
+function TMARSWebRequest.GetCookieParamCount: Integer;
+begin
+  Result := FWebRequest.CookieFields.Count;
+end;
+
+function TMARSWebRequest.GetCookieParamIndex(const AName: string): Integer;
+begin
+  Result := FWebRequest.CookieFields.IndexOfName(AName);
+end;
+
+function TMARSWebRequest.GetCookieParamValue(const AName: string): string;
+begin
+  Result := FWebRequest.CookieFields.Values[AName];
+end;
+
+function TMARSWebRequest.GetCookies: TMARSCookies;
+var
+  LIndex: Integer;
+begin
+  SetLength(Result, FWebRequest.CookieFields.Count);
+  for LIndex := Low(Result) to High(Result) do
+  begin
+     Result[LIndex].Name := FWebRequest.CookieFields.Names[LIndex];
+     Result[LIndex].Value := FWebRequest.CookieFields.ValueFromIndex[LIndex];
+  end;
+end;
+
+function TMARSWebRequest.GetDate: TDateTime;
+begin
+  result := FWebRequest.Date;
+end;
+
+function TMARSWebRequest.GetCookieParamValue(const AIndex: Integer): string;
+begin
+  Result := FWebRequest.CookieFields.ValueFromIndex[AIndex];
+end;
+
+function TMARSWebRequest.GetFilesCount: Integer;
+begin
+  Result := FWebRequest.Files.Count;
+end;
+
+function TMARSWebRequest.GetFormFileParam(const AIndex: Integer; out AFieldName,
+  AFileName: string; out ABytes: TBytes; out AContentType: string): Boolean;
+var
+  LFile: TAbstractWebRequestFile;
+begin
+  Result := (AIndex >= 0) and (AIndex < FWebRequest.Files.Count);
+  if Result then
+  begin
+    LFile := FWebRequest.Files[AIndex];
+    AFieldName := LFile.FieldName;
+    AFileName := LFile.FileName;
+    ABytes := StreamToBytes(LFile.Stream);
+    AContentType := LFile.ContentType;
+  end;
+end;
+
+function TMARSWebRequest.GetFormFileParamIndex(const AName: string): Integer;
+var
+  LFile: TAbstractWebRequestFile;
+  LIndex: Integer;
+begin
+  Result := -1;
+  for LIndex := 0 to FWebRequest.Files.Count-1 do
+  begin
+    LFile := FWebRequest.Files[LIndex];
+    if SameText(LFile.FieldName, AName) then
+    begin
+      Result := LIndex;
+      Break;
+    end;
+  end;
+end;
+
+function TMARSWebRequest.GetFormParamCount: Integer;
+begin
+  Result := FWebRequest.ContentFields.Count;
+end;
+
+function TMARSWebRequest.GetFormParamIndex(const AName: string): Integer;
+begin
+  Result := FWebRequest.ContentFields.IndexOfName(AName);
+end;
+
+function TMARSWebRequest.GetFormParamName(const AIndex: Integer): string;
+begin
+  Result := FWebRequest.ContentFields.Names[AIndex];
+end;
+
+function TMARSWebRequest.GetFormParams: string;
+begin
+  Result := FWebRequest.ContentFields.Text;
+end;
+
+function TMARSWebRequest.GetFormParamValue(const AIndex: Integer): string;
+begin
+  Result := FWebRequest.ContentFields.ValueFromIndex[AIndex];
+end;
+
+function TMARSWebRequest.GetFormParamValue(const AName: string): string;
+begin
+  Result := FWebRequest.ContentFields.Values[AName];
+end;
+
+function TMARSWebRequest.GetHeaderParamValue(const AHeaderName: string): string;
+begin
+  if (FWebRequest is TMARSIdHTTPAppRequest) or (FWebRequest is TIdHTTPAppRequest) then
+    Result := TMARSIdHTTPAppRequest(FWebRequest).RequestInfo.RawHeaders.Values[AHeaderName]
+  else
+    Result := FWebRequest.GetFieldByName(AHeaderName);
+end;
+
+function TMARSWebRequest.GetHeaderParamValue(const AIndex: Integer): string;
+const
+  HEADER_NAME_VALUE_SEPARATOR = ': ';
+var
+  LHeader: string;
+
+begin
+  if (FWebRequest is TMARSIdHTTPAppRequest) or (FWebRequest is TIdHTTPAppRequest) then
+  begin
+    LHeader := TMARSIdHTTPAppRequest(FWebRequest).RequestInfo.RawHeaders.Strings[AIndex];
+    Result := LHeader.Substring(LHeader.IndexOf(HEADER_NAME_VALUE_SEPARATOR, 0) + HEADER_NAME_VALUE_SEPARATOR.Length);
+  end
+  else
+    raise EMARSEngineException.Create('[Indy] Not supported: GetHeaderParamValue by Index');
+end;
+
+function TMARSWebRequest.GetHeaders: TMARSHeaders;
+var
+  LIndex: Integer;
+begin
+  SetLength(Result, GetHeaderParamCount);
+  for LIndex := Low(Result) to High(Result) do
+  begin
+    Result[LIndex].Name := GetHeaderParamName(LIndex);
+    Result[LIndex].Value := GetHeaderParamValue(LIndex);
+  end;
+end;
+
+function TMARSWebRequest.GetHostName: string;
+begin
+  Result := FWebRequest.Host;
+end;
+
+function TMARSWebRequest.GetMethod: string;
+begin
+  Result := FWebRequest.Method;
+end;
+
+function TMARSWebRequest.GetIsSecure: Boolean;
+begin
+  if FWebRequest is TMARSIdHTTPAppRequest then // Indy standalone server
+    Result := TMARSIdHTTPAppRequest(FWebRequest).IsSecure
+  else // WebBroker: ISAPI (IIS) has the HTTPS server variable
+    Result := SameText(FWebRequest.GetFieldByName('HTTPS'), 'on');
+end;
+
+function TMARSWebRequest.GetPort: Integer;
+begin
+  Result := FWebRequest.ServerPort;
+end;
+
+function TMARSWebRequest.GetQueryFields: TArray<string>;
+begin
+  Result := FWebRequest.QueryFields.ToStringArray;
+end;
+
+function TMARSWebRequest.GetQueryParamCount: Integer;
+begin
+  Result := FWebRequest.QueryFields.Count;
+end;
+
+function TMARSWebRequest.GetQueryParamIndex(const AName: string): Integer;
+begin
+  Result := FWebRequest.QueryFields.IndexOfName(AName);
+end;
+
+function TMARSWebRequest.GetQueryParamName(const AIndex: Integer): string;
+begin
+  result := FWebRequest.QueryFields.Names[AIndex];
+end;
+
+function TMARSWebRequest.GetQueryParams: TMARSQueryParams;
+var
+  LIndex: Integer;
+begin
+  SetLength(Result, FWebRequest.QueryFields.Count);
+  for LIndex := Low(Result) to High(Result) do
+  begin
+     Result[LIndex].Name := FWebRequest.QueryFields.Names[LIndex];
+     Result[LIndex].Value := FWebRequest.QueryFields.ValueFromIndex[LIndex];
+  end;
+end;
+
+function TMARSWebRequest.GetQueryParamValue(const AName: string): string;
+begin
+  Result := FWebRequest.QueryFields.Values[AName];
+end;
+
+function TMARSWebRequest.GetQueryParamValue(const AIndex: Integer): string;
+begin
+  Result := FWebRequest.QueryFields.ValueFromIndex[AIndex];
+end;
+
+function TMARSWebRequest.GetQueryString: string;
+begin
+  Result := FWebRequest.Query;
+end;
+
+function TMARSWebRequest.GetRawContent: TBytes;
+begin
+  Result := FWebRequest.RawContent;
+end;
+
+function TMARSWebRequest.GetRawPath: string;
+begin
+  Result := FWebRequest.RawPathInfo;
+end;
+
+function TMARSWebRequest.GetRemoteIP: string;
+begin
+  Result := FWebRequest.RemoteIP;
+end;
+
+function TMARSWebRequest.GetUserAgent: string;
+begin
+  Result := FWebRequest.UserAgent;
+end;
+
+function TMARSWebRequest.GetHeaderParamCount: Integer;
+begin
+  if (FWebRequest is TMARSIdHTTPAppRequest) or (FWebRequest is TIdHTTPAppRequest) then
+    Result := TMARSIdHTTPAppRequest(FWebRequest).RequestInfo.RawHeaders.Count
+  else
+    raise EMARSEngineException.Create('[Indy] Not supported: GetHeaderParamCount by Index');
+end;
+
+function TMARSWebRequest.GetHeaderParamIndex(const AName: string): Integer;
+begin
+  if (FWebRequest is TMARSIdHTTPAppRequest) or (FWebRequest is TIdHTTPAppRequest) then
+    Result := TMARSIdHTTPAppRequest(FWebRequest).RequestInfo.RawHeaders.IndexOfName(AName)
+  else
+    raise EMARSEngineException.Create('[Indy] Not supported: GetHeaderParamIndex by Index');
+end;
+
+function TMARSWebRequest.GetHeaderParamName(const AIndex: Integer): string;
+begin
+  if (FWebRequest is TMARSIdHTTPAppRequest) or (FWebRequest is TIdHTTPAppRequest) then
+    Result := TMARSIdHTTPAppRequest(FWebRequest).RequestInfo.RawHeaders.Names[AIndex]
+  else
+    raise EMARSEngineException.Create('[Indy] Not supported: GetHeaderParamName by Index');
+end;
+
+{ TMARSWebResponse }
+
+constructor TMARSWebResponse.Create(AWebResponse: TWebResponse);
+begin
+  inherited Create;
+  FWebResponse := AWebResponse;
+end;
+
+function TMARSWebResponse.GetContent: string;
+begin
+  Result := FWebResponse.Content;
+end;
+
+function TMARSWebResponse.GetContentEncoding: string;
+begin
+  Result := FWebResponse.ContentEncoding;
+end;
+
+function TMARSWebResponse.GetContentLength: Integer;
+begin
+  Result := FWebResponse.ContentLength;
+end;
+
+function TMARSWebResponse.GetContentStream: TStream;
+begin
+  Result := FWebResponse.ContentStream;
+end;
+
+function TMARSWebResponse.GetContentType: string;
+begin
+  Result := FWebResponse.ContentType;
+end;
+
+function TMARSWebResponse.GetReasonString: string;
+begin
+  Result := FWebResponse.ReasonString;
+end;
+
+function TMARSWebResponse.GetStatusCode: Integer;
+begin
+  Result := FWebResponse.StatusCode;
+end;
+
+procedure TMARSWebResponse.RedirectTo(const AURL: string);
+begin
+  FWebResponse.SendRedirect(AURL);
+  FWebResponse.SendResponse;
+end;
+
+procedure TMARSWebResponse.SetContent(const AContent: string);
+begin
+  FWebResponse.Content := AContent;
+end;
+
+procedure TMARSWebResponse.SetContentEncoding(const AContentEncoding: string);
+begin
+  FWebResponse.ContentEncoding := AContentEncoding;
+end;
+
+procedure TMARSWebResponse.SetContentLength(const ALength: Integer);
+begin
+  FWebResponse.ContentLength := ALength;
+end;
+
+procedure TMARSWebResponse.SetContentStream(const AContentStream: TStream);
+begin
+  FWebResponse.ContentStream := AContentStream;
+end;
+
+procedure TMARSWebResponse.SetContentType(const AContentType: string);
+begin
+  FWebResponse.ContentType := AContentType;
+end;
+
+// the cookie path followed by the attributes WebBroker/Indy cannot write natively (Delphi
+// versions before 13, see MARS_NATIVE_COOKIE_ATTRIBUTES in MARS.inc): both copy the path as it
+// is into the Set-Cookie header ("path=/rest/default; HttpOnly")
+function CookiePathWithAttributes(const APath: string; const AAttributes: TArray<string>): string;
+var
+  LAttribute: string;
+begin
+  Result := APath;
+  if Length(AAttributes) = 0 then
+    Exit;
+  if Result = '' then
+    Result := '/';
+  for LAttribute in AAttributes do
+    Result := Result + '; ' + LAttribute;
+end;
+
+procedure TMARSWebResponse.SetCookie(const AName, AValue, ADomain,
+  APath: string; const AExpiration: TDateTime; const ASecure: Boolean);
+begin
+  // HttpOnly, as with the Indy and DCS servers: the token cookie must not be readable by
+  // scripts (ISAPI, Apache and FastCGI hosts write this cookie as it is)
+  SetCookie(AName, AValue, ADomain, APath, AExpiration, ASecure, True, TMARSCookieSameSite.Unspecified);
+end;
+
+procedure TMARSWebResponse.SetCookie(const AName, AValue, ADomain, APath: string;
+  const AExpiration: TDateTime; const ASecure, AHttpOnly: Boolean;
+  const ASameSite: TMARSCookieSameSite);
+var
+  LCookie: TCookie;
+  {$IFNDEF MARS_NATIVE_COOKIE_ATTRIBUTES}
+  LAttributes: TArray<string>;
+  {$ENDIF}
+begin
+  LCookie := FWebResponse.Cookies.Add;
+  LCookie.Name := AName;
+  LCookie.Value := AValue;
+  LCookie.Domain := ADomain;
+  // WebBroker writes Expires as it is, labelled GMT (TCookie.HeaderValue): UTC for the ISAPI,
+  // Apache and FastCGI hosts; the Indy server converts the local time itself (TIdCookie)
+  if FWebResponse is TIdHTTPAppResponse then
+    LCookie.Expires := AExpiration
+  else
+    LCookie.Expires := TTimeZone.Local.ToUniversalTime(AExpiration);
+  // browsers refuse SameSite=None without Secure
+  LCookie.Secure := ASecure or (ASameSite = TMARSCookieSameSite.None);
+  {$IFDEF MARS_NATIVE_COOKIE_ATTRIBUTES}
+  LCookie.Path := APath;
+  LCookie.HttpOnly := AHttpOnly;
+  LCookie.SameSite := CookieSameSiteToString(ASameSite);
+  {$ELSE}
+  LAttributes := [];
+  if AHttpOnly then
+    LAttributes := LAttributes + ['HttpOnly'];
+  if ASameSite <> TMARSCookieSameSite.Unspecified then
+    LAttributes := LAttributes + ['SameSite=' + CookieSameSiteToString(ASameSite)];
+  LCookie.Path := CookiePathWithAttributes(APath, LAttributes);
+  {$ENDIF}
+end;
+
+procedure TMARSWebResponse.SetHeader(const AName, AValue: string);
+begin
+  FWebResponse.CustomHeaders.Values[AName] := AValue;
+end;
+
+procedure TMARSWebResponse.SetReasonString(const AReasonString: string);
+begin
+  FWebResponse.ReasonString := AReasonString;
+end;
+
+procedure TMARSWebResponse.SetStatusCode(const AStatusCode: Integer);
+begin
+  FWebResponse.StatusCode := AStatusCode;
+end;
+
+{ TMARSIdHTTPAppRequest }
+
+function TMARSIdHTTPAppRequest.IsSecure: Boolean;
+begin
+  Result := Assigned(FThread) and Assigned(FThread.Connection)
+    and (FThread.Connection.IOHandler is TIdSSLIOHandlerSocketBase)
+    and not TIdSSLIOHandlerSocketBase(FThread.Connection.IOHandler).PassThrough;
+end;
+
+function TMARSIdHTTPAppRequest.GetRequestInfo: TIdHTTPRequestInfo;
+begin
+  Result := FRequestInfo;
+end;
+
+function TMARSIdHTTPAppRequest.GetResponseInfo: TIdHTTPResponseInfo;
+begin
+  Result := FResponseInfo;
+end;
+
+end.

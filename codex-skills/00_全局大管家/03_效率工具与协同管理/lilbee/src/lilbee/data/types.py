@@ -1,0 +1,275 @@
+"""Shared ingest types and constants."""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+from typing import NamedTuple, NotRequired, TypedDict
+
+from pydantic import BaseModel
+from rich.highlighter import ReprHighlighter
+from rich.text import Text
+
+from lilbee.core.vectors import Vector
+from lilbee.data.store import (
+    ChunkType,
+    ConceptRecords,
+    IndexMismatch,
+    PageTextRecord,
+    SourceMeta,
+    SourceStat,
+    SourceStatBackfill,
+)
+from lilbee.runtime.progress import OcrBackendUsed
+
+# PDF and image content types route to paginated extraction; every other format
+# routes to markdown extraction. content_type is derived per-file in
+# discovery.classify_file (PDFs and images grouped; others keyed by extension).
+PDF_CONTENT_TYPE = "pdf"
+IMAGE_CONTENT_TYPE = "image"
+MARKDOWN_OUTPUT = "markdown"
+MARKDOWN_MIME = "text/markdown"
+# Sync summary note for a skipped document whose extraction ran with OCR off.
+SKIPPED_OCR_OFF_NOTE = ": ocr is off"
+
+
+@dataclass(frozen=True)
+class ShardId:
+    """Which slice of the corpus one ingest worker owns.
+
+    *records_root* is the data root holding the corpus's skip records and its
+    data-root ``.lilbeeignore``, which every worker uses in place of its own
+    private data root.
+    """
+
+    index: int
+    count: int
+    records_root: Path
+
+    def owns(self, key: str) -> bool:
+        """Whether source *key* belongs to this slice.
+
+        Hashed with blake2b, not ``hash()``, which is salted per process: two
+        runs would deal the same corpus differently and every resume would
+        re-embed what a sibling already holds.
+        """
+        digest = hashlib.blake2b(key.encode("utf-8"), digest_size=8).digest()
+        return int.from_bytes(digest, "big") % self.count == self.index
+
+
+class FileToProcess(NamedTuple):
+    """A file queued for ingestion with its metadata."""
+
+    name: str
+    path: Path
+    content_type: str
+    file_hash: str
+    needs_cleanup: bool
+    stat: SourceStat | None = None
+
+
+class MemberRecords(NamedTuple):
+    """One archive member's records, written as its own source."""
+
+    name: str
+    content_type: str
+    records: list[ChunkRecord]
+    page_texts: list[PageTextRecord]
+    meta: SourceMeta
+
+
+class DocumentRecords(NamedTuple):
+    """One file's records, its source metadata, and the OCR its extraction ran with."""
+
+    records: list[ChunkRecord]
+    meta: SourceMeta
+    ocr: OcrReport | None = None
+
+
+class SkippedSource(BaseModel):
+    """One file a skip marker holds out of the index, and why."""
+
+    filename: str
+    reason: str
+
+
+class FileChangePlan(NamedTuple):
+    """Outcome of diffing disk files against the tracked sources."""
+
+    files_to_process: list[FileToProcess]
+    added: dict[str, None]
+    updated: dict[str, None]
+    unchanged: int
+    stat_backfills: list[SourceStatBackfill]
+    # Files a skip marker holds out; not in the index, so never counted as unchanged.
+    held_out: list[str]
+
+
+class OcrBackendName(StrEnum):
+    """OCR backends lilbee selects in OcrConfig: xberg's tesseract or lilbee's vision plugin."""
+
+    TESSERACT = "tesseract"
+    LILBEE_VISION = "lilbee-vision"
+
+
+class OcrReport(BaseModel, frozen=True):
+    """Which OCR backend one extraction ran and how many pages it OCR'd."""
+
+    backend: OcrBackendUsed
+    pages: int = 0
+
+
+class EmbeddingBackendName(StrEnum):
+    """Embedding backends registered with xberg. lilbee registers its own embedder
+    as a plugin so the semantic chunker detects boundaries with the same model that
+    vectorizes chunks."""
+
+    LILBEE = "lilbee"
+
+
+class TokenizerBackendName(StrEnum):
+    """Tokenizer backends registered with xberg. lilbee registers its embedder's
+    tokenizer so ChunkSizing counts chunk budgets in the same tokens the embedder
+    consumes, instead of a chars-per-token heuristic. Separate registry from the
+    embedding backend, so sharing the ``lilbee`` name is fine."""
+
+    LILBEE = "lilbee"
+
+
+class ExtractMode(StrEnum):
+    """Extraction topology: paginated (PDFs/images) vs markdown output (text formats)."""
+
+    MARKDOWN = "markdown"
+    PAGINATED = "paginated"
+
+
+class ChunkRecord(TypedDict):
+    """A single store-ready chunk record matching store.CHUNKS_SCHEMA."""
+
+    source: str
+    content_type: str
+    chunk_type: ChunkType
+    page_start: int
+    page_end: int
+    line_start: int
+    line_end: int
+    chunk: str
+    chunk_index: int
+    vector: Vector
+    # Stamped once per document by the pipeline (see produce_records); None
+    # when the title is empty, so chunk rows persist NULL like the _sources table.
+    title: NotRequired[str | None]
+
+
+class SyncResult(BaseModel):
+    """Summary of a sync operation."""
+
+    added: list[str] = []
+    updated: list[str] = []
+    removed: list[str] = []
+    unchanged: int = 0
+    # Sources recognized as moved (same content hash, new location): re-keyed to
+    # the new name in place, so their chunks and embeddings were reused, not rebuilt.
+    relocated: list[str] = []
+    failed: list[str] = []
+    skipped: list[str] = []
+    # The OCR each skipped document ran with; files that never reach OCR are absent.
+    skipped_ocr: dict[str, OcrReport] = {}
+    # Files an earlier sync skip-marked, so this run did not attempt them.
+    held_out: list[SkippedSource] = []
+    # Chunks whose text exceeded the embedder's char budget and were truncated
+    # before embedding. Non-zero means some tail content did not reach the index.
+    truncated: int = 0
+    # Set when the index was built with another embedder than the one configured:
+    # the sync left it as it is, and search refuses it until a rebuild or a switch back.
+    index_mismatch: IndexMismatch | None = None
+    # Set when the record of held-out files could not be locked, so this run's was not saved.
+    skip_records_error: str | None = None
+
+    def _lines(self) -> list[list[tuple[str, str]]]:
+        """The summary as lines of ``(text, style)`` segments; ``""`` means unstyled."""
+        lines: list[list[tuple[str, str]]] = [
+            [(f"Added: {len(self.added)}", "")],
+            [(f"Updated: {len(self.updated)}", "")],
+            [(f"Removed: {len(self.removed)}", "")],
+            [(f"Unchanged: {self.unchanged}", "")],
+        ]
+        if self.index_mismatch is not None:
+            lines.append([("Index mismatch:", "red"), (f" {self.index_mismatch.message}", "")])
+        if self.skip_records_error is not None:
+            lines.append([(self.skip_records_error, "red")])
+        if self.relocated:
+            lines.append([(f"Relocated: {len(self.relocated)}", "")])
+        lines += [
+            [(f"Held out: {len(self.held_out)}", "")],
+            [(f"Skipped: {len(self.skipped)}", "")],
+            [(f"Failed: {len(self.failed)}", "")],
+            [(f"Truncated: {self.truncated}", "")],
+        ]
+        lines += [
+            [("  ", ""), (h.filename, "yellow"), (f": {h.reason}", "")] for h in self.held_out
+        ]
+        lines += [[("  ", ""), (name, "yellow"), self._skip_note(name)] for name in self.skipped]
+        lines += [[("  ", ""), (name, "red")] for name in self.failed]
+        return lines
+
+    def _skip_note(self, name: str) -> tuple[str, str]:
+        """The OCR-off note for a skipped file, or an empty segment."""
+        report = self.skipped_ocr.get(name)
+        if report is not None and report.backend is OcrBackendUsed.NONE:
+            return (SKIPPED_OCR_OFF_NOTE, "")
+        return ("", "")
+
+    def __str__(self) -> str:
+        return "\n".join(
+            "".join(f"[{style}]{text}[/{style}]" if style else text for text, style in line)
+            for line in self._lines()
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"SyncResult(added={len(self.added)}, updated={len(self.updated)}, "
+            f"removed={len(self.removed)}, unchanged={self.unchanged}, "
+            f"held_out={len(self.held_out)}, skipped={len(self.skipped)}, "
+            f"failed={len(self.failed)}, truncated={self.truncated})"
+        )
+
+    def __rich__(self) -> Text:
+        """Render the summary with every filename and reason as literal text."""
+        rendered = Text("\n").join(Text.assemble(*line) for line in self._lines())
+        return ReprHighlighter()(rendered)
+
+
+@dataclass
+class _IngestResult:
+    """Outcome of a single file ingestion attempt.
+
+    ``records`` carries the produced (extracted + embedded) chunks until the
+    batched flush writes them; ``None`` on a failed file. ``needs_cleanup``
+    travels with the records so the flush can delete the source's old chunks in
+    the same transaction. ``page_texts`` carries the per-page text dataset rows
+    and ``concept_records`` the file's concept-table rows, and ``entity_rows``
+    the file's typed-entity rows, all written by the same flush. ``meta``
+    carries the document's extraction-time metadata for the source row.
+    ``skip_reason`` is set when the file was refused rather than attempted, and
+    it decides the outcome ahead of the chunk count. ``ocr`` is the OCR the
+    document extraction ran with; ``None`` for files that never reach OCR.
+    """
+
+    name: str
+    path: Path
+    chunk_count: int
+    error: Exception | None
+    file_hash: str = ""
+    skip_reason: str | None = None
+    records: list[ChunkRecord] | None = None
+    needs_cleanup: bool = True
+    page_texts: list[PageTextRecord] | None = None
+    stat: SourceStat | None = None
+    concept_records: ConceptRecords | None = None
+    entity_rows: list[dict] | None = None
+    meta: SourceMeta | None = None
+    members: list[MemberRecords] | None = None
+    ocr: OcrReport | None = None

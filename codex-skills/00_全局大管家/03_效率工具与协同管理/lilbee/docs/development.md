@@ -1,0 +1,77 @@
+# Development
+
+## Setup
+
+```bash
+git clone https://github.com/tobocop2/lilbee && cd lilbee
+uv sync
+```
+
+## Commands
+
+```bash
+make check      # Run all checks: lint, format, typecheck, test (same as CI)
+make test       # Tests with coverage
+make lint       # Ruff linting
+make typecheck  # Mypy
+make format     # Auto-format code
+```
+
+## Tech stack
+
+| Component | Tool |
+|-----------|------|
+| Language | Python 3.11+ |
+| Package manager | uv |
+| LLM runtime | [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server`, managed by lilbee (native GGUF) |
+| Embeddings | nomic-embed-text (configurable) |
+| Vector DB | LanceDB (embedded, Rust-based) |
+| PDF extraction | pymupdf4llm |
+| Office docs | python-docx, openpyxl, python-pptx |
+| eBooks | ebooklib + BeautifulSoup |
+| Image OCR | pytesseract + Pillow |
+| Code parsing | tree-sitter |
+| CLI | Typer + Rich |
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `config.py` | All settings (env-var configurable, except `linked_roots`) |
+| `ingest.py` | Document sync engine (hash-based change detection) |
+| `query.py` | RAG pipeline (embed → search → generate) |
+| `store.py` | LanceDB operations |
+| `chunker.py` | Text chunking (token-based recursive) |
+| `code_chunker.py` | Code chunking (tree-sitter AST) |
+| `embedder.py` | Thin wrapper around the LLM provider's embeddings API |
+| `cli.py` | Typer CLI with --model, --data-dir, and --json flags |
+
+## Testing
+
+```bash
+make test       # Unit tests
+uv run pytest   # Full suite including RAG accuracy
+```
+
+- **100% coverage required** — enforced by `pytest-cov` with `fail_under = 100`
+- All external dependencies are mocked — tests run without a live server
+- Accuracy tests generate a PDF with known facts and verify correct retrieval
+
+## Code style
+
+- Linting: `ruff check` + `ruff format` (line length 100)
+- Type checking: `mypy` with strict settings
+- Type hints on all public functions
+- Lazy imports in CLI callbacks
+- No LangChain or other agent frameworks; direct provider calls only
+
+## License
+
+MIT
+
+## Repository history
+
+The commit history was consolidated to keep the repository small. Commit
+guidelines are now in place to avoid the need to do this again. The original
+history up to `v0.6.90b435` (2026-09-08) lives at
+[tobocop2/lilbee-archive](https://github.com/tobocop2/lilbee-archive).

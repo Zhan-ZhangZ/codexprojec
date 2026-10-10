@@ -1,0 +1,158 @@
+"""Right-pane detail drawer for the catalog screen.
+
+Focus-following: the catalog screen wires ``ModelGrid.Highlighted`` to
+``CatalogDetailDrawer.update_for_row``. The drawer renders the focused
+row's name, fit chip, every size variant with its per-variant fit, the
+license, and a description preview. Visibility toggles via the
+``-collapsed`` CSS class so width changes are a single layout pass.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import ClassVar
+
+from textual.app import ComposeResult
+from textual.containers import Vertical
+from textual.widgets import Static
+
+from lilbee.catalog.types import ModelCompat
+from lilbee.cli.tui.screens.catalog_utils import (
+    CatalogRow,
+    CatalogRowKind,
+    FrontierCatalogRow,
+    LocalCatalogRow,
+    SizeVariant,
+)
+from lilbee.cli.tui.widgets.catalog_card_shared import _render_fit_pill
+from lilbee.runtime.hardware import FitLevel
+
+_CSS_FILE = Path(__file__).parent / "catalog_detail.tcss"
+
+_EMPTY_HINT = "Highlight a model to see details."
+
+
+class CatalogDetailDrawer(Vertical):
+    """Right-side panel that mirrors the highlighted catalog row.
+
+    Designed as a passive renderer: the screen calls update_for_row on
+    every ``ModelGrid.Highlighted`` event. There is no event subscription
+    inside the drawer so it stays test-friendly and decoupled from the
+    grid widget's message routing.
+    """
+
+    DEFAULT_CSS: ClassVar[str] = _CSS_FILE.read_text(encoding="utf-8") if _CSS_FILE.exists() else ""
+
+    def compose(self) -> ComposeResult:
+        yield Static(
+            _EMPTY_HINT, id="catalog-detail-name", classes="catalog-detail-name", markup=False
+        )
+        yield Static("", id="catalog-detail-fit", classes="catalog-detail-fit")
+        yield Static("", id="catalog-detail-sizes", classes="catalog-detail-sizes")
+        yield Static(
+            "", id="catalog-detail-license", classes="catalog-detail-license", markup=False
+        )
+        yield Static("", id="catalog-detail-compat", classes="catalog-detail-compat", markup=False)
+        yield Static(
+            "",
+            id="catalog-detail-description",
+            classes="catalog-detail-description",
+            markup=False,
+        )
+
+    def update_for_row(self, row: CatalogRow | None) -> None:
+        """Render the drawer for *row*; clearing back to the empty hint when None."""
+        if row is None:
+            self._clear()
+            return
+        if row.kind == CatalogRowKind.FRONTIER:
+            self._render_frontier(row)
+            return
+        self._render_local(row)
+
+    def _clear(self) -> None:
+        self.query_one("#catalog-detail-name", Static).update(_EMPTY_HINT)
+        for selector in (
+            "#catalog-detail-fit",
+            "#catalog-detail-sizes",
+            "#catalog-detail-license",
+            "#catalog-detail-compat",
+            "#catalog-detail-description",
+        ):
+            self.query_one(selector, Static).update("")
+
+    def _render_local(self, row: LocalCatalogRow) -> None:
+        self.query_one("#catalog-detail-name", Static).update(row.name)
+        fit_widget = self.query_one("#catalog-detail-fit", Static)
+        if row.fit is not None:
+            fit_widget.update(_render_fit_pill(row.fit))
+        else:
+            fit_widget.update("")
+        sizes = self.query_one("#catalog-detail-sizes", Static)
+        sizes.update(_render_sizes_block(row.size_variants))
+        license_widget = self.query_one("#catalog-detail-license", Static)
+        license_widget.update(_license_text(row))
+        compat_widget = self.query_one("#catalog-detail-compat", Static)
+        compat_widget.update(_compat_sentence(row))
+        description = self.query_one("#catalog-detail-description", Static)
+        description.update(_description_text(row))
+
+    def _render_frontier(self, row: FrontierCatalogRow) -> None:
+        self.query_one("#catalog-detail-name", Static).update(row.name)
+        self.query_one("#catalog-detail-fit", Static).update("")
+        self.query_one("#catalog-detail-sizes", Static).update("")
+        self.query_one("#catalog-detail-license", Static).update(f"Provider  {row.provider}")
+        self.query_one("#catalog-detail-compat", Static).update("")
+        self.query_one("#catalog-detail-description", Static).update(
+            f"Cloud model accessed via the {row.provider} API."
+        )
+
+
+def _render_sizes_block(variants: list[SizeVariant]) -> str:
+    """Multi-line plain-text listing of every variant the row carries."""
+    if not variants:
+        return ""
+    lines = ["Sizes"]
+    for v in variants:
+        suffix = ""
+        if v.fit is not None:
+            if v.fit.level is FitLevel.FITS:
+                suffix = "  ✓"
+            elif v.fit.level is FitLevel.TIGHT:
+                suffix = "  ⚠"
+            else:
+                suffix = "  ✗"
+        lines.append(f"  {v.label}  {v.size_gb:.1f} GB{suffix}")
+    return "\n".join(lines)
+
+
+def _license_text(_row: LocalCatalogRow) -> str:
+    """License placeholder; CatalogModel/ModelFamily don't carry one yet.
+
+    Kept as a stub so callers have a stable seam: future plumbing for
+    per-row license strings (HF metadata fetch, family-level config) can
+    fill this in without touching the drawer's render path.
+    """
+    return ""
+
+
+def _compat_sentence(row: LocalCatalogRow) -> str:
+    """Build the architecture-compatibility sentence for the detail drawer."""
+    from lilbee.cli.tui import messages as msg
+
+    arch = row.catalog_model.architecture if row.catalog_model is not None else ""
+    arch_label = arch or "unknown"
+    template = {
+        ModelCompat.SUPPORTED: msg.COMPAT_DETAIL_SENTENCE_SUPPORTED,
+        ModelCompat.UNSUPPORTED: msg.COMPAT_DETAIL_SENTENCE_UNSUPPORTED,
+        ModelCompat.UNKNOWN: msg.COMPAT_DETAIL_SENTENCE_UNKNOWN,
+    }[row.compat]
+    return template.format(arch=arch_label) if "{arch}" in template else template
+
+
+def _description_text(row: LocalCatalogRow) -> str:
+    if row.catalog_model is not None and row.catalog_model.description:
+        return row.catalog_model.description
+    if row.family is not None and row.family.description:
+        return row.family.description
+    return ""

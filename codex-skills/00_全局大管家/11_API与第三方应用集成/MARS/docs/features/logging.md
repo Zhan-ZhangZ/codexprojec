@@ -1,0 +1,221 @@
+# Request/Response Logging
+
+MARS can log every request and response by plugging into the [global activation hooks](/server/request-lifecycle#global-hooks). A logger registers `BeforeInvoke`, `AfterInvoke` and `InvokeError` handlers during ignition and writes an entry for each phase, so you get incoming requests, completed responses (with timing) and errors without touching your resource code.
+
+All loggers implement the small `IMARSReqRespLogger` interface (`MARS.Utils.ReqRespLogger.Interfaces.pas`) and self-register in their unit's `initialization`. **You enable a logger simply by adding its unit to your server's `uses` clause** (typically in `Server.Ignition.pas`), then toggling it with a configuration parameter.
+
+## Available loggers
+
+| Unit | Sink | Typical use |
+| --- | --- | --- |
+| `MARS.Utils.ReqRespLogger.JSON` | **JSON Lines (NDJSON) file** | Production logging, ingestion by Grafana Alloy/Promtail → Loki |
+| `MARS.Utils.ReqRespLogger.CodeSite` | CodeSite | Development-time inspection |
+| `MARS.Utils.ReqRespLogger.Memory` | In-memory dataset | Live "last requests" views inside the app |
+
+::: tip Pick one sink
+Each logger registers its own hooks, so adding several units means every request is logged several times. Enable the one that matches your target and leave the others out of the `uses` clause (or disable them via their parameter).
+:::
+
+## File logging for Grafana (JSON)
+
+`MARS.Utils.ReqRespLogger.JSON` (`TMARSReqRespLoggerJSON`) writes one JSON object per line to a log file. This **JSON Lines / NDJSON** format is exactly what log shippers such as [Grafana Alloy](https://grafana.com/docs/alloy/) and Promtail expect, so you can tail the file and forward the entries to Loki with a minimal pipeline.
+
+### Enabling it
+
+Add the unit to your server's `uses` clause:
+
+```pascal
+uses
+  // ...
+  , MARS.Utils.ReqRespLogger.JSON
+  ;
+```
+
+Then turn it on in the engine section of your `.ini`:
+
+```ini
+[DefaultEngine]
+JSONLogging.Enabled=True
+; Folder default: <exe folder>\logs
+;JSONLogging.Folder=C:\logs\mars
+JSONLogging.FileName=mars-reqresp.log
+JSONLogging.DailyRotation=True
+```
+
+### Configuration parameters
+
+| Parameter | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `JSONLogging.Enabled` | Boolean | `False` | Master switch — the hooks check it on every activation. |
+| `JSONLogging.BuiltInEntries` | Boolean | `True` | Write the built-in `in`/`out`/`error` lines. Set it to `False` to write only [your own entries](#custom-entries-with-structured-data). |
+| `JSONLogging.Folder` | string | `<exe folder>\logs` | Target directory (created if missing). |
+| `JSONLogging.FileName` | string | `mars-reqresp.log` | Base log file name. |
+| `JSONLogging.DailyRotation` | Boolean | `True` | Insert the date (`yyyymmdd`) before the extension, e.g. `mars-reqresp-20260630.log`. |
+
+### Line format
+
+Each line is a self-contained JSON object: an ISO-8601/RFC3339 UTC timestamp, a set of fields, and the human-readable `message`. These are plain JSON fields: which of them become Loki labels is decided by the log shipper (see [Ingesting into Loki](#ingesting-into-loki-with-grafana-alloy)).
+
+```json
+{"ts":"2026-06-30T12:34:56.789Z","detected_level":"INFO","source":"MARS","engine":"DefaultEngine","application":"DefaultApp","direction":"in","message":"ResourcePath:helloworld | Verb:GET | Path:/rest/default/helloworld"}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `ts` | UTC timestamp with milliseconds (RFC3339). |
+| `detected_level` | `INFO` for requests/responses, `ERR` for errors. |
+| `source` | Always `MARS`. |
+| `engine`, `application` | The hosting engine/application names. |
+| `direction` | `in` (before invoke), `out` (after invoke, includes `InvocationTime`), `error`. |
+| `message` | Pipe-separated details: `ResourcePath`, `Verb`, `Path`, and — on `out` — `InvocationTime` in ms, or — on `error` — the exception `Error`. |
+
+The file is written UTF-8 **without BOM**, one entry per line.
+
+### Custom entries with structured data
+
+The built-in lines carry a few fields. To log whatever your application needs (status code, token claims, tenant, timings…) as real JSON fields that LogQL can filter on, write your own entries with `Log<T>`: any data is serialized with the MARS JSON serializer, the same one used for response bodies.
+
+- The fields of an object (class, record, `TDictionary<string, T>`, `TJSONObject`) become **top level fields** of the line, numbers and booleans keep their JSON type.
+- Anything else (a scalar, an array) is written under `data`.
+- `[JSONName]` renames a field, `[JSONSkip]` leaves it out; the `JSON.*` engine parameters (e.g. `JSON.SkipEmptyValues`) apply.
+- Extra fields passed as `TArray<TLogField>` (e.g. `['source:MyApp']`, split at the first `:`, or `TLogField.Create(name, value)`) come first, then the data, then the optional message: a later field replaces an earlier one with the same name. `ts` is always the logger's timestamp.
+
+```pascal
+uses MARS.Core.JSON, MARS.Utils.ReqRespLogger.JSON;
+
+type
+  TRequestLogEntry = record
+    detected_level: string;
+    direction: string;
+    activation_id: string;
+    [JSONName('status_code')] StatusCode: Integer;
+    execution_ms: Int64;
+    id_user: Integer;
+  end;
+
+// ...
+  TMARSActivation.RegisterAfterInvoke(
+    procedure (const AActivation: IMARSActivation)
+    begin
+      if not TMARSReqRespLoggerJSON.IsEnabledFor(AActivation) then // JSONLogging.Enabled and no [NoLog]
+        Exit;
+
+      var LEntry := Default(TRequestLogEntry);
+      LEntry.detected_level := 'INFO';
+      LEntry.direction := 'out';
+      LEntry.activation_id := AActivation.Id;
+      LEntry.StatusCode := AActivation.Response.StatusCode;
+      LEntry.execution_ms := AActivation.InvocationTime.ElapsedMilliseconds;
+      if Assigned(AActivation.Token) then
+        LEntry.id_user := AActivation.Token.Claims.ByName('id_user', 0).AsInteger;
+
+      TMARSReqRespLoggerJSON.Instance.Configure(AActivation);
+      TMARSReqRespLoggerJSON.Instance.Log<TRequestLogEntry>(
+        ['source:MyApp', 'engine:' + AActivation.Engine.Name, 'application:' + AActivation.Application.Name]
+      , LEntry
+      , AActivation.Request.Method + ' ' + AActivation.URL.Path
+      );
+    end
+  );
+```
+
+```json
+{"ts":"2026-10-06T10:12:03.123Z","source":"MyApp","engine":"DefaultEngine","application":"DefaultApp","detected_level":"INFO","direction":"out","activation_id":"…","status_code":200,"execution_ms":12,"id_user":5,"message":"GET /rest/default/helloworld"}
+```
+
+With `JSONLogging.BuiltInEntries=False` these are the only lines in the file; leave it `True` to get both. A `TJSONObject` can be passed as it is (`Log(LFields, 'message')`): it is copied, the caller keeps its ownership. To log outside of an activation (e.g. at startup) call `Configure(Engine.Parameters)` first, so the configured folder and file are used.
+
+::: tip Labels vs fields
+Which fields become Loki labels is decided by your Alloy pipeline, not by the logger. Promote only low-cardinality fields (`level`, `source`, `engine`, `application`, `direction`); keep ids, users and paths as JSON fields and filter them at query time, e.g. `{application="DefaultApp"} | json | status_code >= 500`.
+:::
+
+### Excluding endpoints
+
+Mark a resource or a method with the `[NoLog]` attribute to keep it out of the log — handy for health checks, high-traffic polling endpoints or anything sensitive:
+
+```pascal
+uses MARS.Core.Attributes;
+
+[Path('health'), NoLog]
+THealthResource = class
+  [GET] function Ping: string;
+end;
+```
+
+The JSON file logger skips both the request and the response (and any error) for `[NoLog]` endpoints.
+
+::: tip Reading the file while the server runs
+The logger opens the file allowing concurrent readers (`fmShareDenyWrite`), so log shippers and tools like `Get-Content -Wait` can read it live while the server keeps writing. With daily rotation, the current file name follows the date automatically.
+:::
+
+## Ingesting into Loki with Grafana Alloy
+
+A minimal Alloy pipeline discovers the rotating files, parses each JSON line, uses the log's own timestamp and promotes a few low-cardinality fields to Loki labels:
+
+```hcl
+local.file_match "mars_logs" {
+  path_targets = [{ __path__ = "C:/path/to/bin/logs/mars-reqresp-*.log", job = "mars" }]
+}
+
+loki.source.file "mars" {
+  targets    = local.file_match.mars_logs.targets
+  forward_to = [loki.process.mars.receiver]
+}
+
+loki.process "mars" {
+  forward_to = [loki.write.default.receiver]
+
+  stage.json {
+    expressions = {
+      ts = "ts", level = "detected_level", source = "source",
+      engine = "engine", application = "application",
+      direction = "direction", message = "message",
+    }
+  }
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339"
+  }
+  stage.labels {
+    values = { level = "", source = "", engine = "", application = "", direction = "" }
+  }
+  stage.output { source = "message" }
+}
+
+loki.write "default" {
+  endpoint { url = "http://localhost:3100/loki/api/v1/push" }
+}
+```
+
+In Grafana Explore (Loki data source) you can then query e.g. `{source="MARS"}`, `{application="DefaultApp"}` or `{direction="error"}`.
+
+::: warning Endpoint reachability
+`loki.write` must point at a Loki that Alloy can actually reach. If Alloy runs in a VM and Loki lives on the host, use the host address (for example `http://host.parallels:3100`) rather than `localhost`.
+:::
+
+## In-memory logging
+
+`MARS.Utils.ReqRespLogger.Memory` keeps recent requests/responses in a `TFDMemTable` (status code, content, timing, remote IP, cookies, …), which you can surface through a resource for a live "last requests" panel. It honors the `[NoLog]` attribute: mark a resource or method with it to exclude that endpoint from the in-memory log.
+
+Linking the unit registers the hooks, but nothing is retained until you switch it on:
+
+```ini
+[Engine]
+MemoryLogging.Enabled=True
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `MemoryLogging.Enabled` | Boolean | `False` | Master switch, checked on every activation. |
+
+::: warning Clear-text retention
+The buffer holds complete requests and responses (bodies, cookies, token claims, login forms) in
+clear text, without a size limit, for the life of the process. Keep it off in production builds,
+or enable it only while diagnosing.
+:::
+
+## See also
+
+- [Client ▸ Logging](/client/logging) — logging the requests sent by a Delphi client.
+- [Request Lifecycle](/server/request-lifecycle) — the hooks these loggers build on.
+- [Configuration Parameters](/reference/parameters#logging-parameters) — all logging keys in one place.

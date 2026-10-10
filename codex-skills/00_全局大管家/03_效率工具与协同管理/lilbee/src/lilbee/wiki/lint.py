@@ -1,0 +1,359 @@
+"""Lint wiki pages for citation staleness, missing sources, and unmarked claims.
+
+Two modes:
+- lightweight: runs automatically after sync, checks only pages whose sources changed
+- full: manual ``lilbee wiki lint``, checks all wiki pages
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+
+from lilbee.core.config import Config, cfg
+from lilbee.core.security import PathTraversalError, validate_path_within
+from lilbee.data.ingest import file_hash
+from lilbee.data.store import CitationRecord, Store
+from lilbee.wiki.citations import (
+    CitationStatus,
+    find_unmarked_claims,
+    verify_citation,
+)
+from lilbee.wiki.grammar import WIKI_LINK_RE
+from lilbee.wiki.index import append_wiki_log
+from lilbee.wiki.shared import (
+    WIKI_BUILD_LOCK,
+    WIKI_CONTENT_SUBDIRS,
+    WikiLogAction,
+    WikiSubdir,
+    parse_frontmatter,
+)
+
+_ORPHAN_CANDIDATE_SUBDIRS: tuple[str, ...] = (WikiSubdir.CONCEPTS, WikiSubdir.ENTITIES)
+
+# Subdirs whose links don't count as "published" backlinks for orphan detection:
+# a [[slug]] living only in a draft or an archived page must not exempt a live
+# concept/entity page from the orphan flag.
+_UNPUBLISHED_SUBDIRS: tuple[str, ...] = (WikiSubdir.DRAFTS, WikiSubdir.ARCHIVE)
+
+log = logging.getLogger(__name__)
+
+
+class IssueSeverity(Enum):
+    """Severity level for lint issues."""
+
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class IssueType(Enum):
+    """Classification of lint findings, used by prune to filter programmatically."""
+
+    PATH_TRAVERSAL = "path_traversal"
+    SOURCE_MISSING = "source_missing"
+    STALE_HASH = "stale_hash"
+    EXCERPT_MISSING = "excerpt_missing"
+    MODEL_CHANGED = "model_changed"
+    UNMARKED_CLAIM = "unmarked_claim"
+    ORPHAN = "orphan"
+
+
+@dataclass(frozen=True)
+class LintIssue:
+    """A single lint finding on a wiki page."""
+
+    wiki_source: str
+    severity: IssueSeverity
+    message: str
+    issue_type: IssueType | None = None
+
+    def to_dict(self) -> dict[str, str]:
+        """Serialize to a plain dict suitable for JSON output."""
+        return {
+            "wiki_source": self.wiki_source,
+            "severity": self.severity.value,
+            "message": self.message,
+            "issue_type": self.issue_type.value if self.issue_type else "",
+        }
+
+
+@dataclass
+class LintReport:
+    """Aggregated results from linting one or more wiki pages."""
+
+    issues: list[LintIssue] = field(default_factory=list)
+
+    @property
+    def error_count(self) -> int:
+        return sum(1 for i in self.issues if i.severity == IssueSeverity.ERROR)
+
+    @property
+    def warning_count(self) -> int:
+        return sum(1 for i in self.issues if i.severity == IssueSeverity.WARNING)
+
+
+def _lint_citation(
+    rec: CitationRecord,
+    store: Store,
+) -> LintIssue | None:
+    """Check a single citation record against the filesystem and the chunk store.
+    Returns a LintIssue if the citation is stale or broken, None if valid.
+    """
+    from lilbee.data.ingest.discovery import resolve_source_path_checked
+
+    wiki_source = rec["wiki_source"]
+    # A registered root legitimately lives outside documents_dir, so containment
+    # is checked against every allowed root: a key that climbs out of all of them
+    # (a crafted ``../`` citation) is rejected before any file is read.
+    source_path = resolve_source_path_checked(rec["source_filename"])
+    if source_path is None:
+        return LintIssue(
+            wiki_source=wiki_source,
+            severity=IssueSeverity.ERROR,
+            message=f"Source path escapes its root: {rec['source_filename']}",
+            issue_type=IssueType.PATH_TRAVERSAL,
+        )
+
+    if not source_path.exists():
+        return LintIssue(
+            wiki_source=wiki_source,
+            severity=IssueSeverity.ERROR,
+            message=f"Source deleted: {rec['source_filename']}",
+            issue_type=IssueType.SOURCE_MISSING,
+        )
+
+    current_hash = file_hash(source_path)
+    if current_hash != rec["source_hash"]:
+        return LintIssue(
+            wiki_source=wiki_source,
+            severity=IssueSeverity.WARNING,
+            message=f"Stale hash for {rec['source_filename']} (citation: {rec['citation_key']})",
+            issue_type=IssueType.STALE_HASH,
+        )
+
+    return _lint_excerpt(rec, store)
+
+
+def _lint_excerpt(rec: CitationRecord, store: Store) -> LintIssue | None:
+    """Verify a citation's excerpt against the source's extracted chunks.
+
+    Excerpts are quoted from extracted text, not from the raw file: a PDF's
+    bytes contain none of it. The caller has already established that the file
+    is present and its hash current, so a source left with no chunks is one
+    ``wiki_prune_raw`` cleared at publish time: the citation was verified at
+    build and is not re-flagged.
+    """
+    chunk_texts = [c.chunk for c in store.get_chunks_by_source(rec["source_filename"])]
+    status = verify_citation(rec, chunk_texts)
+    if status is CitationStatus.UNVERIFIABLE:
+        log.debug(
+            "No extracted text for %s; %s stands as verified at build time",
+            rec["source_filename"],
+            rec["citation_key"],
+        )
+        return None
+    if status is CitationStatus.EXCERPT_MISSING:
+        return LintIssue(
+            wiki_source=rec["wiki_source"],
+            severity=IssueSeverity.WARNING,
+            message=f"Excerpt not found in source for {rec['citation_key']}",
+            issue_type=IssueType.EXCERPT_MISSING,
+        )
+    return None
+
+
+def _lint_model_changed(wiki_source: str, text: str, config: Config) -> LintIssue | None:
+    """Flag pages whose generated_by model differs from the current chat model."""
+    generated_by = parse_frontmatter(text).get("generated_by", "")
+    if not generated_by:
+        return None
+    if generated_by != config.chat_model:
+        return LintIssue(
+            wiki_source=wiki_source,
+            severity=IssueSeverity.WARNING,
+            issue_type=IssueType.MODEL_CHANGED,
+            message=(
+                f"model_changed: page generated by {generated_by!r}, "
+                f"current model is {config.chat_model!r}"
+            ),
+        )
+    return None
+
+
+def _lint_unmarked(wiki_source: str, text: str) -> list[LintIssue]:
+    """Find unmarked claims in a wiki page."""
+    unmarked = find_unmarked_claims(text)
+    return [
+        LintIssue(
+            wiki_source=wiki_source,
+            severity=IssueSeverity.WARNING,
+            message=f"Unmarked claim: {line[:80]}",
+            issue_type=IssueType.UNMARKED_CLAIM,
+        )
+        for line in unmarked
+    ]
+
+
+def lint_wiki_page(
+    wiki_source: str,
+    store: Store,
+    config: Config | None = None,
+) -> list[LintIssue]:
+    """Lint a single wiki page: check citations and unmarked claims."""
+    if config is None:
+        config = cfg
+    issues: list[LintIssue] = []
+
+    citations = store.get_citations_for_wiki(wiki_source)
+    for rec in citations:
+        issue = _lint_citation(rec, store)
+        if issue is not None:
+            issues.append(issue)
+
+    wiki_root = config.data_root / config.wiki_dir
+    # wiki_source is like "wiki/summaries/doc.md": strip the wiki_dir prefix
+    relative = str(wiki_source).removeprefix(str(config.wiki_dir) + "/")
+    wiki_path = wiki_root / relative
+    # wiki_source reaches here straight from the CLI/MCP, so a traversal source
+    # ("../../etc/passwd") would otherwise read and disclose an arbitrary file.
+    try:
+        validate_path_within(wiki_path, wiki_root)
+    except PathTraversalError:
+        return issues
+    if wiki_path.exists():
+        text = wiki_path.read_text(encoding="utf-8", errors="replace")
+        issues.extend(_lint_unmarked(wiki_source, text))
+        model_issue = _lint_model_changed(wiki_source, text, config)
+        if model_issue is not None:
+            issues.append(model_issue)
+
+    return issues
+
+
+def lint_changed_sources(
+    changed_sources: list[str],
+    store: Store,
+    config: Config | None = None,
+) -> LintReport:
+    """Lightweight lint for wiki pages citing changed or removed sources.
+
+    Callable from tools that already know the set of changed sources
+    (e.g. a future `lilbee wiki check <source>` command); the sync
+    pipeline uses `lilbee.wiki.ingest.incremental_update` instead, which runs full
+    extraction rather than citation replay.
+    """
+    if config is None:
+        config = cfg
+    report = LintReport()
+
+    seen_pages: set[str] = set()
+    for source_name in changed_sources:
+        citations = store.get_citations_for_source(source_name)
+        for rec in citations:
+            wiki_source = rec["wiki_source"]
+            if wiki_source in seen_pages:
+                continue
+            seen_pages.add(wiki_source)
+            report.issues.extend(lint_wiki_page(wiki_source, store, config))
+
+    if report.issues:
+        log.info(
+            "Wiki lint: %d error(s), %d warning(s)",
+            report.error_count,
+            report.warning_count,
+        )
+    return report
+
+
+def lint_all(
+    store: Store,
+    config: Config | None = None,
+    *,
+    record_log: bool = True,
+    cancel: threading.Event | None = None,
+) -> LintReport:
+    """Full lint: check every wiki page in the store.
+
+    ``record_log=False`` skips the audit-log append so a read-only status check
+    can reuse this without mutating ``log.md``.
+
+    Each page costs a citation lookup, so a large wiki takes long enough to
+    want stopping. Setting *cancel* ends the scan at the next page and reports
+    what it found so far.
+    """
+    if config is None:
+        config = cfg
+    report = LintReport()
+
+    wiki_root = config.data_root / config.wiki_dir
+    if not wiki_root.exists():
+        return report
+
+    for subdir in WIKI_CONTENT_SUBDIRS:
+        subdir_path = wiki_root / subdir
+        if not subdir_path.is_dir():
+            continue
+        for md_path in sorted(subdir_path.rglob("*.md")):
+            if cancel is not None and cancel.is_set():
+                log.info("Wiki lint cancelled after %d issues", len(report.issues))
+                break
+            relative = md_path.relative_to(wiki_root)
+            wiki_source = f"{config.wiki_dir}/{relative.as_posix()}"
+            report.issues.extend(lint_wiki_page(wiki_source, store, config))
+
+    report.issues.extend(_lint_orphans(wiki_root, config))
+    if record_log:
+        # log.md is shared with the builders; the append takes the same mutex.
+        with WIKI_BUILD_LOCK:
+            append_wiki_log(
+                WikiLogAction.LINT,
+                f"{report.error_count} error(s), {report.warning_count} warning(s)",
+                config,
+            )
+    return report
+
+
+def _lint_orphans(wiki_root: Path, config: Config) -> list[LintIssue]:
+    """Flag concept/entity pages that no other page links back to.
+
+    Single-pass over the wiki tree: we collect every inbound
+    ``[[slug]]`` reference and the set of orphan candidates in one
+    ``rglob`` walk, then subtract. The earlier two-pass version
+    re-walked the tree to compute ``referenced`` and again to check
+    candidates, which doubles the file-IO at build time.
+    """
+    referenced: set[str] = set()
+    candidates: list[Path] = []
+    candidate_roots = {wiki_root / sub for sub in _ORPHAN_CANDIDATE_SUBDIRS}
+    unpublished_roots = {wiki_root / sub for sub in _UNPUBLISHED_SUBDIRS}
+    for md_path in wiki_root.rglob("*.md"):
+        # Only published pages contribute backlinks; a link from a draft or an
+        # archived page must not keep a live concept/entity page off the orphan list.
+        if not any(root in md_path.parents for root in unpublished_roots):
+            text = md_path.read_text(encoding="utf-8", errors="replace")
+            for match in WIKI_LINK_RE.finditer(text):
+                slug = match.group(1).split("|", 1)[0].strip().lower()
+                if slug:
+                    referenced.add(slug)
+        if any(root in md_path.parents for root in candidate_roots):
+            candidates.append(md_path)
+
+    issues: list[LintIssue] = []
+    for md_path in sorted(candidates):
+        slug = md_path.stem.lower()
+        if slug in referenced:
+            continue
+        relative = md_path.relative_to(wiki_root)
+        wiki_source = f"{config.wiki_dir}/{relative.as_posix()}"
+        issues.append(
+            LintIssue(
+                wiki_source=wiki_source,
+                severity=IssueSeverity.WARNING,
+                issue_type=IssueType.ORPHAN,
+                message=f"Orphan: no inbound [[{slug}]] links from any other page",
+            )
+        )
+    return issues

@@ -1,0 +1,97 @@
+"""Backend-agnostic value types crossing the runner/fetcher seam."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TypeAlias
+
+from lilbee.runtime.cancellation import CancelSignal
+
+# Explicit "no page limit" for a crawl. Distinct from None, which means
+# "unspecified, use the protective default cfg.crawl_safety_max_pages".
+CRAWL_PAGES_UNLIMITED = 0
+
+
+@dataclass
+class CrawlResult:
+    """Outcome of crawling a single URL.
+
+    This is the high-level result surfaced to lilbee callers
+    (CLI, MCP, HTTP, TUI). The adapter produces ``FetchedPage``
+    and the orchestration layer converts it to ``CrawlResult``
+    when returning up to the caller.
+    """
+
+    url: str
+    markdown: str = ""
+    success: bool = True
+    error: str | None = None
+
+    def failure_reason(self) -> str | None:
+        """Why this page has nothing to save, or None when it does.
+
+        The save layer skips exactly these pages, so the event layer reports
+        failures from the same predicate: the two cannot drift apart.
+        """
+        if not self.success:
+            return self.error or "fetch failed"
+        if not self.markdown.strip():
+            return "page produced empty markdown"
+        return None
+
+
+@dataclass
+class FetchedPage:
+    """Single page produced by a ``WebFetcher`` backend.
+
+    Distinct from :class:`CrawlResult` so the adapter surface
+    stays narrow and neutral: just the bytes we needed out of
+    the underlying SDK's response object.
+    """
+
+    url: str
+    markdown: str = ""
+    success: bool = True
+    error: str | None = None
+    links: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ConcurrencySpec:
+    """Backend-agnostic concurrency + rate-limit knobs.
+
+    The crawl4ai adapter translates these into ``RateLimiter`` and
+    ``SemaphoreDispatcher`` calls; a future adapter with its own
+    BFS loop maps them onto ``asyncio.Semaphore`` + retry logic.
+    """
+
+    semaphore_count: int = 1
+    mean_delay: float = 0.0
+    max_delay_range: float = 0.0
+    retry_on_rate_limit: bool = False
+    retry_base_delay_min: float = 0.0
+    retry_base_delay_max: float = 0.0
+    retry_max_backoff: float = 0.0
+    retry_max_attempts: int = 0
+
+
+@dataclass
+class FilterSpec:
+    """Backend-agnostic filter settings applied to discovered links.
+
+    Pure Python data; each adapter decides how to plug the settings
+    into its own filter pipeline.
+    """
+
+    exclude_patterns: list[str] = field(default_factory=list)
+    include_subdomains: bool = False
+
+
+CancelToken: TypeAlias = CancelSignal
+"""Cancellation handle the orchestration layer passes to a fetcher.
+
+A token whose ``is_set()`` is True means "stop as soon as you can". The
+crawl4ai adapter polls it in both its streaming loop and its BFS
+strategy's ``should_cancel`` hook; a future adapter can poll it
+in whatever granularity it supports.
+"""

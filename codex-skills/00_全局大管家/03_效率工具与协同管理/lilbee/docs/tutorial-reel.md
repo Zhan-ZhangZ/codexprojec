@@ -1,0 +1,193 @@
+# The full reel
+
+Same demos as on [lilbee.sh/](https://lilbee.sh/),
+with the captions long-form and a handful of extras that don't fit in the site's
+tab list.
+
+The eleven that match the site reel, in order:
+
+1. [First run](#first-run)
+2. [TUI tour](#tui-tour)
+3. [Chat with cited answers](#chat-with-cited-answers)
+4. [Sessions: leave, come back, keep going](#sessions-leave-come-back-keep-going)
+5. [Add files](#add-files)
+6. [Crawl a URL](#crawl-a-url)
+7. [Model catalog](#model-catalog)
+8. [Settings](#settings)
+9. [GPU placement](#gpu-placement)
+10. [Agent: code (lilbee talking to lilbee)](#agent-code-lilbee-talking-to-lilbee)
+11. [Agent: PDF](#agent-pdf)
+
+Extras: [agent: live indexing](#agent-live-indexing), [agent: Godot codegen against the full class reference](#agent-godot-codegen-against-the-full-class-reference), [command surface](#command-surface).
+
+## First run
+
+First-launch wizard. Pick a chat model and an embedding model from the curated list;
+both download in parallel and you can keep working while they pull.
+
+![first-run wizard](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-setup.gif)
+
+## TUI tour
+
+A quick sweep through every screen.
+
+![tour](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-tour.gif)
+
+## Chat with cited answers
+
+Ask the Crown Victoria owner's manual; every answer points back to the page. Inline
+`[N]` markers are clickable in mouse-supporting terminals to open a source preview
+at the exact spot.
+
+![chat with cited answers](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-chat.gif)
+
+## A straight answer, with the page it came from
+
+A customer wants to tow a 3,500 lb boat trailer. The car can't, and lilbee says so: the
+weight it *is* rated for, the combined limit, what to check before towing, and the page
+each of those came from. The fleet panel on the right is the GPU answering.
+
+![ask whether a car can tow a 3,500 lb boat trailer; lilbee says no, gives the real limits, and cites the manual page](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-tow-limits.gif)
+
+## Sessions: leave, come back, keep going
+
+Conversations save automatically. `ctrl+o` opens the drawer, a few letters
+filter, `enter` resumes a 240-message conversation. It no longer fits the
+model's context window, so lilbee folds the older turns into notes the model
+keeps, marks the spot in the transcript where its view now begins, and
+answers the next question with the page cited. The transcript keeps
+everything; only what the model is sent is condensed.
+
+![resume a 240-message conversation, watch it compact live, keep chatting with citations](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/sessions.gif)
+
+## Add files
+
+`/add <path>` links the file into your library and embeds it. Switching to the Task
+Center mid-ingest shows the live progress bar; once it lands you can ask away.
+
+![add and task center](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-add.gif)
+
+## Crawl a URL
+
+`/crawl <url>` fetches a page (or a small site) into your library, then you can ask
+questions against it with the same cited-answer flow.
+
+![crawl Wikipedia + cited answer](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-crawl.gif)
+
+## Model catalog
+
+Browse models from Hugging Face Hub. Cycle the inner tabs (Discover / Chat / Embed /
+Vision / Rerank / Library), toggle grid / list, scroll for more, search the picks,
+open model info, pull a tiny model live.
+
+![model catalog](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-catalog.gif)
+
+## Settings
+
+Tabbed editor for every knob: Models, Ingest, Generation, Retrieval, Display,
+Crawling, API-Keys, System.
+
+![settings](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-settings.gif)
+
+## GPU placement
+
+With more than one GPU, lilbee spreads the models across all of them on its own:
+the chat model is tensor-split across every card so it fits, and the embedder is
+copied to each. Here it auto-places a 235B chat model across three A100s, then
+answers a grounded question while the per-card load bars move live.
+
+![automatic GPU placement](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/placement-auto.gif)
+
+Prefer to decide yourself? Press `ctrl+g` for the placement drawer and pin each
+role to the cards you want. Every role shows what it is: a chat model *split*
+across cards, an embedder *copied* per card, a reranker on a *single* card.
+Preview the fit, apply, then chat against that exact fleet.
+
+![manual GPU placement](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/placement-manual.gif)
+
+## Agent: code (lilbee talking to lilbee)
+
+The headline demo of answering from real code. An agent indexes lilbee's own source through lilbee's
+MCP server, then answers questions about how lilbee works, citing
+`src/lilbee/.../file.py:LINE` for every claim.
+
+![an agent indexes lilbee's own source through lilbee's MCP server, then answers questions about how lilbee works with file:line citations](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/mcp-code.gif)
+
+## Agent: PDF
+
+The agent finds `cv-manual.pdf` in the project, delegates the index to
+`lilbee-worker`, then `lilbee_search`-es and returns a page-cited answer.
+
+![mcp + manual](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/mcp-manual.gif)
+
+## Run a model bigger than one card
+
+A chat model too large for any single GPU is split across as many cards as it
+needs. Here lilbee indexes its own source live, then answers "what is lilbee"
+and "how does lilbee run a model too big for one GPU", with a 235B model
+tensor-split across three A40s and the GPU monitor showing the load alongside.
+
+![a model too big for one card auto-split across the GPUs, answering from lilbee's own indexed source](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-multi-gpu-self-index.gif)
+
+You can also place each role by hand. The placement editor refuses a layout
+that won't fit with the exact shortfall (pinning chat to one 40 GiB card when
+it needs 97.5 GiB), then accepts the model spread back across the cards and
+answers on the fleet you chose, citing `placement.py`.
+
+![the placement editor: a too-small layout refused with the exact shortfall, then spread across the cards and applied](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-manual-placement.gif)
+
+## Extras
+
+These don't have a tab on the site, but they're part of the same reel.
+
+### Agent: live indexing
+
+The smaller agent-over-MCP demo. An MCP-aware coding agent indexes a Godot 4
+pathfinding subset in a few seconds, then `lilbee_search`-es for `AStarGrid2D` and
+answers method-by-method against the local files.
+
+![an MCP-driven coding agent indexes a small local godot subset and answers with cited methods](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/mcp-godot-search.gif)
+
+### Agent: Godot codegen against the full class reference
+
+Same shape against a full XML reference library. The agent indexes Godot 4's class
+reference (810 XML files, 3449 chunks) via `lilbee-worker`, then `lilbee_search`-es
+for `AStarGrid2D`, `TileMap`, `RandomNumberGenerator`, and friends as it writes a
+procedural level generator. Every API call is backed by a
+`godot-classes/<Class>.xml:line` citation.
+
+![mcp + godot class reference](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/mcp-godot.gif)
+
+### Command surface
+
+`Ctrl+P` opens the Textual command palette; `?` toggles the keybinding cheat
+sheet; `/help` opens the searchable slash-command catalog.
+
+![command palette + help + slash catalog](https://raw.githubusercontent.com/tobocop2/lilbee/gh-pages/demos/tui-palette.gif)
+
+## Agent setup
+
+Each agent demo ships with a drop-in [`AGENTS.md`](../examples/agent-integration/AGENTS.md), a
+[`lilbee-worker` subagent](../examples/agent-integration/.opencode/agents/lilbee-worker.md) that
+handles the long-running ops (`lilbee_add`, `lilbee_sync`, `lilbee_crawl`,
+`lilbee_model_pull`), and the
+[`lilbee-mcp` skill](../src/lilbee/skills/lilbee_mcp/SKILL.md) (opencode / Claude Skill
+format) that documents every MCP tool with a quick-vs-long split. The agent runs
+on the dev's default cloud model (MiniMax M2.7); the lilbee library stays local.
+On screen, inline: `# lilbee_<tool>` for each tool call,
+`Lilbee-Worker Task: Index ...` whenever indexing is delegated to the subagent,
+and the cited answer.
+
+## Written walkthroughs
+
+For longer benchmark writeups (multi-GPU ingest, retrieval quality, wiki
+validation), see [`docs/benchmarks/`](benchmarks/).
+
+---
+
+GIFs, stills, and tape sources all live on the
+[`gh-pages` branch](https://github.com/tobocop2/lilbee/tree/gh-pages),
+embedded here via `raw.githubusercontent.com` URLs. Tape sources are at
+[`demos-src/`](https://github.com/tobocop2/lilbee/tree/gh-pages/demos-src);
+re-render with `make demo-prep && make demo` (the targets are a thin
+wrapper that runs the pipeline in a `gh-pages` worktree).

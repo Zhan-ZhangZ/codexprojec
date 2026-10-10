@@ -1,0 +1,315 @@
+"""Per-role llama-server specs and the argv builder for the fleet.
+
+A data table (not per-role functions) keyed by ``WorkerRole``: each spec carries
+the OpenAI endpoint path, the role-specific server flags, and whether the role is
+viable on a server today. ``build_server_argv`` reads a spec plus placement data
+to assemble one llama-server command line.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, replace
+from enum import StrEnum
+from pathlib import Path
+
+from lilbee.core.config.enums import RerankerType
+from lilbee.providers.roles import RerankMode, WorkerRole
+from lilbee.runtime.cpu import engine_thread_count
+
+log = logging.getLogger(__name__)
+
+_HOST = "127.0.0.1"
+# llama-server batch flags; gguf-parser accepts the same names, so vram.py shares these.
+FLAG_BATCH_SIZE = "--batch-size"
+FLAG_UBATCH_SIZE = "--ubatch-size"
+
+
+@dataclass(frozen=True)
+class RoleServerSpec:
+    """How one role maps onto a llama-server instance."""
+
+    role: WorkerRole
+    endpoint_path: str
+    extra_args: tuple[str, ...]
+    server_capable: bool
+
+
+# Every role runs on the fleet by mirroring the in-process primitive over HTTP:
+# rerank uses rank-pooling embeddings (--pooling rank -> /v1/embeddings, with the
+# same query</s></s>candidate pairing as in-process), NOT the template-dependent
+# /v1/rerank; vision uses the chat endpoint with an --mmproj projector. This keeps
+# the in-process robustness without depending on a model's embedded rerank template.
+ROLE_SPECS: dict[WorkerRole, RoleServerSpec] = {
+    WorkerRole.CHAT: RoleServerSpec(
+        role=WorkerRole.CHAT,
+        endpoint_path="/v1/chat/completions",
+        # --jinja renders the model's own chat template and parses native
+        # tool-call syntax into structured message.tool_calls.
+        # --reasoning-format deepseek makes the server parse every model's native
+        # reasoning dialect (<think>, gpt-oss harmony, ...) into reasoning_content;
+        # the chat client re-inlines it as <think> so downstream parsing stays
+        # format-agnostic and control tokens never leak into answers.
+        # --no-prefill-assistant keeps a trailing assistant message a finished turn:
+        # by default the server continues its text instead of answering, and rejects
+        # two trailing assistant messages with a 400. Agents compacting their history
+        # send both shapes, and OpenAI's API accepts them.
+        extra_args=("--jinja", "--reasoning-format", "deepseek", "--no-prefill-assistant"),
+        server_capable=True,
+    ),
+    WorkerRole.EMBED: RoleServerSpec(
+        role=WorkerRole.EMBED,
+        endpoint_path="/v1/embeddings",
+        extra_args=("--embeddings",),
+        server_capable=True,
+    ),
+    WorkerRole.RERANK: RoleServerSpec(
+        role=WorkerRole.RERANK,
+        endpoint_path="/v1/embeddings",
+        extra_args=("--embeddings", "--pooling", "rank"),
+        server_capable=True,
+    ),
+    WorkerRole.VISION: RoleServerSpec(
+        role=WorkerRole.VISION,
+        endpoint_path="/v1/chat/completions",
+        extra_args=(),
+        server_capable=True,
+    ),
+}
+
+# Decoder-only architectures. Served generatively as rerankers (Qwen3-Reranker,
+# mxbai-rerank-v2), and their embeddings use last-token (EOS) pooling, not the
+# encoder default of mean/cls.
+_DECODER_ARCHS: frozenset[str] = frozenset(
+    {"qwen2", "qwen3", "llama", "mistral", "gemma", "gemma2", "gemma3", "phi3"}
+)
+
+LLM_RERANK_SPEC = RoleServerSpec(
+    role=WorkerRole.RERANK,
+    endpoint_path="/v1/chat/completions",
+    extra_args=("--jinja",),
+    server_capable=True,
+)
+
+_RERANK_MODE_SPECS: dict[RerankMode, RoleServerSpec] = {
+    RerankMode.CROSS_ENCODER: ROLE_SPECS[WorkerRole.RERANK],
+    RerankMode.LLM: LLM_RERANK_SPEC,
+}
+
+# An LLM reranker scores one chat request per candidate; this is both the client's
+# per-rerank request fan-out and the server's --parallel slot ceiling, so the
+# server can decode concurrently instead of serializing the fan-out.
+LLM_RERANK_CONCURRENCY = 8
+
+_FLAG_MAIN_GPU = "--main-gpu"
+_FLAG_THREADS = "--threads"
+
+
+def resolve_rerank_mode(reranker_type: RerankerType, arch: str | None) -> RerankMode:
+    """Pick the reranker serving mode from the config setting and GGUF arch.
+
+    ``auto`` serves a known decoder arch generatively; encoder/unknown archs stay
+    cross-encoder. Explicit settings override the arch.
+    """
+    if reranker_type is RerankerType.LLM:
+        return RerankMode.LLM
+    if reranker_type is RerankerType.CROSS_ENCODER:
+        return RerankMode.CROSS_ENCODER
+    if arch in _DECODER_ARCHS:
+        return RerankMode.LLM
+    return RerankMode.CROSS_ENCODER
+
+
+def rerank_spec(mode: RerankMode) -> RoleServerSpec:
+    """The server spec for a RERANK launch given its resolved mode."""
+    return _RERANK_MODE_SPECS[mode]
+
+
+class PoolingType(StrEnum):
+    """A llama-server ``--pooling`` value (also the GGUF pooling_type enum names)."""
+
+    NONE = "none"
+    MEAN = "mean"
+    CLS = "cls"
+    LAST = "last"
+    RANK = "rank"
+
+
+# GGUF <arch>.pooling_type integer (as read_gguf_metadata returns it, a string) ->
+# the --pooling value. NONE (0) is omitted: a 0 on an embedder is the unset default,
+# so it falls through to the arch-based choice rather than per-token (non-)pooling.
+_GGUF_POOLING: dict[str, PoolingType] = {
+    "1": PoolingType.MEAN,
+    "2": PoolingType.CLS,
+    "3": PoolingType.LAST,
+    "4": PoolingType.RANK,
+}
+
+
+def embed_spec(meta: dict[str, str] | None) -> RoleServerSpec:
+    """The EMBED server spec with the model's pooling resolved for llama-server."""
+    # The GGUF's declared pooling wins; else a decoder-only embedder pools on its
+    # last/EOS token (llama-server would otherwise default to mean, which is wrong).
+    arch = meta.get("architecture") if meta else None
+    pooling_type = meta.get("pooling_type") if meta else None
+    pooling = _GGUF_POOLING.get(pooling_type or "")
+    if pooling is None and arch in _DECODER_ARCHS:
+        pooling = PoolingType.LAST
+    base = ROLE_SPECS[WorkerRole.EMBED]
+    if pooling is None:
+        return base
+    return replace(base, extra_args=(*base.extra_args, "--pooling", pooling.value))
+
+
+# The expert tensors --cpu-moe/--n-cpu-moe move to system memory, copied from
+# llama.cpp's LLM_FFN_EXPS_REGEX (common/common.h). The estimator is handed the
+# same patterns so its sizing matches what the launch actually offloads; they
+# must stay in step with upstream or the estimate silently drifts from reality.
+EXPERT_TENSOR_REGEX = r"\.ffn_(up|down|gate|gate_up)_(ch|)exps"
+
+
+def expert_offload_patterns(*, cpu_moe: bool, n_cpu_moe: int | None) -> tuple[str, ...]:
+    """Tensor-name patterns whose experts live in system memory, launch order.
+
+    Mirrors llama.cpp's expansion: ``--cpu-moe`` is one blanket pattern, while
+    ``--n-cpu-moe N`` is one per-block pattern for the first N blocks.
+    """
+    if n_cpu_moe is not None:
+        return tuple(rf"blk\.{i}{EXPERT_TENSOR_REGEX}" for i in range(n_cpu_moe))
+    return (EXPERT_TENSOR_REGEX,) if cpu_moe else ()
+
+
+def _attention_args(
+    flash_attn: str | None, cache_type_k: str | None, cache_type_v: str | None
+) -> list[str]:
+    """Flash-attention and KV cache flags; each stays absent to keep the engine default."""
+    args: list[str] = []
+    if flash_attn is not None:
+        args += ["--flash-attn", flash_attn]
+    if cache_type_k is not None:
+        args += ["--cache-type-k", cache_type_k]
+    if cache_type_v is not None:
+        args += ["--cache-type-v", cache_type_v]
+    return args
+
+
+def _main_gpu_args(devices: tuple[int, ...]) -> list[str]:
+    """``--main-gpu`` for this instance, empty when it does not apply.
+
+    The index is into this instance's own device list, which is the space its
+    visibility pin exposes to the engine, and it is what the setting's help text
+    already describes. llama.cpp ignores the flag with a single device, so it is
+    only emitted where it changes something: which card holds the model under
+    split-mode none, and the intermediate results and KV under split-mode row.
+
+    An index past the end is refused and said out loud. It was previously not
+    emitted at all, so a user could set it, watch it save, and get nothing.
+    """
+    from lilbee.core.config import cfg
+
+    main_gpu = cfg.main_gpu
+    if main_gpu is None or len(devices) <= 1:
+        return []
+    if not 0 <= main_gpu < len(devices):
+        log.warning(
+            "Ignoring main_gpu=%d: this server runs on %d device(s), so the index has "
+            "to be between 0 and %d. It counts within the cards this role was placed "
+            "on, not across every card in the machine.",
+            main_gpu,
+            len(devices),
+            len(devices) - 1,
+        )
+        return []
+    return [_FLAG_MAIN_GPU, str(main_gpu)]
+
+
+def _thread_args() -> list[str]:
+    """``--threads`` when a CPU cap applies to this process, else empty.
+
+    llama.cpp counts host cores and sees neither a cgroup quota nor an affinity
+    mask, so a container-bound engine oversubscribes its quota badly. Only the
+    generation flag is emitted: ``--threads-batch`` defaults to ``--threads``.
+    """
+    threads = engine_thread_count()
+    return [] if threads is None else [_FLAG_THREADS, str(threads)]
+
+
+def build_server_argv(
+    *,
+    binary: Path,
+    spec: RoleServerSpec,
+    model_path: Path,
+    devices: tuple[int, ...],
+    device_names: tuple[str, ...] = (),
+    n_gpu_layers: int,
+    slots: int,
+    ctx_per_slot: int,
+    tensor_split: tuple[int, ...] = (),
+    mmproj: Path | None = None,
+    flash_attn: str | None = None,
+    cache_type_k: str | None = None,
+    cache_type_v: str | None = None,
+    batch_size: int | None = None,
+    no_mmap: bool = False,
+    cpu_moe: bool = False,
+    n_cpu_moe: int | None = None,
+    memory_endpoint: bool = False,
+) -> list[str]:
+    """Assemble the llama-server command line for one instance, minus ``--port``.
+
+    ``--ctx-size`` is the per-slot context times the slot count, since
+    llama-server divides total context across parallel slots. ``n_cpu_moe``
+    wins over ``cpu_moe``; the pair would offload the same tensors twice.
+    ``memory_endpoint`` is set only for a binary whose ``--help`` advertises
+    ``--memory`` (readback.supports_memory_readback): a stock engine dies at
+    launch on the unknown flag.
+    """
+    argv = [
+        str(binary),
+        "--model",
+        str(model_path),
+        "--host",
+        _HOST,
+        "--n-gpu-layers",
+        str(n_gpu_layers),
+        "--parallel",
+        str(slots),
+        "--cont-batching",
+        "--ctx-size",
+        str(ctx_per_slot * slots),
+    ]
+    argv += _main_gpu_args(devices)
+    argv += _thread_args()
+    argv += _attention_args(flash_attn, cache_type_k, cache_type_v)
+    if batch_size is not None:
+        argv += [FLAG_BATCH_SIZE, str(batch_size), FLAG_UBATCH_SIZE, str(batch_size)]
+    if mmproj is not None:  # vision: the CLIP/mtmd projector sidecar
+        argv += ["--mmproj", str(mmproj)]
+    if device_names:
+        # Names as --list-devices prints them, which is the space they were parsed
+        # from. The Vulkan visible-devices variable takes RAW loader indices
+        # instead, so re-emitting parsed ordinals into it silently changes index
+        # space, and setting it also turns off ggml's own type filter, support
+        # check and same-UUID dedup. This keeps all of that active.
+        argv += ["--device", ",".join(device_names)]
+    if len(devices) > 1 and tensor_split:
+        # Only a ratio the planner actually chose. Inventing an even one for a
+        # group that did not choose disables the engine's own fit: it aborts the
+        # fit pass when tensor_split is user-set, and a negative n_gpu_layers
+        # then means every layer. The one group that arrives without a ratio is
+        # the tight placement, whose whole promise is that the engine keeps what
+        # fits and spills the rest, so an invented split turns that promise into
+        # a load-time out-of-memory.
+        argv += ["--tensor-split", ",".join(str(r) for r in tensor_split)]
+    if no_mmap:
+        argv += ["--no-mmap"]
+    if n_cpu_moe is not None:
+        argv += ["--n-cpu-moe", str(n_cpu_moe)]
+    elif cpu_moe:
+        argv += ["--cpu-moe"]
+    if memory_endpoint:
+        from lilbee.providers.fleet.readback import MEMORY_FLAG
+
+        argv += [MEMORY_FLAG]
+    argv += list(spec.extra_args)
+    return argv

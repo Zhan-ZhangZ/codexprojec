@@ -1,0 +1,187 @@
+(*
+  Copyright 2025, MARS-Curiosity - REST Library
+
+  Home: https://github.com/andrea-magni/MARS
+*)
+unit MARS.Core.RequestAndResponse.Interfaces;
+
+interface
+
+uses
+  Classes, SysUtils;
+
+type
+
+  TNameValuePair<N,V> = record
+    Name: N;
+    Value: V;
+    constructor Create(AName: N; AValue: V);
+  end;
+
+  TMARSHeader = TNameValuePair<string, string>;
+  TMARSHeaders = TArray<TMARSHeader>;
+
+  TMARSCookie = TNameValuePair<string, string>;
+  TMARSCookies = TArray<TMARSCookie>;
+
+  // SameSite attribute of a cookie; Unspecified: not written, the default of the browser applies
+  {$SCOPEDENUMS ON}
+  TMARSCookieSameSite = (Unspecified, Lax, Strict, None);
+  {$SCOPEDENUMS OFF}
+
+  TMARSQueryParam = TNameValuePair<string, string>;
+  TMARSQueryParams = TArray<TMARSQueryParam>;
+
+  TMARSPathParam = TNameValuePair<string, string>;
+  TMARSPathParams = TArray<TMARSPathParam>;
+
+  {$M+}
+  IMARSRequest = interface
+    function GetRawContent: TBytes;
+    function GetContent: string;
+    // Query params
+    function GetQueryParamIndex(const AName: string): Integer;
+    function GetQueryParamName(const AIndex: integer): string;
+    function GetQueryParamValue(const AIndex: Integer): string; overload;
+    function GetQueryParamValue(const AName: string): string; overload;
+    function GetQueryParamCount: Integer;
+    function GetQueryParams: TMARSQueryParams;
+
+    // Form params
+    function GetFormParamIndex(const AName: string): Integer;
+    function GetFormParamName(const AIndex: Integer): string;
+    function GetFormParamValue(const AIndex: Integer): string; overload;
+    function GetFormParamValue(const AName: string): string; overload;
+    function GetFormFileParamIndex(const AName: string): Integer;
+    function GetFormFileParam(const AIndex: Integer; out AFieldName, AFileName: string;
+      out ABytes: TBytes; out AContentType: string): Boolean;
+    function GetFormParamCount: Integer;
+    function GetFilesCount: Integer;
+    function GetFormParams: string;
+
+    // Header params
+    function GetHeaderParamCount: Integer;
+    function GetHeaderParamIndex(const AName: string): Integer;
+    function GetHeaderParamName(const AIndex: Integer): string;
+    function GetHeaderParamValue(const AHeaderName: string): string; overload;
+    function GetHeaderParamValue(const AIndex: Integer): string; overload;
+    function GetHeaders: TMARSHeaders;
+
+    // Cookie params
+    function GetCookieParamIndex(const AName: string): Integer;
+    function GetCookieParamValue(const AIndex: Integer): string; overload;
+    function GetCookieParamValue(const AName: string): string; overload;
+    function GetCookieParamCount: Integer;
+    function GetCookies: TMARSCookies;
+
+    function GetAccept: string;
+    function GetAuthorization: string;
+    function GetMethod: string;
+    function GetQueryString: string;
+    function GetHostName: string;
+    function GetPort: Integer;
+    function GetRawPath: string;
+    function GetDate: TDateTime;
+    function GetContentFields: TArray<string>;
+    function GetQueryFields: TArray<string>;
+    function GetRemoteIP: string;
+    function GetUserAgent: string;
+    // True when the request came in over TLS (https) to this server; behind a reverse
+    // proxy terminating TLS it is False: see the X-Forwarded-Proto header
+    function GetIsSecure: Boolean;
+
+    function AsObject: TObject;
+    procedure CheckWorkaroundForISAPI;
+
+    property RawContent: TBytes read GetRawContent;
+    property Content: string read GetContent;
+    property Accept: string read GetAccept;
+    property Authorization: string read GetAuthorization;
+    property Method: string read GetMethod;
+    property QueryString: string read GetQueryString;
+    property HostName: string read GetHostName;
+    property Port: Integer read GetPort;
+    property RawPath: string read GetRawPath;
+    property ContentFields: TArray<string> read GetContentFields;
+    property Cookies: TMARSCookies read GetCookies;
+    property Headers: TMARSHeaders read GetHeaders;
+    property QueryFields: TArray<string> read GetQueryFields;
+    property QueryParams: TMARSQueryParams read GetQueryParams;
+    property RemoteIP: string read GetRemoteIP;
+    property UserAgent: string read GetUserAgent;
+    property IsSecure: Boolean read GetIsSecure;
+  end;
+
+  {$M+}
+  IMARSResponse = interface
+    function GetContentStream: TStream;
+    procedure SetContentStream(const AContentStream: TStream);
+    function GetContentType: string;
+    procedure SetContentType(const AContentType: string);
+    function GetContentLength: Integer;
+    procedure SetContentLength(const ALength: Integer);
+    function GetContentEncoding: string;
+    procedure SetContentEncoding(const AContentEncoding: string);
+    function GetStatusCode: Integer;
+    procedure SetStatusCode(const AStatusCode: Integer);
+    function GetReasonString: string;
+    procedure SetReasonString(const AReasonString: string);
+    function GetContent: string;
+    procedure SetContent(const AContent: string);
+    procedure SetHeader(const AName, AValue: string);
+    // HttpOnly cookie, SameSite not specified
+    procedure SetCookie(const AName, AValue, ADomain, APath: string; const AExpiration: TDateTime; const ASecure: Boolean); overload;
+    // SameSite None makes the cookie Secure too: browsers refuse SameSite=None without Secure
+    procedure SetCookie(const AName, AValue, ADomain, APath: string; const AExpiration: TDateTime;
+      const ASecure, AHttpOnly: Boolean; const ASameSite: TMARSCookieSameSite); overload;
+    procedure RedirectTo(const AURL: string);
+
+    property Content: string read GetContent write SetContent;
+    property ContentStream: TStream read GetContentStream write SetContentStream;
+    property ContentType: string read GetContentType write SetContentType;
+    property ContentLength: Integer read GetContentLength write SetContentLength;
+    property ContentEncoding: string read GetContentEncoding write SetContentEncoding;
+    property StatusCode: Integer read GetStatusCode write SetStatusCode;
+    property ReasonString: string read GetReasonString write SetReasonString;
+  end;
+
+  // 'Lax', 'Strict', 'None'; '' for Unspecified
+  function CookieSameSiteToString(const ASameSite: TMARSCookieSameSite): string;
+  // case insensitive; '' or 'Unspecified' is Unspecified; raises EArgumentException otherwise
+  function CookieSameSiteFromString(const AValue: string): TMARSCookieSameSite;
+
+implementation
+
+function CookieSameSiteToString(const ASameSite: TMARSCookieSameSite): string;
+begin
+  case ASameSite of
+    TMARSCookieSameSite.Lax: Result := 'Lax';
+    TMARSCookieSameSite.Strict: Result := 'Strict';
+    TMARSCookieSameSite.None: Result := 'None';
+    else Result := '';
+  end;
+end;
+
+function CookieSameSiteFromString(const AValue: string): TMARSCookieSameSite;
+begin
+  if (AValue = '') or SameText(AValue, 'Unspecified') then
+    Result := TMARSCookieSameSite.Unspecified
+  else if SameText(AValue, 'Lax') then
+    Result := TMARSCookieSameSite.Lax
+  else if SameText(AValue, 'Strict') then
+    Result := TMARSCookieSameSite.Strict
+  else if SameText(AValue, 'None') then
+    Result := TMARSCookieSameSite.None
+  else
+    raise EArgumentException.CreateFmt('Invalid SameSite value: %s (Lax, Strict, None)', [AValue]);
+end;
+
+{ TNameValuePair<N, V> }
+
+constructor TNameValuePair<N, V>.Create(AName: N; AValue: V);
+begin
+  Name := AName;
+  Value := AValue;
+end;
+
+end.

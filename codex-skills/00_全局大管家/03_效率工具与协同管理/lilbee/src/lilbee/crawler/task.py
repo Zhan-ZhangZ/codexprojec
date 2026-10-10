@@ -1,0 +1,226 @@
+"""Background crawl task management: start, track, and query crawl operations."""
+
+import asyncio
+import logging
+import threading
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from lilbee.core.config.enums import CrawlRenderMode
+from lilbee.crawler import crawl_and_save
+from lilbee.runtime.progress import (
+    CrawlPageEvent,
+    CrawlPageFailedEvent,
+    DetailedProgressCallback,
+    EventType,
+    ProgressEvent,
+)
+
+log = logging.getLogger(__name__)
+
+# Maximum completed tasks to retain in memory before evicting oldest.
+_MAX_COMPLETED_TASKS = 100
+
+# Maximum per-page failure reasons stored on a task; pages_failed keeps the
+# true count so a large all-failing crawl doesn't grow task memory unboundedly.
+_MAX_FAILURE_REASONS = 20
+
+
+class TaskStatus(StrEnum):
+    """Lifecycle states for a crawl task."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class CrawlTask:
+    """Tracks a single crawl operation.
+
+    depth / max_pages follow the crawl_and_save three-state convention: None =
+    unbounded, 0 (depth only) = single URL, positive int = explicit cap.
+    """
+
+    task_id: str
+    url: str
+    depth: int | None
+    max_pages: int | None
+    render_mode: CrawlRenderMode | None = None
+    include_subdomains: bool = False
+    status: TaskStatus = TaskStatus.PENDING
+    pages_crawled: int = 0
+    pages_total: int | None = None
+    pages_failed: int = 0
+    failure_reasons: list[str] = field(default_factory=list)
+    error: str | None = None
+    started_at: str = ""
+    finished_at: str = ""
+    # Polled by crawl_and_save between pages and by the follow-on sync between
+    # files, so a stop lands on a boundary with the pages already fetched saved.
+    # Cancelling _async_task instead would abort mid-page and lose them.
+    cancel: threading.Event = field(default_factory=threading.Event, repr=False)
+    _async_task: asyncio.Task[None] | None = field(default=None, repr=False, init=False)
+
+
+class TaskRegistry:
+    """In-memory registry of active and completed crawl tasks.
+    A single module-level instance (_registry) is used because task tracking
+    is inherently per-process state (asyncio.Task references, etc.).
+    """
+
+    def __init__(self) -> None:
+        self.tasks: dict[str, CrawlTask] = {}
+
+    def clear(self) -> None:
+        """Remove all tasks from the registry."""
+        self.tasks.clear()
+
+
+_registry = TaskRegistry()
+
+
+def now_iso() -> str:
+    """Current UTC time as ISO 8601 string."""
+    return datetime.now(UTC).isoformat()
+
+
+def make_progress_updater(task: CrawlTask) -> DetailedProgressCallback:
+    """Return a progress callback that updates task fields from crawl events."""
+
+    def _on_progress(event_type: EventType, data: ProgressEvent) -> None:
+        if event_type == EventType.CRAWL_PAGE:
+            if not isinstance(data, CrawlPageEvent):
+                raise TypeError(f"Expected CrawlPageEvent, got {type(data).__name__}")
+            task.pages_crawled = data.current
+            task.pages_total = data.total
+        elif event_type == EventType.CRAWL_PAGE_FAILED:
+            if not isinstance(data, CrawlPageFailedEvent):
+                raise TypeError(f"Expected CrawlPageFailedEvent, got {type(data).__name__}")
+            task.pages_failed += 1
+            if len(task.failure_reasons) < _MAX_FAILURE_REASONS:
+                task.failure_reasons.append(f"{data.url}: {data.reason}")
+
+    return _on_progress
+
+
+async def run_crawl(task: CrawlTask) -> None:
+    """Execute crawl, save results, and trigger sync."""
+    task.status = TaskStatus.RUNNING
+    task.started_at = now_iso()
+    progress = make_progress_updater(task)
+
+    try:
+        paths = await crawl_and_save(
+            task.url,
+            depth=task.depth,
+            max_pages=task.max_pages,
+            on_progress=progress,
+            cancel=task.cancel,
+            include_subdomains=task.include_subdomains,
+            render_mode=task.render_mode,
+        )
+        if task.cancel.is_set():
+            task.status = TaskStatus.CANCELLED
+            task.pages_crawled = task.pages_crawled or len(paths)
+            task.finished_at = now_iso()
+            log.info("Crawl cancelled: %s after %d files", task.url, len(paths))
+            return
+        task.status = TaskStatus.DONE
+        task.pages_crawled = task.pages_crawled or len(paths)
+        task.finished_at = now_iso()
+        log.info("Crawl complete: %s → %d files", task.url, len(paths))
+        try:
+            from lilbee.data.ingest import sync
+
+            await sync(quiet=True, cancel=task.cancel)
+        except Exception:
+            log.warning("Post-crawl sync failed for %s", task.url, exc_info=True)
+    except Exception as exc:
+        task.status = TaskStatus.FAILED
+        task.error = str(exc)
+        task.finished_at = now_iso()
+        log.warning("Crawl failed: %s: %s", task.url, exc)
+    finally:
+        task._async_task = None
+
+
+def _evict_completed() -> None:
+    """Remove completed tasks with the earliest ``finished_at`` when over cap.
+
+    Finish order diverges from start order whenever short tasks complete
+    while a long one is still running, so sort on ``finished_at``
+    rather than dict insertion order.
+    """
+    done_statuses = (TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.CANCELLED)
+    tasks = _registry.tasks
+    completed = [(tid, t) for tid, t in tasks.items() if t.status in done_statuses]
+    excess = len(completed) - _MAX_COMPLETED_TASKS
+    if excess <= 0:
+        return
+    completed.sort(key=lambda pair: pair[1].finished_at)
+    for tid, _ in completed[:excess]:
+        del tasks[tid]
+
+
+def start_crawl(
+    url: str,
+    depth: int | None = None,
+    max_pages: int | None = None,
+    render_mode: CrawlRenderMode | None = None,
+    *,
+    include_subdomains: bool = False,
+) -> str:
+    """Create a crawl task and launch it as an asyncio background task.
+
+    Defaults to whole-site unbounded recursion. Pass depth=0 for single URL.
+    ``render_mode`` of ``None`` defers to ``cfg.crawl_render_mode``.
+    ``include_subdomains`` widens whole-site scope to the host's subdomains.
+    Returns the task_id for status polling.
+    """
+    _evict_completed()
+    task_id = uuid.uuid4().hex[:12]
+    task = CrawlTask(
+        task_id=task_id,
+        url=url,
+        depth=depth,
+        max_pages=max_pages,
+        render_mode=render_mode,
+        include_subdomains=include_subdomains,
+    )
+    _registry.tasks[task_id] = task
+    task._async_task = asyncio.create_task(run_crawl(task))
+    return task_id
+
+
+def get_task(task_id: str) -> CrawlTask | None:
+    """Look up a crawl task by ID."""
+    return _registry.tasks.get(task_id)
+
+
+def cancel_crawl(task_id: str) -> bool:
+    """Ask a running crawl to stop, returning whether it was still running.
+
+    Cooperative: the crawl stops at the next page boundary and keeps what it
+    already saved, so the pages fetched so far still reach the corpus. A task
+    that already finished is left alone.
+    """
+    task = _registry.tasks.get(task_id)
+    if task is None or task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+        return False
+    task.cancel.set()
+    return True
+
+
+def list_tasks() -> list[CrawlTask]:
+    """Return all tracked crawl tasks (active and completed)."""
+    return list(_registry.tasks.values())
+
+
+def clear_tasks() -> None:
+    """Remove all tasks from the registry (for testing)."""
+    _registry.clear()

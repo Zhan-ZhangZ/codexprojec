@@ -1,0 +1,85 @@
+/************************************************************************
+ *    Copyright (C) 2025 Code Forge Temple                              *
+ *    This file is part of agentic-signal project                       *
+ *    See the LICENSE file in the project root for license details.     *
+ ************************************************************************/
+
+import AceEditor from "react-ace";
+import "ace-builds/src-noconflict/mode-json";
+import "ace-builds/src-noconflict/mode-javascript";
+import "ace-builds/src-noconflict/mode-markdown";
+import "ace-builds/src-noconflict/mode-html";
+import "ace-builds/src-noconflict/mode-text";
+import "ace-builds/src-noconflict/mode-css";
+import "ace-builds/src-noconflict/mode-scss";
+import "ace-builds/src-noconflict/mode-typescript";
+import "ace-builds/src-noconflict/mode-xml";
+import "ace-builds/src-noconflict/mode-csv";
+import "ace-builds/src-noconflict/mode-yaml";
+import "ace-builds/src-noconflict/mode-ini";
+import "ace-builds/src-noconflict/mode-sh";
+import "ace-builds/src-noconflict/mode-sql";
+import "ace-builds/src-noconflict/mode-python";
+import "ace-builds/src-noconflict/mode-java";
+import "ace-builds/src-noconflict/mode-c_cpp";
+import "ace-builds/src-noconflict/mode-batchfile";
+import "ace-builds/src-noconflict/theme-terminal";
+import {AceEditorMode} from "./types";
+import './CodeEditor.scss';
+
+
+type CodeEditorProps = {
+    value?: string;
+    onChange?: (value: string) => void;
+    placeholder?: string;
+    readOnly?: boolean;
+    disabled?: boolean;
+    mode?: AceEditorMode;
+    height?: string;
+    width?: string;
+    minHeight?: string;
+    showLineNumbers?: boolean;
+};
+
+export function CodeEditor ({
+    value = "",
+    onChange,
+    placeholder = "",
+    readOnly = false,
+    disabled = false,
+    mode = "json",
+    height = "100%",
+    width = "100%",
+    minHeight = "400px",
+    showLineNumbers = false
+}: CodeEditorProps) {
+    return (
+        <div className={`code-editor-container${disabled ? " disabled" : ""}`}>
+            <AceEditor
+                placeholder={placeholder}
+                mode={mode}
+                theme="terminal"
+                fontSize={14}
+                lineHeight={19}
+                showPrintMargin={true}
+                showGutter={true}
+                highlightActiveLine={true}
+                value={value}
+                onChange={onChange}
+                readOnly={readOnly || disabled}
+                width={width}
+                height={height}
+                style={{minHeight}}
+                setOptions={{
+                    enableBasicAutocompletion: false,
+                    enableLiveAutocompletion: false,
+                    enableSnippets: false,
+                    enableMobileMenu: true,
+                    showLineNumbers,
+                    tabSize: 4,
+                    useWorker: false,
+                }}
+            />
+        </div>
+    );
+}

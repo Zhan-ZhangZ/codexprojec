@@ -1,0 +1,420 @@
+"""Reasoning token filter and cap-aware chat orchestrator.
+
+Reasoning models (Qwen3, DeepSeek-R1) wrap their thinking process in
+``<think>...</think>`` tags. This module provides:
+
+- ``filter_reasoning``: a stateful streaming filter that classifies
+  tokens as reasoning vs response and signals when reasoning exceeds a
+  caller-supplied cap.
+- ``stream_chat_with_cap``: the high-level orchestrator. Wraps a
+  provider call with the filter; when the cap fires, re-issues the
+  chat with a "stop thinking, answer directly" nudge. The ask/search
+  streaming path and CLI/TUI consume it directly. Two other drivers
+  mirror the same filter + cap-nudge behavior over async streams:
+  the RAG handler's, which needs the reasoning/answer split for its
+  SSE channels, and
+  :mod:`lilbee.server.chat_dispatch.reasoning_cap`, which keeps the
+  canonical event stream intact so the chat surfaces still carry tool
+  calls.
+- ``effective_reasoning_cap``: resolves the cap from the global config
+  with per-model ``ModelDefaults`` overrides.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import re
+from collections.abc import Callable, Generator, Iterator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+from lilbee.core.config import cfg
+from lilbee.providers.base import THINK_CLOSE_TAG, THINK_OPEN_TAG, ClosableIterator
+
+if TYPE_CHECKING:
+    from lilbee.providers.base import LLMProvider
+
+_THINK_BLOCK_RE = re.compile(
+    rf"{THINK_OPEN_TAG}[\s\S]*?{THINK_CLOSE_TAG}\s*|{THINK_OPEN_TAG}[\s\S]*$"
+)
+_PROGRESS_TICK_CHARS = 256
+"""Coarseness of the progress callback: fire when reasoning grows by at least this many chars."""
+
+CAP_CONTINUATION_PROMPT = (
+    "Stop thinking now. Give your final answer directly, without any further <think> blocks."
+)
+"""The user-message nudge appended on the continuation call after the cap fires."""
+
+CAP_NOTICE_TEMPLATE = "\n[reasoning capped at {chars} chars, asking for a direct answer]\n"
+"""User-visible marker emitted between the truncated reasoning and the continuation answer."""
+
+REASONING_EXHAUSTED_NOTICE = (
+    "The model spent its whole response budget on reasoning and produced no final "
+    "answer. Try a shorter question, raise the generation token limit, or lower the "
+    "reasoning effort."
+)
+"""Returned in place of an empty answer when reasoning consumed the entire generation.
+
+Lets a caller tell "the model thought itself to death" apart from a genuine empty
+response, which an empty string alone cannot."""
+
+PSEUDO_THINKING_TAGS = ("anthropic_thinking", "anti_codeblock", "thinking")
+"""Tag names some models emit as literal reply-initial planning blocks in plain text."""
+
+
+@dataclass
+class StreamToken:
+    """A classified token from the stream."""
+
+    content: str
+    is_reasoning: bool
+
+
+@dataclass
+class CapNotice:
+    """Emitted once when the reasoning cap fires, before the continuation stream."""
+
+    cap_chars: int
+
+
+@dataclass
+class RetrievalNotice:
+    """Emitted once before the first token when retrieval ran on a rewrite of the question."""
+
+    query: str
+
+
+@dataclass
+class TagParser:
+    """Stateful parser that tracks whether we're inside a thinking block."""
+
+    show: bool
+    buf: str = ""
+    in_thinking: bool = False
+    reasoning_chars: int = 0
+
+    def feed(self, token: str) -> list[StreamToken]:
+        """Feed a token and return any complete StreamTokens."""
+        self.buf += token
+        result: list[StreamToken] = []
+        while self.buf:
+            emitted = self._process_thinking() if self.in_thinking else self._process_normal()
+            if emitted is None:
+                break
+            if emitted.content:
+                result.append(emitted)
+        return result
+
+    def flush(self) -> StreamToken | None:
+        """Flush remaining buffer at end of stream."""
+        if not self.buf:
+            return None
+        if self.in_thinking:
+            self.reasoning_chars += len(self.buf)
+            return StreamToken(content=self.buf, is_reasoning=True) if self.show else None
+        return StreamToken(content=self.buf, is_reasoning=False)
+
+    def _process_thinking(self) -> StreamToken | None:
+        close_idx = self.buf.find(THINK_CLOSE_TAG)
+        if close_idx == -1:
+            if _could_be_partial(THINK_CLOSE_TAG, self.buf):
+                return None
+            content = self.buf
+            self.reasoning_chars += len(content)
+            self.buf = ""
+            return (
+                StreamToken(content=content, is_reasoning=True)
+                if self.show
+                else StreamToken(content="", is_reasoning=True)
+            )
+        thinking_content = self.buf[:close_idx]
+        self.reasoning_chars += len(thinking_content)
+        self.buf = self.buf[close_idx + len(THINK_CLOSE_TAG) :]
+        self.in_thinking = False
+        if thinking_content and self.show:
+            return StreamToken(content=thinking_content, is_reasoning=True)
+        return StreamToken(content="", is_reasoning=True)
+
+    def _process_normal(self) -> StreamToken | None:
+        open_idx = self.buf.find(THINK_OPEN_TAG)
+        if open_idx == -1:
+            if _could_be_partial(THINK_OPEN_TAG, self.buf):
+                return None
+            content = self.buf
+            self.buf = ""
+            return StreamToken(content=content, is_reasoning=False)
+        before = self.buf[:open_idx]
+        self.buf = self.buf[open_idx + len(THINK_OPEN_TAG) :]
+        self.in_thinking = True
+        return StreamToken(content=before, is_reasoning=False)
+
+
+@dataclass
+class PseudoThinkingNormalizer:
+    """Rewrites a reply-initial pseudo-thinking tag pair to the ``<think>`` tags.
+
+    Some models under context pressure open a reply with a literal planning tag
+    from ``PSEUDO_THINKING_TAGS`` as ordinary text, outside any reasoning
+    channel. Rewriting the tag pair to ``<think>``/``</think>`` lets
+    ``TagParser`` treat the block as reasoning. Only a reply-initial tag is
+    rewritten; once the reply starts with anything else, text passes through
+    verbatim, so mid-reply XML/HTML is never altered.
+    """
+
+    buf: str = ""
+    decided: bool = False
+    close_tag: str | None = None
+
+    def feed(self, text: str) -> str:
+        """Feed a chunk and return the text decided so far."""
+        if self.decided and self.close_tag is None:
+            return text
+        self.buf += text
+        out = "" if self.decided else self._resolve_initial()
+        if self.close_tag is not None:
+            out += self._scan_close(self.close_tag)
+        return out
+
+    def flush(self) -> str:
+        """Emit the held buffer at end of reply; later feeds pass through."""
+        rest, self.buf = self.buf, ""
+        self.decided = True
+        self.close_tag = None
+        return rest
+
+    def _resolve_initial(self) -> str:
+        """Decide whether the reply opens with a pseudo tag; ``""`` while undecidable."""
+        stripped = self.buf.lstrip()
+        for name in PSEUDO_THINKING_TAGS:
+            open_tag = f"<{name}>"
+            if stripped.startswith(open_tag):
+                self.decided = True
+                self.close_tag = f"</{name}>"
+                self.buf = stripped[len(open_tag) :]
+                return THINK_OPEN_TAG
+        if any(f"<{name}>".startswith(stripped) for name in PSEUDO_THINKING_TAGS):
+            return ""
+        self.decided = True
+        rest, self.buf = self.buf, ""
+        return rest
+
+    def _scan_close(self, close_tag: str) -> str:
+        """Pass block content through, rewriting *close_tag* when it arrives."""
+        close_idx = self.buf.find(close_tag)
+        if close_idx == -1:
+            if _could_be_partial(close_tag, self.buf):
+                return ""
+            content, self.buf = self.buf, ""
+            return content
+        content = self.buf[:close_idx]
+        rest = self.buf[close_idx + len(close_tag) :]
+        self.buf = ""
+        self.close_tag = None
+        return f"{content}{THINK_CLOSE_TAG}{rest}"
+
+
+def normalize_pseudo_thinking(text: str) -> str:
+    """Rewrite a reply-initial pseudo-thinking block in a complete string."""
+    normalizer = PseudoThinkingNormalizer()
+    return normalizer.feed(text) + normalizer.flush()
+
+
+def filter_reasoning(
+    tokens: Iterator[str],
+    *,
+    show: bool,
+    cap_chars: int,
+    on_cap: Callable[[], None] | None = None,
+    on_progress: Callable[[int], None] | None = None,
+) -> Iterator[StreamToken]:
+    """Classify ``<think>...</think>`` tokens and stop when reasoning exceeds the cap.
+
+    *cap_chars* bounds reasoning content. When exceeded, ``on_cap`` is
+    fired (no payload), the upstream iterator is closed, and iteration
+    stops. The caller decides what to do next via the higher-level
+    ``stream_chat_with_cap`` orchestrator. *on_progress* is fired with
+    the running reasoning-chars count each time it grows by at least 256
+    characters. A non-positive *cap_chars* disables the cap.
+    """
+    parser = TagParser(show=show)
+    last_progress_tick = 0
+    try:
+        for token in tokens:
+            for st in parser.feed(token):
+                if st.content:
+                    yield st
+            if (
+                on_progress is not None
+                and parser.reasoning_chars >= last_progress_tick + _PROGRESS_TICK_CHARS
+            ):
+                last_progress_tick = parser.reasoning_chars
+                on_progress(parser.reasoning_chars)
+            if cap_chars > 0 and parser.reasoning_chars > cap_chars:
+                if on_cap is not None:
+                    on_cap()
+                return
+        final = parser.flush()
+        if final and final.content:
+            yield final
+        if on_progress is not None and parser.reasoning_chars > last_progress_tick:
+            on_progress(parser.reasoning_chars)
+    finally:
+        _close_iterator(tokens)
+
+
+def effective_reasoning_cap() -> int:
+    """Return the active reasoning cap; 0 means unlimited.
+
+    A per-model ``ModelDefaults.max_reasoning_chars`` value (including
+    ``0`` for "this model is allowed to think forever") beats the global
+    ``cfg.max_reasoning_chars`` setting. A missing (``None``) or negative
+    per-model value falls through to the global: ModelDefaults is an
+    unvalidated dataclass, so a negative is treated as "unset" rather than
+    trusted as a cap.
+    """
+    defaults = cfg.model_defaults
+    override = defaults.max_reasoning_chars if defaults is not None else None
+    return override if isinstance(override, int) and override >= 0 else cfg.max_reasoning_chars
+
+
+def stream_chat_with_cap(
+    provider: LLMProvider,
+    messages: list[dict[str, Any]],
+    *,
+    options: dict[str, Any] | None,
+    model: str,
+    show_reasoning: bool,
+    cap_chars: int,
+) -> Generator[StreamToken | CapNotice, None, None]:
+    """Stream chat tokens; on cap-fire, re-issue with a stop-thinking nudge.
+
+    Yields ``StreamToken`` events for both reasoning and response tokens
+    in the first pass. If reasoning exceeds *cap_chars*, the upstream
+    iterator is closed, a single ``CapNotice`` is yielded, and the
+    continuation stream starts (same messages plus a user message asking
+    the model to answer directly).
+
+    The continuation is parsed too: a chat template can force-open a
+    ``<think>`` block whatever the nudge asks, and that reasoning must not
+    reach the visible answer. Its cap is disabled (the cap already fired
+    once, and re-capping would cut the answer off), and every continuation
+    token is reported as final-answer text, matching the async HTTP path.
+
+    A run that reasoned but never produced final-answer text closes with
+    ``REASONING_EXHAUSTED_NOTICE``, so the CLI/TUI/library path ends with an
+    explanation rather than silence -- the same close the HTTP path makes.
+    """
+    cap_fired = False
+    reasoned = False
+    answered = False
+
+    def _on_cap() -> None:
+        nonlocal cap_fired, reasoned
+        cap_fired = True
+        reasoned = True
+
+    def _on_reasoning(_chars: int) -> None:
+        nonlocal reasoned
+        reasoned = True
+
+    first_stream = provider.chat(messages, stream=True, options=options or None, model=model)
+    for token in filter_reasoning(
+        _text_only(first_stream),
+        show=show_reasoning,
+        cap_chars=cap_chars,
+        on_cap=_on_cap,
+        on_progress=_on_reasoning,
+    ):
+        answered = answered or not token.is_reasoning
+        yield token
+    if cap_fired:
+        yield CapNotice(cap_chars=cap_chars)
+        nudged = [*messages, {"role": "user", "content": CAP_CONTINUATION_PROMPT}]
+        second_stream = provider.chat(nudged, stream=True, options=options or None, model=model)
+        try:
+            for token in filter_reasoning(
+                _text_only(second_stream), show=show_reasoning, cap_chars=0
+            ):
+                if token.content:
+                    answered = True
+                    yield StreamToken(content=token.content, is_reasoning=False)
+        finally:
+            _close_iterator(second_stream)
+    if reasoned and not answered:
+        yield StreamToken(content=REASONING_EXHAUSTED_NOTICE, is_reasoning=False)
+
+
+def _text_only(stream: Iterator[Any]) -> Iterator[str]:
+    """Filter a chat stream down to its text deltas.
+
+    Tool-call deltas (when ``tools`` is passed) and the trailing token-usage
+    frame both ride the same iterator; the RAG / reasoning paths only consume
+    text, so any non-str frame is dropped here rather than crashing the chat.
+    """
+    try:
+        for item in stream:
+            if isinstance(item, str):
+                yield item
+    finally:
+        # Forward close to the source: when a consumer (filter_reasoning on
+        # cap-fire) closes this generator, a plain for-loop would not propagate
+        # GeneratorExit to *stream*, leaking its HTTP connection / in_flight slot.
+        _close_iterator(stream)
+
+
+def cap_events_as_stream_tokens(
+    events: Iterator[StreamToken | CapNotice],
+) -> Iterator[StreamToken]:
+    """Render ``CapNotice`` events as user-visible reasoning ``StreamToken``s.
+
+    Library and CLI surfaces speak ``StreamToken`` only. This helper lets
+    them consume the orchestrator's union output without a per-call
+    isinstance dance for the cap notice.
+    """
+    for event in events:
+        if isinstance(event, CapNotice):
+            yield StreamToken(
+                content=CAP_NOTICE_TEMPLATE.format(chars=event.cap_chars),
+                is_reasoning=True,
+            )
+        elif event.content:
+            yield event
+
+
+def _close_iterator(tokens: Iterator[Any]) -> None:
+    """Close *tokens* if it satisfies the ClosableIterator protocol."""
+    if isinstance(tokens, ClosableIterator):
+        with contextlib.suppress(Exception):
+            tokens.close()
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove ``<think>...</think>`` blocks from a complete (non-streaming) string."""
+    return _THINK_BLOCK_RE.sub("", text)
+
+
+class ReasoningSplit(NamedTuple):
+    """A model reply separated into its reasoning and its visible answer."""
+
+    reasoning: str
+    answer: str
+
+
+def split_reasoning(text: str) -> ReasoningSplit:
+    """Split a complete string into its reasoning and its answer.
+
+    An unterminated ``<think>`` block means the model never reached an answer, so
+    everything after the tag is reasoning. Surfaces that must not leak lilbee's
+    inline ``<think>`` convention (the OpenAI-compatible API) use this to report
+    reasoning in its own field.
+    """
+    blocks = [
+        match.group(0).strip().removeprefix(THINK_OPEN_TAG).removesuffix(THINK_CLOSE_TAG).strip()
+        for match in _THINK_BLOCK_RE.finditer(text)
+    ]
+    return ReasoningSplit("".join(blocks), strip_reasoning(text))
+
+
+def _could_be_partial(tag: str, buf: str) -> bool:
+    """Check if the end of buf could be the start of the given tag."""
+    return any(buf.endswith(tag[:length]) for length in range(1, len(tag)))

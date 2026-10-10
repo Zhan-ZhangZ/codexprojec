@@ -1,0 +1,123 @@
+"""Version, status, reset, and init commands."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+from rich.text import Text
+
+from lilbee.app.reset import perform_reset
+from lilbee.app.services import reset_store
+from lilbee.app.status import gather_status
+from lilbee.app.version import get_version
+from lilbee.cli import theme
+from lilbee.cli.app import (
+    apply_overrides,
+    console,
+    data_dir_option,
+    global_option,
+)
+from lilbee.cli.helpers import json_output, print_prefixed, render_status
+from lilbee.core.config import cfg
+from lilbee.core.system import LOCAL_ROOT_DIRNAME
+from lilbee.data.ingest.ignore import IGNORE_FILENAME, IGNORE_TEMPLATE
+from lilbee.runtime.lock import ResetRefusedError
+
+_yes_option = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt.")
+
+
+def version() -> None:
+    """Show the lilbee version."""
+    ver = get_version()
+    if cfg.json_mode:
+        json_output({"command": "version", "version": ver})
+        return
+    console.print(f"lilbee {ver}")
+
+
+def status(
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Show indexed documents, paths, and chunk counts."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    # Status only reads the store; don't warm the inference fleet for a read.
+    cfg.worker_pool_eager_start = False
+    if cfg.json_mode:
+        json_output(gather_status().model_dump(exclude_none=True))
+        return
+    render_status(console)
+
+
+def reset(
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+    yes: bool = _yes_option,
+) -> None:
+    """Delete all documents and data (full factory reset)."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    if not yes:
+        if cfg.json_mode:
+            json_output({"error": "Use --yes to confirm reset in JSON mode"})
+            raise SystemExit(1)
+        console.print(
+            Text.assemble(
+                ("This will delete ALL documents and data.\n", theme.ERROR_BOLD),
+                f"  Documents: {cfg.documents_dir}\n",
+                f"  Data:      {cfg.data_dir}",
+            ),
+            soft_wrap=True,
+        )
+        confirmed = typer.confirm("Are you sure?", default=False)
+        if not confirmed:
+            console.print("Aborted.")
+            raise SystemExit(0)
+
+    try:
+        result = perform_reset()
+    except ResetRefusedError as exc:
+        if cfg.json_mode:
+            json_output({"error": str(exc)})
+        else:
+            print_prefixed(console, "Error: ", exc, style=theme.ERROR)
+        raise SystemExit(1) from None
+    # Reopen LanceDB against the empty data dir; keep providers loaded.
+    reset_store()
+
+    if cfg.json_mode:
+        json_output(result.model_dump())
+        return
+
+    console.print(
+        f"Reset complete: {result.deleted_docs} document(s), "
+        f"{result.deleted_data} data item(s) deleted.",
+    )
+    if result.skipped:
+        console.print(
+            f"{len(result.skipped)} item(s) could not be deleted (locked or permission denied).",
+            style=theme.WARNING,
+        )
+
+
+def init() -> None:
+    """Initialize a local .lilbee/ knowledge base in the current directory."""
+    root = Path.cwd() / LOCAL_ROOT_DIRNAME
+    if root.is_dir():
+        if cfg.json_mode:
+            json_output({"command": "init", "path": str(root), "created": False})
+            return
+        console.print(f"Already initialized: {root}", soft_wrap=True)
+        return
+
+    docs = root / "documents"
+    data = root / "data"
+    docs.mkdir(parents=True)
+    data.mkdir(parents=True)
+    (root / ".gitignore").write_text("data/\n", encoding="utf-8")
+    (root / IGNORE_FILENAME).write_text(IGNORE_TEMPLATE, encoding="utf-8")
+
+    if cfg.json_mode:
+        json_output({"command": "init", "path": str(root), "created": True})
+        return
+    console.print(f"Initialized local knowledge base at {root}", soft_wrap=True)

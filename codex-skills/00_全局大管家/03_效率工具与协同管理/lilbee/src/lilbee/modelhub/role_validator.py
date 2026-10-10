@@ -1,0 +1,179 @@
+"""Role-slot assignment validation for the four model config fields."""
+
+import logging
+import os
+import sys
+from typing import cast
+
+from lilbee.catalog import CatalogModel, find_pick
+from lilbee.catalog.query import reclassify_by_name
+from lilbee.catalog.refs import is_bare_hf_repo
+from lilbee.catalog.types import ModelTask
+from lilbee.core.config import Config, cfg
+from lilbee.modelhub.install_state import InstallState, install_state
+from lilbee.modelhub.registry import ModelRegistry
+from lilbee.providers.model_ref import PROVIDER_PREFIXES, is_native_gguf_ref
+from lilbee.providers.roles import MODEL_ROLE_FIELDS
+
+log = logging.getLogger(__name__)
+
+# Test-only bypass. Both the env var and pytest must be present so a
+# leaked env var cannot disable validation in production.
+_SKIP_MODEL_TASK_VALIDATION_ENV = "LILBEE_SKIP_MODEL_TASK_VALIDATION"
+
+MODEL_FIELD_TO_TASK: dict[str, str] = {
+    "chat_model": "chat",
+    "embedding_model": "embedding",
+    "vision_model": "vision",
+    "reranker_model": "rerank",
+}
+
+
+class TaskMismatchError(ValueError):
+    """A role slot was assigned a model whose catalog task does not match.
+
+    Carries the structured fields so each surface (HTTP, CLI, TUI, MCP)
+    can format its own user-facing message. The default ``str()`` form is
+    surface-neutral so it is safe to surface unmodified.
+    """
+
+    def __init__(self, ref: str, entry_task: ModelTask, expected_task: ModelTask) -> None:
+        self.ref = ref
+        self.entry_task = entry_task
+        self.expected_task = expected_task
+        super().__init__(f"Model '{ref}' is a {entry_task} model, not {expected_task}.")
+
+
+def _model_task_validation_bypassed() -> bool:
+    if not os.environ.get(_SKIP_MODEL_TASK_VALIDATION_ENV):
+        return False
+    return sys.modules.get("pytest") is not None
+
+
+def _resolve_installed_task(registry: ModelRegistry, ref: str) -> ModelTask | None:
+    """Return the manifest's ``ModelTask`` for *ref*, name-reclassified, or ``None``."""
+    manifest = registry.get_manifest(ref)
+    if manifest is None:
+        return None
+    return ModelTask(reclassify_by_name(ref, manifest.task))
+
+
+def _is_registry_ref(ref: str) -> bool:
+    """Whether *ref* names something the model registry can hold."""
+    if not ref or not ref.strip():
+        return False
+    return ref.split("/", 1)[0] not in PROVIDER_PREFIXES
+
+
+def _skips_catalog_check(ref: str, *, allow_bypass: bool) -> bool:
+    """Whether *ref* skips the catalog check."""
+    if not _is_registry_ref(ref):
+        return True
+    return allow_bypass and _model_task_validation_bypassed()
+
+
+def _canonical_pick_ref(ref: str, entry: CatalogModel, want: ModelTask) -> str:
+    """Role-check a current pick and choose the canonical ref to persist."""
+    if entry.task != want:
+        raise TaskMismatchError(ref, ModelTask(entry.task), want)
+    # Keep a full ``<repo>/<file>.gguf`` so resolve_model_path lands on the
+    # exact installed quant; fall back to the pick's own ref otherwise.
+    if is_native_gguf_ref(ref):
+        return ref
+    canonical: str = entry.ref
+    return canonical
+
+
+def _installed_ref_and_task(ref: str) -> tuple[str, str | None]:
+    """Canonical installed ref for *ref* and its manifest task, task None if absent.
+
+    A bare ``<org>/<repo>`` ref canonicalizes to its installed quant's full ref
+    so the persisted value always names the exact GGUF file.
+    """
+    registry = ModelRegistry(cfg.models_dir)
+    if is_bare_hf_repo(ref):
+        ref = registry.installed_ref_for_repo(ref) or ref
+    return ref, _resolve_installed_task(registry, ref)
+
+
+def _not_installed(ref: str) -> ValueError:
+    """The error for a ref that is neither a current pick nor installed."""
+    return ValueError(
+        f"Model '{ref}' is not installed. "
+        "Install it with 'lilbee model pull <ref>' "
+        "(or POST /api/models/pull) before assigning it to a role."
+    )
+
+
+def validate_model_task_assignment(field_name: str, ref: str, *, allow_bypass: bool = True) -> str:
+    """Check *ref* is assignable to *field_name*; return the canonical ref.
+
+    A current pick carries its own task, so it can be role-checked before it is
+    installed, which is what the catalog UI offers. Anything else is checked
+    against the installed manifest, the only other thing that can vouch for a
+    model's role. Raises ``TaskMismatchError`` on role mismatch and
+    ``ValueError`` when the model is neither a pick nor installed.
+    """
+    if _skips_catalog_check(ref, allow_bypass=allow_bypass):
+        return ref
+    want = ModelTask(MODEL_FIELD_TO_TASK[field_name])
+    # The manifest is consulted first because it answers without touching the
+    # network. This runs on the TUI main thread from /model and the model-bar
+    # picker, where resolving picks would block the UI.
+    installed_ref, installed_task = _installed_ref_and_task(ref)
+    if installed_task is not None:
+        if installed_task != want:
+            raise TaskMismatchError(installed_ref, ModelTask(installed_task), want)
+        return installed_ref
+    entry = find_pick(ref)
+    if entry is not None:
+        return _canonical_pick_ref(ref, entry, want)
+    raise _not_installed(installed_ref)
+
+
+_MISSING_ROLE_WARNING = (
+    "%s is set to '%s', which the model registry does not hold. No model listing "
+    "shows it and the HTTP chat route cannot resolve it. Install a model with "
+    "'lilbee model pull <ref>' (or POST /api/models/pull), then set the role to that ref."
+)
+
+_LOOSE_FILE_ROLE_WARNING = (
+    "%s is set to '%s', a GGUF file outside the model registry. The TUI and CLI load it, "
+    "but no model listing shows it and the HTTP chat route cannot resolve it. Install a "
+    "catalog ref with 'lilbee model pull <ref>' (or POST /api/models/pull) to make the "
+    "role routable over HTTP."
+)
+
+
+def configured_role_refs(config: Config) -> dict[str, str]:
+    """The model-role fields of *config*, keyed by field name.
+
+    The field set comes from the role registry, so a new role is reported
+    without editing this module.
+    """
+    return cast("dict[str, str]", config.model_dump(include=set(MODEL_ROLE_FIELDS)))
+
+
+def unregistered_role_refs(config: Config, registry: ModelRegistry) -> dict[str, str]:
+    """Role fields of *config* naming a ref *registry* does not hold.
+
+    Blank and provider-prefixed refs are excluded; neither belongs to the
+    registry. Reporting refuses nothing, so it runs on every start.
+    """
+    return {
+        field_name: ref
+        for field_name, ref in configured_role_refs(config).items()
+        if _is_registry_ref(ref) and install_state(ref, registry) is not InstallState.REGISTERED
+    }
+
+
+def warn_unregistered_role_refs(config: Config, registry: ModelRegistry) -> None:
+    """Log one warning per role field of *config* that *registry* does not hold.
+
+    A ref that names a GGUF file on disk gets its own message: it loads, so
+    telling it to pull that path would prescribe a command that cannot run.
+    """
+    for field_name, ref in sorted(unregistered_role_refs(config, registry).items()):
+        loose = install_state(ref, registry) is InstallState.LOOSE_FILE
+        template = _LOOSE_FILE_ROLE_WARNING if loose else _MISSING_ROLE_WARNING
+        log.warning(template, field_name, ref)

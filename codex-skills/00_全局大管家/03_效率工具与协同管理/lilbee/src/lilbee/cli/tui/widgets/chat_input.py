@@ -1,0 +1,118 @@
+"""Multi-line chat prompt: TextArea with submit-on-Enter semantics.
+
+Behaves like a chat input box: Enter submits, Shift+Enter inserts a literal
+newline, paste preserves newlines so multi-line content (logs, code,
+~/.zshrc, etc.) round-trips correctly. Posts a ``ChatInput.Submitted``
+message on Enter so the screen handler can stay shaped like the previous
+``Input.Submitted`` flow.
+
+The completion overlay listens to :class:`textual.widgets.TextArea.Changed`
+events from this widget; no additional event plumbing is required here.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import ClassVar
+
+from textual import events, on
+from textual.actions import SkipAction
+from textual.binding import Binding, BindingType
+from textual.message import Message
+from textual.widgets import TextArea
+
+
+class ChatInput(TextArea):
+    """A TextArea variant where Enter submits and Shift+Enter inserts a newline."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("enter", "submit", "Send", show=False, priority=True),
+        Binding("shift+enter", "newline", "Newline", show=False, priority=True),
+    ]
+
+    # Keys we deliberately let bubble up to the App-level binding chain
+    # even though the underlying TextArea is happy to type them. Empty
+    # by default so printable characters (including ``?``) land as literal
+    # text in the input; the user explicitly asked for help to NOT pop
+    # mid-typing. ``?`` opens help from any screen where a text field does
+    # not have focus, and from an empty prompt via _on_key below.
+    _UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset()
+
+    # Per-keystroke layout cost is dominated by ``height: auto`` reflow.
+    # Pin the visual height to a single row while the content fits one row;
+    # flip to auto-grow once it wraps or holds a newline. The CSS hook is the
+    # ``-multiline`` class added by :meth:`_track_multiline`.
+
+    @dataclass
+    class Submitted(Message):
+        """Posted when the user presses Enter to send the current text."""
+
+        chat_input: ChatInput
+        value: str
+
+        @property
+        def control(self) -> ChatInput:
+            return self.chat_input
+
+    def __init__(
+        self,
+        *,
+        placeholder: str = "",
+        id: str | None = None,
+    ) -> None:
+        super().__init__(id=id, placeholder=placeholder, soft_wrap=True)
+
+    @property
+    def value(self) -> str:
+        """The current text, named for parity with ``Input.value`` callers."""
+        return self.text
+
+    @value.setter
+    def value(self, new_value: str) -> None:
+        self.load_text(new_value)
+        self.action_end()
+
+    def check_consume_key(self, key: str, character: str | None = None) -> bool:
+        """Pass App-level help/global keys back up to the binding chain."""
+        if key in self._UNCONSUMED_KEYS:
+            return False
+        return super().check_consume_key(key, character)
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "question_mark" and not self.text:
+            # An empty prompt can't be mid-typing, so ? opens the help panel;
+            # with any text present it stays a literal character.
+            event.prevent_default()
+            event.stop()
+            await self.app.run_action("push_help")
+            return
+        await super()._on_key(event)
+
+    def action_submit(self) -> None:
+        # Enter is a priority binding; when a drawer toggle holds focus, yield so
+        # Enter reaches that widget instead of submitting the prompt.
+        if not self.has_focus:
+            raise SkipAction()
+        self.post_message(self.Submitted(chat_input=self, value=self.text))
+
+    def action_newline(self) -> None:
+        self.insert("\n")
+
+    def action_end(self) -> None:
+        """Move cursor to end of all text (Input-compatible behavior)."""
+        last_line = self.document.line_count - 1
+        last_col = len(self.document.get_line(last_line))
+        self.move_cursor((last_line, last_col))
+
+    def _sync_multiline(self) -> None:
+        """Add ``-multiline`` when the prompt spans more than one wrapped row."""
+        self.set_class(self.wrapped_document.height > 1, "-multiline")
+
+    @on(TextArea.Changed)
+    def _track_multiline(self, _event: TextArea.Changed) -> None:
+        self._sync_multiline()
+
+    def on_resize(self, _event: events.Resize) -> None:
+        # A narrower terminal can wrap a prompt that fit one row when typed; re-check
+        # after the refresh (so the document has re-wrapped) and grow instead of clip.
+        self.call_after_refresh(self._sync_multiline)

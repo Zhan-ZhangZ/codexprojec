@@ -1,0 +1,308 @@
+[project]
+name = "lilbee"
+version = "0.6.90b448"
+description = "The whole local AI stack in one executable: run and manage local AI models across every GPU you have, and search your files, code, and the web pages you crawl, with answers that cite the source. Per-project libraries, semantic and hybrid search, vision OCR, an auto-built wiki, CLI, TUI, MCP server, REST API, and Python library. No model server, no database server, no containers. Works with your own Ollama or LM Studio models too."
+license = "MIT"
+authors = [{ name = "tobocop2", email = "5562156+tobocop2@users.noreply.github.com" }]
+requires-python = ">=3.11"
+dynamic = ["readme"]
+keywords = [
+    "rag", "local-rag", "local-llm", "local-ai",
+    "mcp", "mcp-server", "model-context-protocol",
+    "semantic-search", "vector-search", "retrieval",
+    "embeddings", "knowledge-base", "knowledge-management",
+    "huggingface", "ocr", "web-crawler",
+    "model-manager", "llama-cpp", "gguf", "multi-gpu", "ollama", "lm-studio",
+    "obsidian", "second-brain", "personal-ai", "self-hosted", "privacy", "cli", "tui",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Indexing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    # pylance has no macOS x86_64 wheel; requiring the extra there backtracks
+    # lancedb to 0.25.3, which predates list_tables(). Intel Macs run plain
+    # lancedb (the +compat wheel); import lance is confined to the multi-GPU
+    # shard-adoption path, which that hardware cannot reach.
+    "lancedb[pylance]>=0.39 ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "lancedb>=0.39 ; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "xberg>=1.2.7",
+    # The engine user-lock protocol leans on release(), is_singleton reentrancy
+    # and the SoftFileLock fallback; the ceiling is the line verified against it.
+    "filelock>=3.29.5,<4.1",
+    "tree-sitter-language-pack>=1.8.0,<2.0",
+    "typer>=0.12",
+    "tiktoken",
+    "textual>=0.75",
+    # Floor is 2.0: the tool server needs mcp.server.mcpserver, which 1.x lacks.
+    "mcp>=2.0.0,<3",
+    "pillow>=11.3.0",
+    "litestar>=2.0",
+    "uvicorn>=0.30",
+    "httpx",
+    "diskcache>=5.6.1",
+    "jinja2>=2.11.3",
+    "typing-extensions>=4.5.0",
+    "huggingface_hub>=1.27.0",
+    "psutil>=5.9",
+    "pydantic-settings>=2.14.2",
+    # 2.5 drops the 3.11 floor and ships 3.12-only stubs mypy rejects at the 3.11 target.
+    "numpy<2.5",
+    # Entity schema patterns are LLM-authored, so their matches need a wall-clock
+    # bound; regex takes a per-match timeout where the stdlib re module cannot.
+    # Already present transitively via tiktoken.
+    "regex",
+    # llama.cpp's own Python package, for the ggml block and type sizes the
+    # download-size estimate prices a quant with. It is not a second GGUF
+    # reader: gguf-parser is, built from the pin that builds llama-server.
+    # 0.19 is the first release that names NVFP4. Adds no new package to the
+    # install: numpy, pyyaml, requests and tqdm all already arrive with
+    # huggingface_hub, lancedb and lilbee itself.
+    "gguf>=0.19",
+    # The read side is stdlib tomllib; this is its write half.
+    "tomli-w>=1.0",
+    "cachetools>=7.1.4",
+    # gitignore-syntax matching for .lilbeeignore. Already present transitively;
+    # the floor is where the non-deprecated "gitignore" pattern factory lands.
+    "pathspec>=1.1.1",
+    # Chat export pairs parsed heading tags with the raw lines and raises on a
+    # mismatch, so a parser change can crash the export. Already present
+    # transitively through rich and textual; the floor is the version the
+    # export was fuzz-tested against, and the ceiling keeps it off the next
+    # major.
+    "markdown-it-py>=4.2.0,<5",
+]
+
+[project.optional-dependencies]
+# The bundled llama-server and gguf-parser. Not a hard dependency because the
+# distribution is published on lilbee.sh rather than PyPI, and a hard reference
+# to a name PyPI answers 404 for made the documented install command backtrack
+# to a months-old release that predated it. Installing without this leaves a
+# working lilbee that says what to install the moment it needs an engine.
+# The floor is below every published engine wheel (they carry lilbee's own
+# version), so it never excludes a real release; its jobs are to keep the
+# in-repo 0.0.0 stub from satisfying an index install and, because the
+# specifier names a pre-release, to let plain `pip` resolve the beta-versioned
+# wheels without `--pre`.
+engine = ["lilbee-engine>=0.6.90b1"]
+litellm = ["litellm>=1.84.0,<1.104"]
+graph = ["spacy>=3.8", "graspologic-native>=1.2"]
+# Floor for transitive soupsieve (crawl4ai -> beautifulsoup4 -> soupsieve):
+# 2.9.0 fixes GHSA-j934-xhv5-fg8f and GHSA-gjv8-xp57-g29c. beautifulsoup4 asks
+# for soupsieve>=1.6.1 at every published release, so only a direct floor holds.
+crawler = ["crawl4ai>=0.9.0", "soupsieve>=2.9.0"]
+# A fallback source of the CUDA 12 runtime, from NVIDIA's official PyPI wheels;
+# fleet.cuda_runtime adds their lib dirs to the engine's LD_LIBRARY_PATH. The engine
+# wheel now ships cudart/cublas/cublasLt beside llama-server on both Linux and Windows
+# (build_llama_server.sh), so this is only needed for an engine built elsewhere.
+# Linux x86_64 only: macOS and aarch64 have no CUDA build to feed.
+cuda12 = [
+    "nvidia-cuda-runtime-cu12; platform_system=='Linux' and platform_machine=='x86_64'",
+    "nvidia-cublas-cu12; platform_system=='Linux' and platform_machine=='x86_64'",
+    "nvidia-cuda-nvrtc-cu12; platform_system=='Linux' and platform_machine=='x86_64'",
+]
+release = ["lilbee[crawler,litellm,graph]"]
+
+[project.urls]
+Homepage = "https://lilbee.sh/"
+Repository = "https://github.com/tobocop2/lilbee"
+Issues = "https://github.com/tobocop2/lilbee/issues"
+
+[project.scripts]
+lilbee = "lilbee.runtime.launcher:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# The README shows each demo as a GitHub video player, which only GitHub
+# renders. hatch_build.py rewrites those back to the gh-pages GIFs so the PyPI
+# page keeps its moving pictures instead of a wall of links.
+[tool.hatch.metadata.hooks.custom]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lilbee"]
+
+[tool.uv]
+# crawl4ai requires unclecode-litellm, a fork that installs into the same litellm/
+# directory as litellm itself; excluding it leaves litellm the only owner.
+exclude-dependencies = ["unclecode-litellm"]
+
+# Dev resolves the bundled engine from the in-repo wheel package; CI fills its
+# bin/ with the self-contained llama-server + llama-swap + gguf-parser before
+# building. Release installs (`pip install lilbee`) resolve `lilbee-engine` from
+# the index instead -- this source override is workspace metadata, not published deps.
+[tool.uv.sources]
+lilbee-engine = { path = "packaging/engine-wheel" }
+
+# `uv pip install <checkout>[engine] --extra-index-url ...` applies the source
+# above no matter the specifier (uv drops version bounds on sourced packages),
+# so it silently installed the binariless stub where the deployment wanted the
+# real engine wheel. This turns sources off for the `uv pip` interface only:
+# that command now resolves lilbee-engine from the index, while `uv sync` /
+# `uv lock` (the project interface) keep using the stub.
+[tool.uv.pip]
+no-sources = true
+
+[dependency-groups]
+dev = [
+    # The bundled engine is an optional extra for users, because the wheel is
+    # published on lilbee.sh rather than PyPI and a hard reference to a name
+    # PyPI answers 404 for breaks the documented install. Development and CI
+    # still need it: the pin test reads its metadata, and the local source
+    # below makes it a workspace path rather than an index lookup.
+    "lilbee-engine",
+    # The self-check-extras charset probe and its tests call chardet directly;
+    # without this, chardet only arrives via the crawler extra, and the bare
+    # `uv sync --locked` CI test env cannot run those tests.
+    "chardet>=7",
+    "hypothesis>=6.100",
+    "mypy>=1.19.1",
+    "packaging>=24",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "reportlab",
+    "ruff>=0.15.4",
+    "httpx>=0.27",
+    "pytest-httpserver",
+    "types-pyyaml>=6.0.12.20250915",
+    "pytest-xdist>=3.8.0",
+    "pytest-forked>=1.6.0",
+    "pytest-timeout>=2.3",
+    "pre-commit>=4.0",
+    "types-cachetools>=7.0.0.20260713",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--ignore=tests/integration"
+timeout = 60
+markers = [
+    "slow: integration tests that download models or take >10s",
+    "real_model_classify: opt out of the global _classify_installed_models mock",
+    "real_litellm_probe: opt out of the global litellm_available True override",
+    "real_engine_resolution: opt out of the engine-binary seal (host PATH and LILBEE_LLAMA_SERVER_PATH resolve again)",
+    "xdist_group: pin grouped tests to a single xdist worker for serial execution",
+    "no_health_default: opt out of the launch tests' default-healthy fixture",
+    "no_warm_default: opt out of the launch tests' default chat-warm fixture",
+    "live_picks: opt out of the seeded SAMPLE_PICKS and resolve picks for real",
+    "real_hf_client: opt out of the global hf_client.fetch_models stub (tests the client itself)",
+    "download_child: opt out of the in-process download stub (drives the real child-process relay)",
+]
+
+[tool.coverage.run]
+source = ["lilbee"]
+concurrency = ["thread"]
+# Generated modules are machine output, not code anyone wrote or can meaningfully
+# test; measuring them says nothing about the suite. Excluded so the number stays
+# a statement about hand-written code, and so regenerating cannot move it.
+omit = ["src/lilbee/_generated/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "class.*Protocol",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "RUF",   # ruff-specific
+    "S",     # flake8-bandit: security antipatterns (eval, exec, pickle, unsafe subprocess, etc.)
+    "C90",   # mccabe complexity
+    "N",     # pep8-naming
+    "RET",   # flake8-return: consistent return semantics
+    "TID",   # flake8-tidy-imports: forbid relative imports
+    "PLR0911", # too many returns
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+    "PLR2004", # magic value used in comparison
+]
+# DeepSeek V3.1's tool-call markers are intentionally fullwidth (｜ U+FF5C,
+# ▁ U+2581). These are the exact characters the model emits; substituting
+# the ASCII look-alikes would break extraction.
+allowed-confusables = ["｜", "▁"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.flake8-bugbear]
+# litestar's Body(), like Parameter() (already in ruff's B008 default allowlist),
+# is a declarative parameter marker that is safe as an argument default.
+extend-immutable-calls = ["litestar.params.Body"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test-context S-rule noise. Each of these is either a test fixture
+# (hardcoded token/password literals, fake /tmp paths, 0.0.0.0 bind
+# assertions), or an intentional subprocess spawn for an e2e test:
+# - S101 assert (tests are built on it)
+# - S104 bind-all-interfaces (testing host parsing)
+# - S105/S106 hardcoded password string/arg (test fixtures)
+# - S108 /tmp paths (mocked, not actual temp-file usage)
+# - S311 pseudo-random (seeded generators building test data, never a secret;
+#   the seed is the point, since a load test that cannot be replayed is useless)
+# - S603/S607 subprocess (e2e tests spawning sys.executable)
+# Test files also ignore PLR2004 (test fixtures use literal expected
+# values inline; extracting them to constants hurts readability) and
+# the pep8-naming rules (test helpers frequently shadow PascalCase
+# class names from the system under test).
+"tests/**/*.py" = [
+    "S101", "S104", "S105", "S106", "S108", "S311", "S603", "S607",
+    "PLR2004",
+    "N802", "N806", "N818", "N817",
+]
+# QA matrix runner is a test framework just like tests/; same ignores apply.
+"tools/qa/**/*.py" = [
+    "S101", "S104", "S105", "S106", "S108", "S603", "S607",
+    "PLR2004",
+    "N802", "N806", "N818", "N817",
+]
+# Surface-QA harnesses drive the CLI/TUI/HTTP surfaces like tests do; same ignores
+# (S311 for the same reason as tests: seeded fuzz walks must replay).
+"scripts/qa/**/*.py" = [
+    "S101", "S104", "S105", "S106", "S108", "S311", "S603", "S607",
+    "PLR2004",
+    "N802", "N806", "N818", "N817",
+]
+# Invokes the trusted `gh` CLI with controlled args to build the compat index.
+"tools/build_compat_index.py" = ["S603", "S607"]
+"conftest.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
