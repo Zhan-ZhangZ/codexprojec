@@ -1,0 +1,138 @@
+[workspace]
+resolver = "3"
+members = [
+    "moli",
+    "moli-action-window",
+    "moli-bounded-buffer",
+    "moli-bounded-json",
+    "moli-broadcast-channel",
+    "moli-browser-profile",
+    "moli-canvas",
+    "moli-charset-parser",
+    "moli-cookie-cache",
+    "moli-cookie-import",
+    "moli-protocol-cdp",
+    "moli-cookie-store",
+    "moli-content-type",
+    "moli-css-parse",
+    "moli-crypto",
+    "moli-curl",
+    "moli-dns-resolver",
+    "moli-disk-pool",
+    "moli-protocol",
+    "moli-encoding",
+    "moli-encoding-detector",
+    "moli-core",
+    "moli-import-map",
+    "moli-image",
+    "moli-indexeddb",
+    "moli-local-executor",
+    "moli-layout",
+    "moli-leveldb-parser",
+    "moli-message-port",
+    "moli-multipart",
+    "moli-xpath",
+    "moli-module-script-tree",
+    "moli-module-syntax",
+    "moli-owner-queue",
+    "moli-opfs",
+    "moli-dom",
+    "moli-parser",
+    "moli-paint",
+    "moli-page-types",
+    "moli-parkable-image",
+    "moli-process-signal",
+    "moli-renderer-v8",
+    "moli-robots",
+    "moli-protocol-server",
+    "moli-script",
+    "moli-selector",
+    "moli-session-history",
+    "moli-site",
+    "moli-shared-worker",
+    "moli-storage-service",
+    "moli-storage-key",
+    "moli-streams",
+    "moli-structured-clone",
+    "moli-stylesheet-blocking",
+    "moli-svg",
+    "moli-system-fonts",
+    "moli-test-support",
+    "moli-url",
+    "moli-url-policy",
+    "moli-v8-init",
+    "moli-v8-platform",
+    "moli-v8-test-util",
+    "moli-v8-util",
+    "moli-web-mime",
+    "moli-web-bot-auth",
+    "moli-web-errors",
+    "moli-protocol-webdriver-bidi",
+    "moli-protocol-webdriver-classic",
+    "moli-webcrypto",
+    "moli-webapi-declare",
+    "moli-webapi-declare-derive",
+    "moli-webidl",
+    "moli-webidl-callback",
+    "moli-webidl-derive",
+    "moli-webmcp",
+    "moli-cookie-jar",
+    "moli-websocket",
+    "moli-fetch",
+    "moli-file-api",
+    "moli-geometry",
+    "moli-header-field",
+    "moli-history",
+    "moli-html-input-type",
+    "moli-html2md",
+    "moli-html-input-temporal",
+    "moli-window-features",
+    "moli-time",
+    "moli-trace",
+    "moli-http-cache",
+    "moli-wpt-compat"
+]
+exclude = ["vendor/xml5ever-0.39.0"]
+
+[workspace.package]
+license = "MIT OR Apache-2.0"
+
+[patch.crates-io]
+parley = { git = "https://github.com/lexmount/parley", rev = "d0f5452487b872562102fde2c133d445272bcccc" }
+fontique = { git = "https://github.com/lexmount/parley", rev = "d0f5452487b872562102fde2c133d445272bcccc" }
+xml5ever = { path = "vendor/xml5ever-0.39.0" }
+curl = { git = "https://github.com/lexmount/curl-rust", rev = "a0ea59f5ca1b1e4bc8627a28c29463ac96aeb758" }
+curl-sys = { git = "https://github.com/lexmount/curl-rust", rev = "a0ea59f5ca1b1e4bc8627a28c29463ac96aeb758" }
+cookie = { git = "https://github.com/ldm0/cookie-rs", branch = "priority" }
+v8 = { path = "vendor/v8-152.2.0" }
+deno_v8 = { path = "vendor/deno_v8-0.3.0" }
+selectors = { git = "https://github.com/lexmount/stylo", rev = "0c7e8baf63b6714e7614834fadbc09710f3c3d27" }
+servo_arc = { git = "https://github.com/lexmount/stylo", rev = "0c7e8baf63b6714e7614834fadbc09710f3c3d27" }
+stylo = { git = "https://github.com/lexmount/stylo", rev = "0c7e8baf63b6714e7614834fadbc09710f3c3d27" }
+stylo_atoms = { git = "https://github.com/lexmount/stylo", rev = "0c7e8baf63b6714e7614834fadbc09710f3c3d27" }
+stylo_dom = { git = "https://github.com/lexmount/stylo", rev = "0c7e8baf63b6714e7614834fadbc09710f3c3d27" }
+stylo_static_prefs = { git = "https://github.com/lexmount/stylo", rev = "0c7e8baf63b6714e7614834fadbc09710f3c3d27" }
+stylo_traits = { git = "https://github.com/lexmount/stylo", rev = "0c7e8baf63b6714e7614834fadbc09710f3c3d27" }
+svgtypes = { git = "https://github.com/lexmount/svgtypes", branch = "feat/strict-path-numbers" }
+taffy = { git = "https://github.com/ldm0/taffy", rev = "645bf5a49df607a8bff34ec90c5343901d04f10e" }
+
+[workspace.lints.clippy]
+disallowed_methods = "deny"
+disallowed_types = "deny"
+enum_variant_names = "allow"
+result_unit_err = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+strip = false
+# Production and release-regression binaries favor a compact code working set
+# over parallel code generation.
+codegen-units = 1
+
+[profile.test]
+debug = 1

@@ -1,0 +1,230 @@
+import path from "path"
+import { Schema } from "./registry-schema"
+
+type ComponentDefinition = Partial<
+  Pick<
+    Schema,
+    | "dependencies"
+    | "devDependencies"
+    | "registryDependencies"
+    | "cssVars"
+    | "tailwind"
+  >
+> & {
+  name: string
+  description: string
+  path: string
+  files?: Array<{
+    name: string
+    path: string
+  }>
+}
+
+export const components: ComponentDefinition[] = [
+  {
+    name: "prompt-input",
+    description:
+      "An input field designed for chat interfaces, allowing users to enter and submit text prompts to an AI model",
+    path: path.join(__dirname, "../components/prompt-kit/prompt-input.tsx"),
+    registryDependencies: ["textarea", "tooltip"],
+  },
+  {
+    name: "code-block",
+    description:
+      "A component for displaying code snippets with syntax highlighting and customizable styling",
+    path: path.join(__dirname, "../components/prompt-kit/code-block.tsx"),
+    dependencies: ["shiki"],
+  },
+  {
+    name: "markdown",
+    description:
+      "A component for rendering Markdown content with support for code blocks, GFM, and custom styling",
+    path: path.join(__dirname, "../components/prompt-kit/markdown.tsx"),
+    dependencies: ["react-markdown", "remark-gfm", "shiki", "marked"],
+    files: [
+      {
+        name: "code-block.tsx",
+        path: path.join(__dirname, "../components/prompt-kit/code-block.tsx"),
+      },
+    ],
+  },
+  {
+    name: "message",
+    description:
+      "A component for displaying chat messages with support for avatars, markdown content, and interactive actions",
+    path: path.join(__dirname, "../components/prompt-kit/message.tsx"),
+    dependencies: [
+      "react-markdown",
+      "remark-gfm",
+      "shiki",
+      "marked",
+      "remark-breaks",
+    ],
+    registryDependencies: ["avatar", "tooltip"],
+    files: [
+      {
+        name: "markdown.tsx",
+        path: path.join(__dirname, "../components/prompt-kit/markdown.tsx"),
+      },
+      {
+        name: "code-block.tsx",
+        path: path.join(__dirname, "../components/prompt-kit/code-block.tsx"),
+      },
+    ],
+  },
+  {
+    name: "chat-container",
+    description:
+      "A component for creating chat interfaces with intelligent auto-scrolling behavior, designed to provide a smooth and responsive user experience",
+    path: path.join(__dirname, "../components/prompt-kit/chat-container.tsx"),
+    dependencies: ["use-stick-to-bottom"],
+  },
+  {
+    name: "scroll-button",
+    description:
+      "A floating button component that appears when users scroll up in a container, allowing them to quickly return to the bottom of the content",
+    path: path.join(__dirname, "../components/prompt-kit/scroll-button.tsx"),
+    registryDependencies: ["button"],
+    dependencies: ["class-variance-authority", "lucide-react"],
+  },
+  {
+    name: "loader",
+    description:
+      "A component for displaying a loading indicator with multiple variants and customizable styling",
+    path: path.join(__dirname, "../components/prompt-kit/loader.tsx"),
+    registryDependencies: ["button"],
+  },
+  {
+    name: "prompt-suggestion",
+    description:
+      "A component for implementing interactive prompt suggestions in AI interfaces. The PromptSuggestion component offers two distinct modes: Normal Mode and Highlight Mode.",
+    path: path.join(
+      __dirname,
+      "../components/prompt-kit/prompt-suggestion.tsx"
+    ),
+    registryDependencies: ["button"],
+    dependencies: ["class-variance-authority", "lucide-react"],
+  },
+  {
+    name: "response-stream",
+    description:
+      "A component to simulate streaming text on the client side, perfect for fake responses, or any controlled progressive text display.",
+    path: path.join(__dirname, "../components/prompt-kit/response-stream.tsx"),
+  },
+  {
+    name: "reasoning",
+    description: `A collapsible component for showing AI reasoning, explanations, or logic. You can control it manually or let it auto-close when the stream ends. Markdown is supported.`,
+    path: path.join(__dirname, "../components/prompt-kit/reasoning.tsx"),
+    dependencies: ["lucide-react"],
+    files: [
+      {
+        name: "markdown.tsx",
+        path: path.join(__dirname, "../components/prompt-kit/markdown.tsx"),
+      },
+      {
+        name: "response-stream.tsx",
+        path: path.join(
+          __dirname,
+          "../components/prompt-kit/response-stream.tsx"
+        ),
+      },
+    ],
+  },
+  {
+    name: "file-upload",
+    description:
+      "A component for creating drag-and-drop file upload interfaces with support for single or multiple files, custom triggers, and visual feedback during file dragging operations.",
+    path: path.join(__dirname, "../components/prompt-kit/file-upload.tsx"),
+  },
+  {
+    name: "jsx-preview",
+    description:
+      "A component for rendering JSX strings as React components, with support for streaming content and automatic tag completion.",
+    path: path.join(__dirname, "../components/prompt-kit/jsx-preview.tsx"),
+    dependencies: ["react-jsx-parser"],
+  },
+  {
+    name: "tool",
+    description:
+      "Displays tool call details including input, output, status, and errors. Ideal for visualizing AI tool usage in chat UIs.",
+    path: path.join(__dirname, "../components/prompt-kit/tool.tsx"),
+    dependencies: ["lucide-react"],
+    registryDependencies: ["collapsible", "button"],
+  },
+  {
+    name: "source",
+    description:
+      "Displays website sources used by AI-generated content, showing URL details, titles, and descriptions on hover.",
+    path: path.join(__dirname, "../components/prompt-kit/source.tsx"),
+    dependencies: ["@radix-ui/react-hover-card"],
+    files: [
+      {
+        name: "hover-card.tsx",
+        path: path.join(
+          __dirname,
+          "../components/prompt-kit/_ui/hover-card.tsx"
+        ),
+      },
+    ],
+  },
+  {
+    name: "image",
+    description:
+      "A component for displaying images from base64 or Uint8Array data, with full accessibility and responsive styling. Perfect for AI-generated or user-uploaded images.",
+    path: path.join(__dirname, "../components/prompt-kit/image.tsx"),
+  },
+  {
+    name: "steps",
+    description:
+      "A component for displaying a sequence of operations in a collapsible layout. Each step can include details and an optional vertical bar. Useful for showing AI steps like reasoning traces, tool calls, or process logs.",
+    path: path.join(__dirname, "../components/prompt-kit/steps.tsx"),
+    registryDependencies: ["collapsible"],
+  },
+  {
+    name: "system-message",
+    description:
+      "A banner-style component for surfacing contextual information, warnings, or instructions within AI interfaces.",
+    path: path.join(__dirname, "../components/prompt-kit/system-message.tsx"),
+    registryDependencies: ["button"],
+  },
+  {
+    name: "chain-of-thought",
+    description:
+      "A component for displaying a chain of thought process with collapsible steps and triggers.",
+    path: path.join(__dirname, "../components/prompt-kit/chain-of-thought.tsx"),
+    registryDependencies: ["collapsible"],
+    dependencies: ["lucide-react"],
+  },
+  {
+    name: "text-shimmer",
+    description:
+      "A component for displaying a shimmer effect on text, perfect for loading states or highlighting text.",
+    path: path.join(__dirname, "../components/prompt-kit/text-shimmer.tsx"),
+    tailwind: {
+      config: {
+        theme: {
+          keyframes: {
+            shimmer: {
+              "0%": { backgroundPosition: "200% 50%" },
+              "100%": { backgroundPosition: "-200% 50%" },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: "thinking-bar",
+    description:
+      "A component to display the thinking state of an AI model with optional actions.",
+    path: path.join(__dirname, "../components/prompt-kit/thinking-bar.tsx"),
+    dependencies: ["lucide-react"],
+    registryDependencies: ["text-shimmer"],
+  },
+  {
+    name: "feedback-bar",
+    description: "A component to collect user feedback on AI responses.",
+    path: path.join(__dirname, "../components/prompt-kit/feedback-bar.tsx"),
+    dependencies: ["lucide-react"],
+  },
+]

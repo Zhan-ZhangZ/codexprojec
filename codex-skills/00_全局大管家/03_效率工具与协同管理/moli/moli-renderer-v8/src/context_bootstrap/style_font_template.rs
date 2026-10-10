@@ -1,0 +1,82 @@
+use super::{
+    css_fontface_runtime::{
+        font_face_load_callback, font_face_set_add_callback, font_face_set_check_callback,
+        font_face_set_clear_callback, font_face_set_delete_callback,
+        font_face_set_entries_callback, font_face_set_for_each_callback,
+        font_face_set_has_callback, font_face_set_keys_callback, font_face_set_load_callback,
+        font_face_set_values_callback, install_font_face_set_event_handler_accessors,
+        install_font_face_set_load_event_template_accessors,
+        install_font_face_set_template_accessors, install_font_face_template_accessors,
+    },
+    specs::ConstructorSpec,
+};
+use crate::web_api_interfaces;
+use moli_webapi_declare::WebApiFunctionTemplate;
+
+#[derive(WebApiFunctionTemplate)]
+#[webapi(interface = web_api_interfaces::FontFace, enumerable, receiver)]
+struct FontFaceTemplateMethodsDeclaration {
+    #[webapi(method, length = 0, callback = font_face_load_callback, returns_promise)]
+    load: (),
+}
+
+#[derive(WebApiFunctionTemplate)]
+#[webapi(interface = web_api_interfaces::FontFaceSet, enumerable, receiver)]
+struct FontFaceSetTemplateMethodsDeclaration {
+    #[webapi(method, length = 1, callback = font_face_set_add_callback)]
+    add: (),
+
+    #[webapi(method, length = 1, callback = font_face_set_has_callback)]
+    has: (),
+
+    #[webapi(method, length = 1, callback = font_face_set_delete_callback)]
+    r#delete: (),
+
+    #[webapi(method, length = 0, callback = font_face_set_clear_callback)]
+    clear: (),
+
+    #[webapi(method, length = 1, callback = font_face_set_check_callback)]
+    check: (),
+
+    #[webapi(method, length = 1, callback = font_face_set_load_callback, returns_promise)]
+    load: (),
+
+    #[webapi(method, length = 0, callback = font_face_set_keys_callback)]
+    keys: (),
+
+    #[webapi(method, length = 0, callback = font_face_set_values_callback)]
+    values: (),
+
+    #[webapi(alias = "values", symbol = "iterator")]
+    iterator: (),
+
+    #[webapi(method, length = 0, callback = font_face_set_entries_callback)]
+    entries: (),
+
+    #[webapi(method, length = 1, callback = font_face_set_for_each_callback)]
+    for_each: (),
+}
+
+pub(super) fn install_style_font_template_bindings<'s>(
+    scope: &mut v8::PinScope<'s, '_, ()>,
+    template: v8::Local<'s, v8::FunctionTemplate>,
+    spec: ConstructorSpec,
+) {
+    match spec.interface.name() {
+        "FontFace" => {
+            let prototype = template.prototype_template(scope);
+            FontFaceTemplateMethodsDeclaration::initialize_prototype_template(scope, prototype);
+            install_font_face_template_accessors(scope, template);
+        }
+        "FontFaceSet" => {
+            let prototype = template.prototype_template(scope);
+            FontFaceSetTemplateMethodsDeclaration::initialize_prototype_template(scope, prototype);
+            install_font_face_set_template_accessors(scope, template);
+            install_font_face_set_event_handler_accessors(scope, template);
+        }
+        "FontFaceSetLoadEvent" => {
+            install_font_face_set_load_event_template_accessors(scope, template);
+        }
+        _ => {}
+    }
+}

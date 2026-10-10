@@ -1,0 +1,119 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useShallow } from "zustand/react/shallow";
+import { useLiveStore } from "@/lib/live/liveStore";
+import { useLiveSession } from "@/lib/live/useLiveSession";
+import type { CallEndedBy } from "@/lib/live/callFact";
+import { usePtt } from "@/lib/live/usePtt";
+import { useFlowConfig } from "@/lib/flow/useFlowConfig";
+import { keysListen, useFlowCapabilities } from "@/lib/flow/useCapabilities";
+import { keyName } from "@/lib/dictate/hotkey";
+import { desktopPlatform } from "@/lib/platform";
+import { useUi } from "@/lib/uiStore";
+import { api } from "@/lib/api";
+import { chatStore } from "@/lib/chatStore";
+import { Lobby } from "./Lobby";
+import { InCall } from "./InCall";
+import { PermissionPrompt } from "./AgentControls";
+import { ElicitationPrompt } from "./ElicitationPrompt";
+import { openliveBridge, setPanelCmdHandler } from "@/lib/live/panelBridge";
+import { useHydrated } from "@/lib/useHydrated";
+
+// Hosts one live call: a full-page lobby before the call (self-preview, agent /
+// model pick, devices, model download) then the full-screen in-call view — both
+// share the same TopBar + main + sidebar skeleton so the switch feels continuous.
+export function LiveDock({ chatId, onExit }: { chatId: string; onExit: () => void }) {
+  const { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp, pttCancel } = useLiveSession(chatId);
+  // Narrow selector: this component must NOT subscribe to the hot per-chunk
+  // fields (captions, toolStatus, todos, usage, terminals) — InCall and
+  // TranscriptPanel own those. Whole-store destructuring made the entire call
+  // UI re-render on every caption tick.
+  const { active, phase, modelsDownloaded, downloading, downloadPct, downloadLoaded, downloadTotal, downloadModels, muted, cameraOn, screenOn, cameraStream, screenStream, error, mics, cams, micId, camId, boundAgent, boundCwd } = useLiveStore(useShallow((s) => ({
+    // A reply waiting on an ask is waiting on the user, once the question is voiced.
+    active: s.active, phase: s.phase === "thinking" && (s.permission || s.elicitation) ? "idle" : s.phase, modelsDownloaded: s.modelsDownloaded, downloading: s.downloading,
+    downloadPct: s.downloadPct, downloadLoaded: s.downloadLoaded, downloadTotal: s.downloadTotal, downloadModels: s.downloadModels,
+    muted: s.muted, cameraOn: s.cameraOn, screenOn: s.screenOn, cameraStream: s.cameraStream, screenStream: s.screenStream,
+    error: s.error, mics: s.mics, cams: s.cams, micId: s.micId, camId: s.camId, boundAgent: s.boundAgent, boundCwd: s.boundCwd,
+  })));
+  const openSettings = useUi((s) => s.openSettings);
+
+  // How you talk is Flow's setting, shared by Flow, Dictate and calls. The key's
+  // name is shown only where the key is listened to: not in the web build, and
+  // not while the key listener is stopped or never allowed (Linux without the
+  // input group), where the Hold to talk button is the way.
+  const talk = useFlowConfig().config?.talk;
+  const mode = talk?.mode ?? "handsFree";
+  const pttKey = talk?.pttKey ?? "";
+  const listening = keysListen(useFlowCapabilities().caps);
+  useEffect(() => {
+    const keys = pttKey && listening && openliveBridge()?.onPtt ? [keyName(pttKey, desktopPlatform)] : [];
+    useLiveStore.setState({ talk: { mode, keys } });
+  }, [mode, pttKey, listening]);
+  // The global push-to-talk key, and Enter to send a held pause now.
+  usePtt(active, { pttDown, pttUp, pttCancel, sendNow });
+
+  useEffect(() => { void refreshDevices(); }, [refreshDevices]);
+  // Preload a resumed conversation's transcript from the saved store.
+  useEffect(() => { api.messages(chatId).then((m) => chatStore.preload(chatId, m as never)).catch(() => {}); }, [chatId]);
+  useEffect(() => () => stop(), [stop]);
+
+  // Only warm up an agent that can actually start. Prewarming an uninstalled or
+  // signed-out agent spawns a binary that isn't there and dumps its raw failure
+  // ("spawn hermes-acp ENOENT") into the lobby — next to the Start button already
+  // explaining the real problem. `undefined` while the probe is in flight means we
+  // hold off one tick rather than spawn on a guess.
+  const { data: agentRows } = useQuery({ queryKey: ["agents"], queryFn: api.agents, enabled: !!boundAgent });
+  const agentRow = boundAgent ? agentRows?.find((r) => r.id === boundAgent) : undefined;
+  const agentReady = !!agentRow?.installed && agentRow.credState !== "login_required";
+
+  // Pre-call: connect a bound coding agent as soon as it has a project folder, so it
+  // reports its models/modes into the lobby before the call starts (and Start is
+  // instant). No-op for the built-in assistant or once already connected.
+  useEffect(() => { if (!active && boundAgent && boundCwd && agentReady) prewarm(); }, [active, boundAgent, boundCwd, agentReady, prewarm]);
+
+  const end = (by: CallEndedBy = "end_button") => { stop(by); onExit(); };
+
+  // Desktop: the call, for the orb to show while this window is minimised or
+  // hidden, and the orb's mute / end back. End skips InCall's exit animation:
+  // a hidden window runs no animation frames, so it would never finish.
+  const ctl = useRef({ toggleMute, end }); ctl.current = { toggleMute, end };
+  const startedAt = useRef(0);
+  useEffect(() => {
+    if (!active) return;
+    startedAt.current = Date.now();
+    setPanelCmdHandler((c) => { if (c.t === "mute") ctl.current.toggleMute(); else if (c.t === "end") ctl.current.end("orb_end"); });
+    return () => { setPanelCmdHandler(null); openliveBridge()?.callState?.(null); };
+  }, [active]);
+  useEffect(() => {
+    if (active) openliveBridge()?.callState?.({ muted, startedAt: startedAt.current });
+  }, [active, muted]);
+  // The lobby reads this machine (cameras, WebGPU), which the server cannot, so a
+  // chat reopened at launch mounts it just after hydration instead of mismatching.
+  // Until then its bare surface (Lobby's root) covers the home, which would flash.
+  const hydrated = useHydrated();
+  if (!hydrated) return <div data-covering="stage" className="fixed inset-0 z-stage bg-background" />;
+
+  return (
+    <>
+      {!active && (
+        <Lobby mics={mics} cams={cams} micId={micId} camId={camId} onMic={(id) => void setMic(id)} onCam={setCam}
+          error={error} modelsDownloaded={modelsDownloaded} downloading={downloading} downloadPct={downloadPct}
+          downloadLoaded={downloadLoaded} downloadTotal={downloadTotal} downloadModels={downloadModels}
+          refreshDevices={refreshDevices} onDownload={() => void download()} onStart={() => void start()}
+          onOpenSettings={openSettings} onExit={() => end()} />
+      )}
+
+      {active && (
+        <InCall chatId={chatId} phase={phase} muted={muted} cameraOn={cameraOn} screenOn={screenOn} pttDown={pttDown} pttUp={pttUp}
+          cameraStream={cameraStream} screenStream={screenStream} error={error}
+          toggleMute={toggleMute} toggleCamera={toggleCamera} toggleScreen={toggleScreen}
+          setMic={(id) => void setMic(id)} setCam={setCam}
+          getLevels={getLevels} getBands={getBands} onEnd={() => end()} sendNow={sendNow} sendAside={sendAside} notForYou={notForYou} />
+      )}
+      {active && <PermissionPrompt answerPermission={answerPermission} />}
+      {active && <ElicitationPrompt />}
+    </>
+  );
+}

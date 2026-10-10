@@ -1,0 +1,47 @@
+# Keep RELR disabled for now. GNU/Linux binaries using packed relative
+# relocations require glibc 2.36 or newer and would not run on supported older
+# distributions such as Ubuntu 22.04, Debian 11, or RHEL 9.
+# [target.'cfg(all(target_os = "linux", target_env = "gnu"))']
+# rustflags = ["-C", "link-arg=-Wl,-z,pack-relative-relocs"]
+
+# Avoid the large runtime relocation table emitted by the default PIE link.
+# This gives up main-executable ASLR and applies to all Cargo profiles because
+# target rustflags cannot be scoped to release builds.
+[target.'cfg(all(target_os = "linux", target_env = "gnu", target_arch = "x86_64"))']
+rustflags = [
+    "-C", "link-arg=-Wl,--no-pie",
+    # LLD's safe identical code folding shares duplicate native functions
+    # while preserving observable function address identity.
+    "-C", "link-arg=-Wl,--icf=safe",
+]
+
+# Most local tests spin up direct in-process HTTP servers and assert on
+# exact request/response behavior. In this environment, inheriting the
+# shell proxy settings would route those test requests through the host
+# proxy and cause broad unrelated failures, so test builds explicitly
+# clear curl's proxy when no proxy override was requested.
+[env]
+all_proxy = { value = "", force = true }
+http_proxy = { value = "", force = true }
+https_proxy = { value = "", force = true }
+ALL_PROXY = { value = "", force = true }
+HTTP_PROXY = { value = "", force = true }
+HTTPS_PROXY = { value = "", force = true }
+
+# Browser imports only query ordinary SQLite tables. libsqlite3-sys enables
+# these extensions in its bundled C build regardless of rusqlite features.
+# Its LIBSQLITE3_FLAGS are appended after the defaults: use -U, since defining
+# an SQLITE_ENABLE_* macro as 0 still enables code guarded by #ifdef.
+# Extension loading requires SQLITE_OMIT_LOAD_EXTENSION to remove the loader.
+# Keep normal SQL/schema parsing, PRAGMAs, thread safety, and WAL support for
+# browser database compatibility. These defaults apply to local and CI builds.
+LIBSQLITE3_FLAGS = """
+    -USQLITE_ENABLE_FTS3
+    -USQLITE_ENABLE_FTS3_PARENTHESIS
+    -USQLITE_ENABLE_FTS5
+    -USQLITE_ENABLE_RTREE
+    -USQLITE_ENABLE_DBSTAT_VTAB
+    -USQLITE_ENABLE_STAT4
+    -USQLITE_ENABLE_LOAD_EXTENSION
+    -DSQLITE_OMIT_LOAD_EXTENSION
+"""

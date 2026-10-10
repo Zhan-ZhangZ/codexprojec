@@ -1,0 +1,96 @@
+<!doctype html>
+<meta charset="utf-8">
+<script src="/wpt/resources/testharness.js"></script>
+<script src="/wpt/resources/testharnessreport.js"></script>
+<script src="/wpt/resources/moli-wpt-adapter.js"></script>
+<script src="/wpt/ported/worker/resources/assert-bootstrap-error.js"></script>
+<script>
+function worker_url(source) {
+  return "data:text/javascript," + encodeURIComponent(source);
+}
+
+function wait(ms) {
+  return new Promise(function (resolve) {
+    setTimeout(resolve, ms);
+  });
+}
+
+function wait_for(promise, description) {
+  return Promise.race([
+    promise,
+    wait(250).then(function () {
+      throw new Error("timed out waiting for " + description);
+    }),
+  ]);
+}
+
+async function assert_module_parse_failure(source, description) {
+  const previousOnerror = window.onerror;
+  let messageSeen = false;
+  const worker = new Worker(worker_url(source), { type: "module" });
+
+  try {
+    window.onerror = function () {
+      return true;
+    };
+    worker.onmessage = function () {
+      messageSeen = true;
+    };
+
+    const event = await wait_for(
+      new Promise(function (resolve) {
+        worker.onerror = function (event) {
+          resolve(event);
+          return true;
+        };
+      }),
+      "module worker " + description + " early error",
+    );
+
+    assert_worker_bootstrap_error(event, worker);
+    assert_false(messageSeen, "module evaluation should not continue after the early error");
+  } finally {
+    window.onerror = previousOnerror;
+    worker.terminate();
+  }
+}
+
+promise_test(async function () {
+  const topLevelSource = [
+    "return;",
+    "postMessage('unexpected');",
+  ].join("\n");
+  await assert_module_parse_failure(topLevelSource, "top-level return");
+
+  const withSource = [
+    "with ({ value: 1 }) {",
+    "  postMessage(value);",
+    "}",
+  ].join("\n");
+  await assert_module_parse_failure(withSource, "with statement");
+
+  const deleteSource = [
+    "var target = 1;",
+    "delete target;",
+    "postMessage('unexpected');",
+  ].join("\n");
+  await assert_module_parse_failure(
+    deleteSource,
+    "delete identifier",
+  );
+
+  const dependencyUrl = worker_url([
+    "with ({ value: 1 }) {",
+    "  self.__unexpected = value;",
+    "}",
+  ].join("\n"));
+  const dependencySource = [
+    "import * as dep from " + JSON.stringify(dependencyUrl) + ";",
+    "postMessage(dep.impossible);",
+  ].join("\n");
+  await assert_module_parse_failure(
+    dependencySource,
+    "dependency with statement",
+  );
+}, "Dedicated module workers reject parse-time early errors before evaluation");
+</script>

@@ -1,0 +1,482 @@
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+use html5ever::{LocalName, Namespace, QualName};
+use html5ever::{
+    ParseOpts,
+    tendril::StrTendril,
+    tokenizer::{
+        BufferQueue, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
+    },
+    tree_builder::{TreeBuilder, TreeBuilderOpts, TreeSink},
+};
+use markup5ever::TokenizerResult;
+use moli_dom::native::NativeNodeId;
+use moli_script::script_element_nonce_is_nonceable;
+
+use super::{
+    html::{DocumentSink, ParseHandle, ParserFinishDiscoverySignals, ParserInputQueue},
+    html_input::InputStack,
+    live_target::ParserStreamHtmlTreeSinkTarget,
+};
+
+pub(super) struct HtmlTreeSinkSession {
+    pub(super) parser: HtmlParserSession,
+    pub(super) script_input: ParserInputQueue,
+}
+
+pub(super) struct HtmlParserSession {
+    tokenizer: Tokenizer<EmbedderPausingTreeBuilder>,
+    input: RefCell<InputStack>,
+}
+
+pub(super) enum HtmlParserSessionResult {
+    InputDrained,
+    OwnerInterrupted,
+    Script(ParseHandle),
+}
+
+// html5ever carries tokenizer pauses through Script(Handle). Keep the pause
+// reason separate from the tree builder's DOM handles at this adapter boundary.
+enum TokenizerPause {
+    Handoff(ParseHandle),
+    OwnerInterrupted,
+}
+
+struct EmbedderPausingTreeBuilder {
+    inner: TreeBuilder<ParseHandle, DocumentSink>,
+    // Retain a callback's Break until html5ever accepts a pause result. This is
+    // an undelivered notification, not a copy of the owner's current run state;
+    // it must survive both later Continue callbacks and input chunk boundaries.
+    deferred_owner_interruption: Cell<bool>,
+}
+
+impl EmbedderPausingTreeBuilder {
+    fn new(sink: DocumentSink, opts: TreeBuilderOpts) -> Self {
+        Self {
+            inner: TreeBuilder::new(sink, opts),
+            deferred_owner_interruption: Cell::new(false),
+        }
+    }
+
+    fn new_for_fragment(
+        sink: DocumentSink,
+        context_handle: ParseHandle,
+        opts: TreeBuilderOpts,
+    ) -> Self {
+        Self {
+            inner: TreeBuilder::new_for_fragment(sink, context_handle, None, opts),
+            deferred_owner_interruption: Cell::new(false),
+        }
+    }
+
+    fn sink(&self) -> &DocumentSink {
+        &self.inner.sink
+    }
+}
+
+impl EmbedderPausingTreeBuilder {
+    fn process_token_before_callbacks(
+        &self,
+        token: Token,
+        line_number: u64,
+    ) -> TokenSinkResult<ParseHandle> {
+        let current_script_nonceable = match &token {
+            Token::TagToken(tag)
+                if tag.kind == TagKind::StartTag && tag.name.as_ref() == "script" =>
+            {
+                let nonce = tag
+                    .attrs
+                    .iter()
+                    .find(|attribute| {
+                        attribute.name.ns.is_empty() && attribute.name.local.as_ref() == "nonce"
+                    })
+                    .map(|attribute| attribute.value.as_ref());
+                Some(script_element_nonce_is_nonceable(
+                    nonce,
+                    tag.had_duplicate_attributes,
+                    tag.attrs
+                        .iter()
+                        .map(|attribute| (attribute.name.local.as_ref(), attribute.value.as_ref())),
+                ))
+            }
+            _ => None,
+        };
+        let in_foreign_content = self
+            .inner
+            .adjusted_current_node_present_but_not_in_html_namespace();
+        let foreign_end_tag = match &token {
+            Token::TagToken(tag) if in_foreign_content && tag.kind == TagKind::EndTag => {
+                Some(tag.name.clone())
+            }
+            _ => None,
+        };
+        let self_closing_foreign_start_tag = match &token {
+            Token::TagToken(tag)
+                if in_foreign_content && tag.kind == TagKind::StartTag && tag.self_closing =>
+            {
+                Some(tag.name.clone())
+            }
+            _ => None,
+        };
+        let previous_script_nonceable = self
+            .inner
+            .sink
+            .replace_current_script_nonceable(current_script_nonceable);
+        let result = self.inner.process_token(token, line_number);
+        self.inner
+            .sink
+            .replace_current_script_nonceable(previous_script_nonceable);
+        // Encoding notices are advisory for this already-decoded input. A tag
+        // such as <link rel=stylesheet charset=utf-8> can also require an
+        // embedder pause, which must be returned at this tag boundary. Leaving
+        // it pending would expose it on a later character or error token,
+        // where html5ever requires Continue and would otherwise panic.
+        if !matches!(
+            result,
+            TokenSinkResult::Continue | TokenSinkResult::EncodingIndicator(_)
+        ) {
+            return result;
+        }
+        let svg_script_handoff = if let Some(local_name) = foreign_end_tag {
+            // html5ever truncates its foreign-content open-element stack
+            // directly, bypassing TreeSink::pop(). Keep the parser target's
+            // mirror synchronized and expose closed SVG scripts below.
+            self.inner
+                .sink
+                .note_foreign_end_tag_processed(local_name.as_ref())
+        } else if let Some(local_name) = self_closing_foreign_start_tag {
+            self.inner
+                .sink
+                .note_self_closing_foreign_element_processed(local_name.as_ref())
+        } else {
+            None
+        };
+        if let Some(script) = svg_script_handoff {
+            // html5ever 0.39 has an explicit FIXME for </script> in SVG and
+            // does not return TokenSinkResult::Script for it. Preserve the
+            // ordinary tokenizer pause contract at this narrow adapter.
+            return TokenSinkResult::Script(ParseHandle::new(script, None));
+        }
+        result
+    }
+}
+
+impl TokenSink for EmbedderPausingTreeBuilder {
+    type Handle = TokenizerPause;
+
+    fn process_token(&self, token: Token, line_number: u64) -> TokenSinkResult<Self::Handle> {
+        // html5ever requires character, comment, doctype and EOF tokens to
+        // return Continue. A parser mutation callback may make a stylesheet or
+        // custom-element pause visible only after one of those tokens. Retain
+        // the sink-owned pause until a tag token can yield it safely.
+        let can_pause = matches!(&token, Token::TagToken(_));
+        let result = self.process_token_before_callbacks(token, line_number);
+        let current_owner_interruption = self.sink().finish_parser_dom_mutations().is_break();
+        let deferred_owner_interruption = self.deferred_owner_interruption.replace(false);
+        let owner_interrupted = current_owner_interruption || deferred_owner_interruption;
+        if !can_pause {
+            self.deferred_owner_interruption.set(owner_interrupted);
+            return TokenSinkResult::Continue;
+        }
+        if owner_interrupted {
+            // A nested parser invocation already handed its blocker to the
+            // owner. Stop this outer feed before it consumes another token.
+            return TokenSinkResult::Script(TokenizerPause::OwnerInterrupted);
+        }
+        if matches!(
+            &result,
+            TokenSinkResult::Continue | TokenSinkResult::EncodingIndicator(_)
+        ) {
+            if let Some(placeholder) = self
+                .sink()
+                .pending_custom_element_construction_handoff_placeholder()
+            {
+                // html5ever has no custom-element pause result. The stream
+                // distinguishes this handle using sink-owned state.
+                return TokenSinkResult::Script(TokenizerPause::Handoff(ParseHandle::new(
+                    placeholder,
+                    None,
+                )));
+            }
+            if let Some(stylesheet) = self.sink().pending_blocking_stylesheet_pause() {
+                // Query after mutation callbacks so the handle matches
+                // the queue entry consumed by the stream layer.
+                return TokenSinkResult::Script(TokenizerPause::Handoff(ParseHandle::new(
+                    stylesheet, None,
+                )));
+            }
+        }
+        match result {
+            TokenSinkResult::Continue => TokenSinkResult::Continue,
+            TokenSinkResult::Script(handle) => {
+                TokenSinkResult::Script(TokenizerPause::Handoff(handle))
+            }
+            TokenSinkResult::Plaintext => TokenSinkResult::Plaintext,
+            TokenSinkResult::RawData(kind) => TokenSinkResult::RawData(kind),
+            TokenSinkResult::EncodingIndicator(label) => TokenSinkResult::EncodingIndicator(label),
+        }
+    }
+
+    fn end(&self) {
+        self.inner.end();
+        let _ = self.sink().finish_parser_dom_mutations();
+    }
+
+    fn adjusted_current_node_present_but_not_in_html_namespace(&self) -> bool {
+        self.inner
+            .adjusted_current_node_present_but_not_in_html_namespace()
+    }
+}
+
+impl HtmlParserSession {
+    pub(super) fn initialize_text_document(&self) {
+        // Parse only the browser-owned shell. Response bytes enter the tokenizer
+        // after it has switched to plaintext, so tags and entities stay literal.
+        self.process(StrTendril::from(concat!(
+            "<html><head></head><body>",
+            "<pre style=\"word-wrap: break-word; white-space: pre-wrap;\">\n"
+        )));
+        // Text documents have no doctype but always use no-quirks mode.
+        self.sink()
+            .set_quirks_mode(html5ever::tree_builder::QuirksMode::NoQuirks);
+        self.tokenizer.set_plaintext_state();
+    }
+
+    fn new(sink: DocumentSink, opts: ParseOpts) -> Self {
+        let tree_builder = EmbedderPausingTreeBuilder::new(sink, opts.tree_builder);
+        Self {
+            tokenizer: Tokenizer::new(tree_builder, opts.tokenizer),
+            input: RefCell::default(),
+        }
+    }
+
+    pub(super) fn new_fragment(
+        sink: DocumentSink,
+        opts: ParseOpts,
+        context_handle: ParseHandle,
+        context_element_allows_scripting: bool,
+    ) -> Self {
+        let tree_builder =
+            EmbedderPausingTreeBuilder::new_for_fragment(sink, context_handle, opts.tree_builder);
+        let tokenizer_options = TokenizerOpts {
+            initial_state: Some(
+                tree_builder
+                    .inner
+                    .tokenizer_state_for_context_elem(context_element_allows_scripting),
+            ),
+            ..opts.tokenizer
+        };
+        Self {
+            tokenizer: Tokenizer::new(tree_builder, tokenizer_options),
+            input: RefCell::default(),
+        }
+    }
+
+    pub(super) fn process(&self, input: StrTendril) {
+        self.input.borrow_mut().push_back(input);
+        let input = self.input.borrow().current();
+        while let HtmlParserSessionResult::Script(_) =
+            feed_with_definitive_encoding(&self.tokenizer, &input)
+        {
+            // Non-pump callers intentionally parse through embedder pauses. They have no
+            // runtime owner to notify, so parser-side custom-element handoffs and
+            // blocking-stylesheet pauses must be discarded before continuing.
+            self.discard_parser_side_embedder_yield();
+        }
+    }
+
+    pub(super) fn push_back(&self, input: StrTendril) {
+        self.input.borrow_mut().push_back(input);
+    }
+
+    pub(super) fn begin_inserted_input(&self, input: StrTendril) {
+        if input.is_empty() {
+            return;
+        }
+        // Without segment provenance from html5ever, any later token can span
+        // inserted input and the original tail after this insertion frame is
+        // restored. Prefer permanent unknown locations over reporting
+        // plausible but incorrect document lines.
+        self.tokenizer.sink.sink().mark_source_positions_unknown();
+        self.input.borrow_mut().begin_inserted(input);
+    }
+
+    pub(super) fn append_to_current_inserted_input(&self, input: StrTendril) -> bool {
+        self.input.borrow_mut().append_to_current_inserted(input)
+    }
+
+    pub(super) fn append_at_current_insertion_point(&self, input: StrTendril) {
+        self.tokenizer.sink.sink().mark_source_positions_unknown();
+        self.input.borrow_mut().push_back(input);
+    }
+
+    pub(super) fn has_buffered_input(&self) -> bool {
+        self.input.borrow().has_input()
+    }
+
+    pub(super) fn buffered_input_len(&self) -> usize {
+        self.input.borrow().len()
+    }
+
+    pub(super) fn snapshot_buffered_input(&self) -> String {
+        self.input.borrow().snapshot()
+    }
+
+    pub(super) fn feed(&self) -> HtmlParserSessionResult {
+        let input = self.input.borrow().current();
+        let result = feed_with_definitive_encoding(&self.tokenizer, &input);
+        if matches!(result, HtmlParserSessionResult::InputDrained)
+            && self.input.borrow().is_current(&input)
+        {
+            // The restored parent is intentionally consumed by the next parser
+            // step so each insertion depth keeps an explicit input boundary.
+            self.input.borrow_mut().restore_parent_if_current_empty();
+        }
+        result
+    }
+
+    pub(super) fn sink(&self) -> &DocumentSink {
+        self.tokenizer.sink.sink()
+    }
+
+    pub(super) fn finish(self) -> ParserStreamHtmlTreeSinkTarget {
+        let Self { tokenizer, input } = self;
+        let input_buffer = input.into_inner().into_buffer();
+        while let HtmlParserSessionResult::Script(_) =
+            feed_with_definitive_encoding(&tokenizer, &input_buffer)
+        {
+            tokenizer
+                .sink
+                .sink()
+                .pop_pending_custom_element_construction_handoff();
+            tokenizer
+                .sink
+                .sink()
+                .pop_pending_blocking_stylesheet_pause();
+        }
+        debug_assert!(input_buffer.is_empty());
+        tokenizer.sink.sink().begin_tree_builder_finish();
+        tokenizer.end();
+        tokenizer.sink.inner.sink.finish()
+    }
+
+    pub(super) fn finish_live_runtime_dom_sink_parser(self) -> ParserFinishDiscoverySignals {
+        let Self { tokenizer, input } = self;
+        let input_buffer = input.into_inner().into_buffer();
+        while let HtmlParserSessionResult::Script(_) =
+            feed_with_definitive_encoding(&tokenizer, &input_buffer)
+        {
+            tokenizer
+                .sink
+                .sink()
+                .pop_pending_custom_element_construction_handoff();
+            tokenizer
+                .sink
+                .sink()
+                .pop_pending_blocking_stylesheet_pause();
+        }
+        debug_assert!(input_buffer.is_empty());
+        tokenizer.sink.sink().begin_tree_builder_finish();
+        tokenizer.end();
+        let sink = tokenizer.sink.sink();
+        sink.finish_construction();
+        ParserFinishDiscoverySignals {
+            parser_created_null_registry_elements: sink
+                .take_parser_stream_null_custom_element_registry_elements(),
+            discovered_modulepreload_link_candidates: sink
+                .drain_discovered_modulepreload_link_candidates(),
+            discovered_parser_meta_csp_candidates: sink
+                .drain_discovered_parser_meta_csp_candidates(),
+            discovered_blocking_stylesheet_inputs: sink
+                .drain_discovered_blocking_stylesheet_inputs(),
+        }
+    }
+
+    fn discard_parser_side_embedder_yield(&self) {
+        self.tokenizer
+            .sink
+            .sink()
+            .pop_pending_custom_element_construction_handoff();
+        self.tokenizer
+            .sink
+            .sink()
+            .pop_pending_blocking_stylesheet_pause();
+    }
+}
+
+fn feed_with_definitive_encoding(
+    tokenizer: &Tokenizer<EmbedderPausingTreeBuilder>,
+    input_buffer: &BufferQueue,
+) -> HtmlParserSessionResult {
+    loop {
+        match tokenizer.feed(input_buffer) {
+            // Moli resolves the document encoding from the response and byte-level
+            // meta prescan before creating this Unicode parser session. The tree
+            // builder cannot change that definitive decoding, so continue past its
+            // advisory notification without exposing a false parser pause.
+            TokenizerResult::EncodingIndicator(_) => {}
+            TokenizerResult::Done => return HtmlParserSessionResult::InputDrained,
+            TokenizerResult::Script(TokenizerPause::Handoff(handle)) => {
+                return HtmlParserSessionResult::Script(handle);
+            }
+            TokenizerResult::Script(TokenizerPause::OwnerInterrupted) => {
+                return HtmlParserSessionResult::OwnerInterrupted;
+            }
+        }
+    }
+}
+
+pub(super) fn new_html_tree_sink_session(
+    target: ParserStreamHtmlTreeSinkTarget,
+    options: ParseOpts,
+) -> HtmlTreeSinkSession {
+    let sink = DocumentSink::new(target);
+    let parser = HtmlParserSession::new(sink, options);
+    let script_input = ParserInputQueue::default();
+
+    HtmlTreeSinkSession {
+        parser,
+        script_input,
+    }
+}
+
+pub(super) fn new_fragment_html_tree_sink_session(
+    target: ParserStreamHtmlTreeSinkTarget,
+    context_handle: NativeNodeId,
+    context_namespace: &str,
+    context_local_name: &str,
+    scripting_enabled: bool,
+) -> HtmlTreeSinkSession {
+    let sink = DocumentSink::new(target);
+    let context = QualName::new(
+        None,
+        Namespace::from(context_namespace),
+        LocalName::from(context_local_name),
+    );
+    let context_handle = ParseHandle::new(context_handle, Some(Rc::new(context)));
+    let parser = HtmlParserSession::new_fragment(
+        sink,
+        html_parse_opts_with_scripting(scripting_enabled),
+        context_handle,
+        scripting_enabled,
+    );
+    let script_input = ParserInputQueue::default();
+
+    HtmlTreeSinkSession {
+        parser,
+        script_input,
+    }
+}
+
+pub(super) fn html_parse_opts_with_scripting(scripting_enabled: bool) -> ParseOpts {
+    ParseOpts {
+        tree_builder: TreeBuilderOpts {
+            scripting_enabled,
+            ..TreeBuilderOpts::default()
+        },
+        ..ParseOpts::default()
+    }
+}

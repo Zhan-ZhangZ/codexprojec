@@ -1,0 +1,23 @@
+{
+  "name": "@openlive/db",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "reset": "tsx src/reset.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openlive/shared": "workspace:*",
+    "proper-lockfile": "^4.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@types/proper-lockfile": "^4.1.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

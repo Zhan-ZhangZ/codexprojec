@@ -1,0 +1,213 @@
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    pin::pin,
+    rc::{Rc, Weak},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+use super::RendererInspectorSessionExecutorLocal;
+use crate::{
+    devtools::{
+        ingress::{
+            io::{RendererInspectorInterruptTarget, RendererInspectorIoOwnerWake},
+            main::{RendererInspectorMainOwnerDispatch, RendererInspectorMainOwnerWake},
+        },
+        route::RendererInspectorSessionExecutorRouteId,
+    },
+    inspector_microtasks::with_scoped_inspector_microtasks,
+};
+
+thread_local! {
+    static INSPECTOR_SESSION_EXECUTORS: RefCell<HashMap<RendererInspectorSessionExecutorRouteId, Weak<RendererInspectorSessionExecutorLocal>>> =
+        RefCell::new(HashMap::new());
+}
+
+static NEXT_SESSION_EXECUTOR_ROUTE_ID: AtomicUsize = AtomicUsize::new(1);
+
+struct EnteredOwnerWakeIsolateGuard(*mut v8::Isolate);
+
+impl Drop for EnteredOwnerWakeIsolateGuard {
+    fn drop(&mut self) {
+        // SAFETY: the owner wake enters this exact isolate immediately before
+        // constructing the guard, and all V8 scopes created afterwards have
+        // been dropped before this guard runs.
+        unsafe {
+            finish_page_close_termination(&mut *self.0);
+            (*self.0).exit();
+        }
+    }
+}
+
+pub(super) fn allocate_session_executor_route_id() -> usize {
+    NEXT_SESSION_EXECUTOR_ROUTE_ID
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .expect("renderer Inspector session-executor route ID exhausted")
+}
+
+pub(super) fn register_session_executor(
+    route_id: RendererInspectorSessionExecutorRouteId,
+    executor: &Rc<RendererInspectorSessionExecutorLocal>,
+) {
+    let previous = INSPECTOR_SESSION_EXECUTORS.with(|executors| {
+        executors
+            .borrow_mut()
+            .insert(route_id, Rc::downgrade(executor))
+    });
+    assert!(
+        previous.is_none(),
+        "renderer Inspector session-executor route IDs must be unique"
+    );
+}
+
+pub(super) fn unregister_session_executor(route_id: RendererInspectorSessionExecutorRouteId) {
+    let _ = INSPECTOR_SESSION_EXECUTORS.try_with(|executors| {
+        executors.borrow_mut().remove(&route_id);
+    });
+}
+
+fn session_executor(
+    route_id: RendererInspectorSessionExecutorRouteId,
+) -> Option<Rc<RendererInspectorSessionExecutorLocal>> {
+    INSPECTOR_SESSION_EXECUTORS
+        .try_with(|executors| executors.borrow().get(&route_id).and_then(Weak::upgrade))
+        .ok()
+        .flatten()
+}
+
+pub(super) unsafe extern "C" fn dispatch_inspector_interrupt(
+    isolate: v8::UnsafeRawIsolatePtr,
+    data: *mut std::ffi::c_void,
+) {
+    // SAFETY: every accepted request passes one `Arc::into_raw` reference to
+    // V8, and V8 invokes its interrupt callback at most once for that request.
+    // Reconstructing it here consumes exactly that callback-owned reference.
+    let callback_target = unsafe { Arc::from_raw(data.cast::<RendererInspectorInterruptTarget>()) };
+    let Some(session_executor) = session_executor(callback_target.route_id()) else {
+        return;
+    };
+    let mut isolate_ptr = isolate;
+    let isolate = unsafe { v8::Isolate::ref_from_raw_isolate_ptr_mut(&mut isolate_ptr) };
+    if callback_target.take_close_request()
+        && terminate_entered_page_for_close(isolate, callback_target.route_id())
+    {
+        return;
+    }
+    dispatch_environment_notifications(&session_executor, isolate);
+    with_scoped_inspector_microtasks(isolate, || {
+        session_executor.dispatch_next_io_command_from_interrupt();
+    });
+}
+
+struct InspectorPageCloseTermination;
+
+fn terminate_entered_page_for_close(
+    isolate: &mut v8::Isolate,
+    route: RendererInspectorSessionExecutorRouteId,
+) -> bool {
+    let owns_entry = {
+        let scope = pin!(v8::HandleScope::new(isolate));
+        let scope = &mut scope.init();
+        let Some(context) = scope.try_get_entered_or_microtask_context() else {
+            return false;
+        };
+        context
+            .get_slot::<RendererInspectorSessionExecutorRouteId>()
+            .is_some_and(|entered| *entered == route)
+    };
+    if owns_entry {
+        isolate.set_slot(InspectorPageCloseTermination);
+        isolate.terminate_execution();
+    }
+    owns_entry
+}
+
+/// Clear only our close-induced termination, after all entered contexts have
+/// unwound. The next live Page in this isolate must be able to run normally.
+pub(crate) fn finish_page_close_termination(isolate: &mut v8::Isolate) {
+    if isolate
+        .get_slot::<InspectorPageCloseTermination>()
+        .is_none()
+    {
+        return;
+    }
+    let still_entered = {
+        let scope = pin!(v8::HandleScope::new(isolate));
+        scope
+            .init()
+            .try_get_entered_or_microtask_context()
+            .is_some()
+    };
+    if !still_entered
+        && isolate
+            .remove_slot::<InspectorPageCloseTermination>()
+            .is_some()
+    {
+        isolate.cancel_terminate_execution();
+    }
+}
+
+pub(crate) fn dispatch_inspector_io_owner_wake(wake: RendererInspectorIoOwnerWake) {
+    let Some(session_executor) = session_executor(wake.route_id()) else {
+        return;
+    };
+    let isolate = unsafe { &mut *session_executor.isolate.get() };
+    let isolate = unsafe { v8::Isolate::ref_from_raw_isolate_ptr_mut(isolate) };
+    // Unlike an interrupt or a nested pause-loop dispatch, an owner wake enters
+    // Inspector while no JavaScript callback is on the stack. Establish the V8
+    // handle boundary explicitly: Inspector commands may lazily allocate V8
+    // objects even when the inspected page itself is idle (for example, the
+    // regex context used by Debugger.setBreakpointByUrl).
+    // SAFETY: this wake is executed synchronously on the isolate's renderer
+    // owner thread. V8 permits re-entry and restores any previously entered
+    // isolate when the matching exit runs.
+    unsafe {
+        isolate.enter();
+    }
+    let _entered_isolate = EnteredOwnerWakeIsolateGuard(isolate);
+    dispatch_environment_notifications(&session_executor, isolate);
+    let scope = pin!(v8::HandleScope::new(isolate));
+    let scope = &mut scope.init();
+    with_scoped_inspector_microtasks(scope, || {
+        session_executor.dispatch_next_io_command_from_owner();
+    });
+}
+
+pub(crate) fn dispatch_inspector_main_owner_wake(
+    wake: RendererInspectorMainOwnerWake,
+) -> Option<RendererInspectorMainOwnerDispatch> {
+    let session_executor = session_executor(wake.route_id())?;
+    // Main and IO have separate owner wake channels. Do not let selection of
+    // a Main wake overtake an environment notification already in IO ingress.
+    // Only enter V8 when there is concrete notification work to execute.
+    if let Some(invalidation) = session_executor
+        .environment_ingress()
+        .claim_environment_invalidation()
+    {
+        let isolate = unsafe { &mut *session_executor.isolate.get() };
+        let isolate = unsafe { v8::Isolate::ref_from_raw_isolate_ptr_mut(isolate) };
+        unsafe { isolate.enter() };
+        let _entered_isolate = EnteredOwnerWakeIsolateGuard(isolate);
+        invalidation.notify_isolate(isolate);
+    }
+    session_executor.claim_next_main_command_from_owner()
+}
+
+fn dispatch_environment_notifications(
+    session_executor: &RendererInspectorSessionExecutorLocal,
+    isolate: &mut v8::Isolate,
+) {
+    // Consume one merged batch. A publication racing application retains its
+    // own wake instead of making this callback drain an unbounded producer.
+    if let Some(invalidation) = session_executor
+        .environment_ingress()
+        .claim_environment_invalidation()
+    {
+        invalidation.notify_isolate(isolate);
+    }
+}

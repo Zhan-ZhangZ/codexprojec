@@ -1,0 +1,140 @@
+import type { ProviderId } from '../types/provider';
+import { isValidSessionMetadataId } from './storagePaths';
+
+/** Chat tab workspace state persisted per view across restarts. */
+export interface AppTabManagerState {
+  openTabs: Array<{ tabId: string; conversationId: string | null; draftModel?: string; providerId?: ProviderId | null }>;
+  activeTabId: string | null;
+  expandedTitleTabIds?: string[];
+}
+
+export const TAB_WORKSPACE_VIEW_STATE_KEY = 'tabWorkspace';
+export const TAB_WORKSPACE_VIEW_STATE_VERSION = 1;
+export type TabWorkspaceViewState = AppTabManagerState & {
+  version: typeof TAB_WORKSPACE_VIEW_STATE_VERSION;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+export function decodeTabWorkspaceViewState(data: unknown): AppTabManagerState | null {
+  if (
+    !isRecord(data)
+    || data.version !== TAB_WORKSPACE_VIEW_STATE_VERSION
+    || !Array.isArray(data.openTabs)
+    || (data.activeTabId !== null && !isNonBlankString(data.activeTabId))
+  ) {
+    return null;
+  }
+
+  const openTabs: AppTabManagerState['openTabs'] = [];
+  const openTabIds = new Set<string>();
+  for (const tab of data.openTabs) {
+    if (
+      !isRecord(tab)
+      || !isNonBlankString(tab.tabId)
+      || openTabIds.has(tab.tabId)
+      || (
+        tab.conversationId !== null
+        && (
+          !isNonBlankString(tab.conversationId)
+          || !isValidSessionMetadataId(tab.conversationId)
+        )
+      )
+      || (
+        'draftModel' in tab
+        && !isNonBlankString(tab.draftModel)
+      )
+      || (
+        typeof tab.conversationId === 'string'
+        && 'draftModel' in tab
+      )
+      || ('providerId' in tab && (
+        (!isNonBlankString(tab.providerId) && tab.providerId !== null)
+        || tab.conversationId !== null || !isNonBlankString(tab.draftModel)
+      ))
+    ) {
+      return null;
+    }
+
+    openTabs.push({
+      tabId: tab.tabId,
+      conversationId: tab.conversationId,
+      ...(typeof tab.draftModel === 'string' ? { draftModel: tab.draftModel } : {}),
+      ...('providerId' in tab ? { providerId: tab.providerId as string | null } : {}),
+    });
+    openTabIds.add(tab.tabId);
+  }
+
+  if (data.activeTabId !== null && !openTabIds.has(data.activeTabId)) {
+    return null;
+  }
+  if (openTabs.length > 0 && data.activeTabId === null) {
+    return null;
+  }
+
+  const expandedTitleTabIds: string[] = [];
+  if ('expandedTitleTabIds' in data) {
+    if (!Array.isArray(data.expandedTitleTabIds)) return null;
+
+    const seenExpandedTabIds = new Set<string>();
+    for (const tabId of data.expandedTitleTabIds) {
+      if (
+        !isNonBlankString(tabId)
+        || !openTabIds.has(tabId)
+        || seenExpandedTabIds.has(tabId)
+      ) {
+        return null;
+      }
+      expandedTitleTabIds.push(tabId);
+      seenExpandedTabIds.add(tabId);
+    }
+  }
+
+  return {
+    openTabs,
+    activeTabId: data.activeTabId,
+    ...(expandedTitleTabIds.length > 0 ? { expandedTitleTabIds } : {}),
+  };
+}
+
+export function resolveTabRestorePlan(
+  state: AppTabManagerState | null,
+  options: {
+    restoreTabsOnStartup: boolean;
+    isDualPane: boolean;
+  },
+): AppTabManagerState {
+  if (!state || !options.restoreTabsOnStartup) {
+    return { openTabs: [], activeTabId: null };
+  }
+
+  if (options.isDualPane) {
+    const activeTab = state.openTabs.find(tab => tab.tabId === state.activeTabId);
+    return activeTab
+      ? {
+          openTabs: [activeTab],
+          activeTabId: activeTab.tabId,
+          ...(state.expandedTitleTabIds?.includes(activeTab.tabId)
+            ? { expandedTitleTabIds: [activeTab.tabId] }
+            : {}),
+        }
+      : { openTabs: [], activeTabId: null };
+  }
+
+  const activeTabId = state.openTabs.some(tab => tab.tabId === state.activeTabId)
+    ? state.activeTabId
+    : state.openTabs[0]?.tabId ?? null;
+  return {
+    openTabs: [...state.openTabs],
+    activeTabId,
+    ...(state.expandedTitleTabIds?.length
+      ? { expandedTitleTabIds: [...state.expandedTitleTabIds] }
+      : {}),
+  };
+}

@@ -1,0 +1,179 @@
+/* Code block wrapper - contains pre + button outside scroll area */
+.claudian-code-wrapper {
+  position: relative;
+  margin: 8px 0;
+}
+
+/* Code blocks in chat messages */
+.claudian-code-wrapper pre,
+.claudian-message-content pre {
+  background: rgb(0 0 0 / 20%);
+  padding: 8px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0;
+}
+
+/* Light mode: use a lighter background so hljs comment colors stay readable */
+body.theme-light .claudian-code-wrapper pre,
+body.theme-light .claudian-message-content pre {
+  background: rgb(0 0 0 / 8%);
+}
+
+/* Code blocks without language - wrap content */
+.claudian-code-wrapper:not(.has-language) pre {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-x: hidden;
+}
+
+/* Unwrapped pre still needs margin */
+.claudian-message-content>pre {
+  margin: 8px 0;
+}
+
+.claudian-message-content code {
+  font-family: var(--font-monospace);
+  font-size: 13px;
+}
+
+.claudian-container .claudian-message-content :not(pre) > code {
+  background-color: var(--code-background, var(--background-secondary));
+  color: var(--code-normal, var(--text-normal));
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Clickable language label - positioned outside scroll area */
+.claudian-code-wrapper .claudian-code-lang-label {
+  position: absolute;
+  top: 6px;
+  inset-inline-end: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-family: var(--font-monospace);
+  color: var(--text-faint);
+  background: var(--background-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 2;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.claudian-code-wrapper .claudian-code-lang-label:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Hide default copy button when language label exists */
+.claudian-code-wrapper.has-language .copy-code-button {
+  display: none;
+}
+
+/* Copy button - positioned outside scroll area */
+.claudian-code-wrapper .copy-code-button {
+  position: absolute;
+  top: 6px;
+  inset-inline-end: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--background-primary);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  border-radius: 3px;
+  z-index: 2;
+}
+
+/* If copy button uses an icon (svg) */
+.claudian-code-wrapper .copy-code-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Show copy button on hover */
+.claudian-code-wrapper:not(.has-language):hover .copy-code-button {
+  opacity: 1;
+}
+
+.claudian-code-wrapper .copy-code-button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.claudian-container .claudian-mermaid img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.claudian-container .claudian-mermaid {
+  position: relative;
+  padding: 32px 8px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.claudian-container .claudian-mermaid > img[hidden],
+.claudian-container .claudian-mermaid-toggle[hidden] {
+  display: none;
+}
+
+.claudian-container .claudian-mermaid-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  height: 24px;
+  width: 24px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.claudian-container .claudian-mermaid-toggle:hover,
+.claudian-container .claudian-mermaid-toggle:focus-visible {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--text-normal);
+}
+
+.claudian-container .claudian-mermaid-toggle:disabled {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.claudian-container .claudian-mermaid-toggle svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentcolor;
+}
+
+.claudian-mermaid-staging {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Match Obsidian's treatment of its bundled Mermaid renderer's light palette. */
+.theme-dark .claudian-container .claudian-mermaid img {
+  filter: invert(100%) hue-rotate(180deg) saturate(1.25);
+}
+
+.claudian-container .claudian-mermaid--source {
+  padding: 0;
+  border: none;
+}

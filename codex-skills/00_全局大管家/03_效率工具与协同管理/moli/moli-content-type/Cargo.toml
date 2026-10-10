@@ -1,0 +1,11 @@
+[package]
+license.workspace = true
+name = "moli-content-type"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+data-url = "0.3.2"
+
+[lints]
+workspace = true

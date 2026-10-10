@@ -1,0 +1,215 @@
+/* Input area */
+.claudian-input-container {
+  position: relative;
+  padding: 12px 0 0;
+}
+
+.claudian-input-footer {
+  position: relative;
+  flex-shrink: 0;
+  padding: 6px 0 0;
+}
+
+.claudian-active-input-slot > .claudian-input-composer > .claudian-input-container {
+  padding-top: 0;
+}
+
+/*
+ * Input wrapper (the bordered box): queued strip, per-turn context, editor, toolbar.
+ * Its height follows the editor.
+ */
+.claudian-input-wrapper {
+  --claudian-input-wrapper-border-color: var(--background-modifier-border);
+  --claudian-input-wrapper-box-shadow: none;
+  --claudian-input-wrapper-radius: 10px;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--claudian-input-wrapper-border-color);
+  border-radius: var(--claudian-input-wrapper-radius);
+  box-shadow: var(--claudian-input-wrapper-box-shadow);
+
+  /*
+   * Size container for the toolbar's narrow-width labels. The box, not the toolbar, is the
+   * container: zen shrink-wraps the toolbar, and inline-size containment would collapse it.
+   */
+  container-type: inline-size;
+}
+
+.claudian-input-wrapper:focus-within {
+  --claudian-input-wrapper-border-color: var(--background-modifier-border-hover);
+}
+
+/* Nav row (tab badges start, action icons end) - above input wrapper */
+.claudian-input-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 6px;
+  min-height: 0;
+}
+
+.claudian-input-nav-row:empty {
+  display: none;
+}
+
+.claudian-input-nav-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+}
+
+.claudian-input-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+/* Retain button specificity to override Obsidian's native control chrome. */
+button.claudian-input-nav-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
+button.claudian-input-nav-btn:hover,
+button.claudian-input-nav-btn:focus-visible,
+button.claudian-input-nav-btn:active {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+}
+
+button.claudian-input-nav-btn:disabled,
+button.claudian-input-nav-btn[aria-disabled='true'] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.claudian-input-nav-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.claudian-new-tab-btn svg {
+  width: 16.8px;
+  height: 16.8px;
+}
+
+/* Queued follow-up strip, attached to the top of the input box while a message waits. */
+.claudian-input-queue-strip {
+  display: none;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 6px 5px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: calc(var(--claudian-input-wrapper-radius) - 1px) calc(var(--claudian-input-wrapper-radius) - 1px) 0 0;
+  background-color: rgb(var(--claudian-brand-rgb), 0.06);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.claudian-input-queue-strip-tag {
+  flex: 0 0 auto;
+  color: var(--claudian-brand);
+  font-weight: 500;
+}
+
+.claudian-queue-indicator-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-normal);
+}
+
+.claudian-queue-indicator-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.claudian-queue-indicator-actions button.claudian-queue-indicator-action,
+.claudian-queue-indicator-actions button.claudian-queue-indicator-icon-action {
+  flex: 0 0 auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.claudian-queue-indicator-actions button.claudian-queue-indicator-action:is(:hover, :focus-visible, :active),
+.claudian-queue-indicator-actions button.claudian-queue-indicator-icon-action:is(:hover, :focus-visible, :active) {
+  border: 0;
+  background: var(--background-modifier-hover);
+  box-shadow: none;
+  color: var(--text-normal);
+}
+
+.claudian-queue-indicator-actions button.claudian-queue-indicator-action:focus-visible,
+.claudian-queue-indicator-actions button.claudian-queue-indicator-icon-action:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.claudian-queue-indicator-actions button.claudian-queue-indicator-action[disabled],
+.claudian-queue-indicator-actions button.claudian-queue-indicator-icon-action[disabled] {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.claudian-queue-indicator-actions button.claudian-queue-indicator-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.claudian-queue-indicator-actions button.claudian-queue-indicator-icon-action svg {
+  width: 14px;
+  height: 14px;
+  color: currentcolor;
+}
+
+/* Side-chat colour preview while the command is only typed; it outranks the focus border. */
+.claudian-input-wrapper.claudian-input-side-chat-preview {
+  --claudian-input-wrapper-border-color: var(--claudian-side-chat);
+  --claudian-input-wrapper-box-shadow: 0 0 0 1px var(--claudian-side-chat);
+}

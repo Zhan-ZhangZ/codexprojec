@@ -1,0 +1,104 @@
+import type { Approve } from "./types.js";
+
+// Two policies, one per mode. A call asks before each action that changes
+// something: the user is there talking it through, and an edit to their files
+// is worth a word. Flow asks for one thing, once: may it act on this machine.
+// After that every tool runs, with no tier, no per-tool override and no
+// per-call question, because a run of clicks interrupted three times to confirm
+// is not a run, and a person who says yes to everything in a row has not been
+// asked anything meaningful.
+
+/** Nothing is ever asked. For tests and for a host that gates elsewhere. */
+export const allowAll: Approve = async () => ({});
+
+export interface ConsentOpts {
+  /** Whether the person has already said Flow may act. Read per turn. */
+  granted: () => boolean;
+  /** Take consent out loud, for a machine that got past onboarding without it.
+   *  Must not throw. */
+  ask: (question: string, signal: AbortSignal) => Promise<boolean>;
+  /** Remember the yes, so this is the last time it is asked. Must not throw. */
+  remember: () => Promise<void>;
+  /** How the ask ended. Not called when the turn was cut off first. Must not throw. */
+  onResult?: (outcome: "granted" | "declined" | "unanswered") => void;
+  /** An unanswered ask is a no: silence is not consent. */
+  timeoutMs?: number;
+}
+
+export const CONSENT_QUESTION =
+  "Before I do that: is it alright for me to act on this machine, to type, click, and run things you ask for?";
+
+// The model reads these as the tool's result, and a result that points at the
+// settings has it telling a person who just said no to go and say yes.
+// Read back on a later turn, "blocked" alone passes for a tool that cannot work,
+// and the model then refuses a fresh request without calling anything.
+const DECLINED = "the user declined this time, so it was not done. The tool itself works; the no was only for this request. Do not retry it or ask them to allow it or turn anything on; carry on without it. If they ask for it again later, call the tool again: they will be asked afresh.";
+/** A tool result the user refused, told apart from one that failed. */
+export const isDeclined = (result: string): boolean => result.includes(DECLINED);
+const UNANSWERED = "the user did not answer the permission question, so it was not done. The tool itself works. Do not retry it now; if they ask for it again later, call the tool again: they will be asked afresh.";
+/** A tool result blocked because the ask timed out, told apart from a refusal. */
+export const isUnanswered = (result: string): boolean => result.includes(UNANSWERED);
+
+/**
+ * The whole policy. Consent already given runs the call; consent missing takes
+ * it once and then runs the call; consent refused blocks every call of this
+ * turn and asks again next turn, because a no here is about this moment, not
+ * forever. Built per turn, and again for a request that arrives mid-run.
+ */
+export function consentApprove(opts: ConsentOpts): Approve {
+  const timeoutMs = opts.timeoutMs ?? 20_000;
+  /** Resolves null when nobody answered. */
+  let asking: Promise<boolean | null> | null = null;
+  let refused = "";
+
+  const take = (signal: AbortSignal): Promise<boolean | null> => {
+    // A batch of calls is one question, not one per call.
+    asking ??= (async () => {
+      const inner = new AbortController();
+      const onAbort = () => inner.abort();
+      signal.addEventListener("abort", onAbort, { once: true });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const yes = await Promise.race([
+          opts.ask(CONSENT_QUESTION, inner.signal),
+          new Promise<null>((resolve) => { timer = setTimeout(() => { inner.abort(); resolve(null); }, timeoutMs); }),
+        ]);
+        if (!signal.aborted) opts.onResult?.(yes === null ? "unanswered" : yes ? "granted" : "declined");
+        if (yes) await opts.remember();
+        return yes;
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        asking = null;
+      }
+    })();
+    return asking;
+  };
+
+  return async (_req, signal) => {
+    if (opts.granted()) return {};
+    if (refused) return { block: true, reason: refused };
+    if (signal.aborted) return { block: true, reason: "cancelled" };
+    const yes = await take(signal);
+    if (yes) return {};
+    if (signal.aborted) return { block: true, reason: "cancelled" };
+    refused = yes === null ? UNANSWERED : DECLINED;
+    return { block: true, reason: refused };
+  };
+}
+
+// A call's no is about this action only, so the model is told the tool works.
+const NOT_APPROVED = "the user did not approve it, so it was not done. The tool itself works. Do not retry it unless they ask for it again.";
+
+/**
+ * A call's policy: every tool that changes something asks first, naming what it
+ * is about to do, and everything that only reads or only keeps a note runs.
+ * `ask` resolves true for a yes. A no blocks that call alone.
+ */
+export function askEach(ask: (question: string, signal: AbortSignal) => Promise<boolean>): Approve {
+  return async ({ tool, args }, signal) => {
+    if (!tool.confirm) return {};
+    if (signal.aborted) return { block: true, reason: "cancelled" };
+    return (await ask(`OpenLive wants to ${tool.confirm(args)}. Allow it?`, signal)) ? {} : { block: true, reason: NOT_APPROVED };
+  };
+}

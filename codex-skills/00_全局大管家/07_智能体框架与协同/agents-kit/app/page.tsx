@@ -1,0 +1,315 @@
+import { GitHubStarButton } from "@/components/app/github-star-button"
+import { appExamples } from "@/components/gallery/app-examples-data"
+import { GenerativeShowcase } from "@/components/gallery/generative-previews"
+import { HomeChatPreview } from "@/components/gallery/home-chat-preview"
+import { HomeVoicePreview } from "@/components/gallery/home-voice-preview"
+import { PublicHeader } from "@/components/gallery/public-header"
+import { ArrowRight } from "lucide-react"
+import Image from "next/image"
+import Link from "next/link"
+
+export default function Home() {
+  return (
+    <>
+      <PublicHeader />
+      <main>
+        <section className="mx-auto max-w-[860px] px-5 pt-20 pb-16 text-center sm:pt-28">
+          <Link
+            href="#voice"
+            className="text-text-secondary hover:text-text-primary inline-flex items-center gap-2 text-xs"
+          >
+            New in v0.3 · Voice agents
+            <ArrowRight className="size-3" aria-hidden="true" />
+          </Link>
+          <h1 className="mt-5 text-4xl leading-[1.08] font-semibold tracking-tight sm:text-6xl">
+            Build better
+            <br />
+            agent interfaces.
+          </h1>
+          <p className="text-text-secondary mx-auto mt-6 max-w-xl text-base leading-7">
+            Chat, voice, tools, approvals, and results people can work with.
+            Built in React. Yours to copy and change.
+          </p>
+          <HomeChatPreview />
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/components"
+              className="bg-button-primary inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium"
+            >
+              Browse components
+              <ArrowRight className="size-4" />
+            </Link>
+            <Link
+              href="/voice"
+              className="border-border-button-default inline-flex h-9 items-center gap-2 rounded-lg border px-4 text-sm font-medium"
+            >
+              Explore voice
+            </Link>
+            <GitHubStarButton />
+          </div>
+          <p className="text-text-tertiary mt-6 text-xs">
+            Using v0.1?{" "}
+            <Link href="/v0.1" className="underline underline-offset-4">
+              Your collection is still available.
+            </Link>
+          </p>
+        </section>
+        <section
+          id="voice"
+          className="border-separator-border mx-auto max-w-[1120px] scroll-mt-20 border-t px-5 py-12 sm:px-8"
+        >
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-text-secondary text-xs">New in v0.3</p>
+              <h2 className="mt-2 text-xl font-medium tracking-tight">
+                Interfaces for voice agents.
+              </h2>
+              <p className="text-text-secondary mt-3 max-w-xl text-sm leading-6">
+                37 new entries for conversations people can hear, follow, and
+                control.
+              </p>
+            </div>
+            <Link
+              href="/voice"
+              className="text-text-secondary hover:text-text-primary inline-flex items-center gap-2 text-sm"
+            >
+              Explore all 37 voice entries
+              <ArrowRight className="size-4" aria-hidden="true" />
+            </Link>
+          </div>
+          <div className="grid items-center gap-8 lg:grid-cols-[1fr_1.8fr]">
+            <div>
+              <dl className="space-y-6">
+                <div>
+                  <dt className="text-sm font-medium">LiveKit</dt>
+                  <dd className="text-text-secondary mt-2 text-[13px] leading-6">
+                    15 entries for call controls, transcripts, complete
+                    sessions, and popups.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium">ElevenLabs</dt>
+                  <dd className="text-text-secondary mt-2 text-[13px] leading-6">
+                    17 families for voice input, playback, waveforms, and voice
+                    selection.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium">OrbKit</dt>
+                  <dd className="text-text-secondary mt-2 text-[13px] leading-6">
+                    Four animated shader styles: Hydrogen, Ion, Dither, and
+                    Nimbus.
+                  </dd>
+                </div>
+              </dl>
+              <Link
+                href="/docs/voice-agents"
+                className="mt-6 inline-block text-xs underline underline-offset-4"
+              >
+                Build your first voice interface
+              </Link>
+            </div>
+            <div className="min-h-[480px] min-w-0">
+              <HomeVoicePreview />
+            </div>
+          </div>
+        </section>
+        <section
+          id="app-examples"
+          className="border-separator-border mx-auto max-w-[1120px] border-t px-5 py-12 sm:px-8"
+        >
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-text-secondary text-xs">Build with the kit</p>
+              <h2 className="mt-2 text-xl font-medium tracking-tight">
+                Start with a complete app.
+              </h2>
+            </div>
+            <Link
+              href="/examples"
+              className="text-text-secondary hover:text-text-primary text-sm"
+            >
+              Explore app examples
+            </Link>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {appExamples.map((example) => (
+              <Link
+                key={example.id}
+                href={`/examples#${example.id}`}
+                className="border-separator-border hover:bg-background-secondary-default rounded-[10px] border p-4 transition-colors"
+              >
+                <Image
+                  src={`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/screenshots/example-${example.id}.png`}
+                  alt={`${example.title} built with Agents Kit`}
+                  width={2432}
+                  height={1520}
+                  className="border-separator-border mb-4 aspect-[8/5] w-full rounded-md border object-contain"
+                />
+                <p className="text-text-secondary text-xs">{example.label}</p>
+                <h3 className="mt-2 text-sm font-medium">{example.title}</h3>
+                <p className="text-text-secondary mt-2 text-[13px] leading-6">
+                  {example.description}
+                </p>
+                <span className="mt-4 inline-flex items-center gap-2 text-xs">
+                  Try the app and get the prompt{" "}
+                  <ArrowRight className="size-3" aria-hidden="true" />
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+        <section className="border-separator-border mx-auto max-w-[1120px] border-t px-5 py-12 sm:px-8">
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-text-secondary text-xs">Generated results</p>
+              <h2 className="mt-2 text-xl font-medium tracking-tight">
+                Results you can work with.
+              </h2>
+            </div>
+            <Link
+              href="/generative"
+              className="text-text-secondary hover:text-text-primary text-sm"
+            >
+              Explore all 16 outputs
+            </Link>
+          </div>
+          <GenerativeShowcase grid featured />
+          <p className="text-text-tertiary mt-6 text-xs">
+            Fictional Fieldwork examples with AI-generated imagery. Connect each
+            component to your own model and tools.
+          </p>
+        </section>
+
+        <section className="border-separator-border mx-auto max-w-[1120px] border-t px-5 py-12 sm:px-8">
+          <p className="text-text-secondary text-xs">
+            From prompt to useful result
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight">
+            The pieces you need, together.
+          </h2>
+          <div className="mt-8 grid gap-8 sm:grid-cols-3">
+            <div>
+              <h3 className="text-sm font-medium">Show what is happening</h3>
+              <p className="text-text-secondary mt-2 text-[13px] leading-6">
+                Thinking states, tool activity, progress, and source citations
+                keep people oriented while an agent works.
+              </p>
+              <Link
+                href="/components#thinking"
+                className="mt-4 inline-block text-xs underline underline-offset-4"
+              >
+                Explore activity components
+              </Link>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium">Ask before making changes</h3>
+              <p className="text-text-secondary mt-2 text-[13px] leading-6">
+                Review proposed changes, compare options, request approval, and
+                return to a checkpoint with explicit actions.
+              </p>
+              <Link
+                href="/components#approval-card"
+                className="mt-4 inline-block text-xs underline underline-offset-4"
+              >
+                Explore decision components
+              </Link>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium">Make results easy to use</h3>
+              <p className="text-text-secondary mt-2 text-[13px] leading-6">
+                Sixteen result types cover documents, comparisons, checklists,
+                media, inboxes, and more. Ready, loading, and error states are
+                part of the component.
+              </p>
+              <Link
+                href="/generative"
+                className="mt-4 inline-block text-xs underline underline-offset-4"
+              >
+                Try the result workflows
+              </Link>
+            </div>
+          </div>
+        </section>
+        <section className="border-separator-border mx-auto grid max-w-[1120px] gap-8 border-t px-5 py-12 sm:px-8 md:grid-cols-2">
+          <div>
+            <p className="text-text-secondary text-xs">Source you can own</p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight">
+              Fits your existing app.
+            </h2>
+            <p className="text-text-secondary mt-4 text-sm leading-6">
+              Copy a component into your React project. Supply its data and
+              connect its callbacks to your own tools, persistence, and model
+              provider.
+            </p>
+            <Link
+              href="/docs"
+              className="mt-5 inline-block text-sm underline underline-offset-4"
+            >
+              Read the integration guide
+            </Link>
+          </div>
+          <div className="border-separator-border bg-background-secondary-default overflow-hidden rounded-xl border">
+            <div className="border-separator-border text-text-secondary border-b px-4 py-3 text-xs">
+              Install a generated result surface
+            </div>
+            <pre className="p-4 text-xs leading-6 break-all whitespace-pre-wrap">
+              <code>
+                npx shadcn@latest add
+                https://agents-ui.github.io/agents-kit/c/agent-generative-surface.json
+              </code>
+            </pre>
+            <p className="text-text-secondary px-4 pb-4 text-xs">
+              React · TypeScript · Tailwind CSS · Explicit source licenses
+            </p>
+          </div>
+        </section>
+        <section className="border-separator-border mx-auto max-w-[1120px] border-t px-5 py-10 sm:px-8">
+          <h2 className="text-sm font-medium">
+            Built with public open-source work.
+          </h2>
+          <p className="text-text-secondary mt-2 max-w-2xl text-[13px] leading-6">
+            Agents Kit adapts and extends these libraries. Their authors deserve
+            the credit; their source and license notices stay with the
+            components.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-x-6 gap-y-3 text-sm">
+            {[
+              ["Beautiful UI", "https://www.beautifului.dev/"],
+              ["beUI", "https://beui.dev/"],
+              ["BoardUI", "https://github.com/BoardUI/boardui"],
+              ["Blocks.so", "https://blocks.so"],
+              [
+                "Thinking Orbs",
+                "https://github.com/Jakubantalik/thinking-orbs",
+              ],
+              ["AI Elements", "https://github.com/vercel/ai-elements"],
+              ["Prompt Kit", "https://github.com/ibelick/prompt-kit"],
+              ["LiveKit", "https://github.com/livekit/components-js"],
+              ["ElevenLabs UI", "https://github.com/elevenlabs/ui"],
+              ["OrbKit", "https://github.com/zzzzshawn/orbkit"],
+            ].map(([name, href]) => (
+              <a
+                key={name}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-text-secondary decoration-border-button-default hover:text-text-primary underline underline-offset-4"
+              >
+                {name}
+              </a>
+            ))}
+          </div>
+        </section>
+        <footer className="border-separator-border text-text-secondary mx-auto flex max-w-[1120px] flex-wrap items-center justify-between gap-4 border-t px-5 py-8 text-xs sm:px-8">
+          <span>Agents Kit · React · TypeScript</span>
+          <div className="flex gap-5">
+            <Link href="/docs">Documentation</Link>
+            <a href="https://github.com/agents-ui/agents-kit">GitHub</a>
+            <Link href="/v0.1">v0.1 archive</Link>
+          </div>
+        </footer>
+      </main>
+    </>
+  )
+}

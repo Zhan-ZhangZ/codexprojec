@@ -1,0 +1,20 @@
+{
+  "name": "Blocks.so adapted compositions",
+  "upstream": "https://github.com/ephraimduncan/blocks",
+  "revision": "e4fdf6c4b31bb95ddbccf2c919478672bc61226b",
+  "license": "MIT",
+  "sourceFiles": [
+    "content/components/ai/ai-01.tsx",
+    "content/components/ai/ai-02.tsx",
+    "content/components/ai/ai-03.tsx",
+    "content/components/ai/ai-04.tsx",
+    "content/components/ai/ai-05.tsx",
+    "components/ai-elements/conversation.tsx",
+    "components/ai-elements/message.tsx",
+    "components/ai-elements/prompt-input.tsx",
+    "content/components/file-upload/file-upload-05.tsx",
+    "content/components/onboarding/onboarding-03.tsx",
+    "content/components/tables/table-02.tsx"
+  ],
+  "adaptation": "Public AI blocks retain upstream layouts, controls, interaction states, transitions, attachment handling, and response animation. Import paths, host theme tokens, reusable callbacks, and demo fixture copy were adapted for Agents Kit. Existing application compositions remain controlled adaptations. Card insets and AI starter headings follow the shared compact Agents Kit design system."
+}

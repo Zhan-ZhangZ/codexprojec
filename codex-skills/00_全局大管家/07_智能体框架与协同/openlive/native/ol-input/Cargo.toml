@@ -1,0 +1,59 @@
+[package]
+name = "ol-input"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+napi = { version = "3", default-features = false, features = ["napi4"] }
+napi-derive = "3"
+handy-keys = "0.3"
+arboard = { version = "3", features = ["image-data"] }
+png = "0.18"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray", "NSData", "NSObject", "NSDictionary", "NSValue", "NSGeometry", "NSURL", "NSError", "NSEnumerator"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSRunningApplication", "NSWorkspace"] }
+objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes", "VNRecognizeTextRequest", "objc2-core-foundation"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFArray", "CFDictionary", "CFString", "CFNumber", "CFData", "CFBase"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGEvent", "CGEventTypes", "CGEventSource", "CGWindow", "CGRemoteOperation", "CGImage", "CGDataProvider", "CGDirectDisplay", "CGDisplayConfiguration", "CGColorSpace", "CGGeometry"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Ole",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Accessibility",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Shell",
+  "Win32_System_Com",
+  "Win32_System_Threading",
+  "Win32_System_ProcessStatus",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Media_Ocr",
+  "Graphics_Imaging",
+  "Storage_Streams",
+  "Foundation",
+  "Foundation_Collections",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.14"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+strip = "symbols"

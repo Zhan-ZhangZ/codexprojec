@@ -1,0 +1,160 @@
+// Gap-free playback of the agent's 24 kHz PCM by scheduling each buffer on a
+// running clock. Barge-in = flush(epoch): stop everything scheduled and ignore
+// any audio tagged below the new epoch (kills the ~1s already-buffered tail).
+//
+// CRITICAL for barge-in on speakers: we do NOT play to AudioContext.destination.
+// Chrome's echo canceller (AEC3) is blind to Web-Audio output, so the agent's
+// voice would leak into the mic uncancelled and break barge-in. Instead we route
+// through a MediaStreamDestination into a hidden <audio> element — which AEC3
+// DOES reference — so the agent's own voice is cancelled from the mic input.
+import { octaveBands } from "./spectrum";
+import { captureEvent } from "./ttsCapture";
+
+/** Where play() put a chunk on the context clock, for the debug capture (ttsCapture.ts). */
+export interface PlayInfo { startAt: number; now: number; prevEnd: number; held: boolean; rate: number; baseLatency: number; outputLatency: number | undefined }
+
+export class AudioPlayer {
+  private ctx: AudioContext | null = null;
+  private sink: MediaStreamAudioDestinationNode | null = null;
+  private el: HTMLAudioElement | null = null;
+  private analyser: AnalyserNode | null = null;   // taps the output for LIVE amplitude
+  private dcBlock: BiquadFilterNode | null = null; // every chunk passes it on the way to the sink and the analyser
+  private tap: Float32Array | null = null;         // reusable time-domain buffer
+  private freq: Uint8Array | null = null;          // reusable frequency buffer (spectrum)
+  private nextAt = 0;
+  private minEpoch = 0;
+  private sources = new Set<AudioBufferSourceNode>();
+  private timers = new Set<ReturnType<typeof setTimeout>>(); // pending onStart callbacks
+  private cues = new Map<() => void, number>(); // each onStart not yet fired → the context time its chunk starts
+  private held = false; // hold(): the clock stops, and every chunk and cue waits for release()
+  private rms = 0;
+
+  private ensure(): AudioContext {
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      this.sink = this.ctx.createMediaStreamDestination();
+      // A parallel analyser tap so level() reflects the REAL, moment-to-moment
+      // voice amplitude (drives a lively orb) instead of a static per-chunk RMS.
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.6; // steadier spectrum bars
+      this.tap = new Float32Array(this.analyser.fftSize);
+      this.freq = new Uint8Array(this.analyser.frequencyBinCount);
+      // Kokoro (agent) and Kitten output carries a constant DC offset (part mean
+      // 0.02-0.04, measured 2026-09-30) that plays louder than the voice is. One
+      // filter for the whole stream, so its state runs on across chunks with no step
+      // at a join; 30 Hz is under any voice's pitch.
+      this.dcBlock = this.ctx.createBiquadFilter();
+      this.dcBlock.type = "highpass";
+      this.dcBlock.frequency.value = 30;
+      this.dcBlock.connect(this.sink);
+      this.dcBlock.connect(this.analyser);
+      const el = document.createElement("audio");
+      el.autoplay = true;
+      el.setAttribute("playsinline", "");
+      el.srcObject = this.sink.stream; // <audio> playback → AEC references it
+      el.style.display = "none";
+      document.body.appendChild(el);
+      void el.play().catch(() => {});
+      this.el = el;
+    }
+    if (this.held) void this.ctx.suspend();
+    else if (this.ctx.state === "suspended") void this.ctx.resume();
+    return this.ctx;
+  }
+
+  // TTS hands us Float32 (24 kHz from Kokoro and the native engines), whole or
+  // as streamed pieces that queue back to back. `onStart` fires
+  // when THIS chunk actually begins playing (not when it was synthesized) — so a
+  // caption can track the voice instead of racing ahead of it.
+  play(f32: Float32Array, epoch: number, sampleRate = 24000, onStart?: () => void): PlayInfo | undefined {
+    if (epoch < this.minEpoch || f32.length === 0) return;
+    const ctx = this.ensure();
+    let sum = 0;
+    for (let i = 0; i < f32.length; i++) { const v = f32[i]!; sum += v * v; }
+    this.rms = Math.sqrt(sum / f32.length);
+    const buf = ctx.createBuffer(1, f32.length, sampleRate);
+    buf.getChannelData(0).set(f32); // avoids the Float32Array<ArrayBufferLike> generic mismatch
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.dcBlock!); // → MediaStreamDestination → <audio> (AEC-visible), and the analyser tap
+    const prevEnd = this.nextAt;
+    const startAt = Math.max(ctx.currentTime + 0.02, prevEnd);
+    src.start(startAt);
+    // Chromium sometimes keeps repeating a resampled (24 kHz in a 48 kHz context)
+    // buffer's last 128-frame quantum after it ends, a buzz of up to ~5 s under the
+    // next chunk (measured 2026-09-30 on Kokoro and Kitten); an explicit stop at
+    // its end removed it in every replay.
+    src.stop(startAt + buf.duration);
+    this.nextAt = startAt + buf.duration;
+    this.sources.add(src);
+    src.onended = () => { this.sources.delete(src); if (this.sources.size === 0) this.rms = 0; };
+    if (onStart) { this.cues.set(onStart, startAt); if (!this.held) this.arm(onStart, startAt); }
+    return { startAt, now: ctx.currentTime, prevEnd, held: this.held, rate: ctx.sampleRate, baseLatency: ctx.baseLatency, outputLatency: ctx.outputLatency };
+  }
+  private arm(onStart: () => void, at: number) {
+    const t = setTimeout(() => { this.timers.delete(t); this.cues.delete(onStart); onStart(); }, Math.max(0, (at - this.ctx!.currentTime) * 1000));
+    this.timers.add(t);
+  }
+
+  /** Pause mid-word, keeping everything queued: release() goes on from the same sample. */
+  hold() {
+    captureEvent("hold", this.ctx?.currentTime);
+    this.held = true;
+    void this.ctx?.suspend();
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+  }
+  release() {
+    if (!this.held) return;
+    captureEvent("release", this.ctx?.currentTime);
+    this.held = false;
+    if (!this.ctx) return;
+    void this.ctx.resume();
+    for (const [onStart, at] of this.cues) this.arm(onStart, at);
+  }
+
+  flush(epoch: number) {
+    captureEvent("flush", this.ctx?.currentTime);
+    this.minEpoch = epoch;
+    for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
+    this.sources.clear();
+    for (const t of this.timers) clearTimeout(t); // drop pending caption updates
+    this.timers.clear();
+    this.cues.clear();
+    // A barge-in over a paused reply: the clock runs again for the next one.
+    if (this.held) { this.held = false; void this.ctx?.resume(); }
+    this.nextAt = 0;
+    this.rms = 0;
+  }
+
+  // Live output amplitude from the analyser tap (0..~1) while audio plays — a
+  // moving value so the orb pulses with the voice. Falls back to the last chunk's
+  // static RMS if the analyser isn't available or nothing is scheduled.
+  level() {
+    if (this.held) return 0;
+    if (this.analyser && this.tap && this.sources.size > 0) {
+      this.analyser.getFloatTimeDomainData(this.tap as Float32Array<ArrayBuffer>);
+      let sum = 0; for (let i = 0; i < this.tap.length; i++) sum += this.tap[i]! * this.tap[i]!;
+      return Math.sqrt(sum / this.tap.length);
+    }
+    return this.sources.size > 0 ? this.rms : 0;
+  }
+  /** N octave-band magnitudes (0..1) of the agent's voice — a real spectrum for the
+   *  orb while it speaks. Zeros when nothing is playing. */
+  agentBands(n = 5): number[] {
+    if (this.held || !this.analyser || !this.freq || this.sources.size === 0) return new Array(n).fill(0);
+    this.analyser.getByteFrequencyData(this.freq as Uint8Array<ArrayBuffer>);
+    return octaveBands(this.freq, n);
+  }
+  playing() { return this.sources.size > 0; }
+  /** Seconds of audio scheduled and not yet played (0 when nothing is). */
+  ahead() { return this.ctx ? Math.max(0, this.nextAt - this.ctx.currentTime) : 0; }
+  resume() { this.ensure(); }
+  close() {
+    this.flush(Number.MAX_SAFE_INTEGER);
+    try { this.el?.pause(); this.el?.remove(); } catch { /* */ }
+    try { void this.ctx?.close(); } catch { /* */ }
+    this.el = null; this.sink = null; this.ctx = null; this.analyser = null; this.tap = null; this.dcBlock = null;
+  }
+}

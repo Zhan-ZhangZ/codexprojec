@@ -1,0 +1,831 @@
+@import "tailwindcss";
+
+/* ─── OpenLive design tokens ───────────────────────────────────────────────
+   Token *names* are mapped to CSS custom properties via @theme inline, so the
+   Tailwind utilities (bg-card, text-accent, …) resolve to var() at runtime.
+   The actual values live in :root (warm-paper light) and .dark (near-black),
+   and next-themes toggles the .dark class — flipping every surface at once.
+   A second, independent axis is the LOOK: <html data-look="flat|glass">.
+   Flat is solid surfaces (the default when the attribute is absent); glass
+   swaps the same tokens for translucent ones meant to sit over a transparent
+   window. Components never branch on the look, they only read tokens. */
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-elevated: var(--elevated);
+  --color-popover: var(--popover);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-border-heavy: var(--border-heavy);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-arc: var(--arc);
+  --color-arc-soft: var(--arc-soft);
+  --color-destructive: var(--destructive);
+  --color-danger: var(--destructive);
+  --color-success: var(--success);
+  --color-link-foreground: var(--link-foreground);
+  /* Text-safe siblings of the status colours. --success is tuned as a FILL
+     (dots, chips, bars); at body size on a light surface it lands under 4.5:1,
+     so anything that spells a status out in words uses these instead.
+     --destructive is also read as words (text-danger) and clears 4.5:1 on every
+     surface in both themes. Dark cannot hold one red that white text sits on
+     AND that reads on near-black, so white text sits on --destructive-fill. */
+  --color-success-text: var(--success-text);
+  --color-destructive-text: var(--destructive-text);
+  --color-destructive-fill: var(--destructive-fill);
+  --color-icon-info: var(--icon-info);
+  --color-muted-strong: var(--muted-strong);
+  --color-arc-text: var(--arc-text);
+  --color-dictate: var(--dictate);
+  --color-surface-raised: var(--surface-raised);
+  /* The one dim behind every modal, sheet and drawer, in both themes and looks. */
+  --color-scrim: rgb(0 0 0 / 0.4);
+  /* Kit tokens: a recessed track (segmented, slider, search), the thumb that
+     rides it, form-control and secondary-button fills, chips, the specular
+     hairline on floating surfaces, and the inverted tooltip. */
+  --color-track: var(--track);
+  --color-thumb: var(--thumb);
+  --color-control: var(--control);
+  --color-secondary: var(--secondary);
+  --color-chip: var(--chip);
+  --color-hairline: var(--hairline);
+  --color-tooltip: var(--tooltip);
+  --color-tooltip-foreground: var(--tooltip-foreground);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --shadow-track: var(--shadow-track);
+  --shadow-thumb: var(--shadow-thumb);
+  --shadow-rim: var(--shadow-rim);
+  --shadow-primary: var(--shadow-primary);
+  --shadow-mark: var(--shadow-mark);
+
+  /* The layering ladder (values in :root) as utilities: z-modal, z-toast, ... */
+  --z-index-nav: var(--z-nav);
+  --z-index-stage: var(--z-stage);
+  --z-index-overlay: var(--z-overlay);
+  --z-index-drawer-scrim: var(--z-drawer-scrim);
+  --z-index-drawer: var(--z-drawer);
+  --z-index-settings: var(--z-settings);
+  --z-index-tour: var(--z-tour);
+  --z-index-palette: var(--z-palette);
+  --z-index-modal: var(--z-modal);
+  --z-index-banner: var(--z-banner);
+  --z-index-toast: var(--z-toast);
+  --z-index-window: var(--z-window);
+
+  /* The motion vocabulary (values in :root) as utilities: ease-standard,
+     duration-base, ... */
+  --ease-standard: var(--ease-standard);
+  --ease-out-quart: var(--ease-out-quart);
+  --ease-settle: var(--ease-settle);
+  --ease-spring: var(--ease-spring);
+  --transition-duration-press: var(--dur-press);
+  --transition-duration-fast: var(--dur-fast);
+  --transition-duration-base: var(--dur-base);
+  --transition-duration-settle: var(--dur-settle);
+  --transition-duration-look: var(--dur-look);
+  --transition-duration-slow: var(--dur-slow);
+  --transition-duration-spring: var(--dur-spring);
+  --transition-duration-meter: var(--dur-meter);
+
+  /* ── Type scale — the ONLY font sizes in the app. Each token is a Tailwind
+     text-* utility (text-micro, text-caption, …). Desktop-app scale: denser
+     than web defaults, aligned to the SF/Segoe optical sizes. ────────────── */
+  --text-micro: 10px;            /* smallest legal size: keycaps, badges */
+  --text-micro--line-height: 14px;
+  --text-caption: 11px;          /* secondary metadata, eyebrows, timestamps */
+  --text-caption--line-height: 15px;
+  --text-label: 12px;            /* control labels, list secondary text */
+  --text-label--line-height: 16px;
+  --text-body: 13px;             /* default UI + chat text */
+  --text-body--line-height: 20px;
+  --text-callout: 14px;          /* emphasized body, primary buttons */
+  --text-callout--line-height: 20px;
+  --text-title-sm: 15px;         /* card titles, section headers */
+  --text-title-sm--line-height: 21px;
+  --text-title: 17px;            /* page/panel titles */
+  --text-title--line-height: 23px;
+  --text-title-lg: 22px;         /* screen headlines */
+  --text-title-lg--line-height: 27px;
+  --text-display: 32px;          /* the hero wordmark only */
+  --text-display--line-height: 38px;
+  /* legacy alias — same metrics as body */
+  --text-chat: 13px;
+  --text-chat--line-height: 21px;
+
+  /* One radius system. sm: chips' inner marks, badges, checkboxes, tooltips,
+     menu items. md: fields, selects, segmented tracks, list rows. lg: cards and
+     menus. xl: panels and sheets. Every button is a capsule (rounded-full).
+     Nested corners are concentric: inner = outer - the padding between them. */
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Spacing tokens for the kit. Control heights: sm 28, field 32, md 36, lg 44;
+     row is a grouped list row's minimum height. In rem, so they scale with the
+     root font size (h-control-md, size-control-sm, min-h-row, ...). */
+  --spacing-control-sm: 1.75rem;
+  --spacing-field: 2rem;
+  --spacing-control-md: 2.25rem;
+  --spacing-control-lg: 2.75rem;
+  --spacing-row: 3.25rem;
+  --spacing-card-x: 1rem;
+  --spacing-section: 1.75rem;
+  /* The timeline's one rhythm, in a call and in a Flow session alike: a beat
+     between the pieces of one turn, a turn between one speaker and the next. */
+  --spacing-beat: 0.5rem;
+  --spacing-turn: 1.25rem;
+  /* The frameless window's own chrome, in CSS px like the OS draws it: the
+     macOS traffic lights on the left, the Windows and Linux caption buttons
+     (3 x 46) on the right. A title bar keeps its content clear of both. */
+  --spacing-traffic-lights: 84px;
+  --spacing-window-controls: 140px;
+
+  /* Motion defaults — every bare transition utility (hovers, presses, colour
+     shifts) inherits these, so the whole app eases the same buttery way without
+     sprinkling per-element duration classes. Mirrors the spec in lib/motion.ts.
+     Explicit duration/ease utilities still override per element. */
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: var(--ease-standard);
+
+  /* Bundled Geist (next/font embeds the files at build time — no runtime
+     fetch): identical rendering on macOS and Windows. The system stack was
+     tried and rejected — SF renders wider than the layout was designed for
+     and the look diverged per platform. */
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Light — "warm paper": a stepped oat-to-cream ladder, no pure white anywhere.
+   Hierarchy mirrors dark mode's 4 clean levels: page < surface-raised < card <
+   elevated/popover. Cards used to be #ffffff on a near-white page (Δ≈4/255)
+   with 9%-alpha borders — everything fused into one white field. */
+:root {
+  color-scheme: light;
+  --background: #efede8;
+  --surface: #e7e4dd;
+  --card: #faf8f3;
+  --elevated: #fcfaf6;
+  --popover: #fcfaf6;
+  --foreground: #1a1a18;
+  /* Clears 4.5:1 on the tinted fills it sits on too (a segmented track, an
+     accent-tinted card); #6a6a66 fell to 4.1 there. */
+  --muted-foreground: #5d5d58;
+  /* 0.58 clears 4.5:1 on every light surface (4.95 on --surface, 5.07 on
+     --background, 5.24 on --card); 0.45 sat near 3.3:1. */
+  --faint: rgba(0, 0, 0, 0.58);
+  --border: rgba(0, 0, 0, 0.14);
+  --border-heavy: rgba(0, 0, 0, 0.22);
+  --accent: #2f6fed;
+  --accent-foreground: #ffffff;
+  --accent-soft: rgba(47, 111, 237, 0.10);
+  --arc: #e2701f;
+  --arc-soft: rgba(226, 112, 31, 0.12);
+  /* As words: 5.10:1 on --surface, 4.71:1 on its own /10 tint over --background. */
+  --destructive: #b91c1c;
+  --success: #16a34a;
+  --link-foreground: #1d4ed8;
+  --success-text: #15803d;
+  --destructive-text: #b91c1c;
+  --destructive-fill: #c81e1e;
+  --icon-info: #3b56a8;
+  --muted-strong: #56564f;
+  /* --arc as words: 5.35:1 on --background, 5.89:1 on --card, 4.84:1 on an
+     arc/10 tint. The fill stays bright; #e2701f as text was 2.7:1. */
+  --arc-text: #9a4a0a;
+  /* Dictate's chartreuse (the orb's dictate palettes in lib/waveOrb.ts), one in
+     both themes, so the shimmer on its words matches the orb under them. */
+  --dictate: #c6f135;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.16);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.26);
+  /* Elevation scale — hierarchy comes from surface shifts + these soft shadows,
+     not boxes of borders (HIG-style de-boxing). xs ≈ a hairline substitute. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.07);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px -12px rgba(0, 0, 0, 0.14);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.09), 0 24px 48px -16px rgba(0, 0, 0, 0.24);
+  --surface-raised: #f4f2ec;
+
+  --track: rgba(60, 50, 30, 0.08);
+  --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.10), inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --thumb: #fdfcf9;
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.12), 0 2px 6px -2px rgba(0, 0, 0, 0.10);
+  --control: #faf8f3;
+  --secondary: #f4f2ec;
+  --chip: #f4f2ec;
+  --hairline: var(--border);
+  --shadow-rim: 0 0 #0000;
+  --shadow-primary: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  /* The outline of an empty checkbox or radio. */
+  --shadow-mark: inset 0 0 0 1.5px var(--border-heavy);
+  --tooltip: #1a1a18;
+  --tooltip-foreground: #fafafa;
+  /* Backdrop for floating surfaces (menus, tooltips, floating bars). None when
+     flat: their fills are opaque. */
+  --surface-blur: none;
+  /* Anything floating over app content (dialogs, toasts, the floating Activity
+     panel): the card in Flat; under glass, an opaque-enough fill that reads over
+     any content, blurred by surface-float. */
+  --float: var(--card);
+  --scrim-blur: none;
+
+  /* Shared motion vocabulary. MIRRORS the spec in lib/motion.ts; keep the two
+     in sync. standard: hovers and colour (the default
+     transition). settle: thumbs and knobs. look: the Glass/Flat switch.
+     spring: SNAPPY sampled into CSS, for what CSS moves itself (a slider thumb,
+     a tick). press: how fast a control gives under the finger; it comes back
+     on the default transition, so a tap never feels stuck. */
+  --ease-spring: linear(0, 0.084, 0.266, 0.471, 0.657, 0.805, 0.911, 0.979, 1.017, 1.035, 1.038, 1.034, 1.027, 1.019, 1.012, 1.007, 1.003, 1.001, 0.999, 1);
+  --dur-spring: 420ms;
+  --dur-press: 90ms;
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-settle: cubic-bezier(0.34, 1.32, 0.64, 1); /* CSS ≈ GSAP back.out — a touch of overshoot */
+  --dur-fast: 220ms;
+  --dur-base: 340ms;
+  --dur-settle: 380ms;
+  --dur-look: 400ms;
+  --dur-slow: 440ms;
+  /* A level or progress meter: one step per reading, so it glides between
+     samples without lagging behind them. */
+  --dur-meter: 100ms;
+
+  /* Layering scale — ONE ladder so surfaces can't render in the wrong order.
+     Blocking modals (permission / elicitation) MUST sit above Settings, or a
+     mid-call approval opened while Settings is up renders behind it and auto-denies. */
+  --z-nav: 30;
+  --z-stage: 40;     /* full-window call surfaces: the lobby and the call itself */
+  --z-overlay: 50;   /* drawers, side panels, in-call popovers */
+  --z-drawer-scrim: 54;
+  --z-drawer: 55;    /* the History drawer, over its own scrim */
+  --z-settings: 60;  /* full-screen Settings overlay */
+  --z-tour: 65;      /* spotlight tour: over Settings, which it points into */
+  --z-palette: 66;   /* ⌘K palette + shortcuts sheet: over Settings and the tour, under blocking modals */
+  --z-modal: 70;     /* blocking modals — always above Settings */
+  --z-banner: 80;    /* connection banner: a slim pill, over modals, under toasts */
+  --z-toast: 90;     /* transient toasts */
+  --z-window: 100;   /* frameless window controls: always clickable */
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0b0b0c;
+  --surface: #141416;
+  --card: #1a1a1d;
+  --elevated: #202024;
+  --popover: #202024;
+  --foreground: #fafafa;
+  --muted-foreground: #a1a1aa;
+  --faint: rgba(255, 255, 255, 0.48);  /* 0.45 fell to 4.35:1 on --popover; this is 4.77 */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-heavy: rgba(255, 255, 255, 0.14);
+  --accent: #5b9dff;
+  --accent-foreground: #0b0b0c;
+  --accent-soft: rgba(91, 157, 255, 0.14);
+  --arc: #ff8a3d;
+  --arc-soft: rgba(255, 138, 61, 0.16);
+  /* As words: 4.89:1 on its own /10 tint over --card, the lowest pairing in use. */
+  --destructive: #fb5854;
+  --success: #40c977;
+  --link-foreground: #8fbcff;
+  /* Dark inverts the problem: the fills are already bright enough to read, and
+     what needs lifting is the body-length secondary copy. */
+  --success-text: #5ddb8d;
+  --destructive-text: #ff8b88;
+  /* White text on it: 4.59:1. */
+  --destructive-fill: #dc3430;
+  --icon-info: #9db8ff;
+  --muted-strong: #c9c9c4;
+  --arc-text: var(--arc);
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.5), 0 24px 48px -16px rgba(0, 0, 0, 0.7);
+  --surface-raised: #17171a;
+
+  --track: rgba(0, 0, 0, 0.38);
+  --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --thumb: #2e2e34;
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --control: #202024;
+  --secondary: rgba(255, 255, 255, 0.07);
+  --chip: rgba(255, 255, 255, 0.06);
+  --tooltip: #f4f4f5;
+  --tooltip-foreground: #141416;
+  /* Near-black leaves no room for a shadow to lift anything, so floating
+     surfaces step up to the elevated fill to stand off the scrim. */
+  --float: var(--elevated);
+}
+
+/* ─── Glass look ───────────────────────────────────────────────────────────
+   Only where the engine can blur and the person has not asked for less
+   transparency; anywhere else a glass-tagged window keeps the flat tokens
+   above, which are opaque, so nothing is ever unreadable. Cards are a light
+   wash (the window behind is already frosted by the OS); floating surfaces
+   blur what is under them and carry a specular hairline and a rim highlight.
+   The selectors are :root and .dark qualified by the attribute, so dark glass
+   (same specificity, declared later) wins over light glass. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @media (prefers-reduced-transparency: no-preference) {
+    :root[data-look="glass"] {
+      --background: rgba(250, 248, 244, 0.56);
+      --surface: rgba(255, 255, 255, 0.22);
+      --surface-raised: rgba(255, 255, 255, 0.5);
+      --card: rgba(255, 255, 255, 0.55);
+      --elevated: rgba(252, 250, 246, 0.86);
+      --popover: rgba(252, 250, 246, 0.86);
+      --float: rgba(252, 250, 246, 0.86);
+      --foreground: #141412;
+      --muted-foreground: #52524c;
+      --muted-strong: #44443e;
+      --faint: rgba(0, 0, 0, 0.62);
+      --border: rgba(0, 0, 0, 0.10);
+      --border-heavy: rgba(0, 0, 0, 0.22);
+      --track: rgba(0, 0, 0, 0.06);
+      --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+      --thumb: rgba(255, 255, 255, 0.95);
+      --control: rgba(255, 255, 255, 0.55);
+      --secondary: rgba(255, 255, 255, 0.5);
+      --chip: rgba(255, 255, 255, 0.5);
+      --hairline: rgba(255, 255, 255, 0.75);
+      --shadow-rim: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 0.5px rgba(0, 0, 0, 0.07), 0 12px 30px -20px rgba(60, 40, 10, 0.3);
+      --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(0, 0, 0, 0.03), 0 0 0 0.5px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(60, 45, 20, 0.12);
+      --surface-blur: blur(22px) saturate(180%);
+      --scrim-blur: blur(8px);
+    }
+    .dark[data-look="glass"] {
+      --background: rgba(16, 16, 20, 0.60);
+      --surface: rgba(255, 255, 255, 0.035);
+      --surface-raised: rgba(255, 255, 255, 0.07);
+      --card: rgba(255, 255, 255, 0.07);
+      /* 0.88: muted text keeps 4.5:1 even with white right behind the blur. */
+      --elevated: rgba(38, 38, 44, 0.88);
+      --popover: rgba(38, 38, 44, 0.88);
+      --float: rgba(38, 38, 44, 0.88);
+      --foreground: #fafafa;
+      --muted-foreground: #bdbdc6;
+      --muted-strong: #c9c9c4;
+      --faint: rgba(255, 255, 255, 0.60);
+      --border: rgba(255, 255, 255, 0.10);
+      --border-heavy: rgba(255, 255, 255, 0.18);
+      --track: rgba(0, 0, 0, 0.22);
+      --shadow-track: inset 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      --thumb: rgba(255, 255, 255, 0.18);
+      --shadow-thumb: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 8px rgba(0, 0, 0, 0.3);
+      --control: rgba(255, 255, 255, 0.07);
+      --secondary: rgba(255, 255, 255, 0.07);
+      --chip: rgba(255, 255, 255, 0.06);
+      --hairline: rgba(255, 255, 255, 0.13);
+      --shadow-rim: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 0.5px rgba(255, 255, 255, 0.07), 0 12px 30px -20px rgba(0, 0, 0, 0.55);
+      --shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.05), inset 0 0 14px rgba(255, 255, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.45);
+      --surface-blur: blur(22px) saturate(180%);
+    }
+    /* The window itself is the glass: the page must not paint an opaque canvas
+       under the tinted body, and the paper grain would sit on the desktop. */
+    html[data-look="glass"] { background: transparent; }
+    html[data-look="glass"] body::before { content: none; }
+  }
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Faint grain on the page background — gives light mode the demo's paper feel.
+   A single inline SVG turbulence tile, kept very low opacity in both themes. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.025;
+  mix-blend-mode: multiply;
+}
+.dark body::before { opacity: 0.04; mix-blend-mode: overlay; }
+
+/* The orb window (/flow) tags <html> with .chromeless: strip the root chrome
+   (paper grain, toasts) that would otherwise paint behind the floating orb, and
+   make the page transparent so it floats over the desktop (the BrowserWindow is
+   transparent; the orb draws its own surfaces). */
+html.chromeless, html.chromeless body { background: transparent; }
+html.chromeless body::before { content: none; }
+html.chromeless .ol-toasts { display: none; }
+/* Next's dev indicator is a fixed badge in the corner of the page. On these
+   windows the page IS the floating surface, so in dev it drew itself next to
+   the orb as if it were part of it. */
+html.chromeless nextjs-portal { display: none; }
+/* Every button on these windows is a pill or a circle; the app's 6px focus
+   radius squared them off while focused. */
+html.chromeless button:focus-visible { border-radius: 9999px; }
+
+/* ─── Desktop shell (frameless window) ──────────────────────────────────────
+   The window has no native frame; drag it from any surface tagged .app-drag,
+   while every interactive control inside opts out so only empty space moves it. */
+.desktop .app-drag { -webkit-app-region: drag; }
+.desktop .app-drag :is(button, a, input, select, textarea, label, [role="button"], [data-interactive]) { -webkit-app-region: no-drag; }
+
+/* Native apps don't let you drag-select their chrome. Selection stays ON for
+   real content: anything the user typed or the model said (inputs, transcript
+   markdown, code, and anything tagged .ol-selectable). Web build unaffected. */
+.desktop body { user-select: none; -webkit-user-select: none; }
+.desktop :is(input, textarea, [contenteditable="true"], .ol-md, .ol-selectable, pre, code) {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* A small text control's pointer target grows to the 28px minimum, invisibly,
+   so nothing around it moves. */
+@utility hit {
+  position: relative;
+  &::after { content: ""; position: absolute; inset-block: min(0px, calc((100% - 1.75rem) / 2)); inset-inline: -4px; }
+}
+
+/* Floating surfaces opt in with `surface-blur`; the look decides whether it blurs. */
+@utility surface-blur {
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+/* The one recipe for a surface over app content rather than over the desktop. */
+@utility surface-float {
+  background-color: var(--float);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+/* The drag corner of a floating tile (the camera, a shared screen). */
+@utility grip {
+  background: linear-gradient(135deg, transparent 50%, rgb(255 255 255 / 0.5) 50%);
+}
+/* Behind a modal: under glass, what it dims is also blurred past reading. */
+@utility scrim {
+  background-color: var(--color-scrim);
+  -webkit-backdrop-filter: var(--scrim-blur);
+  backdrop-filter: var(--scrim-blur);
+}
+
+/* ─── Layers under glass ───────────────────────────────────────────────────
+   The page's layers, bottom to top: the view (Chat home or Flow), the stage
+   (the call setup and the call), the History drawer, Settings (app/page.tsx).
+   Under glass the window is see-through and every fill is translucent, so a
+   full-window surface tagged [data-covering] cannot hide what it covers by
+   painting over it: the layers under it fade out as it fades in, then stop
+   painting. A stage covers the view; Settings covers them all. A modal that must
+   stay above Settings (.ol-over-settings) keeps its layer painting, unfaded,
+   around it. Flat is opaque and needs none of this. */
+/* Coming back waits out the first half of the cover's own fade-out. */
+[data-layer] { transition: opacity var(--dur-base) var(--ease-standard) calc(var(--dur-base) / 2); }
+html[data-look="glass"]:has([data-covering]) [data-layer="view"],
+html[data-look="glass"]:has([data-covering="settings"]) :is([data-layer="stage"], [data-layer="drawer"]) {
+  visibility: hidden;
+  transition: visibility 0s linear var(--dur-base);
+}
+html[data-look="glass"]:has([data-covering]) [data-layer="view"]:not(:has(.ol-over-settings)),
+html[data-look="glass"]:has([data-covering="settings"]) :is([data-layer="stage"], [data-layer="drawer"]):not(:has(.ol-over-settings)) {
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-standard), visibility 0s linear var(--dur-base);
+}
+html[data-look="glass"]:has([data-covering]) .ol-over-settings { visibility: visible; }
+/* The look switch snapshots the page right after the look changes: a covered
+   layer must already be gone by then, not partway through its fade. */
+html.look-switching [data-layer] { transition: none !important; }
+
+/* The Glass/Flat switch (lib/look.ts): the whole window cross-fades through a
+   short blur. Less motion keeps a plain, quicker cross-fade. */
+@keyframes look-out { to { opacity: 0; filter: blur(6px); } }
+@keyframes look-in { from { opacity: 0; filter: blur(6px); } }
+html.look-switching::view-transition-old(root),
+html.look-switching::view-transition-new(root) {
+  animation-duration: var(--dur-look);
+  animation-timing-function: var(--ease-standard);
+}
+html.look-switching::view-transition-old(root) { animation-name: look-out; }
+html.look-switching::view-transition-new(root) { animation-name: look-in; }
+@media (prefers-reduced-motion: reduce) {
+  html.look-switching::view-transition-old(root),
+  html.look-switching::view-transition-new(root) { animation-duration: var(--dur-fast); }
+  @keyframes look-out { to { opacity: 0; } }
+  @keyframes look-in { from { opacity: 0; } }
+}
+
+/* ─── Scrollbars ──────────────────────────────────────────────────────────── */
+/* Markdown inside the transcript (agent replies). Tailwind preflight strips
+   list/heading/paragraph styling — restore a compact, chat-scaled subset. */
+.ol-md > :first-child { margin-top: 0; }
+.ol-md > :last-child { margin-bottom: 0; }
+.ol-md p { margin: 0.4em 0; white-space: pre-wrap; }
+.ol-md ul, .ol-md ol { margin: 0.4em 0; padding-left: 1.3em; }
+.ol-md ul { list-style: disc; }
+.ol-md ol { list-style: decimal; }
+.ol-md li { margin: 0.15em 0; }
+.ol-md h1, .ol-md h2, .ol-md h3, .ol-md h4 { font-weight: 600; margin: 0.7em 0 0.3em; font-size: 1.05em; }
+.ol-md blockquote { border-left: 2px solid var(--border-heavy); padding-left: 0.8em; color: var(--muted-foreground); margin: 0.4em 0; }
+.ol-md hr { border: 0; border-top: 1px solid var(--border); margin: 0.7em 0; }
+.ol-md table { border-collapse: collapse; margin: 0.5em 0; font-size: 12px; display: block; overflow-x: auto; }
+.ol-md th, .ol-md td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; }
+.ol-md strong { font-weight: 600; }
+
+/* A scroll that hits its end stays put instead of scrolling the page behind it. */
+.openlive-scroll {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.openlive-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.openlive-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.openlive-scroll::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
+
+/* A scroller that runs under a bar (the mode switch, Settings' title bar): what
+   scrolls up goes behind the bar and dissolves across it, instead of ending at
+   an edge. --fade-end is where the bar ends: hidden over its top third, back to
+   full --fade-reach below it. At rest nothing sits that high, so nothing is dimmed. */
+.fade-top {
+  --fade-end: 3rem;
+  --fade-reach: 1rem;
+  mask-image: linear-gradient(to bottom, transparent calc(var(--fade-end) * 0.35), #000 calc(var(--fade-end) + var(--fade-reach)));
+}
+/* The three mode homes: the fade follows the switch and starts a little lower. */
+.fade-under-switch {
+  --fade-end: var(--mode-switch-bottom, 3rem);
+  --fade-reach: 2rem;
+}
+
+/* ─── Interaction animations ───────────────────────────────────────────────── */
+@keyframes streaming-fade {
+  0% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+.animate-streaming-fade { animation: streaming-fade 180ms ease-out; }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in { animation: fade-in 140ms ease-out; }
+/* Placeholders wait out a quick load before showing at all. */
+.ol-skeleton { animation: fade-in var(--dur-base) ease-out 150ms both; }
+@media (prefers-reduced-motion: reduce) { .animate-fade-in { animation: none; } }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 320ms var(--ease-out-quart); }
+@media (prefers-reduced-motion: reduce) { .animate-fade-up { animation: none; } }
+
+/* A list's first reveal: each row rises in --i steps after the one before.
+   Callers set --i only on the first rows (lib/motion STAGGER_MAX), so a long
+   list never trails, and only on the first paint, never on a data update. */
+.ol-rise { animation: fade-up var(--dur-base) var(--ease-out-quart) both; animation-delay: calc(var(--i, 0) * 25ms); }
+
+/* A number that changed (a context %, a cost): the new figure rolls up into place. */
+@keyframes tick-in { from { opacity: 0; transform: translateY(40%); } }
+.ol-tick { display: inline-block; animation: tick-in var(--dur-fast) var(--ease-out-quart); }
+
+/* A mark that just arrived (a done step, a copied check): springs up from small. */
+@keyframes pop-in { from { opacity: 0; transform: scale(0.4); } }
+.ol-pop { animation: pop-in var(--dur-spring) var(--ease-spring); }
+
+/* A field that refused its input shakes, once, and settles. */
+@keyframes shake {
+  20% { transform: translateX(-4px); }
+  45% { transform: translateX(3px); }
+  70% { transform: translateX(-2px); }
+  90% { transform: translateX(1px); }
+}
+.ol-shake { animation: shake 360ms var(--ease-standard); }
+
+/* Tooltips arrive from their trigger: a small scale and fade (origin set inline). */
+@keyframes tip-in { from { opacity: 0; transform: scale(0.94); } }
+.ol-tip-in { animation: tip-in 140ms var(--ease-out-quart); }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+.animate-pulse-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+/* Floating panel entrance — slides in from the right edge with a soft settle */
+@keyframes panel-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.ol-panel-in { animation: panel-in 420ms var(--ease-out-quart); }
+@media (prefers-reduced-motion: reduce) { .ol-panel-in { animation: none; } }
+
+/* Live stage entrance — a gentle fade + settle when a call becomes active */
+@keyframes live-in {
+  from { opacity: 0; transform: scale(0.985) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-live-in { animation: live-in 440ms var(--ease-out-quart); }
+@media (prefers-reduced-motion: reduce) { .animate-live-in { animation: none; } }
+
+/* Modal / sheet card entrance — a soft fade + scale-up with a touch of settle.
+   Pair with usePresence() on the backdrop (which fades) so the card pops while
+   the scrim fades in behind it. */
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-modal-in { animation: modal-in var(--dur-base) var(--ease-settle); }
+@media (prefers-reduced-motion: reduce) { .animate-modal-in { animation: none; } }
+
+/* A row a Settings search result jumped to: a ring that fades out. Under reduced
+   motion the ring just sits there until the class comes off. */
+@keyframes set-hit {
+  from { box-shadow: 0 0 0 2px var(--accent); }
+  to { box-shadow: 0 0 0 2px transparent; }
+}
+.ol-set-hit { border-radius: 0.75rem; animation: set-hit 1.6s var(--ease-out-quart) forwards; }
+@media (prefers-reduced-motion: reduce) { .ol-set-hit { animation: none; box-shadow: 0 0 0 2px var(--accent); } }
+
+/* How long an Undo toast has left. Hidden under reduced motion. */
+@keyframes toast-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* <details> glides open and shut where the engine can size to `auto`
+   (Chromium 131+); anywhere else it snaps, as it always did. */
+@supports (interpolate-size: allow-keywords) {
+  details { interpolate-size: allow-keywords; }
+  details::details-content {
+    height: 0;
+    overflow-y: clip;
+    display: flow-root; /* keeps a child's top margin inside, so it collapses too */
+    transition: height var(--dur-fast) var(--ease-out-quart), content-visibility var(--dur-fast) allow-discrete;
+  }
+  details[open]::details-content { height: auto; }
+}
+@media (prefers-reduced-motion: reduce) { details::details-content { transition: none; } }
+/* The content fades as the fold opens, so it does not arrive before its room does. */
+details:not([open]) > :not(summary) { opacity: 0; }
+details > :not(summary) { transition: opacity var(--dur-fast) var(--ease-out-quart); }
+
+/* Every button gives under the finger. The `scale` property, not `transform`,
+   so it composes with motion's transforms; in the base layer, so any button's
+   own active:scale-* wins. The floating windows (html.chromeless) keep their own tuning. */
+@layer base {
+  @media (prefers-reduced-motion: no-preference) {
+    html:not(.chromeless) button:not(:disabled):active { scale: 0.97; transition-duration: var(--dur-press); }
+  }
+}
+
+/* shimmer for the thinking / generating state — blue accent sweep */
+@keyframes arc-sweep {
+  0% { background-position: 140% 0; }
+  100% { background-position: -40% 0; }
+}
+.arc-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--color-muted-foreground) 30%,
+    var(--color-accent) 50%,
+    var(--color-muted-foreground) 70%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: arc-sweep 2.4s linear infinite;
+}
+/* The same sweep in Dictate's chartreuse, toned toward the text colour so it reads in both themes. */
+.dictate-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--color-foreground) 30%,
+    color-mix(in oklab, var(--color-dictate) 65%, var(--color-foreground)) 50%,
+    var(--color-foreground) 70%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: arc-sweep 1.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .dictate-shimmer { animation: none; } }
+
+.text-chat { font-size: var(--text-chat); line-height: var(--text-chat--line-height); }
+
+/* Tabular figures for anything that counts: timers, token/cost meters, progress. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Native <select>, de-natived: keeps OS keyboard/a11y/popup semantics but drops
+   the platform chrome that clashed with the design (custom chevron, our tokens).
+   The chevron is currentColor-agnostic: one neutral glyph works on both themes. */
+.ol-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27%20viewBox=%270%200%2024%2024%27%20fill=%27none%27%20stroke=%27%23888%27%20stroke-width=%272.5%27%20stroke-linecap=%27round%27%20stroke-linejoin=%27round%27%3E%3Cpath%20d=%27m6%209%206%206%206-6%27/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: default;
+}
+
+/* The kit's slider (components/Slider.tsx) on a native range: keyboard, a11y
+   and pointer capture stay the browser's. --p (0..1) is set inline; the fill
+   ends under the thumb's centre, so the thumb width is taken out of the run. */
+.ol-range {
+  --thumb-size: 1.25rem;
+  appearance: none;
+  -webkit-appearance: none;
+  height: var(--thumb-size);
+  background: transparent;
+  cursor: pointer;
+}
+.ol-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) calc(var(--p) * (100% - var(--thumb-size)) + var(--thumb-size) / 2), var(--track) 0);
+  box-shadow: var(--shadow-track);
+}
+.ol-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--track); box-shadow: var(--shadow-track); }
+.ol-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--accent); }
+.ol-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  margin-top: calc((4px - var(--thumb-size)) / 2);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  transition: scale var(--dur-spring) var(--ease-spring);
+}
+.ol-range::-moz-range-thumb {
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+.ol-range::-moz-range-thumb { transition: scale var(--dur-spring) var(--ease-spring); }
+.ol-range:enabled:hover::-webkit-slider-thumb { scale: 1.06; }
+.ol-range:enabled:hover::-moz-range-thumb { scale: 1.06; }
+.ol-range:enabled:active::-webkit-slider-thumb { scale: 1.18; }
+.ol-range:enabled:active::-moz-range-thumb { scale: 1.18; }
+.ol-range:focus-visible { outline: none; }
+.ol-range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ol-range:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ol-range:disabled { cursor: not-allowed; opacity: 0.4; }
+
+/* Keyboard focus — accessible ring on interactive CONTROLS only. Text fields
+   (composer, inputs) manage their own focus styling, so they're excluded to
+   avoid a hard outline box around the input. Mouse clicks don't trigger it. */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible,
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  animation: focus-in var(--dur-fast) var(--ease-out-quart);
+}
+/* A dialog holds focus itself on open (lib/useFocusTrap.ts); that is not a control. */
+[data-focus-root]:focus { outline: none; }
+/* The ring draws in from a little further out, so the eye catches where focus went. */
+@keyframes focus-in { from { outline-color: transparent; outline-offset: 5px; } }
+/* A 6px ring for what has no radius of its own. In the base layer, so any
+   rounded-* on the element (a capsule button) keeps its own shape. */
+@layer base {
+  :is(a, button, [role="button"], summary, [role="tab"], [role="option"]):focus-visible { border-radius: var(--radius-sm); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  /* A reveal's delay would still hold rows invisible; nothing waits instead. */
+  .ol-rise { animation: none; }
+}
+
+/* Off-screen transcript messages skip layout+paint (native lazy rendering —
+   no virtualization lib). The intrinsic-size estimate keeps scrollHeight sane. */
+.ol-cv { content-visibility: auto; contain-intrinsic-size: auto 80px; }

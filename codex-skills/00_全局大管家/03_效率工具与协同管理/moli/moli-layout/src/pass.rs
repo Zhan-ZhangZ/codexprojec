@@ -1,0 +1,463 @@
+use crate::{
+    DocumentLayoutServices, FrozenLayoutTree, LayoutError, LayoutFlushReason, LayoutPassResult,
+    LayoutScrollbarAxis, LayoutSource, LayoutStyleResolver, LayoutViewport, PaintCaptureRequest,
+    PaintSnapshot, PaintViewport, build_layout_world,
+    form::prepare_form_controls,
+    inline::prepare_inline_contexts,
+    list::prepare_list_markers,
+    overflow::OverflowProjection,
+    projection::finish_layout_pass,
+    taffy_tree::{compute_prepared_world_layout, prepare_world_layout},
+};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+/// Owned products for one embedded browsing context in the same synchronous
+/// layout demand as its parent.
+pub struct EmbeddedFrameSnapshot<N>
+where
+    N: Copy + std::fmt::Debug + Eq + std::hash::Hash,
+{
+    pub tree: FrozenLayoutTree<N>,
+    pub paint: Option<PaintSnapshot>,
+    pub css_image_references: Vec<crate::LayoutCssImageReference<N>>,
+}
+
+impl<N> EmbeddedFrameSnapshot<N>
+where
+    N: Copy + std::fmt::Debug + Eq + std::hash::Hash,
+{
+    #[must_use]
+    pub const fn new(
+        tree: FrozenLayoutTree<N>,
+        paint: Option<PaintSnapshot>,
+        css_image_references: Vec<crate::LayoutCssImageReference<N>>,
+    ) -> Self {
+        Self {
+            tree,
+            paint,
+            css_image_references,
+        }
+    }
+}
+
+/// Renderer-owned bridge for one live embedded browsing context.
+///
+/// The parent numeric layout has already completed when this callback runs, so
+/// `viewport` is the iframe's used content-box size rather than an attribute or
+/// computed-style estimate. Implementations must return an owned, source-free
+/// snapshot and must not run JavaScript, lifecycle work, or an event-loop turn.
+/// Recursive child layout is allowed because every nested world remains local
+/// to the same synchronous demand. The child tree is consumed into the single
+/// parent-owned frozen snapshot; it is not a separately retained cache entry.
+pub trait EmbeddedFrameRenderer<N>
+where
+    N: Copy + std::fmt::Debug + Eq + std::hash::Hash,
+{
+    fn render_embedded_frame(
+        &mut self,
+        frame: N,
+        viewport: LayoutViewport,
+    ) -> Result<Option<EmbeddedFrameSnapshot<N>>, LayoutError>;
+}
+
+struct NoEmbeddedFrames;
+
+impl<N> EmbeddedFrameRenderer<N> for NoEmbeddedFrames
+where
+    N: Copy + std::fmt::Debug + Eq + std::hash::Hash,
+{
+    fn render_embedded_frame(
+        &mut self,
+        _frame: N,
+        _viewport: LayoutViewport,
+    ) -> Result<Option<EmbeddedFrameSnapshot<N>>, LayoutError> {
+        Ok(None)
+    }
+}
+
+/// Inputs for one complete, synchronous layout demand.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LayoutPassRequest {
+    pub viewport: LayoutViewport,
+    pub reason: LayoutFlushReason,
+    environment: crate::LayoutEnvironment,
+    paint_capture: Option<PaintCaptureRequest>,
+}
+
+impl LayoutPassRequest {
+    pub const fn new(viewport: LayoutViewport, reason: LayoutFlushReason) -> Self {
+        Self {
+            viewport,
+            reason,
+            environment: crate::LayoutEnvironment {
+                scrollbars_hidden: false,
+            },
+            paint_capture: None,
+        }
+    }
+
+    /// Creates a demand that also projects the same world into owned paint input.
+    pub const fn with_paint(viewport: LayoutViewport, reason: LayoutFlushReason) -> Self {
+        Self::with_capture(viewport, reason, PaintCaptureRequest::viewport())
+    }
+
+    /// Creates a demand that projects a separate one-shot capture surface.
+    pub const fn with_capture(
+        viewport: LayoutViewport,
+        reason: LayoutFlushReason,
+        paint_capture: PaintCaptureRequest,
+    ) -> Self {
+        let mut request = Self::new(viewport, reason);
+        request.paint_capture = Some(paint_capture);
+        request
+    }
+
+    /// Sets document-wide runtime policy without changing authored CSS styles.
+    pub const fn with_environment(mut self, environment: crate::LayoutEnvironment) -> Self {
+        self.environment = environment;
+        self
+    }
+
+    /// Whether this demand also needs immutable software-paint input.
+    pub const fn requests_paint(self) -> bool {
+        self.paint_capture.is_some()
+    }
+
+    /// Whether paint snapshots for this demand should include CSS backgrounds.
+    /// Layout-only demands return `true` so recursive renderers retain their
+    /// normal paint defaults when no capture policy exists.
+    pub const fn includes_backgrounds(self) -> bool {
+        match self.paint_capture {
+            Some(capture) => capture.include_backgrounds,
+            None => true,
+        }
+    }
+}
+
+/// Inputs for one on-demand screenshot layout pass.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScreenshotLayoutRequest {
+    /// Viewport and device scale to lay out and paint.
+    pub viewport: PaintViewport,
+}
+
+impl ScreenshotLayoutRequest {
+    /// Creates a screenshot layout request.
+    pub const fn new(viewport: PaintViewport) -> Self {
+        Self { viewport }
+    }
+}
+
+/// Builds, lays out, and paints one synchronous source view into an owned snapshot.
+///
+/// The working box tree and Taffy caches are dropped before this function
+/// returns. This convenience path consumes the frozen tree as well and returns
+/// only DOM-neutral paint input.
+pub fn build_screenshot_snapshot<S, R>(
+    source: &S,
+    styles: &mut R,
+    services: &mut DocumentLayoutServices,
+    request: ScreenshotLayoutRequest,
+) -> Result<PaintSnapshot, LayoutError>
+where
+    S: LayoutSource,
+    R: LayoutStyleResolver<S::NodeId>,
+{
+    build_layout_pass(
+        source,
+        styles,
+        services,
+        LayoutPassRequest::with_paint(request.viewport, LayoutFlushReason::Screenshot),
+    )
+    .and_then(LayoutPassResult::into_paint_snapshot)
+}
+
+/// Builds one complete layout result from a borrowed source view.
+///
+/// Box construction, inline shaping, Taffy caches, and all style borrows remain
+/// local to this call. The returned pass value owns one [`crate::FrozenLayoutTree`]
+/// plus pass-only metrics, diagnostics, and an optional DOM-neutral paint
+/// snapshot. Consumers may retain the tree, but not the surrounding pass
+/// value. Several geometry answers should be batched against one tree instead
+/// of triggering a layout per query.
+pub fn build_layout_pass<S, R>(
+    source: &S,
+    styles: &mut R,
+    services: &mut DocumentLayoutServices,
+    request: LayoutPassRequest,
+) -> Result<LayoutPassResult<S::NodeId>, LayoutError>
+where
+    S: LayoutSource,
+    R: LayoutStyleResolver<S::NodeId>,
+{
+    build_layout_pass_with_embedded_frames(source, styles, services, request, &mut NoEmbeddedFrames)
+}
+
+/// Builds one complete layout result and resolves embedded frame geometry after
+/// the parent numeric layout has established their exact content viewports.
+///
+/// This is a one-shot composition seam, not a per-Document cache. Child trees
+/// are recursively owned by the one parent snapshot, child paint is consumed
+/// into parent paint, and every working layout world is then dropped.
+pub fn build_layout_pass_with_embedded_frames<S, R, F>(
+    source: &S,
+    styles: &mut R,
+    services: &mut DocumentLayoutServices,
+    request: LayoutPassRequest,
+    frames: &mut F,
+) -> Result<LayoutPassResult<S::NodeId>, LayoutError>
+where
+    S: LayoutSource,
+    R: LayoutStyleResolver<S::NodeId>,
+    F: EmbeddedFrameRenderer<S::NodeId>,
+{
+    let started = Instant::now();
+    let phase_started = Instant::now();
+    let mut world = build_layout_world(source, styles)?;
+    world.environment = request.environment;
+    let box_tree_elapsed = phase_started.elapsed();
+    debug_assert!(
+        world
+            .viewport_scroll_policy
+            .defining_body()
+            .is_none_or(|body| world.box_by_id(body).is_some()),
+        "viewport policy must retain only a live pass-local body box identity"
+    );
+    let phase_started = Instant::now();
+    prepare_list_markers(&mut world)?;
+    let list_marker_elapsed = phase_started.elapsed();
+    let phase_started = Instant::now();
+    prepare_form_controls(&mut world)?;
+    let form_control_elapsed = phase_started.elapsed();
+    let phase_started = Instant::now();
+    prepare_inline_contexts(&mut world, services);
+    let inline_preparation_elapsed = phase_started.elapsed();
+    world.validate_invariants()?;
+    let phase_started = Instant::now();
+    let numeric_metrics = compute_world_layout_with_scrollbars(&mut world, request.viewport);
+    let numeric_layout_elapsed = phase_started.elapsed();
+    let phase_started = Instant::now();
+    let mut embedded_frames = HashMap::new();
+    for (index, layout_box) in world.boxes.iter().enumerate() {
+        if !layout_box
+            .element_semantics()
+            .is_some_and(|semantics| semantics.replaced == Some(crate::LayoutReplacedKind::Frame))
+        {
+            continue;
+        }
+        let Some(source) = layout_box.source() else {
+            continue;
+        };
+        let layout = layout_box.final_layout();
+        let width = (layout.size.width
+            - layout.border.left
+            - layout.border.right
+            - layout.padding.left
+            - layout.padding.right)
+            .max(0.0);
+        let height = (layout.size.height
+            - layout.border.top
+            - layout.border.bottom
+            - layout.padding.top
+            - layout.padding.bottom)
+            .max(0.0);
+        if width <= 0.0 || height <= 0.0 {
+            continue;
+        }
+        let viewport = LayoutViewport::new(
+            css_viewport_dimension(width),
+            css_viewport_dimension(height),
+            request.viewport.device_pixel_ratio,
+        );
+        if let Some(snapshot) = frames.render_embedded_frame(source, viewport)? {
+            embedded_frames.insert(crate::LayoutBoxId::from_index(index), (source, snapshot));
+        }
+    }
+    let embedded_frame_elapsed = phase_started.elapsed();
+    finish_layout_pass(
+        &world,
+        source.root(),
+        request.viewport,
+        request.reason,
+        started,
+        request.paint_capture,
+        embedded_frames,
+        crate::projection::LayoutPassPhaseMetrics {
+            box_tree_elapsed,
+            list_marker_elapsed,
+            form_control_elapsed,
+            inline_preparation_elapsed,
+            numeric_layout_elapsed,
+            numeric_first_pass_elapsed: numeric_metrics.first_pass_elapsed,
+            numeric_followup_passes_elapsed: numeric_metrics.followup_passes_elapsed,
+            overflow_detection_elapsed: numeric_metrics.overflow_detection_elapsed,
+            scrollbar_feedback_elapsed: numeric_metrics.scrollbar_feedback_elapsed,
+            embedded_frame_elapsed,
+            numeric_layout_pass_count: numeric_metrics.pass_count,
+            numeric_feedback_invalidated_node_count: numeric_metrics
+                .feedback_invalidated_node_count,
+            numeric_feedback_overflow_recomputed_node_count: numeric_metrics
+                .feedback_overflow_recomputed_node_count,
+        },
+    )
+}
+
+/// Resolves `overflow:auto` with a monotonic browser-style feedback loop.
+///
+/// The first iteration lays out without an automatic gutter. If overflow
+/// reveals a scrollbar, its gutter changes the available space and the
+/// affected box must be laid out again; that gutter can in turn reveal the
+/// perpendicular scrollbar. An axis is only ever revealed, never hidden, so
+/// each box/axis changes at most once and the loop converges.
+///
+/// Every iteration enters Taffy through the synthetic viewport root, but that
+/// is a scheduling entry point rather than an unconditional full-tree layout.
+/// `invalidate_scrollbar_feedback` clears only changed boxes and their numeric
+/// ancestors. All other subtrees keep valid Taffy cache entries and return
+/// immediately. This is the same important boundary as Blink's corrective
+/// scrollbar relayout: pay a follow-up pass only after state changes, and only
+/// recompute the paths whose available space can have changed.
+#[derive(Default)]
+struct NumericLayoutMetrics {
+    pass_count: usize,
+    first_pass_elapsed: Duration,
+    followup_passes_elapsed: Duration,
+    overflow_detection_elapsed: Duration,
+    scrollbar_feedback_elapsed: Duration,
+    feedback_invalidated_node_count: usize,
+    feedback_overflow_recomputed_node_count: usize,
+}
+
+fn compute_world_layout_with_scrollbars<N>(
+    world: &mut crate::LayoutWorld<N>,
+    viewport: LayoutViewport,
+) -> NumericLayoutMetrics
+where
+    N: Copy + std::fmt::Debug + Eq + std::hash::Hash,
+{
+    let root_id = world.root;
+    let defining_body = world.viewport_scroll_policy.defining_body();
+    let scrollbars_hidden = world.environment.scrollbars_hidden;
+    world
+        .viewport_scroll_policy
+        .prepare_scrollbar_layout(scrollbars_hidden);
+    for (index, layout_box) in world.boxes.iter_mut().enumerate() {
+        let id = crate::LayoutBoxId::from_index(index);
+        if id == root_id {
+            layout_box.style.prepare_viewport_root_layout();
+        } else if defining_body == Some(id) {
+            layout_box.style.prepare_viewport_defining_body_layout();
+        } else {
+            layout_box
+                .style
+                .prepare_scrollbar_layout(false, scrollbars_hidden);
+        }
+    }
+
+    let mut metrics = NumericLayoutMetrics::default();
+    let phase_started = Instant::now();
+    let mut prepared = prepare_world_layout(world, viewport);
+    let preparation_elapsed = phase_started.elapsed();
+    let mut overflow_projection: Option<OverflowProjection> = None;
+    let mut pending_feedback_seeds = Vec::new();
+    loop {
+        metrics.pass_count = metrics.pass_count.saturating_add(1);
+        let phase_started = Instant::now();
+        let mut touched = compute_prepared_world_layout(world, viewport, &mut prepared);
+        let elapsed = phase_started.elapsed();
+        if metrics.pass_count == 1 {
+            metrics.first_pass_elapsed = preparation_elapsed + elapsed;
+        } else {
+            metrics.followup_passes_elapsed += elapsed;
+        }
+        // Hidden controls cannot introduce an automatic gutter. Final output
+        // projection still computes scroll extents, so this demand needs no
+        // scrollbar-feedback overflow projection or corrective numeric pass.
+        if scrollbars_hidden {
+            break;
+        }
+        let phase_started = Instant::now();
+        touched.append(&mut pending_feedback_seeds);
+        let candidates = if let Some(projection) = overflow_projection.as_mut() {
+            let affected = projection.refresh(world, viewport, &touched);
+            metrics.feedback_overflow_recomputed_node_count = metrics
+                .feedback_overflow_recomputed_node_count
+                .saturating_add(affected.len());
+            affected
+        } else {
+            let projection = OverflowProjection::new(world, viewport);
+            let candidates = (0..projection.len())
+                .map(crate::LayoutBoxId::from_index)
+                .collect();
+            overflow_projection = Some(projection);
+            candidates
+        };
+        let projection = overflow_projection
+            .as_ref()
+            .expect("overflow projection is initialized above");
+        let candidates = candidates
+            .into_iter()
+            .map(|id| (id, projection.overflowing_axes(world, id)))
+            .collect::<Vec<_>>();
+        metrics.overflow_detection_elapsed += phase_started.elapsed();
+        let phase_started = Instant::now();
+        let mut viewport_changed = false;
+        let mut changed_boxes = Vec::new();
+        for (id, (overflow_x, overflow_y)) in candidates {
+            if id == root_id {
+                viewport_changed |= world
+                    .viewport_scroll_policy
+                    .reveal_auto_scrollbar(LayoutScrollbarAxis::Horizontal, overflow_x);
+                viewport_changed |= world
+                    .viewport_scroll_policy
+                    .reveal_auto_scrollbar(LayoutScrollbarAxis::Vertical, overflow_y);
+                continue;
+            }
+            if defining_body == Some(id) {
+                continue;
+            }
+            let layout_box = &mut world.boxes[id.index()];
+            let mut box_changed = layout_box.style.reveal_auto_scrollbar(
+                LayoutScrollbarAxis::Horizontal,
+                false,
+                overflow_x,
+            );
+            box_changed |= layout_box.style.reveal_auto_scrollbar(
+                LayoutScrollbarAxis::Vertical,
+                false,
+                overflow_y,
+            );
+            if box_changed {
+                changed_boxes.push(id);
+            }
+        }
+        let changed = viewport_changed || !changed_boxes.is_empty();
+        if changed {
+            // Do not clear the whole Taffy tree here. Although the next call to
+            // `compute_prepared_world_layout` starts at the root, untouched
+            // branches remain cache hits; only these boxes and their ancestor
+            // paths participate in the corrective numeric layout.
+            metrics.feedback_invalidated_node_count =
+                metrics.feedback_invalidated_node_count.saturating_add(
+                    prepared.invalidate_scrollbar_feedback(world, &changed_boxes, viewport_changed),
+                );
+            pending_feedback_seeds.extend(changed_boxes.iter().copied());
+            if viewport_changed {
+                pending_feedback_seeds.push(root_id);
+            }
+        }
+        metrics.scrollbar_feedback_elapsed += phase_started.elapsed();
+        if !changed {
+            break;
+        }
+    }
+    metrics
+}
+
+fn css_viewport_dimension(value: f32) -> u32 {
+    if !value.is_finite() {
+        return 0;
+    }
+    value.round().clamp(0.0, u32::MAX as f32) as u32
+}

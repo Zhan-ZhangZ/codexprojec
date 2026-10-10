@@ -1,0 +1,74 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { usePointerDrag } from "@/lib/usePointerDrag";
+import { MonitorUp } from "lucide-react";
+
+// A floating shared-screen tile — like the camera PiP but wider (16:9) and
+// object-contain so text stays readable. Draggable, corner-resizable, clamped to
+// the stage.
+export function ScreenTile({ stream }: { stream: MediaStream | null }) {
+  const vidRef = useRef<HTMLVideoElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: -1, y: -1 });
+  const [w, setW] = useState(560);
+  const h = Math.round(w * 9 / 16);
+
+  useEffect(() => { if (vidRef.current) vidRef.current.srcObject = stream; }, [stream]);
+
+  // Spotlight on first mount: upper-centre of the stage.
+  useEffect(() => {
+    if (pos.x >= 0 || !boxRef.current?.parentElement) return;
+    const p = boxRef.current.parentElement.getBoundingClientRect();
+    const width = Math.min(w, Math.round(p.width * 0.6));
+    if (width !== w) setW(width);
+    setPos({ x: Math.max(8, (p.width - width) / 2 + 60), y: Math.max(8, p.height * 0.14) });
+  }, [pos.x, w]);
+
+  const clamp = (x: number, y: number, ww: number, hh: number) => {
+    const p = boxRef.current?.parentElement?.getBoundingClientRect();
+    if (!p) return { x, y };
+    return { x: Math.max(8, Math.min(x, p.width - ww - 8)), y: Math.max(8, Math.min(y, p.height - hh - 8)) };
+  };
+
+  // Keep the tile on the stage when the window or the side panel changes its size.
+  useEffect(() => {
+    const parent = boxRef.current?.parentElement;
+    if (!parent) return;
+    const ro = new ResizeObserver(() => {
+      const fit = Math.max(240, Math.min(w, parent.clientWidth - 16));
+      if (fit !== w) setW(fit);
+      setPos((p) => (p.x < 0 ? p : clamp(p.x, p.y, fit, Math.round(fit * 9 / 16))));
+    });
+    ro.observe(parent);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [w]);
+
+  const drag = usePointerDrag();
+  const onDrag = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).dataset.resize) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY, ox = pos.x, oy = pos.y;
+    const move = (ev: PointerEvent) => setPos(clamp(ox + (ev.clientX - sx), oy + (ev.clientY - sy), w, h));
+    drag(move);
+  };
+  const onResize = (e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const sx = e.clientX, ow = w;
+    const move = (ev: PointerEvent) => setW(Math.max(240, Math.min(920, ow + (ev.clientX - sx))));
+    drag(move);
+  };
+
+  return (
+    <div ref={boxRef} onPointerDown={onDrag} data-interactive
+      style={{ left: pos.x < 0 ? undefined : pos.x, top: pos.x < 0 ? 72 : pos.y, width: w, height: h, right: pos.x < 0 ? 16 : undefined, opacity: pos.x < 0 ? 0 : 1 }}
+      className="group absolute z-30 cursor-grab touch-none overflow-hidden rounded-xl border border-border/60 bg-black shadow-pop active:cursor-grabbing">
+      {stream
+        ? <video ref={vidRef} autoPlay muted playsInline className="h-full w-full object-contain" />
+        : <div className="grid h-full place-items-center text-muted-foreground"><MonitorUp className="size-6" /></div>}
+      <span data-resize onPointerDown={onResize}
+        className="absolute bottom-0 right-0 size-5 cursor-nwse-resize opacity-0 grip transition group-hover:opacity-100" />
+    </div>
+  );
+}

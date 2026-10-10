@@ -1,0 +1,156 @@
+/* Navigation Sidebar */
+.claudian-nav-sidebar {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+
+    /* Hidden controls leave the tab order and accessibility tree, not just the screen. */
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s;
+}
+
+.claudian-nav-sidebar.visible {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+}
+
+/* Buttons dim individually, so keyboard focus can reveal one without lingering after a mouse click. */
+.claudian-nav-sidebar button.claudian-nav-btn,
+.claudian-nav-sidebar button.claudian-nav-btn:focus,
+.claudian-nav-sidebar button.claudian-nav-btn:active {
+    opacity: 0.15;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 16px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+    transition: all 0.2s ease;
+}
+
+.claudian-nav-sidebar button.claudian-nav-btn:hover {
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+    transform: scale(1.05);
+}
+
+.claudian-nav-sidebar:hover button.claudian-nav-btn {
+    opacity: 1;
+}
+
+.claudian-nav-sidebar button.claudian-nav-btn:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 1px;
+}
+
+.claudian-nav-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.claudian-nav-toc-popover {
+    position: absolute;
+    right: 42px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: min(260px, calc(100% - 56px));
+    max-height: min(420px, calc(100% - 32px));
+    z-index: 101;
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #fff;
+    background-image: linear-gradient(var(--background-primary), var(--background-primary));
+    box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+body.theme-dark .claudian-nav-toc-popover {
+    background-color: #1e1e1e;
+}
+
+.claudian-nav-toc-title {
+    padding: 4px 6px 8px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+}
+
+.claudian-nav-toc-list {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+}
+
+.claudian-nav-toc-popover button.claudian-nav-toc-item,
+.claudian-nav-toc-popover button.claudian-nav-toc-item:active {
+    display: block;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    min-height: calc(1.35em + 12px);
+    max-width: 100%;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    font-weight: inherit;
+    line-height: 1.35;
+    text-align: start;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.claudian-nav-toc-popover button.claudian-nav-toc-item:hover,
+.claudian-nav-toc-popover button.claudian-nav-toc-item:focus {
+    background: var(--background-secondary);
+    box-shadow: none;
+    outline: none;
+}
+
+.claudian-nav-toc-popover button.claudian-nav-toc-item:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: -2px;
+}
+
+.claudian-nav-toc-empty {
+    padding: 8px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    line-height: 1.35;
+}
+
+/* Specific button spacing/grouping if needed */
+.claudian-nav-btn-top {
+    margin-bottom: 4px;
+}
+
+.claudian-nav-btn-bottom {
+    margin-top: 4px;
+}

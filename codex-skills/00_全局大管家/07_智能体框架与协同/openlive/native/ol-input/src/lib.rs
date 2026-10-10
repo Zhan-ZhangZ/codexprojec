@@ -1,0 +1,938 @@
+//! napi surface for `ol-input`. Every export runs on the Electron main
+//! thread; the hook and the insertion sessions own their own threads.
+
+pub mod binding;
+pub mod capabilities;
+pub mod capture;
+pub mod clipboard;
+pub mod control;
+pub mod coordinator;
+pub mod coords;
+pub mod focus;
+pub mod hook;
+pub mod inject;
+pub mod motion;
+pub mod ocr;
+pub mod paste_tx;
+pub mod perms;
+pub mod platform;
+pub mod secure_input;
+pub mod window;
+
+use std::collections::HashMap;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
+
+use napi::bindgen_prelude::*;
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi_derive::napi;
+
+use binding::Binding;
+use coordinator::{Effect, Role};
+use hook::Hook;
+use inject::{Method, Session};
+
+static HOOK: Mutex<Option<Hook>> = Mutex::new(None);
+static NEXT_SESSION: AtomicU32 = AtomicU32::new(1);
+
+fn sessions() -> &'static Mutex<HashMap<u32, Session>> {
+    static SESSIONS: OnceLock<Mutex<HashMap<u32, Session>>> = OnceLock::new();
+    SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn err(message: String) -> Error {
+    Error::new(Status::GenericFailure, message)
+}
+
+fn locked<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
+    mutex
+        .lock()
+        .map_err(|_| err("ol-input state is poisoned".into()))
+}
+
+#[napi(object)]
+pub struct HookEffect {
+    pub kind: String,
+    pub binding_id: Option<String>,
+}
+
+impl From<Effect> for HookEffect {
+    fn from(effect: Effect) -> Self {
+        let (kind, binding_id) = match effect {
+            Effect::DoubleTap { binding_id } => ("double_tap", binding_id),
+            Effect::HoldStart { binding_id } => ("hold_start", binding_id),
+            Effect::HoldEnd { binding_id } => ("hold_end", binding_id),
+            Effect::HoldCancel { binding_id } => ("hold_cancel", binding_id),
+        };
+        HookEffect { kind: kind.into(), binding_id: Some(binding_id) }
+    }
+}
+
+#[napi(object)]
+pub struct SecureInputStatus {
+    pub active: bool,
+    pub culprit: Option<String>,
+    pub changed: bool,
+}
+
+#[napi(object)]
+pub struct PermissionStatus {
+    pub accessibility: bool,
+    pub post_events: bool,
+    pub microphone: String,
+    pub screen_recording: bool,
+}
+
+/// Idempotent. Resolving the keyboard layout needs the main thread, and this
+/// is the only place that is guaranteed to be on it. Asking to post events is
+/// the same kind of setup and belongs to the same explicit call: onboarding
+/// drives it, and nothing else may make macOS put a prompt on screen.
+#[napi]
+pub fn initialize_injector() -> bool {
+    inject::refresh_layout();
+    perms::request_post_events()
+}
+
+/// Idempotent: a second call keeps the running hook and its callback.
+/// This is what asks for Accessibility, so nothing calls it before
+/// onboarding does.
+#[napi(ts_args_type = "onEffect: (effect: HookEffect) => void")]
+pub fn initialize_hook(on_effect: Function<HookEffect, ()>) -> Result<()> {
+    let mut hook = locked(&HOOK)?;
+    if hook.is_some() {
+        return Ok(());
+    }
+    let tsfn: ThreadsafeFunction<HookEffect, (), HookEffect, Status, false> = on_effect
+        .build_threadsafe_function()
+        .callee_handled::<false>()
+        .build_callback(|ctx| Ok(ctx.value))?;
+    let sink: hook::EffectSink = Arc::new(move |effect: Effect| {
+        tsfn.call(effect.into(), ThreadsafeFunctionCallMode::NonBlocking);
+    });
+    *hook = Some(Hook::start(sink).map_err(err)?);
+    Ok(())
+}
+
+fn with_hook<T>(f: impl FnOnce(&Hook) -> std::result::Result<T, String>) -> Result<T> {
+    let hook = locked(&HOOK)?;
+    let hook = hook
+        .as_ref()
+        .ok_or_else(|| err("the hook is not running".into()))?;
+    f(hook).map_err(err)
+}
+
+/// Drops the hook, which joins its thread, and ends every open insertion.
+#[napi]
+pub fn shutdown() -> Result<()> {
+    *locked(&HOOK)? = None;
+    locked(sessions())?.clear();
+    Ok(())
+}
+
+/// The error a hook thread died with, if it died. Null while it is healthy.
+#[napi]
+pub fn hook_error() -> Result<Option<String>> {
+    Ok(locked(&HOOK)?.as_ref().and_then(|hook| hook.last_error()))
+}
+
+/// `role` "toggle" reports the double-tap, "hold" the hold (push to talk).
+#[napi(ts_args_type = "id: string, binding: string, role: \"toggle\" | \"hold\"")]
+pub fn register_binding(id: String, binding: String, role: String) -> Result<()> {
+    let parsed = Binding::from_str(&binding).map_err(err)?;
+    let role = Role::from_str(&role).map_err(err)?;
+    with_hook(|hook| hook.register(id, parsed, role))
+}
+
+/// The toggle `toggle` as the hook watches it while `hold` is the push-to-talk
+/// key, or null when the hold key takes all of it. Pure, so the tray and the
+/// key pickers say what the hook does.
+#[napi]
+pub fn narrow_toggle(toggle: String, hold: String) -> Result<Option<String>> {
+    let toggle = Binding::from_str(&toggle).map_err(err)?;
+    let hold = Binding::from_str(&hold).map_err(err)?;
+    Ok(toggle.narrow(hold).map(|b| b.to_string()))
+}
+
+#[napi]
+pub fn unregister_binding(id: String) -> Result<()> {
+    with_hook(|hook| hook.unregister(id))
+}
+
+/// One binding by id, or every binding when no id is given.
+#[napi]
+pub fn suspend_hook(id: Option<String>) -> Result<()> {
+    with_hook(|hook| hook.suspend(id))
+}
+
+#[napi]
+pub fn resume_hook(id: Option<String>) -> Result<()> {
+    with_hook(|hook| hook.resume(id))
+}
+
+/// Programmatic trigger, from a menu item or a test. A toggle's one call is the
+/// whole gesture; a hold's `pressed` is its edge.
+#[napi]
+pub fn trigger_external(id: String, pressed: bool) -> Result<()> {
+    with_hook(|hook| hook.trigger_external(id, pressed))
+}
+
+fn method(name: Option<String>) -> Result<Method> {
+    match name.as_deref() {
+        None => Ok(Method::default_for_platform()),
+        Some("paste") => Ok(Method::Paste),
+        Some("type") => Ok(Method::Type),
+        Some(other) => Err(err(format!("unknown insertion method \"{other}\""))),
+    }
+}
+
+/// Both insertion paths go out as posted events, so both refuse up front when
+/// the machine would drop them rather than report characters nobody received.
+fn guard_injection() -> Result<()> {
+    platform::desktop::current::guard_injection().map_err(err)
+}
+
+/// The paste receipt is delivered to the main thread's run loop, so an
+/// insertion that waited for it there would be waiting for itself. It runs on
+/// libuv's pool for the same reason `end_insertion` does.
+pub struct InsertTask(String, Method, inject::Timing);
+
+impl napi::Task for InsertTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        inject::insert(&self.0, self.1, self.2).map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+        Ok(())
+    }
+}
+
+/// The Advanced timing of Settings > General > Typing at cursor. A field left out keeps its default.
+#[napi(object)]
+pub struct InsertionTiming {
+    pub modifier_hold_ms: Option<u32>,
+    pub clipboard_quiet_ms: Option<u32>,
+    pub clipboard_timeout_ms: Option<u32>,
+    pub restore_clipboard: Option<bool>,
+}
+
+/// Bounded to what Settings offers, so a hand-edited config cannot hang a paste.
+fn timing(given: Option<InsertionTiming>) -> inject::Timing {
+    let d = inject::Timing::default();
+    let Some(t) = given else { return d };
+    let ms = |v: Option<u32>, max: u32, fallback: Duration| {
+        v.map_or(fallback, |v| Duration::from_millis(u64::from(v.min(max))))
+    };
+    inject::Timing {
+        modifier_hold: ms(t.modifier_hold_ms, 1_000, d.modifier_hold),
+        clipboard_quiet: ms(t.clipboard_quiet_ms, 5_000, d.clipboard_quiet),
+        clipboard_cap: ms(t.clipboard_timeout_ms, 60_000, d.clipboard_cap),
+        restore_clipboard: t.restore_clipboard.unwrap_or(d.restore_clipboard),
+    }
+}
+
+#[napi]
+pub fn insert_text(
+    text: String,
+    insertion_method: Option<String>,
+    insertion_timing: Option<InsertionTiming>,
+) -> Result<AsyncTask<InsertTask>> {
+    guard_injection()?;
+    inject::refresh_layout();
+    Ok(AsyncTask::new(InsertTask(
+        text,
+        method(insertion_method)?,
+        timing(insertion_timing),
+    )))
+}
+
+/// Opens a streamed insertion. Chunks pushed while a paste is still in
+/// flight coalesce into the next one.
+#[napi]
+pub fn begin_insertion(
+    insertion_method: Option<String>,
+    insertion_timing: Option<InsertionTiming>,
+) -> Result<u32> {
+    guard_injection()?;
+    inject::refresh_layout();
+    let id = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
+    locked(sessions())?.insert(
+        id,
+        Session::begin(method(insertion_method)?, timing(insertion_timing)),
+    );
+    Ok(id)
+}
+
+#[napi]
+pub fn push_insertion(session: u32, chunk: String) -> Result<()> {
+    let sessions = locked(sessions())?;
+    let open = sessions
+        .get(&session)
+        .ok_or_else(|| err(format!("insertion session {session} is not open")))?;
+    open.push(&chunk).map_err(err)
+}
+
+/// Closing a session waits for everything pushed into it to be typed, which
+/// with the typing method and a long reply is seconds of keystrokes, so it
+/// waits on libuv's pool and not on the thread the whole UI lives on.
+pub struct EndInsertionTask(Option<Session>);
+
+impl napi::Task for EndInsertionTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match self.0.take() {
+            Some(session) => session.end().map_err(err),
+            None => Ok(()),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+        Ok(())
+    }
+}
+
+#[napi]
+pub fn end_insertion(session: u32) -> Result<AsyncTask<EndInsertionTask>> {
+    let open = locked(sessions())?
+        .remove(&session)
+        .ok_or_else(|| err(format!("insertion session {session} is not open")))?;
+    Ok(AsyncTask::new(EndInsertionTask(Some(open))))
+}
+
+/// Poll this at 1Hz from the main thread: macOS never reports a secure-input
+/// change, and the Carbon shadow registration it drives wants the main thread.
+#[napi]
+pub fn secure_input_status() -> SecureInputStatus {
+    let status = secure_input::poll();
+    SecureInputStatus {
+        active: status.active,
+        culprit: status.culprit,
+        changed: status.changed,
+    }
+}
+
+#[napi]
+pub fn permission_status() -> PermissionStatus {
+    let status = perms::status();
+    PermissionStatus {
+        accessibility: status.accessibility,
+        post_events: status.post_events,
+        microphone: status.microphone.to_string(),
+        screen_recording: status.screen_recording,
+    }
+}
+
+#[napi]
+pub fn request_accessibility() -> bool {
+    perms::request_accessibility()
+}
+
+/// Shows the post-event prompt. Separate from Accessibility, and like it,
+/// reached only from onboarding: nothing on a hot path may make macOS ask.
+#[napi]
+pub fn request_post_events() -> bool {
+    perms::request_post_events()
+}
+
+#[napi]
+pub fn request_microphone() -> String {
+    perms::request_microphone().to_string()
+}
+
+#[napi]
+pub fn request_screen_recording() -> bool {
+    perms::request_screen_recording()
+}
+
+/// Whether anything on this machine is holding the microphone right now.
+///
+/// `null` means the platform would not say, which is NOT "nothing is using
+/// it": auto-quiet must never silence the assistant on an unread signal.
+#[napi]
+pub fn microphone_in_use() -> Option<bool> {
+    platform::current::microphone_in_use()
+}
+
+#[napi(object)]
+pub struct DisplayInfo {
+    pub id: u32,
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+    pub primary: bool,
+}
+
+/// The geometry a captured image is in. It travels with the image so a point
+/// the model picks out of the pixels can be turned back into a screen
+/// coordinate by `shotToScreen`, and never by the caller's own arithmetic.
+#[napi(object)]
+pub struct ShotGeometry {
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub scale: f64,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[napi(object)]
+pub struct CaptureResult {
+    pub png: Buffer,
+    pub shot: ShotGeometry,
+}
+
+#[napi(object)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[napi(object)]
+pub struct WindowSummary {
+    pub id: u32,
+    pub app_name: String,
+    pub app_id: Option<String>,
+    /// Absent when the platform withholds it, never an empty string.
+    pub title: Option<String>,
+    pub pid: u32,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub display_id: Option<u32>,
+    pub minimized: bool,
+}
+
+#[napi(object)]
+pub struct TextBoxInfo {
+    pub text: String,
+    pub confidence: f64,
+    /// Coordinates in the image this text was read from, the same space a
+    /// point picked out of the pixels is in. Click it through `shotToScreen`.
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[napi(object)]
+pub struct CapabilityReport {
+    pub hook: bool,
+    pub post_events: bool,
+    pub injection: String,
+    pub capture: bool,
+    pub capture_backend: String,
+    pub ocr: bool,
+    pub ocr_engine: String,
+    pub selection: bool,
+    pub selection_backend: String,
+    pub window_control: bool,
+    pub elevated_window_injection: bool,
+    pub secure_input: bool,
+    pub session: Option<String>,
+    pub tools: Vec<String>,
+}
+
+impl From<coords::Shot> for ShotGeometry {
+    fn from(shot: coords::Shot) -> Self {
+        ShotGeometry {
+            origin_x: shot.origin.x,
+            origin_y: shot.origin.y,
+            scale: shot.scale,
+            width: shot.width,
+            height: shot.height,
+        }
+    }
+}
+
+impl From<&ShotGeometry> for coords::Shot {
+    fn from(geometry: &ShotGeometry) -> Self {
+        coords::Shot::new(
+            coords::ScreenPoint::new(geometry.origin_x, geometry.origin_y),
+            geometry.scale,
+            geometry.width,
+            geometry.height,
+        )
+    }
+}
+
+impl From<window::WindowInfo> for WindowSummary {
+    fn from(window: window::WindowInfo) -> Self {
+        WindowSummary {
+            id: window.id,
+            app_name: window.app_name,
+            app_id: window.app_id,
+            title: window.title,
+            pid: window.pid,
+            x: window.origin.x,
+            y: window.origin.y,
+            width: window.width,
+            height: window.height,
+            display_id: window.display_id,
+            minimized: window.minimized,
+        }
+    }
+}
+
+fn screen(point: &Point) -> coords::ScreenPoint {
+    coords::ScreenPoint::new(point.x, point.y)
+}
+
+enum Subject {
+    Display(u32),
+    Window(u32),
+    Region(coords::ScreenPoint, f64, f64),
+}
+
+/// Capture runs on libuv's pool, never on the Electron main thread, for the
+/// same reason the hook owns its own thread: a full-screen grab is tens of
+/// milliseconds and the main thread is where the UI lives.
+pub struct CaptureTask(Subject);
+
+impl napi::Task for CaptureTask {
+    type Output = capture::Capture;
+    type JsValue = CaptureResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        match self.0 {
+            Subject::Display(id) => capture::display(id),
+            Subject::Window(id) => capture::window(id),
+            Subject::Region(origin, width, height) => capture::region(origin, width, height),
+        }
+        .map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(CaptureResult {
+            png: output.png.into(),
+            shot: output.shot.into(),
+        })
+    }
+}
+
+pub struct OcrTask {
+    png: Vec<u8>,
+    shot: coords::Shot,
+}
+
+impl napi::Task for OcrTask {
+    type Output = Vec<ocr::TextBox>;
+    type JsValue = Vec<TextBoxInfo>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        ocr::read(&self.png, self.shot).map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output
+            .into_iter()
+            .map(|found| TextBoxInfo {
+                text: found.text,
+                confidence: f64::from(found.confidence),
+                x: found.origin.x,
+                y: found.origin.y,
+                width: found.width,
+                height: found.height,
+            })
+            .collect())
+    }
+}
+
+#[napi]
+pub fn displays() -> Result<Vec<DisplayInfo>> {
+    Ok(capture::displays()
+        .map_err(err)?
+        .into_iter()
+        .map(|display| DisplayInfo {
+            id: display.id,
+            name: display.name,
+            x: display.origin.x,
+            y: display.origin.y,
+            width: display.width,
+            height: display.height,
+            scale: display.scale,
+            primary: display.primary,
+        })
+        .collect())
+}
+
+#[napi]
+pub fn capture_display(display_id: u32) -> AsyncTask<CaptureTask> {
+    AsyncTask::new(CaptureTask(Subject::Display(display_id)))
+}
+
+#[napi]
+pub fn capture_window(window_id: u32) -> AsyncTask<CaptureTask> {
+    AsyncTask::new(CaptureTask(Subject::Window(window_id)))
+}
+
+#[napi]
+pub fn capture_region(origin: Point, width: f64, height: f64) -> AsyncTask<CaptureTask> {
+    AsyncTask::new(CaptureTask(Subject::Region(screen(&origin), width, height)))
+}
+
+/// The only way from a pixel in a captured image to a coordinate the control
+/// calls accept. Everything they take is already screen space.
+#[napi]
+pub fn shot_to_screen(shot: ShotGeometry, x: f64, y: f64) -> Point {
+    let point = coords::Shot::from(&shot).to_screen(coords::ShotPoint::new(x, y));
+    Point {
+        x: point.x,
+        y: point.y,
+    }
+}
+
+#[napi]
+pub fn recognize_text(png: Buffer, shot: ShotGeometry) -> AsyncTask<OcrTask> {
+    AsyncTask::new(OcrTask {
+        png: png.to_vec(),
+        shot: coords::Shot::from(&shot),
+    })
+}
+
+#[napi]
+pub fn foreground_window() -> Result<Option<WindowSummary>> {
+    Ok(window::foreground().map_err(err)?.map(WindowSummary::from))
+}
+
+#[napi]
+pub fn window_list() -> Result<Vec<WindowSummary>> {
+    Ok(window::list()
+        .map_err(err)?
+        .into_iter()
+        .map(WindowSummary::from)
+        .collect())
+}
+
+#[napi]
+pub fn activate_window(window_id: u32) -> Result<()> {
+    window::activate(window_id).map_err(err)
+}
+
+#[napi]
+pub fn move_window(window_id: u32, origin: Point) -> Result<()> {
+    window::move_to(window_id, screen(&origin)).map_err(err)
+}
+
+#[napi]
+pub fn resize_window(window_id: u32, width: f64, height: f64) -> Result<()> {
+    window::resize(window_id, width, height).map_err(err)
+}
+
+#[napi]
+pub fn minimize_window(window_id: u32) -> Result<()> {
+    window::minimize(window_id).map_err(err)
+}
+
+#[napi]
+pub fn close_window(window_id: u32) -> Result<()> {
+    window::close(window_id).map_err(err)
+}
+
+#[napi]
+pub fn open_app(name: String) -> Result<()> {
+    window::open_app(&name).map_err(err)
+}
+
+#[napi]
+pub fn open_url(url: String) -> Result<()> {
+    window::open_url(&url).map_err(err)
+}
+
+/// Null when the app or the platform will not say, which is not the same as
+/// an empty selection.
+#[napi]
+pub fn selected_text() -> Option<String> {
+    window::selection()
+}
+
+/// Asking the focused app can wait on it, so it runs off the main thread.
+pub struct SelectionTask;
+
+impl napi::Task for SelectionTask {
+    type Output = Option<String>;
+    type JsValue = Option<String>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(window::accessible_selection())
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+/// The selection in the app in front, read only through the accessibility
+/// API: "" for none, null where it cannot be read that way. Never copies.
+#[napi]
+pub fn accessible_selection() -> AsyncTask<SelectionTask> {
+    AsyncTask::new(SelectionTask)
+}
+
+/// Asking the focused app can wait on it, so it runs off the main thread.
+pub struct FocusTask;
+
+impl napi::Task for FocusTask {
+    type Output = Option<bool>;
+    type JsValue = Option<bool>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(focus::editable())
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+/// Whether the focused element takes typed text. Null when the platform or
+/// the app will not say, which is not the same as no.
+#[napi]
+pub fn focus_editable() -> AsyncTask<FocusTask> {
+    AsyncTask::new(FocusTask)
+}
+
+/// Lets process `pid` bring a window to the front. Windows grants that only to
+/// the process already in front, which is this one whenever OpenLive's window
+/// is. Other platforms have no such lock, so there it does nothing.
+#[napi]
+pub fn allow_set_foreground_window(pid: u32) -> bool {
+    #[cfg(windows)]
+    // SAFETY: a plain call on a pid, which fails harmlessly for one that is gone.
+    return unsafe { windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid) }
+        .is_ok();
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// A click on the window whose native handle this is (Electron's
+/// getNativeWindowHandle) never makes OpenLive the active app. Electron's macOS
+/// "panel" adds the non-activating style after the window exists, which AppKit
+/// does not act on, so a click on the orb brought OpenLive's main window to the
+/// front. Windows and Linux already get this from `focusable: false`.
+#[napi]
+pub fn prevent_activation(handle: Buffer) -> bool {
+    #[cfg(target_os = "macos")]
+    return platform::desktop::current::prevent_activation(&handle);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = handle;
+        false
+    }
+}
+
+fn button(name: Option<String>) -> Result<control::Button> {
+    match name {
+        None => Ok(control::Button::Left),
+        Some(name) => control::Button::parse(&name).map_err(err),
+    }
+}
+
+/// One pointer or keyboard action, run to completion off the main thread.
+///
+/// Every one of these takes as long as the movement it describes, because the
+/// pointer travels rather than teleports. Electron's main thread owns the
+/// window that draws the cursor and the timer that follows it, so an action
+/// that blocked it would stutter the very thing it is animating.
+pub enum PointerAction {
+    Move(coords::ScreenPoint),
+    Click(coords::ScreenPoint, control::Button, u32),
+    Press(coords::ScreenPoint, control::Button, bool),
+    Drag(Vec<coords::ScreenPoint>, control::Button),
+    Scroll(coords::ScreenPoint, i32, i32),
+    Type(String),
+    Keys(Vec<String>, u32),
+}
+
+pub struct ControlTask(Option<PointerAction>);
+
+impl napi::Task for ControlTask {
+    type Output = ();
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let action = self
+            .0
+            .take()
+            .ok_or_else(|| err("the action was already run".to_string()))?;
+        match action {
+            PointerAction::Move(point) => control::move_to(point),
+            PointerAction::Click(point, button, count) => control::click(point, button, count),
+            PointerAction::Press(point, button, down) => {
+                if down {
+                    control::mouse_down(point, button)
+                } else {
+                    control::mouse_up(point, button)
+                }
+            }
+            PointerAction::Drag(path, button) => control::drag(&path, button),
+            PointerAction::Scroll(point, horizontal, vertical) => {
+                control::scroll(point, horizontal, vertical)
+            }
+            PointerAction::Type(text) => control::type_text(&text),
+            PointerAction::Keys(keys, times) => control::keypress(&keys, times),
+        }
+        .map_err(err)
+    }
+
+    fn resolve(&mut self, _env: Env, _output: Self::Output) -> Result<Self::JsValue> {
+        Ok(())
+    }
+}
+
+fn run(action: PointerAction) -> AsyncTask<ControlTask> {
+    AsyncTask::new(ControlTask(Some(action)))
+}
+
+/// Where the pointer is now, in the coordinates every control call takes.
+/// Null when the platform will not say, which is not the origin.
+#[napi]
+pub fn cursor_position() -> Option<Point> {
+    platform::desktop::current::cursor_position().map(|point| Point {
+        x: point.x,
+        y: point.y,
+    })
+}
+
+#[napi]
+pub fn move_mouse(point: Point) -> AsyncTask<ControlTask> {
+    run(PointerAction::Move(screen(&point)))
+}
+
+#[napi]
+pub fn click(
+    point: Point,
+    mouse_button: Option<String>,
+    count: Option<u32>,
+) -> Result<AsyncTask<ControlTask>> {
+    Ok(run(PointerAction::Click(
+        screen(&point),
+        button(mouse_button)?,
+        count.unwrap_or(1),
+    )))
+}
+
+#[napi]
+pub fn double_click(point: Point) -> AsyncTask<ControlTask> {
+    run(PointerAction::Click(
+        screen(&point),
+        control::Button::Left,
+        2,
+    ))
+}
+
+#[napi]
+pub fn right_click(point: Point) -> AsyncTask<ControlTask> {
+    run(PointerAction::Click(
+        screen(&point),
+        control::Button::Right,
+        1,
+    ))
+}
+
+#[napi]
+pub fn mouse_down(point: Point, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
+    Ok(run(PointerAction::Press(
+        screen(&point),
+        button(mouse_button)?,
+        true,
+    )))
+}
+
+#[napi]
+pub fn mouse_up(point: Point, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
+    Ok(run(PointerAction::Press(
+        screen(&point),
+        button(mouse_button)?,
+        false,
+    )))
+}
+
+/// The whole path, not just its ends: a drag that teleports is ignored by
+/// every canvas and most drop targets.
+#[napi]
+pub fn drag(path: Vec<Point>, mouse_button: Option<String>) -> Result<AsyncTask<ControlTask>> {
+    let path: Vec<coords::ScreenPoint> = path.iter().map(screen).collect();
+    Ok(run(PointerAction::Drag(path, button(mouse_button)?)))
+}
+
+#[napi]
+pub fn scroll(point: Point, horizontal: i32, vertical: i32) -> AsyncTask<ControlTask> {
+    run(PointerAction::Scroll(screen(&point), horizontal, vertical))
+}
+
+/// The layout is resolved on the thread that owns it, before the typing is
+/// handed off.
+#[napi]
+pub fn type_text(text: String) -> AsyncTask<ControlTask> {
+    inject::refresh_layout();
+    run(PointerAction::Type(text))
+}
+
+/// A chord, as `["ctrl", "c"]`. The modifiers stay down across the key, which
+/// is pressed `times` times (once when left out).
+#[napi]
+pub fn keypress(keys: Vec<String>, times: Option<u32>) -> AsyncTask<ControlTask> {
+    inject::refresh_layout();
+    run(PointerAction::Keys(keys, times.unwrap_or(1)))
+}
+
+/// What this machine can do right now. Cheap: only the parts that cannot
+/// change while the app runs are cached.
+#[napi]
+pub fn capabilities() -> CapabilityReport {
+    let found = capabilities::probe();
+    CapabilityReport {
+        hook: found.hook,
+        post_events: found.post_events,
+        injection: found.injection.into(),
+        capture: found.capture,
+        capture_backend: found.capture_backend.into(),
+        ocr: found.ocr,
+        ocr_engine: found.ocr_engine.into(),
+        selection: found.selection,
+        selection_backend: found.selection_backend.into(),
+        window_control: found.window_control,
+        elevated_window_injection: found.elevated_window_injection,
+        secure_input: found.secure_input,
+        session: found.session.map(str::to_string),
+        tools: found.tools,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insertion_timing_keeps_each_default_it_is_not_given_and_bounds_the_rest() {
+        assert_eq!(timing(None), inject::Timing::default());
+        let t = timing(Some(InsertionTiming {
+            modifier_hold_ms: Some(120),
+            clipboard_quiet_ms: None,
+            clipboard_timeout_ms: Some(u32::MAX),
+            restore_clipboard: None,
+        }));
+        assert_eq!(t.modifier_hold, Duration::from_millis(120));
+        assert_eq!(t.clipboard_quiet, inject::Timing::default().clipboard_quiet);
+        assert_eq!(t.clipboard_cap, Duration::from_secs(60));
+        assert!(t.restore_clipboard);
+    }
+
+    #[test]
+    fn putting_the_clipboard_back_can_be_turned_off() {
+        let given = InsertionTiming { modifier_hold_ms: None, clipboard_quiet_ms: None, clipboard_timeout_ms: None, restore_clipboard: Some(false) };
+        assert!(!timing(Some(given)).restore_clipboard);
+    }
+}

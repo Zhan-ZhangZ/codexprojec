@@ -1,0 +1,73 @@
+import type { VaultFileAdapter } from '@/core/storage/VaultFileAdapter';
+import type { SessionMetadata } from '@/core/types';
+
+import {
+  type SessionMetadataAuthority,
+  type SessionMetadataReader,
+  SessionStorage,
+} from './SessionStorage';
+
+export interface ConversationPersistence {
+  readonly metadataReader: SessionMetadataReader;
+  saveMetadata(
+    metadata: SessionMetadata,
+    target?: SessionMetadataAuthority,
+  ): Promise<void>;
+  deleteCurrentMetadata(
+    conversationId: string,
+    target?: SessionMetadataAuthority,
+  ): Promise<void>;
+  assignMetadataToDevice(conversationId: string): Promise<void>;
+}
+
+export class ConversationPersistenceStore implements ConversationPersistence {
+  readonly metadataReader: SessionMetadataReader;
+  private readonly metadataStorage: SessionStorage;
+
+  constructor(
+    private readonly adapter: VaultFileAdapter,
+    deviceKey: string,
+  ) {
+    this.metadataStorage = new SessionStorage(adapter, deviceKey);
+    this.metadataReader = this.metadataStorage;
+  }
+
+  async saveMetadata(
+    metadata: SessionMetadata,
+    target: SessionMetadataAuthority = 'device',
+  ): Promise<void> {
+    await this.adapter.write(
+      this.getMetadataPath(metadata.id, target),
+      JSON.stringify(metadata),
+    );
+  }
+
+  deleteCurrentMetadata(
+    conversationId: string,
+    target: SessionMetadataAuthority = 'device',
+  ): Promise<void> {
+    return this.adapter.delete(this.getMetadataPath(conversationId, target));
+  }
+
+  async assignMetadataToDevice(conversationId: string): Promise<void> {
+    const source = this.metadataStorage.getUnscopedMetadataPath(conversationId);
+    const target = this.metadataStorage.getMetadataPath(conversationId);
+    if (await this.adapter.exists(target)) {
+      throw new Error(`Cannot assign conversation ${conversationId}: device metadata already exists`);
+    }
+    if (!await this.adapter.exists(source)) {
+      throw new Error(`Cannot assign conversation ${conversationId}: unscoped metadata is missing`);
+    }
+    await this.adapter.ensureFolder(target.slice(0, target.lastIndexOf('/')));
+    await this.adapter.rename(source, target);
+  }
+
+  private getMetadataPath(
+    conversationId: string,
+    target: SessionMetadataAuthority,
+  ): string {
+    return target === 'device'
+      ? this.metadataStorage.getMetadataPath(conversationId)
+      : this.metadataStorage.getUnscopedMetadataPath(conversationId);
+  }
+}

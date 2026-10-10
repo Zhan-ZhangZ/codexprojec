@@ -1,0 +1,80 @@
+//! Core fetch bridge for synchronous renderer lifecycle-target decisions.
+//!
+//! The renderer owns the exact DCL/load boundary and any successor-navigation
+//! grace period. The host keeps one deadline around the complete fetch, so a
+//! lifecycle decision cannot reset or extend the caller's timeout budget.
+
+use super::{
+    Browser, FetchDeadline, FetchedDocument, RawDocumentFetchPolicy, RenderedDomWaitUntil,
+    RendererLifecycleDecider, RendererLifecycleDecision, RendererLifecycleSnapshot,
+    RendererReplyBoundary,
+};
+use anyhow::Result;
+use moli_fetch::Request;
+use std::time::Duration;
+
+impl Browser {
+    /// Fetches an executable document with a synchronous one-shot policy at
+    /// the exact requested lifecycle target.
+    ///
+    /// The decision runs in the renderer owner turn that observes DCL/load;
+    /// it does not expose an intermediate Page or require a second owner
+    /// command. The original `timeout` covers the request, the first lifecycle
+    /// target, any successor-navigation grace period, and the successor target.
+    pub async fn fetch_document_with_lifecycle_decider<F>(
+        &self,
+        request: Request,
+        wait_until: RenderedDomWaitUntil,
+        timeout: Duration,
+        decider: F,
+    ) -> Result<FetchedDocument>
+    where
+        F: FnOnce(RendererLifecycleSnapshot) -> Result<RendererLifecycleDecision> + Send + 'static,
+    {
+        let deadline = FetchDeadline::new(timeout)?;
+        self.fetch_document_with_lifecycle_decider_and_deadline(
+            request,
+            wait_until,
+            deadline,
+            RawDocumentFetchPolicy::Materialize,
+            decider,
+        )
+        .await
+    }
+
+    /// Applies a lifecycle decision using a caller-owned absolute deadline.
+    /// The same deadline can then gate response, selector, and script waits;
+    /// `raw_document_policy` decides whether a non-Page response is read or
+    /// rejected from its headers.
+    pub async fn fetch_document_with_lifecycle_decider_and_deadline<F>(
+        &self,
+        request: Request,
+        wait_until: RenderedDomWaitUntil,
+        deadline: FetchDeadline,
+        raw_document_policy: RawDocumentFetchPolicy,
+        decider: F,
+    ) -> Result<FetchedDocument>
+    where
+        F: FnOnce(RendererLifecycleSnapshot) -> Result<RendererLifecycleDecision> + Send + 'static,
+    {
+        anyhow::ensure!(
+            matches!(
+                wait_until,
+                RenderedDomWaitUntil::DomContentLoaded
+                    | RenderedDomWaitUntil::Load
+                    | RenderedDomWaitUntil::Done
+            ),
+            "a lifecycle decider requires DCL, load, or done"
+        );
+        let decider = RendererLifecycleDecider::new(decider);
+        self.fetch_document_to_base_stage(
+            request,
+            wait_until,
+            deadline,
+            RendererReplyBoundary::Stage,
+            Some(decider),
+            raw_document_policy,
+        )
+        .await
+    }
+}

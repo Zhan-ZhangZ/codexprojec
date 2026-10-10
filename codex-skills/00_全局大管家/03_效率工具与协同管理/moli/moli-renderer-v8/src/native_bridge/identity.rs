@@ -1,0 +1,811 @@
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    num::NonZeroU64,
+    rc::Rc,
+};
+
+use indexmap::IndexSet;
+
+use super::super::document_runtime::DomHandle;
+use super::element::{
+    control_label_handles, form_control_elements, form_named_control_matches,
+    form_named_image_matches,
+};
+use super::{JsContextHost, RuntimeObservableContextToken};
+use dense_reflector_map::DenseReflectorMap;
+
+mod dense_reflector_map;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ReflectorId(u64);
+
+impl ReflectorId {
+    pub(super) fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    fn from_index(index: usize) -> Self {
+        let raw = u64::try_from(index)
+            .ok()
+            .and_then(|index| index.checked_add(1))
+            .expect("reflector id overflow");
+        Self(raw)
+    }
+
+    fn index(self) -> Option<usize> {
+        usize::try_from(self.0.checked_sub(1)?).ok()
+    }
+
+    pub(super) fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) enum BridgeHandle {
+    Window,
+    Node(DomHandle),
+    ClassList(DomHandle, DomTokenListKind),
+    Dataset(DomHandle),
+    Style(DomHandle),
+    ComputedStyle(DomHandle, Rc<ComputedStyleDescriptor>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ComputedStyleDescriptor {
+    pub(crate) pseudo: ComputedStylePseudoKey,
+    pub(crate) target: ComputedStyleTargetKey,
+}
+
+impl ComputedStyleDescriptor {
+    pub(crate) fn new(pseudo: ComputedStylePseudoKey, target: ComputedStyleTargetKey) -> Self {
+        Self { pseudo, target }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum ComputedStylePseudoKey {
+    Originating,
+    ForcedEmpty,
+    Before,
+    After,
+    Backdrop,
+    Checkmark,
+    FirstLetter,
+    Selection,
+    FileSelectorButton,
+    GrammarError,
+    Marker,
+    Picker,
+    PickerIcon,
+    Placeholder,
+    Highlight(String),
+    SpellingError,
+    ViewTransition,
+    ViewTransitionGroup(String),
+    ViewTransitionImagePair(String),
+    ViewTransitionOld(String),
+    ViewTransitionNew(String),
+}
+
+impl ComputedStylePseudoKey {
+    pub(crate) fn from_stylo_pseudo(pseudo_element: &str) -> Option<Self> {
+        match pseudo_element {
+            "before" => Some(Self::Before),
+            "after" => Some(Self::After),
+            "backdrop" => Some(Self::Backdrop),
+            "checkmark" => Some(Self::Checkmark),
+            "first-letter" => Some(Self::FirstLetter),
+            "selection" => Some(Self::Selection),
+            "file-selector-button" => Some(Self::FileSelectorButton),
+            "grammar-error" => Some(Self::GrammarError),
+            "marker" => Some(Self::Marker),
+            "picker(select)" => Some(Self::Picker),
+            "picker-icon" => Some(Self::PickerIcon),
+            "placeholder" => Some(Self::Placeholder),
+            "spelling-error" => Some(Self::SpellingError),
+            "view-transition" => Some(Self::ViewTransition),
+            _ => {
+                if let Some(name) = functional_pseudo_name(pseudo_element, "highlight") {
+                    return Some(Self::Highlight(name.to_owned()));
+                }
+                if let Some(name) = functional_pseudo_name(pseudo_element, "view-transition-group")
+                {
+                    return Some(Self::ViewTransitionGroup(name.to_owned()));
+                }
+                if let Some(name) =
+                    functional_pseudo_name(pseudo_element, "view-transition-image-pair")
+                {
+                    return Some(Self::ViewTransitionImagePair(name.to_owned()));
+                }
+                if let Some(name) = functional_pseudo_name(pseudo_element, "view-transition-old") {
+                    return Some(Self::ViewTransitionOld(name.to_owned()));
+                }
+                if let Some(name) = functional_pseudo_name(pseudo_element, "view-transition-new") {
+                    return Some(Self::ViewTransitionNew(name.to_owned()));
+                }
+                None
+            }
+        }
+    }
+}
+
+fn functional_pseudo_name<'a>(pseudo_element: &'a str, function_name: &str) -> Option<&'a str> {
+    pseudo_element
+        .strip_prefix(function_name)?
+        .strip_prefix('(')?
+        .strip_suffix(')')
+        .filter(|name| !name.is_empty())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ComputedStyleTargetKey {
+    Dynamic,
+    ChildFrame(DomHandle),
+    DetachedIframe(DomHandle),
+    PopupDocument(DomHandle),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum DomTokenListKind {
+    Class,
+    Part,
+    Rel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum CollectionKind {
+    NodeList,
+    HtmlCollection,
+    FormControlsCollection,
+    OptionsCollection,
+    RadioNodeList,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum LiveCollectionQueryKind {
+    ChildNodes,
+    Children,
+    FormControls,
+    Options,
+    SelectedOptions,
+    TagName,
+    TagNameNs,
+    ClassName,
+    Name,
+    WindowNamedItems,
+    DocumentAllNamedItems,
+    FormControlsByName,
+    FormImagesByName,
+    Forms,
+    Images,
+    Scripts,
+    Links,
+    Anchors,
+    Embeds,
+    Applets,
+    Labels,
+    TableRows,
+    TableBodies,
+    TableSectionRows,
+    TableRowCells,
+}
+
+impl LiveCollectionQueryKind {
+    pub(super) fn as_dom_host_kind(self) -> &'static str {
+        match self {
+            Self::ChildNodes => "childNodes",
+            Self::Children => "children",
+            Self::FormControls => "formControls",
+            Self::Options => "options",
+            Self::SelectedOptions => "selectedOptions",
+            Self::TagName => "tagName",
+            Self::TagNameNs => "tagNameNs",
+            Self::ClassName => "className",
+            Self::Name => "name",
+            Self::WindowNamedItems => "windowNamedItems",
+            Self::DocumentAllNamedItems => "documentAllNamedItems",
+            Self::FormControlsByName => "formControlsByName",
+            Self::FormImagesByName => "formImagesByName",
+            Self::Forms => "forms",
+            Self::Images => "images",
+            Self::Scripts => "scripts",
+            Self::Links => "links",
+            Self::Anchors => "anchors",
+            Self::Embeds => "embeds",
+            Self::Applets => "applets",
+            Self::Labels => "labels",
+            Self::TableRows => "tableRows",
+            Self::TableBodies => "tableBodies",
+            Self::TableSectionRows => "tableSectionRows",
+            Self::TableRowCells => "tableRowCells",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct LiveCollectionDescriptor {
+    pub(super) collection_kind: CollectionKind,
+    pub(super) query_kind: LiveCollectionQueryKind,
+    pub(super) root: DomHandle,
+    pub(super) query: Option<String>,
+    pub(super) include_root: bool,
+    pub(super) tag_name_html_document: Option<bool>,
+    pub(super) resolution_cache: LiveCollectionResolutionCache,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct LiveCollectionResolutionCache(
+    Rc<RefCell<Option<LiveCollectionResolutionCacheEntry>>>,
+);
+
+#[derive(Debug)]
+struct LiveCollectionResolutionCacheEntry {
+    query_version: u64,
+    handles: Rc<[DomHandle]>,
+}
+
+impl PartialEq for LiveCollectionDescriptor {
+    fn eq(&self, other: &Self) -> bool {
+        self.collection_kind == other.collection_kind
+            && self.query_kind == other.query_kind
+            && self.root == other.root
+            && self.query == other.query
+            && self.include_root == other.include_root
+            && self.tag_name_html_document == other.tag_name_html_document
+    }
+}
+
+impl Eq for LiveCollectionDescriptor {}
+
+impl Hash for LiveCollectionDescriptor {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.collection_kind.hash(state);
+        self.query_kind.hash(state);
+        self.root.hash(state);
+        self.query.hash(state);
+        self.include_root.hash(state);
+        self.tag_name_html_document.hash(state);
+    }
+}
+
+impl LiveCollectionDescriptor {
+    pub(super) fn resolve(&self, host: &JsContextHost) -> Rc<[DomHandle]> {
+        let query_version = host.dom_host().query_version();
+        if let Some(handles) = self
+            .resolution_cache
+            .0
+            .borrow()
+            .as_ref()
+            .filter(|entry| entry.query_version == query_version)
+            .map(|entry| entry.handles.clone())
+        {
+            return handles;
+        }
+        let handles = if self.query_kind == LiveCollectionQueryKind::TagName {
+            let query = self.query.as_deref().unwrap_or("*");
+            match self.tag_name_html_document {
+                // HTML tag-name collections are often resolved repeatedly through
+                // bridge wrappers. Cache the DOM-order handle list by query_version
+                // so repeated reads do not rescan the document.
+                Some(is_html_document) => host
+                    .dom_host()
+                    .cached_elements_by_tag_name_in_html_document(
+                        self.root,
+                        query,
+                        self.include_root,
+                        is_html_document,
+                    ),
+                None => host
+                    .dom_host()
+                    .elements_by_tag_name(self.root, query, self.include_root),
+            }
+        } else if self.query_kind == LiveCollectionQueryKind::Labels {
+            control_label_handles(host, self.root)
+        } else if self.query_kind == LiveCollectionQueryKind::FormControls {
+            form_control_elements(host, self.root)
+        } else if self.query_kind == LiveCollectionQueryKind::FormControlsByName {
+            form_named_control_matches(host, self.root, self.query.as_deref().unwrap_or_default())
+        } else if self.query_kind == LiveCollectionQueryKind::FormImagesByName {
+            // A retained image list keeps this filter even if a later form[name]
+            // lookup finds controls. Query kind also distinguishes wrapper caches.
+            form_named_image_matches(host, self.root, self.query.as_deref().unwrap_or_default())
+        } else if self.query_kind == LiveCollectionQueryKind::WindowNamedItems {
+            crate::native_bridge::named_access::window_named_item_handles(
+                host.dom_host(),
+                self.root,
+                self.query.as_deref().unwrap_or_default(),
+            )
+        } else if self.query_kind == LiveCollectionQueryKind::DocumentAllNamedItems {
+            crate::native_bridge::named_access::document_all_named_item_handles(
+                host.dom_host(),
+                self.query.as_deref().unwrap_or_default(),
+            )
+        } else {
+            host.dom_host()
+                .resolve_live_collection(
+                    self.root,
+                    self.query_kind.as_dom_host_kind(),
+                    self.query.as_deref(),
+                    self.include_root,
+                )
+                .unwrap_or_default()
+        };
+        let handles = Rc::<[DomHandle]>::from(handles);
+        *self.resolution_cache.0.borrow_mut() = Some(LiveCollectionResolutionCacheEntry {
+            query_version,
+            handles: handles.clone(),
+        });
+        handles
+    }
+}
+
+#[derive(Debug)]
+struct LiveCollectionStore {
+    next_id: u32,
+    descriptors: HashMap<u32, LiveCollectionDescriptor>,
+}
+
+impl Default for LiveCollectionStore {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            descriptors: HashMap::new(),
+        }
+    }
+}
+
+impl LiveCollectionStore {
+    fn register(&mut self, descriptor: LiveCollectionDescriptor) -> u32 {
+        let collection_id = self.next_id;
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("live collection id overflow");
+        let replaced = self.descriptors.insert(collection_id, descriptor);
+        assert!(
+            replaced.is_none(),
+            "live collection ids must never be reused"
+        );
+        collection_id
+    }
+
+    fn descriptor(&self, collection_id: u32) -> Option<&LiveCollectionDescriptor> {
+        self.descriptors.get(&collection_id)
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::native_bridge) struct StaticHandleCollectionStore {
+    next_id: u32,
+    handles: HashMap<u32, Vec<DomHandle>>,
+}
+
+impl Default for StaticHandleCollectionStore {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            handles: HashMap::new(),
+        }
+    }
+}
+
+impl StaticHandleCollectionStore {
+    pub(in crate::native_bridge) fn register(&mut self, handles: Vec<DomHandle>) -> u32 {
+        let collection_id = self.next_id;
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("static handle collection id overflow");
+        let replaced = self.handles.insert(collection_id, handles);
+        assert!(
+            replaced.is_none(),
+            "static handle collection ids must never be reused"
+        );
+        collection_id
+    }
+
+    pub(in crate::native_bridge) fn remove(&mut self, collection_id: u32) {
+        self.handles.remove(&collection_id);
+    }
+
+    fn len(&self, collection_id: u32) -> Option<usize> {
+        self.handles.get(&collection_id).map(Vec::len)
+    }
+
+    fn handle_at(&self, collection_id: u32, index: usize) -> Option<DomHandle> {
+        self.handles
+            .get(&collection_id)
+            .and_then(|handles| handles.get(index))
+            .copied()
+    }
+}
+
+#[derive(Debug, Default)]
+struct BridgeContextWrapperCache {
+    wrappers: DenseReflectorMap<BridgeCachedWrapper>,
+    live_collection_wrappers: HashMap<LiveCollectionDescriptor, BridgeCachedWrapper>,
+}
+
+#[derive(Debug)]
+struct SharedDefaultWorldWrapperCache;
+
+pub(crate) fn contexts_share_wrapper_world(
+    left: v8::Local<'_, v8::Context>,
+    right: v8::Local<'_, v8::Context>,
+) -> bool {
+    left == right
+        || match (
+            left.get_slot::<RefCell<BridgeContextWrapperCache>>(),
+            right.get_slot::<RefCell<BridgeContextWrapperCache>>(),
+        ) {
+            (Some(left), Some(right)) => Rc::ptr_eq(&left, &right),
+            _ => false,
+        }
+}
+
+#[derive(Debug)]
+struct BridgeCachedWrapper {
+    wrapper: crate::util::RealmObjectHandle,
+    creation_realm: Option<NonZeroU64>,
+}
+
+impl BridgeCachedWrapper {
+    fn new(scope: &mut v8::PinScope<'_, '_>, wrapper: v8::Local<'_, v8::Object>) -> Self {
+        Self {
+            wrapper: crate::util::RealmObjectHandle::new(scope, wrapper),
+            creation_realm: scope
+                .get_current_context()
+                .get_slot::<RuntimeObservableContextToken>()
+                .as_deref()
+                .copied()
+                .and_then(|token| NonZeroU64::new(token.as_u64())),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BridgeContextWindowWrapper {
+    wrapper: RefCell<crate::util::RealmObjectHandle>,
+}
+
+fn context_window_wrapper<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    scope
+        .get_current_context()
+        .get_slot::<BridgeContextWindowWrapper>()
+        .and_then(|entry| entry.wrapper.borrow().to_local(scope))
+}
+
+fn set_context_window_wrapper(
+    scope: &mut v8::PinScope<'_, '_>,
+    wrapper: v8::Local<'_, v8::Object>,
+) {
+    let _ = scope
+        .get_current_context()
+        .set_slot(Rc::new(BridgeContextWindowWrapper {
+            wrapper: RefCell::new(crate::util::RealmObjectHandle::new(scope, wrapper)),
+        }));
+}
+
+fn context_wrapper_cache(
+    scope: &mut v8::PinScope<'_, '_>,
+) -> Rc<RefCell<BridgeContextWrapperCache>> {
+    let context = scope.get_current_context();
+    if let Some(cache) = context.get_slot::<RefCell<BridgeContextWrapperCache>>() {
+        return cache;
+    }
+    let cache = Rc::new(RefCell::new(BridgeContextWrapperCache::default()));
+    let _ = context.set_slot(cache.clone());
+    cache
+}
+
+#[cfg(test)]
+pub(crate) struct BridgeContextWrapperCacheRetainForTest {
+    cache: Rc<RefCell<BridgeContextWrapperCache>>,
+}
+
+#[cfg(test)]
+impl BridgeContextWrapperCacheRetainForTest {
+    pub(crate) fn wrapper_entry_count(&self) -> usize {
+        self.cache.borrow().wrappers.len()
+    }
+
+    pub(crate) fn strong_wrapper_entry_count(&self) -> usize {
+        self.cache
+            .borrow()
+            .wrappers
+            .values()
+            .filter(|entry| entry.wrapper.is_strong())
+            .count()
+    }
+
+    pub(crate) fn strong_wrapper_entry_count_for_realm(
+        &self,
+        realm_token: RuntimeObservableContextToken,
+    ) -> usize {
+        self.cache
+            .borrow()
+            .wrappers
+            .values()
+            .filter(|entry| {
+                entry.wrapper.is_strong()
+                    && entry.creation_realm.map(NonZeroU64::get) == Some(realm_token.as_u64())
+            })
+            .count()
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn retain_context_wrapper_cache_for_test(
+    scope: &mut v8::PinScope<'_, '_>,
+) -> BridgeContextWrapperCacheRetainForTest {
+    BridgeContextWrapperCacheRetainForTest {
+        cache: context_wrapper_cache(scope),
+    }
+}
+
+pub(crate) fn clear_context_wrapper_cache_for_teardown(
+    scope: &mut v8::PinScope<'_, '_>,
+    include_shared_default_world: bool,
+) {
+    let context = scope.get_current_context();
+    let _ = crate::context_bootstrap::retain_window_document_in_retired_realm(scope);
+    crate::util::detach_document_page_context(context);
+    if let Some(host) = crate::util::context_host_ptr_from_context_slot(context) {
+        unsafe { &mut *host }
+            .native_bridge_mut()
+            .abort
+            .retire_context(scope, context);
+    }
+    let all_entries = include_shared_default_world
+        || context
+            .get_slot::<SharedDefaultWorldWrapperCache>()
+            .is_none();
+    let realm = context
+        .get_slot::<RuntimeObservableContextToken>()
+        .as_deref()
+        .map(|token| token.as_u64());
+    if let Some(cache) = context.get_slot::<RefCell<BridgeContextWrapperCache>>() {
+        let mut entries = cache.borrow_mut();
+        for entry in entries.wrappers.values_mut() {
+            if all_entries || entry.creation_realm.map(NonZeroU64::get) == realm {
+                entry.wrapper.retain_in_realm(scope);
+            }
+        }
+        for entry in entries.live_collection_wrappers.values_mut() {
+            if all_entries || entry.creation_realm.map(NonZeroU64::get) == realm {
+                entry.wrapper.retain_in_realm(scope);
+            }
+        }
+        drop(entries);
+        crate::util::retain_context_v8_handle_state_for_safe_release(context, cache);
+    }
+    if let Some(wrapper) = context.get_slot::<BridgeContextWindowWrapper>() {
+        wrapper.wrapper.borrow_mut().retain_in_realm(scope);
+        crate::util::retain_context_v8_handle_state_for_safe_release(context, wrapper);
+    }
+    crate::context_bootstrap::retain_indexed_db_state_in_retired_realm(scope);
+    crate::network_host::retain_pending_network_body_state_in_retired_realm(
+        scope,
+        include_shared_default_world,
+    );
+}
+
+#[derive(Debug, Default)]
+pub(super) struct BridgeIdentityStore {
+    reflector_handles: IndexSet<BridgeHandle>,
+    live_collections: LiveCollectionStore,
+    static_handle_collections: Rc<RefCell<StaticHandleCollectionStore>>,
+    default_world_wrapper_cache: Rc<RefCell<BridgeContextWrapperCache>>,
+}
+
+impl BridgeIdentityStore {
+    pub(super) fn install_default_world_wrapper_cache(&self, context: v8::Local<'_, v8::Context>) {
+        let _ = context.set_slot(self.default_world_wrapper_cache.clone());
+        let _ = context.set_slot(Rc::new(SharedDefaultWorldWrapperCache));
+    }
+
+    pub(super) fn reflector_id(&mut self, handle: &BridgeHandle) -> ReflectorId {
+        if let Some(id) = self.existing_reflector_id(handle) {
+            return id;
+        }
+
+        let (index, inserted) = self.reflector_handles.insert_full(handle.clone());
+        debug_assert!(inserted);
+        ReflectorId::from_index(index)
+    }
+
+    pub(super) fn existing_reflector_id(&self, handle: &BridgeHandle) -> Option<ReflectorId> {
+        self.reflector_handles
+            .get_index_of(handle)
+            .map(ReflectorId::from_index)
+    }
+
+    pub(super) fn bridge_handle(&self, reflector_id: ReflectorId) -> Option<BridgeHandle> {
+        self.reflector_handles
+            .get_index(reflector_id.index()?)
+            .cloned()
+    }
+
+    pub(super) fn cached_wrapper<'s>(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+        reflector_id: ReflectorId,
+    ) -> Option<v8::Local<'s, v8::Object>> {
+        if matches!(self.bridge_handle(reflector_id), Some(BridgeHandle::Window)) {
+            return context_window_wrapper(scope);
+        }
+        context_wrapper_cache(scope)
+            .borrow()
+            .wrappers
+            .get(&reflector_id)
+            .and_then(|entry| entry.wrapper.to_local(scope))
+    }
+
+    pub(super) fn cache_wrapper(
+        &self,
+        scope: &mut v8::PinScope<'_, '_>,
+        reflector_id: ReflectorId,
+        wrapper: v8::Local<'_, v8::Object>,
+    ) {
+        if matches!(self.bridge_handle(reflector_id), Some(BridgeHandle::Window)) {
+            set_context_window_wrapper(scope, wrapper);
+            return;
+        }
+        context_wrapper_cache(scope)
+            .borrow_mut()
+            .wrappers
+            .insert(reflector_id, BridgeCachedWrapper::new(scope, wrapper));
+    }
+
+    pub(super) fn register_live_collection(&mut self, descriptor: LiveCollectionDescriptor) -> u32 {
+        self.live_collections.register(descriptor)
+    }
+
+    pub(super) fn live_collection_descriptor(
+        &self,
+        collection_id: u32,
+    ) -> Option<&LiveCollectionDescriptor> {
+        self.live_collections.descriptor(collection_id)
+    }
+
+    pub(super) fn cached_live_collection_wrapper<'s>(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+        descriptor: &LiveCollectionDescriptor,
+    ) -> Option<v8::Local<'s, v8::Object>> {
+        context_wrapper_cache(scope)
+            .borrow()
+            .live_collection_wrappers
+            .get(descriptor)
+            .and_then(|entry| entry.wrapper.to_local(scope))
+    }
+
+    pub(super) fn cache_live_collection_wrapper(
+        &self,
+        scope: &mut v8::PinScope<'_, '_>,
+        descriptor: LiveCollectionDescriptor,
+        wrapper: v8::Local<'_, v8::Object>,
+    ) {
+        context_wrapper_cache(scope)
+            .borrow_mut()
+            .live_collection_wrappers
+            .insert(descriptor, BridgeCachedWrapper::new(scope, wrapper));
+    }
+
+    pub(super) fn retire_default_world_wrappers_for_realm(
+        &self,
+        realm_token: RuntimeObservableContextToken,
+    ) {
+        let mut cache = self.default_world_wrapper_cache.borrow_mut();
+        cache.wrappers.retain(|_, entry| {
+            entry.creation_realm.map(NonZeroU64::get) != Some(realm_token.as_u64())
+                || !entry.wrapper.is_strong()
+        });
+        cache.live_collection_wrappers.retain(|_, entry| {
+            entry.creation_realm.map(NonZeroU64::get) != Some(realm_token.as_u64())
+                || !entry.wrapper.is_strong()
+        });
+    }
+
+    pub(super) fn static_handle_collection_store(
+        &self,
+    ) -> Rc<RefCell<StaticHandleCollectionStore>> {
+        self.static_handle_collections.clone()
+    }
+
+    pub(super) fn static_handle_collection_len(&self, collection_id: u32) -> Option<usize> {
+        self.static_handle_collections.borrow().len(collection_id)
+    }
+
+    pub(super) fn static_handle_collection_handle_at(
+        &self,
+        collection_id: u32,
+        index: usize,
+    ) -> Option<DomHandle> {
+        self.static_handle_collections
+            .borrow()
+            .handle_at(collection_id, index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, mem::size_of, rc::Rc};
+
+    use super::{BridgeCachedWrapper, BridgeHandle, BridgeIdentityStore, ReflectorId};
+
+    #[test]
+    fn static_handle_collection_releases_its_snapshot_on_wrapper_gc() {
+        crate::ensure_v8_for_test();
+        let store = Rc::new(RefCell::new(super::StaticHandleCollectionStore::default()));
+        let mut isolate = v8::Isolate::new(Default::default());
+        let (wrapper, finalizer, id) = {
+            let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+            let scope = &mut scope.init();
+            let context = v8::Context::new(scope, Default::default());
+            let scope = &mut v8::ContextScope::new(scope, context);
+            let wrapper = v8::Object::new(scope);
+            let id = store
+                .borrow_mut()
+                .register(vec![super::DomHandle::new(0), super::DomHandle::new(1)]);
+            let finalizer_store = store.clone();
+            let finalizer = v8::Weak::with_guaranteed_finalizer(
+                scope,
+                wrapper,
+                Box::new(move || finalizer_store.borrow_mut().remove(id)),
+            );
+            (v8::Global::new(scope, wrapper), finalizer, id)
+        };
+        isolate.low_memory_notification();
+        assert_eq!(
+            store.borrow().len(id),
+            Some(2),
+            "live wrapper retains its snapshot"
+        );
+        assert_eq!(
+            store.borrow().handle_at(id, 1),
+            Some(super::DomHandle::new(1))
+        );
+        drop(wrapper);
+        isolate.low_memory_notification();
+        assert_eq!(
+            store.borrow().len(id),
+            None,
+            "GC releases the handle vector"
+        );
+        assert!(store.borrow().handles.is_empty());
+        drop(finalizer);
+    }
+
+    #[test]
+    fn bridge_handle_stays_compact_for_per_wrapper_identity_tables() {
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(size_of::<BridgeHandle>(), 16);
+        #[cfg(target_pointer_width = "32")]
+        assert!(size_of::<BridgeHandle>() <= 3 * size_of::<usize>());
+    }
+
+    #[test]
+    fn cached_wrapper_entry_bounds_the_handle_and_realm_metadata() {
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(size_of::<BridgeCachedWrapper>(), 32);
+    }
+
+    #[test]
+    fn bridge_identity_store_reuses_and_resolves_reflector_ids() {
+        let mut identities = BridgeIdentityStore::default();
+
+        let first = identities.reflector_id(&BridgeHandle::Window);
+        let second = identities.reflector_id(&BridgeHandle::Window);
+
+        assert_eq!(first, second);
+        assert_eq!(first.raw(), 1);
+        assert_eq!(identities.bridge_handle(first), Some(BridgeHandle::Window));
+        assert_eq!(identities.bridge_handle(ReflectorId::from_raw(0)), None);
+    }
+}

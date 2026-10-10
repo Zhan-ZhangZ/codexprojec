@@ -1,0 +1,119 @@
+/* The wrapper owns composer chrome; CodeMirror owns document layout and scrolling. */
+.claudian-input-wrapper .claudian-composer-editor {
+  --no-tooltip: true;
+
+  /* Shared by the pre-mount placeholder and CodeMirror's content and lines. */
+  --claudian-composer-padding-top: 12px;
+  --claudian-composer-padding-inline: 13px;
+  --claudian-composer-padding-bottom: 2px;
+
+  width: 100%;
+  min-width: 0;
+
+  /* About two lines when idle; the editor grows with its content. */
+  min-height: 48px;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: 14px;
+
+  /* One source for the pre-mount placeholder and the mounted editor, so first focus does not shift layout. */
+  line-height: 1.4;
+  cursor: text;
+  white-space: pre-wrap;
+}
+
+.claudian-composer-editor:focus,
+.claudian-composer-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.claudian-composer-editor:empty::before {
+  display: block;
+  padding: var(--claudian-composer-padding-top) var(--claudian-composer-padding-inline) var(--claudian-composer-padding-bottom);
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+}
+
+.claudian-composer-editor .cm-editor {
+  background: transparent;
+}
+
+.claudian-composer-editor .cm-scroller {
+  max-height: var(--claudian-textarea-max-height, none);
+  overflow: auto;
+  font-family: inherit;
+  line-height: inherit;
+}
+
+/*
+ * Text lines up with the toolbar content (13px in) and gets more room above than below,
+ * since the toolbar under it already adds space.
+ */
+.claudian-composer-editor .cm-content {
+  padding: var(--claudian-composer-padding-top) 0 var(--claudian-composer-padding-bottom);
+  min-height: 48px;
+  caret-color: var(--text-normal);
+}
+
+.claudian-composer-editor .cm-line {
+  padding: 0 var(--claudian-composer-padding-inline);
+}
+
+/*
+ * CodeMirror's inline-block hint makes the native caret beside it as tall as the whole hint
+ * once it wraps; inline, the caret takes the first line's height and the hint wraps the same.
+ */
+.claudian-composer-editor .cm-placeholder {
+  display: inline;
+  color: var(--text-muted);
+}
+
+.claudian-composer-editor .claudian-prompt-suggestion-hint {
+  color: var(--text-faint);
+}
+
+.claudian-composer-editor .cm-cursor {
+  border-left-color: var(--text-normal);
+}
+
+.claudian-composer-wikilink > p {
+  display: inline;
+  margin: 0;
+}
+
+.claudian-composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0 0.3em;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  vertical-align: baseline;
+}
+
+.claudian-composer-chip-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.claudian-composer-chip-icon svg {
+  width: 1em;
+  height: 1em;
+}
+
+/* Commands read as code: a monospaced chip rather than prose, with the prefix joined to the name. */
+.claudian-composer-command {
+  gap: 0;
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  font-weight: var(--font-semibold);
+}
+
+.claudian-composer-command-prefix {
+  font-weight: var(--font-extrabold);
+}

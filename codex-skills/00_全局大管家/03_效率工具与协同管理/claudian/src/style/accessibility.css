@@ -1,0 +1,41 @@
+/* Accessibility - Focus Visible Styles */
+
+/* outline + offset + border-radius */
+.claudian-tool-header:focus-visible,
+.claudian-thinking-header:focus-visible,
+.claudian-citations-header:focus-visible,
+.claudian-subagent-header:focus-visible,
+.claudian-input-nav-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* outline + offset only */
+.claudian-action-btn:focus-visible,
+.claudian-context-chip-main:focus-visible,
+.claudian-context-chip-remove:focus-visible,
+.claudian-context-more:focus-visible,
+.claudian-image-modal-close:focus-visible,
+.claudian-cancel-btn:focus-visible,
+.claudian-save-btn:focus-visible,
+.claudian-code-lang-label:focus-visible,
+.claudian-inline-preview-action:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claudian-inline-spinner,
+  .claudian-session-group-header--attention .claudian-session-group-label,
+  .claudian-history-item--attention .claudian-history-item-title {
+    animation: none;
+  }
+}
+
+/* outline + negative offset + border-radius */
+.claudian-history-item-content:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}

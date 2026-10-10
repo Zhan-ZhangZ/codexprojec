@@ -1,0 +1,157 @@
+use anyhow::{Context, Result, anyhow, bail};
+use curl::easy::{Easy2, Handler, HttpVersion, InfoType, List, WsOptions};
+
+use super::CurlWebSocketRequest;
+
+const MAX_HEADERS: usize = 64 * 1024;
+
+#[derive(Default)]
+pub(super) struct Handshake {
+    pub request: Vec<u8>,
+    pub response: Vec<u8>,
+    pub error: Option<String>,
+    #[cfg(test)]
+    pub pool_waiting: Option<std::sync::Arc<tokio::sync::Notify>>,
+    proxy_connect: bool,
+    header_bytes: usize,
+}
+
+impl Handler for Handshake {
+    fn header(&mut self, data: &[u8]) -> bool {
+        self.header_bytes = self.header_bytes.saturating_add(data.len());
+        if self.header_bytes > MAX_HEADERS {
+            self.error = Some("WebSocket handshake headers are too large".to_owned());
+            return false;
+        }
+        if self.proxy_connect {
+            if data.starts_with(b"HTTP/") {
+                let line = String::from_utf8_lossy(data);
+                let status = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|status| status.parse::<u16>().ok());
+                if status.is_some_and(|status| status > 200) {
+                    self.error = Some(format!("WebSocket proxy CONNECT failed: {}", line.trim()));
+                    return false;
+                }
+            }
+            return true;
+        }
+        if data.starts_with(b"HTTP/") {
+            self.response.clear();
+        }
+        self.response.extend_from_slice(data);
+        true
+    }
+
+    fn debug(&mut self, kind: InfoType, data: &[u8]) {
+        // Observe libcurl's actual admission decision in tests. Merely seeing
+        // connect() return does not prove that a handle is waiting for a slot.
+        #[cfg(test)]
+        if matches!(kind, InfoType::Text)
+            && (data.starts_with(b"No more connections allowed to host")
+                || data.starts_with(b"No connections available, total of"))
+            && let Some(waiting) = &self.pool_waiting
+        {
+            waiting.notify_one();
+        }
+        if matches!(kind, InfoType::HeaderOut) {
+            self.proxy_connect = data.starts_with(b"CONNECT ");
+            if data.starts_with(b"GET ") && data.len() <= MAX_HEADERS {
+                self.request = data.to_vec();
+            }
+        }
+    }
+}
+
+pub(super) fn configure(request: &CurlWebSocketRequest) -> Result<Easy2<Handshake>> {
+    let url = url::Url::parse(&request.url)?;
+    if !matches!(url.scheme(), "ws" | "wss") {
+        bail!("WebSocket URL must use ws or wss");
+    }
+    if request.handshake_timeout.is_zero() {
+        bail!("WebSocket handshake timeout must be positive");
+    }
+    let mut easy = Easy2::new(Handshake::default());
+    easy.url(&request.url)?;
+    easy.http_version(HttpVersion::V11)?;
+    easy.follow_location(false)?;
+    easy.signal(false)?;
+    easy.ws_connect_only(true)?;
+    easy.ws_options(WsOptions::new().no_auto_pong(true))?;
+    // The caller selects the client identity carried by this connection request.
+    request.tls.configure(&mut easy, true)?;
+    easy.proxy(request.proxy.as_deref().unwrap_or(""))?;
+    if request.proxy.as_deref().is_some_and(proxy_uses_https_tls) {
+        request.tls.configure_https_proxy(&mut easy)?;
+    }
+    // The browser has already applied no_proxy; do not evaluate environment policy twice.
+    easy.noproxy("")?;
+    easy.http_proxy_tunnel(request.proxy.as_deref().is_some_and(proxy_uses_http_tunnel))?;
+    easy.separate_proxy_headers(true)?;
+    if !request.resolve_entries.is_empty() {
+        let mut resolve = List::new();
+        for entry in &request.resolve_entries {
+            resolve
+                .append(entry)
+                .with_context(|| anyhow!("failed to build curl host resolve entry `{entry}`"))?;
+        }
+        easy.resolve(resolve)
+            .context("failed to configure curl host resolve overrides")?;
+    }
+    easy.http_headers(headers(&request.headers)?)
+        .context("failed to attach WebSocket request headers")?;
+    let proxy_headers = headers(&moli_header_field::HeaderFields::from_utf8(
+        request.proxy_headers.clone(),
+    ))?;
+    easy.proxy_headers(proxy_headers)
+        .context("failed to attach WebSocket proxy headers")?;
+    // Capture HeaderOut through our handler; never print debug or credentials.
+    easy.verbose(true)?;
+    Ok(easy)
+}
+
+fn proxy_uses_http_tunnel(proxy: &str) -> bool {
+    let Some((scheme, _)) = proxy.split_once("://") else {
+        return true;
+    };
+    scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+}
+
+fn proxy_uses_https_tls(proxy: &str) -> bool {
+    proxy
+        .split_once("://")
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("https"))
+}
+
+fn headers(entries: &moli_header_field::HeaderFields) -> Result<List> {
+    let mut list = List::new();
+    let mut size = 0usize;
+    for (name, value) in entries {
+        if name.is_empty()
+            || name
+                .bytes()
+                .any(|b| !b.is_ascii_alphanumeric() && !b"!#$%&'*+-.^_`|~".contains(&b))
+            || value.iter().any(|b| matches!(b, 0 | b'\r' | b'\n'))
+        {
+            bail!("invalid WebSocket request header");
+        }
+        size = size
+            .saturating_add(name.len())
+            .saturating_add(value.len())
+            .saturating_add(4);
+        if size > MAX_HEADERS {
+            bail!("WebSocket request headers are too large");
+        }
+        // curl uses a semicolon to request an empty header instead of removing it.
+        let mut line = name.as_bytes().to_vec();
+        if value.is_empty() {
+            line.push(b';');
+        } else {
+            line.extend_from_slice(b": ");
+            line.extend_from_slice(value);
+        }
+        list.append_bytes(&line)?;
+    }
+    Ok(list)
+}

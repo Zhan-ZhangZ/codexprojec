@@ -1,0 +1,526 @@
+{
+  "common": {
+    "inputSuggestions": "Eingabevorschläge",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "add": "Hinzufügen",
+    "clearAll": "Alle löschen",
+    "error": "Fehler",
+    "confirm": "Bestätigen",
+    "refresh": "Aktualisieren"
+  },
+  "chat": {
+    "promptSuggestionHint": "Mit Tab übernehmen",
+    "selectAvailableModel": "Wähle vor dem Senden ein verfügbares Modell aus.",
+    "selectAvailableTitleModel": "Wähle in den Claudian-Einstellungen ein verfügbares Titelmodell aus.",
+    "rewind": {
+      "confirmMessage": "Zu diesem Punkt zurückspulen? Dateiänderungen nach dieser Nachricht können überschrieben oder entfernt werden. Dies kann nicht rückgängig gemacht werden.",
+      "confirmMessageConflicts": "Zu diesem Punkt zurückspulen? {count} außerhalb des Agenten geänderte Datei(en) werden überschrieben:\n{files}",
+      "confirmMessageConversationOnly": "Konversation zu diesem Punkt zurückspulen? Dateiänderungen bleiben erhalten.",
+      "confirmButton": "Zurückspulen",
+      "inProgress": "Bitte warten Sie, bis das aktuelle Zurückspulen abgeschlossen ist.",
+      "ariaLabel": "Hierher zurückspulen",
+      "menuConversationOnly": "Nur Konversation zurückspulen",
+      "menuCodeAndConversation": "Code + Konversation zurückspulen",
+      "notice": "Zurückgespult: {count} Datei(en) wiederhergestellt",
+      "noticeConversationOnly": "Konversation zurückgespult; Dateiänderungen bleiben erhalten",
+      "noticeSaveFailed": "Zurückgespult: {count} Datei(en) wiederhergestellt, aber Status konnte nicht gespeichert werden: {error}",
+      "noticeConversationOnlySaveFailed": "Konversation zurückgespult, aber Status konnte nicht gespeichert werden: {error}",
+      "failed": "Zurückspulen fehlgeschlagen: {error}",
+      "cannot": "Zurückspulen nicht möglich: {error}",
+      "unavailableStreaming": "Zurückspulen während des Streamings nicht möglich",
+      "unavailableNoUuid": "Zurückspulen nicht möglich: Nachrichtenkennungen fehlen"
+    },
+    "fork": {
+      "ariaLabel": "Konversation verzweigen",
+      "chooseTarget": "Konversation verzweigen",
+      "targetNewTab": "Neuer Tab",
+      "targetCurrentTab": "Aktueller Tab",
+      "notice": "In neuem Tab verzweigt",
+      "noticeCurrentTab": "Im aktuellen Tab verzweigt",
+      "failed": "Verzweigung fehlgeschlagen: {error}",
+      "unavailableStreaming": "Verzweigung während des Streamings nicht möglich",
+      "unavailableNoUuid": "Verzweigung nicht möglich: Nachrichtenkennungen fehlen",
+      "errorMessageNotFound": "Nachricht nicht gefunden",
+      "errorNoSession": "Keine Sitzungs-ID verfügbar",
+      "errorNoActiveTab": "Kein aktiver Tab"
+    },
+    "quote": {
+      "buttonLabel": "Zitieren"
+    },
+    "sideChat": {
+      "title": "Nebenchat",
+      "collapse": "Einklappen",
+      "discard": "Verwerfen",
+      "statusPreparing": "Wird vorbereitet",
+      "statusQueued": "{count} in Warteschlange",
+      "statusWorking": "Arbeitet",
+      "statusError": "Benötigt Aufmerksamkeit",
+      "statusActionRequired": "Eingabe erforderlich",
+      "placeholder": "Im Nebenchat nachfragen",
+      "composerLabel": "Nachricht im Nebenchat",
+      "needsPrompt": "Gib nach /side eine Eingabe an, um einen Nebenchat zu starten.",
+      "unsupportedProvider": "Dieser Anbieter unterstützt keinen Nebenchat.",
+      "unavailableBusy": "Der Nebenchat benötigt eine abgeschlossene Antwort. Warte, bis der aktuelle Zug endet.",
+      "unavailableNoCheckpoint": "Schließe zuerst eine Antwort in dieser Konversation ab.",
+      "unavailableNoSession": "Die Anbietersitzung dieser Konversation konnte nicht aufgelöst werden.",
+      "alreadyExists": "Für diese Konversation existiert bereits ein Nebenchat. Verwirf ihn, um einen neuen zu starten.",
+      "nestedUnavailable": "Ein Nebenchat kann keinen weiteren Nebenchat starten. Klappe zuerst zum Hauptchat ein.",
+      "mainOnlyCommand": "/{command} ist nur im Hauptchat verfügbar.",
+      "startFailed": "Nebenchat konnte nicht gestartet werden: {error}",
+      "queued": "Für den Nebenchat eingereiht.",
+      "busySide": "Der Nebenchat antwortet noch. Warte, bis er fertig ist."
+    },
+    "zen": {
+      "regionLabel": "Claudian-Chat",
+      "showHistory": "Unterhaltung anzeigen",
+      "move": "Chat-Bereich verschieben",
+      "working": "Arbeitet…",
+      "thinking": "Denkt nach…",
+      "interrupted": "Unterbrochen",
+      "workedFor": "Gearbeitet für {duration}",
+      "workedForResult": "Gearbeitet für {duration} · {result}",
+      "actionRequired": "Deine Eingabe wird benötigt",
+      "error": "Fehler: {message}",
+      "toolRunning": "{tool} · läuft",
+      "toolCompleted": "{tool} · fertig",
+      "toolFailed": "{tool} · fehlgeschlagen",
+      "toolBlocked": "{tool} · blockiert"
+    }
+  },
+  "settings": {
+    "tabs": {
+      "general": "Allgemein",
+      "providers": "Anbieter",
+      "skills": "Skills"
+    },
+    "providerSettings": {
+      "unavailable": "Anbietereinstellungen sind nicht verfügbar.",
+      "loadFailed": "Anbietereinstellungen konnten nicht geladen werden: {message}"
+    },
+    "display": "Anzeige",
+    "conversations": "Unterhaltungen",
+    "content": "Inhalte",
+    "input": "Eingabe",
+    "models": "Modelle",
+    "responses": "Antworten",
+    "experimental": "Experimentell",
+    "userName": {
+      "name": "Wie soll Claudian dich nennen?",
+      "desc": "Dein Name für personalisierte Begrüßungen (leer lassen für allgemeine Begrüßungen)"
+    },
+    "excludedTags": {
+      "name": "Ausgeschlossene Tags",
+      "desc": "Notizen mit diesen Tags werden nicht automatisch als Kontext geladen (einer pro Zeile, ohne #)"
+    },
+    "mediaFolder": {
+      "name": "Medienordner",
+      "desc": "Ordner mit Anhängen/Bildern. Wenn Notizen ![[image.jpg]] verwenden, sucht Claude hier. Leer lassen für Vault-Stammverzeichnis."
+    },
+    "systemPrompt": {
+      "name": "Benutzerdefinierter System-Prompt",
+      "desc": "Zusätzliche Anweisungen, die an den Standard-System-Prompt angehängt werden"
+    },
+    "autoTitle": {
+      "name": "Konversationstitel automatisch generieren",
+      "desc": "Generiert automatisch Konversationstitel nach der ersten Nutzernachricht."
+    },
+    "titleLanguage": {
+      "name": "Sprache der Titelgenerierung",
+      "desc": "Sprache für automatisch generierte Konversationstitel.",
+      "followInterface": "Wie Oberflächensprache"
+    },
+    "titleModel": {
+      "name": "Titel-Generierungsmodell",
+      "desc": "Modell zur automatischen Generierung von Konversationstiteln.",
+      "select": "Modell auswählen",
+      "unavailableWarning": "Automatische Titel sind pausiert. Wählen Sie ein verfügbares Titelmodell."
+    },
+    "navMappings": {
+      "name": "Vim-Style Navigationszuordnungen",
+      "desc": "Eine Zuordnung pro Zeile. Format: \"map <Taste> <Aktion>\" (Aktionen: scrollUp, scrollDown, focusInput)."
+    },
+    "requireCommandOrControlEnterToSend": {
+      "name": "Command/Ctrl+Enter zum Senden erfordern",
+      "desc": "Wenn aktiviert, fügt Enter einen Zeilenumbruch ein. Command+Enter sendet unter macOS; Ctrl+Enter sendet unter Windows und Linux."
+    },
+    "safety": "Sicherheit",
+    "loadUserSettings": {
+      "name": "Claude-Code-Benutzereinstellungen laden",
+      "desc": "Lädt die Claude-Code-Konfiguration auf Benutzerebene aus ~/.claude: settings.json, Skills, Befehle, Agenten und Plugins. Wenn deaktiviert, ist nur die Konfiguration auf Vault-Ebene verfügbar. Wenn aktiviert, können Benutzer-Berechtigungsregeln den Sicherheitsmodus umgehen."
+    },
+    "codexSandbox": {
+      "name": "Sandbox",
+      "desc": "Dateizugriff in den Modi „Approve for me“ und „Ask for approval“. „Nur lesen“ fragt vor jeder Änderung; „Full access“ ignoriert diese Einstellung."
+    },
+    "environment": "Umgebung",
+    "sharedEnvironment": {
+      "name": "Gemeinsame Umgebung",
+      "desc": "Anbieterunabhängige Laufzeitvariablen, die mit allen Anbietern geteilt werden. Verwenden Sie dies für PATH-, Proxy-, Zertifikats- und Temp-Variablen."
+    },
+    "customVariables": {
+      "name": "Benutzerdefinierte Variablen",
+      "desc": "Nur Laufzeitvariablen, die Claude Code gehören. Verwenden Sie dies für ANTHROPIC_* und Claude-Code-spezifische Schalter."
+    },
+    "envSnippets": {
+      "name": "Snippets",
+      "addBtn": "Snippet hinzufügen",
+      "saveCurrent": "Aktuelle Umgebung als Snippet speichern",
+      "nameRequired": "Bitte geben Sie einen Namen für das Snippet ein",
+      "insert": "Einfügen",
+      "modal": {
+        "titleEdit": "Snippet bearbeiten",
+        "titleSave": "Snippet speichern",
+        "name": "Name",
+        "namePlaceholder": "Ein beschreibender Name für diese Umgebungskonfiguration",
+        "description": "Beschreibung",
+        "descPlaceholder": "Optionale Beschreibung",
+        "envVars": "Umgebungsvariablen",
+        "envVarsPlaceholder": "KEY=VALUE-Format, eine pro Zeile (export-Präfix unterstützt)",
+        "save": "Speichern",
+        "update": "Aktualisieren",
+        "cancel": "Abbrechen"
+      },
+      "insertFailed": "Snippet konnte nicht eingefügt werden",
+      "deleteConfirm": "Umgebungs-Snippet \"{name}\" löschen?",
+      "deleteFailed": "Snippet konnte nicht gelöscht werden"
+    },
+    "customModelOverrides": {
+      "name": "Benutzerdefinierte Modellüberschreibungen",
+      "desc": "Legen Sie Aliasnamen in der Modellauswahl und Kontextfenstergrößen für benutzerdefinierte Modelle fest."
+    },
+    "customModelAliases": {
+      "placeholder": "Aliasname",
+      "ariaLabel": "Alias für {model}",
+      "ariaDescription": "Benutzerdefinierte Bezeichnung in der Modellauswahl. Leer lassen, um die Standardbezeichnung zu verwenden."
+    },
+    "customContextLimits": {
+      "invalid": "Ungültiges Format. Verwenden Sie: 256k, 1m oder exakte Anzahl (1000-10000000)."
+    },
+    "enableChrome": {
+      "name": "Chrome-Erweiterung aktivieren",
+      "desc": "Erlaubt Claude Code die Interaktion mit Chrome über die claude-in-chrome-Erweiterung. Die Erweiterung muss installiert sein. Erfordert Neustart der Sitzung."
+    },
+    "enableDualPane": {
+      "name": "Zwei-Spalten-Modus aktivieren",
+      "desc": "Den Sitzungsmanager automatisch neben dem Chat anzeigen, wenn die Ansicht mindestens 600 px breit ist."
+    },
+    "restoreTabsOnStartup": {
+      "name": "Tabs beim Start wiederherstellen",
+      "desc": "Im Einzelbereichsmodus alle Tabs, im Zwei-Spalten-Modus nur den zuletzt aktiven Tab erneut öffnen."
+    },
+    "sessionAutoArchiveAfter": {
+      "name": "Inaktive Sitzungen automatisch archivieren",
+      "desc": "Nicht angeheftete Sitzungen ohne Aktivität im gewählten Zeitraum archivieren. Geöffnete und laufende Sitzungen werden übersprungen.",
+      "multiSelectHint": "Klicken Sie mit gedrückter Wahltaste (Alt unter Windows und Linux) auf Sitzungen, um mehrere auszuwählen, und klicken Sie dann mit der rechten Maustaste, um sie anzuheften oder zu archivieren.",
+      "off": "Aus",
+      "days7": "Nach 7 Tagen",
+      "days14": "Nach 14 Tagen",
+      "days30": "Nach 30 Tagen"
+    },
+    "dualPaneSide": {
+      "name": "Seite der zweiten Spalte",
+      "desc": "Auswählen, auf welcher Seite des Chats der Sitzungsmanager angezeigt wird.",
+      "left": "Links",
+      "right": "Rechts"
+    },
+    "enableAutoScroll": {
+      "name": "Automatisches Scrollen während Streaming",
+      "desc": "Automatisch nach unten scrollen, während Claude Antworten streamt. Deaktivieren, um oben zu bleiben und von Anfang an zu lesen."
+    },
+    "showMessageTimestamps": {
+      "name": "Nachrichtenzeitstempel anzeigen",
+      "desc": "Die lokale Sende- oder Empfangszeit jeder Nachricht im Chatverlauf anzeigen."
+    },
+    "deferMathRenderingDuringStreaming": {
+      "name": "Mathe-Rendering während Streaming aufschieben",
+      "desc": "LaTeX während des Streamings roh anzeigen und Mathematik einmal rendern, wenn der Textblock abgeschlossen ist."
+    },
+    "expandFileEditsByDefault": {
+      "name": "Dateibearbeitungen standardmäßig ausklappen",
+      "desc": "Write- und Edit-Diffs beim ersten Erscheinen ausgeklappt anzeigen."
+    },
+    "chatViewPlacement": {
+      "name": "Claudian öffnen in",
+      "desc": "Wählen Sie, wo das Chat-Panel beim Erstellen geöffnet wird",
+      "rightSidebar": "Rechte Seitenleiste",
+      "leftSidebar": "Linke Seitenleiste",
+      "mainTab": "Haupteditor-Tab"
+    },
+    "enableZenMode": {
+      "name": "Zen-Modus aktivieren",
+      "desc": "Hält eine reduzierte Chat-Oberfläche sichtbar, wenn die Seitenleiste ausgeblendet ist."
+    },
+    "cliInstallation": {
+      "disclosure": "{name}-Installation",
+      "description": "Optionaler CLI-Pfad für diesen Computer. Für automatische Erkennung leer lassen.",
+      "checking": "CLI wird geprüft…",
+      "versionUnavailable": "Version nicht verfügbar",
+      "notFound": "Nicht gefunden",
+      "custom": "Benutzerdefinierter Pfad",
+      "auto": "Automatisch erkannt",
+      "checkFailed": "CLI konnte nicht geprüft werden",
+      "saveFailed": "Pfad konnte nicht gespeichert werden. Erneut versuchen."
+    },
+    "cliPath": {
+      "name": "Claude-Code-CLI-Pfad",
+      "genericName": "CLI-Pfad",
+      "validation": {
+        "notExist": "Pfad existiert nicht",
+        "isDirectory": "Pfad ist ein Verzeichnis, keine Datei",
+        "mustBeAbsolute": "Pfad muss absolut sein",
+        "notFile": "Pfad muss auf eine Datei verweisen",
+        "notAccessible": "Pfad ist nicht zugänglich",
+        "notExecutable": "Pfad muss ausführbar sein"
+      }
+    },
+    "language": {
+      "name": "Sprache",
+      "desc": "Anzeigesprache der Plugin-Oberfläche ändern"
+    },
+    "providerEnablement": {
+      "name": "{provider} aktivieren",
+      "lastProviderWarning": "Damit Claudian funktioniert, muss mindestens ein Anbieter aktiviert bleiben.",
+      "noModelsWarning": "Keine {provider}-Modelle sind aktiviert. Aktivieren Sie unten unter „Modelle“ mindestens ein Modell."
+    },
+    "modelPicker": {
+      "name": "Sichtbare Modelle",
+      "desc": "Wählen Sie, welche Modelle in der Chat-Auswahl verfügbar sind. Ziehen Sie sie, um die Reihenfolge zu ändern; der Anbieter verwendet das erste derzeit nutzbare Modell als Standard. Wählen Sie mindestens ein Modell aus, um diesen Anbieter zu verwenden.",
+      "browse": "Modelle durchsuchen",
+      "filterLabel": "{provider}-Modelle filtern",
+      "searchPlaceholder": "Nach Modell, Anbieter oder ID filtern...",
+      "providerFilterLabel": "Modellanbieter filtern",
+      "allProviders": "Alle Anbieter ({count})",
+      "discover": "Erkennen",
+      "visible": "Sichtbar: ",
+      "ofDiscovered": " von {count} erkannten",
+      "oneProvider": " | 1 Anbieter",
+      "manyProviders": " | {count} Anbieter",
+      "loadingModels": "Modelle werden geladen...",
+      "loading": "Wird geladen...",
+      "available": "{count} verfügbar",
+      "noneDiscovered": "Noch keine Modelle erkannt",
+      "selected": "Ausgewählt ({count})",
+      "clearAllLabel": "Alle ausgewählten {provider}-Modelle entfernen",
+      "reorderLabel": "{model} neu anordnen; ziehen oder die Pfeiltasten nach oben und unten verwenden",
+      "default": "Standard",
+      "unavailable": "Nicht verfügbar",
+      "aliasLabel": "Alias (optional)",
+      "removeLabel": "{model} entfernen",
+      "noMatch": "Keine Modelle entsprechen Ihrem Filter.",
+      "emptyCatalog": "Keine {provider}-Modelle gemeldet. Prüfen Sie Ihre Konfiguration und klicken Sie auf Erkennen.",
+      "loadingCatalog": "{provider}-Modelle werden geladen…",
+      "stale": "Der {provider}-Modellkatalog ist veraltet. Klicken Sie auf Erkennen, um ihn zu aktualisieren."
+    },
+    "claude": {
+      "promptSuggestions": {
+        "name": "Prompt-Vorschläge",
+        "desc": "Zeigt Claudes Vorschlag für den nächsten Prompt im leeren Eingabefeld. Jeder Vorschlag ist eine zusätzliche Claude-Anfrage nach jeder Runde und kann Ihre Nutzungslimits schneller aufbrauchen."
+      },
+      "configuration": "Konfiguration",
+      "responseStyle": {
+        "name": "Antwortstil",
+        "desc": "Claude-Code-Ausgabestil für Antworten, einschließlich eigener Stile. „Claude-Code-Einstellung“ folgt deiner Claude-Code-Konfiguration. Die Liste wird aktualisiert, wenn Modelle aktualisiert werden oder ein Chat startet.",
+        "default": "Standard",
+        "inherit": "Claude-Code-Einstellung"
+      }
+    },
+    "codex": {
+      "installationMethod": {
+        "name": "Installationsmethode",
+        "desc": "Wie Claudian Codex unter Windows starten soll. Native Windows verwendet einen Windows-Programmpfad. WSL startet die Linux-CLI in einer ausgewählten Distribution.",
+        "nativeWindows": "Natives Windows",
+        "wsl": "WSL"
+      },
+      "cliPath": {
+        "name": "Codex-CLI-Pfad",
+        "validation": {
+          "wslWindowsPath": "Der WSL-Modus erwartet einen Linux-Befehl oder absoluten Linux-Pfad, keinen Windows-Programmpfad."
+        }
+      },
+      "wslDistroOverride": {
+        "name": "WSL-Distribution überschreiben",
+        "desc": "Optionale erweiterte Überschreibung. Leer lassen, um die Distribution möglichst aus einem WSL-Workspace-Pfad abzuleiten, sonst wird die Standard-WSL-Distribution verwendet."
+      },
+      "safeMode": {
+        "workspaceWrite": "Workspace schreiben",
+        "readOnly": "Nur lesen"
+      },
+      "responseStyle": {
+        "name": "Antwortstil",
+        "desc": "Wähle den Kommunikationsstil von Codex bei unterstützten Modellen.",
+        "pragmatic": "Pragmatisch",
+        "friendly": "Freundlich",
+        "neutral": "Neutral"
+      },
+      "responseVerbosity": {
+        "name": "Antwortumfang",
+        "desc": "Wählen Sie den Detailgrad der Antworten bei unterstützten Modellen. Standard verwendet Ihre Codex-Konfiguration.",
+        "default": "Standard",
+        "low": "Niedrig",
+        "medium": "Mittel",
+        "high": "Hoch"
+      },
+      "reasoningSummary": {
+        "name": "Reasoning-Zusammenfassung",
+        "desc": "Zeigt eine Zusammenfassung des Reasoning-Prozesses des Modells im Denkblock.",
+        "auto": "Automatisch",
+        "concise": "Kurz",
+        "detailed": "Ausführlich",
+        "off": "Aus"
+      },
+      "ultraEffort": {
+        "name": "Ultra-Denktiefe aktivieren",
+        "desc": "Ultra in der Auswahl für Codex-Modelle anzeigen, die es unterstützen. Ultra nutzt maximale Denktiefe mit automatischer Aufgabendelegation."
+      },
+      "environment": {
+        "name": "Codex-Umgebung",
+        "desc": "Nur Laufzeitvariablen, die Codex gehören. Verwende dies für OPENAI_*- und CODEX_*-Einstellungen. Wenn die Autoerkennung von Codex Hilfe braucht, füge das Installationsverzeichnis dem gemeinsamen PATH hinzu statt diesem Anbieterabschnitt."
+      }
+    },
+    "agentSkills": {
+      "sharedExpectation": "Gemeinsame Skills in .agents/skills/ für kompatible Anbieter verwalten.",
+      "noSkills": "Keine gemeinsamen Skills konfiguriert. Klicken Sie auf +, um einen zu erstellen.",
+      "skillBadge": "Skill",
+      "diagnosticsTitle": "Skills, die Aufmerksamkeit brauchen",
+      "loadFailed": "Gemeinsame Skills konnten nicht geladen werden.",
+      "savedRefreshFailed": "Gespeichert, aber die Aktualisierung der Anbieter ist fehlgeschlagen.",
+      "validationFailed": "Ungültiger Skill: {message}",
+      "collisionFailed": "Ein Skill namens \"{name}\" existiert bereits.",
+      "saveFailed": "Gemeinsamer Skill konnte nicht gespeichert werden: {message}",
+      "deleteFailed": "Gemeinsamer Skill konnte nicht in den Papierkorb verschoben werden: {message}",
+      "staleConflict": "Dieser Skill wurde an anderer Stelle geändert; vor dem Speichern aktualisieren.",
+      "created": "Gemeinsamer Skill \"{name}\" erstellt.",
+      "updated": "Gemeinsamer Skill \"{name}\" aktualisiert.",
+      "deleted": "Gemeinsamer Skill \"{name}\" in den Papierkorb verschoben.",
+      "fix": "Reparieren",
+      "fixed": "Skill \"{name}\" repariert.",
+      "modal": {
+        "titleEdit": "Gemeinsamen Skill bearbeiten",
+        "titleAdd": "Gemeinsamen Skill hinzufügen",
+        "titleFix": "Skill reparieren",
+        "name": "Skill-Name",
+        "nameDesc": "Kleinbuchstaben und Zahlen, getrennt durch einzelne Bindestriche",
+        "namePlaceholder": "code-reviewer",
+        "description": "Beschreibung",
+        "descriptionDesc": "Erforderliche portable Beschreibung, anhand derer Anbieter den Skill auswählen",
+        "descriptionPlaceholder": "Prüft Code auf Korrektheit und Wartbarkeit",
+        "instructions": "Anweisungen",
+        "instructionsDesc": "Erforderliche SKILL.md-Anweisungen",
+        "instructionsPlaceholder": "Prüfe den bereitgestellten Code und melde umsetzbare Befunde..."
+      },
+      "delete": {
+        "title": "Gemeinsamen Skill löschen",
+        "description": "Der gesamte Skill-Ordner, einschließlich Skripten, Referenzen und Assets, wird in den Papierkorb verschoben.",
+        "confirm": "In den Papierkorb verschieben"
+      }
+    },
+    "opencode": {
+      "environment": {
+        "name": "OpenCode-Umgebungsvariablen",
+        "desc": "Zusätzliche Umgebungsvariablen, die an OpenCode übergeben werden."
+      },
+      "migrationNotice": {
+        "text": "Claudian unterstützt jetzt OpenCode v2. Die Unterstützung für OpenCode v1 endet am 30. Oktober 2026.",
+        "link": "Zu OpenCode v2 migrieren"
+      }
+    },
+    "pi": {
+      "environment": {
+        "name": "Pi-Umgebungsvariablen",
+        "desc": "Umgebungsvariablen, die nur an Pi übergeben werden."
+      }
+    },
+    "grok": {
+      "environment": {
+        "name": "Grok-Build-Umgebungsvariablen",
+        "desc": "Umgebungsvariablen, die nur an Grok Build übergeben werden. Geheimnisse für benutzerdefinierte Modelle bleiben in diesem Anbieterbereich und werden in der nativen Konfiguration über env_key referenziert."
+      }
+    },
+    "skills": {
+      "subTabs": {
+        "claude": "Claude Code",
+        "shared": "Andere Anbieter"
+      },
+      "claudeHelp": "Claude-Code-Skills in .claude/skills/ und Befehle in .claude/commands/.",
+      "sharedHelp": "Gemeinsame Skills in .agents/skills/ für Codex, OpenCode, Pi und Grok Build.",
+      "status": {
+        "error": "Die Skill-Ordner konnten nicht gelesen werden: {message}"
+      },
+      "synced": "Synchronisiert",
+      "actions": {
+        "sync": "Synchronisieren",
+        "resync": "Neu synchronisieren"
+      },
+      "commands": {
+        "title": "Claude-Code-Befehle",
+        "hint": "Befehle funktionieren nur in Claude Code. Es wird empfohlen, sie in Skills umzuwandeln.",
+        "badge": "Befehl",
+        "empty": "Keine Befehle in .claude/commands.",
+        "convert": "In Skill umwandeln",
+        "editTitle": "Befehl bearbeiten",
+        "convertTitle": "Befehl in Skill umwandeln",
+        "nameDesc": "Pfad unter .claude/commands ohne .md; verschachtelte Befehle verwenden /",
+        "descriptionDesc": "Optionale Beschreibung im Befehlsmenü",
+        "updated": "Befehl \"{name}\" aktualisiert.",
+        "converted": "Befehl in Skill \"{name}\" umgewandelt.",
+        "deleted": "Befehl \"{name}\" in den Papierkorb verschoben.",
+        "deleteTitle": "Befehl löschen",
+        "deleteDescription": "Die Befehlsdatei wird in den Papierkorb verschoben.",
+        "collisionFailed": "Ein Befehl namens \"{name}\" existiert bereits."
+      },
+      "droppedFrontmatterWarning": "Beim Speichern bleiben nur Name und Beschreibung erhalten. Diese Schlüssel werden entfernt und das Verhalten der Anbieter kann sich ändern: {keys}",
+      "hidden": {
+        "name": "Ausgeblendete Befehle und Skills",
+        "desc": "Blendet Befehle und Skills im Befehlsmenü aller Anbieter aus. Exakte Namen ohne führenden Schrägstrich eingeben, einen pro Zeile (Pi-Skills verwenden skill:name).",
+        "placeholder": "commit\ncompact\nskill:review"
+      },
+      "sync": {
+        "title": "Skills synchronisieren",
+        "repairTitle": "Skills-Link reparieren",
+        "loading": "Skill-Ordner werden geprüft...",
+        "intro": "Die Synchronisierung führt die Skills und Befehle von Claude Code in .agents/skills zusammen und verlinkt .claude/skills dorthin.",
+        "pros": {
+          "oneList": "Eine Liste für alle Anbieter.",
+          "newSkills": "Neue Skills erscheinen überall."
+        },
+        "cons": {
+          "dropped": "Nur Name und Beschreibung bleiben erhalten; anbieterspezifische Einstellungen entfallen und das Verhalten kann sich ändern.",
+          "claudeSyntax": "Nur für Claude Code gültige Syntax funktioniert bei anderen Anbietern nicht: {names}"
+        },
+        "attentionTitle": "Braucht Aufmerksamkeit",
+        "nothingNeedsAttention": "Nichts braucht Aufmerksamkeit.",
+        "nameField": "Name",
+        "descriptionField": "Beschreibung",
+        "ready": "Bereit",
+        "problems": {
+          "name": "Ungültiger Name. Nur Kleinbuchstaben, Zahlen und Bindestriche.",
+          "description": "Beschreibung fehlt.",
+          "instructions": "Keine Anweisungen. Ergänze sie in der Datei und synchronisiere erneut.",
+          "unreadable": "Das Frontmatter kann nicht gelesen werden. Korrigiere die Datei und synchronisiere erneut.",
+          "sharedConflict": "Ein gemeinsamer Skill namens \"{name}\" existiert bereits.",
+          "itemConflict": "Ein anderes Element heißt ebenfalls \"{name}\"."
+        },
+        "options": {
+          "fix": "Korrigieren",
+          "replace": "Gemeinsamen Skill ersetzen",
+          "discard": "Verwerfen (in den Papierkorb)",
+          "keep": "Als Befehl behalten"
+        },
+        "continue": "Weiter",
+        "confirmTitle": ".claude/skills durch einen Link ersetzen?",
+        "confirmBody": ".claude/skills wird durch einen Link auf .agents/skills ersetzt. Dies kann nicht rückgängig gemacht werden.",
+        "repairBody": ".claude/skills wird durch einen Link auf .agents/skills ersetzt. Der Ordner, auf den er jetzt verweist, bleibt unverändert.",
+        "linkBody": "Erstellt .claude/skills als Link auf .agents/skills, damit Claude Code die gemeinsamen Skills nutzt. Es werden keine Dateien verschoben.",
+        "linkWithItemsBody": "Befehle werden zu Skills, dann wird .claude/skills als Link auf .agents/skills erstellt. Dies kann nicht rückgängig gemacht werden.",
+        "devicesWarning": "Wird dieser Vault zwischen Geräten synchronisiert? Der Link wird eventuell nicht übertragen; synchronisiere auf jedem Gerät.",
+        "confirm": "Synchronisieren und verlinken",
+        "partial": "Die Synchronisierung wurde vor dem Verlinken beendet. Behebe die folgenden Elemente und synchronisiere erneut.",
+        "failed": "Synchronisierung fehlgeschlagen: {message}",
+        "summary": "Verschoben {moved}, umgewandelt {converted}, im Papierkorb {trashed}, {unlinked} Link(s) entfernt."
+      }
+    }
+  }
+}
