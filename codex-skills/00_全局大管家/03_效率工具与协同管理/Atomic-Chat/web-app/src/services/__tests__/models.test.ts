@@ -1,0 +1,1638 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// Build-time globals must be set BEFORE the modules under test load. The
+// catalog registry imported transitively by `services/models/default` reads
+// these. Disable the gzip-preferred fetch path so a single mocked `fetch`
+// call per assertion suffices (the gzip path is covered by
+// model-catalog-registry.test.ts and by the real cron pipeline).
+vi.hoisted(() => {
+  const g = globalThis as Record<string, unknown>
+  g.IS_TAURI = false
+  g.IS_MACOS = true
+  g.IS_WINDOWS = false
+  g.IS_LINUX = false
+  g.DecompressionStream = undefined
+})
+
+import {
+  DefaultModelsService,
+  parseHuggingFaceNextCursor,
+} from '../models/default'
+import type { HuggingFaceRepo, CatalogModel } from '../models/types'
+import { EngineManager, events, DownloadEvent } from '@janhq/core'
+import { BASELINE_MODEL_CATALOG } from '@/constants/models'
+import { clearCatalogCache } from '@/services/model-catalog-registry'
+
+const { mockEvents, mockDownloadEvent } = vi.hoisted(() => ({
+  mockEvents: {
+    emit: vi.fn(),
+  },
+  mockDownloadEvent: {
+    onFileDownloadStopped: 'onFileDownloadStopped',
+  } as Record<string, string>,
+}))
+
+// Mock EngineManager and events
+vi.mock('@janhq/core', () => ({
+  EngineManager: {
+    instance: vi.fn(),
+  },
+  events: mockEvents,
+  DownloadEvent: mockDownloadEvent,
+  ContentType: { Text: 'text', Image: 'image_url' },
+}))
+
+vi.mock('@tauri-apps/plugin-http', () => ({
+  fetch: vi.fn(),
+}))
+
+// Mock fetch
+global.fetch = vi.fn()
+
+// Mock MODEL_CATALOG_URL
+Object.defineProperty(global, 'MODEL_CATALOG_URL', {
+  value: 'https://example.com/models',
+  writable: true,
+  configurable: true,
+})
+
+describe('DefaultModelsService', () => {
+  let modelsService: DefaultModelsService
+
+  const mockEngine = {
+    list: vi.fn(),
+    updateSettings: vi.fn(),
+    update: vi.fn(),
+    import: vi.fn(),
+    abortImport: vi.fn(),
+    delete: vi.fn(),
+    getLoadedModels: vi.fn(),
+    unload: vi.fn(),
+    load: vi.fn(),
+    isModelSupported: vi.fn(),
+    isToolSupported: vi.fn(),
+    checkMmprojExists: vi.fn(),
+  }
+
+  const mockEngineManager = {
+    get: vi.fn().mockReturnValue(mockEngine),
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    ;(EngineManager.instance as any).mockReturnValue(mockEngineManager)
+    mockEngineManager.get.mockReturnValue(mockEngine)
+    modelsService = new DefaultModelsService()
+  })
+
+  describe('fetchModels', () => {
+    it('should fetch models successfully', async () => {
+      const mockModels = [
+        { id: 'model1', name: 'Model 1' },
+        { id: 'model2', name: 'Model 2' },
+      ]
+      mockEngine.list.mockResolvedValue(mockModels)
+
+      const result = await modelsService.fetchModels()
+
+      expect(result).toEqual(mockModels)
+      expect(mockEngine.list).toHaveBeenCalled()
+    })
+  })
+
+  describe('fetchModelCatalog', () => {
+    // `fetchModelCatalog` now delegates to the failure-safe
+    // `getCatalogOrFallback()` registry: on success it returns the
+    // manifest's `models[]`; on network / HTTP / schema failure it returns
+    // the bundled baseline and never throws. These tests assert that
+    // contract.
+
+    beforeEach(async () => {
+      await clearCatalogCache()
+    })
+
+    it('should fetch model catalog successfully', async () => {
+      const mockModels: CatalogModel[] = [
+        {
+          model_name: 'OpenAI/GPT-4',
+          description: 'Large language model',
+          developer: 'OpenAI',
+          downloads: 1000,
+          num_quants: 5,
+          quants: [],
+        },
+      ]
+      const mockManifest = {
+        manifest_version: 1,
+        schema_version: 1,
+        updated_at: '2026-05-27T00:00:00Z',
+        models: mockModels,
+      }
+
+      ;(fetch as any).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: vi.fn().mockResolvedValue(mockManifest),
+      })
+
+      const result = await modelsService.fetchModelCatalog()
+
+      expect(result).toEqual(mockModels)
+    })
+
+    it('should fall back to baseline on HTTP error', async () => {
+      ;(fetch as any).mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      })
+
+      const result = await modelsService.fetchModelCatalog()
+
+      expect(result).toEqual(BASELINE_MODEL_CATALOG)
+    })
+
+    it('should fall back to baseline on network error', async () => {
+      ;(fetch as any).mockRejectedValue(new Error('Network error'))
+
+      const result = await modelsService.fetchModelCatalog()
+
+      expect(result).toEqual(BASELINE_MODEL_CATALOG)
+    })
+  })
+
+  describe('updateModel', () => {
+    it('should update model settings', async () => {
+      const modelId = 'model1'
+      const model = {
+        id: 'model1',
+        settings: [{ key: 'temperature', value: 0.7 }],
+      }
+
+      await modelsService.updateModel(modelId, model as any)
+
+      expect(mockEngine.updateSettings).toHaveBeenCalledWith(model.settings)
+      expect(mockEngine.update).not.toHaveBeenCalled()
+    })
+
+    it('should handle model without settings', async () => {
+      const modelId = 'model1'
+      const model = { id: 'model1' }
+
+      await modelsService.updateModel(modelId, model)
+
+      expect(mockEngine.updateSettings).not.toHaveBeenCalled()
+      expect(mockEngine.update).not.toHaveBeenCalled()
+    })
+
+    it('should handle model when modelId differs from model.id', async () => {
+      const modelId = 'old-model-id'
+      const model = {
+        id: 'new-model-id',
+        settings: [{ key: 'temperature', value: 0.7 }],
+      }
+
+      await modelsService.updateModel(modelId, model as any)
+
+      expect(mockEngine.updateSettings).toHaveBeenCalledWith(model.settings)
+      // Note: Model ID updates are now handled at the provider level in the frontend
+      // The engine no longer has an update method for model metadata
+      expect(mockEngine.update).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('pullModel', () => {
+    it('should pull model successfully', async () => {
+      const id = 'model1'
+      const modelPath = '/path/to/model'
+
+      await modelsService.pullModel(id, modelPath)
+
+      expect(mockEngine.import).toHaveBeenCalledWith(id, {
+        modelPath,
+        mmprojPath: undefined,
+        modelSha256: undefined,
+        modelSize: undefined,
+        mmprojSha256: undefined,
+        mmprojSize: undefined,
+        resume: false,
+      })
+    })
+  })
+
+  describe('abortDownload', () => {
+    it('should abort download successfully', async () => {
+      const id = 'model1'
+
+      await modelsService.abortDownload(id)
+
+      expect(mockEngine.abortImport).toHaveBeenCalledWith(id)
+      expect(events.emit).toHaveBeenCalledWith(
+        DownloadEvent.onFileDownloadStopped,
+        expect.objectContaining({
+          modelId: id,
+          downloadType: 'Model',
+        })
+      )
+    })
+  })
+
+  describe('deleteModel', () => {
+    it('should delete model successfully', async () => {
+      const id = 'model1'
+
+      await modelsService.deleteModel(id)
+
+      expect(mockEngine.delete).toHaveBeenCalledWith(id)
+    })
+
+    it('answers what an engine that measures its deletes freed (TensorRT-LLM, task 3.15)', async () => {
+      const engine = {
+        delete: vi.fn(),
+        deleteWithReport: vi.fn().mockResolvedValue({ freedBytes: 4_100_000_000 }),
+      }
+      mockEngineManager.get.mockReturnValueOnce(engine)
+
+      await expect(
+        modelsService.deleteModel('Qwen/Qwen3-1.7B', 'tensorrt-llm')
+      ).resolves.toEqual({ freedBytes: 4_100_000_000 })
+      expect(engine.deleteWithReport).toHaveBeenCalledWith('Qwen/Qwen3-1.7B')
+      expect(engine.delete).not.toHaveBeenCalled()
+    })
+
+    it('rejects instead of reporting success when the provider has no engine', async () => {
+      mockEngineManager.get.mockReturnValueOnce(undefined)
+
+      await expect(
+        modelsService.deleteModel('model1', 'llamacpp-upstream')
+      ).rejects.toThrow('llamacpp-upstream')
+    })
+  })
+
+  describe('getActiveModels', () => {
+    it('should get active models successfully', async () => {
+      const mockActiveModels = ['model1', 'model2']
+      mockEngine.getLoadedModels.mockResolvedValue(mockActiveModels)
+
+      const result = await modelsService.getActiveModels()
+
+      expect(result).toEqual(mockActiveModels)
+      expect(mockEngine.getLoadedModels).toHaveBeenCalled()
+    })
+
+    it('should aggregate active local models across engines', async () => {
+      const llamaEngine = {
+        ...mockEngine,
+        getLoadedModels: vi.fn().mockResolvedValue(['llama-model']),
+      }
+      const mlxEngine = {
+        ...mockEngine,
+        getLoadedModels: vi.fn().mockResolvedValue(['mlx-model']),
+      }
+
+      mockEngineManager.get.mockImplementation((provider?: string) =>
+        provider === 'mlx' ? mlxEngine : llamaEngine
+      )
+
+      const result = await modelsService.getActiveModels()
+
+      expect(result).toEqual(['llama-model', 'mlx-model'])
+      expect(llamaEngine.getLoadedModels).toHaveBeenCalled()
+      expect(mlxEngine.getLoadedModels).toHaveBeenCalled()
+    })
+  })
+
+  describe('getTokensCount', () => {
+    const message = (role: 'user' | 'assistant', text: string) =>
+      ({
+        role,
+        content: [{ type: 'text', text: { value: text, annotations: [] } }],
+      }) as never
+
+    it('counts nothing without a non-assistant message', async () => {
+      const getTokensCount = vi.fn().mockResolvedValue(42)
+      mockEngineManager.get.mockReturnValue({
+        ...mockEngine,
+        getLoadedModels: vi.fn().mockResolvedValue(['gemma']),
+        getTokensCount,
+      })
+
+      // llama-server drops a trailing assistant message as a prefill, so
+      // the chat template would see no messages at all.
+      expect(
+        await modelsService.getTokensCount('gemma', [
+          message('assistant', 'The answer.'),
+        ])
+      ).toBe(0)
+      expect(getTokensCount).not.toHaveBeenCalled()
+
+      expect(
+        await modelsService.getTokensCount('gemma', [
+          message('user', 'Question?'),
+          message('assistant', 'The answer.'),
+        ])
+      ).toBe(42)
+      expect(getTokensCount).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('stopModel', () => {
+    it('should stop model successfully', async () => {
+      const model = 'model1'
+      const provider = 'openai'
+
+      await modelsService.stopModel(model, provider)
+
+      expect(mockEngine.unload).toHaveBeenCalledWith(model)
+    })
+
+    it('should auto-detect the active local engine when provider is omitted', async () => {
+      const llamaEngine = {
+        ...mockEngine,
+        getLoadedModels: vi.fn().mockResolvedValue(['llama-model']),
+        unload: vi.fn(),
+      }
+      const mlxEngine = {
+        ...mockEngine,
+        getLoadedModels: vi.fn().mockResolvedValue(['mlx-model']),
+        unload: vi.fn().mockResolvedValue({ success: true, error: undefined }),
+      }
+
+      mockEngineManager.get.mockImplementation((provider?: string) =>
+        provider === 'mlx' ? mlxEngine : llamaEngine
+      )
+
+      const result = await modelsService.stopModel('mlx-model')
+
+      expect(result).toEqual({ success: true, error: undefined })
+      expect(llamaEngine.unload).not.toHaveBeenCalled()
+      expect(mlxEngine.unload).toHaveBeenCalledWith('mlx-model')
+    })
+  })
+
+  describe('stopAllModels', () => {
+    it('should stop all active models from all providers', async () => {
+      const mockActiveModels = ['model1', 'model2']
+      const engines = {
+        'llamacpp': {
+          ...mockEngine,
+          getLoadedModels: vi.fn().mockResolvedValue(mockActiveModels),
+          unload: vi.fn(),
+        },
+        'llamacpp-upstream': {
+          ...mockEngine,
+          getLoadedModels: vi.fn().mockResolvedValue(mockActiveModels),
+          unload: vi.fn(),
+        },
+        'mlx': {
+          ...mockEngine,
+          getLoadedModels: vi.fn().mockResolvedValue(mockActiveModels),
+          unload: vi.fn(),
+        },
+      }
+      mockEngineManager.get.mockImplementation(
+        (provider: keyof typeof engines) => engines[provider]
+      )
+
+      await modelsService.stopAllModels()
+
+      for (const engine of Object.values(engines)) {
+        expect(engine.unload).toHaveBeenCalledTimes(2)
+        expect(engine.unload).toHaveBeenCalledWith('model1')
+        expect(engine.unload).toHaveBeenCalledWith('model2')
+      }
+    })
+
+    // The provider page's Stop runs `stopAllModels` and then redraws from
+    // `getActiveModels()`; an engine missing from both left a TensorRT-LLM
+    // model running while its row said stopped (task 3.14, F-9).
+    it('stops a TensorRT-LLM model by its full id and counts it as active until then', async () => {
+      let loaded = ['Qwen/Qwen3-1.7B']
+      const tensorrt = {
+        ...mockEngine,
+        getLoadedModels: vi.fn(async () => loaded),
+        unload: vi.fn(async () => {
+          loaded = []
+          return { success: true }
+        }),
+      }
+      const idle = {
+        ...mockEngine,
+        getLoadedModels: vi.fn().mockResolvedValue([]),
+        unload: vi.fn(),
+      }
+      mockEngineManager.get.mockImplementation((provider: string) =>
+        provider === 'tensorrt-llm' ? tensorrt : idle
+      )
+
+      expect(await modelsService.getActiveModels()).toEqual(['Qwen/Qwen3-1.7B'])
+
+      await modelsService.stopAllModels()
+
+      expect(tensorrt.unload).toHaveBeenCalledTimes(1)
+      expect(tensorrt.unload).toHaveBeenCalledWith('Qwen/Qwen3-1.7B')
+      expect(idle.unload).not.toHaveBeenCalled()
+      expect(await modelsService.getActiveModels()).toEqual([])
+    })
+
+    it('should handle empty active models', async () => {
+      mockEngine.getLoadedModels.mockResolvedValue(null)
+
+      await modelsService.stopAllModels()
+
+      expect(mockEngine.unload).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('stopAllModelsExcept', () => {
+    it('unloads every local model except the kept (provider, model) pair', async () => {
+      const engines = {
+        'llamacpp': {
+          ...mockEngine,
+          getLoadedModels: vi.fn().mockResolvedValue(['shared-model']),
+          unload: vi.fn(),
+        },
+        'llamacpp-upstream': {
+          ...mockEngine,
+          getLoadedModels: vi
+            .fn()
+            .mockResolvedValue(['shared-model', 'other-model']),
+          unload: vi.fn(),
+        },
+        'mlx': {
+          ...mockEngine,
+          getLoadedModels: vi.fn().mockResolvedValue([]),
+          unload: vi.fn(),
+        },
+      }
+      mockEngineManager.get.mockImplementation(
+        (provider: keyof typeof engines) => engines[provider]
+      )
+
+      await modelsService.stopAllModelsExcept(
+        'shared-model',
+        'llamacpp-upstream'
+      )
+
+      expect(engines['llamacpp'].unload).toHaveBeenCalledWith('shared-model')
+      expect(engines['llamacpp-upstream'].unload).toHaveBeenCalledTimes(1)
+      expect(engines['llamacpp-upstream'].unload).toHaveBeenCalledWith(
+        'other-model'
+      )
+      expect(engines['mlx'].unload).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('startModel', () => {
+    it('should start model successfully', async () => {
+      const mockSettings = {
+        ctx_len: { controller_props: { value: 4096 } },
+        ngl: { controller_props: { value: 32 } },
+      }
+      const provider = {
+        provider: 'openai',
+        models: [{ id: 'model1', settings: mockSettings }],
+      } as any
+      const model = 'model1'
+      const mockSession = { id: 'session1' }
+
+      mockEngine.getLoadedModels.mockResolvedValue({
+        includes: () => false,
+      })
+      mockEngine.load.mockResolvedValue(mockSession)
+
+      const result = await modelsService.startModel(provider, model)
+
+      expect(result).toEqual(mockSession)
+      expect(mockEngine.load).toHaveBeenCalledWith(
+        model,
+        {
+          ctx_size: 4096,
+          n_gpu_layers: 32,
+        },
+        false,
+        false,
+        undefined
+      )
+    })
+
+    it('should handle start model error', async () => {
+      const mockSettings = {
+        ctx_len: { controller_props: { value: 4096 } },
+        ngl: { controller_props: { value: 32 } },
+      }
+      const provider = {
+        provider: 'openai',
+        models: [{ id: 'model1', settings: mockSettings }],
+      } as any
+      const model = 'model1'
+      const error = new Error('Failed to start model')
+
+      mockEngine.getLoadedModels.mockResolvedValue({
+        includes: () => false,
+      })
+      mockEngine.load.mockRejectedValue(error)
+
+      await expect(modelsService.startModel(provider, model)).rejects.toThrow(
+        error
+      )
+    })
+    it('should not load model again', async () => {
+      const mockSettings = {
+        ctx_len: { controller_props: { value: 4096 } },
+        ngl: { controller_props: { value: 32 } },
+      }
+      const provider = {
+        provider: 'openai',
+        models: [{ id: 'model1', settings: mockSettings }],
+      } as any
+      const model = 'model1'
+
+      mockEngine.getLoadedModels.mockResolvedValue({
+        includes: () => true,
+      })
+      expect(mockEngine.load).toBeCalledTimes(0)
+      await expect(modelsService.startModel(provider, model)).resolves.toBe(
+        undefined
+      )
+    })
+  })
+
+  describe('fetchHuggingFaceRepo', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('should fetch HuggingFace repository successfully with blobs=true', async () => {
+      const mockRepoData = {
+        id: 'microsoft/DialoGPT-medium',
+        modelId: 'microsoft/DialoGPT-medium',
+        sha: 'abc123',
+        downloads: 5000,
+        likes: 100,
+        tags: ['conversational', 'pytorch'],
+        pipeline_tag: 'text-generation',
+        createdAt: '2023-01-01T00:00:00Z',
+        last_modified: '2023-12-01T00:00:00Z',
+        private: false,
+        disabled: false,
+        gated: false,
+        author: 'microsoft',
+        siblings: [
+          {
+            rfilename: 'model-Q4_K_M.gguf',
+            size: 2147483648,
+            blobId: 'blob123',
+          },
+          {
+            rfilename: 'model-Q8_0.gguf',
+            size: 4294967296,
+            blobId: 'blob456',
+          },
+          {
+            rfilename: 'README.md',
+            size: 1024,
+            blobId: 'blob789',
+          },
+        ],
+        readme: '# DialoGPT Model\nThis is a conversational AI model.',
+      }
+
+      ;(fetch as any).mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockRepoData),
+      })
+
+      const result = await modelsService.fetchHuggingFaceRepo(
+        'microsoft/DialoGPT-medium'
+      )
+
+      expect(result).toEqual(mockRepoData)
+      expect(fetch).toHaveBeenCalledWith(
+        'https://huggingface.co/api/models/microsoft/DialoGPT-medium?blobs=true&files_metadata=true',
+        {
+          headers: undefined,
+        }
+      )
+    })
+
+    it('should clean repository ID from various input formats', async () => {
+      const mockRepoData = { modelId: 'microsoft/DialoGPT-medium' }
+      ;(fetch as any).mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockRepoData),
+      })
+
+      // Test with full URL
+      await modelsService.fetchHuggingFaceRepo(
+        'https://huggingface.co/microsoft/DialoGPT-medium'
+      )
+      expect(fetch).toHaveBeenCalledWith(
+        'https://huggingface.co/api/models/microsoft/DialoGPT-medium?blobs=true&files_metadata=true',
+        {
+          headers: undefined,
+        }
+      )
+
+      // Test with domain prefix
+      await modelsService.fetchHuggingFaceRepo(
+        'huggingface.co/microsoft/DialoGPT-medium'
+      )
+      expect(fetch).toHaveBeenCalledWith(
+        'https://huggingface.co/api/models/microsoft/DialoGPT-medium?blobs=true&files_metadata=true',
+        {
+          headers: undefined,
+        }
+      )
+
+      // Test with trailing slash
+      await modelsService.fetchHuggingFaceRepo('microsoft/DialoGPT-medium/')
+      expect(fetch).toHaveBeenCalledWith(
+        'https://huggingface.co/api/models/microsoft/DialoGPT-medium?blobs=true&files_metadata=true',
+        {
+          headers: undefined,
+        }
+      )
+    })
+
+    it('should search HuggingFace by model name and return the best downloadable match', async () => {
+      const mockRepoData = {
+        id: 'unsloth/GLM-5.1-GGUF',
+        modelId: 'unsloth/GLM-5.1-GGUF',
+        sha: 'glm123',
+        downloads: 9000,
+        likes: 200,
+        tags: ['gguf'],
+        createdAt: '2026-01-01T00:00:00Z',
+        last_modified: '2026-01-02T00:00:00Z',
+        private: false,
+        disabled: false,
+        gated: false,
+        author: 'unsloth',
+        siblings: [
+          {
+            rfilename: 'GLM-5.1-Q4_K_M.gguf',
+            size: 2147483648,
+            blobId: 'blob-glm',
+          },
+        ],
+      }
+
+      ;(fetch as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue([
+            {
+              id: 'ubergarm/GLM-5.1-GGUF',
+              downloads: 1000,
+              likes: 10,
+              tags: ['gguf'],
+            },
+            {
+              id: 'unsloth/GLM-5.1-GGUF',
+              downloads: 9000,
+              likes: 200,
+              tags: ['gguf'],
+            },
+            {
+              id: 'zai-org/GLM-5.1',
+              downloads: 12000,
+              likes: 500,
+              tags: ['transformers'],
+            },
+          ]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockRepoData),
+        })
+
+      const result = await modelsService.fetchHuggingFaceRepo('GLM-5.1-GGUF')
+
+      expect(result).toEqual(mockRepoData)
+      expect(fetch).toHaveBeenNthCalledWith(
+        1,
+        'https://huggingface.co/api/models?search=GLM-5.1-GGUF&limit=10',
+        {
+          headers: undefined,
+        }
+      )
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        'https://huggingface.co/api/models/unsloth/GLM-5.1-GGUF?blobs=true&files_metadata=true',
+        {
+          headers: undefined,
+        }
+      )
+    })
+
+    it('should search specifically for GGUF repositories when query omits GGUF', async () => {
+      const mockRepoData = {
+        id: 'unsloth/GLM-5.1-GGUF',
+        modelId: 'unsloth/GLM-5.1-GGUF',
+        sha: 'glm456',
+        downloads: 9000,
+        likes: 200,
+        tags: ['gguf'],
+        createdAt: '2026-01-01T00:00:00Z',
+        last_modified: '2026-01-02T00:00:00Z',
+        private: false,
+        disabled: false,
+        gated: false,
+        author: 'unsloth',
+        siblings: [
+          {
+            rfilename: 'GLM-5.1-Q4_K_M.gguf',
+            size: 2147483648,
+            blobId: 'blob-glm-2',
+          },
+        ],
+      }
+
+      ;(fetch as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue([
+            {
+              id: 'zai-org/GLM-5.1',
+              downloads: 12000,
+              likes: 500,
+              tags: ['transformers'],
+            },
+            {
+              id: 'unsloth/GLM-5.1-GGUF',
+              downloads: 9000,
+              likes: 200,
+              tags: ['gguf'],
+            },
+          ]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockRepoData),
+        })
+
+      const result = await modelsService.fetchHuggingFaceRepo('GLM-5.1')
+
+      expect(result).toEqual(mockRepoData)
+      expect(fetch).toHaveBeenNthCalledWith(
+        1,
+        'https://huggingface.co/api/models?search=GLM-5.1%20GGUF&limit=10',
+        {
+          headers: undefined,
+        }
+      )
+      expect(fetch).toHaveBeenNthCalledWith(
+        2,
+        'https://huggingface.co/api/models/unsloth/GLM-5.1-GGUF?blobs=true&files_metadata=true',
+        {
+          headers: undefined,
+        }
+      )
+    })
+
+    it('should return null for invalid repository IDs', async () => {
+      // Test empty string
+      expect(await modelsService.fetchHuggingFaceRepo('')).toBeNull()
+
+      // Test string without slash
+      ;(fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue([]),
+      })
+      expect(
+        await modelsService.fetchHuggingFaceRepo('invalid-repo')
+      ).toBeNull()
+
+      // Test whitespace only
+      expect(await modelsService.fetchHuggingFaceRepo('   ')).toBeNull()
+    })
+
+    it('should return null for 404 responses', async () => {
+      ;(fetch as any).mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+      })
+
+      const result =
+        await modelsService.fetchHuggingFaceRepo('nonexistent/model')
+
+      expect(result).toBeNull()
+      expect(fetch).toHaveBeenCalledWith(
+        'https://huggingface.co/api/models/nonexistent/model?blobs=true&files_metadata=true',
+        {
+          headers: undefined,
+        }
+      )
+    })
+
+    it('should handle other HTTP errors', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      ;(fetch as any).mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      })
+
+      const result = await modelsService.fetchHuggingFaceRepo(
+        'microsoft/DialoGPT-medium'
+      )
+
+      expect(result).toBeNull()
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Error fetching HuggingFace repository:',
+        expect.any(Error)
+      )
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should handle network errors', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      ;(fetch as any).mockRejectedValue(new Error('Network error'))
+
+      const result = await modelsService.fetchHuggingFaceRepo(
+        'microsoft/DialoGPT-medium'
+      )
+
+      expect(result).toBeNull()
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Error fetching HuggingFace repository:',
+        expect.any(Error)
+      )
+
+      consoleSpy.mockRestore()
+    })
+
+    it('should handle repository with no siblings', async () => {
+      const mockRepoData = {
+        id: 'microsoft/DialoGPT-medium',
+        modelId: 'microsoft/DialoGPT-medium',
+        sha: 'abc123',
+        downloads: 5000,
+        likes: 100,
+        tags: ['conversational'],
+        pipeline_tag: 'text-generation',
+        createdAt: '2023-01-01T00:00:00Z',
+        last_modified: '2023-12-01T00:00:00Z',
+        private: false,
+        disabled: false,
+        gated: false,
+        author: 'microsoft',
+        siblings: undefined,
+      }
+
+      ;(fetch as any).mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockRepoData),
+      })
+
+      const result = await modelsService.fetchHuggingFaceRepo(
+        'microsoft/DialoGPT-medium'
+      )
+
+      expect(result).toEqual(mockRepoData)
+    })
+
+    it('should handle repository with no GGUF files', async () => {
+      const mockRepoData = {
+        id: 'microsoft/DialoGPT-medium',
+        modelId: 'microsoft/DialoGPT-medium',
+        sha: 'abc123',
+        downloads: 5000,
+        likes: 100,
+        tags: ['conversational'],
+        pipeline_tag: 'text-generation',
+        createdAt: '2023-01-01T00:00:00Z',
+        last_modified: '2023-12-01T00:00:00Z',
+        private: false,
+        disabled: false,
+        gated: false,
+        author: 'microsoft',
+        siblings: [
+          {
+            rfilename: 'README.md',
+            size: 1024,
+            blobId: 'blob789',
+          },
+          {
+            rfilename: 'config.json',
+            size: 512,
+            blobId: 'blob101',
+          },
+        ],
+      }
+
+      ;(fetch as any).mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockRepoData),
+      })
+
+      const result = await modelsService.fetchHuggingFaceRepo(
+        'microsoft/DialoGPT-medium'
+      )
+
+      expect(result).toEqual(mockRepoData)
+    })
+
+    it('should handle repository with mixed file types including GGUF', async () => {
+      const mockRepoData = {
+        id: 'microsoft/DialoGPT-medium',
+        modelId: 'microsoft/DialoGPT-medium',
+        sha: 'abc123',
+        downloads: 5000,
+        likes: 100,
+        tags: ['conversational'],
+        pipeline_tag: 'text-generation',
+        createdAt: '2023-01-01T00:00:00Z',
+        last_modified: '2023-12-01T00:00:00Z',
+        private: false,
+        disabled: false,
+        gated: false,
+        author: 'microsoft',
+        siblings: [
+          {
+            rfilename: 'model-Q4_K_M.gguf',
+            size: 2147483648, // 2GB
+            blobId: 'blob123',
+          },
+          {
+            rfilename: 'README.md',
+            size: 1024,
+            blobId: 'blob789',
+          },
+          {
+            rfilename: 'config.json',
+            size: 512,
+            blobId: 'blob101',
+          },
+        ],
+      }
+
+      ;(fetch as any).mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockRepoData),
+      })
+
+      const result = await modelsService.fetchHuggingFaceRepo(
+        'microsoft/DialoGPT-medium'
+      )
+
+      expect(result).toEqual(mockRepoData)
+      // Verify the GGUF file is present in siblings
+      expect(result?.siblings?.some((s) => s.rfilename.endsWith('.gguf'))).toBe(
+        true
+      )
+    })
+  })
+
+  describe('convertHfRepoToCatalogModel', () => {
+    const mockHuggingFaceRepo: HuggingFaceRepo = {
+      id: 'microsoft/DialoGPT-medium',
+      modelId: 'microsoft/DialoGPT-medium',
+      sha: 'abc123',
+      downloads: 1500,
+      likes: 75,
+      tags: ['pytorch', 'transformers', 'text-generation'],
+      pipeline_tag: 'text-generation',
+      createdAt: '2021-01-01T00:00:00Z',
+      last_modified: '2021-12-01T00:00:00Z',
+      private: false,
+      disabled: false,
+      library_name: 'mlx',
+      gated: false,
+      author: 'microsoft',
+      siblings: [
+        {
+          rfilename: 'model-q4_0.gguf',
+          size: 2 * 1024 * 1024 * 1024, // 2GB
+          blobId: 'blob123',
+        },
+        {
+          rfilename: 'model-q8_0.GGUF', // Test case-insensitive matching
+          size: 4 * 1024 * 1024 * 1024, // 4GB
+          blobId: 'blob456',
+        },
+        {
+          rfilename: 'tokenizer.json', // Non-GGUF file (should be filtered out)
+          size: 1024 * 1024, // 1MB
+          blobId: 'blob789',
+        },
+      ],
+    }
+
+    it('should convert HuggingFace repo to catalog model format', () => {
+      const result =
+        modelsService.convertHfRepoToCatalogModel(mockHuggingFaceRepo)
+
+      const expected: CatalogModel = {
+        model_name: 'microsoft/DialoGPT-medium',
+        description: '**Tags**: pytorch, transformers, text-generation',
+        developer: 'microsoft',
+        downloads: 1500,
+        num_quants: 2,
+        quants: [
+          {
+            model_id: 'microsoft/model-q4_0',
+            path: 'https://huggingface.co/microsoft/DialoGPT-medium/resolve/main/model-q4_0.gguf',
+            file_size: '2.0 GB',
+          },
+          {
+            model_id: 'microsoft/model-q8_0',
+            path: 'https://huggingface.co/microsoft/DialoGPT-medium/resolve/main/model-q8_0.GGUF',
+            file_size: '4.0 GB',
+          },
+        ],
+        num_mmproj: 0,
+        mmproj_models: [],
+        safetensors_files: [],
+        num_safetensors: 0,
+        is_mlx: true,
+        created_at: '2021-01-01T00:00:00Z',
+        likes: 75,
+        last_modified: '2021-12-01T00:00:00Z',
+        readme:
+          'https://huggingface.co/microsoft/DialoGPT-medium/resolve/main/README.md',
+      }
+
+      expect(result).toEqual(expected)
+    })
+
+    it('should handle repository with no GGUF files', () => {
+      const repoWithoutGGUF: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        siblings: [
+          {
+            rfilename: 'tokenizer.json',
+            size: 1024 * 1024,
+            blobId: 'blob789',
+          },
+          {
+            rfilename: 'config.json',
+            size: 2048,
+            blobId: 'blob101',
+          },
+        ],
+      }
+
+      const result = modelsService.convertHfRepoToCatalogModel(repoWithoutGGUF)
+
+      expect(result.num_quants).toBe(0)
+      expect(result.quants).toEqual([])
+    })
+
+    it('should handle repository with no siblings', () => {
+      const repoWithoutSiblings: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        siblings: undefined,
+      }
+
+      const result =
+        modelsService.convertHfRepoToCatalogModel(repoWithoutSiblings)
+
+      expect(result.num_quants).toBe(0)
+      expect(result.quants).toEqual([])
+    })
+
+    it('should format file sizes correctly', () => {
+      const repoWithVariousFileSizes: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        siblings: [
+          {
+            rfilename: 'small-model.gguf',
+            size: 500 * 1024 * 1024, // 500MB
+            blobId: 'blob1',
+          },
+          {
+            rfilename: 'large-model.gguf',
+            size: 3.5 * 1024 * 1024 * 1024, // 3.5GB
+            blobId: 'blob2',
+          },
+          {
+            rfilename: 'unknown-size.gguf',
+            // No size property
+            blobId: 'blob3',
+          },
+        ],
+      }
+
+      const result = modelsService.convertHfRepoToCatalogModel(
+        repoWithVariousFileSizes
+      )
+
+      expect(result.quants[0].file_size).toBe('500.0 MB')
+      expect(result.quants[1].file_size).toBe('3.5 GB')
+      expect(result.quants[2].file_size).toBe('Unknown size')
+    })
+
+    it('should handle empty or undefined tags', () => {
+      const repoWithEmptyTags: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        tags: [],
+      }
+
+      const result =
+        modelsService.convertHfRepoToCatalogModel(repoWithEmptyTags)
+
+      expect(result.description).toBe('**Tags**: ')
+    })
+
+    it('should handle missing downloads count', () => {
+      const repoWithoutDownloads: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        downloads: undefined as any,
+      }
+
+      const result =
+        modelsService.convertHfRepoToCatalogModel(repoWithoutDownloads)
+
+      expect(result.downloads).toBe(0)
+    })
+
+    it('should correctly remove .gguf extension from model IDs', () => {
+      const repoWithVariousGGUF: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        siblings: [
+          {
+            rfilename: 'model.gguf',
+            size: 1024,
+            blobId: 'blob1',
+          },
+          {
+            rfilename: 'MODEL.GGUF',
+            size: 1024,
+            blobId: 'blob2',
+          },
+          {
+            rfilename: 'complex-model-name.gguf',
+            size: 1024,
+            blobId: 'blob3',
+          },
+        ],
+      }
+
+      const result =
+        modelsService.convertHfRepoToCatalogModel(repoWithVariousGGUF)
+
+      expect(result.quants[0].model_id).toBe('microsoft/model')
+      expect(result.quants[1].model_id).toBe('microsoft/MODEL')
+      expect(result.quants[2].model_id).toBe('microsoft/complex-model-name')
+    })
+
+    it('should generate correct download paths', () => {
+      const result =
+        modelsService.convertHfRepoToCatalogModel(mockHuggingFaceRepo)
+
+      expect(result.quants[0].path).toBe(
+        'https://huggingface.co/microsoft/DialoGPT-medium/resolve/main/model-q4_0.gguf'
+      )
+      expect(result.quants[1].path).toBe(
+        'https://huggingface.co/microsoft/DialoGPT-medium/resolve/main/model-q8_0.GGUF'
+      )
+    })
+
+    it('should generate correct readme URL', () => {
+      const result =
+        modelsService.convertHfRepoToCatalogModel(mockHuggingFaceRepo)
+
+      expect(result.readme).toBe(
+        'https://huggingface.co/microsoft/DialoGPT-medium/resolve/main/README.md'
+      )
+    })
+
+    it('should handle GGUF files with case-insensitive extension matching', () => {
+      const repoWithMixedCase: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        siblings: [
+          {
+            rfilename: 'model-1.gguf',
+            size: 1024,
+            blobId: 'blob1',
+          },
+          {
+            rfilename: 'model-2.GGUF',
+            size: 1024,
+            blobId: 'blob2',
+          },
+          {
+            rfilename: 'model-3.GgUf',
+            size: 1024,
+            blobId: 'blob3',
+          },
+          {
+            rfilename: 'not-a-model.txt',
+            size: 1024,
+            blobId: 'blob4',
+          },
+        ],
+      }
+
+      const result =
+        modelsService.convertHfRepoToCatalogModel(repoWithMixedCase)
+
+      expect(result.num_quants).toBe(3)
+      expect(result.quants).toHaveLength(3)
+      expect(result.quants[0].model_id).toBe('microsoft/model-1')
+      expect(result.quants[1].model_id).toBe('microsoft/model-2')
+      expect(result.quants[2].model_id).toBe('microsoft/model-3')
+    })
+
+    it('should handle edge cases with file size formatting', () => {
+      const repoWithEdgeCases: HuggingFaceRepo = {
+        ...mockHuggingFaceRepo,
+        siblings: [
+          {
+            rfilename: 'tiny.gguf',
+            size: 512, // < 1MB
+            blobId: 'blob1',
+          },
+          {
+            rfilename: 'exactly-1gb.gguf',
+            size: 1024 * 1024 * 1024, // Exactly 1GB
+            blobId: 'blob2',
+          },
+          {
+            rfilename: 'zero-size.gguf',
+            size: 0,
+            blobId: 'blob3',
+          },
+        ],
+      }
+
+      const result =
+        modelsService.convertHfRepoToCatalogModel(repoWithEdgeCases)
+
+      expect(result.quants[0].file_size).toBe('0.0 MB')
+      expect(result.quants[1].file_size).toBe('1.0 GB')
+      expect(result.quants[2].file_size).toBe('Unknown size') // 0 is falsy, so it returns 'Unknown size'
+    })
+
+    it('should handle missing optional fields gracefully', () => {
+      const minimalRepo: HuggingFaceRepo = {
+        id: 'minimal/repo',
+        modelId: 'minimal/repo',
+        sha: 'abc123',
+        downloads: 0,
+        likes: 0,
+        tags: [],
+        createdAt: '2021-01-01T00:00:00Z',
+        last_modified: '2021-12-01T00:00:00Z',
+        private: false,
+        disabled: false,
+        gated: false,
+        author: 'minimal',
+        siblings: [
+          {
+            rfilename: 'model.gguf',
+            blobId: 'blob1',
+          },
+        ],
+      }
+
+      const result = modelsService.convertHfRepoToCatalogModel(minimalRepo)
+
+      expect(result.model_name).toBe('minimal/repo')
+      expect(result.developer).toBe('minimal')
+      expect(result.downloads).toBe(0)
+      expect(result.description).toBe('**Tags**: ')
+      expect(result.quants[0].file_size).toBe('Unknown size')
+    })
+  })
+
+  describe('isModelSupported', () => {
+    beforeEach(() => {
+      vi.clearAllMocks()
+    })
+
+    it('should return GREEN when model is fully supported', async () => {
+      const mockEngineWithSupport = {
+        ...mockEngine,
+        isModelSupported: vi.fn().mockResolvedValue('GREEN'),
+      }
+
+      mockEngineManager.get.mockReturnValue(mockEngineWithSupport)
+
+      const result = await modelsService.isModelSupported(
+        '/path/to/model.gguf',
+        4096
+      )
+
+      expect(result).toBe('GREEN')
+      expect(mockEngineWithSupport.isModelSupported).toHaveBeenCalledWith(
+        '/path/to/model.gguf',
+        4096
+      )
+    })
+
+    it('should return YELLOW when model weights fit but KV cache does not', async () => {
+      const mockEngineWithSupport = {
+        ...mockEngine,
+        isModelSupported: vi.fn().mockResolvedValue('YELLOW'),
+      }
+
+      mockEngineManager.get.mockReturnValue(mockEngineWithSupport)
+
+      const result = await modelsService.isModelSupported(
+        '/path/to/model.gguf',
+        8192
+      )
+
+      expect(result).toBe('YELLOW')
+      expect(mockEngineWithSupport.isModelSupported).toHaveBeenCalledWith(
+        '/path/to/model.gguf',
+        8192
+      )
+    })
+
+    it('should return RED when model is not supported', async () => {
+      const mockEngineWithSupport = {
+        ...mockEngine,
+        isModelSupported: vi.fn().mockResolvedValue('RED'),
+      }
+
+      mockEngineManager.get.mockReturnValue(mockEngineWithSupport)
+
+      const result = await modelsService.isModelSupported(
+        '/path/to/large-model.gguf'
+      )
+
+      expect(result).toBe('RED')
+      expect(mockEngineWithSupport.isModelSupported).toHaveBeenCalledWith(
+        '/path/to/large-model.gguf',
+        undefined
+      )
+    })
+
+    it('should return YELLOW as fallback when engine method is not available', async () => {
+      const mockEngineWithoutSupport = {
+        ...mockEngine,
+        isModelSupported: undefined, // Explicitly remove the method
+      }
+
+      mockEngineManager.get.mockReturnValue(mockEngineWithoutSupport)
+
+      const result = await modelsService.isModelSupported('/path/to/model.gguf')
+
+      expect(result).toBe('YELLOW')
+    })
+
+    it('should return RED when engine is not available', async () => {
+      mockEngineManager.get.mockReturnValue(null)
+
+      const result = await modelsService.isModelSupported('/path/to/model.gguf')
+
+      expect(result).toBe('YELLOW') // Should use fallback
+    })
+
+    it('should return GREY when there is an error', async () => {
+      const mockEngineWithError = {
+        ...mockEngine,
+        isModelSupported: vi.fn().mockRejectedValue(new Error('Test error')),
+      }
+
+      mockEngineManager.get.mockReturnValue(mockEngineWithError)
+
+      const result = await modelsService.isModelSupported('/path/to/model.gguf')
+
+      expect(result).toBe('GREY')
+    })
+  })
+})
+
+describe('listHuggingFaceFeed', () => {
+  const service = new DefaultModelsService()
+
+  it('asks Hugging Face for one page of a format in its order and reads the next cursor', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === 'link'
+            ? '<https://huggingface.co/api/models?filter=gguf&sort=trendingScore&direction=-1&limit=50&cursor=eyJfaWQiOjF9>; rel="next"'
+            : null,
+      },
+      json: async () => [
+        {
+          id: 'bartowski/Llama-4-8B-GGUF',
+          downloads: 1200,
+          likes: 34,
+          tags: ['gguf', 'llama'],
+          createdAt: '2026-09-01T00:00:00.000Z',
+          lastModified: '2026-09-10T00:00:00.000Z',
+        },
+      ],
+    })
+
+    const page = await service.listHuggingFaceFeed({
+      format: 'gguf',
+      sort: 'trending',
+      cursor: null,
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://huggingface.co/api/models?filter=gguf&sort=trendingScore&direction=-1&limit=50',
+      { headers: undefined }
+    )
+    expect(page.nextCursor).toBe('eyJfaWQiOjF9')
+    expect(page.models).toHaveLength(1)
+    expect(page.models[0]).toMatchObject({
+      model_name: 'bartowski/Llama-4-8B-GGUF',
+      developer: 'bartowski',
+      downloads: 1200,
+      likes: 34,
+      is_mlx: false,
+      last_modified: '2026-09-10T00:00:00.000Z',
+      num_quants: 0,
+    })
+  })
+
+  it('passes the cursor on, sends the token, and ends the listing without a next link', async () => {
+    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => null },
+      json: async () => [
+        { id: 'mlx-community/Qwen3.5-4B-4bit', tags: ['mlx'] },
+      ],
+    })
+
+    const page = await service.listHuggingFaceFeed({
+      format: 'mlx',
+      sort: 'downloads',
+      search: 'uncensored',
+      cursor: 'abc',
+      limit: 20,
+      hfToken: 'hf_test',
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://huggingface.co/api/models?filter=mlx&sort=downloads&direction=-1&limit=20&search=uncensored&cursor=abc',
+      { headers: { Authorization: 'Bearer hf_test' } }
+    )
+    expect(page.nextCursor).toBeNull()
+    expect(page.models[0]).toMatchObject({
+      model_name: 'mlx-community/Qwen3.5-4B-4bit',
+      is_mlx: true,
+    })
+  })
+
+  it('parses the next cursor out of a Link header, and only from rel=next', () => {
+    expect(
+      parseHuggingFaceNextCursor(
+        '<https://huggingface.co/api/models?cursor=one>; rel="prev", <https://huggingface.co/api/models?cursor=two>; rel="next"'
+      )
+    ).toBe('two')
+    expect(
+      parseHuggingFaceNextCursor('<https://x/?cursor=one>; rel="prev"')
+    ).toBeNull()
+    expect(parseHuggingFaceNextCursor(null)).toBeNull()
+  })
+})
+
+describe('Hugging Face search formats', () => {
+  it.each(['gguf', 'mlx'] as const)(
+    'returns only %s candidates with their format',
+    async (format) => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { id: 'community/Qwen-Mixed', tags: ['gguf', 'mlx'] },
+          { id: 'community/Qwen-GGUF', tags: ['gguf'] },
+          { id: 'mlx-community/Qwen-4bit', tags: ['mlx'] },
+          { id: 'upstream/Qwen', tags: ['transformers'] },
+        ],
+      } as Response)
+      const result =
+        await new DefaultModelsService().searchHuggingFaceCandidates(
+          'Qwen',
+          undefined,
+          6,
+          format
+        )
+      expect(result.map((m) => [m.model_name, m.is_mlx]).sort()).toEqual(
+        format === 'mlx'
+          ? [
+              ['community/Qwen-Mixed', true],
+              ['mlx-community/Qwen-4bit', true],
+            ]
+          : [
+              ['community/Qwen-GGUF', false],
+              ['community/Qwen-Mixed', false],
+            ]
+      )
+      const url = new URL(String(vi.mocked(fetch).mock.calls.at(-1)?.[0]))
+      expect(url.searchParams.get('filter')).toBe(format)
+      expect(url.searchParams.get('search')).toBe('Qwen')
+    }
+  )
+})
+
+describe('Hugging Face for the TensorRT-LLM format', () => {
+  // `/api/models?expand[]=config&expand[]=safetensors` as Hugging Face answers it (trimmed):
+  // an NVFP4 checkpoint keeps its packed weights as U8 and its scales as F8_E4M3.
+  const listing = [
+    {
+      id: 'nvidia/Qwen3.5-35B-A3B-NVFP4',
+      downloads: 5400,
+      likes: 120,
+      tags: ['safetensors', 'qwen3_5', 'image-text-to-text', 'modelopt'],
+      createdAt: '2026-09-01T00:00:00.000Z',
+      lastModified: '2026-09-20T00:00:00.000Z',
+      config: {
+        architectures: ['Qwen3_5ForConditionalGeneration'],
+        model_type: 'qwen3_5',
+      },
+      safetensors: {
+        parameters: { U8: 9_000_000_000, F8_E4M3: 1_100_000_000, BF16: 2_000_000_000 },
+        total: 12_100_000_000,
+      },
+    },
+    // No `config.json` in the listing: kept as is, the prefilter decides.
+    { id: 'someone/raw-weights', downloads: 3, tags: ['safetensors'] },
+  ]
+
+  const expectTensorrtQuery = (url: URL) => {
+    expect(url.searchParams.get('filter')).toBe('safetensors')
+    expect(url.searchParams.getAll('expand[]')).toEqual(
+      expect.arrayContaining([
+        'config',
+        'safetensors',
+        'downloads',
+        'likes',
+        'tags',
+        'createdAt',
+        'lastModified',
+      ])
+    )
+    // New Qwen and Gemma 4 checkpoints are `image-text-to-text`: no pipeline filter.
+    expect(url.searchParams.has('pipeline_tag')).toBe(false)
+  }
+
+  it('lists safetensors repositories with their architectures and parameters by dtype', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => null },
+      json: async () => listing,
+    } as unknown as Response)
+
+    const page = await new DefaultModelsService().listHuggingFaceFeed({
+      format: 'safetensors',
+      sort: 'trending',
+      cursor: null,
+    })
+
+    const url = new URL(String(vi.mocked(fetch).mock.calls.at(-1)?.[0]))
+    expectTensorrtQuery(url)
+    expect(url.searchParams.get('sort')).toBe('trendingScore')
+    expect(page.models[0]).toMatchObject({
+      model_name: 'nvidia/Qwen3.5-35B-A3B-NVFP4',
+      developer: 'nvidia',
+      downloads: 5400,
+      likes: 120,
+      is_mlx: false,
+      is_managed: true,
+      last_modified: '2026-09-20T00:00:00.000Z',
+      managed: {
+        architectures: ['Qwen3_5ForConditionalGeneration'],
+        parameters: { U8: 9_000_000_000, F8_E4M3: 1_100_000_000, BF16: 2_000_000_000 },
+      },
+    })
+    expect(page.models[1]).toMatchObject({
+      model_name: 'someone/raw-weights',
+      is_managed: true,
+      managed: { architectures: undefined, parameters: undefined },
+    })
+  })
+
+  it('searches the same way, every safetensors repository a candidate', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => listing,
+    } as Response)
+
+    const result = await new DefaultModelsService().searchHuggingFaceCandidates(
+      'Qwen3.5',
+      'hf_test',
+      10,
+      'safetensors'
+    )
+
+    const [requested, init] = vi.mocked(fetch).mock.calls.at(-1)!
+    const url = new URL(String(requested))
+    expectTensorrtQuery(url)
+    expect(url.searchParams.get('search')).toBe('Qwen3.5')
+    expect(init).toEqual({ headers: { Authorization: 'Bearer hf_test' } })
+    expect(result.map((model) => model.model_name).sort()).toEqual([
+      'nvidia/Qwen3.5-35B-A3B-NVFP4',
+      'someone/raw-weights',
+    ])
+    expect(result.every((model) => model.is_managed && !model.is_mlx)).toBe(true)
+    expect(
+      result.find((model) => model.model_name === 'nvidia/Qwen3.5-35B-A3B-NVFP4')?.managed
+        ?.architectures
+    ).toEqual(['Qwen3_5ForConditionalGeneration'])
+  })
+})

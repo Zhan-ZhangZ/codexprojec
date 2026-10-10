@@ -1,0 +1,844 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/cred"
+	"github.com/casdoor/casdoor/i18n"
+	"github.com/casdoor/casdoor/util"
+	"github.com/xorm-io/builder"
+	"github.com/xorm-io/core"
+)
+
+type AccountItem struct {
+	Name       string `json:"name"`
+	Visible    bool   `json:"visible"`
+	ViewRule   string `json:"viewRule"`
+	ModifyRule string `json:"modifyRule"`
+	Regex      string `json:"regex"`
+	Tab        string `json:"tab"`
+}
+
+type ThemeData struct {
+	ThemeType    string `xorm:"varchar(30)" json:"themeType"`
+	ColorPrimary string `xorm:"varchar(10)" json:"colorPrimary"`
+	BorderRadius int    `xorm:"int" json:"borderRadius"`
+	IsCompact    bool   `xorm:"bool" json:"isCompact"`
+	IsEnabled    bool   `xorm:"bool" json:"isEnabled"`
+}
+
+type MfaItem struct {
+	Name string `json:"name"`
+	Rule string `json:"rule"`
+}
+
+type Organization struct {
+	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name        string `xorm:"varchar(100) notnull pk" json:"name"`
+	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
+
+	DisplayName            string     `xorm:"varchar(100)" json:"displayName"`
+	WebsiteUrl             string     `xorm:"varchar(100)" json:"websiteUrl"`
+	Logo                   string     `xorm:"varchar(200)" json:"logo"`
+	LogoDark               string     `xorm:"varchar(200)" json:"logoDark"`
+	Favicon                string     `xorm:"varchar(200)" json:"favicon"`
+	HasPrivilegeConsent    bool       `xorm:"bool" json:"hasPrivilegeConsent"`
+	PasswordType           string     `xorm:"varchar(100)" json:"passwordType"`
+	PasswordSalt           string     `xorm:"varchar(100)" json:"passwordSalt"`
+	PasswordOptions        []string   `xorm:"varchar(100)" json:"passwordOptions"`
+	PasswordObfuscatorType string     `xorm:"varchar(100)" json:"passwordObfuscatorType"`
+	PasswordObfuscatorKey  string     `xorm:"varchar(100)" json:"passwordObfuscatorKey"`
+	PasswordExpireDays     int        `json:"passwordExpireDays"`
+	PasswordHistoryCount   int        `json:"passwordHistoryCount"`
+	TokenRetentionDays     int        `json:"tokenRetentionDays"`
+	RecordRetentionDays    int        `json:"recordRetentionDays"`
+	CountryCodes           []string   `xorm:"mediumtext"  json:"countryCodes"`
+	DefaultAvatar          string     `xorm:"varchar(200)" json:"defaultAvatar"`
+	UsePermanentAvatar     bool       `xorm:"bool" json:"usePermanentAvatar"`
+	DefaultApplication     string     `xorm:"varchar(100)" json:"defaultApplication"`
+	DefaultTokenFormat     string     `xorm:"varchar(100)" json:"defaultTokenFormat"`
+	DefaultTokenFields     []string   `xorm:"varchar(1000)" json:"defaultTokenFields"`
+	UserTypes              []string   `xorm:"mediumtext" json:"userTypes"`
+	Tags                   []string   `xorm:"mediumtext" json:"tags"`
+	Languages              []string   `xorm:"varchar(255)" json:"languages"`
+	ThemeData              *ThemeData `xorm:"json" json:"themeData"`
+	MasterPassword         string     `xorm:"varchar(200)" json:"masterPassword"`
+	DefaultPassword        string     `xorm:"varchar(200)" json:"defaultPassword"`
+	MasterVerificationCode string     `xorm:"varchar(100)" json:"masterVerificationCode"`
+	IpWhitelist            string     `xorm:"varchar(200)" json:"ipWhitelist"`
+	TrustedDbHosts         string     `xorm:"varchar(500)" json:"trustedDbHosts"`
+	InitScore              int        `json:"initScore"`
+	EnableSoftDeletion     bool       `json:"enableSoftDeletion"`
+	IsProfilePublic        bool       `json:"isProfilePublic"`
+	UseEmailAsUsername     bool       `json:"useEmailAsUsername"`
+	EnableTour             bool       `json:"enableTour"`
+	DisableSignin          bool       `json:"disableSignin"`
+	EnableExclusiveSignin  bool       `json:"enableExclusiveSignin"`
+	MaxSessions            int        `json:"maxSessions"`
+	DisableConsole         bool       `json:"disableConsole"`
+	IpRestriction          string     `json:"ipRestriction"`
+	NavItems               []string   `xorm:"mediumtext" json:"navItems"`
+	UserNavItems           []string   `xorm:"mediumtext" json:"userNavItems"`
+	WidgetItems            []string   `xorm:"mediumtext" json:"widgetItems"`
+
+	MfaItems           []*MfaItem     `xorm:"varchar(300)" json:"mfaItems"`
+	MfaRememberInHours int            `json:"mfaRememberInHours"`
+	AccountMenu        string         `xorm:"varchar(20)" json:"accountMenu"`
+	AccountItems       []*AccountItem `xorm:"mediumtext" json:"accountItems"`
+
+	DcrPolicy string `xorm:"varchar(100)" json:"dcrPolicy"`
+
+	LdapAttributes     []string `xorm:"mediumtext" json:"ldapAttributes"`
+	EnableLdapPassword bool     `xorm:"bool" json:"enableLdapPassword"`
+	EnableRadius       bool     `xorm:"bool" json:"enableRadius"`
+
+	KerberosRealm       string `xorm:"varchar(200)" json:"kerberosRealm"`
+	KerberosKdcHost     string `xorm:"varchar(200)" json:"kerberosKdcHost"`
+	KerberosKeytab      string `xorm:"mediumtext" json:"kerberosKeytab"`
+	KerberosServiceName string `xorm:"varchar(100)" json:"kerberosServiceName"`
+
+	OrgBalance      float64 `json:"orgBalance"`
+	UserBalance     float64 `json:"userBalance"`
+	BalanceCredit   float64 `json:"balanceCredit"`
+	BalanceCurrency string  `xorm:"varchar(100)" json:"balanceCurrency"`
+}
+
+func GetOrganizationCount(owner, name, field, value string) (int64, error) {
+	session := GetSession(owner, -1, -1, field, value, "", "")
+	return session.Count(&Organization{Name: name})
+}
+
+func GetOrganizations(owner string, name ...string) ([]*Organization, error) {
+	organizations := []*Organization{}
+	if name != nil && len(name) > 0 {
+		err := ormer.Engine.Desc("created_time").Where(builder.In("name", name)).Find(&organizations)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		err := ormer.Engine.Desc("created_time").Find(&organizations, &Organization{Owner: owner})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return organizations, nil
+}
+
+func GetOrganizationsByFields(owner string, fields ...string) ([]*Organization, error) {
+	organizations := []*Organization{}
+	err := ormer.Engine.Desc("created_time").Cols(fields...).Find(&organizations, &Organization{Owner: owner})
+	if err != nil {
+		return nil, err
+	}
+
+	return organizations, nil
+}
+
+func GetPaginationOrganizations(owner string, name string, offset, limit int, field, value, sortField, sortOrder string) ([]*Organization, error) {
+	organizations := []*Organization{}
+	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
+	var err error
+	if name != "" {
+		err = session.Find(&organizations, &Organization{Name: name})
+	} else {
+		err = session.Find(&organizations)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return organizations, nil
+}
+
+func getOrganization(owner string, name string) (*Organization, error) {
+	if owner == "" || name == "" {
+		return nil, nil
+	}
+
+	organization := Organization{Owner: owner, Name: name}
+	existed, err := ormer.Engine.Get(&organization)
+	if err != nil {
+		return nil, err
+	}
+
+	if existed {
+		return &organization, nil
+	}
+
+	return nil, nil
+}
+
+func GetOrganization(id string) (*Organization, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
+	return getOrganization(owner, name)
+}
+
+func GetMaskedOrganization(isAdmin bool, organization *Organization, errs ...error) (*Organization, error) {
+	if len(errs) > 0 && errs[0] != nil {
+		return nil, errs[0]
+	}
+
+	if organization == nil {
+		return nil, nil
+	}
+
+	if organization.MasterPassword != "" {
+		organization.MasterPassword = "***"
+	}
+	if organization.DefaultPassword != "" {
+		organization.DefaultPassword = "***"
+	}
+	if organization.MasterVerificationCode != "" {
+		organization.MasterVerificationCode = "***"
+	}
+	if organization.KerberosKeytab != "" {
+		organization.KerberosKeytab = "***"
+	}
+	if !isAdmin {
+		if organization.PasswordSalt != "" {
+			organization.PasswordSalt = "***"
+		}
+	}
+	return organization, nil
+}
+
+func GetMaskedOrganizations(isAdmin bool, organizations []*Organization, errs ...error) ([]*Organization, error) {
+	if len(errs) > 0 && errs[0] != nil {
+		return nil, errs[0]
+	}
+
+	var err error
+	for _, organization := range organizations {
+		organization, err = GetMaskedOrganization(isAdmin, organization)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return organizations, nil
+}
+
+// hashMasterPassword hashes the master password in place so that it is never stored in plaintext.
+// The masked value "***" means the password is unchanged, so it is left as-is.
+func (organization *Organization) hashMasterPassword() {
+	if organization.MasterPassword == "" || organization.MasterPassword == "***" {
+		return
+	}
+
+	credManager := cred.GetCredManager(organization.PasswordType)
+	if credManager != nil {
+		organization.MasterPassword = credManager.GetHashedPassword(organization.MasterPassword, organization.PasswordSalt)
+	}
+}
+
+func UpdateOrganization(id string, organization *Organization, isGlobalAdmin bool, lang string) (bool, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return false, err
+	}
+	org, err := getOrganization(owner, name)
+	if err != nil {
+		return false, err
+	} else if org == nil {
+		return false, nil
+	}
+
+	if !isGlobalAdmin && organization.DefaultApplication != org.DefaultApplication {
+		err = checkDefaultApplication(org.Name, organization.DefaultApplication, lang)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	if name == "built-in" {
+		organization.Name = name
+	}
+
+	organization.Owner = org.Owner
+	if organization.PasswordType == "" {
+		organization.PasswordType = org.PasswordType
+	}
+
+	if name != organization.Name {
+		err = checkReservedOrganizationName(organization.Name)
+		if err != nil {
+			return false, err
+		}
+
+		err = organizationChangeTrigger(name, organization.Name)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	organization.hashMasterPassword()
+
+	if !isGlobalAdmin {
+		organization.TrustedDbHosts = org.TrustedDbHosts
+		organization.NavItems = org.NavItems
+		organization.UserNavItems = org.UserNavItems
+		organization.WidgetItems = org.WidgetItems
+		organization.OrgBalance = org.OrgBalance
+		organization.UserBalance = org.UserBalance
+		organization.BalanceCredit = org.BalanceCredit
+		organization.BalanceCurrency = org.BalanceCurrency
+		organization.EnableLdapPassword = org.EnableLdapPassword
+		organization.EnableRadius = org.EnableRadius
+		organization.DcrPolicy = org.DcrPolicy
+	}
+
+	session := ormer.Engine.ID(core.PK{owner, name}).AllCols()
+
+	if organization.MasterPassword == "***" {
+		session.Omit("master_password")
+	}
+	if organization.DefaultPassword == "***" {
+		session.Omit("default_password")
+	}
+	if organization.MasterVerificationCode == "***" {
+		session.Omit("master_verification_code")
+	}
+	if organization.KerberosKeytab == "***" {
+		session.Omit("kerberos_keytab")
+	}
+	if organization.PasswordSalt == "***" {
+		session.Omit("password_salt")
+	}
+
+	affected, err := session.Update(organization)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func checkDefaultApplication(organizationName string, applicationName string, lang string) error {
+	if applicationName == "" {
+		return nil
+	}
+
+	application := &Application{Owner: "admin", Name: applicationName}
+	existed, err := ormer.Engine.Cols("organization", "is_shared").Get(application)
+	if err != nil {
+		return err
+	}
+	if !existed || (application.Organization != organizationName && !application.IsShared) {
+		return fmt.Errorf("%s", i18n.Translate(lang, "auth:Unauthorized operation"))
+	}
+	return nil
+}
+
+var reservedOrganizationNames = []string{"admin", "app"}
+
+func checkReservedOrganizationName(name string) error {
+	if util.InSlice(reservedOrganizationNames, name) {
+		return fmt.Errorf("the organization name: %s is reserved", name)
+	}
+	return nil
+}
+
+func AddOrganization(organization *Organization) (bool, error) {
+	err := checkReservedOrganizationName(organization.Name)
+	if err != nil {
+		return false, err
+	}
+
+	// there is no previous record for a new organization, so the masked values mean "empty"
+	if organization.MasterPassword == "***" {
+		organization.MasterPassword = ""
+	}
+	if organization.DefaultPassword == "***" {
+		organization.DefaultPassword = ""
+	}
+	if organization.MasterVerificationCode == "***" {
+		organization.MasterVerificationCode = ""
+	}
+	if organization.KerberosKeytab == "***" {
+		organization.KerberosKeytab = ""
+	}
+
+	organization.Owner = "admin"
+	if organization.PasswordType == "" {
+		organization.PasswordType = "bcrypt"
+	}
+
+	organization.hashMasterPassword()
+
+	affected, err := ormer.Engine.Insert(organization)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func deleteOrganization(organization *Organization) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{organization.Owner, organization.Name}).Delete(&Organization{})
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func DeleteOrganization(organization *Organization) (bool, error) {
+	if organization.Name == "built-in" {
+		return false, nil
+	}
+
+	return deleteOrganization(organization)
+}
+
+func GetOrganizationByUser(user *User) (*Organization, error) {
+	if user == nil {
+		return nil, nil
+	}
+
+	return getOrganization("admin", user.Owner)
+}
+
+// GetDefaultTokenFormat returns the token format that newly created applications of the
+// organization should use. It falls back to "JWT" when the organization does not exist or
+// has no default token format configured yet.
+func GetDefaultTokenFormat(organizationName string) (string, error) {
+	organization, err := getOrganization("admin", organizationName)
+	if err != nil {
+		return "", err
+	}
+
+	if organization == nil || organization.DefaultTokenFormat == "" {
+		return "JWT", nil
+	}
+
+	return organization.DefaultTokenFormat, nil
+}
+
+// GetDefaultTokenFields returns the token fields ("JWT-Custom" claim set) that newly created
+// applications of the organization should use. It returns an empty list when the organization
+// does not exist or has no default token fields configured yet.
+func GetDefaultTokenFields(organizationName string) ([]string, error) {
+	organization, err := getOrganization("admin", organizationName)
+	if err != nil {
+		return nil, err
+	}
+
+	if organization == nil || organization.DefaultTokenFields == nil {
+		return []string{}, nil
+	}
+
+	return organization.DefaultTokenFields, nil
+}
+
+func GetAccountItemByName(name string, organization *Organization) *AccountItem {
+	if organization == nil {
+		return nil
+	}
+	for _, accountItem := range organization.AccountItems {
+		if accountItem.Name == name {
+			return accountItem
+		}
+	}
+	return nil
+}
+
+func CheckAccountItemModifyRule(accountItem *AccountItem, isAdmin bool, lang string) (bool, string) {
+	if accountItem == nil {
+		return true, ""
+	}
+
+	switch accountItem.ModifyRule {
+	case "Admin":
+		if !isAdmin {
+			return false, fmt.Sprintf(i18n.Translate(lang, "organization:Only admin can modify the %s."), accountItem.Name)
+		}
+	case "Immutable":
+		return false, fmt.Sprintf(i18n.Translate(lang, "organization:The %s is immutable."), accountItem.Name)
+	case "Self":
+		break
+	default:
+		return false, fmt.Sprintf(i18n.Translate(lang, "organization:Unknown modify rule %s."), accountItem.ModifyRule)
+	}
+	return true, ""
+}
+
+func GetDefaultApplication(id string) (*Application, error) {
+	organization, err := GetOrganization(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if organization == nil {
+		return nil, fmt.Errorf("The organization: %s does not exist", id)
+	}
+
+	if organization.DefaultApplication != "" {
+		defaultApplication, err := getApplication("admin", organization.DefaultApplication)
+		if err != nil {
+			return nil, err
+		}
+
+		if defaultApplication == nil {
+			return nil, fmt.Errorf("The default application: %s does not exist", organization.DefaultApplication)
+		} else {
+			defaultApplication.Organization = organization.Name
+			return defaultApplication, nil
+		}
+	}
+
+	applications := []*Application{}
+	err = ormer.Engine.Asc("created_time").Find(&applications, &Application{Organization: organization.Name})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(applications) == 0 {
+		return nil, fmt.Errorf("The application does not exist")
+	}
+
+	defaultApplication := applications[0]
+	for _, application := range applications {
+		if application.EnableSignUp {
+			defaultApplication = application
+			break
+		}
+	}
+
+	err = extendApplicationWithProviders(defaultApplication)
+	if err != nil {
+		return nil, err
+	}
+
+	err = extendApplicationWithOrg(defaultApplication)
+	if err != nil {
+		return nil, err
+	}
+
+	err = extendApplicationWithSigninItems(defaultApplication)
+	if err != nil {
+		return nil, err
+	}
+
+	err = extendApplicationWithSigninMethods(defaultApplication)
+	if err != nil {
+		return nil, err
+	}
+
+	return defaultApplication, nil
+}
+
+func organizationChangeTrigger(oldName string, newName string) error {
+	session := ormer.Engine.NewSession()
+	defer session.Close()
+
+	err := session.Begin()
+	if err != nil {
+		return err
+	}
+
+	application := new(Application)
+	application.Organization = newName
+	_, err = session.Where("organization=?", oldName).Update(application)
+	if err != nil {
+		return err
+	}
+
+	users := []*User{}
+	err = ormer.Engine.Where("owner=?", oldName).And(builder.Like{"`groups`", oldName + "/"}).Find(&users)
+	if err != nil {
+		return err
+	}
+	for _, user := range users {
+		user.Groups, _ = replaceIdOwner(user.Groups, oldName, newName, false)
+		_, err = session.Where("owner=?", oldName).And("name=?", user.Name).Cols("groups").Update(user)
+		if err != nil {
+			return err
+		}
+		_, err = userEnforcer.DeleteGroupsForUser(user.GetId())
+		if err != nil {
+			return err
+		}
+		_, err = userEnforcer.UpdateGroupsForUser(util.GetId(newName, user.Name), user.Groups)
+		if err != nil {
+			return err
+		}
+	}
+
+	user := new(User)
+	user.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(user)
+	if err != nil {
+		return err
+	}
+
+	passwordHistory := new(PasswordHistory)
+	passwordHistory.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(passwordHistory)
+	if err != nil {
+		return err
+	}
+
+	group := new(Group)
+	group.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(group)
+	if err != nil {
+		return err
+	}
+
+	// members are stored as "organization/name" ids, so every list that may
+	// reference the renamed organization has to be rewritten, not only its own rows
+	var roles []*Role
+	err = ormer.Engine.Find(&roles)
+	if err != nil {
+		return err
+	}
+	for _, role := range roles {
+		changed := false
+		role.Users, changed = replaceIdOwner(role.Users, oldName, newName, changed)
+		role.Groups, changed = replaceIdOwner(role.Groups, oldName, newName, changed)
+		role.Roles, changed = replaceIdOwner(role.Roles, oldName, newName, changed)
+		if !changed {
+			continue
+		}
+		_, err = session.Where("owner=?", role.Owner).And("name=?", role.Name).Cols("users", "groups", "roles").Update(role)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = session.Where("owner=?", oldName).Cols("owner").Update(&Role{Owner: newName})
+	if err != nil {
+		return err
+	}
+
+	var permissions []*Permission
+	err = ormer.Engine.Find(&permissions)
+	if err != nil {
+		return err
+	}
+	for _, permission := range permissions {
+		changed := false
+		permission.Users, changed = replaceIdOwner(permission.Users, oldName, newName, changed)
+		permission.Groups, changed = replaceIdOwner(permission.Groups, oldName, newName, changed)
+		permission.Roles, changed = replaceIdOwner(permission.Roles, oldName, newName, changed)
+		permission.Model, changed = replaceIdOwnerInId(permission.Model, oldName, newName, changed)
+		if !changed {
+			continue
+		}
+		_, err = session.Where("owner=?", permission.Owner).And("name=?", permission.Name).Cols("users", "groups", "roles", "model").Update(permission)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = session.Where("owner=?", oldName).Cols("owner").Update(&Permission{Owner: newName})
+	if err != nil {
+		return err
+	}
+
+	var enforcers []*Enforcer
+	err = ormer.Engine.Find(&enforcers)
+	if err != nil {
+		return err
+	}
+	for _, enforcer := range enforcers {
+		changed := false
+		enforcer.Model, changed = replaceIdOwnerInId(enforcer.Model, oldName, newName, changed)
+		enforcer.Adapter, changed = replaceIdOwnerInId(enforcer.Adapter, oldName, newName, changed)
+		if !changed {
+			continue
+		}
+		_, err = session.Where("owner=?", enforcer.Owner).And("name=?", enforcer.Name).Cols("model", "adapter").Update(enforcer)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = session.Where("owner=?", oldName).Cols("owner").Update(&Enforcer{Owner: newName})
+	if err != nil {
+		return err
+	}
+
+	adapter := new(Adapter)
+	adapter.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(adapter)
+	if err != nil {
+		return err
+	}
+
+	ldap := new(Ldap)
+	ldap.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(ldap)
+	if err != nil {
+		return err
+	}
+
+	model := new(Model)
+	model.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(model)
+	if err != nil {
+		return err
+	}
+
+	payment := new(Payment)
+	payment.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(payment)
+	if err != nil {
+		return err
+	}
+
+	record := new(Record)
+	record.Owner = newName
+	record.Organization = newName
+	_, err = session.Where("organization=?", oldName).Update(record)
+	if err != nil {
+		if err.Error() != "no columns found to be updated" {
+			return err
+		}
+	}
+
+	resource := new(Resource)
+	resource.Owner = newName
+	_, err = session.Where("owner=?", oldName).Update(resource)
+	if err != nil {
+		return err
+	}
+
+	syncer := new(Syncer)
+	syncer.Organization = newName
+	_, err = session.Where("organization=?", oldName).Update(syncer)
+	if err != nil {
+		return err
+	}
+
+	token := new(Token)
+	token.Organization = newName
+	_, err = session.Where("organization=?", oldName).Update(token)
+	if err != nil {
+		return err
+	}
+
+	webhook := new(Webhook)
+	webhook.Organization = newName
+	_, err = session.Where("organization=?", oldName).Update(webhook)
+	if err != nil {
+		return err
+	}
+
+	return session.Commit()
+}
+
+// replaceIdOwner rewrites the owner part of every "owner/name" id in ids that
+// belongs to oldOwner; the returned bool is true if changed was already true or
+// any id was rewritten.
+func replaceIdOwner(ids []string, oldOwner string, newOwner string, changed bool) ([]string, bool) {
+	for i, id := range ids {
+		ids[i], changed = replaceIdOwnerInId(id, oldOwner, newOwner, changed)
+	}
+	return ids, changed
+}
+
+func replaceIdOwnerInId(id string, oldOwner string, newOwner string, changed bool) (string, bool) {
+	if strings.HasPrefix(id, oldOwner+"/") {
+		return newOwner + strings.TrimPrefix(id, oldOwner), true
+	}
+	return id, changed
+}
+
+func IsSigninPending(user *User) (bool, error) {
+	if user.NeedUpdatePassword {
+		return true, nil
+	}
+
+	organization, err := GetOrganizationByUser(user)
+	if err != nil {
+		return false, err
+	}
+	return IsNeedPromptMfa(organization, user), nil
+}
+
+func IsNeedPromptMfa(org *Organization, user *User) bool {
+	if org == nil || user == nil {
+		return false
+	}
+
+	mfaItems := org.MfaItems
+
+	if len(user.MfaItems) > 0 {
+		mfaItems = user.MfaItems
+	}
+	for _, item := range mfaItems {
+		if item.Rule == "Required" {
+			if item.Name == EmailType && !user.MfaEmailEnabled {
+				return true
+			}
+			if item.Name == SmsType && !user.MfaPhoneEnabled {
+				return true
+			}
+			if item.Name == TotpType && user.TotpSecret == "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (org *Organization) GetInitScore() (int, error) {
+	if org != nil {
+		return org.InitScore, nil
+	} else {
+		return strconv.Atoi(conf.GetConfigString("initScore"))
+	}
+}
+
+func UpdateOrganizationBalance(owner string, name string, balance float64, currency string, isOrgBalance bool, lang string) error {
+	organization, err := getOrganization(owner, name)
+	if err != nil {
+		return err
+	}
+	if organization == nil {
+		return fmt.Errorf(i18n.Translate(lang, "auth:the organization: %s is not found"), fmt.Sprintf("%s/%s", owner, name))
+	}
+
+	// Convert the balance amount from transaction currency to organization's balance currency
+	balanceCurrency := organization.BalanceCurrency
+	if balanceCurrency == "" {
+		balanceCurrency = "USD"
+	}
+	convertedBalance := ConvertCurrency(balance, currency, balanceCurrency)
+
+	if !isOrgBalance {
+		// User balance is just a sum of all users' balances, no credit limit check here
+		// Individual user credit limits are checked in UpdateUserBalance
+		_, err = ormer.Engine.ID(core.PK{owner, name}).Incr("user_balance", convertedBalance).Update(&Organization{})
+		return err
+	}
+
+	affected, err := incrBalance(ormer.Engine.ID(core.PK{owner, name}), "org_balance", convertedBalance, organization.BalanceCredit, &Organization{})
+	if err != nil {
+		return err
+	}
+	if !affected {
+		newBalance := AddPrices(organization.OrgBalance, convertedBalance)
+		return fmt.Errorf(i18n.Translate(lang, "general:Insufficient balance: new organization balance %v would be below credit limit %v"), newBalance, organization.BalanceCredit)
+	}
+	return nil
+}

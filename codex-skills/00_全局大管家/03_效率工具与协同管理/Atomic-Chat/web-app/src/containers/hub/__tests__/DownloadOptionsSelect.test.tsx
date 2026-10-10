@@ -1,0 +1,444 @@
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
+import type { CatalogModel } from '@/services/models/types'
+
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+beforeAll(() => {
+  vi.stubGlobal('ResizeObserver', MockResizeObserver)
+})
+
+afterAll(() => {
+  vi.unstubAllGlobals()
+})
+
+vi.mock('@/i18n/react-i18next-compat', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}))
+
+vi.mock('@/containers/ModelDownloadAction', () => ({
+  ModelDownloadAction: ({
+    variant,
+    deletable,
+    warnTooLarge,
+  }: {
+    variant: { model_id: string }
+    deletable?: boolean
+    warnTooLarge?: boolean
+  }) => (
+    <button
+      type="button"
+      data-deletable={deletable ? 'true' : 'false'}
+      data-warn-too-large={warnTooLarge ? 'true' : 'false'}
+    >
+      download {variant.model_id}
+    </button>
+  ),
+}))
+
+vi.mock('@/containers/MlxModelDownloadAction', () => ({
+  MlxModelDownloadAction: ({ warnTooLarge }: { warnTooLarge?: boolean }) => (
+    <button
+      type="button"
+      data-warn-too-large={warnTooLarge ? 'true' : 'false'}
+    >
+      download mlx
+    </button>
+  ),
+}))
+
+const tensorrtHub = vi.hoisted(() => ({ state: 'ready' as string }))
+vi.mock('@/hooks/useManagedHubState', () => {
+  const state = () => ({
+    visible: true,
+    state: tensorrtHub.state,
+    blockers: [],
+    descriptorId: 'tensorrt-llm-1.3.0rc29-r2',
+  })
+  return {
+    useManagedHubStates: () => [
+      { engine: { id: 'tensorrt-llm', label: 'TensorRT-LLM', i18n: 'tensorrt' }, hub: state() },
+    ],
+  }
+})
+
+vi.mock('@/hooks/useServiceHub', () => ({
+  useServiceHub: () => ({
+    providers: () => ({ getProviders: async () => [] }),
+    models: () => ({ abortDownload: vi.fn() }),
+  }),
+}))
+
+const navigate = vi.hoisted(() => vi.fn())
+vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }))
+
+const trtModels = vi.hoisted(() => ({
+  fetchHfRevision: vi.fn(),
+  checkManagedModel: vi.fn(),
+  installManagedModel: vi.fn(),
+}))
+vi.mock('@/services/managed-models/models', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/managed-models/models')>()),
+  ...trtModels,
+}))
+
+import { useModelProvider } from '@/hooks/useModelProvider'
+import { useGeneralSetting } from '@/hooks/useGeneralSetting'
+import { useDownloadStore } from '@/hooks/useDownloadStore'
+import { resetManagedVerdictsForTests } from '@/services/managed-models/verdict'
+import type { ModelCompatibility } from '@/services/managed-environment/types'
+import { DownloadOptionsSelect } from '../DownloadOptionsSelect'
+
+const GB = 1024 ** 3
+
+const ggufModel = (): CatalogModel =>
+  ({
+    model_name: 'Qwen/Qwen3.5-4B-GGUF',
+    developer: 'Qwen',
+    num_quants: 3,
+    quants: [
+      {
+        model_id: 'Qwen3.5-4B-Q2_K',
+        path: 'q2.gguf',
+        file_size: '1.20 GB',
+      },
+      {
+        model_id: 'Qwen3.5-4B-Q4_K_M',
+        path: 'q4.gguf',
+        file_size: '2.50 GB',
+      },
+      {
+        model_id: 'Qwen3.5-4B-Q8_0',
+        path: 'q8.gguf',
+        file_size: '400.00 GB',
+      },
+    ],
+  }) as CatalogModel
+
+const exoticQuantModel = (): CatalogModel =>
+  ({
+    model_name: 'prism-ml/Bonsai-27B-gguf',
+    developer: 'prism-ml',
+    num_quants: 4,
+    quants: [
+      { model_id: 'Bonsai-27B-F16', path: 'f16.gguf', file_size: '51.00 GB' },
+      { model_id: 'Bonsai-27B-Q1_0', path: 'q1.gguf', file_size: '4.40 GB' },
+      { model_id: 'Bonsai-27B-Q4_1', path: 'q4-1.gguf', file_size: '2.60 GB' },
+      { model_id: 'Bonsai-27B-BF16', path: 'bf16.gguf', file_size: '7.70 GB' },
+    ],
+  }) as CatalogModel
+
+const mlxModel = (): CatalogModel =>
+  ({
+    model_name: 'mlx-community/Qwen3.5-9B-MLX-4bit',
+    developer: 'mlx-community',
+    is_mlx: true,
+    num_quants: 0,
+    quants: [],
+    mmproj_models: [],
+    safetensors_files: [
+      { rfilename: 'model-00001-of-00002.safetensors', file_size: '3.00 GB' },
+      { rfilename: 'model-00002-of-00002.safetensors', file_size: '2.00 GB' },
+    ],
+  }) as unknown as CatalogModel
+
+const installQuant = (modelId: string) =>
+  useModelProvider.setState({
+    providers: [
+      {
+        active: true,
+        provider: 'llamacpp',
+        settings: [],
+        models: [{ id: modelId }],
+      } as ModelProvider,
+    ],
+  })
+
+describe('DownloadOptionsSelect', () => {
+  beforeEach(() => {
+    useModelProvider.setState({ providers: [] })
+  })
+
+  it('preselects the default quantization rather than the first one', () => {
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={16 * GB} />)
+
+    expect(screen.getByText('Q4_K_M')).toBeInTheDocument()
+    expect(screen.getByRole('button', { expanded: false })).toHaveClass(
+      'bg-muted/40'
+    )
+    expect(screen.getByText('download Qwen3.5-4B-Q4_K_M')).toBeInTheDocument()
+  })
+
+  it('opens a repo without the house quant on a variant the device can run', () => {
+    render(
+      <DownloadOptionsSelect model={exoticQuantModel()} budgetBytes={24 * GB} />
+    )
+
+    expect(screen.getByText('download Bonsai-27B-Q1_0')).toBeInTheDocument()
+    expect(screen.getByText('Good fit')).toBeInTheDocument()
+    expect(screen.queryByText('Won’t fit')).not.toBeInTheDocument()
+  })
+
+  it('steps down from a default the device cannot hold', () => {
+    // Q4_K_M is the house default at 2.50 GB, out of reach on a 2 GB device.
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={2 * GB} />)
+
+    expect(screen.getByText('download Qwen3.5-4B-Q2_K')).toBeInTheDocument()
+  })
+
+  it('lists every quant with its size once expanded', async () => {
+    const user = userEvent.setup()
+    const model = ggufModel()
+    model.quants = [...model.quants!].reverse()
+    render(<DownloadOptionsSelect model={model} budgetBytes={16 * GB} />)
+
+    const disclosure = screen.getByRole('button', { expanded: false })
+    await user.click(disclosure)
+
+    expect(screen.getByRole('button', { expanded: true })).toBeInTheDocument()
+    expect(screen.getByText('Q2_K')).toBeInTheDocument()
+    expect(screen.getByText('Q8_0')).toBeInTheDocument()
+    // Sizes are re-derived from bytes, so they come back normalized.
+    expect(screen.getByText('1.2 GB')).toBeInTheDocument()
+    expect(screen.getByText('400.0 GB')).toBeInTheDocument()
+    const rows = screen
+      .getAllByRole('button')
+      .filter((button) => button.closest('li'))
+    expect(rows).toHaveLength(3)
+    ;[
+      ['Q2_K', '1.2 GB'],
+      ['Q4_K_M', '2.5 GB'],
+      ['Q8_0', '400.0 GB'],
+    ].forEach(([quant, size], index) => {
+      expect(within(rows[index]).getByText(quant)).toBeInTheDocument()
+      expect(within(rows[index]).getByText(size)).toBeInTheDocument()
+    })
+  })
+
+  it('switches the download action to the quant the user picks', async () => {
+    const user = userEvent.setup()
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={16 * GB} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+    await user.click(screen.getByText('Q2_K'))
+
+    expect(screen.getByText('download Qwen3.5-4B-Q2_K')).toBeInTheDocument()
+    expect(
+      screen.queryByText('download Qwen3.5-4B-Q4_K_M')
+    ).not.toBeInTheDocument()
+  })
+
+  it('returns smoothly to Download Options after picking a quant deep in the list', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false }) as MediaQueryList)
+    )
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={16 * GB} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+    await user.click(screen.getByText('Q8_0'))
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'start',
+    })
+    expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument()
+    expect(screen.getByText('download Qwen3.5-4B-Q8_0')).toBeInTheDocument()
+  })
+
+  it('warns about, rather than refuses, a quant that cannot fit the device', async () => {
+    const user = userEvent.setup()
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={8 * GB} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+    await user.click(screen.getByText('Q8_0'))
+
+    // The fit estimate is size against memory, not a measurement: the user
+    // gets a live button with a warning behind it, not a dead end.
+    const download = screen.getByText('download Qwen3.5-4B-Q8_0')
+    expect(download).toBeEnabled()
+    expect(download).toHaveAttribute('data-warn-too-large', 'true')
+    expect(screen.getByText('Won’t fit')).toBeInTheDocument()
+  })
+
+  it('shows the fit badge for a comfortably small quant', () => {
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={16 * GB} />)
+
+    expect(screen.getByText('Good fit')).toBeInTheDocument()
+    expect(screen.getByText('download Qwen3.5-4B-Q4_K_M')).toHaveAttribute(
+      'data-warn-too-large',
+      'false'
+    )
+  })
+
+  it('shows the fit badge for a quant that should run', () => {
+    // 2.50 GB against a 3 GB budget is past the 70% comfort threshold.
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={3 * GB} />)
+
+    expect(screen.getByText('Might fit')).toBeInTheDocument()
+  })
+
+  it('hides the fit verdict while the memory budget is unknown', () => {
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={0} />)
+
+    expect(screen.queryByText('Good fit')).not.toBeInTheDocument()
+    expect(screen.queryByText('Might fit')).not.toBeInTheDocument()
+    expect(screen.queryByText('Won’t fit')).not.toBeInTheDocument()
+  })
+
+  it('sends an MLX repo straight to the MLX download action', () => {
+    render(<DownloadOptionsSelect model={mlxModel()} budgetBytes={16 * GB} />)
+
+    expect(screen.getByText('download mlx')).toBeInTheDocument()
+    expect(screen.getByText('MLX')).toBeInTheDocument()
+    // Sharded safetensors are summed, not reported one shard at a time.
+    expect(screen.getByText('5.0 GB')).toBeInTheDocument()
+    expect(screen.getByText('Good fit')).toBeInTheDocument()
+    expect(screen.getByText('download mlx')).toHaveAttribute(
+      'data-warn-too-large',
+      'false'
+    )
+  })
+
+  it('warns before downloading an MLX repo too large for the device', () => {
+    // 5 GB of safetensors against a 4 GB budget.
+    render(<DownloadOptionsSelect model={mlxModel()} budgetBytes={4 * GB} />)
+
+    expect(screen.getByText('Won’t fit')).toBeInTheDocument()
+    expect(screen.getByText('download mlx')).toHaveAttribute(
+      'data-warn-too-large',
+      'true'
+    )
+  })
+})
+
+describe('DownloadOptionsSelect with an installed quant', () => {
+  it('opens on the quant that is already on disk, not on the recommended one', () => {
+    installQuant('Qwen3.5-4B-Q2_K')
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={16 * GB} />)
+
+    expect(screen.getByText('Q2_K')).toBeInTheDocument()
+    expect(screen.getByText('download Qwen3.5-4B-Q2_K')).toHaveAttribute(
+      'data-deletable',
+      'true'
+    )
+  })
+
+  it('still offers the action for an installed quant this device cannot run', () => {
+    installQuant('Qwen3.5-4B-Q8_0')
+    render(<DownloadOptionsSelect model={ggufModel()} budgetBytes={16 * GB} />)
+
+    expect(screen.getByText('download Qwen3.5-4B-Q8_0')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'hub:download' })
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe('DownloadOptionsSelect for a TensorRT-LLM model', () => {
+  const compatible: ModelCompatibility = {
+    architectures: ['Qwen3ForCausalLM'],
+    quantization_format: 'fp8',
+    weight_bytes: 8 * GB,
+    checked_gpu_id: 'GPU-1',
+    curated: true,
+    unified_memory: false,
+    fits_other_gpus: [],
+    verdict: { ok: true },
+  }
+  const trtModel = (): CatalogModel => ({
+    model_name: 'nvidia/Qwen3-8B-FP8',
+    developer: 'nvidia',
+    description: '',
+    downloads: 0,
+    is_managed: true,
+    managed: { curated: true, revision: 'rev-a' },
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetManagedVerdictsForTests()
+    tensorrtHub.state = 'ready'
+    useModelProvider.setState({ providers: [] })
+    useGeneralSetting.setState({ huggingfaceToken: 'hf_secret' })
+    trtModels.fetchHfRevision.mockImplementation(async (repository: string) => ({
+      repository,
+      revision: 'rev-a-sha',
+      config_json: {},
+      hf_quant_config_json: null,
+      files: [],
+    }))
+    trtModels.checkManagedModel.mockResolvedValue(compatible)
+    trtModels.installManagedModel.mockReturnValue(new Promise(() => {}))
+  })
+
+  it('says why the model cannot run here and offers no download', async () => {
+    trtModels.checkManagedModel.mockResolvedValue({
+      ...compatible,
+      verdict: {
+        ok: false,
+        error: { code: 'MODEL_INCOMPATIBLE', message: 'Needs compute capability 10.0, the card has 8.9.' },
+      },
+    })
+    render(<DownloadOptionsSelect model={trtModel()} budgetBytes={16 * GB} />)
+
+    expect(await screen.findByText(/the card has 8\.9/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'hub:download' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'hub:tensorrt.installEngine' })).not.toBeInTheDocument()
+  })
+
+  it('before the engine is installed, shows the verdict and sends to the install instead of downloading', async () => {
+    tensorrtHub.state = 'not-installed'
+    const user = userEvent.setup()
+    render(<DownloadOptionsSelect model={trtModel()} budgetBytes={16 * GB} />)
+
+    expect(await screen.findByText('hub:tensorrt.models.fits')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'hub:download' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'hub:tensorrt.installEngine' }))
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { providerName: 'tensorrt-llm' } })
+    )
+  })
+
+  it('with the engine installed, downloads exactly the revision the core checked, with the token', async () => {
+    const user = userEvent.setup()
+    render(<DownloadOptionsSelect model={trtModel()} budgetBytes={16 * GB} />)
+
+    expect(screen.getByText('TensorRT-LLM')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'hub:download' }))
+
+    expect(trtModels.installManagedModel.mock.calls[0][0]).toMatchObject({
+      repository: 'nvidia/Qwen3-8B-FP8',
+      revision: 'rev-a-sha',
+      token: 'hf_secret',
+    })
+    // Started: the button gives way to the download's progress, and the panel's row is named.
+    expect(screen.queryByRole('button', { name: 'hub:download' })).not.toBeInTheDocument()
+    expect(
+      useDownloadStore.getState().downloadOriginByModelId['managed-nvidia_Qwen3-8B-FP8']
+    ).toBe('nvidia/Qwen3-8B-FP8')
+  })
+})

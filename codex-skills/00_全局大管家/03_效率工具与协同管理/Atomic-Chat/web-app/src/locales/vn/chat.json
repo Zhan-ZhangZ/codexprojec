@@ -1,0 +1,38 @@
+{
+  "welcome": "Chào bạn, bạn khỏe không?",
+  "description": "Hôm nay tôi có thể giúp gì cho bạn?",
+  "temporaryChat": "Trò chuyện tạm thời",
+  "temporaryChatDescription": "Bắt đầu một cuộc trò chuyện tạm thời sẽ không được lưu vào lịch sử trò chuyện của bạn.",
+  "status": {
+    "empty": "Không tìm thấy cuộc trò chuyện nào"
+  },
+  "sendMessage": "Gửi tin nhắn",
+  "newConversation": "Cuộc trò chuyện mới",
+  "clearHistory": "Xóa lịch sử",
+  "agentMode": {
+    "menuItem": "Chế độ agent",
+    "agent": "Agent",
+    "turnOff": "Tắt chế độ agent",
+    "providerUnavailable": "Chế độ agent cần một mô hình cục bộ hoặc nhà cung cấp đám mây có khóa API.",
+    "providerKeyMissing": "Thêm khóa API cho nhà cung cấp này trong Cài đặt để dùng chế độ agent."
+  },
+  "agentErrors": {
+    "localModelRequired": "Hãy tải mô hình này trước khi chạy agent.",
+    "providerUnavailableDescription": "Chọn mô hình cục bộ, hoặc nhà cung cấp đám mây có khóa API.",
+    "providerKeyMissing": "Thêm khóa API cho nhà cung cấp này trong Cài đặt rồi thử lại.",
+    "localServerRequired": "Chế độ agent với mô hình đám mây cần Local API Server. Hãy khởi động trong Cài đặt."
+  },
+  "docCitation": {
+    "document": "Tài liệu",
+    "removedDocument": "Tài liệu đã bị xóa",
+    "passage": "Đoạn {{passage}}",
+    "passageOf": "Đoạn {{passage}}/{{total}}",
+    "removedFromProject": "Tài liệu này đã bị xóa khỏi dự án. Bên dưới là đoạn mà câu trả lời dựa vào.",
+    "removedFromChat": "Tài liệu này đã bị xóa khỏi cuộc trò chuyện. Bên dưới là đoạn mà câu trả lời dựa vào.",
+    "open": "Mở tài liệu",
+    "showInFolder": "Hiển thị trong thư mục",
+    "openFailed": "Không thể mở {{name}}",
+    "openFailedDescription": "Tệp có thể đã bị di chuyển hoặc xóa.",
+    "chipLabel": "Nguồn: {{name}}, đoạn {{passage}}"
+  }
+}

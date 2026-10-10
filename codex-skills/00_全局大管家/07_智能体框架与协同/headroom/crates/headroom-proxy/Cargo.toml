@@ -1,0 +1,147 @@
+[package]
+name = "headroom-proxy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Headroom transparent reverse proxy (Rust, axum). Phase 1: drop-in passthrough in front of the Python proxy."
+
+[[bin]]
+name = "headroom-proxy"
+path = "src/main.rs"
+
+[lib]
+name = "headroom_proxy"
+path = "src/lib.rs"
+
+[dependencies]
+axum = { workspace = true, features = ["ws", "http2", "macros"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time"] }
+tower = { workspace = true }
+tower-http = { version = "0.7", features = ["trace", "request-id", "util"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
+# Native roots on top of the bundled webpki set: corporate TLS-inspection
+# roots (Zscaler, Netskope, ...) are installed in the OS store, never in
+# Mozilla's list, so webpki alone rejects every re-signed upstream certificate.
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "rustls-tls-native-roots", "http2"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots", "rustls-tls-native-roots"] }
+clap = { workspace = true, features = ["derive", "env"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+bytes = { workspace = true }
+futures = "0.3"
+futures-util = "0.3"
+pin-project-lite = "0.2"
+http = "1"
+http-body-util = "0.1"
+hyper = "1"
+url = "2"
+humantime = "2"
+bytesize = "2"
+tokio-util = { version = "0.7" }
+headroom-core = { path = "../headroom-core" }
+# Phase D PR-D1: native Bedrock InvokeModel route. SigV4 + AWS
+# default credential chain.
+aws-sigv4 = { workspace = true }
+aws-config = { workspace = true }
+aws-credential-types = { workspace = true }
+aws-smithy-runtime-api = { workspace = true }
+# Phase D PR-D2: Bedrock binary EventStream parser. AWS frames each
+# message with a CRC32 over the prelude and over the entire message;
+# `crc32fast` is the standard IEEE 802.3 implementation already
+# transitively pulled in by `aws-smithy-*` (so this is not an
+# additional cold dep — promoting to a direct one for clarity).
+crc32fast = "1"
+# Native savings stats: Bedrock InvokeModel EventStream chunks wrap
+# their Anthropic SSE payloads in base64 (`{"bytes": "<b64>"}`);
+# the usage-capture tee decodes them. Already in the tree via the
+# HTTP stack (reqwest/axum/hyper-util/gcp_auth all pull base64
+# 0.22) — promoted to direct for the explicit use, so no new
+# major-version bucket. (The AWS crates use `base64-simd`, a
+# different crate — this is not that one.)
+base64 = "0.22"
+# Phase D PR-D3: Prometheus metrics for Bedrock observability. The
+# `prometheus` crate's default-features pull in `protobuf`, which we
+# don't need (we serve text-format scrapes only), so we disable
+# defaults and re-enable nothing — pure registry + counter +
+# histogram + text encoder is sufficient.
+#
+# H4 fix: the H3 force-zero contract (in
+# `observability::prometheus::handle_metrics`) relies on this
+# crate's v0.13 `gather()` semantics — empty MetricVec families are
+# omitted from the scrape, so we force-touch each counter / gauge
+# with a sentinel label to surface HELP/TYPE on boot. Pinning the
+# exact patch version (no caret, no `~`) so a future minor-version
+# bump cannot silently change the alarm contract; the bump must be
+# an explicit code review that re-validates the contract.
+prometheus = { version = "=0.14.0", default-features = false }
+# PR-E6: SHA-256 over canonical bytes of the cache hot zone (system,
+# tools, early messages) for cache-bust drift detection. Already in
+# the dev-dependencies (and pulled transitively by `aws-sigv4` via
+# `aws-smithy-runtime-api`); promoted here to a direct, normal-build
+# dependency so the drift detector compiles outside `cfg(test)`. Also
+# used by PR-E4 for `prompt_cache_key` derivation.
+sha2 = "0.11"
+# PR-E6: bounded session-scoped cache of structural hashes. The
+# detector evicts the oldest session at 1000 entries — we never want
+# unbounded memory growth from a flood of unique session keys. `lru`
+# is the de-facto Rust LRU crate; minimal surface, no dependencies of
+# our own beyond `hashbrown` (which we already pull transitively).
+lru = "0.18"
+# PR-D4: GCP Application Default Credentials → bearer token for
+# Vertex `:rawPredict` / `:streamRawPredict`. See workspace
+# Cargo.toml for rationale.
+gcp_auth = { workspace = true }
+async-trait = "0.1"
+# Phase E PR-E1: tool array deterministic sort uses MD5 of canonical
+# JSON as a fallback sort key for unnamed tools. MD5 is sufficient
+# because the value is opaque and only used for stable in-process
+# ordering — never persisted, never compared cross-host. Same crate
+# the core uses for the CCR cache_key, so no additional hash backend
+# enters the dep tree.
+md-5 = "0.11"
+# Explicit rustls config for WebSocket upstreams (see src/tls.rs). Both ring
+# and aws-lc-rs are compiled into this binary, so rustls cannot pick a default
+# provider and `ClientConfig::builder()` panics; we name ring explicitly.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+rustls-pki-types = { version = "1", features = ["std"] }
+webpki-roots = "1.0"
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+wiremock = "0.6"
+# `wss://` relay test (tests/integration_ws_tls.rs): a local TLS WebSocket
+# echo upstream. `tokio-rustls` is already in the build via reqwest and
+# hyper-rustls at this same version, so no new crate enters the tree; the
+# `ring` feature matches the provider the proxy installs (src/tls.rs).
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+# Throwaway certificate for that upstream, generated at test time so no
+# private key is ever committed (gitleaks would rightly refuse one). rcgen
+# is the generator rustls' own test-suite uses; dev-only, never shipped.
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "http2", "json"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net", "io-util", "time", "test-util", "process"] }
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
+http-body-util = "0.1"
+tokio-stream = "0.1"
+# PR-A1 cache-safety tests assert SHA-256 byte-equality between the
+# inbound and upstream-received bodies. The hash is the only sound
+# way to gate "the proxy did not perturb the request" because JSON
+# value-equality misses whitespace, key order, and Unicode escape
+# differences that all bust the prompt cache.
+sha2 = "0.11"
+# PR-C1: property tests for the byte-level SSE parser. The parser
+# must never panic on arbitrary input bytes (TCP can hand us anything,
+# including malformed UTF-8 split mid-codepoint or fuzz-generated
+# noise). 100K cases is the project default for "no panic" parser
+# invariants — see `feedback_realignment_build_constraints.md`.
+proptest = "1"
+headroom-simulators = { path = "../headroom-simulators" }

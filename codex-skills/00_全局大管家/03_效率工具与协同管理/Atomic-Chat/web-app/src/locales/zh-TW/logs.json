@@ -1,0 +1,10 @@
+{
+  "noLogs": "沒有可用的日誌",
+  "filterAll": "全部",
+  "sourceApp": "應用程式",
+  "sourceCore": "核心",
+  "export": "匯出日誌",
+  "exported": "日誌已匯出",
+  "showInFolder": "在資料夾中顯示",
+  "exportFailed": "無法匯出日誌"
+}

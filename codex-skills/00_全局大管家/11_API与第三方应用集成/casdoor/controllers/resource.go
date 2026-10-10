@@ -1,0 +1,596 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package controllers
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"github.com/beego/beego/v2/core/utils/pagination"
+	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
+)
+
+// checkResourcePermission checks whether the current user can operate on a resource
+// of the given owner and user. "/api/upload-resource" is a public API in authz/authz.go
+// because ordinary users upload their own avatar with it, so it has to check here.
+func (c *ApiController) checkResourcePermission(owner string, username string) bool {
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return false
+	}
+
+	user, err := object.GetUserOrAppUser(userId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return false
+	}
+	if user == nil {
+		c.ClearUserSession()
+		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), userId))
+		return false
+	}
+
+	if user.IsGlobalAdmin() {
+		return true
+	}
+
+	if user.Owner == owner && (user.IsAdmin || user.Name == username) {
+		return true
+	}
+
+	c.ResponseError(c.T("auth:Unauthorized operation"))
+	return false
+}
+
+// checkStorageProvider checks that a non-global admin only uses a storage provider their
+// organization can see: its own or a global one. Accessing a bucket directly ("Direct") is
+// limited to the organization's own providers, as a global one is shared by all organizations.
+func (c *ApiController) checkStorageProvider(provider *object.Provider, owner string, isDirect bool) bool {
+	if c.IsGlobalAdmin() {
+		return true
+	}
+
+	if isDirect && provider.Type == object.ProviderTypeLocalFileSystem {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return false
+	}
+
+	if provider.Category == "Storage" && (provider.Owner == owner || (!isDirect && provider.Owner == "admin")) {
+		return true
+	}
+
+	c.ResponseError(c.T("auth:Unauthorized operation"))
+	return false
+}
+
+var imageUploadExts = []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico"}
+
+// activeContentExts are the files a browser runs as a page or script when served from the storage domain
+var activeContentExts = []string{".html", ".htm", ".xhtml", ".shtml", ".svg", ".svgz", ".xml", ".xsl", ".js", ".mjs", ".php", ".phtml", ".jsp", ".asp", ".aspx", ".swf", ".hta"}
+
+// checkUploadPath keeps a non-global admin's upload inside the paths the frontend uses for
+// the target user, so that it cannot overwrite the files of other users or organizations.
+// A "Direct" upload writes to the bucket itself, which is limited to admins as in GetResources().
+func (c *ApiController) checkUploadPath(tag string, owner string, username string, fullFilePath string, isDirect bool) bool {
+	if c.IsGlobalAdmin() {
+		return true
+	}
+
+	filePath := strings.TrimPrefix(fullFilePath, "/")
+	isAllowed := false
+	switch {
+	case isDirect:
+		isAllowed = c.IsAdmin()
+	case tag == "avatar" || strings.HasPrefix(tag, "idCard"):
+		// e.g., "avatar/built-in/admin.png"
+		dir, file := path.Split(filePath)
+		isAllowed = dir == fmt.Sprintf("%s/%s/", tag, owner) && strings.TrimSuffix(file, path.Ext(file)) == username && util.InSlice(imageUploadExts, strings.ToLower(path.Ext(file)))
+	case tag == "termsOfUse":
+		// e.g., "termsOfUse/admin/app-built-in.html", only for an application of the organization
+		applicationId := strings.TrimSuffix(strings.TrimPrefix(filePath, "termsOfUse/"), ".html")
+		if c.IsAdmin() && strings.HasPrefix(filePath, "termsOfUse/") && strings.HasSuffix(filePath, ".html") {
+			application, err := object.GetApplication(applicationId)
+			if err != nil {
+				c.ResponseError(err.Error())
+				return false
+			}
+			isAllowed = application != nil && application.Organization == owner
+		}
+	default:
+		// e.g., "resource/built-in/admin/file.txt"
+		isAllowed = strings.HasPrefix(filePath, fmt.Sprintf("resource/%s/%s/", owner, username)) && !util.InSlice(activeContentExts, strings.ToLower(path.Ext(filePath)))
+	}
+
+	if !isAllowed {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+	}
+	return isAllowed
+}
+
+// GetResources
+// @Tag Resource API
+// @Title GetResources
+// @Description get resources
+// @Param		owner 		query 		string 				true 				"Owner"
+// @Param		user 		query 		string 				true 				"User"
+// @Param 		pageSize 	query 		integer 			false 				"Page Size"
+// @Param 		p 			query 		integer 				false 				"Page Number"
+// @Param 		field 		query 		string 				false 				"Field"
+// @Param 		value 		query 		string 				false 				"Value"
+// @Param 		sortField 	query 		string 				false 				"Sort Field"
+// @Param 		sortOrder 	query 		string 				false 				"Sort Order"
+// @Success		200 		{array} 	object.Resource 	The Response object
+// @router /get-resources [get]
+func (c *ApiController) GetResources() {
+	owner := c.Ctx.Input.Query("owner")
+	user := c.Ctx.Input.Query("user")
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+
+	isOrgAdmin, ok := c.IsOrgAdmin()
+	if !ok {
+		return
+	}
+
+	if isOrgAdmin {
+		if !c.requireOrganizationPermission(owner) {
+			return
+		}
+		user = ""
+	} else if !c.checkResourcePermission(owner, user) {
+		return
+	}
+
+	if sortField == "Direct" {
+		// lists the storage bucket itself, which isn't scoped by owner or user
+		if !isOrgAdmin {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+
+		provider, err := c.GetProviderFromContext("Storage")
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if !c.checkStorageProvider(provider, owner, true) {
+			return
+		}
+
+		prefix := sortOrder
+		resources, err := object.GetDirectResources(owner, user, provider, prefix, c.GetAcceptLanguage())
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(resources)
+	} else if limit == "" || page == "" {
+		resources, err := object.GetResources(owner, user)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(resources)
+	} else {
+		limit := util.ParseInt(limit)
+		count, err := object.GetResourceCount(owner, user, field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		resources, err := object.GetPaginationResources(owner, user, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(resources, paginator.Nums())
+	}
+}
+
+// GetResource
+// @Tag Resource API
+// @Title GetResource
+// @Description get resource
+// @Param   	id			query   	string     			true        		"The id ( owner/name ) of resource"
+// @Success 	200			{object}	object.Resource		The Response object
+// @router /get-resource [get]
+func (c *ApiController) GetResource() {
+	id := c.Ctx.Input.Query("id")
+
+	resource, err := object.GetResource(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	owner, _ := util.GetOwnerAndNameFromIdNoCheck(id)
+	username := ""
+	if resource != nil {
+		owner, username = resource.Owner, resource.User
+	}
+	if !c.checkResourcePermission(owner, username) {
+		return
+	}
+
+	c.ResponseOk(resource)
+}
+
+// UpdateResource
+// @Tag Resource API
+// @Title UpdateResource
+// @Description get resource
+// @Param   	id     		query   	string  			true				"The id ( owner/name ) of resource"
+// @Param		resource	body		object.Resource		true				"The resource object"
+// @Success 	200			{object}	controllers.Response					Success or error
+// @router /update-resource [post]
+func (c *ApiController) UpdateResource() {
+	id := c.Ctx.Input.Query("id")
+
+	var resource object.Resource
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &resource)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	// check the old and the new resource, so that it cannot be moved to another organization
+	owner, _ := util.GetOwnerAndNameFromIdNoCheck(id)
+	if !c.checkResourcePermission(owner, "") {
+		return
+	}
+	if !c.checkResourcePermission(resource.Owner, resource.User) {
+		return
+	}
+
+	// the name and provider locate the file that delete-resource removes, keep them as uploaded
+	if !c.IsGlobalAdmin() {
+		oldResource, err := object.GetResource(id)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if oldResource != nil {
+			resource.Name = oldResource.Name
+			resource.Provider = oldResource.Provider
+		}
+	}
+
+	c.Data["json"] = wrapActionResponse(object.UpdateResource(id, &resource))
+	c.ServeJSON()
+}
+
+// AddResource
+// @Tag Resource API
+// @Title AddResource
+// @Param     	resource    body    	object.Resource  	true      			"Resource object"
+// @Success 	200			{object}	controllers.Response					Success or error
+// @router /add-resource [post]
+func (c *ApiController) AddResource() {
+	var resource object.Resource
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &resource)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if !c.checkResourcePermission(resource.Owner, resource.User) {
+		return
+	}
+
+	// a resource names the file that delete-resource removes, so the resources of a
+	// non-global admin only come from upload-resource, where the file path is checked
+	if !c.IsGlobalAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.AddResource(&resource))
+	c.ServeJSON()
+}
+
+// DeleteResource
+// @Tag Resource API
+// @Title DeleteResource
+// @Param     	resource    body    	object.Resource  	true      			"Resource object"
+// @Success 	200			{object}	controllers.Response					Success or error
+// @router /delete-resource [post]
+func (c *ApiController) DeleteResource() {
+	var resource object.Resource
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &resource)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if !c.checkResourcePermission(resource.Owner, resource.User) {
+		return
+	}
+
+	tag := c.Ctx.Input.Query("tag")
+	if !c.IsGlobalAdmin() {
+		if tag == "Direct" {
+			// the same as listing the bucket in GetResources()
+			if !c.IsAdmin() {
+				c.ResponseError(c.T("auth:Unauthorized operation"))
+				return
+			}
+		} else {
+			// delete the file of the stored resource, not the one the request names
+			storedResource, err := object.GetResource(resource.GetId())
+			if err != nil {
+				c.ResponseError(err.Error())
+				return
+			}
+			if storedResource == nil {
+				c.ResponseError(c.T("auth:Unauthorized operation"))
+				return
+			}
+			if !c.checkResourcePermission(storedResource.Owner, storedResource.User) {
+				return
+			}
+			resource = *storedResource
+		}
+	}
+
+	if resource.Provider != "" {
+		inputs, _ := c.Input()
+		inputs.Set("provider", resource.Provider)
+	}
+	inputs, _ := c.Input()
+	inputs.Set("fullFilePath", resource.Name)
+	provider, err := c.GetProviderFromContext("Storage")
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if !c.checkStorageProvider(provider, resource.Owner, tag == "Direct") {
+		return
+	}
+	_, resource.Name = refineFullFilePath(resource.Name)
+
+	if tag == "Direct" {
+		resource.Name = path.Join(provider.PathPrefix, resource.Name)
+	}
+
+	err = object.DeleteFile(provider, resource.Name, c.GetAcceptLanguage())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.DeleteResource(&resource))
+	c.ServeJSON()
+}
+
+// UploadResource
+// @Tag Resource API
+// @Title UploadResource
+// @Param     owner           query   	string    			true      			"Owner"
+// @Param     user            query   	string    			true      			"User"
+// @Param     application     query   	string    			true     			"Application"
+// @Param     tag             query   	string    			false     			"Tag"
+// @Param     parent          query   	string    			false     			"Parent"
+// @Param     fullFilePath    query   	string    			true     			"Full File Path"
+// @Param     createdTime     query   	string    			false     			"Created Time"
+// @Param     description     query   	string    			false     			"Description"
+// @Param     file            formData 	file      			true      			"Resource file"
+// @Success   200             {object}  object.Resource  	FileUrl, objectKey
+// @router /upload-resource [post]
+func (c *ApiController) UploadResource() {
+	owner := c.Ctx.Input.Query("owner")
+	username := c.Ctx.Input.Query("user")
+	application := c.Ctx.Input.Query("application")
+	tag := c.Ctx.Input.Query("tag")
+	parent := c.Ctx.Input.Query("parent")
+	fullFilePath := c.Ctx.Input.Query("fullFilePath")
+	createdTime := c.Ctx.Input.Query("createdTime")
+	description := c.Ctx.Input.Query("description")
+
+	if !c.checkResourcePermission(owner, username) {
+		return
+	}
+
+	file, header, err := c.GetFile("file")
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	defer file.Close()
+
+	if username == "" || fullFilePath == "" {
+		c.ResponseError(fmt.Sprintf(c.T("resource:Username or fullFilePath is empty: username = %s, fullFilePath = %s"), username, fullFilePath))
+		return
+	}
+
+	filename := filepath.Base(fullFilePath)
+	fileBuffer := bytes.NewBuffer(nil)
+	if _, err = io.Copy(fileBuffer, file); err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	provider, err := c.GetProviderFromContext("Storage")
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	directProviderName, fullFilePath := refineFullFilePath(fullFilePath)
+	isDirect := directProviderName != ""
+	if !c.checkStorageProvider(provider, owner, isDirect) || !c.checkUploadPath(tag, owner, username, fullFilePath, isDirect) {
+		return
+	}
+
+	fileType := "unknown"
+	contentType := header.Header.Get("Content-Type")
+	fileType, _ = util.GetOwnerAndNameFromIdNoCheck(contentType + "/")
+
+	if fileType != "image" && fileType != "video" {
+		ext := filepath.Ext(filename)
+		mimeType := mime.TypeByExtension(ext)
+		fileType, _ = util.GetOwnerAndNameFromIdNoCheck(mimeType + "/")
+	}
+
+	fullFilePath = object.GetTruncatedPath(provider, fullFilePath, 450)
+	if tag != "avatar" && tag != "termsOfUse" && !strings.HasPrefix(tag, "idCard") {
+		ext := filepath.Ext(filepath.Base(fullFilePath))
+		index := len(fullFilePath) - len(ext)
+		for i := 1; ; i++ {
+			_, objectKey := object.GetUploadFileUrl(provider, fullFilePath, true)
+			if count, err := object.GetResourceCount(owner, username, "name", objectKey); err != nil {
+				c.ResponseError(err.Error())
+				return
+			} else if count == 0 {
+				break
+			}
+
+			// duplicated fullFilePath found, change it
+			fullFilePath = fullFilePath[:index] + fmt.Sprintf("-%d", i) + ext
+		}
+	}
+
+	fileUrl, objectKey, err := object.UploadFileSafe(provider, fullFilePath, fileBuffer, c.GetAcceptLanguage())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if username == "Built-in-Untracked" {
+		c.ResponseOk(fileUrl, objectKey)
+		return
+	}
+
+	if createdTime == "" {
+		createdTime = util.GetCurrentTime()
+	}
+	fileFormat := filepath.Ext(fullFilePath)
+	fileSize := int(header.Size)
+	resource := &object.Resource{
+		Owner:       owner,
+		Name:        objectKey,
+		CreatedTime: createdTime,
+		User:        username,
+		Provider:    provider.Name,
+		Application: application,
+		Tag:         tag,
+		Parent:      parent,
+		FileName:    filename,
+		FileType:    fileType,
+		FileFormat:  fileFormat,
+		FileSize:    fileSize,
+		Url:         fileUrl,
+		Description: description,
+	}
+	_, err = object.AddOrUpdateResource(resource)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	switch tag {
+	case "avatar":
+		user, err := object.GetUserNoCheck(util.GetId(owner, username))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		if user == nil {
+			c.ResponseError(c.T("resource:User is nil for tag: avatar"))
+			return
+		}
+
+		user.Avatar = fileUrl
+		_, err = object.UpdateUser(user.GetId(), user, []string{"avatar"}, false)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+	case "termsOfUse":
+		user, err := object.GetUserNoCheck(util.GetId(owner, username))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		if user == nil {
+			c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(owner, username)))
+			return
+		}
+
+		if !user.IsAdminUser() {
+			c.ResponseError(c.T("auth:Unauthorized operation"))
+			return
+		}
+
+		_, applicationId := util.GetOwnerAndNameFromIdNoCheck(strings.TrimSuffix(fullFilePath, ".html"))
+		applicationObj, err := object.GetApplication(applicationId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if applicationObj == nil {
+			c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), applicationId))
+			return
+		}
+
+		applicationObj.TermsOfUse = fileUrl
+		_, err = object.UpdateApplication(applicationId, applicationObj, true, c.GetAcceptLanguage(), nil)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+	case "idCardFront", "idCardBack", "idCardWithPerson":
+		user, err := object.GetUserNoCheck(util.GetId(owner, username))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		if user == nil {
+			c.ResponseError(c.T("resource:User is nil for tag: avatar"))
+			return
+		}
+
+		if user.Properties == nil {
+			user.Properties = map[string]string{}
+		}
+		user.Properties[tag] = fileUrl
+		user.Properties["isIdCardVerified"] = "false"
+		_, err = object.UpdateUser(user.GetId(), user, []string{"properties"}, false)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+	}
+
+	c.ResponseOk(fileUrl, objectKey)
+}

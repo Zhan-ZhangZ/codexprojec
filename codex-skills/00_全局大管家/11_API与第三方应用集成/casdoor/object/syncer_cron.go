@@ -1,0 +1,88 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/robfig/cron/v3"
+)
+
+var cronMap map[string]*cron.Cron
+
+func init() {
+	cronMap = map[string]*cron.Cron{}
+}
+
+func getCronMap(name string) *cron.Cron {
+	m, ok := cronMap[name]
+	if !ok {
+		m = cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
+		cronMap[name] = m
+	}
+	return m
+}
+
+func clearCron(name string) {
+	c, ok := cronMap[name]
+	if ok {
+		ctx := c.Stop()
+		<-ctx.Done()
+		delete(cronMap, name)
+	}
+}
+
+func addSyncerJob(syncer *Syncer) error {
+	deleteSyncerJob(syncer)
+
+	if !syncer.IsEnabled {
+		return nil
+	}
+
+	schedule := fmt.Sprintf("@every %ds", syncer.SyncInterval)
+	cron := getCronMap(syncer.Name)
+	_, err := cron.AddFunc(schedule, func() {
+		runSyncerNoError(syncer)
+	})
+	if err != nil {
+		return err
+	}
+
+	// A failed first run must not stop the job, otherwise the syncer stays idle until the next restart
+	err = RunSyncer(syncer)
+	if errors.Is(err, errSyncerRunning) {
+		err = nil
+	} else if err != nil {
+		recordSyncerError(syncer, err)
+	}
+
+	cron.Start()
+	return err
+}
+
+func runSyncerNoError(syncer *Syncer) {
+	err := RunSyncer(syncer)
+	if err != nil && !errors.Is(err, errSyncerRunning) {
+		recordSyncerError(syncer, err)
+		fmt.Printf("runSyncerNoError() error: %s\n", err.Error())
+	}
+}
+
+func deleteSyncerJob(syncer *Syncer) {
+	clearCron(syncer.Name)
+	// Close any open connections when deleting the job
+	_ = syncer.Close()
+}

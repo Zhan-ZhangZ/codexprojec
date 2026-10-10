@@ -1,0 +1,10 @@
+{
+  "noLogs": "Tidak ada log yang tersedia",
+  "filterAll": "Semua",
+  "sourceApp": "Aplikasi",
+  "sourceCore": "Inti",
+  "export": "Ekspor log",
+  "exported": "Log diekspor",
+  "showInFolder": "Tampilkan di folder",
+  "exportFailed": "Gagal mengekspor log"
+}

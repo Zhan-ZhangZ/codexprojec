@@ -1,0 +1,17 @@
+import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
+
+export function baseOptions(): BaseLayoutProps {
+  return {
+    nav: {
+      title: 'Headroom',
+    },
+    githubUrl: 'https://github.com/headroomlabs-ai/headroom',
+    links: [
+      {
+        text: 'Headroom for Teams',
+        url: '/docs/teams',
+        active: 'nested-url',
+      },
+    ],
+  };
+}

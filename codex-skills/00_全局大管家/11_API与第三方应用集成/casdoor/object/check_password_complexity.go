@@ -1,0 +1,100 @@
+// Copyright 2023 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"regexp"
+
+	"github.com/casdoor/casdoor/i18n"
+)
+
+type ValidatorFunc func(password string, lang string) string
+
+var (
+	regexLowerCase = regexp.MustCompile(`[a-z]`)
+	regexUpperCase = regexp.MustCompile(`[A-Z]`)
+	regexDigit     = regexp.MustCompile(`\d`)
+	regexSpecial   = regexp.MustCompile("[!-/:-@[-`{-~]")
+)
+
+func isValidOption_AtLeast6(password string, lang string) string {
+	if len(password) < 6 {
+		return i18n.Translate(lang, "check:The password must have at least 6 characters")
+	}
+	return ""
+}
+
+func isValidOption_AtLeast8(password string, lang string) string {
+	if len(password) < 8 {
+		return i18n.Translate(lang, "check:The password must have at least 8 characters")
+	}
+	return ""
+}
+
+func isValidOption_Aa123(password string, lang string) string {
+	hasLowerCase := regexLowerCase.MatchString(password)
+	hasUpperCase := regexUpperCase.MatchString(password)
+	hasDigit := regexDigit.MatchString(password)
+
+	if !hasLowerCase || !hasUpperCase || !hasDigit {
+		return i18n.Translate(lang, "check:The password must contain at least one uppercase letter, one lowercase letter and one digit")
+	}
+	return ""
+}
+
+func isValidOption_SpecialChar(password string, lang string) string {
+	if !regexSpecial.MatchString(password) {
+		return i18n.Translate(lang, "check:The password must contain at least one special character")
+	}
+	return ""
+}
+
+func isValidOption_NoRepeat(password string, lang string) string {
+	for i := 0; i < len(password)-1; i++ {
+		if password[i] == password[i+1] {
+			return i18n.Translate(lang, "check:The password must not contain any repeated characters")
+		}
+	}
+	return ""
+}
+
+func checkPasswordComplexity(password string, options []string, lang string) string {
+	if len(password) == 0 {
+		return i18n.Translate(lang, "check:Password cannot be empty")
+	}
+
+	if len(options) == 0 {
+		return ""
+	}
+
+	checkers := map[string]ValidatorFunc{
+		"AtLeast6":    isValidOption_AtLeast6,
+		"AtLeast8":    isValidOption_AtLeast8,
+		"Aa123":       isValidOption_Aa123,
+		"SpecialChar": isValidOption_SpecialChar,
+		"NoRepeat":    isValidOption_NoRepeat,
+	}
+
+	for _, option := range options {
+		checkerFunc, ok := checkers[option]
+		if ok {
+			errorMsg := checkerFunc(password, lang)
+			if errorMsg != "" {
+				return errorMsg
+			}
+		}
+	}
+	return ""
+}

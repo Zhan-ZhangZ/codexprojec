@@ -1,0 +1,322 @@
+// Copyright 2022 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package controllers
+
+import (
+	"encoding/xml"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
+)
+
+const (
+	InvalidRequest           string = "INVALID_REQUEST"
+	InvalidTicketSpec        string = "INVALID_TICKET_SPEC"
+	UnauthorizedServiceProxy string = "UNAUTHORIZED_SERVICE_PROXY"
+	InvalidProxyCallback     string = "INVALID_PROXY_CALLBACK"
+	InvalidTicket            string = "INVALID_TICKET"
+	InvalidService           string = "INVALID_SERVICE"
+	InternalError            string = "INTERNAL_ERROR"
+	UnauthorizedService      string = "UNAUTHORIZED_SERVICE"
+)
+
+func (c *RootController) CasValidate() {
+	ticket := c.Ctx.Input.Query("ticket")
+	service := c.Ctx.Input.Query("service")
+	c.Ctx.Output.Header("Content-Type", "text/html; charset=utf-8")
+	if service == "" || ticket == "" {
+		c.Ctx.Output.Body([]byte("no\n"))
+		return
+	}
+	if casToken := object.GetCasTokenByTicket(ticket); casToken != nil {
+		// check whether service is the one for which we previously issued token
+		if object.IsCasServiceMatched(service, casToken.Service) {
+			c.Ctx.Output.Body([]byte(fmt.Sprintf("yes\n%s\n", casToken.AuthenticationSuccess.User)))
+			return
+		}
+	}
+	// token not found
+	c.Ctx.Output.Body([]byte("no\n"))
+}
+
+func (c *RootController) CasServiceValidate() {
+	ticket := c.Ctx.Input.Query("ticket")
+	format := c.Ctx.Input.Query("format")
+	if !strings.HasPrefix(ticket, "ST") {
+		c.sendCasAuthenticationResponseErr(InvalidTicket, fmt.Sprintf("Ticket %s not recognized", ticket), format)
+		return
+	}
+	c.CasP3ProxyValidate()
+}
+
+func (c *RootController) CasProxyValidate() {
+	// https://apereo.github.io/cas/6.6.x/protocol/CAS-Protocol-Specification.html#26-proxyvalidate-cas-20
+	// "/proxyValidate" should accept both service tickets and proxy tickets.
+	c.CasP3ProxyValidate()
+}
+
+func (c *RootController) CasP3ServiceValidate() {
+	ticket := c.Ctx.Input.Query("ticket")
+	format := c.Ctx.Input.Query("format")
+	if !strings.HasPrefix(ticket, "ST") {
+		c.sendCasAuthenticationResponseErr(InvalidTicket, fmt.Sprintf("Ticket %s not recognized", ticket), format)
+		return
+	}
+	c.CasP3ProxyValidate()
+}
+
+func (c *RootController) CasP3ProxyValidate() {
+	ticket := c.Ctx.Input.Query("ticket")
+	format := c.Ctx.Input.Query("format")
+	service := c.Ctx.Input.Query("service")
+	pgtUrl := c.Ctx.Input.Query("pgtUrl")
+
+	serviceResponse := object.CasServiceResponse{
+		Xmlns: "http://www.yale.edu/tp/cas",
+	}
+
+	// check whether all required parameters are met
+	if service == "" || ticket == "" {
+		c.sendCasAuthenticationResponseErr(InvalidRequest, "service and ticket must exist", format)
+		return
+	}
+	casToken := object.GetCasTokenByTicket(ticket)
+	// find the token
+	if casToken != nil {
+		// check whether service is the one for which we previously issued token
+		if object.IsCasServiceMatched(service, casToken.Service) {
+			serviceResponse.Success = casToken.AuthenticationSuccess
+		} else {
+			// service not match
+			c.sendCasAuthenticationResponseErr(InvalidService, fmt.Sprintf("service %s and %s does not match", service, casToken.Service), format)
+			return
+		}
+	} else {
+		// token not found
+		c.sendCasAuthenticationResponseErr(InvalidTicket, fmt.Sprintf("Ticket %s not recognized", ticket), format)
+		return
+	}
+
+	if pgtUrl != "" && serviceResponse.Failure == nil {
+		// that means we are in proxy web flow
+		pgt := object.StoreCasTokenForPgt(serviceResponse.Success, service, casToken.UserId, casToken.Application)
+		pgtiou := serviceResponse.Success.ProxyGrantingTicket
+		// todo: check whether it is https
+		pgtUrlObj, err := url.Parse(pgtUrl)
+		if err != nil {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+			return
+		}
+
+		if pgtUrlObj.Scheme != "https" {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, "callback is not https", format)
+			return
+		}
+
+		if !c.isCasProxyTargetAllowed(casToken.Application, pgtUrl) {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, fmt.Sprintf("the proxy callback: %s is not authorized", pgtUrl), format)
+			return
+		}
+
+		// make a request to pgturl passing pgt and pgtiou
+		param := pgtUrlObj.Query()
+		param.Add("pgtId", pgt)
+		param.Add("pgtIou", pgtiou)
+		pgtUrlObj.RawQuery = param.Encode()
+
+		request, err := http.NewRequest("GET", pgtUrlObj.String(), nil)
+		if err != nil {
+			c.sendCasAuthenticationResponseErr(InternalError, err.Error(), format)
+			return
+		}
+
+		err = sendCasPgtCallback(request, casToken.Application)
+		if err != nil {
+			c.sendCasAuthenticationResponseErr(InvalidProxyCallback, err.Error(), format)
+			return
+		}
+	}
+	// everything is ok, send the response
+	if format == "json" {
+		c.Data["json"] = serviceResponse
+		c.ServeJSON()
+	} else {
+		c.Data["xml"] = serviceResponse
+		c.ServeXML()
+	}
+}
+
+func getCasPgtCallbackClient(applicationId string) *http.Client {
+	application, err := object.GetApplication(applicationId)
+	if err == nil && application != nil && application.Organization == "built-in" {
+		return &http.Client{Timeout: 10 * time.Second}
+	}
+	return util.NewInternetOnlyHttpClient(10 * time.Second)
+}
+
+func sendCasPgtCallback(request *http.Request, applicationId string) error {
+	client := getCasPgtCallbackClient(applicationId)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return fmt.Errorf("the proxy callback responded with status: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *RootController) CasProxy() {
+	pgt := c.Ctx.Input.Query("pgt")
+	targetService := c.Ctx.Input.Query("targetService")
+	format := c.Ctx.Input.Query("format")
+	if pgt == "" || targetService == "" {
+		c.sendCasProxyResponseErr(InvalidRequest, "pgt and targetService must exist", format)
+		return
+	}
+
+	casToken := object.GetCasTokenByPgt(pgt)
+	if casToken == nil {
+		c.sendCasProxyResponseErr(UnauthorizedService, "service not authorized", format)
+		return
+	}
+
+	if !c.isCasProxyTargetAllowed(casToken.Application, targetService) {
+		c.sendCasProxyResponseErr(UnauthorizedService, fmt.Sprintf("the target service: %s is not authorized", targetService), format)
+		return
+	}
+
+	newAuthenticationSuccess := casToken.AuthenticationSuccess.DeepCopy()
+	if newAuthenticationSuccess.Proxies == nil {
+		newAuthenticationSuccess.Proxies = &object.CasProxies{}
+	}
+	newAuthenticationSuccess.Proxies.Proxies = append(newAuthenticationSuccess.Proxies.Proxies, casToken.Service)
+	proxyTicket := object.StoreCasTokenForProxyTicket(&newAuthenticationSuccess, targetService, casToken.UserId, casToken.Application)
+
+	serviceResponse := object.CasServiceResponse{
+		Xmlns: "http://www.yale.edu/tp/cas",
+		ProxySuccess: &object.CasProxySuccess{
+			ProxyTicket: proxyTicket,
+		},
+	}
+
+	if format == "json" {
+		c.Data["json"] = serviceResponse
+		c.ServeJSON()
+	} else {
+		c.Data["xml"] = serviceResponse
+		c.ServeXML()
+	}
+}
+
+func (c *RootController) isCasProxyTargetAllowed(applicationId string, targetService string) bool {
+	application, err := object.GetApplication(applicationId)
+	if err != nil || application == nil {
+		return false
+	}
+	return object.CheckCasLogin(application, c.GetAcceptLanguage(), targetService) == nil
+}
+
+func (c *RootController) SamlValidate() {
+	c.Ctx.Output.Header("Content-Type", "text/xml; charset=utf-8")
+	target := c.Ctx.Input.Query("TARGET")
+	body := c.Ctx.Input.RequestBody
+	envelopRequest := struct {
+		XMLName xml.Name `xml:"Envelope"`
+		Body    struct {
+			XMLName xml.Name `xml:"Body"`
+			Content string   `xml:",innerxml"`
+		}
+	}{}
+
+	err := xml.Unmarshal(body, &envelopRequest)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	response, service, err := object.GetValidationBySaml(envelopRequest.Body.Content, c.Ctx.Request.Host)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if !object.IsCasServiceMatched(target, service) {
+		c.ResponseError(fmt.Sprintf(c.T("cas:Service %s and %s do not match"), target, service))
+		return
+	}
+
+	envelopResponse := struct {
+		XMLName xml.Name `xml:"SOAP-ENV:Envelope"`
+		Xmlns   string   `xml:"xmlns:SOAP-ENV"`
+		Body    struct {
+			XMLName xml.Name `xml:"SOAP-ENV:Body"`
+			Content string   `xml:",innerxml"`
+		}
+	}{}
+	envelopResponse.Xmlns = "http://schemas.xmlsoap.org/soap/envelope/"
+	envelopResponse.Body.Content = response
+
+	data, err := xml.Marshal(envelopResponse)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	c.Ctx.Output.Body(data)
+}
+
+func (c *RootController) sendCasProxyResponseErr(code, msg, format string) {
+	serviceResponse := object.CasServiceResponse{
+		Xmlns: "http://www.yale.edu/tp/cas",
+		ProxyFailure: &object.CasProxyFailure{
+			Code:    code,
+			Message: msg,
+		},
+	}
+	if format == "json" {
+		c.Data["json"] = serviceResponse
+		c.ServeJSON()
+	} else {
+		c.Data["xml"] = serviceResponse
+		c.ServeXML()
+	}
+}
+
+func (c *RootController) sendCasAuthenticationResponseErr(code, msg, format string) {
+	serviceResponse := object.CasServiceResponse{
+		Xmlns: "http://www.yale.edu/tp/cas",
+		Failure: &object.CasAuthenticationFailure{
+			Code:    code,
+			Message: msg,
+		},
+	}
+	if format == "json" {
+		c.Data["json"] = serviceResponse
+		c.ServeJSON()
+	} else {
+		c.Data["xml"] = serviceResponse
+		c.ServeXML()
+	}
+}

@@ -1,0 +1,389 @@
+//! Picks the transport for an agent turn.
+//!
+//! Routing mirrors what `ModelFactory` already does on the regular chat path,
+//! rather than inventing a third convention:
+//!
+//! | provider | route |
+//! |---|---|
+//! | `llamacpp`, `llamacpp-upstream`, `atomic-prism` | direct `/completion` (GBNF, `cache_prompt`, `slot_id`) |
+//! | `mlx` | direct at the session port, like `createMlxModel` |
+//! | managed (`tensorrt-llm`, …) | direct at the session port (the core's gateway), like `createManagedModel` |
+//! | cloud | the Local API Server proxy, like `getLocalApiServerBaseURL` |
+//!
+//! Cloud credentials never reach this module: the proxy resolves the provider
+//! from the model id and substitutes its own key and headers.
+
+use tauri::{AppHandle, Manager, Runtime, State};
+
+use crate::core::state::{AppState, LocalServerEndpoint};
+
+use super::llm_client::{
+    find_session_by_model_and_backend, find_session_by_model_id, LlamaBackend, LlamaSessionTarget,
+};
+use super::openai_client::{OpenAiTarget, OpenAiTargetKind};
+use super::types::AgentTurnRequest;
+
+/// Frontend-visible error codes, following the `AGENT_*:` convention already
+/// used by `ensure_vision_requirement` so the UI can map them to locale keys.
+pub const AGENT_PROVIDER_UNSUPPORTED: &str =
+    "AGENT_PROVIDER_UNSUPPORTED: This provider cannot run agent turns.";
+pub const AGENT_LOCAL_SERVER_REQUIRED: &str =
+    "AGENT_LOCAL_SERVER_REQUIRED: Start the Local API Server to run agent turns on a cloud model.";
+
+pub const VISION_CAPABILITY: &str = "vision";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentTarget {
+    Llama(LlamaSessionTarget),
+    OpenAi(OpenAiTarget),
+}
+
+impl AgentTarget {
+    pub fn has_vision(&self) -> bool {
+        match self {
+            Self::Llama(target) => target.has_vision,
+            Self::OpenAi(target) => target.has_vision,
+        }
+    }
+
+    pub fn model_id(&self) -> &str {
+        match self {
+            Self::Llama(target) => &target.model_id,
+            Self::OpenAi(target) => &target.model_id,
+        }
+    }
+}
+
+pub async fn resolve_agent_target<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    state: &AppState,
+    request: &AgentTurnRequest,
+) -> Result<AgentTarget, String> {
+    // One resolver for every provider: the same call answers whether the session belongs to a
+    // plugin the app drives or to a core that owns the runtime.
+    let resolver = crate::core::sessions::resolver_for(app_handle, state);
+
+    match request.provider.as_deref() {
+        // A caller that predates the `provider` field gets exactly the old
+        // behaviour: scan both llama.cpp plugin states.
+        None => find_session_by_model_id(&request.model_id, &resolver)
+            .await
+            .map(AgentTarget::Llama)
+            .map_err(|error| error.to_string()),
+        Some("llamacpp") => {
+            find_session_by_model_and_backend(&request.model_id, LlamaBackend::Llamacpp, &resolver)
+                .await
+                .map(AgentTarget::Llama)
+                .map_err(|error| error.to_string())
+        }
+        Some("llamacpp-upstream") => find_session_by_model_and_backend(
+            &request.model_id,
+            LlamaBackend::LlamacppUpstream,
+            &resolver,
+        )
+        .await
+        .map(AgentTarget::Llama)
+        .map_err(|error| error.to_string()),
+        Some("atomic-prism") => find_session_by_model_and_backend(
+            &request.model_id,
+            LlamaBackend::AtomicPrism,
+            &resolver,
+        )
+        .await
+        .map(AgentTarget::Llama)
+        .map_err(|error| error.to_string()),
+        Some("mlx") => resolve_mlx_target(app_handle, request)
+            .await
+            .map(AgentTarget::OpenAi),
+        Some(provider) if crate::core::sessions::resolver::is_managed_provider(provider) => {
+            resolve_managed_target(app_handle, provider, request)
+                .await
+                .map(AgentTarget::OpenAi)
+        }
+        // Apple's on-device runtime has no OpenAI-compatible endpoint to talk
+        // to; failing here beats a confusing transport error later.
+        Some("foundation-models") => Err(AGENT_PROVIDER_UNSUPPORTED.to_string()),
+        Some(provider) => {
+            let endpoint = state.local_server_endpoint.lock().await.clone();
+            resolve_cloud_target(endpoint.as_ref(), provider, request).map(AgentTarget::OpenAi)
+        }
+    }
+}
+
+/// An MLX session as the agent talks to it. Resolved through the core's mirror like every other
+/// local session: the MLX plugin no longer runs models, so its own table is always empty.
+pub(crate) async fn resolve_mlx_target<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    request: &AgentTurnRequest,
+) -> Result<OpenAiTarget, String> {
+    let state: State<AppState> = app_handle.state();
+    let resolver = crate::core::sessions::resolver_for(app_handle, &state);
+    let info = resolver
+        .list_in(crate::core::sessions::resolver::PROVIDER_MLX)
+        .await
+        .into_iter()
+        .find(|info| super::llm_client::model_ids_match(&info.model_id, &request.model_id) && !info.is_embedding)
+        .ok_or_else(|| format!("no active session for model '{}'", request.model_id))?;
+
+    Ok(OpenAiTarget {
+        kind: OpenAiTargetKind::LocalMlx,
+        base_url: format!("http://127.0.0.1:{}/v1", info.port),
+        api_key: (!info.api_key.is_empty()).then(|| info.api_key.clone()),
+        model_id: info.model_id.clone(),
+        has_vision: has_vision(request),
+        context_window: request.context_window,
+        // mlx-vlm constrains generation with outlines/llguidance, which accepts
+        // an array-root schema.
+        json_schema: true,
+    })
+}
+
+/// A managed engine's session as the agent talks to it, found in the core's mirror under the
+/// provider the turn names, like MLX's.
+async fn resolve_managed_target<R: Runtime>(
+    app_handle: &AppHandle<R>,
+    provider: &str,
+    request: &AgentTurnRequest,
+) -> Result<OpenAiTarget, String> {
+    let state: State<AppState> = app_handle.state();
+    let resolver = crate::core::sessions::resolver_for(app_handle, &state);
+    let info = resolver
+        .list_in(provider)
+        .await
+        .into_iter()
+        .find(|info| super::llm_client::model_ids_match(&info.model_id, &request.model_id))
+        .ok_or_else(|| format!("no active session for model '{}'", request.model_id))?;
+    Ok(managed_target(&info, request))
+}
+
+/// Pure so it can be tested without a Tauri runtime.
+///
+/// Built from the session alone, whichever managed engine runs it: the port is the core's session
+/// gateway, which checks the Bearer key and proxies to the container. No `response_format`: the
+/// gateway refuses it unless the model family declares structured output, which this side does not
+/// know, so the prompt contract and the runner's repair step carry the shape — as for cloud
+/// targets. No vision: no managed engine takes images in this release (the gateway refuses them).
+pub(crate) fn managed_target(
+    info: &crate::core::sessions::resolver::ResolvedSession,
+    request: &AgentTurnRequest,
+) -> OpenAiTarget {
+    OpenAiTarget {
+        kind: OpenAiTargetKind::LocalManaged,
+        base_url: format!("http://127.0.0.1:{}/v1", info.port),
+        api_key: (!info.api_key.is_empty()).then(|| info.api_key.clone()),
+        model_id: info.model_id.clone(),
+        has_vision: false,
+        context_window: request.context_window,
+        json_schema: false,
+    }
+}
+
+/// Pure so it can be tested without a Tauri runtime.
+pub(crate) fn resolve_cloud_target(
+    endpoint: Option<&LocalServerEndpoint>,
+    provider: &str,
+    request: &AgentTurnRequest,
+) -> Result<OpenAiTarget, String> {
+    let endpoint = endpoint.ok_or_else(|| AGENT_LOCAL_SERVER_REQUIRED.to_string())?;
+    Ok(OpenAiTarget {
+        kind: OpenAiTargetKind::LocalApiServer,
+        base_url: endpoint.base_url(),
+        api_key: (!endpoint.api_key.is_empty()).then(|| endpoint.api_key.clone()),
+        model_id: request.model_id.clone(),
+        has_vision: has_vision(request),
+        context_window: request.context_window,
+        json_schema: supports_array_json_schema(provider),
+    })
+}
+
+/// Whether a cloud provider is known to accept an **array-root**
+/// `response_format` schema.
+///
+/// Deliberately empty. OpenAI historically requires an object root even with
+/// `strict: false`, so sending the schema optimistically would burn one failed
+/// request per turn on a large share of providers. Until an array-root schema
+/// has been verified against a live endpoint, the prompt contract plus the
+/// runner's repair step carry the shape — which is exactly how Anthropic is
+/// expected to work. Add providers one at a time, each with a unit test.
+fn supports_array_json_schema(_provider: &str) -> bool {
+    false
+}
+
+/// Non-llama.cpp targets have no `mmproj` to inspect, so vision comes from the
+/// model capabilities the frontend already tracks.
+fn has_vision(request: &AgentTurnRequest) -> bool {
+    request
+        .capabilities
+        .iter()
+        .any(|capability| capability == VISION_CAPABILITY)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(model_id: &str) -> AgentTurnRequest {
+        AgentTurnRequest {
+            run_id: "run".into(),
+            session_id: "session".into(),
+            model_id: model_id.into(),
+            provider: Some("openai".into()),
+            capabilities: Vec::new(),
+            context_window: None,
+            user_message: "hi".into(),
+            selected_skill: None,
+            attachments: Vec::new(),
+            working_dir: None,
+            external_roots: Vec::new(),
+            max_steps: None,
+            auto_approve: false,
+            reasoning: None,
+            assistant_instructions: None,
+            sampling: None,
+            sampling_overridden: false,
+            web_search: true,
+            mcp_enabled: true,
+            auto_approve_mcp: true,
+            disabled_mcp_tools: Vec::new(),
+            rag: None,
+        }
+    }
+
+    fn container_session(port: i32, api_key: &str) -> crate::core::sessions::resolver::ResolvedSession {
+        serde_json::from_value(serde_json::json!({
+            "pid": null,
+            "port": port,
+            "model_id": "qwen3-8b",
+            "api_key": api_key,
+            "provider": "tensorrt-llm",
+            "execution": "container",
+            "generation": "g-1",
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn managed_target_points_at_the_session_gateway_with_its_key() {
+        let mut request = request("qwen3-8b");
+        request.provider = Some("tensorrt-llm".into());
+        // Vision is off for managed engines in this release whatever the frontend claims.
+        request.capabilities = vec![VISION_CAPABILITY.into()];
+
+        let target = managed_target(&container_session(4001, "gateway-key"), &request);
+
+        assert_eq!(target.kind, OpenAiTargetKind::LocalManaged);
+        assert_eq!(target.base_url, "http://127.0.0.1:4001/v1");
+        assert_eq!(target.api_key.as_deref(), Some("gateway-key"));
+        assert_eq!(target.model_id, "qwen3-8b");
+        assert!(!target.has_vision);
+        // The gateway refuses `response_format` unless the model family declares structured
+        // output, and nothing here knows the family: the prompt contract carries the shape.
+        assert!(!target.json_schema);
+    }
+
+    #[test]
+    fn a_vllm_session_is_reached_through_its_gateway_with_its_key() {
+        // spec vllm-desktop "Чат с моделью vLLM": Agent turns go to the session the core serves.
+        let mut request = request("Qwen/Qwen3.5-2B");
+        request.provider = Some("vllm".into());
+        let mut session = container_session(4002, "vllm-key");
+        session.model_id = "Qwen/Qwen3.5-2B".into();
+
+        let target = managed_target(&session, &request);
+
+        assert_eq!(target.kind, OpenAiTargetKind::LocalManaged);
+        assert_eq!(target.base_url, "http://127.0.0.1:4002/v1");
+        assert_eq!(target.api_key.as_deref(), Some("vllm-key"));
+        assert!(!target.has_vision);
+    }
+
+    #[test]
+    fn only_the_managed_engines_route_to_a_session_gateway() {
+        use crate::core::sessions::resolver::is_managed_provider;
+        assert!(is_managed_provider("tensorrt-llm"));
+        assert!(is_managed_provider("vllm"));
+        for other in ["llamacpp", "llamacpp-upstream", "mlx", "foundation-models", "openai"] {
+            assert!(!is_managed_provider(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn cloud_target_points_at_the_running_local_server() {
+        let endpoint = LocalServerEndpoint::new("0.0.0.0", 1337, "/v1", "s3cret");
+        let target = resolve_cloud_target(Some(&endpoint), "openai", &request("gpt-4.1")).unwrap();
+
+        assert_eq!(target.kind, OpenAiTargetKind::LocalApiServer);
+        assert_eq!(target.base_url, "http://127.0.0.1:1337/v1");
+        assert_eq!(target.api_key.as_deref(), Some("s3cret"));
+        assert_eq!(target.model_id, "gpt-4.1");
+        // The proxy resolves the provider and substitutes its key; no provider
+        // credential is carried here.
+        assert!(!target.json_schema);
+    }
+
+    #[test]
+    fn cloud_target_honours_a_custom_port_and_prefix() {
+        let endpoint = LocalServerEndpoint::new("127.0.0.1", 8080, "api/v1/", "");
+        let target = resolve_cloud_target(Some(&endpoint), "groq", &request("llama-3.3")).unwrap();
+
+        assert_eq!(target.base_url, "http://127.0.0.1:8080/api/v1");
+        assert_eq!(target.api_key, None);
+    }
+
+    #[test]
+    fn cloud_target_requires_a_running_local_server() {
+        let error = resolve_cloud_target(None, "openai", &request("gpt-4.1")).unwrap_err();
+        assert!(error.starts_with("AGENT_LOCAL_SERVER_REQUIRED:"));
+    }
+
+    #[test]
+    fn vision_comes_from_the_reported_capabilities() {
+        let endpoint = LocalServerEndpoint::new("127.0.0.1", 1337, "/v1", "");
+
+        let mut text_only = request("gpt-4.1");
+        text_only.capabilities = vec!["tools".into()];
+        assert!(
+            !resolve_cloud_target(Some(&endpoint), "openai", &text_only)
+                .unwrap()
+                .has_vision
+        );
+
+        let mut with_vision = request("gpt-4.1");
+        with_vision.capabilities = vec!["tools".into(), "vision".into()];
+        assert!(
+            resolve_cloud_target(Some(&endpoint), "openai", &with_vision)
+                .unwrap()
+                .has_vision
+        );
+    }
+
+    #[test]
+    fn context_window_is_forwarded_from_the_request() {
+        let endpoint = LocalServerEndpoint::new("127.0.0.1", 1337, "/v1", "");
+        let mut with_window = request("gpt-4.1");
+        with_window.context_window = Some(128_000);
+
+        assert_eq!(
+            resolve_cloud_target(Some(&endpoint), "openai", &with_window)
+                .unwrap()
+                .context_window,
+            Some(128_000)
+        );
+    }
+
+    /// Guard against an accidental optimistic enable: every entry must be
+    /// backed by a verified live check.
+    #[test]
+    fn no_cloud_provider_claims_array_schema_support_yet() {
+        for provider in [
+            "openai",
+            "anthropic",
+            "google",
+            "groq",
+            "openrouter",
+            "mistral",
+        ] {
+            assert!(!supports_array_json_schema(provider));
+        }
+    }
+}

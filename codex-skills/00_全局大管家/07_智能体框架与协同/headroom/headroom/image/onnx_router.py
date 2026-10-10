@@ -1,0 +1,284 @@
+"""ONNX-based image technique router — no PyTorch dependency.
+
+Uses ONNX INT8 models for both query classification (technique-router)
+and image analysis (SigLIP), matching the accuracy of the PyTorch
+versions at 15x smaller size and no GPU requirement.
+
+Models auto-downloaded from HuggingFace on first use:
+- chopratejas/technique-router-onnx (~32 MB)
+- chopratejas/siglip-image-encoder-onnx (~95 MB)
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import math
+import os
+from functools import partial
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from headroom.image.image_types import ImageMemo, ImageSignals, RouteDecision, Technique
+from headroom.offline import OFFLINE_ENV, OfflineEgressBlocked
+from headroom.onnx_runtime import create_cpu_session_options, hf_hub_download_local_first
+
+logger = logging.getLogger(__name__)
+
+_TECHNIQUE_ROUTER_REPO = "chopratejas/technique-router-onnx"
+_SIGLIP_ENCODER_REPO = "chopratejas/siglip-image-encoder-onnx"
+
+# The query classifier is a MiniLM INT8 graph over a fixed [1, 64] input (the
+# tokenizer pads to exactly 64 below), so it saturates after a handful of
+# threads. Left at ORT's default the pool scales with the core count and the
+# per-call cost grows without buying latency -- on a 20-core box that measured
+# 10.07 ms / 33.65 CPU-ms versus 8.57 ms / 20.76 CPU-ms at 4 threads.
+# Capped rather than fixed so smaller hosts keep ORT's own choice.
+_CLASSIFIER_MAX_INTRA_OP_THREADS = 4
+
+
+def _available_cpu_count() -> int:
+    """CPUs this process may actually run on.
+
+    ``os.cpu_count()`` reports the host's cores even when a cgroup cpuset pins
+    the process to a subset, so a two-CPU container on a 64-core box would be
+    handed the full four-thread cap -- exactly the oversubscription the cap
+    exists to avoid. Prefer the affinity-aware counts where the platform has
+    them.
+    """
+    sched_getaffinity = getattr(os, "sched_getaffinity", None)
+    if sched_getaffinity is not None:
+        return max(1, len(sched_getaffinity(0)))
+
+    process_cpu_count = getattr(os, "process_cpu_count", None)  # Python 3.13+
+    if process_cpu_count is not None:
+        usable: int | None = process_cpu_count()
+        if usable:
+            return usable
+
+    return max(1, os.cpu_count() or 1)
+
+
+def _classifier_intra_op_threads() -> int:
+    return min(_CLASSIFIER_MAX_INTRA_OP_THREADS, _available_cpu_count())
+
+
+# ImageSignals, RouteDecision, Technique imported from trained_router
+
+
+def _hf_artifact(repo: str, filename: str) -> str:
+    """``hf_hub_download_local_first``, translating the air-gap refusal.
+
+    ``OfflineEgressBlocked`` is a ``BaseException`` so that it cannot be
+    swallowed by accident. Here it is handled on purpose: ``ImageCompressor``
+    already degrades a router that will not load to ``Technique.PRESERVE``, and
+    an air-gapped box with no cached router should get that same degradation
+    rather than a failed request. Re-raised as a plain ``RuntimeError``, with
+    the switch named in the message, so the existing handler sees it and the
+    log says why.
+    """
+    try:
+        return hf_hub_download_local_first(repo, filename)
+    except OfflineEgressBlocked as blocked:
+        raise RuntimeError(
+            f"{filename} for {repo} is not cached and {OFFLINE_ENV} forbids fetching it: {blocked}"
+        ) from blocked
+
+
+class OnnxTechniqueRouter:
+    """ONNX-based technique router — no PyTorch dependency.
+
+    Uses:
+    1. MiniLM ONNX INT8 classifier for query intent (~32 MB, ~5ms)
+    2. SigLIP ONNX INT8 image encoder for image analysis (~95 MB, ~30ms)
+    3. Pre-computed text embeddings for image property scoring (~25 KB)
+
+    Total: ~127 MB, runs on CPU with onnxruntime only.
+    """
+
+    def __init__(self, use_siglip: bool = True):
+        self.use_siglip = use_siglip
+        self._classifier_session: Any = None
+        self._tokenizer: Any = None
+        self._id2label: dict[int, str] = {}
+        self._siglip_session: Any = None
+        self._text_embeddings: dict[str, np.ndarray] = {}
+        self._siglip_processor: Any = None
+        self._signals_memo: ImageMemo[ImageSignals] = ImageMemo()
+
+    def _load_classifier(self) -> None:
+        """Lazy-load the technique router ONNX model."""
+        if self._classifier_session is not None:
+            return
+
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+
+        logger.info("Loading technique-router ONNX INT8...")
+
+        # Resolve every artifact before publishing anything: the session is the
+        # "loaded" flag, so setting it before a later artifact fails (e.g. not
+        # cached under HEADROOM_OFFLINE) would leave a half-loaded router that
+        # never retries.
+        model_path = _hf_artifact(_TECHNIQUE_ROUTER_REPO, "model_quantized.onnx")
+        tokenizer_path = _hf_artifact(_TECHNIQUE_ROUTER_REPO, "tokenizer.json")
+        config_path = _hf_artifact(_TECHNIQUE_ROUTER_REPO, "config.json")
+
+        session = ort.InferenceSession(
+            model_path,
+            create_cpu_session_options(
+                ort,
+                intra_op_num_threads=_classifier_intra_op_threads(),
+                inter_op_num_threads=1,
+            ),
+            providers=["CPUExecutionProvider"],
+        )
+
+        tokenizer = Tokenizer.from_file(tokenizer_path)
+        tokenizer.enable_truncation(max_length=64)
+        tokenizer.enable_padding(length=64)
+
+        # Load label mapping
+        import json
+
+        with open(config_path) as f:
+            config = json.load(f)
+        self._id2label = {int(k): v for k, v in config.get("id2label", {}).items()}
+        self._tokenizer = tokenizer
+        self._classifier_session = session
+
+        logger.info(
+            f"Technique router loaded: {len(self._id2label)} classes, "
+            f"ONNX INT8 ({Path(model_path).stat().st_size // 1024 // 1024} MB)"
+        )
+
+    def _load_siglip(self) -> None:
+        """Lazy-load the SigLIP ONNX image encoder."""
+        if self._siglip_session is not None:
+            return
+
+        import onnxruntime as ort
+
+        logger.info("Loading SigLIP ONNX INT8 image encoder...")
+
+        # Both artifacts first, session last — see _load_classifier.
+        model_path = _hf_artifact(_SIGLIP_ENCODER_REPO, "image_encoder_int8.onnx")
+        embeddings_path = _hf_artifact(_SIGLIP_ENCODER_REPO, "text_embeddings.npz")
+
+        session = ort.InferenceSession(
+            model_path,
+            create_cpu_session_options(ort),
+            providers=["CPUExecutionProvider"],
+        )
+        loaded = np.load(embeddings_path)
+        self._text_embeddings = {k: loaded[k] for k in loaded.files}
+        self._siglip_session = session
+
+        logger.info(
+            f"SigLIP image encoder loaded: ONNX INT8 "
+            f"({Path(model_path).stat().st_size // 1024 // 1024} MB)"
+        )
+
+    def classify_query(self, query: str) -> tuple[Technique, float]:
+        """Classify query intent using ONNX technique router."""
+        self._load_classifier()
+
+        encoded = self._tokenizer.encode(query)
+        input_ids = np.array([encoded.ids], dtype=np.int64)
+        attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
+        token_type_ids = np.zeros_like(input_ids, dtype=np.int64)
+
+        logits = self._classifier_session.run(
+            None,
+            {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "token_type_ids": token_type_ids,
+            },
+        )[0][0]
+
+        probs = np.exp(logits) / np.exp(logits).sum()
+        pred_id = int(np.argmax(probs))
+        confidence = float(probs[pred_id])
+
+        technique_name = self._id2label.get(pred_id, "preserve")
+        technique = Technique(technique_name)
+
+        return technique, confidence
+
+    def analyze_image(self, image_data: bytes) -> ImageSignals | None:
+        """Analyze image properties using SigLIP ONNX encoder.
+
+        Memoized per image; a failed analysis is not, so it is retried.
+        """
+        if not self.use_siglip:
+            return None
+
+        self._load_siglip()
+
+        try:
+            return self._signals_memo.get(image_data, partial(self._encode_image, image_data))
+        except Exception as e:
+            logger.warning(f"SigLIP image analysis failed: {e}")
+            return None
+
+    def _encode_image(self, image_data: bytes) -> ImageSignals:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(image_data)).convert("RGB")
+        img = img.resize((224, 224), Image.Resampling.LANCZOS)
+
+        # Convert to numpy: [1, 3, 224, 224], normalized to [-1, 1]
+        arr = np.array(img, dtype=np.float32) / 255.0
+        arr = (arr - 0.5) / 0.5  # Normalize to [-1, 1]
+        arr = arr.transpose(2, 0, 1)  # HWC → CHW
+        pixel_values = arr[np.newaxis, ...]  # Add batch dim
+
+        embeds = self._siglip_session.run(None, {"pixel_values": pixel_values})[0]
+        embeds = embeds / np.linalg.norm(embeds, axis=-1, keepdims=True)
+
+        def sigmoid(x: float) -> float:
+            return 1 / (1 + math.exp(-x * 5))
+
+        scores = {}
+        for signal_name, text_emb in self._text_embeddings.items():
+            sim = (embeds @ text_emb.T).squeeze()
+            scores[signal_name] = sigmoid(float(sim.max()))
+
+        return ImageSignals(
+            has_text=scores.get("has_text", 0.5),
+            is_document=scores.get("is_document", 0.5),
+            is_complex=scores.get("is_complex", 0.5),
+            has_small_details=scores.get("has_small_details", 0.5),
+        )
+
+    def classify(self, image_data: bytes, query: str) -> RouteDecision:
+        """Combined query + image classification."""
+        technique, query_confidence = self.classify_query(query)
+        image_signals = self.analyze_image(image_data)
+
+        confidence = query_confidence
+        reason = f"Query → '{technique.value}' ({query_confidence:.0%})"
+
+        # Apply image-based adjustments
+        if image_signals:
+            if technique == Technique.TRANSCODE:
+                if image_signals.has_text < 0.4 and image_signals.is_document < 0.4:
+                    confidence *= 0.8
+                    reason += " (low text in image)"
+            elif technique == Technique.FULL_LOW:
+                if image_signals.has_small_details > 0.7:
+                    reason += " (note: fine details detected)"
+            elif technique == Technique.PRESERVE:
+                if image_signals.has_small_details > 0.5 or image_signals.is_complex > 0.5:
+                    confidence = min(1.0, confidence * 1.1)
+                    reason += " (confirmed: complex/detailed)"
+
+        return RouteDecision(
+            technique=technique,
+            confidence=confidence,
+            reason=reason,
+            image_signals=image_signals,
+        )

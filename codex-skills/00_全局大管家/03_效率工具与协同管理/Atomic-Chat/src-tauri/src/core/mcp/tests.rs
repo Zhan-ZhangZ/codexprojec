@@ -1,0 +1,817 @@
+use super::commands::{
+    collect_mcp_server_statuses, drop_retired_serper_default, is_extension_not_connected_error,
+    repin_filesystem_mcp_servers,
+};
+use super::constants::{
+    default_mcp_config, filesystem_mcp_pinned_spec, retired_serper_default_server,
+    APP_WRITTEN_FILESYSTEM_MCP_VERSIONS, FILESYSTEM_MCP_PACKAGE, MCP_CONFIG_VERSION,
+    RETIRED_SERPER_SERVER_KEY,
+};
+use super::helpers::{
+    add_server_config, add_server_config_with_path, append_bounded_stderr,
+    drop_retired_serper_default_from_config, ensure_mcp_config_exists, extract_command_args,
+    format_mcp_start_error, is_process_already_gone, run_mcp_commands,
+};
+use crate::core::app::commands::get_jan_data_folder_path;
+use crate::core::state::{AppState, SharedMcpServers};
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tauri::{test::mock_app, Manager};
+use tokio::sync::Mutex;
+
+#[test]
+fn test_remote_config_does_not_require_stdio_fields() {
+    let config = serde_json::json!({
+        "type": "http",
+        "url": "https://example.com/mcp"
+    });
+
+    let parsed = extract_command_args(&config).expect("remote config should parse");
+
+    assert_eq!(parsed.transport_type.as_deref(), Some("http"));
+    assert_eq!(parsed.url.as_deref(), Some("https://example.com/mcp"));
+    assert!(parsed.command.is_empty());
+    assert!(parsed.args.is_empty());
+}
+
+#[test]
+fn test_mcp_start_error_preserves_transport_error_and_stderr_context() {
+    let error = format_mcp_start_error(
+        "Failed to start MCP server test: connection closed",
+        "[123] Using automatically selected callback port: 12198",
+    );
+
+    assert!(error.contains("connection closed"));
+    assert!(error.contains("stderr (context)"));
+    assert!(error.contains("Using automatically selected callback port"));
+}
+
+#[test]
+fn test_mcp_stderr_context_is_byte_bounded() {
+    let mut captured = VecDeque::new();
+    append_bounded_stderr(&mut captured, &vec![b'a'; 20 * 1024]);
+
+    assert_eq!(captured.len(), 16 * 1024);
+}
+
+#[tokio::test]
+async fn test_mcp_server_status_exposes_runtime_error() {
+    let state = AppState::default();
+    state
+        .mcp_server_errors
+        .lock()
+        .await
+        .insert("broken-server".to_string(), "Transport closed".to_string());
+
+    let statuses = collect_mcp_server_statuses(&state).await;
+
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0].name, "broken-server");
+    assert_eq!(
+        statuses[0].status,
+        super::models::McpServerStatusKind::Error
+    );
+    assert_eq!(statuses[0].error.as_deref(), Some("Transport closed"));
+}
+
+#[tokio::test]
+async fn test_run_mcp_commands() {
+    let app = mock_app();
+
+    // Register AppState so state::<AppState>() calls succeed
+    let servers_state: SharedMcpServers = Arc::new(Mutex::new(HashMap::new()));
+    app.manage(AppState {
+        mcp_servers: servers_state.clone(),
+        ..Default::default()
+    });
+
+    // Get the app path where the config should be created
+    let app_path = get_jan_data_folder_path(app.handle().clone());
+    let config_path = app_path.join("mcp_config.json");
+
+    // Ensure the directory exists
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create parent directory");
+    }
+
+    // Create a mock mcp_config.json file at the correct location
+    let mut file: File = File::create(&config_path).expect("Failed to create config file");
+    file.write_all(b"{\"mcpServers\":{}}")
+        .expect("Failed to write to config file");
+
+    // Call the run_mcp_commands function
+    let result = run_mcp_commands(app.handle(), servers_state).await;
+
+    // Assert that the function returns Ok(())
+    assert!(result.is_ok());
+
+    // Clean up the mock config file
+    std::fs::remove_file(&config_path).expect("Failed to remove config file");
+}
+
+#[test]
+fn test_add_server_config_new_file() {
+    let app = mock_app();
+    let app_path = get_jan_data_folder_path(app.handle().clone());
+    let config_path = app_path.join("mcp_config_test_new.json");
+
+    // Ensure the directory exists
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create parent directory");
+    }
+
+    // Create initial config file with empty mcpServers
+    let mut file = File::create(&config_path).expect("Failed to create config file");
+    file.write_all(b"{\"mcpServers\":{}}")
+        .expect("Failed to write to config file");
+    drop(file);
+
+    // Test adding a new server config
+    let server_value = serde_json::json!({
+        "command": "npx",
+        "args": ["-y", "test-server"],
+        "env": { "TEST_API_KEY": "test_key" },
+        "active": false
+    });
+
+    let result = add_server_config_with_path(
+        app.handle().clone(),
+        "test_server".to_string(),
+        server_value.clone(),
+        Some("mcp_config_test_new.json"),
+    );
+
+    assert!(result.is_ok(), "Failed to add server config: {result:?}");
+
+    // Verify the config was added correctly
+    let config_content = std::fs::read_to_string(&config_path).expect("Failed to read config file");
+    let config: serde_json::Value =
+        serde_json::from_str(&config_content).expect("Failed to parse config");
+
+    assert!(config["mcpServers"]["test_server"].is_object());
+    assert_eq!(config["mcpServers"]["test_server"]["command"], "npx");
+    assert_eq!(config["mcpServers"]["test_server"]["args"][0], "-y");
+    assert_eq!(
+        config["mcpServers"]["test_server"]["args"][1],
+        "test-server"
+    );
+
+    // Clean up
+    std::fs::remove_file(&config_path).expect("Failed to remove config file");
+}
+
+#[test]
+fn test_add_server_config_existing_servers() {
+    let app = mock_app();
+    let app_path = get_jan_data_folder_path(app.handle().clone());
+    let config_path = app_path.join("mcp_config_test_existing.json");
+
+    // Ensure the directory exists
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create parent directory");
+    }
+
+    // Create config file with existing server
+    let initial_config = serde_json::json!({
+        "mcpServers": {
+            "existing_server": {
+                "command": "existing_command",
+                "args": ["arg1"],
+                "active": true
+            }
+        }
+    });
+
+    let mut file = File::create(&config_path).expect("Failed to create config file");
+    file.write_all(
+        serde_json::to_string_pretty(&initial_config)
+            .unwrap()
+            .as_bytes(),
+    )
+    .expect("Failed to write to config file");
+    drop(file);
+
+    // Add new server
+    let new_server_value = serde_json::json!({
+        "command": "new_command",
+        "args": ["new_arg"],
+        "active": false
+    });
+
+    let result = add_server_config_with_path(
+        app.handle().clone(),
+        "new_server".to_string(),
+        new_server_value,
+        Some("mcp_config_test_existing.json"),
+    );
+
+    assert!(result.is_ok(), "Failed to add server config: {result:?}");
+
+    // Verify both servers exist
+    let config_content = std::fs::read_to_string(&config_path).expect("Failed to read config file");
+    let config: serde_json::Value =
+        serde_json::from_str(&config_content).expect("Failed to parse config");
+
+    // Check existing server is still there
+    assert!(config["mcpServers"]["existing_server"].is_object());
+    assert_eq!(
+        config["mcpServers"]["existing_server"]["command"],
+        "existing_command"
+    );
+
+    // Check new server was added
+    assert!(config["mcpServers"]["new_server"].is_object());
+    assert_eq!(config["mcpServers"]["new_server"]["command"], "new_command");
+
+    // Clean up
+    std::fs::remove_file(&config_path).expect("Failed to remove config file");
+}
+
+#[test]
+fn test_add_server_config_missing_config_file() {
+    let app = mock_app();
+    let app_path = get_jan_data_folder_path(app.handle().clone());
+
+    // Ensure the directory exists
+    if let Some(parent) = app_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::create_dir_all(&app_path).ok();
+
+    let config_path = app_path.join("mcp_config.json");
+
+    // Ensure the file doesn't exist
+    if config_path.exists() {
+        std::fs::remove_file(&config_path).ok();
+    }
+
+    let server_value = serde_json::json!({
+        "command": "test",
+        "args": [],
+        "active": false
+    });
+
+    let result = add_server_config(app.handle().clone(), "test".to_string(), server_value);
+
+    assert!(
+        result.is_err(),
+        "Expected error when config file doesn't exist"
+    );
+    assert!(result.unwrap_err().contains("Failed to read config file"));
+}
+
+#[test]
+fn test_ensure_mcp_config_exists_bootstraps_clean_install() {
+    let app = mock_app();
+    let data_root = tempfile::tempdir().expect("Failed to create temp data root");
+    app.manage(crate::test_support::TestDataRoot(
+        data_root.path().to_path_buf(),
+    ));
+
+    let config_path =
+        ensure_mcp_config_exists(app.handle().clone()).expect("Failed to bootstrap MCP config");
+
+    assert!(config_path.exists(), "Default MCP config was not created");
+
+    // The startup migrations run straight after and must not fail with os error 2.
+    let result = add_server_config(
+        app.handle().clone(),
+        "exa".to_string(),
+        serde_json::json!({ "command": "npx", "args": [], "active": false }),
+    );
+
+    assert!(
+        result.is_ok(),
+        "Migration should succeed on a clean install: {result:?}"
+    );
+}
+
+/// Servers the composer's plugins menu never lists (`BROWSER_SERVER_KEYS` and
+/// `SYSTEM_SERVER_KEYS` in `web-app/src/constants/mcp-connectors.ts`). Any
+/// other server the template ships switched off renders as an off row in a
+/// fresh install's menu — which is how the Serper duplicate of Exa got noticed.
+const MENU_HIDDEN_SERVER_KEYS: &[&str] = &[
+    "Jan Browser MCP",
+    "browsermcp",
+    "fetch",
+    "filesystem",
+    "sequential-thinking",
+];
+
+#[test]
+fn fresh_default_config_seeds_one_web_search_and_no_off_row() {
+    let config: serde_json::Value =
+        serde_json::from_str(&default_mcp_config()).expect("default MCP config is JSON");
+    let servers = config["mcpServers"]
+        .as_object()
+        .expect("default MCP config has an mcpServers object");
+
+    // Exa is the web search a fresh install ships switched on; Serper did the
+    // same job behind an API key and is not seeded any more.
+    assert_eq!(servers["exa"]["active"], serde_json::json!(true));
+    assert!(
+        !servers.contains_key("serper"),
+        "default config still seeds the serper duplicate of exa"
+    );
+
+    for (key, server) in servers {
+        let active = server["active"].as_bool().unwrap_or(false);
+        assert!(
+            active || MENU_HIDDEN_SERVER_KEYS.contains(&key.as_str()),
+            "default server `{key}` is off and would render as an off row in the plugins menu"
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_bin_path_construction_with_join() {
+    // Test that PathBuf::join properly constructs paths
+    let bin_path = PathBuf::from("/usr/local/bin");
+    let bun_path = bin_path.join("bun");
+
+    assert_eq!(bun_path.to_string_lossy(), "/usr/local/bin/bun");
+
+    // Test conversion to String via display()
+    let bun_path_str = bun_path.display().to_string();
+    assert_eq!(bun_path_str, "/usr/local/bin/bun");
+}
+
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn test_uv_path_construction_with_join() {
+    // Test that PathBuf::join properly constructs paths for uv
+    let bin_path = PathBuf::from("/usr/local/bin");
+    let uv_path = bin_path.join("uv");
+
+    assert_eq!(uv_path.to_string_lossy(), "/usr/local/bin/uv");
+
+    // Test conversion to String via display()
+    let uv_path_str = uv_path.display().to_string();
+    assert_eq!(uv_path_str, "/usr/local/bin/uv");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_bin_path_construction_windows() {
+    // Test Windows-style paths
+    let bin_path = PathBuf::from(r"C:\Program Files\bin");
+    let bun_path = bin_path.join("bun.exe");
+
+    assert_eq!(bun_path.to_string_lossy(), r"C:\Program Files\bin\bun.exe");
+
+    let bun_path_str = bun_path.display().to_string();
+    assert_eq!(bun_path_str, r"C:\Program Files\bin\bun.exe");
+}
+
+// ============================================================================
+// Shutdown Context Tests
+// ============================================================================
+
+use super::helpers::ShutdownContext;
+use std::time::Duration;
+
+#[test]
+fn test_shutdown_context_app_exit_timeouts() {
+    let context = ShutdownContext::AppExit;
+    assert_eq!(context.per_server_timeout(), Duration::from_millis(500));
+    assert_eq!(context.overall_timeout(), Duration::from_millis(1500));
+}
+
+#[test]
+fn test_shutdown_context_manual_restart_timeouts() {
+    let context = ShutdownContext::ManualRestart;
+    assert_eq!(context.per_server_timeout(), Duration::from_secs(2));
+    assert_eq!(context.overall_timeout(), Duration::from_secs(5));
+}
+
+#[test]
+fn test_shutdown_context_factory_reset_timeouts() {
+    let context = ShutdownContext::FactoryReset;
+    assert_eq!(context.per_server_timeout(), Duration::from_secs(5));
+    assert_eq!(context.overall_timeout(), Duration::from_secs(10));
+}
+
+#[test]
+fn test_shutdown_context_overall_greater_than_per_server() {
+    for context in [
+        ShutdownContext::AppExit,
+        ShutdownContext::ManualRestart,
+        ShutdownContext::FactoryReset,
+    ] {
+        assert!(
+            context.overall_timeout() > context.per_server_timeout(),
+            "Overall timeout should be greater than per-server timeout for {:?}",
+            context
+        );
+    }
+}
+
+#[test]
+fn test_shutdown_context_is_copy() {
+    let context = ShutdownContext::AppExit;
+    let copied = context;
+    assert!(matches!(context, ShutdownContext::AppExit));
+    assert!(matches!(copied, ShutdownContext::AppExit));
+}
+
+#[tokio::test]
+async fn test_background_cleanup_with_empty_state() {
+    use super::helpers::background_cleanup_mcp_servers;
+
+    let app = mock_app();
+    let servers_state: SharedMcpServers = Arc::new(Mutex::new(HashMap::new()));
+    app.manage(AppState {
+        mcp_servers: servers_state.clone(),
+        ..Default::default()
+    });
+
+    let state = app.state::<AppState>();
+    background_cleanup_mcp_servers(app.handle(), &state).await;
+
+    let servers = state.mcp_servers.lock().await;
+    assert!(servers.is_empty());
+
+    let active = state.mcp_active_servers.lock().await;
+    assert!(active.is_empty());
+}
+
+#[tokio::test]
+async fn test_stop_mcp_servers_with_context_empty_servers() {
+    use super::helpers::{stop_mcp_servers_with_context, ShutdownContext};
+
+    let app = mock_app();
+    let servers_state: SharedMcpServers = Arc::new(Mutex::new(HashMap::new()));
+    app.manage(AppState {
+        mcp_servers: servers_state.clone(),
+        ..Default::default()
+    });
+
+    let state = app.state::<AppState>();
+    let result =
+        stop_mcp_servers_with_context(app.handle(), &state, ShutdownContext::AppExit).await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_stop_mcp_servers_prevents_concurrent_shutdown() {
+    use super::helpers::{stop_mcp_servers_with_context, ShutdownContext};
+
+    let app = mock_app();
+    let servers_state: SharedMcpServers = Arc::new(Mutex::new(HashMap::new()));
+    app.manage(AppState {
+        mcp_servers: servers_state.clone(),
+        ..Default::default()
+    });
+
+    let state = app.state::<AppState>();
+
+    {
+        let mut shutdown_flag = state.mcp_shutdown_in_progress.lock().await;
+        *shutdown_flag = true;
+    }
+
+    let result =
+        stop_mcp_servers_with_context(app.handle(), &state, ShutdownContext::AppExit).await;
+
+    assert!(result.is_ok());
+
+    {
+        let shutdown_flag = state.mcp_shutdown_in_progress.lock().await;
+        assert!(*shutdown_flag);
+    }
+}
+
+// ============================================================================
+// Extension Connection Error Detection Tests
+// ============================================================================
+
+#[test]
+fn test_extension_disconnected_error_detection() {
+    // Real error messages from Jan Browser MCP server when extension is not connected
+    let disconnected_errors = [
+        // Direct error messages from MCP server
+        "Browser extension not connected to bridge",
+        "Browser extension not responding to ping",
+        "extension not connected",
+        // Error with different casing (case insensitive)
+        "BROWSER EXTENSION NOT CONNECTED TO BRIDGE",
+        // Tool not found errors (older extension without ping tool)
+        "tool ping not found",
+        "Tool 'browser_snapshot' not found in available tools",
+        // Wrapped error messages
+        "Error: Browser extension not connected to bridge. Please retry.",
+        "[MCP] extension not connected - check browser",
+    ];
+
+    for msg in disconnected_errors {
+        assert!(
+            is_extension_not_connected_error(msg),
+            "Should detect as disconnected: {msg}"
+        );
+    }
+}
+
+#[test]
+fn test_extension_connected_response_detection() {
+    // Valid responses when extension IS connected - should NOT trigger error detection
+    let connected_responses = [
+        "pong",                   // Successful ping response
+        "Success",                // Generic success
+        "Connected successfully", // Connection confirmation
+        "",                       // Empty response (not an error)
+        "Screenshot captured",    // Successful browser_snapshot
+        "Page loaded",            // Browser action success
+        "browser",                // Single keyword (not an error pattern)
+        "tool",                   // Single keyword (not an error pattern)
+    ];
+
+    for msg in connected_responses {
+        assert!(
+            !is_extension_not_connected_error(msg),
+            "Should NOT detect as disconnected: {msg}"
+        );
+    }
+}
+
+/// The MCP shutdown sweep runs after the servers have already been stopped, so
+/// most PIDs it revisits are gone. Windows' `taskkill` calls that an error, and
+/// reporting it as one filed a crash per PID on every app exit (the noisiest
+/// pair of issues in the desktop project).
+#[test]
+fn taskkill_saying_the_process_is_gone_is_not_a_failure() {
+    assert!(is_process_already_gone(
+        "ERROR: The process \"6188\" not found."
+    ));
+    assert!(is_process_already_gone(
+        "ERROR: The process with PID 7060 could not be terminated.\r\n\
+         Reason: There is no running instance of the task."
+    ));
+}
+
+#[test]
+fn a_real_taskkill_failure_is_still_reported() {
+    assert!(!is_process_already_gone(
+        "ERROR: The process with PID 4242 could not be terminated.\r\n\
+         Reason: Access is denied."
+    ));
+    assert!(!is_process_already_gone(""));
+}
+
+/// The pin migration has to reach configs a previous release already rewrote.
+/// The first pin shipped `@2026.1.14` — published before the upstream fix it
+/// was chosen for merged — and the original bare-token-only match meant no
+/// later release could ever correct it.
+#[test]
+fn repin_rewrites_both_bare_and_app_written_filesystem_specs() {
+    let pinned = filesystem_mcp_pinned_spec();
+    let stale_spec = format!(
+        "{FILESYSTEM_MCP_PACKAGE}@{}",
+        APP_WRITTEN_FILESYSTEM_MCP_VERSIONS[0]
+    );
+
+    let mut servers = serde_json::json!({
+        "filesystem": {
+            "command": "npx",
+            "args": ["-y", stale_spec, "/home/u/Documents/Atomic_chat"],
+        },
+        "my-own-fs": {
+            "command": "npx",
+            "args": ["-y", FILESYSTEM_MCP_PACKAGE, "/srv/data"],
+        },
+    })
+    .as_object()
+    .expect("fixture is an object")
+    .clone();
+
+    assert!(repin_filesystem_mcp_servers(&mut servers));
+    assert_eq!(servers["filesystem"]["args"][1], pinned.as_str());
+    assert_eq!(servers["my-own-fs"]["args"][1], pinned.as_str());
+    // Allowed directories are never touched.
+    assert_eq!(
+        servers["filesystem"]["args"][2],
+        "/home/u/Documents/Atomic_chat"
+    );
+}
+
+/// A version the user pinned by hand is theirs; and once every arg is on the
+/// current spec the migration must report "nothing changed" so `get_mcp_configs`
+/// stops rewriting the file on every read.
+#[test]
+fn repin_leaves_user_pins_alone_and_is_idempotent() {
+    let pinned = filesystem_mcp_pinned_spec();
+    let user_pin = format!("{FILESYSTEM_MCP_PACKAGE}@2025.8.21");
+
+    let mut servers = serde_json::json!({
+        "filesystem": { "command": "npx", "args": ["-y", pinned, "/data"] },
+        "pinned-by-hand": { "command": "npx", "args": ["-y", user_pin, "/data"] },
+        "unrelated": { "command": "uvx", "args": ["mcp-server-fetch"] },
+        "remote": { "type": "http", "url": "https://mcp.exa.ai/mcp" },
+    })
+    .as_object()
+    .expect("fixture is an object")
+    .clone();
+
+    let before = servers.clone();
+    assert!(!repin_filesystem_mcp_servers(&mut servers));
+    assert_eq!(servers, before);
+}
+
+/// Servers as an upgrader's `mcp_config.json` holds them: the Exa the app
+/// ships switched on, plus whatever `serper` entry the fixture passes in.
+fn servers_with_serper(serper: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    serde_json::json!({
+        "exa": {
+            "type": "http",
+            "url": "https://mcp.exa.ai/mcp",
+            "command": "",
+            "args": [],
+            "env": {},
+            "active": true
+        },
+        RETIRED_SERPER_SERVER_KEY: serper,
+    })
+    .as_object()
+    .expect("fixture is an object")
+    .clone()
+}
+
+/// Every install that got the default template between its introduction and
+/// its removal carries the Serper entry it seeded: switched off, behind a
+/// placeholder key, doing Exa's job. The upgrade migration drops exactly that
+/// entry and leaves every other server alone.
+#[test]
+fn drop_serper_removes_only_the_untouched_template_entry() {
+    let mut servers = servers_with_serper(retired_serper_default_server());
+    let exa_before = servers["exa"].clone();
+
+    assert!(drop_retired_serper_default(&mut servers));
+
+    assert!(
+        !servers.contains_key(RETIRED_SERPER_SERVER_KEY),
+        "the untouched serper default is still in the config"
+    );
+    assert_eq!(servers["exa"], exa_before);
+}
+
+/// A `serper` the user did anything to is theirs: switched on, given a real
+/// key, pointed at another package, or extended with a field the template
+/// never wrote. None of those match the sentinel, so nothing is removed.
+#[test]
+fn drop_serper_keeps_an_entry_the_user_changed() {
+    let sentinel = retired_serper_default_server();
+    let mut activated = sentinel.clone();
+    activated["active"] = serde_json::json!(true);
+    let mut keyed = sentinel.clone();
+    keyed["env"]["SERPER_API_KEY"] = serde_json::json!("sk-real-key");
+    let mut other_package = sentinel.clone();
+    other_package["args"] = serde_json::json!(["-y", "my-serper-fork"]);
+    let mut extended = sentinel.clone();
+    extended["cwd"] = serde_json::json!("/home/u/serper");
+    let mut without_env = sentinel.clone();
+    without_env.as_object_mut().unwrap().remove("env");
+
+    for (label, changed) in [
+        ("activated", activated),
+        ("real API key", keyed),
+        ("other package", other_package),
+        ("extra field", extended),
+        ("env removed", without_env),
+    ] {
+        let mut servers = servers_with_serper(changed);
+        let before = servers.clone();
+
+        assert!(
+            !drop_retired_serper_default(&mut servers),
+            "a serper the user changed ({label}) was reported as migrated"
+        );
+        assert_eq!(
+            servers, before,
+            "a serper the user changed ({label}) was touched"
+        );
+    }
+}
+
+/// A fresh install never had the entry, and a config that already went through
+/// the migration no longer has it: both are no-ops that report nothing changed,
+/// so a second run never rewrites the file.
+#[test]
+fn drop_serper_is_a_no_op_on_a_fresh_or_migrated_config() {
+    let fresh: serde_json::Value =
+        serde_json::from_str(&default_mcp_config()).expect("default MCP config is JSON");
+    let mut servers = fresh["mcpServers"]
+        .as_object()
+        .expect("default MCP config has an mcpServers object")
+        .clone();
+    let before = servers.clone();
+    assert!(!drop_retired_serper_default(&mut servers));
+    assert_eq!(servers, before);
+
+    let mut migrated = servers_with_serper(retired_serper_default_server());
+    assert!(drop_retired_serper_default(&mut migrated));
+    let once = migrated.clone();
+    assert!(!drop_retired_serper_default(&mut migrated));
+    assert_eq!(migrated, once);
+}
+
+/// The startup migration works on the file: the sentinel disappears from
+/// `mcp_config.json`, the other servers and the settings block survive, and
+/// the step is gated on schema version 4 so it runs once per install.
+#[test]
+fn migration_4_drops_the_serper_default_from_the_config_file_once() {
+    let app = mock_app();
+    let data_root = tempfile::tempdir().expect("Failed to create temp data root");
+    app.manage(crate::test_support::TestDataRoot(
+        data_root.path().to_path_buf(),
+    ));
+    let config_path = data_root.path().join("mcp_config.json");
+    let config = serde_json::json!({
+        "mcpServers": servers_with_serper(retired_serper_default_server()),
+        "mcpSettings": { "toolCallTimeoutSeconds": 45 }
+    });
+    std::fs::write(
+        &config_path,
+        serde_json::to_string_pretty(&config).expect("fixture serializes"),
+    )
+    .expect("Failed to write config fixture");
+
+    assert_eq!(
+        drop_retired_serper_default_from_config(app.handle().clone()),
+        Ok(true)
+    );
+
+    let written: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&config_path).expect("Failed to read migrated config"),
+    )
+    .expect("migrated config is JSON");
+    assert!(
+        written["mcpServers"]
+            .get(RETIRED_SERPER_SERVER_KEY)
+            .is_none(),
+        "serper survived the migration: {written}"
+    );
+    assert_eq!(
+        written["mcpServers"]["exa"]["active"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        written["mcpSettings"]["toolCallTimeoutSeconds"],
+        serde_json::json!(45)
+    );
+
+    let after_first_run = std::fs::read_to_string(&config_path).expect("read once-migrated");
+    assert_eq!(
+        drop_retired_serper_default_from_config(app.handle().clone()),
+        Ok(false)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&config_path).expect("read twice-migrated"),
+        after_first_run,
+        "an already-migrated config was rewritten"
+    );
+
+    // `migrate_mcp_servers` gates this step on `mcp_version < 4` and stores
+    // this constant afterwards; bump both together when adding a step.
+    assert_eq!(MCP_CONFIG_VERSION, 4);
+}
+
+#[tokio::test]
+async fn bundled_search_is_discoverable_after_exa_startup_403() {
+    let app = mock_app();
+    app.manage(AppState::default());
+    let state = app.state::<AppState>();
+    state.mcp_active_servers.lock().await.insert(
+        "exa".into(),
+        serde_json::json!({
+            "type": "http", "url": "https://mcp.exa.ai/mcp", "active": true
+        }),
+    );
+    state.mcp_server_errors.lock().await.insert(
+        "exa".into(),
+        "HTTP 403 rmcp::transport https://mcp.exa.ai/mcp".into(),
+    );
+    let response = super::commands::get_tools(app.handle().clone(), state)
+        .await
+        .unwrap();
+    let tool = response
+        .tools
+        .iter()
+        .find(|tool| tool.name == "web_search_exa")
+        .expect("bundled fallback search must be available");
+    assert_eq!(tool.server, "exa");
+    assert_eq!(tool.description.as_deref(), Some("Web search"));
+    assert_eq!(tool.input_schema["required"], serde_json::json!(["query"]));
+    let fetch = response
+        .tools
+        .iter()
+        .find(|tool| tool.name == "web_fetch_exa")
+        .expect("bundled fallback fetch must be available");
+    assert_eq!(fetch.server, "exa");
+    assert_eq!(fetch.description.as_deref(), Some("Read webpages"));
+    assert_eq!(fetch.input_schema["required"], serde_json::json!(["urls"]));
+}

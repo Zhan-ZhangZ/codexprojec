@@ -1,0 +1,418 @@
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import type { ReasoningControls } from '@janhq/core'
+
+import { useGeneralSetting } from '@/hooks/useGeneralSetting'
+import ReasoningEffortPanel from '../ReasoningEffortPanel'
+
+vi.mock('@/i18n/react-i18next-compat', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, string>) =>
+      options?.level ? `${key}:${options.level}` : key,
+  }),
+}))
+
+const selectedModel = vi.hoisted(() => ({
+  current: undefined as
+    | { id: string; reasoning?: ReasoningControls }
+    | undefined,
+}))
+const selectedProvider = vi.hoisted(() => ({ current: 'llamacpp' }))
+
+vi.mock('@/hooks/useModelProvider', () => ({
+  useModelProvider: (selector: (state: unknown) => unknown) =>
+    selector({
+      selectedModel: selectedModel.current,
+      selectedProvider: selectedProvider.current,
+    }),
+}))
+
+const BUDGET_MODEL = { id: 'qwen3', reasoning: { supportsThinking: true } }
+
+/** The class that carries the glide; Radix positions the thumb wrapper, not the thumb. */
+const GLIDE_CLASS = '[&>span:last-child]:transition-[left]'
+
+/** The heading, which stacks every level name in one cell and fades between them. */
+const heading = () =>
+  screen.getByText('common:reasoningEffort.title').parentElement as HTMLElement
+
+/** The one level name the heading is actually showing; the rest sit faded behind it. */
+const shownLevel = () => {
+  const shown = Array.from(heading().querySelectorAll('span')).filter((span) =>
+    span.className.includes('opacity-100')
+  )
+  expect(shown).toHaveLength(1)
+  return shown[0]
+}
+
+/** The top-tier wash that sits over the neutral fill, found from the thumb up. */
+const accentWash = () =>
+  screen
+    .getByRole('slider')
+    .closest('span[class*="touch-none"]')!
+    .querySelector('[class*="bg-linear-to-r"]') as HTMLElement
+
+class MockResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+describe('ReasoningEffortPanel', () => {
+  beforeAll(() => {
+    global.ResizeObserver = MockResizeObserver
+    // jsdom ships none of the pointer-capture API, and both Radix and the
+    // free-running check gate on it, so a drag is untestable without these.
+    Element.prototype.setPointerCapture = function setPointerCapture() {}
+    Element.prototype.releasePointerCapture =
+      function releasePointerCapture() {}
+    Element.prototype.hasPointerCapture = function hasPointerCapture() {
+      return true
+    }
+  })
+
+  beforeEach(async () => {
+    selectedModel.current = undefined
+    selectedProvider.current = 'llamacpp'
+    // The store is persisted, so settle any pending rehydrate before seeding
+    // state: one resolving mid-test would otherwise restore what an earlier
+    // test wrote and undo a click.
+    localStorage.clear()
+    await useGeneralSetting.persist.rehydrate()
+    useGeneralSetting.setState({
+      disableReasoning: false,
+      reasoningBudget: 'medium',
+    })
+  })
+
+  it('explicitly disables effort for a model without a thinking phase', () => {
+    selectedModel.current = {
+      id: 'llama3',
+      reasoning: { supportsThinking: false },
+    }
+
+    const { container } = render(<ReasoningEffortPanel />)
+
+    expect(container.firstElementChild).toHaveAttribute('aria-disabled', 'true')
+    expect(
+      screen.getByText('common:reasoningEffort.unavailable')
+    ).toBeVisible()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+  })
+
+  it('sits on its first stop, Off, while reasoning is off', () => {
+    selectedModel.current = BUDGET_MODEL
+    useGeneralSetting.setState({ disableReasoning: true })
+
+    render(<ReasoningEffortPanel />)
+
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.off')
+    const slider = screen.getByRole('slider')
+    expect(slider).toHaveAttribute('aria-valuenow', '0')
+    expect(slider).toHaveAttribute('aria-valuemax', '5')
+  })
+
+  it('turns reasoning off at the first stop and back on past it', () => {
+    selectedModel.current = BUDGET_MODEL
+
+    render(<ReasoningEffortPanel />)
+    const slider = screen.getByRole('slider')
+    fireEvent.keyDown(slider, { key: 'Home' })
+
+    // Off is the bulb's switch: the stored level is left for the way back.
+    expect(useGeneralSetting.getState().disableReasoning).toBe(true)
+    expect(useGeneralSetting.getState().reasoningBudget).toBe('medium')
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.off')
+
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+
+    expect(useGeneralSetting.getState().disableReasoning).toBe(false)
+    expect(useGeneralSetting.getState().reasoningBudget).toBe('low')
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.low')
+  })
+
+  // ATO-527: a remote provider's models carry no `ReasoningControls`, so the
+  // scale used to vanish — leaving no way to switch thinking back on.
+  it('offers the full scale for a model on a self-hosted provider', () => {
+    selectedModel.current = { id: 'qwen3-on-my-server' }
+    selectedProvider.current = 'llamacpp-server'
+    useGeneralSetting.setState({ disableReasoning: false })
+
+    render(<ReasoningEffortPanel />)
+
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.medium')
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuemax', '5')
+  })
+
+  it.each(['openai', 'anthropic', 'gemini', 'xai', 'openrouter', 'nvidia'])(
+    'offers effort for a %s cloud model without local template metadata',
+    (provider) => {
+      selectedModel.current = { id: `${provider}-reasoning-model` }
+      selectedProvider.current = provider
+
+      render(<ReasoningEffortPanel />)
+
+      expect(shownLevel()).toHaveTextContent('common:reasoningEffort.medium')
+      expect(screen.getByRole('slider')).toBeVisible()
+    }
+  )
+
+  it('starts non-disableable cloud APIs at Low instead of showing a false Off', () => {
+    selectedModel.current = { id: 'gpt-5' }
+    selectedProvider.current = 'openai'
+    useGeneralSetting.setState({ disableReasoning: true })
+
+    render(<ReasoningEffortPanel />)
+
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.low')
+    expect(
+      screen.queryByText('common:reasoningEffort.off')
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuemax', '4')
+  })
+
+  it('uses only declared Codex effort levels when the API has no off value', () => {
+    selectedModel.current = {
+      id: 'gpt-6-astra',
+      reasoning: {
+        supportsThinking: true,
+        effortKwarg: 'reasoning_effort',
+        effortValues: ['low', 'medium', 'high', 'xhigh'],
+      },
+    }
+    selectedProvider.current = 'chatgpt'
+    useGeneralSetting.setState({ disableReasoning: true })
+
+    render(<ReasoningEffortPanel />)
+
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.low')
+    expect(
+      screen.queryByText('common:reasoningEffort.off')
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuemax', '3')
+  })
+
+  it('persists subscription effort on a cloud-only clean profile', () => {
+    selectedModel.current = {
+      id: 'gpt-6-astra',
+      reasoning: {
+        supportsThinking: true,
+        canDisable: false,
+        effortKwarg: 'reasoning_effort',
+        effortValues: ['low', 'medium', 'high', 'xhigh'],
+      },
+    }
+    selectedProvider.current = 'chatgpt'
+    // The persisted defaults on a fresh profile, before any local model has
+    // been installed, selected, or given a chance to clear the off flag.
+    useGeneralSetting.setState({
+      disableReasoning: true,
+      reasoningBudget: 'medium',
+    })
+
+    render(<ReasoningEffortPanel />)
+    const slider = screen.getByRole('slider')
+    expect(slider).toHaveAttribute('aria-valuenow', '0')
+    expect(slider).toHaveAttribute(
+      'aria-valuetext',
+      'common:reasoningEffort.low'
+    )
+
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+
+    expect(useGeneralSetting.getState().disableReasoning).toBe(false)
+    expect(useGeneralSetting.getState().reasoningBudget).toBe('medium')
+    expect(slider).toHaveAttribute('aria-valuenow', '1')
+    expect(slider).toHaveAttribute(
+      'aria-valuetext',
+      'common:reasoningEffort.medium'
+    )
+  })
+
+  it('starts an always-thinking local model at Low instead of lying about Off', () => {
+    selectedModel.current = {
+      id: 'lfm-always-thinks',
+      reasoning: { supportsThinking: true, canDisable: false },
+    }
+    selectedProvider.current = 'llamacpp'
+    useGeneralSetting.setState({ disableReasoning: true })
+
+    render(<ReasoningEffortPanel />)
+
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.low')
+    expect(
+      screen.queryByText('common:reasoningEffort.off')
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuemax', '4')
+  })
+
+  it('renders nothing while no model is selected', () => {
+    // Nothing to think with yet, so no level to set either.
+    selectedModel.current = undefined
+
+    const { container } = render(<ReasoningEffortPanel />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('clamps the shown level to what the model offers', () => {
+    selectedModel.current = {
+      id: 'hunyuan3',
+      reasoning: {
+        supportsThinking: true,
+        effortKwarg: 'reasoning_effort',
+        effortValues: ['low', 'high'],
+      },
+    }
+
+    render(<ReasoningEffortPanel />)
+
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.low')
+    // Off, then the two levels the template declared.
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuemax', '2')
+  })
+
+  it('presents the effort scale as a slider under an Effort heading', () => {
+    selectedModel.current = BUDGET_MODEL
+
+    render(<ReasoningEffortPanel />)
+
+    // The heading repeats the current level and the scale is framed by the
+    // faster/smarter endpoints. Every level name is in the DOM for the
+    // crossfade, so the assertion has to be about the one on show.
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.medium')
+    expect(
+      within(heading()).getByText('common:reasoningEffort.low')
+    ).toHaveAttribute('aria-hidden', 'true')
+    expect(
+      screen.getByText('common:reasoningEffort.faster')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('common:reasoningEffort.smarter')
+    ).toBeInTheDocument()
+    // The scale spans Off and every level, and the thumb announces the level,
+    // not its index.
+    const slider = screen.getByRole('slider')
+    expect(slider).toHaveAttribute('aria-valuemin', '0')
+    expect(slider).toHaveAttribute('aria-valuemax', '5')
+    expect(slider).toHaveAttribute('aria-valuenow', '2')
+    expect(slider).toHaveAttribute(
+      'aria-valuetext',
+      'common:reasoningEffort.medium'
+    )
+  })
+
+  it('accents the top tier in the heading', () => {
+    selectedModel.current = BUDGET_MODEL
+    useGeneralSetting.setState({ reasoningBudget: 'max' })
+
+    render(<ReasoningEffortPanel />)
+
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.max')
+    expect(shownLevel()).toHaveClass('text-blue-500')
+  })
+
+  it('moves a whole level per arrow key, not one sub-step', () => {
+    // The slider runs on a fine internal scale so a drag can track the pointer,
+    // which would otherwise turn an arrow press into an invisible nudge.
+    selectedModel.current = BUDGET_MODEL
+
+    render(<ReasoningEffortPanel />)
+    const slider = screen.getByRole('slider')
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+
+    expect(useGeneralSetting.getState().reasoningBudget).toBe('high')
+    expect(slider).toHaveAttribute('aria-valuenow', '3')
+    expect(slider).toHaveAttribute(
+      'aria-valuetext',
+      'common:reasoningEffort.high'
+    )
+
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' })
+    expect(useGeneralSetting.getState().reasoningBudget).toBe('medium')
+
+    fireEvent.keyDown(slider, { key: 'Home' })
+    expect(useGeneralSetting.getState().disableReasoning).toBe(true)
+    // Already at the bottom: the scale clamps instead of wrapping round.
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' })
+    expect(useGeneralSetting.getState().disableReasoning).toBe(true)
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.off')
+  })
+
+  it('keeps the blue wash for the top tier alone', () => {
+    selectedModel.current = BUDGET_MODEL
+    // Seeded here as well as in beforeEach: the assertion below is about *not*
+    // being the top tier, so it must not inherit a level from anywhere else.
+    useGeneralSetting.setState({ reasoningBudget: 'medium' })
+
+    render(<ReasoningEffortPanel />)
+    expect(accentWash()).toHaveClass('opacity-0')
+    expect(shownLevel()).not.toHaveClass('text-blue-500')
+
+    fireEvent.keyDown(screen.getByRole('slider'), { key: 'End' })
+
+    expect(useGeneralSetting.getState().reasoningBudget).toBe('max')
+    expect(accentWash()).toHaveClass('opacity-100')
+  })
+
+  it('previews under the pointer and commits the snapped level on release', async () => {
+    selectedModel.current = BUDGET_MODEL
+    useGeneralSetting.setState({ reasoningBudget: 'medium' })
+
+    render(<ReasoningEffortPanel />)
+    const root = screen
+      .getByRole('slider')
+      .closest('span[class*="touch-none"]') as HTMLElement
+    // The glide is armed a frame after the panel mounts, not at once: Radix
+    // corrects the thumb by half its width once it has measured it, and that
+    // correction must not play as a slide.
+    expect(root).not.toHaveClass(GLIDE_CLASS)
+    await waitFor(() => expect(root).toHaveClass(GLIDE_CLASS))
+
+    fireEvent.pointerDown(root, { pointerId: 1 })
+    fireEvent.pointerMove(root, { pointerId: 1 })
+
+    // Under the pointer the thumb is placed, not animated. The store keeps the
+    // last committed model preference until release; jsdom has no layout, so
+    // Radix previews the first stop here.
+    expect(root).not.toHaveClass(GLIDE_CLASS)
+    expect(useGeneralSetting.getState().disableReasoning).toBe(false)
+    expect(shownLevel()).toHaveTextContent('common:reasoningEffort.off')
+
+    fireEvent.pointerUp(root, { pointerId: 1 })
+
+    expect(root).toHaveClass(GLIDE_CLASS)
+    expect(useGeneralSetting.getState().disableReasoning).toBe(true)
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuenow', '0')
+  })
+
+  it('starts a fresh mount settled, whatever a torn-down drag left behind', async () => {
+    selectedModel.current = BUDGET_MODEL
+    useGeneralSetting.setState({ reasoningBudget: 'medium' })
+
+    // The panel lives inside a popover: Escape unmounts it with the pointer
+    // still down, so no pointer-up ever reaches the slider. Nothing carries
+    // over — the next mount arms its glide from scratch.
+    const first = render(<ReasoningEffortPanel />)
+    const root = screen
+      .getByRole('slider')
+      .closest('span[class*="touch-none"]') as HTMLElement
+    await waitFor(() => expect(root).toHaveClass(GLIDE_CLASS))
+    fireEvent.pointerDown(root, { pointerId: 1 })
+    fireEvent.pointerMove(root, { pointerId: 1 })
+    expect(root).not.toHaveClass(GLIDE_CLASS)
+    first.unmount()
+
+    render(<ReasoningEffortPanel />)
+    const reopened = screen
+      .getByRole('slider')
+      .closest('span[class*="touch-none"]') as HTMLElement
+    await waitFor(() => expect(reopened).toHaveClass(GLIDE_CLASS))
+  })
+})

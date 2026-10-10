@@ -1,0 +1,10 @@
+{
+  "noLogs": "사용 가능한 로그가 없습니다",
+  "filterAll": "전체",
+  "sourceApp": "앱",
+  "sourceCore": "코어",
+  "export": "로그 내보내기",
+  "exported": "로그를 내보냈습니다",
+  "showInFolder": "폴더에서 보기",
+  "exportFailed": "로그를 내보낼 수 없습니다"
+}

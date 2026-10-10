@@ -1,0 +1,584 @@
+// Copyright 2022 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/beego/beego/v2/server/web"
+	"github.com/casdoor/casdoor/util"
+	"github.com/xorm-io/core"
+)
+
+var (
+	CasdoorApplication  = "app-built-in"
+	CasdoorOrganization = "built-in"
+)
+
+type SessionInfo struct {
+	SessionId      string `json:"sessionId"`
+	CreatedTime    string `json:"createdTime"`
+	LastActiveTime string `json:"lastActiveTime"`
+	ExpireTime     string `json:"expireTime"`
+	Ip             string `json:"ip"`
+	UserAgent      string `json:"userAgent"`
+}
+
+type Session struct {
+	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name        string `xorm:"varchar(100) notnull pk" json:"name"`
+	Application string `xorm:"varchar(100) notnull pk" json:"application"`
+	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
+
+	SessionId    []string       `json:"sessionId"`
+	SessionInfos []*SessionInfo `xorm:"mediumtext" json:"sessionInfos"`
+}
+
+func GetSessions(owner string) ([]*Session, error) {
+	sessions := []*Session{}
+	var err error
+	if owner != "" {
+		err = ormer.Engine.Desc("created_time").Where("owner = ?", owner).Find(&sessions)
+	} else {
+		err = ormer.Engine.Desc("created_time").Find(&sessions)
+	}
+	if err != nil {
+		return sessions, err
+	}
+
+	return sessions, nil
+}
+
+func GetUserSessions(owner string, name string) ([]*Session, error) {
+	sessions := []*Session{}
+
+	err := ormer.Engine.Desc("created_time").Where("owner = ? and name = ?", owner, name).Find(&sessions)
+	if err != nil {
+		return sessions, err
+	}
+
+	return sessions, nil
+}
+
+func GetUserAppSessions(owner string, name string, application string) ([]*Session, error) {
+	sessions := []*Session{}
+
+	err := ormer.Engine.Desc("created_time").Where("owner = ? and name = ? and application = ?", owner, name, application).Find(&sessions)
+	if err != nil {
+		return sessions, err
+	}
+
+	return sessions, nil
+}
+
+func GetPaginationSessions(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Session, error) {
+	sessions := []*Session{}
+	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
+	err := session.Find(&sessions)
+	if err != nil {
+		return sessions, err
+	}
+
+	return sessions, nil
+}
+
+func GetSessionCount(owner, field, value string) (int64, error) {
+	session := GetSession(owner, -1, -1, field, value, "", "")
+	return session.Count(&Session{})
+}
+
+func GetSingleSession(id string) (*Session, error) {
+	owner, name, application := util.GetOwnerAndNameAndOtherFromId(id)
+	session := Session{Owner: owner, Name: name, Application: application}
+	get, err := ormer.Engine.Get(&session)
+	if err != nil {
+		return &session, err
+	}
+
+	if !get {
+		return nil, nil
+	}
+
+	return &session, nil
+}
+
+func UpdateSession(id string, session *Session) (bool, error) {
+	owner, name, application := util.GetOwnerAndNameAndOtherFromId(id)
+
+	if ss, err := GetSingleSession(id); err != nil {
+		return false, err
+	} else if ss == nil {
+		return false, nil
+	}
+
+	affected, err := ormer.Engine.ID(core.PK{owner, name, application}).Update(session)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+// updateSessionIds forces the columns, because xorm skips an emptied SessionInfos otherwise
+func updateSessionIds(session *Session) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{session.Owner, session.Name, session.Application}).Cols("session_id", "session_infos").Update(session)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func removeExtraSessionIds(session *Session) {
+	if len(session.SessionId) > 100 {
+		session.SessionId = session.SessionId[(len(session.SessionId) - 100):]
+	}
+}
+
+// pruneSessionInfos drops the infos whose session id is no longer held by the row
+func pruneSessionInfos(session *Session) {
+	infos := []*SessionInfo{}
+	for _, info := range session.SessionInfos {
+		if info != nil && slices.Contains(session.SessionId, info.SessionId) {
+			infos = append(infos, info)
+		}
+	}
+	session.SessionInfos = infos
+}
+
+func mergeSessionInfos(dst []*SessionInfo, src []*SessionInfo) []*SessionInfo {
+	for _, info := range src {
+		index := slices.IndexFunc(dst, func(i *SessionInfo) bool { return i != nil && i.SessionId == info.SessionId })
+		if index >= 0 {
+			dst[index] = info
+		} else {
+			dst = append(dst, info)
+		}
+	}
+	return dst
+}
+
+func AddSession(session *Session) (bool, error) {
+	dbSession, err := GetSingleSession(session.GetId())
+	if err != nil {
+		return false, err
+	}
+
+	if dbSession == nil {
+		session.CreatedTime = util.GetCurrentTime()
+
+		affected, err := ormer.Engine.Insert(session)
+		if err != nil {
+			return false, err
+		}
+
+		return affected != 0, nil
+	} else {
+		m := make(map[string]struct{})
+		for _, v := range dbSession.SessionId {
+			m[v] = struct{}{}
+		}
+		for _, v := range session.SessionId {
+			if _, exists := m[v]; !exists {
+				dbSession.SessionId = append(dbSession.SessionId, v)
+			}
+		}
+
+		removeExtraSessionIds(dbSession)
+
+		dbSession.SessionInfos = mergeSessionInfos(dbSession.SessionInfos, session.SessionInfos)
+		pruneSessionInfos(dbSession)
+
+		return updateSessionIds(dbSession)
+	}
+}
+
+func DeleteSession(id, curSessionId string) (bool, error) {
+	owner, name, application := util.GetOwnerAndNameAndOtherFromId(id)
+
+	// The session ids are Beego session ids no matter which application the row belongs to,
+	// because login stores c.Ctx.Input.CruSession.SessionID() under application.Name.
+	session, err := GetSingleSession(id)
+	if err != nil {
+		return false, err
+	}
+
+	// If session doesn't exist, return success with no rows affected
+	// This is a valid state (e.g., when a user has no active session)
+	if session == nil {
+		return false, nil
+	}
+
+	if slices.Contains(session.SessionId, curSessionId) {
+		return false, fmt.Errorf("session:session id %s is the current session and cannot be deleted", curSessionId)
+	}
+
+	_, err = ExpireTokensBySessionIds(owner, name, session.SessionId)
+	if err != nil {
+		return false, err
+	}
+
+	DeleteBeegoSession(session.SessionId)
+
+	affected, err := ormer.Engine.ID(core.PK{owner, name, application}).Delete(&Session{})
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func DeleteAllUserSessions(owner string, name string) (bool, error) {
+	// Destroy the real Beego sessions before dropping the rows, otherwise the user would
+	// disappear from the Sessions UI while still being signed in
+	sessions, err := GetUserSessions(owner, name)
+	if err != nil {
+		return false, err
+	}
+
+	sessionIds := []string{}
+	for _, session := range sessions {
+		sessionIds = append(sessionIds, session.SessionId...)
+	}
+
+	_, err = ExpireTokensBySessionIds(owner, name, sessionIds)
+	if err != nil {
+		return false, err
+	}
+
+	DeleteBeegoSession(sessionIds)
+
+	affected, err := ormer.Engine.Where("owner = ? and name = ?", owner, name).Delete(&Session{})
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func DeleteSessionId(id string, sessionId string) (bool, error) {
+	session, err := GetSingleSession(id)
+	if err != nil {
+		return false, err
+	}
+	if session == nil {
+		return false, nil
+	}
+
+	sessionId = resolveSessionId(session, sessionId)
+	if sessionId == "" {
+		return false, nil
+	}
+
+	_, err = ExpireTokensBySessionIds(session.Owner, session.Name, []string{sessionId})
+	if err != nil {
+		return false, err
+	}
+
+	DeleteBeegoSession([]string{sessionId})
+
+	session.SessionId = util.DeleteVal(session.SessionId, sessionId)
+	if len(session.SessionId) == 0 {
+		return DeleteSession(id, "")
+	} else {
+		pruneSessionInfos(session)
+		return updateSessionIds(session)
+	}
+}
+
+var (
+	sessionActiveTimes      = map[string]int64{}
+	sessionActiveTimesMutex sync.Mutex
+)
+
+// UpdateSessionLastActiveTime records the activity of a signed-in Beego session, at most once
+// a minute per session id so that the Session rows are not written on every request
+func UpdateSessionLastActiveTime(owner string, name string, beegoSessionId string) error {
+	now := time.Now().Unix()
+	sessionActiveTimesMutex.Lock()
+	if now-sessionActiveTimes[beegoSessionId] < 60 {
+		sessionActiveTimesMutex.Unlock()
+		return nil
+	}
+	if len(sessionActiveTimes) > 10000 {
+		sessionActiveTimes = map[string]int64{}
+	}
+	sessionActiveTimes[beegoSessionId] = now
+	sessionActiveTimesMutex.Unlock()
+
+	sessions, err := GetUserSessions(owner, name)
+	if err != nil {
+		return err
+	}
+
+	for _, session := range sessions {
+		index := slices.IndexFunc(session.SessionInfos, func(i *SessionInfo) bool { return i != nil && i.SessionId == beegoSessionId })
+		if index < 0 {
+			continue
+		}
+
+		// only session_infos is written, so a session id added by a concurrent sign-in is not dropped
+		session.SessionInfos[index].LastActiveTime = util.GetCurrentTime()
+		_, err = ormer.Engine.ID(core.PK{session.Owner, session.Name, session.Application}).Cols("session_infos").Update(session)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// DeleteUserSessionId removes a Beego session id from every Session row of the user.
+// Login stores the id under the application used to sign in (HandleLoggedIn -> AddSession),
+// which is usually not "app-built-in", and a quick sign-in reuses the same Beego session id
+// for another application, so the id has to be removed from all the rows holding it.
+func DeleteUserSessionId(owner string, name string, beegoSessionId string) error {
+	// The tokens are expired here too, because no Session row holds the id when the login
+	// happened without one (e.g. "app-built-in" sign-in), and DeleteSessionId is skipped then
+	_, err := ExpireTokensBySessionIds(owner, name, []string{beegoSessionId})
+	if err != nil {
+		return err
+	}
+
+	sessions, err := GetUserSessions(owner, name)
+	if err != nil {
+		return err
+	}
+
+	for _, session := range sessions {
+		if !slices.Contains(session.SessionId, beegoSessionId) {
+			continue
+		}
+
+		_, err = DeleteSessionId(session.GetId(), beegoSessionId)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// EnforceBrowserSessionLimit keeps the current Beego session id of the user plus the limit-1 most
+// recently active other live ones across all applications, and drops the rest together with the
+// tokens minted under them. An SSO sign-in into another application reuses the same id, so it is
+// not treated as a second session.
+func EnforceBrowserSessionLimit(user *User, currentSessionId string, limit int, host string) error {
+	if user == nil || currentSessionId == "" {
+		return nil
+	}
+
+	sessions, err := GetUserSessions(user.Owner, user.Name)
+	if err != nil {
+		return err
+	}
+
+	oldIds := getEvictedSessionIds(sessions, getOtherSessionIds(sessions, currentSessionId), limit)
+	if len(oldIds) == 0 {
+		return nil
+	}
+
+	// The back-channel logout has to go out before the tokens are expired below, because it is
+	// built from the still active ones
+	tokens, err := GetActiveTokensByUser(user.Owner, user.Name)
+	if err != nil {
+		return err
+	}
+	oldTokens := []*Token{}
+	for _, token := range tokens {
+		if slices.Contains(oldIds, token.SessionId) {
+			oldTokens = append(oldTokens, token)
+		}
+	}
+	for _, oldId := range oldIds {
+		sessionTokens := []*Token{}
+		for _, token := range oldTokens {
+			if token.SessionId == oldId {
+				sessionTokens = append(sessionTokens, token)
+			}
+		}
+		sendBackchannelLogoutForTokens(user, sessionTokens, oldId, host)
+	}
+	SendSamlLogout(user.Owner, user.Name, oldIds, host)
+
+	for _, oldId := range oldIds {
+		err = DeleteUserSessionId(user.Owner, user.Name, oldId)
+		if err != nil {
+			return err
+		}
+	}
+
+	go func() {
+		_ = SendSsoLogoutNotifications(user, oldIds, oldTokens)
+	}()
+
+	return nil
+}
+
+func EnforceApplicationSessionLimit(user *User, application string, currentSessionId string, limit int) error {
+	if user == nil || currentSessionId == "" {
+		return nil
+	}
+
+	sessions, err := GetUserSessions(user.Owner, user.Name)
+	if err != nil {
+		return err
+	}
+
+	index := slices.IndexFunc(sessions, func(session *Session) bool { return session.Application == application })
+	if index < 0 {
+		return nil
+	}
+	session := sessions[index]
+
+	oldIds := getEvictedSessionIds(sessions, getOtherSessionIds([]*Session{session}, currentSessionId), limit)
+	if len(oldIds) == 0 {
+		return nil
+	}
+
+	_, err = ExpireTokensByApplicationAndSessionIds(user.Owner, user.Name, application, oldIds)
+	if err != nil {
+		return err
+	}
+
+	DeleteBeegoSession(oldIds)
+
+	session.SessionId = slices.DeleteFunc(session.SessionId, func(sessionId string) bool { return slices.Contains(oldIds, sessionId) })
+	pruneSessionInfos(session)
+	_, err = updateSessionIds(session)
+	return err
+}
+
+func getOtherSessionIds(sessions []*Session, currentSessionId string) []string {
+	sessionIds := []string{}
+	for _, session := range sessions {
+		for _, sessionId := range session.SessionId {
+			if sessionId != "" && sessionId != currentSessionId && !slices.Contains(sessionIds, sessionId) {
+				sessionIds = append(sessionIds, sessionId)
+			}
+		}
+	}
+	return sessionIds
+}
+
+func getEvictedSessionIds(sessions []*Session, sessionIds []string, limit int) []string {
+	if limit <= 1 {
+		return sessionIds
+	}
+
+	lastActiveTimes, expireTimes := getSessionTimes(sessions)
+	liveIds := slices.DeleteFunc(slices.Clone(sessionIds), func(sessionId string) bool {
+		return !isSessionLive(sessionId, expireTimes[sessionId])
+	})
+	slices.SortStableFunc(liveIds, func(a, b string) int {
+		return lastActiveTimes[b].Compare(lastActiveTimes[a])
+	})
+	keptIds := liveIds[:min(len(liveIds), limit-1)]
+
+	return slices.DeleteFunc(slices.Clone(sessionIds), func(sessionId string) bool {
+		return slices.Contains(keptIds, sessionId)
+	})
+}
+
+func getSessionTimes(sessions []*Session) (map[string]time.Time, map[string]time.Time) {
+	lastActiveTimes := map[string]time.Time{}
+	expireTimes := map[string]time.Time{}
+	for _, session := range sessions {
+		for _, info := range session.SessionInfos {
+			if info == nil {
+				continue
+			}
+			if t, err := time.Parse(time.RFC3339, info.LastActiveTime); err == nil && t.After(lastActiveTimes[info.SessionId]) {
+				lastActiveTimes[info.SessionId] = t
+			}
+			if t, err := time.Parse(time.RFC3339, info.ExpireTime); err == nil && t.After(expireTimes[info.SessionId]) {
+				expireTimes[info.SessionId] = t
+			}
+		}
+	}
+	return lastActiveTimes, expireTimes
+}
+
+func isSessionLive(sessionId string, expireTime time.Time) bool {
+	exists, err := web.GlobalSessions.GetProvider().SessionExist(context.Background(), sessionId)
+	return err == nil && exists && (expireTime.IsZero() || expireTime.After(time.Now()))
+}
+
+func DeleteBeegoSession(sessionIds []string) {
+	for _, sessionId := range sessionIds {
+		// The error is ignored on purpose: an already expired or destroyed session id
+		// must not stop the remaining ones from being destroyed
+		_ = web.GlobalSessions.GetProvider().SessionDestroy(context.Background(), sessionId)
+	}
+}
+
+func GetSessionIdHash(sessionId string) string {
+	hash := sha256.Sum256([]byte(sessionId))
+	return hex.EncodeToString(hash[:])
+}
+
+func resolveSessionId(session *Session, sessionId string) string {
+	for _, id := range session.SessionId {
+		if id == sessionId || GetSessionIdHash(id) == sessionId {
+			return id
+		}
+	}
+	return ""
+}
+
+func MaskSessionIds(sessions ...*Session) {
+	for _, session := range sessions {
+		if session == nil {
+			continue
+		}
+		for i, id := range session.SessionId {
+			session.SessionId[i] = GetSessionIdHash(id)
+		}
+		for _, info := range session.SessionInfos {
+			if info != nil {
+				info.SessionId = GetSessionIdHash(info.SessionId)
+			}
+		}
+	}
+}
+
+func (session *Session) GetId() string {
+	return fmt.Sprintf("%s/%s/%s", session.Owner, session.Name, session.Application)
+}
+
+func IsSessionDuplicated(id string, sessionId string) (bool, error) {
+	session, err := GetSingleSession(id)
+	if err != nil {
+		return false, err
+	}
+
+	if session == nil {
+		return false, nil
+	} else {
+		if len(session.SessionId) > 1 {
+			return true, nil
+		} else if len(session.SessionId) < 1 {
+			return false, nil
+		} else {
+			return session.SessionId[0] != sessionId, nil
+		}
+	}
+}

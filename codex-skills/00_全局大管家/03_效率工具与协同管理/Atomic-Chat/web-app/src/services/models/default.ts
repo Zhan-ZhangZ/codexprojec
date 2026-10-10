@@ -1,0 +1,1379 @@
+/**
+ * Default Models Service - Web implementation
+ */
+
+import { managedEngines } from '@/lib/managed-engines'
+import {
+  sanitizeModelId,
+  LOCAL_LLAMACPP_PROVIDER,
+  formatBytes,
+} from '@/lib/utils'
+import {
+  ggufShardGroupKey,
+  groupGgufShards,
+  isNonWeightGgufFile,
+} from '@/lib/models'
+import {
+  AIEngine,
+  EngineManager,
+  SessionInfo,
+  SettingComponentProps,
+  modelInfo,
+  ThreadMessage,
+  ContentType,
+  events,
+  DownloadEvent,
+  UnloadResult,
+  type ModelLoadOptions,
+} from '@janhq/core'
+import { Model as CoreModel } from '@janhq/core'
+import type {
+  DownloadRefusal,
+  ModelsService,
+  ModelCatalog,
+  HuggingFaceRepo,
+  HuggingFaceFeedPage,
+  HuggingFaceFeedParams,
+  HuggingFaceFeedSort,
+  HuggingFaceFeedFormat,
+  CatalogModel,
+  ModelDeletionReport,
+  ModelValidationResult,
+} from './types'
+import { fetch as fetchTauri } from '@tauri-apps/plugin-http'
+import { getCatalogOrFallback } from '@/services/model-catalog-registry'
+import { useDownloadStore } from '@/hooks/useDownloadStore'
+import {
+  isHfUrl,
+  markDownloadStart,
+  normalizeModelId,
+  quantFromModelId,
+  sizeBucket,
+  urlHost,
+} from '@/lib/telemetry'
+import { queuedCapture } from '@/lib/telemetry-queue'
+import { toast } from 'sonner'
+import i18n from '@/i18n/setup'
+import { preflightDownloadDiskSpace } from './downloadPreflight'
+import { makeRoomForChatModel } from './gpuRoom'
+
+// Platform-active llama.cpp provider id. Windows registers only the
+// upstream extension ('llamacpp-upstream') after the 2026-05-22 ADR;
+// macOS / Linux register the turboquant fork ('llamacpp'). Resolving
+// this through LOCAL_LLAMACPP_PROVIDER keeps `getEngine()` calls
+// platform-agnostic — without it, Windows `pullModel` / `validateGgufFile`
+// silently no-op because the EngineManager has no 'llamacpp' entry.
+const defaultProvider = LOCAL_LLAMACPP_PROVIDER
+const HUGGING_FACE_SEARCH_LIMIT = 10
+const HUGGING_FACE_FEED_LIMIT = 50
+
+/** `sort=` values Hugging Face's `/api/models` understands. */
+const HUGGING_FACE_FEED_SORT: Record<HuggingFaceFeedSort, string> = {
+  trending: 'trendingScore',
+  downloads: 'downloads',
+  likes: 'likes',
+  lastModified: 'lastModified',
+}
+
+/**
+ * The `cursor` of the `rel="next"` link, or `null` when the listing ends.
+ * Hugging Face paginates `/api/models` with a `Link` header only.
+ */
+export function parseHuggingFaceNextCursor(
+  linkHeader: string | null | undefined
+): string | null {
+  if (!linkHeader) return null
+  for (const part of linkHeader.split(',')) {
+    const match = part.match(/<([^>]+)>\s*;\s*rel="?next"?/)
+    if (!match) continue
+    try {
+      return new URL(match[1]).searchParams.get('cursor')
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+const isTauriRuntime = (): boolean => {
+  try {
+    return typeof IS_TAURI !== 'undefined' && Boolean(IS_TAURI)
+  } catch {
+    return false
+  }
+}
+// Engines whose loaded models count as the app's active local models: what
+// `getActiveModels()` reports and what `stopAllModels()` / `stopAllModelsExcept()`
+// unload. An engine missing here is invisible to the provider page's Stop, which
+// then shows its model stopped while it keeps running (task 3.14, F-9).
+// The managed engines (`lib/managed-engines.ts`: vLLM, TensorRT-LLM) are local too.
+const localProviders = (): string[] => [
+  'llamacpp',
+  'llamacpp-upstream',
+  'atomic-prism',
+  'mlx',
+  ...managedEngines().map((engine) => engine.id),
+]
+type LocalProviderName = string
+
+/** What `expand[]=config` and `expand[]=safetensors` add to a listing entry. */
+type HuggingFaceManagedExpansion = {
+  config?: { architectures?: unknown }
+  safetensors?: { parameters?: unknown }
+}
+
+type HuggingFaceFeedEntry = Pick<
+  HuggingFaceRepo,
+  'downloads' | 'likes' | 'tags'
+> &
+  HuggingFaceManagedExpansion & {
+    id?: string
+    modelId?: string
+    createdAt?: string
+    lastModified?: string
+    trendingScore?: number
+  }
+
+type HuggingFaceRepoSearchResult = Pick<
+  HuggingFaceRepo,
+  'downloads' | 'likes' | 'tags'
+> &
+  HuggingFaceManagedExpansion & {
+    id?: string
+    modelId?: string
+  }
+
+/**
+ * Asking for any `expand[]` makes Hugging Face answer with only the fields named, so the ones the
+ * Hub already reads are named too.
+ */
+const MANAGED_LISTING_EXPAND = [
+  'config',
+  'safetensors',
+  'downloads',
+  'likes',
+  'tags',
+  'createdAt',
+  'lastModified',
+] as const
+
+/** `filter=` and `expand[]` of a listing or search of one format, after `leading` params. */
+function huggingFaceFormatParams(
+  format: HuggingFaceFeedFormat,
+  leading: Record<string, string>,
+  trailing: Record<string, string> = {}
+): URLSearchParams {
+  const params = new URLSearchParams({
+    ...leading,
+    filter: format,
+    ...trailing,
+  })
+  if (format === 'safetensors') {
+    for (const field of MANAGED_LISTING_EXPAND) params.append('expand[]', field)
+  }
+  return params
+}
+
+/** A listing entry's architectures and parameters by dtype; anything malformed reads as absent. */
+function managedListingFields(repo: HuggingFaceManagedExpansion): Pick<
+  CatalogModel,
+  'is_managed' | 'managed'
+> {
+  const architectures = repo.config?.architectures
+  const parameters = repo.safetensors?.parameters
+  return {
+    is_managed: true,
+    managed: {
+      architectures:
+        Array.isArray(architectures) &&
+        architectures.every((name) => typeof name === 'string')
+          ? (architectures as string[])
+          : undefined,
+      parameters:
+        parameters &&
+        typeof parameters === 'object' &&
+        Object.values(parameters).every((count) => typeof count === 'number')
+          ? (parameters as Record<string, number>)
+          : undefined,
+    },
+  }
+}
+
+const normalizeHuggingFaceSearchValue = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+
+const hasGgufFiles = (
+  repo: Pick<HuggingFaceRepo, 'siblings'> | null | undefined
+) =>
+  repo?.siblings?.some((file) =>
+    file.rfilename.toLowerCase().endsWith('.gguf')
+  ) ?? false
+
+const isLikelyGgufRepo = (repo: HuggingFaceRepoSearchResult) => {
+  const repoId = getHuggingFaceRepoId(repo).toLowerCase()
+  return (
+    repoId.includes('gguf') ||
+    repo.tags?.some((tag) => tag.toLowerCase().includes('gguf')) === true
+  )
+}
+
+const getHuggingFaceRepoId = (
+  repo: Pick<HuggingFaceRepoSearchResult, 'id' | 'modelId'>
+) => repo.modelId ?? repo.id ?? ''
+
+const scoreHuggingFaceRepoMatch = (
+  query: string,
+  repo: HuggingFaceRepoSearchResult
+) => {
+  const repoId = getHuggingFaceRepoId(repo)
+  const repoTail = repoId.split('/').pop() ?? repoId
+  const normalizedQuery = normalizeHuggingFaceSearchValue(query)
+  const normalizedRepoId = normalizeHuggingFaceSearchValue(repoId)
+  const normalizedRepoTail = normalizeHuggingFaceSearchValue(repoTail)
+
+  let score = 0
+
+  if (!normalizedQuery || !normalizedRepoId) {
+    return score
+  }
+
+  if (normalizedRepoId === normalizedQuery) score += 300
+  if (normalizedRepoTail === normalizedQuery) score += 240
+  if (normalizedRepoTail.startsWith(normalizedQuery)) score += 120
+  if (normalizedRepoId.includes(normalizedQuery)) score += 80
+
+  if (repo.tags?.some((tag) => tag.toLowerCase() === 'gguf')) score += 30
+  if (normalizedRepoId.includes('gguf')) score += 20
+
+  score += Math.min(repo.downloads ?? 0, 100_000) / 1000
+  score += Math.min(repo.likes ?? 0, 10_000) / 1000
+
+  return score
+}
+
+export class DefaultModelsService implements ModelsService {
+  private getEngine(provider: string = defaultProvider) {
+    return EngineManager.instance().get(provider) as AIEngine | undefined
+  }
+
+  private async getLocalActiveModelsByProvider(): Promise<
+    { provider: LocalProviderName; models: string[] }[]
+  > {
+    const results = await Promise.all(
+      localProviders().map(async (provider) => ({
+        provider,
+        models: (await this.getEngine(provider)?.getLoadedModels()) ?? [],
+      }))
+    )
+
+    return results.filter(
+      ({ models }) => Array.isArray(models) && models.length > 0
+    )
+  }
+
+  private getHuggingFaceHeaders(hfToken?: string): HeadersInit | undefined {
+    return hfToken
+      ? {
+          Authorization: `Bearer ${hfToken}`,
+        }
+      : undefined
+  }
+
+  private async fetchExactHuggingFaceRepo(
+    cleanRepoId: string,
+    hfToken?: string
+  ): Promise<HuggingFaceRepo | null> {
+    const response = await fetch(
+      `https://huggingface.co/api/models/${cleanRepoId}?blobs=true&files_metadata=true`,
+      {
+        headers: this.getHuggingFaceHeaders(hfToken),
+      }
+    )
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null
+      }
+
+      throw new Error(
+        `Failed to fetch HuggingFace repository: ${response.status} ${response.statusText}`
+      )
+    }
+
+    return response.json()
+  }
+
+  private async searchHuggingFaceRepo(
+    query: string,
+    hfToken?: string
+  ): Promise<HuggingFaceRepo | null> {
+    const ggufQuery = /\bgguf\b/i.test(query) ? query : `${query} GGUF`
+    const response = await fetch(
+      `https://huggingface.co/api/models?search=${encodeURIComponent(ggufQuery)}&limit=${HUGGING_FACE_SEARCH_LIMIT}`,
+      {
+        headers: this.getHuggingFaceHeaders(hfToken),
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to search HuggingFace repositories: ${response.status} ${response.statusText}`
+      )
+    }
+
+    const results = ((await response.json()) as HuggingFaceRepoSearchResult[])
+      .filter((repo) => getHuggingFaceRepoId(repo))
+      .filter(isLikelyGgufRepo)
+      .sort(
+        (a, b) =>
+          scoreHuggingFaceRepoMatch(query, b) -
+          scoreHuggingFaceRepoMatch(query, a)
+      )
+
+    for (const repo of results) {
+      const repoId = getHuggingFaceRepoId(repo)
+      const repoDetails = await this.fetchExactHuggingFaceRepo(repoId, hfToken)
+
+      if (hasGgufFiles(repoDetails)) {
+        return repoDetails
+      }
+    }
+
+    return null
+  }
+
+  async getModel(modelId: string): Promise<modelInfo | undefined> {
+    return this.getEngine()?.get(modelId)
+  }
+
+  async fetchModels(): Promise<modelInfo[]> {
+    return this.getEngine()?.list() ?? []
+  }
+
+  async fetchModelCatalog(): Promise<ModelCatalog> {
+    // Primary source: the Atomic Chat curated catalog (`atomic-chat-model-catalog`
+    // GitHub Releases) loaded via the registry abstraction so the same
+    // localStorage cache + baseline fallback machinery is shared with
+    // `useModelCatalogStore`. The loader never throws — on hard failure it
+    // returns the bundled baseline so callers always get *something*.
+    try {
+      const result = await getCatalogOrFallback()
+      return result.manifest.models
+    } catch (error) {
+      // Defensive only. `getCatalogOrFallback` already catches network /
+      // schema errors and returns a baseline result.
+      console.error('Unexpected fetchModelCatalog failure:', error)
+      throw new Error(
+        `Failed to fetch model catalog: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    }
+  }
+
+  async searchHuggingFaceCandidates(
+    query: string,
+    hfToken?: string,
+    limit = HUGGING_FACE_SEARCH_LIMIT,
+    format: HuggingFaceFeedFormat = 'gguf'
+  ): Promise<CatalogModel[]> {
+    const trimmed = query.trim()
+    if (trimmed.length < 3) return []
+    try {
+      const params = huggingFaceFormatParams(
+        format,
+        { search: trimmed },
+        { limit: String(limit) }
+      )
+      const response = await fetch(
+        `https://huggingface.co/api/models?${params.toString()}`,
+        { headers: this.getHuggingFaceHeaders(hfToken) }
+      )
+      if (!response.ok) {
+        throw new Error(
+          `Failed to search Hugging Face: ${response.status} ${response.statusText}`
+        )
+      }
+      const raw = (await response.json()) as HuggingFaceRepoSearchResult[]
+      const ranked = raw
+        .filter((repo) => getHuggingFaceRepoId(repo))
+        .filter((repo) =>
+          format === 'gguf'
+            ? isLikelyGgufRepo(repo)
+            : format === 'mlx'
+              ? repo.tags?.some((tag) => tag.toLowerCase() === 'mlx')
+              : // Every safetensors repository: the Hub narrows it, the core decides.
+                true
+        )
+        .sort(
+          (a, b) =>
+            scoreHuggingFaceRepoMatch(trimmed, b) -
+            scoreHuggingFaceRepoMatch(trimmed, a)
+        )
+      return ranked.slice(0, limit).map((repo) => {
+        const repoId = getHuggingFaceRepoId(repo)
+        const developer = repoId.includes('/')
+          ? repoId.split('/', 1)[0]
+          : undefined
+        return {
+          model_name: repoId,
+          developer,
+          downloads: repo.downloads ?? 0,
+          description: `**Tags**: ${(repo.tags ?? []).join(', ')}`,
+          // No quants / mmproj here — the detail fetch happens later when
+          // the user clicks through to the dedicated model page.
+          num_quants: 0,
+          quants: [],
+          num_mmproj: 0,
+          mmproj_models: [],
+          num_safetensors: 0,
+          safetensors_files: [],
+          is_mlx: format === 'mlx',
+          ...(format === 'safetensors' ? managedListingFields(repo) : {}),
+          readme: `https://huggingface.co/${repoId}/resolve/main/README.md`,
+        } satisfies CatalogModel
+      })
+    } catch (error) {
+      // Rethrown, not swallowed: a caller that shows "nothing found" for a
+      // request that never reached Hugging Face is lying to the user. The Hub
+      // catches and shows its curated results alone; the composer's model
+      // list says the search could not be made.
+      console.warn('searchHuggingFaceCandidates failed:', error)
+      throw error
+    }
+  }
+
+  async listHuggingFaceFeed({
+    format,
+    sort,
+    search,
+    cursor,
+    limit = HUGGING_FACE_FEED_LIMIT,
+    hfToken,
+  }: HuggingFaceFeedParams): Promise<HuggingFaceFeedPage> {
+    const params = huggingFaceFormatParams(format, {}, {
+      sort: HUGGING_FACE_FEED_SORT[sort],
+      direction: '-1',
+      limit: String(limit),
+    })
+    if (search?.trim()) params.set('search', search.trim())
+    if (cursor) params.set('cursor', cursor)
+    const url = `https://huggingface.co/api/models?${params.toString()}`
+    // The next page lives in the `Link` header. Hugging Face exposes it to
+    // cross-origin fetches; the Tauri HTTP plugin is the fallback for a
+    // webview whose plain fetch fails, as the registries do.
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: this.getHuggingFaceHeaders(hfToken),
+      })
+    } catch (primaryError) {
+      if (!isTauriRuntime()) throw primaryError
+      response = await (fetchTauri as typeof fetch)(url, {
+        headers: this.getHuggingFaceHeaders(hfToken),
+      })
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Failed to list Hugging Face models: ${response.status} ${response.statusText}`
+      )
+    }
+    const raw = (await response.json()) as HuggingFaceFeedEntry[]
+    const models = raw
+      .filter((repo) => getHuggingFaceRepoId(repo))
+      .map((repo) => {
+        const repoId = getHuggingFaceRepoId(repo)
+        const developer = repoId.includes('/')
+          ? repoId.split('/', 1)[0]
+          : undefined
+        const tags = repo.tags ?? []
+        return {
+          model_name: repoId,
+          developer,
+          downloads: repo.downloads ?? 0,
+          likes: repo.likes ?? 0,
+          description: `**Tags**: ${tags.join(', ')}`,
+          // No quants / mmproj here — the list endpoint carries no file sizes;
+          // the row's detail fetch fills them in once it is on screen.
+          num_quants: 0,
+          quants: [],
+          num_mmproj: 0,
+          mmproj_models: [],
+          num_safetensors: 0,
+          safetensors_files: [],
+          is_mlx:
+            format === 'mlx' ||
+            (format === 'gguf' && tags.some((t) => t.toLowerCase() === 'mlx')),
+          ...(format === 'safetensors' ? managedListingFields(repo) : {}),
+          created_at: repo.createdAt,
+          last_modified: repo.lastModified,
+          readme: `https://huggingface.co/${repoId}/resolve/main/README.md`,
+        } satisfies CatalogModel
+      })
+    return {
+      models,
+      nextCursor: parseHuggingFaceNextCursor(response.headers.get('link')),
+    }
+  }
+
+  async fetchHuggingFaceRepo(
+    repoId: string,
+    hfToken?: string
+  ): Promise<HuggingFaceRepo | null> {
+    try {
+      // Clean the repo ID to handle various input formats
+      const cleanRepoId = repoId
+        .replace(/^https?:\/\/huggingface\.co\//, '')
+        .replace(/^huggingface\.co\//, '')
+        .replace(/\/$/, '') // Remove trailing slash
+        .trim()
+
+      if (!cleanRepoId) {
+        return null
+      }
+
+      if (cleanRepoId.includes('/')) {
+        return await this.fetchExactHuggingFaceRepo(cleanRepoId, hfToken)
+      }
+
+      return await this.searchHuggingFaceRepo(cleanRepoId, hfToken)
+    } catch (error) {
+      console.error('Error fetching HuggingFace repository:', error)
+      return null
+    }
+  }
+
+  convertHfRepoToCatalogModel(repo: HuggingFaceRepo): CatalogModel {
+    // Format file size helper
+    const formatFileSize = (size?: number) => {
+      if (!size) return 'Unknown size'
+      if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} MB`
+      return `${(size / 1024 ** 3).toFixed(1)} GB`
+    }
+
+    // Extract GGUF files from the repository siblings
+    const ggufFiles =
+      repo.siblings?.filter((file) =>
+        file.rfilename.toLowerCase().endsWith('.gguf')
+      ) || []
+
+    // Keep only files that are runnable weights: drop the projectors, the MTP
+    // heads, and everything else a repo ships alongside its quants (imatrix
+    // dumps, DFlash/EAGLE drafts, vocab-only and audio-companion GGUFs) — none
+    // of those load as a model, and offering them is a download the user has to
+    // throw away.
+    const regularGgufFiles = ggufFiles.filter(
+      (file) =>
+        !file.rfilename.toLowerCase().includes('mmproj') &&
+        !isNonWeightGgufFile(file.rfilename)
+    )
+
+    const mmprojFiles = ggufFiles.filter((file) =>
+      file.rfilename.toLowerCase().includes('mmproj')
+    )
+
+    // Convert regular GGUF files to quants format. A quant split across shards
+    // is one downloadable variant, quoted at the size of the whole set.
+    const quants = groupGgufShards(regularGgufFiles).map((shards) => {
+      const first = shards[0]
+      // Generate model_id from filename (remove .gguf extension, case-insensitive)
+      const modelId = ggufShardGroupKey(first.rfilename).replace(/\.gguf$/i, '')
+      const totalSize = shards.reduce((sum, file) => sum + (file.size ?? 0), 0)
+
+      return {
+        model_id: `${repo.author}/${sanitizeModelId(modelId)}`,
+        path: `https://huggingface.co/${repo.modelId}/resolve/main/${first.rfilename}`,
+        file_size: formatFileSize(totalSize),
+      }
+    })
+
+    // Convert mmproj files to mmproj_models format
+    const mmprojModels = mmprojFiles.map((file) => {
+      const modelId = file.rfilename.replace(/\.gguf$/i, '')
+
+      return {
+        model_id: sanitizeModelId(modelId),
+        path: `https://huggingface.co/${repo.modelId}/resolve/main/${file.rfilename}`,
+        file_size: formatFileSize(file.size),
+      }
+    })
+
+    // Extract safetensors files (MLX models)
+    const safetensorsFiles =
+      repo.siblings?.filter((file) =>
+        file.rfilename.toLowerCase().endsWith('.safetensors')
+      ) || []
+
+    // Check if this repository has MLX model files (safetensors + associated files)
+    const hasMlxFiles =
+      repo.library_name === 'mlx' || repo.tags?.includes('mlx')
+
+    const safetensorsModels = safetensorsFiles.map((file) => {
+      // Generate model_id from filename (remove .safetensors extension, case-insensitive)
+      const modelId = file.rfilename.replace(/\.safetensors$/i, '')
+
+      return {
+        model_id: sanitizeModelId(modelId),
+        path: `https://huggingface.co/${repo.modelId}/resolve/main/${file.rfilename}`,
+        file_size: formatFileSize(file.size),
+        sha256: file.lfs?.sha256,
+      }
+    })
+
+    return {
+      model_name: repo.modelId,
+      developer: repo.author,
+      downloads: repo.downloads || 0,
+      likes: repo.likes || 0,
+      created_at: repo.createdAt,
+      last_modified: repo.last_modified,
+      num_quants: quants.length,
+      quants: quants,
+      num_mmproj: mmprojModels.length,
+      mmproj_models: mmprojModels,
+      safetensors_files: safetensorsModels,
+      num_safetensors: safetensorsModels.length,
+      is_mlx: hasMlxFiles,
+      readme: `https://huggingface.co/${repo.modelId}/resolve/main/README.md`,
+      description: `**Tags**: ${repo.tags?.join(', ')}`,
+    }
+  }
+
+  async updateModel(modelId: string, model: Partial<CoreModel>): Promise<void> {
+    if (model.settings) {
+      this.getEngine()?.updateSettings(
+        model.settings as SettingComponentProps[]
+      )
+    }
+    // Note: Model name/ID updates are handled at the provider level in the frontend
+    // The engine doesn't have an update method for model metadata
+    console.log('Model update request processed for modelId:', modelId)
+  }
+
+  async pullModel(
+    id: string,
+    modelPath: string,
+    modelSha256?: string,
+    modelSize?: number,
+    mmprojPath?: string,
+    mmprojSha256?: string,
+    mmprojSize?: number,
+    resume: boolean = false
+  ): Promise<void> {
+    return this.getEngine()?.import(id, {
+      modelPath,
+      mmprojPath,
+      modelSha256,
+      modelSize,
+      mmprojSha256,
+      mmprojSize,
+      resume,
+    })
+  }
+
+  async pullModelWithMetadata(
+    id: string,
+    modelPath: string,
+    mmprojPath?: string,
+    hfToken?: string,
+    skipVerification: boolean = true,
+    resume: boolean = false
+  ): Promise<DownloadRefusal | undefined> {
+    let modelSha256: string | undefined
+    let modelSize: number | undefined
+    let mmprojSha256: string | undefined
+    let mmprojSize: number | undefined
+
+    // Extract repo ID from model URL
+    // URL format: https://huggingface.co/{repo}/resolve/main/{filename}
+    const modelUrlMatch = modelPath.match(
+      /https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/main\/(.+)/
+    )
+
+    if (modelUrlMatch && !skipVerification) {
+      const [, repoId, modelFilename] = modelUrlMatch
+
+      try {
+        // Fetch real-time metadata from HuggingFace
+        const repoInfo = await this.fetchHuggingFaceRepo(repoId, hfToken)
+
+        if (repoInfo?.siblings) {
+          // Find the specific model file
+          const modelFile = repoInfo.siblings.find(
+            (file) => file.rfilename === modelFilename
+          )
+          if (modelFile?.lfs) {
+            modelSha256 = modelFile.lfs.sha256
+            modelSize = modelFile.lfs.size
+          }
+
+          // If mmproj path provided, extract its metadata too
+          if (mmprojPath) {
+            const mmprojUrlMatch = mmprojPath.match(
+              /https:\/\/huggingface\.co\/[^/]+\/[^/]+\/resolve\/main\/(.+)/
+            )
+            if (mmprojUrlMatch) {
+              const [, mmprojFilename] = mmprojUrlMatch
+              const mmprojFile = repoInfo.siblings.find(
+                (file) => file.rfilename === mmprojFilename
+              )
+              if (mmprojFile?.lfs) {
+                mmprojSha256 = mmprojFile.lfs.sha256
+                mmprojSize = mmprojFile.lfs.size
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(
+          'Failed to fetch HuggingFace metadata, proceeding without hash verification:',
+          error
+        )
+        // Continue with download even if metadata fetch fails
+      }
+    }
+
+    // Will it fit? Asked here, before anything is recorded or started, so a
+    // model that cannot fit is declined with the list still on screen instead
+    // of surfacing as a failed download a moment after the row said
+    // "Downloading". Every entry point sets `localDownloadingModels` (and the
+    // Hub its origin) before calling; on a refusal that is undone here, since
+    // most of them do not await the pull. A resume is left to the Rust check,
+    // which knows how much of the partial already counts.
+    if (!resume) {
+      const refusal = await preflightDownloadDiskSpace({
+        modelPath,
+        mmprojPath,
+        modelSize,
+        mmprojSize,
+      })
+      if (refusal) {
+        const store = useDownloadStore.getState()
+        store.removeLocalDownloadingModel(id)
+        store.clearDownloadOrigin(id)
+        toast.error(i18n.t('common:toast.downloadWontFit.title'), {
+          id: 'download-wont-fit',
+          description: i18n.t('common:toast.downloadWontFit.description', {
+            model: id,
+            needed: formatBytes(refusal.needed),
+            available: formatBytes(refusal.available) || '0 B',
+          }),
+          duration: 15000,
+        })
+        return refusal
+      }
+    }
+
+    // ATO-154: record resume parameters at the single GGUF download-start
+    // choke point so the global Download popover can resume a paused download
+    // (it only knows the model id, not these HF paths/token). MLX downloads go
+    // through `engine.import` directly and are pause/resume-gated out.
+    useDownloadStore.getState().setResumeParams(id, {
+      modelPath,
+      mmprojPath,
+      hfToken,
+      skipVerification,
+    })
+
+    // ATO-109: model_download funnel entry. Terminal events are emitted from
+    // DownloadManagement listeners; this records the start (+ duration anchor).
+    try {
+      markDownloadStart(id)
+      queuedCapture('model_download', {
+        // NOT `status` — globally typed numeric in PostHog by
+        // `api_server_request.status`, which silently nulls string values.
+        // Must stay in sync with the terminal event in DownloadManagement.
+        download_status: 'started',
+        download_kind: 'model',
+        model_id: normalizeModelId(id),
+        quant: quantFromModelId(id),
+        // Usually `unknown` here: the byte count comes from HuggingFace
+        // metadata that is only fetched when `skipVerification` is false, and
+        // it defaults to true. The terminal event carries the real size from
+        // the downloader, so read `size_bucket` off that.
+        size_bucket: sizeBucket(modelSize),
+        is_hf_url: isHfUrl(modelPath),
+        resolved_asset_url_host: urlHost(modelPath),
+        hf_token_present: !!hfToken,
+      })
+    } catch (telemetryError) {
+      console.debug('model_download started telemetry failed:', telemetryError)
+    }
+
+    // Call the original pullModel with the fetched metadata
+    try {
+      await this.pullModel(
+        id,
+        modelPath,
+        modelSha256,
+        modelSize,
+        mmprojPath,
+        mmprojSha256,
+        mmprojSize,
+        resume
+      )
+      return undefined
+    } catch (error) {
+      // ATO-154: a paused download stops the underlying transfer (which rejects
+      // this promise with a cancellation error). Swallow it so the initiator's
+      // catch doesn't fire a spurious "download failed" toast or clean up the
+      // row — the download-stopped listener keeps the paused entry alive and
+      // the popover shows a Resume button instead.
+      if (useDownloadStore.getState().pausedDownloads.has(id)) {
+        return
+      }
+      // Emit download error event so the UI can clean up the stale downloading state
+      events.emit(DownloadEvent.onFileDownloadError, {
+        modelId: id,
+        downloadType: 'Model',
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+  }
+
+  async abortDownload(id: string): Promise<void> {
+    const llamacppEngine = this.getEngine(LOCAL_LLAMACPP_PROVIDER)
+    const mlxEngine = this.getEngine('mlx')
+    try {
+      await Promise.allSettled(
+        [llamacppEngine?.abortImport(id), mlxEngine?.abortImport(id)].filter(
+          Boolean
+        )
+      )
+    } finally {
+      events.emit(DownloadEvent.onFileDownloadStopped, {
+        modelId: id,
+        downloadType: 'Model',
+      })
+    }
+  }
+
+  async deleteModel(
+    id: string,
+    provider?: string
+  ): Promise<ModelDeletionReport | void> {
+    const engine = this.getEngine(provider)
+    // `getEngine()?.delete()` used to resolve to `undefined` when the provider
+    // had no engine registered, so the caller reported a successful delete and
+    // the weights stayed on disk. Fail loudly instead — same reasoning as the
+    // `LOCAL_LLAMACPP_PROVIDER` note above.
+    if (!engine) {
+      throw new Error(
+        `No engine registered for provider "${provider ?? defaultProvider}"`
+      )
+    }
+    // `AIEngine.delete` answers nothing; an engine that can say what it freed offers this too.
+    if (reportsDeletion(engine)) return engine.deleteWithReport(id)
+    return engine.delete(id)
+  }
+
+  async getActiveModels(provider?: string): Promise<string[]> {
+    if (provider) {
+      const scoped = (await this.getEngine(provider)?.getLoadedModels()) ?? []
+      return scoped
+    }
+
+    const activeByProvider = await this.getLocalActiveModelsByProvider()
+    const union = [...new Set(activeByProvider.flatMap(({ models }) => models))]
+    return union
+  }
+
+  async stopModel(
+    model: string,
+    provider?: string
+  ): Promise<UnloadResult | undefined> {
+    if (provider) {
+      const { ModelFactory } = await import('@/lib/model-factory')
+      ModelFactory.invalidateLocalSessionCache(provider, model)
+      return this.getEngine(provider)?.unload(model)
+    }
+
+    const activeByProvider = await this.getLocalActiveModelsByProvider()
+    const matchingProviders = activeByProvider.filter(({ models }) =>
+      models.includes(model)
+    )
+
+    if (matchingProviders.length === 0) {
+      return undefined
+    }
+
+    const { ModelFactory } = await import('@/lib/model-factory')
+    for (const { provider: providerName } of matchingProviders) {
+      ModelFactory.invalidateLocalSessionCache(providerName, model)
+    }
+
+    const results = await Promise.allSettled(
+      matchingProviders.map(({ provider: providerName }) =>
+        this.getEngine(providerName)?.unload(model)
+      )
+    )
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
+    )
+
+    if (failures.length > 0) {
+      return {
+        success: false,
+        error: failures
+          .map((result) =>
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason)
+          )
+          .join('\n'),
+      }
+    }
+
+    return results.find(
+      (result): result is PromiseFulfilledResult<UnloadResult | undefined> =>
+        result.status === 'fulfilled' && result.value !== undefined
+    )?.value
+  }
+
+  async stopAllModels(): Promise<void> {
+    const activeByProvider = await this.getLocalActiveModelsByProvider()
+    await Promise.all(
+      activeByProvider.flatMap(({ provider, models }) =>
+        models.map((model) => this.stopModel(model, provider))
+      )
+    )
+  }
+
+  async stopAllModelsExcept(
+    modelId: string,
+    providerName: string
+  ): Promise<void> {
+    const activeByProvider = await this.getLocalActiveModelsByProvider()
+    await Promise.all(
+      activeByProvider.flatMap(({ provider, models }) =>
+        models
+          .filter((model) => !(provider === providerName && model === modelId))
+          .map((model) => this.stopModel(model, provider))
+      )
+    )
+  }
+
+  async cancelModelLoad(provider: string, model: string): Promise<boolean> {
+    const engine = this.getEngine(provider)
+    // An extension bundled against an older core has no `cancelLoad`.
+    if (typeof engine?.cancelLoad !== 'function') return false
+    return engine.cancelLoad(model)
+  }
+
+  async startModel(
+    provider: ProviderObject,
+    model: string,
+    bypassAutoUnload: boolean = false,
+    options?: ModelLoadOptions
+  ): Promise<SessionInfo | undefined> {
+    const engine = this.getEngine(provider.provider)
+    if (!engine) return undefined
+
+    const loadedModels = await engine.getLoadedModels()
+    if (loadedModels.includes(model)) return undefined
+
+    // Find the model configuration to get settings
+    const modelConfig = provider.models.find((m) => m.id === model)
+
+    // Key mapping function to transform setting keys
+    const mapSettingKey = (key: string): string => {
+      const keyMappings: Record<string, string> = {
+        ctx_len: 'ctx_size',
+        ngl: 'n_gpu_layers',
+      }
+      return keyMappings[key] || key
+    }
+
+    const settings = modelConfig?.settings
+      ? Object.fromEntries(
+          Object.entries(modelConfig.settings).map(([key, value]) => [
+            mapSettingKey(key),
+            value.controller_props?.value,
+          ])
+        )
+      : undefined
+
+    // A chat model and an image model share one GPU: the image side makes
+    // room before it loads (lib/diffusion/arbiter.ts), and so does this side.
+    await makeRoomForChatModel(engine, model)
+
+    return engine
+      .load(model, settings, false, bypassAutoUnload, options)
+      .catch((error) => {
+        console.error(
+          `Failed to start model ${model} for provider ${provider.provider}:`,
+          error
+        )
+        throw error
+      })
+  }
+
+  async isToolSupported(modelId: string): Promise<boolean> {
+    const engine = this.getEngine()
+    if (!engine) return false
+
+    return engine.isToolSupported(modelId)
+  }
+
+  async checkMmprojExistsAndUpdateOffloadMMprojSetting(
+    modelId: string,
+    updateProvider?: (
+      providerName: string,
+      data: Partial<ModelProvider>
+    ) => void,
+    getProviderByName?: (providerName: string) => ModelProvider | undefined
+  ): Promise<{ exists: boolean; settingsUpdated: boolean }> {
+    let settingsUpdated = false
+
+    try {
+      const engine = this.getEngine(LOCAL_LLAMACPP_PROVIDER) as AIEngine & {
+        checkMmprojExists?: (id: string) => Promise<boolean>
+      }
+      if (engine && typeof engine.checkMmprojExists === 'function') {
+        const exists = await engine.checkMmprojExists(modelId)
+
+        // If we have the store functions, use them; otherwise fall back to localStorage
+        if (updateProvider && getProviderByName) {
+          const provider = getProviderByName('llamacpp')
+          if (provider) {
+            const model = provider.models.find((m) => m.id === modelId)
+
+            if (model?.settings) {
+              const hasOffloadMmproj = 'offload_mmproj' in model.settings
+
+              // If mmproj exists, add offload_mmproj setting (only if it doesn't exist)
+              if (exists && !hasOffloadMmproj) {
+                // Create updated models array with the new setting
+                const updatedModels = provider.models.map((m) => {
+                  if (m.id === modelId) {
+                    return {
+                      ...m,
+                      settings: {
+                        ...m.settings,
+                        offload_mmproj: {
+                          key: 'offload_mmproj',
+                          title: 'Offload MMProj',
+                          description:
+                            'Offload multimodal projection model to GPU',
+                          controller_type: 'checkbox',
+                          controller_props: {
+                            value: true,
+                          },
+                        },
+                      },
+                    }
+                  }
+                  return m
+                })
+
+                // Update the provider with the new models array
+                updateProvider('llamacpp', { models: updatedModels })
+                settingsUpdated = true
+              }
+            }
+          }
+        } else {
+          // Fall back to localStorage approach for backwards compatibility
+          try {
+            const modelProviderData = JSON.parse(
+              localStorage.getItem('model-provider') || '{}'
+            )
+            const llamacppProvider = modelProviderData.state?.providers?.find(
+              (p: { provider: string }) => p.provider === 'llamacpp'
+            )
+            const model = llamacppProvider?.models?.find(
+              (m: { id: string; settings?: Record<string, unknown> }) =>
+                m.id === modelId
+            )
+
+            if (model?.settings) {
+              // If mmproj exists, add offload_mmproj setting (only if it doesn't exist)
+              if (exists) {
+                if (!model.settings.offload_mmproj) {
+                  model.settings.offload_mmproj = {
+                    key: 'offload_mmproj',
+                    title: 'Offload MMProj',
+                    description: 'Offload multimodal projection layers to GPU',
+                    controller_type: 'checkbox',
+                    controller_props: {
+                      value: true,
+                    },
+                  }
+                  // Save updated settings back to localStorage
+                  localStorage.setItem(
+                    'model-provider',
+                    JSON.stringify(modelProviderData)
+                  )
+                  settingsUpdated = true
+                }
+              }
+            }
+          } catch (localStorageError) {
+            console.error(
+              `Error checking localStorage for model ${modelId}:`,
+              localStorageError
+            )
+          }
+        }
+
+        return { exists, settingsUpdated }
+      }
+    } catch (error) {
+      console.error(`Error checking mmproj for model ${modelId}:`, error)
+    }
+    return { exists: false, settingsUpdated }
+  }
+
+  async checkMmprojExists(modelId: string): Promise<boolean> {
+    try {
+      const engine = this.getEngine(LOCAL_LLAMACPP_PROVIDER) as AIEngine & {
+        checkMmprojExists?: (id: string) => Promise<boolean>
+      }
+      if (engine && typeof engine.checkMmprojExists === 'function') {
+        return await engine.checkMmprojExists(modelId)
+      }
+    } catch (error) {
+      console.error(`Error checking mmproj for model ${modelId}:`, error)
+    }
+    return false
+  }
+
+  private static modelSupportCache = new Map<
+    string,
+    { status: 'RED' | 'YELLOW' | 'GREEN' | 'GREY'; at: number }
+  >()
+  private static readonly MODEL_SUPPORT_CACHE_TTL_MS = 5 * 60 * 1000
+
+  static invalidateModelSupportCache(): void {
+    DefaultModelsService.modelSupportCache.clear()
+  }
+
+  async isModelSupported(
+    modelPath: string,
+    ctxSize?: number
+  ): Promise<'RED' | 'YELLOW' | 'GREEN' | 'GREY'> {
+    const cacheKey = `${modelPath}::${ctxSize ?? 'default'}`
+    const cached = DefaultModelsService.modelSupportCache.get(cacheKey)
+    const now = Date.now()
+    if (
+      cached &&
+      now - cached.at < DefaultModelsService.MODEL_SUPPORT_CACHE_TTL_MS
+    ) {
+      return cached.status
+    }
+
+    try {
+      const engine = this.getEngine(LOCAL_LLAMACPP_PROVIDER) as AIEngine & {
+        isModelSupported?: (
+          path: string,
+          ctx_size?: number
+        ) => Promise<'RED' | 'YELLOW' | 'GREEN'>
+      }
+      if (engine && typeof engine.isModelSupported === 'function') {
+        const status = await engine.isModelSupported(modelPath, ctxSize)
+        DefaultModelsService.modelSupportCache.set(cacheKey, {
+          status,
+          at: now,
+        })
+        return status
+      }
+      // Fallback if method is not available
+      console.warn('isModelSupported method not available in llamacpp engine')
+      return 'YELLOW' // Conservative fallback
+    } catch (error) {
+      console.error(`Error checking model support for ${modelPath}:`, error)
+      return 'GREY' // Error state, assume not supported
+    }
+  }
+
+  async validateGgufFile(filePath: string): Promise<ModelValidationResult> {
+    try {
+      const engine = this.getEngine(LOCAL_LLAMACPP_PROVIDER) as AIEngine & {
+        validateGgufFile?: (path: string) => Promise<ModelValidationResult>
+      }
+
+      if (engine && typeof engine.validateGgufFile === 'function') {
+        return await engine.validateGgufFile(filePath)
+      }
+
+      // If the specific method isn't available, we can fallback to a basic check
+      console.warn('validateGgufFile method not available in llamacpp engine')
+      return {
+        isValid: true, // Assume valid for now
+        error: 'Validation method not available',
+      }
+    } catch (error) {
+      console.error(`Error validating GGUF file ${filePath}:`, error)
+      return {
+        isValid: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
+
+  async getTokensCount(
+    modelId: string,
+    messages: ThreadMessage[]
+  ): Promise<number> {
+    try {
+      // Resolve the engine that currently holds the active session for this
+      // model. The session lives in whichever llama.cpp extension started it
+      // — 'llamacpp' (turboquant) or 'llamacpp-upstream' — depending on
+      // which provider the user selected. Using LOCAL_LLAMACPP_PROVIDER
+      // unconditionally always picked the upstream engine even when the
+      // turboquant provider was active, causing the /tokenize call to fail
+      // with "No active session found for model" → silent return 0.
+      const activeByProvider = await this.getLocalActiveModelsByProvider()
+      const ownerProvider = activeByProvider.find((p) =>
+        p.models.includes(modelId)
+      )
+      const engineId = ownerProvider?.provider ?? LOCAL_LLAMACPP_PROVIDER
+      const engine = this.getEngine(engineId)
+      const typedEngine = engine as AIEngine & {
+        getTokensCount?: (opts: {
+          model: string
+          messages: Array<{
+            role: string
+            content:
+              | string
+              | Array<{
+                  type: string
+                  text?: string
+                  image_url?: {
+                    detail?: string
+                    url?: string
+                  }
+                }>
+          }>
+          chat_template_kwargs?: {
+            enable_thinking: boolean
+          }
+        }) => Promise<number>
+      }
+      console.debug(
+        '[TokenCounter:service] engine found:',
+        !!engine,
+        'hasMethod:',
+        typeof typedEngine?.getTokensCount
+      )
+
+      if (typedEngine && typeof typedEngine.getTokensCount === 'function') {
+        // Transform Jan's ThreadMessage format to OpenAI chat completion format
+        const transformedMessages = messages
+          .map((message) => {
+            // Handle different content types
+            let content:
+              | string
+              | Array<{
+                  type: string
+                  text?: string
+                  image_url?: {
+                    detail?: string
+                    url?: string
+                  }
+                }> = ''
+
+            if (message.content && message.content.length > 0) {
+              // Check if there are any image_url content types
+              const hasImages = message.content.some(
+                (content) => content.type === ContentType.Image
+              )
+
+              if (hasImages) {
+                // For multimodal messages, preserve the array structure
+                content = message.content.map((contentItem) => {
+                  if (contentItem.type === ContentType.Text) {
+                    return {
+                      type: 'text',
+                      text: contentItem.text?.value || '',
+                    }
+                  } else if (contentItem.type === ContentType.Image) {
+                    return {
+                      type: 'image_url',
+                      image_url: {
+                        detail: contentItem.image_url?.detail,
+                        url: contentItem.image_url?.url || '',
+                      },
+                    }
+                  }
+                  // Fallback for unknown content types
+                  return {
+                    type: contentItem.type,
+                    text: contentItem.text?.value,
+                    image_url: contentItem.image_url,
+                  }
+                })
+              } else {
+                // For text-only messages, keep the string format
+                const textContents = message.content
+                  .filter(
+                    (content) =>
+                      content.type === ContentType.Text && content.text?.value
+                  )
+                  .map((content) => content.text?.value || '')
+
+                content = textContents.join(' ')
+              }
+            }
+
+            return {
+              role: message.role,
+              content,
+            }
+          })
+          .filter((msg) =>
+            typeof msg.content === 'string'
+              ? msg.content.trim() !== ''
+              : Array.isArray(msg.content) && msg.content.length > 0
+          ) // Filter out empty messages
+
+        // llama-server treats a trailing assistant message as a prefill and
+        // drops it, so assistant turns alone reach the chat template as an
+        // empty list, which Gemma's template rejects with a 500.
+        if (!transformedMessages.some((msg) => msg.role !== 'assistant')) {
+          return 0
+        }
+
+        console.debug(
+          '[TokenCounter:service] calling engine.getTokensCount with',
+          { modelId, msgCount: transformedMessages.length }
+        )
+        const timeoutMs = 30000
+        const result = await Promise.race([
+          typedEngine.getTokensCount({
+            model: modelId,
+            messages: transformedMessages,
+            chat_template_kwargs: {
+              enable_thinking: false,
+            },
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error('getTokensCount timed out')),
+              timeoutMs
+            )
+          ),
+        ])
+        console.debug('[TokenCounter:service] engine returned', result)
+        return result
+      }
+
+      console.warn(
+        '[TokenCounter:service] getTokensCount method not available in llamacpp engine'
+      )
+      return 0
+    } catch (error) {
+      console.error('[TokenCounter:service] error getting tokens count:', error)
+      return 0
+    }
+  }
+}
+
+/** An engine whose delete reports the space it freed (the TensorRT-LLM extension, task 3.15). */
+function reportsDeletion(engine: unknown): engine is {
+  deleteWithReport(modelId: string): Promise<ModelDeletionReport>
+} {
+  return (
+    typeof (engine as { deleteWithReport?: unknown }).deleteWithReport ===
+    'function'
+  )
+}

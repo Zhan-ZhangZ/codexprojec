@@ -1,0 +1,780 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package controllers
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/beego/beego/v2/core/utils/pagination"
+	"github.com/casdoor/casdoor/captcha"
+	"github.com/casdoor/casdoor/form"
+	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
+)
+
+const (
+	SignupVerification    = "signup"
+	ResetVerification     = "reset"
+	LoginVerification     = "login"
+	ForgetVerification    = "forget"
+	MfaSetupVerification  = "mfaSetup"
+	MfaAuthVerification   = "mfaAuth"
+	MagicLinkVerification = "magicLink"
+)
+
+// an unknown method would skip every method-specific check below, so reject it up front
+func isValidVerificationMethod(method string) bool {
+	switch method {
+	case SignupVerification, ResetVerification, LoginVerification, ForgetVerification, MfaSetupVerification, MfaAuthVerification, MagicLinkVerification:
+		return true
+	default:
+		return false
+	}
+}
+
+// GetVerifications
+// @Title GetVerifications
+// @Tag Verification API
+// @Description get verifications
+// @Param   owner     query    string  true        "The owner of verifications"
+// @Success 200 {array} object.Verification The Response object
+// @router /get-payments [get]
+func (c *ApiController) GetVerifications() {
+	organization, ok := c.RequireAdmin()
+	if !ok {
+		return
+	}
+
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+
+	owner := c.Ctx.Input.Query("owner")
+	// For global admin with organizationName parameter, use it to filter
+	// For org admin, use their organization
+	if c.IsGlobalAdmin() && owner != "" {
+		organization = owner
+	}
+
+	if limit == "" || page == "" {
+		payments, err := object.GetVerifications(organization)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(payments)
+	} else {
+		limit := util.ParseInt(limit)
+		count, err := object.GetVerificationCount(organization, field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		payments, err := object.GetPaginationVerifications(organization, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(payments, paginator.Nums())
+	}
+}
+
+// GetUserVerifications
+// @Title GetUserVerifications
+// @Tag Verification API
+// @Description get verifications for a user
+// @Param   owner     query    string  true        "The owner of verifications"
+// @Param   organization    query   string  true   "The organization of the user"
+// @Param   user    query   string  true           "The username of the user"
+// @Success 200 {array} object.Verification The Response object
+// @router /get-user-payments [get]
+func (c *ApiController) GetUserVerifications() {
+	owner := c.Ctx.Input.Query("owner")
+	user := c.Ctx.Input.Query("user")
+
+	payments, err := object.GetUserVerifications(owner, user)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(payments)
+}
+
+// GetVerification
+// @Title GetVerification
+// @Tag Verification API
+// @Description get verification
+// @Param   id     query    string  true        "The id ( owner/name ) of the verification"
+// @Success 200 {object} object.Verification The Response object
+// @router /get-payment [get]
+func (c *ApiController) GetVerification() {
+	id := c.Ctx.Input.Query("id")
+
+	payment, err := object.GetVerification(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(payment)
+}
+
+// getUserByEmail resolves the address the way object.GetUserByFields() does for the
+// sign-in and forget-password flows: signup stores the email in lowercase, so on a
+// case-sensitive database only a lowered lookup matches what the user typed.
+func getUserByEmail(owner string, email string) (*object.User, error) {
+	user, err := object.GetUserByEmail(owner, email)
+	if err != nil || user != nil {
+		return user, err
+	}
+
+	lowered := strings.ToLower(email)
+	if lowered == email {
+		return nil, nil
+	}
+
+	return object.GetUserByEmail(owner, lowered)
+}
+
+// SendVerificationCode ...
+// @Title SendVerificationCode
+// @Tag Verification API
+// @Description Send verification code to email or phone
+// @Param   dest          formData string true  "The destination email or phone number"
+// @Param   type          formData string true  "The verification type (email/phone)"
+// @Param   countryCode   formData string false "The country code for phone verification"
+// @Param   applicationId formData string true  "The application id (owner/name)"
+// @Param   method        formData string true  "The verification method (signup/login/forget/reset/mfaSetup/mfaAuth)"
+// @Param   checkUser     formData string false "The username to check"
+// @Param   captchaType   formData string true  "The captcha provider type"
+// @Param   clientSecret  formData string false "The captcha client secret"
+// @Param   captchaToken  formData string false "The captcha verification token"
+// @router /send-verification-code [post]
+// @Success 200 {object} object.Userinfo The Response object
+func (c *ApiController) SendVerificationCode() {
+	var vform form.VerificationForm
+	err := c.ParseForm(&vform)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	vform.Dest = strings.TrimSpace(vform.Dest)
+
+	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
+
+	if msg := vform.CheckParameter(form.SendVerifyCode, c.GetAcceptLanguage()); msg != "" {
+		c.ResponseError(msg)
+		return
+	}
+
+	if !isValidVerificationMethod(vform.Method) {
+		c.ResponseError(c.T("verification:Wrong parameter") + ": method.")
+		return
+	}
+
+	// a magic link is a link in an email, there is nothing to send to a phone
+	if vform.Method == MagicLinkVerification && vform.Type != object.VerifyTypeEmail {
+		c.ResponseError(c.T("verification:Wrong parameter") + ": type.")
+		return
+	}
+
+	application, err := object.GetApplication(vform.ApplicationId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if application == nil {
+		c.ResponseError(fmt.Sprintf(c.T("auth:The application: %s does not exist"), vform.ApplicationId))
+		return
+	}
+
+	// Check if "Forgot password?" signin item is visible when using forget verification
+	if vform.Method == ForgetVerification {
+		isForgotPasswordEnabled := false
+		for _, item := range application.SigninItems {
+			if item.Name == "Forgot password?" {
+				isForgotPasswordEnabled = item.Visible
+				break
+			}
+		}
+		// Block access if the signin item is not found or is explicitly hidden
+		if !isForgotPasswordEnabled {
+			c.ResponseError(c.T("verification:The forgot password feature is disabled"))
+			return
+		}
+	}
+
+	organization, err := object.GetOrganization(util.GetId(application.Owner, application.Organization))
+	if err != nil {
+		c.ResponseError(c.T(err.Error()))
+		return
+	}
+
+	if organization == nil {
+		c.ResponseError(c.T("check:Organization does not exist"))
+		return
+	}
+
+	var user *object.User
+	// Try to resolve user for CAPTCHA rule checking
+	// checkUser != "", means method is ForgetVerification
+	if vform.CheckUser != "" {
+		owner := application.Organization
+		user, err = object.GetUser(util.GetId(owner, vform.CheckUser))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if user == nil || user.IsDeleted {
+			c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+			return
+		}
+
+		if user.IsForbidden {
+			c.ResponseError(c.T("check:The user is forbidden to sign in, please contact the administrator"))
+			return
+		}
+	} else if mfaUserSession := c.getMfaUserSession(); mfaUserSession != "" {
+		// mfaUserSession != "", means method is MfaAuthVerification
+		user, err = object.GetUser(mfaUserSession)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+	} else if vform.Method == ResetVerification {
+		// For reset verification, get the current logged-in user
+		user = c.getCurrentUser()
+	} else if vform.Method == LoginVerification || vform.Method == MagicLinkVerification {
+		// For login verification, try to find user by email/phone for CAPTCHA check
+		// This is a preliminary lookup; the actual validation happens later in the switch statement
+		if vform.Type == object.VerifyTypeEmail && util.IsEmailValid(vform.Dest) {
+			user, err = getUserByEmail(organization.Name, vform.Dest)
+			if err != nil {
+				c.ResponseError(err.Error())
+				return
+			}
+		} else if vform.Type == object.VerifyTypePhone {
+			// Prefer resolving the user directly by phone, consistent with the later login switch,
+			// so that Dynamic CAPTCHA is not skipped due to missing/invalid country code.
+			user, err = object.GetUserByPhone(organization.Name, vform.Dest)
+			if err != nil {
+				c.ResponseError(err.Error())
+				return
+			}
+		}
+	}
+
+	// Determine username for CAPTCHA check
+	username := ""
+	if user != nil {
+		username = user.Name
+	} else if vform.CheckUser != "" {
+		username = vform.CheckUser
+	}
+
+	// Check if CAPTCHA should be enabled based on the rule (Dynamic/Always/Internet-Only)
+	enableCaptcha, err := object.CheckToEnableCaptcha(application, organization.Name, username, clientIp)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if vform.CaptchaToken != "" {
+		enableCaptcha = true
+	}
+
+	// Only verify CAPTCHA if it should be enabled
+	if enableCaptcha {
+		captchaProvider, err := object.GetCaptchaProviderByApplication(vform.ApplicationId, "false", c.GetAcceptLanguage())
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		if captchaProvider != nil {
+			if vform.CaptchaType != captchaProvider.Type {
+				c.ResponseError(c.T("verification:Turing test failed."))
+				return
+			}
+
+			if captchaProvider.Type != "Default" {
+				vform.ClientSecret = captchaProvider.ClientSecret
+			}
+
+			if vform.CaptchaType != "none" {
+				if captchaService := captcha.GetCaptchaProvider(vform.CaptchaType); captchaService == nil {
+					c.ResponseError(c.T("general:don't support captchaProvider: ") + vform.CaptchaType)
+					return
+				} else if isHuman, err := captchaService.VerifyCaptcha(vform.CaptchaToken, captchaProvider.ClientId, vform.ClientSecret, captchaProvider.ClientId2); err != nil {
+					c.ResponseError(err.Error())
+					return
+				} else if !isHuman {
+					c.ResponseError(c.T("verification:Turing test failed."))
+					return
+				}
+			}
+		}
+	}
+
+	sendResp := errors.New("invalid dest type")
+	var provider *object.Provider
+
+	switch vform.Type {
+	case object.VerifyTypeEmail:
+		if !util.IsEmailValid(vform.Dest) {
+			c.ResponseError(c.T("check:Email is invalid"))
+			return
+		}
+
+		if vform.Method == SignupVerification && object.HasUserByField(organization.Name, "email", strings.ToLower(vform.Dest)) {
+			c.ResponseError(c.T("check:Email already exists"))
+			return
+		}
+
+		if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+			if user != nil && util.GetMaskedEmail(user.Email) == vform.Dest {
+				vform.Dest = user.Email
+			}
+
+			user, err = getUserByEmail(organization.Name, vform.Dest)
+			if err != nil {
+				c.ResponseError(err.Error())
+				return
+			}
+
+			// the verification code grant of a native app signs the address up with the code
+			if user == nil && (vform.Method == ForgetVerification || !application.IsVerificationCodeSignupEnabled(object.VerifyTypeEmail)) {
+				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				return
+			}
+
+			if vform.Method == ForgetVerification {
+				if err = object.CheckLdapPasswordForget(user); err != nil {
+					c.ResponseError(err.Error())
+					return
+				}
+			}
+		} else if vform.Method == MagicLinkVerification {
+			if !application.IsMagicLinkEnabled() {
+				c.ResponseError(c.T("auth:The login method: login with magic link is not enabled for the application"))
+				return
+			}
+
+			user, err = getUserByEmail(organization.Name, vform.Dest)
+			if err != nil {
+				c.ResponseError(err.Error())
+				return
+			}
+
+			if user == nil {
+				// the address has no account yet, the link may only create one when the
+				// application's signin method says so
+				if !application.IsMagicLinkSignupEnabled() {
+					c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+					return
+				}
+
+				if err = object.CheckMagicLinkSignup(application, c.GetAcceptLanguage()); err != nil {
+					c.ResponseError(err.Error())
+					return
+				}
+			} else if user.IsDeleted || user.IsForbidden {
+				c.ResponseError(c.T("check:The user is forbidden to sign in, please contact the administrator"))
+				return
+			}
+		} else if vform.Method == ResetVerification {
+			user = c.getCurrentUser()
+		} else if vform.Method == MfaAuthVerification {
+			if user == nil {
+				c.ResponseError(c.T("general:Please sign in first"))
+				return
+			}
+			mfaProps := user.GetMfaProps(object.EmailType, false)
+			if util.GetMaskedEmail(mfaProps.Secret) == vform.Dest {
+				vform.Dest = mfaProps.Secret
+			}
+		}
+
+		provider, err = application.GetEmailProvider(vform.Method)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if provider == nil {
+			c.ResponseError(fmt.Sprintf(c.T("verification:please add an Email provider to the \"Providers\" list for the application: %s"), application.Name))
+			return
+		}
+
+		// let a "Custom HTTP Email" webhook localize the email, a signup code is sent before the user exists
+		if provider.HttpHeaders == nil {
+			provider.HttpHeaders = map[string]string{}
+		}
+		if _, ok := provider.HttpHeaders["Accept-Language"]; !ok {
+			provider.HttpHeaders["Accept-Language"] = c.GetAcceptLanguage()
+		}
+
+		if vform.Method == MagicLinkVerification {
+			sendResp = object.SendMagicLinkToEmail(organization, user, provider, clientIp, vform.Dest, c.Ctx.Request.Host, vform.SigninPath, application, c.newMagicLinkSessionHash(), c.GetAcceptLanguage())
+		} else {
+			sendResp = object.SendVerificationCodeToEmail(organization, user, provider, clientIp, vform.Dest, vform.Method, c.Ctx.Request.Host, application.Name, application, c.GetAcceptLanguage())
+		}
+	case object.VerifyTypePhone:
+		if vform.Method == SignupVerification {
+			phone, countryCode, _ := util.GetNormalizedPhone(vform.Dest, vform.CountryCode)
+			if object.HasUserByPhoneAndCountryCode(organization.Name, phone, countryCode) {
+				c.ResponseError(c.T("check:Phone already exists"))
+				return
+			}
+		}
+
+		if vform.Method == LoginVerification || vform.Method == ForgetVerification {
+			if user != nil && util.GetMaskedPhone(user.Phone) == vform.Dest {
+				vform.Dest = user.Phone
+			}
+
+			if user, err = object.GetUserByPhone(organization.Name, vform.Dest); err != nil {
+				c.ResponseError(err.Error())
+				return
+			} else if user == nil && (vform.Method == ForgetVerification || !application.IsVerificationCodeSignupEnabled(object.VerifyTypePhone)) {
+				c.ResponseError(c.T("verification:the user does not exist, please sign up first"))
+				return
+			}
+
+			if vform.Method == ForgetVerification {
+				if err = object.CheckLdapPasswordForget(user); err != nil {
+					c.ResponseError(err.Error())
+					return
+				}
+			}
+
+			if user != nil {
+				vform.CountryCode = user.GetCountryCode(vform.CountryCode)
+			} else if vform.CountryCode == "" && !strings.HasPrefix(vform.Dest, "+") && len(organization.CountryCodes) > 0 {
+				vform.CountryCode = organization.CountryCodes[0]
+			}
+		} else if vform.Method == ResetVerification || vform.Method == MfaSetupVerification {
+			if vform.CountryCode == "" {
+				if user = c.getCurrentUser(); user != nil {
+					vform.CountryCode = user.GetCountryCode(vform.CountryCode)
+				}
+			}
+		} else if vform.Method == MfaAuthVerification {
+			if user == nil {
+				c.ResponseError(c.T("general:Please sign in first"))
+				return
+			}
+			mfaProps := user.GetMfaProps(object.SmsType, false)
+			if util.GetMaskedPhone(mfaProps.Secret) == vform.Dest {
+				vform.Dest = mfaProps.Secret
+			}
+
+			vform.CountryCode = mfaProps.CountryCode
+			vform.CountryCode = user.GetCountryCode(vform.CountryCode)
+		}
+
+		provider, err = application.GetSmsProvider(vform.Method, vform.CountryCode)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if provider == nil {
+			c.ResponseError(fmt.Sprintf(c.T("verification:please add a SMS provider to the \"Providers\" list for the application: %s"), application.Name))
+			return
+		}
+
+		if phone, ok := util.GetE164Number(vform.Dest, vform.CountryCode); !ok {
+			c.ResponseError(fmt.Sprintf(c.T("verification:Phone number is invalid in your region %s"), vform.CountryCode))
+			return
+		} else {
+			sendResp = object.SendVerificationCodeToPhone(organization, user, provider, clientIp, phone, application, c.GetAcceptLanguage())
+		}
+	}
+
+	if sendResp != nil {
+		c.ResponseError(sendResp.Error())
+	} else {
+		c.ResponseOk()
+	}
+}
+
+// VerifyCaptcha ...
+// @Title VerifyCaptcha
+// @Tag Verification API
+// @Description Verify a captcha token
+// @Param   captchaType   formData string true "The captcha provider type"
+// @Param   captchaToken  formData string true "The captcha verification token"
+// @Param   clientSecret  formData string true "The captcha client secret"
+// @Param   applicationId formData string true "The application id (owner/name)"
+// @router /verify-captcha [post]
+// @Success 200 {object} object.Userinfo The Response object
+func (c *ApiController) VerifyCaptcha() {
+	var vform form.VerificationForm
+	err := c.ParseForm(&vform)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if msg := vform.CheckParameter(form.VerifyCaptcha, c.GetAcceptLanguage()); msg != "" {
+		c.ResponseError(msg)
+		return
+	}
+
+	captchaProvider, err := object.GetCaptchaProviderByOwnerName(vform.ApplicationId, c.GetAcceptLanguage())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if captchaProvider.Type != "Default" {
+		vform.ClientSecret = captchaProvider.ClientSecret
+	}
+
+	provider := captcha.GetCaptchaProvider(vform.CaptchaType)
+	if provider == nil {
+		c.ResponseError(c.T("verification:Invalid captcha provider."))
+		return
+	}
+
+	isValid, err := provider.VerifyCaptcha(vform.CaptchaToken, captchaProvider.ClientId, vform.ClientSecret, captchaProvider.ClientId2)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(isValid)
+}
+
+// ResetEmailOrPhone ...
+// @Tag Account API
+// @Title ResetEmailOrPhone
+// @Description Reset user email or phone with verification code
+// @Param   type formData string true "The destination type (email/phone)"
+// @Param   dest formData string true "The new email or phone number"
+// @Param   code formData string true "The verification code"
+// @router /reset-email-or-phone [post]
+// @Success 200 {object} object.Userinfo The Response object
+func (c *ApiController) ResetEmailOrPhone() {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return
+	}
+
+	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
+
+	destType := c.Ctx.Request.Form.Get("type")
+	dest := c.Ctx.Request.Form.Get("dest")
+	code := c.Ctx.Request.Form.Get("code")
+
+	if util.IsStringsEmpty(destType, dest, code) {
+		c.ResponseError(c.T("general:Missing parameter"))
+		return
+	}
+
+	checkDest := dest
+	organization, err := object.GetOrganizationByUser(user)
+	if err != nil {
+		c.ResponseError(c.T(err.Error()))
+		return
+	}
+
+	countryCode := user.GetCountryCode("")
+	if destType == object.VerifyTypePhone {
+		normalizedPhone, normalizedCountryCode, isValid := util.GetNormalizedPhone(dest, countryCode)
+		if !isValid {
+			c.ResponseError(fmt.Sprintf(c.T("verification:Phone number is invalid in your region %s"), countryCode))
+			return
+		}
+
+		dest, countryCode = normalizedPhone, normalizedCountryCode
+
+		if object.HasUserByPhoneAndCountryCode(user.Owner, dest, countryCode) {
+			c.ResponseError(c.T("check:Phone already exists"))
+			return
+		}
+
+		phoneItem := object.GetAccountItemByName("Phone", organization)
+		if phoneItem == nil {
+			c.ResponseError(c.T("verification:Unable to get the phone modify rule."))
+			return
+		}
+
+		if pass, errMsg := object.CheckAccountItemModifyRule(phoneItem, user.IsAdminUser(), c.GetAcceptLanguage()); !pass {
+			c.ResponseError(errMsg)
+			return
+		}
+		if checkDest, ok = util.GetE164Number(dest, countryCode); !ok {
+			c.ResponseError(fmt.Sprintf(c.T("verification:Phone number is invalid in your region %s"), countryCode))
+			return
+		}
+	} else if destType == object.VerifyTypeEmail {
+		if object.HasUserByField(user.Owner, "email", dest) {
+			c.ResponseError(c.T("check:Email already exists"))
+			return
+		}
+
+		emailItem := object.GetAccountItemByName("Email", organization)
+		if emailItem == nil {
+			c.ResponseError(c.T("verification:Unable to get the email modify rule."))
+			return
+		}
+
+		if pass, errMsg := object.CheckAccountItemModifyRule(emailItem, user.IsAdminUser(), c.GetAcceptLanguage()); !pass {
+			c.ResponseError(errMsg)
+			return
+		}
+	}
+
+	err = object.CheckVerifyCodeWithLimitAndIp(user, clientIp, checkDest, code, c.GetAcceptLanguage())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	switch destType {
+	case object.VerifyTypeEmail:
+		id := user.GetId()
+		user.Email = dest
+		user.EmailVerified = true
+		columns := []string{"email", "email_verified"}
+		if organization.UseEmailAsUsername {
+			user.Name = user.Email
+			columns = append(columns, "name")
+		}
+		_, err = object.UpdateUser(id, user, columns, false)
+	case object.VerifyTypePhone:
+		user.Phone = dest
+		user.CountryCode = countryCode
+		_, err = object.UpdateUser(user.GetId(), user, []string{"phone", "country_code"}, false)
+	default:
+		c.ResponseError(c.T("verification:Unknown type"))
+		return
+	}
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+	if organization.UseEmailAsUsername {
+		c.SetSessionUsername(user.GetId())
+	}
+
+	err = object.DisableVerificationCode(checkDest)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk()
+}
+
+// VerifyCode
+// @Tag Verification API
+// @Title VerifyCode
+// @Description Verify a verification code
+// @Param   body body form.AuthForm true "Verification request"
+// @router /verify-code [post]
+// @Success 200 {object} object.Userinfo The Response object
+func (c *ApiController) VerifyCode() {
+	var authForm form.AuthForm
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &authForm)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	var user *object.User
+	if authForm.Name != "" {
+		user, err = object.GetUserByFields(authForm.Organization, authForm.Name)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+	}
+
+	var checkDest string
+	if strings.Contains(authForm.Username, "@") {
+		if user != nil && util.GetMaskedEmail(user.Email) == authForm.Username {
+			authForm.Username = user.Email
+		}
+		checkDest = authForm.Username
+	} else {
+		if user != nil && util.GetMaskedPhone(user.Phone) == authForm.Username {
+			authForm.Username = user.Phone
+		}
+	}
+
+	// For phone-based lookup, normalise to E.164 before querying so that users
+	// in different countries sharing the same local number are distinguished correctly.
+	lookupUsername := authForm.Username
+	if !strings.Contains(authForm.Username, "@") && authForm.CountryCode != "" {
+		if e164, ok := util.GetE164Number(authForm.Username, authForm.CountryCode); ok {
+			lookupUsername = e164
+		}
+	}
+
+	if user, err = object.GetUserByFields(authForm.Organization, lookupUsername); err != nil {
+		c.ResponseError(err.Error())
+		return
+	} else if user == nil {
+		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+		return
+	}
+
+	verificationCodeType := object.GetVerifyType(authForm.Username)
+	if verificationCodeType == object.VerifyTypePhone {
+		authForm.CountryCode = user.GetCountryCode(authForm.CountryCode)
+		var ok bool
+		if checkDest, ok = util.GetE164Number(authForm.Username, authForm.CountryCode); !ok {
+			c.ResponseError(fmt.Sprintf(c.T("verification:Phone number is invalid in your region %s"), authForm.CountryCode))
+			return
+		}
+	}
+
+	if !object.IsUserVerifyDest(user, checkDest, authForm.CountryCode) {
+		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), util.GetId(authForm.Organization, authForm.Username)))
+		return
+	}
+
+	isMasterCode, err := c.checkVerifyCodeOrOrgMasterCode(user, checkDest, authForm.Code)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if !isMasterCode {
+		err = object.DisableVerificationCode(checkDest)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+	}
+
+	c.SetSession("verifiedCode", authForm.Code)
+	c.SetSession("verifiedUserId", user.GetId())
+	c.ResponseOk()
+}

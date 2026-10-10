@@ -1,0 +1,842 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
+
+	"github.com/beego/beego/v2/server/web/context"
+	"github.com/casdoor/casdoor/i18n"
+	"github.com/casdoor/casdoor/idp"
+	"github.com/casdoor/casdoor/idv"
+	"github.com/casdoor/casdoor/log"
+	"github.com/casdoor/casdoor/pp"
+	"github.com/casdoor/casdoor/util"
+	"github.com/xorm-io/core"
+)
+
+type Provider struct {
+	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name        string `xorm:"varchar(100) notnull pk unique" json:"name"`
+	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
+
+	DisplayName       string            `xorm:"varchar(100)" json:"displayName"`
+	Category          string            `xorm:"varchar(100)" json:"category"`
+	Type              string            `xorm:"varchar(100)" json:"type"`
+	SubType           string            `xorm:"varchar(100)" json:"subType"`
+	Method            string            `xorm:"varchar(100)" json:"method"`
+	ClientId          string            `xorm:"varchar(200)" json:"clientId"`
+	ClientSecret      string            `xorm:"varchar(3000)" json:"clientSecret"`
+	ClientId2         string            `xorm:"varchar(100)" json:"clientId2"`
+	ClientSecret2     string            `xorm:"varchar(500)" json:"clientSecret2"`
+	Cert              string            `xorm:"varchar(100)" json:"cert"`
+	CustomAuthUrl     string            `xorm:"varchar(200)" json:"customAuthUrl"`
+	CustomTokenUrl    string            `xorm:"varchar(200)" json:"customTokenUrl"`
+	CustomUserInfoUrl string            `xorm:"varchar(200)" json:"customUserInfoUrl"`
+	CustomLogoutUrl   string            `xorm:"varchar(200)" json:"customLogoutUrl"`
+	CustomLogo        string            `xorm:"varchar(200)" json:"customLogo"`
+	Scopes            string            `xorm:"varchar(200)" json:"scopes"`
+	UserMapping       map[string]string `xorm:"varchar(500)" json:"userMapping"`
+	HttpHeaders       map[string]string `xorm:"varchar(500)" json:"httpHeaders"`
+
+	Host       string `xorm:"varchar(100)" json:"host"`
+	Port       int    `json:"port"`
+	DisableSsl bool   `json:"disableSsl"`                  // Deprecated: Use SslMode instead. If the provider type is WeChat, DisableSsl means EnableQRCode, if type is Google, it means sync phone number
+	SslMode    string `xorm:"varchar(100)" json:"sslMode"` // "Auto" (empty means Auto), "Enable", "Disable"
+	Title      string `xorm:"varchar(100)" json:"title"`
+	Content    string `xorm:"mediumtext" json:"content"` // If provider type is WeChat, Content means QRCode string by Base64 encoding
+	Receiver   string `xorm:"varchar(100)" json:"receiver"`
+
+	RegionId     string `xorm:"varchar(100)" json:"regionId"`
+	SignName     string `xorm:"varchar(100)" json:"signName"`
+	TemplateCode string `xorm:"varchar(100)" json:"templateCode"`
+	AppId        string `xorm:"varchar(100)" json:"appId"`
+
+	Endpoint         string `xorm:"varchar(1000)" json:"endpoint"`
+	IntranetEndpoint string `xorm:"varchar(100)" json:"intranetEndpoint"`
+	Domain           string `xorm:"varchar(100)" json:"domain"`
+	Bucket           string `xorm:"varchar(100)" json:"bucket"`
+	PathPrefix       string `xorm:"varchar(100)" json:"pathPrefix"`
+
+	Metadata               string `xorm:"mediumtext" json:"metadata"`
+	IdP                    string `xorm:"mediumtext" json:"idP"`
+	IssuerUrl              string `xorm:"varchar(100)" json:"issuerUrl"`
+	EnableSignAuthnRequest bool   `json:"enableSignAuthnRequest"`
+	EmailRegex             string `xorm:"varchar(200)" json:"emailRegex"`
+
+	ProviderUrl string `xorm:"varchar(200)" json:"providerUrl"`
+	EnableProxy bool   `json:"enableProxy"`
+	EnablePkce  bool   `json:"enablePkce"`
+
+	RequireMessageAuthenticator bool `json:"requireMessageAuthenticator"`
+
+	State string `xorm:"varchar(100)" json:"state"`
+}
+
+func GetMaskedProvider(provider *Provider, isMaskEnabled bool) *Provider {
+	if !isMaskEnabled {
+		return provider
+	}
+
+	if provider == nil {
+		return nil
+	}
+
+	if provider.ClientSecret != "" {
+		provider.ClientSecret = "***"
+	}
+
+	if provider.Category != "Email" {
+		if provider.ClientSecret2 != "" {
+			provider.ClientSecret2 = "***"
+		}
+	}
+
+	provider.HttpHeaders = getMaskedHttpHeaders(provider.HttpHeaders)
+
+	if isProviderContentSecret(provider) && provider.Content != "" {
+		provider.Content = "***"
+	}
+	if isProviderMetadataSecret(provider) && provider.Metadata != "" {
+		provider.Metadata = "***"
+	}
+
+	return provider
+}
+
+func isProviderContentSecret(provider *Provider) bool {
+	return provider.Type == "WeChat"
+}
+
+func isProviderMetadataSecret(provider *Provider) bool {
+	return provider.Type == "Google Chat"
+}
+
+func getMaskedHttpHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+
+	res := map[string]string{}
+	for key, value := range headers {
+		if value != "" {
+			value = "***"
+		}
+		res[key] = value
+	}
+	return res
+}
+
+func IsHttpHeadersMasked(headers map[string]string) bool {
+	for _, value := range headers {
+		if value == "***" {
+			return true
+		}
+	}
+	return false
+}
+
+func RestoreMaskedHttpHeaders(headers map[string]string, oldHeaders map[string]string) map[string]string {
+	for key, value := range headers {
+		if value == "***" {
+			headers[key] = oldHeaders[key]
+		}
+	}
+	return headers
+}
+
+func GetMaskedProviders(providers []*Provider, isMaskEnabled bool) []*Provider {
+	if !isMaskEnabled {
+		return providers
+	}
+
+	for _, provider := range providers {
+		provider = GetMaskedProvider(provider, isMaskEnabled)
+	}
+	return providers
+}
+
+func getProviderFilterField(field string) string {
+	if strings.EqualFold(field, "content") || strings.EqualFold(field, "metadata") {
+		return ""
+	}
+	return field
+}
+
+func GetProviderCount(owner, field, value string) (int64, error) {
+	session := GetSession("", -1, -1, getProviderFilterField(field), value, "", "")
+	return session.Where("owner = ? or owner = ? ", "admin", owner).Count(&Provider{})
+}
+
+func GetGlobalProviderCount(field, value string) (int64, error) {
+	session := GetSession("", -1, -1, field, value, "", "")
+	return session.Count(&Provider{})
+}
+
+func GetProviders(owner string) ([]*Provider, error) {
+	providers := []*Provider{}
+	err := ormer.Engine.Where("owner = ? or owner = ? ", "admin", owner).Desc("created_time").Find(&providers, &Provider{})
+	if err != nil {
+		return providers, err
+	}
+
+	return providers, nil
+}
+
+func GetProvidersByCategory(owner string, category string) ([]*Provider, error) {
+	providers := []*Provider{}
+	err := ormer.Engine.Where("(owner = ? or owner = ?) and category = ?", "admin", owner, category).Desc("created_time").Find(&providers, &Provider{})
+	if err != nil {
+		return providers, err
+	}
+
+	return providers, nil
+}
+
+func GetGlobalProviders() ([]*Provider, error) {
+	providers := []*Provider{}
+	err := ormer.Engine.Desc("created_time").Find(&providers)
+	if err != nil {
+		return providers, err
+	}
+
+	return providers, nil
+}
+
+func GetPaginationProviders(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Provider, error) {
+	providers := []*Provider{}
+	session := GetSession("", offset, limit, getProviderFilterField(field), value, sortField, sortOrder)
+	err := session.Where("owner = ? or owner = ? ", "admin", owner).Find(&providers)
+	if err != nil {
+		return providers, err
+	}
+
+	return providers, nil
+}
+
+func GetPaginationGlobalProviders(offset, limit int, field, value, sortField, sortOrder string) ([]*Provider, error) {
+	providers := []*Provider{}
+	session := GetSession("", offset, limit, field, value, sortField, sortOrder)
+	err := session.Find(&providers)
+	if err != nil {
+		return providers, err
+	}
+
+	return providers, nil
+}
+
+func getProvider(owner string, name string) (*Provider, error) {
+	if owner == "" || name == "" {
+		return nil, nil
+	}
+
+	provider := Provider{Name: name}
+	existed, err := ormer.Engine.Get(&provider)
+	if err != nil {
+		return &provider, err
+	}
+
+	if existed {
+		return &provider, nil
+	} else {
+		return nil, nil
+	}
+}
+
+func GetProvider(id string) (*Provider, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
+	return getProvider(owner, name)
+}
+
+func GetWechatMiniProgramProvider(application *Application) *Provider {
+	providers := application.Providers
+	for _, provider := range providers {
+		if provider.Provider.Type == "WeChatMiniProgram" {
+			return provider.Provider
+		}
+	}
+	return nil
+}
+
+func UpdateProvider(id string, provider *Provider) (bool, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return false, err
+	}
+	p, err := getProvider(owner, name)
+	if err != nil {
+		return false, err
+	} else if p == nil {
+		return false, nil
+	}
+
+	provider.HttpHeaders = RestoreMaskedHttpHeaders(provider.HttpHeaders, p.HttpHeaders)
+
+	if provider.EmailRegex != "" {
+		_, err := regexp.Compile(provider.EmailRegex)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	if provider.Type == ProviderTypeLocalFileSystem {
+		for _, component := range strings.Split(provider.PathPrefix, "/") {
+			if component == ".." {
+				return false, fmt.Errorf("the pathPrefix: %s is not allowed", provider.PathPrefix)
+			}
+		}
+	}
+
+	if err := fillOpenClawProviderDefaults(provider); err != nil {
+		return false, err
+	}
+
+	if err := validateAuditProvider(provider); err != nil {
+		return false, err
+	}
+
+	if name != provider.Name {
+		err := providerChangeTrigger(owner, name, provider.Name)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	session := ormer.Engine.ID(core.PK{owner, name}).AllCols()
+	if provider.ClientSecret == "***" {
+		session = session.Omit("client_secret")
+	}
+	if provider.ClientSecret2 == "***" {
+		session = session.Omit("client_secret2")
+	}
+	if provider.Content == "***" && isProviderContentSecret(provider) {
+		session = session.Omit("content")
+	}
+	if provider.Metadata == "***" && isProviderMetadataSecret(provider) {
+		session = session.Omit("metadata")
+	}
+
+	if provider.Type == "Tencent Cloud COS" {
+		provider.Endpoint = util.GetEndPoint(provider.Endpoint)
+		provider.IntranetEndpoint = util.GetEndPoint(provider.IntranetEndpoint)
+	}
+
+	affected, err := session.Update(provider)
+	if err != nil {
+		return false, err
+	}
+
+	if affected != 0 {
+		refreshLogProviderRuntime(util.GetId(owner, name), provider)
+		stopAuditProvider(util.GetId(owner, name))
+	}
+
+	return affected != 0, nil
+}
+
+func AddProvider(provider *Provider) (bool, error) {
+	if provider.Type == "Tencent Cloud COS" {
+		provider.Endpoint = util.GetEndPoint(provider.Endpoint)
+		provider.IntranetEndpoint = util.GetEndPoint(provider.IntranetEndpoint)
+	}
+
+	if provider.EmailRegex != "" {
+		_, err := regexp.Compile(provider.EmailRegex)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	if provider.Type == ProviderTypeLocalFileSystem {
+		for _, component := range strings.Split(provider.PathPrefix, "/") {
+			if component == ".." {
+				return false, fmt.Errorf("the pathPrefix: %s is not allowed", provider.PathPrefix)
+			}
+		}
+	}
+
+	if err := fillOpenClawProviderDefaults(provider); err != nil {
+		return false, err
+	}
+
+	if err := validateAuditProvider(provider); err != nil {
+		return false, err
+	}
+
+	affected, err := ormer.Engine.Insert(provider)
+	if err != nil {
+		return false, err
+	}
+
+	if affected != 0 {
+		refreshLogProviderRuntime("", provider)
+	}
+
+	return affected != 0, nil
+}
+
+func DeleteProvider(provider *Provider) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{provider.Owner, provider.Name}).Delete(&Provider{})
+	if err != nil {
+		return false, err
+	}
+
+	if affected != 0 {
+		stopLogProviderRuntime(provider.GetId())
+		stopAuditProvider(provider.GetId())
+	}
+
+	return affected != 0, nil
+}
+
+func GetPaymentProvider(p *Provider) (pp.PaymentProvider, error) {
+	cert := &Cert{}
+	if p.Cert != "" {
+		var err error
+		cert, err = GetCert(util.GetId(p.Owner, p.Cert))
+		if err != nil {
+			return nil, err
+		}
+
+		if cert == nil {
+			return nil, fmt.Errorf("the cert: %s does not exist", p.Cert)
+		}
+	}
+	typ := p.Type
+	if typ == "Dummy" {
+		pp, err := pp.NewDummyPaymentProvider()
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "Alipay" {
+		if p.Metadata != "" {
+			// alipay provider store rootCert's name in metadata
+			rootCert, err := GetCert(util.GetId(p.Owner, p.Metadata))
+			if err != nil {
+				return nil, err
+			}
+			if rootCert == nil {
+				return nil, fmt.Errorf("the cert: %s does not exist", p.Metadata)
+			}
+			pp, err := pp.NewAlipayPaymentProvider(p.ClientId, cert.Certificate, cert.PrivateKey, rootCert.Certificate, rootCert.PrivateKey)
+			if err != nil {
+				return nil, err
+			}
+			return pp, nil
+		} else {
+			return nil, fmt.Errorf("the metadata of alipay provider is empty")
+		}
+	} else if typ == "GC" {
+		return pp.NewGcPaymentProvider(p.ClientId, p.ClientSecret, p.Host), nil
+	} else if typ == "WeChat Pay" {
+		pp, err := pp.NewWechatPaymentProvider(p.ClientId, p.ClientSecret, p.ClientId2, cert.Certificate, cert.PrivateKey)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "PayPal" {
+		pp, err := pp.NewPaypalPaymentProvider(p.ClientId, p.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "Stripe" {
+		pp, err := pp.NewStripePaymentProvider(p.ClientId, p.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "AirWallex" {
+		pp, err := pp.NewAirwallexPaymentProvider(p.ClientId, p.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "Balance" {
+		pp, err := pp.NewBalancePaymentProvider()
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "Polar" {
+		pp, err := pp.NewPolarPaymentProvider(p.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "Paddle" {
+		pp, err := pp.NewPaddlePaymentProvider(p.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "FastSpring" {
+		pp, err := pp.NewFastSpringPaymentProvider(p.ClientId, p.ClientSecret, p.Host)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "Lemon Squeezy" {
+		pp, err := pp.NewLemonSqueezyPaymentProvider(p.ClientId, p.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else if typ == "Adyen" {
+		pp, err := pp.NewAdyenPaymentProvider(p.ClientSecret, p.ClientId2)
+		if err != nil {
+			return nil, err
+		}
+		return pp, nil
+	} else {
+		return nil, fmt.Errorf("the payment provider type: %s is not supported", p.Type)
+	}
+}
+
+func (p *Provider) GetId() string {
+	return fmt.Sprintf("%s/%s", p.Owner, p.Name)
+}
+
+func GetCaptchaProviderByOwnerName(applicationId, lang string) (*Provider, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(applicationId)
+	if err != nil {
+		return nil, err
+	}
+	provider := Provider{Owner: owner, Name: name, Category: "Captcha"}
+	existed, err := ormer.Engine.Get(&provider)
+	if err != nil {
+		return nil, err
+	}
+
+	if !existed {
+		return nil, fmt.Errorf(i18n.Translate(lang, "provider:the provider: %s does not exist"), applicationId)
+	}
+
+	return &provider, nil
+}
+
+func GetCaptchaProviderByApplication(applicationId, isCurrentProvider, lang string) (*Provider, error) {
+	if isCurrentProvider == "true" {
+		return GetCaptchaProviderByOwnerName(applicationId, lang)
+	}
+	application, err := GetApplication(applicationId)
+	if err != nil {
+		return nil, err
+	}
+
+	if application == nil || len(application.Providers) == 0 {
+		return nil, errors.New(i18n.Translate(lang, "provider:Invalid application id"))
+	}
+
+	providerItem := GetCaptchaProviderItem(application)
+	if providerItem == nil {
+		return nil, nil
+	}
+	return GetCaptchaProviderByOwnerName(util.GetId(providerItem.Provider.Owner, providerItem.Provider.Name), lang)
+}
+
+func GetFaceIdProviderByOwnerName(applicationId, lang string) (*Provider, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(applicationId)
+	if err != nil {
+		return nil, err
+	}
+	provider := Provider{Owner: owner, Name: name, Category: "Face ID"}
+	existed, err := ormer.Engine.Get(&provider)
+	if err != nil {
+		return nil, err
+	}
+
+	if !existed {
+		return nil, fmt.Errorf(i18n.Translate(lang, "provider:the provider: %s does not exist"), applicationId)
+	}
+
+	return &provider, nil
+}
+
+func GetFaceIdProviderByApplication(applicationId, isCurrentProvider, lang string) (*Provider, error) {
+	if isCurrentProvider == "true" {
+		return GetFaceIdProviderByOwnerName(applicationId, lang)
+	}
+	application, err := GetApplication(applicationId)
+	if err != nil {
+		return nil, err
+	}
+
+	if application == nil || len(application.Providers) == 0 {
+		return nil, errors.New(i18n.Translate(lang, "provider:Invalid application id"))
+	}
+	for _, provider := range application.Providers {
+		if provider.Provider == nil {
+			continue
+		}
+		if provider.Provider.Category == "Face ID" {
+			return GetFaceIdProviderByOwnerName(util.GetId(provider.Provider.Owner, provider.Provider.Name), lang)
+		}
+	}
+	return nil, nil
+}
+
+func GetIdvProviderByOwnerName(applicationId, lang string) (*Provider, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(applicationId)
+	if err != nil {
+		return nil, err
+	}
+	provider := Provider{Owner: owner, Name: name, Category: "ID Verification"}
+	existed, err := ormer.Engine.Get(&provider)
+	if err != nil {
+		return nil, err
+	}
+
+	if !existed {
+		return nil, fmt.Errorf(i18n.Translate(lang, "provider:the provider: %s does not exist"), applicationId)
+	}
+
+	return &provider, nil
+}
+
+func GetIdvProviderByApplication(applicationId, isCurrentProvider, lang string) (*Provider, error) {
+	if isCurrentProvider == "true" {
+		return GetIdvProviderByOwnerName(applicationId, lang)
+	}
+	application, err := GetApplication(applicationId)
+	if err != nil {
+		return nil, err
+	}
+
+	if application == nil || len(application.Providers) == 0 {
+		return nil, errors.New(i18n.Translate(lang, "provider:Invalid application id"))
+	}
+	for _, provider := range application.Providers {
+		if provider.Provider == nil {
+			continue
+		}
+		if provider.Provider.Category == "ID Verification" {
+			return GetIdvProviderByOwnerName(util.GetId(provider.Provider.Owner, provider.Provider.Name), lang)
+		}
+	}
+	return nil, nil
+}
+
+func providerChangeTrigger(owner string, oldName string, newName string) error {
+	session := ormer.Engine.NewSession()
+	defer session.Close()
+
+	err := session.Begin()
+	if err != nil {
+		return err
+	}
+
+	// global ("admin") providers are visible to every organization, others only to their own
+	var applications []*Application
+	if owner == "admin" {
+		err = ormer.Engine.Find(&applications)
+	} else {
+		err = ormer.Engine.Where("organization=?", owner).Find(&applications)
+	}
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(applications); i++ {
+		changed := false
+		providers := applications[i].Providers
+		for j := 0; j < len(providers); j++ {
+			if providers[j].Name == oldName {
+				providers[j].Name = newName
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		applications[i].Providers = providers
+		_, err = session.Where("owner=?", applications[i].Owner).And("name=?", applications[i].Name).Cols("providers").Update(applications[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	resourceSession := session.Where("provider=?", oldName)
+	if owner != "admin" {
+		resourceSession = resourceSession.And("owner=?", owner)
+	}
+	_, err = resourceSession.Cols("provider").Update(&Resource{Provider: newName})
+	if err != nil {
+		return err
+	}
+
+	_, err = session.Where("owner = ? AND provider_name = ?", owner, oldName).Cols("provider_name").Update(&ThirdPartyLink{ProviderName: newName})
+	if err != nil {
+		return err
+	}
+
+	return session.Commit()
+}
+
+func FromProviderToIdpInfo(ctx *context.Context, provider *Provider) (*idp.ProviderInfo, error) {
+	providerInfo := &idp.ProviderInfo{
+		Type:          provider.Type,
+		SubType:       provider.SubType,
+		ClientId:      provider.ClientId,
+		ClientSecret:  provider.ClientSecret,
+		ClientId2:     provider.ClientId2,
+		ClientSecret2: provider.ClientSecret2,
+		AppId:         provider.AppId,
+		HostUrl:       provider.Host,
+		TokenURL:      provider.CustomTokenUrl,
+		AuthURL:       provider.CustomAuthUrl,
+		UserInfoURL:   provider.CustomUserInfoUrl,
+		UserMapping:   provider.UserMapping,
+		DisableSsl:    provider.DisableSsl,
+	}
+
+	if provider.Type == "WeChat" {
+		if ctx != nil && strings.Contains(ctx.Request.UserAgent(), "MicroMessenger") {
+			providerInfo.ClientId = provider.ClientId2
+			providerInfo.ClientSecret = provider.ClientSecret2
+		}
+	} else if provider.Type == "ADFS" || provider.Type == "AzureAD" || provider.Type == "AzureADB2C" || provider.Type == "Casdoor" || provider.Type == "Okta" || provider.Type == "OIDC" {
+		providerInfo.HostUrl = provider.Domain
+	} else if provider.Type == "Alipay" && provider.Cert != "" {
+		cert, err := GetCert(util.GetId(provider.Owner, provider.Cert))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load certificate for Alipay provider %s: %w", provider.Name, err)
+		}
+		if cert == nil {
+			return nil, fmt.Errorf("certificate not found for Alipay provider %s", provider.Name)
+		}
+		providerInfo.ClientSecret = cert.PrivateKey
+		providerInfo.AppCertificate = cert.Certificate
+		if provider.Metadata != "" {
+			rootCert, err := GetCert(util.GetId(provider.Owner, provider.Metadata))
+			if err != nil {
+				return nil, fmt.Errorf("failed to load root certificate for Alipay provider %s: %w", provider.Name, err)
+			}
+			if rootCert == nil {
+				return nil, fmt.Errorf("root certificate not found for Alipay provider %s", provider.Name)
+			}
+			providerInfo.RootCertificate = rootCert.PrivateKey
+		}
+	}
+
+	return providerInfo, nil
+}
+
+func GetIdvProviderFromProvider(provider *Provider) idv.IdvProvider {
+	if provider.Category != "ID Verification" {
+		return nil
+	}
+	return idv.GetIdvProvider(provider.Type, provider.ClientId, provider.ClientSecret, provider.Endpoint)
+}
+
+func GetLogProviderFromProvider(provider *Provider) (log.LogProvider, error) {
+	if provider.Category != "Log" {
+		return nil, fmt.Errorf("provider %s category is not Log", provider.Name)
+	}
+
+	if provider.Type == "Casdoor Permission Log" {
+		return log.NewPermissionLogProvider(provider.Name, func(owner, createdTime, providerName, message string) error {
+			name := log.GenerateEntryName()
+			entry := &Entry{
+				Owner:       owner,
+				Name:        name,
+				CreatedTime: createdTime,
+				UpdatedTime: createdTime,
+				DisplayName: name,
+				Provider:    providerName,
+				Application: CasdoorApplication,
+				Message:     message,
+			}
+			_, err := AddEntry(entry)
+			return err
+		}), nil
+	}
+
+	if provider.Type == "Agent" && provider.SubType == "OpenClaw" {
+		providerName := provider.Name
+		return log.NewOpenClawProvider(providerName, func(entryType, message, clientIp, userAgent string) error {
+			// Bypass: metrics entries are temporarily not persisted to the database.
+			if entryType == "metrics" {
+				return nil
+			}
+
+			name := log.GenerateEntryName()
+			currentTime := util.GetCurrentTime()
+			entry := &Entry{
+				Owner:       CasdoorOrganization,
+				Name:        name,
+				CreatedTime: currentTime,
+				UpdatedTime: currentTime,
+				DisplayName: name,
+				Provider:    providerName,
+				Type:        entryType,
+				ClientIp:    clientIp,
+				UserAgent:   userAgent,
+				Message:     message,
+			}
+			_, err := AddEntry(entry)
+			return err
+		}), nil
+	}
+
+	return log.GetLogProvider(provider.Type, provider.Host, provider.Port, provider.Title)
+}
+
+// InvokeCustomProviderLogout iterates through the application's Custom OAuth2 providers
+// and calls their logout endpoint (if configured) to terminate the upstream session.
+func InvokeCustomProviderLogout(application *Application, accessToken string) {
+	if application == nil {
+		return
+	}
+
+	for _, providerItem := range application.Providers {
+		provider := providerItem.Provider
+		if provider == nil || provider.Category != "OAuth" || !IsCustomOAuthProvider(provider.Type) {
+			continue
+		}
+		if provider.CustomLogoutUrl == "" {
+			continue
+		}
+
+		go callProviderLogoutUrl(provider, accessToken)
+	}
+}
+
+// callProviderLogoutUrl sends a logout/token-revocation request to the provider's logout URL.
+// Supports RFC 7009 token revocation and Keycloak-style end_session endpoints.
+func callProviderLogoutUrl(provider *Provider, accessToken string) {
+	params := url.Values{}
+	params.Set("token", accessToken)
+	params.Set("client_id", provider.ClientId)
+	params.Set("client_secret", provider.ClientSecret)
+
+	resp, err := getProviderHttpClient(provider).PostForm(provider.CustomLogoutUrl, params)
+	if err != nil {
+		util.LogWarning(nil, "InvokeCustomProviderLogout: failed to call logout URL %s for provider %s: %v", provider.CustomLogoutUrl, provider.Name, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		util.LogWarning(nil, "InvokeCustomProviderLogout: logout URL %s returned status %d for provider %s", provider.CustomLogoutUrl, resp.StatusCode, provider.Name)
+	}
+}

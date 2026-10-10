@@ -2072,5 +2072,93 @@
       "Skill Seekers",
       "技能发现"
     ]
+  },
+  {
+    "name": "OpenMontage",
+    "description": "AI 视频叙事创作工具（Agent Skills Hub claude-video-skills 场景实测首选，calesthio）。节点式分镜编辑 + AI 生成镜头串联成片，内置 ink-theater 剧本引擎与 tools 管线。Leading Words: AI视频创作, 节点式分镜, 叙事编辑器, 镜头串联, openmontage",
+    "category": "05_多媒体与设计资产",
+    "folder": "OpenMontage",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/OpenMontage",
+    "aliases": [
+      "open montage",
+      "AI视频叙事"
+    ]
+  },
+  {
+    "name": "headroom",
+    "description": "上下文窗口管理引擎（Agent Skills Hub prompt-engineering 场景实测首选，Rust 实现）。分层记忆压缩与注意力调度，为长会话智能体动态管理上下文配额。Leading Words: 上下文管理, 上下文压缩, 长会话记忆, context engine, headroom",
+    "category": "07_智能体框架与协同",
+    "folder": "headroom",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/headroom",
+    "aliases": [
+      "Headroom",
+      "上下文引擎"
+    ]
+  },
+  {
+    "name": "qwen-audio-agent",
+    "description": "通义千问语音智能体框架（Agent Skills Hub voice-agent 场景实测首选）。全双工语音对话 server + 桌面端，ASR/TTS/对话一体。Leading Words: 语音智能体, 全双工语音, 语音对话, ASR TTS, qwen audio",
+    "category": "07_智能体框架与协同",
+    "folder": "qwen-audio-agent",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/qwen-audio-agent",
+    "aliases": [
+      "Qwen Audio",
+      "语音智能体"
+    ]
+  },
+  {
+    "name": "casdoor",
+    "description": "开源身份认证与访问管理平台（Agent Skills Hub authentication 场景实测首选，★10k+）。OAuth2/OIDC/SAML/LDAP/CAS 全协议，Web UI + 多语言 SDK，自托管 UI 世代。Leading Words: 身份认证, IAM, OAuth2 OIDC, 单点登录 SSO, casdoor",
+    "category": "11_API与第三方应用集成",
+    "folder": "casdoor",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/casdoor",
+    "aliases": [
+      "Casdoor",
+      "身份认证平台"
+    ]
+  },
+  {
+    "name": "ragflow",
+    "description": "深度文档理解 RAG 引擎（Agent Skills Hub knowledge-base 场景实测首选，infiniflow）。模板化分块 + 深度文档解析 + 可解释引用 + Agent 工作流，文档层集成（README 全语种 + docs）。Leading Words: RAG引擎, 知识库问答, 深度文档理解, 检索增强, ragflow",
+    "category": "03_效率工具与协同管理",
+    "folder": "ragflow",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/ragflow",
+    "aliases": [
+      "RAGFlow",
+      "知识库引擎"
+    ]
+  },
+  {
+    "name": "vanna",
+    "description": "文本生成 SQL 框架（Agent Skills Hub mcp-database 场景实测首选）。RAG+SQL 训练：自然语言→SQL，向量库任选 + LLM 任选，含 MCP 接入。Leading Words: Text2SQL, 自然语言查库, SQL生成, 数据库MCP, vanna",
+    "category": "08_MCP服务开发与评估",
+    "folder": "vanna",
+    "relative_path": "./00_全局大管家/08_MCP服务开发与评估/vanna",
+    "aliases": [
+      "Vanna",
+      "text2sql"
+    ]
+  },
+  {
+    "name": "x-cmd",
+    "description": "命令行工具集大成者（Agent Skills Hub cli-tools 场景实测首选）。模块化 shell 增强框架：包管理/环境切换/静态工具/自动化脚本五千余文件即取即用。Leading Words: CLI工具集, shell增强, 命令行包管理, x-cmd",
+    "category": "03_效率工具与协同管理",
+    "folder": "x-cmd",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/x-cmd",
+    "aliases": [
+      "x-cmd",
+      "X-CMD"
+    ]
+  },
+  {
+    "name": "Atomic-Chat",
+    "description": "本地大模型桌面聊天客户端（Agent Skills Hub local-llm 场景实测首选，Tauri 实现）。隐私优先本地推理，web-app 前端 + src-tauri 原生壳，附架构决策记录。Leading Words: 本地大模型, 桌面LLM客户端, 隐私聊天, tauri, atomic chat",
+    "category": "03_效率工具与协同管理",
+    "folder": "Atomic-Chat",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/Atomic-Chat",
+    "aliases": [
+      "Atomic Chat",
+      "本地大模型客户端"
+    ]
   }
 ]
