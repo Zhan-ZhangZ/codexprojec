@@ -1,0 +1,252 @@
+"""CLI utilities subcommand group."""
+
+from __future__ import annotations
+
+import json
+import sys
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Annotated, Optional
+
+import typer
+
+utils_app = typer.Typer(name="utils", help="Utility commands")
+
+# Cap on how many dropped rows we list individually; past this we still
+# report the total but stop naming each one, mirroring context_cli's
+# _WARNING_SUMMARY_THRESHOLD so large batches don't flood stderr.
+_SKIP_REPORT_LIMIT = 10
+
+# Cap on the rendered length of a single listed value. Past this the repr is
+# cut and marked, so a fragment is never mistaken for a complete value.
+_VALUE_REPR_LIMIT = 120
+
+
+def _format_corrupt_value(value: object) -> str:
+    """Render ``value``'s repr, marking it when the length cap cuts it.
+
+    An unmarked cut reads exactly like a short value that happens to end
+    there, so a cut repr also reports the full length it was cut from.
+    """
+    rendered = repr(value)
+    if len(rendered) <= _VALUE_REPR_LIMIT:
+        return rendered
+    return f"{rendered[:_VALUE_REPR_LIMIT]}... ({len(rendered)} chars total)"
+
+
+def _skipped_rows(data: object) -> list[tuple[int, object]]:
+    """Return (index, value) for entries parse_types/translate_types will drop.
+
+    Mirrors the ``isinstance(col, Mapping)`` guard those functions apply
+    internally; recomputed here (rather than threaded back out of the pure
+    library functions) so the CLI layer can report which rows were skipped
+    and why.
+    """
+    if not isinstance(data, list):
+        return []
+    return [(i, row) for i, row in enumerate(data) if not isinstance(row, Mapping)]
+
+
+def _report_skipped(skipped: list[tuple[int, object]]) -> None:
+    """Warn about dropped rows, splitting benign padding from likely corruption.
+
+    ``None`` is treated as benign padding from dynamic schema exporters and
+    only counted. Any other non-mapping value (a bare string, number, list,
+    ...) is treated as more likely a real data problem and listed with its
+    index and value so it isn't invisible in the output.
+    """
+    if not skipped:
+        return
+    benign = [i for i, v in skipped if v is None]
+    corrupt = [(i, v) for i, v in skipped if v is not None]
+    if benign:
+        typer.echo(
+            f"Note: skipped {len(benign)} None row(s) (benign padding)", err=True
+        )
+    if corrupt:
+        typer.echo(
+            f"Warning: skipped {len(corrupt)} non-mapping row(s) with unexpected values:",
+            err=True,
+        )
+        for i, v in corrupt[:_SKIP_REPORT_LIMIT]:
+            typer.echo(
+                f"  [{i}] {type(v).__name__}: {_format_corrupt_value(v)}", err=True
+            )
+        remaining = len(corrupt) - _SKIP_REPORT_LIMIT
+        if remaining > 0:
+            typer.echo(f"  ... and {remaining} more", err=True)
+
+
+def _has_corrupt_skips(skipped: list[tuple[int, object]]) -> bool:
+    return any(v is not None for _, v in skipped)
+
+
+def _require_list(data: object) -> list:
+    """Reject a non-list top-level JSON value with a clean error, not a crash.
+
+    ``_skipped_rows`` only recognizes non-mapping *rows*; a non-list *payload*
+    (an object, string, number, ...) slips past it silently and reaches
+    parse_types/translate_types, which iterate it directly (yielding dict keys
+    or string characters instead of rows) and trip the skip-count invariant
+    below with a confusing AssertionError instead of a clean input error.
+    """
+    if not isinstance(data, list):
+        typer.echo(
+            f"Error: input must be a JSON array (got {type(data).__name__})",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return data
+
+
+@utils_app.command(name="parse-type")
+def parse_type_cmd(
+    type_str: Annotated[str, typer.Option("--type", "-t", help="Raw SQL type string")],
+    dialect: Annotated[
+        str,
+        typer.Option("--dialect", "-d", help="SQL dialect (e.g. postgres, bigquery)"),
+    ],
+):
+    """Normalize a single SQL type string."""
+    from wren.type_mapping import parse_type  # noqa: PLC0415
+
+    typer.echo(parse_type(type_str, dialect))
+
+
+@utils_app.command(name="parse-types")
+def parse_types_cmd(
+    dialect: Annotated[str, typer.Option("--dialect", "-d", help="SQL dialect")],
+    type_field: Annotated[
+        str,
+        typer.Option("--type-field", help="Key name for raw type in input JSON"),
+    ] = "raw_type",
+    input_file: Annotated[
+        Optional[str],
+        typer.Option("--input", "-i", help="Input JSON file (default: stdin)"),
+    ] = None,
+    strict: Annotated[
+        bool,
+        typer.Option(
+            "--strict",
+            help=(
+                "Exit 1 if any dropped row held a non-None value "
+                "(likely corruption, not benign padding)."
+            ),
+        ),
+    ] = False,
+):
+    """Batch-normalize types. Reads JSON array from stdin or file, writes JSON to stdout.
+
+    Input format:  [{"column": "id", "raw_type": "int8"}, ...]
+    Output format: [{"column": "id", "raw_type": "int8", "type": "BIGINT"}, ...]
+    """
+    from wren.type_mapping import parse_types  # noqa: PLC0415
+
+    try:
+        if input_file:
+            path = Path(input_file)
+            if not path.exists():
+                typer.echo(f"Error: file not found: {input_file}", err=True)
+                raise typer.Exit(1)
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                typer.echo(f"Error: could not read file {input_file}: {e}", err=True)
+                raise typer.Exit(1)
+            data = json.loads(raw)
+        else:
+            data = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        typer.echo(f"Error: invalid JSON input: {e}", err=True)
+        raise typer.Exit(1)
+
+    data = _require_list(data)
+    skipped = _skipped_rows(data)
+    results = parse_types(data, dialect, type_field=type_field)
+    assert len(results) + len(skipped) == len(data), (
+        "parse_types dropped a different set of rows than _skipped_rows predicted; "
+        "the mirrored Mapping guard in utils_cli.py has drifted from type_mapping.py"
+    )
+    _report_skipped(skipped)
+    typer.echo(json.dumps(results, indent=2))
+    if strict and _has_corrupt_skips(skipped):
+        raise typer.Exit(1)
+
+
+@utils_app.command(name="translate-type")
+def translate_type_cmd(
+    type_str: Annotated[str, typer.Option("--type", "-t", help="Raw SQL type string")],
+    source: Annotated[
+        str,
+        typer.Option("--source", "-s", help="Source SQL dialect (e.g. postgres)"),
+    ],
+    target: Annotated[
+        str,
+        typer.Option("--target", help="Target SQL dialect (e.g. bigquery)"),
+    ],
+):
+    """Translate a single SQL type string from one dialect to another."""
+    from wren.type_mapping import translate_type  # noqa: PLC0415
+
+    typer.echo(translate_type(type_str, source, target))
+
+
+@utils_app.command(name="translate-types")
+def translate_types_cmd(
+    source: Annotated[str, typer.Option("--source", "-s", help="Source SQL dialect")],
+    target: Annotated[str, typer.Option("--target", help="Target SQL dialect")],
+    type_field: Annotated[
+        str,
+        typer.Option("--type-field", help="Key name for raw type in input JSON"),
+    ] = "raw_type",
+    input_file: Annotated[
+        Optional[str],
+        typer.Option("--input", "-i", help="Input JSON file (default: stdin)"),
+    ] = None,
+    strict: Annotated[
+        bool,
+        typer.Option(
+            "--strict",
+            help=(
+                "Exit 1 if any dropped row held a non-None value "
+                "(likely corruption, not benign padding)."
+            ),
+        ),
+    ] = False,
+):
+    """Batch-translate types between dialects. Reads/writes JSON.
+
+    Input format:  [{"column": "id", "raw_type": "int8"}, ...]
+    Output format: [{"column": "id", "raw_type": "int8", "type": "INT64"}, ...]
+    """
+    from wren.type_mapping import translate_types  # noqa: PLC0415
+
+    try:
+        if input_file:
+            path = Path(input_file)
+            if not path.exists():
+                typer.echo(f"Error: file not found: {input_file}", err=True)
+                raise typer.Exit(1)
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                typer.echo(f"Error: could not read file {input_file}: {e}", err=True)
+                raise typer.Exit(1)
+            data = json.loads(raw)
+        else:
+            data = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        typer.echo(f"Error: invalid JSON input: {e}", err=True)
+        raise typer.Exit(1)
+
+    data = _require_list(data)
+    skipped = _skipped_rows(data)
+    results = translate_types(data, source, target, type_field=type_field)
+    assert len(results) + len(skipped) == len(data), (
+        "translate_types dropped a different set of rows than _skipped_rows predicted; "
+        "the mirrored Mapping guard in utils_cli.py has drifted from type_mapping.py"
+    )
+    _report_skipped(skipped)
+    typer.echo(json.dumps(results, indent=2))
+    if strict and _has_corrupt_skips(skipped):
+        raise typer.Exit(1)

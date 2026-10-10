@@ -1,0 +1,84 @@
+---
+name: mars-new-project
+description: Scaffold a new REST server project with MARS-Curiosity (Delphi REST library). Use this skill whenever the user wants to create, bootstrap, or set up a new MARS server, a new Delphi REST API/server/microservice/web service based on MARS, or asks "how do I start a MARS project". Also use it when adding a new host flavor or deploying a MARS server (console, VCL/FMX GUI, Windows service, ISAPI on IIS, Apache module, FastCGI, Linux daemon, HTTPS/SSL setup).
+---
+
+# Create a new MARS server project
+
+MARS-Curiosity (https://github.com/andrea-magni/MARS) is a REST library for Delphi. A MARS server has three moving parts, regardless of host type:
+
+1. **A project file (.dpr)** — the host: console app, VCL/FMX form, Windows service, ISAPI dll, Apache module, or Linux daemon. The host creates an HTTP server (typically `TMARShttpServerIndy`) bound to the engine.
+2. **`Server.Ignition.pas`** — creates the singleton `IMARSEngine` (`TServerEngine.Default`), loads configuration, and registers applications with `AddApplication(AName, ABasePath, AResourceMasks)`.
+3. **Resource units (`Server.Resources.*.pas`)** — plain classes annotated with attributes (`[Path]`, `[GET]`, `[Produces]`, ...) and registered in their `initialization` section via `MARSRegister(...)`. This JAX-RS style is the primary MARS model. As an addition (not a replacement), endpoints can also be defined as routes in code (`Server.Routes*.pas`, `MARS.Core.Routes`, Express style), next to the resources.
+
+Endpoint URLs compose as: engine base path (`/rest` by default) + application base path (`/default`) + resource `[Path]` + method `[Path]`. So the HelloWorld template answers at `http://localhost:8080/rest/default/helloworld`.
+
+## Two ways to scaffold
+
+### Option A — copy the official template (recommended for full projects)
+
+`Demos/MARSTemplate/` in the MARS repository is the canonical project group: console host, VCL form host, FMX host, Windows service, ISAPI, Apache module, FCGI, Linux daemon, tests, and an FMX client — all sharing the same `Server.Ignition.pas` and resource units. To scaffold:
+
+1. Copy the whole `Demos/MARSTemplate` folder to the target location, outside the MARS folder (the setup's uninstaller deletes the MARS folder; MARSCmd uses `Documents\MARS Projects\<name>`). The `.dproj` search paths and the `RootFolder` of `Server.Resources.OpenAPI.pas` refer to the MARS folder as `..\..\` (`{bin}\..\..\..\`): outside `Demos\` rewrite them as `$(MARSDIR)\` (IDE environment variable set by the setup) and drop the `..\..\Source` `in` clause/`DCCReference` of `MARS.Linux.Daemon`, as MARSCmd does.
+2. Rename files and rename the `MARSTemplate` prefix inside `.dpr`/`.dproj`/`.groupproj` files to the new project name (keep `Server.*.pas` unit names as they are — the engine registers resources by unit name mask `'Server.Resources.*'`).
+3. Delete the host flavors the user does not need.
+4. Rename the ini file in `bin/` to match the new executable name.
+
+Pick the template:
+
+- `Demos/MARSTemplate/` (default): Indy, endpoints as resource classes;
+- `Demos/MARSTemplateDCS/`: the same on Delphi Cross Socket, if the user asks for the DCS transport;
+- `Demos/MARSTemplateRoutes/`: the same as `MARSTemplate`, with its sample endpoints defined as routes in code (`Server.Routes.pas`, `MARS.Core.Routes`, Express style), only if the user asks for route-based / Express-style endpoints. Routes are in addition to resources: token (login) and OpenAPI stay resources there too, and resource units can be added to that project as to any other (`'Server.Resources.*'`).
+
+MARSCmd (`Utils\Bin\Win32\MARScmd_VCL.exe`) lists the three templates and does all the steps above. From the command line (prefer it when you can run programs: it does steps 1, 2 and 4 exactly as the tool, with a random `JWT.Secret`), use `Utils\Bin\Win32\MARScmd.exe`:
+
+```
+MARScmd <ProjectName> [--template MARSTemplate|MARSTemplateDCS|MARSTemplateRoutes|<folder>] [--dest <folder>]
+MARScmd --list-templates
+```
+
+Default destination: `Documents\MARS Projects\<ProjectName>`; a destination inside the MARS folder needs `--allow-inside`; exit code 0 = created, 1 = error (i.e. destination not empty), 2 = wrong command line. Then delete the host flavors the user does not need (step 3).
+
+### Option B — generate a minimal project from bundled templates
+
+For a lean, from-scratch server (one console host, HelloWorld + Token resources, ini config), generate the files from `assets/` in this skill directory, replacing every occurrence of `{{PROJECT_NAME}}` with the project name (a valid Delphi identifier):
+
+| Template | Target file |
+|---|---|
+| `assets/ConsoleServer.dpr.template` | `{{PROJECT_NAME}}Server.dpr` |
+| `assets/Server.Ignition.pas.template` | `Server.Ignition.pas` |
+| `assets/Server.Resources.HelloWorld.pas.template` | `Server.Resources.HelloWorld.pas` |
+| `assets/Server.Resources.Token.pas.template` | `Server.Resources.Token.pas` |
+| `assets/ServerConfig.ini.template` | `bin\{{PROJECT_NAME}}Server.ini` (next to the executable) |
+
+Then create a `.dproj` for it (or let the user open the `.dpr` in the IDE and save). Set the output directory to `bin\` so the executable sits next to its ini file.
+
+## Project requirements (both options)
+
+- **Library paths**: the project must see the MARS sources. Either the user installed MARS (Library Path already contains them) or add to the project search path: `[MARS]\Source`, `[MARS]\ThirdParty\delphi-jose-jwt\Source\Common`, `[MARS]\ThirdParty\delphi-jose-jwt\Source\JOSE` (a git submodule: clone MARS with `--recurse-submodules`), `[MARS]\ThirdParty\mORMot\Source`, `[MARS]\ThirdParty\Neslib.Yaml`, `[MARS]\ThirdParty\Neslib.Yaml\Neslib`.
+- **`{$I MARS.inc}`** must compile — it lives in `[MARS]\Source`, so that path is required even for the .dpr.
+- **JWT backend**: exactly one of `MARS.mORMotJWT.Token` (Windows) or `MARS.JOSEJWT.Token` (all platforms) must be in the ignition uses clause. The template handles this with `{$IFDEF MSWINDOWS}`.
+- **Delphi compatibility**: 10.4 Sydney through 13 Florence; earlier versions are not supported (`MARS.inc` stops the build). Packages per IDE version are in `[MARS]\Packages\`.
+
+## Configuration defaults
+
+The engine defaults (from `TMARSEngine.Create`): `Port=8080`, `PortSSL=0`, `ThreadPoolSize=75`, `BasePath=/rest`. `FEngine.Parameters.LoadFromIniFile` overrides them from an ini named like the executable (or passed with the `-configFileName <file>` command-line switch), section `[DefaultEngine]`. See the ini template for the commented catalog of common settings (JWT, CORS, compression, SSL, OpenAPI info, FireDAC connection defs).
+
+## Adding more pieces
+
+- **New resource**: create `Server.Resources.<Name>.pas` with an attributed class, register it with `MARSRegister(TMyResource)` in `initialization`, and add the unit to the .dpr uses. No engine change needed — the `'Server.Resources.*'` mask picks it up.
+- **New route module** (projects using routes, or when the user asks for them): create `Server.Routes.<Name>.pas` registering a module with `MARSRoutes('Server.Routes.<Name>', '<path>', procedure (const R: TMARSRouter) ...)` in `initialization`, add the unit to the .dpr uses, and make sure the ignition calls `LApplication.AddRoutes('Server.Routes.*')` (already there in `MARSTemplateRoutes`). See the `mars-development` skill, `references/routes.md`.
+- **Token/login endpoint**: already included (`Server.Resources.Token.pas` subclasses `TMARSTokenResource`). Override `Authenticate` to plug real credential checks.
+- **OpenAPI/Swagger endpoint**: see `Demos/MARSTemplate/Server.Resources.OpenAPI.pas` (`TOpenAPIResource` + `MARS.OpenAPI.v3.InjectionService` in the ignition uses) and the `OpenAPI.info.*` ini parameters.
+- **FireDAC**: uncomment the `FireDAC.<DefName>.*` entries in the ini; the ignition template already calls `TMARSFireDAC.LoadConnectionDefs(FEngine.Parameters, 'FireDAC')` under `{$IFDEF MARS_FIREDAC}`.
+- **Devart UniDAC, MyDAC or IBDAC** instead of FireDAC: define `MARS_UNIDAC`/`MARS_MYDAC`/`MARS_IBDAC` in the projects (or in `MARS.inc`), load the connection defs with `TMARS<Lib>.LoadConnectionDefs(FEngine.Parameters, '<Lib>')` and add `<Lib>.<DefName>.*` entries to the ini. See the `mars-development` skill, `references/devart.md`, and the demos `Demos/UniDACDemo`, `MyDACDemo`, `IBDACDemo` (`Demos/FireDACDemo` for FireDAC).
+
+- **Deployment** (Windows service install, ISAPI on IIS, Apache module, FastCGI, Linux daemon, HTTPS/SSL, reverse proxy): read `references/deployment.md` in this skill.
+
+For everything about writing resources (attributes, parameter binding, auth, FireDAC and Devart datasets, SSE, WebStencils, clients), consult the companion skill `mars-development`.
+
+## Verify the result
+
+1. Compile (IDE or MSBuild against the `.dproj`).
+2. Run the server and hit `http://localhost:8080/rest/default/helloworld` — expect `Hello World!` as `text/plain`.
+3. Login check: `POST http://localhost:8080/rest/default/token` with form fields `username` and `password` returns a JSON token. Note: the sample `Authenticate` in `TMARSTokenResource` accepts the current hour (0-23) as password (`SameText(APassword, IntToStr(HourOf(Now)))`) and grants role `standard` (plus `admin` for username `admin`) — it exists only to make demos runnable. Override it before any real use.

@@ -1,0 +1,47 @@
+---
+sidebar_position: 7
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import weatherDashboardJson from '@site/static/workflows/weather-dashboard.json';
+import { WorkflowJsonTab } from '@site/src/components/WorkflowJsonTab';
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+# Weather Dashboard Workflow
+
+This workflow creates a real-time weather dashboard using the weather API and AI analysis.
+
+<Tabs>
+    <TabItem value="preview" label="Preview" default>
+        ![Weather Dashboard Workflow](/img/workflows/weather-dashboard-preview.webp)
+    </TabItem>
+
+    <TabItem value="json" label="JSON">
+        <WorkflowJsonTab downloadUrl={useBaseUrl("/workflows/weather-dashboard.json")}>
+        {JSON.stringify(weatherDashboardJson, null, 4)}
+        </WorkflowJsonTab>
+    </TabItem>
+
+    <TabItem value="config" label="Node Configuration">
+        - [**Data Source**](/docs/nodes/input/data-source)  
+            - Input: `"What is the weather like now in New York?"`
+        - [**AI Data Processing**](/docs/nodes/ai/llm-process)  
+            - Prompt: Uses both date and time context and weather-fetch tools to retrieve current weather information and format the result
+            - Tools:
+                - [Date/Time Now Tool](/docs/nodes/ai/tools/date-time-now)
+                - [Fetch Weather Data Tool](/docs/nodes/ai/tools/fetch-weather-data)
+            - Model: gemma4:e4b
+        - [**Data Flow Spy**](/docs/nodes/output/data-flow-spy)  
+            - Output: Displays the weather information with conditions, temperature, humidity, and wind speed
+    </TabItem>
+</Tabs>
+
+---
+
+## Steps
+
+1. **Provide Input**: The workflow starts with a Data Source node that supplies the prompt: "What is the weather like now in New York?"
+2. **Augment with Time**: A single AI Data Processing node uses the Date/Time Now Tool to add current date and time context to the request.
+3. **Fetch Weather Data**: The same AI Data Processing node also calls the Fetch Weather Data Tool to retrieve current weather details, then formats the combined output.
+4. **Display Result**: The Data Flow Spy node displays the final weather information including temperature, conditions, humidity, and wind speed.

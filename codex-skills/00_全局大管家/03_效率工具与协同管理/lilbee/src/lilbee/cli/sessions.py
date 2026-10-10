@@ -1,0 +1,240 @@
+"""CLI for listing and managing saved chat sessions."""
+
+from __future__ import annotations
+
+from dataclasses import asdict
+from pathlib import Path
+from typing import NoReturn
+
+import typer
+from rich.table import Table
+from rich.text import Text
+
+from lilbee.app.session_export import session_markdown, write_session_markdown
+from lilbee.cli import theme
+from lilbee.cli.app import apply_overrides, console, data_dir_option, global_option
+from lilbee.cli.helpers import json_output
+from lilbee.core.config import cfg
+from lilbee.runtime.console import styled
+from lilbee.sessions import (
+    SESSIONS_DISABLED_HINT,
+    SessionForkRangeError,
+    SessionOrigin,
+    SessionOwnershipError,
+    SessionStore,
+    TitleSource,
+    sessions_enabled,
+)
+
+sessions_app = typer.Typer(
+    name="sessions",
+    help="List and manage saved chat sessions.",
+    no_args_is_help=True,
+)
+
+_yes_option = typer.Option(False, "--yes", "-y", help="Skip the delete confirmation.")
+_id_argument = typer.Argument(..., help="Session id, or a unique prefix of it.")
+_messages_option = typer.Option(
+    None, "--messages", help="Copy only the first N messages (default: all of them)."
+)
+_output_option = typer.Option(
+    None,
+    "--output",
+    "-o",
+    help="Write to this file, or into this directory, instead of printing to stdout.",
+)
+
+
+def _require_sessions() -> None:
+    """Report that sessions are off and exit; every command reaches the store
+    through ``_store``, so the check lives there rather than in each command.
+    """
+    if sessions_enabled():
+        return
+    if cfg.json_mode:
+        json_output({"error": SESSIONS_DISABLED_HINT})
+    else:
+        console.print(SESSIONS_DISABLED_HINT)
+    raise typer.Exit(0)
+
+
+def _store() -> SessionStore:
+    _require_sessions()
+    return SessionStore()
+
+
+def _fail(message: str) -> NoReturn:
+    if cfg.json_mode:
+        json_output({"error": message})
+    else:
+        # Text, not markup: messages carry user paths and prefixes verbatim.
+        console.print(Text(message, style=theme.ERROR), soft_wrap=True)
+    raise typer.Exit(1)
+
+
+def _resolve_id(prefix: str) -> str:
+    """Resolve a full id or unique prefix to a session id, or exit 1."""
+    matches = [meta.id for meta in _store().list() if meta.id.startswith(prefix)]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        _fail(f"No session matching {prefix!r}.")
+    _fail(f"Prefix {prefix!r} is ambiguous ({len(matches)} sessions match).")
+
+
+@sessions_app.command("list")
+def list_cmd(
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """List saved conversations, newest first."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    metas = _store().list()
+    if cfg.json_mode:
+        json_output({"sessions": [asdict(meta) for meta in metas]})
+        return
+    if not metas:
+        console.print("No saved sessions.")
+        return
+    table = Table(box=None, pad_edge=False)
+    for column in ("ID", "Title", "Msgs", "Model", "Origin", "Updated"):
+        table.add_column(column, justify="right" if column == "Msgs" else "left")
+    for meta in metas:
+        table.add_row(
+            meta.id[:8],
+            Text(meta.title),
+            str(meta.message_count),
+            Text(meta.model_ref),
+            meta.origin.value,
+            meta.updated_at[:19],
+        )
+    console.print(table)
+
+
+@sessions_app.command("show")
+def show_cmd(
+    session_id: str = _id_argument,
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Print a saved conversation's transcript."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    session = _store().get(_resolve_id(session_id))
+    if cfg.json_mode:
+        json_output(
+            {
+                "meta": asdict(session.meta),
+                "messages": [
+                    {"role": m.role.value, "content": m.content, "sources": list(m.sources)}
+                    for m in session.messages
+                ],
+                # What compaction folded older turns into (empty if never
+                # compacted). A script that resumes from this JSON needs it, or
+                # it rebuilds history without what was already condensed -- the
+                # same hole the HTTP and MCP surfaces used to have.
+                "summary": session.summary,
+            }
+        )
+        return
+    console.print(Text(session.meta.title, style=theme.ACCENT), soft_wrap=True)
+    for message in session.messages:
+        console.print(
+            Text.assemble((message.role.value, "bold"), ": ", message.content), soft_wrap=True
+        )
+
+
+@sessions_app.command("fork")
+def fork_cmd(
+    session_id: str = _id_argument,
+    messages: int | None = _messages_option,
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Start a new conversation from a copy of a saved one."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    store = _store()
+    try:
+        fork_id = store.fork(
+            _resolve_id(session_id), message_count=messages, origin=SessionOrigin.CLI
+        )
+    except (SessionOwnershipError, SessionForkRangeError) as exc:
+        _fail(str(exc))
+    meta = store.get(fork_id).meta
+    if cfg.json_mode:
+        json_output({"meta": asdict(meta)})
+        return
+    console.print(
+        Text.assemble("Forked to ", (meta.title, theme.ACCENT), f" ({fork_id[:8]})."),
+        soft_wrap=True,
+    )
+
+
+@sessions_app.command("export")
+def export_cmd(
+    session_id: str = _id_argument,
+    output: str | None = _output_option,
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Export a saved conversation as markdown."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    resolved = _resolve_id(session_id)
+    session = _store().get(resolved)
+    if output is None:
+        markdown = session_markdown(session)
+        if cfg.json_mode:
+            json_output({"id": resolved, "markdown": markdown})
+            return
+        # Bytes go to the binary stream, so a redirect is UTF-8 on every platform.
+        typer.echo(markdown.encode("utf-8"), nl=False)
+        return
+    try:
+        path = write_session_markdown(session, output)
+    except OSError as exc:
+        _fail(f"Could not write the export: {exc}")
+    if cfg.json_mode:
+        json_output({"id": resolved, "path": str(path)})
+        return
+    # A Text, not markup: a Windows separator before "[" would read as an escape.
+    # soft_wrap keeps a long path on one line, so it copies whole.
+    console.print(Text.assemble("Exported to ", (str(path), theme.ACCENT), "."), soft_wrap=True)
+
+
+@sessions_app.command("rename")
+def rename_cmd(
+    session_id: str = _id_argument,
+    title: str = typer.Argument(..., help="The new title."),
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Rename a saved conversation."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    resolved = _resolve_id(session_id)
+    _store().set_title(resolved, title, TitleSource.CUSTOM)
+    if cfg.json_mode:
+        json_output({"id": resolved, "title": title})
+        return
+    console.print(Text.assemble("Renamed to ", (title, theme.ACCENT), "."), soft_wrap=True)
+
+
+@sessions_app.command("delete")
+def delete_cmd(
+    session_id: str = _id_argument,
+    yes: bool = _yes_option,
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Delete a saved conversation."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    resolved = _resolve_id(session_id)
+    if (
+        not yes
+        and not cfg.json_mode
+        and not typer.confirm(f"Delete {resolved[:8]}?", default=False)
+    ):
+        raise typer.Abort()
+    _store().delete(resolved)
+    if cfg.json_mode:
+        json_output({"id": resolved, "deleted": True})
+        return
+    console.print(styled("Deleted ", (resolved[:8], theme.ACCENT), "."))

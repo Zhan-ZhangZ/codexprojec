@@ -1,0 +1,2753 @@
+"""Unit tests for the wren.memory module."""
+
+from __future__ import annotations
+
+import pytest
+
+from wren.memory.schema_indexer import (
+    describe_schema,
+    extract_schema_items,
+    manifest_hash,
+)
+
+# ── Fixtures ──────────────────────────────────────────────────────────────
+
+_MANIFEST = {
+    "catalog": "test",
+    "schema": "public",
+    "models": [
+        {
+            "name": "orders",
+            "tableReference": "test.public.orders",
+            "primaryKey": "o_orderkey",
+            "properties": {
+                "description": "Order facts ready for analysis",
+                "dbtLayer": "mart",
+                "dataScope": "status != 'cancelled'",
+            },
+            "columns": [
+                {
+                    "name": "o_orderkey",
+                    "type": "varchar",
+                    "isCalculated": False,
+                    "isPrimaryKey": True,
+                    "notNull": True,
+                    "properties": {
+                        "dbtTests": "not_null,unique",
+                        "dbtTestStatus": "verified",
+                    },
+                },
+                {"name": "o_custkey", "type": "varchar", "isCalculated": False},
+                {
+                    "name": "o_status",
+                    "type": "varchar",
+                    "isCalculated": False,
+                    "properties": {
+                        "acceptedValues": "placed,shipped,completed",
+                        "dbtTests": "accepted_values",
+                        "dbtTestStatus": "verified",
+                    },
+                },
+                {
+                    "name": "o_totalprice",
+                    "type": "double",
+                    "isCalculated": True,
+                    "expression": "sum(l_extendedprice)",
+                },
+                {
+                    "name": "customer",
+                    "type": "varchar",
+                    "isCalculated": False,
+                    "relationship": "orders_customer",
+                },
+            ],
+        },
+        {
+            "name": "customer",
+            "tableReference": "test.public.customer",
+            "primaryKey": "c_custkey",
+            "columns": [
+                {"name": "c_custkey", "type": "varchar", "isCalculated": False},
+                {"name": "c_name", "type": "varchar", "isCalculated": False},
+            ],
+            "properties": {
+                "description": "Customer master data",
+                "dbtLayer": "mart",
+            },
+        },
+    ],
+    "relationships": [
+        {
+            "name": "orders_customer",
+            "models": ["orders", "customer"],
+            "joinType": "many_to_one",
+            "condition": "orders.o_custkey = customer.c_custkey",
+        }
+    ],
+    "views": [
+        {
+            "name": "top_customers",
+            "statement": "SELECT c_name, sum(o_totalprice) FROM orders JOIN customer LIMIT 10",
+        }
+    ],
+}
+
+
+# ── manifest_hash tests ───────────────────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestManifestHash:
+    def test_deterministic(self):
+        h1 = manifest_hash(_MANIFEST)
+        h2 = manifest_hash(_MANIFEST)
+        assert h1 == h2
+        assert len(h1) == 16
+
+    def test_changes_on_modification(self):
+        modified = {**_MANIFEST, "catalog": "other"}
+        assert manifest_hash(_MANIFEST) != manifest_hash(modified)
+
+
+# ── extract_schema_items tests ────────────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestExtractSchemaItems:
+    def test_total_count(self):
+        items = extract_schema_items(_MANIFEST)
+        # 2 models + 7 columns + 1 relationship + 1 view = 11
+        assert len(items) == 11
+
+    def test_item_types(self):
+        items = extract_schema_items(_MANIFEST)
+        types = {item["item_type"] for item in items}
+        assert types == {"model", "column", "relationship", "view"}
+
+    def test_model_record(self):
+        items = extract_schema_items(_MANIFEST)
+        models = [i for i in items if i["item_type"] == "model"]
+        assert len(models) == 2
+        orders = next(m for m in models if m["item_name"] == "orders")
+        assert "o_orderkey" in orders["text"]
+        assert orders["model_name"] == "orders"
+        assert "mart layer" in orders["text"]
+        assert "status != 'cancelled'" in orders["text"]
+
+    def test_model_with_description(self):
+        items = extract_schema_items(_MANIFEST)
+        models = [i for i in items if i["item_type"] == "model"]
+        customer = next(m for m in models if m["item_name"] == "customer")
+        assert "Customer master data" in customer["text"]
+
+    def test_column_calculated(self):
+        items = extract_schema_items(_MANIFEST)
+        cols = [i for i in items if i["item_type"] == "column"]
+        calc = next(c for c in cols if c["item_name"] == "o_totalprice")
+        assert calc["is_calculated"] is True
+        assert "sum(l_extendedprice)" in calc["text"]
+        assert calc["expression"] == "sum(l_extendedprice)"
+
+    def test_column_relationship(self):
+        items = extract_schema_items(_MANIFEST)
+        cols = [i for i in items if i["item_type"] == "column"]
+        rel_col = next(c for c in cols if c["item_name"] == "customer")
+        assert "orders_customer" in rel_col["text"]
+
+    def test_column_includes_dbt_metadata(self):
+        items = extract_schema_items(_MANIFEST)
+        cols = [i for i in items if i["item_type"] == "column"]
+        status_col = next(c for c in cols if c["item_name"] == "o_status")
+        assert "Accepted values: placed, shipped, completed" in status_col["text"]
+        assert "accepted_values" in status_col["text"]
+        assert "Test status: verified" in status_col["text"]
+
+    def test_relationship_record(self):
+        items = extract_schema_items(_MANIFEST)
+        rels = [i for i in items if i["item_type"] == "relationship"]
+        assert len(rels) == 1
+        r = rels[0]
+        assert r["item_name"] == "orders_customer"
+        assert "many_to_one" in r["text"]
+
+    def test_view_record(self):
+        items = extract_schema_items(_MANIFEST)
+        views = [i for i in items if i["item_type"] == "view"]
+        assert len(views) == 1
+        assert "top_customers" in views[0]["text"]
+
+    def test_all_items_have_required_keys(self):
+        items = extract_schema_items(_MANIFEST)
+        required = {
+            "text",
+            "item_type",
+            "model_name",
+            "item_name",
+            "mdl_hash",
+            "indexed_at",
+        }
+        for item in items:
+            assert required.issubset(item.keys()), f"Missing keys in {item}"
+
+    def test_empty_manifest(self):
+        items = extract_schema_items({})
+        assert items == []
+
+    def test_manifest_without_optional_sections(self):
+        minimal = {"models": [{"name": "t1", "columns": []}]}
+        items = extract_schema_items(minimal)
+        assert len(items) == 1
+        assert items[0]["item_type"] == "model"
+
+    def test_relationship_null_models_tolerated(self):
+        # A relationship with an explicit JSON null for "models" must not crash
+        # the indexer. `.get("models", [])` returns None (not the default) when
+        # the key is present with a null value, so `len(None)` blows up. Mirrors
+        # the seed-query guard from #2424 (test_relationship_null_models_skipped)
+        # — the same dirty-manifest shape must be tolerated on the schema
+        # indexing/describe path, which never runs the seed step.
+        manifest = {
+            "models": [{"name": "orders", "columns": []}],
+            "relationships": [
+                {"name": "rel1", "models": None, "condition": "orders.c = x.c"}
+            ],
+        }
+        items = extract_schema_items(manifest)
+        rels = [i for i in items if i["item_type"] == "relationship"]
+        assert len(rels) == 1
+        assert rels[0]["item_name"] == "rel1"
+        # describe_schema reads the same field via a sibling helper.
+        describe_schema(manifest)
+
+
+# ── Cube fixture ──────────────────────────────────────────────────────────
+
+_CUBE_MANIFEST = {
+    "catalog": "test",
+    "schema": "public",
+    "models": [
+        {
+            "name": "orders",
+            "tableReference": "test.public.orders",
+            "columns": [
+                {"name": "o_totalprice", "type": "double", "isCalculated": False},
+                {"name": "o_orderstatus", "type": "varchar", "isCalculated": False},
+                {"name": "o_orderdate", "type": "date", "isCalculated": False},
+            ],
+        }
+    ],
+    "cubes": [
+        {
+            "name": "order_metrics",
+            "baseObject": "orders",
+            "measures": [
+                {
+                    "name": "revenue",
+                    "expression": "SUM(o_totalprice)",
+                    "type": "DOUBLE",
+                },
+                {"name": "order_count", "expression": "COUNT(*)", "type": "BIGINT"},
+            ],
+            "dimensions": [
+                {"name": "status", "expression": "o_orderstatus", "type": "VARCHAR"}
+            ],
+            "timeDimensions": [
+                {"name": "created_at", "expression": "o_orderdate", "type": "DATE"}
+            ],
+            "hierarchies": {"time_drill": ["created_at"]},
+        }
+    ],
+}
+
+
+@pytest.mark.unit
+class TestCubeSchemaItems:
+    def test_cube_record(self):
+        items = extract_schema_items(_CUBE_MANIFEST)
+        cubes = [i for i in items if i["item_type"] == "cube"]
+        assert len(cubes) == 1
+        cube = cubes[0]
+        assert cube["item_name"] == "order_metrics"
+        assert cube["model_name"] == "orders"
+        assert "revenue" in cube["text"]
+        assert "status" in cube["text"]
+        assert "created_at" in cube["text"]
+
+    def test_measure_records(self):
+        items = extract_schema_items(_CUBE_MANIFEST)
+        measures = [i for i in items if i["item_type"] == "measure"]
+        assert len(measures) == 2
+        revenue = next(m for m in measures if m["item_name"] == "revenue")
+        assert revenue["expression"] == "SUM(o_totalprice)"
+        assert revenue["model_name"] == "order_metrics"
+        assert revenue["is_calculated"] is True
+
+    def test_cube_dimension_record(self):
+        items = extract_schema_items(_CUBE_MANIFEST)
+        dims = [i for i in items if i["item_type"] == "cube_dimension"]
+        assert len(dims) == 1
+        assert dims[0]["item_name"] == "status"
+        assert dims[0]["expression"] == "o_orderstatus"
+
+    def test_time_dimension_record(self):
+        items = extract_schema_items(_CUBE_MANIFEST)
+        tdims = [i for i in items if i["item_type"] == "time_dimension"]
+        assert len(tdims) == 1
+        assert tdims[0]["item_name"] == "created_at"
+        assert tdims[0]["expression"] == "o_orderdate"
+
+    def test_total_count(self):
+        items = extract_schema_items(_CUBE_MANIFEST)
+        # 1 model + 3 columns + 1 cube + 2 measures + 1 dim + 1 time-dim = 9
+        assert len(items) == 9
+
+    def test_describe_schema_includes_cube(self):
+        text = describe_schema(_CUBE_MANIFEST)
+        assert "### Cube: order_metrics (base: orders)" in text
+        assert "revenue (DOUBLE): SUM(o_totalprice)" in text
+        assert "status (VARCHAR): o_orderstatus" in text
+        assert "created_at (DATE): o_orderdate" in text
+        assert "time_drill: created_at" in text
+
+    def test_extract_skips_cubes_when_absent(self):
+        # The original _MANIFEST has no cubes — confirm nothing leaks in.
+        items = extract_schema_items(_MANIFEST)
+        cube_types = {"cube", "measure", "cube_dimension", "time_dimension"}
+        assert not any(i["item_type"] in cube_types for i in items)
+
+    def test_malformed_cube_entries_are_skipped(self):
+        """Non-dict cubes / measures / dimensions / non-string hierarchy levels
+        must not raise — the indexer should drop the bad entries and keep
+        going so semantic memory rebuilds never fail on dirty manifests."""
+        manifest = {
+            "cubes": [
+                "not a dict",
+                {
+                    "name": "ok_cube",
+                    "baseObject": "orders",
+                    "measures": [
+                        "not a dict",
+                        {"name": "revenue", "expression": "SUM(x)", "type": "DOUBLE"},
+                    ],
+                    "dimensions": [None, {"name": "status", "expression": "s"}],
+                    "timeDimensions": [{"name": "ts", "expression": "ts"}, 42],
+                    "hierarchies": {"drill": ["status", ["nested"], None]},
+                },
+            ]
+        }
+        items = extract_schema_items(manifest)
+        names = {(i["item_type"], i["item_name"]) for i in items}
+        assert ("cube", "ok_cube") in names
+        assert ("measure", "revenue") in names
+        assert ("cube_dimension", "status") in names
+        assert ("time_dimension", "ts") in names
+        # Bad entries are silently dropped, not promoted to records.
+        assert sum(1 for i in items if i["item_type"] == "measure") == 1
+        assert sum(1 for i in items if i["item_type"] == "cube_dimension") == 1
+        assert sum(1 for i in items if i["item_type"] == "time_dimension") == 1
+
+        # describe_schema also tolerates the same shape.
+        text = describe_schema(manifest)
+        assert "### Cube: ok_cube" in text
+        # Non-string hierarchy levels are filtered out of the printed line.
+        assert "drill: status" in text
+
+
+# ── describe_schema tests ─────────────────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestDescribeSchema:
+    def test_contains_model_names(self):
+        text = describe_schema(_MANIFEST)
+        assert "### Model: orders [mart layer]" in text
+        assert "### Model: customer [mart layer]" in text
+
+    def test_contains_columns(self):
+        text = describe_schema(_MANIFEST)
+        assert "o_orderkey (varchar)" in text
+        assert "o_totalprice (double)" in text
+        assert "o_status (varchar)" in text
+
+    def test_contains_calculated_expression(self):
+        text = describe_schema(_MANIFEST)
+        assert "[calculated: sum(l_extendedprice)]" in text
+
+    def test_contains_relationship_column(self):
+        text = describe_schema(_MANIFEST)
+        assert "[relationship: orders_customer]" in text
+
+    def test_contains_relationship_section(self):
+        text = describe_schema(_MANIFEST)
+        assert "### Relationship: orders_customer" in text
+        assert "many_to_one" in text
+
+    def test_contains_view(self):
+        text = describe_schema(_MANIFEST)
+        assert "### View: top_customers" in text
+
+    def test_contains_description(self):
+        text = describe_schema(_MANIFEST)
+        assert "Customer master data" in text
+
+    def test_contains_primary_key(self):
+        text = describe_schema(_MANIFEST)
+        assert "Primary key: o_orderkey" in text
+        assert "PRIMARY KEY" in text
+
+    def test_contains_data_scope_and_accepted_values(self):
+        text = describe_schema(_MANIFEST)
+        assert "Data scope: status != 'cancelled'" in text
+        assert "[accepted values: placed, shipped, completed]" in text
+        assert "[test status: verified]" in text
+
+    def test_contains_list_accepted_values(self):
+        manifest = {
+            "models": [
+                {
+                    "name": "customers",
+                    "columns": [
+                        {
+                            "name": "name",
+                            "type": "VARCHAR",
+                            "properties": {"acceptedValues": ["Smith, John", "Ada"]},
+                        }
+                    ],
+                }
+            ]
+        }
+        text = describe_schema(manifest)
+        assert "[accepted values: Smith, John, Ada]" in text
+
+    def test_excludes_table_reference(self):
+        text = describe_schema(_MANIFEST)
+        assert "tableReference" not in text
+        assert "test.public.orders" not in text
+        assert "test.public.customer" not in text
+
+    def test_empty_manifest(self):
+        text = describe_schema({})
+        assert text == ""
+
+    def test_return_type_is_string(self):
+        text = describe_schema(_MANIFEST)
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+
+# ── Local-first embedding adapter tests ────────────────────────────────────
+# These exercise the control flow of LocalFirstSentenceTransformerEmbeddings
+# by mocking sentence_transformers.SentenceTransformer, the constructor used by
+# the adapter, rather than loading a real model.
+
+
+def _make_fake_model_class(calls: list, raise_on=None):
+    """Build a fake SentenceTransformer class recording ctor kwargs in *calls*.
+
+    *raise_on*: optional callable(kwargs) -> Exception | None, raised instead
+    of constructing.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    class _Fake:
+        def __init__(
+            self,
+            model_name_or_path=None,
+            *,
+            device=None,
+            trust_remote_code=False,
+            local_files_only=False,
+        ):
+            kwargs = {
+                "model_name_or_path": model_name_or_path,
+                "device": device,
+                "trust_remote_code": trust_remote_code,
+                "local_files_only": local_files_only,
+            }
+            calls.append(kwargs)
+            if raise_on is not None:
+                exc = raise_on(kwargs)
+                if exc is not None:
+                    raise exc
+
+        def encode(self, texts, **kwargs):
+            return np.zeros((len(texts), 3), dtype="float32")
+
+    return _Fake
+
+
+@pytest.mark.unit
+class TestLocalFirstEmbeddings:
+    @pytest.fixture(autouse=True)
+    def _require_sentence_transformers(self):
+        # Must run before the test body: these tests monkeypatch
+        # "sentence_transformers.SentenceTransformer" by string, which imports
+        # the module, so an importorskip inside _adapter comes too late under
+        # the memory-onnx extra.
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+
+    def _adapter(self, name: str):
+        from wren.memory.embeddings import (  # noqa: PLC0415
+            _get_local_first_embedding_class,
+        )
+
+        # The adapter class is built function-locally (no top-level lancedb
+        # import). Build it directly rather than through
+        # get_embedding_function, which dispatches to onnx when both extras
+        # are installed. The constructed model is cached module-wide, keyed by
+        # (name, device, trust_remote_code), so each test must use a distinct
+        # *name* — otherwise two tests would share one cache slot.
+        return _get_local_first_embedding_class().create(name=name)
+
+    def test_first_construction_is_local_files_only(self, monkeypatch):
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            "sentence_transformers.SentenceTransformer",
+            _make_fake_model_class(calls),
+        )
+        fn = self._adapter("fake-model-local-first")
+        fn.compute_source_embeddings(["hello"])
+        assert len(calls) == 1
+        assert calls[0] == {
+            "model_name_or_path": "fake-model-local-first",
+            "device": "cpu",
+            "trust_remote_code": True,
+            "local_files_only": True,
+        }
+
+    def test_oserror_falls_back_to_online_construction(self, monkeypatch):
+        calls: list[dict] = []
+
+        def _raise_once(kwargs):
+            if kwargs.get("local_files_only"):
+                return OSError("cache miss")
+            return None
+
+        monkeypatch.setattr(
+            "sentence_transformers.SentenceTransformer",
+            _make_fake_model_class(calls, raise_on=_raise_once),
+        )
+        fn = self._adapter("fake-model-oserror-fallback")
+        fn.compute_source_embeddings(["hello"])
+        assert len(calls) == 2
+        assert calls[0]["local_files_only"] is True
+        assert calls[1]["local_files_only"] is False
+
+    def test_non_oserror_is_not_swallowed(self, monkeypatch):
+        calls: list[dict] = []
+
+        def _raise_value_error(_kwargs):
+            return ValueError("boom")
+
+        monkeypatch.setattr(
+            "sentence_transformers.SentenceTransformer",
+            _make_fake_model_class(calls, raise_on=_raise_value_error),
+        )
+        fn = self._adapter("fake-model-non-oserror")
+        with pytest.raises(ValueError, match="boom"):
+            fn.compute_source_embeddings(["hello"])
+        # Only the local-first attempt was made — no online fallback for a
+        # non-OSError.
+        assert len(calls) == 1
+
+    def test_model_built_once_across_two_embed_calls(self, monkeypatch):
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            "sentence_transformers.SentenceTransformer",
+            _make_fake_model_class(calls),
+        )
+        fn = self._adapter("fake-model-built-once")
+        fn.compute_source_embeddings(["hello"])
+        fn.compute_source_embeddings(["world"])
+        assert len(calls) == 1  # single-flight cache serves the second call
+
+
+@pytest.mark.slow
+@pytest.mark.unit
+class TestLocalFirstEmbeddingsVectorCompat:
+    def test_adapter_output_matches_stock_lancedb(self):
+        """Real cross-model check: adapter output ≈ stock lancedb output.
+
+        Loads the real default model without mocking. Slow lane; not part of
+        the fast unit path.
+        """
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        import lancedb.embeddings  # noqa: PLC0415
+        import numpy as np  # noqa: PLC0415
+
+        from wren.memory.embeddings import (  # noqa: PLC0415
+            _DEFAULT_MODEL,
+            get_embedding_function,
+        )
+
+        stock = (
+            lancedb.embeddings.get_registry()
+            .get("sentence-transformers")
+            .create(name=_DEFAULT_MODEL)
+        )
+        adapter = get_embedding_function(model_name=_DEFAULT_MODEL)
+
+        text = "revenue by customer"
+        stock_vec = np.array(stock.compute_source_embeddings([text])[0])
+        adapter_vec = np.array(adapter.compute_source_embeddings([text])[0])
+
+        np.testing.assert_allclose(adapter_vec, stock_vec, atol=1e-5)
+
+
+@pytest.mark.unit
+class TestLocalFirstEmbeddingsConcurrency:
+    def test_model_constructed_once_under_concurrent_compute(self, monkeypatch):
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        import threading  # noqa: PLC0415
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+        import numpy as np  # noqa: PLC0415
+
+        from wren.memory import embeddings as embeddings_module  # noqa: PLC0415
+
+        calls: list[str] = []
+        entered = threading.Event()
+        release = threading.Event()
+        barrier = threading.Barrier(5)
+
+        class _FakeModel:
+            def __init__(self, *_args, **_kwargs):
+                calls.append(threading.current_thread().name)
+                entered.set()
+                release.wait(timeout=2)
+
+            def encode(self, texts, **_kwargs):
+                return np.zeros((len(texts), 3), dtype="float32")
+
+        monkeypatch.setattr("sentence_transformers.SentenceTransformer", _FakeModel)
+        # Build the adapter directly: get_embedding_function dispatches to onnx
+        # when both extras are installed, and this test is about the
+        # sentence-transformers single-flight cache.
+        adapter_cls = embeddings_module._get_local_first_embedding_class()
+        adapters = [adapter_cls.create(name="concurrent-model") for _ in range(5)]
+
+        def _compute(adapter):
+            barrier.wait()
+            return adapter.compute_source_embeddings(["hello"])
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = [pool.submit(_compute, adapter) for adapter in adapters]
+            assert entered.wait(timeout=2)
+            release.set()
+            results = [future.result(timeout=5) for future in futures]
+
+        assert len(results) == 5
+        assert len(calls) == 1
+
+
+# ── MemoryStore integration tests ─────────────────────────────────────────
+# These require lancedb + sentence-transformers (wren[memory] extra).
+
+
+def _require_memory_extra() -> None:
+    """Skip unless LanceDB and some embedding backend are importable.
+
+    Gating on sentence-transformers specifically would skip this whole suite
+    under the memory-onnx extra, where running it is the point.
+    """
+    pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+    from wren.memory.embeddings import embedding_backend_available  # noqa: PLC0415
+
+    if not embedding_backend_available():
+        pytest.skip("no embedding backend: install wren[memory] or wren[memory-onnx]")
+
+
+@pytest.fixture
+def memory_store(tmp_path):
+    """Create a MemoryStore backed by a temp directory."""
+    _require_memory_extra()
+
+    from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+    return MemoryStore(path=tmp_path)
+
+
+@pytest.mark.unit
+class TestMemoryStore:
+    def test_index_and_context(self, memory_store):
+        result = memory_store.index_schema(_MANIFEST)
+        assert result["schema_items"] == 11
+
+        # Small schema → full strategy
+        ctx = memory_store.get_context(_MANIFEST, "customer order price")
+        assert ctx["strategy"] == "full"
+        assert "### Model: orders" in ctx["schema"]
+
+    def test_context_search_strategy(self, memory_store):
+        memory_store.index_schema(_MANIFEST)
+        result = memory_store.get_context(_MANIFEST, "customer orders", threshold=10)
+        assert result["strategy"] == "search"
+        assert "results" in result
+        assert len(result["results"]) > 0
+        assert "text" in result["results"][0]
+
+    def test_context_search_with_type_filter(self, memory_store):
+        memory_store.index_schema(_MANIFEST)
+        result = memory_store.get_context(
+            _MANIFEST, "order", item_type="model", threshold=10
+        )
+        assert result["strategy"] == "search"
+        assert all(r["item_type"] == "model" for r in result["results"])
+
+    def test_context_search_with_model_filter(self, memory_store):
+        memory_store.index_schema(_MANIFEST)
+        result = memory_store.get_context(
+            _MANIFEST, "price", model_name="orders", threshold=10
+        )
+        assert result["strategy"] == "search"
+        assert all(r["model_name"] == "orders" for r in result["results"])
+
+    def test_context_empty_store(self, memory_store):
+        result = memory_store.get_context(_MANIFEST, "anything", threshold=10)
+        assert result["strategy"] == "search"
+        assert result["results"] == []
+
+    def test_schema_is_current(self, memory_store):
+        memory_store.index_schema(_MANIFEST)
+        assert memory_store.schema_is_current(_MANIFEST) is True
+
+        modified = {**_MANIFEST, "catalog": "changed"}
+        assert memory_store.schema_is_current(modified) is False
+
+    def test_store_and_recall_query(self, memory_store):
+        memory_store.store_query(
+            nl_query="show top customers by revenue",
+            sql_query="SELECT c_name, sum(o_totalprice) FROM orders GROUP BY 1 ORDER BY 2 DESC",
+            datasource="postgres",
+        )
+        results = memory_store.recall_queries("best customers", limit=1)
+        assert len(results) == 1
+        assert "top customers" in results[0]["nl_query"]
+        assert "SELECT" in results[0]["sql_query"]
+
+    def test_recall_empty_store(self, memory_store):
+        results = memory_store.recall_queries("anything")
+        assert results == []
+
+    def test_status(self, memory_store):
+        info = memory_store.status()
+        assert "path" in info
+        assert "tables" in info
+
+        memory_store.index_schema(_MANIFEST)
+        info = memory_store.status()
+        assert info["tables"]["schema_items"] == 11
+
+    def test_status_reports_the_live_embedding_backend(self, memory_store):
+        # Two backends write these vectors and only one of them pulls torch,
+        # so status has to say which one is actually resolved — not merely
+        # which extras happen to be importable.
+        from wren.memory.embeddings import (  # noqa: PLC0415
+            resolve_embedding_backend,
+        )
+
+        info = memory_store.status()
+        assert info["embedding_backend"] == resolve_embedding_backend()
+        assert info["model"]
+
+    def test_reset(self, memory_store):
+        memory_store.index_schema(_MANIFEST)
+        memory_store.reset()
+        info = memory_store.status()
+        assert info["tables"] == {}
+
+    def test_describe_schema_static(self, memory_store):
+        text = memory_store.describe_schema(_MANIFEST)
+        assert "### Model: orders" in text
+
+    def test_index_replace(self, memory_store):
+        memory_store.index_schema(_MANIFEST)
+        result = memory_store.index_schema(_MANIFEST, replace=True)
+        assert result["schema_items"] == 11
+        info = memory_store.status()
+        assert info["tables"]["schema_items"] == 11
+
+
+# ── Lazy MemoryStore model load tests ──────────────────────────────────────
+# Patch the CONSUMER namespace: store.py binds warm_up / get_embedding_function
+# as local names (`from wren.memory.embeddings import ...`), so tests must
+# patch `wren.memory.store.*`, not `wren.memory.embeddings.*`.
+
+
+def _raise_assertion(*_args, **_kwargs):
+    raise AssertionError("model path should not be entered")
+
+
+class _StubEmbedFn:
+    def __init__(self, dim: int = 8):
+        self.dim = dim
+
+    def compute_source_embeddings(self, texts):
+        return [[0.1] * self.dim for _ in texts]
+
+    def compute_query_embeddings(self, _query):
+        return [[0.1] * self.dim]
+
+
+class _FailingEmbedFn:
+    def compute_source_embeddings(self, _texts):
+        raise RuntimeError("encode boom")
+
+    def compute_query_embeddings(self, _query):
+        raise RuntimeError("encode boom")
+
+
+@pytest.mark.unit
+class TestMemoryStoreLazyModelLoad:
+    def test_status_reset_list_never_touch_model(self, tmp_path, monkeypatch):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        monkeypatch.setattr("wren.memory.store.warm_up", _raise_assertion)
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function", _raise_assertion
+        )
+
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        store = MemoryStore(path=tmp_path)  # empty dir — construction alone
+        # must not enter the model path either.
+        store.status()
+        store.reset()
+        store.list_queries()
+
+    def test_full_context_never_touches_model(self, tmp_path, monkeypatch):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        monkeypatch.setattr("wren.memory.store.warm_up", _raise_assertion)
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function", _raise_assertion
+        )
+
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        manifest = {
+            "models": [
+                {
+                    "name": "orders",
+                    "columns": [{"name": "id", "type": "integer"}],
+                }
+            ]
+        }
+        result = MemoryStore(path=tmp_path).get_context(manifest, "orders")
+
+        assert result["strategy"] == "full"
+        assert "orders" in result["schema"]
+
+    def test_forget_rebuild_preserves_schema_without_loading_model(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        import pyarrow as pa  # noqa: PLC0415
+
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function", lambda _name: _StubEmbedFn(4)
+        )
+        seed_store = MemoryStore(path=tmp_path)
+        seed_store.store_query(nl_query="q1", sql_query="SELECT 1", datasource="pg")
+        seed_store.store_query(nl_query="q2", sql_query="SELECT 2", datasource="pg")
+
+        monkeypatch.setattr("wren.memory.store.warm_up", _raise_assertion)
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function", _raise_assertion
+        )
+
+        fresh_store = MemoryStore(path=tmp_path)
+        deleted = fresh_store.forget_queries_by_ids([0])
+        assert deleted == 1
+
+        remaining, total = fresh_store.list_queries()
+        assert total == 1
+        assert remaining[0]["nl_query"] == "q2"
+
+        table = fresh_store._db.open_table("query_history")
+        vector_field = table.schema.field("vector")
+        assert isinstance(vector_field.type, pa.FixedSizeListType)
+        assert vector_field.type.list_size == 4
+
+    def test_store_query_uses_actual_embed_dim(self, tmp_path, monkeypatch):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function", lambda _name: _StubEmbedFn(8)
+        )
+        monkeypatch.setattr("wren.memory.store.warm_up", _raise_assertion)
+
+        store = MemoryStore(path=tmp_path)
+        store.store_query(nl_query="custom dim q", sql_query="SELECT 1")
+
+        table = store._db.open_table("query_history")
+        vector_field = table.schema.field("vector")
+        assert vector_field.type.list_size == 8
+
+    def test_resolve_dim_rejects_non_fixed_size_list_vector(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        import pyarrow as pa  # noqa: PLC0415
+
+        from wren.memory.store import (  # noqa: PLC0415
+            MemoryStore,
+            _query_history_arrow_schema,
+        )
+
+        monkeypatch.setattr("wren.memory.store.warm_up", _raise_assertion)
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function", _raise_assertion
+        )
+
+        store = MemoryStore(path=tmp_path)
+        bad_schema = _query_history_arrow_schema(4).set(
+            1, pa.field("vector", pa.list_(pa.float32()))
+        )
+        store._db.create_table("query_history", schema=bad_schema)
+
+        with pytest.raises(ValueError, match="not a fixed-size list"):
+            _ = store._dim
+
+    def test_resolve_dim_rejects_mixed_dim_across_tables(self, tmp_path, monkeypatch):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        import pyarrow as pa  # noqa: PLC0415
+
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        monkeypatch.setattr("wren.memory.store.warm_up", _raise_assertion)
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function", _raise_assertion
+        )
+
+        store = MemoryStore(path=tmp_path)
+        schema_dim_4 = pa.schema([pa.field("vector", pa.list_(pa.float32(), 4))])
+        schema_dim_8 = pa.schema([pa.field("vector", pa.list_(pa.float32(), 8))])
+        store._db.create_table("schema_items", schema=schema_dim_4)
+        store._db.create_table("query_history", schema=schema_dim_8)
+
+        with pytest.raises(ValueError, match="Mixed-dimension"):
+            _ = store._dim
+
+    def test_store_query_rejects_dim_mismatch_against_existing_table(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        from wren.memory.store import (  # noqa: PLC0415
+            MemoryStore,
+            _schema_items_arrow_schema,
+            _table_names,
+        )
+
+        store = MemoryStore(path=tmp_path)
+        store._db.create_table("schema_items", schema=_schema_items_arrow_schema(4))
+        monkeypatch.setattr(store, "_embed_fn_cached", _StubEmbedFn(8))
+
+        with pytest.raises(ValueError, match="does not match"):
+            store.store_query(nl_query="q", sql_query="SELECT 1")
+
+        assert "query_history" not in _table_names(store._db)
+
+    def test_index_schema_rejects_dim_mismatch_against_existing_table(
+        self, tmp_path, monkeypatch
+    ):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        from wren.memory.store import (  # noqa: PLC0415
+            MemoryStore,
+            _query_history_arrow_schema,
+            _table_names,
+        )
+
+        store = MemoryStore(path=tmp_path)
+        store._db.create_table("query_history", schema=_query_history_arrow_schema(4))
+        monkeypatch.setattr(store, "_embed_fn_cached", _StubEmbedFn(8))
+
+        with pytest.raises(ValueError, match="does not match"):
+            store.index_schema(_MANIFEST, replace=True, seed_queries=False)
+
+        assert "schema_items" not in _table_names(store._db)
+        assert store._db.open_table("query_history").count_rows() == 0
+
+    def test_dim_resolved_once_under_concurrent_access(self, tmp_path, monkeypatch):
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        import threading  # noqa: PLC0415
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        store = MemoryStore(path=tmp_path)
+        monkeypatch.setattr(
+            "wren.memory.store.get_embedding_function",
+            lambda _name: _StubEmbedFn(4),
+        )
+
+        calls: list[str] = []
+        entered = threading.Event()
+        release = threading.Event()
+        barrier = threading.Barrier(5)
+
+        def _slow_warm_up(embed_fn):
+            calls.append(threading.current_thread().name)
+            entered.set()
+            release.wait(timeout=2)
+            return len(embed_fn.compute_source_embeddings(["probe"])[0])
+
+        monkeypatch.setattr("wren.memory.store.warm_up", _slow_warm_up)
+
+        def _resolve():
+            barrier.wait()
+            return store._dim
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = [pool.submit(_resolve) for _ in range(5)]
+            assert entered.wait(timeout=2)
+            release.set()
+            results = [future.result(timeout=5) for future in futures]
+
+        assert len(calls) == 1
+        assert results == [4] * 5
+
+
+# ── WrenMemory public API tests ───────────────────────────────────────────
+
+
+@pytest.fixture
+def wren_memory(tmp_path):
+    """Create a WrenMemory instance backed by a temp directory."""
+    _require_memory_extra()
+
+    from wren.memory import WrenMemory  # noqa: PLC0415
+
+    return WrenMemory(path=tmp_path)
+
+
+@pytest.mark.unit
+class TestWrenMemory:
+    def test_full_lifecycle(self, wren_memory):
+        result = wren_memory.index_manifest(_MANIFEST)
+        assert result["schema_items"] == 11
+
+        ctx = wren_memory.get_context(_MANIFEST, "customer")
+        assert ctx["strategy"] == "full"
+        assert "### Model: customer" in ctx["schema"]
+
+        wren_memory.store_query(
+            nl_query="find expensive orders",
+            sql_query="SELECT * FROM orders WHERE o_totalprice > 1000",
+        )
+        recalled = wren_memory.recall_queries("costly orders")
+        assert len(recalled) >= 1
+        assert any(r["nl_query"] == "find expensive orders" for r in recalled)
+
+        assert wren_memory.schema_is_current(_MANIFEST)
+
+        status = wren_memory.status()
+        assert status["tables"]["schema_items"] == 11
+        # query_history has 1 user query + seed queries
+        assert status["tables"]["query_history"] >= 1
+
+        wren_memory.reset()
+        assert wren_memory.status()["tables"] == {}
+
+
+# ── MemoryStore seed lifecycle tests ─────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestMemoryStoreSeedLifecycle:
+    def test_index_schema_seeds_query_history(self, memory_store):
+        from wren.memory.seed_queries import SEED_TAG  # noqa: PLC0415
+
+        result = memory_store.index_schema(_MANIFEST, seed_queries=True)
+        assert result["seed_queries"] > 0
+
+        table = memory_store._db.open_table("query_history")
+        df = table.to_pandas()
+        seeds = df[df["tags"] == SEED_TAG]
+        assert len(seeds) == result["seed_queries"]
+
+    def test_index_schema_no_seed_flag(self, memory_store):
+        result = memory_store.index_schema(_MANIFEST, seed_queries=False)
+        assert result["seed_queries"] == 0
+        from wren.memory.store import _table_names  # noqa: PLC0415
+
+        assert "query_history" not in _table_names(memory_store._db)
+
+    def test_reindex_replaces_seeds_preserves_user_queries(self, memory_store):
+        from wren.memory.seed_queries import SEED_TAG  # noqa: PLC0415
+
+        # Index once to create seeds
+        first = memory_store.index_schema(_MANIFEST, seed_queries=True)
+        seed_count = first["seed_queries"]
+        assert seed_count > 0
+
+        # Store a user-confirmed query (no seed tag)
+        memory_store.store_query(
+            nl_query="show me the most expensive orders",
+            sql_query="SELECT * FROM orders ORDER BY o_totalprice DESC LIMIT 10",
+        )
+
+        table = memory_store._db.open_table("query_history")
+        total_before = table.count_rows()
+        assert total_before == seed_count + 1
+
+        # Re-index — seeds should be replaced, user entry preserved
+        second = memory_store.index_schema(_MANIFEST, seed_queries=True)
+        assert second["seed_queries"] == seed_count
+
+        table = memory_store._db.open_table("query_history")
+        df = table.to_pandas()
+        seeds = df[df["tags"] == SEED_TAG]
+        user_rows = df[df["tags"] != SEED_TAG]
+        assert len(seeds) == seed_count
+        assert len(user_rows) == 1
+        assert "expensive orders" in user_rows.iloc[0]["nl_query"]
+
+    def test_recall_returns_seed_entries(self, memory_store):
+        from wren.memory.seed_queries import SEED_TAG  # noqa: PLC0415
+
+        memory_store.index_schema(_MANIFEST, seed_queries=True)
+        results = memory_store.recall_queries("list all orders", limit=5)
+        assert len(results) > 0
+        # At least one result should be a seed entry
+        tags = [r.get("tags", "") for r in results]
+        assert any(t == SEED_TAG for t in tags)
+
+    def test_index_schema_returns_dict(self, memory_store):
+        result = memory_store.index_schema(_MANIFEST)
+        assert isinstance(result, dict)
+        assert "schema_items" in result
+        assert "seed_queries" in result
+        assert result["schema_items"] == 11
+
+    def test_upsert_seed_queries_preserves_old_seeds_when_embed_fails(
+        self, memory_store, monkeypatch
+    ):
+        from wren.memory.seed_queries import SEED_TAG  # noqa: PLC0415
+
+        def _seed_snapshot() -> list[dict]:
+            table = memory_store._db.open_table("query_history")
+            rows = table.to_pandas()
+            rows = rows[rows["tags"] == SEED_TAG].copy()
+            rows["vector"] = rows["vector"].map(tuple)
+            return (
+                rows.sort_values(["nl_query", "sql_query", "datasource"])
+                .reset_index(drop=True)
+                .to_dict("records")
+            )
+
+        memory_store.index_schema(_MANIFEST)
+        before = _seed_snapshot()
+        assert before
+
+        monkeypatch.setattr(memory_store, "_embed_fn_cached", _FailingEmbedFn())
+
+        with pytest.raises(RuntimeError, match="encode boom"):
+            memory_store._upsert_seed_queries(_MANIFEST)
+
+        monkeypatch.setattr(memory_store, "_embed_fn_cached", None)
+        assert _seed_snapshot() == before
+
+
+# ── list_queries / forget / dump / load tests ────────────────────────────
+
+
+def _seed_pairs(memory_store, n=3):
+    """Insert N user query pairs and return them."""
+    pairs = []
+    for i in range(n):
+        nl = f"query number {i}"
+        sql = f"SELECT {i} FROM t"
+        memory_store.store_query(nl_query=nl, sql_query=sql, tags="source:user")
+        pairs.append({"nl": nl, "sql": sql, "source": "user"})
+    return pairs
+
+
+@pytest.mark.unit
+class TestMemoryStoreList:
+    def test_list_empty(self, memory_store):
+        rows, total = memory_store.list_queries()
+        assert rows == []
+        assert total == 0
+
+    def test_list_returns_rows(self, memory_store):
+        _seed_pairs(memory_store, 3)
+        rows, total = memory_store.list_queries()
+        assert total == 3
+        assert len(rows) == 3
+        assert "nl_query" in rows[0]
+        assert "sql_query" in rows[0]
+        assert "_row_id" in rows[0]
+        assert "vector" not in rows[0]
+
+    def test_list_pagination(self, memory_store):
+        _seed_pairs(memory_store, 5)
+        rows, total = memory_store.list_queries(limit=2, offset=0)
+        assert total == 5
+        assert len(rows) == 2
+
+        rows2, _ = memory_store.list_queries(limit=2, offset=2)
+        assert len(rows2) == 2
+
+        rows3, _ = memory_store.list_queries(limit=2, offset=4)
+        assert len(rows3) == 1
+
+    def test_list_source_filter(self, memory_store):
+        memory_store.store_query(
+            nl_query="seed q", sql_query="SELECT 1", tags="source:seed"
+        )
+        memory_store.store_query(
+            nl_query="user q", sql_query="SELECT 2", tags="source:user"
+        )
+        rows, total = memory_store.list_queries(source="seed")
+        assert total == 1
+        assert "seed q" in rows[0]["nl_query"]
+
+
+@pytest.mark.unit
+class TestMemoryStoreForget:
+    def test_forget_by_ids(self, memory_store):
+        _seed_pairs(memory_store, 3)
+        deleted = memory_store.forget_queries_by_ids([0])
+        assert deleted == 1
+        _, total = memory_store.list_queries()
+        assert total == 2
+
+    def test_forget_by_ids_multiple(self, memory_store):
+        _seed_pairs(memory_store, 5)
+        deleted = memory_store.forget_queries_by_ids([0, 2, 4])
+        assert deleted == 3
+        _, total = memory_store.list_queries()
+        assert total == 2
+
+    def test_forget_by_ids_invalid(self, memory_store):
+        _seed_pairs(memory_store, 2)
+        deleted = memory_store.forget_queries_by_ids([99])
+        assert deleted == 0
+        _, total = memory_store.list_queries()
+        assert total == 2
+
+    def test_forget_by_source(self, memory_store):
+        memory_store.store_query(
+            nl_query="seed q", sql_query="SELECT 1", tags="source:seed"
+        )
+        memory_store.store_query(
+            nl_query="user q", sql_query="SELECT 2", tags="source:user"
+        )
+        deleted = memory_store.forget_queries_by_source("seed")
+        assert deleted == 1
+        _, total = memory_store.list_queries()
+        assert total == 1
+
+    def test_count_by_source(self, memory_store):
+        memory_store.store_query(nl_query="a", sql_query="SELECT 1", tags="source:seed")
+        memory_store.store_query(nl_query="b", sql_query="SELECT 2", tags="source:seed")
+        memory_store.store_query(nl_query="c", sql_query="SELECT 3", tags="source:user")
+        assert memory_store.count_queries_by_source("seed") == 2
+        assert memory_store.count_queries_by_source("user") == 1
+        assert memory_store.count_queries_by_source("view") == 0
+
+    def test_forget_empty_store(self, memory_store):
+        assert memory_store.forget_queries_by_ids([0]) == 0
+        assert memory_store.forget_queries_by_source("seed") == 0
+
+    def test_forget_rebuild_no_data_loss_on_conversion_failure(
+        self, memory_store, monkeypatch
+    ):
+        """pa.Table.from_pandas() must run BEFORE any destructive table
+        operation — a conversion failure must leave the original table +
+        all its rows untouched.
+
+        ``pyarrow.Table`` is an immutable Cython extension type — its
+        classmethods can't be monkeypatched on the real module (and lancedb
+        itself uses ``pa.Table.from_batches`` internally, so blanket-
+        replacing the real ``pyarrow.Table`` breaks unrelated lancedb
+        internals too). Instead, only the ``pa`` name bound in
+        ``wren.memory.store`` is swapped for a thin proxy that fails
+        ``Table.from_pandas`` and forwards everything else (``pa.schema``,
+        ``pa.field``, other ``pa.Table`` methods, ...) to the real module.
+        """
+        import pyarrow as real_pa  # noqa: PLC0415
+
+        _seed_pairs(memory_store, 3)
+
+        class _BoomTable:
+            # Only from_pandas is exercised by forget_queries_by_ids — no
+            # other pa.Table.* classmethod is called on this path.
+            @staticmethod
+            def from_pandas(*_args, **_kwargs):
+                raise RuntimeError("conversion boom")
+
+        class _PyarrowProxy:
+            def __getattr__(self, name):
+                if name == "Table":
+                    return _BoomTable
+                return getattr(real_pa, name)
+
+        monkeypatch.setattr("wren.memory.store.pa", _PyarrowProxy())
+        with pytest.raises(RuntimeError, match="conversion boom"):
+            memory_store.forget_queries_by_ids([0])
+        monkeypatch.undo()
+
+        _, total = memory_store.list_queries()
+        assert total == 3
+
+    def test_forget_rebuild_no_data_loss_on_create_table_failure(self, memory_store):
+        """The rebuild must not drop the original table before the
+        replacement table is safely created — a create_table failure must
+        leave the original table + all its rows untouched."""
+        _seed_pairs(memory_store, 3)
+
+        def _boom_create(*_args, **_kwargs):
+            raise RuntimeError("create_table boom")
+
+        real_create_table = memory_store._db.create_table
+        memory_store._db.create_table = _boom_create
+        try:
+            with pytest.raises(RuntimeError, match="create_table boom"):
+                memory_store.forget_queries_by_ids([0])
+        finally:
+            memory_store._db.create_table = real_create_table
+
+        _, total = memory_store.list_queries()
+        assert total == 3
+
+
+@pytest.mark.unit
+class TestMemoryStoreDump:
+    def test_dump_empty(self, memory_store):
+        rows = memory_store.dump_queries()
+        assert rows == []
+
+    def test_dump_returns_all(self, memory_store):
+        _seed_pairs(memory_store, 3)
+        rows = memory_store.dump_queries()
+        assert len(rows) == 3
+        assert "nl_query" in rows[0]
+        assert "vector" not in rows[0]
+
+    def test_dump_source_filter(self, memory_store):
+        memory_store.store_query(nl_query="a", sql_query="SELECT 1", tags="source:seed")
+        memory_store.store_query(nl_query="b", sql_query="SELECT 2", tags="source:user")
+        rows = memory_store.dump_queries(source="user")
+        assert len(rows) == 1
+        assert rows[0]["nl_query"] == "b"
+
+
+@pytest.mark.unit
+class TestMemoryStoreLoad:
+    def test_load_skip_duplicates(self, memory_store):
+        pairs = [
+            {"nl": "q1", "sql": "SELECT 1", "source": "user"},
+            {"nl": "q2", "sql": "SELECT 2", "source": "user"},
+        ]
+        r1 = memory_store.load_queries(pairs)
+        assert r1 == {"loaded": 2, "skipped": 0, "updated": 0}
+
+        # Load again — should skip all
+        r2 = memory_store.load_queries(pairs)
+        assert r2 == {"loaded": 0, "skipped": 2, "updated": 0}
+
+    def test_load_upsert(self, memory_store):
+        pairs_v1 = [{"nl": "revenue", "sql": "SELECT old", "source": "user"}]
+        memory_store.load_queries(pairs_v1)
+
+        pairs_v2 = [{"nl": "revenue", "sql": "SELECT new", "source": "user"}]
+        r = memory_store.load_queries(pairs_v2, upsert=True)
+        assert r == {"loaded": 0, "skipped": 0, "updated": 1}
+
+        # Verify the updated value
+        rows = memory_store.dump_queries()
+        sqls = {row["nl_query"]: row["sql_query"] for row in rows}
+        assert sqls["revenue"] == "SELECT new"
+
+    def test_load_overwrite(self, memory_store):
+        memory_store.store_query(
+            nl_query="old", sql_query="SELECT old", tags="source:user"
+        )
+        pairs = [{"nl": "new", "sql": "SELECT new", "source": "user"}]
+        r = memory_store.load_queries(pairs, overwrite=True)
+        assert r == {"loaded": 1, "skipped": 0, "updated": 0}
+
+        rows = memory_store.dump_queries()
+        assert len(rows) == 1
+        assert rows[0]["nl_query"] == "new"
+
+    def test_load_with_datasource(self, memory_store):
+        pairs = [
+            {"nl": "q1", "sql": "SELECT 1", "source": "user", "datasource": "pg"},
+        ]
+        memory_store.load_queries(pairs)
+        rows = memory_store.dump_queries()
+        assert rows[0]["datasource"] == "pg"
+
+    def test_existing_pairs_index(self, memory_store):
+        memory_store.store_query(nl_query="a", sql_query="SELECT 1")
+        memory_store.store_query(nl_query="b", sql_query="SELECT 2")
+        exact_set, nl_map = memory_store._existing_pairs_index()
+        assert ("a", "SELECT 1") in exact_set
+        assert ("b", "SELECT 2") in exact_set
+        assert "a" in nl_map
+        assert "b" in nl_map
+
+    def test_load_overwrite_preserves_old_rows_when_embed_fails(
+        self, memory_store, monkeypatch
+    ):
+        memory_store.store_query(
+            nl_query="old q1", sql_query="SELECT 1", tags="source:user"
+        )
+        memory_store.store_query(
+            nl_query="old q2", sql_query="SELECT 2", tags="source:user"
+        )
+
+        monkeypatch.setattr(memory_store, "_embed_fn_cached", _FailingEmbedFn())
+
+        new_pairs = [{"nl": "new q1", "sql": "SELECT 9", "source": "user"}]
+        with pytest.raises(RuntimeError, match="encode boom"):
+            memory_store.load_queries(new_pairs, overwrite=True)
+
+        monkeypatch.setattr(memory_store, "_embed_fn_cached", None)
+        rows, total = memory_store.list_queries()
+        assert total == 2
+        assert {r["nl_query"] for r in rows} == {"old q1", "old q2"}
+
+    def test_load_upsert_preserves_old_rows_when_embed_fails(
+        self, memory_store, monkeypatch
+    ):
+        memory_store.store_query(
+            nl_query="dup q", sql_query="SELECT OLD", tags="source:user"
+        )
+        memory_store.store_query(
+            nl_query="other q", sql_query="SELECT OTHER", tags="source:user"
+        )
+
+        monkeypatch.setattr(memory_store, "_embed_fn_cached", _FailingEmbedFn())
+
+        new_pairs = [{"nl": "dup q", "sql": "SELECT NEW", "source": "user"}]
+        with pytest.raises(RuntimeError, match="encode boom"):
+            memory_store.load_queries(new_pairs, upsert=True)
+
+        monkeypatch.setattr(memory_store, "_embed_fn_cached", None)
+        rows, total = memory_store.list_queries()
+        assert total == 2
+        sql_by_nl = {r["nl_query"]: r["sql_query"] for r in rows}
+        assert sql_by_nl["dup q"] == "SELECT OLD"
+
+
+# ── CLI dump/load YAML round-trip tests ──────────────────────────────────
+
+
+@pytest.mark.unit
+class TestYamlRoundTrip:
+    def test_pairs_to_yaml_and_back(self, memory_store):
+        from wren.memory.cli import _pairs_to_yaml  # noqa: PLC0415
+
+        memory_store.store_query(
+            nl_query="revenue by month",
+            sql_query="SELECT month, SUM(revenue) FROM orders GROUP BY month",
+            datasource="pg",
+            tags="source:user",
+        )
+        memory_store.store_query(
+            nl_query="all orders",
+            sql_query="SELECT * FROM orders",
+            tags="source:seed",
+        )
+
+        rows = memory_store.dump_queries()
+        yaml_str = _pairs_to_yaml(rows)
+
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load(yaml_str)
+        assert doc["version"] == 1
+        assert "exported_at" in doc
+        assert len(doc["pairs"]) == 2
+
+        # Verify source extraction
+        sources = {p["source"] for p in doc["pairs"]}
+        assert sources == {"user", "seed"}
+
+        # Load back
+        result = memory_store.load_queries(doc["pairs"])
+        # All should be skipped as duplicates
+        assert result["skipped"] == 2
+        assert result["loaded"] == 0
+
+
+# ── O5: knowledge/sql markdown is the source of truth for the index ────────
+
+
+@pytest.mark.unit
+class TestMarkdownSourcedIndex:
+    """index/recall/reset treat LanceDB as a derived index over knowledge/sql/."""
+
+    def test_load_query_pairs_index_is_convergent(self, memory_store, tmp_path):
+        from wren.memory.markdown import (  # noqa: PLC0415
+            load_query_pairs,
+            write_query_markdown,
+        )
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        write_query_markdown(tmp_path, "Count orders", "SELECT COUNT(*) FROM o")
+        pairs = load_query_pairs(tmp_path)
+
+        memory_store.load_queries(pairs, upsert=True)
+        first, _ = memory_store.list_queries(limit=100)
+        # re-running index converges (no duplication)
+        memory_store.load_queries(load_query_pairs(tmp_path), upsert=True)
+        second, _ = memory_store.list_queries(limit=100)
+        assert len(first) == len(second) == 2
+
+    def test_sync_forgets_pair_deleted_from_markdown(self, memory_store, tmp_path):
+        from wren.memory.markdown import (  # noqa: PLC0415
+            load_query_pairs,
+            write_query_markdown,
+        )
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        write_query_markdown(tmp_path, "Count orders", "SELECT COUNT(*) FROM o")
+        memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+
+        (tmp_path / "knowledge" / "sql" / "count-orders.md").unlink()
+        result = memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+
+        assert result["forgotten"] == 1
+        remaining, total = memory_store.list_queries(limit=100)
+        assert total == 1
+        assert remaining[0]["nl_query"] == "Total revenue"
+        # the deleted example must no longer surface in recall either
+        hits = memory_store.recall_queries("count orders", limit=5)
+        assert all(h["nl_query"] != "Count orders" for h in hits)
+
+    def test_sync_preserves_seed_queries_absent_from_markdown(
+        self, memory_store, tmp_path
+    ):
+        from wren.memory.markdown import (  # noqa: PLC0415
+            load_query_pairs,
+            write_query_markdown,
+        )
+
+        memory_store.index_schema(_MANIFEST)  # generates seed queries
+        before, _ = memory_store.list_queries(limit=100, source="seed")
+        assert before  # sanity: seeds exist
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+
+        after, _ = memory_store.list_queries(limit=100, source="seed")
+        assert len(after) == len(before)  # seeds untouched by the markdown sync
+
+    def test_sync_preserves_legacy_queries_yml_pairs_absent_from_markdown(
+        self, memory_store
+    ):
+        """A pair loaded from a project's legacy queries.yml is not markdown-
+        backed, so a naive sync_markdown_queries() forgets it as stale on
+        every run and immediately reloads it, reporting a bogus "forgot 1
+        stale pair" each time. Tagging it source:legacy and excluding that
+        tag from the forget scan (same as seed/view) makes it stable across
+        repeated syncs with an empty markdown set.
+        """
+        memory_store.load_queries(
+            [
+                {
+                    "nl": "Total revenue",
+                    "sql": "SELECT SUM(amount) FROM o",
+                    "source": "legacy",
+                }
+            ],
+            upsert=False,
+        )
+        before, _ = memory_store.list_queries(limit=100, source="legacy")
+        assert len(before) == 1
+
+        result = memory_store.sync_markdown_queries([])  # no markdown pairs
+
+        assert result["forgotten"] == 0
+        after, _ = memory_store.list_queries(limit=100, source="legacy")
+        assert len(after) == 1
+        assert after[0]["sql_query"] == "SELECT SUM(amount) FROM o"
+
+    def test_sync_preserves_view_queries_absent_from_markdown(self, memory_store):
+        """A source:view row is not markdown-backed either (there is no
+        knowledge/sql/*.md file for a manifest view), so a markdown sync
+        with an empty pair set must never forget it."""
+        memory_store.load_queries(
+            [
+                {
+                    "nl": "Rows in the active orders view",
+                    "sql": "SELECT * FROM active_orders_view",
+                    "source": "view",
+                }
+            ],
+            upsert=False,
+        )
+        before, _ = memory_store.list_queries(limit=100, source="view")
+        assert len(before) == 1
+
+        result = memory_store.sync_markdown_queries([])  # no markdown pairs
+
+        assert result["forgotten"] == 0
+        after, _ = memory_store.list_queries(limit=100, source="view")
+        assert len(after) == 1
+        assert after[0]["sql_query"] == "SELECT * FROM active_orders_view"
+
+    def test_sync_preserves_user_pair_loaded_from_yaml_with_no_markdown_file(
+        self, memory_store
+    ):
+        """`wren memory load pairs.yml` (no --source given) writes a plain
+        source:user row backed by no knowledge/sql/*.md file at all: the
+        YAML file may live anywhere, or be deleted right after the import.
+        A markdown sync must never treat that row as stale just because its
+        source happens to be "user" too, which is also what every
+        markdown-backed pair defaults to.
+        """
+        memory_store.load_queries(
+            [
+                {
+                    "nl": "Revenue by region",
+                    "sql": "SELECT region, SUM(amount) FROM orders GROUP BY region",
+                    "source": "user",
+                }
+            ],
+            upsert=False,
+        )
+        before, _ = memory_store.list_queries(limit=100, source="user")
+        assert len(before) == 1
+
+        result = memory_store.sync_markdown_queries([])  # no markdown pairs
+
+        assert result["forgotten"] == 0
+        after, _ = memory_store.list_queries(limit=100, source="user")
+        assert len(after) == 1
+        assert after[0]["nl_query"] == "Revenue by region"
+
+    def test_sync_preserves_pre_upgrade_queries_yml_import_once_file_is_gone(
+        self, memory_store
+    ):
+        """Before source:legacy tagging existed, a project's queries.yml was
+        imported as a plain source:user row (see the CLI's old, untagged
+        `load_queries(legacy_pairs, upsert=False)` call). A user who
+        consumed queries.yml on an older version, then deleted the file and
+        upgraded, must not lose that row on their first post-upgrade
+        `wren memory index`: there is no markdown file to judge it against,
+        and the row predates this sync entirely, so it never carries the
+        provenance tag a markdown sync would need to treat it as its own.
+        """
+        memory_store.load_queries(
+            [
+                {
+                    "nl": "Total revenue",
+                    "sql": "SELECT SUM(amount) FROM o",
+                    "source": "user",
+                }
+            ],
+            upsert=False,
+        )
+
+        result = memory_store.sync_markdown_queries([])  # queries.yml is gone
+
+        assert result["forgotten"] == 0
+        after, _ = memory_store.list_queries(limit=100, source="user")
+        assert len(after) == 1
+        assert after[0]["nl_query"] == "Total revenue"
+
+    def test_source_filters_still_match_markdown_synced_rows(
+        self, memory_store, tmp_path
+    ):
+        """sync_markdown_queries tags the rows it writes with an extra
+        provenance token after the source tag (_MARKDOWN_SYNC_TAG), so the
+        stored tags string is no longer just "source:user". list/count/dump/
+        forget filtering by --source must keep matching on the source value
+        alone, not on an exact match against the whole tags string.
+        """
+        from wren.memory.markdown import (  # noqa: PLC0415
+            load_query_pairs,
+            write_query_markdown,
+        )
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+
+        rows, total = memory_store.list_queries(source="user")
+        assert total == 1
+        assert rows[0]["nl_query"] == "Total revenue"
+        assert memory_store.count_queries_by_source("user") == 1
+        dumped = memory_store.dump_queries(source="user")
+        assert len(dumped) == 1
+
+        deleted = memory_store.forget_queries_by_source("user")
+        assert deleted == 1
+        _, total_after = memory_store.list_queries()
+        assert total_after == 0
+
+    def test_source_filters_ignore_rows_carrying_no_source_tag(self, memory_store):
+        """`wren memory store` and the MCP `store_query` tool pass the caller's
+        own free-form labels through to `tags` (`"revenue,finance"`, or nothing
+        at all), so a real index holds rows with no `source:` token. A
+        `--source user` filter must not claim them, least of all `forget`.
+        """
+        memory_store.store_query(
+            nl_query="A user-tagged pair", sql_query="SELECT 1", tags="revenue,finance"
+        )
+        memory_store.store_query(
+            nl_query="An untagged pair", sql_query="SELECT 2", tags=None
+        )
+        memory_store.store_query(
+            nl_query="A source-tagged pair", sql_query="SELECT 3", tags="source:user"
+        )
+
+        rows, total = memory_store.list_queries(limit=100, source="user")
+        assert total == 1
+        assert rows[0]["nl_query"] == "A source-tagged pair"
+        assert memory_store.count_queries_by_source("user") == 1
+        assert [r["nl_query"] for r in memory_store.dump_queries(source="user")] == [
+            "A source-tagged pair"
+        ]
+
+        assert memory_store.forget_queries_by_source("user") == 1
+        survivors, _ = memory_store.list_queries(limit=100)
+        assert sorted(r["nl_query"] for r in survivors) == [
+            "A user-tagged pair",
+            "An untagged pair",
+        ]
+
+    def test_sync_lets_a_markdown_pair_win_over_a_colliding_seed_row(
+        self, memory_store, tmp_path
+    ):
+        """User-authored content wins over an auto-generated seed with the same nl.
+
+        A seed sharing a markdown pair's nl_query is not protected: the sync
+        upserts the markdown pair over it. This is deliberate, not a gap. The
+        seed is regenerated by index_schema() on every reindex (self-healing),
+        while a dropped markdown pair is permanent (its file is still on disk,
+        so it can never be re-synced, and `wren memory check` would report it
+        as unfixably out of sync forever). An earlier version of this method
+        pre-filtered markdown pairs against existing seed/view nl_query values
+        to "protect" the seed row; that filter made check/index loop on the
+        markdown pair forever and is why this test asserts the opposite of
+        what its name once claimed.
+        """
+        from wren.memory.markdown import (  # noqa: PLC0415
+            load_query_pairs,
+            write_query_markdown,
+        )
+
+        memory_store.store_query(
+            nl_query="Total revenue",
+            sql_query="SELECT SUM(o_totalprice) FROM orders",
+            tags="source:seed",
+        )
+        before, _ = memory_store.list_queries(limit=100, source="seed")
+        assert len(before) == 1
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        result = memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+
+        # the markdown pair replaced the seed row (an upsert, not a fresh
+        # load) rather than being skipped
+        _, total = memory_store.list_queries(limit=100)
+        assert total == 1
+        assert result["updated"] == 1
+        remaining, _ = memory_store.list_queries(limit=100)
+        assert remaining[0]["sql_query"] == "SELECT SUM(amount) FROM o"
+
+        # and the markdown pair now stays in sync on a second run: nothing to
+        # load, nothing to forget, no unfixable "not indexed" loop
+        result2 = memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+        assert result2["forgotten"] == 0
+        after, _ = memory_store.list_queries(limit=100)
+        assert len(after) == 1
+        assert after[0]["sql_query"] == "SELECT SUM(amount) FROM o"
+
+    def test_sync_with_no_markdown_pairs_forgets_all_user_pairs(
+        self, memory_store, tmp_path
+    ):
+        from wren.memory.markdown import (  # noqa: PLC0415
+            load_query_pairs,
+            write_query_markdown,
+        )
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+        (tmp_path / "knowledge" / "sql" / "total-revenue.md").unlink()
+
+        result = memory_store.sync_markdown_queries(load_query_pairs(tmp_path))
+        assert result["forgotten"] == 1
+        _, total = memory_store.list_queries(limit=100)
+        assert total == 0
+
+    def test_cli_index_lancedb_forgets_deleted_pair(self, tmp_path, monkeypatch):
+        """`wren memory index` on the lancedb backend must actually forget a
+        pair deleted from knowledge/sql/*.md, not just report it as stale."""
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.cli import app  # noqa: PLC0415
+        from wren.memory.markdown import write_query_markdown  # noqa: PLC0415
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setenv("WREN_MEMORY_BACKEND", "lancedb")
+        (tmp_path / "target").mkdir()
+        (tmp_path / "target" / "mdl.json").write_text("{}", encoding="utf-8")
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        write_query_markdown(tmp_path, "Count orders", "SELECT COUNT(*) FROM o")
+
+        cli = CliRunner()
+        first = cli.invoke(app, ["memory", "index"])
+        assert first.exit_code == 0, first.output
+
+        (tmp_path / "knowledge" / "sql" / "count-orders.md").unlink()
+        second = cli.invoke(app, ["memory", "index"])
+        assert second.exit_code == 0, second.output
+        assert "Forgot 1 stale pair" in second.output
+
+        store = MemoryStore(path=str(tmp_path / ".wren" / "memory"))
+        rows, total = store.list_queries(limit=100)
+        assert total == 1
+        assert rows[0]["nl_query"] == "Total revenue"
+
+    def test_cli_load_then_index_does_not_forget_the_loaded_pair(
+        self, tmp_path, monkeypatch
+    ):
+        """`wren memory load <file>.yml` (see PR #2703 review) writes a
+        source:user row with no knowledge/sql/*.md file behind it. A
+        `wren memory index` right after must not report or execute a forget
+        for that row: it was never markdown-backed to begin with."""
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.cli import app  # noqa: PLC0415
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setenv("WREN_MEMORY_BACKEND", "lancedb")
+        (tmp_path / "target").mkdir()
+        (tmp_path / "target" / "mdl.json").write_text("{}", encoding="utf-8")
+
+        pairs_file = tmp_path / "pairs.yml"
+        pairs_file.write_text(
+            "version: 1\n"
+            "pairs:\n"
+            "  - nl: Revenue by region\n"
+            "    sql: SELECT region, SUM(amount) FROM orders GROUP BY region\n",
+            encoding="utf-8",
+        )
+
+        cli = CliRunner()
+        load_result = cli.invoke(app, ["memory", "load", str(pairs_file)])
+        assert load_result.exit_code == 0, load_result.output
+        assert "1 new" in load_result.output
+
+        index_result = cli.invoke(app, ["memory", "index"])
+        assert index_result.exit_code == 0, index_result.output
+        assert "Forgot" not in index_result.output
+
+        # ...and `check` must agree, rather than reporting drift that `index`
+        # has just proven it cannot clear.
+        check_result = cli.invoke(app, ["memory", "check"])
+        assert check_result.exit_code == 0, check_result.output
+        assert "In sync." in check_result.output
+
+        store = MemoryStore(path=str(tmp_path / ".wren" / "memory"))
+        rows, total = store.list_queries(limit=100)
+        assert total == 1
+        assert rows[0]["nl_query"] == "Revenue by region"
+
+    def test_cli_watch_reindex_on_start_lancedb_forgets_deleted_pair(
+        self, tmp_path, monkeypatch
+    ):
+        """`wren memory watch` calls the same reindex path as `index`, so a
+        deletion must clear on its next forced reindex too."""
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.cli import app  # noqa: PLC0415
+        from wren.memory.markdown import write_query_markdown  # noqa: PLC0415
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setenv("WREN_MEMORY_BACKEND", "lancedb")
+        (tmp_path / "wren_project.yml").write_text("name: t\n", encoding="utf-8")
+        (tmp_path / "target").mkdir()
+        (tmp_path / "target" / "mdl.json").write_text("{}", encoding="utf-8")
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        write_query_markdown(tmp_path, "Count orders", "SELECT COUNT(*) FROM o")
+
+        cli = CliRunner()
+        first = cli.invoke(
+            app, ["memory", "watch", "--reindex-on-start", "--max-polls", "1"]
+        )
+        assert first.exit_code == 0, first.output
+
+        (tmp_path / "knowledge" / "sql" / "count-orders.md").unlink()
+        second = cli.invoke(
+            app, ["memory", "watch", "--reindex-on-start", "--max-polls", "1"]
+        )
+        assert second.exit_code == 0, second.output
+
+        store = MemoryStore(path=str(tmp_path / ".wren" / "memory"))
+        rows, total = store.list_queries(limit=100)
+        assert total == 1
+        assert rows[0]["nl_query"] == "Total revenue"
+
+    def test_cli_check_does_not_flag_legacy_queries_yml_pairs_as_stale(
+        self, tmp_path, monkeypatch
+    ):
+        """A project with only a legacy queries.yml (no knowledge/sql/*.md for
+        it) must reach `check`'s "In sync." across repeated index runs. Before
+        source:legacy was excluded from check()'s own stale filter (which used
+        to hardcode ("seed", "view") independently of sync_markdown_queries's
+        set), a legacy pair read as a "user" pair not present in markdown and
+        was reported as permanent drift no `index` run could clear.
+        """
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.cli import app  # noqa: PLC0415
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setenv("WREN_MEMORY_BACKEND", "lancedb")
+        (tmp_path / "target").mkdir()
+        (tmp_path / "target" / "mdl.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "queries.yml").write_text(
+            "pairs:\n  - nl: Total revenue\n    sql: SELECT SUM(amount) FROM o\n",
+            encoding="utf-8",
+        )
+
+        cli = CliRunner()
+        for _ in range(2):
+            index_result = cli.invoke(app, ["memory", "index"])
+            assert index_result.exit_code == 0, index_result.output
+            assert "Forgot" not in index_result.output
+
+            check_result = cli.invoke(app, ["memory", "check"])
+            assert check_result.exit_code == 0, check_result.output
+            assert "In sync." in check_result.output
+
+    def test_cli_export_then_index_reports_in_sync(self, tmp_path, monkeypatch):
+        """`wren memory export` is the documented one-time migration, and it
+        preserves each row's source into the markdown frontmatter, so a
+        legacy queries.yml pair lands in knowledge/sql/ as `source: legacy`.
+        That file is markdown-backed like any other, so `check` must not read
+        it as "not indexed".
+        """
+        pytest.importorskip("lancedb", reason="wren[memory] extras not installed")
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.cli import app  # noqa: PLC0415
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setenv("WREN_MEMORY_BACKEND", "lancedb")
+        (tmp_path / "target").mkdir()
+        (tmp_path / "target" / "mdl.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "queries.yml").write_text(
+            "pairs:\n  - nl: Total revenue\n    sql: SELECT SUM(amount) FROM o\n",
+            encoding="utf-8",
+        )
+
+        cli = CliRunner()
+        assert cli.invoke(app, ["memory", "index"]).exit_code == 0
+        export = cli.invoke(app, ["memory", "export"])
+        assert export.exit_code == 0, export.output
+        assert "source: legacy" in next(
+            (tmp_path / "knowledge" / "sql").glob("*.md")
+        ).read_text(encoding="utf-8")
+
+        for _ in range(2):
+            index_result = cli.invoke(app, ["memory", "index"])
+            assert index_result.exit_code == 0, index_result.output
+            check_result = cli.invoke(app, ["memory", "check"])
+            assert check_result.exit_code == 0, check_result.output
+            assert "In sync." in check_result.output
+
+    def test_reset_then_reindex_restores_from_markdown(self, memory_store, tmp_path):
+        from wren.memory.markdown import (  # noqa: PLC0415
+            load_query_pairs,
+            write_query_markdown,
+        )
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        memory_store.load_queries(load_query_pairs(tmp_path), upsert=True)
+
+        memory_store.reset()  # derived index dropped
+        assert memory_store.status()["tables"] == {}
+        # markdown source survives the reset
+        assert (tmp_path / "knowledge" / "sql" / "total-revenue.md").exists()
+
+        # rebuild from markdown → recall works again
+        memory_store.load_queries(load_query_pairs(tmp_path), upsert=True)
+        hits = memory_store.recall_queries("revenue", limit=3)
+        assert any("SUM(amount)" in h["sql_query"] for h in hits)
+
+    def test_lancedb_backend_via_get_index(self, tmp_path, monkeypatch):
+        """With the extra, get_index resolves to LanceDBIndex and recalls semantically."""
+        _require_memory_extra()
+        monkeypatch.setenv("WREN_MEMORY_BACKEND", "lancedb")
+        from wren.memory.index_backend import get_index  # noqa: PLC0415
+        from wren.memory.markdown import write_query_markdown  # noqa: PLC0415
+
+        write_query_markdown(tmp_path, "Total revenue", "SELECT SUM(amount) FROM o")
+        idx = get_index(tmp_path, str(tmp_path / ".wren" / "memory"))
+        assert idx.name == "lancedb"
+        idx.rebuild()
+        hits = idx.search("revenue", limit=3)
+        assert any("SUM(amount)" in h["sql_query"] for h in hits)
+
+    def test_cli_export_migrates_query_history_to_markdown(self, tmp_path, monkeypatch):
+        """`wren memory export` writes existing LanceDB pairs to knowledge/sql/."""
+        _require_memory_extra()
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.cli import app  # noqa: PLC0415
+        from wren.memory.markdown import parse_query_markdown  # noqa: PLC0415
+        from wren.memory.store import MemoryStore  # noqa: PLC0415
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        store = MemoryStore(path=str(tmp_path / ".wren" / "memory"))
+        store.store_query(
+            "Top revenue", "SELECT SUM(amount) FROM o", tags="source:user"
+        )
+        store.store_query("A seed query", "SELECT 1", tags="source:seed")
+
+        result = CliRunner().invoke(app, ["memory", "export"])
+        assert result.exit_code == 0, result.output
+
+        user_md = tmp_path / "knowledge" / "sql" / "top-revenue.md"
+        assert user_md.exists()
+        assert not (
+            tmp_path / "knowledge" / "sql" / "a-seed-query.md"
+        ).exists()  # seed skipped
+        fm = parse_query_markdown(user_md)
+        assert fm["source"] == "user"
+        assert "created_at" in fm  # timestamp preserved
+
+
+# ── ONNX embedding backend ────────────────────────────────────────────────
+
+
+class _FakeEncoding:
+    def __init__(self, ids: list[int], attention_mask: list[int]):
+        self.ids = ids
+        self.attention_mask = attention_mask
+
+
+class _FakeTokenizer:
+    def __init__(self, encodings: list[_FakeEncoding]):
+        self._encodings = encodings
+
+    def encode_batch(self, texts):
+        return self._encodings[: len(texts)]
+
+
+class _FakeSession:
+    """Returns a canned last_hidden_state and records the feeds it got."""
+
+    def __init__(self, hidden):
+        self._hidden = hidden
+        self.feeds: dict | None = None
+
+    def run(self, _outputs, feeds):
+        self.feeds = feeds
+        return [self._hidden]
+
+
+class _StubTokenizer:
+    """Stands in for tokenizers.Tokenizer where only its construction matters."""
+
+    def enable_truncation(self, **_kwargs):
+        pass
+
+    def enable_padding(self, **_kwargs):
+        pass
+
+
+class _CountingTokenizer:
+    """Encodes each text as the single token its integer value names."""
+
+    def encode_batch(self, texts):
+        return [_FakeEncoding([int(t)], [1]) for t in texts]
+
+
+class _BatchRecordingSession:
+    """Echoes each row's token id into the hidden state, recording batch sizes."""
+
+    def __init__(self):
+        self.batch_sizes: list[int] = []
+
+    def run(self, _outputs, feeds):
+        import numpy as np  # noqa: PLC0415
+
+        ids = feeds["input_ids"]
+        self.batch_sizes.append(int(ids.shape[0]))
+        return [np.array([[[float(row[0]), 1.0]] for row in ids], dtype="float32")]
+
+
+@pytest.mark.unit
+class TestEmbeddingBackendResolution:
+    def _resolve(self, monkeypatch, *, onnx: bool, st: bool, env: str | None = None):
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        monkeypatch.setattr(embeddings, "_onnx_available", lambda: onnx)
+        monkeypatch.setattr(embeddings, "_sentence_transformers_available", lambda: st)
+        return embeddings.resolve_embedding_backend(env)
+
+    def test_prefers_onnx_when_both_installed(self, monkeypatch):
+        assert self._resolve(monkeypatch, onnx=True, st=True, env="") == "onnx"
+
+    def test_explicit_sentence_transformers_is_honored(self, monkeypatch):
+        chosen = self._resolve(
+            monkeypatch, onnx=True, st=True, env="sentence-transformers"
+        )
+        assert chosen == "sentence-transformers"
+
+    def test_explicit_choice_falls_back_when_extra_missing(self, monkeypatch):
+        # Both backends emit the same vectors, so falling back keeps an
+        # existing store readable instead of failing the process.
+        chosen = self._resolve(
+            monkeypatch, onnx=True, st=False, env="sentence-transformers"
+        )
+        assert chosen == "onnx"
+
+    def test_unhonored_request_warns(self, monkeypatch, caplog):
+        # Someone who sets onnx specifically to avoid torch should not have to
+        # infer from a slow cold start that the fallback kicked in.
+        with caplog.at_level("WARNING"):
+            chosen = self._resolve(monkeypatch, onnx=False, st=True, env="onnx")
+        assert chosen == "sentence-transformers"
+        assert "memory-onnx" in caplog.text
+
+    def test_honored_request_does_not_warn(self, monkeypatch, caplog):
+        with caplog.at_level("WARNING"):
+            self._resolve(monkeypatch, onnx=True, st=True, env="onnx")
+        assert caplog.text == ""
+
+    def test_unrecognized_value_does_not_warn(self, monkeypatch, caplog):
+        # Only a request for a real backend that could not be honored is worth
+        # a warning; an empty or bogus value just means "auto-detect".
+        with caplog.at_level("WARNING"):
+            self._resolve(monkeypatch, onnx=False, st=True, env="nonsense")
+        assert caplog.text == ""
+
+    def test_unrecognized_value_auto_detects(self, monkeypatch):
+        chosen = self._resolve(monkeypatch, onnx=False, st=True, env="nonsense")
+        assert chosen == "sentence-transformers"
+
+    def test_availability_helper_reports_either_backend(self, monkeypatch):
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        monkeypatch.setattr(embeddings, "_onnx_available", lambda: True)
+        monkeypatch.setattr(
+            embeddings, "_sentence_transformers_available", lambda: False
+        )
+        assert embeddings.embedding_backend_available() is True
+
+
+@pytest.mark.unit
+class TestOnnxEmbeddings:
+    def _embedder(self, monkeypatch, hidden, encodings, input_names):
+        import numpy as np  # noqa: PLC0415
+
+        from wren.memory.embeddings import OnnxEmbeddings  # noqa: PLC0415
+
+        session = _FakeSession(np.array(hidden, dtype="float32"))
+        monkeypatch.setattr(
+            OnnxEmbeddings,
+            "_runtime",
+            lambda _self: (session, _FakeTokenizer(encodings), input_names),
+        )
+        return OnnxEmbeddings("fake-model"), session
+
+    def test_mean_pooling_ignores_padded_positions(self, monkeypatch):
+        import numpy as np  # noqa: PLC0415
+
+        # Row 0 attends to two tokens, row 1 to one. The masked-out vectors
+        # are large on purpose: if they leaked in, the means would not match.
+        embedder, _ = self._embedder(
+            monkeypatch,
+            hidden=[
+                [[1.0, 1.0], [3.0, 3.0], [999.0, 999.0]],
+                [[5.0, 5.0], [777.0, 777.0], [888.0, 888.0]],
+            ],
+            encodings=[
+                _FakeEncoding([1, 2, 0], [1, 1, 0]),
+                _FakeEncoding([3, 0, 0], [1, 0, 0]),
+            ],
+            input_names={"input_ids", "attention_mask"},
+        )
+        vectors = np.array(embedder.compute_source_embeddings(["a", "b"]))
+        # Means are [2, 2] and [5, 5]; output is L2-normalized, so both
+        # collapse onto the same unit vector.
+        unit = 1 / np.sqrt(2)
+        np.testing.assert_allclose(vectors, [[unit, unit], [unit, unit]], atol=1e-6)
+
+    def test_output_is_l2_normalized(self, monkeypatch):
+        import numpy as np  # noqa: PLC0415
+
+        # LanceDB's sentence-transformers adapter defaults to normalize=True,
+        # so vectors already in a store are unit length. Emitting unnormalized
+        # vectors would put old and new rows on different scales.
+        embedder, _ = self._embedder(
+            monkeypatch,
+            hidden=[[[3.0, 4.0]]],
+            encodings=[_FakeEncoding([1], [1])],
+            input_names={"input_ids", "attention_mask"},
+        )
+        vector = np.array(embedder.compute_source_embeddings(["a"])[0])
+        np.testing.assert_allclose(vector, [0.6, 0.8], atol=1e-6)
+        assert np.isclose(np.linalg.norm(vector), 1.0, atol=1e-6)
+
+    def test_token_type_ids_only_sent_when_the_model_declares_it(self, monkeypatch):
+        encodings = [_FakeEncoding([1, 2], [1, 1])]
+        hidden = [[[1.0], [1.0]]]
+
+        embedder, session = self._embedder(
+            monkeypatch, hidden, encodings, {"input_ids", "attention_mask"}
+        )
+        embedder.compute_source_embeddings(["a"])
+        assert "token_type_ids" not in session.feeds
+
+        embedder, session = self._embedder(
+            monkeypatch,
+            hidden,
+            encodings,
+            {"input_ids", "attention_mask", "token_type_ids"},
+        )
+        embedder.compute_source_embeddings(["a"])
+        assert session.feeds["token_type_ids"].tolist() == [[0, 0]]
+
+    def test_query_embeddings_accept_a_bare_string(self, monkeypatch):
+        import numpy as np  # noqa: PLC0415
+
+        embedder, _ = self._embedder(
+            monkeypatch,
+            hidden=[[[3.0, 4.0]]],
+            encodings=[_FakeEncoding([1], [1])],
+            input_names={"input_ids", "attention_mask"},
+        )
+        vectors = embedder.compute_query_embeddings("a")
+        assert len(vectors) == 1
+        np.testing.assert_allclose(np.array(vectors[0]), [0.6, 0.8], atol=1e-6)
+
+    def _batched_embedder(self, monkeypatch):
+        from wren.memory.embeddings import OnnxEmbeddings  # noqa: PLC0415
+
+        session = _BatchRecordingSession()
+        monkeypatch.setattr(
+            OnnxEmbeddings,
+            "_runtime",
+            lambda _self: (
+                session,
+                _CountingTokenizer(),
+                {"input_ids", "attention_mask"},
+            ),
+        )
+        return OnnxEmbeddings("fake-model"), session
+
+    def test_a_large_batch_is_split_before_it_reaches_the_model(self, monkeypatch):
+        # sentence-transformers' encode() caps at batch_size=32, so an
+        # unchunked run here would make peak memory scale with the manifest on
+        # the onnx path alone -- the same MemoryStore call going O(1) to O(n)
+        # purely by switching backend. extract_schema_items emits a record per
+        # column, so the count tracks total field count, not table count.
+        embedder, session = self._batched_embedder(monkeypatch)
+        embedder.compute_source_embeddings([str(i) for i in range(70)])
+        assert session.batch_sizes == [32, 32, 6]
+
+    def test_chunking_leaves_the_vectors_unchanged(self, monkeypatch):
+        # Mean pooling and L2 normalization are both per-row, so how rows are
+        # grouped cannot move a vector. This is what lets the parity gate keep
+        # covering the backend without adjustment.
+        import numpy as np  # noqa: PLC0415
+
+        texts = [str(i) for i in range(70)]
+        embedder, _ = self._batched_embedder(monkeypatch)
+        chunked = np.array(embedder.compute_source_embeddings(texts))
+        one_at_a_time = np.array(
+            [embedder.compute_source_embeddings([t])[0] for t in texts]
+        )
+        np.testing.assert_array_equal(chunked, one_at_a_time)
+
+    def test_empty_input_short_circuits_before_the_model(self, monkeypatch):
+        from wren.memory.embeddings import OnnxEmbeddings  # noqa: PLC0415
+
+        def _explode(_self):
+            raise AssertionError("the model must not be loaded for empty input")
+
+        monkeypatch.setattr(OnnxEmbeddings, "_runtime", _explode)
+        assert OnnxEmbeddings("fake-model").compute_source_embeddings([]) == []
+
+    def test_non_mean_pooled_model_is_rejected(self, monkeypatch):
+        # A CLS-pooled model still yields a 384-vector, so without this guard
+        # it would be indexed with quietly wrong vectors.
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        monkeypatch.setattr(
+            embeddings,
+            "_read_json",
+            lambda _repo, _name: {
+                "pooling_mode_mean_tokens": False,
+                "pooling_mode_cls_token": True,
+            },
+        )
+        with pytest.raises(embeddings.UnsupportedPoolingError, match="mean pooling"):
+            embeddings._require_mean_pooling("some/model")
+
+    def test_the_pooling_guard_is_an_onnx_backend_error(self):
+        # cli.py orders its `except` clauses on the RuntimeError/ValueError
+        # split, so widening the hierarchy must not cross that line.
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        assert issubclass(
+            embeddings.UnsupportedPoolingError, embeddings.OnnxBackendError
+        )
+        assert issubclass(embeddings.OnnxBackendError, RuntimeError)
+        assert not issubclass(embeddings.OnnxBackendError, ValueError)
+
+    def _runtime_with_hf_error(self, monkeypatch, error):
+        """Drive _runtime to the ONNX-graph fetch, which raises *error*."""
+        import tokenizers  # noqa: PLC0415
+
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        def _fetch(_repo, filename):
+            if filename.endswith(".onnx"):
+                raise error
+            return "/dev/null"
+
+        # The tokenizer loads first -- _runtime does the cheap checks before
+        # fetching the large graph -- so it has to be stubbed to reach the
+        # fetch under test.
+        monkeypatch.setattr(
+            tokenizers.Tokenizer, "from_file", staticmethod(lambda _p: _StubTokenizer())
+        )
+        monkeypatch.setattr(embeddings, "_hf_file", _fetch)
+        monkeypatch.setattr(embeddings, "_require_mean_pooling", lambda _repo: None)
+        monkeypatch.setattr(embeddings, "_max_seq_length", lambda _repo: 128)
+        monkeypatch.setattr(embeddings, "_onnx_runtime_cache", None)
+        return embeddings
+
+    def test_a_repo_without_an_onnx_export_names_the_way_out(self, monkeypatch):
+        # onnx is chosen on importability alone, so a WREN_EMBEDDING_MODEL that
+        # worked under sentence-transformers can land here. Surfacing the raw
+        # 404 as a traceback would make a working config look broken.
+        pytest.importorskip("onnxruntime", reason="wren[memory-onnx] not installed")
+
+        remote_404, _ = self._hf_errors()
+        embeddings = self._runtime_with_hf_error(monkeypatch, remote_404)
+
+        with pytest.raises(embeddings.MissingOnnxExportError) as excinfo:
+            embeddings.OnnxEmbeddings("acme/no-onnx")._runtime()
+        assert "WREN_EMBEDDING_BACKEND=sentence-transformers" in str(excinfo.value)
+
+    def test_an_unreachable_hub_is_not_called_a_missing_export(self, monkeypatch):
+        # Same conflation _read_json no longer makes: a rate limit or a dropped
+        # connection would tell the user that a repo which does publish an ONNX
+        # export does not, and point them at the wrong remedy.
+        pytest.importorskip("onnxruntime", reason="wren[memory-onnx] not installed")
+
+        _, offline = self._hf_errors()
+        embeddings = self._runtime_with_hf_error(monkeypatch, offline)
+
+        with pytest.raises(embeddings.OnnxBackendError) as excinfo:
+            embeddings.OnnxEmbeddings("acme/cached-elsewhere")._runtime()
+        assert not isinstance(excinfo.value, embeddings.MissingOnnxExportError)
+        assert "retry" in str(excinfo.value).lower()
+
+    def test_the_declared_hub_floor_is_where_the_error_classes_live(self):
+        # _read_json and _runtime import these inside an `except OSError`
+        # handler, so on a version where they are absent the ImportError
+        # replaces the error being classified. They moved into
+        # huggingface_hub.errors in 0.25; before that they are in
+        # huggingface_hub.utils._errors and this import raises. No CI job can
+        # reach that -- the lock pins 1.8 -- but `pip install
+        # 'wrenai[memory-onnx]'` into an env holding an older hub can.
+        import tomllib  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+        extras = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"][
+            "optional-dependencies"
+        ]
+        (pin,) = [d for d in extras["memory-onnx"] if d.startswith("huggingface-hub")]
+        floor = tuple(int(part) for part in pin.split(">=")[1].split("."))
+        assert floor >= (0, 25), pin
+
+    def test_corrupt_pooling_config_is_not_reported_as_a_bad_manifest(
+        self, monkeypatch, tmp_path
+    ):
+        # json.JSONDecodeError is a ValueError, so letting it escape would put
+        # a corrupt HF cache entry behind cli.py's "Malformed manifest:" -- the
+        # same misattribution the pooling guard exists to avoid. Returning None
+        # instead would be worse: the guard would read it as "no pooling
+        # config" and wave a CLS-pooled model through.
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        corrupt = tmp_path / "config.json"
+        corrupt.write_text("{not json", encoding="utf-8")
+        monkeypatch.setattr(embeddings, "_hf_file", lambda _r, _f: str(corrupt))
+
+        with pytest.raises(embeddings.OnnxBackendError, match="could not be read"):
+            embeddings._read_json("acme/model", "1_Pooling/config.json")
+
+    def _hf_errors(self):
+        """A hub 404 and an unreachable hub, as `_read_json` must tell apart.
+
+        The 404 is a stand-in rather than a real `RemoteEntryNotFoundError`:
+        that one's constructor needs a live HTTP response object, and its
+        client is httpx under huggingface-hub 1.x but was requests before --
+        neither of which is in the `memory-onnx` dependency closure. What is
+        under test is where the error sits in the hierarchy, which the
+        stand-in reproduces exactly.
+        """
+        from huggingface_hub.errors import (  # noqa: PLC0415
+            EntryNotFoundError,
+            LocalEntryNotFoundError,
+        )
+
+        class _Remote404(EntryNotFoundError, OSError):
+            pass
+
+        return (
+            _Remote404("404 Client Error"),
+            LocalEntryNotFoundError("cannot reach hub and nothing is cached"),
+        )
+
+    def test_a_remote_404_still_means_absent(self, monkeypatch):
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        remote_404, _ = self._hf_errors()
+
+        def _raise(_repo, _name):
+            raise remote_404
+
+        monkeypatch.setattr(embeddings, "_hf_file", _raise)
+        assert embeddings._read_json("acme/model", "1_Pooling/config.json") is None
+
+    def test_an_unreachable_hub_is_not_reported_as_absent(self, monkeypatch):
+        # _require_mean_pooling reads None as "no pooling config" and returns
+        # early, so treating a dropped connection as absence would wave a
+        # CLS-pooled model through -- the same silent-wrong-vectors outcome the
+        # guard exists to prevent, reached from a third direction.
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        _, offline = self._hf_errors()
+
+        def _raise(_repo, _name):
+            raise offline
+
+        monkeypatch.setattr(embeddings, "_hf_file", _raise)
+        with pytest.raises(embeddings.OnnxBackendError, match="could not be fetched"):
+            embeddings._read_json("acme/model", "1_Pooling/config.json")
+
+    def test_the_pooling_guard_does_not_pass_a_model_it_could_not_check(
+        self, monkeypatch
+    ):
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        _, offline = self._hf_errors()
+
+        def _raise(_repo, _name):
+            raise offline
+
+        monkeypatch.setattr(embeddings, "_hf_file", _raise)
+        with pytest.raises(embeddings.OnnxBackendError):
+            embeddings._require_mean_pooling("acme/model")
+
+    def test_an_unreadable_sequence_length_falls_back_instead_of_failing(
+        self, monkeypatch, caplog
+    ):
+        # Truncation length is soft where pooling mode is not: an ONNX-native
+        # mirror legitimately ships no sentence_bert_config.json, and an
+        # offline run with the rest of the model cached should not die on
+        # being unable to confirm that.
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        _, offline = self._hf_errors()
+
+        def _raise(_repo, _name):
+            raise offline
+
+        monkeypatch.setattr(embeddings, "_hf_file", _raise)
+        with caplog.at_level("DEBUG", logger="wren.memory.embeddings"):
+            assert embeddings._max_seq_length("Xenova/some-model") == 128
+        assert "128" in caplog.text
+
+    def test_a_defaulted_sequence_length_is_logged(self, monkeypatch, caplog):
+        # ONNX-native mirrors publish onnx/model.onnx but no
+        # sentence_bert_config.json, so this default is what an onnx user
+        # typically gets. It is right for the 128-length models, but a
+        # 512-length model would truncate with no signal at all.
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        monkeypatch.setattr(embeddings, "_read_json", lambda _r, _f: None)
+        with caplog.at_level("DEBUG", logger="wren.memory.embeddings"):
+            assert embeddings._max_seq_length("Xenova/some-model") == 128
+        assert "128" in caplog.text
+
+    def test_a_declared_sequence_length_is_not_logged(self, monkeypatch, caplog):
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        monkeypatch.setattr(
+            embeddings, "_read_json", lambda _r, _f: {"max_seq_length": 512}
+        )
+        with caplog.at_level("DEBUG", logger="wren.memory.embeddings"):
+            assert embeddings._max_seq_length("acme/model") == 512
+        assert caplog.text == ""
+
+    def test_bare_model_name_expands_to_the_sentence_transformers_repo(self):
+        from wren.memory.embeddings import _resolve_repo_id  # noqa: PLC0415
+
+        assert (
+            _resolve_repo_id("paraphrase-multilingual-MiniLM-L12-v2")
+            == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+        )
+        assert _resolve_repo_id("acme/custom-model") == "acme/custom-model"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "error_name", ["UnsupportedPoolingError", "MissingOnnxExportError"]
+)
+class TestBackendErrorsReachTheUser:
+    """A backend that cannot serve the model must say so, from any command.
+
+    These failures surface lazily from the first encode, so every command that
+    embeds can raise one -- not just `index`, which was the only one that
+    handled it.
+    """
+
+    def _invoke(self, args):
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.cli import app  # noqa: PLC0415
+
+        return CliRunner().invoke(app, args)
+
+    def _error(self, error_name):
+        from wren.memory import embeddings  # noqa: PLC0415
+
+        return getattr(embeddings, error_name)(
+            "The onnx backend cannot serve this model. Set "
+            "WREN_EMBEDDING_BACKEND=sentence-transformers to use this model."
+        )
+
+    def _assert_clean_exit(self, result):
+        assert result.exit_code == 1, result.output
+        assert "WREN_EMBEDDING_BACKEND=sentence-transformers" in result.output
+        assert "Traceback" not in result.output
+        assert "Malformed manifest" not in result.output
+
+    def test_index_reports_it_and_not_as_a_manifest_problem(
+        self, tmp_path, monkeypatch, error_name
+    ):
+        from wren.memory import cli  # noqa: PLC0415
+
+        error = self._error(error_name)
+
+        class _Store:
+            def index_schema(self, *_a, **_kw):
+                raise error
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setattr(cli, "_load_manifest", lambda _mdl: {"models": []})
+        monkeypatch.setattr(cli, "_get_store", lambda _path: _Store())
+        self._assert_clean_exit(self._invoke(["memory", "index", "--no-queries"]))
+
+    def test_recall_reports_it(self, tmp_path, monkeypatch, error_name):
+        from wren.memory import index_backend  # noqa: PLC0415
+
+        error = self._error(error_name)
+
+        class _Index:
+            def search(self, *_a, **_kw):
+                raise error
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setattr(index_backend, "get_index", lambda *_a, **_kw: _Index())
+        self._assert_clean_exit(self._invoke(["memory", "recall", "-q", "revenue"]))
+
+    def test_fetch_reports_it(self, tmp_path, monkeypatch, error_name):
+        # `fetch` embeds via get_context -> _search_schema whenever the schema
+        # is above the character threshold, and it is the second command in
+        # README section 6 -- a likely place to first meet a backend error.
+        from wren.memory import cli  # noqa: PLC0415
+
+        error = self._error(error_name)
+
+        class _Store:
+            def get_context(self, *_a, **_kw):
+                raise error
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setattr(cli, "_load_manifest", lambda _mdl: {"models": []})
+        monkeypatch.setattr(cli, "_get_store", lambda _path: _Store())
+        self._assert_clean_exit(self._invoke(["memory", "fetch", "-q", "revenue"]))
+
+    def test_store_reports_it(self, tmp_path, monkeypatch, error_name):
+        # `store` writes the markdown first and only then indexes, so the pair
+        # is not lost -- but the indexing failure still has to be legible.
+        from wren.memory import store as store_mod  # noqa: PLC0415
+
+        error = self._error(error_name)
+
+        class _Store:
+            def __init__(self, **_kw):
+                pass
+
+            def store_query(self, *_a, **_kw):
+                raise error
+
+        monkeypatch.setenv("WREN_PROJECT_HOME", str(tmp_path))
+        monkeypatch.setattr(store_mod, "MemoryStore", _Store)
+        self._assert_clean_exit(
+            self._invoke(
+                ["memory", "store", "--nl", "Total revenue", "--sql", "SELECT 1"]
+            )
+        )
+
+
+@pytest.mark.unit
+class TestBackendErrorHandlingIsStructural:
+    """The handler must cover commands nobody has written yet.
+
+    Wrapping call sites one at a time means the matrix above can only ever
+    enumerate what already exists -- the next command that embeds inherits
+    nothing. Handling it on the group closes the class.
+    """
+
+    def test_the_memory_app_installs_the_handling_group(self):
+        from wren.memory.cli import _MemoryGroup, memory_app  # noqa: PLC0415
+
+        assert memory_app.info.cls is _MemoryGroup
+
+    def test_an_unwrapped_command_is_still_covered(self):
+        import typer  # noqa: PLC0415
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.memory.cli import _MemoryGroup  # noqa: PLC0415
+        from wren.memory.embeddings import (  # noqa: PLC0415
+            UnsupportedPoolingError,
+        )
+
+        # Stands in for the next command to embed: no try/except of its own.
+        sub = typer.Typer(cls=_MemoryGroup)
+
+        @sub.command()
+        def brand_new():
+            raise UnsupportedPoolingError(
+                "Set WREN_EMBEDDING_BACKEND=sentence-transformers to use this model."
+            )
+
+        root = typer.Typer()
+        root.add_typer(sub, name="memory")
+        result = CliRunner().invoke(root, ["memory", "brand-new"])
+        assert result.exit_code == 1, result.output
+        assert "WREN_EMBEDDING_BACKEND=sentence-transformers" in result.output
+        assert "Traceback" not in result.output
+
+    def test_an_ordinary_exit_code_is_not_swallowed(self):
+        import typer  # noqa: PLC0415
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from wren.memory.cli import _MemoryGroup  # noqa: PLC0415
+
+        # typer.Exit subclasses RuntimeError, so a handler written against
+        # RuntimeError instead of OnnxBackendError would rewrite every exit
+        # code in the sub-app to 1.
+        sub = typer.Typer(cls=_MemoryGroup)
+
+        @sub.command()
+        def bails():
+            raise typer.Exit(3)
+
+        root = typer.Typer()
+        root.add_typer(sub, name="memory")
+        assert CliRunner().invoke(root, ["memory", "bails"]).exit_code == 3
+
+
+@pytest.mark.unit
+class TestLanceDBExtraDetection:
+    def test_onnx_only_install_still_selects_lancedb(self, monkeypatch):
+        # Pinning detection to sentence-transformers would silently downgrade
+        # a memory-onnx install to the Grep backend.
+        from wren.memory import embeddings, index_backend  # noqa: PLC0415
+
+        monkeypatch.setattr(index_backend, "find_spec", lambda _name: object())
+        monkeypatch.setattr(embeddings, "_onnx_available", lambda: True)
+        monkeypatch.setattr(
+            embeddings, "_sentence_transformers_available", lambda: False
+        )
+        assert index_backend.resolve_backend("") == "lancedb"
+
+    def test_no_embedding_backend_downgrades_to_grep(self, monkeypatch):
+        from wren.memory import embeddings, index_backend  # noqa: PLC0415
+
+        monkeypatch.setattr(index_backend, "find_spec", lambda _name: object())
+        monkeypatch.setattr(embeddings, "_onnx_available", lambda: False)
+        monkeypatch.setattr(
+            embeddings, "_sentence_transformers_available", lambda: False
+        )
+        assert index_backend.resolve_backend("") == "grep"
+
+
+@pytest.mark.slow
+@pytest.mark.unit
+class TestOnnxVectorParity:
+    def test_onnx_matches_sentence_transformers(self):
+        """Both backends must emit the same vectors for the default model.
+
+        Existing LanceDB tables are typed with a fixed-size 384 vector and
+        hold sentence-transformers output, so a switch to onnx has to be
+        readable without a reindex. Slow lane: downloads both models.
+        """
+        pytest.importorskip("onnxruntime", reason="wren[memory-onnx] not installed")
+        pytest.importorskip(
+            "sentence_transformers", reason="wren[memory] extras not installed"
+        )
+        import numpy as np  # noqa: PLC0415
+
+        from wren.memory.embeddings import (  # noqa: PLC0415
+            _DEFAULT_MODEL,
+            OnnxEmbeddings,
+            _get_local_first_embedding_class,
+        )
+
+        # Build the sentence-transformers adapter directly: going through
+        # get_embedding_function() would dispatch to onnx and compare it
+        # against itself.
+        texts = ["revenue by customer", "台北的營收是多少", "월별 매출 추이"]
+        onnx_vecs = np.array(
+            OnnxEmbeddings(_DEFAULT_MODEL).compute_source_embeddings(texts)
+        )
+        st_vecs = np.array(
+            _get_local_first_embedding_class()
+            .create(name=_DEFAULT_MODEL)
+            .compute_source_embeddings(texts)
+        )
+        assert onnx_vecs.shape == st_vecs.shape == (len(texts), 384)
+        np.testing.assert_allclose(onnx_vecs, st_vecs, atol=1e-5)

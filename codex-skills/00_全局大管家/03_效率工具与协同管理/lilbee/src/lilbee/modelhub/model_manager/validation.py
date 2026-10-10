@@ -1,0 +1,196 @@
+"""Validate persisted chat/embedding refs against current installation state.
+
+Persisted refs in ``~/.lilbee/config.toml`` (or any other config source)
+become stale when the user removes a GGUF, swaps providers, or moves
+between machines. The TUI / server / CLI all read these refs at startup
+and should not get a "model not found" error from the very first prompt.
+
+The helpers here decide nothing: callers act on the result (swap the
+in-memory ``cfg`` field, surface a banner, log a warning, etc.). They
+read the model registry, which repairs a manifest it can recover from
+the HuggingFace cache, but they never rewrite the config file, so the
+user's declared intent is preserved across reinstalls.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+
+from lilbee.catalog.query import reclassify_by_name
+from lilbee.catalog.types import KeyStatus, ModelTask
+from lilbee.core.config import cfg
+from lilbee.modelhub.install_state import InstallState, install_state
+from lilbee.modelhub.model_manager.discovery import (
+    classify_remote_models,
+    discover_api_models,
+)
+from lilbee.modelhub.model_manager.types import ValidationResult
+from lilbee.modelhub.registry import ModelRegistry
+from lilbee.providers import litellm_sdk
+from lilbee.providers.key_check import provider_key_status
+from lilbee.providers.local_servers import LocalServerSpec
+from lilbee.providers.local_servers.config_urls import base_url_for
+from lilbee.providers.local_servers.registry import LOCAL_SERVER_KEYS, local_server_for_key
+from lilbee.providers.model_ref import ProviderModelRef, format_remote_ref, parse_model_ref
+from lilbee.providers.sdk_backend import PROVIDER_API_KEY_FIELD
+
+log = logging.getLogger(__name__)
+
+# User-facing reasons a persisted ref is unusable, shared across surfaces.
+REASON_LITELLM_MISSING = "the litellm extra isn't installed"
+REASON_SERVER_UNREACHABLE = "the model server at {base_url} isn't reachable"
+REASON_NO_API_KEY = "no API key is configured for {provider}"
+REASON_INVALID_API_KEY = "{provider} rejected the configured API key"
+REASON_NOT_INSTALLED = "it isn't installed"
+REASON_UNAVAILABLE = "it isn't available"
+
+# Reachability-probe timeout for ollama/lm_studio refs.
+_PROBE_TIMEOUT_S = 1.0
+
+_KEY_STATUS_VALIDATION: dict[KeyStatus, tuple[ValidationResult, str | None]] = {
+    KeyStatus.READY: (ValidationResult.OK, None),
+    KeyStatus.MISSING_KEY: (ValidationResult.NO_KEY, REASON_NO_API_KEY),
+    KeyStatus.INVALID_KEY: (ValidationResult.INVALID_KEY, REASON_INVALID_API_KEY),
+}
+
+
+@dataclass(frozen=True)
+class CanonicalRef:
+    """Result of canonicalizing a persisted ref.
+
+    ``effective`` is what callers should use this session. ``original``
+    is what the user persisted; if it differs from ``effective`` the
+    caller should surface the swap. ``reason`` is a human-readable
+    explanation of why ``original`` was unusable, set whenever
+    ``status`` is not ``OK``.
+    """
+
+    original: str
+    effective: str
+    status: ValidationResult
+    reason: str | None = None
+
+
+def _local_server_reachable(spec: LocalServerSpec, base_url: str) -> bool:
+    """True if the local model server lists at least one model within the probe budget."""
+    try:
+        return bool(classify_remote_models(base_url, spec, timeout=_PROBE_TIMEOUT_S))
+    except Exception:  # a listing the strategy cannot walk raises past the request guard
+        log.debug("Local model server probe failed for %r", base_url, exc_info=True)
+        return False
+
+
+def _classify_local_server_ref(spec: LocalServerSpec) -> tuple[ValidationResult, str | None]:
+    """Classify an ollama/lm_studio ref: needs the litellm extra and a live server."""
+    if not litellm_sdk.litellm_available():
+        return ValidationResult.UNKNOWN, REASON_LITELLM_MISSING
+    base_url = base_url_for(spec.key)
+    if not _local_server_reachable(spec, base_url):
+        return ValidationResult.UNKNOWN, REASON_SERVER_UNREACHABLE.format(base_url=base_url)
+    return ValidationResult.OK, None
+
+
+def _classify_uninstalled_ref(parsed: ProviderModelRef) -> tuple[ValidationResult, str | None]:
+    """Classify a parsed ref that is not installed locally, by provider kind."""
+    provider = (parsed.provider or "").lower()
+    if provider in LOCAL_SERVER_KEYS:
+        spec = local_server_for_key(provider)
+        if spec is None:  # pragma: no cover - LOCAL_SERVER_KEYS guarantees a match
+            return ValidationResult.UNKNOWN, REASON_UNAVAILABLE
+        return _classify_local_server_ref(spec)
+    if provider in PROVIDER_API_KEY_FIELD:
+        status, reason = _KEY_STATUS_VALIDATION[provider_key_status(provider)]
+        return status, reason and reason.format(provider=provider)
+    if not parsed.is_remote:
+        # A native GGUF ref that no longer resolves to a file on disk.
+        return ValidationResult.NOT_INSTALLED, REASON_NOT_INSTALLED
+    return ValidationResult.UNKNOWN, REASON_UNAVAILABLE
+
+
+def _classify_ref(ref: str) -> tuple[ValidationResult, str | None]:
+    """Classify a persisted ref, returning its status and a human-readable reason.
+
+    Reads cfg, the local registry, and (for ollama/lm_studio refs) probes
+    the configured model server. Never mutates persisted state. Raises
+    ``OSError`` when the registry cannot be read: that is unknown, not absent.
+    """
+    if not ref:
+        return ValidationResult.UNKNOWN, REASON_UNAVAILABLE
+    if install_state(ref, ModelRegistry(cfg.models_dir)) is not InstallState.MISSING:
+        return ValidationResult.OK, None
+    try:
+        parsed = parse_model_ref(ref)
+    except Exception:
+        return ValidationResult.UNKNOWN, REASON_UNAVAILABLE
+    return _classify_uninstalled_ref(parsed)
+
+
+def validate_persisted_model(ref: str) -> ValidationResult:
+    """Classify a persisted chat/embedding ref against current state."""
+    status, _reason = _classify_ref(ref)
+    return status
+
+
+def _first_available_api_chat_ref() -> str | None:
+    """Return the first cloud chat ref backed by a configured API key, or ``None``."""
+    try:
+        groups = discover_api_models()
+    except Exception:
+        log.debug("discover_api_models failed during canonicalization", exc_info=True)
+        return None
+    for _provider, models in groups.items():
+        if models:
+            first = models[0]
+            return format_remote_ref(first.name, first.provider)
+    return None
+
+
+def _first_installed_local_ref(want: ModelTask) -> str | None:
+    """Return the first registered local ref whose task matches *want*.
+
+    Registered only, a narrower bar than the persisted ref clears: a
+    substitute must be a ref every surface can name and the engine can load,
+    so a loose GGUF file (in no listing) and a manifest whose split set is
+    missing a shard (the listing gates on the first shard alone) are both out.
+    Tasks are name-reclassified so the pick matches the role validator.
+
+    Raises ``OSError`` when the registry cannot be read, so an unreadable
+    tree never reads as "nothing to substitute".
+    """
+    registry = ModelRegistry(cfg.models_dir)
+    for manifest in registry.list_installed():
+        if reclassify_by_name(manifest.ref, manifest.task) != want:
+            continue
+        if install_state(manifest.ref, registry) is InstallState.REGISTERED:
+            return manifest.ref
+    return None
+
+
+def _canonicalize(original: str, *, allow_api: bool, want_task: ModelTask) -> CanonicalRef:
+    """Resolve a persisted ref to its effective session value.
+
+    ``allow_api`` controls the fallback chain: chat allows an API
+    fallback first; embedding is local-only because most providers
+    have no embedding equivalent. The local fallback is restricted to
+    installed models whose task is ``want_task``.
+    """
+    status, reason = _classify_ref(original)
+    if status == ValidationResult.OK:
+        return CanonicalRef(original=original, effective=original, status=status)
+    candidates: list[str | None] = []
+    if allow_api:
+        candidates.append(_first_available_api_chat_ref())
+    candidates.append(_first_installed_local_ref(want_task))
+    effective = next((c for c in candidates if c), original)
+    return CanonicalRef(original=original, effective=effective, status=status, reason=reason)
+
+
+def canonicalize_chat_model() -> CanonicalRef:
+    """Effective chat ref for this session, falling back API -> local -> original."""
+    return _canonicalize(cfg.chat_model, allow_api=True, want_task=ModelTask.CHAT)
+
+
+def canonicalize_embedding_model() -> CanonicalRef:
+    """Effective embedding ref for this session, falling back local -> original."""
+    return _canonicalize(cfg.embedding_model, allow_api=False, want_task=ModelTask.EMBEDDING)

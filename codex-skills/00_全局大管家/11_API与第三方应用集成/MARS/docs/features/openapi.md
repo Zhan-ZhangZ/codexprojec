@@ -1,0 +1,159 @@
+# OpenAPI 3 & Swagger
+
+MARS can generate an **OpenAPI 3** specification for an application directly from your resources — no hand-written YAML. It reflects over the registered resources, methods, parameters, return types and authorization rules to build a `TOpenAPI` document (`MARS.OpenAPI.v3.pas`), which you expose as JSON or YAML and render with **Swagger UI**.
+
+## How it works
+
+1. Add `MARS.OpenAPI.v3.InjectionService` to your ignition `uses`. This registers an injection service that builds a `TOpenAPI` for the current application on demand.
+2. Declare a resource whose method takes `[Context] AOpenAPI: TOpenAPI` and returns it. MARS serializes it to JSON/YAML.
+3. Optionally serve the Swagger UI static files from a folder.
+
+Internally, `TOpenAPIHelper.BuildFrom(engine, application)` drives a `TMARSMetadataReader` (see [Metadata](#metadata)) to enumerate everything and fills the OpenAPI object — including server URLs, the application path, and security schemes for JWT (Bearer and/or cookie) when the app has a JWT secret configured.
+
+## Exposing the spec
+
+This is the canonical resource from the [`MARSTemplate`](https://github.com/andrea-magni/MARS/tree/master/Demos/MARSTemplate) demo:
+
+```pascal
+unit Server.Resources.OpenAPI;
+
+interface
+
+uses
+  MARS.Core.Attributes, MARS.Core.MediaType, MARS.Core.JSON
+, MARS.WebServer.Resources
+, MARS.OpenAPI.v3, MARS.Metadata.Attributes;
+
+type
+  [Path('openapi'), MetaVisible(False), JSONSkipEmptyValues]
+  TOpenAPIResource = class
+  public
+    [GET, Produces(TMediaType.APPLICATION_JSON), Produces(TMediaType.APPLICATION_YAML)]
+    function GetOpenAPI([Context] AOpenAPI: TOpenAPI): TOpenAPI;
+  end;
+
+  [Path('www/{*}'),
+   RootFolder('{bin}\..\..\..\www\swagger-ui-3.52.5-dist', True), MetaVisible(False)]
+  TStaticContentResource = class(TFileSystemResource)
+  end;
+
+implementation
+
+uses MARS.Core.Registry;
+
+function TOpenAPIResource.GetOpenAPI(AOpenAPI: TOpenAPI): TOpenAPI;
+begin
+  Result := AOpenAPI;          // injected & fully built for this application
+end;
+
+initialization
+  MARSRegister([TOpenAPIResource, TStaticContentResource]);
+
+end.
+```
+
+Notes:
+
+- `[MetaVisible(False)]` keeps these helper resources out of the generated spec itself.
+- `[JSONSkipEmptyValues]` produces a clean document without empty members.
+- `GET …/openapi` returns the spec; an `Accept: application/x-yaml` header (with `MARS.YAML.ReadersAndWriters` registered) returns YAML instead. YAML needs the `MARS_YAML` define, so on Linux and 64-bit macOS the spec is served as JSON only (see [YAML](/features/serialization#yaml)).
+- `TStaticContentResource` serves the bundled Swagger UI from the repository's `www/swagger-ui-*` folder via `TFileSystemResource` + `[RootFolder]`.
+
+Endpoints (under application `/default`):
+
+```
+GET /rest/default/openapi        → OpenAPI 3 JSON (or YAML)
+GET /rest/default/www/           → Swagger UI, pointed at the spec
+```
+
+## Enriching the spec
+
+The generator reads metadata and JSON-schema attributes so you can produce a rich, accurate document:
+
+- **Summaries / descriptions** — `[MetaSummary('...')]`, `[MetaDescription('...')]` on resources, methods and parameters.
+- **Visibility** — `[MetaVisible(False)]` hides a resource or method.
+- **OpenAPI-specific text** — `[OAPISummary]` and `[OAPIDescription]` override the `[Meta…]` values in the generated document only; they can be put on a resource class, on a method, on a record/class type or one of its fields, and on a method parameter.
+- **Schema hints** — `[OAPIRequired]`, `[OAPIDefault]`, `[OAPIPattern]`, `[OAPIMinimum]`, `[OAPIMaximum]`, `[OAPIMinLength]`, `[OAPIMaxLength]` on record/class fields and on method parameters.
+- **Security** — `[RolesAllowed]` / `[PermitAll]` / `[DenyAll]` are reflected as security requirements; when JWT is configured, Bearer and cookie security schemes are added automatically.
+
+```pascal
+[Path('users')]
+[MetaSummary('User management')]
+[MetaDescription('Create, list and remove application users')]
+[RolesAllowed('admin')]
+TUserResource = class
+public
+  [GET]
+  [MetaSummary('List users')]
+  function List: TArray<TUser>;
+
+  [POST]
+  [MetaSummary('Create user')]
+  function Create([BodyParam] AUser: TUser): TUser;
+end;
+```
+
+Parameter kinds (`[PathParam]`, `[QueryParam]`, `[HeaderParam]`, `[BodyParam]`) and their Delphi types become the corresponding OpenAPI parameters, request bodies and schemas.
+
+The request body is documented with the media types of `[Consumes]` (on the method or on the resource). Without `[Consumes]` the media type depends on the parameters: `application/x-www-form-urlencoded` for `[FormParam]` parameters; for a `[BodyParam]`, `application/octet-stream` for `TStream` and `TBytes`, `multipart/form-data` for `TFormParam` and `TArray<TFormParam>`, `text/plain` for `string`, `application/json` for anything else (records, objects, arrays), whose schema is added to `components/schemas`.
+
+A method that reads the body by itself (`Request.Body`, `Request.GetFormParamValue`, ...) instead of through `[BodyParam]`/`[FormParam]` parameters can describe it with `[MetaRequestBody]` (unit `MARS.Metadata.Attributes`): the qualified name of a record or class with the shape of the body, and an optional description. The built-in token resource uses it for the `username` and `password` form fields read by `GetCredentials`:
+
+```pascal
+[POST, Consumes(TMediaType.APPLICATION_FORM_URLENCODED_TYPE)
+, MetaRequestBody('MARS.Core.Token.Resource.TCredentials', 'Credentials: username and password')]
+function DoLogin: TMARSToken;
+```
+
+Parameters describing the body, if any, take precedence. Without `[Consumes]` the media type follows the type, as for `[BodyParam]`. A name that cannot be resolved is ignored.
+
+Where each `[OAPI…]` attribute is read:
+
+| Placement | Attributes honored |
+| --- | --- |
+| Resource class | `[OAPISummary]`, `[OAPIDescription]` (become the tag's text) |
+| Method | `[OAPISummary]`, `[OAPIDescription]` (path item and operation) |
+| Record/class type | `[OAPIDescription]` (component schema) |
+| Record/class field or property | `[OAPIDescription]` + all schema hints |
+| Method parameter | `[OAPIDescription]` + all schema hints |
+
+```pascal
+type
+  [OAPIDescription('An application user')]
+  TUser = record
+    [OAPIRequired(True)] Name: string;
+    [OAPIPattern('^[0-9]{5}$')] ZipCode: string;
+  end;
+
+  ...
+
+  [GET, Path('search')]
+  [OAPISummary('Full-text search')]
+  function Search(
+    [QueryParam] [OAPIDescription('Text to look for')] [OAPIMinLength('3')] q: string
+  ): TArray<TUser>;
+```
+
+`[OAPIRequired]` takes a Boolean, every other `[OAPI…]` attribute takes a string.
+
+### Document version and `[QUERY]` endpoints
+
+The generated document declares OpenAPI `3.0.2`, the version the bundled Swagger UI renders. The
+engine parameter `OpenAPI.openapi` overrides it. This matters for `[QUERY]` endpoints: the `query`
+operation only exists since OpenAPI 3.2, so they are left out of the document unless the version is
+`3.2.0` or later:
+
+```ini
+[Engine]
+OpenAPI.openapi=3.2.0
+```
+
+## Metadata
+
+OpenAPI generation is built on a general **metadata** layer (`MARS.Metadata.*`) that models your API as a tree of `TMARSApplicationMetadata` → `TMARSResourceMetadata` → `TMARSMethodMetadata` → `TMARSRequestParamMetadata`. `TMARSMetadataReader` populates it by RTTI reflection over the engine's applications.
+
+You can use this metadata directly for your own tooling — for instance, the [HtmxDemo](/demos/#htmxdemo) reads the generated OpenAPI document at runtime to render a live list of endpoints in an HTML page.
+
+## Consuming the spec
+
+Because the document is standard OpenAPI 3, you can feed `…/openapi` into any compatible tool: Swagger UI (bundled), Postman, client-code generators, or API gateways.

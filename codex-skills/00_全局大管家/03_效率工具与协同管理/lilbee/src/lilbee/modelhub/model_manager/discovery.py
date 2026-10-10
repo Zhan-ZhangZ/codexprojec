@@ -1,0 +1,308 @@
+"""Remote model discovery and task classification."""
+
+import logging
+import time
+from collections.abc import Callable
+from functools import lru_cache
+from threading import Lock
+
+import httpx
+
+from lilbee.app.services import get_services
+from lilbee.catalog.formatting import agent_model_id
+from lilbee.catalog.query import (
+    EMBEDDING_NAME_PATTERNS,
+    RERANKER_NAME_PATTERNS,
+    VISION_NAME_PATTERNS,
+)
+from lilbee.catalog.types import KeyStatus, ModelTask
+from lilbee.modelhub.model_manager.types import ApiModelGroup, RemoteModel
+from lilbee.providers.backend_names import BackendName
+from lilbee.providers.base import LLMProvider
+from lilbee.providers.key_check import provider_key_set, provider_key_statuses
+from lilbee.providers.local_servers import (
+    LM_STUDIO,
+    OLLAMA,
+    LocalServerSpec,
+    openai_models_url,
+)
+from lilbee.providers.local_servers.config_urls import configured_local_servers
+from lilbee.providers.model_ref import format_remote_ref
+from lilbee.providers.sdk_backend import PROVIDER_KEYS
+
+log = logging.getLogger(__name__)
+
+_EMBEDDING_FAMILIES = frozenset({"bert", "nomic-bert", "e5", "bge"})
+
+_CLASSIFY_DEFAULT_TIMEOUT_S = 5.0
+
+
+@lru_cache(maxsize=1)
+def _discovery_client() -> httpx.Client:
+    """One shared client for the local-server discovery probes.
+
+    ``httpx.get`` builds a fresh ``Client`` per call, and every ``Client``
+    construction creates an SSL context that loads the system CA bundle. The
+    catalog re-runs discovery on tab activations and refreshes, which made
+    ``ssl.create_default_context`` 16% of a real-terminal TUI py-spy session.
+    One client builds it once and reuses connections between probes (same
+    pattern as the engine probes in ``fleet.swap_manager``). Unlike those
+    loopback-only probes, ``trust_env`` stays on: these base URLs are
+    user-configurable and a LAN server may sit behind a proxy.
+    """
+    return httpx.Client()
+
+
+def _http_get(url: str, *, timeout: float) -> httpx.Response:
+    """GET via the shared discovery client (module seam; tests stub here)."""
+    return _discovery_client().get(url, timeout=timeout)
+
+
+def _classify_remote_task(name: str, family: str) -> ModelTask:
+    """Classify a remote model as rerank, embedding, vision, or chat (in that order).
+
+    Embedding matches by family tag or name pattern; the name path covers
+    servers like LM Studio that report no family.
+    """
+    name_lower = name.lower()
+    if any(rp in name_lower for rp in RERANKER_NAME_PATTERNS):
+        return ModelTask.RERANK
+    family_lower = family.lower()
+    if any(ef in family_lower for ef in _EMBEDDING_FAMILIES) or any(
+        ep in name_lower for ep in EMBEDDING_NAME_PATTERNS
+    ):
+        return ModelTask.EMBEDDING
+    if any(vp in name_lower for vp in VISION_NAME_PATTERNS):
+        return ModelTask.VISION
+    return ModelTask.CHAT
+
+
+def classify_remote_models(
+    base_url: str,
+    spec: LocalServerSpec,
+    *,
+    timeout: float = _CLASSIFY_DEFAULT_TIMEOUT_S,
+) -> list[RemoteModel]:
+    """Discover and classify all models from one local server by task.
+
+    The strategy and provider label come from *spec* (Ollama ``/api/tags`` vs
+    LM Studio ``/v1/models``), so a server reached at a non-default host is
+    classified correctly. A transport failure or a non-JSON body yields ``[]``
+    so read-only callers stay responsive when the backend is down. A listing
+    the strategy cannot walk raises: the parse runs outside the request guard.
+    """
+    discover = _DISCOVERY_BY_KEY[spec.key]
+    return discover(base_url, spec.display_name, timeout)
+
+
+def classify_all_remote_models(
+    *,
+    timeout: float = _CLASSIFY_DEFAULT_TIMEOUT_S,
+) -> list[RemoteModel]:
+    """Classify models across every configured local server, source-labeled."""
+    result: list[RemoteModel] = []
+    for spec, base_url in configured_local_servers():
+        result.extend(classify_remote_models(base_url, spec, timeout=timeout))
+    return result
+
+
+def _discover_via_ollama_tags(
+    base_url: str, provider: BackendName, timeout: float
+) -> list[RemoteModel]:
+    """Classify models from Ollama's ``/api/tags`` using family metadata."""
+    try:
+        resp = _http_get(f"{base_url}/api/tags", timeout=timeout)
+        resp.raise_for_status()
+        raw_models = resp.json().get("models", [])
+    except Exception:
+        log.debug("Failed to classify remote models", exc_info=True)
+        return []
+
+    result: list[RemoteModel] = []
+    for model in raw_models:
+        name = model.get("name", "")
+        details = model.get("details", {})
+        family = details.get("family", "")
+        param_size = details.get("parameter_size", "")
+        task = _classify_remote_task(name, family)
+        result.append(
+            RemoteModel(
+                name=name,
+                task=task,
+                family=family,
+                parameter_size=param_size,
+                provider=provider,
+            )
+        )
+    return result
+
+
+def _discover_via_openai_models(
+    base_url: str, provider: BackendName, timeout: float
+) -> list[RemoteModel]:
+    """Classify models from an OpenAI-compatible ``/v1/models`` endpoint.
+
+    These servers report only ids (no family), so task detection runs off the
+    name patterns, which LM Studio ids usually carry. Every id is surfaced: LM
+    Studio presents LM Link remote/cloud models here as if local, so the list
+    is intentionally not filtered to locally-downloaded models.
+    """
+    try:
+        resp = _http_get(openai_models_url(base_url), timeout=timeout)
+        resp.raise_for_status()
+        raw_models = resp.json().get("data", [])
+    except Exception:
+        log.debug("Failed to classify remote models", exc_info=True)
+        return []
+
+    result: list[RemoteModel] = []
+    for model in raw_models:
+        name = model.get("id", "")
+        if not name:
+            continue
+        task = _classify_remote_task(name, "")
+        result.append(
+            RemoteModel(
+                name=name,
+                task=task,
+                family="",
+                parameter_size="",
+                provider=provider,
+            )
+        )
+    return result
+
+
+# Listing strategy per local-server routing key. Module-level so it stays a
+# single source of truth as servers are added to the registry.
+_DISCOVERY_BY_KEY: dict[str, Callable[[str, BackendName, float], list[RemoteModel]]] = {
+    OLLAMA.key: _discover_via_ollama_tags,
+    LM_STUDIO.key: _discover_via_openai_models,
+}
+
+
+def _chat_models_for(provider: LLMProvider, prov: str, display_name: str) -> list[RemoteModel]:
+    """The backend's chat models for hosted provider *prov*, labeled *display_name*."""
+    return [
+        RemoteModel(
+            name=model_name,
+            task=ModelTask.CHAT,
+            family="",
+            parameter_size="",
+            provider=display_name,
+        )
+        for model_name in provider.list_chat_models(prov)
+    ]
+
+
+def discover_api_model_groups() -> list[ApiModelGroup]:
+    """Hosted chat models for every provider with a key set, with the key's status.
+
+    Short-circuits before touching the SDK when no keys are present. Only
+    providers that list models have their key checked.
+    """
+    keyed = [(prov, label) for prov, _cfg, _env, label in PROVIDER_KEYS if provider_key_set(prov)]
+    if not keyed:
+        return []
+    provider = get_services().provider
+    listed = [
+        (prov, label, models)
+        for prov, label in keyed
+        if (models := _chat_models_for(provider, prov, label))
+    ]
+    statuses = provider_key_statuses([prov for prov, _label, _models in listed])
+    return [
+        ApiModelGroup(provider=prov, display_name=label, key_status=statuses[prov], models=models)
+        for prov, label, models in listed
+    ]
+
+
+def discover_api_models() -> dict[str, list[RemoteModel]]:
+    """Hosted chat models grouped by provider display name, for accepted keys only."""
+    return {
+        group.display_name: group.models
+        for group in discover_api_model_groups()
+        if group.key_status is KeyStatus.READY
+    }
+
+
+def detect_remote_embedding_models() -> list[str]:
+    """Return embedding-model names across every configured local server."""
+    return [m.name for m in classify_all_remote_models() if m.task == ModelTask.EMBEDDING]
+
+
+def gather_known_model_refs() -> set[str]:
+    """Canonical refs from the native registry, every configured local server, and APIs.
+
+    A local server or API that is down contributes an empty subset. An
+    unreadable native registry raises ``OSError`` instead: answering from the
+    remote sources alone would route a request for an installed local model
+    to a hosted provider.
+    """
+    refs = {m.ref for m in get_services().registry.list_installed()}
+    for rm in classify_all_remote_models():
+        refs.add(format_remote_ref(rm.name, rm.provider))
+    for models in discover_api_models().values():
+        for rm in models:
+            refs.add(format_remote_ref(rm.name, rm.provider))
+    return refs
+
+
+class KnownModelCache:
+    """TTL-cached union of native + remote + frontier model refs.
+
+    Not a ``cachetools.TTLCache``: the generation counter is the point. A
+    fan-out already in flight when :meth:`invalidate` runs would otherwise
+    install its pre-pull answer with a full TTL, hiding a freshly pulled model
+    for 30s; bumping the generation makes that late writer publish without
+    renewing the expiry. The fan-out runs off the lock because it hits network.
+    """
+
+    DEFAULT_TTL_S = 30.0
+
+    def __init__(self, ttl_s: float = DEFAULT_TTL_S) -> None:
+        self._ttl_s = ttl_s
+        self._refs: frozenset[str] = frozenset()
+        self._expires_at: float = 0.0
+        self._generation: int = 0
+        self._lock = Lock()
+
+    def refs(self) -> frozenset[str]:
+        """Cached canonical-ref set, refreshing past the TTL (fan-out runs off the lock)."""
+        with self._lock:
+            if time.monotonic() < self._expires_at:
+                return self._refs
+            captured_generation = self._generation
+        fresh = frozenset(gather_known_model_refs())
+        with self._lock:
+            self._refs = fresh
+            if self._generation == captured_generation:
+                self._expires_at = time.monotonic() + self._ttl_s
+            return self._refs
+
+    def resolve(self, model: str) -> str | None:
+        """Resolve *model* to its canonical ref, or None if unknown.
+
+        Accepts the canonical ref, an Ollama ``name:tag`` shorthand, and the clean
+        agent-facing id (:func:`agent_model_id`) an agent config pins in place of
+        the full GGUF path. The clean id resolves only when exactly one known ref
+        produces it, so two same-labelled quants stay unresolved rather than
+        routing to the wrong file.
+        """
+        refs = self.refs()
+        if model in refs:
+            return model
+        if "/" not in model and ":" in model:
+            prefixed = OLLAMA.qualify(model)
+            if prefixed in refs:
+                return prefixed
+        aliased = [ref for ref in refs if agent_model_id(ref) == model]
+        if len(aliased) == 1:
+            return aliased[0]
+        return None
+
+    def invalidate(self) -> None:
+        """Force the next ``refs()`` call to re-probe."""
+        with self._lock:
+            self._expires_at = 0.0
+            self._generation += 1

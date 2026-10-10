@@ -1,0 +1,30 @@
+# Pre-Haswell CPU variant of the snap. Rendered per release by
+# render_snapcraft.sh; CI stages lilbee-compat-linux-x86_64 into payload/
+# (gitignored) before building. Distinct name + app so it coexists with the
+# stock lilbee snap; the command is `lilbee-compat`.
+name: lilbee-compat
+base: core24
+version: "0.0.0"
+summary: The whole local AI stack in one executable (pre-Haswell CPU build)
+description: |
+  lilbee is the whole local AI stack in one executable: it runs and manages
+  local AI models across every GPU you have, indexes your files and code,
+  crawls the web pages you point it at, and answers questions with citations
+  down to the file and line. One install covers the TUI, CLI, HTTP server, and
+  MCP server. You don't need Ollama or LM Studio, and it works with both.
+
+  This build runs on older x86_64 CPUs (Sandy Bridge / Bulldozer class) that
+  crash on the stock build's lancedb wheel.
+grade: stable
+confinement: classic
+platforms:
+  amd64:
+parts:
+  lilbee:
+    plugin: dump
+    source: payload
+    organize:
+      lilbee-compat-linux-x86_64: bin/lilbee
+apps:
+  lilbee-compat:
+    command: bin/lilbee

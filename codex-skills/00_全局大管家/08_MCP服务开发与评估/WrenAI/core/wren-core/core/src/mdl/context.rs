@@ -1,0 +1,637 @@
+use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
+use std::sync::Arc;
+
+use crate::logical_plan::analyze::expand_view::ExpandWrenViewRule;
+use crate::logical_plan::analyze::model_anlayze::ModelAnalyzeRule;
+use crate::logical_plan::analyze::model_generation::ModelGenerationRule;
+use crate::logical_plan::optimize::simplify_timestamp::TimestampSimplify;
+use crate::logical_plan::optimize::type_coercion::TypeCoercion as WrenTypeCoercion;
+use crate::logical_plan::utils::create_schema;
+use crate::mdl::manifest::Model;
+use crate::mdl::type_planner::WrenTypePlanner;
+use crate::mdl::{AnalyzedWrenMDL, SessionStateRef};
+use crate::{AccessControlProvider, ColumnAccessDecision, WrenAccessControlProvider};
+use async_trait::async_trait;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::catalog::memory::{MemoryCatalogProvider, MemoryCatalogProviderList};
+use datafusion::catalog::CatalogProvider;
+use datafusion::catalog::CatalogProviderList;
+use datafusion::catalog::{MemorySchemaProvider, Session};
+use datafusion::common::TableReference;
+use datafusion::common::{internal_err, DataFusionError, Result, SchemaError};
+use datafusion::datasource::{TableProvider, TableType, ViewTable};
+use datafusion::execution::session_state::SessionStateBuilder;
+use datafusion::logical_expr::Expr;
+use datafusion::optimizer::analyzer::type_coercion::TypeCoercion;
+use datafusion::optimizer::eliminate_duplicated_expr::EliminateDuplicatedExpr;
+use datafusion::optimizer::eliminate_filter::EliminateFilter;
+use datafusion::optimizer::eliminate_group_by_constant::EliminateGroupByConstant;
+use datafusion::optimizer::eliminate_join::EliminateJoin;
+use datafusion::optimizer::eliminate_outer_join::EliminateOuterJoin;
+use datafusion::optimizer::extract_equijoin_predicate::ExtractEquijoinPredicate;
+use datafusion::optimizer::filter_null_join_keys::FilterNullJoinKeys;
+use datafusion::optimizer::propagate_empty_relation::PropagateEmptyRelation;
+use datafusion::optimizer::{AnalyzerRule, OptimizerRule};
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion::prelude::SessionContext;
+use datafusion::scalar::ScalarValue;
+use parking_lot::RwLock;
+
+pub type SessionPropertiesRef = Arc<HashMap<String, Option<String>>>;
+
+/// Copies the top-level entries of a `CatalogProviderList` into a fresh,
+/// private `MemoryCatalogProviderList`.
+///
+/// Contract:
+/// 1. Top-level catalog-list membership/replacement is a snapshot at the
+///    time this is called: registering a brand-new top-level catalog on the
+///    original list afterward does not appear in the copy.
+/// 2. The internals of catalogs present at copy time are live-shared: each
+///    entry is the *same* `Arc<dyn CatalogProvider>` as the original, so a
+///    schema/table mutation on a catalog that already existed at copy time
+///    (e.g. registering a new table into an existing physical
+///    catalog/schema) is visible through both lists, because the provider's
+///    inner DashMap is shared (datafusion-catalog `catalog.rs`, `schema.rs`).
+/// 3. The enumeration is best-effort, not an atomic snapshot —
+///    `catalog_names()` and per-name `catalog()` are independent DashMap
+///    reads, so a concurrent `register_catalog` racing this copy may or may
+///    not be observed. Callers must finish top-level physical-catalog
+///    registration before starting a transform; this helper does not (and
+///    cannot) provide atomicity for same-named concurrent registrations.
+fn clone_catalog_list(
+    existing: &Arc<dyn CatalogProviderList>,
+) -> Arc<dyn CatalogProviderList> {
+    let private_list = MemoryCatalogProviderList::new();
+    for name in existing.catalog_names() {
+        if let Some(catalog) = existing.catalog(&name) {
+            private_list.register_catalog(name, catalog);
+        }
+    }
+    Arc::new(private_list)
+}
+
+/// Apply Wren Rules to the context for sql generation.
+///
+/// Callers must complete top-level physical-catalog registration before
+/// starting a transform. Catalog enumeration produces a best-effort,
+/// non-atomic snapshot, so concurrent top-level registrations may or may not
+/// be observed by the derived context.
+pub async fn apply_wren_on_ctx(
+    ctx: &SessionContext,
+    analyzed_mdl: Arc<AnalyzedWrenMDL>,
+    properties: SessionPropertiesRef,
+    mode: Mode,
+) -> Result<SessionContext> {
+    apply_wren_on_ctx_with_access_control(
+        ctx,
+        analyzed_mdl,
+        properties,
+        mode,
+        Arc::new(WrenAccessControlProvider),
+    )
+    .await
+}
+
+/// Apply Wren rules using an explicit provider for schema visibility and planning.
+/// For inferred sources, prepare the MDL with
+/// [`AnalyzedWrenMDL::analyze_with_unfiltered_schema`] so another provider has not
+/// already removed physical columns. Explicit table registrations are also supported.
+/// This context supports direct planning/execution; use the provider-aware SQL
+/// transform entrypoint when generating remote SQL.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::{collections::HashMap, sync::Arc};
+/// use wren_core::{AccessControlProvider, AnalyzedWrenMDL};
+/// use wren_core::mdl::{create_wren_ctx, manifest::Manifest};
+/// use wren_core::mdl::context::{apply_wren_on_ctx_with_access_control, Mode};
+///
+/// async fn plan_query(
+///     manifest: Manifest,
+///     provider: Arc<dyn AccessControlProvider>,
+/// ) -> datafusion::common::Result<()> {
+///     let mdl = Arc::new(AnalyzedWrenMDL::analyze_with_unfiltered_schema(manifest)?);
+///     let ctx = apply_wren_on_ctx_with_access_control(
+///         &create_wren_ctx(None, None), mdl, Arc::new(HashMap::new()),
+///         Mode::Unparse, provider,
+///     ).await?;
+///     let _plan = ctx.sql("SELECT id FROM items").await?.into_optimized_plan()?;
+///     Ok(())
+/// }
+/// ```
+pub async fn apply_wren_on_ctx_with_access_control(
+    ctx: &SessionContext,
+    analyzed_mdl: Arc<AnalyzedWrenMDL>,
+    properties: SessionPropertiesRef,
+    mode: Mode,
+    access_control: Arc<dyn AccessControlProvider>,
+) -> Result<SessionContext> {
+    let session_timezone = properties
+        .get("x-wren-timezone")
+        .map(|v| v.as_ref().map(|s| s.as_str()).unwrap_or("UTC").to_string());
+
+    let mut config = ctx
+        .copied_config()
+        .set(
+            "datafusion.sql_parser.default_null_ordering",
+            &ScalarValue::Utf8(Some("nulls_last".to_string())),
+        )
+        .set(
+            "datafusion.sql_parser.enable_ident_normalization",
+            &ScalarValue::Utf8(Some("false".to_string())),
+        )
+        .with_create_default_catalog_and_schema(false)
+        .with_default_catalog_and_schema(
+            analyzed_mdl.wren_mdl.catalog(),
+            analyzed_mdl.wren_mdl.schema(),
+        )
+        .with_information_schema(true);
+
+    if let Some(session_timezone) = session_timezone {
+        config
+            .options_mut()
+            .set("datafusion.execution.time_zone", &session_timezone)?;
+    }
+
+    let type_planner = Arc::new(WrenTypePlanner::default());
+    // Each apply call uses a private catalog-list snapshot. Both derived
+    // SessionStates within the call share that snapshot, isolating in-flight
+    // catalog registration from the base context and concurrent calls. See
+    // `clone_catalog_list` for the exact sharing contract.
+    let private_catalog_list = clone_catalog_list(ctx.state().catalog_list());
+    let reset_default_catalog_schema = Arc::new(RwLock::new(
+        SessionStateBuilder::new_from_existing(ctx.state())
+            .with_config(config.clone())
+            .with_type_planner(type_planner)
+            .with_catalog_list(Arc::clone(&private_catalog_list))
+            .build(),
+    ));
+
+    let new_state = SessionStateBuilder::new_from_existing(
+        reset_default_catalog_schema.clone().read().deref().clone(),
+    );
+
+    // ensure all the key in properties is lowercase
+    let properties = Arc::new(
+        properties
+            .iter()
+            .map(|(k, v)| {
+                let k = k.to_lowercase();
+                (k, v.clone())
+            })
+            .collect::<HashMap<_, _>>(),
+    );
+
+    let new_state =
+        new_state.with_analyzer_rules(mode.get_analyze_rules_with_access_control(
+            Arc::clone(&analyzed_mdl),
+            Arc::clone(&reset_default_catalog_schema),
+            Arc::clone(&properties),
+            Arc::clone(&access_control),
+        ));
+    let new_state = if let Some(optimize_rules) = mode.get_optimize_rules() {
+        new_state.with_optimizer_rules(optimize_rules)
+    } else {
+        new_state
+    };
+
+    let new_state = new_state.with_config(config).build();
+    // Guards the isolation invariant on the production wiring itself: the
+    // final SessionState handed to `SessionContext` must hold the same
+    // private Arc `clone_catalog_list` produced above. A violation here
+    // means silently wrong query output, not just an internal inconsistency,
+    // so this checks in every build, including release; the pointer
+    // comparison is O(1).
+    if !Arc::ptr_eq(new_state.catalog_list(), &private_catalog_list) {
+        return internal_err!(
+            "apply_wren_on_ctx: final SessionState's catalog_list is not the \
+             private Arc from clone_catalog_list — the same-context isolation \
+             invariant has been broken"
+        );
+    }
+    let ctx = SessionContext::new_with_state(new_state);
+    register_table_with_mdl_with_access_control(
+        &ctx,
+        analyzed_mdl,
+        properties,
+        mode,
+        access_control.as_ref(),
+    )
+    .await?;
+    Ok(ctx)
+}
+
+/// Execution mode for Wren engine.
+#[derive(Debug)]
+pub enum Mode {
+    /// Local runtime mode, used for executing queries by DataFusion directly.
+    LocalRuntime,
+    /// Unparse mode, used for generating SQL statements.
+    /// This mode is used to generate SQL statements that can be executed in other SQL engines.
+    Unparse,
+    /// Permission analyze mode, used for analyzing if the error is caused by permission denied.
+    /// It's only be used when an error is raised during Unparse mode.
+    PermissionAnalyze,
+}
+
+impl Mode {
+    pub fn get_analyze_rules(
+        &self,
+        analyzed_mdl: Arc<AnalyzedWrenMDL>,
+        session_state_ref: SessionStateRef,
+        properties: SessionPropertiesRef,
+    ) -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
+        self.get_analyze_rules_with_access_control(
+            analyzed_mdl,
+            session_state_ref,
+            properties,
+            Arc::new(WrenAccessControlProvider),
+        )
+    }
+
+    /// Build the mode's analyzer rules using the supplied shared provider.
+    ///
+    /// Reuse this provider for table registration and permission diagnostics.
+    /// [`Mode::PermissionAnalyze`] expands views and checks model permissions
+    /// without generating source plans. Construction is infallible; provider
+    /// errors propagate when the rules analyze a query.
+    /// See [`apply_wren_on_ctx_with_access_control`] for the common setup workflow.
+    pub fn get_analyze_rules_with_access_control(
+        &self,
+        analyzed_mdl: Arc<AnalyzedWrenMDL>,
+        session_state_ref: SessionStateRef,
+        properties: SessionPropertiesRef,
+        access_control: Arc<dyn AccessControlProvider>,
+    ) -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
+        match self {
+            Mode::LocalRuntime => analyze_rule_for_local_runtime(
+                Arc::clone(&analyzed_mdl),
+                Arc::clone(&session_state_ref),
+                Arc::clone(&properties),
+                access_control,
+            ),
+            Mode::Unparse => analyze_rule_for_unparsing(
+                Arc::clone(&analyzed_mdl),
+                Arc::clone(&session_state_ref),
+                Arc::clone(&properties),
+                access_control,
+            ),
+            Mode::PermissionAnalyze => analyze_rule_for_permission(
+                Arc::clone(&analyzed_mdl),
+                Arc::clone(&session_state_ref),
+                Arc::clone(&properties),
+                access_control,
+            ),
+        }
+    }
+
+    pub fn get_optimize_rules(
+        &self,
+    ) -> Option<Vec<Arc<dyn OptimizerRule + Send + Sync>>> {
+        match self {
+            Mode::LocalRuntime => None,
+            Mode::Unparse => Some(optimize_rule_for_unparsing()),
+            Mode::PermissionAnalyze => Some(vec![]),
+        }
+    }
+
+    pub fn is_permission_analyze(&self) -> bool {
+        matches!(self, Mode::PermissionAnalyze)
+    }
+}
+
+// Analyzer rules for local runtime
+fn analyze_rule_for_local_runtime(
+    analyzed_mdl: Arc<AnalyzedWrenMDL>,
+    session_state_ref: SessionStateRef,
+    properties: SessionPropertiesRef,
+    access_control: Arc<dyn AccessControlProvider>,
+) -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
+    vec![
+        // expand the view should be the first rule
+        Arc::new(ExpandWrenViewRule::new(
+            Arc::clone(&analyzed_mdl),
+            Arc::clone(&session_state_ref),
+        )),
+        Arc::new(ModelAnalyzeRule::new_with_access_control(
+            Arc::clone(&analyzed_mdl),
+            Arc::clone(&session_state_ref),
+            Arc::clone(&properties),
+            Arc::clone(&access_control),
+        )),
+        Arc::new(ModelGenerationRule::new_with_access_control(
+            Arc::clone(&analyzed_mdl),
+            session_state_ref,
+            properties,
+            access_control,
+        )),
+        // Use DataFusion TypeCoercion for the executing purpose
+        Arc::new(TypeCoercion::new()),
+    ]
+}
+
+// Analyze rules for local runtime
+fn analyze_rule_for_unparsing(
+    analyzed_mdl: Arc<AnalyzedWrenMDL>,
+    session_state_ref: SessionStateRef,
+    properties: SessionPropertiesRef,
+    access_control: Arc<dyn AccessControlProvider>,
+) -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
+    vec![
+        // expand the view should be the first rule
+        Arc::new(ExpandWrenViewRule::new(
+            Arc::clone(&analyzed_mdl),
+            Arc::clone(&session_state_ref),
+        )),
+        Arc::new(ModelAnalyzeRule::new_with_access_control(
+            Arc::clone(&analyzed_mdl),
+            Arc::clone(&session_state_ref),
+            Arc::clone(&properties),
+            Arc::clone(&access_control),
+        )),
+        Arc::new(ModelGenerationRule::new_with_access_control(
+            Arc::clone(&analyzed_mdl),
+            session_state_ref,
+            properties,
+            access_control,
+        )),
+        // TimestampSimplify should be placed before TypeCoercion because the simplified timestamp should
+        // be casted to the target type if needed
+        Arc::new(TimestampSimplify::new()),
+        // Use WrenTypeCoercion for the unparsing purpose
+        Arc::new(WrenTypeCoercion::new()),
+    ]
+}
+
+/// Optimizer rules for unparse
+fn optimize_rule_for_unparsing() -> Vec<Arc<dyn OptimizerRule + Send + Sync>> {
+    vec![
+        // Disable EliminateNestedUnion because unparser only support unparsing an union with two inputs
+        // see https://github.com/apache/datafusion/issues/13621 for details
+        // Arc::new(EliminateNestedUnion::new()),
+        // Disable SimplifyExpressions to avoid apply some function locally
+        // Arc::new(SimplifyExpressions::new()),
+        // Unparser has some issues for handling derived table generated by ReplaceDistinctWithAggregate rule
+        // Arc::new(ReplaceDistinctWithAggregate::new()),
+        Arc::new(EliminateJoin::new()),
+        // Unparser has some issues for handling decorrelated plans
+        // Arc::new(DecorrelatePredicateSubquery::new()),
+        // Disable ScalarSubqueryToJoin to avoid generate invalid sql (join without condition)
+        // Arc::new(ScalarSubqueryToJoin::new()),
+        Arc::new(ExtractEquijoinPredicate::new()),
+        // Disable SimplifyExpressions to avoid apply some function locally
+        // Arc::new(SimplifyExpressions::new()),
+        Arc::new(EliminateDuplicatedExpr::new()),
+        Arc::new(EliminateFilter::new()),
+        // Disable EliminateCrossJoin to avoid generate invalid sql (expression should be rebased manually)
+        // Arc::new(EliminateCrossJoin::new()),
+        // Disable CommonSubexprEliminate to avoid generate invalid projection plan
+        // Arc::new(CommonSubexprEliminate::new()),
+        // Arc::new(EliminateLimit::new()),
+        Arc::new(PropagateEmptyRelation::new()),
+        // OptimizeUnions replaces both EliminateNestedUnion and EliminateOneUnion in DataFusion 53,
+        // but it also flattens nested unions into multi-input unions which the unparser cannot handle.
+        // See https://github.com/apache/datafusion/issues/13621 for details.
+        // Arc::new(OptimizeUnions::new()),
+        Arc::new(FilterNullJoinKeys::default()),
+        Arc::new(EliminateOuterJoin::new()),
+        // Filters can't be pushed down past Limits, we should do PushDownFilter after PushDownLimit
+        // TODO: Sort with pushdown-limit doesn't support to be unparse
+        // Arc::new(PushDownLimit::new()),
+        // Disable PushDownFilter to avoid the casting for bigquery (datetime/timestamp) column be removed
+        // Arc::new(PushDownFilter::new()),
+        // Disable SingleDistinctToGroupBy to avoid generate invalid aggregation plan
+        // Arc::new(SingleDistinctToGroupBy::new()),
+        // Disable SimplifyExpressions to avoid apply some function locally
+        // Arc::new(SimplifyExpressions::new()),
+        // Disable CommonSubexprEliminate to avoid generate invalid projection plan
+        // Arc::new(CommonSubexprEliminate::new()),
+        Arc::new(EliminateGroupByConstant::new()),
+        // TODO: This rule would generate a plan that is not supported by the current unparser
+        // Arc::new(OptimizeProjections::new()),
+    ]
+}
+
+fn analyze_rule_for_permission(
+    analyzed_mdl: Arc<AnalyzedWrenMDL>,
+    session_state_ref: SessionStateRef,
+    properties: SessionPropertiesRef,
+    access_control: Arc<dyn AccessControlProvider>,
+) -> Vec<Arc<dyn AnalyzerRule + Send + Sync>> {
+    vec![
+        // expand the view should be the first rule
+        Arc::new(ExpandWrenViewRule::new(
+            Arc::clone(&analyzed_mdl),
+            Arc::clone(&session_state_ref),
+        )),
+        Arc::new(ModelAnalyzeRule::new_with_access_control(
+            Arc::clone(&analyzed_mdl),
+            Arc::clone(&session_state_ref),
+            Arc::clone(&properties),
+            Arc::clone(&access_control),
+        )),
+    ]
+}
+
+pub async fn register_table_with_mdl(
+    ctx: &SessionContext,
+    analyzed_mdl: Arc<AnalyzedWrenMDL>,
+    properties: SessionPropertiesRef,
+    mode: Mode,
+) -> Result<()> {
+    register_table_with_mdl_with_access_control(
+        ctx,
+        analyzed_mdl,
+        properties,
+        mode,
+        &WrenAccessControlProvider,
+    )
+    .await
+}
+
+/// Register model and view schemas using the same provider as the analyzer rules.
+///
+/// Denied columns are omitted except in [`Mode::PermissionAnalyze`], where the
+/// full schema lets the analyzer report explicit permission errors. This function
+/// does not install analyzer rules or apply row filters; use
+/// [`apply_wren_on_ctx_with_access_control`] for the complete setup workflow.
+/// Returns provider, schema, registration, or view-planning errors.
+pub async fn register_table_with_mdl_with_access_control(
+    ctx: &SessionContext,
+    analyzed_mdl: Arc<AnalyzedWrenMDL>,
+    properties: SessionPropertiesRef,
+    mode: Mode,
+    access_control: &dyn AccessControlProvider,
+) -> Result<()> {
+    let catalog = MemoryCatalogProvider::new();
+    let schema = MemorySchemaProvider::new();
+    let wren_mdl = analyzed_mdl.wren_mdl();
+    catalog.register_schema(&wren_mdl.manifest.schema, Arc::new(schema))?;
+    ctx.register_catalog(&wren_mdl.manifest.catalog, Arc::new(catalog));
+
+    let mut denied_columns = HashSet::new();
+    for model in wren_mdl.manifest.models.iter() {
+        let table = WrenDataSource::new_with_access_control(
+            Arc::clone(model),
+            &properties,
+            Arc::clone(&analyzed_mdl),
+            &mode,
+            access_control,
+        )?;
+        denied_columns.extend(
+            model
+                .get_physical_columns(true)
+                .iter()
+                .filter(|column| table.schema.field_with_name(column.name()).is_err())
+                .map(|column| column.name().to_string()),
+        );
+        ctx.register_table(
+            TableReference::full(wren_mdl.catalog(), wren_mdl.schema(), model.name()),
+            Arc::new(table),
+        )?;
+    }
+    // A view that reads a denied column, directly or through another such view,
+    // stays unregistered: it is unavailable without failing the whole setup, and
+    // querying it falls back to permission analysis, which reports the denial.
+    let mut denied_views = HashSet::new();
+    for view in wren_mdl.manifest.views.iter() {
+        let state = ctx.state();
+        let options = state.config().options();
+        let resolve = |table: TableReference| {
+            table.resolve(
+                &options.catalog.default_catalog,
+                &options.catalog.default_schema,
+            )
+        };
+        let view_ref =
+            TableReference::full(wren_mdl.catalog(), wren_mdl.schema(), view.name());
+        let statement =
+            state.sql_to_statement(&view.statement, &options.sql_parser.dialect)?;
+        if !denied_views.is_empty()
+            && state
+                .resolve_table_references(&statement)?
+                .into_iter()
+                .any(|table| denied_views.contains(&resolve(table)))
+        {
+            denied_views.insert(resolve(view_ref));
+            continue;
+        }
+        let plan = match state.statement_to_plan(statement).await {
+            Ok(plan) => plan,
+            Err(e) if is_denied_column_error(&e, &denied_columns) => {
+                denied_views.insert(resolve(view_ref));
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        let view_table = ViewTable::new(plan, Some(view.statement.clone()));
+        ctx.register_table(view_ref, Arc::new(view_table))?;
+    }
+    Ok(())
+}
+
+fn is_denied_column_error(
+    error: &DataFusionError,
+    denied_columns: &HashSet<String>,
+) -> bool {
+    match error.find_root() {
+        DataFusionError::SchemaError(schema_error, _) => matches!(
+            schema_error.as_ref(),
+            SchemaError::FieldNotFound { field, .. } if denied_columns.contains(&field.name)
+        ),
+        _ => false,
+    }
+}
+
+#[derive(Debug)]
+pub struct WrenDataSource {
+    schema: SchemaRef,
+}
+
+impl WrenDataSource {
+    pub fn new(
+        model: Arc<Model>,
+        properties: &SessionPropertiesRef,
+        analyzed_mdl: Arc<AnalyzedWrenMDL>,
+        mode: &Mode,
+    ) -> Result<Self> {
+        Self::new_with_access_control(
+            model,
+            properties,
+            analyzed_mdl,
+            mode,
+            &WrenAccessControlProvider,
+        )
+    }
+
+    /// Create a model schema, omitting columns denied by the supplied provider.
+    ///
+    /// [`Mode::PermissionAnalyze`] retains all columns without calling the provider
+    /// so subsequent analysis can diagnose permission errors. Otherwise, provider
+    /// errors propagate; schema conversion errors are returned in every mode.
+    /// The provider is borrowed only to build the schema. Reuse it in analyzer
+    /// rules to enforce row and column access during planning, normally through
+    /// [`apply_wren_on_ctx_with_access_control`].
+    pub fn new_with_access_control(
+        model: Arc<Model>,
+        properties: &SessionPropertiesRef,
+        analyzed_mdl: Arc<AnalyzedWrenMDL>,
+        mode: &Mode,
+        access_control: &dyn AccessControlProvider,
+    ) -> Result<Self> {
+        let available_columns = model
+            .get_physical_columns(true)
+            .iter()
+            .map(|column| {
+                if mode.is_permission_analyze()
+                    || matches!(
+                        access_control.column_access(
+                            model.name(),
+                            column,
+                            properties,
+                            Some(Arc::clone(&analyzed_mdl)),
+                        )?,
+                        ColumnAccessDecision::Allow
+                    )
+                {
+                    Ok(Some(Arc::clone(column)))
+                } else {
+                    Ok(None)
+                }
+            })
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        let schema = create_schema(available_columns)?;
+        Ok(Self { schema })
+    }
+
+    pub fn new_with_schema(schema: SchemaRef) -> Self {
+        Self { schema }
+    }
+}
+
+#[async_trait]
+impl TableProvider for WrenDataSource {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::View
+    }
+
+    async fn scan(
+        &self,
+        _state: &dyn Session,
+        _projection: Option<&Vec<usize>>,
+        // filters and limit can be used here to inject some push-down operations if needed
+        _filters: &[Expr],
+        _limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        unreachable!("WrenDataSource should be replaced before physical planning")
+    }
+}

@@ -1,0 +1,17 @@
+GridListToggle {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    margin: 0 1 0 1;
+    background: transparent;
+    color: $text-muted;
+}
+
+/* $primary, not $surface: the toolbar sits on $background, and $surface is its
+ * near neighbour, so on a 256-color terminal the two land on one palette slot at
+ * every alpha and the focus lift disappears. $primary is the app's focus color
+ * anyway. */
+GridListToggle:focus {
+    background: $primary 30%;
+    text-style: bold;
+}

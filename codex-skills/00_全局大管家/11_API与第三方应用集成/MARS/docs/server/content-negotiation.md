@@ -1,0 +1,158 @@
+---
+description: "How MARS-Curiosity chooses message body readers and writers from Accept and Content-Type, the built-in JSON, XML, dataset and stream writers, and how to register your own."
+---
+
+# Content Negotiation
+
+MARS converts between Delphi values and the bytes on the wire using two registries:
+
+- **MessageBodyReaders** — turn a request body (or a single parameter value) into a Delphi value. Used by `[BodyParam]` and the other binders.
+- **MessageBodyWriters** — turn a method's return value into the response body.
+
+You usually don't touch them directly: returning a record produces JSON, returning a `TStream` produces a binary download. But understanding the matching rules — and how to register your own — lets you support any format.
+
+## How a writer is chosen
+
+When a method returns a value, MARS asks `TMARSMessageBodyRegistry` for the best writer, considering:
+
+1. The **return type** (string, record, object, array, `TJSONValue`, `TStream`, `TDataSet`/`TFDDataSet`, …).
+2. The method's **`[Produces]`** declarations.
+3. The request's **`Accept`** header (with quality factors).
+4. The writer's declared **`[Produces]`** and its **affinity**.
+
+Affinity breaks ties when several writers qualify:
+
+| Affinity | Constant | Used by |
+| --- | --- | --- |
+| 0 | `AFFINITY_ZERO` | catch-all fallbacks (e.g. primitive types, `*/*`) |
+| 10 | `AFFINITY_LOW` | generic `TObject` |
+| 50 | `AFFINITY_MEDIUM` | records, strings |
+| 100 | `AFFINITY_HIGH` | exact/specialized matches (e.g. FireDAC datasets) |
+
+The reader side works symmetrically against **`[Consumes]`** and the request `Content-Type`.
+
+### When no writer matches
+
+When the `Accept` header shares no media type with `[Produces]`, MARS answers with the method's own media types (as if the client accepted anything). When no writer qualifies, the status tells who has to act:
+
+- **`406 Not Acceptable`**: the client asks only for media types no registered writer produces for this result, although others are available (i.e. `Accept: application/x-yaml` where the YAML writer is not registered). The plain-text body lists the media types the endpoint can produce. This applies to resources and [routes](/server/routes) alike.
+- **`500 Internal Server Error`**: no writer can produce the result in any media type the method declares (or, without `[Produces]`, in `application/json`), whatever the client accepts: a configuration error on the server, such as a writer unit missing from the `uses` clause.
+
+## Built-in writers
+
+Registered by `MARS.Core.MessageBodyWriters.pas` (and data units):
+
+| Writer | Handles | Produces |
+| --- | --- | --- |
+| `TObjectWriter` / `TArrayOfObjectWriter` | `TObject`, `TArray<TObject>` | `application/json` |
+| `TRecordWriter` / `TArrayOfRecordWriter` | records, `TArray<record>` | `application/json` |
+| `TJSONValueWriter` | `TJSONValue`, `TArray<string>` | `application/json` |
+| `TPrimitiveTypesWriter` | numbers, booleans, strings | `*/*` |
+| `TStreamValueWriter` | `TStream` | `application/octet-stream`, `*/*` |
+| `TStandardMethodWriter` | wraps result + output params as JSON | `application/json` |
+| `TDataSetWriter` / `TArrayDataSetWriter` (data units) | `TDataSet`/`TFDDataSet` | JSON / FireDAC formats |
+
+Textual responses declare their encoding: the primitive-types writer appends `charset=…` to the
+content type (defaulting to `text/plain`) using the IANA name of the encoding — `utf-8` unless an
+`[Encoding('…')]` attribute on the method or the resource says otherwise. An explicit `charset` in
+`[Produces]` is left untouched.
+
+## Built-in readers
+
+Registered by `MARS.Core.MessageBodyReaders.pas` (and data units):
+
+| Reader | Handles | Consumes |
+| --- | --- | --- |
+| `TObjectReader` / `TArrayOfObjectReader` | `TObject`, `TArray<TObject>` | `application/json` |
+| `TRecordReader` / `TArrayOfRecordReader` | records, `TArray<record>` | `application/json` |
+| `TJSONValueReader` | `TJSONValue` | `application/json` |
+| `TXMLReader` | `IXMLDocument` | `application/xml` |
+| `TStringReader` | `string` | `text/plain` |
+| `TStreamReader` | `TStream` | `application/octet-stream`, `*/*` |
+| `TFormParamReader` / `TArrayOfTFormParamReader` | `TFormParam`(s) | urlencoded, multipart |
+
+The JSON readers validate what they receive: if the body is missing or cannot be parsed as JSON
+where a record or object is expected, they raise `EMARSHttpException` with status `400`, and MARS
+keeps that status while wrapping the failure (see
+[Error Handling ▸ Errors while binding parameters](/server/error-handling#errors-while-binding-parameters)).
+
+So this method round-trips JSON with no extra code:
+
+```pascal
+[POST, Consumes(TMediaType.APPLICATION_JSON), Produces(TMediaType.APPLICATION_JSON)]
+function Save([BodyParam] AOrder: TOrder): TOrder;   // record in, record out
+```
+
+## The reader/writer interfaces
+
+```pascal
+IMessageBodyReader = interface
+  function ReadFrom(const AInputData: TBytes; const ADestination: TRttiObject;
+    const AMediaType: TMediaType; const AActivation: IMARSActivation): TValue;
+end;
+
+IMessageBodyWriter = interface
+  procedure WriteTo(const AValue: TValue; const AMediaType: TMediaType;
+    AOutputStream: TStream; const AActivation: IMARSActivation);
+end;
+
+// Optional: let MARS stream your content without buffering it first
+IMessageBodyStreamProvider = interface
+  function GetStream(const AValue: TValue; const AMediaType: TMediaType;
+    const AActivation: IMARSActivation): TStream;
+end;
+```
+
+## Registering a custom writer
+
+Suppose you want to emit CSV for a particular record array.
+
+```pascal
+type
+  [Produces('text/csv')]
+  TCsvWriter = class(TInterfacedObject, IMessageBodyWriter)
+  public
+    procedure WriteTo(const AValue: TValue; const AMediaType: TMediaType;
+      AOutputStream: TStream; const AActivation: IMARSActivation);
+  end;
+
+procedure TCsvWriter.WriteTo(const AValue: TValue; const AMediaType: TMediaType;
+  AOutputStream: TStream; const AActivation: IMARSActivation);
+var
+  LText: string;
+begin
+  LText := MyValueToCsv(AValue);
+  var LBytes := TEncoding.UTF8.GetBytes(LText);
+  AOutputStream.WriteBuffer(LBytes, Length(LBytes));
+end;
+
+initialization
+  TMARSMessageBodyRegistry.Instance.RegisterWriter(
+    TCsvWriter,
+    function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Boolean
+    begin
+      Result := AType.IsDynamicArrayOf<TMyRecord>;   // claim the type
+    end,
+    function (AType: TRttiType; const AAttributes: TAttributeArray; AMediaType: string): Integer
+    begin
+      Result := TMARSMessageBodyRegistry.AFFINITY_HIGH;
+    end
+  );
+```
+
+A method that opts into it:
+
+```pascal
+[GET, Produces('text/csv')]
+function Export: TArray<TMyRecord>;
+```
+
+Registering a custom **reader** follows the same shape with `TMARSMessageBodyReaderRegistry.Instance.RegisterReader` and an `IMessageBodyReader`.
+
+## Where this fits in the pipeline
+
+Readers run during **setup** (when binding `[BodyParam]` and friends); writers run during **invocation**, right after your method returns, to fill `Response.ContentStream`. See [Request Lifecycle](/server/request-lifecycle).
+
+Because readers run before your method body, an exception raised there never reaches your code: it
+becomes the response. Raise `EMARSHttpException.Create('…', 400)` from a custom reader to reject
+invalid input with a proper client-error status.

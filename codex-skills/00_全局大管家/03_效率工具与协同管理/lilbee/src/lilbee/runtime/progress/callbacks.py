@@ -1,0 +1,48 @@
+"""Progress callback protocol and no-op default."""
+
+from collections.abc import Callable
+
+from lilbee.runtime.progress.types import (
+    BatchProgressEvent,
+    CrawlDoneEvent,
+    CrawlPageEvent,
+    CrawlPageFailedEvent,
+    CrawlStartEvent,
+    EmbedEvent,
+    EventType,
+    ExtractEvent,
+    FileDoneEvent,
+    FileStartEvent,
+    OcrStartEvent,
+    SetupDoneEvent,
+    SetupProgressEvent,
+    SetupStartEvent,
+    SyncDoneEvent,
+    WikiPageEvent,
+    WikiPhaseEvent,
+)
+
+ProgressEvent = (
+    FileStartEvent
+    | FileDoneEvent
+    | BatchProgressEvent
+    | ExtractEvent
+    | OcrStartEvent
+    | EmbedEvent
+    | SyncDoneEvent
+    | CrawlStartEvent
+    | CrawlPageEvent
+    | CrawlPageFailedEvent
+    | CrawlDoneEvent
+    | SetupStartEvent
+    | SetupProgressEvent
+    | SetupDoneEvent
+    | WikiPhaseEvent
+    | WikiPageEvent
+)
+
+DetailedProgressCallback = Callable[[EventType, ProgressEvent], None]
+
+
+def noop_callback(event_type: EventType, data: ProgressEvent) -> None:
+    """Default no-op callback: discards all events."""

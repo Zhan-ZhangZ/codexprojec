@@ -1,0 +1,325 @@
+"""Surface-agnostic placement use-cases: inspect, preview, and set GPU placement."""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+
+from lilbee.app.services import peek_services
+from lilbee.core import settings
+from lilbee.core.config import cfg
+from lilbee.providers.fleet.placement_spec import PlacementSpec
+from lilbee.providers.fleet.planning import (
+    ResolvedPlacement,
+    clear_read_device_cache,
+    resolve_placement_plan,
+)
+from lilbee.providers.roles import EngineBackend, WorkerRole
+from lilbee.providers.warm_progress import WarmPhase, WarmProgress, is_active_warm
+
+_PLACEMENT_KEY = "placement"
+
+# Ceiling and cadence for waiting out the post-reload chat warm: a cold
+# tensor-split giant off a slow filesystem takes minutes, and the wait stops
+# early when nothing is warming or the warm failed. The grace covers the gap
+# between reload_placement returning and its off-thread warm stamping a phase.
+_CHAT_READY_TIMEOUT_S = 1800.0
+_CHAT_READY_POLL_S = 0.5
+_CHAT_READY_GRACE_S = 3.0
+
+
+@dataclass(frozen=True)
+class GpuInfo:
+    """One detected GPU as a surface can render it."""
+
+    index: int
+    backend: str
+    label: str
+    name: str
+    total_bytes: int
+    free_bytes: int
+
+
+@dataclass(frozen=True)
+class RolePlacementView:
+    """Where one role's model is placed in the resolved plan."""
+
+    role: WorkerRole
+    model: str
+    devices: tuple[int, ...]
+    tensor_split: tuple[int, ...] | None
+    replicas: int
+
+
+@dataclass(frozen=True)
+class SkippedRole:
+    """A configured role left unplaced because its model isn't downloaded."""
+
+    role: WorkerRole
+    model: str
+
+
+@dataclass(frozen=True)
+class TightRole:
+    """A placed role whose estimate exceeds the memory on the card it landed on."""
+
+    role: WorkerRole
+    shortfall_bytes: int
+
+
+@dataclass(frozen=True)
+class PlacementView:
+    """The full placement picture: GPUs, per-role placement, and whether manual."""
+
+    gpus: tuple[GpuInfo, ...]
+    roles: tuple[RolePlacementView, ...]
+    unplaceable: tuple[WorkerRole, ...]
+    manual: bool
+    spec_json: str | None
+    # Configured roles absent from the plan because their model isn't installed,
+    # so a surface can show "not downloaded" instead of an unexplained empty table.
+    skipped_not_installed: tuple[SkippedRole, ...] = ()
+    # Roles sharing one swap group: each is placed, but only one is resident at a
+    # time, so their footprints do not sum against the card they name.
+    co_tenants: tuple[WorkerRole, ...] = ()
+    # A saved spec this hardware no longer satisfies. The auto plan is what runs,
+    # but the spec stays in config.toml and reapplies once it fits again, so a
+    # surface has to say it is there rather than report placement as plain auto.
+    rejected_spec_json: str | None = None
+    # Roles placed on a card that cannot hold them, with the shortfall in bytes.
+    # They load on demand and may fail; a view that omits this shows them as
+    # comfortably placed right up until they do.
+    tight: tuple[TightRole, ...] = ()
+    # The backend the engine selected. A surface reports this rather than reading
+    # it off ``gpus``: an empty device list is a CPU host and a failed probe
+    # alike, and only UNKNOWN says which one this is.
+    engine_backend: EngineBackend = EngineBackend.UNKNOWN
+
+
+def _active_spec() -> PlacementSpec | None:
+    raw = cfg.placement
+    return PlacementSpec.from_json(raw) if raw else None
+
+
+def _view(
+    resolved: ResolvedPlacement,
+    *,
+    manual: bool,
+    spec_json: str | None,
+    rejected_spec_json: str | None = None,
+) -> PlacementView:
+    gpus = tuple(
+        GpuInfo(
+            index=d.index,
+            backend=d.backend,
+            label=f"{d.backend}{d.index}",
+            name=d.name,
+            total_bytes=d.total_bytes,
+            free_bytes=d.free_bytes,
+        )
+        for d in resolved.devices
+    )
+    by_role: dict[WorkerRole, RolePlacementView] = {}
+    for plan in resolved.instances:
+        existing = by_role.get(plan.role)
+        if existing is not None:
+            devices = tuple(sorted(set(existing.devices) | set(plan.devices)))
+            by_role[plan.role] = replace(existing, devices=devices, replicas=existing.replicas + 1)
+        else:
+            by_role[plan.role] = RolePlacementView(
+                role=plan.role,
+                model=resolved.model_refs.get(plan.role, ""),
+                devices=plan.devices,
+                tensor_split=plan.tensor_split or None,
+                replicas=1,
+            )
+    return PlacementView(
+        gpus=gpus,
+        roles=tuple(by_role.values()),
+        unplaceable=resolved.unplaceable_roles,
+        manual=manual,
+        spec_json=spec_json,
+        tight=tuple(
+            TightRole(role=role, shortfall_bytes=shortfall)
+            for role, shortfall in sorted(resolved.tight_roles.items(), key=lambda kv: kv[0].value)
+        ),
+        skipped_not_installed=tuple(
+            SkippedRole(role=role, model=ref)
+            for role, ref in resolved.skipped_not_installed.items()
+        ),
+        co_tenants=tuple(sorted(resolved.co_tenants, key=lambda role: role.value)),
+        rejected_spec_json=rejected_spec_json,
+        engine_backend=resolved.engine_backend,
+    )
+
+
+def get_placement() -> PlacementView:
+    """The current effective placement (manual if a spec is set, else auto).
+
+    A saved spec that no longer fits the hardware is not the effective placement:
+    the fleet runs the auto plan, and this reports that rather than a manual layout
+    nothing is using.
+    """
+    spec = _active_spec()
+    resolved = resolve_placement_plan(spec, fall_back_to_auto=True)
+    if spec is None:
+        return _view(resolved, manual=False, spec_json=None)
+    if not resolved.spec_applied:
+        return _view(resolved, manual=False, spec_json=None, rejected_spec_json=spec.to_json())
+    return _view(resolved, manual=True, spec_json=spec.to_json())
+
+
+def preview_placement(spec: PlacementSpec | None = None) -> PlacementView:
+    """Dry-run: what spec (or auto, when None) would place. No persistence or reload."""
+    resolved = resolve_placement_plan(spec)
+    return _view(resolved, manual=spec is not None, spec_json=spec.to_json() if spec else None)
+
+
+def placement_refused_message() -> str:
+    """Shared refusal for placement changes on the shared HTTP server.
+
+    Kept in one place so the REST routes and the HTTP-mounted MCP tools
+    cannot drift apart.
+    """
+    return (
+        "Changing placement on the HTTP server is unavailable: it rebuilds the shared "
+        "fleet for every connected client. Enable allow_http_placement "
+        "(LILBEE_ALLOW_HTTP_PLACEMENT) on a single-client deployment, or change it "
+        "from the CLI or TUI."
+    )
+
+
+def set_placement(spec: PlacementSpec | None) -> PlacementView:
+    """Validate, persist to config.toml, apply to the live fleet, and return the new view.
+
+    Raises PlacementError before any write when the spec does not fit the hardware.
+    The live fleet applies the change surgically (``reload_placement`` restarts
+    only the roles whose placement moved), so an untouched role's loaded model
+    stays resident; with no services built there is nothing running and the next
+    use plans fresh. On the live path the planner re-plans against its clean-box
+    plan snapshot (see ``planning.capture_plan_probe``): probing under a loaded
+    fleet would report our own residency as unavailable and poison the chat
+    context sizing, while charging stays against total capacity (bb-a8f).
+    """
+    resolved = resolve_placement_plan(spec)
+    if spec is None:
+        settings.delete_values(cfg.data_root, [_PLACEMENT_KEY])
+        cfg.placement = None
+    else:
+        spec_json = spec.to_json()
+        settings.update_values(cfg.data_root, {_PLACEMENT_KEY: spec_json})
+        cfg.placement = spec_json
+    services = peek_services()
+    if services is None:
+        clear_read_device_cache()  # nothing running; let the next boot probe fresh
+    else:
+        services.provider.reload_placement(wait=True)
+    return _view(resolved, manual=spec is not None, spec_json=spec.to_json() if spec else None)
+
+
+def wait_chat_ready(
+    timeout_s: float = _CHAT_READY_TIMEOUT_S,
+    *,
+    on_progress: Callable[[WarmProgress], None] | None = None,
+    should_abort: Callable[[], bool] | None = None,
+) -> bool:
+    """Block while a chat warm is in flight; True once a prompt can be served.
+
+    ``reload_placement(wait=True)`` returns once the proxies are healthy while the
+    restarted model still warms off-thread, so a chat request sent right after an
+    apply hits the busy 429 path. Callers that gate user input on the reload call
+    this to hold until the model actually serves. Waits only while a warm is
+    actively in flight: with no fleet, no warm, or a failed/finished warm it
+    returns at once, so a change that never restarts chat cannot stall the caller.
+    The brief grace covers the reload kicking its warm on a separate thread.
+
+    ``on_progress`` receives each actively-reporting warm snapshot so the caller
+    can render the load. ``should_abort`` is polled every cycle; True ends the
+    wait at once, so a cancelled prompt never pins its worker thread.
+    """
+    services = peek_services()
+    if services is None:
+        return False
+    provider = services.provider
+    started = time.monotonic()
+    deadline = started + timeout_s
+    grace_deadline = started + _CHAT_READY_GRACE_S
+    while time.monotonic() < deadline:
+        if provider.role_ready(WorkerRole.CHAT):
+            return True
+        if should_abort is not None and should_abort():
+            return False
+        snapshot = provider.warm_progress()
+        # A requested warm counts as in flight before it stamps a phase: the fleet
+        # spawns and health-checks llama-swap first, which takes seconds.
+        if is_active_warm(snapshot):
+            if on_progress is not None and snapshot is not None:
+                on_progress(snapshot)
+            grace_deadline = time.monotonic() + _CHAT_READY_GRACE_S
+        elif provider.warm_pending():
+            grace_deadline = time.monotonic() + _CHAT_READY_GRACE_S
+        elif time.monotonic() > grace_deadline:
+            return False
+        time.sleep(_CHAT_READY_POLL_S)
+    return False
+
+
+def request_engine_warm() -> None:
+    """Kick the provider's warm-up when nothing is loaded or loading.
+
+    ``warm_up_pool`` is idempotent (a no-op while a warm is in flight or the
+    fleet is up), so a prompt sent after a failed boot warm drives a fresh
+    engine start instead of bouncing for the rest of the session.
+    """
+    services = peek_services()
+    if services is None:
+        return
+    services.provider.warm_up_pool()
+
+
+def chat_engine_ready() -> bool:
+    """Whether a chat prompt can be served right now.
+
+    Positive readiness, not absence-of-warm: before the services container is
+    built nothing is loading yet and nothing can answer, which a warm snapshot
+    cannot distinguish from a finished load.
+    """
+    services = peek_services()
+    if services is None:
+        return False
+    return services.provider.role_ready(WorkerRole.CHAT)
+
+
+def active_chat_warm_progress() -> WarmProgress | None:
+    """The chat warm snapshot while a cold load is genuinely in flight, else None.
+
+    A surface gates interactive input on this: ``None`` covers ready, no fleet, a
+    missing model, and a finished or failed warm, so nothing traps the input in a
+    locked state. Non-``None`` carries the phase and byte progress to render.
+
+    The in-process warm snapshot is checked before ``role_ready`` because the task
+    bar polls this on every tick: the snapshot is a free attribute read, while
+    ``role_ready`` is an HTTP probe of the engine. Ordering it this way keeps the
+    probe to the seconds a load is actually in flight instead of firing forever on
+    an idle TUI. The two orders return the same answer.
+    """
+    services = peek_services()
+    if services is None:
+        return None
+    provider = services.provider
+    snapshot = provider.warm_progress()
+    if not is_active_warm(snapshot):
+        return None
+    return None if provider.role_ready(WorkerRole.CHAT) else snapshot
+
+
+def chat_warm_error() -> str | None:
+    """The failed chat warm's error text, or None when no failure is on record."""
+    services = peek_services()
+    if services is None:
+        return None
+    snapshot = services.provider.warm_progress()
+    if snapshot is not None and snapshot.phase is WarmPhase.ERROR:
+        return snapshot.error or ""
+    return None

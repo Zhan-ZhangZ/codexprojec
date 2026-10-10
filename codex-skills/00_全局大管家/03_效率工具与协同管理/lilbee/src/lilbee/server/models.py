@@ -1,0 +1,1022 @@
+"""Request and response models for the lilbee HTTP API.
+
+Typed pydantic models so Litestar's OpenAPI schema has field-level detail.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from lilbee.app.agent_configs.document import AgentClient, AgentSurface, ConfigFormat
+from lilbee.app.models import ModelEntry
+from lilbee.app.settings_map import SettingGroup
+from lilbee.catalog.types import KeyStatus, ModelCompat, ModelSource, ModelTask
+from lilbee.core.config.enums import CrawlRenderMode, KvCacheType, OcrMode
+from lilbee.core.config.parsing import refuse_retired_ocr_keys
+from lilbee.core.health_warnings import HealthWarning
+from lilbee.data.store import ChunkType, IndexMismatch, MemoryKind, scope_to_chunk_type
+from lilbee.data.types import SkippedSource
+from lilbee.providers.roles import EngineBackend, WorkerRole
+from lilbee.runtime.hardware import FitLevel, SizeVariantInfo
+from lilbee.sessions import MessageRole
+from lilbee.wiki.entity_extractor import EntityKind
+
+if TYPE_CHECKING:
+    from lilbee.app.agent_configs.detect import ClientDetection
+    from lilbee.app.agent_configs.document import AgentConfigDocument
+    from lilbee.app.placement import PlacementView
+
+
+def decode_chunk_type(value: str | None) -> ChunkType | None:
+    """Decode a ``chunk_type`` string into a ``ChunkType`` at the HTTP boundary.
+
+    Delegates to the canonical :func:`scope_to_chunk_type` so query-param and
+    request-body routes share one decoder: only ``"raw"`` or ``"wiki"`` filter
+    the pool; everything else (including ``None`` and the UI-side ``"both"``)
+    means no filter. Any other string raises ``ValueError`` with boundary-
+    friendly guidance.
+    """
+    try:
+        return scope_to_chunk_type(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"chunk_type must be one of 'raw', 'wiki', 'both', or omitted; got {value!r}"
+        ) from exc
+
+
+class AskRequest(BaseModel):
+    """Request body for /api/ask."""
+
+    question: str
+    top_k: int = Field(default=0, ge=0, le=100)
+    options: dict[str, Any] | None = None
+    chunk_type: ChunkType | None = None
+
+    @field_validator("chunk_type", mode="before")
+    @classmethod
+    def _check_chunk_type(cls, v: str | None) -> ChunkType | None:
+        return decode_chunk_type(v)
+
+
+class ChatRequest(BaseModel):
+    """Request body for /api/chat."""
+
+    question: str
+    history: list[ChatMessage] = []
+    # None (unspecified) grounds with the configured top_k; an explicit 0 is a
+    # pure-LLM call that skips retrieval entirely.
+    top_k: int | None = Field(default=None, ge=0, le=100)
+    options: dict[str, Any] | None = None
+    chunk_type: ChunkType | None = None
+    summary: str = ""
+    """Carry-forward notes from earlier compactions, folded into the prompt."""
+    session_id: str | None = None
+    """Session that receives the new summary when this turn compacts."""
+
+    @field_validator("chunk_type", mode="before")
+    @classmethod
+    def _check_chunk_type(cls, v: str | None) -> ChunkType | None:
+        return decode_chunk_type(v)
+
+
+class _OcrRequest(BaseModel):
+    """Per-request OCR fields shared by /api/sync and /api/add."""
+
+    ocr: OcrMode | None = None
+    ocr_timeout: float | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_retired_ocr_keys(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            refuse_retired_ocr_keys(data)
+        return data
+
+
+class SyncRequest(_OcrRequest):
+    """Request body for /api/sync.
+
+    ``force_rebuild`` triggers a full drop-and-reingest equivalent to ``lilbee rebuild``.
+    Use it to recover from an embedding-model switch (when the store refuses search
+    or ingest because ``cfg.embedding_model`` no longer matches the persisted vectors).
+    ``retry_skipped`` is the lighter recovery: it clears the markers for files that
+    failed a previous sync (Tesseract timeout, decode failure, no usable text) so this
+    sync attempts them again, without dropping the existing store. The default is an
+    incremental sync.
+    ``prune_ignored`` drops sources a ``.lilbeeignore`` now excludes. Off by default:
+    the patterns govern what sync takes in, not what a past sync already indexed.
+    """
+
+    force_rebuild: bool = False
+    retry_skipped: bool = False
+    prune_ignored: bool = False
+
+
+class AddRequest(_OcrRequest):
+    """Request body for /api/add."""
+
+    paths: list[str]
+    force: bool = False
+
+
+class SetModelRequest(BaseModel):
+    """Request body for /api/models/chat."""
+
+    model: str
+
+
+class SourceContentResponse(BaseModel):
+    """JSON body for ``GET /api/source`` (``raw=0``); empty ``markdown`` for binary types."""
+
+    markdown: str
+    content_type: str
+    title: str | None = None
+
+
+class ChatMessage(BaseModel):
+    """A single message in a chat conversation."""
+
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class CleanedChunk(BaseModel):
+    """A search result chunk with vector stripped and distance renamed."""
+
+    source: str
+    content_type: str
+    chunk: str
+    distance: float | None = None
+    relevance_score: float | None = None
+    rerank_score: float | None = None
+    # Canonical [0, 1] relevance from retrieval fusion; the ranking signal
+    # HTTP clients should sort and threshold on (relevance_score is legacy).
+    score: float | None = None
+    page_start: int = 0
+    page_end: int = 0
+    line_start: int = 0
+    line_end: int = 0
+    chunk_index: int = 0
+    # Vault-relative path when ``cfg.vault_base`` is set and the source file
+    # lives inside the vault. Absent when the server is running headless or
+    # the source isn't resolvable as a vault file. Clients use this to open
+    # the source in a native editor instead of fetching ``/api/source``.
+    vault_path: str | None = None
+    # Set only on recalled-memory sources (``source`` is ``memory:<id>``), so
+    # clients can mark them as memory and link them to ``GET /api/memories``.
+    memory_id: str | None = None
+
+
+class StatusSourceInfo(BaseModel):
+    """A single indexed source in a status response."""
+
+    filename: str
+    file_hash: str
+    chunk_count: int
+    ingested_at: str
+
+
+class StatusConfigInfo(BaseModel):
+    """Configuration section of a status response.
+
+    Exposes all four role-bound model fields so plugins/TUI can show
+    what's active per role without a second round trip.
+    """
+
+    documents_dir: str
+    data_dir: str
+    chat_model: str
+    embedding_model: str
+    vision_model: str = ""
+    reranker_model: str = ""
+    ocr: OcrMode = OcrMode.AUTO
+    num_ctx: int | None = None
+    num_ctx_max: int | None = None
+    chat_n_ctx_target: int | None = None
+    flash_attention: bool | None = None
+    kv_cache_type: KvCacheType | None = None
+    n_gpu_layers: int | None = None
+    cpu_moe: bool | None = None
+    n_cpu_moe: int | None = None
+    main_gpu: int | None = None
+    gpu_devices: str | None = None
+
+
+class StatusEntityInfo(BaseModel):
+    """Entity-extraction section of a status response (present when enabled)."""
+
+    types: list[str]
+    rows: int
+
+
+class StatusIndexInfo(BaseModel):
+    """The embedder that built the persisted index."""
+
+    embedding_model: str
+    embedding_dim: int
+
+
+class StatusResponse(BaseModel):
+    """Response for GET /api/status."""
+
+    command: str = "status"
+    config: StatusConfigInfo
+    sources: list[StatusSourceInfo]
+    document_count: int
+    total_chunks: int
+    index: StatusIndexInfo | None = None
+    """The embedder that built the index; absent before the first sync. Compare it
+    with ``config.embedding_model`` to tell a stale index before a search refuses it."""
+    entities: StatusEntityInfo | None = None
+    skipped: list[SkippedSource] = []
+    """Files a skip marker holds out of the index, capped; ``skipped_total`` is the real count."""
+    skipped_total: int = 0
+    ocr_note: str = ""
+    """What happens to scanned pages: skipped, or read by which engine."""
+
+
+class ShutdownResponse(BaseModel):
+    """Response for /api/shutdown."""
+
+    status: Literal["shutting_down"]
+
+
+class HealthResponse(BaseModel):
+    """Response for /api/health."""
+
+    status: str
+    version: str
+    chat_ready: bool = False
+    """True once the chat engine is loaded and ready to serve a first token.
+
+    A launcher polls this to wait out the cold model load before handing off to
+    a client, so the client never lands on an apparently-dead stream.
+    """
+    chat_status: Literal["ready", "loading", "not_started", "error"] = "not_started"
+    """Finer-grained chat readiness than the ``chat_ready`` bool.
+
+    Lets a polling client tell a fleet that is still loading (wait) apart from one
+    that never started warming (``not_started`` -- no chat model resolved / planned,
+    so it will not come up on its own) or failed (``error``). Without this a bare
+    ``chat_ready:false`` reads the same for "loading" and "hung", which looked like a
+    silent hang on a fresh box with no chat model installed."""
+    chat_error: str | None = None
+    """The reason the chat engine failed to come up when ``chat_status`` is
+    ``error`` (e.g. a wedged GPU device probe), so a polling client can report
+    the cause instead of retrying forever."""
+    chat_ctx: int | None = None
+    """Per-slot context the chat engine serves, so a launcher can tell the client
+    its window and the client trims history to fit. None until the engine is up."""
+    chat_slots: int | None = None
+    """Batching slots the chat engine serves (its real request concurrency), so a
+    script driving parallel agents can read the granted shape instead of assuming
+    the configured one. None until the engine is up."""
+    chat_prefill_processed: int | None = None
+    """Prompt tokens the chat engine has processed for a prefill in flight. A
+    large model's first agent turn can spend minutes here with nothing streamed;
+    polling this tells a working engine apart from a hung one. None when idle."""
+    chat_prefill_total: int | None = None
+    """Prompt tokens the in-flight chat prefill will process in total. None when
+    no prefill is running."""
+    embed_token_cap: int | None = None
+    """Tokens the embedding engine truncates one input to. The chunker bounds its
+    budget to this, so it is the largest chunk that reaches the index whole. None
+    when no managed embedder is configured."""
+    warnings: list[HealthWarning] = []
+    """Degradations that answer correctly but worse, so a client can say so.
+
+    Retrieval falling back to vector-only, or an index whose documents predate
+    the embedder's prefixes, both return results and look healthy."""
+
+
+class CompactionInfo(BaseModel):
+    """What one pre-turn compaction folded out of a conversation."""
+
+    summary: str
+    condensed: int
+    """Turns folded into the notes."""
+    stranded: int
+    """Turns dropped with no notes; a client must say so rather than hide it."""
+
+
+class AskResponse(BaseModel):
+    """Response for /api/ask and /api/chat.
+
+    ``sources`` is the full retrieved set; ``cited_sources`` is the subset the answer
+    actually cited, so a client can tell a grounded answer from an off-corpus one.
+    """
+
+    answer: str
+    sources: list[CleanedChunk]
+    cited_sources: list[CleanedChunk] = Field(default_factory=list)
+    compaction: CompactionInfo | None = None
+    """Set when a /api/chat turn compacted its history before answering."""
+    retrieval_query: str | None = None
+    """The standalone rewrite retrieval ran on, when a follow-up was rewritten."""
+    dropped_sources: list[CleanedChunk] = Field(default_factory=list)
+    """Chunks the budget fit shed, so a client can say what was trimmed."""
+
+
+class SetModelResponse(BaseModel):
+    """Response for PUT /api/models/{chat|embedding|vision|reranker}.
+
+    ``reindex_required`` is ``True`` only when the new embedding model differs from
+    the model that built the persisted vector store. The chat, vision, and reranker
+    handlers always return ``False`` because their changes do not invalidate stored
+    vectors. Mirrors the ``reindex_required`` flag on ``ConfigUpdateResponse``.
+    ``warnings`` holds notices about the result, such as a vision model that
+    ``ocr = off`` leaves unused.
+    """
+
+    model: str
+    reindex_required: bool = False
+    warnings: list[str] = []
+
+
+class ConfigUpdateResponse(BaseModel):
+    """Response for PATCH /api/config."""
+
+    updated: list[str]
+    reindex_required: bool
+
+
+class CrawlRequest(BaseModel):
+    """Request body for /api/crawl.
+
+    depth: null / omitted = whole-site unbounded recursion. 0 = single URL
+    only. Positive int = max depth. max_pages: null / omitted = the protective
+    safety cap. 0 = explicitly unlimited (the CRAWL_PAGES_UNLIMITED sentinel the
+    TUI and crawler honor). Positive int = explicit page cap. render_mode: null /
+    omitted = configured default; "http" is browserless, "browser" runs Chromium
+    with JavaScript.
+    """
+
+    url: str
+    depth: int | None = Field(default=None, ge=0)
+    max_pages: int | None = Field(default=None, ge=0)
+    render_mode: CrawlRenderMode | None = Field(default=None)
+    include_subdomains: bool = Field(default=False)
+
+
+class DocumentInfo(BaseModel):
+    """A single indexed document in a list response."""
+
+    filename: str
+    chunk_count: int = 0
+    ingested_at: str = ""
+
+
+class DocumentListResponse(BaseModel):
+    """Response for GET /api/documents."""
+
+    documents: list[DocumentInfo]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool = False
+
+
+class DocumentRemoveResponse(BaseModel):
+    """Response for POST /api/documents/remove."""
+
+    removed: list[str] = Field(
+        description="Names removed: indexed sources, files an ingestion failure held out, "
+        "and registered root labels."
+    )
+    not_found: list[str] = Field(description="Names that matched nothing removable.")
+
+
+class ConfigResponse(BaseModel):
+    """Response for GET /api/config."""
+
+    model_config = {"extra": "allow"}
+
+
+class ConfigFieldSchema(BaseModel):
+    """Metadata for one configuration field, so a client can render its control.
+
+    Field names match the MCP ``settings_list`` wire shape, which carries the
+    same metadata for agents.
+    """
+
+    key: str
+    type: str
+    nullable: bool
+    writable: bool
+    reindex_required: bool
+    group: SettingGroup
+    help: str
+    choices: list[str] | None
+
+
+class ConfigSchemaResponse(BaseModel):
+    """Response for GET /api/config/schema."""
+
+    fields: list[ConfigFieldSchema]
+
+
+class ModelsShowResponse(BaseModel):
+    """Response for POST /api/models/show."""
+
+    model_config = {"extra": "allow"}
+
+
+class CatalogEntryResponse(BaseModel):
+    """A single model in the catalog browser.
+
+    ``fit`` and ``size_variants`` carry server-computed hardware-fit
+    data so clients (TUI, plugin) can render fit chips and size strips
+    without probing local memory themselves. ``fit`` is ``None`` when
+    the row's footprint cannot be assessed against host memory (e.g.
+    a future cloud-only entry whose weights live off-host).
+    """
+
+    hf_repo: str
+    gguf_filename: str
+    task: ModelTask
+    display_name: str
+    param_count: str
+    size_gb: float
+    min_ram_gb: float
+    description: str
+    quality_tier: str
+    featured: bool
+    downloads: int
+    installed: bool
+    source: ModelSource
+    fit: FitLevel | None = None
+    size_variants: list[SizeVariantInfo] = []
+    architecture: str = ""
+    compat: ModelCompat = ModelCompat.UNKNOWN
+    safety_stripped: bool = False
+    provider: str = ""
+    key_status: KeyStatus | None = None
+
+
+class ModelsCatalogResponse(BaseModel):
+    """Response for GET /api/models/catalog.
+
+    Filters apply before paging. ``next_offset`` names the offset to request
+    next, None on the last page. ``truncated`` is True when the HuggingFace scan
+    stopped at its bound with rows left unread, so the listing is cut short.
+    """
+
+    total: int | None
+    limit: int
+    offset: int
+    models: list[CatalogEntryResponse]
+    has_more: bool = False
+    next_offset: int | None
+    truncated: bool = False
+
+
+class ModelsInstalledResponse(BaseModel):
+    """Response for GET /api/models/installed."""
+
+    models: list[ModelEntry]
+
+
+class ModelsDeleteResponse(BaseModel):
+    """Response for DELETE /api/models/{model}."""
+
+    deleted: bool
+    model: str
+    freed_gb: float
+
+
+class ExternalModelsResponse(BaseModel):
+    """Response for GET /api/models/external."""
+
+    models: list[str]
+    error: str | None = None
+
+
+class SyncSummary(BaseModel):
+    """Embedded sync result within an add-files response."""
+
+    added: list[str] = []
+    updated: list[str] = []
+    removed: list[str] = []
+    unchanged: int = 0
+    relocated: list[str] = []
+    failed: list[str] = []
+    skipped: list[str] = []
+    held_out: list[SkippedSource] = []
+    truncated: int = 0
+    index_mismatch: IndexMismatch | None = None
+    skip_records_error: str | None = None
+
+
+class AddSummary(BaseModel):
+    """Summary returned by the add-files handler."""
+
+    copied: list[str]
+    errors: list[str]
+    name_taken: list[str] = []
+    """Labels held by a different source; nothing was registered and no sync ran."""
+    overlapping: list[str] = []
+    """Paths inside or around a registered source; none is registered, and a path
+    around a source has other files that no sync indexes."""
+    tracked: list[str] = []
+    """Named sources the knowledge base already tracks, so nothing was registered.
+
+    These need no action from the caller: the sync in the same request covers them.
+    """
+    sync: SyncSummary | None = None
+    already_ingesting: list[str] = []
+    """Sources another ingest held a lock on, so this run never attempted them.
+
+    Distinct from ``skipped``, which means the file was examined and needed no
+    work. These were not looked at and are worth retrying. Carried on the
+    terminal event so a client that missed the earlier ``already_ingesting``
+    frames can still tell the batch was partial.
+    """
+
+
+class WikiCitationRecord(BaseModel):
+    """A citation record from the store, used in reverse lookup responses."""
+
+    wiki_source: str = ""
+    wiki_chunk_index: int = 0
+    citation_key: str = ""
+    claim_type: str = "fact"
+    source_filename: str = ""
+    source_hash: str = ""
+    page_start: int = 0
+    page_end: int = 0
+    line_start: int = 0
+    line_end: int = 0
+    excerpt: str = ""
+    created_at: str = ""
+
+
+class WikiEntityCandidateResponse(BaseModel):
+    """One NER entity candidate, with the evidence a page would be built from."""
+
+    slug: str
+    label: str = ""
+    kind: EntityKind = EntityKind.ENTITY
+    type_hint: str = ""
+    mentions: int = 0
+    sources: list[str] = []
+
+
+class WikiBuildDryRunResult(BaseModel):
+    """Entity candidates a build would cover, with no LLM call made."""
+
+    dry_run: bool = True
+    entities: list[WikiEntityCandidateResponse] = []
+    count: int = 0
+    note: str = ""
+
+
+class WikiPageDetail(BaseModel):
+    """Full content of a single wiki page, with its parsed frontmatter."""
+
+    slug: str
+    title: str = ""
+    content: str = ""
+    frontmatter: dict[str, Any] = {}
+
+
+class WikiCitationsResult(BaseModel):
+    """Citations attached to a single wiki page."""
+
+    slug: str
+    citations: list[WikiCitationRecord] = []
+
+
+class WikiLintIssueItem(BaseModel):
+    """A single lint finding on a wiki page."""
+
+    wiki_source: str = ""
+    issue_type: str = ""
+    severity: str = ""
+    message: str = ""
+
+
+class WikiLintResult(BaseModel):
+    """Result of a wiki lint run, whole-wiki or single-page."""
+
+    issues: list[WikiLintIssueItem] = []
+    total: int = 0
+    errors: int = 0
+    warnings: int = 0
+
+
+class WikiPruneRecordResponse(BaseModel):
+    """A single pruning action."""
+
+    wiki_source: str
+    action: str
+    reason: str
+
+
+class WikiPruneResult(BaseModel):
+    """Result of wiki pruning."""
+
+    records: list[WikiPruneRecordResponse] = []
+    archived: int = 0
+    flagged: int = 0
+    reconciled: int = 0
+
+
+class WikiIndexResult(BaseModel):
+    """Result of rebuilding the browse index. Costs no LLM call."""
+
+    entries: int = 0
+
+
+class WikiGenerateResult(BaseModel):
+    """Result of generating one indexed page."""
+
+    slug: str
+    path: str
+
+
+class WikiWipeResult(BaseModel):
+    """Result of wiping the wiki.
+
+    ``rows_deleted`` is false when the pages went but the store delete failed,
+    so a client is never told the wiki is gone while its rows still answer.
+    """
+
+    pages_removed: int = 0
+    sources_cleared: int = 0
+    rows_deleted: bool = True
+
+
+class WikiStatusResult(BaseModel):
+    """Wiki layer status counters."""
+
+    wiki_enabled: bool
+    summaries: int = 0
+    drafts: int = 0
+    pages: int = 0
+    lint_errors: int = 0
+    lint_warnings: int = 0
+
+
+class DraftInfoResponse(BaseModel):
+    """Metadata about a single wiki draft, mirroring ``DraftInfo.to_dict()``.
+
+    ``pending_kind`` distinguishes drift drafts (``None``) from
+    batched-generation markers (``"parse"``, ``"collision"``).
+    """
+
+    slug: str
+    path: str
+    drift_ratio: float | None = None
+    faithfulness_score: float | None = None
+    bad_title: bool = False
+    published_path: str | None = None
+    published_exists: bool = False
+    mtime: float = 0.0
+    pending_kind: str | None = None
+
+
+class WikiDraftDiffResponse(BaseModel):
+    """Unified diff of a draft against its published counterpart."""
+
+    slug: str
+    diff: str
+
+
+class WikiDraftAcceptResponse(BaseModel):
+    """Outcome of accepting a draft: where it landed and how many chunks reindexed.
+
+    ``slug`` is the slug where the content was published.
+    ``requested_slug`` is the slug the client asked to accept. The two
+    differ for PENDING-COLLISION drafts, where the request slug carries
+    a ``-collision-<hash>`` suffix that is stripped on publish.
+    """
+
+    slug: str
+    requested_slug: str
+    moved_to: str
+    reindexed_chunks: int
+
+
+class WikiDraftRejectResponse(BaseModel):
+    """Outcome of rejecting a draft."""
+
+    slug: str
+
+
+class RememberRequest(BaseModel):
+    """Request body for ``POST /api/memories``."""
+
+    text: str
+    kind: MemoryKind = MemoryKind.FACT
+    shared: bool = False
+
+
+class RememberResponse(BaseModel):
+    """Outcome of storing a memory."""
+
+    id: str
+    kind: MemoryKind
+
+
+class MemoryItem(BaseModel):
+    """A single stored memory in a list response."""
+
+    id: str
+    kind: MemoryKind
+    shared: bool
+    text: str
+
+
+class MemoryListResponse(BaseModel):
+    """Body for ``GET /api/memories``."""
+
+    memories: list[MemoryItem]
+
+
+class MemorySharedRequest(BaseModel):
+    """Request body for ``PATCH /api/memories/{memory_id}``."""
+
+    shared: bool
+
+
+class MemoryFlagsResponse(BaseModel):
+    """Outcome of a flag update; ``updated`` is False when the id was unknown."""
+
+    id: str
+    updated: bool
+
+
+class MemoryRemoveResponse(BaseModel):
+    """Outcome of deleting a memory; ``deleted`` is False when the id was unknown."""
+
+    id: str
+    deleted: bool
+
+
+class MemoryExtractedItem(BaseModel):
+    """A single memory created by auto-extraction during a chat turn."""
+
+    id: str
+    kind: MemoryKind
+    text: str
+
+
+class MemoryExtractedEvent(BaseModel):
+    """``memory_extracted`` SSE payload: how many memories a turn auto-saved.
+
+    Emitted on the chat stream after ``done`` when auto-extraction is on and the
+    turn produced at least one memory, so a REST client (the Obsidian plugin) can
+    toast the count and refresh its memories view without a separate fetch.
+    """
+
+    count: int
+    items: list[MemoryExtractedItem]
+
+
+class GpuInfoResponse(BaseModel):
+    """One GPU as returned by GET /api/gpus and embedded in PlacementResponse."""
+
+    index: int
+    backend: str
+    label: str
+    name: str
+    total_bytes: int
+    free_bytes: int
+
+
+class GpusResponse(BaseModel):
+    """GET /api/gpus envelope: detected GPUs plus the host-level util notice."""
+
+    gpus: list[GpuInfoResponse]
+    notice: str | None = None
+
+
+class RolePlacementResponse(BaseModel):
+    """Where one role's model is placed in the resolved plan."""
+
+    role: WorkerRole
+    model: str
+    devices: list[int]
+    tensor_split: list[int] | None
+    replicas: int
+
+
+class SkippedRoleResponse(BaseModel):
+    """A configured role left unplaced because its model isn't downloaded."""
+
+    role: WorkerRole
+    model: str
+
+
+class PlacementResponse(BaseModel):
+    """Response for placement read, preview, set, and clear routes."""
+
+    gpus: list[GpuInfoResponse]
+    roles: list[RolePlacementResponse]
+    unplaceable: list[str]
+    manual: bool
+    spec_json: str | None
+    skipped_not_installed: list[SkippedRoleResponse] = []
+    co_tenants: list[str] = []
+    notice: str | None = None
+    rejected_spec_json: str | None = None
+    # The backend the engine selected, reported rather than inferred. ``gpus``
+    # being empty does not mean ``cpu``: a host whose device probe never answered
+    # reports ``unknown``, so a client never mislabels a GPU box as a CPU one.
+    engine_backend: EngineBackend = EngineBackend.UNKNOWN
+
+    @classmethod
+    def from_view(cls, view: PlacementView) -> PlacementResponse:
+        """The canonical serialized placement view, shared by the HTTP, MCP, and CLI surfaces."""
+        return cls(
+            gpus=[GpuInfoResponse(**vars(g)) for g in view.gpus],
+            roles=[
+                RolePlacementResponse(
+                    role=r.role,
+                    model=r.model,
+                    devices=list(r.devices),
+                    tensor_split=list(r.tensor_split) if r.tensor_split else None,
+                    replicas=r.replicas,
+                )
+                for r in view.roles
+            ],
+            unplaceable=[r.value for r in view.unplaceable],
+            manual=view.manual,
+            spec_json=view.spec_json,
+            skipped_not_installed=[
+                SkippedRoleResponse(role=s.role, model=s.model) for s in view.skipped_not_installed
+            ],
+            co_tenants=[r.value for r in view.co_tenants],
+            rejected_spec_json=view.rejected_spec_json,
+            engine_backend=view.engine_backend,
+        )
+
+
+class PlacementSpecBody(BaseModel):
+    """Request body for placement routes that accept a manual spec."""
+
+    spec: dict[str, dict[str, object]] | None = None
+
+
+class SessionMetaItem(BaseModel):
+    """A session's metadata in a list or detail response."""
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    model_ref: str
+    scope: str
+    message_count: int
+    origin: str = "tui"
+    """Owning surface. tui/http/cli are one domain and append freely to each
+    other's sessions; appends across the human/agent (mcp) boundary are 409."""
+    forked_from: str = ""
+    """Id of the session this one was forked from; empty when it is not a fork."""
+
+
+class SessionListResponse(BaseModel):
+    """Body for ``GET /api/sessions``."""
+
+    sessions: list[SessionMetaItem]
+
+
+class SessionMessageItem(BaseModel):
+    """One message in a session transcript."""
+
+    role: MessageRole
+    content: str
+    sources: list[str]
+    ts: str
+
+
+class SessionDetailResponse(BaseModel):
+    """Body for ``GET /api/sessions/{session_id}``: metadata plus transcript.
+
+    ``summary`` carries what compaction folded the oldest turns into (empty when
+    a conversation has not been compacted). A client that resumes and continues
+    the conversation needs it: without it, it rebuilds history from the raw
+    transcript, re-sending turns the summary had already condensed and risking
+    the context overflow compaction exists to prevent.
+    """
+
+    meta: SessionMetaItem
+    messages: list[SessionMessageItem]
+    summary: str = ""
+
+
+class SessionCreateRequest(BaseModel):
+    """Request body for ``POST /api/sessions``."""
+
+    model_ref: str
+    scope: str
+
+
+class SessionMessageCreateRequest(BaseModel):
+    """Request body for ``POST /api/sessions/{session_id}/messages``."""
+
+    role: MessageRole
+    content: str
+    sources: list[str] = []
+
+
+class SessionForkRequest(BaseModel):
+    """Request body for ``POST /api/sessions/{session_id}/fork``.
+
+    ``message_count`` is the number of leading messages to copy; null copies all.
+    """
+
+    message_count: int | None = None
+
+    @field_validator("message_count", mode="before")
+    @classmethod
+    def _check_message_count(cls, value: object) -> object:
+        """Refuse ``true``, ``"2"`` and ``1.0`` rather than coerce them into a count."""
+        # isinstance: the raw JSON value, before pydantic's lax coercion runs.
+        if value is None or (isinstance(value, int) and not isinstance(value, bool)):
+            return value
+        raise ValueError("message_count must be a whole number or null")
+
+
+class SessionSummaryRequest(BaseModel):
+    """Request body for ``PUT /api/sessions/{session_id}/summary``."""
+
+    summary: str
+
+
+class SessionRenameRequest(BaseModel):
+    """Request body for ``PATCH /api/sessions/{session_id}``."""
+
+    title: str
+
+
+class SessionRenameResponse(BaseModel):
+    """Outcome of a rename."""
+
+    id: str
+    title: str
+
+
+class SessionDeleteResponse(BaseModel):
+    """Outcome of a delete."""
+
+    id: str
+    deleted: bool
+
+
+class AgentClientDetection(BaseModel):
+    """Whether one agent client's CLI is installed on the machine lilbee runs on."""
+
+    client: AgentClient
+    cli_detected: bool
+    cli_path: str | None
+
+
+class AgentConfigIndexResponse(BaseModel):
+    """Response for ``GET /api/agent-config``: every client lilbee can configure."""
+
+    clients: list[AgentClientDetection]
+
+    @classmethod
+    def from_detections(cls, detections: list[ClientDetection]) -> AgentConfigIndexResponse:
+        """Serialize the probe results one entry per supported client."""
+        return cls(
+            clients=[
+                AgentClientDetection(
+                    client=found.client,
+                    cli_detected=found.cli_detected,
+                    cli_path=found.cli_path,
+                )
+                for found in detections
+            ]
+        )
+
+
+class AgentConfigResponse(BaseModel):
+    """Response for ``GET /api/agent-config/{client}``: one client's live config.
+
+    ``config`` carries the block for a JSON client, ``content`` the rendered text
+    for a YAML one. ``stdio_config`` is the alternative block for a client that
+    can also run lilbee as a subprocess instead of calling this server.
+    """
+
+    client: AgentClient
+    format: ConfigFormat
+    surfaces: list[AgentSurface]
+    config: dict[str, Any] | None = None
+    content: str | None = None
+    stdio_config: dict[str, Any] | None = None
+
+    @classmethod
+    def from_document(cls, document: AgentConfigDocument) -> AgentConfigResponse:
+        """The canonical serialized config document, shared by the HTTP and CLI surfaces."""
+        return cls(
+            client=document.client,
+            format=document.format,
+            surfaces=list(document.surfaces),
+            config=document.config,
+            content=document.content,
+            stdio_config=document.stdio_config,
+        )

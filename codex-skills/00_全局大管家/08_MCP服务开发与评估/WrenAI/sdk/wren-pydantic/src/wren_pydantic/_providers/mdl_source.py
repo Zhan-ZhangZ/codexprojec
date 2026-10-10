@@ -1,0 +1,46 @@
+"""MDL sources resolve where the manifest comes from.
+
+v0.1 ships only ``ProjectMDLSource`` which reads ``target/mdl.json`` from a
+prepared Wren project directory. Each ``load_manifest()`` call re-reads the
+file from disk so that ``wren context build`` updates by an external CLI run
+are picked up on the next tool invocation without needing ``toolkit.reload()``.
+"""
+
+import json
+from pathlib import Path
+from typing import Any
+
+from wren_pydantic.exceptions import WrenToolkitInitError
+
+
+class ProjectMDLSource:
+    """Read the manifest from ``<project>/target/mdl.json``."""
+
+    def __init__(self, *, project_path: Path):
+        self._project_path = project_path
+        self._mdl_path = project_path / "target" / "mdl.json"
+
+    def load_manifest(self) -> dict[str, Any]:
+        if not self._mdl_path.exists():
+            raise WrenToolkitInitError(
+                f"target/mdl.json not found at {self._mdl_path}. "
+                "Run `wren context build` first."
+            )
+        try:
+            return json.loads(self._mdl_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            if isinstance(exc, json.JSONDecodeError):
+                detail = (
+                    f"is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})"
+                )
+            else:
+                detail = "is not encoded as UTF-8"
+            raise WrenToolkitInitError(
+                f"target/mdl.json at {self._mdl_path} {detail}. "
+                "The manifest must be UTF-8 encoded. "
+                "Re-run `wren context build` to regenerate it."
+            ) from exc
+
+    @property
+    def mdl_path(self) -> Path:
+        return self._mdl_path

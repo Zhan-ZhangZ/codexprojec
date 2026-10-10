@@ -1,0 +1,69 @@
+---
+sidebar_position: 4
+title: Timer Node
+---
+
+# Timer Node
+
+The **Timer Node** triggers workflow execution at a specified interval. Use it to schedule periodic actions, automate polling, or kick off workflows on a timer.
+
+![Timer Node Preview](/img/nodes/timer-node-preview.webp)
+
+## Configuration
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import { NodeSchemaTab } from '@site/src/components/NodeSchemaTab';
+
+
+<Tabs>
+    <TabItem value="interval" label="Interval Mode" default>
+        **Interval Mode** triggers the node at a fixed interval (in seconds).  
+        - `Interval(s)` (number): field to specify how often the node should trigger. Accepts typed math expressions (e.g. `60*60*12` for 12 hours) — press Enter or click away to evaluate; the result is rounded to the nearest whole second.
+        - `Run once` (boolean): option to trigger only a single time.
+        - `Trigger immediately, then repeat` (boolean): option to run once as soon as the timer starts.
+
+        ![Timer Node Interval](/img/nodes/timer-node-params-interval.webp)
+    </TabItem>
+    <TabItem value="scheduled" label="Scheduled Mode">
+        **Scheduled Mode** triggers the node at a specific date and time, with optional repeat settings.
+        - `Scheduled Date & Time` (datetime): field to choose when the node should trigger.
+        - `Repeat` (string): set to "Once", "Daily", "Weekly", or "Monthly" for recurring triggers.
+
+        ![Timer Node Scheduled](/img/nodes/timer-node-params-scheduled.webp)
+    </TabItem>
+    <TabItem value="config-schema" label="Configuration Schema">
+        <NodeSchemaTab nodeType="timer" />
+    </TabItem>
+</Tabs>
+
+---
+
+## Example Usage
+
+For example usage, see the [Timeseries Chart workflow](/docs/workflows/data/timeseries-chart), which demonstrates using the Timer Node to fetch data at regular intervals.
+
+## Common Use Cases
+
+1. **Scheduled API Calls**: Fetch data from an API every minute.
+2. **Automated Monitoring**: Check for changes or updates on a schedule.
+3. **Periodic Processing**: Run batch jobs or data transformations at intervals.
+
+## Best Practices
+
+- **Set a reasonable interval**: Avoid very short intervals to reduce resource usage.
+- **Combine with other nodes**: Use with Get Data, AI Processing, or Output nodes for automation.
+- **Monitor workflow activity**: Use Data Flow Spy nodes to inspect outputs.
+
+## Troubleshooting
+
+### Common Issues
+
+- **Node not triggering**: For Interval mode, ensure the interval is set and the node is running. For Scheduled mode, check that the scheduled date/time is in the future and the node is enabled.
+- **Too frequent triggers**: Increase the interval value.
+- **Workflow not starting**: Check downstream node configuration and connections.
+
+### Performance Tips
+
+- Use longer intervals for heavy or resource-intensive workflows.
+- Avoid overlapping triggers by ensuring downstream nodes complete before the next interval.

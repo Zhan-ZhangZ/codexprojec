@@ -1,0 +1,232 @@
+"""Serve (HTTP API) and mcp (stdio) server-boot commands."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING, NoReturn
+
+import typer
+
+from lilbee.app.services import set_server_exit_hook, wait_for_hard_exit_teardown
+from lilbee.cli.app import (
+    apply_overrides,
+    console,
+    data_dir_option,
+    global_option,
+)
+from lilbee.cli.commands.serve_logging import (
+    install_health_access_filter,
+    setup_server_log_file,
+    setup_server_logging,
+)
+from lilbee.core.config import cfg
+from lilbee.runtime.lock import (
+    SERVER_LOCK_TIMEOUT,
+    LockingUnsupportedError,
+    acquire_scope_lock,
+    acquire_server_lock,
+    read_scope_owner,
+)
+
+if TYPE_CHECKING:
+    import uvicorn
+
+
+SCOPE_ENV = "LILBEE_EXCLUSIVE_SCOPE"
+"""A directory that at most one server may serve at a time (a plugin's shared root)."""
+
+LOCK_REFUSAL_EXIT_CODE = 3
+"""Exit code for a start refused because another live server holds a lock.
+
+Distinct from a generic failure so a supervisor can tell "another server owns
+this" apart from a crash without parsing output.
+"""
+
+
+def port_file() -> Path:
+    """Path to the running server's port file under ``cfg.data_dir``."""
+    return cfg.data_dir / "server.port"
+
+
+def _log_loop_exception(_loop: asyncio.AbstractEventLoop, context: dict[str, object]) -> None:
+    exc = context.get("exception")
+    # isinstance: asyncio's context dict is untyped; "exception" may be absent
+    if isinstance(exc, BaseException):
+        logging.getLogger(__name__).error("asyncio task error", exc_info=exc)
+    else:
+        logging.getLogger(__name__).error("asyncio task error: %s", context.get("message"))
+
+
+class _ExitRequest:
+    """The exit a serving loop was asked for; a nonzero status ends the responses in flight."""
+
+    def __init__(self, server: uvicorn.Server, loop: asyncio.AbstractEventLoop) -> None:
+        self.status = 0
+        self._server = server
+        self._loop = loop
+
+    def _cancel_responses(self) -> None:
+        for task in self._server.server_state.tasks:
+            task.cancel()
+
+    def __call__(self, status: int) -> None:
+        self.status = status
+        self._server.should_exit = True
+        if status:
+            # A signal handler calls this, so the loop runs the cancel itself.
+            self._loop.call_soon_threadsafe(self._cancel_responses)
+
+
+async def _run_server(server: uvicorn.Server, config: uvicorn.Config, host: str) -> int:
+    """Start uvicorn, write port file, clean up on shutdown, and return the exit status."""
+    import atexit
+
+    from lilbee.parent_monitor import parse_parent_pid, watch_parent_async
+
+    loop = asyncio.get_running_loop()
+    loop.set_exception_handler(_log_loop_exception)
+
+    port_path = port_file()
+
+    def _cleanup_port_file() -> None:
+        port_path.unlink(missing_ok=True)
+
+    exit_request = _ExitRequest(server, loop)
+
+    if not config.loaded:
+        config.load()
+    server.lifespan = config.lifespan_class(config)
+
+    # `server.servers` is set inside `startup()`. The finally below must skip
+    # `shutdown()` when startup never ran: uvicorn dereferences `self.servers`
+    # there and the resulting AttributeError would mask the original failure.
+    started = False
+    parent_watcher: asyncio.Task[None] | None = None
+    try:
+        set_server_exit_hook(exit_request)
+        await server.startup()
+        started = True
+
+        parent_pid = parse_parent_pid()
+        if parent_pid is not None:
+
+            def _on_parent_death() -> None:
+                server.should_exit = True
+
+            parent_watcher = asyncio.create_task(watch_parent_async(parent_pid, _on_parent_death))
+
+        if server.servers:
+            sock = server.servers[0].sockets[0]
+            actual_port = sock.getsockname()[1]
+            port_path.parent.mkdir(parents=True, exist_ok=True)
+            port_path.write_text(str(actual_port), encoding="utf-8")
+            atexit.register(_cleanup_port_file)
+            console.print(f"Listening on http://{host}:{actual_port}")
+        await server.main_loop()
+    finally:
+        set_server_exit_hook(None)
+        if parent_watcher is not None and not parent_watcher.done():
+            parent_watcher.cancel()
+        port_path.unlink(missing_ok=True)
+        if started:
+            # Suppress AttributeError from a partial uvicorn bring-up so any
+            # original exception from main_loop reaches the caller intact.
+            with contextlib.suppress(AttributeError):
+                await server.shutdown()
+    return exit_request.status
+
+
+def _refuse_to_start(message: str) -> NoReturn:
+    """Report why the server will not start, to the log and the terminal, then exit."""
+    logging.getLogger(__name__).error(message)
+    console.print(message, soft_wrap=True)
+    raise typer.Exit(LOCK_REFUSAL_EXIT_CODE)
+
+
+def serve(
+    host: str = typer.Option(None, "--host", "-H", help="Bind address (default: 127.0.0.1)"),
+    port: int = typer.Option(None, "--port", "-p", help="Port (default: 0/random)"),
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Start the HTTP API server."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    if host is not None:
+        cfg.server_host = host
+    if port is not None:
+        cfg.server_port = port
+
+    setup_server_logging()
+
+    # One managed server per scope: the plugin passes its shared root here so a
+    # second vault's server cannot start while another vault's is serving it.
+    scope_hold = None
+    scope_env = os.environ.get(SCOPE_ENV)
+    if scope_env:
+        scope_dir = Path(scope_env)
+        try:
+            scope_hold = acquire_scope_lock(scope_dir, cfg.data_dir, timeout=SERVER_LOCK_TIMEOUT)
+        except LockingUnsupportedError as exc:
+            _refuse_to_start(str(exc))
+        if scope_hold is None:
+            owner = read_scope_owner(scope_dir)
+            serving = f" It is serving {owner.data_dir}." if owner else ""
+            message = (
+                f"Another lilbee server is already running for this installation.{serving}"
+                " Stop it or wait for it to exit, then retry."
+            )
+            _refuse_to_start(message)
+
+    # One server per data dir: a second instance would overwrite server.port
+    # and spawn a second engine fleet against the same models and vector store.
+    message = (
+        "Another lilbee server is already running for this data directory. "
+        "Stop it or wait for it to exit, then retry."
+    )
+    try:
+        server_lock = acquire_server_lock(cfg.data_dir, timeout=SERVER_LOCK_TIMEOUT)
+    except LockingUnsupportedError as exc:
+        server_lock, message = None, str(exc)
+    if server_lock is None:
+        if scope_hold is not None:
+            scope_hold.release()
+        _refuse_to_start(message)
+
+    import uvicorn
+
+    from lilbee.server import create_app
+
+    logging.getLogger("asyncio").setLevel(logging.ERROR)
+
+    try:
+        app = create_app()
+        # Litestar's app construction reconfigures root logging; re-install the file handler.
+        setup_server_log_file()
+        # Install after app construction so Litestar's logging reconfig cannot drop the filter.
+        install_health_access_filter()
+        config = uvicorn.Config(app, host=cfg.server_host, port=cfg.server_port)
+        server = uvicorn.Server(config)
+        raise typer.Exit(asyncio.run(_run_server(server, config, cfg.server_host)))
+    finally:
+        # A signal-driven shutdown stops the fleet on its own thread; hold the
+        # locks until it finishes so a successor cannot start while this
+        # server's models still occupy memory.
+        wait_for_hard_exit_teardown()
+        server_lock.release()
+        if scope_hold is not None:
+            scope_hold.release()
+
+
+def mcp_cmd(
+    data_dir: Path | None = data_dir_option,
+    use_global: bool = global_option,
+) -> None:
+    """Start the MCP server (stdio transport) for agent integration."""
+    apply_overrides(data_dir=data_dir, use_global=use_global)
+    from lilbee.mcp_server import main
+
+    main()

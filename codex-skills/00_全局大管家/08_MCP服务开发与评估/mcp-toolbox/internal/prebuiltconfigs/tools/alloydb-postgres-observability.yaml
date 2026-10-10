@@ -1,0 +1,330 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+kind: source
+name: cloud-monitoring-source
+type: cloud-monitoring
+---
+kind: tool
+name: get_system_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  Fetches system level cloudmonitoring data (timeseries metrics) for an AlloyDB cluster, instance.
+  To use this tool, you must provide the Google Cloud `projectId` and a PromQL `query`.
+  
+  Generate the PromQL `query` for AlloyDB system metrics using the provided metrics and rules. Get labels like `cluster_id` and `instance_id` from the user's intent.
+  
+  Defaults:
+  1. Interval: Use a default interval of `5m` for `_over_time` aggregation functions unless a different window is specified by the user.
+  
+  PromQL Query Examples:
+  1. Basic Time Series: `avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m])`
+  2. Top K: `topk(30, avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m]))`
+  3. Mean: `avg(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="my-instance","cluster_id"="my-cluster"}[5m]))`
+  4. Minimum: `min(min_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  5. Maximum: `max(max_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  6. Sum: `sum(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  7. Count streams: `count(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  8. Percentile with groupby on instanceid, clusterid: `quantile by ("instance_id","cluster_id")(0.99,avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","cluster_id"="my-cluster","instance_id"="my-instance"}[5m]))`
+  
+  Available Metrics List: metricname. description. monitored resource. labels
+  1. `alloydb.googleapis.com/instance/cpu/average_utilization`: The percentage of CPU being used on an instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  2. `alloydb.googleapis.com/instance/cpu/maximum_utilization`: Maximum CPU utilization across all currently serving nodes of the instance from 0 to 100. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  3. `alloydb.googleapis.com/cluster/storage/usage`: The total AlloyDB storage in bytes across the entire cluster. `alloydb.googleapis.com/Cluster`. `cluster_id`.
+  4. `alloydb.googleapis.com/instance/postgres/replication/replicas`: The number of read replicas connected to the primary instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`, `state`, `replica_instance_id`.
+  5. `alloydb.googleapis.com/instance/postgres/replication/maximum_lag`: The maximum replication time lag calculated across all serving read replicas of the instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`, `replica_instance_id`.
+  6. `alloydb.googleapis.com/instance/memory/min_available_memory`: The minimum available memory across all currently serving nodes of the instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  7. `alloydb.googleapis.com/instance/postgres/instances`: The number of nodes in the instance, along with their status, which can be either up or down. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`, `status`.
+  8. `alloydb.googleapis.com/database/postgresql/tuples`: Number of tuples (rows) by state per database in the instance. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`, `state`.
+  9. `alloydb.googleapis.com/database/postgresql/temp_bytes_written_for_top_databases`: The total amount of data(in bytes) written to temporary files by the queries per database for top 500 dbs. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  10. `alloydb.googleapis.com/database/postgresql/temp_files_written_for_top_databases`: The number of temporary files used for writing data per database while performing internal algorithms like join, sort etc for top 500 dbs. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  11. `alloydb.googleapis.com/database/postgresql/inserted_tuples_count_for_top_databases`: The total number of rows inserted per db for top 500 dbs as a result of the queries in the instance. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  12. `alloydb.googleapis.com/database/postgresql/updated_tuples_count_for_top_databases`: The total number of rows updated per db for top 500 dbs as a result of the queries in the instance. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  13. `alloydb.googleapis.com/database/postgresql/deleted_tuples_count_for_top_databases`: The total  number of rows deleted per db for top 500 dbs as a result of the queries in the instance. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  14. `alloydb.googleapis.com/database/postgresql/backends_for_top_databases`: The current number of connections per database to the instance for top 500 dbs. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  15. `alloydb.googleapis.com/instance/postgresql/backends_by_state`: The current number of connections to the instance grouped by the state like idle, active, idle_in_transaction, idle_in_transaction_aborted, disabled, and fastpath_function_call. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`, `state`.
+  16. `alloydb.googleapis.com/instance/postgresql/backends_for_top_applications`: The current number of connections to the AlloyDB instance, grouped by applications for top 500 applications. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`, `application_name`.
+  17. `alloydb.googleapis.com/database/postgresql/new_connections_for_top_databases`: Total number of new connections added per database for top 500 databases to the instance. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  18. `alloydb.googleapis.com/database/postgresql/deadlock_count_for_top_databases`: Total number of deadlocks detected in the instance per database for top 500 dbs. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`.
+  19. `alloydb.googleapis.com/database/postgresql/statements_executed_count`: Total count of statements executed in the instance per database per operation_type. `alloydb.googleapis.com/Database`. `cluster_id`, `instance_id`, `database`, `operation_type`.
+  20. `alloydb.googleapis.com/instance/postgresql/returned_tuples_count`: Number of rows scanned while processing the queries in the instance since the last sample. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  21. `alloydb.googleapis.com/instance/postgresql/fetched_tuples_count`: Number of rows fetched while processing the queries in the instance since the last sample. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  22. `alloydb.googleapis.com/instance/postgresql/updated_tuples_count`: Number of rows updated while processing the queries in the instance since the last sample. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  23. `alloydb.googleapis.com/instance/postgresql/inserted_tuples_count`: Number of rows inserted while processing the queries in the instance since the last sample. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  24. `alloydb.googleapis.com/instance/postgresql/deleted_tuples_count`: Number of rows deleted while processing the queries in the instance since the last sample. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  25. `alloydb.googleapis.com/instance/postgresql/written_tuples_count`: Number of rows written while processing the queries in the instance since the last sample. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  26. `alloydb.googleapis.com/instance/postgresql/deadlock_count`: Number of deadlocks detected in the instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  27. `alloydb.googleapis.com/instance/postgresql/blks_read`: Number of blocks read by Postgres that were not in the buffer cache. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  28. `alloydb.googleapis.com/instance/postgresql/blks_hit`: Number of times Postgres found the requested block in the buffer cache. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  29. `alloydb.googleapis.com/instance/postgresql/temp_bytes_written_count`: The total amount of data(in bytes) written to temporary files by the queries while performing internal algorithms like join, sort etc. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  30. `alloydb.googleapis.com/instance/postgresql/temp_files_written_count`: The number of temporary files used for writing data in the instance while performing internal algorithms like join, sort etc. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  31. `alloydb.googleapis.com/instance/postgresql/new_connections_count`: The number new connections added to the instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+  32. `alloydb.googleapis.com/instance/postgresql/wait_count`: Total number of times processes waited for each wait event in the instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`, `wait_event_type`, `wait_event_name`.
+  33. `alloydb.googleapis.com/instance/postgresql/wait_time`: Total elapsed wait time for each wait event in the instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`, `wait_event_type`, `wait_event_name`.
+  34. `alloydb.googleapis.com/instance/postgres/transaction_count`: The number of committed and rolled back transactions across all serving nodes of the instance. `alloydb.googleapis.com/Instance`. `cluster_id`, `instance_id`.
+---
+kind: tool
+name: get_query_metrics
+type: cloud-monitoring-query-prometheus
+source: cloud-monitoring-source
+description: |
+  Fetches query level cloudmonitoring data (timeseries metrics) for queries running in an AlloyDB instance.
+  To use this tool, you must provide the Google Cloud `projectId` and a PromQL `query`.
+  
+  Generate the PromQL `query` for AlloyDB query metrics using the provided metrics and rules. Get labels like `cluster_id`, `instance_id`, and `query_hash` from the user's intent. If `query_hash` is provided, use the per-query metrics.
+  
+  Defaults:
+  1. Interval: Use a default interval of `5m` for `_over_time` aggregation functions unless a different window is specified by the user.
+  
+  PromQL Query Examples:
+  1. Basic Time Series: `avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m])`
+  2. Top K: `topk(30, avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance"}[5m]))`
+  3. Mean: `avg(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="my-instance","cluster_id"="my-cluster"}[5m]))`
+  4. Minimum: `min(min_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  5. Maximum: `max(max_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  6. Sum: `sum(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  7. Count streams: `count(avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","instance_id"="alloydb-instance","cluster_id"="alloydb-cluster"}[5m]))`
+  8. Percentile with groupby on instanceid, clusterid: `quantile by ("instance_id","cluster_id")(0.99,avg_over_time({"__name__"="alloydb.googleapis.com/instance/cpu/average_utilization","monitored_resource"="alloydb.googleapis.com/Instance","cluster_id"="my-cluster","instance_id"="my-instance"}[5m]))`
+  
+  Available Metrics List: metricname. description. monitored resource. labels. aggregate is the aggregated values for all query stats, Use aggregate metrics if query id is not provided. For perquery metrics do not fetch querystring unless specified by user specifically. Have the aggregation on query hash to avoid fetching the querystring. Do not use latency metrics for anything.
+  1. `alloydb.googleapis.com/database/postgresql/insights/aggregate/latencies`: Aggregated query latency distribution. `alloydb.googleapis.com/Database`. `user`, `client_addr`.
+  2. `alloydb.googleapis.com/database/postgresql/insights/aggregate/execution_time`: Accumulated aggregated query execution time since the last sample. `alloydb.googleapis.com/Database`. `user`, `client_addr`.
+  3. `alloydb.googleapis.com/database/postgresql/insights/aggregate/io_time`: Accumulated aggregated IO time since the last sample. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `io_type`.
+  4. `alloydb.googleapis.com/database/postgresql/insights/aggregate/lock_time`: Accumulated aggregated lock wait time since the last sample. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `lock_type`.
+  5. `alloydb.googleapis.com/database/postgresql/insights/aggregate/row_count`: Aggregated number of retrieved or affected rows since the last sample. `alloydb.googleapis.com/Database`. `user`, `client_addr`.
+  6. `alloydb.googleapis.com/database/postgresql/insights/aggregate/shared_blk_access_count`: Aggregated shared blocks accessed by statement execution. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `access_type`.
+  7. `alloydb.googleapis.com/database/postgresql/insights/perquery/latencies`: Per query latency distribution. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `querystring`, `query_hash`.
+  8. `alloydb.googleapis.com/database/postgresql/insights/perquery/execution_time`: Accumulated execution times per user per database per query. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `querystring`, `query_hash`.
+  9. `alloydb.googleapis.com/database/postgresql/insights/perquery/io_time`: Accumulated IO time since the last sample per query. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `io_type`, `querystring`, `query_hash`.
+  10. `alloydb.googleapis.com/database/postgresql/insights/perquery/lock_time`: Accumulated lock wait time since the last sample per query. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `lock_type`, `querystring`, `query_hash`.
+  11. `alloydb.googleapis.com/database/postgresql/insights/perquery/row_count`: The number of retrieved or affected rows since the last sample per query. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `querystring`, `query_hash`.
+  12. `alloydb.googleapis.com/database/postgresql/insights/perquery/shared_blk_access_count`: Shared blocks accessed by statement execution per query. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `access_type`, `querystring`, `query_hash`.
+  13. `alloydb.googleapis.com/database/postgresql/insights/pertag/latencies`: Query latency distribution. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`.
+  14. `alloydb.googleapis.com/database/postgresql/insights/pertag/execution_time`: Accumulated execution times since the last sample. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`.
+  15. `alloydb.googleapis.com/database/postgresql/insights/pertag/io_time`: Accumulated IO time since the last sample per tag. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `io_type`, `tag_hash`.
+  16. `alloydb.googleapis.com/database/postgresql/insights/pertag/lock_time`: Accumulated lock wait time since the last sample per tag. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `lock_type`, `tag_hash`.
+  17. `alloydb.googleapis.com/database/postgresql/insights/pertag/shared_blk_access_count`: Shared blocks accessed by statement execution per tag. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `access_type`, `tag_hash`.
+  18. `alloydb.googleapis.com/database/postgresql/insights/pertag/row_count`: The number of retrieved or affected rows since the last sample per tag. `alloydb.googleapis.com/Database`. `user`, `client_addr`, `action`, `application`, `controller`, `db_driver`, `framework`, `route`, `tag_hash`.
+---
+kind: toolset
+name: alloydb_postgres_cloud_monitoring_tools
+tools:
+- get_system_metrics
+- get_query_metrics
+---
+kind: source
+name: database-insights-source
+type: databaseinsights
+---
+kind: tool
+name: get_advanced_aggregated_query_stats
+type: databaseinsights-get-advanced-aggregated-query-stats
+source: database-insights-source
+description: |
+  Fetches aggregated query execution statistics for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, as well as pagination. Returns statistics including query ID, database name, total execution time (sum(execution_time)), average execution time (avg(execution_time)), total execution count (sum(count)), total wait time (sum(wait_time)), and normalized query text. Requires advanced query insights to be enabled.
+  **IMPORTANT:**
+    Use these parameters to narrow down the results as requested by the user.
+    - If the user asks for a specific number of results (e.g., "Top 10", "First 5", "List 50"), map that number directly to page_size.
+    - If they ask for a specific user or database, use the corresponding arguments.
+    - When fetching results for a time range (e.g., "last 24 hours"), you MUST calculate and provide EXPLICIT 'start_time' AND 'end_time' in RFC3339 format. This pins the data window so that 'page_token' remains valid for subsequent requests. If 'page_token' is present, 'start_time' and 'end_time' MUST match the initial request.
+  Use Cases:
+    - Identify top queries: "I want execution details about top queries executed on database <database_name> on instance <instance_id> in the last 6 hours."
+    - Monitor specific user activity: "What were the top queries run by user <user_name> in the last hour?"
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Provide the full resource name ONLY in the following format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching stats in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching stats in RFC3339 format (Defaults to 'now').
+    - 'database': Filter results to a specific database name.
+    - 'username': Filter results to a specific database user.
+    - 'query_id': Fetch aggregated statistics for a single, specific query hash.
+    - 'page_size': Maximum number of query stats to return (Default: 20).
+    - 'page_token': Token for fetching the next set of results.
+  Response:
+    Returns a ranked list of queries with metrics: sum(execution_time), sum(count), avg(execution_time), sum(wait_time), and normalized_query_text.
+    **UNIT AND FORMATTING RULES:**
+      1. **Execution and Wait times**: Metrics like 'sum(execution_time)', 'avg(execution_time)', and 'sum(wait_time)' are in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+---
+kind: tool
+name: get_advanced_aggregated_wait_event_stats
+type: databaseinsights-get-advanced-aggregated-wait-event-stats
+source: database-insights-source
+description: |
+  Fetches aggregated wait event statistics to identify performance bottlenecks for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, selecting the aggregation level (by wait class or granular wait event), as well as pagination. Returns statistics including wait class or event name, total time spent (sum(time_spent)), average time spent (avg(time_spent)), and total wait count (sum(count)). Requires advanced query insights to be enabled.
+  **IMPORTANT:**
+    Use these parameters to narrow down the results as requested by the user.
+    - If the user asks for a specific number of results (e.g., "Top 10", "First 5", "List 50"), map that number directly to page_size.
+    - If they ask for a specific user or database, use the corresponding arguments.
+    - When fetching results for a time range (e.g., "last 24 hours"), you MUST calculate and provide EXPLICIT 'start_time' AND 'end_time' in RFC3339 format. This pins the data window so that 'page_token' remains valid for subsequent requests. If 'page_token' is present, 'start_time' and 'end_time' MUST match the initial request.
+  Intent Interpretation Rules
+    - If the user asks for "trend", "overview", "pattern", or "high-level analysis": Use view = WAIT_CLASS (default), EVEN if they say "wait events".
+    - Only use view = WAIT_EVENT when the user explicitly asks for:
+      - "detailed wait events"
+      - "specific wait event names"
+      - "granular breakdown"
+      - or mentions specific wait events (e.g., "ClientWrite", "DataFileRead")
+    - If a query_id is provided WITHOUT explicit request for granularity default to WAIT_CLASS
+    - Phrase "wait events trend" should be interpreted as high-level category trend (WAIT_CLASS), NOT individual event types
+    - When in doubt: Prefer WAIT_CLASS (more readable and useful for analysis)
+  Use Cases:
+    - Diagnose bottlenecks: "What are the top wait events on my instance <instance_id> over the last 2 hours?"
+    - Query deep-dive: "Why is query hash <query_id> so slow? Show me its wait events."
+    - Investigate contention: "What wait events is the user <user_name> experiencing in the database <database_name>?"
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Provide the full resource name ONLY in the following format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching stats in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching stats in RFC3339 format (Defaults to 'now').
+    - 'database': Filter stats to a specific database.
+    - 'username': Filter stats to a specific database user.
+    - 'query_id': Breakdown wait events for a specific query hash.
+    - 'page_size': Maximum number of results to return (Default: 20).
+    - 'page_token': Token for fetching the next set of results.
+    - 'view': Aggregation level. Use 'WAIT_CLASS' for high-level categories (e.g., Lock, IO) or 'WAIT_EVENT' for granular details (e.g., ClientWrite, DataFileRead). Defaults to 'WAIT_CLASS'.
+  Response:
+    A dataset showing wait types and the total time spent ("sum(time_spent)") in each state.
+    **UNIT AND FORMATTING RULES:**
+      1. **Wait times**: The metric 'sum(time_spent)' is in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: 1112.3 microseconds should be reported as 1.11 ms.
+---
+kind: tool
+name: get_advanced_time_series_query_stats
+type: databaseinsights-get-advanced-time-series-query-stats
+source: database-insights-source
+description: |
+  Fetches time-series history of query execution statistics to analyze trends and spikes for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID. Returns time-series data including rates of execution time (rate(execution_time)) and wait time (rate(wait_time)). Requires advanced query insights to be enabled.
+  Use Cases:
+    - Investigate Latency Spikes: "Show me the performance trends for query hash -4318400215895414374 over the last 3 hours."
+    - Database-Wide Performance: "How has the execution time for my database 'app_db' changed since yesterday?"
+    - User-Specific Consumption: "Get the query history for user 'reporting_svc' over the last 30 minutes."
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching history in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching history in RFC3339 format (Defaults to 'now').
+    - 'database': Filter results to a specific database name.
+    - 'username': Filter results to a specific database user.
+    - 'query_id': Fetch history for a single, specific query hash.
+  Response:
+    Returns a list of time-series data points with metrics like rate(execution_time) and rate(count).
+    **UNIT AND FORMATTING RULES:**
+      1. **Execution times**: The metric 'rate(execution_time)' is in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: 1112.3 microseconds should be reported as 1.11 ms.
+---
+kind: tool
+name: get_advanced_time_series_wait_event_stats
+type: databaseinsights-get-advanced-time-series-wait-event-stats
+source: database-insights-source
+description: |
+  Fetches time-series history of wait event statistics to analyze contention trends for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, as well as selecting the aggregation level (by wait class or granular wait event). Returns time-series data including rate of time spent (rate(time_spent)) grouped by wait class or event. Requires advanced query insights to be enabled.
+  Intent Interpretation Rules
+    - If the user asks for "trend", "overview", "pattern", or "high-level analysis": Use view = WAIT_CLASS (default), EVEN if they say "wait events".
+    - Only use view = WAIT_EVENT when the user explicitly asks for:
+      - "detailed wait events"
+      - "specific wait event names"
+      - "granular breakdown"
+      - or mentions specific wait events (e.g., "ClientWrite", "DataFileRead")
+    - If a query_id is provided WITHOUT explicit request for granularity default to WAIT_CLASS
+    - Phrase "wait events trend" should be interpreted as high-level category trend (WAIT_CLASS), NOT individual event types
+    - When in doubt: Prefer WAIT_CLASS (more readable and useful for analysis)
+  Use Cases:
+    - Analyze Periodic Contention: "Show me the wait event history for the last 4 hours on instance 'primary-1'. Is there a spike in IO or Locks every hour?"
+    - Query-Level Bottleneck Evolution: "For query hash -4318400215895414374, show me the trend of its wait events over the last day."
+    - Correlate Traffic with Lock Contention: "Get the wait event history for user 'app_backend' in 'prod_db' between 9 AM and 11 AM today."
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching history in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching history in RFC3339 format (Defaults to 'now').
+    - 'database': Filter history to a specific database.
+    - 'username': Filter history to a specific database user.
+    - 'query_id': Breakdown wait events over time for a specific query hash.
+    - 'view': Aggregation level. Use 'WAIT_CLASS' for high-level categories (e.g., Lock, IO) or 'WAIT_EVENT' for granular details (e.g., ClientWrite, DataFileRead). Defaults to 'WAIT_CLASS'.
+  Response:
+    A dataset of time-series points showing the rate of time spent in various wait states.
+    **UNIT AND FORMATTING RULES:**
+      1. **Wait times**: The rate of time spent is in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: 1112.3 microseconds should be reported as 1.11 ms.
+---
+kind: tool
+name: get_index_recommendations
+type: databaseinsights-get-index-recommendations
+source: database-insights-source
+description: |
+  Fetches index advisor suggestions to optimize performance for a requested AlloyDB instance. Supports requesting recommendations for specific databases and a list of query IDs. Returns index recommendations including SQL commands (CREATE INDEX), target schema, relation, and columns, estimated storage size, and predicted query performance improvements (current vs estimated execution duration). Requires advanced query insights to be enabled.
+  Supported Engines:
+    AlloyDB only.
+  Use Cases:
+    - Targeted Optimization: "I found a slow query with ID <query_id> in my 'sales' database. What index should I add to fix it?"
+    - Multi-Database Tuning: "Analyze performance recommendations for query <id_1> in the 'orders' database and query <id_2> in the 'shipping' database."
+    - ROI Validation: "How much faster will my query become if I apply the suggested index, and how much storage will it consume?"
+  **PARAMETERS:**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location} (Required)
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Provide the full resource name ONLY in the following format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id} (Required)
+    3. 'database_query_ids': Optional. A list of objects used to target specific queries. Example schema: [{'database': 'dbname', 'query_ids': [12345]}]. If omitted or empty, provides aggregated instance-level recommendations.
+  Response Fields:
+    The response is structured under 'database_index_recommendations', which includes:
+    1. **index_recommendations (List of Objects)**:
+       - 'sql_command': The exact DDL statement to execute to create the index.
+       - 'schema': The schema name for the recommended index.
+       - 'relation': The table name for the recommended index.
+       - 'columns': A list of column names the index targets.
+       - 'estimated_storage_size_bytes': Predicted disk space consumption.
+       - 'impacted_query_ids': List of query IDs that benefit from THIS specific index.
+       - 'impacted_queries_count': Total number of queries that would be improved by this index.
+       - 'index_recommendation_id': Unique ID for mapping back to query improvements.
+    2. **query_improvements (Map of Query ID to Improvement Object)**:
+       - 'query_id': The specific query hash being analyzed.
+       - 'index_recommendation_ids': A list of IDs matching 'index_recommendation_id' above that contribute to this query's gain.
+       - 'current_total_execution_duration': Baseline performance metric.
+       - 'estimated_new_total_execution_duration': Predicted performance after index application.
+    **UNIT AND FORMATTING RULES:**
+      1. **Execution Durations**: The 'current_total_execution_duration' and 'estimated_new_total_execution_duration' are in seconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: A duration of 0.00111s should be reported as 1.11 ms.
+      2. **Storage Size**: The 'estimated_storage_size_bytes' is in bytes.
+         Use the 1024-based binary conversion for byte units (e.g., KiB, MiB, GiB).
+         Example: A size of 26124288 bytes should be reported as 24.91 MB.
+    **Important**:
+    - Recommendations may only be available for a subset of the requested IDs or no IDs at all.
+    - Always cross-reference the 'query_improvements' map and 'impacted_query_ids' to verify which requested IDs are actually valid for optimization.
+    - If 'query_ids' was empty in the request, the response provides aggregated instance-level recommendations.
+---
+kind: toolset
+name: alloydb_postgres_database_insights_tools
+tools:
+- get_advanced_aggregated_query_stats
+- get_advanced_aggregated_wait_event_stats
+- get_advanced_time_series_query_stats
+- get_advanced_time_series_wait_event_stats
+- get_index_recommendations
+---
+kind: toolset
+name: alloydb_postgres_observability_tools
+tools:
+- get_system_metrics
+- get_query_metrics
+- get_advanced_aggregated_query_stats
+- get_advanced_aggregated_wait_event_stats
+- get_advanced_time_series_query_stats
+- get_advanced_time_series_wait_event_stats
+- get_index_recommendations

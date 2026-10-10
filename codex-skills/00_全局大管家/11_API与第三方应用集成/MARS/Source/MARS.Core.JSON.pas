@@ -1,0 +1,2211 @@
+(*
+  Copyright 2025, MARS-Curiosity library
+
+  Home: https://github.com/andrea-magni/MARS
+*)
+unit MARS.Core.JSON;
+
+{$I MARS.inc}
+
+interface
+
+uses
+  Generics.Collections,
+  JSON
+  , Classes, SysUtils
+  , System.Rtti
+  , TypInfo, REST.JSON
+  , MARS.Utils.Parameters
+;
+
+const
+  // Application parameters for the JSON serialization options (see
+  // TMARSJSONSerializationOptions.AdjustWith(AParameters)). JSON.SkipEmptyValues sets all the
+  // Skip* options at once; the specific ones, when present, win over it.
+  JSON_SKIPEMPTYVALUES_PARAM = 'JSON.SkipEmptyValues';
+  JSON_SKIPEMPTYSTRINGS_PARAM = 'JSON.SkipEmptyStrings';
+  JSON_SKIPEMPTYNUMBERS_PARAM = 'JSON.SkipEmptyNumbers';
+  JSON_SKIPEMPTYBOOLEANS_PARAM = 'JSON.SkipEmptyBooleans';
+  JSON_SKIPEMPTYOBJECTS_PARAM = 'JSON.SkipEmptyObjects';
+  JSON_SKIPEMPTYARRAYS_PARAM = 'JSON.SkipEmptyArrays';
+  JSON_SKIPNULLVALUES_PARAM = 'JSON.SkipNullValues';
+  JSON_DATEISUTC_PARAM = 'JSON.DateIsUTC';
+  JSON_USEDISPLAYFORMATFORNUMERICFIELDS_PARAM = 'JSON.UseDisplayFormatForNumericFields';
+
+type
+  TJSONAncestor = JSON.TJSONAncestor;
+  TJSONPair = JSON.TJSONPair;
+  TJSONValue = JSON.TJSONValue;
+  TJSONTrue = JSON.TJSONTrue;
+  TJSONString = JSON.TJSONString;
+  TJSONNumber = JSON.TJSONNumber;
+  TJSONObject = JSON.TJSONObject;
+  TJSONNull = JSON.TJSONNull;
+  TJSONFalse = JSON.TJSONFalse;
+  TJSONArray = JSON.TJSONArray;
+
+  TJSONValueHelper = class helper for TJSONValue
+  public
+  end;
+
+  JSONNameAttribute = class(TCustomAttribute)
+  private
+    FName: string;
+  public
+    constructor Create(const AName: string);
+    property Name: string read FName;
+  end;
+
+  JSONSkip = class(JSONNameAttribute)
+  public
+    constructor Create();
+  end;
+
+  TToRecordFilterProc = reference to procedure (const AMember: TRttiMember;
+    var ARecord: TValue; const AJSONObject: TJSONObject; var AAccept: Boolean);
+  TToObjectFilterProc = reference to procedure (const AMember: TRttiMember;
+    const AObject: TObject; const AJSONObject: TJSONObject; var AAccept: Boolean);
+
+  TToJSONFilterProc = reference to procedure (const AMember: TRttiMember;
+    const AValue: TValue; const AJSONObject: TJSONObject; var AAccept: Boolean);
+
+  TJSONRawString = type string;
+
+  TMARSJSONDateFormat = (UNIX, ISO8601);
+
+  {$IFDEF MARS_JSON_LEGACY}
+  TMARSJSONSerializationOptions = TJsonOptions;
+  {$ELSE}
+  TMARSJSONSerializationOptions = record
+  public
+    SkipEmptyStrings: Boolean;
+    SkipEmptyNumbers: Boolean;
+    SkipEmptyBooleans: Boolean;
+    SkipEmptyObjects: Boolean;
+    SkipEmptyArrays: Boolean;
+    SkipNullValues: Boolean;
+
+    DateIsUTC: Boolean;
+    DateFormat: TMARSJSONDateFormat; // not used yet: dates are always ISO 8601
+//    joDateFormatUnix
+//    joDateFormatISO8601
+//    joDateFormatMongo
+//    joDateFormatParse
+//
+//    joBytesFormatArray
+//    joBytesFormatBase64,
+//
+//    joIndentCaseCamel
+//    joIndentCaseLower
+//    joIndentCaseUpper
+//    joIndentCasePreserve
+    UseDisplayFormatForNumericFields: Boolean;
+
+    function SkipEmptyValues: Boolean;
+    procedure IncludeEmptyOrNullValues;
+    procedure SkipAllEmptyOrNullValues;
+
+    function AdjustWith(const AAttributes: TArray<TCustomAttribute>): TMARSJSONSerializationOptions; overload;
+    // applies the JSON.* parameters present in AParameters (application parameters, may be
+    // nil); raises EArgumentException for a value that is not a boolean
+    function AdjustWith(const AParameters: TMARSParameters): TMARSJSONSerializationOptions; overload;
+  end;
+
+  JSONIncludeEmptyValuesAttribute = class(TCustomAttribute);
+  JSONSkipEmptyValuesAttribute = class(TCustomAttribute);
+
+  {$ENDIF}
+
+
+  TJSONArrayHelper= class helper for TJSONArray
+  private
+  public
+    function AddObject(): TJSONObject; overload;
+    function AddObject(const AElement: TJSONObject): TJSONArray; overload;
+    function Add(const AElement: Int64): TJSONArray; overload;
+    function Add(const AElement: TDateTime): TJSONArray; overload;
+    function Add(const AElement: TDateTime; const AOptions: TMARSJSONSerializationOptions): TJSONArray; overload;
+
+    function ToArrayOfRecord<T{: record}>(const AOptions: TMARSJSONSerializationOptions): TArray<T>; overload;
+    function ToArrayOfRecord<T{: record}>(): TArray<T>; overload;
+    procedure FromArrayOfRecord<T{: record}>(const AArray: TArray<T>;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToJSONFilterProc = nil);
+    procedure FromArrayOfObject<T: class>(const AArray: TArray<T>;
+      const AOptions: TMARSJSONSerializationOptions); overload;
+    procedure FromArrayOfObject<T: class>(const AArray: TArray<T>); overload;
+    function ForEach<T: TJSONValue>(const AFunc: TFunc<T,Boolean>): Integer;
+    // returns an array of TValue elements, covering primitive types (JSON representation returned
+    // for complex types like objects and arrays)
+    function ToArrayOfTValue: TArray<TValue>;
+
+
+    class function ArrayOfRecordToJSON<T{: record}>(const AArray: TArray<T>;
+      const AFilterProc: TToJSONFilterProc = nil): TJSONArray; overload;
+    class function ArrayOfRecordToJSON<T{: record}>(const AArray: TArray<T>;
+      const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc = nil): TJSONArray; overload;
+
+    // serializes one record at a time directly to the stream: same output of
+    // ArrayOfRecordToJSON + ToJSON but without building the whole JSON tree (and string) in memory
+    class procedure ArrayOfRecordToStream<T{: record}>(const AArray: TArray<T>;
+      const ADestStream: TStream; const AFilterProc: TToJSONFilterProc = nil;
+      const AEncoding: TEncoding = nil); overload;
+    class procedure ArrayOfRecordToStream<T{: record}>(const AArray: TArray<T>;
+      const ADestStream: TStream; const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToJSONFilterProc = nil; const AEncoding: TEncoding = nil); overload;
+
+    class function ArrayOfRecordToJSONString<T{: record}>(const AArray: TArray<T>;
+      const AFilterProc: TToJSONFilterProc = nil): string; overload;
+    class function ArrayOfRecordToJSONString<T{: record}>(const AArray: TArray<T>;
+      const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc = nil): string; overload;
+
+    class function JSONStringToArrayOfRecord<T{: record}>(const AJSONString: string;
+      const AFilterProc: TToRecordFilterProc = nil): TArray<T>; overload;
+    class function JSONStringToArrayOfRecord<T{: record}>(const AJSONString: string;
+      const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToRecordFilterProc = nil): TArray<T>; overload;
+
+
+    class function ArrayOfObjectToJSON<T: class>(const AArray: TArray<T>): TJSONArray; overload;
+    class function ArrayOfObjectToJSON<T: class>(const AArray: TArray<T>;
+      const AOptions: TMARSJSONSerializationOptions): TJSONArray; overload;
+  end;
+
+  TJSONObjectHelper = class helper(TJSONValueHelper) for TJSONObject
+  private
+    function GetExactPairName(const ACaseInsensitiveName: string): string;
+  public
+    function AddObject(const AName: string): TJSONObject;
+    function AddArray(const AName: string): TJSONArray;
+
+    function ReadStringValue(const AName: string; const ADefault: string = ''): string;
+    function ReadIntegerValue(const AName: string; const ADefault: Integer = 0): Integer;
+    function ReadInt64Value(const AName: string; const ADefault: Int64 = 0): Int64;
+    function ReadDoubleValue(const AName: string; const ADefault: Double = 0.0): Double;
+    function ReadBoolValue(const AName: string; const ADefault: Boolean = False): Boolean;
+    function ReadDateTimeValue(const AName: string; const ADefault: TDateTime;
+      const AOptions: TMARSJSONSerializationOptions): TDateTime; overload;
+    function ReadDateTimeValue(const AName: string; const ADefault: TDateTime = 0.0): TDateTime; overload;
+    function ReadUnixTimeValue(const AName: string; const ADefault: TDateTime = 0.0): TDateTime;
+    function ReadValue(const AName: string; const ADefault: TValue;
+      const ADesiredType: TRttiType; const ANameCaseSensitive: Boolean = True): TValue; overload;
+    function ReadValue(const AName: string; const ADesiredType: TRttiType;
+      const ANameCaseSensitive: Boolean; var AValue: TValue;
+      const AOptions: TMARSJSONSerializationOptions): Boolean; overload;
+    function ReadValue(const AName: string; const ADefault: TValue;
+      const ADesiredType: TRttiType; const AOptions: TMARSJSONSerializationOptions;
+      const ANameCaseSensitive: Boolean = True): TValue; overload;
+    function ReadValue(const AName: string; const ADefault: TValue;
+      const AOptions: TMARSJSONSerializationOptions): TValue; overload;
+    function ReadArrayValue(const AName: string): TJSONArray; overload; inline;
+    function ReadArrayValue<T{: record}>(const AName: string;
+      const AOptions: TMARSJSONSerializationOptions): TArray<T>; overload; inline;
+    function ReadArrayValue<T{: record}>(const AName: string): TArray<T>; overload; inline;
+
+    function DeletePair(const AName: string): Boolean;
+    procedure WriteStringValue(const AName: string; const AValue: string);
+    procedure WriteIntegerValue(const AName: string; const AValue: Integer);
+    procedure WriteInt64Value(const AName: string; const AValue: Int64);
+    procedure WriteDoubleValue(const AName: string; const AValue: Double);
+    procedure WriteBoolValue(const AName: string; const AValue: Boolean);
+    procedure WriteDateTimeValue(const AName: string; const AValue: TDateTime;
+      const AOptions: TMARSJSONSerializationOptions); overload;
+    procedure WriteDateTimeValue(const AName: string; const AValue: TDateTime); overload;
+    procedure WriteUnixTimeValue(const AName: string; const AValue: TDateTime);
+    procedure WriteTValue(const AName: string; const AValue: TValue;
+      const AOptions: TMARSJSONSerializationOptions); overload;
+    procedure WriteTValue(const AName: string; const AValue: TValue); overload;
+    procedure WriteArrayValue(const AName: string; const AArray: TJSONArray); overload; inline;
+    procedure WriteArrayValue<T{: record}>(const AName: string; const AArray: TArray<T>;
+      const AOptions: TMARSJSONSerializationOptions); overload; inline;
+    procedure WriteArrayValue<T{: record}>(const AName: string; const AArray: TArray<T>); overload; inline;
+
+
+    procedure FromObject(const AObject: TObject; const AFilterProc: TToJSONFilterProc = nil); overload;
+    procedure FromObject(const AObject: TObject; const AFilterProc: TToJSONFilterProc; const AOptions: TMARSJSONSerializationOptions); overload;
+    procedure FromObject<T: class>(const AObject: T; const AFilterProc: TToJSONFilterProc = nil); overload;
+    procedure ToObject<T: class>(const AInstance: TObject); overload;
+    procedure ToObject<T: class>(const AInstance: TObject;
+      const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToObjectFilterProc = nil); overload;
+    procedure ToObject(const AInstance: TObject; const AObjectType: TRttiType;
+      const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToObjectFilterProc = nil); overload;
+
+    procedure FromRecord<T{: record}>(ARecord: T;
+      const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc = nil); overload;
+    procedure FromRecord(const ARecord: TValue;
+      const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc = nil); overload;
+    function ToRecord<T{: record}>(const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToRecordFilterProc = nil): T; overload;
+    function ToRecord<T{: record}>(const AFilterProc: TToRecordFilterProc = nil): T; overload;
+    function ToRecord(const ARecordType: TRttiType; const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToRecordFilterProc = nil): TValue; overload;
+    function ToRecord(const ARecordType: TRttiType; const AFilterProc: TToRecordFilterProc = nil): TValue; overload;
+
+
+    class function DictionaryToJSON(const ADictionary: TObject;
+      const AOptions: TMARSJSONSerializationOptions): TJSONObject; overload;
+    class function DictionaryToJSON(const ADictionary: TObject): TJSONObject; overload;
+    class procedure DictionaryToJSON(const AJSONObject: TJSONObject;
+      const ADictionary: TObject; const AOptions: TMARSJSONSerializationOptions); overload;
+
+    class function ObjectListToJSON(const AObjectList: TObject;
+      const AOptions: TMARSJSONSerializationOptions): TJSONArray; overload;
+    class function ObjectListToJSON(const AObjectList: TObject): TJSONArray; overload;
+    class procedure ObjectListToJSON(const AJSON: TJSONArray; const AObjectList: TObject;
+      const AOptions: TMARSJSONSerializationOptions); overload;
+
+    class function ObjectToJSON(const AObject: TObject;
+      const AOptions: TMARSJSONSerializationOptions): TJSONObject; overload;
+    class function ObjectToJSON(const AObject: TObject): TJSONObject; overload;
+
+    class function ListOfPairOfStringAndTToJSON(const AList: TObject;
+      const AOptions: TMARSJSONSerializationOptions): TJSONObject; overload;
+    class procedure ListOfPairOfStringAndTToJSON(const AJSON: TJSONObject;
+      const AList: TObject; const AOptions: TMARSJSONSerializationOptions); overload;
+
+    class function JSONToObject<T: class, constructor>(const AJSON: TJSONObject;
+      const AOptions: TMARSJSONSerializationOptions): T; overload;
+    class function JSONToObject<T: class, constructor>(const AJSON: TJSONObject): T; overload;
+
+
+    class function JSONToObject(const AClassType: TClass; const AJSON: TJSONObject;
+      const AOptions: TMARSJSONSerializationOptions): TObject; overload;
+    class function JSONToObject(const AClassType: TClass; const AJSON: TJSONObject): TObject; overload;
+
+    class function RecordToJSON<T{: record}>(ARecord: T;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToJSONFilterProc = nil): TJSONObject; overload;
+    class function RecordToJSON<T{: record}>(ARecord: T;
+      const AFilterProc: TToJSONFilterProc = nil): TJSONObject; overload;
+
+    class function RecordToJSONString<T{: record}>(ARecord: T;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToJSONFilterProc = nil;
+      const AFormatJSON: Boolean = False; const AFormatIndentation: Integer = 4): string; overload;
+    class function RecordToJSONString<T{: record}>(ARecord: T;
+      const AFilterProc: TToJSONFilterProc = nil;
+      const AFormatJSON: Boolean = False; const AFormatIndentation: Integer = 4): string; overload;
+
+    class function RecordToJSON(const ARecord: TValue;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToJSONFilterProc = nil): TJSONObject; overload;
+    class function RecordToJSON(const ARecord: TValue;
+      const AFilterProc: TToJSONFilterProc = nil): TJSONObject; overload;
+
+    class function JSONToRecord<T{: record}>(const AJSON: TJSONObject;
+      const AFilterProc: TToRecordFilterProc = nil): T; overload;
+    class function JSONToRecord<T{: record}>(const AJSON: TJSONObject;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToRecordFilterProc = nil): T; overload;
+    class function JSONToRecord(const ARecordType: TRttiType; const AJSON: TJSONObject;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToRecordFilterProc = nil): TValue; overload;
+
+    class function JSONStringToRecord<T{: record}>(const AJSON: string;
+      const AFilterProc: TToRecordFilterProc = nil): T; overload;
+    class function JSONStringToRecord<T{: record}>(const AJSON: string;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToRecordFilterProc = nil): T; overload;
+    class function JSONStringToRecord(const ARecordType: TRttiType; const AJSON: string;
+      const AOptions: TMARSJSONSerializationOptions;
+      const AFilterProc: TToRecordFilterProc = nil): TValue; overload;
+
+    class function TValueToJSONValue(const AValue: TValue; const AOptions: TMARSJSONSerializationOptions): TJSONValue; overload;
+    class function TValueToJSONValue(const AValue: TValue): TJSONValue; overload;
+    class procedure TJSONValueToTValue(const AValue: TJSONValue; const ADesiredType: TRttiType; var ATValue: TValue; const AOptions: TMARSJSONSerializationOptions); overload;
+    class procedure TJSONValueToTValue(const AValue: TJSONValue; const ADesiredType: TRttiType; var ATValue: TValue); overload;
+  end;
+
+
+  function StringArrayToJsonArray(const AStringArray: TArray<string>): TJSONArray;
+  function JsonArrayToStringArray(const AJSONArray: TJSONArray): TArray<string>;
+  function IntegerArrayToJsonArray(const AIntegerArray: TArray<Integer>): TJSONArray;
+  function JsonArrayToIntegerArray(const AJSONArray: TJSONArray): TArray<Integer>;
+
+  // Element-wise access to a (UTF-8 encoded) JSON array, without building the JSON tree
+  // of the whole array: large arrays would exhaust memory on 32 bit targets otherwise.
+  // Both functions locate the top level elements only, anything else is left to the parser.
+
+  // number of elements, -1 if AData is not a well-formed top level JSON array
+  function CountJSONArrayElements(const AData: TBytes): Integer;
+  // parses one element at a time and hands it to AElementFunc (the element is freed afterwards).
+  // Returns False if AData is not a well-formed JSON array, an element is not parsable
+  // or AElementFunc returned False (stop): callers should fall back to a full parse then.
+  function ForEachJSONArrayElement(const AData: TBytes;
+    const AElementFunc: TFunc<TJSONValue, Boolean>): Boolean;
+
+  {$IFDEF MARS_JSON_LEGACY}
+  var DefaultMARSJSONSerializationOptions: TJSONOptions = [joDateIsUTC, joDateFormatISO8601, joBytesFormatArray, joIndentCaseCamel];
+  {$ELSE}
+  var DefaultMARSJSONSerializationOptions: TMARSJSONSerializationOptions = (
+    SkipEmptyStrings: True;
+    SkipEmptyNumbers: False;
+    SkipEmptyBooleans: True;
+    SkipEmptyObjects: True;
+    SkipEmptyArrays: True;
+    SkipNullValues: True;
+    DateIsUTC: True; // check the initialization section of this unit!
+    DateFormat: ISO8601;
+    UseDisplayFormatForNumericFields: False;
+  );
+  {$ENDIF}
+
+  function ComputeJSONSerializationOptions(var AOptions: TMARSJSONSerializationOptions; const AAttributes: TArray<TCustomAttribute>): Boolean; overload;
+  function ComputeJSONSerializationOptions(const AAttributes: TArray<TCustomAttribute>): TMARSJSONSerializationOptions; overload;
+
+implementation
+
+uses
+  System.DateUtils, System.TimeSpan, System.Variants, System.StrUtils, System.Math
+, MARS.Core.Utils, MARS.Rtti.Utils
+;
+
+type
+  // AStart (inclusive) and AEnd (exclusive) delimit the element, whitespace trimmed
+  TJSONArrayElementBoundsFunc = reference to function (const AStart, AEnd: Integer): Boolean;
+
+// Structural characters are plain ASCII and every byte of a UTF-8 multi-byte sequence
+// is >= $80, so the top level elements can be located scanning bytes.
+function ScanJSONArrayElements(const AData: TBytes;
+  const ABoundsFunc: TJSONArrayElementBoundsFunc): Boolean;
+var
+  LPos, LLen, LStart, LEnd, LDepth: Integer;
+  LInString, LEscaped, LLast: Boolean;
+
+  function IsWhitespace(const AByte: Byte): Boolean;
+  begin
+    Result := (AByte = 32) or (AByte = 9) or (AByte = 10) or (AByte = 13);
+  end;
+
+  procedure SkipWhitespace;
+  begin
+    while (LPos < LLen) and IsWhitespace(AData[LPos]) do
+      Inc(LPos);
+  end;
+
+begin
+  Result := False;
+  LLen := Length(AData);
+  LPos := 0;
+
+  SkipWhitespace;
+  if (LPos >= LLen) or (AData[LPos] <> Ord('[')) then
+    Exit;
+  Inc(LPos);
+
+  SkipWhitespace;
+  if (LPos < LLen) and (AData[LPos] = Ord(']')) then // empty array
+    Inc(LPos)
+  else
+  begin
+    LLast := False;
+    while not LLast do
+    begin
+      SkipWhitespace;
+      LStart := LPos;
+      LDepth := 0;
+      LInString := False;
+      LEscaped := False;
+      while LPos < LLen do
+      begin
+        if LInString then
+        begin
+          if LEscaped then
+            LEscaped := False
+          else if AData[LPos] = Ord('\') then
+            LEscaped := True
+          else if AData[LPos] = Ord('"') then
+            LInString := False;
+        end
+        else
+          case AData[LPos] of
+            Ord('"'): LInString := True;
+            Ord('{'), Ord('['): Inc(LDepth);
+            Ord('}'), Ord(']'):
+              if LDepth > 0 then
+                Dec(LDepth)
+              else if AData[LPos] = Ord(']') then
+                Break // end of the array
+              else
+                Exit;
+            Ord(','):
+              if LDepth = 0 then
+                Break; // end of the element
+          end;
+        Inc(LPos);
+      end;
+      if LPos >= LLen then // unterminated
+        Exit;
+
+      LEnd := LPos;
+      while (LEnd > LStart) and IsWhitespace(AData[LEnd - 1]) do
+        Dec(LEnd);
+      if LEnd = LStart then // missing element: "[,]", "[1,]"
+        Exit;
+
+      if not ABoundsFunc(LStart, LEnd) then
+        Exit;
+
+      LLast := AData[LPos] = Ord(']');
+      Inc(LPos);
+    end;
+  end;
+
+  SkipWhitespace;
+  Result := LPos = LLen; // nothing but whitespace is allowed after the array
+end;
+
+function CountJSONArrayElements(const AData: TBytes): Integer;
+var
+  LCount: Integer;
+begin
+  LCount := 0;
+  if ScanJSONArrayElements(AData
+    , function (const AStart, AEnd: Integer): Boolean
+      begin
+        Inc(LCount);
+        Result := True;
+      end
+  ) then
+    Result := LCount
+  else
+    Result := -1;
+end;
+
+function ForEachJSONArrayElement(const AData: TBytes;
+  const AElementFunc: TFunc<TJSONValue, Boolean>): Boolean;
+begin
+  Result := ScanJSONArrayElements(AData
+    , function (const AStart, AEnd: Integer): Boolean
+      var
+        LElement: TJSONValue;
+      begin
+        // the element only: the meaning of the ALength argument of ParseJSONValue
+        // is not the same across Delphi versions
+        LElement := TJSONObject.ParseJSONValue(Copy(AData, AStart, AEnd - AStart), 0);
+        Result := Assigned(LElement);
+        if Result then
+          try
+            Result := AElementFunc(LElement);
+          finally
+            LElement.Free;
+          end;
+      end
+  );
+end;
+
+
+function ComputeJSONSerializationOptions(const AAttributes: TArray<TCustomAttribute>): TMARSJSONSerializationOptions; overload;
+begin
+  Result := DefaultMARSJSONSerializationOptions;
+  ComputeJSONSerializationOptions(Result, AAttributes);
+end;
+
+function ComputeJSONSerializationOptions(var AOptions: TMARSJSONSerializationOptions; const AAttributes: TArray<TCustomAttribute>): Boolean;
+var
+  LAttribute: TCustomAttribute;
+begin
+  Result := False;
+  for LAttribute in AAttributes do
+  begin
+    if LAttribute is JSONIncludeEmptyValuesAttribute then
+    begin
+      AOptions.IncludeEmptyOrNullValues;
+      Result := True;
+      Break;
+    end;
+  end;
+
+  for LAttribute in AAttributes do
+  begin
+    if LAttribute is JSONSkipEmptyValuesAttribute then
+    begin
+      AOptions.SkipAllEmptyOrNullValues;
+      Result := True;
+      Break;
+    end;
+  end;
+end;
+
+class function TJSONObjectHelper.TValueToJSONValue(
+  const AValue: TValue; const AOptions: TMARSJSONSerializationOptions): TJSONValue;
+var
+  LArray: TJSONArray;
+  LIndex: Integer;
+  LTypeName: string;
+  LVariantValue: Variant;
+begin
+  if AValue.IsEmpty and not AValue.IsArray then
+    exit(TJSONNull.Create);
+
+  LTypeName := string(AValue.TypeInfo^.Name);
+
+  if (AValue.Kind in [tkString, tkUString, tkChar, tkWideChar, tkLString, tkWString]) then
+    Result := TJSONString.Create(AValue.AsString)
+
+  else if IsDictionaryOfStringAndT(LTypeName) then
+    Result := DictionaryToJSON(AValue.AsObject, AOptions)
+
+  else if IsListOfPairOfStringAndT(LTypeName) then
+    Result := ListOfPairOfStringAndTToJSON(AValue.AsObject, AOptions)
+
+  else if IsObjectListOfT(LTypeName) then
+    Result := ObjectListToJSON(AValue.AsObject, AOptions)
+
+  else if AValue.IsArray then
+  begin
+    LArray := TJSONArray.Create;
+    try
+      for LIndex := 0 to AValue.GetArrayLength-1 do
+         LArray.AddElement(TValueToJSONValue(AValue.GetArrayElement(LIndex), AOptions));
+
+      Result := LArray;
+    except
+      LArray.Free;
+      raise;
+    end;
+  end
+
+  else if (AValue.Kind in [tkRecord{$ifdef Delphi11Alexandria_UP}, tkMRecord{$endif}]) then
+    Result := TJSONObject.RecordToJSON(AValue, AOptions)
+
+  else if (LTypeName = 'Boolean') then // before I was using TypeInfo(Boolean) but it caused Variants to match (?!), using type name now
+    Result := BooleanToTJSON(AValue.AsType<Boolean>)
+
+  else if AValue.TypeInfo = TypeInfo(TDateTime) then
+    Result := TJSONString.Create( DateToJSON(AValue.AsType<TDateTime>, AOptions) )
+  else if AValue.TypeInfo = TypeInfo(TDate) then
+    Result := TJSONString.Create( DateToJSON(AValue.AsType<TDate>, AOptions) )
+  else if AValue.TypeInfo = TypeInfo(TTime) then
+    Result := TJSONString.Create( DateToJSON(AValue.AsType<TTime>, AOptions) )
+
+  else if (AValue.Kind in [tkInt64]) then
+    Result := TJSONNumber.Create( AValue.AsType<Int64> )
+  else if (AValue.Kind in [tkInteger]) then
+    Result := TJSONNumber.Create( AValue.AsType<Integer> )
+
+  else if (AValue.Kind in [tkFloat]) then
+    Result := TJSONNumber.Create( AValue.AsType<Double> )
+
+  else if (AValue.Kind in [tkVariant]) then
+  begin
+    LVariantValue := AValue.AsVariant;
+    case VarType(LVariantValue) of
+      varSmallint, varInteger, varShortInt, varByte, varWord {$ifdef Delphi11Alexandria_UP}, varUInt32, varUInt64 {$ifend}:
+        Result := TValueToJSONValue(StrToInt(VarToStr(LVariantValue)), AOptions);
+      varSingle, varDouble:
+        Result := TValueToJSONValue(StrToFloat(VarToStr(LVariantValue)), AOptions);
+      varCurrency:
+        Result := TValueToJSONValue(StrToCurr(VarToStr(LVariantValue)), AOptions);
+      varBoolean:
+        Result := TValueToJSONValue(LVariantValue = True, AOptions);
+      varNull:
+        Result := TJSONNull.Create();
+      varDate:
+        Result := TValueToJSONValue(TDateTime(LVariantValue), AOptions);
+      varString, varUString:
+        Result := TValueToJSONValue(VarToStr(LVariantValue), AOptions);
+      else
+        Result := TValueToJSONValue(VarToStrDef(LVariantValue, VarTypeAsText(VarType(LVariantValue))), AOptions);
+    end;
+//    Result := TValueToJSONValue( TValue.FromVariant(AValue.AsVariant), AOptions )
+  end
+  else if (AValue.IsObject and (AValue.AsObject = nil)) then
+    Result := TJSONNull.Create
+  else if (AValue.IsInstanceOf(TObject)) then
+    Result := ObjectToJSON(AValue.AsObject, AOptions)
+  else
+    Result := TJSONString.Create(AValue.ToString);
+
+end;
+
+function StringArrayToJsonArray(const AStringArray: TArray<string>): TJSONArray;
+var
+  LIndex: Integer;
+begin
+  Result := TJSONArray.Create;
+  try
+    for LIndex := Low(AStringArray) to High(AStringArray) do
+      Result.Add(AStringArray[LIndex]);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function JsonArrayToStringArray(const AJSONArray: TJSONArray): TArray<string>;
+var
+  LElement: TJSONValue;
+  LIndex: Integer;
+begin
+  if not Assigned(AJSONArray) then
+  begin
+    Result := [];
+    Exit;
+  end;
+
+
+  SetLength(Result, AJSONArray.Count);
+
+  for LIndex := 0 to AJSONArray.Count-1 do
+  begin
+    LElement := AJSONArray.Items[LIndex];
+    if LElement is TJSONString then
+      Result[LIndex] := TJSONString(LElement).Value
+    else if LElement is TJSONNumber then
+      Result[LIndex] := TJSONNumber(LElement).ToString
+    else if LElement is TJSONTrue then
+      Result[LIndex] := 'true'
+    else if LElement is TJSONFalse then
+      Result[LIndex] := 'false'
+    else
+      Result[LIndex] := LElement.ToString;
+  end;
+end;
+
+function IntegerArrayToJsonArray(const AIntegerArray: TArray<Integer>): TJSONArray;
+var
+  LIndex: Integer;
+begin
+  Result := TJSONArray.Create;
+  try
+    for LIndex := Low(AIntegerArray) to High(AIntegerArray) do
+      Result.Add(AIntegerArray[LIndex]);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+function JsonArrayToIntegerArray(const AJSONArray: TJSONArray): TArray<Integer>;
+var
+  LElement: TJSONValue;
+  LIndex: Integer;
+begin
+  SetLength(Result, AJSONArray.Count);
+
+  for LIndex := 0 to AJSONArray.Count-1 do
+  begin
+    LElement := AJSONArray.Items[LIndex];
+    if LElement is TJSONNumber then
+      Result[LIndex] := TJSONNumber(LElement).AsInt
+    else
+      Result[LIndex] := StrToInt(LElement.ToString);
+  end;
+end;
+
+
+{ TJSONValueHelper }
+
+
+{ TJSONArrayEnumerator }
+
+
+{ TJSONArrayHelper }
+
+function TJSONArrayHelper.ToArrayOfRecord<T>(
+  const AOptions: TMARSJSONSerializationOptions): TArray<T>;
+var
+  LElement: TJSONValue;
+begin
+  Result := [];
+  for LElement in Self do
+    Result := Result + [(LElement as TJSONObject).ToRecord<T>(AOptions)];
+end;
+
+function TJSONArrayHelper.ToArrayOfRecord<T>: TArray<T>;
+begin
+  Result := ToArrayOfRecord<T>(DefaultMARSJSONSerializationOptions);
+end;
+
+function TJSONArrayHelper.ToArrayOfTValue: TArray<TValue>;
+var
+  LIndex: Integer;
+  LItem: TJSONValue;
+begin
+  Result := [];
+  for LIndex := 0 to Count-1 do
+  begin
+    LItem := Items[Lindex];
+    if LItem is TJSONString then
+      Result := Result + [TJSONString(LItem).Value]
+    else if LItem is TJSONNumber then
+      Result := Result + [TJSONNumber(LItem).AsDouble]
+    else if LItem is TJSONBool then
+      Result := Result + [TJSONBool(LItem).AsBoolean]
+    else if LItem is TJSONNull then
+      Result := Result + [TValue.Empty]
+    else
+      Result := Result + [LItem.ToJSON]
+  end;
+
+end;
+
+class function TJSONArrayHelper.ArrayOfObjectToJSON<T>(const AArray: TArray<T>): TJSONArray;
+begin
+  Result := ArrayOfObjectToJSON<T>(AArray, DefaultMARSJSONSerializationOptions);
+end;
+
+function TJSONArrayHelper.AddObject: TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  AddObject(Result);
+end;
+
+function TJSONArrayHelper.AddObject(const AElement: TJSONObject): TJSONArray;
+begin
+  Result := Self.Add(AElement);
+end;
+
+class function TJSONArrayHelper.ArrayOfObjectToJSON<T>(const AArray: TArray<T>;
+  const AOptions: TMARSJSONSerializationOptions): TJSONArray;
+begin
+  Result := TJSONArray.Create;
+  try
+    Result.FromArrayOfObject<T>(AArray, AOptions);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+class function TJSONArrayHelper.ArrayOfRecordToJSON<T>(const AArray: TArray<T>;
+  const AFilterProc: TToJSONFilterProc): TJSONArray;
+begin
+  Result := ArrayOfRecordToJSON<T>(AArray, DefaultMARSJSONSerializationOptions, AFilterProc);
+end;
+
+class function TJSONArrayHelper.ArrayOfRecordToJSON<T>(const AArray: TArray<T>;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc): TJSONArray;
+begin
+  Result := TJSONArray.Create;
+  try
+    Result.FromArrayOfRecord<T>(AArray, AOptions, AFilterProc);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+class procedure TJSONArrayHelper.ArrayOfRecordToStream<T>(const AArray: TArray<T>;
+  const ADestStream: TStream; const AFilterProc: TToJSONFilterProc;
+  const AEncoding: TEncoding);
+begin
+  ArrayOfRecordToStream<T>(AArray, ADestStream, DefaultMARSJSONSerializationOptions
+  , AFilterProc, AEncoding);
+end;
+
+class procedure TJSONArrayHelper.ArrayOfRecordToStream<T>(const AArray: TArray<T>;
+  const ADestStream: TStream; const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToJSONFilterProc; const AEncoding: TEncoding);
+var
+  LEncoding: TEncoding;
+  LIndex: Integer;
+  LObj: TJSONObject;
+  LBytes: TBytes;
+begin
+  LEncoding := AEncoding;
+  if not Assigned(LEncoding) then
+    LEncoding := TEncoding.UTF8;
+
+  LBytes := LEncoding.GetBytes('[');
+  ADestStream.WriteBuffer(LBytes[0], Length(LBytes));
+  for LIndex := Low(AArray) to High(AArray) do
+  begin
+    LObj := TJSONObject.Create;
+    try
+      LObj.FromRecord<T>(AArray[LIndex], AOptions, AFilterProc);
+      if LIndex > Low(AArray) then
+        LBytes := LEncoding.GetBytes(',' + LObj.ToJSON)
+      else
+        LBytes := LEncoding.GetBytes(LObj.ToJSON);
+      ADestStream.WriteBuffer(LBytes[0], Length(LBytes));
+    finally
+      LObj.Free;
+    end;
+  end;
+  LBytes := LEncoding.GetBytes(']');
+  ADestStream.WriteBuffer(LBytes[0], Length(LBytes));
+end;
+
+class function TJSONArrayHelper.ArrayOfRecordToJSONString<T>(
+  const AArray: TArray<T>; const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToJSONFilterProc): string;
+begin
+  var LJSONArray := ArrayOfRecordToJSON<T>(AArray, AOptions, AFilterProc);
+  try
+    Result := LJSONArray.ToJSON;
+  finally
+    FreeAndNil(LJSONArray);
+  end;
+end;
+
+class function TJSONArrayHelper.ArrayOfRecordToJSONString<T>(
+  const AArray: TArray<T>; const AFilterProc: TToJSONFilterProc): string;
+begin
+  var LJSONArray := ArrayOfRecordToJSON<T>(AArray, AFilterProc);
+  try
+    Result := LJSONArray.ToJSON;
+  finally
+    FreeAndNil(LJSONArray);
+  end;
+end;
+
+function TJSONArrayHelper.ForEach<T>(const AFunc: TFunc<T, Boolean>): Integer;
+var
+  LIndex: Integer;
+  LItem: TJSONValue;
+begin
+  Result := 0;
+  if not Assigned(AFunc) then
+    Exit;
+  for LIndex := 0 to Count-1 do
+  begin
+    LItem := Items[Lindex];
+    if LItem is T then
+    begin
+      if not AFunc(T(LItem)) then
+        Break;
+      Inc(Result);
+    end;
+  end;
+end;
+
+procedure TJSONArrayHelper.FromArrayOfObject<T>(const AArray: TArray<T>);
+begin
+  FromArrayOfObject<T>(AArray, DefaultMARSJSONSerializationOptions);
+end;
+
+procedure TJSONArrayHelper.FromArrayOfObject<T>(const AArray: TArray<T>;
+  const AOptions: TMARSJSONSerializationOptions);
+var
+  LObject: T;
+begin
+  // clear all
+  while Count > 0 do
+    Remove(0);
+
+  for LObject in AArray do
+    AddElement(TJSONObject.ObjectToJSON(LObject, AOptions));
+end;
+
+procedure TJSONArrayHelper.FromArrayOfRecord<T>(const AArray: TArray<T>;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc);
+var
+  LRecord: T;
+  LObj: TJSONObject;
+begin
+  // clear all
+  while Count > 0 do
+    Remove(0);
+
+  for LRecord in AArray do
+  begin
+    LObj := TJSONObject.Create;
+    try
+      LObj.FromRecord<T>(LRecord, AOptions, AFilterProc);
+      AddElement(LObj);
+    except
+      LObj.Free;
+      raise;
+    end;
+  end;
+end;
+
+
+class function TJSONArrayHelper.JSONStringToArrayOfRecord<T>(
+  const AJSONString: string; const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToRecordFilterProc): TArray<T>;
+var
+  LJSONArray: TJSONArray;
+begin
+  LJSONArray := TJSONObject.ParseJSONValue(AJSONString) as TJSONArray;
+  try
+    Result := LJSONArray.ToArrayOfRecord<T>(AOptions{, AFilterProc});
+  finally
+    LJSONArray.Free;
+  end;
+end;
+
+class function TJSONArrayHelper.JSONStringToArrayOfRecord<T>(
+  const AJSONString: string; const AFilterProc: TToRecordFilterProc): TArray<T>;
+var
+  LJSONArray: TJSONArray;
+begin
+  LJSONArray := TJSONObject.ParseJSONValue(AJSONString) as TJSONArray;
+  try
+    Result := LJSONArray.ToArrayOfRecord<T>({, AFilterProc});
+  finally
+    LJSONArray.Free;
+  end;
+end;
+
+
+
+{ TJSONObjectHelper }
+
+
+function TJSONObjectHelper.GetExactPairName(
+  const ACaseInsensitiveName: string): string;
+var
+  LIndex: Integer;
+  LPair: TJSONPair;
+begin
+  Result := ACaseInsensitiveName;
+  for LIndex := 0 to Count -1 do
+  begin
+    LPair := Pairs[LIndex];
+    if SameText(LPair.JsonString.Value, ACaseInsensitiveName) then
+    begin
+      Result := LPair.JsonString.Value;
+      Exit;
+    end;
+  end;
+end;
+
+
+class function TJSONObjectHelper.JSONStringToRecord<T>(const AJSON: string;
+  const AFilterProc: TToRecordFilterProc): T;
+var
+  LJSON: TJSONObject;
+begin
+  LJSON := TJSONObject.ParseJSONValue(AJSON) as TJSONObject;
+  try
+    Result := JSONToRecord<T>(LJSON, AFilterProc);
+  finally
+    LJSON.Free;
+  end;
+end;
+
+class function TJSONObjectHelper.JSONStringToRecord(
+  const ARecordType: TRttiType; const AJSON: string;
+  const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToRecordFilterProc): TValue;
+var
+  LJSON: TJSONObject;
+begin
+  LJSON := TJSONObject.ParseJSONValue(AJSON) as TJSONObject;
+  try
+    Result := JSONToRecord(ARecordType, LJSON, AOptions, AFilterProc);
+  finally
+    LJSON.Free;
+  end;
+end;
+
+class function TJSONObjectHelper.JSONStringToRecord<T>(const AJSON: string;
+  const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToRecordFilterProc): T;
+var
+  LJSON: TJSONObject;
+begin
+  LJSON := TJSONObject.ParseJSONValue(AJSON) as TJSONObject;
+  try
+    Result := JSONToRecord<T>(LJSON, AOptions, AFilterProc);
+  finally
+    LJSON.Free;
+  end;
+end;
+
+class function TJSONObjectHelper.JSONToObject(const AClassType: TClass;
+  const AJSON: TJSONObject): TObject;
+begin
+  Result := JSONToObject(AClassType, AJSON, DefaultMARSJSONSerializationOptions);
+end;
+
+class function TJSONObjectHelper.JSONToObject(const AClassType: TClass;
+  const AJSON: TJSONObject; const AOptions: TMARSJSONSerializationOptions): TObject;
+var
+  LConstructor: TRttiMethod;
+  LType: TRttiType;
+begin
+  Result := nil;
+  LType := TRttiContext.Create.GetType(AClassType);
+  LConstructor := TRTTIHelper.FindParameterLessConstructor(LType);
+  if not Assigned(LConstructor) then
+    Exit;
+
+  Result := LConstructor.Invoke(AClassType, []).AsObject;
+  try
+    {$IFDEF MARS_JSON_LEGACY}
+    TJson.JsonToObject(Result, AJSON, AOptions);
+    {$ELSE}
+    AJSON.ToObject(Result, LType, AOptions);
+    {$ENDIF}
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+class function TJSONObjectHelper.JSONToObject<T>(const AJSON: TJSONObject): T;
+begin
+  Result := JSONToObject<T>(AJSON, DefaultMARSJSONSerializationOptions);
+end;
+
+class function TJSONObjectHelper.JSONToObject<T>(const AJSON: TJSONObject;
+  const AOptions: TMARSJSONSerializationOptions): T;
+var
+  LConstructor: TRttiMethod;
+  LType: TRttiType;
+begin
+  {$IFDEF MARS_JSON_LEGACY}
+  Result := TJSON.JsonToObject<T>(AJSON, AOptions);
+  {$ELSE}
+  Result := nil;
+  LType := TRttiContext.Create.GetType(TypeInfo(T));
+  LConstructor := TRTTIHelper.FindParameterLessConstructor(LType);
+  if not Assigned(LConstructor) then
+    Exit;
+
+  Result := LConstructor.Invoke((LType as TRttiInstanceType).MetaclassType, []).AsObject as T;
+  try
+    AJSON.ToObject(Result, LType, AOptions);
+  except
+    Result.Free;
+    raise;
+  end;
+  {$ENDIF}
+end;
+
+class function TJSONObjectHelper.JSONToRecord(const ARecordType: TRttiType;
+  const AJSON: TJSONObject; const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToRecordFilterProc): TValue;
+begin
+  Assert(Assigned(AJSON));
+  Result := AJSON.ToRecord(ARecordType, AOptions, AFilterProc);
+end;
+
+class function TJSONObjectHelper.JSONToRecord<T>(const AJSON: TJSONObject;
+  const AFilterProc: TToRecordFilterProc): T;
+begin
+  Assert(Assigned(AJSON));
+  Result := AJSON.ToRecord<T>(DefaultMARSJSONSerializationOptions, AFilterProc);
+end;
+
+class function TJSONObjectHelper.JSONToRecord<T>(const AJSON: TJSONObject;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToRecordFilterProc = nil): T;
+begin
+  Assert(Assigned(AJSON));
+  Result := AJSON.ToRecord<T>(AOptions, AFilterProc);
+end;
+
+class procedure TJSONObjectHelper.ListOfPairOfStringAndTToJSON(
+  const AJSON: TJSONObject; const AList: TObject;
+  const AOptions: TMARSJSONSerializationOptions);
+begin
+  TRttiHelper.EnumerateListOfPairOf(AList,
+    procedure (APair: TValue)
+    begin
+      var LKey := ReadFieldValue(APair, 'Key');
+      var LValue := ReadFieldValue(APair, 'Value');
+
+      AJSON.AddPair(LKey.AsString, TValueToJSONValue(LValue, AOptions));
+    end
+  );
+end;
+
+class function TJSONObjectHelper.ObjectListToJSON(const AObjectList: TObject): TJSONArray;
+begin
+  Result := ObjectListToJSON(AObjectList, DefaultMARSJSONSerializationOptions);
+end;
+
+class function TJSONObjectHelper.ObjectListToJSON(const AObjectList: TObject;
+  const AOptions: TMARSJSONSerializationOptions): TJSONArray;
+var
+  LResult: TJSONArray;
+  LOptions: TMARSJSONSerializationOptions;
+begin
+  LResult := TJSONArray.Create;
+  LOptions := AOptions;
+
+  ObjectListToJSON(LResult, AObjectList, LOptions);
+
+  Result := LResult;
+end;
+
+
+class procedure TJSONObjectHelper.ObjectListToJSON(const AJSON: TJSONArray;
+  const AObjectList: TObject; const AOptions: TMARSJSONSerializationOptions);
+begin
+  TRttiHelper.EnumerateObjectList(AObjectList,
+    procedure (AValue: TValue)
+    begin
+      AJSON.AddElement(TValueToJSONValue(AValue, AOptions));
+    end
+  );
+end;
+
+class function TJSONObjectHelper.ObjectToJSON(const AObject: TObject): TJSONObject;
+begin
+  Result := ObjectToJSON(AObject, DefaultMARSJSONSerializationOptions);
+end;
+
+class function TJSONObjectHelper.ObjectToJSON(const AObject: TObject;
+  const AOptions: TMARSJSONSerializationOptions): TJSONObject;
+begin
+  {$IFDEF MARS_JSON_LEGACY}
+  Result := TJSON.ObjectToJsonObject(AObject, AOptions);
+  {$ELSE}
+
+
+  Result := TJSONObject.Create;
+  try
+    if Assigned(AObject) then
+      Result.FromObject(AObject, nil, AOptions);
+  except
+    Result.Free;
+    raise;
+  end;
+
+  {$ENDIF}
+end;
+
+function TJSONObjectHelper.ReadArrayValue(const AName: string): TJSONArray;
+begin
+  Result := nil;
+  TryGetValue<TJSONArray>(AName, Result);
+end;
+
+function TJSONObjectHelper.ReadArrayValue<T>(const AName: string): TArray<T>;
+begin
+  Result := ReadArrayValue<T>(AName, DefaultMARSJSONSerializationOptions);
+end;
+
+function TJSONObjectHelper.ReadArrayValue<T>(const AName: string;
+  const AOptions: TMARSJSONSerializationOptions): TArray<T>;
+var
+  LArray: TJSONArray;
+begin
+  LArray := ReadArrayValue(AName);
+  if Assigned(LArray) then
+    Result := LArray.ToArrayOfRecord<T>(AOptions)
+  else
+    Result := [];
+end;
+
+function TJSONObjectHelper.ReadBoolValue(const AName: string; const ADefault: Boolean): Boolean;
+var
+  LValue: TJSONBool;
+begin
+  Result := ADefault;
+  if Assigned(Self) and TryGetValue<TJSONBool>(AName, LValue) then
+    Result := LValue is TJSONTrue;
+end;
+
+
+function TJSONObjectHelper.ReadDateTimeValue(const AName: string; const ADefault: TDateTime): TDateTime;
+begin
+  Result := ReadDateTimeValue(AName, ADefault, DefaultMARSJSONSerializationOptions);
+end;
+
+function TJSONObjectHelper.ReadDateTimeValue(const AName: string; const ADefault: TDateTime;
+  const AOptions: TMARSJSONSerializationOptions): TDateTime;
+begin
+  Result := ADefault;
+  if Assigned(Self) then
+    Result := JSONToDate(ReadStringValue(AName), AOptions, ADefault);
+end;
+
+function TJSONObjectHelper.ReadDoubleValue(const AName: string;
+  const ADefault: Double): Double;
+var
+  LValue: TJSONNumber;
+begin
+  Result := ADefault;
+  if Assigned(Self) and TryGetValue<TJSONNumber>(AName, LValue) then
+    Result := LValue.AsDouble;
+end;
+
+function TJSONObjectHelper.AddArray(const AName: string): TJSONArray;
+begin
+  Result := TJSONArray.Create;
+  Self.AddPair(AName, Result);
+end;
+
+function TJSONObjectHelper.AddObject(const AName: string): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Self.AddPair(AName, Result);
+end;
+
+function TJSONObjectHelper.DeletePair(const AName: string): Boolean;
+var
+  LPair: TJSONPair;
+begin
+  Result := False;
+  if Values[AName] <> nil then
+  begin
+    LPair := RemovePair(AName);
+    if LPair.Owned
+    then
+      FreeAndNil(LPair);
+    Result := True;
+  end;
+end;
+
+class procedure TJSONObjectHelper.DictionaryToJSON(
+  const AJSONObject: TJSONObject; const ADictionary: TObject;
+  const AOptions: TMARSJSONSerializationOptions);
+begin
+  TRttiHelper.EnumerateDictionary(ADictionary,
+    procedure (AKey: TValue; AValue: TValue)
+    begin
+      AJSONObject.AddPair(AKey.ToString, TValueToJSONValue(AValue, AOptions));
+    end
+  );
+end;
+
+class function TJSONObjectHelper.ListOfPairOfStringAndTToJSON(const AList: TObject;
+  const AOptions: TMARSJSONSerializationOptions): TJSONObject;
+var
+  LResult: TJSONObject;
+  LOptions: TMARSJSONSerializationOptions;
+begin
+  LResult := TJSONObject.Create;
+  LOptions := AOptions;
+
+  ListOfPairOfStringAndTToJSON(LResult, AList, AOptions);
+
+  Result := LResult;
+end;
+
+class function TJSONObjectHelper.DictionaryToJSON(const ADictionary: TObject): TJSONObject;
+begin
+  Result := DictionaryToJSON(ADictionary, DefaultMARSJSONSerializationOptions);
+end;
+
+class function TJSONObjectHelper.DictionaryToJSON(const ADictionary: TObject;
+  const AOptions: TMARSJSONSerializationOptions): TJSONObject;
+var
+  LResult: TJSONObject;
+  LOptions: TMARSJSONSerializationOptions;
+begin
+  LResult := TJSONObject.Create;
+  LOptions := AOptions;
+
+  DictionaryToJSON(LResult, ADictionary, LOptions);
+
+  Result := LResult;
+end;
+
+procedure TJSONObjectHelper.FromObject(const AObject: TObject;
+  const AFilterProc: TToJSONFilterProc; const AOptions: TMARSJSONSerializationOptions);
+
+  function GetObjectFilterProc(const AObjectType: TRttiType): TToJSONFilterProc;
+  var
+    LMethod: TRttiMethod;
+  begin
+    Result := nil;
+    // looking for TMyClass.ToJSONFilter(const AMember: TRttiMember; const AObj: TJSONObject): Boolean;
+    LMethod := AObjectType.FindMethodFunc<TRttiMember, TJSONObject, Boolean>('ToJSONFilter');
+    if Assigned(LMethod) then
+      Result :=
+        procedure (const AMember: TRttiMember; const AValue: TValue; const AJSONObject: TJSONObject; var AAccept: Boolean)
+        begin
+          AAccept := LMethod.Invoke(AObject, [AMember, AJSONObject]).AsBoolean;
+        end;
+  end;
+
+var
+  LType: TRttiType;
+  LTypeName: string;
+  LMember: TRttiMember;
+  LFilterProc: TToJSONFilterProc;
+  LAccept: Boolean;
+  LValue: TValue;
+  LJSONName: string;
+begin
+  LType := TRttiContext.Create.GetType(AObject.ClassType);
+  LTypeName := LType.Name;
+
+  if IsDictionaryOfStringAndT(LTypeName) then
+    DictionaryToJSON(Self, AObject, AOptions)
+  else if IsListOfPairOfStringAndT(LTypeName) then
+    ListOfPairOfStringAndTToJSON(Self, AObject, AOptions)
+//  else if IsObjectListOfT(LTypeName) then
+//    ObjectListToJSON(Self, AObject, AOptions)
+  else
+  begin
+    LFilterProc := AFilterProc;
+    if not Assigned(LFilterProc) then
+      LFilterProc := GetObjectFilterProc(LType);
+
+    for LMember in LType.GetPropertiesAndFields do
+    begin
+      if (LMember.Visibility < TMemberVisibility.mvPublic) or (not LMember.IsReadable) then
+        Continue;
+
+      LAccept := True;
+      if Assigned(LFilterProc) then
+        LFilterProc(LMember, AObject, Self, LAccept);
+
+      if LAccept then
+      begin
+        LJSONName := LMember.Name;
+        LMember.HasAttribute<JSONNameAttribute>(
+          procedure (AAttr: JSONNameAttribute)
+          begin
+            LJSONName := AAttr.Name;
+          end
+        );
+        if LJSONName <> '' then
+        begin
+          LValue := LMember.GetValue(AObject);
+
+            if LValue.IsType<TValue>(False) and (not LValue.IsArray) then
+            WriteTValue(LJSONName, LValue.AsType<TValue>, AOptions) //unboxing TValue from TValue
+          else
+            WriteTValue(LJSONName, LValue, AOptions);
+        end;
+      end;
+    end;
+  end;
+end;
+
+procedure TJSONObjectHelper.FromObject(const AObject: TObject;
+  const AFilterProc: TToJSONFilterProc);
+begin
+  FromObject(AObject, AFilterProc, DefaultMARSJSONSerializationOptions);
+end;
+
+procedure TJSONObjectHelper.FromObject<T>(const AObject: T;
+  const AFilterProc: TToJSONFilterProc);
+begin
+  FromObject(AObject as TObject, AFilterProc);
+end;
+
+procedure TJSONObjectHelper.FromRecord(const ARecord: TValue;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc = nil
+);
+
+  function GetRecordFilterProc(const ARecordType: TRttiType): TToJSONFilterProc;
+  var
+    LMethod: TRttiMethod;
+    LRecord: TValue;
+  begin
+    Result := nil;
+    LRecord := ARecord;
+    // looking for TMyRecord.ToJSONFilter(const AMember: TRttiMember; const AObj: TJSONObject): Boolean;
+    LMethod := ARecordType.FindMethodFunc<TRttiMember, TJSONObject, Boolean>('ToJSONFilter');
+    if Assigned(LMethod) then
+      Result :=
+        procedure (const AMember: TRttiMember; const AValue: TValue; const AJSONObject: TJSONObject; var AAccept: Boolean)
+        begin
+          AAccept := LMethod.Invoke(LRecord, [AMember, AJSONObject]).AsBoolean;
+        end;
+  end;
+
+var
+  LType: TRttiType;
+  LMember: TRttiMember;
+  LFilterProc: TToJSONFilterProc;
+  LAccept: Boolean;
+  LValue: TValue;
+  LJSONName: string;
+begin
+  LType := TRttiContext.Create.GetType(ARecord.TypeInfo);
+
+  LFilterProc := AFilterProc;
+  if not Assigned(LFilterProc) then
+    LFilterProc := GetRecordFilterProc(LType);
+
+  for LMember in LType.GetPropertiesAndFields do
+  begin
+    if (LMember.Visibility < TMemberVisibility.mvPublic) or (not LMember.IsReadable) then
+      Continue;
+
+    LAccept := True;
+    if Assigned(LFilterProc) then
+      LFilterProc(LMember, ARecord, Self, LAccept);
+
+    if LAccept then
+    begin
+      LJSONName := LMember.Name;
+      LMember.HasAttribute<JSONNameAttribute>(
+        procedure (AAttr: JSONNameAttribute)
+        begin
+          LJSONName := AAttr.Name;
+        end
+      );
+      if LJSONName <> '' then
+      begin
+        LValue := LMember.GetValue(ARecord.GetReferenceToRawData);
+
+          if LValue.IsType<TValue>(False) and (not LValue.IsArray) then
+          WriteTValue(LJSONName, LValue.AsType<TValue>, AOptions) //unboxing TValue from TValue
+        else
+          WriteTValue(LJSONName, LValue, AOptions);
+      end;
+    end;
+  end;
+end;
+
+procedure TJSONObjectHelper.FromRecord<T>(ARecord: T;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToJSONFilterProc = nil);
+begin
+  FromRecord(TValue.From<T>(ARecord), AOptions, AFilterProc);
+end;
+
+function TJSONObjectHelper.ReadInt64Value(const AName: string;
+  const ADefault: Int64): Int64;
+var
+  LValue: TJSONNumber;
+begin
+  Result := ADefault;
+  if Assigned(Self) and TryGetValue<TJSONNumber>(AName, LValue) then
+    Result := LValue.AsInt64;
+end;
+
+function TJSONObjectHelper.ReadIntegerValue(const AName: string;
+  const ADefault: Integer): Integer;
+var
+  LValue: TJSONNumber;
+begin
+  Result := ADefault;
+  if Assigned(Self) and TryGetValue<TJSONNumber>(AName, LValue) then
+    Result := LValue.AsInt;
+end;
+
+function TJSONObjectHelper.ReadStringValue(const AName,
+  ADefault: string): string;
+var
+  LPair: TJSONPair;
+begin
+  Result := ADefault;
+  if not Assigned(Self) then
+    Exit;
+
+  LPair := GetPairByName(AName);
+  if Assigned(LPair) and (not (LPair.JsonValue is TJSONNull)) then
+    Result := LPair.JsonValue.Value;
+end;
+
+
+function TJSONObjectHelper.ReadUnixTimeValue(const AName: string;
+  const ADefault: TDateTime): TDateTime;
+var
+  LValue: Int64;
+begin
+  Result := ADefault;
+  LValue := ReadInt64Value(AName);
+  if LValue <> 0 then
+    Result := UnixToDateTime(LValue)
+end;
+
+function TJSONObjectHelper.ReadValue(const AName: string;
+  const ADesiredType: TRttiType; const ANameCaseSensitive: Boolean;
+  var AValue: TValue; const AOptions: TMARSJSONSerializationOptions): Boolean;
+var
+  LJSONValue: TJSONValue;
+  LName: string;
+begin
+  LName := AName;
+  if not ANameCaseSensitive then
+    LName := GetExactPairName(LName);
+
+  Result := TryGetValue<TJSONValue>(LName, LJSONValue);
+  if Result then
+    TJSONValueToTValue(LJSONValue, ADesiredType, AValue, AOptions);
+end;
+
+function TJSONObjectHelper.ReadValue(const AName: string;
+  const ADefault: TValue; const ADesiredType: TRttiType;
+  const AOptions: TMARSJSONSerializationOptions; const ANameCaseSensitive: Boolean): TValue;
+begin
+  Result := ADefault;
+  ReadValue(AName, ADesiredType, ANameCaseSensitive, Result, AOptions);
+end;
+
+class function TJSONObjectHelper.RecordToJSON(const ARecord: TValue;
+  const AFilterProc: TToJSONFilterProc): TJSONObject;
+begin
+  Result := RecordToJSON(ARecord, DefaultMARSJSONSerializationOptions, AFilterProc);
+end;
+
+class function TJSONObjectHelper.RecordToJSON(const ARecord: TValue;
+  const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToJSONFilterProc): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  try
+    Result.FromRecord(ARecord, AOptions, AFilterProc);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+class function TJSONObjectHelper.RecordToJSON<T>(ARecord: T;
+  const AFilterProc: TToJSONFilterProc): TJSONObject;
+begin
+  Result := RecordToJSON<T>(ARecord, DefaultMARSJSONSerializationOptions, AFilterProc);
+end;
+
+class function TJSONObjectHelper.RecordToJSONString<T>(ARecord: T;
+  const AFilterProc: TToJSONFilterProc;
+  const AFormatJSON: Boolean; const AFormatIndentation: Integer): string;
+begin
+  var LJSONObject := RecordToJSON<T>(ARecord, AFilterProc);
+  try
+    if AFormatJSON then
+      Result := LJSONObject.Format(AFormatIndentation)
+    else
+      Result := LJSONObject.ToJSON(); //AM TODO: pass in JSON options?
+  finally
+    LJSONObject.Free;
+  end;
+end;
+
+class function TJSONObjectHelper.RecordToJSONString<T>(ARecord: T;
+  const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToJSONFilterProc;
+  const AFormatJSON: Boolean; const AFormatIndentation: Integer): string;
+begin
+  var LJSONObject := RecordToJSON<T>(ARecord, AOptions, AFilterProc);
+  try
+    if AFormatJSON then
+      Result := LJSONObject.Format()
+    else
+      Result := LJSONObject.ToJSON(); //AM TODO: pass in JSON options?
+  finally
+    LJSONObject.Free;
+  end;
+end;
+
+class function TJSONObjectHelper.RecordToJSON<T>(ARecord: T;
+  const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToJSONFilterProc): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  try
+    Result.FromRecord<T>(ARecord, AOptions, AFilterProc);
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+class procedure TJSONObjectHelper.TJSONValueToTValue(
+  const AValue: TJSONValue; const ADesiredType: TRttiType; var ATValue: TValue);
+begin
+  TJSONValueToTValue(AValue, ADesiredType, ATValue, DefaultMARSJSONSerializationOptions);
+end;
+
+class procedure TJSONObjectHelper.TJSONValueToTValue(const AValue: TJSONValue;
+  const ADesiredType: TRttiType; var ATValue: TValue;
+  const AOptions: TMARSJSONSerializationOptions);
+var
+  LArray: TValue;
+  LElementType: TRttiType;
+  LElement: TValue;
+  LJSONArray: TJSONArray;
+  LJSONElement: TJSONValue;
+  LIndex: Integer;
+  LNewLength: NativeInt;
+  LInstance: TObject;
+begin
+  if AValue is TJSONBool then // Boolean
+    ATValue := TJSONBool(AValue).AsBoolean
+//  else if ADesiredType.Handle = TypeInfo(Variant) then
+//    Result := TValue.
+  else if AValue is TJSONNumber then // Numbers (Integer and Float)
+  begin
+    if ADesiredType.TypeKind in [tkInt64] then
+      ATValue := TJSONNumber(AValue).AsInt64
+    else
+    if ADesiredType.TypeKind in [tkInteger] then
+      ATValue := TJSONNumber(AValue).AsInt
+    else
+    begin
+      if ADesiredType.Handle = TypeInfo(TValue) then
+        ATValue := GuessTValueFromString(AValue.ToString)
+      else
+        ATValue := TJSONNumber(AValue).AsDouble;
+    end;
+
+  end
+  else if AValue is TJSONString then
+  begin
+    if ADesiredType is TRttiEnumerationType then  // enumerated types
+      ATValue := TValue.FromOrdinal(ADesiredType.Handle, GetEnumValue(ADesiredType.Handle, TJSONString(AValue).Value))
+    else if (ADesiredType.Handle = TypeInfo(TDateTime)) // dates
+      or (ADesiredType.Handle = TypeInfo(TDate))
+      or (ADesiredType.Handle = TypeInfo(TTime))
+    then
+      ATValue := JSONToDate(TJSONString(AValue).Value, AOptions)
+    else
+    begin // strings
+      if (ADesiredType.Handle = TypeInfo(TValue)) or (ADesiredType.Handle = TypeInfo(Variant)) then
+        ATValue := GuessTValueFromString(TJSONString(AValue).Value)
+      else
+        ATValue := TJSONString(AValue).Value;
+    end;
+  end
+  else if AValue is TJSONNull then // null values
+    ATValue := TValue.Empty
+  else if AValue is TJSONObject then
+  begin
+    if ADesiredType.IsRecord then
+      ATValue := TJSONObject(AValue).ToRecord(ADesiredType, AOptions)
+    else if ADesiredType.IsInstance then
+    begin
+      // an instance already in ATValue is filled in place, but only if it really is of the
+      // desired class: whatever else a caller left there (a primitive, an instance of another
+      // class) must not be reused
+      LInstance := nil;
+      if ATValue.Kind = tkClass then
+        LInstance := ATValue.AsObject;
+      if Assigned(LInstance) and not LInstance.InheritsFrom(ADesiredType.AsInstance.MetaclassType) then
+        LInstance := nil;
+
+      if Assigned(LInstance) then
+        TJSONObject(AValue).ToObject(LInstance, ADesiredType, AOptions)
+      else
+        ATValue := TJSONObject.JSONToObject(ADesiredType.AsInstance.MetaclassType, TJSONObject(AValue));
+    end
+    else
+      raise Exception.Create('TJSONObjectHelper.TJSONValueToTValue: unknown type: ' + ADesiredType.Name);
+  end
+  else if (AValue is TJSONArray) then
+  begin
+    LJSONArray := TJSONArray(AValue);
+    if ADesiredType.IsArray(LElementType) then
+    begin
+      TValue.Make(nil, ADesiredType.Handle, LArray);
+
+      LNewLength := LJSONArray.Count;
+      SetArrayLength(LArray, ADesiredType, @LNewLength);
+      //------------------------
+      for LIndex := 0 to LJSONArray.Count-1 do
+      begin
+        LJSONElement := LJSONArray.Items[LIndex];
+        LElement := nil; // be sure we build a new instance
+        TJSONObject.TJSONValueToTValue(LJSONElement, LElementType, LElement, AOptions);
+        LArray.SetArrayElement(LIndex, LElement);
+      end;
+      ATValue := LArray;
+    end;
+  end
+  else
+    raise Exception.CreateFmt('Unable to put JSON Value [%s] in TValue', [AValue.ClassName]);
+end;
+
+procedure TJSONObjectHelper.ToObject(const AInstance: TObject; const AObjectType: TRttiType;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToObjectFilterProc);
+var
+  LMember: TRttiMember;
+  LValue: TValue;
+  LObjectInstance: TObject;
+  LFilterProc: TToObjectFilterProc;
+  LAccept: Boolean;
+  LJSONName: string;
+  LAssignedValuesField: TRttiField;
+  LAssignedValues: TArray<string>;
+
+  function GetObjectFilterProc: TToObjectFilterProc;
+  var
+    LMethod: TRttiMethod;
+  begin
+    Result := nil;
+    // looking for TMyClass.ToObjectFilter(const AMember: TRttiMember; const AObj: TJSONObject): Boolean;
+    LMethod := AObjectType.FindMethodFunc<TRttiMember, TJSONObject, Boolean>('ToObjectFilter');
+    if Assigned(LMethod) then
+      Result :=
+        procedure (const AMember: TRttiMember; const AObject: TObject; const AJSONObject: TJSONObject; var AAccept: Boolean)
+        begin
+          AAccept := LMethod.Invoke(AObject, [AMember, AJSONObject]).AsBoolean;
+        end;
+  end;
+
+begin
+  Assert(Assigned(AInstance));
+  LObjectInstance := AInstance;
+
+  LFilterProc := AFilterProc;
+  if not Assigned(LFilterProc) then
+    LFilterProc := GetObjectFilterProc();
+
+  LAssignedValuesField := AObjectType.GetField('_AssignedValues');
+  if Assigned(LAssignedValuesField)
+     and not LAssignedValuesField.FieldType.IsDynamicArrayOf<string>
+  then
+    LAssignedValuesField := nil;
+  LAssignedValues := [];
+
+  for LMember in AObjectType.GetPropertiesAndFields do
+  begin
+    if (LMember.Visibility < TMemberVisibility.mvPublic) or (not LMember.IsWritable) then
+      Continue;
+
+    LAccept := True;
+    if Assigned(LFilterProc) then
+      LFilterProc(LMember, LObjectInstance, Self, LAccept);
+
+    if LAccept then
+    begin
+      LJSONName := LMember.Name;
+      LMember.HasAttribute<JSONNameAttribute>(
+        procedure (AAttr: JSONNameAttribute)
+        begin
+          LJSONName := AAttr.Name;
+        end
+      );
+      if LJSONName <> '' then
+      begin
+        LValue := LMember.GetValue(LObjectInstance);
+        // a member whose key is not in the JSON keeps its current value: constructor
+        // defaults survive, sub-objects created by the constructor are neither orphaned
+        // nor nil-ed, and filling an existing instance is a merge. _AssignedValues tells
+        // which members actually came from the JSON.
+        if ReadValue(LJSONName, LMember.GetRttiType, True, LValue, AOptions) then
+        begin
+          LMember.SetValue(LObjectInstance, LValue);
+          LAssignedValues := LAssignedValues + [LMember.Name];
+        end;
+      end;
+    end;
+  end;
+  if Assigned(LAssignedValuesField) then
+    LAssignedValuesField.SetValue(LObjectInstance, TValue.From<TArray<string>>(LAssignedValues));
+end;
+
+procedure TJSONObjectHelper.ToObject<T>(const AInstance: TObject);
+begin
+  ToObject<T>(AInstance, DefaultMARSJSONSerializationOptions);
+end;
+
+procedure TJSONObjectHelper.ToObject<T>(const AInstance: TObject;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToObjectFilterProc);
+begin
+  ToObject(AInstance, TRttiContext.Create.GetType(T), AOptions, AFilterProc);
+end;
+
+function TJSONObjectHelper.ToRecord(const ARecordType: TRttiType;
+  const AOptions: TMARSJSONSerializationOptions; const AFilterProc: TToRecordFilterProc = nil): TValue;
+var
+  LMember: TRttiMember;
+  LValue: TValue;
+  LRecordInstance: Pointer;
+  LFilterProc: TToRecordFilterProc;
+  LAccept: Boolean;
+  LJSONName: string;
+  LAssignedValuesField: TRttiField;
+  LAssignedValues: TArray<string>;
+  LDetails: string;
+
+  function GetRecordFilterProc: TToRecordFilterProc;
+  var
+    LMethod: TRttiMethod;
+  begin
+    Result := nil;
+    // looking for TMyRecord.ToRecordFilter(const AMember: TRttiMember; const AObj: TJSONObject): Boolean;
+    LMethod := ARecordType.FindMethodFunc<TRttiMember, TJSONObject, Boolean>('ToRecordFilter');
+    if Assigned(LMethod) then
+      Result :=
+        procedure (const AMember: TRttiMember; var ARecord: TValue; const AJSONObject: TJSONObject; var AAccept: Boolean)
+        begin
+          AAccept := LMethod.Invoke(ARecord, [AMember, AJSONObject]).AsBoolean;
+        end;
+  end;
+
+begin
+  TValue.Make(nil, ARecordType.Handle, Result);
+  LRecordInstance := Result.GetReferenceToRawData;
+
+  LFilterProc := AFilterProc;
+  if not Assigned(LFilterProc) then
+    LFilterProc := GetRecordFilterProc();
+
+  LAssignedValuesField := ARecordType.GetField('_AssignedValues');
+  if Assigned(LAssignedValuesField)
+     and not LAssignedValuesField.FieldType.IsDynamicArrayOf<string>
+  then
+    LAssignedValuesField := nil;
+  LAssignedValues := [];
+
+  for LMember in ARecordType.GetPropertiesAndFields do
+  begin
+    if (LMember.Visibility < TMemberVisibility.mvPublic) or (not LMember.IsWritable) then
+      Continue;
+
+    LAccept := True;
+    if Assigned(LFilterProc) then
+      LFilterProc(LMember, Result, Self, LAccept);
+
+    if LAccept then
+    begin
+      LJSONName := LMember.Name;
+      LMember.HasAttribute<JSONNameAttribute>(
+        procedure (AAttr: JSONNameAttribute)
+        begin
+          LJSONName := AAttr.Name;
+        end
+      );
+      if LJSONName <> '' then
+      begin
+        // every member starts from a clean TValue: a class instance left over from the
+        // previous member would otherwise be filled in place and shared (see ToObject, which
+        // loads the member's current value instead)
+        LValue := TValue.Empty;
+        if ReadValue(LJSONName, LMember.GetRttiType, True, LValue, AOptions) then
+        begin
+          try
+          LMember.SetValue(LRecordInstance, LValue);
+          LAssignedValues := LAssignedValues + [LMember.Name];
+          except on E: EInvalidCast do
+            begin
+              LDetails := LMember.Name + ' (type ' + LMember.GetRttiTypeName +')'
+                + ' incompatible value: '
+                + LValue.ToString + ' (kind ' + TRttiEnumerationType.GetName<TTypeKind>(LValue.Kind) + ')';
+              raise EInvalidCast.Create(E.Message + sLineBreak + LDetails);
+            end;
+          end;
+        end;
+        // members missing from the JSON are left as they are (the record starts zeroed)
+      end;
+    end;
+  end;
+  if Assigned(LAssignedValuesField) then
+    LAssignedValuesField.SetValue(LRecordInstance, TValue.From<TArray<string>>(LAssignedValues));
+end;
+
+function TJSONObjectHelper.ToRecord<T>(
+  const AFilterProc: TToRecordFilterProc): T;
+begin
+  Result := ToRecord<T>(DefaultMARSJSONSerializationOptions, AFilterProc);
+end;
+
+function TJSONObjectHelper.ToRecord(const ARecordType: TRttiType;
+  const AFilterProc: TToRecordFilterProc): TValue;
+begin
+  Result := ToRecord(ARecordType, DefaultMARSJSONSerializationOptions, AFilterProc);
+end;
+
+function TJSONObjectHelper.ToRecord<T>(const AOptions: TMARSJSONSerializationOptions;
+  const AFilterProc: TToRecordFilterProc = nil): T;
+begin
+  Result := ToRecord(TRttiContext.Create.GetType(TypeInfo(T)), AOptions, AFilterProc).AsType<T>;
+end;
+
+class function TJSONObjectHelper.TValueToJSONValue(
+  const AValue: TValue): TJSONValue;
+begin
+  Result := TValueToJSONValue(AValue, DefaultMARSJSONSerializationOptions);
+end;
+
+procedure TJSONObjectHelper.WriteArrayValue(const AName: string;
+  const AArray: TJSONArray);
+begin
+  DeletePair(AName);
+  AddPair(AName, AArray);
+end;
+
+procedure TJSONObjectHelper.WriteArrayValue<T>(const AName: string;
+  const AArray: TArray<T>);
+begin
+  WriteArrayValue<T>(AName, AArray, DefaultMARSJSONSerializationOptions);
+end;
+
+procedure TJSONObjectHelper.WriteArrayValue<T>(const AName: string;
+  const AArray: TArray<T>; const AOptions: TMARSJSONSerializationOptions);
+begin
+  WriteArrayValue(AName, TJSONArray.ArrayOfRecordToJSON<T>(AArray, AOptions));
+end;
+
+procedure TJSONObjectHelper.WriteBoolValue(const AName: string;
+  const AValue: Boolean);
+begin
+  DeletePair(AName);
+  AddPair(AName, BooleanToTJSON(AValue));
+end;
+
+procedure TJSONObjectHelper.WriteDateTimeValue(const AName: string;
+  const AValue: TDateTime);
+begin
+  WriteDateTimeValue(AName, AValue, DefaultMARSJSONSerializationOptions);
+end;
+
+procedure TJSONObjectHelper.WriteDateTimeValue(const AName: string;
+  const AValue: TDateTime; const AOptions: TMARSJSONSerializationOptions);
+begin
+  WriteStringValue(AName, DateToJSON(AValue, AOptions));
+end;
+
+procedure TJSONObjectHelper.WriteDoubleValue(const AName: string;
+  const AValue: Double);
+begin
+  DeletePair(AName);
+  AddPair(AName, TJSONNumber.Create(AValue));
+end;
+
+procedure TJSONObjectHelper.WriteInt64Value(const AName: string;
+  const AValue: Int64);
+begin
+  DeletePair(AName);
+  AddPair(AName, TJSONNumber.Create(AValue));
+end;
+
+procedure TJSONObjectHelper.WriteIntegerValue(const AName: string;
+  const AValue: Integer);
+begin
+  DeletePair(AName);
+  AddPair(AName, TJSONNumber.Create(AValue));
+end;
+
+procedure TJSONObjectHelper.WriteStringValue(const AName, AValue: string);
+begin
+  DeletePair(AName);
+  if AValue <> '' then
+    AddPair(AName, TJSONString.Create(AValue));
+end;
+
+procedure TJSONObjectHelper.WriteTValue(const AName: string;
+  const AValue: TValue);
+begin
+  WriteTValue(AName, AValue, DefaultMARSJSONSerializationOptions);
+end;
+
+procedure TJSONObjectHelper.WriteTValue(const AName: string;
+  const AValue: TValue; const AOptions: TMARSJSONSerializationOptions);
+var
+  LValue: TJSONValue;
+begin
+  LValue := TValueToJSONValue(AValue, AOptions);
+
+{$IFNDEF MARS_JSON_LEGACY}
+  if AOptions.SkipEmptyValues then
+  begin
+    if AOptions.SkipEmptyStrings
+      and ((LValue is TJSONString) and (TJSONString(LValue).Value = '')) then
+    begin
+      FreeAndNil(LValue);
+      Exit;
+    end;
+
+    if AOptions.SkipEmptyNumbers
+      and (LValue is TJSONNumber) and (SameValue(TJSONNumber(LValue).AsDouble, 0)) then
+    begin
+      FreeAndNil(LValue);
+      Exit;
+    end;
+
+    if AOptions.SkipEmptyBooleans
+       and (LValue is TJSONBool) and (TJSONBool(LValue).AsBoolean = false) then
+    begin
+      FreeAndNil(LValue);
+      Exit;
+    end;
+
+    if AOptions.SkipEmptyArrays
+       and (LValue is TJSONArray) and (TJSONArray(LValue).Count = 0) then
+    begin
+      FreeAndNil(LValue);
+      Exit;
+    end;
+
+    if AOptions.SkipEmptyObjects
+      and (LValue is TJSONObject) and (TJSONObject(LValue).Count = 0) then
+    begin
+      FreeAndNil(LValue);
+      Exit;
+    end;
+
+    if AOptions.SkipNullValues
+       and (LValue is TJSONNull) then
+    begin
+      FreeAndNil(LValue);
+      Exit;
+    end;
+
+  end;
+{$ENDIF}
+
+  AddPair(AName, LValue);
+end;
+
+procedure TJSONObjectHelper.WriteUnixTimeValue(const AName: string;
+  const AValue: TDateTime);
+begin
+  WriteInt64Value(AName, DateTimeToUnix(AValue));
+end;
+
+function TJSONArrayHelper.Add(const AElement: TDateTime): TJSONArray;
+begin
+  Result := Self.Add(DateToJSON(AElement));
+end;
+
+function TJSONArrayHelper.Add(const AElement: TDateTime;
+  const AOptions: TMARSJSONSerializationOptions): TJSONArray;
+begin
+  Result := Self.Add(DateToJSON(AElement, AOptions));
+end;
+
+function TJSONArrayHelper.Add(const AElement: Int64): TJSONArray;
+begin
+  Result := Self;
+  Self.AddElement(TJSONNumber.Create(AElement));
+end;
+
+
+{ JSONNameAttribute }
+
+constructor JSONNameAttribute.Create(const AName: string);
+begin
+  inherited Create;
+  FName := AName;
+end;
+
+function TJSONObjectHelper.ReadValue(const AName: string;
+  const ADefault: TValue; const AOptions: TMARSJSONSerializationOptions): TValue;
+var
+  LJSONValue: TJSONValue;
+  LDesiredType: TRttiType;
+  LContext: TRttiContext;
+  LFound: Boolean;
+  LStringValue: string;
+  LValueAsInteger: Integer;
+  LValueAsInt64: Int64;
+  LValueAsDouble: Double;
+begin
+  Result := TValue.Empty;
+  LFound := TryGetValue<TJSONValue>(AName, LJSONValue);
+
+  if LFound then
+  begin
+    LContext := TRttiContext.Create;
+
+    LDesiredType := LContext.GetType(TypeInfo(String)); // fallback to string
+    if LJSONValue is TJSONNumber then
+    begin
+      LStringValue := LJSONValue.Value;
+      if Integer.TryParse(LStringValue, LValueAsInteger)then
+        LDesiredType := LContext.GetType(TypeInfo(Integer))
+      else if TryStrToInt64(LStringValue, LValueAsInt64) then
+        LDesiredType := LContext.GetType(TypeInfo(Int64))
+      else if TryStrToFloat(LStringValue, LValueAsDouble) then
+        LDesiredType := LContext.GetType(TypeInfo(Double))
+      else if TryStrToFloat(LStringValue, LValueAsDouble, TFormatSettings.Create('en')) then
+        LDesiredType := LContext.GetType(TypeInfo(Double));
+    end
+    else if LJSONValue is TJSONBool then
+      LDesiredType := LContext.GetType(TypeInfo(Boolean))
+    else if LJSONValue is TJSONArray then
+      raise ENotImplemented.Create('MARS ReadValue: conversion from JSONArray to TValue')
+    else if LJSONValue is TJSONObject then
+      raise ENotImplemented.Create('MARS ReadValue: conversion from JSONObject to TValue')
+    else if LJSONValue is TJSONNull then
+      Exit; // Result = Empty
+
+    TJSONValueToTValue(LJSONValue, LDesiredType, Result, AOptions);
+  end;
+
+end;
+
+function TJSONObjectHelper.ReadValue(const AName: string;
+  const ADefault: TValue; const ADesiredType: TRttiType;
+  const ANameCaseSensitive: Boolean): TValue;
+begin
+  Result := ADefault;
+  ReadValue(AName, ADesiredType, ANameCaseSensitive, Result, DefaultMARSJSONSerializationOptions);
+end;
+
+{ TMARSJSONSerializationOptions }
+
+function TMARSJSONSerializationOptions.AdjustWith(
+  const AAttributes: TArray<TCustomAttribute>): TMARSJSONSerializationOptions;
+begin
+  Result := Self;
+  ComputeJSONSerializationOptions(Result, AAttributes);
+end;
+
+function TMARSJSONSerializationOptions.AdjustWith(
+  const AParameters: TMARSParameters): TMARSJSONSerializationOptions;
+
+  // True and the value when AName is present (a Boolean from the .ini reader, or a string)
+  function TryGetBoolean(const AName: string; out AValue: Boolean): Boolean;
+  var
+    LValue: TValue;
+  begin
+    Result := AParameters.ContainsParam(AName);
+    if not Result then
+      Exit;
+    LValue := AParameters.ByName(AName);
+    if LValue.TypeInfo = TypeInfo(Boolean) then
+      AValue := LValue.AsBoolean
+    else if not TryStrToBool(LValue.ToString, AValue) then
+      raise EArgumentException.CreateFmt('Invalid value for %s: "%s" (expected true or false)'
+        , [AName, LValue.ToString]);
+  end;
+
+var
+  LBoolean: Boolean;
+begin
+  Result := Self;
+  if not Assigned(AParameters) then
+    Exit;
+
+  if TryGetBoolean(JSON_SKIPEMPTYVALUES_PARAM, LBoolean) then
+    if LBoolean then
+      Result.SkipAllEmptyOrNullValues
+    else
+      Result.IncludeEmptyOrNullValues;
+
+  if TryGetBoolean(JSON_SKIPEMPTYSTRINGS_PARAM, LBoolean) then
+    Result.SkipEmptyStrings := LBoolean;
+  if TryGetBoolean(JSON_SKIPEMPTYNUMBERS_PARAM, LBoolean) then
+    Result.SkipEmptyNumbers := LBoolean;
+  if TryGetBoolean(JSON_SKIPEMPTYBOOLEANS_PARAM, LBoolean) then
+    Result.SkipEmptyBooleans := LBoolean;
+  if TryGetBoolean(JSON_SKIPEMPTYOBJECTS_PARAM, LBoolean) then
+    Result.SkipEmptyObjects := LBoolean;
+  if TryGetBoolean(JSON_SKIPEMPTYARRAYS_PARAM, LBoolean) then
+    Result.SkipEmptyArrays := LBoolean;
+  if TryGetBoolean(JSON_SKIPNULLVALUES_PARAM, LBoolean) then
+    Result.SkipNullValues := LBoolean;
+  if TryGetBoolean(JSON_DATEISUTC_PARAM, LBoolean) then
+    Result.DateIsUTC := LBoolean;
+  if TryGetBoolean(JSON_USEDISPLAYFORMATFORNUMERICFIELDS_PARAM, LBoolean) then
+    Result.UseDisplayFormatForNumericFields := LBoolean;
+end;
+
+procedure TMARSJSONSerializationOptions.IncludeEmptyOrNullValues;
+begin
+  SkipEmptyStrings := False;
+  SkipEmptyNumbers := False;
+  SkipEmptyBooleans := False;
+  SkipEmptyObjects := False;
+  SkipEmptyArrays := False;
+  SkipNullValues := False;
+end;
+
+procedure TMARSJSONSerializationOptions.SkipAllEmptyOrNullValues;
+begin
+  SkipEmptyStrings := True;
+  SkipEmptyNumbers := True;
+  SkipEmptyBooleans := True;
+  SkipEmptyObjects := True;
+  SkipEmptyArrays := True;
+  SkipNullValues := True;
+end;
+
+function TMARSJSONSerializationOptions.SkipEmptyValues: Boolean;
+begin
+  Result :=
+     SkipEmptyStrings
+  or SkipEmptyNumbers
+  or SkipEmptyBooleans
+  or SkipEmptyObjects
+  or SkipEmptyArrays
+  or SkipNullValues;
+end;
+
+{ JSONSkip }
+
+constructor JSONSkip.Create;
+begin
+  inherited Create('');
+end;
+
+initialization
+  DefaultMARSJSONSerializationOptions.DateIsUTC := Trunc(TTimeZone.Local.GetUTCOffset(Now).TotalMinutes) = 0;
+
+end.

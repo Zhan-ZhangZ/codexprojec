@@ -1,0 +1,101 @@
+#chat-log {
+    height: 1fr;
+    align: left bottom;
+}
+
+ChatWelcome {
+    width: 100%;
+    height: auto;
+    padding: 4 0;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+.user-message {
+    border-left: solid $surface-lighten-2;
+    padding: 0 1;
+    margin: 1 0 0 0;
+    height: auto;
+}
+
+.assistant-message {
+    border-left: solid $surface-lighten-2;
+    padding: 0 1;
+    height: auto;
+}
+
+/* Reasoning fold while a stream is live: the toggle row is hidden so the
+ * sibling ThinkingHeader carries the visual weight. finish() drops the
+ * -streaming class to reveal the toggle and the formatted token count. */
+.reasoning-block.-streaming > CollapsibleTitle {
+    display: none;
+}
+
+/* Where the model's view of the chat changes; a rule, not a message. No
+ * content-align (the rich Rule centres itself); the margin keeps it from
+ * reading as a caption on the message above. */
+.compaction-marker {
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    color: $text-muted;
+}
+
+/* The hint band: help text left, context reading right. $boost here (not only on
+ * HelpHint) so the chip's transparent cells sit on the same band instead of
+ * punching a hole in its right end. */
+#hint-row {
+    width: 100%;
+    height: 1;
+    background: $boost;
+}
+
+.speaker-label {
+    height: auto;
+}
+
+
+.section-header {
+    text-style: bold underline;
+    color: $text-muted;
+    padding: 1 0 0 1;
+}
+
+Markdown {
+    background: transparent;
+    margin: 0 1;
+}
+
+/* ChatInput is a TextArea subclass. The default height keeps a comfortable
+ * three-row pad (one row text, one row top/bottom padding) so the input
+ * never feels cramped. _track_multiline toggles -multiline when the user
+ * adds a newline; the input then grows up to 10 rows. */
+#chat-input {
+    border: none;
+    height: 3;
+    padding: 1 1;
+    margin: 0;
+    background: $surface;
+}
+
+#chat-input.-multiline {
+    height: auto;
+    min-height: 3;
+    max-height: 10;
+}
+
+#chat-input.normal-mode {
+    opacity: 0.7;
+}
+
+/* The prompt block wraps the input AND the model strip so they share a single
+ * focus border. Children (input on top, model strip below) read as one zone. */
+#chat-prompt-area {
+    height: auto;
+    padding: 0 1;
+    border: $rail transparent;
+}
+
+#chat-prompt-area:focus-within {
+    border: $rail $primary;
+}

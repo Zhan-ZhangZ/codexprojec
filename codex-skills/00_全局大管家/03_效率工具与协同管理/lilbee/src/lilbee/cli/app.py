@@ -1,0 +1,254 @@
+"""App creation, console, and global callback."""
+
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+import typer
+from typer._click import Context
+from typer.core import TyperCommand
+
+from lilbee.app.services import install_engine_lifecycle_hooks
+from lilbee.app.version import get_version
+from lilbee.cli.helpers import json_output as json_out
+from lilbee.core.config import RefusedVariableError, cfg, refuse_environment
+from lilbee.core.settings import overlay_persisted_settings
+from lilbee.runtime.console import PlainConsole
+from lilbee.runtime.onefile_cache import cleanup_stale_onefile_caches
+
+app = typer.Typer(help="lilbee: Local RAG knowledge base", invoke_without_command=True)
+console = PlainConsole()
+
+data_dir_option = typer.Option(
+    None,
+    "--data-dir",
+    "-d",
+    help="Override data directory (default: platform-specific, see 'lilbee status')",
+)
+
+model_option = typer.Option(
+    None,
+    "--model",
+    "-m",
+    help="Override chat model (default: $LILBEE_CHAT_MODEL or the configured chat model)",
+)
+
+json_option = typer.Option(
+    False,
+    "--json",
+    "-j",
+    help="Emit structured JSON output (for agent/script consumption).",
+)
+
+global_option = typer.Option(
+    False,
+    "--global",
+    "-g",
+    help="Use the global database, ignoring any local .lilbee/ directory.",
+)
+
+_log_level_option = typer.Option(
+    None,
+    "--log-level",
+    help="Set log level (DEBUG, INFO, WARNING, ERROR). Overrides LILBEE_LOG_LEVEL.",
+)
+
+temperature_option = typer.Option(None, "--temperature", "-t", help="Sampling temperature.")
+top_p_option = typer.Option(None, "--top-p", help="Top-p (nucleus) sampling threshold.")
+top_k_sampling_option = typer.Option(None, "--top-k-sampling", help="Top-k sampling count.")
+repeat_penalty_option = typer.Option(None, "--repeat-penalty", help="Repeat penalty factor.")
+num_ctx_option = typer.Option(None, "--num-ctx", help="Context window size (tokens).")
+seed_option = typer.Option(None, "--seed", help="Random seed for reproducibility.")
+
+
+def _apply_data_root(root: Path) -> None:
+    """Point cfg paths at *root*, export ``LILBEE_DATA``, overlay config.toml.
+
+    Exporting the env var keeps spawn-context worker subprocesses on the
+    same data root after their fresh ``import lilbee``. The root is
+    canonicalized so a symlinked or relative ``--data-dir`` keys the same lock
+    as another process on the same directory.
+    """
+    from lilbee.core.system import canonical_data_root
+
+    root = canonical_data_root(root)
+    cfg.data_root = root
+    # An explicit LILBEE_DOCUMENTS_DIR wins over the root-derived default,
+    # matching the env precedence a bare ``import lilbee`` applies.
+    documents_env = os.environ.get("LILBEE_DOCUMENTS_DIR", "").strip()
+    cfg.documents_dir = Path(documents_env) if documents_env else root / "documents"
+    cfg.data_dir = root / "data"
+    cfg.lancedb_dir = root / "data" / "lancedb"
+    os.environ["LILBEE_DATA"] = str(root)
+    overlay_persisted_settings(root)
+
+
+def _resolve_data_root(data_dir: Path | None, use_global: bool) -> None:
+    """Resolve the data-root precedence: --data-dir | --global | LILBEE_DATA | default."""
+    if use_global:
+        from lilbee.core.system import default_data_dir
+
+        _apply_data_root(default_data_dir())
+        return
+    if data_dir is not None:
+        _apply_data_root(data_dir)
+        return
+    data_env = os.environ.get("LILBEE_DATA", "")
+    if data_env:
+        _apply_data_root(Path(data_env))
+
+
+class _OverrideState:
+    """Which one-off CLI overrides were given this invocation, wherever the
+    flag sat (typer binds --model both before and after the subcommand)."""
+
+    def __init__(self) -> None:
+        self.chat_model = False
+
+
+_override_state = _OverrideState()
+
+
+def chat_model_overridden() -> bool:
+    """Whether --model was passed anywhere on this invocation's command line."""
+    return _override_state.chat_model
+
+
+def apply_overrides(
+    data_dir: Path | None = None,
+    model: str | None = None,
+    use_global: bool = False,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k_sampling: int | None = None,
+    repeat_penalty: float | None = None,
+    num_ctx: int | None = None,
+    seed: int | None = None,
+) -> None:
+    """Apply CLI overrides to config before any work begins.
+    Precedence (highest first):
+    --data-dir / LILBEE_DATA  >  .lilbee/ (local walk-up)  >  global platform default
+    """
+    if data_dir is not None and use_global:
+        raise typer.BadParameter("Cannot use --global with --data-dir")
+
+    _resolve_data_root(data_dir, use_global)
+
+    if model is not None:
+        _override_state.chat_model = True
+    overrides: dict[str, Any] = {
+        "chat_model": model,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k_sampling": top_k_sampling,
+        "repeat_penalty": repeat_penalty,
+        "num_ctx": num_ctx,
+        "seed": seed,
+    }
+    for attr, value in overrides.items():
+        if value is not None:
+            setattr(cfg, attr, value)
+
+
+def _refuse_environment(json_output: bool) -> None:
+    """Exit with one error line when the environment sets a variable lilbee does not run with."""
+    try:
+        refuse_environment()
+    except RefusedVariableError as exc:
+        if json_output:
+            json_out({"error": str(exc)})
+        else:
+            typer.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from None
+
+
+class RefusingCommand(TyperCommand):
+    """A command that refuses the environment when it runs, after its --help is parsed."""
+
+    def invoke(self, ctx: Context) -> Any:
+        _refuse_environment(cfg.json_mode)
+        return super().invoke(ctx)
+
+
+def refuse_environment_in(typer_app: typer.Typer) -> None:
+    """Make every command registered on *typer_app*, nested groups included, a refusing one."""
+    for command in typer_app.registered_commands:
+        command.cls = RefusingCommand
+    for group in typer_app.registered_groups:
+        if group.typer_instance is not None:
+            refuse_environment_in(group.typer_instance)
+
+
+@app.callback()
+def _default(
+    ctx: typer.Context,
+    data_dir: Path | None = data_dir_option,
+    model: str | None = model_option,
+    json_output: bool = json_option,
+    use_global: bool = global_option,
+    log_level: str | None = _log_level_option,
+    show_version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show version and exit.",
+        is_eager=True,
+    ),
+) -> None:
+    """Start interactive chat when no command is given."""
+    _override_state.chat_model = False
+    if show_version:
+        typer.echo(f"lilbee {get_version()}")
+        raise SystemExit(0)
+
+    env_level = os.environ.get("LILBEE_LOG_LEVEL", "")
+    level_str = (log_level or env_level or "WARNING").upper()
+    from lilbee.cli.log_routing import set_explicit_verbosity
+
+    set_explicit_verbosity(bool(log_level or env_level))
+    _log_levels = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+    }
+    level = _log_levels.get(level_str, logging.WARNING)
+    logging.basicConfig(
+        level=level, format="%(levelname)s %(name)s: %(message)s", stream=sys.stderr
+    )
+    # basicConfig is a no-op when handlers already exist, so always set level explicitly
+    logging.getLogger().setLevel(level)
+
+    cleanup_stale_onefile_caches()
+
+    # Swallow lancedb's shutdown-time thread noise: opt-in side effect, not
+    # imposed on library consumers of lilbee.
+    from lilbee.data.store import install_lancedb_thread_error_suppressor
+
+    install_lancedb_thread_error_suppressor()
+
+    # A terminal close or `kill` otherwise leaves the engine fleet running and its
+    # VRAM pinned, because the default disposition skips the atexit teardown.
+    install_engine_lifecycle_hooks()
+
+    cfg.json_mode = json_output
+    # Typer binds options placed before the subcommand name to this callback;
+    # apply them here for every invocation. Subcommands re-call apply_overrides
+    # with their own (post-subcommand) flags, and re-applying None is a no-op,
+    # so ``--data-dir`` / ``--model`` / ``--global`` work in either position.
+    apply_overrides(data_dir=data_dir, model=model, use_global=use_global)
+    # Backend-level logging toggles are applied lazily by SdkLLMProvider
+    # on first use, so nothing else is needed here.
+    if ctx.invoked_subcommand is None:
+        _refuse_environment(json_output)
+        if cfg.json_mode:
+            json_out({"error": "Interactive chat requires a terminal, not --json"})
+            raise SystemExit(1)
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            typer.echo("Error: Interactive chat requires a terminal.", err=True)
+            raise SystemExit(1)
+        from lilbee.cli.tui import run_tui
+
+        run_tui()

@@ -1,0 +1,158 @@
+SettingsScreen {
+
+    #settings-scroll {
+        height: 1fr;
+        min-height: 0;
+    }
+
+    #settings-tabs {
+        height: 1fr;
+        min-height: 0;
+        margin-top: 1;
+    }
+
+    /* TabbedContent's inner ContentSwitcher and TabPane default to
+     * height: auto. With a tall settings group (Ingest, Generation) that
+     * pushes the docked BottomBars off-screen. Force flex so the
+     * dock-bottom reservation always wins.
+     */
+    #settings-tabs ContentSwitcher,
+    #settings-tabs TabPane {
+        height: 1fr;
+        min-height: 0;
+    }
+
+    /* Pane body owns its own horizontal padding so column 0 of the inner
+     * VerticalScroll always paints from the screen edge. Putting the
+     * padding on the outer Container instead (#settings-scroll) interacted
+     * badly with the inner scroll on rapid wheel-up: the compositor
+     * leaked stale glyphs into column 0 because the outer's padding box
+     * and the inner's scroll viewport disagreed about where row 0 starts.
+     */
+    #settings-tabs TabPane > VerticalScroll {
+        padding: 0 1;
+    }
+
+    /* Settings sub-tabs: bold $primary text on a $surface background pill
+     * for the active tab, dim text for inactive. Top-level ViewTabs share
+     * this aesthetic so navigation reads the same at both levels.
+     */
+    #settings-tabs Tab {
+        padding: 0 2;
+        color: $text-muted;
+    }
+    #settings-tabs Tab.-active {
+        color: $primary;
+        text-style: bold;
+        background: $surface;
+    }
+    #settings-tabs Tabs:focus Tab.-active {
+        color: $accent;
+        text-style: bold underline;
+    }
+    #settings-tabs Underline {
+        color: $primary;
+    }
+
+    .api-keys-warning {
+        color: $warning;
+        text-style: italic;
+        padding: 0 0 1 1;
+    }
+
+    .setting-row {
+        margin-bottom: 1;
+
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    .setting-title {
+        padding: 0 0 0 1;
+        text-style: bold;
+    }
+
+    .setting-help {
+        color: $text-muted;
+        padding: 0 0 0 1;
+    }
+
+    .setting-editor {
+        margin: 0 0 0 0;
+    }
+
+    .setting-editor-row {
+        layout: horizontal;
+        height: auto;
+    }
+
+    .setting-editor-row .setting-editor {
+        width: 1fr;
+    }
+
+    .setting-reset-button {
+        width: 3;
+        min-width: 3;
+        margin-left: 1;
+        color: $text-muted;
+    }
+
+    .setting-model-picker-button {
+        width: 1fr;
+        height: 3;
+        background: $boost;
+        color: $text;
+        border: $rail $surface-lighten-2;
+        text-style: bold;
+
+        &:focus {
+            border: $rail $primary;
+        }
+    }
+
+    Input, Select SelectCurrent, Checkbox {
+        border: $rail $surface-lighten-2;
+
+        &:focus {
+            border: $rail $primary;
+        }
+    }
+
+    Select:focus > SelectCurrent {
+        border: $rail $primary;
+    }
+
+    Input.-invalid {
+        border: $rail $error 60%;
+    }
+
+    .setting-list-editor {
+        height: 16;
+        border: solid $surface;
+        margin-bottom: 1;
+    }
+
+    .setting-multiline-editor {
+        height: 12;
+        border: solid $surface-lighten-2;
+        margin-bottom: 1;
+
+        &:focus-within {
+            border: $rail $primary;
+        }
+    }
+
+    .setting-list-error {
+        color: $error;
+        display: none;
+    }
+
+    .setting-list-error.-visible {
+        display: block;
+    }
+
+    .setting-list-restore {
+        margin-top: 1;
+    }
+}

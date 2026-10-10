@@ -1,0 +1,325 @@
+"""ModelManager: native and SDK-backed model lifecycle operations."""
+
+import logging
+import threading
+from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
+
+from cachetools import TTLCache
+
+from lilbee.catalog.compat import UnsupportedQuantError
+from lilbee.catalog.models import CatalogModel
+from lilbee.catalog.types import ModelSource
+from lilbee.core.config import DEFAULT_HTTP_TIMEOUT
+from lilbee.core.security import validate_path_within
+from lilbee.modelhub.model_manager.types import ModelNotFoundError
+from lilbee.modelhub.registry import ModelRegistry
+from lilbee.providers.local_servers import LOCAL_SERVERS, local_server_for_key
+from lilbee.providers.model_ref import parse_model_ref
+from lilbee.runtime.cancellation import CancelSignal
+
+log = logging.getLogger(__name__)
+
+_INSTALLED_CACHE_TTL_SECONDS = 60.0
+_NATIVE_IDENTITIES_CACHE_KEY = "native-identities"
+
+
+def _prefixed_source(model: str) -> ModelSource | None:
+    """Map a provider-prefixed ref to its source, or ``None`` for a bare ref.
+
+    Local-server prefixes (``ollama/``, ``lm_studio/``) map to that server's
+    source; API-provider prefixes are FRONTIER. A bare name returns ``None``
+    so the caller falls back to backend membership.
+    """
+    for spec in LOCAL_SERVERS:
+        if model.startswith(spec.wire_prefix):
+            return ModelSource(spec.key)
+    try:
+        ref = parse_model_ref(model)
+    except ValueError:
+        return None
+    return ModelSource.FRONTIER if ref.is_api else None
+
+
+class ModelManager:
+    """Manages model lifecycle with distinct sources."""
+
+    def __init__(self, models_dir: Path) -> None:
+        self._models_dir = models_dir
+        self._registry = ModelRegistry(self._models_dir)
+        # Memoize list_installed results to avoid walking the registry
+        # filesystem and hitting the backend HTTP endpoint on every call.
+        # The catalog filter path fires this per request. Time-based TTL
+        # plus explicit invalidation on pull/remove keeps freshness.
+        self._installed_cache: TTLCache[ModelSource | None, list[str]] = TTLCache(
+            maxsize=8, ttl=_INSTALLED_CACHE_TTL_SECONDS
+        )
+        # Identity cache: refs + hf_repos of installed natives. The catalog
+        # screen reads this to mark rows as installed without re-walking
+        # the registry on every screen mount (~150-300 ms saved).
+        self._native_identities_cache: TTLCache[str, frozenset[str]] = TTLCache(
+            maxsize=1, ttl=_INSTALLED_CACHE_TTL_SECONDS
+        )
+        # TTLCache splices an internal link list without a lock; every access holds this one.
+        self._cache_lock = threading.Lock()
+
+    def list_installed(self, source: ModelSource | None = None) -> list[str]:
+        """List installed model names. ``source=None`` lists all sources.
+
+        Memoized with a ``_INSTALLED_CACHE_TTL_SECONDS`` TTL and
+        invalidated eagerly by ``pull``/``remove``.
+        """
+        with self._cache_lock:
+            cached = self._installed_cache.get(source)
+        if cached is not None:
+            return cached
+
+        if source is None:
+            native = set(self._list_native())
+            remote = set(self._list_remote())
+            result = sorted(native | remote)
+        elif source is ModelSource.NATIVE:
+            result = self._list_native()
+        else:
+            result = self._list_remote()
+
+        with self._cache_lock:
+            self._installed_cache[source] = result
+        return result
+
+    def list_native_identities(self) -> frozenset[str]:
+        """Return refs + hf_repos of installed native models.
+
+        Same TTL as ``list_installed``. The catalog screen reads this to
+        mark catalog rows as installed without re-walking the registry
+        on every screen mount.
+
+        Raises ``OSError`` when the registry cannot be read, so an
+        unreadable tree is never cached as nothing installed.
+        """
+        with self._cache_lock:
+            cached = self._native_identities_cache.get(_NATIVE_IDENTITIES_CACHE_KEY)
+        if cached is not None:
+            return cached
+        identities: set[str] = set()
+        for m in self._registry.list_installed():
+            identities.add(m.ref)
+            identities.add(m.hf_repo)
+        result = frozenset(identities)
+        with self._cache_lock:
+            self._native_identities_cache[_NATIVE_IDENTITIES_CACHE_KEY] = result
+        return result
+
+    def _invalidate_installed_cache(self) -> None:
+        """Drop all cached list_installed results and the route-layer cache."""
+        with self._cache_lock:
+            self._installed_cache.clear()
+            self._native_identities_cache.clear()
+        from lilbee.app.services import peek_services
+
+        # peek_services is None for a standalone ModelManager (test setup);
+        # the route isn't running so there's nothing to invalidate.
+        services = peek_services()
+        if services is not None:
+            services.known_models.invalidate()
+
+    def _list_native(self) -> list[str]:
+        """List native models from the registry only."""
+        return sorted(m.ref for m in self._registry.list_installed())
+
+    def _list_remote(self) -> list[str]:
+        """List model names across every configured local server (Ollama, LM Studio).
+
+        Reuses the discovery dispatch so each listing endpoint matches its
+        server (Ollama ``/api/tags`` vs LM Studio ``/v1/models``). Returns
+        ``[]`` when the backends are unreachable.
+        """
+        # circular: discovery -> app.services -> model_manager.__init__ -> core
+        from lilbee.modelhub.model_manager.discovery import classify_all_remote_models
+
+        models = classify_all_remote_models(timeout=DEFAULT_HTTP_TIMEOUT)
+        return [m.name for m in models]
+
+    def is_installed(self, model: str, source: ModelSource | None = None) -> bool:
+        """Check if model exists in specified source."""
+        if source is None:
+            return self._is_native(model) or self._is_remote(model)
+        if source is ModelSource.NATIVE:
+            return self._is_native(model)
+        return self._is_remote(model)
+
+    def _is_native(self, model: str) -> bool:
+        """True when the manifest registry holds *model*."""
+        return self._registry.is_installed(model)
+
+    def _is_remote(self, model: str) -> bool:
+        return model in self.list_installed(ModelSource.REMOTE)
+
+    def get_source(self, model: str) -> ModelSource | None:
+        """Return the granular source a model lives in. Native takes precedence.
+
+        A provider-prefixed ref classifies without a network call; a bare name
+        that a backend reports installed is ``REMOTE`` (the prefix is what names
+        the specific server). ``None`` when the model is in no known source.
+        """
+        if self._is_native(model):
+            return ModelSource.NATIVE
+        prefixed = _prefixed_source(model)
+        if prefixed is not None:
+            return prefixed
+        if self._is_remote(model):
+            return ModelSource.REMOTE
+        return None
+
+    def pull(
+        self,
+        model: str,
+        source: ModelSource,
+        *,
+        on_bytes: Callable[[int, int], None] | None = None,
+        allow_unsupported: bool = False,
+        cancel: CancelSignal | None = None,
+    ) -> Path | None:
+        """Download a native GGUF model and return its path.
+
+        lilbee pulls native models only. Local servers (Ollama, LM Studio)
+        are read-only: their models are managed in their own app and surface
+        here once present, so a non-native *source* is refused.
+
+        Native pulls of architectures the bundled llama.cpp doesn't support
+        are refused with ``UnsupportedArchError``, and files whose tensors it
+        cannot decode with ``UnsupportedQuantError``, unless *allow_unsupported*
+        is True. *on_bytes* receives (downloaded_bytes, total_bytes) progress.
+        A *cancel* signal makes the download cancellable mid-transfer; see
+        :func:`~lilbee.catalog.download_model`.
+        """
+        if source is not ModelSource.NATIVE:
+            spec = local_server_for_key(source.value)
+            where = spec.display_name if spec is not None else "the configured server"
+            raise ValueError(
+                f"lilbee runs {where} models but doesn't download them. "
+                f"Add the model in {where}, then pick it here."
+            )
+        if not allow_unsupported:
+            self.enforce_arch_compat(model)
+        try:
+            return self._pull_native(
+                model, on_bytes=on_bytes, cancel=cancel, allow_unsupported=allow_unsupported
+            )
+        finally:
+            self._invalidate_installed_cache()
+
+    def enforce_arch_compat(self, ref: str) -> None:
+        """Raise UnsupportedArchError if *ref*'s architecture isn't in the supported set.
+
+        Public because the pull preflight on the HTTP surface runs the same
+        check before starting a download, so a caller learns the model is
+        unsupported before any bytes move.
+        """
+        from lilbee.app.services import get_services
+        from lilbee.catalog.compat import (
+            ModelCompat,
+            UnsupportedArchError,
+            classify,
+            resolve_arch_for_pull,
+        )
+
+        arch = resolve_arch_for_pull(ref, get_services().hf_client)
+        if classify(arch) is ModelCompat.UNSUPPORTED:
+            raise UnsupportedArchError(ref, arch)
+
+    def _pull_native(
+        self,
+        model: str,
+        *,
+        on_bytes: Callable[[int, int], None] | None = None,
+        cancel: CancelSignal | None = None,
+        allow_unsupported: bool = False,
+    ) -> Path:
+        """Download a featured or ad-hoc HuggingFace model to the native GGUF directory."""
+        # heavy: lilbee.catalog (>50ms; huggingface_hub fanout)
+        from lilbee.catalog import download_model, resolve_pull_target
+        from lilbee.modelhub.registry import register_downloaded_model
+
+        entry = resolve_pull_target(model)
+        if entry is None:
+            raise ModelNotFoundError(
+                f"Model '{model}' not recognized. "
+                "Pass a HuggingFace repo id (owner/name) or a featured model name."
+            )
+        entry = self._resolved_entry(entry, verify=not allow_unsupported)
+        path = download_model(
+            entry, on_progress=on_bytes, on_complete=register_downloaded_model, cancel=cancel
+        )
+        log.info("Downloaded %s to %s", model, path)
+        return path
+
+    @staticmethod
+    def _resolved_entry(entry: CatalogModel, *, verify: bool) -> CatalogModel:
+        """*entry* carrying the file the pull will fetch.
+
+        Resolution happens here because the engine's verdict is part of choosing
+        the file, not a check on the file already chosen. A repo can publish the
+        same weights in several packings, only some of which this build reads,
+        and the resolver walks its ranking until one of them answers. Passing the
+        resolved name down means the download does not work it out again.
+
+        A repo that will not resolve is not this check's verdict to deliver. The
+        download reports the gated repo or the missing file properly, so a
+        resolution failure here is left to it.
+        """
+        # heavy: lilbee.catalog (>50ms; huggingface_hub fanout)
+        from lilbee.catalog.download import resolve_filename
+        from lilbee.catalog.hf_client import hf_token
+        from lilbee.providers.fleet.loadability import assert_engine_can_load
+
+        token = hf_token()
+
+        def _can_load(hf_repo: str, filename: str) -> None:
+            assert_engine_can_load(hf_repo, filename, token)
+
+        try:
+            filename = resolve_filename(entry, can_load=_can_load if verify else None)
+        except (PermissionError, RuntimeError) as exc:
+            if isinstance(exc, UnsupportedQuantError):
+                raise
+            log.debug("Cannot name a file to fetch for %s: %s", entry.hf_repo, exc)
+            return entry
+        return replace(entry, gguf_filename=filename)
+
+    def remove(self, model: str, source: ModelSource | None = None) -> bool:
+        """Remove an installed native model. Returns True if removed.
+
+        lilbee removes only native GGUF models it downloaded. Local servers
+        (Ollama, LM Studio) are read-only: a model that lives on one is refused
+        (mirrors ``pull``), since its lifecycle is managed in that app. A bare
+        ``source`` is resolved so a local-server ref is caught either way.
+        """
+        effective = source if source is not None else self.get_source(model)
+        if effective is not None and effective is not ModelSource.NATIVE:
+            spec = local_server_for_key(effective.value)
+            where = spec.display_name if spec is not None else "the configured server"
+            raise ValueError(
+                f"lilbee runs {where} models but doesn't remove them. "
+                f"Manage them in {where} instead."
+            )
+        try:
+            return self._remove_native(model)
+        finally:
+            self._invalidate_installed_cache()
+
+    def _remove_native(self, model: str) -> bool:
+        if self._registry.remove(model):
+            log.info("Removed native model %s from registry", model)
+            return True
+        try:
+            path = validate_path_within(self._models_dir / model, self._models_dir)
+        except ValueError:
+            log.warning("Path traversal blocked: %s escapes %s", model, self._models_dir)
+            return False
+        if path.is_file():
+            path.unlink()
+            log.info("Removed native model %s", model)
+            return True
+        return False

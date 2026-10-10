@@ -1,0 +1,486 @@
+(*
+  Copyright 2025, MARS-Curiosity library
+
+  Home: https://github.com/andrea-magni/MARS
+*)
+unit MARS.Metadata;
+
+interface
+
+uses
+  Classes, SysUtils, Generics.Collections, System.Rtti
+;
+
+type
+  TMARSEngineMetadata=class; //fwd
+  TMARSApplicationMetadata=class; //fwd
+  TMARSResourceMetadata=class; // fwd
+  TMARSMethodMetadata=class; // fwd
+
+  TMARSMetadata=class
+  protected
+    FParent: TMARSMetadata;
+    property Parent: TMARSMetadata read FParent;
+  public
+    Summary: string;
+    Description: string;
+    Visible: Boolean;
+    constructor Create(const AParent: TMARSMetadata); virtual;
+  end;
+  TMARSMetadataClass = class of TMARSMetadata;
+  TMARSMetadataList=class(TObjectList<TMARSMetadata>)
+  public
+    function ForEach<T: TMARSMetadata>(const ADoSomething: TProc<T>): Integer;
+  end;
+
+  TMARSPathItemMetadata=class(TMARSMetadata)
+  private
+    function GetFullAuthorization: string;
+  protected
+    function GetFullPath: string; virtual;
+  public
+    Name: string;
+    Path: string;
+
+    Produces: string;
+    Consumes: string;
+
+    Authorization: string;
+
+    property FullPath: string read GetFullPath;
+    property FullAuthorization: string read GetFullAuthorization;
+  end;
+
+  TMARSRequestParamMetadata = class(TMARSMetadata)
+  private
+  protected
+    function GetMethod: TMARSMethodMetadata;
+    property Method: TMARSMethodMetadata read GetMethod;
+  public
+    Name: string;
+    Kind: string;
+    SwaggerKind: string;
+    DataType: string;
+    DataTypeRttiType: TRttiType;
+    Required: Boolean;
+    RttiParameter: TRttiParameter;
+
+    constructor Create(const AParent: TMARSMetadata); override;
+  end;
+
+  TMARSMethodMetadata=class(TMARSPathItemMetadata)
+  private
+    FParameters: TMARSMetadataList;
+    function GetQualifiedName: string;
+    function GetResourceFullPath: string;
+    function GetResourcePath: string;
+    function GetHttpMethodLowerCase: string;
+  protected
+    function GetResource: TMARSResourceMetadata;
+    property Resource: TMARSResourceMetadata read GetResource;
+  public
+    HttpMethod: string;
+    DataType: string;
+    DataTypeRttiType: TRttiType;
+    RttiMethod: TRttiMethod;
+
+    constructor Create(const AParent: TMARSMetadata); override;
+    destructor Destroy; override;
+
+    property Parameters: TMARSMetadataList read FParameters;
+    property QualifiedName: string read GetQualifiedName;
+    property ResourcePath: string read GetResourcePath;
+    property ResourceFullPath: string read GetResourceFullPath;
+    property HttpMethodLowerCase: string read GetHttpMethodLowerCase;
+    function ForEachParameter(const ADoSomething: TProc<TMARSRequestParamMetadata>): Integer;
+    function ParameterByKind(const AKind: string): TMARSRequestParamMetadata;
+    function ParametersByKind(const AKind: string): TArray<TMARSRequestParamMetadata>;
+  end;
+
+  TMARSPathMetadata=class(TMARSMetadata)
+  private
+    FMethods: TMARSMetadataList;
+  public
+    Path: string;
+
+    constructor Create(const AParent: TMARSMetadata); override;
+    destructor Destroy; override;
+
+    property Methods: TMARSMetadataList read FMethods;
+  end;
+
+
+  TMARSResourceMetadata=class(TMARSPathItemMetadata)
+  private
+    FMethods: TMARSMetadataList;
+  protected
+    function GetApplication: TMARSApplicationMetadata;
+    property Application: TMARSApplicationMetadata read GetApplication;
+  public
+    RttiType: TRttiType;
+
+    constructor Create(const AParent: TMARSMetadata); override;
+    destructor Destroy; override;
+
+    property Methods: TMARSMetadataList read FMethods;
+    function ForEachMethod(const ADoSomething: TProc<TMARSMethodMetadata>): Integer;
+    function GetParent: TMARSApplicationMetadata;
+  end;
+
+  TMARSApplicationMetadata=class(TMARSPathItemMetadata)
+  private
+    FResources: TMARSMetadataList;
+    FPaths: TMARSMetadataList;
+  protected
+    function GetEngine: TMARSEngineMetadata;
+    property Engine: TMARSEngineMetadata read GetEngine;
+  public
+    constructor Create(const AParent: TMARSMetadata); override;
+    destructor Destroy; override;
+
+    property Resources: TMARSMetadataList read FResources;
+    property Paths: TMARSMetadataList read FPaths;
+
+    procedure AddPath(const APath: string; const AMethod: TMARSMethodMetadata);
+
+    function ForEachResource(const ADoSomething: TProc<TMARSResourceMetadata>): Integer;
+    function ForEachMethod(const ADoSomething: TProc<TMARSResourceMetadata, TMARSMethodMetadata>): Integer;
+    function FindResource(const AName: string): TMARSResourceMetadata;
+  end;
+
+  TMARSEngineMetadata=class(TMARSPathItemMetadata)
+  private
+    FApplications: TMARSMetadataList;
+  public
+    constructor Create(const AParent: TMARSMetadata); override;
+    destructor Destroy; override;
+
+    property Applications: TMARSMetadataList read FApplications;
+    function ForEachApplication(const ADoSomething: TProc<TMARSApplicationMetadata>): Integer;
+    function ApplicationByName(const AName: string): TMARSApplicationMetadata;
+  end;
+
+implementation
+
+uses
+  MARS.Core.URL, MARS.Core.Utils
+, MARS.Metadata.InjectionService
+;
+
+{ TMARSApplicationMetadata }
+
+procedure TMARSApplicationMetadata.AddPath(const APath: string;
+  const AMethod: TMARSMethodMetadata);
+var
+  LItem: TMARSMetadata;
+  LPath: TMARSPathMetadata;
+  LFound: Boolean;
+begin
+  LFound := False;
+  for LItem in Paths do
+  begin
+    LPath := LItem as TMARSPathMetadata;
+    if SameText(LPath.Path, APath) then
+    begin
+      LPath.Methods.Add(AMethod);
+      LFound := True;
+      Break;
+    end;
+  end;
+
+  if not LFound then
+  begin
+    LPath := TMARSPathMetadata.Create(Self);
+    LPath.Path := APath;
+    LPath.Methods.Add(AMethod);
+    Paths.Add(LPath);
+  end;
+end;
+
+constructor TMARSApplicationMetadata.Create(const AParent: TMARSMetadata);
+begin
+  inherited Create(AParent);
+  if Assigned(Engine) then
+    Engine.Applications.Add(Self);
+  FResources := TMARSMetadataList.Create;
+  FPaths := TMARSMetadataList.Create;
+end;
+
+destructor TMARSApplicationMetadata.Destroy;
+begin
+  FPaths.Free;
+  FResources.Free;
+  inherited;
+end;
+
+function TMARSApplicationMetadata.FindResource(
+  const AName: string): TMARSResourceMetadata;
+var
+  LResult: TMARSResourceMetadata;
+begin
+  LResult := nil;
+  ForEachResource(
+    procedure (ARes: TMARSResourceMetadata)
+    begin
+      if SameText(ARes.Name, AName) then
+        LResult := ARes;
+    end
+  );
+  Result := LResult;
+end;
+
+function TMARSApplicationMetadata.ForEachMethod(
+  const ADoSomething: TProc<TMARSResourceMetadata, TMARSMethodMetadata>): Integer;
+begin
+  Result := ForEachResource(
+    procedure (AResource: TMARSResourceMetadata)
+    begin
+      AResource.ForEachMethod(
+        procedure (AMethod: TMARSMethodMetadata)
+        begin
+          ADoSomething(AResource, AMethod);
+        end
+      );
+    end
+  );
+end;
+
+function TMARSApplicationMetadata.ForEachResource(
+  const ADoSomething: TProc<TMARSResourceMetadata>): Integer;
+begin
+  Result := Resources.ForEach<TMARSResourceMetadata>(ADoSomething);
+end;
+
+function TMARSApplicationMetadata.GetEngine: TMARSEngineMetadata;
+begin
+  Result := Parent as TMARSEngineMetadata;
+end;
+
+{ TMARSResourceMetadata }
+
+constructor TMARSResourceMetadata.Create(const AParent: TMARSMetadata);
+begin
+  inherited Create(AParent);
+  if Assigned(Application) then
+    Application.Resources.Add(Self);
+
+  FMethods := TMARSMetadataList.Create;
+end;
+
+destructor TMARSResourceMetadata.Destroy;
+begin
+  FMethods.Free;
+  inherited;
+end;
+
+function TMARSResourceMetadata.ForEachMethod(
+  const ADoSomething: TProc<TMARSMethodMetadata>): Integer;
+begin
+  Result := Methods.ForEach<TMARSMethodMetadata>(ADoSomething);
+end;
+
+function TMARSResourceMetadata.GetApplication: TMARSApplicationMetadata;
+begin
+  Result := Parent as TMARSApplicationMetadata;
+end;
+
+function TMARSResourceMetadata.GetParent: TMARSApplicationMetadata;
+begin
+  Result := GetApplication;
+end;
+
+{ TMARSMethodMetadata }
+
+constructor TMARSMethodMetadata.Create(const AParent: TMARSMetadata);
+begin
+  inherited Create(AParent);
+  if Assigned(Resource) then
+    Resource.Methods.Add(Self);
+
+  FParameters := TMARSMetadataList.Create;
+end;
+
+destructor TMARSMethodMetadata.Destroy;
+begin
+  FParameters.Free;
+  inherited;
+end;
+
+function TMARSMethodMetadata.ForEachParameter(
+  const ADoSomething: TProc<TMARSRequestParamMetadata>): Integer;
+begin
+  Result := Parameters.ForEach<TMARSRequestParamMetadata>(ADoSomething);
+end;
+
+function TMARSMethodMetadata.GetHttpMethodLowerCase: string;
+begin
+  Result := HttpMethod.ToLower;
+end;
+
+function TMARSMethodMetadata.GetQualifiedName: string;
+begin
+  Result := Name;
+  if Assigned(Resource) then
+    Result := Resource.Name + '.' + Name;
+end;
+
+function TMARSMethodMetadata.GetResource: TMARSResourceMetadata;
+begin
+  Result := Parent as TMARSResourceMetadata;
+end;
+
+function TMARSMethodMetadata.GetResourceFullPath: string;
+begin
+  Result := '';
+  if Assigned(Resource) then
+    Result := Resource.FullPath;
+end;
+
+function TMARSMethodMetadata.GetResourcePath: string;
+begin
+  Result := '';
+  if Assigned(Resource) then
+    Result := Resource.Path;
+end;
+
+function TMARSMethodMetadata.ParameterByKind(
+  const AKind: string): TMARSRequestParamMetadata;
+var
+  LParams: TArray<TMARSRequestParamMetadata>;
+begin
+  Result := nil;
+  LParams := ParametersByKind(AKind);
+  if Length(LParams) > 0 then
+    Result := LParams[0];
+end;
+
+function TMARSMethodMetadata.ParametersByKind(
+  const AKind: string): TArray<TMARSRequestParamMetadata>;
+var
+  LResult: TArray<TMARSRequestParamMetadata>;
+begin
+  LResult := [];
+  ForEachParameter(
+    procedure (AParam: TMARSRequestParamMetadata)
+    begin
+      if SameText(AParam.Kind, AKind) then
+        LResult := LResult + [AParam];
+    end
+  );
+  Result := LResult;
+end;
+
+{ TMARSEngineMetadata }
+
+function TMARSEngineMetadata.ApplicationByName(
+  const AName: string): TMARSApplicationMetadata;
+var
+  LResult: TMARSApplicationMetadata;
+begin
+  LResult := nil;
+  ForEachApplication(
+    procedure (AAppMD: TMARSApplicationMetadata)
+    begin
+      if AAppMD.Name = AName then
+        LResult := AAppMD;
+    end
+  );
+
+  Result := LResult;
+end;
+
+constructor TMARSEngineMetadata.Create(const AParent: TMARSMetadata);
+begin
+  inherited Create(AParent);
+  FApplications := TMARSMetadataList.Create;
+end;
+
+destructor TMARSEngineMetadata.Destroy;
+begin
+  FApplications.Free;
+  inherited;
+end;
+
+function TMARSEngineMetadata.ForEachApplication(
+  const ADoSomething: TProc<TMARSApplicationMetadata>): Integer;
+begin
+  Result := Applications.ForEach<TMARSApplicationMetadata>(ADoSomething);
+end;
+
+{ TMARSPathItemMetadata }
+
+function TMARSPathItemMetadata.GetFullAuthorization: string;
+begin
+  Result := Authorization;
+  if Assigned(Parent) and (Parent is TMARSPathItemMetadata) then
+    Result := SmartConcat([TMARSPathItemMetadata(Parent).FullAuthorization, Result]);
+end;
+
+function TMARSPathItemMetadata.GetFullPath: string;
+begin
+  Result := Path;
+  if Assigned(Parent) and (Parent is TMARSPathItemMetadata) then
+    Result := TMARSURL.CombinePath([TMARSPathItemMetadata(Parent).FullPath, Result]);
+end;
+
+{ TMARSMetadata }
+
+constructor TMARSMetadata.Create(const AParent: TMARSMetadata);
+begin
+  inherited Create;
+  FParent := AParent;
+  Description := '';
+  Summary := '';
+  Visible := True;
+end;
+
+{ TMARSRequestParamMetadata }
+
+constructor TMARSRequestParamMetadata.Create(const AParent: TMARSMetadata);
+begin
+  inherited Create(AParent);
+  if Assigned(Method) then
+    Method.Parameters.Add(Self);
+end;
+
+function TMARSRequestParamMetadata.GetMethod: TMARSMethodMetadata;
+begin
+  Result := Parent as TMARSMethodMetadata;
+end;
+
+{ TMARSMetadataList }
+
+function TMARSMetadataList.ForEach<T>(const ADoSomething: TProc<T>): Integer;
+var
+  LItem: TMARSMetadata;
+begin
+  Result := 0;
+  if not Assigned(ADoSomething) then
+    exit;
+
+  for LItem in Self do
+  begin
+    if LItem is T then
+    begin
+      ADoSomething(LItem as T);
+      Inc(Result);
+    end;
+  end;
+end;
+
+{ TMARSPathMetadata }
+
+constructor TMARSPathMetadata.Create(const AParent: TMARSMetadata);
+begin
+  inherited;
+  Path := '';
+  FMethods := TMARSMetaDataList.Create(False);
+end;
+
+destructor TMARSPathMetadata.Destroy;
+begin
+  FMethods.Free;
+  inherited;
+end;
+
+end.

@@ -1,0 +1,179 @@
+.PHONY: lint lint-shell test-shell format format-check typecheck test test-ci test-ci-serial test-ci-forked test-integration imports-check fuzz-smoke engine-archs docs-settings docs-formats check clean install demo demo-prep demo-publish build publish release promote release-promote docs docs-api docs-site site site-serve site-tar dns-setup qa-pod-volume qa-pod-up qa-pod-logs qa-pod-down
+
+lint: lint-shell
+	uv run ruff check src/ tests/ tools/qa/ scripts/qa/ tools/readme_media.py tools/gen_settings_reference.py tools/gen_formats_table.py hatch_build.py
+	uv run python scripts/check_style_rules.py
+	# docs/settings.md is generated from the Config fields; a new setting must
+	# land in the reference with the code that adds it.
+	uv run python tools/gen_settings_reference.py --check
+	# The README formats table is generated from discovery's format map, so an
+	# xberg or tree-sitter bump that changes the set lands in the table.
+	uv run python tools/gen_formats_table.py --check
+
+lint-shell:  ## shellcheck the release scripts and actionlint every workflow
+	@if command -v shellcheck >/dev/null; then \
+	  shellcheck -s bash scripts/*.sh tools/ci/*.sh tools/qa/artifact_smoke.sh tests/shell/*.bash tests/shell/stubs/*; \
+	else echo "lint-shell: shellcheck is not installed, skipping"; fi
+	# actionlint also shellchecks every inline `run:` block.
+	@if command -v actionlint >/dev/null; then actionlint; \
+	else echo "lint-shell: actionlint is not installed, skipping"; fi
+
+test-shell:  ## Run the bats tests for the release scripts
+	@command -v bats >/dev/null || { echo "test-shell: bats-core is missing (brew install bats-core)"; exit 1; }
+	bats tests/shell/
+
+format:
+	uv run ruff format src/ tests/ tools/qa/ scripts/qa/ tools/readme_media.py tools/gen_settings_reference.py tools/gen_formats_table.py hatch_build.py
+
+format-check:
+	uv run ruff format --check src/ tests/ tools/qa/ scripts/qa/ tools/readme_media.py tools/gen_settings_reference.py tools/gen_formats_table.py hatch_build.py
+
+typecheck:
+	uv run mypy src/lilbee/
+	# The GPU QA tools read lilbee's own types, so they rot silently when one
+	# changes: multi_gpu_smoke crashed on its first check from #540 until this
+	# was added. The rest of tools/qa/ is not clean yet and is not listed.
+	uv run mypy tools/qa/placement_matrix/ tools/qa/multi_gpu_smoke.py
+	# hatch_build.py builds the PyPI long description, so a break here breaks
+	# the release rather than a test.
+	uv run mypy tools/readme_media.py tools/gen_formats_table.py hatch_build.py
+
+# A replaced worker deadlocks --dist loadgroup (pytest-dev/pytest-xdist#1378),
+# so a worker that dies fails the run instead.
+XDIST := -n logical --dist loadgroup --max-worker-restart=0
+
+test:
+	uv run pytest --cov=lilbee --cov-report=term-missing -v $(XDIST)
+
+test-ci:
+	uv run pytest --cov=lilbee --cov-report=term-missing --cov-report=html $(COV_FLAGS) -v $(XDIST)
+
+test-ci-serial:
+	uv run pytest --cov=lilbee --cov-report=term-missing --cov-report=html -v -p no:xdist
+
+test-ci-forked:
+	uv run pytest --forked -v $(XDIST)
+
+imports-check:
+	uv run python -c "import lilbee; from lilbee import cli; from lilbee.core import config; from lilbee.data.extract import chunk, code_chunker; from lilbee.data import store, ingest; from lilbee.retrieval import embedder, query"
+
+# The hosted-key tests need the litellm extra, which only this job installs.
+test-integration:
+	uv run pytest tests/integration/ tests/providers/test_hosted_request_key.py -v
+
+fuzz-smoke:  ## Seeded adversarial TUI fuzz, fixed seeds (deterministic, CI-sized)
+	uv run python scripts/qa/tui_fuzz.py smoke
+
+check: lint format-check typecheck test test-shell  ## Run all checks (same as CI)
+
+install:
+	uv tool install ".[crawler]" --force --reinstall --compile-bytecode
+
+crawl-setup:  ## Download Playwright Chromium for /crawl
+	uv run playwright install chromium
+
+dns-setup:  ## One-time DNS setup for lilbee.sh at Porkbun (reads creds from pass)
+	bash scripts/porkbun-dns-setup.sh
+
+demo-prep:  ## Stage demo data dirs via the gh-pages worktree
+	bash scripts/demo.sh prep
+
+demo:  ## Render every demo GIF via the gh-pages worktree
+	bash scripts/demo.sh render
+
+demo-publish:  ## Commit + push refreshed renders on gh-pages
+	bash scripts/demo.sh publish
+
+build:
+	uv build
+
+publish: build  ## Build and upload to PyPI
+	uv publish
+
+release:  ## Bump the beta version, tag, and push; CI builds + publishes
+	bash scripts/release.sh
+
+promote:  ## Re-release an existing tag's source under a new version (FROM=v0.6.90b420.dev719 TO=0.6.90b420; DRY_RUN=1 to preview)
+	@[ -n "$(FROM)" ] && [ -n "$(TO)" ] || { echo "promote: FROM=v... TO=<new-version> required"; exit 1; }
+	bash scripts/promote_release.sh $(FROM) $(TO)
+
+release-promote:  ## Manual promote: rewrite notes as headings and mark a release latest (TAG=... or newest). verify-release.yml promotes on its own; use this to rewrite notes or to promote a tag it never ran for
+	@tag="$(TAG)"; \
+	[ -n "$$tag" ] || tag=$$(gh release list --repo tobocop2/lilbee --limit 30 --json tagName -q "first(.[].tagName | select(startswith(\"v\")))"); \
+	verified=$$(gh run list --repo tobocop2/lilbee --workflow=verify-release.yml --limit 50 --json displayTitle,conclusion -q "[.[] | select(.displayTitle == \"Verify release $$tag\" and .conclusion == \"success\")] | length"); \
+	if [ "$$verified" = "0" ]; then \
+	  echo "REFUSING to promote $$tag: no green 'Verify release' run for it."; \
+	  echo "The verify-release workflow must pass against the release assets first:"; \
+	  echo "  gh workflow run verify-release.yml -f tag=$$tag"; \
+	  exit 1; \
+	fi; \
+	if gh release view "$$tag" --repo tobocop2/lilbee --json body -q .body | head -1 | grep -q '^Promoted from'; then \
+	  echo "release-promote: $$tag (verified; promoted release, keeping its copied notes)"; \
+	  gh release edit "$$tag" --repo tobocop2/lilbee --prerelease=false --latest; \
+	else \
+	  prev=$$(gh release list --repo tobocop2/lilbee --exclude-drafts --limit 30 --json tagName -q "first(.[].tagName | select(startswith(\"v\") and . != \"$$tag\"))"); \
+	  echo "release-promote: $$tag (verified; notes diff from $$prev)"; \
+	  notes=$$(mktemp); \
+	  bash scripts/release_notes.sh tobocop2/lilbee "$$tag" "$$prev" > "$$notes"; \
+	  gh release edit "$$tag" --repo tobocop2/lilbee --notes-file "$$notes" --prerelease=false --latest; \
+	  rm -f "$$notes"; \
+	fi
+
+engine-archs:  ## Regenerate the supported-architecture list from the pinned engine
+	uv run python tools/gen_supported_archs.py
+
+docs-settings:  ## Regenerate the cross-surface settings reference
+	uv run python tools/gen_settings_reference.py
+
+docs-formats:  ## Regenerate the README supported-formats table
+	uv run python tools/gen_formats_table.py
+
+docs-api:  ## Generate OpenAPI schema and Redoc static HTML
+	uv run python tools/gen_openapi.py openapi.json
+	npx --yes @redocly/cli build-docs openapi.json -o site/api/index.html
+	rm -f openapi.json
+
+docs-site: docs-api  ## Build the full dev portal (coverage + API docs)
+	# Tests gate CI and releases, not the site build; the coverage report deploys regardless of the test outcome.
+	-$(MAKE) test-ci
+	cp -r htmlcov site/coverage
+	uv run python tools/update_site_coverage.py
+
+docs: docs-site  ## Alias for docs-site
+
+site: docs-api  ## Build the deployable site locally (marketing pages + API docs; no coverage build)
+	@echo "site/ is ready. Preview with: make site-serve"
+
+site-serve: site  ## Build + serve the site at http://localhost:8000
+	cd site && python3 -m http.server 8000
+
+site-tar: site  ## Build the site and pack it into site.tar.gz
+	tar -czf site.tar.gz -C site .
+	@echo "wrote site.tar.gz"
+
+# --- opencode QA pod (SkyPilot + RunPod) ------------------------------------
+# Provisioning is SkyPilot; it reads the RunPod key from ~/.runpod/config.toml.
+# One-time: pip install "skypilot[runpod]" && runpod config && sky check runpod.
+# See tools/qa/opencode/README.md.
+QA_SKY := tools/qa/opencode
+
+qa-pod-volume:  ## Create/adopt the reusable QA network volume (once)
+	sky volumes apply $(QA_SKY)/qa-volume.sky.yaml
+
+qa-pod-up:  ## Provision the QA pod, bootstrap, and run the matrix (MATRIX_ARGS=... to narrow)
+	# -i 30 --down: autostop after 30 min idle and tear the pod down when the matrix
+	# finishes, so a finished or hung run never bills idle. The volume keeps the
+	# engine, models, and results; reels just re-launch (a warm volume boots fast).
+	# HF_TOKEN (from your shell) is passed as a --secret so gated pulls work and
+	# the token stays redacted in sky logs; unset = ungated models only.
+	sky launch -c lilbee-qa $(QA_SKY)/qa-pod.sky.yaml -y -i 30 --down $(if $(HF_TOKEN),--secret HF_TOKEN="$(HF_TOKEN)",) $(if $(MATRIX_ARGS),--env MATRIX_ARGS="$(MATRIX_ARGS)",)
+
+qa-pod-logs:  ## Follow the QA pod's run log
+	sky logs lilbee-qa
+
+qa-pod-down:  ## Tear down the QA pod (the volume and its state survive)
+	sky down lilbee-qa -y
+
+clean:
+	rm -rf .mypy_cache .pytest_cache .ruff_cache htmlcov .coverage dist/ openapi.json site/api site/coverage site.tar.gz
+	find . -type d -name __pycache__ -exec rm -rf {} +
