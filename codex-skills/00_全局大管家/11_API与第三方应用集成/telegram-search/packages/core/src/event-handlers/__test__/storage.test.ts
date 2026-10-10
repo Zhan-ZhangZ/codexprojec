@@ -1,0 +1,159 @@
+import type { Models } from '../../models'
+import type { CoreDialog } from '../../types/dialog'
+
+import { useLogger } from '@guiiai/logg'
+import { Ok } from '@unbird/result'
+import { describe, expect, it, vi } from 'vitest'
+
+import { getMockEmptyDB } from '../../../mock'
+import { createCoreContext } from '../../context'
+import { CoreEventType } from '../../types/events'
+import { registerStorageEventHandlers } from '../storage'
+
+const logger = useLogger()
+const lastMessageDate = new Date()
+
+const fetchChatsByAccountId = vi.fn(async (_db: unknown, _accountId: string) => {
+  const rows = [
+    {
+      id: 'joined-chat-1',
+      platform: 'telegram',
+      chat_id: '1001',
+      chat_name: 'Test Chat',
+      chat_type: 'user',
+      dialog_date: lastMessageDate.getTime(),
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    },
+  ]
+  return Ok(rows)
+})
+
+const getChatMessagesStats = vi.fn(async (_db: unknown, _accountId: string) => {
+  const stats = [
+    {
+      chat_id: '1001',
+      message_count: 42,
+    },
+  ]
+  return Ok(stats)
+})
+
+const recordChats = vi.fn(async (_db: unknown, _dialogs: CoreDialog[], _accountId?: string) => {
+  // Simulate Result-like object used by production code
+  return {
+    expect<T>(_message: string): T[] {
+      // For this test we don't need to assert on returned value
+      return [] as unknown as T[]
+    },
+  }
+})
+
+// Message-related mocks
+const isChatAccessibleByAccount = vi.fn(async (_db: unknown, _accountId: string, _chatId: string) => Ok(true))
+const retrieveMessages = vi.fn(async (_db: unknown, _accountId: string, _dimension: unknown, _content: unknown, _pagination: unknown, _filters: unknown) => Ok([] as unknown[]))
+
+const models = {
+  chatModels: {
+    fetchChatsByAccountId,
+    getChatMessagesStats,
+    recordChats,
+    isChatAccessibleByAccount,
+    retrieveMessages,
+  },
+  chatMessageStatsModels: {
+    getChatMessagesStats,
+  },
+} as unknown as Models
+
+describe('storage event handlers - dialogs with accounts', () => {
+  it('storage:fetch:dialogs should query dialogs for given account and emit mapped dialogs', async () => {
+    const ctx = createCoreContext(getMockEmptyDB, models, logger)
+    registerStorageEventHandlers(ctx, logger, models)
+
+    const ACCOUNT_ID = 'account-xyz'
+
+    const dialogsPromise = new Promise<CoreDialog[]>((resolve) => {
+      ctx.emitter.on(CoreEventType.StorageDialogs, ({ dialogs }) => {
+        resolve(dialogs)
+      })
+    })
+
+    ctx.emitter.emit(CoreEventType.StorageFetchDialogs, { accountId: ACCOUNT_ID })
+
+    const dialogs = await dialogsPromise
+
+    // Verify models were called with correct account id (first arg is db instance)
+    expect(fetchChatsByAccountId).toHaveBeenCalledWith(expect.anything(), ACCOUNT_ID)
+    expect(getChatMessagesStats).toHaveBeenCalledWith(expect.anything(), ACCOUNT_ID)
+
+    // Verify mapping to CoreDialog shape
+    expect(dialogs).toEqual([
+      {
+        id: 1001,
+        name: 'Test Chat',
+        isContact: undefined,
+        folderIds: [],
+        type: 'user',
+        messageCount: 42,
+        pinned: false,
+        accessHash: undefined,
+        lastMessageDate,
+      },
+    ])
+  })
+
+  it('storage:record:dialogs should call recordChats with dialogs and accountId', async () => {
+    const ctx = createCoreContext(getMockEmptyDB, models, logger)
+    registerStorageEventHandlers(ctx, logger, models)
+
+    const ACCOUNT_ID = 'account-abc'
+    const dialogs: CoreDialog[] = [
+      {
+        id: 2001,
+        name: 'Another Chat',
+        type: 'group',
+        messageCount: 0,
+      },
+    ]
+
+    ctx.emitter.emit(CoreEventType.StorageRecordDialogs, { dialogs, accountId: ACCOUNT_ID })
+
+    expect(recordChats).toHaveBeenCalledTimes(1)
+    expect(recordChats).toHaveBeenCalledWith(expect.anything(), dialogs, ACCOUNT_ID)
+  })
+})
+
+describe('storage event handlers - message access control', () => {
+  it('storage:search:messages should reject when account has no access to specified chatId', async () => {
+    const ctx = createCoreContext(getMockEmptyDB, models, logger)
+    registerStorageEventHandlers(ctx, logger, models)
+
+    const ACCOUNT_ID = 'account-no-access'
+    const CHAT_ID = '2002'
+
+    ctx.setCurrentAccountId(ACCOUNT_ID)
+
+    // For this test, deny access for this chat
+    ;(isChatAccessibleByAccount as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(Ok(false))
+
+    const errorPromise = new Promise<string>((resolve) => {
+      ctx.emitter.on(CoreEventType.CoreError, ({ error }) => {
+        resolve(error)
+      })
+    })
+
+    ctx.emitter.emit(CoreEventType.StorageSearchMessages, {
+      chatId: CHAT_ID,
+      content: 'test search',
+      useVector: false,
+      pagination: { limit: 20, offset: 0 },
+    })
+
+    const error = await errorPromise
+
+    expect(error).toBe('Unauthorized chat access')
+    expect(isChatAccessibleByAccount).toHaveBeenCalledWith(expect.anything(), ACCOUNT_ID, CHAT_ID)
+    expect(retrieveMessages).not.toHaveBeenCalled()
+  })
+})

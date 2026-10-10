@@ -1,0 +1,61 @@
+// S41-10: the implement/fix brief's repo context. Replaces the first 200 repo paths with up to 20
+// relevant files (plan relevant_files, else keyword selection over the tree-keyed cached map), their
+// impacted tests with one exact command each, and E-126 repo memory's verified command. Data only, no
+// verdict logic (D42). plan.ts/verify.ts are stages, so core passes selectRelevantFiles and runnerCmd in.
+import { readRepoMapCache, repoCacheDir, repoKey } from "../engine10/cache.ts";
+import type { RepoMap } from "../engine10/repomap.ts";
+import { loadRepoMap } from "../engine10/sizing.ts";
+import type { RunContext, TestMap, TestRef } from "../engine10/types.ts";
+import { unitBrief } from "../features/speed/unit_mode.ts";
+import { readVerifiedCommand } from "./repomemory.ts";
+
+export interface ContextDeps {
+  select: (task: string, map: RepoMap, max: number) => string[];
+  cmd: (t: TestRef, repoDir: string) => [string, string[], unknown?, string?]; // 4th: package dir the command runs in (FC-01); absent or "." = repo root
+}
+
+// S41-10b: the implement/fix brief's leading block. A plain constant, no task text or interpolation, so
+// every brief starts with the same bytes (cache-stable prefix). Per-task context is appended after it. E-150: repeated verbatim as the brief's last line (recency); same bytes every task.
+export const FINISH_LINE = "Finish with exactly one line: LOKI_DONE, or LOKI_ALREADY_DONE: <file:line evidence>, or LOKI_SPEC_CONFLICT: <reason>.";
+export const FIXED_RULES = [
+  "You are the Loki 10 implement stage, doing the complete task described below in this repository. Do whatever a senior engineer would do to finish it correctly: read, change and test as needed across any files the task requires.",
+  "Rules:",
+  "- The Wall tests are read-only: do not edit or delete them. Existing test files are append-only: you may add new test functions, but never edit or delete an existing one.",
+  "- Exception: when the task text itself states the new expected value of an existing assertion, change only that literal in that assertion; never remove, skip or loosen an assertion, and never edit one the task text does not name.",
+  "- Run any tests you need, including the package's full suite (the Project Model commands below say how). The impacted tests named below are a starting hint, not a limit.",
+  "- Never leave a long-lived server running.",
+  "- Never kill processes.",
+  "- Write no documentation unless the task explicitly asks for it.",
+  "- Do not commit or push.",
+  "- If you add a new third-party registry dependency, list it in .loki/supply-declared.json as a JSON array of {ecosystem,name,version_spec,registry}, leaving out workspace, path, git and local packages.",
+  FINISH_LINE,
+].join("\n");
+
+const MAX_FILES = 20;
+const MAX_TESTS = 10;
+
+const shq = (w: string): string => (/^[\w@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
+
+export function briefContext(ctx: RunContext, d: ContextDeps): string {
+  const unit = unitBrief(); // D61-11: a unit brief is its pack files only
+  if (unit !== null) return unit;
+  const o = ctx.outputs();
+  const tree = o.intake?.tree as string | undefined;
+  const task = (o.intake?.task as string | undefined) ?? "";
+  const map = (tree ? readRepoMapCache(repoCacheDir(repoKey(null, ctx.repoDir)), tree) : null) ?? loadRepoMap(o.intake?.repomap_ref as string | undefined);
+  const planned = o.plan?.relevant_files as string[] | undefined;
+  const safe = (planned ?? []).filter((f) => !/^([/~]|[A-Za-z]:[\\/])/.test(f) && !f.split(/[\\/]/).includes(".."));
+  let files = safe.length ? safe : map ? d.select(task, map, MAX_FILES) : [];
+  if (!files.length && map) files = map.files.slice(0, MAX_FILES); // no plan and no keyword match: head of the map, same 20 cap
+  files = files.slice(0, MAX_FILES);
+  const tm = o.intake?.testmap as TestMap | undefined;
+  const refs = tm && files.length ? ctx.tests.impacted(tm, files).slice(0, MAX_TESTS) : [];
+  const rel = (p: string): string => (p.startsWith(`${ctx.repoDir}/`) ? p.slice(ctx.repoDir.length + 1) : p);
+  const cmds = refs.map((t) => { const [c, a, , dir] = d.cmd(t, ctx.repoDir); return `${dir && dir !== "." ? `cd ${shq(dir)} && ` : ""}${[rel(c), ...a].map(shq).join(" ")}`; });
+  const verified = readVerifiedCommand(repoCacheDir(repoKey(null, ctx.repoDir)));
+  return [
+    files.length ? `Relevant files:\n${files.join("\n")}` : "",
+    cmds.length ? `Impacted test commands:\n${cmds.join("\n")}` : "",
+    verified ? `Last verified test command: ${verified}` : "",
+  ].filter(Boolean).join("\n\n");
+}

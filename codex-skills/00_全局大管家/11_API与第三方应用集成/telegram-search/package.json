@@ -1,0 +1,62 @@
+{
+  "name": "telegram-search",
+  "type": "module",
+  "version": "1.3.2",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=24.13.0"
+  },
+  "scripts": {
+    "apply:env": "dotenvx run -f .env -f .env.local --overload --ignore=MISSING_ENV_FILE",
+    "start": "concurrently \"pnpm run server:dev\" \"pnpm run web:preview --host 0.0.0.0\"",
+    "server:dev": "pnpm apply:env -- pnpm -F @tg-search/server dev",
+    "server:inspect": "pnpm apply:env -- pnpm -F @tg-search/server inspect",
+    "server:build": "pnpm apply:env -- pnpm -F @tg-search/server build",
+    "server:run": "pnpm apply:env -- pnpm -F @tg-search/server start",
+    "web:dev": "pnpm -F @tg-search/web dev",
+    "web:build": "pnpm -F @tg-search/web build",
+    "web:preview": "pnpm -F @tg-search/web preview",
+    "dev": "VITE_WITH_CORE=true pnpm -F @tg-search/web dev",
+    "build": "VITE_WITH_CORE=true pnpm -F @tg-search/web build",
+    "preview": "pnpm run build && pnpm -F @tg-search/web preview",
+    "build:packages": "turbo run build --filter=\"./packages/*\"",
+    "dev:server": "pnpm run server:dev",
+    "dev:frontend": "pnpm run web:dev",
+    "inspect:server": "pnpm run server:inspect",
+    "packages:build": "pnpm run build:packages",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint --cache .",
+    "lint:fix": "eslint --cache . --fix",
+    "typecheck": "turbo run typecheck",
+    "bump": "bumpp",
+    "bump:deps": "taze -I -f -w -r",
+    "db:generate": "pnpm apply:env -- drizzle-kit generate",
+    "db:kit": "pnpm apply:env -- drizzle-kit",
+    "cli": "pnpm -F @tg-search/cli start",
+    "postinstall": "pnpm run packages:build"
+  },
+  "dependencies": {
+    "@dotenvx/dotenvx": "^1.75.1",
+    "@guiiai/logg": "catalog:"
+  },
+  "devDependencies": {
+    "@moeru/eslint-config": "0.1.0-beta.15",
+    "@types/node": "^25.9.5",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/ui": "4.0.18",
+    "bumpp": "^10.4.1",
+    "concurrently": "^9.2.4",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.5",
+    "happy-dom": "^20.11.1",
+    "taze": "^19.16.0",
+    "tsdown": "catalog:",
+    "turbo": "^2.10.7",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

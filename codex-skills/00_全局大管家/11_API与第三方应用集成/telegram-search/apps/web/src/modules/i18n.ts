@@ -1,0 +1,54 @@
+import type { I18n } from 'vue-i18n'
+
+import { createI18n } from 'vue-i18n'
+
+import { en, ko, zhCN } from '../locales'
+
+/**
+ * Language code remapping for compatibility with various browser locales.
+ * This ensures that, for example, 'en-US' and 'en-GB' both map to 'en'.
+ * TODO: Remove zh-Hant/zh-HK remaps when full support is available.
+ */
+const languageRemap: Record<string, string> = {
+  'zh-CN': 'zh-CN',
+  'zhCN': 'zh-CN',
+  'en-US': 'en',
+  'en': 'en',
+  'ko-KR': 'ko',
+  'ko': 'ko',
+}
+
+const messages = {
+  en,
+  ko,
+  'zh-CN': zhCN,
+}
+
+type LocaleKey = keyof typeof messages
+
+function getLocale(): LocaleKey {
+  let language = localStorage.getItem('settings/language')
+  // Handle potential JSON string from useLocalStorage
+  if (language && (language.startsWith('"') || language.startsWith('\''))) {
+    try {
+      language = JSON.parse(language)
+    }
+    catch {
+      // ignore
+    }
+  }
+
+  language = language || navigator.language || 'en'
+  language = languageRemap[language] ?? language
+  if (Object.keys(messages).includes(language))
+    return language as LocaleKey
+  return 'en'
+}
+
+export const i18n: I18n = createI18n({
+  legacy: false,
+  locale: getLocale(),
+  fallbackLocale: 'en',
+  globalInjection: true,
+  messages,
+})

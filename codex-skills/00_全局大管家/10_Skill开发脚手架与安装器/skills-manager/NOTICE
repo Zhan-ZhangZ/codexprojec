@@ -1,0 +1,13 @@
+skills-manager
+Copyright 2026 jyx203
+
+This project is a derivative of skills-manage:
+https://github.com/iamzhihuix/skills-manage
+
+Upstream clone point: commit 467d042
+(four commits after the v0.10.0 tag).
+
+Original project copyright:
+Copyright 2026 iamzhihuix
+
+The original and derivative works are provided under the Apache License 2.0.

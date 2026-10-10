@@ -1,0 +1,578 @@
+// https://github.com/moeru-ai/airi/blob/main/services/telegram-bot/src/models/chat-message.ts
+
+import type { Logger } from '@guiiai/logg'
+import type { CorePagination } from '@tg-search/common'
+
+import type { CoreDB, CoreTransaction } from '../db'
+import type { JoinedChatType } from '../schemas/joined-chats'
+import type { EmbeddingDimension } from '../types/account-settings'
+import type { StorageMessageContextParams } from '../types/events'
+import type { CoreMessage } from '../types/message'
+import type { PromiseResult } from '../utils/result'
+import type { PhotoModels } from './photos'
+import type { DBRetrievalMessages } from './utils/message'
+import type { DBInsertMessage, DBSelectMessage } from './utils/types'
+
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, or, sql } from 'drizzle-orm'
+
+import { accountJoinedChatsTable } from '../schemas/account-joined-chats'
+import { chatMessagesTable } from '../schemas/chat-messages'
+import { joinedChatsTable } from '../schemas/joined-chats'
+import { withResult } from '../utils/result'
+import { convertToCoreMessageFromDB, convertToDBInsertMessage } from './utils/message'
+import { convertDBPhotoToCoreMessageMedia } from './utils/photos'
+import { retrieveJieba } from './utils/retrieve-jieba'
+import { retrieveVector } from './utils/retrieve-vector'
+
+function notDeletedCondition() {
+  return eq(chatMessagesTable.deleted_at, 0)
+}
+
+function accountChatCondition(accountId: string) {
+  return sql`EXISTS (
+    SELECT 1 FROM ${accountJoinedChatsTable}
+    WHERE ${accountJoinedChatsTable.joined_chat_id} = ${joinedChatsTable.id}
+      AND ${accountJoinedChatsTable.account_id} = ${accountId}
+  )`
+}
+
+function ownerScopedCondition(accountId: string) {
+  return sql`(
+    ${chatMessagesTable.owner_account_id} = ${accountId}
+    OR ${chatMessagesTable.owner_account_id} IS NULL
+  )`
+}
+
+/**
+ * Upsert messages for a specific account.
+ * NOTE: Without result wrapper, because it's insert operation, maybe outer don't receive any error, just throw error directly.
+ */
+async function recordMessages(
+  tx: CoreTransaction | CoreDB,
+  accountId: string,
+  messages: CoreMessage[],
+): Promise<DBInsertMessage[]> {
+  if (messages.length === 0) {
+    return []
+  }
+
+  // Resolve chat types in batch so we can decide whether to scope messages
+  // to an owning account (private dialogs) or keep them shared (groups/channels).
+  const chatIds = Array.from(new Set(messages.map(message => message.chatId)))
+
+  const chatRows = await tx
+    .select({
+      chat_id: joinedChatsTable.chat_id,
+      chat_type: joinedChatsTable.chat_type,
+    })
+    .from(joinedChatsTable)
+    .where(inArray(joinedChatsTable.chat_id, chatIds))
+
+  const chatTypeById = new Map<string, JoinedChatType>()
+  for (const row of chatRows)
+    chatTypeById.set(row.chat_id, row.chat_type)
+
+  const dbMessages = messages.map((message) => {
+    // In normal flows, every chatId should already exist in joined_chats and
+    // provide a concrete chat_type. However, real-time or out-of-order events
+    // (e.g. new messages arriving before dialogs are persisted) can leave us
+    // without a row, which would otherwise cause a NULL in_chat_type write and
+    // violate the NOT NULL constraint. To keep storage robust, fall back to
+    // treating unknown chats as private 'user' dialogs, which errs on the side
+    // of stricter ACL (scoped to the current account) instead of over-sharing.
+    const chatType: JoinedChatType = chatTypeById.get(message.chatId) ?? 'user'
+
+    // Only scope by account for private dialogs; keep group/channel messages shared.
+    const ownerAccountId = chatType === 'user' ? accountId : null
+    return convertToDBInsertMessage(ownerAccountId, chatType, message)
+  })
+
+  if (dbMessages.length === 0)
+    return []
+
+  const rows = await tx
+    .insert(chatMessagesTable)
+    .values(dbMessages)
+    .onConflictDoUpdate({
+      target: [
+        chatMessagesTable.platform,
+        chatMessagesTable.platform_message_id,
+        chatMessagesTable.in_chat_id,
+        chatMessagesTable.owner_account_id,
+      ],
+      set: {
+        // Content: always update with new content
+        content: sql`excluded.content`,
+        forward: sql`excluded.forward`,
+        media: sql`excluded.media`,
+        links: sql`excluded.links`,
+
+        // User UUID: update if not null
+        from_user_uuid: sql`COALESCE(excluded.from_user_uuid, ${chatMessagesTable.from_user_uuid})`,
+
+        // From name: always update (for backward compatibility)
+        from_name: sql`excluded.from_name`,
+
+        // Vectors: update only if not null (vectors can be null in schema)
+        content_vector_model: sql`COALESCE(excluded.content_vector_model, ${chatMessagesTable.content_vector_model})`,
+        content_vector_1024: sql`COALESCE(excluded.content_vector_1024, ${chatMessagesTable.content_vector_1024})`,
+        content_vector_1536: sql`COALESCE(excluded.content_vector_1536, ${chatMessagesTable.content_vector_1536})`,
+        content_vector_768: sql`COALESCE(excluded.content_vector_768, ${chatMessagesTable.content_vector_768})`,
+
+        // Jieba tokens: update only if new array is not empty
+        jieba_tokens: sql`CASE
+          WHEN excluded.jieba_tokens IS NOT NULL
+               AND jsonb_array_length(excluded.jieba_tokens) > 0
+          THEN excluded.jieba_tokens
+          ELSE ${chatMessagesTable.jieba_tokens}
+        END`,
+
+        // Platform timestamp: always update
+        platform_timestamp: sql`excluded.platform_timestamp`,
+        updated_at: Date.now(),
+      },
+    })
+    .returning()
+
+  return rows
+}
+
+/**
+ * Soft-delete messages by platform message IDs.
+ * This keeps history for potential recovery but excludes deleted data in reads.
+ */
+async function softDeleteMessages(
+  db: CoreDB,
+  accountId: string,
+  messageIds: string[],
+  options?: {
+    chatId?: string
+  },
+): Promise<number> {
+  if (messageIds.length === 0) {
+    return 0
+  }
+
+  const now = Date.now()
+  const conditions = [
+    notDeletedCondition(),
+    eq(chatMessagesTable.platform, 'telegram'),
+    inArray(chatMessagesTable.platform_message_id, messageIds),
+    ownerScopedCondition(accountId),
+  ]
+
+  if (options?.chatId) {
+    conditions.push(eq(chatMessagesTable.in_chat_id, options.chatId))
+  }
+
+  const result = await db
+    .update(chatMessagesTable)
+    .set({
+      deleted_at: now,
+      updated_at: now,
+    })
+    .where(and(...conditions))
+    .returning()
+
+  return result.length
+}
+
+/**
+ * Fetch messages for a specific account.
+ * @deprecated Use fetchMessagesByTimeRange instead.
+ */
+async function fetchMessages(
+  db: CoreDB,
+  accountId: string,
+  chatId: string,
+  pagination: CorePagination,
+): PromiseResult<{ dbMessagesResults: DBSelectMessage[], coreMessages: CoreMessage[] }> {
+  return withResult(async () => {
+    const dbMessagesResults = await db
+      .select({
+        chat_messages: chatMessagesTable,
+        joined_chats: joinedChatsTable,
+      })
+      .from(chatMessagesTable)
+      .innerJoin(joinedChatsTable, eq(chatMessagesTable.in_chat_id, joinedChatsTable.chat_id))
+      .where(and(
+        eq(chatMessagesTable.in_chat_id, chatId),
+        notDeletedCondition(),
+        // ACL: for private dialogs, only return messages owned by this account (or legacy NULL owner).
+        sql`(
+        ${joinedChatsTable.chat_type} != 'user'
+        OR ${chatMessagesTable.owner_account_id} = ${accountId}
+        OR ${chatMessagesTable.owner_account_id} IS NULL
+      )`,
+      ))
+      .orderBy(desc(chatMessagesTable.created_at))
+      .limit(pagination.limit)
+      .offset(pagination.offset)
+
+    return {
+      dbMessagesResults: dbMessagesResults.map(row => row.chat_messages),
+      coreMessages: dbMessagesResults.map(row => convertToCoreMessageFromDB(row.chat_messages)),
+    }
+  })
+}
+
+/**
+ * Fetch messages with photos for a specific account.
+ */
+async function fetchMessagesWithPhotos(
+  db: CoreDB,
+  photoModel: PhotoModels,
+  accountId: string,
+  chatId: string,
+  pagination: CorePagination,
+): PromiseResult<CoreMessage[]> {
+  return withResult(async () => {
+    const { dbMessagesResults, coreMessages } = (await fetchMessages(db, accountId, chatId, pagination)).expect('Failed to fetch messages')
+
+    // Fetch photos for all messages in batch
+    const messageIds = dbMessagesResults.map(msg => msg.id)
+    const photos = (await photoModel.findPhotosByMessageIds(db, messageIds)).expect('Failed to fetch photos')
+
+    // Group photos by message_id
+    const photosByMessage = Object.groupBy(
+      photos.filter(photo => photo.message_id),
+      photo => photo.message_id!,
+    )
+
+    // Attach photos to messages with proper type conversion
+    return coreMessages.map((message, index) => ({
+      ...message,
+      media: (photosByMessage[dbMessagesResults[index].id] || [])
+        .map(convertDBPhotoToCoreMessageMedia),
+    }) satisfies CoreMessage)
+  })
+}
+
+/**
+ * Fetch message context with photos for a specific account.
+ */
+async function fetchMessageContextWithPhotos(
+  db: CoreDB,
+  photoModel: PhotoModels,
+  accountId: string,
+  { chatId, messageId, before, after }: Required<StorageMessageContextParams>,
+): PromiseResult<CoreMessage[]> {
+  return withResult(async () => {
+    const targetMessages = await db
+      .select({
+        chat_messages: chatMessagesTable,
+        joined_chats: joinedChatsTable,
+      })
+      .from(chatMessagesTable)
+      .innerJoin(joinedChatsTable, eq(chatMessagesTable.in_chat_id, joinedChatsTable.chat_id))
+      .where(and(
+        eq(chatMessagesTable.in_chat_id, chatId),
+        eq(chatMessagesTable.platform_message_id, messageId),
+        notDeletedCondition(),
+        accountChatCondition(accountId),
+        sql`(
+        ${joinedChatsTable.chat_type} != 'user'
+        OR ${chatMessagesTable.owner_account_id} = ${accountId}
+        OR ${chatMessagesTable.owner_account_id} IS NULL
+      )`,
+      ))
+      .limit(1)
+
+    if (targetMessages.length === 0)
+      return []
+
+    const targetMessage = targetMessages[0].chat_messages
+
+    const previousMessages = await db
+      .select({
+        chat_messages: chatMessagesTable,
+        joined_chats: joinedChatsTable,
+      })
+      .from(chatMessagesTable)
+      .innerJoin(joinedChatsTable, eq(chatMessagesTable.in_chat_id, joinedChatsTable.chat_id))
+      .where(and(
+        eq(chatMessagesTable.in_chat_id, chatId),
+        lt(chatMessagesTable.platform_timestamp, targetMessage.platform_timestamp),
+        notDeletedCondition(),
+        accountChatCondition(accountId),
+        sql`(
+        ${joinedChatsTable.chat_type} != 'user'
+        OR ${chatMessagesTable.owner_account_id} = ${accountId}
+        OR ${chatMessagesTable.owner_account_id} IS NULL
+      )`,
+      ))
+      .orderBy(desc(chatMessagesTable.platform_timestamp))
+      .limit(before)
+
+    const nextMessages = await db
+      .select({
+        chat_messages: chatMessagesTable,
+        joined_chats: joinedChatsTable,
+      })
+      .from(chatMessagesTable)
+      .innerJoin(joinedChatsTable, eq(chatMessagesTable.in_chat_id, joinedChatsTable.chat_id))
+      .where(and(
+        eq(chatMessagesTable.in_chat_id, chatId),
+        gt(chatMessagesTable.platform_timestamp, targetMessage.platform_timestamp),
+        notDeletedCondition(),
+        accountChatCondition(accountId),
+        sql`(
+        ${joinedChatsTable.chat_type} != 'user'
+        OR ${chatMessagesTable.owner_account_id} = ${accountId}
+        OR ${chatMessagesTable.owner_account_id} IS NULL
+      )`,
+      ))
+      .orderBy(
+        asc(chatMessagesTable.platform_timestamp),
+        asc(chatMessagesTable.in_chat_id),
+        asc(chatMessagesTable.platform_message_id),
+      )
+      .limit(after)
+
+    const combinedDbMessages = [
+      ...previousMessages.map(row => row.chat_messages).reverse(),
+      targetMessage,
+      ...nextMessages.map(row => row.chat_messages),
+    ]
+
+    if (combinedDbMessages.length === 0)
+      return []
+
+    const messageIds = combinedDbMessages.map(msg => msg.id)
+    const photos = (await photoModel.findPhotosByMessageIds(db, messageIds)).expect('Failed to fetch photos')
+    const photosByMessage = Object.groupBy(
+      photos.filter(photo => photo.message_id),
+      photo => photo.message_id!,
+    )
+
+    return combinedDbMessages.map(message => ({
+      ...convertToCoreMessageFromDB(message),
+      media: (photosByMessage[message.id] || [])
+        .map(convertDBPhotoToCoreMessageMedia),
+    }) satisfies CoreMessage)
+  })
+}
+
+/**
+ * Fetch messages within a time range, optionally filtered by chat IDs.
+ * Used for summary generation where we need all messages regardless of content.
+ */
+async function fetchMessagesByTimeRange(
+  db: CoreDB,
+  accountId: string,
+  timeRange: { start: number, end: number },
+  chatIds?: string[],
+  pagination?: CorePagination,
+  fromUserId?: string,
+): PromiseResult<DBSelectMessage[]> {
+  return withResult(async () => {
+    const conditions = [
+      gte(chatMessagesTable.platform_timestamp, timeRange.start),
+      lte(chatMessagesTable.platform_timestamp, timeRange.end),
+      notDeletedCondition(),
+      accountChatCondition(accountId),
+      // ACL: same pattern as fetchMessages
+      sql`(
+        ${joinedChatsTable.chat_type} != 'user'
+        OR ${chatMessagesTable.owner_account_id} = ${accountId}
+        OR ${chatMessagesTable.owner_account_id} IS NULL
+      )`,
+    ]
+
+    if (chatIds && chatIds.length > 0) {
+      conditions.push(inArray(chatMessagesTable.in_chat_id, chatIds))
+    }
+    if (fromUserId) {
+      conditions.push(eq(chatMessagesTable.from_id, fromUserId))
+    }
+
+    const results = await db
+      .select({ chat_messages: chatMessagesTable })
+      .from(chatMessagesTable)
+      .innerJoin(joinedChatsTable, eq(chatMessagesTable.in_chat_id, joinedChatsTable.chat_id))
+      .where(and(...conditions))
+      .orderBy(
+        asc(chatMessagesTable.platform_timestamp),
+        asc(chatMessagesTable.in_chat_id),
+        asc(chatMessagesTable.platform_message_id),
+      )
+      .limit(pagination?.limit ?? 1000)
+      .offset(pagination?.offset ?? 0)
+
+    return results.map(row => row.chat_messages)
+  })
+}
+
+/**
+ * Fetch Telegram messages by their chat-scoped platform IDs.
+ * Telegram message IDs are only unique within a chat, so matching IDs without
+ * their chat would attach unrelated content to exported replies.
+ */
+async function fetchMessagesByChatAndPlatformIds(
+  db: CoreDB,
+  accountId: string,
+  references: Array<{ chatId: string, messageId: string }>,
+): PromiseResult<DBSelectMessage[]> {
+  return withResult(async () => {
+    const messageIdsByChat = new Map<string, Set<string>>()
+    for (const { chatId, messageId } of references) {
+      if (!chatId || !messageId)
+        continue
+      const messageIds = messageIdsByChat.get(chatId) ?? new Set<string>()
+      messageIds.add(messageId)
+      messageIdsByChat.set(chatId, messageIds)
+    }
+
+    if (messageIdsByChat.size === 0)
+      return []
+
+    const referenceCondition = or(...Array.from(messageIdsByChat, ([chatId, messageIds]) => and(
+      eq(chatMessagesTable.in_chat_id, chatId),
+      inArray(chatMessagesTable.platform_message_id, Array.from(messageIds)),
+    )))
+
+    const results = await db
+      .select({ chat_messages: chatMessagesTable })
+      .from(chatMessagesTable)
+      .innerJoin(joinedChatsTable, eq(chatMessagesTable.in_chat_id, joinedChatsTable.chat_id))
+      .where(and(
+        eq(chatMessagesTable.platform, 'telegram'),
+        referenceCondition,
+        notDeletedCondition(),
+        sql`(
+          ${joinedChatsTable.chat_type} != 'user'
+          OR ${chatMessagesTable.owner_account_id} = ${accountId}
+          OR ${chatMessagesTable.owner_account_id} IS NULL
+        )`,
+      ))
+
+    return results.map(row => row.chat_messages)
+  })
+}
+
+/**
+ * Fetch messages by their IDs
+ */
+async function fetchMessagesByIds(
+  db: CoreDB,
+  accountId: string,
+  messageIds: string[],
+): PromiseResult<Array<{ id: string, chat_id: string, chat_name: string | null, platform_message_id: string }>> {
+  return withResult(async () => {
+    if (messageIds.length === 0) {
+      return []
+    }
+
+    const results = await db
+      .select({
+        id: chatMessagesTable.id,
+        chat_id: chatMessagesTable.in_chat_id,
+        chat_name: joinedChatsTable.chat_name,
+        platform_message_id: chatMessagesTable.platform_message_id,
+      })
+      .from(chatMessagesTable)
+      .innerJoin(joinedChatsTable, eq(chatMessagesTable.in_chat_id, joinedChatsTable.chat_id))
+      .innerJoin(accountJoinedChatsTable, eq(joinedChatsTable.id, accountJoinedChatsTable.joined_chat_id))
+      .where(and(
+        inArray(chatMessagesTable.id, messageIds),
+        notDeletedCondition(),
+        eq(accountJoinedChatsTable.account_id, accountId),
+      ))
+
+    return results
+  })
+}
+
+async function fetchEditedMessageIds(
+  db: CoreDB,
+  accountId: string,
+  chatId: string,
+  messageIds: string[],
+): PromiseResult<string[]> {
+  return withResult(async () => {
+    if (messageIds.length === 0) {
+      return []
+    }
+
+    const results = await db
+      .select({
+        platform_message_id: chatMessagesTable.platform_message_id,
+      })
+      .from(chatMessagesTable)
+      .where(and(
+        eq(chatMessagesTable.platform, 'telegram'),
+        eq(chatMessagesTable.in_chat_id, chatId),
+        inArray(chatMessagesTable.platform_message_id, messageIds),
+        notDeletedCondition(),
+        ownerScopedCondition(accountId),
+        gt(chatMessagesTable.updated_at, chatMessagesTable.created_at),
+      ))
+
+    return results.map(row => row.platform_message_id)
+  })
+}
+
+/**
+ * Retrieve messages for a specific account.
+ */
+async function retrieveMessages(
+  db: CoreDB,
+  logger: Logger,
+  accountId: string,
+  embeddingDimension: EmbeddingDimension,
+  content: {
+    text?: string
+    model?: string
+    embedding?: number[]
+  },
+  pagination?: CorePagination,
+  filters?: {
+    fromUserId?: string
+    timeRange?: { start?: number, end?: number }
+    chatIds?: string[]
+  },
+): PromiseResult<DBRetrievalMessages[]> {
+  logger = logger.withContext('models:chat-message:retrieveMessages')
+
+  return withResult(async () => {
+    const retrievalMessages: DBRetrievalMessages[] = []
+
+    if (content.text) {
+      const relevantMessages = await retrieveJieba(db, logger, accountId, content.text, pagination, filters)
+      logger.withFields({ count: relevantMessages.length }).verbose('Retrieved jieba messages')
+      retrievalMessages.push(...relevantMessages)
+    }
+
+    if (content.embedding && content.embedding.length !== 0) {
+      const relevantMessages = await retrieveVector(db, accountId, content.model || '', content.embedding, embeddingDimension, pagination, filters)
+      logger.withFields({ count: relevantMessages.length }).verbose('Retrieved vector messages')
+      retrievalMessages.push(...relevantMessages)
+    }
+
+    // Deduplicate messages from multiple sources (jieba + vector),
+    // preferring the entry with a higher combined/similarity score.
+    const seen = new Map<string, DBRetrievalMessages>()
+    for (const msg of retrievalMessages) {
+      const existing = seen.get(msg.id)
+      if (!existing || (msg.combined_score ?? msg.similarity ?? 0) > (existing.combined_score ?? existing.similarity ?? 0)) {
+        seen.set(msg.id, msg)
+      }
+    }
+    return [...seen.values()]
+  })
+}
+
+export const chatMessageModels = {
+  recordMessages,
+  softDeleteMessages,
+  fetchMessages,
+  fetchMessagesByIds,
+  fetchMessagesByChatAndPlatformIds,
+  fetchEditedMessageIds,
+  fetchMessagesByTimeRange,
+  fetchMessagesWithPhotos,
+  fetchMessageContextWithPhotos,
+  retrieveMessages,
+}
+
+export type ChatMessageModels = typeof chatMessageModels

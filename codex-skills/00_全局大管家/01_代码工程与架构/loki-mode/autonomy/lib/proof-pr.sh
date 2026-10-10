@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+# proof-pr.sh -- shared, PRINT-ONLY Evidence Receipt renderer for PR bodies.
+#
+# LOAD-BEARING INVARIANT: this lib is pure and print-only. It NEVER runs
+# `git push`, NEVER runs `gh pr create`, NEVER mutates the repo, NEVER posts a
+# check-run. It reads ONLY the already-redacted proof.json passed to it (past the
+# redaction chokepoint at proof-generator.py:1086) and prints a markdown block
+# that gets appended into a PR body. It is the single source of truth sourced by
+# autonomy/run.sh (the three create_session_pr / body-file / delegate PR sites)
+# and autonomy/loki (cmd_github) so every PR surface renders a byte-identical,
+# correct receipt and cannot drift. Mirrors the contract of git-pr-advisory.sh.
+#
+# HONESTY GATE (R-HON-1): the ONLY input that may produce a green/VERIFIED claim
+# is honesty.headline == "VERIFIED" read from the redacted proof.json. The
+# renderer NEVER recomputes a verdict, NEVER reads council/LLM opinion to turn
+# green, NEVER infers VERIFIED from a bare pass.
+#
+# DETERMINISM (R-DET-2): when an expected_head_sha is supplied AND the proof is
+# VERIFIED, the renderer cross-checks it against facts.git.head_sha; on mismatch
+# it does NOT render green, it prints an honest "does not match this branch head"
+# line. Production callers pass an empty expected_head_sha (the session commit at
+# run.sh sits BETWEEN proof generation and PR creation, so the post-commit branch
+# head is structurally offset from the proof's pre-commit head; feeding it would
+# false-degrade every legitimate receipt). The anti-stale guarantee on the
+# production path is R-DET-1: the persisted run_id pointer (.loki/state/
+# last-proof-id.txt), not a head comparison. The R-DET-2 capability stays intact
+# and is exercised by the SDET fixtures.
+#
+# set -e SAFE: this lib may be sourced under `set -uo pipefail` (run.sh) AND
+# `set -euo pipefail` (loki). Every fallible command ends with `|| true` or sits
+# in a guarded `if`; no bare `((..))`; every var defaulted with `${VAR:-}`;
+# every optional tool is `command -v`-guarded. All print paths `return 0` so a
+# sourced call cannot abort the caller under set -e.
+
+# S-215: callers render from the agent's repo, and a bare `python3 -` puts the
+# cwd first on sys.path, so a committed json.py forged the headline. The
+# renderer resolves its interpreter through _loki_snapshot_py_tool and runs it
+# -I -S. The copy below only serves callers that source this file on its own;
+# run.sh's definition is the source of truth: keep this copy byte-identical to
+# it. Pinned by tests/test-proof-pr-no-cwd-shadow.sh and
+# tests/test-council-py-tool-identity.sh.
+declare -F _loki_snapshot_py_tool >/dev/null 2>&1 || \
+_loki_snapshot_py_tool() {
+    local c
+    for c in /usr/bin/python3 /bin/python3; do
+        [ -x "$c" ] && [ ! -d "$c" ] && "$c" -I -S -c '' >/dev/null 2>&1 && { printf '%s\n' "$c"; return 0; }
+    done
+    local dir
+    local IFS=:
+    for dir in $PATH; do
+        case "$dir" in
+            /*) ;;
+            *) continue ;;
+        esac
+        if [ -x "$dir/python3" ] && [ ! -d "$dir/python3" ] \
+           && "$dir/python3" -I -S -c '' >/dev/null 2>&1; then
+            printf '%s\n' "$dir/python3"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Double-source guard.
+[ -n "${_PROOF_PR_SH:-}" ] && return 0
+_PROOF_PR_SH=1
+
+# render_evidence_receipt_md <proof_json_path> [expected_head_sha] [expected_base_sha]
+# Prints the Evidence Receipt markdown block for a PR body. PRINT-ONLY: never
+# pushes, never creates a PR, never mutates the repo. Always returns 0. A missing
+# or unreadable proof prints ONE honest "unavailable" line and returns 0 so it
+# can NEVER crash the caller or block PR creation.
+#
+# expected_base_sha is accepted for call-site symmetry but is intentionally
+# unused for any green/red gate: the proof's base is a sha (_LOKI_ITER_START_SHA)
+# while a PR base is a branch NAME, so a base comparison would misfire. The base
+# is informational only and is printed from the proof itself.
+render_evidence_receipt_md() {
+    local proof_json_path="${1:-}"
+    local expected_head_sha="${2:-}"
+    local _expected_base_sha="${3:-}"
+    : "$_expected_base_sha"
+
+    # No isolated python3 -> degrade honestly, never crash.
+    local _pr_py=""
+    _pr_py="$(_loki_snapshot_py_tool)" || _pr_py=""
+    if [ -z "$_pr_py" ]; then
+        printf '%s\n' "Evidence Receipt: unavailable for this run."
+        return 0
+    fi
+
+    # Pass every input as argv (sys.argv), NEVER interpolated into the heredoc:
+    # quote-safe and injection-safe against a hostile proof path. The heredoc
+    # delimiter is quoted so bash performs no expansion inside the program.
+    # Capture into a var so a non-zero python exit degrades honestly without a
+    # brace group on the heredoc command (which bash mis-parses). The program
+    # always handles its own errors and prints, so a non-zero exit is a last
+    # resort (interpreter crash) -> print the single honest line.
+    local _receipt_out=""
+    local _receipt_rc=0
+    _receipt_out="$("$_pr_py" -I -S - "$proof_json_path" "$expected_head_sha" <<'PROOF_PR_PY' 2>/dev/null
+import json
+import sys
+
+
+def _line(s=""):
+    sys.stdout.write(s + "\n")
+
+
+def main():
+    argv = sys.argv[1:]
+    proof_path = argv[0] if len(argv) > 0 else ""
+    expected_head = (argv[1] if len(argv) > 1 else "").strip()
+
+    if not proof_path:
+        _line("Evidence Receipt: unavailable for this run.")
+        return 0
+    try:
+        with open(proof_path, "r") as f:
+            proof = json.load(f)
+    except Exception:
+        _line("Evidence Receipt: unavailable for this run.")
+        return 0
+    if not isinstance(proof, dict):
+        _line("Evidence Receipt: unavailable for this run.")
+        return 0
+
+    honesty = proof.get("honesty")
+    honesty = honesty if isinstance(honesty, dict) else {}
+    headline = str(honesty.get("headline") or "").strip()
+    if not headline:
+        _line("Evidence Receipt: unavailable for this run.")
+        return 0
+
+    facts = proof.get("facts")
+    facts = facts if isinstance(facts, dict) else {}
+    git = facts.get("git") if isinstance(facts.get("git"), dict) else {}
+    tests = facts.get("tests") if isinstance(facts.get("tests"), dict) else {}
+    build = facts.get("build") if isinstance(facts.get("build"), dict) else {}
+    security = facts.get("security") if isinstance(facts.get("security"), dict) else {}
+    cost = facts.get("cost") if isinstance(facts.get("cost"), dict) else {}
+    meta = facts.get("meta") if isinstance(facts.get("meta"), dict) else {}
+
+    diff = git.get("diff") if isinstance(git.get("diff"), dict) else {}
+    diff_count = diff.get("count")
+    diff_sha = str(git.get("diff_sha256") or "")
+    base_sha = str(git.get("base_sha") or "")
+    head_sha = str(git.get("head_sha") or "")
+
+    # run_id: prefer facts.meta.run_id, fall back to the top-level mirror.
+    run_id = str(meta.get("run_id") or proof.get("run_id") or "").strip()
+
+    # R-DET-2 cross-check. Only a supplied expected_head AND a VERIFIED headline
+    # can trigger it. On mismatch we do NOT print a VERIFIED banner; we print an
+    # honest line so a stale / wrong-run proof fails safe, never fake-green.
+    head_mismatch = (
+        bool(expected_head)
+        and headline == "VERIFIED"
+        and head_sha != ""
+        and head_sha != expected_head
+    )
+
+    # ---- Render -----------------------------------------------------------
+    _line("### Evidence Receipt")
+    _line()
+
+    if head_mismatch:
+        _line(
+            "Evidence Receipt: available but does not match this branch head "
+            "(proof head " + (head_sha or "(none)")
+            + ", branch head " + (expected_head or "(none)") + "). Run "
+            "`loki proof verify " + (run_id or "<run_id>") + "` to inspect."
+        )
+        _line()
+        # Fall through: still render facts + verify-yourself so the reviewer can
+        # check, but emit NO green headline label.
+        effective_headline = ""
+    else:
+        # Headline mapped 1:1 from honesty.headline. Plain text label, NO color
+        # codes -- this goes into a PR body. R-HON-1: only VERIFIED is green.
+        effective_headline = headline
+        _line("Headline: " + headline)
+        _line()
+
+    # Facts table. Deterministic, non-LLM facts a skeptic can recompute.
+    def _stat(d):
+        s = str(d.get("status") or "").strip()
+        return s if s else "not_run"
+
+    tests_cell = _stat(tests)
+    tests_cmd = str(tests.get("command") or "").strip()
+    if tests_cmd:
+        tests_cell = tests_cell + " (`" + tests_cmd + "`)"
+    build_cell = _stat(build)
+    build_cmd = str(build.get("command") or "").strip()
+    if build_cmd:
+        build_cell = build_cell + " (`" + build_cmd + "`)"
+
+    sec_cell = _stat(security)
+    if security.get("ran"):
+        ha = security.get("high_active") or 0
+        try:
+            ha = int(ha)
+        except Exception:
+            ha = 0
+        if ha > 0:
+            sec_cell = sec_cell + " (" + str(ha) + " un-waived HIGH)"
+
+    cost_usd = cost.get("usd")
+    cost_cell = "not recorded" if cost_usd is None else ("$" + str(cost_usd))
+
+    files_cell = "0" if diff_count is None else str(diff_count)
+
+    _line("| Fact | Value |")
+    _line("| --- | --- |")
+    _line("| Files changed | " + files_cell + " |")
+    _line("| Diff sha256 | `" + (diff_sha or "(none)") + "` |")
+    _line("| Tests | " + tests_cell + " |")
+    _line("| Build | " + build_cell + " |")
+    _line("| Security | " + sec_cell + " |")
+    _line("| Cost | " + cost_cell + " |")
+    # Gates the operator switched OFF for this run.
+    #
+    # v8.17.0 taught the proof to RECORD disabled_phases; nothing rendered it,
+    # so the receipt a human actually reads still could not distinguish a fully
+    # verified run from one with code review and security switched off. A
+    # recorded fact nobody can see does not make the receipt more honest.
+    #
+    # Only emitted when something WAS disabled. An "all gates ran" row on every
+    # ordinary receipt is noise, and noise in a trust artifact trains readers to
+    # skim past exactly the line that matters on the one run where it appears.
+    _qg = proof.get("quality_gates")
+    _qg = _qg if isinstance(_qg, dict) else {}
+    _off = _qg.get("disabled_phases")
+    _off = [str(x) for x in _off] if isinstance(_off, list) else []
+    if _off:
+        _line("| Gates disabled | " + ", ".join(sorted(_off)) + " |")
+    _line("| Base sha | `" + (base_sha or "(none)") + "` |")
+    _line("| Head sha | `" + (head_sha or "(none)") + "` |")
+
+    # Issue-to-PR journey rows. Emitted ONLY on an issue-mode run, and each row
+    # ONLY when that fact was actually measured -- an unmeasured number renders
+    # no row rather than a zero, the same rule the rest of this receipt follows.
+    journey = facts.get("journey") if isinstance(facts.get("journey"), dict) else {}
+    if journey:
+        jissue = journey.get("issue") if isinstance(journey.get("issue"), dict) else {}
+        jref = str(jissue.get("ref") or "").strip()
+        jurl = str(jissue.get("url") or "").strip()
+        if jref:
+            _line("| Issue | " + (("[" + jref + "](" + jurl + ")") if jurl else jref) + " |")
+
+        ttfr = journey.get("time_to_first_result_sec")
+        if isinstance(ttfr, int):
+            first_kind = str(journey.get("first_result_kind") or "").strip()
+            if first_kind == "proposed_solution_plan":
+                _line("| First useful result | proposed plan in " + str(ttfr)
+                      + "s (not a verified patch) |")
+            else:
+                _line("| Time to first result | " + str(ttfr) + "s |")
+
+        ivs = journey.get("interventions")
+        if isinstance(ivs, int):
+            _line("| Human interventions | " + str(ivs) + " |")
+
+        acc = journey.get("acceptance") if isinstance(journey.get("acceptance"), dict) else {}
+        n_stated = acc.get("stated_count")
+        if isinstance(n_stated, int):
+            # Reported as ASKED, never as met. addressed_count is null by design
+            # (no deterministic checker for free-text criteria), so this row must
+            # never be phrased as coverage or a pass -- that would be the exact
+            # fake-green the headline rules forbid.
+            _line("| Acceptance criteria | " + str(n_stated)
+                  + " stated in the issue (not machine-verified) |")
+
+        pr = journey.get("pull_request") if isinstance(journey.get("pull_request"), dict) else {}
+        pr_state = str(pr.get("state") or "").strip()
+        if pr_state:
+            pr_url = str(pr.get("url") or "").strip()
+            _line("| Pull request | " + pr_state + ((" -- " + pr_url) if pr_url else "") + " |")
+
+        # Rollback: derived from the base sha this run started at, so the reader
+        # gets a runnable command rather than a promise. Only emitted when the
+        # base is actually known.
+        if base_sha:
+            _line("| Rollback | `git reset --hard " + base_sha + "` |")
+
+        # Uncertainty: the honest count of checks that did NOT conclusively pass,
+        # read from the SAME honesty.degraded[] the headline is computed from, so
+        # it can never disagree with the verdict above it.
+        _degraded = honesty.get("degraded")
+        _degraded = _degraded if isinstance(_degraded, list) else []
+        if effective_headline == "VERIFIED" and not _degraded:
+            _line("| Uncertainty | none recorded; every check that ran concluded |")
+        elif _degraded:
+            _line("| Uncertainty | " + str(len(_degraded))
+                  + " check(s) not conclusive -- see the list below |")
+    _line()
+
+    # Gaps: when headline != VERIFIED, list honesty.degraded[] verbatim. By
+    # _compute_degraded design an empty list with a non-VERIFIED headline is
+    # impossible, but guard anyway (R-HON-2).
+    if effective_headline != "VERIFIED":
+        degraded = honesty.get("degraded")
+        degraded = degraded if isinstance(degraded, list) else []
+        if degraded:
+            _line("Not yet verified:")
+            for d in degraded:
+                if not isinstance(d, dict):
+                    continue
+                item = str(d.get("item") or "").strip()
+                status = str(d.get("status") or "").strip()
+                reason = str(d.get("reason") or "").strip()
+                _line(
+                    "- " + (item or "(item)")
+                    + ": " + (status or "(status)")
+                    + (" -- " + reason if reason else "")
+                )
+            _line()
+
+    # Verify-yourself block. ALWAYS rendered, even on NOT VERIFIED -- the whole
+    # point is that the reviewer can recompute the verdict and does not have to
+    # trust Loki.
+    _line("You do not have to trust this. Verify it yourself:")
+    _line()
+    _line("```")
+    _line(
+        "loki proof verify " + (run_id or "<run_id>")
+        + "  (base " + (base_sha or "(none)") + ")"
+    )
+    _line("```")
+    _line()
+
+    # What the headline means: a first-time reviewer must understand that
+    # VERIFIED WITH GAPS is honest, not a failure.
+    _line(
+        "What the headline means: VERIFIED means every recorded check passed; "
+        "VERIFIED WITH GAPS means the checks that ran passed but some checks "
+        "were not run (listed above); NOT VERIFIED means a check failed or "
+        "nothing could be verified. The headline is computed only from "
+        "deterministic, re-derivable facts, never from an AI opinion."
+    )
+    _line()
+    # Honest scope of "verify it yourself". A reviewer CAN recompute the diff and
+    # the integrity hash, and proof-verify.py re-derives the headline from the
+    # recorded facts to catch an inconsistent edit. But on the unsigned path the
+    # recorded test/build facts are produced by Loki and taken at face value:
+    # a consistent rewrite of facts + headline is not caught here. Neutral,
+    # adversarial non-forgeability (Loki not trusted) needs the signed record.
+    _line(
+        "Scope: you can recompute the diff and the integrity hash yourself, and "
+        "`loki proof verify` re-derives the headline from the recorded facts. On "
+        "an unsigned receipt the recorded test/build facts are produced by Loki "
+        "and taken at face value; a signed receipt is required for verification "
+        "that does not trust Loki."
+    )
+    return 0
+
+
+sys.exit(main())
+PROOF_PR_PY
+    )" || _receipt_rc=$?
+
+    if [ "$_receipt_rc" != "0" ] || [ -z "$_receipt_out" ]; then
+        printf '%s\n' "Evidence Receipt: unavailable for this run."
+        return 0
+    fi
+    printf '%s\n' "$_receipt_out"
+    return 0
+}

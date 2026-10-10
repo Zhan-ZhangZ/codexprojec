@@ -1,0 +1,255 @@
+// Autonomi (Loki Mode) control plane on ECS/Fargate.
+//
+// Persistence: the Control Plane SQLite database (LOKI_CONTROL_DB) lives in the
+// task filesystem and is LOST when the task restarts. Mount an EFS volume at
+// /home/loki/.loki/control for durability (not provisioned by this module).
+// LOKI_DASHBOARD_ALLOWED_HOSTS is ignored by the Control Plane.
+//
+// The container command, port and health path are taken from the Helm chart's
+// deployment-controlplane.yaml so the two deployment paths cannot drift:
+//   command: loki control serve --port <port>   (packages/control-plane)
+//   health:  GET /health (liveness), GET /ready (readiness)
+// Hardcoding a different path here would give ECS a health check that passes
+// while Kubernetes fails, or the reverse, and neither would be discovered until
+// one of them was in production.
+
+locals {
+  name = var.name_prefix
+  // dashboard_port is a deprecated alias: when set it wins over control_port.
+  control_port = var.dashboard_port != null ? var.dashboard_port : var.control_port
+
+  tags = merge(
+    {
+      "app.kubernetes.io/name"       = "autonomi"
+      "app.kubernetes.io/component"  = "controlplane"
+      "app.kubernetes.io/managed-by" = "terraform"
+    },
+    var.tags,
+  )
+}
+
+resource "aws_cloudwatch_log_group" "this" {
+  name              = "/ecs/${local.name}-controlplane"
+  retention_in_days = var.log_retention_days
+  tags              = local.tags
+}
+
+resource "aws_ecs_cluster" "this" {
+  name = "${local.name}-cluster"
+
+  setting {
+    // Container Insights is what makes a Fargate task debuggable after the fact.
+    // Off by default in AWS; an operator without it has task-level metrics only.
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  tags = local.tags
+}
+
+// Execution role: what ECS itself needs to START the task (pull the image,
+// write logs, read secrets). Deliberately separate from the task role below --
+// collapsing them is a common shortcut that hands the application every
+// permission the platform needs.
+resource "aws_iam_role" "execution" {
+  name = "${local.name}-ecs-execution"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "execution_managed" {
+  role       = aws_iam_role.execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+// Secret reads are granted ONLY for the secrets that are configured (the
+// provider key and the Control Plane token), each scoped to its exact ARN rather
+// than secretsmanager:* -- a wildcard here would let the control plane read
+// every secret in the account. The execution role resolves valueFrom at launch,
+// so a secret referenced in the task definition but missing here fails the task.
+locals {
+  execution_secret_arns = compact([var.provider_secret_arn, var.control_token_secret_arn])
+}
+
+resource "aws_iam_role_policy" "execution_secrets" {
+  count = length(local.execution_secret_arns) == 0 ? 0 : 1
+  name  = "${local.name}-read-secrets"
+  role  = aws_iam_role.execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = concat(
+      [{
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = local.execution_secret_arns
+      }],
+      var.secrets_kms_key_arn == "" ? [] : [{
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = [var.secrets_kms_key_arn]
+      }]
+    )
+  })
+}
+
+// Task role: what the APPLICATION may do. Empty by default. An engine that
+// needs no AWS API access should have none, and adding permissions here is a
+// deliberate act rather than an inheritance.
+resource "aws_iam_role" "task" {
+  name = "${local.name}-ecs-task"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = local.tags
+}
+
+resource "terraform_data" "require_token" {
+  lifecycle {
+    precondition {
+      condition     = var.control_token_secret_arn != "" || var.allow_insecure_bind
+      error_message = "Set control_token_secret_arn (a secret holding LOKI_CONTROL_TOKEN), or set allow_insecure_bind = true to run the Control Plane with no authentication."
+    }
+  }
+}
+
+resource "aws_security_group" "task" {
+  name        = "${local.name}-controlplane"
+  description = "Autonomi control plane tasks"
+  vpc_id      = var.vpc_id
+
+  // No ingress rule is defined here on purpose. Attach a load balancer or an
+  // explicit rule for your own CIDR. A module that opens the dashboard port to
+  // 0.0.0.0/0 by default is one bad copy-paste from exposing a control plane to
+  // the internet.
+
+  egress {
+    description = "All outbound. The engine calls a hosted provider API; see `loki doctor --airgap` for the exact host inventory."
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = local.tags
+}
+
+resource "aws_ecs_task_definition" "controlplane" {
+  depends_on = [terraform_data.require_token]
+
+  family                   = "${local.name}-controlplane"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = var.cpu
+  memory                   = var.memory
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "controlplane"
+      image     = var.image
+      essential = true
+
+      // Mirrors the Helm chart exactly. See the note at the top of this file.
+      command = [
+        "loki", "control", "serve",
+        "--port", tostring(local.control_port),
+      ]
+
+      portMappings = [{
+        containerPort = local.control_port
+        protocol      = "tcp"
+      }]
+
+      environment = [
+        { name = "LOKI_CONTROL_HOST", value = "0.0.0.0" },
+        { name = "LOKI_CONTROL_PORT", value = tostring(local.control_port) },
+        { name = "LOKI_CONTROL_DB", value = "/home/loki/.loki/control/control.db" },
+        // The Control Plane refuses a non-loopback bind without a token. Open
+        // mode exists only behind allow_insecure_bind (default false); an open
+        // Control Plane accepts forged runs and answers from anyone who can
+        // reach the port, which is WORSE than the legacy dashboard.
+        { name = "LOKI_CONTROL_ALLOW_INSECURE_BIND", value = var.allow_insecure_bind ? "1" : "0" },
+        { name = "LOKI_LOG_LEVEL", value = var.log_level },
+        { name = "LOKI_DASHBOARD_ALLOWED_HOSTS", value = var.dashboard_allowed_hosts },
+      ]
+
+      // Secrets arrive as secret references, never as plaintext environment
+      // variables: environment is visible in the ECS console and in
+      // describe-task-definition output to anyone with read access.
+      secrets = concat(
+        var.provider_secret_arn == "" ? [] : [
+          { name = "ANTHROPIC_API_KEY", valueFrom = var.provider_secret_arn },
+        ],
+        var.control_token_secret_arn == "" ? [] : [
+          { name = "LOKI_CONTROL_TOKEN", valueFrom = var.control_token_secret_arn },
+        ],
+      )
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.this.name
+          "awslogs-region"        = var.region
+          "awslogs-stream-prefix" = "controlplane"
+        }
+      }
+
+      // Same endpoint the Kubernetes readiness probe uses. startPeriod exists
+      // so a slow cold start is not reported as an unhealthy task -- the same
+      // reason the helm test hook retries instead of probing once.
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -fsS http://localhost:${local.control_port}/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+    }
+  ])
+
+  tags = local.tags
+}
+
+resource "aws_ecs_service" "controlplane" {
+  name            = "${local.name}-controlplane"
+  cluster         = aws_ecs_cluster.this.id
+  task_definition = aws_ecs_task_definition.controlplane.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = var.subnet_ids
+    security_groups  = [aws_security_group.task.id]
+    assign_public_ip = var.assign_public_ip
+  }
+
+  // Roll forward without dropping to zero capacity, and let a bad deployment
+  // roll itself back rather than sitting broken until someone notices.
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  tags = local.tags
+}

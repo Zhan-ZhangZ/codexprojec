@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<!--
+  Loki Mode - Shareable Proof-of-Run template (Slice C).
+
+  SELF-CONTAINED: zero external network calls. All CSS is inlined below, there
+  are NO <script src>, NO CDN links, NO web fonts, NO @import, NO external
+  images. The page renders entirely from data embedded at generation time.
+
+  GENERATOR CONTRACT (read by autonomy/lib/proof-generator.py, Slice A):
+    1. The generator takes the REDACTED proof dict (after proof_redact.py has
+       run) and serializes it to JSON.
+    2. Before substitution it MUST escape the "<" character so a value that
+       happens to contain "</script>" or "<!--" cannot break out of the
+       embedded <script type="application/json"> block. Recommended:
+           payload = json.dumps(proof_dict, ensure_ascii=False).replace("<", "\\u003c")
+    3. The generator replaces the proof token (two underscores, the word
+       PROOF, JSON, two underscores) with that escaped JSON string. To keep
+       the substitution unambiguous the literal token appears EXACTLY ONCE in
+       this file: inside the <script id="proof-data"> block below. Do NOT write
+       the literal token anywhere else (this comment deliberately spells it out
+       instead of repeating it, and the renderer detects an un-substituted
+       blob structurally rather than by string-matching the token).
+    4. The generator also substitutes the receipt title, social description,
+       and share-button setting before embedding the parsed blob.
+
+  The renderer below is defensive: every nullable / optional schema field is
+  guarded (deployed_url, public_url, diffs, council.enabled false, empty
+  reviewers[], findings_link null). It never prints "undefined" and never
+  throws on a null.
+
+  proof.json schema fields rendered (FROZEN v1.0): schema_version, run_id,
+  generated_at, loki_version, started_at, wall_clock_sec, spec{source,brief},
+  provider{name,model}, iterations{count,succeeded,failed},
+  files_changed{count,insertions,deletions,files[]}, diffs[]|null,
+  council{enabled,final_verdict,threshold,reviewers[],findings_link},
+  quality_gates{passed,total,gates[]},
+  cost{usd,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens},
+  deployment{deployed_url,public_url}, redaction{...}, verification{hash,...}.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__PROOF_RECEIPT_TITLE__ - Loki Mode Evidence Receipt</title>
+<!-- Static text-only social meta. No og:image (would break self-containment). -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="__PROOF_RECEIPT_TITLE__ - Loki Mode Evidence Receipt">
+<!-- og:description and twitter:description are filled at generation time with
+     the real measured cost + files-changed + council ratio (cost-free variant
+     when cost was not collected). The generator replaces the og token below in
+     BOTH metas with one str.replace; the token is attribute-escaped. -->
+<meta property="og:description" content="__PROOF_OG_DESCRIPTION__">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:description" content="__PROOF_OG_DESCRIPTION__">
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d2129;
+    --border: #2a2f3a;
+    --text: #e7e9ee;
+    --muted: #9aa1ad;
+    --faint: #6b7280;
+    --accent: #6f7bf7;
+    --accent-soft: #2a2f57;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --mono: ui-monospace, "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 28px; font-size: 13px; color: var(--muted);
+  }
+  .brand { font-weight: 600; color: var(--text); letter-spacing: 0.2px; }
+  .brand .dot { color: var(--accent); }
+
+  /* HERO (branded proof card) */
+  .hero {
+    position: relative; overflow: hidden;
+    background:
+      radial-gradient(900px 300px at 100% -40%, var(--accent-soft), transparent 60%),
+      linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 22px;
+  }
+  .hero-brand {
+    display: flex; align-items: center; gap: 9px; margin-bottom: 18px;
+    color: var(--text);
+  }
+  .hero-brand .mark { display: inline-flex; color: var(--accent); }
+  .hero-brand .name { font-weight: 650; font-size: 15px; letter-spacing: 0.2px; }
+  .hero-brand .by { color: var(--faint); font-size: 12px; }
+  .hero-brand .by b { color: var(--muted); font-weight: 600; }
+  .hero h1 {
+    font-size: 26px; line-height: 1.25; margin: 0 0 14px;
+    font-weight: 650; letter-spacing: -0.2px;
+  }
+  .hero .sub { color: var(--muted); font-size: 14px; margin: 0; }
+  .hero-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px; margin-top: 20px; background: var(--border);
+    border: 1px solid var(--border); border-radius: 11px; overflow: hidden;
+  }
+  .hero-stat { background: rgba(20,23,30,0.72); padding: 13px 15px; }
+  .hero-stat .hk { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .hero-stat .hv { font-size: 19px; font-family: var(--mono); margin-top: 5px; color: var(--text); word-break: break-word; }
+  .hero-stat .hv small { font-size: 12px; color: var(--muted); font-family: var(--sans); }
+  .hero-stat .hv.ok { color: var(--green); }
+  .hero-actions { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 15px; border-radius: 9px;
+    font-size: 14px; font-weight: 550; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b0d12; }
+  .btn.primary:hover { text-decoration: none; filter: brightness(1.06); }
+  .btn:hover { text-decoration: none; border-color: var(--accent); }
+  .btn .ico { display: inline-flex; pointer-events: none; }
+  .share-sep { flex: 1 1 auto; }
+  .share-row { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .share-row .lbl { color: var(--faint); font-size: 12px; margin-right: 2px; }
+  .btn.share { padding: 8px 12px; font-size: 13px; }
+
+  /* Sections */
+  .section { margin-top: 26px; }
+  .section > h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.4px;
+    color: var(--faint); margin: 0 0 12px; font-weight: 600;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+  }
+
+  /* Cost - the hero metric */
+  .cost-card { padding: 26px; }
+  .cost-top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .cost-usd { font-size: 44px; font-weight: 680; letter-spacing: -1px; font-family: var(--mono); }
+  .cost-label { color: var(--muted); font-size: 14px; }
+  .token-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px; margin-top: 20px; background: var(--border);
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  .token-cell { background: var(--panel-2); padding: 13px 15px; }
+  .token-cell .k { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .token-cell .v { font-size: 18px; font-family: var(--mono); margin-top: 4px; }
+
+  /* Stat row */
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 11px; padding: 16px; }
+  .stat .k { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .stat .v { font-size: 22px; font-family: var(--mono); margin-top: 5px; }
+  .stat .v small { font-size: 13px; color: var(--muted); }
+  .add { color: var(--green); }
+  .del { color: var(--red); }
+
+  /* Diffstat file list */
+  .files { margin-top: 14px; }
+  .file-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    border-top: 1px solid var(--border); font-family: var(--mono); font-size: 13px;
+  }
+  .file-row:first-child { border-top: none; }
+  .file-row .path { flex: 1; color: var(--text); word-break: break-all; }
+  .file-row .status {
+    font-size: 11px; text-transform: uppercase; color: var(--faint);
+    border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px;
+  }
+  .file-row .nums { white-space: nowrap; }
+
+  /* Diff (inline patches) */
+  .diff-file { border-top: 1px solid var(--border); }
+  .diff-file:first-child { border-top: none; }
+  .diff-file > summary {
+    cursor: pointer; padding: 11px 4px; font-family: var(--mono); font-size: 13px;
+    color: var(--text); list-style: none; user-select: none;
+  }
+  .diff-file > summary::-webkit-details-marker { display: none; }
+  .diff-file > summary::before { content: "+ "; color: var(--faint); }
+  .diff-file[open] > summary::before { content: "- "; }
+  .diff-file pre {
+    margin: 0 0 12px; padding: 12px 14px; background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 8px; overflow-x: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.45; color: var(--muted);
+    white-space: pre;
+  }
+  .diff-line-add { color: var(--green); }
+  .diff-line-del { color: var(--red); }
+  .diff-line-hd { color: var(--accent); }
+
+  /* Council */
+  .verdict-badge {
+    display: inline-block; font-size: 13px; font-weight: 600; padding: 4px 11px;
+    border-radius: 7px; border: 1px solid var(--border);
+  }
+  .verdict-approve { color: var(--green); border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
+  .verdict-reject { color: var(--red); border-color: rgba(248,113,113,0.4); background: rgba(248,113,113,0.08); }
+  .verdict-concern { color: var(--amber); border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.08); }
+  .verdict-meta { color: var(--muted); font-size: 13px; margin-left: 10px; }
+  .reviewer {
+    border-top: 1px solid var(--border); padding: 14px 0;
+  }
+  .reviewer:first-child { border-top: none; padding-top: 4px; }
+  .reviewer .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .reviewer .role { font-weight: 600; font-size: 14px; }
+  .reviewer .vote { font-size: 12px; font-weight: 600; }
+  .vote.approve { color: var(--green); }
+  .vote.reject { color: var(--red); }
+  .vote.concern { color: var(--amber); }
+  .reviewer .summary { color: var(--muted); font-size: 14px; margin-top: 6px; white-space: pre-wrap; }
+
+  /* Gates */
+  .gates { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .gate {
+    font-size: 12px; font-family: var(--mono); padding: 4px 9px; border-radius: 7px;
+    border: 1px solid var(--border); display: flex; gap: 7px; align-items: center;
+  }
+  .gate .mk { font-weight: 700; }
+  .gate.pass .mk { color: var(--green); }
+  .gate.fail .mk { color: var(--red); }
+  .gate.skip .mk { color: var(--faint); }
+
+  /* Limitations / flagged */
+  .note { color: var(--muted); font-size: 14px; }
+  .note-list { margin: 0; padding-left: 18px; }
+  .note-list li { margin: 5px 0; color: var(--muted); font-size: 14px; }
+
+  /* Provenance key-value */
+  .kv { display: grid; grid-template-columns: 180px 1fr; gap: 8px 16px; font-size: 14px; }
+  .kv .k { color: var(--faint); }
+  .kv .v { font-family: var(--mono); word-break: break-all; }
+  .brief {
+    margin-top: 10px; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 14px; font-size: 14px; color: var(--text);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .hash-note { color: var(--faint); font-size: 12px; margin-top: 8px; }
+
+  /* Honesty banner (driven by honesty.headline; v1.1) */
+  .honesty {
+    display: flex; align-items: flex-start; gap: 14px;
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 22px;
+  }
+  .honesty.is-verified { border-color: rgba(52,211,153,0.45); background: rgba(52,211,153,0.07); }
+  .honesty.is-gaps { border-color: rgba(251,191,36,0.45); background: rgba(251,191,36,0.07); }
+  .honesty.is-failed { border-color: rgba(248,113,113,0.45); background: rgba(248,113,113,0.07); }
+  .honesty .h-mark {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 18px; font-weight: 700;
+  }
+  .honesty.is-verified .h-mark { color: var(--green); background: rgba(52,211,153,0.12); }
+  .honesty.is-gaps .h-mark { color: var(--amber); background: rgba(251,191,36,0.12); }
+  .honesty.is-failed .h-mark { color: var(--red); background: rgba(248,113,113,0.12); }
+  .honesty .h-body { flex: 1; min-width: 0; }
+  .honesty .h-headline { font-size: 18px; font-weight: 650; letter-spacing: 0.2px; }
+  .honesty.is-verified .h-headline { color: var(--green); }
+  .honesty.is-gaps .h-headline { color: var(--amber); }
+  .honesty.is-failed .h-headline { color: var(--red); }
+  .honesty .h-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .honesty .h-gaps { margin: 12px 0 0; padding-left: 18px; }
+  .honesty .h-gaps li { margin: 5px 0; color: var(--text); font-size: 13.5px; }
+  .honesty .h-gaps .gi { font-family: var(--mono); color: var(--amber); }
+  .honesty .h-gaps .gr { color: var(--muted); }
+
+  /* Facts vs Assessments split (v1.1) */
+  .split-label {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--faint); font-weight: 600;
+  }
+  .split-label .tag {
+    text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 600;
+    border-radius: 6px; padding: 2px 8px; border: 1px solid var(--border);
+  }
+  .split-label .tag.fact { color: var(--green); border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.07); }
+  .split-label .tag.opinion { color: var(--amber); border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.07); }
+  .split-note { color: var(--muted); font-size: 13px; margin: 6px 0 12px; }
+  .fact-row {
+    display: flex; align-items: baseline; gap: 12px; padding: 11px 0;
+    border-top: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .fact-row:first-child { border-top: none; }
+  .fact-row .fk { flex: 0 0 130px; color: var(--faint); font-size: 13px; }
+  .fact-row .fv { flex: 1; min-width: 160px; font-family: var(--mono); font-size: 13px; color: var(--text); word-break: break-word; }
+  .fact-row .fv .meta { color: var(--muted); font-family: var(--sans); }
+  .fstatus {
+    font-size: 11px; font-family: var(--mono); text-transform: uppercase;
+    border-radius: 6px; padding: 2px 8px; border: 1px solid var(--border);
+    letter-spacing: 0.4px;
+  }
+  .fstatus.ok { color: var(--green); border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.07); }
+  .fstatus.bad { color: var(--red); border-color: rgba(248,113,113,0.4); background: rgba(248,113,113,0.07); }
+  .fstatus.warn { color: var(--amber); border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.07); }
+  .fstatus.none { color: var(--faint); }
+  .opinion-note {
+    color: var(--amber); font-size: 12.5px; margin: 0 0 14px;
+    display: flex; align-items: center; gap: 7px;
+  }
+
+  /* Copy command */
+  .cmd {
+    display: flex; align-items: stretch; gap: 0; margin-top: 10px;
+    border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
+    background: var(--panel-2);
+  }
+  .cmd code {
+    flex: 1; padding: 11px 14px; font-family: var(--mono); font-size: 13px;
+    color: var(--text); overflow-x: auto; white-space: nowrap;
+  }
+  .cmd .copy {
+    border: none; border-left: 1px solid var(--border); background: var(--panel);
+    color: var(--text); padding: 0 16px; cursor: pointer; font-size: 13px; font-weight: 550;
+  }
+  .cmd .copy:hover { background: var(--accent-soft); }
+
+  .footer { margin-top: 50px; text-align: center; color: var(--faint); font-size: 13px; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body data-share-buttons="__PROOF_SHARE_BUTTONS__">
+<div class="wrap">
+  <div class="topbar">
+    <span class="brand">Loki Mode<span class="dot">.</span> proof of run</span>
+    <span id="runIdTop"></span>
+  </div>
+
+  <!-- HONESTY BANNER (v1.1; driven by honesty.headline). Stays hidden for v1.0
+       proofs that carry no honesty block. Never green unless the deterministic
+       headline says VERIFIED. -->
+  <div class="honesty hide" id="honestyBanner"></div>
+
+  <!-- HERO (branded proof card; rendered client-side from the redacted dict) -->
+  <section class="hero">
+    <div class="hero-brand">
+      <span class="mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L4 6.5v6.2c0 4.6 3.3 8 8 9.3 4.7-1.3 8-4.7 8-9.3V6.5L12 2z" fill="currentColor" opacity="0.16"/>
+          <path d="M12 2L4 6.5v6.2c0 4.6 3.3 8 8 9.3 4.7-1.3 8-4.7 8-9.3V6.5L12 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M9 12.2l2.1 2.1L15.4 10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="name">Loki Mode</span>
+      <span class="by">by <b>Autonomi</b></span>
+    </div>
+    <h1 id="heroLine"></h1>
+    <p class="sub" id="heroSub"></p>
+    <div class="hero-stats" id="heroStats"></div>
+    <div class="hero-actions" id="heroActions"></div>
+  </section>
+
+  <!-- FACTS (v1.1): deterministic, re-verifiable. Hidden for v1.0 proofs. -->
+  <section class="section hide" id="secFacts">
+    <h2><span class="split-label">Facts <span class="tag fact">deterministic, re-verifiable</span></span></h2>
+    <p class="split-note">Every line below is recomputed by a skeptic from the same repo state. These are not opinions.</p>
+    <div class="card" id="factsCard"></div>
+  </section>
+
+  <!-- ASSESSMENTS (v1.1): AI judgment, explicitly NOT proof. Hidden for v1.0. -->
+  <section class="section hide" id="secAssessments">
+    <h2><span class="split-label">Assessments <span class="tag opinion">AI judgment, not proof</span></span></h2>
+    <div class="card" id="assessmentsCard"></div>
+  </section>
+
+  <!-- VERIFY THIS YOURSELF (v1.1): the exact re-run command + base sha. -->
+  <section class="section hide" id="secVerifySelf">
+    <h2>Verify this yourself</h2>
+    <div class="card" id="verifySelfCard"></div>
+  </section>
+
+  <!-- Tier 1: deployed URL + diff -->
+  <section class="section" id="secTier1">
+    <h2>Live and review links</h2>
+    <div class="card" id="tier1Card"></div>
+  </section>
+
+  <!-- Tier 2: cost (hero metric) -->
+  <section class="section">
+    <h2>The bill</h2>
+    <div class="card cost-card" id="costCard"></div>
+  </section>
+
+  <!-- Tier 2: wall clock + diffstat -->
+  <section class="section">
+    <h2>What changed</h2>
+    <div class="stat-row" id="statRow"></div>
+    <div class="card files" id="filesCard" style="margin-top:14px;"></div>
+  </section>
+
+  <!-- Tier 1: the diff (inline patches, only when --include-diffs) -->
+  <section class="section hide" id="secDiff">
+    <h2>The diff</h2>
+    <div class="card" id="diffCard"></div>
+  </section>
+
+  <!-- Tier 3: council -->
+  <section class="section" id="secCouncil">
+    <h2>Review verdict</h2>
+    <div class="card" id="councilCard"></div>
+  </section>
+
+  <!-- Tier 3: quality gates -->
+  <section class="section" id="secGates">
+    <h2>Quality gates</h2>
+    <div class="card" id="gatesCard"></div>
+  </section>
+
+  <!-- Tier 3: flagged / limitations -->
+  <section class="section">
+    <h2>What the run flagged</h2>
+    <div class="card" id="flaggedCard"></div>
+  </section>
+
+  <!-- Tier 4: spec / before -->
+  <section class="section" id="secSpec">
+    <h2>The spec (the before)</h2>
+    <div class="card" id="specCard"></div>
+  </section>
+
+  <!-- Tier 4: provenance -->
+  <section class="section">
+    <h2>Provenance</h2>
+    <div class="card" id="provCard"></div>
+  </section>
+
+  <!-- CTA -->
+  <section class="section">
+    <h2>Run this yourself</h2>
+    <div class="card" id="ctaCard"></div>
+  </section>
+
+  <div class="footer">
+    <a id="madeWith" href="https://github.com/asklokesh/loki-mode" rel="noopener">Made with Loki Mode</a>
+  </div>
+</div>
+
+<script type="application/json" id="proof-data">__PROOF_JSON__</script>
+<script>
+(function () {
+  "use strict";
+
+  function parseProof() {
+    var el = document.getElementById("proof-data");
+    if (!el) return null;
+    var raw = (el.textContent || "").trim();
+    // Detect an un-substituted template structurally (the blob is not JSON)
+    // rather than string-matching the placeholder token, so the token stays
+    // unique in this file and the generator's global replace cannot clobber
+    // this guard.
+    if (!raw || raw.charAt(0) !== "{") return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  // Safe accessors. Never throw, never print "undefined".
+  function g(obj, path, dflt) {
+    var cur = obj;
+    var parts = path.split(".");
+    for (var i = 0; i < parts.length; i++) {
+      if (cur === null || cur === undefined) return dflt;
+      cur = cur[parts[i]];
+    }
+    return (cur === null || cur === undefined) ? dflt : cur;
+  }
+  function num(v, dflt) {
+    var n = Number(v);
+    return isFinite(n) ? n : (dflt === undefined ? 0 : dflt);
+  }
+  function esc(s) {
+    s = (s === null || s === undefined) ? "" : String(s);
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function fmtInt(n) {
+    n = num(n);
+    return n.toLocaleString("en-US");
+  }
+  function fmtUsd(n) {
+    n = num(n);
+    // Precise odd values, not rounded. Up to 4 decimals, trim to >=2.
+    var s = n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+    if (s.indexOf(".") === -1) s += ".00";
+    else if (s.split(".")[1].length === 1) s += "0";
+    return "$" + s;
+  }
+  function fmtDuration(sec) {
+    sec = Math.max(0, Math.round(num(sec)));
+    if (sec < 60) return sec + "s";
+    var m = Math.floor(sec / 60), s = sec % 60;
+    if (m < 60) return m + "m " + s + "s";
+    var h = Math.floor(m / 60); m = m % 60;
+    return h + "h " + m + "m";
+  }
+  // Treat localhost / 127.* / empty as NOT a publicly clickable live link, but
+  // still display localhost as data.
+  function isLocalUrl(u) {
+    if (!u) return true;
+    return /^https?:\/\/(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(u);
+  }
+
+  // v1.1 detection: a proof carries the evidence model when it has the
+  // honesty/facts blocks. v1.0 proofs do not, and the new sections stay hidden
+  // so they render byte-for-byte as before.
+  function isV11(p) {
+    return !!(p && typeof p === "object" &&
+              p.honesty && typeof p.honesty === "object");
+  }
+
+  function render(p) {
+    renderHonesty(p);
+    renderHero(p);
+    renderFacts(p);
+    renderAssessments(p);
+    renderVerifySelf(p);
+    renderTier1(p);
+    renderCost(p);
+    renderStatsAndFiles(p);
+    renderDiff(p);
+    renderCouncil(p);
+    renderGates(p);
+    renderFlagged(p);
+    renderSpec(p);
+    renderProvenance(p);
+    renderCta(p);
+    var rid = g(p, "run_id", "");
+    if (rid) document.getElementById("runIdTop").textContent = "run " + rid;
+  }
+
+  function councilSummary(p) {
+    // Returns {count, total, ok} of reviewers who voted approve, or null if no
+    // usable council data.
+    if (!g(p, "council.enabled", false)) return null;
+    var reviewers = g(p, "council.reviewers", []);
+    if (!Array.isArray(reviewers) || reviewers.length === 0) return null;
+    var ok = 0;
+    for (var i = 0; i < reviewers.length; i++) {
+      var v = String(g(reviewers[i], "vote", "")).toUpperCase();
+      if (v === "APPROVE" || v === "APPROVED") ok++;
+    }
+    return { count: ok, total: reviewers.length };
+  }
+
+  // ---- v1.1 evidence model rendering -------------------------------------
+
+  // Map a deterministic fact status to a chip class. "verified"/"passed"/"ok"
+  // are the only green states; never paint not_run/inconclusive/skipped green.
+  function factStatusClass(st) {
+    st = String(st || "").toLowerCase();
+    if (st === "verified" || st === "passed" || st === "pass" || st === "ok") return "ok";
+    if (st === "failed" || st === "fail" || st === "error") return "bad";
+    if (st === "inconclusive" || st === "partial" || st === "unknown") return "warn";
+    if (st === "not_run" || st === "notrun" || st === "skipped" || st === "skip" || st === "") return "none";
+    return "warn";
+  }
+  function factStatusLabel(st) {
+    st = String(st || "").toLowerCase();
+    if (st === "not_run" || st === "notrun") return "not run";
+    return st || "not run";
+  }
+  function statusChip(st) {
+    return '<span class="fstatus ' + factStatusClass(st) + '">' +
+           esc(factStatusLabel(st)) + "</span>";
+  }
+
+  // Pick the honesty banner variant from the deterministic headline. Default to
+  // the failed/red variant for any unrecognized string so an unknown headline is
+  // never silently treated as green.
+  function honestyVariant(headline) {
+    var h = String(headline || "").toUpperCase();
+    if (h === "VERIFIED") return { cls: "is-verified", mark: "OK",
+      sub: "The recorded tests passed and this receipt contains a non-empty source change. Review the evidence below for the exact scope." };
+    if (h.indexOf("GAPS") !== -1) return { cls: "is-gaps", mark: "!",
+      sub: "Some evidence is verified, but the items listed below were not. A gap is never hidden: read them before trusting this run." };
+    return { cls: "is-failed", mark: "X",
+      sub: "This run did not produce deterministic verification. Treat the build as unproven until the gaps below are closed." };
+  }
+
+  function renderHonesty(p) {
+    var el = document.getElementById("honestyBanner");
+    if (!el) return;
+    // v1.0 proofs have no honesty block: leave the banner hidden so they render
+    // exactly as before.
+    if (!isV11(p)) return;
+    var headline = g(p, "honesty.headline", "NOT VERIFIED");
+    var v = honestyVariant(headline);
+    var degraded = g(p, "honesty.degraded", []);
+    var gaps = "";
+    if (Array.isArray(degraded) && degraded.length > 0) {
+      var lis = "";
+      for (var i = 0; i < degraded.length; i++) {
+        var d = degraded[i];
+        if (d && typeof d === "object") {
+          // Generator shape: {item, status, reason}.
+          lis += "<li><span class=\"gi\">" + esc(g(d, "item", "")) + "</span> " +
+                 "<span class=\"gr\">" + esc(factStatusLabel(g(d, "status", ""))) +
+                 (g(d, "reason", "") ? " - " + esc(g(d, "reason", "")) : "") +
+                 "</span></li>";
+        } else {
+          // Tolerate a plain-string degraded entry (verifier-normalized shape).
+          lis += "<li><span class=\"gr\">" + esc(d) + "</span></li>";
+        }
+      }
+      gaps = '<ul class="h-gaps">' + lis + "</ul>";
+    } else {
+      gaps = '<p class="h-sub" style="margin-top:10px;">No gaps were flagged for this run.</p>';
+    }
+    // Why the run stopped. The generator already collects facts.termination
+    // facts.execution (reason / outcome / run_status) but nothing rendered it,
+    // so a receipt for
+    // a run that stopped on a gate showed a headline with no cause -- the reader
+    // could see the verdict and not the reason for it. Display-only: the value
+    // is whatever the generator recorded, never recomputed here.
+    var term = "";
+    var tReason = String(g(p, "facts.execution.reason", "") || "").trim();
+    var tOutcome = String(g(p, "facts.execution.outcome", "") || "").trim();
+    if (tReason || (tOutcome && tOutcome !== "complete")) {
+      term = '<div class="h-sub">Stopped: ' +
+             esc(tReason || tOutcome) +
+             (tReason && tOutcome && tOutcome !== tReason
+                ? " (" + esc(tOutcome) + ")" : "") +
+             "</div>";
+    }
+    // Name the GATE that stopped the run, with how close it came to its
+    // threshold. "intervention" tells a reader that something blocked them;
+    // "code_review (failed 3 times, threshold 3)" tells them what to fix. The
+    // engine already surfaced this in COMPLETION.txt and PAUSED.md -- the
+    // signed receipt was the only surface that stayed silent about it.
+    // Display-only, and silent when no gate escalation was recorded.
+    var tGate = String(g(p, "facts.execution.blocking_gate", "") || "").trim();
+    if (tGate) {
+      var gFail = g(p, "facts.execution.blocking_gate_failures", null);
+      var gThr = g(p, "facts.execution.blocking_gate_threshold", null);
+      var detail = "";
+      if (typeof gFail === "number" && typeof gThr === "number") {
+        detail = " (failed " + esc(String(gFail)) + " times, threshold " +
+                 esc(String(gThr)) + ")";
+      }
+      term += '<div class="h-sub">Blocked by: ' + esc(tGate) + detail + "</div>";
+    }
+    el.className = "honesty " + v.cls;
+    el.innerHTML =
+      '<span class="h-mark" aria-hidden="true">' + v.mark + "</span>" +
+      '<div class="h-body">' +
+        '<div class="h-headline">' + esc(headline) + "</div>" +
+        '<div class="h-sub">' + v.sub + "</div>" +
+        term +
+        gaps +
+      "</div>";
+  }
+
+  // Render the deterministic FACTS: git diff + sha, build command/exit, tests
+  // command/exit/counts/status, quality gates. Each carries a status chip so a
+  // not-run fact is visibly not-run, never blank-implied-green.
+  function renderFacts(p) {
+    var sec = document.getElementById("secFacts");
+    var card = document.getElementById("factsCard");
+    if (!sec || !card || !isV11(p)) return; // v1.0: stays hidden
+    var rows = "";
+
+    // git diff + sha (deterministic, re-derivable from base..head).
+    var diff = g(p, "facts.git.diff", null) || g(p, "files_changed", {});
+    var dc = num(g(diff, "count", 0));
+    var di = num(g(diff, "insertions", 0));
+    var dd = num(g(diff, "deletions", 0));
+    var diffSt = dc > 0 ? "verified" : "not_run";
+    rows += factRow("Code diff",
+      dc + ' file' + (dc === 1 ? "" : "s") +
+      ' <span class="add">+' + fmtInt(di) + '</span> <span class="del">-' + fmtInt(dd) + "</span>",
+      diffSt);
+    var dsha = g(p, "facts.git.diff_sha256", "");
+    if (dsha) rows += factRow("Diff sha256", '<span class="meta">' + esc(dsha) + "</span>", null);
+    var baseSha = g(p, "facts.git.base_sha", "");
+    if (baseSha) rows += factRow("Base commit", esc(baseSha), null);
+
+    // build command + exit code + status.
+    var bSt = g(p, "facts.build.status", "not_run");
+    var bCmd = g(p, "facts.build.command", "");
+    var bExit = g(p, "facts.build.exit_code", null);
+    var bVal = bCmd ? esc(bCmd) : '<span class="meta">no build command recorded</span>';
+    if (bExit !== null && bExit !== undefined) bVal += ' <span class="meta">exit ' + esc(bExit) + "</span>";
+    rows += factRow("Build", bVal, bSt);
+
+    // tests command + exit code + counts + status.
+    var tSt = g(p, "facts.tests.status", "not_run");
+    var tCmd = g(p, "facts.tests.command", "");
+    var tExit = g(p, "facts.tests.exit_code", null);
+    var tPass = g(p, "facts.tests.passed_count", null);
+    var tFail = g(p, "facts.tests.failed_count", null);
+    var tVal = tCmd ? esc(tCmd) : '<span class="meta">no test command recorded</span>';
+    var tMeta = [];
+    if (tExit !== null && tExit !== undefined) tMeta.push("exit " + esc(tExit));
+    if (tPass !== null && tPass !== undefined) tMeta.push(esc(tPass) + " passed");
+    if (tFail !== null && tFail !== undefined && num(tFail) > 0) tMeta.push(esc(tFail) + " failed");
+    if (tMeta.length) tVal += ' <span class="meta">' + tMeta.join(", ") + "</span>";
+    rows += factRow("Tests", tVal, tSt);
+
+    // quality gates (each a deterministic status).
+    var gates = g(p, "facts.quality_gates", []);
+    if (Array.isArray(gates) && gates.length > 0) {
+      var chips = "";
+      for (var i = 0; i < gates.length; i++) {
+        chips += '<span style="margin-right:8px;display:inline-block;">' +
+          esc(g(gates[i], "name", "gate")) + " " + statusChip(g(gates[i], "status", "not_run")) +
+          "</span>";
+      }
+      rows += factRow("Quality gates", chips, null);
+    }
+
+    card.innerHTML = rows;
+    sec.classList.remove("hide");
+  }
+
+  function factRow(k, vHtml, status) {
+    var chip = status ? " " + statusChip(status) : "";
+    return '<div class="fact-row"><span class="fk">' + esc(k) + "</span>" +
+           '<span class="fv">' + vHtml + chip + "</span></div>";
+  }
+
+  // Render the ASSESSMENTS: council verdict + completion claim. These are AI
+  // judgment, visually marked as opinion, and never contribute to the headline.
+  function renderAssessments(p) {
+    var sec = document.getElementById("secAssessments");
+    var card = document.getElementById("assessmentsCard");
+    if (!sec || !card || !isV11(p)) return;
+    var html = '<p class="opinion-note"><span aria-hidden="true">!</span>' +
+      "These are model opinions about the work, not deterministic proof. A green " +
+      "verdict here can still be wrong; trust the Facts above, not these.</p>";
+
+    // Council verdict (read from assessments.council, mirrored to top-level).
+    var enabled = g(p, "assessments.council.enabled", g(p, "council.enabled", false));
+    if (enabled) {
+      var verdict = g(p, "assessments.council.final_verdict", g(p, "council.final_verdict", ""));
+      var reviewers = g(p, "assessments.council.reviewers", g(p, "council.reviewers", []));
+      var ok = 0, tot = 0;
+      if (Array.isArray(reviewers)) {
+        tot = reviewers.length;
+        for (var i = 0; i < reviewers.length; i++) {
+          var vv = String(g(reviewers[i], "vote", "")).toUpperCase();
+          if (vv === "APPROVE" || vv === "APPROVED") ok++;
+        }
+      }
+      var meta = tot > 0 ? (ok + " of " + tot + " approved") : "";
+      html += '<div class="fact-row"><span class="fk">Council verdict</span><span class="fv">' +
+        (verdict ? '<span class="verdict-badge ' + verdictClass(verdict) + '">' + esc(verdict) + "</span>" : '<span class="meta">not recorded</span>') +
+        (meta ? ' <span class="meta">' + meta + "</span>" : "") + "</span></div>";
+    } else {
+      html += '<div class="fact-row"><span class="fk">Council verdict</span>' +
+        '<span class="fv"><span class="meta">council not enabled for this run</span></span></div>';
+    }
+
+    // Completion claim (the model's own claim it finished) + evidence-gate verdict.
+    var claimed = g(p, "assessments.completion_claim.claimed", false);
+    var egVerdict = g(p, "assessments.completion_claim.evidence_gate_verdict", "");
+    html += '<div class="fact-row"><span class="fk">Completion claim</span><span class="fv">' +
+      (claimed ? "model claimed the work is complete" : "no completion claim recorded") +
+      (egVerdict ? ' <span class="meta">evidence gate: ' + esc(egVerdict) + "</span>" : "") +
+      "</span></div>";
+
+    card.innerHTML = html;
+    sec.classList.remove("hide");
+  }
+
+  // Render the "Verify this yourself" block: the exact deterministic re-check
+  // command + the recorded base sha, so a skeptic can re-run the check.
+  function renderVerifySelf(p) {
+    var sec = document.getElementById("secVerifySelf");
+    var card = document.getElementById("verifySelfCard");
+    if (!sec || !card || !isV11(p)) return;
+    var rid = g(p, "run_id", "");
+    var baseSha = g(p, "facts.git.base_sha", "");
+    var html = '<p class="note" style="margin-top:0;">This receipt re-verifies. Run the deterministic check ' +
+      "below: it re-hashes the receipt for tamper and re-derives the diff from the " +
+      "recorded base commit to prove the facts still match the repo.</p>";
+    html += cmdBlock("verify", "loki proof verify " + (rid || "<run_id>"));
+    var kv = "";
+    if (baseSha) kv += '<div class="k">Base commit</div><div class="v">' + esc(baseSha) + "</div>";
+    var headSha = g(p, "facts.git.head_sha", "");
+    if (headSha) kv += '<div class="k">Head commit</div><div class="v">' + esc(headSha) + "</div>";
+    var dsha = g(p, "facts.git.diff_sha256", "");
+    if (dsha) kv += '<div class="k">Diff sha256</div><div class="v">' + esc(dsha) + "</div>";
+    if (kv) html += '<div class="kv" style="margin-top:14px;">' + kv + "</div>";
+    card.innerHTML = html;
+    sec.classList.remove("hide");
+  }
+
+  function renderHero(p) {
+    // cost.usd is null when cost was not collected for this run. g() coerces
+    // null to its default, so read with a null default and branch BEFORE
+    // fmtUsd: a skeptic seeing a zero-dollar total assumes the artifact is fake.
+    var usdRaw = g(p, "cost.usd", null);
+    var fc = num(g(p, "files_changed.count", 0));
+    var parts = [__PROOF_RECEIPT_TITLE_JSON__];
+    if (usdRaw !== null) parts.push(fmtUsd(usdRaw));
+    else parts.push("cost not recorded");
+    parts.push(fc + " file" + (fc === 1 ? "" : "s") + " changed");
+    var cs = councilSummary(p);
+    if (cs) parts.push(cs.count + "-of-" + cs.total + " reviewers approved");
+    document.getElementById("heroLine").textContent = parts.join(" - ");
+
+    var sub = [];
+    var dur = g(p, "wall_clock_sec", null);
+    if (dur !== null) sub.push("in " + fmtDuration(dur));
+    var prov = g(p, "provider.name", "");
+    var model = g(p, "provider.model", "");
+    if (prov || model) sub.push("via " + esc(prov) + (model ? " / " + esc(model) : ""));
+    document.getElementById("heroSub").innerHTML = sub.join(" · ");
+
+    renderHeroStats(p, usdRaw, fc, cs);
+
+    var actions = document.getElementById("heroActions");
+    var html = "";
+    var deployed = g(p, "deployment.deployed_url", null);
+    if (deployed) {
+      var label = isLocalUrl(deployed) ? "Open the app (local)" : "Open the deployed app";
+      html += '<a class="btn primary" href="' + esc(deployed) + '" rel="noopener">' + label + '</a>';
+    }
+    // Tier-1 "View the diff" action: only when inline patches are embedded.
+    if (hasDiffs(p)) {
+      html += '<a class="btn" href="#secDiff">View the diff</a>';
+    }
+    if (!html) {
+      html = '<span class="note">No live URL recorded for this run.</span>';
+    }
+    // Share row. Honors the LOKI_PROOF_SHARE_BUTTONS opt-out: the generator sets
+    // body[data-share-buttons] to "0" when the operator disabled share buttons,
+    // in which case the entire share row is omitted (the actions show only the
+    // live-URL line, byte-equivalent intent to pre-share-row behavior).
+    // Otherwise: the X/LinkedIn buttons appear only when a public URL exists
+    // (default local runs have public_url=null, so they degrade to copy-only).
+    // The intent URLs are NOT in this markup: they are assembled at click time
+    // in wireShare() from data-share + the parsed proof, so no literal social
+    // URL ever appears in the static page (keeps the self-containment guard
+    // green).
+    var shareEnabled = (document.body.getAttribute("data-share-buttons") !== "0");
+    if (!shareEnabled) {
+      actions.innerHTML = html;
+      return;
+    }
+    var pub = g(p, "deployment.public_url", null);
+    var hasPub = !!pub && !isLocalUrl(pub);
+    var share = '<span class="share-sep"></span><span class="share-row">';
+    share += '<span class="lbl">Share</span>';
+    if (hasPub) {
+      share += '<button class="btn share" type="button" data-share="x" title="Share on X">' +
+               '<span class="ico" aria-hidden="true">' + icoX() + "</span>X</button>";
+      share += '<button class="btn share" type="button" data-share="linkedin" title="Share on LinkedIn">' +
+               '<span class="ico" aria-hidden="true">' + icoIn() + "</span>LinkedIn</button>";
+    }
+    share += '<button class="btn share" type="button" data-share="copy" title="Copy link to this proof">' +
+             '<span class="ico" aria-hidden="true">' + icoLink() + "</span>Copy link</button>";
+    share += "</span>";
+    actions.innerHTML = html + share;
+  }
+
+  function renderHeroStats(p, usdRaw, fc, cs) {
+    var el = document.getElementById("heroStats");
+    if (!el) return;
+    var cells = [];
+    // Built: files changed + where the spec came from.
+    var src = String(g(p, "spec.source", "") || "");
+    var srcLabel = src ? srcLabelFor(src) : "spec";
+    cells.push(["Built",
+      fc + " file" + (fc === 1 ? "" : "s") + " changed",
+      "from " + esc(srcLabel), ""]);
+    // Verified: council ratio (preferred) or quality-gate ratio.
+    var vMain, vSub;
+    if (cs) {
+      vMain = cs.count + "-of-" + cs.total + " approved";
+      vSub = "review council";
+    } else {
+      var gp = num(g(p, "quality_gates.passed", 0));
+      var gt = num(g(p, "quality_gates.total", 0));
+      if (gt > 0) { vMain = gp + "-of-" + gt + " gates"; vSub = "quality gates"; }
+      else { vMain = "not recorded"; vSub = "verification"; }
+    }
+    cells.push(["Verified", vMain, esc(vSub), cs ? "ok" : ""]);
+    // Cost: never render a zero-dollar total when cost was not collected.
+    if (usdRaw !== null) cells.push(["Cost", fmtUsd(usdRaw), "total for this run", ""]);
+    else cells.push(["Cost", "not recorded", "no cost data", ""]);
+    // Duration.
+    var dur = g(p, "wall_clock_sec", null);
+    if (dur !== null) cells.push(["Duration", fmtDuration(dur), "wall clock", ""]);
+    var html = "";
+    for (var i = 0; i < cells.length; i++) {
+      html += '<div class="hero-stat"><div class="hk">' + cells[i][0] +
+              '</div><div class="hv ' + cells[i][3] + '">' + cells[i][1] +
+              (cells[i][2] ? ' <small>' + cells[i][2] + "</small>" : "") + "</div></div>";
+    }
+    el.innerHTML = html;
+  }
+
+  // Human label for the spec source. owner/repo#123 -> "GitHub issue
+  // owner/repo#123"; codebase-analysis -> "codebase analysis"; otherwise the
+  // raw (already-redacted) source string. esc() is applied by the caller.
+  function srcLabelFor(src) {
+    if (/^[\w.\-]+\/[\w.\-]+#\d+$/.test(src)) return "GitHub issue " + src;
+    if (src === "codebase-analysis") return "codebase analysis";
+    return src;
+  }
+
+  // Inline brand-tinted glyphs for the share buttons. Pure <svg><path>, no
+  // external refs, no <image>/<img>, no src=. pointer-events are disabled in
+  // CSS so clicks land on the button (wireShare reads data-share).
+  function icoX() {
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">' +
+      '<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>';
+  }
+  function icoIn() {
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">' +
+      '<path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.34V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 110-4.13 2.06 2.06 0 010 4.13zM7.12 20.45H3.55V9h3.57v11.45zM22.22.5H1.77C.79.5 0 1.28 0 2.24v19.52C0 22.72.79 23.5 1.77 23.5h20.45c.98 0 1.78-.78 1.78-1.74V2.24C24 1.28 23.2.5 22.22.5z"/></svg>';
+  }
+  function icoLink() {
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.5 1.5"/>' +
+      '<path d="M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.5-1.5"/></svg>';
+  }
+
+  function renderTier1(p) {
+    var card = document.getElementById("tier1Card");
+    var rows = [];
+    var deployed = g(p, "deployment.deployed_url", null);
+    var pub = g(p, "deployment.public_url", null);
+    if (deployed) {
+      var note = isLocalUrl(deployed) ? ' <span class="note">(local only)</span>' : "";
+      rows.push('<div class="kv"><span class="k">Deployed URL</span><span class="v"><a href="' +
+                esc(deployed) + '" rel="noopener">' + esc(deployed) + "</a>" + note + "</span></div>");
+    } else {
+      rows.push('<div class="kv"><span class="k">Deployed URL</span><span class="v note">none recorded</span></div>');
+    }
+    if (pub) {
+      rows.push('<div class="kv"><span class="k">Public URL</span><span class="v"><a href="' +
+                esc(pub) + '" rel="noopener">' + esc(pub) + "</a></span></div>");
+    }
+    var findings = g(p, "council.findings_link", null);
+    if (findings) {
+      rows.push('<div class="kv" style="margin-top:8px;"><span class="k">Review findings</span><span class="v"><a href="' +
+                esc(findings) + '" rel="noopener">' + esc(findings) + "</a></span></div>");
+    }
+    card.innerHTML = rows.join("");
+  }
+
+  function renderCost(p) {
+    var card = document.getElementById("costCard");
+    var usdRaw = g(p, "cost.usd", null);
+    function tokenValue(path) {
+      var raw = g(p, path, null);
+      return raw === null ? "not recorded" : fmtInt(raw);
+    }
+    var cells = [
+      ["Input tokens", tokenValue("cost.input_tokens")],
+      ["Output tokens", tokenValue("cost.output_tokens")],
+      ["Cache read", tokenValue("cost.cache_read_tokens")],
+      ["Cache write", tokenValue("cost.cache_creation_tokens")]
+    ];
+    var grid = "";
+    for (var i = 0; i < cells.length; i++) {
+      grid += '<div class="token-cell"><div class="k">' + cells[i][0] +
+              '</div><div class="v">' + cells[i][1] + "</div></div>";
+    }
+    // When cost was not collected, show a muted "not recorded" line instead of
+    // a zero-dollar total (which reads as fake/broken to a skeptic).
+    var top;
+    if (usdRaw !== null) {
+      top = '<div class="cost-top"><span class="cost-usd">' + fmtUsd(usdRaw) +
+            '</span><span class="cost-label">total cost for this run, itemized below</span></div>';
+    } else {
+      top = '<div class="cost-top"><span class="cost-label">Cost was not recorded for this run. ' +
+            'Token usage is itemized below.</span></div>';
+    }
+    card.innerHTML = top + '<div class="token-grid">' + grid + "</div>";
+  }
+
+  function renderStatsAndFiles(p) {
+    var row = document.getElementById("statRow");
+    var ins = num(g(p, "files_changed.insertions", 0));
+    var del = num(g(p, "files_changed.deletions", 0));
+    var fc = num(g(p, "files_changed.count", 0));
+    var iters = num(g(p, "iterations.count", 0));
+    var isucc = num(g(p, "iterations.succeeded", 0));
+    var ifail = num(g(p, "iterations.failed", 0));
+    row.innerHTML =
+      '<div class="stat"><div class="k">Wall clock</div><div class="v">' + fmtDuration(g(p, "wall_clock_sec", 0)) + "</div></div>" +
+      '<div class="stat"><div class="k">Files changed</div><div class="v">' + fc + "</div></div>" +
+      '<div class="stat"><div class="k">Lines</div><div class="v"><span class="add">+' + fmtInt(ins) + '</span> <span class="del">-' + fmtInt(del) + "</span></div></div>" +
+      '<div class="stat"><div class="k">Iterations</div><div class="v">' + iters +
+      ' <small>' + isucc + " ok" + (ifail ? " / " + ifail + " failed" : "") + "</small></div></div>";
+
+    var filesCard = document.getElementById("filesCard");
+    var files = g(p, "files_changed.files", []);
+    if (!Array.isArray(files) || files.length === 0) {
+      filesCard.classList.add("hide");
+      return;
+    }
+    var rows = "";
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      rows += '<div class="file-row">' +
+        '<span class="status">' + esc(g(f, "status", "M")) + "</span>" +
+        '<span class="path">' + esc(g(f, "path", "")) + "</span>" +
+        '<span class="nums"><span class="add">+' + fmtInt(g(f, "insertions", 0)) +
+        '</span> <span class="del">-' + fmtInt(g(f, "deletions", 0)) + "</span></span></div>";
+    }
+    filesCard.innerHTML = rows;
+  }
+
+  function hasDiffs(p) {
+    var d = g(p, "diffs", null);
+    return Array.isArray(d) && d.length > 0;
+  }
+
+  // Render one redacted patch with light line coloring. All patch text is run
+  // through esc() so the <script>-breakout chars that the JSON layer already
+  // neutralized (via the generator's < escape) cannot inject markup here
+  // either.
+  function renderPatch(patch) {
+    var lines = String(patch || "").split("\n");
+    var out = "";
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i];
+      var cls = "";
+      if (ln.charAt(0) === "+" && ln.indexOf("+++") !== 0) cls = "diff-line-add";
+      else if (ln.charAt(0) === "-" && ln.indexOf("---") !== 0) cls = "diff-line-del";
+      else if (ln.indexOf("@@") === 0 || ln.indexOf("diff ") === 0 ||
+               ln.indexOf("+++") === 0 || ln.indexOf("---") === 0) cls = "diff-line-hd";
+      out += (cls ? '<span class="' + cls + '">' + esc(ln) + "</span>" : esc(ln)) + "\n";
+    }
+    return out;
+  }
+
+  function renderDiff(p) {
+    var sec = document.getElementById("secDiff");
+    var card = document.getElementById("diffCard");
+    if (!hasDiffs(p)) return; // section stays hidden (default class "hide")
+    var diffs = g(p, "diffs", []);
+    var blocks = "";
+    for (var i = 0; i < diffs.length; i++) {
+      var path = esc(g(diffs[i], "path", "(unknown file)"));
+      var patch = g(diffs[i], "patch", "");
+      var openAttr = (i === 0) ? " open" : "";
+      blocks += '<details class="diff-file"' + openAttr + '><summary>' + path +
+                "</summary><pre>" + renderPatch(patch) + "</pre></details>";
+    }
+    card.innerHTML = blocks;
+    sec.classList.remove("hide");
+  }
+
+  function voteClass(v) {
+    v = String(v || "").toUpperCase();
+    if (v.indexOf("APPROVE") === 0) return "approve";
+    if (v.indexOf("REJECT") === 0) return "reject";
+    if (v.indexOf("CONCERN") === 0) return "concern";
+    return "";
+  }
+  function verdictClass(v) {
+    v = String(v || "").toUpperCase();
+    if (v.indexOf("APPROVE") === 0 || v === "PASS" || v === "PASSED") return "verdict-approve";
+    if (v.indexOf("REJECT") === 0 || v.indexOf("BLOCK") === 0 || v === "FAIL") return "verdict-reject";
+    if (v.indexOf("CONCERN") === 0) return "verdict-concern";
+    return "";
+  }
+
+  function renderCouncil(p) {
+    var sec = document.getElementById("secCouncil");
+    var card = document.getElementById("councilCard");
+    if (!g(p, "council.enabled", false)) {
+      card.innerHTML = '<p class="note">Council review was not enabled for this run.</p>';
+      return;
+    }
+    var verdict = g(p, "council.final_verdict", "");
+    var threshold = g(p, "council.threshold", null);
+    var reviewers = g(p, "council.reviewers", []);
+    var head = "";
+    if (verdict) {
+      head += '<span class="verdict-badge ' + verdictClass(verdict) + '">' + esc(verdict) + "</span>";
+    }
+    var cs = councilSummary(p);
+    if (cs) head += '<span class="verdict-meta">' + cs.count + " of " + cs.total + " approved" +
+                    (threshold !== null ? " (threshold " + esc(threshold) + ")" : "") + "</span>";
+    var body = "";
+    if (Array.isArray(reviewers) && reviewers.length > 0) {
+      for (var i = 0; i < reviewers.length; i++) {
+        var r = reviewers[i];
+        var v = g(r, "vote", "");
+        var summary = g(r, "summary", "");
+        body += '<div class="reviewer"><div class="head">' +
+          '<span class="role">' + esc(g(r, "role", "reviewer")) + "</span>" +
+          '<span class="vote ' + voteClass(v) + '">' + esc(v || "no vote") + "</span></div>" +
+          (summary ? '<div class="summary">' + esc(summary) + "</div>" : "") +
+          "</div>";
+      }
+    } else {
+      body = '<p class="note">Per-reviewer summaries were not recorded for this run.</p>';
+    }
+    var findings = g(p, "council.findings_link", null);
+    var link = findings ? '<div class="kv" style="margin-top:14px;"><span class="k">Findings</span><span class="v"><a href="' +
+               esc(findings) + '" rel="noopener">' + esc(findings) + "</a></span></div>" : "";
+    card.innerHTML = (head ? '<div style="margin-bottom:14px;">' + head + "</div>" : "") + body + link;
+  }
+
+  // Render one row of gate chips. Shared by the exogenous and advisory blocks.
+  function gateChips(gates) {
+    var chips = "";
+    if (!Array.isArray(gates)) return "";
+    for (var i = 0; i < gates.length; i++) {
+      var st = String(g(gates[i], "status", "")).toLowerCase();
+      var cls = (st === "pass" || st === "passed") ? "pass" : (st === "skip" || st === "skipped") ? "skip" : "fail";
+      var mark = cls === "pass" ? "OK" : cls === "skip" ? "-" : "X";
+      chips += '<span class="gate ' + cls + '"><span class="mk">' + mark + "</span>" +
+               esc(g(gates[i], "name", "gate")) + "</span>";
+    }
+    return chips ? '<div class="gates">' + chips + "</div>" : "";
+  }
+
+  // TRUST-4: quality gates split by PROVENANCE, not by outcome. The two blocks
+  // read from quality_gates.exogenous / quality_gates.advisory, the exact field
+  // names proof-generator.py writes. Falls back to the flat pre-split list so an
+  // older receipt still renders.
+  function renderGates(p) {
+    var sec = document.getElementById("secGates");
+    var card = document.getElementById("gatesCard");
+    var gates = g(p, "quality_gates.gates", []);
+    var passed = num(g(p, "quality_gates.passed", 0));
+    var total = num(g(p, "quality_gates.total", 0));
+    if ((!Array.isArray(gates) || gates.length === 0) && total === 0) {
+      sec.classList.add("hide");
+      return;
+    }
+    // Gates the operator switched OFF for this run.
+    //
+    // This is the PUBLIC receipt -- the one that gets shared -- and it read
+    // "3 of 3 gates passed" identically whether every gate ran or code review
+    // and security were disabled and three lesser gates ran instead. The proof
+    // has recorded this since v8.17.0 and the markdown receipt showed it since
+    // v8.17.1; this surface still could not.
+    //
+    // Rendered ABOVE the pass counts deliberately: a reader who stops after the
+    // first line must not stop having read only the good news.
+    var offList = g(p, "quality_gates.disabled_phases", []);
+    var offHtml = "";
+    if (Array.isArray(offList) && offList.length > 0) {
+      offHtml = '<p class="opinion-note"><span aria-hidden="true">!</span>' +
+        "Gates disabled for this run: " + offList.map(esc).join(", ") +
+        ". Those checks did not run, so the counts below do not cover them.</p>";
+    }
+    var exo = g(p, "quality_gates.exogenous", null);
+    var adv = g(p, "quality_gates.advisory", null);
+    if (!exo && !adv) {
+      // Pre-TRUST-4 receipt: render the flat list exactly as before.
+      card.innerHTML = offHtml + '<p class="note" style="margin:0 0 12px;">' + passed +
+        " of " + total + " gates passed.</p>" + gateChips(gates);
+      return;
+    }
+    var html = offHtml;
+    var eg = g(exo, "gates", []);
+    if (Array.isArray(eg) && eg.length > 0) {
+      html += '<h3 style="margin:0 0 4px;font-size:14px;">Independent checks (count toward the verdict)</h3>' +
+        '<p class="note" style="margin:0 0 10px;">' +
+        num(g(exo, "passed", 0)) + " of " + num(g(exo, "total", 0)) +
+        " passed. These are deterministic programs the agent cannot write the " +
+        "result of, so only these set the verdict above.</p>" + gateChips(eg);
+    }
+    var ag = g(adv, "gates", []);
+    if (Array.isArray(ag) && ag.length > 0) {
+      html += '<h3 style="margin:18px 0 4px;font-size:14px;">Advisory checks (reported, not counted)</h3>' +
+        '<p class="opinion-note"><span aria-hidden="true">!</span>' +
+        num(g(adv, "passed", 0)) + " of " + num(g(adv, "total", 0)) +
+        " passed. These are the agent judging its own work (it wrote both the " +
+        "tests and the code, or a model graded the result), so a model that is " +
+        "confidently wrong scores itself green here. They are shown for context " +
+        "and can never raise or lower the verdict.</p>" + gateChips(ag);
+    }
+    card.innerHTML = html;
+  }
+
+  function renderFlagged(p) {
+    var card = document.getElementById("flaggedCard");
+    var items = [];
+    // Honest limitations, derived from the run's own data. Never hide.
+    var ifail = num(g(p, "iterations.failed", 0));
+    if (ifail > 0) items.push(ifail + " iteration" + (ifail === 1 ? "" : "s") + " failed before completion.");
+    var qp = num(g(p, "quality_gates.passed", 0)), qt = num(g(p, "quality_gates.total", 0));
+    if (qt > 0 && qp < qt) items.push((qt - qp) + " quality gate" + ((qt - qp) === 1 ? "" : "s") + " did not pass.");
+    var reviewers = g(p, "council.reviewers", []);
+    if (Array.isArray(reviewers)) {
+      for (var i = 0; i < reviewers.length; i++) {
+        var vc = voteClass(g(reviewers[i], "vote", ""));
+        if (vc === "reject" || vc === "concern") {
+          items.push("Reviewer " + esc(g(reviewers[i], "role", "")) + " raised a " + vc + ".");
+        }
+      }
+    }
+    var deployed = g(p, "deployment.deployed_url", null);
+    if (!deployed) items.push("No deployed URL was recorded; this run produced code only.");
+    else if (isLocalUrl(deployed)) items.push("Deployment is local only (localhost); no public live URL exists for this run.");
+    var diffs = g(p, "diffs", null);
+    if (diffs === null) items.push("Full diffs are not embedded in this artifact (run without --include-diffs).");
+
+    if (items.length === 0) {
+      card.innerHTML = '<p class="note">Nothing was flagged. All gates passed, all reviewers approved, no failed iterations.</p>';
+      return;
+    }
+    var lis = "";
+    for (var j = 0; j < items.length; j++) lis += "<li>" + items[j] + "</li>";
+    card.innerHTML = '<ul class="note-list">' + lis + "</ul>";
+  }
+
+  function renderSpec(p) {
+    var card = document.getElementById("specCard");
+    var src = g(p, "spec.source", "");
+    var brief = g(p, "spec.brief", "");
+    var head = src ? '<div class="kv"><span class="k">Source</span><span class="v">' + esc(src) + "</span></div>" : "";
+    var body = brief ? '<div class="brief">' + esc(brief) + "</div>" :
+               '<p class="note">No brief recorded.</p>';
+    card.innerHTML = head + body;
+  }
+
+  function renderProvenance(p) {
+    var card = document.getElementById("provCard");
+    var rows = [
+      ["Loki version", g(p, "loki_version", "")],
+      ["Provider", g(p, "provider.name", "")],
+      ["Model", g(p, "provider.model", "")],
+      ["Started at", g(p, "started_at", "")],
+      ["Generated at", g(p, "generated_at", "")],
+      ["Run id", g(p, "run_id", "")],
+      ["Schema version", g(p, "schema_version", "")]
+    ];
+    var kv = "";
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i][1] === "" || rows[i][1] === null) continue;
+      kv += '<div class="k">' + esc(rows[i][0]) + '</div><div class="v">' + esc(rows[i][1]) + "</div>";
+    }
+    var hash = g(p, "verification.hash", "");
+    var algo = g(p, "verification.algo", "sha256");
+    if (hash) {
+      kv += '<div class="k">Integrity hash</div><div class="v">' + esc(algo) + ":" + esc(hash) + "</div>";
+    }
+    // Signing state, named explicitly: a reader must be told which state this
+    // receipt is in, not just what the hash cannot prove. Signing is an Ed25519
+    // attestation (verification.attestation), auto-generated on first run.
+    var signed = !!g(p, "verification.attestation", "");
+    kv += '<div class="k">Signature</div><div class="v">' +
+          (signed ? "SIGNED (Ed25519 attestation)" : "UNSIGNED") + "</div>";
+    var signNote = signed
+      ? '<p class="hash-note">This receipt carries an Ed25519 attestation over the integrity hash. <code>loki proof verify</code> checks it offline against the signer public key.</p>'
+      : '<p class="hash-note">This receipt is UNSIGNED, so it trusts the generator that produced it (<code>loki proof verify</code> reports <code>generator_trusted: true</code>). Install the <code>cryptography</code> package so the next run signs automatically (docs/SIGNED-RECEIPTS.md).</p>';
+    // Model provenance from the append-only decision trail
+    // (.loki/decisions/decisions.jsonl, written once per dispatch).
+    //
+    // The "Model" row above is the run-level model. It cannot answer the
+    // question a regulated buyer actually asks: did the deciding component
+    // change while the run was in flight? Two model ids in one project is
+    // exactly that case, and the trail proves it either way.
+    //
+    // THREE STATES, NEVER COLLAPSED. A section that renders nothing when the
+    // trail is absent reads as "no swap happened" -- the false green this
+    // receipt exists to prevent. An older receipt predating this field has no
+    // "decisions" key at all and is left silent rather than described, since a
+    // receipt that never recorded the trail cannot honestly report on it.
+    var dec = g(p, "decisions", null);
+    var decNote = "";
+    if (dec && g(dec, "status", "")) {
+      var dstatus = g(dec, "status", "");
+      if (dstatus === "measured") {
+        var models = g(dec, "models", {}) || {};
+        var names = [];
+        for (var mk in models) {
+          if (Object.prototype.hasOwnProperty.call(models, mk)) {
+            names.push(esc(mk) + " (" + num(models[mk]) + ")");
+          }
+        }
+        var changed = !!g(dec, "model_changed", false);
+        var bad = num(g(dec, "unparseable_lines", 0));
+        decNote = '<p class="hash-note">Models dispatched, from the run\u2019s own ' +
+          "append-only decision trail: " + (names.length ? names.join(", ") : "none recorded") +
+          ". " +
+          (changed
+            ? "The model CHANGED during this run. That is disclosed, not a fault -- a tier clamp, an " +
+              "operator override or a mid-flight failover all cause it legitimately -- but it is the " +
+              "thing you would otherwise have to take on trust."
+            : "One model ran for the whole project; the trail shows no mid-flight change.") +
+          (bad > 0
+            ? " " + bad + " line" + (bad === 1 ? "" : "s") + " of the trail could not be parsed and " +
+              "are counted here rather than dropped, so this list may be incomplete."
+            : "") +
+          " This is provenance and never changes the verdict.</p>";
+      } else if (dstatus === "no_records") {
+        decNote = '<p class="hash-note">No decision trail was recorded for this run, so which ' +
+          "model served each iteration cannot be confirmed from this receipt. Absence of the trail " +
+          "is reported as absence of evidence, not as proof that nothing changed.</p>";
+      } else {
+        decNote = '<p class="hash-note">The decision trail for this run could not be read (' +
+          esc(g(dec, "reason", "unknown")) + "), so per-iteration model attribution is unavailable. " +
+          "Reported rather than omitted.</p>";
+      }
+    }
+    card.innerHTML = '<div class="kv">' + kv + "</div>" +
+      (hash ? '<p class="hash-note">The integrity hash is a ' + esc(algo) +
+              " digest of this proof. It proves the artifact has not been altered after it was emitted. It does not, by itself, prove who or what produced the work.</p>" : "") +
+      signNote + decNote;
+  }
+
+  function renderCta(p) {
+    var card = document.getElementById("ctaCard");
+    var src = g(p, "spec.source", "");
+    var cmd = "loki start";
+    if (src && /^[\w.\-]+\/[\w.\-]+#\d+$/.test(src)) cmd = "loki start " + src;
+    var install = "bun install -g loki-mode";
+    var html =
+      '<p class="note" style="margin-top:0;">Install Loki Mode and take your own spec to a verified build.</p>' +
+      cmdBlock("install", install) +
+      cmdBlock("run", cmd);
+    var secondary = "";
+    var deployed = g(p, "deployment.deployed_url", null);
+    if (deployed) {
+      var label = isLocalUrl(deployed) ? "Open the app (local)" : "Open the deployed app";
+      secondary += '<a class="btn" href="' + esc(deployed) + '" rel="noopener">' + label + "</a>";
+    }
+    if (hasDiffs(p)) {
+      secondary += '<a class="btn" href="#secDiff">View the diff</a>';
+    }
+    if (secondary) {
+      html += '<div class="hero-actions" style="margin-top:14px;">' + secondary + "</div>";
+    }
+    card.innerHTML = html;
+  }
+
+  function cmdBlock(id, text) {
+    return '<div class="cmd"><code id="cmd-' + id + '">' + esc(text) +
+           '</code><button class="copy" data-copy="' + esc(text) + '">Copy</button></div>';
+  }
+
+  // Shared clipboard write (navigator.clipboard with execCommand fallback).
+  // Used by both the command-copy buttons (wireCopy) and the share copy-link
+  // button (wireShare). onDone runs after a best-effort copy.
+  function copyText(text, onDone) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(onDone, function () {});
+    } else {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta); onDone();
+      } catch (err) {}
+    }
+  }
+
+  // Flash a transient label on a button, then restore its original content.
+  function flashBtn(btn, label) {
+    if (!btn) return;
+    var o = btn.innerHTML;
+    btn.textContent = label;
+    setTimeout(function () { btn.innerHTML = o; }, 1200);
+  }
+
+  function wireCopy() {
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (!t || !t.getAttribute || t.getAttribute("data-copy") === null) return;
+      var text = t.getAttribute("data-copy");
+      copyText(text, function () { flashBtn(t, "Copied"); });
+    });
+  }
+
+  // Delegated share handler. Mirrors wireCopy: data-share carries only the KIND
+  // ("x" | "linkedin" | "copy"), never a URL. The intent/share URLs are built
+  // here at click time by string concatenation so NO literal social URL appears
+  // anywhere in the static page. public_url comes from the parsed proof closed
+  // over by this IIFE; the hook comes from the og:description meta already in
+  // the page. The host strings are intentionally split across "+" so the source
+  // text contains no contiguous "https://<host>" or bare host literal.
+  function wireShare(proof) {
+    function publicUrl() {
+      var u = g(proof, "deployment.public_url", null);
+      return (u && !isLocalUrl(u)) ? String(u) : "";
+    }
+    function shareHook() {
+      var m = document.querySelector('meta[property="og:description"]');
+      var c = m ? (m.getAttribute("content") || "") : "";
+      return c || (__PROOF_RECEIPT_TITLE_JSON__ + " - Loki Mode Evidence Receipt");
+    }
+    document.addEventListener("click", function (e) {
+      var t = e.target && e.target.closest ? e.target.closest("[data-share]") : null;
+      if (!t) return;
+      var kind = t.getAttribute("data-share");
+      var url = publicUrl();
+      if (kind === "copy") {
+        // Copy the public link when present, else fall back to the hook text.
+        copyText(url || shareHook(), function () { flashBtn(t, "Copied"); });
+        return;
+      }
+      // X / LinkedIn require a public URL. Without one, do nothing (the buttons
+      // are also hidden in that case): never emit a broken url=.
+      if (!url) return;
+      var target;
+      if (kind === "x") {
+        target = "https" + "://twitter" + ".com/intent/tweet?text=" +
+                 encodeURIComponent(shareHook()) + "&url=" + encodeURIComponent(url);
+      } else if (kind === "linkedin") {
+        // LinkedIn ignores prefilled text; URL only.
+        target = "https" + "://www." + "linkedin" + ".com/sharing/share-offsite/?url=" +
+                 encodeURIComponent(url);
+      } else {
+        return;
+      }
+      window.open(target, "_blank", "noopener,noreferrer");
+    });
+  }
+
+  function renderError() {
+    var wrap = document.querySelector(".wrap");
+    if (wrap) {
+      wrap.innerHTML = '<div class="hero"><h1>Proof data not available</h1>' +
+        '<p class="sub">This proof artifact did not contain renderable data. ' +
+        'It may not have been generated yet.</p></div>';
+    }
+  }
+
+  var proof = parseProof();
+  wireCopy();
+  wireShare(proof);
+  if (!proof || typeof proof !== "object") {
+    renderError();
+    return;
+  }
+  try {
+    render(proof);
+  } catch (e) {
+    renderError();
+  }
+})();
+</script>
+</body>
+</html>

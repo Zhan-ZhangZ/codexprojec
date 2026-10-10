@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Dependencies
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+.next
+out
+
+# Runtime data
+data
+
+# Env & logs
+.env
+.env.local
+.env*.local
+*.log
+logs
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tests & cache
+coverage
+.nyc_output
+.cache
+.eslintcache
+
+# Temp
+*.tmp
+tmp
+temp

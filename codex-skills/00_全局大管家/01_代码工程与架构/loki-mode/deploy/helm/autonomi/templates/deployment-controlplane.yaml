@@ -1,0 +1,136 @@
+{{- include "autonomi.controlplane.preflight" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "autonomi.fullname" . }}-controlplane
+  labels:
+    {{- include "autonomi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controlplane
+spec:
+  {{- if and .Values.persistence.controlDb.enabled (gt (int .Values.controlplane.replicas) 1) }}
+  {{- fail "controlplane.replicas must be 1 when persistence.controlDb.enabled (the control DB is a single-writer ReadWriteOnce volume)" }}
+  {{- end }}
+  replicas: {{ .Values.controlplane.replicas }}
+  {{- if .Values.persistence.controlDb.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "autonomi.controlplane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.controlplane.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "autonomi.controlplane.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "autonomi.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.security.podSecurityContext | nindent 8 }}
+      containers:
+        - name: controlplane
+          image: {{ include "autonomi.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Runs the Control Plane (packages/control-plane) via `loki control
+          # serve`. Bind host comes from LOKI_CONTROL_HOST and the DB path from
+          # LOKI_CONTROL_DB (both in the ConfigMap). The explicit --port means
+          # the server never falls back to a different free port.
+          command:
+            - loki
+            - control
+            - serve
+            - "--port"
+            - {{ include "autonomi.controlPort" . | quote }}
+          ports:
+            - name: http
+              containerPort: {{ include "autonomi.controlPort" . }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.controlplane.probes.readiness.path }}
+              # Default to the named container port so the probe always tracks the
+              # actual bind port (config.controlPort). An explicit numeric
+              # probes.*.port still overrides if set. Previously this defaulted to a
+              # literal 57374 that could diverge from config.dashboardPort and
+              # crash-loop the pod.
+              port: {{ .Values.controlplane.probes.readiness.port | default "http" }}
+            initialDelaySeconds: {{ .Values.controlplane.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controlplane.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controlplane.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controlplane.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.controlplane.probes.liveness.path }}
+              port: {{ .Values.controlplane.probes.liveness.port | default "http" }}
+            initialDelaySeconds: {{ .Values.controlplane.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controlplane.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.controlplane.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.controlplane.probes.liveness.failureThreshold }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "autonomi.fullname" . }}
+            - secretRef:
+                name: {{ include "autonomi.secretName" . }}
+          env:
+            - name: LOKI_CONTROL_HOST
+              value: {{ .Values.config.dashboardHost | quote }}
+            - name: LOKI_CONTROL_PORT
+              value: {{ include "autonomi.controlPort" . | quote }}
+            - name: LOKI_CONTROL_DB
+              value: {{ .Values.config.controlDb | quote }}
+            {{- include "autonomi.controlTokenEnv" . | nindent 12 }}
+            {{- with .Values.controlplane.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.controlplane.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.security.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.auditLogs.enabled }}
+            # Mount at the exact directory dashboard/audit.py writes to
+            # ($HOME/.loki/dashboard/audit; HOME=/home/loki), so the
+            # hash-chain JSONL is durable across pod loss. The old
+            # /data/audit mount was inert: the code never wrote there. We mount
+            # the audit subdir specifically, NOT .../dashboard, to avoid shadowing
+            # the machine-local projects.json registry under .../dashboard.
+            - name: audit-logs
+              mountPath: /home/loki/.loki/dashboard/audit
+            {{- end }}
+            {{- if .Values.persistence.controlDb.enabled }}
+            - name: control-db
+              mountPath: {{ dir .Values.config.controlDb }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.controlDb.enabled }}
+        - name: control-db
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.controlDb.existingClaim | default (printf "%s-control-db" (include "autonomi.fullname" .)) }}
+        {{- end }}
+        {{- if .Values.persistence.auditLogs.enabled }}
+        - name: audit-logs
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.auditLogs.existingClaim | default (printf "%s-audit-logs" (include "autonomi.fullname" .)) }}
+        {{- end }}
+      {{- with .Values.controlplane.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlplane.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlplane.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

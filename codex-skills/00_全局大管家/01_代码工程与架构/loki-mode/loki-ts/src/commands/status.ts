@@ -1,0 +1,885 @@
+// Port of autonomy/loki:1963 (cmd_status) and :2124 (cmd_status_json).
+// Reproduces text output byte-for-byte (modulo ANSI normalization in tests)
+// and JSON output field-for-field.
+//
+// JSON path strategy: option (a) -- we shell out to python3 with the EXACT
+// same inline script the bash uses. This guarantees field parity (key order,
+// indentation, datetime parsing, edge cases) without re-deriving 100+ lines
+// of Python in TypeScript. Reviewer 1's parity diff is the design contract.
+//
+// Text path strategy: reimplemented in TS for speed, but every echo line
+// matches bash byte-for-byte. jq is shelled out (same as bash) for the
+// orchestrator phase / pending task count branches.
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { resolve, basename } from "node:path";
+import { homedir } from "node:os";
+import { commandExists, run } from "../util/shell.ts";
+import { findPython3 } from "../util/python.ts";
+import { BOLD, CYAN, GREEN, YELLOW, RED, DIM, NC } from "../util/colors.ts";
+import { lokiDir, REPO_ROOT } from "../util/paths.ts";
+
+// ---------------------------------------------------------------------------
+// context_gauge / format_tokens port (autonomy/tui.sh:176-216).
+//
+// autonomy/loki sources tui.sh at startup (autonomy/loki:59-61), so the bash
+// `status` arm ALWAYS finds context_gauge defined and renders the visual gauge
+// bar for the Budget and Context blocks. The Bun route previously emitted only
+// the plain data line, which was a real bash<->Bun output drift (not a no-op:
+// the `type context_gauge` guard succeeds in bash). These helpers reproduce the
+// gauge byte-for-byte so the two routes render identically.
+//
+// Inlined here (not added to util/) to keep the change scoped to commands/ --
+// these are the only callers.
+//
+// Contract (verified against `bash autonomy/loki status`, byte-identical modulo
+// ANSI -- bash gates the gauge COLOR on TTY via tui.sh, so a piped bash run
+// emits no color on the bar, whereas Bun always emits per the colors.ts
+// always-emit deviation; the existing route-parity convention normalizes ANSI):
+//   - bar width 30, BAR_FILL "=" (tui.sh:45), empty cell " ".
+//   - colors: green < 50%, yellow < 80%, red >= 80% (TUI_* == loki-ts colors).
+//   - line: "  <BOLD>label<NC> <color>[bar]<NC> pct% (used_fmt / total_fmt)".
+//   - format_tokens truncates at one decimal like `bc scale=1` then prints
+//     %.1f (so 1259 -> "1.2K", never rounds up).
+//   - renders nothing when total == 0, mirroring the bash
+//     `if [ "$total" -eq 0 ]; then return; fi` early-out.
+
+const GAUGE_WIDTH = 30;
+
+// Mirror tui.sh format_tokens: bc `scale=1` truncates, printf %.1f formats.
+// Under 1000 the bash branch echoes the integer verbatim.
+function formatTokens(n: number): string {
+  const v = Math.trunc(n);
+  if (v >= 1000000) {
+    const truncated = Math.trunc((v / 1000000) * 10) / 10;
+    return `${truncated.toFixed(1)}M`;
+  }
+  if (v >= 1000) {
+    const truncated = Math.trunc((v / 1000) * 10) / 10;
+    return `${truncated.toFixed(1)}K`;
+  }
+  return String(v);
+}
+
+// Mirror tui.sh context_gauge. Returns the rendered line WITHOUT a trailing
+// newline (callers add one), or null when total == 0 (the bash early-out).
+function contextGauge(used: number, total: number, label: string): string | null {
+  if (total === 0) return null;
+
+  // Integer arithmetic mirrors bash $(( )) (truncating division).
+  const pct = Math.trunc((used * 100) / total);
+  let filled = Math.trunc((used * GAUGE_WIDTH) / total);
+  if (filled > GAUGE_WIDTH) filled = GAUGE_WIDTH;
+  const empty = GAUGE_WIDTH - filled;
+
+  // Color: green < 50%, yellow < 80%, red >= 80% (tui.sh:190-193).
+  let color = GREEN;
+  if (pct >= 80) color = RED;
+  else if (pct >= 50) color = YELLOW;
+
+  const bar = "=".repeat(Math.max(0, filled)) + " ".repeat(Math.max(0, empty));
+  const usedFmt = formatTokens(used);
+  const totalFmt = formatTokens(total);
+
+  return `  ${BOLD}${label}${NC} ${color}[${bar}]${NC} ${pct}% (${usedFmt} / ${totalFmt})`;
+}
+
+// Inline Python source -- copied verbatim from autonomy/loki:2131-2275
+// (cmd_status_json body). DO NOT modify without updating bash side too.
+const STATUS_JSON_PY = `
+import json, os, sys, time
+
+skill_dir = sys.argv[1]
+loki_dir = sys.argv[2]
+dashboard_port = sys.argv[3]
+env_provider = sys.argv[4]
+result = {}
+
+# Version
+version_file = os.path.join(skill_dir, 'VERSION')
+if os.path.isfile(version_file):
+    with open(version_file) as f:
+        result['version'] = f.read().strip()
+else:
+    result['version'] = 'unknown'
+
+# Check if session exists
+if not os.path.isdir(loki_dir):
+    result['status'] = 'inactive'
+    result['phase'] = None
+    result['iteration'] = 0
+    result['provider'] = env_provider if os.environ.get('LOKI_PROVIDER', '') else 'claude'
+    result['provider_source'] = 'env' if os.environ.get('LOKI_PROVIDER', '') else 'default'
+    result['dashboard_url'] = None
+    result['pid'] = None
+    result['elapsed_time'] = 0
+    result['task_counts'] = {'total': 0, 'completed': 0, 'failed': 0, 'pending': 0}
+    result['phase1'] = {
+        'findings_iters': 0,
+        'learnings_count': 0,
+        'escalations_count': 0,
+        'pause_signal': False,
+        'gate_failure_counts': {},
+    }
+    print(json.dumps(result, indent=2))
+    sys.exit(0)
+
+# Status from signals and session.json
+if os.path.isfile(os.path.join(loki_dir, 'PAUSE')):
+    result['status'] = 'paused'
+elif os.path.isfile(os.path.join(loki_dir, 'STOP')):
+    result['status'] = 'stopped'
+else:
+    session_file = os.path.join(loki_dir, 'session.json')
+    if os.path.isfile(session_file):
+        try:
+            with open(session_file) as f:
+                session = json.load(f)
+            result['status'] = session.get('status', 'unknown')
+        except Exception:
+            result['status'] = 'unknown'
+    else:
+        result['status'] = 'unknown'
+
+# Phase and iteration from dashboard-state.json
+ds_file = os.path.join(loki_dir, 'dashboard-state.json')
+if os.path.isfile(ds_file):
+    try:
+        with open(ds_file) as f:
+            ds = json.load(f)
+        result['phase'] = ds.get('phase', ds.get('currentPhase'))
+        result['iteration'] = ds.get('iteration', ds.get('currentIteration', 0))
+    except Exception:
+        result['phase'] = None
+        result['iteration'] = 0
+else:
+    orch_file = os.path.join(loki_dir, 'state', 'orchestrator.json')
+    if os.path.isfile(orch_file):
+        try:
+            with open(orch_file) as f:
+                orch = json.load(f)
+            result['phase'] = orch.get('currentPhase')
+            result['iteration'] = orch.get('currentIteration', 0)
+        except Exception:
+            result['phase'] = None
+            result['iteration'] = 0
+    else:
+        result['phase'] = None
+        result['iteration'] = 0
+
+# Provider + provider_source (v7.7.2 B-5 clarity, parity with bash)
+# v7.7.12 (UT2-13 parity fix): read cli-provider marker FIRST so the bun
+# route reports provider_source='cli' identically to bash route. Without
+# this, --provider flag works for state but status --json silently
+# downgrades the source field, breaking parity.
+def _read_cli_provider_bun(loki_dir):
+    cli_file = os.path.join(loki_dir, 'state', 'cli-provider')
+    if not os.path.isfile(cli_file):
+        return None
+    try:
+        content = open(cli_file).read().strip()
+        parts = content.split(':')
+        if len(parts) < 2:
+            return None
+        prov = parts[0]
+        ts = int(parts[1])
+        if prov not in ('claude', 'codex', 'cline', 'aider', 'opencode'):
+            return None
+        if time.time() - ts > 86400:
+            return None
+        if len(parts) >= 3:
+            try:
+                pid = int(parts[2])
+                if pid > 0:
+                    os.kill(pid, 0)
+            except (ValueError, ProcessLookupError, PermissionError):
+                return None
+        return prov
+    except Exception:
+        return None
+
+cli_prov = _read_cli_provider_bun(loki_dir)
+provider_file = os.path.join(loki_dir, 'state', 'provider')
+if os.path.isfile(provider_file):
+    try:
+        with open(provider_file) as f:
+            saved = f.read().strip()
+    except OSError:
+        saved = ''
+else:
+    saved = ''
+env_set = os.environ.get('LOKI_PROVIDER', '') != ''
+if cli_prov:
+    result['provider'] = cli_prov
+    result['provider_source'] = 'cli'
+elif saved:
+    result['provider'] = saved
+    result['provider_source'] = 'saved'
+elif env_set:
+    result['provider'] = env_provider
+    result['provider_source'] = 'env'
+else:
+    result['provider'] = 'claude'
+    result['provider_source'] = 'default'
+
+# PID
+pid_file = os.path.join(loki_dir, 'loki.pid')
+if os.path.isfile(pid_file):
+    try:
+        with open(pid_file) as f:
+            result['pid'] = int(f.read().strip())
+    except (ValueError, Exception):
+        result['pid'] = None
+else:
+    result['pid'] = None
+
+# Elapsed time from session.json
+session_file = os.path.join(loki_dir, 'session.json')
+if os.path.isfile(session_file):
+    try:
+        with open(session_file) as f:
+            session = json.load(f)
+        start_time = session.get('start_time', session.get('startTime'))
+        if start_time:
+            if isinstance(start_time, (int, float)):
+                result['elapsed_time'] = int(time.time() - start_time)
+            else:
+                from datetime import datetime
+                dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                result['elapsed_time'] = int(time.time() - dt.timestamp())
+        else:
+            result['elapsed_time'] = 0
+    except Exception:
+        result['elapsed_time'] = 0
+else:
+    result['elapsed_time'] = 0
+
+# Dashboard URL. Check BOTH the project-local in-build dashboard and the
+# standalone dashboard (~/.loki/dashboard, where loki dashboard/serve now
+# write) and honor saved scheme/host/port side-files, mirroring the bash
+# route (autonomy/loki) so the two runtimes report identically.
+_dash_candidates = [
+    os.path.join(loki_dir, 'dashboard', 'dashboard.pid'),
+    os.path.expanduser(os.path.join('~', '.loki', 'dashboard', 'dashboard.pid')),
+]
+dashboard_pid_file = next((p for p in _dash_candidates if os.path.isfile(p)), _dash_candidates[0])
+dashboard_url = None
+if os.path.isfile(dashboard_pid_file):
+    try:
+        with open(dashboard_pid_file) as f:
+            dpid = int(f.read().strip())
+        os.kill(dpid, 0)
+        _dd = os.path.dirname(dashboard_pid_file)
+        def _side(name, default):
+            p = os.path.join(_dd, name)
+            try:
+                return open(p).read().strip() if os.path.isfile(p) else default
+            except OSError:
+                return default
+        _scheme = _side('scheme', 'http')
+        _host = _side('host', '127.0.0.1')
+        _port = _side('port', str(dashboard_port))
+        if _host == '0.0.0.0':
+            _host = '127.0.0.1'
+        dashboard_url = _scheme + '://' + _host + ':' + _port + '/'
+    except (ProcessLookupError, PermissionError, ValueError, Exception):
+        pass
+result['dashboard_url'] = dashboard_url
+
+# Task counts from queue files
+task_counts = {'total': 0, 'completed': 0, 'failed': 0, 'pending': 0}
+queue_dir = os.path.join(loki_dir, 'queue')
+if os.path.isdir(queue_dir):
+    for name, key in [('pending.json', 'pending'), ('completed.json', 'completed'), ('failed.json', 'failed')]:
+        fpath = os.path.join(queue_dir, name)
+        if os.path.isfile(fpath):
+            try:
+                with open(fpath) as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    task_counts[key] = len(data)
+                elif isinstance(data, dict) and 'tasks' in data:
+                    task_counts[key] = len(data['tasks'])
+            except Exception:
+                pass
+    task_counts['total'] = task_counts['pending'] + task_counts['completed'] + task_counts['failed']
+result['task_counts'] = task_counts
+
+# v7.5.5 (#204): Phase 1 (RARV-C closure) artifact summary so dashboard /
+# CI / operators can confirm the embedded-by-default flow is wired without
+# tailing files. All counts are read-only and degrade silently to zero.
+phase1 = {
+    'findings_iters': 0,
+    'learnings_count': 0,
+    'escalations_count': 0,
+    'pause_signal': False,
+    'gate_failure_counts': {},
+}
+state_dir = os.path.join(loki_dir, 'state')
+if os.path.isdir(state_dir):
+    try:
+        phase1['findings_iters'] = sum(
+            1 for n in os.listdir(state_dir)
+            if n.startswith('findings-') and n.endswith('.json')
+        )
+    except Exception:
+        pass
+    learnings_file = os.path.join(state_dir, 'relevant-learnings.json')
+    if os.path.isfile(learnings_file):
+        try:
+            with open(learnings_file) as f:
+                learnings = json.load(f)
+            if isinstance(learnings, list):
+                phase1['learnings_count'] = len(learnings)
+            elif isinstance(learnings, dict):
+                entries = learnings.get('entries')
+                if isinstance(entries, list):
+                    phase1['learnings_count'] = len(entries)
+        except Exception:
+            pass
+escalations_dir = os.path.join(loki_dir, 'escalations')
+if os.path.isdir(escalations_dir):
+    try:
+        phase1['escalations_count'] = sum(
+            1 for n in os.listdir(escalations_dir) if n.endswith('.md')
+        )
+    except Exception:
+        pass
+phase1['pause_signal'] = os.path.isfile(os.path.join(loki_dir, 'PAUSE'))
+gate_count_file = os.path.join(loki_dir, 'quality', 'gate-failure-count.json')
+if os.path.isfile(gate_count_file):
+    try:
+        with open(gate_count_file) as f:
+            gc = json.load(f)
+        if isinstance(gc, dict):
+            phase1['gate_failure_counts'] = {
+                k: v for k, v in gc.items() if isinstance(v, (int, float))
+            }
+    except Exception:
+        pass
+result['phase1'] = phase1
+
+print(json.dumps(result, indent=2))
+`;
+
+// Mirror of require_jq (autonomy/loki:223). Returns true if jq is available;
+// otherwise prints the same error block to stdout (bash uses echo, not >&2).
+async function requireJq(): Promise<boolean> {
+  const path = await commandExists("jq");
+  if (path) return true;
+  process.stdout.write(`${RED}Error: jq is required but not installed.${NC}\n`);
+  process.stdout.write(`Install with:\n`);
+  process.stdout.write(`  brew install jq    (macOS)\n`);
+  process.stdout.write(`  apt install jq     (Debian/Ubuntu)\n`);
+  process.stdout.write(`  yum install jq     (RHEL/CentOS)\n`);
+  return false;
+}
+
+// Mirror of `kill -0 <pid>` -- check whether a process exists (signal 0).
+function pidAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readPidFile(path: string): number | null {
+  if (!existsSync(path)) return null;
+  try {
+    const raw = readFileSync(path, "utf-8").trim();
+    if (!raw) return null;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+// Mirror of list_running_sessions (autonomy/loki:1508).
+// Returns array of "sid:pid" strings; "global" sid for top-level loki.pid.
+function listRunningSessions(dir: string): string[] {
+  const sessions: string[] = [];
+
+  // Global session
+  const globalPid = readPidFile(resolve(dir, "loki.pid"));
+  if (globalPid !== null && pidAlive(globalPid)) {
+    sessions.push(`global:${globalPid}`);
+  }
+
+  // Per-session PIDs
+  const sessionsDir = resolve(dir, "sessions");
+  if (existsSync(sessionsDir)) {
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(sessionsDir);
+    } catch {
+      entries = [];
+    }
+    for (const sid of entries) {
+      const sessionDir = resolve(sessionsDir, sid);
+      try {
+        if (!statSync(sessionDir).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      const pidFile = resolve(sessionDir, "loki.pid");
+      const pid = readPidFile(pidFile);
+      if (pid !== null && pidAlive(pid)) {
+        sessions.push(`${sid}:${pid}`);
+      }
+    }
+  }
+
+  // Legacy run-*.pid files
+  if (existsSync(dir)) {
+    let topEntries: string[] = [];
+    try {
+      topEntries = readdirSync(dir);
+    } catch {
+      topEntries = [];
+    }
+    for (const fname of topEntries) {
+      if (!fname.startsWith("run-") || !fname.endsWith(".pid")) continue;
+      const runPidFile = resolve(dir, fname);
+      try {
+        if (!statSync(runPidFile).isFile()) continue;
+      } catch {
+        continue;
+      }
+      const sid = basename(fname, ".pid").slice("run-".length);
+      const pid = readPidFile(runPidFile);
+      if (pid !== null && pidAlive(pid)) {
+        // Avoid duplicates already in sessions/
+        const dup = sessions.some((s) => s.startsWith(`${sid}:`));
+        if (!dup) sessions.push(`${sid}:${pid}`);
+      }
+    }
+  }
+
+  return sessions;
+}
+
+// Run jq with the given filter against a file. Returns trimmed stdout or null
+// on any failure (matches bash `2>/dev/null || echo "<fallback>"` patterns).
+async function jqEval(filter: string, file: string): Promise<string | null> {
+  const r = await run(["jq", "-r", filter, file]);
+  if (r.exitCode !== 0) return null;
+  const out = r.stdout.trim();
+  return out;
+}
+
+// Reads VERSION-style budget number with python3 (bash uses inline python3).
+// Fallback to manual JSON parse if python3 missing.
+function readBudgetField(file: string, field: "budget_limit" | "budget_used"): string {
+  try {
+    const txt = readFileSync(file, "utf-8");
+    const obj = JSON.parse(txt) as Record<string, unknown>;
+    const v = obj[field];
+    if (typeof v === "number") {
+      // Bash uses round(..., 2) for budget_used, plain print() for budget_limit.
+      if (field === "budget_used") {
+        // Python's round(x, 2) is banker's rounding but our tests use whole/half
+        // integers; close enough. Use toFixed then strip trailing zeros to match
+        // python's print(round(...)) which prints e.g. "0", "1.5", "2.34".
+        const rounded = Math.round(v * 100) / 100;
+        // python int prints as "0" not "0.0"; floats keep one decimal min.
+        if (Number.isInteger(rounded)) return String(rounded);
+        return String(rounded);
+      }
+      return String(v);
+    }
+    if (v === undefined || v === null) {
+      return field === "budget_used" ? "unmeasured" : "0";
+    }
+    return String(v);
+  } catch {
+    return "0";
+  }
+}
+
+// Reads context-usage.json fields.
+function readContextField(file: string, field: "window_size" | "used_tokens", fallback: number): number {
+  try {
+    const txt = readFileSync(file, "utf-8");
+    const obj = JSON.parse(txt) as Record<string, unknown>;
+    const v = obj[field];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function runStatusText(): Promise<number> {
+  const dir = lokiDir();
+
+  if (!(await requireJq())) {
+    return 1;
+  }
+
+  if (!existsSync(dir)) {
+    process.stdout.write(`${BOLD}Loki Mode Status${NC}\n`);
+    process.stdout.write(`\n`);
+    process.stdout.write(`${YELLOW}No active session found.${NC}\n`);
+    process.stdout.write(`Loki Mode has not been initialized in this directory.\n`);
+    process.stdout.write(`\n`);
+    process.stdout.write(`To start a session:\n`);
+    process.stdout.write(`  loki start <prd>              - Start with a PRD file\n`);
+    process.stdout.write(`  loki start                    - Start without a PRD\n`);
+    process.stdout.write(`\n`);
+    process.stdout.write(`${DIM}Current directory: ${process.cwd()}${NC}\n`);
+    return 0;
+  }
+
+  process.stdout.write(`${BOLD}Loki Mode Status${NC}\n`);
+  process.stdout.write(`\n`);
+
+  // Provider
+  let savedProvider = "";
+  const providerFile = resolve(dir, "state", "provider");
+  if (existsSync(providerFile)) {
+    try {
+      savedProvider = readFileSync(providerFile, "utf-8").trim();
+    } catch {
+      savedProvider = "";
+    }
+  }
+  const currentProvider = savedProvider || process.env["LOKI_PROVIDER"] || "claude";
+  let capability = "full features";
+  switch (currentProvider) {
+    case "codex":
+    case "aider":
+      capability = "degraded mode";
+      break;
+    case "cline":
+      capability = "near-full mode";
+      break;
+    case "opencode":
+      capability = "model-agnostic mode";
+      break;
+    default:
+      capability = "full features";
+      break;
+  }
+  process.stdout.write(`${CYAN}Provider:${NC} ${currentProvider} (${capability})\n`);
+  process.stdout.write(`${DIM}  Switch with: loki provider set <claude|codex|cline|aider|opencode>${NC}\n`);
+  process.stdout.write(`\n`);
+
+  // Running sessions
+  const sessions = listRunningSessions(dir);
+  if (sessions.length > 0) {
+    process.stdout.write(`${GREEN}Active Sessions: ${sessions.length}${NC}\n`);
+    for (const entry of sessions) {
+      const colon = entry.indexOf(":");
+      const sid = colon >= 0 ? entry.slice(0, colon) : entry;
+      const spid = colon >= 0 ? entry.slice(colon + 1) : "";
+      if (sid === "global") {
+        process.stdout.write(`  ${CYAN}[global]${NC} PID ${spid}\n`);
+      } else {
+        process.stdout.write(`  ${CYAN}[#${sid}]${NC} PID ${spid}\n`);
+      }
+    }
+    process.stdout.write(`\n`);
+    process.stdout.write(`${DIM}  Stop specific: loki stop <session-id>${NC}\n`);
+    process.stdout.write(`${DIM}  Stop all:      loki stop${NC}\n`);
+    process.stdout.write(`\n`);
+  }
+
+  // Signals
+  if (existsSync(resolve(dir, "PAUSE"))) {
+    process.stdout.write(`${YELLOW}Status: PAUSED${NC}\n`);
+    process.stdout.write(`${DIM}  Resume with: loki resume${NC}\n`);
+    process.stdout.write(`\n`);
+  } else if (existsSync(resolve(dir, "STOP"))) {
+    process.stdout.write(`${RED}Status: STOPPED${NC}\n`);
+    process.stdout.write(`${DIM}  Clear with: loki resume${NC}\n`);
+    process.stdout.write(`\n`);
+  }
+
+  // STATUS.txt
+  const statusTxt = resolve(dir, "STATUS.txt");
+  if (existsSync(statusTxt)) {
+    process.stdout.write(`${CYAN}Session Info:${NC}\n`);
+    try {
+      process.stdout.write(readFileSync(statusTxt, "utf-8"));
+    } catch {
+      // bash `cat` would print error to stderr; we silently skip.
+    }
+    process.stdout.write(`\n`);
+  }
+
+  // Orchestrator state (jq parity)
+  const orchFile = resolve(dir, "state", "orchestrator.json");
+  if (existsSync(orchFile)) {
+    process.stdout.write(`${CYAN}Orchestrator State:${NC}\n`);
+    const phase = await jqEval('.currentPhase // "unknown"', orchFile);
+    process.stdout.write(`${phase ?? "unknown"}\n`);
+  }
+
+  // Pending tasks (jq parity)
+  const pendingFile = resolve(dir, "queue", "pending.json");
+  if (existsSync(pendingFile)) {
+    const count = await jqEval(
+      'if type == "array" then length elif .tasks then .tasks | length else 0 end',
+      pendingFile,
+    );
+    process.stdout.write(`${CYAN}Pending Tasks:${NC} ${count ?? "0"}\n`);
+  }
+
+  // Budget
+  const budgetFile = resolve(dir, "metrics", "budget.json");
+  if (existsSync(budgetFile)) {
+    const budgetLimit = readBudgetField(budgetFile, "budget_limit");
+    const budgetUsed = readBudgetField(budgetFile, "budget_used");
+    if (budgetUsed === "unmeasured") {
+      if (budgetLimit !== "0") {
+        process.stdout.write(`${CYAN}Budget:${NC} unmeasured / \$${budgetLimit}\n`);
+      } else {
+        process.stdout.write(`${CYAN}Cost:${NC} unmeasured\n`);
+      }
+    } else if (budgetLimit !== "0") {
+      process.stdout.write(`${CYAN}Budget:${NC} \$${budgetUsed} / \$${budgetLimit}\n`);
+      // Budget gauge (autonomy/loki:2909-2919). Bash converts dollars to integer
+      // cents via `bc scale=0` (truncation) before calling context_gauge, with
+      // empty-string guards falling back to 0 / 100. Replicate that exactly so
+      // the bar/percent match byte-for-byte.
+      const usedCents = Math.trunc((Number.parseFloat(budgetUsed) || 0) * 100);
+      const limitParsed = Number.parseFloat(budgetLimit);
+      const limitCents = Number.isFinite(limitParsed) && limitParsed !== 0
+        ? Math.trunc(limitParsed * 100)
+        : 100;
+      const gauge = contextGauge(usedCents, limitCents, "Budget");
+      if (gauge !== null) process.stdout.write(`${gauge}\n`);
+    } else {
+      process.stdout.write(`${CYAN}Cost:${NC} \$${budgetUsed} (no limit)\n`);
+    }
+  }
+
+  // Context window. Bash (autonomy/loki:2930-2938) renders the visual gauge
+  // because context_gauge is ALWAYS defined (tui.sh is sourced at startup), so
+  // the `if type context_gauge` branch is always taken and the gauge REPLACES
+  // the plain `Context:` line. The bash `else` plain-line branch is dead in the
+  // real CLI (it only fires if the helper were undefined). When total == 0 the
+  // gauge does an early `return` and prints NOTHING -- so we emit nothing too,
+  // exactly mirroring that path (no plain fallback line).
+  const ctxFile = resolve(dir, "state", "context-usage.json");
+  if (existsSync(ctxFile)) {
+    const ctxTotal = readContextField(ctxFile, "window_size", 200000);
+    const ctxUsed = readContextField(ctxFile, "used_tokens", 0);
+    const gauge = contextGauge(ctxUsed, ctxTotal, "Context");
+    if (gauge !== null) process.stdout.write(`${gauge}\n`);
+  }
+
+  // Dashboard. Check BOTH the project-local in-build dashboard and the
+  // standalone dashboard (~/.loki/dashboard, where loki dashboard/serve now
+  // write) and honor saved scheme/host/port side-files, mirroring the bash
+  // route so the two runtimes report identically.
+  const dashCandidates = [
+    resolve(dir, "dashboard", "dashboard.pid"),
+    resolve(homedir(), ".loki", "dashboard", "dashboard.pid"),
+  ];
+  const dashPidFile = dashCandidates.find((p) => existsSync(p)) ?? "";
+  if (dashPidFile && existsSync(dashPidFile)) {
+    const pid = readPidFile(dashPidFile);
+    if (pid !== null && pidAlive(pid)) {
+      const dashDir = resolve(dashPidFile, "..");
+      const sideFile = (name: string, dflt: string): string => {
+        const p = resolve(dashDir, name);
+        try {
+          return existsSync(p) ? readFileSync(p, "utf-8").trim() || dflt : dflt;
+        } catch {
+          return dflt;
+        }
+      };
+      const scheme = sideFile("scheme", "http");
+      let host = sideFile("host", "127.0.0.1");
+      const port = sideFile("port", process.env["LOKI_DASHBOARD_PORT"] || "57374");
+      if (host === "0.0.0.0") host = "127.0.0.1";
+      process.stdout.write(`${CYAN}Dashboard:${NC} ${scheme}://${host}:${port}/\n`);
+    }
+  }
+
+  // v7.5.3: Phase 1 artifacts (findings, learnings, escalations) are
+  // surfaced inline so users see them where they already look. Per the
+  // "embedded by default" mandate. Falls silent if no artifacts exist.
+  await renderPhase1Section(dir);
+
+  process.stdout.write(`${DIM}${lastRunLine(dir)}${NC}\n`);
+
+  process.stdout.write(`\n`);
+  process.stdout.write(`${DIM}  Tip: loki analyze context show   - detailed token breakdown${NC}\n`);
+  process.stdout.write(`${DIM}  Tip: loki analyze code overview  - codebase intelligence${NC}\n`);
+  return 0;
+}
+
+// 133-F4: newest sealed receipt's verdict, read from the receipt field only
+// (never recomputed). Mirrors the receipt block in autonomy/loki cmd_status.
+function lastRunLine(dir: string): string {
+  const runs = resolve(dir, "runs");
+  let ids: string[] = [];
+  try {
+    ids = readdirSync(runs).filter((d) => statSync(resolve(runs, d)).isDirectory()).sort();
+  } catch {
+    ids = [];
+  }
+  const newest = ids[ids.length - 1];
+  if (newest === undefined) return "Last run: no receipt (verdict NOT AVAILABLE)";
+  try {
+    const d = JSON.parse(readFileSync(resolve(runs, newest, "receipt.json"), "utf-8")) as Record<string, unknown>;
+    const v = d["verdict"];
+    const raw = d["receipt_sha256"];
+    if (typeof v !== "string" || !/^[A-Z_]+$/.test(v) || typeof raw !== "string") throw new Error("bad");
+    const h = raw.startsWith("sha256:") ? raw.slice(7) : raw;
+    if (!/^[0-9a-f]{12,}$/.test(h)) throw new Error("bad");
+    return `Last run: ${v} (receipt sha256:${h.slice(0, 12)})`;
+  } catch {
+    return "Last run: receipt unreadable";
+  }
+}
+
+// v7.5.3: surface Phase 1 artifacts inline. Quiet on greenfield runs.
+async function renderPhase1Section(lokiBase: string): Promise<void> {
+  const stateDir = resolve(lokiBase, "state");
+  const findingsFiles = listFindingsFiles(stateDir);
+  const learningsPath = resolve(stateDir, "relevant-learnings.json");
+  const escalationsDir = resolve(lokiBase, "escalations");
+  const hasFindings = findingsFiles.length > 0;
+  const hasLearnings = existsSync(learningsPath);
+  const hasEscalations = existsSync(escalationsDir);
+  if (!hasFindings && !hasLearnings && !hasEscalations) return;
+
+  process.stdout.write(`\n${CYAN}Phase 1 artifacts:${NC}\n`);
+
+  if (hasFindings) {
+    const latest = findingsFiles[findingsFiles.length - 1]!;
+    const data = safeReadJson(latest) as
+      | { iteration?: number; findings?: Array<{ severity?: string }> }
+      | null;
+    if (data && Array.isArray(data.findings)) {
+      const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 } as Record<string, number>;
+      for (const f of data.findings) {
+        const s = String(f.severity ?? "");
+        if (s in counts) counts[s] = (counts[s] ?? 0) + 1;
+      }
+      const summary = Object.entries(counts)
+        .filter(([, n]) => n > 0)
+        .map(([s, n]) => `${n} ${s.toLowerCase()}`)
+        .join(", ");
+      process.stdout.write(
+        `  Findings (iter ${data.iteration ?? "?"}): ${summary || "none"} -- ${data.findings.length} total\n`,
+      );
+    }
+  }
+
+  if (hasLearnings) {
+    const data = safeReadJson(learningsPath) as
+      | { learnings?: Array<{ trigger?: string }> }
+      | null;
+    if (data && Array.isArray(data.learnings) && data.learnings.length > 0) {
+      const counts = new Map<string, number>();
+      for (const l of data.learnings) {
+        const t = String(l.trigger ?? "unknown");
+        counts.set(t, (counts.get(t) ?? 0) + 1);
+      }
+      const top = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([t, n]) => `${n} ${t}`)
+        .join(", ");
+      process.stdout.write(`  Learnings: ${data.learnings.length} total (${top})\n`);
+    }
+  }
+
+  if (hasEscalations) {
+    let mdCount = 0;
+    let latestName = "";
+    try {
+      const fs = await import("node:fs");
+      const entries = fs.readdirSync(escalationsDir).filter((n) => n.endsWith(".md"));
+      mdCount = entries.length;
+      if (entries.length > 0) {
+        entries.sort();
+        latestName = entries[entries.length - 1] ?? "";
+      }
+    } catch {
+      // best-effort
+    }
+    if (mdCount > 0) {
+      process.stdout.write(
+        `  Escalations: ${mdCount} handoff doc${mdCount === 1 ? "" : "s"} (latest: ${latestName})\n`,
+      );
+    }
+  }
+}
+
+function listFindingsFiles(stateDir: string): string[] {
+  if (!existsSync(stateDir)) return [];
+  try {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const all = fs
+      .readdirSync(stateDir)
+      .filter((n) => /^findings-\d+\.json$/.test(n))
+      .sort((a, b) => {
+        const na = Number.parseInt(a.replace(/[^0-9]/g, ""), 10) || 0;
+        const nb = Number.parseInt(b.replace(/[^0-9]/g, ""), 10) || 0;
+        return na - nb;
+      });
+    return all.map((n) => resolve(stateDir, n));
+  } catch {
+    return [];
+  }
+}
+
+function safeReadJson(path: string): unknown {
+  try {
+    const fs = require("node:fs") as typeof import("node:fs");
+    return JSON.parse(fs.readFileSync(path, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+async function runStatusJson(): Promise<number> {
+  const py = await findPython3();
+  if (!py) {
+    process.stderr.write(`{"error": "Failed to generate JSON status. Ensure python3 is available."}\n`);
+    return 1;
+  }
+  const skillDir = REPO_ROOT;
+  const dir = lokiDir();
+  const dashboardPort = process.env["LOKI_DASHBOARD_PORT"] || "57374";
+  const envProvider = process.env["LOKI_PROVIDER"] || "claude";
+
+  // v7.4.2 fix (BUG-10): cap Python aggregation at 30s. Without this a wedged
+  // python3 would hang `loki status --json` indefinitely.
+  const r = await run([py, "-c", STATUS_JSON_PY, skillDir, dir, dashboardPort, envProvider], {
+    timeoutMs: 30000,
+  });
+  if (r.exitCode !== 0) {
+    process.stderr.write(`{"error": "Failed to generate JSON status. Ensure python3 is available."}\n`);
+    return 1;
+  }
+  process.stdout.write(r.stdout);
+  return 0;
+}
+
+export async function runStatus(argv: readonly string[]): Promise<number> {
+  // Flag parsing mirrors bash while-loop at autonomy/loki:1965.
+  const args = [...argv];
+  while (args.length > 0) {
+    const flag = args[0];
+    if (flag === "--json") {
+      return runStatusJson();
+    }
+    if (flag === "--help" || flag === "-h") {
+      process.stdout.write(`Usage: loki status [--json]\n`);
+      return 0;
+    }
+    process.stdout.write(`${RED}Unknown flag: ${flag}${NC}\n`);
+    process.stdout.write(`Usage: loki status [--json]\n`);
+    return 1;
+  }
+  return runStatusText();
+}

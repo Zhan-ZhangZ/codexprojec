@@ -1,0 +1,87 @@
+[project]
+name = "typesafe-computer-use"
+version = "0.2.0"
+description = "Cheap, fast computer use on macOS and Windows: deterministic screen state, a TypeSafe classifier for every decision, a writer model only for free text."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "Aaron Levin" }]
+keywords = ["computer-use", "automation", "ocr", "typesafe", "macos", "windows", "agents"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: MacOS X",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "anthropic==1.6.0",
+    "openai==2.54.0",
+    "pillow>=11.0,<13",
+    "typesafe-sdk==0.6.0",
+    "websocket-client==1.9.0",
+    "ocrmac==1.0.1; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices==12.2.2; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz==12.2.2; sys_platform == 'darwin'",
+    "psutil==7.2.2; sys_platform == 'win32'",
+    "pywin32==312; sys_platform == 'win32'",
+    "uiautomation==2.0.29; sys_platform == 'win32'",
+    "winocr==0.0.15; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# Portable OCR for Linux, where macOS Vision does not exist: the OSWorld benchmark reads the VM's
+# screen with it (`--ocr rapidocr`). Optional, so a Mac that stays on Vision never installs it.
+rapidocr = ["rapidocr==3.9.2", "onnxruntime==1.30.0"]
+
+[project.urls]
+Homepage = "https://github.com/awlevin/typesafe-computer-use"
+Issues = "https://github.com/awlevin/typesafe-computer-use/issues"
+
+[project.scripts]
+clicker = "typesafe_computer_use.cli:main"
+clicker-inspect = "typesafe_computer_use.cli:inspect"
+clicker-bench = "typesafe_computer_use.browser.bench:main"
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "ruff==0.16.8"]
+
+[build-system]
+requires = ["hatchling==1.32.1"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["typesafe_computer_use"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+extend-exclude = [".agents", ".claude", ".private"]  # local agent folders: worktrees with their own venvs, links that may dangle
+
+[tool.ruff.format]
+# Copies of OSWorld's runners, kept line for line with upstream so that taking an OSWorld update
+# is a re-copy: formatting them would bury the few jev changes in a diff of the whole file.
+exclude = ["osworld_overlay/scripts/python/run_multienv_jev.py", "osworld_overlay/scripts/python/run_multienv_luna.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Only what OSWorld's own code in that copy trips at the pinned commit; every other rule still
+# checks the jev changes. An OSWorld update may add a code here, and nothing else.
+"osworld_overlay/scripts/python/run_multienv_jev.py" = [
+    "E722", "F541", "F821", "I001", "SIM102", "SIM115", "UP006", "UP015", "UP032", "UP035",
+]
+"osworld_overlay/scripts/python/run_multienv_luna.py" = [
+    "B009", "E402", "E722", "F541", "I001", "SIM102", "SIM115", "UP006", "UP015", "UP032", "UP035",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

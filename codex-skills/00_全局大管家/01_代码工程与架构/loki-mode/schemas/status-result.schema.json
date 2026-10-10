@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autonomi.dev/loki-mode/schemas/status-result.schema.json",
+  "title": "loki status --json",
+  "description": "Output of `loki status --json`: the current or latest Loki 10 run. Exits 0 with this document, including when there is no run (run_id null, hint set). Validated against real output by tests/test-json-schemas.sh and loki-ts/tests/commands/run_status.test.ts.",
+  "type": "object",
+  "required": ["engine", "run_id", "ref", "stage", "elapsed_s", "cost_usd", "outcome", "pr_url", "receipt_path", "control_plane_url"],
+  "properties": {
+    "engine": { "const": "loki10" },
+    "run_id": { "type": ["string", "null"] },
+    "ref": { "type": ["string", "null"] },
+    "stage": { "type": ["string", "null"] },
+    "elapsed_s": { "type": ["number", "null"], "minimum": 0 },
+    "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+    "outcome": { "type": ["string", "null"] },
+    "pr_url": { "type": ["string", "null"] },
+    "receipt_path": { "type": ["string", "null"] },
+    "control_plane_url": { "type": ["string", "null"] },
+    "hint": { "type": "string" }
+  }
+}

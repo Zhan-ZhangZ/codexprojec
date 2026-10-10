@@ -2580,5 +2580,109 @@
       "Vahta",
       "key-amnesia"
     ]
+  },
+  {
+    "name": "skills-manager",
+    "description": "本地 AI Agent Skills 管理器（zhuyansen——ASH 站长出品，skill-management 榜 #1）。中央技能库为唯一可信源，软链接/受管副本分发到各开发工具与项目；Tauri 桌面端。Leading Words: 技能管理器, 中央技能库, 软链接分发, skills manager, tauri",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "skills-manager",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/skills-manager",
+    "aliases": [
+      "Skills Manager",
+      "技能管理"
+    ]
+  },
+  {
+    "name": "pm-skills",
+    "description": "产品经理技能集（ASH skill-management 榜 #2，phuryn）。PRD/路线图/竞品分析/度量等 PM 工作流技能。Leading Words: 产品经理技能, PRD生成, 路线图, 竞品分析, pm skills",
+    "category": "06_商业与专业领域",
+    "folder": "pm-skills",
+    "relative_path": "./00_全局大管家/06_商业与专业领域/pm-skills",
+    "aliases": [
+      "PM技能",
+      "产品技能"
+    ]
+  },
+  {
+    "name": "aiogram",
+    "description": "Python 异步 Telegram Bot 框架事实标准（ASH telegram-bot 榜 #1）。全类型标注 asyncio 实现，中间件/FSM/路由完善。Leading Words: Telegram机器人, python异步框架, aiogram, bot开发",
+    "category": "11_API与第三方应用集成",
+    "folder": "aiogram",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/aiogram",
+    "aliases": [
+      "Aiogram",
+      "tg框架"
+    ]
+  },
+  {
+    "name": "chatgpt_telegram_bot",
+    "description": "ChatGPT Telegram 机器人（ASH telegram-bot 榜 #2，father-bot）。开箱即用的 GPT 对话 bot。Leading Words: ChatGPT机器人, telegram对话bot, 开箱即用",
+    "category": "11_API与第三方应用集成",
+    "folder": "chatgpt_telegram_bot",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/chatgpt_telegram_bot",
+    "aliases": [
+      "GPT tg bot"
+    ]
+  },
+  {
+    "name": "telegram-search",
+    "description": "Telegram 消息搜索引擎（ASH telegram-bot 榜 #3，groupultra）。聊天记录语义检索。Leading Words: Telegram搜索, 消息语义检索, 聊天记录搜索",
+    "category": "11_API与第三方应用集成",
+    "folder": "telegram-search",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/telegram-search",
+    "aliases": [
+      "TG搜索"
+    ]
+  },
+  {
+    "name": "fast-jev-compaction",
+    "description": "Jev 快速压缩插件（ASH typesafe-jev 榜 #2，tamaratran）。把 Claude Code 压缩摘要替换为 Jev 决策。Leading Words: Jev压缩, 上下文压缩, claude插件, compaction",
+    "category": "07_智能体框架与协同",
+    "folder": "fast-jev-compaction",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/fast-jev-compaction",
+    "aliases": [
+      "Jev压缩插件"
+    ]
+  },
+  {
+    "name": "typesafe-computer-use",
+    "description": "TypeSafe 计算机操作（ASH typesafe-jev 榜 #3，awlevin）。类型安全的计算机使用原语。Leading Words: 计算机操作, computer use, 类型安全操作, typesafe",
+    "category": "07_智能体框架与协同",
+    "folder": "typesafe-computer-use",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/typesafe-computer-use",
+    "aliases": [
+      "TypeSafe CU"
+    ]
+  },
+  {
+    "name": "ralphy",
+    "description": "Ralphy AI 编码智能体 CLI（ASH vibe-coding 榜 #1，michaelshimeles，npm 分发）。Leading Words: AI编码智能体, ralphy, npm cli, 编码agent",
+    "category": "01_代码工程与架构",
+    "folder": "ralphy",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/ralphy",
+    "aliases": [
+      "Ralphy CLI"
+    ]
+  },
+  {
+    "name": "vibe-coding-prompt-template",
+    "description": "Vibe Coding 工作流提示词模板（ASH vibe-coding 榜 #2，KhazP）。Leading Words: vibe coding, 提示词模板, 工作流模板",
+    "category": "07_智能体框架与协同",
+    "folder": "vibe-coding-prompt-template",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/vibe-coding-prompt-template",
+    "aliases": [
+      "vibe模板"
+    ]
+  },
+  {
+    "name": "loki-mode",
+    "description": "Loki 自主编码智能体（ASH vibe-coding 榜 #3，asklokesh）。任务/issue → 带签名回执的已验证 PR：agent 说完成，Loki 用证据证明。Leading Words: 自主编码, 签名回执, 验证PR, loki mode",
+    "category": "01_代码工程与架构",
+    "folder": "loki-mode",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/loki-mode",
+    "aliases": [
+      "Loki",
+      "洛基模式"
+    ]
   }
 ]

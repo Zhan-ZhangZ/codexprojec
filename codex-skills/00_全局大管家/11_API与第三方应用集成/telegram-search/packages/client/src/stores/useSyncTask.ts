@@ -1,0 +1,39 @@
+import type { ChatSyncStats, CoreTaskData } from '@tg-search/core'
+
+import { acceptHMRUpdate, defineStore } from 'pinia'
+import { computed, ref } from 'vue'
+
+export const useSyncTaskStore = defineStore('sync-task', () => {
+  const increase = ref(false)
+  const currentTask = ref<CoreTaskData<'takeout'>>()
+  const chatStats = ref<ChatSyncStats>()
+  const chatStatsByChatId = ref<Record<string, ChatSyncStats>>({})
+  const chatStatsFocusedChatId = ref<string | null>(null)
+  const chatStatsLoading = ref(false)
+  const etaSeconds = ref<number | null>(null)
+  /** True when core is waiting for explicit Telegram Takeout authorization. */
+  const takeoutConfirmNeeded = ref(false)
+
+  const currentTaskProgress = computed(() => {
+    if (!currentTask.value)
+      return 0
+
+    return currentTask.value.progress
+  })
+
+  return {
+    currentTask,
+    currentTaskProgress,
+    increase,
+    chatStats,
+    chatStatsByChatId,
+    chatStatsFocusedChatId,
+    chatStatsLoading,
+    etaSeconds,
+    takeoutConfirmNeeded,
+  }
+})
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useSyncTaskStore, import.meta.hot))
+}

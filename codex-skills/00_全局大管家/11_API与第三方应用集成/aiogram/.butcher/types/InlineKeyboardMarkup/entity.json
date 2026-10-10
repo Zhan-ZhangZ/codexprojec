@@ -1,0 +1,33 @@
+{
+  "meta": {},
+  "group": {
+    "title": "Available types",
+    "anchor": "available-types"
+  },
+  "object": {
+    "anchor": "inlinekeyboardmarkup",
+    "name": "InlineKeyboardMarkup",
+    "description": "This object represents an inline keyboard that appears right next to the message it belongs to.",
+    "html_description": "<p>This object represents an <a href=\"/bots/features#inline-keyboards\">inline keyboard</a> that appears right next to the message it belongs to.</p>",
+    "rst_description": "This object represents an `inline keyboard <https://core.telegram.org/bots/features#inline-keyboards>`_ that appears right next to the message it belongs to.",
+    "annotations": [
+      {
+        "type": "Array of Array of InlineKeyboardButton",
+        "description": "Array of button rows, each represented by an Array of InlineKeyboardButton objects",
+        "html_description": "<td>Array of button rows, each represented by an Array of <a href=\"#inlinekeyboardbutton\">InlineKeyboardButton</a> objects</td>",
+        "rst_description": "Array of button rows, each represented by an Array of :class:`aiogram.types.inline_keyboard_button.InlineKeyboardButton` objects\n",
+        "name": "inline_keyboard",
+        "required": true
+      },
+      {
+        "type": "Boolean",
+        "description": "Pass True if the reply interface must be shown to the user, as if they had manually selected the bot's message and tapped 'Reply'. The value of the field can't be changed when the inline keyboard is edited.",
+        "html_description": "<td><em>Optional</em>. Pass <em>True</em> if the reply interface must be shown to the user, as if they had manually selected the bot's message and tapped 'Reply'. The value of the field can't be changed when the inline keyboard is edited.</td>",
+        "rst_description": "*Optional*. Pass :code:`True` if the reply interface must be shown to the user, as if they had manually selected the bot's message and tapped 'Reply'. The value of the field can't be changed when the inline keyboard is edited.\n",
+        "name": "force_reply",
+        "required": false
+      }
+    ],
+    "category": "types"
+  }
+}
