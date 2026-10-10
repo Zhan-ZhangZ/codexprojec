@@ -1,0 +1,189 @@
+import type { ErrorClass } from "@openlive/shared";
+import type { FlowFailure, FlowSnapshot } from "./types";
+import { aboutSize, listed, WEIGHTS_WHERE } from "../live/weights";
+
+// Nothing silent. Every way Flow can be unable to do its job has a state with a
+// cause and exactly one thing the user can press, and each is derived from a
+// capability that was actually read rather than assumed.
+
+/** Flow as the orb is sent it. A failure is Flow's own: with Flow closed the orb
+ *  is Dictate's, and one found by health meanwhile, or kept from the last
+ *  session, would flash up as Dictate's orb leaves. */
+export const forOrb = (s: FlowSnapshot, flowOpen: boolean): FlowSnapshot => (flowOpen || !s.failure ? s : { ...s, failure: null });
+
+export interface FlowHealth {
+  platform: string;
+  /** null when the addon could not be reached at all. */
+  accessibility: boolean | null;
+  secureInput: boolean;
+  /** The message the hook thread died with, when it did. */
+  hookError: string | null;
+  /** Why the ol-input addon did not load at all, when it did not. */
+  addonError: string | null;
+  /** An installed app rather than a dev checkout: decides how the addon is fixed. */
+  packaged: boolean;
+  /** A provider with a usable key resolved. */
+  brainReady: boolean;
+  online: boolean;
+  /** The on-device voice weights are already downloaded. */
+  modelsCached: boolean;
+  /** What that download holds (weights.ts planModels). */
+  voiceModels: string[];
+  /** Its size from the hub's listing; null when that could not be read. */
+  downloadBytes: number | null;
+}
+
+const LINUX_INPUT_FIX = "Flow reads the keyboard from /dev/input, which takes the input group: run `sudo usermod -aG input $USER`, sign out and back in, then try again.";
+
+/**
+ * The most blocking truth first: a hook that never installed beats a missing
+ * grant, and both beat anything Flow could still half-do.
+ */
+export function deriveFailure(h: FlowHealth): FlowFailure | null {
+  if (h.addonError) return { code: "addon_missing", ...addonProblem(h.packaged, "flow"), actionLabel: "Try again" };
+  if (h.hookError) {
+    // Linux reads keys from /dev/input on X11 and Wayland alike, which takes the input group.
+    const detail = h.platform === "linux" ? `${h.hookError.replace(/[.!?]?$/, ".")} ${LINUX_INPUT_FIX}` : h.hookError;
+    return { code: "hook_failed", title: "Flow's key listener stopped", detail, actionLabel: "Try again" };
+  }
+  if (h.accessibility === false) {
+    return {
+      code: "no_accessibility",
+      title: "Flow hears you, but can't type for you",
+      detail: `${h.platform === "darwin" ? "macOS hasn't given OpenLive Accessibility access" : "Your system hasn't given OpenLive input access"}, so nothing can be typed. Your words are still here.`,
+      actionLabel: "Open settings",
+    };
+  }
+  if (h.secureInput) {
+    return {
+      code: "secure_input",
+      title: "A password field has the keyboard",
+      detail: "Secure input is on, so key presses are hidden from every app including this one. It clears when you leave the field.",
+    };
+  }
+  if (!h.brainReady) {
+    return {
+      code: "no_provider",
+      title: "Nothing is set to answer yet",
+      detail: "Flow needs your API key, or a coding agent to answer. Nothing was sent anywhere.",
+      actionLabel: "Choose one",
+      settings: "flow",
+    };
+  }
+  if (!h.online) {
+    return {
+      code: "offline",
+      title: "You're offline",
+      detail: "What you said is kept. Say it again once you're back online.",
+      actionLabel: "Try again",
+    };
+  }
+  if (!h.modelsCached) return modelsOffer(h.voiceModels, h.downloadBytes);
+  return null;
+}
+
+/** The download offer on the orb, for Flow and Dictate alike: what, how big and
+ *  where, with Download as the yes. Close is the no. */
+export function modelsOffer(models: string[], bytes: number | null): FlowFailure {
+  const size = aboutSize(bytes);
+  return {
+    code: "models_missing",
+    title: "Download the voice models first?",
+    detail: `Flow and Dictate listen on this device, so they need the ${listed(models)} ${models.length > 1 ? "models" : "model"} once${size ? `, ${size}` : ""}. ${WEIGHTS_WHERE}`,
+    actionLabel: "Download",
+  };
+}
+
+/** The offer, agreed to: how far the download is. Nothing to press but Close. */
+export function modelsDownloading(loaded: number, total: number): FlowFailure {
+  const size = aboutSize(total || null);
+  return { code: "models_missing", title: "Downloading the voice models", detail: `${total ? Math.round((100 * loaded) / total) : 0}%${size ? ` of ${size}` : ""}. Flow opens as soon as they're ready.` };
+}
+
+/** A download the open session needs after an engine or language switch, or
+ *  for Whisper in place of a native engine (models.ts DownloadAsk). The session
+ *  keeps what it has meanwhile, so Close is a "not now". */
+export function sessionModelsOffer(a: { name: string; meanwhile: string }, bytes: number | null, downloading = false): FlowFailure {
+  const size = aboutSize(bytes);
+  if (downloading) return { code: "models_missing", title: `Downloading ${a.name}`, detail: a.meanwhile };
+  return { code: "models_missing", title: `Download ${a.name}?`, detail: `${size ? `Downloaded once, ${size}. ` : ""}${a.meanwhile} ${WEIGHTS_WHERE}`, actionLabel: "Download" };
+}
+
+/** The download failed; trying again asks nothing new. */
+export const modelsFailed = (online: boolean): FlowFailure => ({
+  code: "models_missing",
+  title: online ? "The download stopped" : "You're offline",
+  detail: online ? "Check the connection and try again. Nothing half-downloaded is kept." : "The voice models download once. Connect to the internet, then try again.",
+  actionLabel: "Try again",
+});
+
+/** The provider's own sentence out of an `HTTP 400: {"error":{"message":...}}` body. */
+const said = (message: string): string =>
+  (/"message"\s*:\s*"((?:[^"\\]|\\.)+)"/.exec(message)?.[1] ?? message).replace(/\\(.)/g, "$1").trim().slice(0, 240);
+
+/**
+ * The class of a failure read from its words, for a brain that sent no `code`:
+ * an older agent, or an error made on this side of the socket.
+ */
+function classFromText(m: string): ErrorClass {
+  if (/no api key/i.test(m)) return "no_key";
+  if (/\b40[13]\b|invalid.{0,20}(api.?)?key|authenticat|unauthori[sz]ed|x-api-key|forbidden|permission_denied/i.test(m)) return "auth";
+  if (/\b404\b|model.{0,40}(not found|does not exist|not available|unsupported)|unknown model|not_found_error/i.test(m)) return "model_not_found";
+  if (/quota|insufficient|billing|credit/i.test(m)) return "quota";
+  if (/\b429\b|rate.?limit|too many requests|overloaded|\b529\b/i.test(m)) return "rate_limited";
+  if (/could not reach|fetch failed|econnrefused|enotfound|econnreset|etimedout|network|socket hang up/i.test(m)) return "unreachable";
+  return "other";
+}
+
+/**
+ * A turn the brain failed, as the card it gets. The wire carries a closed
+ * `code` for why, so the cause is read from it; only a brain that sent none has
+ * its cause read from the error text. `agent` is whether the brain is a coding
+ * agent, whose sign-in and model are set elsewhere than API mode's key and model.
+ */
+export function turnFailure(message: string, agent = false, code?: ErrorClass): FlowFailure {
+  const m = message;
+  switch (code ?? classFromText(m)) {
+    case "no_key":
+      return { code: "brain_setup", title: "Your API key is missing", detail: `${said(m)} Your words weren't sent anywhere.`, actionLabel: "Open settings", settings: "models" };
+    case "auth":
+      return { code: "brain_setup", title: "The key or sign-in was refused", detail: said(m), actionLabel: "Open settings", settings: agent ? "agents" : "models" };
+    case "model_not_found":
+    case "no_model":
+      return { code: "brain_setup", title: "That model isn't available", detail: `${said(m).replace(/[.!?]?$/, ".")} Pick another in settings.`, actionLabel: "Open settings", settings: agent ? "flow" : "models" };
+    case "quota":
+      return { code: "turn_failed", title: "The provider says the account is out of credit", detail: said(m) };
+    case "rate_limited":
+      return { code: "turn_failed", title: "The provider is busy right now", detail: "It asked for a pause. Say it again in a moment." };
+    case "unreachable":
+      // The brain names the address it tried when it knows it; that is the thing to
+      // check, and the address is set in Models.
+      if (/^could not reach/i.test(m)) return { code: "turn_failed", title: "Couldn't reach the model", detail: said(m), actionLabel: "Open settings", settings: "models" };
+      return { code: "turn_failed", title: "Couldn't reach the model", detail: "Check the connection. For a local model, check that Ollama is running." };
+    default:
+      return { code: "turn_failed", title: "That turn failed", detail: said(m) || "It stopped without saying why." };
+  }
+}
+
+/** Who the key listener and keyboard helper are named for: one mode on its own
+ *  home and settings, both on a screen they share. */
+export type KeyUser = "flow" | "dictate" | "shared";
+const KEY_USER = { flow: "Flow", dictate: "Dictate", shared: "OpenLive" } as const;
+
+/** The words for an ol-input addon that did not load, shared by the orb, the
+ *  homes and settings. The raw loader error stays behind a disclosure. */
+export function addonProblem(packaged: boolean, user: KeyUser): { title: string; detail: string } {
+  const name = KEY_USER[user];
+  const needs = user === "shared" ? "Flow and Dictate need" : `${name} needs`;
+  return packaged
+    ? { title: `${name} can't hear the keyboard`, detail: `A part of OpenLive that ${needs} didn't load. Reinstalling OpenLive puts it back.` }
+    : { title: `${name}'s keyboard helper isn't built`, detail: "Run pnpm native:build in the repo, then try again. No restart needed." };
+}
+
+/** What settings and the homes say about the key listener when the double tap
+ *  cannot work here, in the same words the orb uses. "" while it can. */
+export function keyListenerNote(c: { hookError: string | null; wayland: boolean } | null, user: KeyUser): string {
+  if (c?.hookError) return `${KEY_USER[user]}'s key listener stopped: ${c.hookError}`;
+  if (c?.wayland) return `On Wayland the double tap reaches ${user === "shared" ? "Flow and Dictate" : KEY_USER[user]} only when OpenLive can read /dev/input, which takes the input group. Chat and calls in the OpenLive window work either way.`;
+  return "";
+}

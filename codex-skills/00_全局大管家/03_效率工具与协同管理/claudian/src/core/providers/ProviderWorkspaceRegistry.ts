@@ -1,0 +1,112 @@
+import { StartupProfiler } from '../performance/StartupProfiler';
+import type { ProviderCommandCatalog } from './commands/ProviderCommandCatalog';
+import type { ProviderHost } from './ProviderHost';
+import { ProviderInitializationBoundary } from './ProviderInitializationBoundary';
+import type {
+  ProviderCLIResolver,
+  ProviderCommandLoader,
+  ProviderId,
+  ProviderSettingsTabRenderer,
+  ProviderWorkspaceRegistration,
+  ProviderWorkspaceServices,
+} from './types';
+
+/**
+ * Registry for provider-owned workspace/bootstrap services.
+ *
+ * Unlike `ProviderRegistry`, this boundary owns app-level provider services such
+ * as command catalogs, CLI resolvers, and
+ * provider-specific storage adaptors.
+ *
+ * Initialization is lazy: providers are only initialized when something first
+ * asks for them via `ensureInitialized`. `getServices` returns already-initialized
+ * services (or null) so callers can keep synchronous access patterns after they
+ * have awaited initialization.
+ */
+export class ProviderWorkspaceRegistry {
+  private static boundary = new ProviderInitializationBoundary();
+
+  static register(
+    providerId: ProviderId,
+    registration: ProviderWorkspaceRegistration,
+  ): void {
+    this.boundary.register(providerId, registration);
+  }
+
+  static providesSessionArchive(providerId: ProviderId): boolean {
+    return this.boundary.providesSessionArchive(providerId);
+  }
+
+  static getAgentSkillProviderIds(): ProviderId[] {
+    return this.boundary.getAgentSkillProviderIds();
+  }
+
+  static async ensureInitialized(
+    plugin: ProviderHost,
+    providerId: ProviderId,
+    reason: string,
+  ): Promise<void> {
+    const span = StartupProfiler.start(`provider-init:${providerId}`);
+    try {
+      await this.boundary.ensureInitialized(plugin, providerId, reason);
+    } catch (error) {
+      StartupProfiler.increment('provider-init-failures');
+      throw error;
+    } finally {
+      StartupProfiler.finish(span);
+    }
+  }
+
+  static getIfInitialized(
+    providerId: ProviderId,
+  ): ProviderWorkspaceServices | null {
+    return this.boundary.getIfInitialized(providerId);
+  }
+
+  static async disposeInitialized(): Promise<void> {
+    await this.boundary.disposeInitialized();
+  }
+
+  static setServices(
+    providerId: ProviderId,
+    services: ProviderWorkspaceServices | undefined,
+  ): void {
+    this.boundary.setServices(providerId, services);
+  }
+
+  static clear(): void {
+    this.boundary = new ProviderInitializationBoundary();
+  }
+
+  static getServices(
+    providerId: ProviderId,
+  ): ProviderWorkspaceServices | null {
+    return this.getIfInitialized(providerId);
+  }
+
+  static requireServices(
+    providerId: ProviderId,
+  ): ProviderWorkspaceServices {
+    const services = this.getServices(providerId);
+    if (!services) {
+      throw new Error(`Provider workspace "${providerId}" is not initialized.`);
+    }
+    return services;
+  }
+
+  static getCommandCatalog(providerId: ProviderId): ProviderCommandCatalog | null {
+    return this.getServices(providerId)?.commandCatalog ?? null;
+  }
+
+  static getCliResolver(providerId: ProviderId): ProviderCLIResolver | null {
+    return this.getServices(providerId)?.cliResolver ?? null;
+  }
+
+  static getCommandLoader(providerId: ProviderId): ProviderCommandLoader | null {
+    return this.getServices(providerId)?.commandLoader ?? null;
+  }
+
+  static getSettingsTabRenderer(providerId: ProviderId): ProviderSettingsTabRenderer | null {
+    return this.getServices(providerId)?.settingsTabRenderer ?? null;
+  }
+}

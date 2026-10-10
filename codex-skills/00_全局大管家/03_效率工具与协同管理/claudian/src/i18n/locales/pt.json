@@ -1,0 +1,526 @@
+{
+  "common": {
+    "inputSuggestions": "Sugestões de entrada",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "add": "Adicionar",
+    "clearAll": "Limpar tudo",
+    "error": "Erro",
+    "confirm": "Confirmar",
+    "refresh": "Atualizar"
+  },
+  "chat": {
+    "promptSuggestionHint": "Tab para aceitar",
+    "selectAvailableModel": "Selecione um modelo disponível antes de enviar.",
+    "selectAvailableTitleModel": "Selecione um modelo de título disponível nas configurações do Claudian.",
+    "rewind": {
+      "confirmMessage": "Retroceder até este ponto? As alterações de arquivos após esta mensagem podem ser sobrescritas ou removidas. Esta ação não pode ser desfeita.",
+      "confirmMessageConflicts": "Retroceder até este ponto? {count} arquivo(s) modificados fora do agente serão sobrescritos:\n{files}",
+      "confirmMessageConversationOnly": "Retroceder a conversa até este ponto? As alterações de arquivos serão mantidas.",
+      "confirmButton": "Retroceder",
+      "inProgress": "Aguarde a conclusão do retrocesso atual.",
+      "ariaLabel": "Retroceder até aqui",
+      "menuConversationOnly": "Retroceder somente conversa",
+      "menuCodeAndConversation": "Retroceder código + conversa",
+      "notice": "Retrocedido: {count} arquivo(s) revertido(s)",
+      "noticeConversationOnly": "Conversa retrocedida; alterações de arquivos mantidas",
+      "noticeSaveFailed": "Retrocedido: {count} arquivo(s) revertido(s), mas não foi possível salvar o estado: {error}",
+      "noticeConversationOnlySaveFailed": "Conversa retrocedida, mas não foi possível salvar o estado: {error}",
+      "failed": "Falha ao retroceder: {error}",
+      "cannot": "Não é possível retroceder: {error}",
+      "unavailableStreaming": "Não é possível retroceder durante a transmissão",
+      "unavailableNoUuid": "Não é possível retroceder: identificadores de mensagem ausentes"
+    },
+    "fork": {
+      "ariaLabel": "Bifurcar conversa",
+      "chooseTarget": "Bifurcar conversa",
+      "targetNewTab": "Nova aba",
+      "targetCurrentTab": "Aba atual",
+      "notice": "Bifurcado para nova aba",
+      "noticeCurrentTab": "Bifurcado na aba atual",
+      "failed": "Falha ao bifurcar: {error}",
+      "unavailableStreaming": "Não é possível bifurcar durante a transmissão",
+      "unavailableNoUuid": "Não é possível bifurcar: identificadores de mensagem ausentes",
+      "errorMessageNotFound": "Mensagem não encontrada",
+      "errorNoSession": "Nenhum ID de sessão disponível",
+      "errorNoActiveTab": "Nenhuma aba ativa"
+    },
+    "quote": {
+      "buttonLabel": "Citar"
+    },
+    "sideChat": {
+      "title": "Conversa lateral",
+      "collapse": "Recolher",
+      "discard": "Descartar",
+      "statusPreparing": "Preparando",
+      "statusQueued": "{count} na fila",
+      "statusWorking": "Trabalhando",
+      "statusError": "Requer atenção",
+      "statusActionRequired": "Precisa de uma resposta",
+      "placeholder": "Faça uma pergunta na conversa lateral",
+      "composerLabel": "Mensagem da conversa lateral",
+      "needsPrompt": "Adicione um prompt após /side para iniciar uma conversa lateral.",
+      "unsupportedProvider": "Este provedor não oferece suporte à conversa lateral.",
+      "unavailableBusy": "A conversa lateral precisa de uma resposta concluída. Aguarde o turno atual terminar.",
+      "unavailableNoCheckpoint": "Conclua primeiro uma resposta nesta conversa.",
+      "unavailableNoSession": "Não foi possível resolver a sessão do provedor desta conversa.",
+      "alreadyExists": "Já existe uma conversa lateral aqui. Descarte-a para iniciar outra.",
+      "nestedUnavailable": "Uma conversa lateral não pode iniciar outra. Recolha para a principal primeiro.",
+      "mainOnlyCommand": "/{command} está disponível apenas na conversa principal.",
+      "startFailed": "Não foi possível iniciar a conversa lateral: {error}",
+      "queued": "Adicionado à fila da conversa lateral.",
+      "busySide": "A conversa lateral ainda está respondendo. Aguarde a conclusão."
+    },
+    "zen": {
+      "regionLabel": "Chat do Claudian",
+      "showHistory": "Mostrar conversa",
+      "move": "Mover o painel de chat",
+      "working": "Trabalhando…",
+      "thinking": "Pensando…",
+      "interrupted": "Interrompido",
+      "workedFor": "Trabalhou por {duration}",
+      "workedForResult": "Trabalhou por {duration} · {result}",
+      "actionRequired": "Sua resposta é necessária",
+      "error": "Erro: {message}",
+      "toolRunning": "{tool} · em execução",
+      "toolCompleted": "{tool} · concluído",
+      "toolFailed": "{tool} · falhou",
+      "toolBlocked": "{tool} · bloqueado"
+    }
+  },
+  "settings": {
+    "tabs": {
+      "general": "Geral",
+      "providers": "Provedores",
+      "skills": "Skills"
+    },
+    "providerSettings": {
+      "unavailable": "As configurações do provedor não estão disponíveis.",
+      "loadFailed": "Não foi possível carregar as configurações do provedor: {message}"
+    },
+    "display": "Exibição",
+    "conversations": "Conversas",
+    "content": "Conteúdo",
+    "input": "Entrada",
+    "models": "Modelos",
+    "responses": "Respostas",
+    "experimental": "Experimental",
+    "userName": {
+      "name": "Como o Claudian deve chamá-lo?",
+      "desc": "Seu nome para saudações personalizadas (deixe vazio para saudações genéricas)"
+    },
+    "excludedTags": {
+      "name": "Tags excluídas",
+      "desc": "Notas com estas tags não serão carregadas automaticamente como contexto (uma por linha, sem #)"
+    },
+    "mediaFolder": {
+      "name": "Pasta de mídia",
+      "desc": "Pasta contendo anexos/imagens. Quando notas usam ![[image.jpg]], Claude procurará aqui. Deixe vazio para a raiz do repositório."
+    },
+    "systemPrompt": {
+      "name": "Prompt de sistema personalizado",
+      "desc": "Instruções adicionais anexadas ao prompt de sistema padrão"
+    },
+    "autoTitle": {
+      "name": "Gerar automaticamente títulos de conversa",
+      "desc": "Gera automaticamente títulos de conversa após a primeira mensagem do usuário."
+    },
+    "titleLanguage": {
+      "name": "Idioma de geração de títulos",
+      "desc": "Idioma usado para títulos de conversa gerados automaticamente.",
+      "followInterface": "Igual ao idioma da interface"
+    },
+    "titleModel": {
+      "name": "Modelo de geração de título",
+      "desc": "Modelo usado para gerar automaticamente títulos de conversa.",
+      "select": "Selecionar um modelo",
+      "unavailableWarning": "A geração automática de títulos está pausada. Selecione um modelo disponível para os títulos."
+    },
+    "navMappings": {
+      "name": "Mapeamentos de navegação estilo Vim",
+      "desc": "Um mapeamento por linha. Formato: \"map <tecla> <ação>\" (ações: scrollUp, scrollDown, focusInput)."
+    },
+    "requireCommandOrControlEnterToSend": {
+      "name": "Exigir Command/Ctrl+Enter para enviar",
+      "desc": "Quando ativado, Enter insere uma quebra de linha. Command+Enter envia no macOS; Ctrl+Enter envia no Windows e Linux."
+    },
+    "safety": "Segurança",
+    "loadUserSettings": {
+      "name": "Carregar configurações do usuário do Claude Code",
+      "desc": "Carrega a configuração do Claude Code no nível do usuário a partir de ~/.claude: settings.json, skills, comandos, agentes e plugins. Quando desabilitado, apenas a configuração no nível do cofre fica disponível. Quando habilitado, as regras de permissão do usuário podem ignorar o modo seguro."
+    },
+    "codexSandbox": {
+      "name": "Sandbox",
+      "desc": "Acesso a arquivos nos modos Approve for me e Ask for approval. Somente leitura pede aprovação antes de cada edição; Full access ignora esta opção."
+    },
+    "environment": "Ambiente",
+    "sharedEnvironment": {
+      "name": "Ambiente compartilhado",
+      "desc": "Variáveis de runtime neutras, compartilhadas por todos os provedores. Use isto para variáveis de PATH, proxy, certificados e arquivos temporários."
+    },
+    "customVariables": {
+      "name": "Variáveis personalizadas",
+      "desc": "Somente variáveis de runtime pertencentes ao Claude Code. Use isto para ANTHROPIC_* e opções específicas do Claude Code."
+    },
+    "envSnippets": {
+      "name": "Trechos",
+      "addBtn": "Adicionar snippet",
+      "saveCurrent": "Salvar o ambiente atual como snippet",
+      "nameRequired": "Por favor, insira um nome para o snippet",
+      "insert": "Inserir",
+      "modal": {
+        "titleEdit": "Editar snippet",
+        "titleSave": "Salvar snippet",
+        "name": "Nome",
+        "namePlaceholder": "Um nome descritivo para esta configuração",
+        "description": "Descrição",
+        "descPlaceholder": "Descrição opcional",
+        "envVars": "Variáveis de ambiente",
+        "envVarsPlaceholder": "Formato KEY=VALUE, uma por linha (prefixo export suportado)",
+        "save": "Salvar",
+        "update": "Atualizar",
+        "cancel": "Cancelar"
+      },
+      "insertFailed": "Falha ao inserir o snippet",
+      "deleteConfirm": "Excluir o snippet de ambiente \"{name}\"?",
+      "deleteFailed": "Falha ao excluir o snippet"
+    },
+    "customModelOverrides": {
+      "name": "Substituições de modelos personalizados",
+      "desc": "Defina aliases no seletor de modelos e tamanhos de janela de contexto para modelos personalizados."
+    },
+    "customModelAliases": {
+      "placeholder": "Apelido",
+      "ariaLabel": "Alias de {model}",
+      "ariaDescription": "Rótulo personalizado exibido no seletor de modelos. Deixe vazio para usar o padrão."
+    },
+    "customContextLimits": {
+      "invalid": "Formato inválido. Use: 256k, 1m ou número exato (1000-10000000)."
+    },
+    "enableChrome": {
+      "name": "Habilitar extensão do Chrome",
+      "desc": "Permitir que o Claude Code interaja com o Chrome através da extensão claude-in-chrome. Requer que a extensão esteja instalada. Requer reinício de sessão."
+    },
+    "enableDualPane": {
+      "name": "Ativar modo de painel duplo",
+      "desc": "Mostrar automaticamente o gerenciador de sessões ao lado do chat quando a visualização tiver pelo menos 600 px de largura."
+    },
+    "restoreTabsOnStartup": {
+      "name": "Restaurar abas ao iniciar",
+      "desc": "Reabrir todas as abas no modo de painel único ou apenas a última aba ativa no modo de painel duplo."
+    },
+    "sessionAutoArchiveAfter": {
+      "name": "Arquivar automaticamente sessões inativas",
+      "desc": "Arquiva sessões não fixadas sem atividade durante o período escolhido. Sessões abertas e em execução são ignoradas.",
+      "multiSelectHint": "Clique com Option (Alt no Windows e Linux) nas sessões para selecionar várias e depois clique com o botão direito para fixá-las ou arquivá-las.",
+      "off": "Desativado",
+      "days7": "Após 7 dias",
+      "days14": "Após 14 dias",
+      "days30": "Após 30 dias"
+    },
+    "dualPaneSide": {
+      "name": "Lado do painel duplo",
+      "desc": "Escolher em qual lado do chat o gerenciador de sessões aparece.",
+      "left": "Esquerda",
+      "right": "Direita"
+    },
+    "enableAutoScroll": {
+      "name": "Rolagem automática durante streaming",
+      "desc": "Rolar automaticamente para baixo enquanto o Claude transmite respostas. Desativar para ficar no topo e ler desde o início."
+    },
+    "showMessageTimestamps": {
+      "name": "Mostrar horários das mensagens",
+      "desc": "Exibir o horário local de envio ou chegada de cada mensagem na conversa."
+    },
+    "deferMathRenderingDuringStreaming": {
+      "name": "Adiar renderização matemática durante streaming",
+      "desc": "Mostrar LaTeX bruto enquanto a resposta é transmitida e renderizar a matemática uma vez quando cada bloco de texto terminar."
+    },
+    "expandFileEditsByDefault": {
+      "name": "Expandir edições de arquivo por padrão",
+      "desc": "Mostrar os diffs de Write e Edit expandidos quando aparecerem pela primeira vez."
+    },
+    "chatViewPlacement": {
+      "name": "Abrir Claudian em",
+      "desc": "Escolha onde o painel de chat abre quando é criado",
+      "rightSidebar": "Barra lateral direita",
+      "leftSidebar": "Barra lateral esquerda",
+      "mainTab": "Aba do editor principal"
+    },
+    "enableZenMode": {
+      "name": "Ativar modo zen",
+      "desc": "Mantém uma interface de chat mínima visível quando a barra lateral está oculta."
+    },
+    "cliInstallation": {
+      "disclosure": "Instalação de {name}",
+      "description": "Caminho CLI opcional para este computador. Deixe vazio para detectar automaticamente.",
+      "checking": "Verificando CLI…",
+      "versionUnavailable": "Versão indisponível",
+      "notFound": "Não encontrado",
+      "custom": "Caminho personalizado",
+      "auto": "Detectado automaticamente",
+      "checkFailed": "Não foi possível verificar o CLI",
+      "saveFailed": "Não foi possível salvar o caminho. Tente novamente."
+    },
+    "cliPath": {
+      "name": "Caminho da CLI do Claude Code",
+      "genericName": "Caminho da CLI",
+      "validation": {
+        "notExist": "Caminho não existe",
+        "isDirectory": "Caminho é um diretório, não um arquivo",
+        "mustBeAbsolute": "O caminho deve ser absoluto",
+        "notFile": "O caminho deve apontar para um arquivo",
+        "notAccessible": "O caminho não está acessível",
+        "notExecutable": "O caminho deve ser executável"
+      }
+    },
+    "language": {
+      "name": "Idioma",
+      "desc": "Alterar o idioma de exibição da interface do plugin"
+    },
+    "providerEnablement": {
+      "name": "Ativar {provider}",
+      "lastProviderWarning": "Pelo menos um provedor deve permanecer habilitado para o Claudian funcionar.",
+      "noModelsWarning": "Nenhum modelo {provider} está ativado. Vá para Modelos abaixo e ative pelo menos um modelo."
+    },
+    "modelPicker": {
+      "name": "Modelos visíveis",
+      "desc": "Escolha quais modelos ficam disponíveis no seletor do chat. Arraste para reordená-los; o provedor usa o primeiro modelo utilizável no momento como padrão. Selecione pelo menos um modelo para usar este provedor.",
+      "browse": "Explorar modelos",
+      "filterLabel": "Filtrar modelos {provider}",
+      "searchPlaceholder": "Filtrar por modelo, provedor ou ID...",
+      "providerFilterLabel": "Filtrar provedores de modelos",
+      "allProviders": "Todos os provedores ({count})",
+      "discover": "Descobrir",
+      "visible": "Visíveis: ",
+      "ofDiscovered": " de {count} descobertos",
+      "oneProvider": " | 1 provedor",
+      "manyProviders": " | {count} provedores",
+      "loadingModels": "Carregando modelos...",
+      "loading": "Carregando...",
+      "available": "{count} disponíveis",
+      "noneDiscovered": "Nenhum modelo descoberto ainda",
+      "selected": "Selecionados ({count})",
+      "clearAllLabel": "Limpar todos os modelos {provider} selecionados",
+      "reorderLabel": "Reordenar {model}; arraste ou use as teclas de seta para cima e para baixo",
+      "default": "Padrão",
+      "unavailable": "Indisponível",
+      "aliasLabel": "Alias (opcional)",
+      "removeLabel": "Remover {model}",
+      "noMatch": "Nenhum modelo corresponde ao filtro.",
+      "emptyCatalog": "Nenhum modelo {provider} informado. Verifique sua configuração e clique em Descobrir.",
+      "loadingCatalog": "Carregando modelos {provider}…",
+      "stale": "O catálogo de modelos {provider} está desatualizado. Clique em Descobrir para atualizá-lo."
+    },
+    "claude": {
+      "promptSuggestions": {
+        "name": "Sugestões de prompts",
+        "desc": "Mostrar o próximo prompt previsto pelo Claude no campo vazio. Cada sugestão é uma solicitação extra ao Claude após cada turno e pode esgotar seus limites de uso mais rápido."
+      },
+      "configuration": "Configuração",
+      "responseStyle": {
+        "name": "Estilo de resposta",
+        "desc": "Estilo de saída do Claude Code para as respostas, incluindo estilos personalizados. “Configuração do Claude Code” segue a sua configuração do Claude Code. A lista é atualizada ao atualizar os modelos ou iniciar um chat.",
+        "default": "Padrão",
+        "inherit": "Configuração do Claude Code"
+      }
+    },
+    "codex": {
+      "installationMethod": {
+        "name": "Método de instalação",
+        "desc": "Como o Claudian deve iniciar o Codex no Windows. Windows nativo usa um caminho de executável do Windows. WSL inicia a CLI Linux dentro de uma distro selecionada.",
+        "nativeWindows": "Windows nativo",
+        "wsl": "WSL"
+      },
+      "cliPath": {
+        "name": "Caminho do Codex CLI",
+        "validation": {
+          "wslWindowsPath": "O modo WSL espera um comando Linux ou caminho absoluto Linux, não um caminho de executável do Windows."
+        }
+      },
+      "wslDistroOverride": {
+        "name": "Substituição de distro WSL",
+        "desc": "Substituição avançada opcional. Deixe vazio para inferir a distro a partir de um caminho de workspace WSL quando possível; caso contrário, usa a distro WSL padrão."
+      },
+      "safeMode": {
+        "workspaceWrite": "Gravação no workspace",
+        "readOnly": "Somente leitura"
+      },
+      "responseStyle": {
+        "name": "Estilo de resposta",
+        "desc": "Escolha como o Codex se comunica nos modelos compatíveis.",
+        "pragmatic": "Pragmático",
+        "friendly": "Amigável",
+        "neutral": "Neutro"
+      },
+      "responseVerbosity": {
+        "name": "Nível de detalhe das respostas",
+        "desc": "Escolha o nível de detalhe das respostas nos modelos compatíveis. A opção padrão usa sua configuração do Codex.",
+        "default": "Padrão",
+        "low": "Baixo",
+        "medium": "Médio",
+        "high": "Alto"
+      },
+      "reasoningSummary": {
+        "name": "Resumo de raciocínio",
+        "desc": "Mostra um resumo do processo de raciocínio do modelo no bloco de pensamento.",
+        "auto": "Automático",
+        "concise": "Conciso",
+        "detailed": "Detalhado",
+        "off": "Desativado"
+      },
+      "ultraEffort": {
+        "name": "Ativar esforço ultra",
+        "desc": "Exibe Ultra no seletor de esforço para modelos Codex compatíveis. Ultra usa o raciocínio máximo com delegação automática de tarefas."
+      },
+      "environment": {
+        "name": "Ambiente do Codex",
+        "desc": "Somente variáveis de runtime pertencentes ao Codex. Use isto para configurações OPENAI_* e CODEX_*. Se a autodetecção do Codex precisar de ajuda, adicione o diretório de instalação ao PATH compartilhado em vez desta seção do provedor."
+      }
+    },
+    "agentSkills": {
+      "sharedExpectation": "Gerencie skills compartilhados em .agents/skills/ para provedores compatíveis.",
+      "noSkills": "Nenhum skill compartilhado configurado. Clique em + para criar um.",
+      "skillBadge": "skill",
+      "diagnosticsTitle": "Skills que precisam de atenção",
+      "loadFailed": "Não foi possível carregar os skills compartilhados.",
+      "savedRefreshFailed": "Salvo, mas a atualização do provedor falhou.",
+      "validationFailed": "Skill inválido: {message}",
+      "collisionFailed": "Já existe um skill chamado \"{name}\".",
+      "saveFailed": "Falha ao salvar o skill compartilhado: {message}",
+      "deleteFailed": "Falha ao mover o skill compartilhado para a lixeira: {message}",
+      "staleConflict": "Este skill foi alterado em outro lugar; atualize antes de salvar.",
+      "created": "Skill compartilhado \"{name}\" criado.",
+      "updated": "Skill compartilhado \"{name}\" atualizado.",
+      "deleted": "Skill compartilhado \"{name}\" movido para a lixeira.",
+      "fix": "Corrigir",
+      "fixed": "Skill \"{name}\" corrigido.",
+      "modal": {
+        "titleEdit": "Editar skill compartilhado",
+        "titleAdd": "Adicionar skill compartilhado",
+        "titleFix": "Corrigir skill",
+        "name": "Nome do skill",
+        "nameDesc": "Letras minúsculas e números separados por hífens simples",
+        "namePlaceholder": "code-reviewer",
+        "description": "Descrição",
+        "descriptionDesc": "Descrição portátil obrigatória usada pelos provedores para selecionar o skill",
+        "descriptionPlaceholder": "Revisa código quanto à correção e à manutenibilidade",
+        "instructions": "Instruções",
+        "instructionsDesc": "Instruções obrigatórias do SKILL.md",
+        "instructionsPlaceholder": "Revise o código fornecido e relate problemas acionáveis..."
+      },
+      "delete": {
+        "title": "Excluir skill compartilhado",
+        "description": "Toda a pasta do skill, incluindo scripts, referências e recursos, será movida para a lixeira.",
+        "confirm": "Mover para a lixeira"
+      }
+    },
+    "opencode": {
+      "environment": {
+        "name": "Variáveis de ambiente do OpenCode",
+        "desc": "Variáveis de ambiente extras passadas ao OpenCode."
+      },
+      "migrationNotice": {
+        "text": "O Claudian agora oferece suporte ao OpenCode v2. O suporte ao OpenCode v1 termina em 30 de outubro de 2026.",
+        "link": "Migrar para o OpenCode v2"
+      }
+    },
+    "pi": {
+      "environment": {
+        "name": "Variáveis de ambiente do Pi",
+        "desc": "Variáveis de ambiente passadas somente ao Pi."
+      }
+    },
+    "grok": {
+      "environment": {
+        "name": "Variáveis de ambiente do Grok Build",
+        "desc": "Variáveis de ambiente passadas somente ao Grok Build. Os segredos de modelos personalizados permanecem no escopo deste provedor e são referenciados na configuração nativa por env_key."
+      }
+    },
+    "skills": {
+      "subTabs": {
+        "claude": "Claude Code",
+        "shared": "Outros provedores"
+      },
+      "claudeHelp": "Skills do Claude Code em .claude/skills/ e comandos em .claude/commands/.",
+      "sharedHelp": "Skills compartilhados em .agents/skills/ para Codex, OpenCode, Pi e Grok Build.",
+      "status": {
+        "error": "Não foi possível ler as pastas de skills: {message}"
+      },
+      "synced": "Sincronizado",
+      "actions": {
+        "sync": "Sincronizar",
+        "resync": "Sincronizar novamente"
+      },
+      "commands": {
+        "title": "Comandos do Claude Code",
+        "hint": "Os comandos só funcionam no Claude Code. É recomendado convertê-los em skills.",
+        "badge": "comando",
+        "empty": "Nenhum comando em .claude/commands.",
+        "convert": "Converter em skill",
+        "editTitle": "Editar comando",
+        "convertTitle": "Converter comando em skill",
+        "nameDesc": "Caminho em .claude/commands sem .md; comandos aninhados usam /",
+        "descriptionDesc": "Descrição opcional exibida no menu de comandos",
+        "updated": "Comando \"{name}\" atualizado.",
+        "converted": "Comando convertido no skill \"{name}\".",
+        "deleted": "Comando \"{name}\" movido para a lixeira.",
+        "deleteTitle": "Excluir comando",
+        "deleteDescription": "O arquivo do comando será movido para a lixeira.",
+        "collisionFailed": "Já existe um comando chamado \"{name}\"."
+      },
+      "droppedFrontmatterWarning": "Ao salvar, apenas o nome e a descrição são mantidos. Estas chaves serão removidas e o comportamento dos provedores pode mudar: {keys}",
+      "hidden": {
+        "name": "Comandos e skills ocultos",
+        "desc": "Oculta comandos e skills do menu de comandos de todos os provedores. Digite os nomes exatos sem a barra inicial, um por linha (skills do Pi usam skill:nome).",
+        "placeholder": "commit\ncompact\nskill:review"
+      },
+      "sync": {
+        "title": "Sincronizar skills",
+        "repairTitle": "Reparar o link de skills",
+        "loading": "Verificando as pastas de skills...",
+        "intro": "A sincronização reúne os skills e comandos do Claude Code em .agents/skills e vincula .claude/skills a ele.",
+        "pros": {
+          "oneList": "Uma lista para todos os provedores.",
+          "newSkills": "Novos skills aparecem em todo lugar."
+        },
+        "cons": {
+          "dropped": "Apenas nome e descrição são mantidos; configurações específicas de cada provedor são removidas e o comportamento pode mudar.",
+          "claudeSyntax": "A sintaxe exclusiva do Claude Code não funciona em outros provedores: {names}"
+        },
+        "attentionTitle": "Precisa de atenção",
+        "nothingNeedsAttention": "Nada precisa de atenção.",
+        "nameField": "Nome",
+        "descriptionField": "Descrição",
+        "ready": "Pronto",
+        "problems": {
+          "name": "Nome inválido. Use letras minúsculas, números e hífens.",
+          "description": "Descrição ausente.",
+          "instructions": "Sem instruções. Adicione-as ao arquivo e sincronize novamente.",
+          "unreadable": "Não é possível ler o frontmatter. Corrija o arquivo e sincronize novamente.",
+          "sharedConflict": "Já existe um skill compartilhado chamado \"{name}\".",
+          "itemConflict": "Outro item também se chama \"{name}\"."
+        },
+        "options": {
+          "fix": "Corrigir",
+          "replace": "Substituir o skill compartilhado",
+          "discard": "Descartar (mover para a lixeira)",
+          "keep": "Manter como comando"
+        },
+        "continue": "Continuar",
+        "confirmTitle": "Substituir .claude/skills por um link?",
+        "confirmBody": ".claude/skills será substituído por um link para .agents/skills. Isso não pode ser desfeito.",
+        "repairBody": ".claude/skills será substituído por um link para .agents/skills. A pasta para a qual ele aponta agora não é alterada.",
+        "linkBody": "Cria .claude/skills como um link para .agents/skills para que o Claude Code use os skills compartilhados. Nenhum arquivo é movido.",
+        "linkWithItemsBody": "Os comandos viram skills e depois .claude/skills é criado como um link para .agents/skills. Isso não pode ser desfeito.",
+        "devicesWarning": "Sincroniza este cofre entre dispositivos? O link pode não ser sincronizado; sincronize em cada dispositivo.",
+        "confirm": "Sincronizar e vincular",
+        "partial": "A sincronização parou antes de criar o link. Corrija os itens abaixo e sincronize novamente.",
+        "failed": "Falha na sincronização: {message}",
+        "summary": "Movidos {moved}, convertidos {converted}, na lixeira {trashed}, {unlinked} link(s) removido(s)."
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "replies": 14,
+  "joins": 16,
+  "roughJoins": 0.625,
+  "f0JumpSt": 1.61,
+  "pauseMs": 63.75,
+  "loudJumpDb": 1.443,
+  "startPitchSt": 1.141,
+  "leadMs": 50,
+  "tailMs": 444.655,
+  "durationDev": 0.019,
+  "broken": 0
+}

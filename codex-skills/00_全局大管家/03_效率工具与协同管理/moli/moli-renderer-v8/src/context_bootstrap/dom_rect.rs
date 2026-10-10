@@ -1,0 +1,585 @@
+use super::*;
+use crate::util::{callback_data_index_value, get_private_value, set_private_value};
+use crate::web_api_interfaces;
+use crate::webidl;
+use moli_webapi_declare::{WebApiFunctionTemplate, WebApiObject};
+
+const DOM_RECT_X_SLOT: &str = "__moliDomRectX";
+const DOM_RECT_Y_SLOT: &str = "__moliDomRectY";
+const DOM_RECT_WIDTH_SLOT: &str = "__moliDomRectWidth";
+const DOM_RECT_HEIGHT_SLOT: &str = "__moliDomRectHeight";
+
+#[derive(WebApiObject)]
+#[webapi(interface = web_api_interfaces::DOMRect)]
+struct DomRectObjectDeclaration {
+    #[webapi(slot = DOM_RECT_X_SLOT)]
+    x: f64,
+    #[webapi(slot = DOM_RECT_Y_SLOT)]
+    y: f64,
+    #[webapi(slot = DOM_RECT_WIDTH_SLOT)]
+    width: f64,
+    #[webapi(slot = DOM_RECT_HEIGHT_SLOT)]
+    height: f64,
+}
+
+#[derive(WebApiObject)]
+#[webapi(interface = web_api_interfaces::DOMRectReadOnly)]
+struct DomRectReadOnlyObjectDeclaration {
+    #[webapi(slot = DOM_RECT_X_SLOT)]
+    x: f64,
+    #[webapi(slot = DOM_RECT_Y_SLOT)]
+    y: f64,
+    #[webapi(slot = DOM_RECT_WIDTH_SLOT)]
+    width: f64,
+    #[webapi(slot = DOM_RECT_HEIGHT_SLOT)]
+    height: f64,
+}
+
+#[derive(WebApiFunctionTemplate)]
+#[webapi(interface = web_api_interfaces::DOMRectReadOnly, receiver)]
+struct DomRectReadOnlyPrototypeDeclaration {
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        data = callback_data_index_value(scope, 0),
+        enumerable
+    )]
+    x: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        data = callback_data_index_value(scope, 1),
+        enumerable
+    )]
+    y: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        data = callback_data_index_value(scope, 2),
+        enumerable
+    )]
+    width: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        data = callback_data_index_value(scope, 3),
+        enumerable
+    )]
+    height: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_readonly_getter_callback,
+        data = callback_data_index_value(scope, 0),
+        enumerable
+    )]
+    top: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_readonly_getter_callback,
+        data = callback_data_index_value(scope, 1),
+        enumerable
+    )]
+    right: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_readonly_getter_callback,
+        data = callback_data_index_value(scope, 2),
+        enumerable
+    )]
+    bottom: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_readonly_getter_callback,
+        data = callback_data_index_value(scope, 3),
+        enumerable
+    )]
+    left: (),
+    #[webapi(method = "toJSON", callback = dom_rect_to_json_callback, length = 0, enumerable)]
+    to_json: (),
+}
+
+#[derive(WebApiFunctionTemplate)]
+#[webapi(interface = web_api_interfaces::DOMRect, receiver)]
+struct DomRectPrototypeDeclaration {
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        setter = dom_rect_setter_callback,
+        data = callback_data_index_value(scope, 0),
+        enumerable
+    )]
+    x: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        setter = dom_rect_setter_callback,
+        data = callback_data_index_value(scope, 1),
+        enumerable
+    )]
+    y: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        setter = dom_rect_setter_callback,
+        data = callback_data_index_value(scope, 2),
+        enumerable
+    )]
+    width: (),
+    #[webapi(
+        accessor_property,
+        getter = dom_rect_writable_getter_callback,
+        setter = dom_rect_setter_callback,
+        data = callback_data_index_value(scope, 3),
+        enumerable
+    )]
+    height: (),
+}
+
+#[derive(WebApiFunctionTemplate)]
+#[webapi(interface = web_api_interfaces::DOMRectReadOnly, enumerable)]
+struct DomRectReadOnlyConstructorDeclaration {
+    #[webapi(
+        static_method = "fromRect",
+        length = 0,
+        callback = dom_rect_readonly_from_rect_callback
+    )]
+    from_rect: (),
+}
+
+#[derive(WebApiFunctionTemplate)]
+#[webapi(interface = web_api_interfaces::DOMRect, enumerable)]
+struct DomRectConstructorDeclaration {
+    #[webapi(
+        static_method = "fromRect",
+        length = 0,
+        callback = dom_rect_from_rect_callback
+    )]
+    from_rect: (),
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain)]
+struct DomRectJsonDeclaration {
+    #[webapi(data_property, enumerable)]
+    x: f64,
+    #[webapi(data_property, enumerable)]
+    y: f64,
+    #[webapi(data_property, enumerable)]
+    width: f64,
+    #[webapi(data_property, enumerable)]
+    height: f64,
+    #[webapi(data_property, enumerable)]
+    top: f64,
+    #[webapi(data_property, enumerable)]
+    right: f64,
+    #[webapi(data_property, enumerable)]
+    bottom: f64,
+    #[webapi(data_property, enumerable)]
+    left: f64,
+}
+
+#[derive(Clone, Copy)]
+enum DomRectReadonlyAttribute {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+#[derive(webidl::WebIdlArgs)]
+#[webidl(prefix = "DOMRect")]
+struct DomRectConstructorArgs {
+    #[webidl(default = 0.0)]
+    x: f64,
+    #[webidl(default = 0.0)]
+    y: f64,
+    #[webidl(default = 0.0)]
+    width: f64,
+    #[webidl(default = 0.0)]
+    height: f64,
+}
+
+#[derive(webidl::WebIdlArgs)]
+#[webidl(prefix = "DOMRectReadOnly")]
+struct DomRectReadOnlyConstructorArgs {
+    #[webidl(default = 0.0)]
+    x: f64,
+    #[webidl(default = 0.0)]
+    y: f64,
+    #[webidl(default = 0.0)]
+    width: f64,
+    #[webidl(default = 0.0)]
+    height: f64,
+}
+
+#[derive(Clone, Copy, Default, webidl::WebIdlDictionary)]
+#[webidl(prefix = "DOMRectInit")]
+struct DomRectInit {
+    #[webidl(default = 0.0)]
+    height: f64,
+    #[webidl(default = 0.0)]
+    width: f64,
+    #[webidl(default = 0.0)]
+    x: f64,
+    #[webidl(default = 0.0)]
+    y: f64,
+}
+
+pub(super) fn dom_rect_readonly_constructor_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    if !args.is_construct_call() {
+        throw_type_error(
+            scope,
+            "Failed to construct 'DOMRectReadOnly': Please use the 'new' operator.",
+        );
+        return;
+    }
+    let Some(parsed) = webidl::parse_args::<DomRectReadOnlyConstructorArgs>(scope, &args) else {
+        return;
+    };
+    initialize_dom_rect_readonly_object(
+        scope,
+        args.this(),
+        parsed.x,
+        parsed.y,
+        parsed.width,
+        parsed.height,
+    );
+    rv.set(args.this().into());
+}
+
+pub(super) fn dom_rect_constructor_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    if !args.is_construct_call() {
+        throw_type_error(
+            scope,
+            "Failed to construct 'DOMRect': Please use the 'new' operator.",
+        );
+        return;
+    }
+    let Some(parsed) = webidl::parse_args::<DomRectConstructorArgs>(scope, &args) else {
+        return;
+    };
+    initialize_dom_rect_object(
+        scope,
+        args.this(),
+        parsed.x,
+        parsed.y,
+        parsed.width,
+        parsed.height,
+    );
+    rv.set(args.this().into());
+}
+
+pub(crate) fn build_dom_rect_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> v8::Local<'s, v8::Object> {
+    DomRectObjectDeclaration::new(x, y, width, height)
+        .bind(scope)
+        .expect("DOMRect declaration should bind")
+}
+
+pub(super) fn build_dom_rect_readonly_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> v8::Local<'s, v8::Object> {
+    DomRectReadOnlyObjectDeclaration::new(x, y, width, height)
+        .bind(scope)
+        .expect("DOMRectReadOnly declaration should bind")
+}
+
+fn initialize_dom_rect_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<'s, v8::Object>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) {
+    DomRectObjectDeclaration::new(x, y, width, height)
+        .bind_into(scope, object)
+        .expect("DOMRect declaration should initialize object");
+}
+
+fn initialize_dom_rect_readonly_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<'s, v8::Object>,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) {
+    DomRectReadOnlyObjectDeclaration::new(x, y, width, height)
+        .bind_into(scope, object)
+        .expect("DOMRectReadOnly declaration should initialize object");
+}
+
+pub(in crate::context_bootstrap) fn install_dom_rect_template_bindings<'s>(
+    scope: &mut v8::PinScope<'s, '_, ()>,
+    template: v8::Local<'s, v8::FunctionTemplate>,
+    interface_name: &str,
+) {
+    let prototype = template.prototype_template(scope);
+    match interface_name {
+        "DOMRectReadOnly" => {
+            DomRectReadOnlyConstructorDeclaration::initialize_template(scope, template);
+            DomRectReadOnlyPrototypeDeclaration::initialize_prototype_template(scope, prototype);
+        }
+        "DOMRect" => {
+            DomRectConstructorDeclaration::initialize_template(scope, template);
+            DomRectPrototypeDeclaration::initialize_prototype_template(scope, prototype);
+        }
+        _ => {}
+    }
+}
+
+fn dom_rect_readonly_from_rect_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Some(init) = dom_rect_init_arg(scope, &args, "DOMRectReadOnly.fromRect") else {
+        return;
+    };
+    rv.set(build_dom_rect_readonly_object(scope, init.x, init.y, init.width, init.height).into());
+}
+
+fn dom_rect_from_rect_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Some(init) = dom_rect_init_arg(scope, &args, "DOMRect.fromRect") else {
+        return;
+    };
+    rv.set(build_dom_rect_object(scope, init.x, init.y, init.width, init.height).into());
+}
+
+fn dom_rect_init_arg<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: &v8::FunctionCallbackArguments<'s>,
+    prefix: &'static str,
+) -> Option<DomRectInit> {
+    if args.length() == 0 || args.get(0).is_undefined() {
+        return Some(DomRectInit::default());
+    }
+    match webidl::parse_dictionary::<DomRectInit>(
+        scope,
+        args.get(0),
+        webidl::Context::argument(prefix, 1),
+    ) {
+        Ok(Some(init)) => Some(init),
+        Ok(None) => Some(DomRectInit::default()),
+        Err(error) => {
+            webidl::throw_error(scope, &error);
+            None
+        }
+    }
+}
+
+fn dom_rect_writable_getter_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Some(slot) = callback_data_item(
+        scope,
+        &args,
+        DOM_RECT_WRITABLE_ATTRIBUTE_SLOTS,
+        "DOMRect writable attribute slots",
+    ) else {
+        rv.set_undefined();
+        return;
+    };
+    let receiver = moli_webapi_declare::web_api_object_target(scope, args.this())
+        .expect("validated DOMRectReadOnly receiver");
+    rv.set(get_private_value(scope, receiver, slot).unwrap_or_else(|| v8::undefined(scope).into()));
+}
+
+fn dom_rect_readonly_getter_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Some(attribute) = callback_data_item(
+        scope,
+        &args,
+        DOM_RECT_READONLY_ATTRIBUTES,
+        "DOMRect readonly attributes",
+    ) else {
+        rv.set_undefined();
+        return;
+    };
+    let receiver = moli_webapi_declare::web_api_object_target(scope, args.this())
+        .expect("validated DOMRectReadOnly receiver");
+    let value = dom_rect_readonly_attribute_value(scope, receiver, attribute);
+    rv.set(v8::Number::new(scope, value).into());
+}
+
+fn dom_rect_setter_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Some(slot) = callback_data_item(
+        scope,
+        &args,
+        DOM_RECT_WRITABLE_ATTRIBUTE_SLOTS,
+        "DOMRect writable attribute slots",
+    ) else {
+        rv.set_undefined();
+        return;
+    };
+    let receiver = moli_webapi_declare::web_api_object_target(scope, args.this())
+        .expect("validated DOMRect receiver");
+    let value = match webidl::convert::<webidl::UnrestrictedDouble>(
+        scope,
+        args.get(0),
+        webidl::Context::member("DOMRect", slot),
+    ) {
+        Ok(value) => value.0,
+        Err(error) => {
+            webidl::throw_error(scope, &error);
+            return;
+        }
+    };
+    set_private_value(scope, receiver, slot, v8::Number::new(scope, value).into());
+    rv.set_undefined();
+}
+
+fn dom_rect_to_json_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let this = moli_webapi_declare::web_api_object_target(scope, args.this())
+        .expect("validated DOMRectReadOnly receiver");
+    let declaration = DomRectJsonDeclaration {
+        x: dom_rect_slot(this, scope, DOM_RECT_X_SLOT),
+        y: dom_rect_slot(this, scope, DOM_RECT_Y_SLOT),
+        width: dom_rect_slot(this, scope, DOM_RECT_WIDTH_SLOT),
+        height: dom_rect_slot(this, scope, DOM_RECT_HEIGHT_SLOT),
+        top: dom_rect_readonly_attribute_value(scope, this, DomRectReadonlyAttribute::Top),
+        right: dom_rect_readonly_attribute_value(scope, this, DomRectReadonlyAttribute::Right),
+        bottom: dom_rect_readonly_attribute_value(scope, this, DomRectReadonlyAttribute::Bottom),
+        left: dom_rect_readonly_attribute_value(scope, this, DomRectReadonlyAttribute::Left),
+    };
+    let Ok(object) = declaration.bind(scope) else {
+        return;
+    };
+    rv.set(object.into());
+}
+
+fn dom_rect_readonly_attribute_value<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<'s, v8::Object>,
+    attribute: DomRectReadonlyAttribute,
+) -> f64 {
+    match attribute {
+        DomRectReadonlyAttribute::Top => {
+            let y = dom_rect_slot(object, scope, DOM_RECT_Y_SLOT);
+            let height = dom_rect_slot(object, scope, DOM_RECT_HEIGHT_SLOT);
+            dom_rect_min(y, y + height)
+        }
+        DomRectReadonlyAttribute::Right => {
+            let x = dom_rect_slot(object, scope, DOM_RECT_X_SLOT);
+            let width = dom_rect_slot(object, scope, DOM_RECT_WIDTH_SLOT);
+            dom_rect_max(x, x + width)
+        }
+        DomRectReadonlyAttribute::Bottom => {
+            let y = dom_rect_slot(object, scope, DOM_RECT_Y_SLOT);
+            let height = dom_rect_slot(object, scope, DOM_RECT_HEIGHT_SLOT);
+            dom_rect_max(y, y + height)
+        }
+        DomRectReadonlyAttribute::Left => {
+            let x = dom_rect_slot(object, scope, DOM_RECT_X_SLOT);
+            let width = dom_rect_slot(object, scope, DOM_RECT_WIDTH_SLOT);
+            dom_rect_min(x, x + width)
+        }
+    }
+}
+
+fn dom_rect_min(lhs: f64, rhs: f64) -> f64 {
+    if lhs.is_nan() || rhs.is_nan() {
+        f64::NAN
+    } else {
+        lhs.min(rhs)
+    }
+}
+
+fn dom_rect_max(lhs: f64, rhs: f64) -> f64 {
+    if lhs.is_nan() || rhs.is_nan() {
+        f64::NAN
+    } else {
+        lhs.max(rhs)
+    }
+}
+
+fn dom_rect_slot<'s>(
+    object: v8::Local<'s, v8::Object>,
+    scope: &mut v8::PinScope<'s, '_>,
+    key: &str,
+) -> f64 {
+    get_private_value(scope, object, key)
+        .and_then(|value| value.number_value(scope))
+        .unwrap_or(0.0)
+}
+
+pub(crate) fn dom_rect_clone_data<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<'s, v8::Object>,
+) -> Option<(bool, [f64; 4])> {
+    if !web_api_interfaces::DOMRectReadOnly::is_instance(scope, object) {
+        return None;
+    }
+    let object = moli_webapi_declare::web_api_object_target(scope, object)?;
+    let mutable = web_api_interfaces::DOMRect::is_instance(scope, object);
+    Some((
+        mutable,
+        [
+            dom_rect_slot(object, scope, DOM_RECT_X_SLOT),
+            dom_rect_slot(object, scope, DOM_RECT_Y_SLOT),
+            dom_rect_slot(object, scope, DOM_RECT_WIDTH_SLOT),
+            dom_rect_slot(object, scope, DOM_RECT_HEIGHT_SLOT),
+        ],
+    ))
+}
+
+pub(crate) fn build_dom_rect_clone_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    mutable: bool,
+    [x, y, width, height]: [f64; 4],
+) -> v8::Local<'s, v8::Object> {
+    if mutable {
+        build_dom_rect_object(scope, x, y, width, height)
+    } else {
+        build_dom_rect_readonly_object(scope, x, y, width, height)
+    }
+}
+
+const DOM_RECT_WRITABLE_ATTRIBUTE_SLOTS: &[&str] = &[
+    DOM_RECT_X_SLOT,
+    DOM_RECT_Y_SLOT,
+    DOM_RECT_WIDTH_SLOT,
+    DOM_RECT_HEIGHT_SLOT,
+];
+
+const DOM_RECT_READONLY_ATTRIBUTES: &[DomRectReadonlyAttribute] = &[
+    DomRectReadonlyAttribute::Top,
+    DomRectReadonlyAttribute::Right,
+    DomRectReadonlyAttribute::Bottom,
+    DomRectReadonlyAttribute::Left,
+];

@@ -1,0 +1,137 @@
+import { serve } from "@hono/node-server";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { watch } from "node:fs";
+import { dirname } from "node:path";
+import { listConnectorRows, loadEnv, PATHS } from "@openlive/db";
+import { ensureSeedProviders } from "./providers.js";
+import { attachLiveWs, foreignRequest } from "./live/ws.js";
+import type { Server } from "node:http";
+import { log, teeStderr } from "./log.js";
+import { reportException } from "./telemetry/facts.js";
+import { OAUTH_CALLBACK_PATH } from "./connectors/oauth.js";
+
+teeStderr(PATHS.logs);
+loadEnv();
+await ensureSeedProviders(); // top-level await: seed before serving so first requests see keys
+
+// Shared-secret gate + locked CORS. The agent sits behind the Next proxy on
+// localhost; the secret is opt-in (skipped for pure local dev).
+const AGENT_SECRET = process.env.OPENLIVE_AGENT_SECRET?.trim() || "";
+const WEB_ORIGIN = process.env.WEB_PUBLIC_URL?.trim() || "http://localhost:3000";
+
+const app = new Hono();
+app.use("*", cors({ origin: WEB_ORIGIN }));
+// With no secret (local dev) the port is the only gate, as on /live.
+app.use("*", async (c, next) => (!AGENT_SECRET && foreignRequest(c.req.method, c.req.header("host"), c.req.header("origin")) ? c.json({ error: "forbidden" }, 403) : next()));
+app.use("*", async (c, next) => {
+  // A browser lands on the OAuth callback with no way to send the secret; its single-use state guards it.
+  if (!AGENT_SECRET || c.req.path === "/health" || c.req.path === OAUTH_CALLBACK_PATH) return next();
+  if (c.req.header("x-openlive-secret") !== AGENT_SECRET) return c.json({ error: "unauthorized" }, 401);
+  return next();
+});
+
+app.get("/health", (c) => c.json({ ok: true }));
+
+// Voice Studio: cloned-voice model management, profiles, and synthesis.
+// Lazy import keeps sherpa-onnx (native addon) out of the boot path.
+const { voiceRoutes } = await import("./voice/routes.js");
+app.route("/voice", voiceRoutes);
+// Where native speech runs depends on this machine; the probe runs off the boot path (voice/device.ts).
+void import("./voice/accel.js").then((a) => a.refreshDevice()).catch((e) => log.warn("voice", "device probe:", e));
+
+// What a coding agent can be set to. Lazy for the same reason: starting one is
+// the caller's cost, never the boot path's.
+const { agentRoutes } = await import("./agents/models-route.js");
+app.route("/agents", agentRoutes);
+
+// Dictate's AI polish and command mode: one rewrite by whichever brain Dictate thinks with.
+const { dictateRoutes } = await import("./dictate/routes.js");
+app.route("/dictate", dictateRoutes);
+
+// MCP connectors: added once, offered to every brain in both modes through the registry.
+const { connectorRoutes } = await import("./connectors/routes.js");
+const { connectorTools } = await import("./connectors/tools.js");
+const { connectors } = await import("./connectors/manager.js");
+const { registry } = await import("./capabilities/registry.js");
+registry.register(connectorTools());
+app.route("/connectors", connectorRoutes);
+// mcp.json is edited by hand too. Reads are always fresh; a live connection opened
+// from what is no longer written is closed here, and opens again as written.
+let edited: NodeJS.Timeout | undefined;
+try {
+  watch(dirname(PATHS.mcp), (_e, file) => {
+    if (file !== "mcp.json") return;
+    clearTimeout(edited);
+    edited = setTimeout(() => void connectors.reconcile(listConnectorRows()).catch((e) => log.warn("connectors", "reconcile:", e)), 200);
+  }).unref();
+} catch (e) { log.warn("connectors", "cannot watch mcp.json; hand edits apply on the next connect:", e); }
+
+// Agent Skills: one folder OpenLive owns, offered to every brain the same way.
+const { skillRoutes } = await import("./skills/routes.js");
+const { skillTools } = await import("./skills/tools.js");
+registry.register(skillTools());
+app.route("/skills", skillRoutes);
+
+// OpenLive's own tool groups, listed and switched from Settings.
+const { capabilityRoutes } = await import("./capabilities/routes.js");
+app.route("/capabilities", capabilityRoutes);
+
+// The edits OpenLive's file tools made, listed and undone from Settings.
+const { editRoutes } = await import("./capabilities/edit-routes.js");
+app.route("/edits", editRoutes);
+
+// The notes `remember` keeps, listed and edited from Settings.
+const { memoryRoutes } = await import("./memory/routes.js");
+app.route("/memory", memoryRoutes);
+
+// Computer use: one helper for every session, started on first use. Its own grants, for Access settings.
+const { computer } = await import("./computer/helper.js");
+const { computerRoutes } = await import("./computer/routes.js");
+app.route("/computer", computerRoutes());
+
+// Timers and reminders: re-armed from disk, so what came due while OpenLive was closed fires now, as missed.
+const { reminderRoutes } = await import("./reminders/routes.js");
+const { reminders } = await import("./reminders/tools.js");
+app.route("/reminders", reminderRoutes);
+void reminders.start();
+
+const port = Number(process.env.AGENT_PORT ?? 8787);
+// Bind loopback ONLY. The agent has no business on the LAN: the desktop renderer
+// reaches it over localhost, and the web app's proxy routes reach it over localhost
+// too. A split deployment (web and agent on different hosts) can widen
+// this via AGENT_HOST — but only alongside OPENLIVE_AGENT_SECRET, which the startup
+// guard below enforces so a widened bind can never be unauthenticated.
+const host = process.env.AGENT_HOST?.trim() || "127.0.0.1";
+const isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+if (!isLoopback && !AGENT_SECRET) {
+  log.error("agent", `refusing to bind ${host} without OPENLIVE_AGENT_SECRET — a non-loopback bind must be authenticated.`);
+  process.exit(1);
+}
+const server = serve({ fetch: app.fetch, port, hostname: host }) as unknown as Server;
+const wss = attachLiveWs(server); // live voice+vision on ws://…/live
+console.log(`▸ OpenLive agent service listening on http://${host}:${port}`);
+
+server.on("error", (e: NodeJS.ErrnoException) => {
+  if (e.code === "EADDRINUSE") log.error("agent", `port ${port} is already in use — kill the old process or set AGENT_PORT.`);
+  else log.error("agent", "server error:", e);
+  process.exit(1);
+});
+let closing = false;
+function shutdown() {
+  if (closing) return; closing = true;
+  for (const c of wss.clients) { try { c.close(); } catch { /* */ } }
+  wss.close();
+  computer.shutdown();
+  // Every stdio connector's child goes with us.
+  void connectors.shutdown().finally(() => server.close(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+// A stray rejection/exception in one live session (e.g. an ACP call the agent
+// rejects) must NEVER take down the whole service — that would drop every live
+// socket, surfacing as "Couldn't connect to live mode". Log and keep serving.
+process.on("unhandledRejection", (e) => { log.error("agent", "unhandledRejection:", e); reportException("unhandled_rejection"); });
+process.on("uncaughtException", (e) => { log.error("agent", "uncaughtException:", e); reportException("uncaught"); });

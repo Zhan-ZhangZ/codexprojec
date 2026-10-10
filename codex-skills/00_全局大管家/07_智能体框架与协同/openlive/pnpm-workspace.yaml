@@ -1,0 +1,36 @@
+packages:
+  - "native/*"
+  - "packages/*"
+  - "apps/*"
+  - "services/*"
+  - "tools/*"
+
+# Force ONE @huggingface/transformers copy across the tree. kokoro-js pulls 3.8.1
+# while we use 4.3.0; two copies = two onnxruntime-node envs that clash and segfault.
+overrides:
+  "@huggingface/transformers": "4.3.0"
+
+# Native modules we trust and need compiled on install.
+allowBuilds:
+  electron: true
+  electron-builder: true
+  # Squirrel.Windows binary fetcher — unused (we ship NSIS), skip its build script.
+  electron-winstaller: false
+  esbuild: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+
+minimumReleaseAgeExclude:
+  - '@anthropic-ai/sdk@0.107.0'
+  - '@tailwindcss/node@4.3.2'
+  - '@tailwindcss/oxide-darwin-arm64@4.3.2'
+  - '@tailwindcss/oxide-darwin-x64@4.3.2'
+  - '@tailwindcss/oxide-linux-arm64-gnu@4.3.2'
+  - '@tailwindcss/oxide-linux-arm64-musl@4.3.2'
+  - '@tailwindcss/oxide-linux-x64-gnu@4.3.2'
+  - '@tailwindcss/oxide-linux-x64-musl@4.3.2'
+  - '@tailwindcss/oxide-win32-x64-msvc@4.3.2'
+  - '@tailwindcss/oxide@4.3.2'
+  - '@tailwindcss/postcss@4.3.2'
+  - tailwindcss@4.3.2

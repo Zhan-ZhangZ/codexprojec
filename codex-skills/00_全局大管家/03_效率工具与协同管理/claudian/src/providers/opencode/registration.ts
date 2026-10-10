@@ -1,0 +1,67 @@
+import { getProviderConfig } from '../../core/providers/providerConfig';
+import { hasStoredConfigNormalization } from '../../core/providers/settings/storedSettings';
+import type { ProviderModule } from '../../core/providers/types';
+import {
+  getOpencodeWorkspaceServices,
+  maybeGetOpencodeWorkspaceServices,
+  opencodeWorkspaceRegistration,
+} from './app/OpencodeWorkspaceServices';
+import { getOpencodeConversationCapabilities, OPENCODE_PROVIDER_CAPABILITIES } from './capabilities';
+import { opencodeSettingsReconciler } from './env/OpencodeSettingsReconciler';
+import { OpencodeExecutionBackend } from './execution/OpencodeExecutionBackend';
+import { OpencodeConversationHistoryService } from './history/OpencodeConversationHistoryService';
+import { buildOpencodeBaseModels } from './models';
+import { opencodeModelPolicy } from './OpencodeModelPolicy';
+import { opencodeTaskResultInterpreter } from './runtime/OpencodeTaskResultInterpreter';
+import { getOpencodeProviderSettings, projectOpencodeModelSettings, updateOpencodeProviderSettings } from './settings';
+import { opencodeSubagentAdapter } from './subagentAdapter';
+import { opencodeChatUIConfig } from './ui/OpencodeChatUIConfig';
+
+export const opencodeProviderRegistration: ProviderModule = {
+  id: 'opencode',
+  blankTabOrder: 10,
+  capabilities: OPENCODE_PROVIDER_CAPABILITIES,
+  getConversationCapabilities: getOpencodeConversationCapabilities,
+  modelPolicy: opencodeModelPolicy,
+  chatUIConfig: opencodeChatUIConfig,
+  createExecutionBackend: (plugin) => {
+    const workspace = getOpencodeWorkspaceServices();
+    return new OpencodeExecutionBackend(plugin, {
+      commandCatalog: workspace.commandCatalog,
+      serverService: workspace.serverService,
+    });
+  },
+
+  displayName: 'OpenCode',
+  environmentKeyPatterns: [/^OPENCODE_/i],
+  // History recovery can run before the workspace is initialized lazily.
+  historyService: new OpencodeConversationHistoryService(async context => {
+    if (!maybeGetOpencodeWorkspaceServices()) await context?.ensureWorkspace?.();
+    return maybeGetOpencodeWorkspaceServices()?.serverService;
+  }),
+  isEnabled: (settings) => getOpencodeProviderSettings(settings).enabled,
+  setEnabled: (settings, enabled) => updateOpencodeProviderSettings(settings, { enabled }),
+  settingsReconciler: opencodeSettingsReconciler,
+  settingsStorage: {
+    projectPersistedConfig: projectOpencodeModelSettings,
+    needsReasoningMetadata(settings) {
+      const current = getOpencodeProviderSettings(settings);
+      const models = buildOpencodeBaseModels(current.discoveredModels);
+      return current.visibleModels.some(id => !Object.hasOwn(current.thinkingOptionsByModel, id)
+        || !models.some(model => model.rawId === id));
+    },
+    hostScopedFields: ['cliPathsByHost'],
+    normalizeStored(target, stored) {
+      const storedConfig = getProviderConfig(stored, 'opencode');
+      const normalized = getOpencodeProviderSettings(stored);
+      updateOpencodeProviderSettings(target, normalized);
+      return hasStoredConfigNormalization(
+        storedConfig,
+        getProviderConfig(target, 'opencode'),
+      );
+    },
+  },
+  taskResultInterpreter: opencodeTaskResultInterpreter,
+  subagentAdapter: opencodeSubagentAdapter,
+  workspace: opencodeWorkspaceRegistration,
+};

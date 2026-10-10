@@ -1,0 +1,400 @@
+import {
+  buildImageAttachmentFromBase64,
+  parseImageDataUri,
+} from '@/core/execution/imageAttachment';
+import { extractUserDisplayContent } from '@/core/prompt/promptContext';
+import { resolveToolDiffData } from '@/core/tools/toolDiff';
+import { isCompactionCanceledStderr, isInterruptSignalText } from '@/providers/claude/history/interrupt';
+
+import { extractResolvedAnswersFromResultText } from '../../../core/tools/toolInput';
+import { TOOL_ASK_USER_QUESTION } from '../../../core/tools/toolNames';
+import { extractToolResultContent } from '../../../core/tools/toolResultContent';
+import type {
+  ChatMessage,
+  ContentBlock,
+  ImageAttachment,
+  ToolCallInfo,
+} from '../../../core/types';
+import { extractXMLTag, parseClaudeTaskNotification } from '../normalization/claudeTaskNotification';
+import { extractClaudeTextContent, isClaudeNoContentPlaceholder } from '../normalization/claudeTextContent';
+import { normalizeClaudeToolResultDetails } from '../normalization/claudeToolResultDetails';
+import type {
+  AsyncSubagentResult,
+  SDKNativeContentBlock,
+  SDKNativeMessage,
+} from './sdkHistoryTypes';
+
+function isRebuiltContextContent(textContent: string): boolean {
+  if (!/^(User|Assistant):\s/.test(textContent)) {
+    return false;
+  }
+
+  return textContent.includes('\n\nUser:')
+    || textContent.includes('\n\nAssistant:')
+    || textContent.includes('\n\nA:');
+}
+
+function extractImages(
+  content: string | SDKNativeContentBlock[] | undefined,
+  messageId: string,
+): ImageAttachment[] | undefined {
+  if (!content || typeof content === 'string') {
+    return undefined;
+  }
+
+  const imageBlocks = content.filter(
+    (block): block is SDKNativeContentBlock & {
+      type: 'image';
+      source: { type: 'base64'; media_type: string; data: string };
+    } => block.type === 'image' && !!block.source?.data,
+  );
+
+  if (imageBlocks.length === 0) {
+    return undefined;
+  }
+
+  const images = imageBlocks.flatMap((block, index): ImageAttachment[] => {
+    const parsedDataUri = parseImageDataUri(block.source.data);
+    const image = buildImageAttachmentFromBase64({
+      data: parsedDataUri?.data ?? block.source.data,
+      id: `sdk-img-${messageId}-${index}`,
+      mediaType: parsedDataUri?.mediaType ?? block.source.media_type,
+      name: `image-${index + 1}`,
+    });
+    return image ? [image] : [];
+  });
+
+  return images.length > 0 ? images : undefined;
+}
+
+function extractToolCalls(
+  content: string | SDKNativeContentBlock[] | undefined,
+  toolResults?: Map<string, { content: string; isError: boolean }>,
+): ToolCallInfo[] | undefined {
+  if (!content || typeof content === 'string') {
+    return undefined;
+  }
+
+  const toolUses = content.filter(
+    (block): block is SDKNativeContentBlock & { type: 'tool_use'; id: string; name: string } =>
+      block.type === 'tool_use' && !!block.id && !!block.name,
+  );
+
+  if (toolUses.length === 0) {
+    return undefined;
+  }
+
+  const results = toolResults ?? new Map<string, { content: string; isError: boolean }>();
+  if (!toolResults) {
+    for (const block of content) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        results.set(block.tool_use_id, {
+          content: extractToolResultContent(block.content),
+          isError: block.is_error ?? false,
+        });
+      }
+    }
+  }
+
+  return toolUses.map(block => {
+    const result = results.get(block.id);
+    return {
+      id: block.id,
+      name: block.name,
+      input: block.input ?? {},
+      status: result ? (result.isError ? 'error' : 'completed') : 'running',
+      result: result?.content,
+      isExpanded: false,
+    };
+  });
+}
+
+function mapContentBlocks(content: string | SDKNativeContentBlock[] | undefined): ContentBlock[] | undefined {
+  if (!content || typeof content === 'string') {
+    return undefined;
+  }
+
+  const blocks: ContentBlock[] = [];
+
+  for (const block of content) {
+    switch (block.type) {
+      case 'text': {
+        const text = block.text;
+        if (text?.trim() && !isClaudeNoContentPlaceholder(text)) {
+          blocks.push({ type: 'text', content: text });
+        }
+        break;
+      }
+      case 'thinking':
+        if (block.thinking) {
+          blocks.push({ type: 'thinking', content: block.thinking });
+        }
+        break;
+      case 'tool_use':
+        if (block.id) {
+          blocks.push({ type: 'tool_use', toolId: block.id });
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  return blocks.length > 0 ? blocks : undefined;
+}
+
+export function parseSDKMessageToChat(
+  sdkMsg: SDKNativeMessage,
+  toolResults?: Map<string, { content: string; isError: boolean }>,
+): ChatMessage | null {
+  if (sdkMsg.type === 'attachment') {
+    const attachment = sdkMsg.attachment;
+    if (attachment?.type !== 'queued_command' || attachment.commandMode !== 'prompt'
+      || (typeof attachment.prompt !== 'string' && !Array.isArray(attachment.prompt))) return null;
+    return parseSDKMessageToChat({
+      type: 'user',
+      uuid: attachment.source_uuid ?? sdkMsg.uuid,
+      timestamp: sdkMsg.timestamp,
+      message: { content: attachment.prompt },
+    }, toolResults);
+  }
+  if (sdkMsg.type === 'file-history-snapshot') {
+    return null;
+  }
+
+  if (sdkMsg.type === 'system') {
+    if (sdkMsg.subtype === 'compact_boundary') {
+      const timestamp = sdkMsg.timestamp ? new Date(sdkMsg.timestamp).getTime() : Date.now();
+      return {
+        id: sdkMsg.uuid || `compact-${timestamp}-${Math.random().toString(36).slice(2)}`,
+        role: 'assistant',
+        content: '',
+        timestamp,
+        contentBlocks: [{ type: 'context_compacted' }],
+      };
+    }
+    return null;
+  }
+
+  if (sdkMsg.type === 'result') {
+    return null;
+  }
+
+  if (sdkMsg.type !== 'user' && sdkMsg.type !== 'assistant') {
+    return null;
+  }
+
+  const content = sdkMsg.message?.content;
+  const textContent = extractClaudeTextContent(content);
+  const timestamp = sdkMsg.timestamp ? new Date(sdkMsg.timestamp).getTime() : Date.now();
+  const messageId = sdkMsg.uuid || `sdk-${timestamp}`;
+  const images = sdkMsg.type === 'user' ? extractImages(content, messageId) : undefined;
+
+  const hasToolUse = Array.isArray(content) && content.some(block => block.type === 'tool_use');
+  const hasImages = !!images && images.length > 0;
+  if (!textContent && !hasToolUse && !hasImages && (!content || typeof content === 'string')) {
+    return null;
+  }
+
+  const commandNameMatch = sdkMsg.type === 'user'
+    ? textContent.match(/<command-name>(\/[^<]+)<\/command-name>/)
+    : null;
+
+  let displayContent: string | undefined;
+  if (sdkMsg.type === 'user') {
+    displayContent = commandNameMatch ? commandNameMatch[1] : extractUserDisplayContent(textContent);
+  }
+
+  const isInterrupt = sdkMsg.type === 'user' && isInterruptSignalText(textContent);
+  const isRebuiltContext = sdkMsg.type === 'user' && isRebuiltContextContent(textContent);
+
+  return {
+    id: sdkMsg.uuid || `sdk-${timestamp}-${Math.random().toString(36).slice(2)}`,
+    role: sdkMsg.type,
+    content: textContent,
+    displayContent,
+    timestamp,
+    toolCalls: sdkMsg.type === 'assistant' ? extractToolCalls(content, toolResults) : undefined,
+    contentBlocks: sdkMsg.type === 'assistant' ? mapContentBlocks(content) : undefined,
+    images,
+    ...(sdkMsg.type === 'user' && sdkMsg.uuid && { userMessageId: sdkMsg.uuid }),
+    ...(sdkMsg.type === 'assistant' && sdkMsg.uuid && { assistantMessageId: sdkMsg.uuid }),
+    ...(isInterrupt && { isInterrupt: true }),
+    ...(isRebuiltContext && { isRebuiltContext: true }),
+  };
+}
+
+export function collectToolResults(
+  sdkMessages: SDKNativeMessage[],
+): Map<string, { content: string; isError: boolean }> {
+  const results = new Map<string, { content: string; isError: boolean }>();
+
+  for (const sdkMsg of sdkMessages) {
+    const content = sdkMsg.message?.content;
+    if (!content || typeof content === 'string') {
+      continue;
+    }
+
+    for (const block of content) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        results.set(block.tool_use_id, {
+          content: extractToolResultContent(block.content),
+          isError: block.is_error ?? false,
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+export function collectStructuredPatchResults(sdkMessages: SDKNativeMessage[]): Map<string, unknown> {
+  const results = new Map<string, unknown>();
+
+  for (const sdkMsg of sdkMessages) {
+    if (sdkMsg.type !== 'user' || !sdkMsg.toolUseResult) {
+      continue;
+    }
+
+    const content = sdkMsg.message?.content;
+    if (!content || typeof content === 'string') {
+      continue;
+    }
+
+    for (const block of content) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        results.set(block.tool_use_id, sdkMsg.toolUseResult);
+      }
+    }
+  }
+
+  return results;
+}
+
+/** Background results from queued notifications, read with the live `<task-notification>` rules. */
+export function collectAsyncSubagentResults(
+  sdkMessages: SDKNativeMessage[],
+): Map<string, AsyncSubagentResult> {
+  const results = new Map<string, AsyncSubagentResult>();
+
+  for (const sdkMsg of sdkMessages) {
+    if (sdkMsg.type !== 'queue-operation' || sdkMsg.operation !== 'enqueue') {
+      continue;
+    }
+
+    const notification = parseClaudeTaskNotification(sdkMsg.content);
+    // The shared parser admits only notifications that carry a status.
+    const status = notification && sdkMsg.content ? extractXMLTag(sdkMsg.content, 'status') : null;
+    if (!notification || !status) {
+      continue;
+    }
+
+    results.set(notification.taskId, { result: notification.content, status });
+  }
+
+  return results;
+}
+
+export function isCanonicalSDKUserMessage(record: SDKNativeMessage): boolean {
+  const queuedPrompt = record.type === 'attachment'
+    && record.attachment?.type === 'queued_command' && record.attachment.commandMode === 'prompt';
+  if ((!queuedPrompt && record.type !== 'user') || isSystemInjectedMessage(record)) return false;
+  const content = queuedPrompt ? record.attachment?.prompt : record.message?.content;
+  const text = extractClaudeTextContent(content);
+  if (!text && (!content || typeof content === 'string')) return false;
+  return !isInterruptSignalText(text) && !isRebuiltContextContent(text);
+}
+
+export function isSystemInjectedMessage(sdkMsg: SDKNativeMessage): boolean {
+  if (sdkMsg.type !== 'user') {
+    return false;
+  }
+  if ('toolUseResult' in sdkMsg || 'sourceToolUseID' in sdkMsg || !!sdkMsg.isMeta) {
+    return true;
+  }
+
+  const content = sdkMsg.message?.content;
+  if (Array.isArray(content) && content.length > 0
+    && content.every(block => block.type === 'tool_result')) return true;
+
+  const text = extractClaudeTextContent(content);
+  if (!text) {
+    return false;
+  }
+
+  if (text.includes('<command-name>') && text.includes('<command-message>')) {
+    return false;
+  }
+  if (isCompactionCanceledStderr(text)) {
+    return false;
+  }
+
+  if (text.startsWith('This session is being continued from a previous conversation')) {
+    return true;
+  }
+  if (text.includes('<command-name>')) {
+    return true;
+  }
+  if (text.includes('<local-command-stdout>') || text.includes('<local-command-stderr>')) {
+    return true;
+  }
+  if (text.includes('<task-notification>')) {
+    return true;
+  }
+
+  return false;
+}
+
+export function parseTaskNotification(sdkMsg: SDKNativeMessage): string | null {
+  const attachment = sdkMsg.attachment;
+  const content = sdkMsg.type === 'user'
+    ? sdkMsg.message?.content
+    : sdkMsg.type === 'attachment' && attachment?.type === 'queued_command'
+      && attachment.commandMode === 'task-notification'
+      ? attachment.prompt
+      : undefined;
+  return parseClaudeTaskNotification(content)?.content ?? null;
+}
+
+export function mergeAssistantMessage(target: ChatMessage, source: ChatMessage): void {
+  if (source.content) {
+    target.content = target.content ? `${target.content}\n\n${source.content}` : source.content;
+  }
+
+  if (source.toolCalls) {
+    target.toolCalls = [...(target.toolCalls || []), ...source.toolCalls];
+  }
+
+  if (source.contentBlocks) {
+    target.contentBlocks = [...(target.contentBlocks || []), ...source.contentBlocks];
+  }
+
+  if (source.assistantMessageId) {
+    target.assistantMessageId = source.assistantMessageId;
+  }
+}
+
+/** Applies structured tool results; AskUserQuestion answers fall back to result text for older transcripts. */
+export function hydrateStructuredToolResults(messages: ChatMessage[], toolUseResults: Map<string, unknown>): void {
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || !msg.toolCalls) {
+      continue;
+    }
+
+    for (const toolCall of msg.toolCalls) {
+      const toolUseResult = toolUseResults.get(toolCall.id);
+      const details = normalizeClaudeToolResultDetails(toolUseResult);
+      if (toolUseResult && !toolCall.diffData) {
+        toolCall.diffData = resolveToolDiffData(details?.diff, toolCall);
+      }
+
+      if (toolCall.name === TOOL_ASK_USER_QUESTION && !toolCall.resolvedAnswers) {
+        const answers = details?.resolvedAnswers
+          ?? extractResolvedAnswersFromResultText(toolCall.result);
+        if (answers) {
+          toolCall.resolvedAnswers = answers;
+        }
+      }
+    }
+  }
+}

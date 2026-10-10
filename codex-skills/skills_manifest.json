@@ -2684,5 +2684,111 @@
       "Loki",
       "洛基模式"
     ]
+  },
+  {
+    "name": "moli",
+    "description": "墨鲤网页生成引擎（ASH web-scraping 榜 #1，lexmount）。浏览器渲染驱动的网页生成/截图：moli-renderer-v8 渲染内核+protocol 协议层+wpt-compat 兼容层。Leading Words: 墨鲤, 网页渲染, 浏览器截图, 网页生成, moli",
+    "category": "03_效率工具与协同管理",
+    "folder": "moli",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/moli",
+    "aliases": [
+      "墨鲤",
+      "Moli"
+    ]
+  },
+  {
+    "name": "agents-kit",
+    "description": "Agent 界面组件库（ASH voice-agent 榜 #2，agents-ui）。构建更好智能体界面的 React 组件集。Leading Words: agent界面, 智能体组件库, react组件, agents kit",
+    "category": "07_智能体框架与协同",
+    "folder": "agents-kit",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/agents-kit",
+    "aliases": [
+      "AgentsKit",
+      "agent组件"
+    ]
+  },
+  {
+    "name": "claudian",
+    "description": "Claudian Obsidian 智能体（ASH obsidian-second-brain 榜 #2，YishenTu）。在 Obsidian 内运行 Claude 智能体。Leading Words: Obsidian智能体, claudian, 笔记助手",
+    "category": "03_效率工具与协同管理",
+    "folder": "claudian",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/claudian",
+    "aliases": [
+      "Claudian"
+    ]
+  },
+  {
+    "name": "elevenlabs-cli",
+    "description": "ElevenLabs 官方 CLI（ASH voice-agent 榜 #3）。语音合成/克隆命令行工具，含完整类型 SDK。Leading Words: 语音合成, TTS CLI, elevenlabs, 声音克隆",
+    "category": "07_智能体框架与协同",
+    "folder": "elevenlabs-cli",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/elevenlabs-cli",
+    "aliases": [
+      "ElevenLabs CLI",
+      "语音CLI"
+    ]
+  },
+  {
+    "name": "crawl4ai",
+    "description": "LLM 友好爬虫框架（ASH web-scraping 榜 #3，unclecode）。为 AI 智能体优化的网页抓取：Markdown 输出/结构化抽取/浏览器自动化。Leading Words: LLM爬虫, 网页转markdown, 智能体抓取, crawl4ai",
+    "category": "03_效率工具与协同管理",
+    "folder": "crawl4ai",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/crawl4ai",
+    "aliases": [
+      "Crawl4AI",
+      "爬虫框架"
+    ]
+  },
+  {
+    "name": "note-gen",
+    "description": "NoteGen 笔记生成（ASH obsidian-second-brain 榜 #3，codexu）。多源素材→结构化笔记。Leading Words: 笔记生成, 素材整理, notegen",
+    "category": "03_效率工具与协同管理",
+    "folder": "note-gen",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/note-gen",
+    "aliases": [
+      "NoteGen",
+      "笔记"
+    ]
+  },
+  {
+    "name": "openlive",
+    "description": "OpenLive（ASH voice-agent 榜 #1，katipally）。实时语音/直播智能体应用。Leading Words: 实时语音, 直播智能体, openlive",
+    "category": "07_智能体框架与协同",
+    "folder": "openlive",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/openlive",
+    "aliases": [
+      "OpenLive",
+      "直播"
+    ]
+  },
+  {
+    "name": "ppt-image-first",
+    "description": "图像优先 PPT 工作流技能（ASH ppt-presentation 榜 #3，NyxTides）。模糊需求→内容基底→风格预览→定稿规划→可执行生成流程。Leading Words: 图像优先PPT, 风格预览, 幻灯片工作流, image first",
+    "category": "05_多媒体与设计资产",
+    "folder": "ppt-image-first",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ppt-image-first",
+    "aliases": [
+      "图像优先幻灯片"
+    ]
+  },
+  {
+    "name": "chatgpt-specimen-toolbox",
+    "description": "ChatGPT 样本工具箱（ASH authentication 榜 #3）。Leading Words: 样本工具, chatgpt toolbox",
+    "category": "11_API与第三方应用集成",
+    "folder": "chatgpt-specimen-toolbox",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/chatgpt-specimen-toolbox",
+    "aliases": [
+      "样本工具箱"
+    ]
+  },
+  {
+    "name": "streamable-mcp-server-template",
+    "description": "可流式 MCP 服务器模板（ASH authentication 榜 #2，iceener）。Leading Words: MCP模板, 流式服务器, streamable mcp",
+    "category": "11_API与第三方应用集成",
+    "folder": "streamable-mcp-server-template",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/streamable-mcp-server-template",
+    "aliases": [
+      "流式MCP模板"
+    ]
   }
 ]

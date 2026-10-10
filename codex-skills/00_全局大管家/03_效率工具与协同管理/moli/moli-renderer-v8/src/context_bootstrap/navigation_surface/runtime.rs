@@ -1,0 +1,144 @@
+use super::super::history_runtime::{
+    native,
+    state::{history_window_owner, window_has_shared_history},
+};
+use super::super::navigation_entry::{
+    cache_current_history_state, history_entries, history_index, set_history_scroll_restoration,
+};
+use super::accessors::{
+    install_history_prototype_accessors, install_navigation_prototype_accessors,
+};
+use super::*;
+use crate::context_bootstrap::navigation_entry::wrappers as entry_wrappers;
+use crate::native_bridge::NavigationHistoryEntrySeed;
+use crate::util::get_private_value;
+use crate::web_api_interfaces;
+use moli_webapi_declare::WebApiObject;
+
+#[derive(WebApiObject)]
+#[webapi(interface = web_api_interfaces::History)]
+struct HistoryRuntimeObjectDeclaration {}
+
+#[derive(WebApiObject)]
+#[webapi(interface = web_api_interfaces::Navigation)]
+struct NavigationRuntimeObjectDeclaration<'scope> {
+    #[webapi(slot = NAVIGATION_CURRENT_ENTRY_SLOT)]
+    current_entry: v8::Local<'scope, v8::Object>,
+
+    #[webapi(data_property = "onnavigate", init = "null")]
+    onnavigate: (),
+
+    #[webapi(data_property = "onnavigatesuccess", init = "null")]
+    onnavigatesuccess: (),
+
+    #[webapi(data_property = "onnavigateerror", init = "null")]
+    onnavigateerror: (),
+
+    #[webapi(data_property = "oncurrententrychange", init = "null")]
+    oncurrententrychange: (),
+}
+
+pub(in crate::context_bootstrap) fn build_history_runtime_state<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    window: v8::Local<'s, v8::Object>,
+    initial_seed: &NavigationHistoryEntrySeed,
+) -> Result<v8::Local<'s, v8::Object>> {
+    if let Some(prototype) = global_constructor_prototype(scope, "History") {
+        install_history_prototype_accessors(scope, prototype);
+    }
+    let record = if window_has_shared_history(scope, window) {
+        let owner = history_window_owner(scope, window);
+        super::super::navigation_window::window_history_for_holder(scope, owner)
+            .and_then(|history| native::history(scope, history))
+            .ok_or_else(|| {
+                anyhow::anyhow!("isolated History is missing its native Window history")
+            })?
+    } else {
+        let records = build_history_entries_from_seed(initial_seed);
+        std::rc::Rc::new(std::cell::RefCell::new(moli_history::WindowHistory::new(
+            records,
+            initial_seed.current_index,
+        )))
+    };
+    let history = HistoryRuntimeObjectDeclaration::new()
+        .bind(scope)
+        .map_err(anyhow::Error::from)?;
+    native::bind_history(scope, history, record);
+    Ok(history)
+}
+
+pub(in crate::context_bootstrap) fn build_navigation_runtime_state<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    window: v8::Local<'s, v8::Object>,
+    initial_seed: &NavigationHistoryEntrySeed,
+) -> Result<v8::Local<'s, v8::Object>> {
+    if let Some(prototype) = global_constructor_prototype(scope, "Navigation") {
+        install_navigation_prototype_accessors(scope, prototype);
+    }
+    let current_entry = window_runtime_object(scope, window, WINDOW_HISTORY_SLOT)
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .and_then(|history| {
+            let entries = history_entries(scope, history)?;
+            let index = history_index(scope, history);
+            let owner = history_window_owner(scope, window);
+            entries
+                .get(index as usize)
+                .map(|entry| entry_wrappers::for_window(scope, owner, entry.clone()))
+        })
+        .unwrap_or_else(|| {
+            build_current_navigation_entry_from_seed(
+                scope,
+                window,
+                initial_seed,
+                v8::null(scope).into(),
+            )
+        });
+    let navigation = NavigationRuntimeObjectDeclaration::new(current_entry)
+        .bind(scope)
+        .map_err(anyhow::Error::from)?;
+    super::media_queries::install_simple_event_target_methods(
+        scope,
+        navigation,
+        NAVIGATION_EVENT_LISTENERS_SLOT,
+        false,
+    );
+    super::super::shared_event_targets::install_handlers(scope, navigation, false);
+    let owner = history_window_owner(scope, window);
+    if window_has_shared_history(scope, window)
+        && let Some(canonical) =
+            super::super::navigation_window::window_navigation_for_holder(scope, owner)
+    {
+        super::super::shared_event_targets::bind_shared_target(scope, navigation, canonical);
+    }
+    install_navigation_activation_runtime_state(
+        scope,
+        navigation,
+        current_entry,
+        initial_seed.activation.as_ref(),
+    );
+    Ok(navigation)
+}
+
+fn window_runtime_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    window: v8::Local<'s, v8::Object>,
+    slot: &'static str,
+) -> Option<v8::Local<'s, v8::Value>> {
+    get_private_value(scope, window, slot).filter(|value| !value.is_undefined())
+}
+
+pub(in crate::context_bootstrap) fn install_history_scroll_restoration_runtime_state<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    history: v8::Local<'s, v8::Object>,
+    value: &str,
+) {
+    set_history_scroll_restoration(scope, history, value);
+}
+
+pub(in crate::context_bootstrap) fn install_history_state_runtime_state<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    history: v8::Local<'s, v8::Object>,
+    state: v8::Local<'s, v8::Value>,
+) {
+    cache_current_history_state(scope, history, state);
+}

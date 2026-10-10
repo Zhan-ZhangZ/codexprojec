@@ -1,0 +1,519 @@
+import type { Conversation } from '../types';
+import { toProviderRuntimeModelId } from './modelSelection';
+import { ProviderRegistry } from './ProviderRegistry';
+import {
+  ensureProviderProjectionMap,
+  normalizeProviderProjectionMap,
+  type ProviderProjectionKey,
+  type ProviderProjectionMap,
+} from './settings/ProviderProjectionMap';
+import type { ProviderId, ProviderModelPolicy, ProviderPermissionModePolicy } from './types';
+
+export interface SettingsReconciliationResult {
+  changed: boolean;
+  environmentChangedProviderIds: ProviderId[];
+  sessionInvalidationProviderIds: ProviderId[];
+  invalidatedConversations: Conversation[];
+}
+
+export interface ReconcileProviderSettingsOptions {
+  invalidateConversations?: boolean;
+}
+
+const PROJECTION_KEYS = new Set([
+  'model',
+  'effortLevel',
+  'serviceTier',
+  'permissionMode',
+]);
+
+function getSettingsProviderId(settings: Record<string, unknown>): ProviderId {
+  return ProviderRegistry.resolveSettingsProviderId(settings);
+}
+
+function cloneProviderSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...settings,
+    savedProviderModel: normalizeProviderProjectionMap(settings.savedProviderModel),
+    savedProviderEffort: normalizeProviderProjectionMap(settings.savedProviderEffort),
+    savedProviderServiceTier: normalizeProviderProjectionMap(settings.savedProviderServiceTier),
+    savedProviderPermissionMode: normalizeProviderProjectionMap(settings.savedProviderPermissionMode),
+  };
+}
+
+/** Keeps a known value, migrates a retired one, and fails any other stored value closed. */
+function normalizeStoredPermissionMode(
+  policy: ProviderPermissionModePolicy,
+  value: unknown,
+  settings: Record<string, unknown>,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string' && policy.values.includes(value)) return value;
+  const migrated = typeof value === 'string' ? policy.migrateValue?.(value, settings) : undefined;
+  return migrated !== undefined && policy.values.includes(migrated) ? migrated : policy.fallbackValue;
+}
+
+function normalizeToggleValue(
+  value: unknown,
+  allowedValues: Set<string>,
+): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  return allowedValues.has(value) ? value : undefined;
+}
+
+function mergeProviderSettings(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (PROJECTION_KEYS.has(key)) {
+      continue;
+    }
+    target[key] = value;
+  }
+}
+
+function normalizeReasoningValue(
+  uiConfig: ProviderModelPolicy,
+  settings: Record<string, unknown>,
+  model: string,
+  value: unknown,
+): string {
+  const allowedValues = new Set(uiConfig.getReasoningOptions(model, settings).map(option => option.value));
+  if (typeof value === 'string' && allowedValues.has(value)) {
+    return value;
+  }
+  return uiConfig.getDefaultReasoningValue(model, settings);
+}
+
+function normalizeProviderModel(
+  uiConfig: ProviderModelPolicy,
+  settings: Record<string, unknown>,
+  model: string | undefined,
+): string | undefined {
+  if (!model) {
+    return undefined;
+  }
+  return uiConfig.normalizeModelVariant(model, settings);
+}
+
+function normalizeServiceTier(
+  uiConfig: ProviderModelPolicy,
+  settings: Record<string, unknown>,
+): void {
+  const toggle = uiConfig.getServiceTierPolicy?.(settings) ?? null;
+  settings.serviceTier = toggle
+    ? (toggle.isActive ? toggle.activeValue : toggle.inactiveValue)
+    : 'default';
+}
+
+function normalizeModelDependentSettings(
+  uiConfig: ProviderModelPolicy,
+  settings: Record<string, unknown>,
+  model: string,
+): void {
+  if (uiConfig.supportsReasoningEffort(model, settings)) {
+    settings.effortLevel = normalizeReasoningValue(
+      uiConfig,
+      settings,
+      model,
+      settings.effortLevel,
+    );
+  }
+
+  normalizeServiceTier(uiConfig, settings);
+}
+
+export class ProviderSettingsCoordinator {
+  static applyTitleGenerationModelSelection(
+    settings: Record<string, unknown>,
+    model: string,
+  ): void {
+    settings.titleGenerationModel = model;
+  }
+
+  static projectModelSelection(
+    settings: Record<string, unknown>,
+    providerId: ProviderId,
+    model: string,
+  ): void {
+    const uiConfig = ProviderRegistry.getModelPolicy(providerId);
+    settings.model = model;
+    uiConfig.applyModelProjectionDefaults?.(model, settings);
+    normalizeModelDependentSettings(uiConfig, settings, model);
+  }
+
+  static handleEnvironmentChange(
+    settings: Record<string, unknown>,
+    providerIds: ProviderId[],
+  ): boolean {
+    let anyChanged = false;
+    for (const providerId of providerIds) {
+      const reconciler = ProviderRegistry.getSettingsReconciler(providerId);
+      if (reconciler.handleEnvironmentChange?.(settings)) {
+        anyChanged = true;
+      }
+    }
+    return anyChanged;
+  }
+
+  static reconcileTitleGenerationModelSelection(settings: Record<string, unknown>): boolean {
+    const currentModel = typeof settings.titleGenerationModel === 'string'
+      ? settings.titleGenerationModel
+      : '';
+    if (!currentModel) {
+      return false;
+    }
+
+    const selection = ProviderRegistry.resolveTitleGenerationSelection(settings);
+    if (!selection) return false;
+    const { providerId, model: normalizedModel } = selection;
+    if (normalizedModel === currentModel
+      || toProviderRuntimeModelId(providerId, normalizedModel) !== toProviderRuntimeModelId(providerId, currentModel)) return false;
+    settings.titleGenerationModel = normalizedModel;
+    return true;
+  }
+
+  static normalizeProviderSelection(settings: Record<string, unknown>): boolean {
+    const next = getSettingsProviderId(settings);
+
+    if (settings.settingsProvider === next) {
+      return false;
+    }
+
+    settings.settingsProvider = next;
+    return true;
+  }
+
+  static canApplyProviderEnablement(
+    settings: Record<string, unknown>,
+    providerId: ProviderId,
+    enabled: boolean,
+  ): boolean {
+    return enabled
+      || !ProviderRegistry.isEnabled(providerId, settings)
+      || ProviderRegistry.getEnabledProviderIds(settings).length > 1;
+  }
+
+  static applyProviderEnablement(
+    settings: Record<string, unknown>,
+    providerId: ProviderId,
+    enabled: boolean,
+  ): boolean {
+    if (!this.canApplyProviderEnablement(settings, providerId, enabled)) {
+      return false;
+    }
+
+    const previousProviderId = getSettingsProviderId(settings);
+    if (!enabled && previousProviderId === providerId) {
+      this.persistProjectedProviderState(settings, providerId);
+    }
+
+    ProviderRegistry.setEnabled(providerId, settings, enabled);
+    if (this.normalizeProviderSelection(settings)) {
+      this.projectActiveProviderState(settings);
+    }
+    this.reconcileTitleGenerationModelSelection(settings);
+    return true;
+  }
+
+  static getProviderSettingsSnapshot<T extends Record<string, unknown>>(
+    settings: T,
+    providerId: ProviderId,
+  ): T {
+    const snapshot = cloneProviderSettings(settings) as T;
+    this.projectProviderState(snapshot, providerId);
+    return snapshot;
+  }
+
+  /** Commit only this provider's changed execution preferences. Projections are read models. */
+  static commitProviderSettingsChange(
+    settings: Record<string, unknown>,
+    providerId: ProviderId,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ): void {
+    const fields = {
+      model: 'savedProviderModel', effortLevel: 'savedProviderEffort',
+      serviceTier: 'savedProviderServiceTier', permissionMode: 'savedProviderPermissionMode',
+    } as const;
+    for (const [field, savedKey] of Object.entries(fields)) {
+      if (before[field] === after[field]) continue;
+      const saved = ensureProviderProjectionMap(settings, savedKey);
+      if (typeof after[field] === 'string') saved[providerId] = after[field];
+      else delete saved[providerId];
+    }
+    const configs = after.providerConfigs as Record<string, unknown> | undefined;
+    if (configs && JSON.stringify(configs[providerId]) !== JSON.stringify(
+      (before.providerConfigs as Record<string, unknown> | undefined)?.[providerId],
+    )) {
+      settings.providerConfigs = {
+        ...settings.providerConfigs as Record<string, unknown>,
+        [providerId]: structuredClone(configs[providerId]),
+      };
+    }
+    if (getSettingsProviderId(settings) === providerId) this.projectProviderState(settings, providerId);
+  }
+
+  static persistProjectedProviderState(
+    settings: Record<string, unknown>,
+    providerId: ProviderId = getSettingsProviderId(settings),
+  ): void {
+    const savedModel = ensureProviderProjectionMap(settings, 'savedProviderModel');
+    const savedEffort = ensureProviderProjectionMap(settings, 'savedProviderEffort');
+    const savedServiceTier = ensureProviderProjectionMap(settings, 'savedProviderServiceTier');
+    const savedPermissionMode = ensureProviderProjectionMap(settings, 'savedProviderPermissionMode');
+    const uiConfig = ProviderRegistry.getModelPolicy(providerId);
+    const normalizedModel = normalizeProviderModel(
+      uiConfig,
+      settings,
+      typeof settings.model === 'string' ? settings.model : undefined,
+    );
+    const projectedSettings = normalizedModel && normalizedModel !== settings.model
+      ? { ...settings, model: normalizedModel }
+      : settings;
+
+    if (normalizedModel) {
+      savedModel[providerId] = normalizedModel;
+    }
+    if (typeof settings.effortLevel === 'string') {
+      savedEffort[providerId] = settings.effortLevel;
+    } else {
+      delete savedEffort[providerId];
+    }
+    const serviceTierToggle = uiConfig.getServiceTierPolicy?.(projectedSettings) ?? null;
+    if (serviceTierToggle && typeof settings.serviceTier === 'string') {
+      savedServiceTier[providerId] = settings.serviceTier;
+    }
+    if (typeof settings.permissionMode === 'string' && uiConfig.permissionModes) {
+      savedPermissionMode[providerId] = settings.permissionMode;
+    }
+  }
+
+  static projectProviderState(
+    settings: Record<string, unknown>,
+    providerId: ProviderId,
+  ): void {
+    const uiConfig = ProviderRegistry.getModelPolicy(providerId);
+    const projection = (key: ProviderProjectionKey): ProviderProjectionMap => (
+      normalizeProviderProjectionMap(settings[key])
+    );
+    const savedModel = projection('savedProviderModel');
+    const savedEffort = projection('savedProviderEffort');
+    const savedServiceTier = projection('savedProviderServiceTier');
+    const savedPermissionMode = projection('savedProviderPermissionMode');
+
+    const shouldPreferCurrentProjection = providerId === getSettingsProviderId(settings);
+    const currentModelRaw = typeof settings.model === 'string' ? settings.model : '';
+    const currentModel = shouldPreferCurrentProjection
+      ? (normalizeProviderModel(uiConfig, settings, currentModelRaw) ?? '')
+      : currentModelRaw;
+    const currentEffort = typeof settings.effortLevel === 'string' ? settings.effortLevel : undefined;
+    const currentServiceTier = typeof settings.serviceTier === 'string' ? settings.serviceTier : undefined;
+    const modelOptions = uiConfig.getModelOptions(settings);
+    const isDefaultModelOfAnotherProvider = currentModel.length > 0
+      && ProviderRegistry.getRegisteredProviderIds()
+        .filter(id => id !== providerId)
+        .some(id => ProviderRegistry.getModelPolicy(id).isDefaultModel(currentModel));
+    const canReuseCurrentModel = currentModel.length > 0
+      && !isDefaultModelOfAnotherProvider
+      && (
+        shouldPreferCurrentProjection
+        || modelOptions.some(option => option.value === currentModel)
+      );
+    const providerDefaultModel = uiConfig.getDefaultModel?.(settings) ?? null;
+    const validProviderDefaultModel = providerDefaultModel
+      && modelOptions.some(option => option.value === providerDefaultModel)
+      ? providerDefaultModel
+      : null;
+    const fallbackModel = canReuseCurrentModel
+      ? currentModel
+      : (validProviderDefaultModel ?? modelOptions[0]?.value ?? currentModel);
+    const savedModelValue = normalizeProviderModel(uiConfig, settings, savedModel?.[providerId]);
+    const model = savedModelValue ?? fallbackModel;
+    const canReuseCurrentProjection = canReuseCurrentModel && model === currentModel;
+
+    if (model) {
+      settings.model = model;
+      if (uiConfig.applyModelProjectionDefaults) {
+        uiConfig.applyModelProjectionDefaults(model, settings);
+      } else {
+        uiConfig.applyModelDefaults(model, settings);
+      }
+    }
+
+    const serviceTierToggle = uiConfig.getServiceTierPolicy?.({
+      ...settings,
+      ...(model ? { model } : {}),
+    }) ?? null;
+
+    const supportsEffort = Boolean(model) && uiConfig.supportsReasoningEffort(model, settings);
+    const acceptsEffortProjection = supportsEffort
+      || Object.prototype.hasOwnProperty.call(settings, 'effortLevel');
+
+    if (acceptsEffortProjection) {
+      if (savedEffort?.[providerId] !== undefined) {
+        settings.effortLevel = savedEffort[providerId];
+      } else if (canReuseCurrentProjection && currentEffort !== undefined) {
+        settings.effortLevel = currentEffort;
+      } else if (supportsEffort) {
+        settings.effortLevel = uiConfig.getDefaultReasoningValue(model, settings);
+      }
+
+      if (supportsEffort) {
+        settings.effortLevel = normalizeReasoningValue(uiConfig, settings, model, settings.effortLevel);
+      }
+    } else {
+      delete settings.effortLevel;
+    }
+
+    if (savedServiceTier?.[providerId] !== undefined) {
+      settings.serviceTier = savedServiceTier[providerId];
+    } else if (canReuseCurrentProjection && currentServiceTier !== undefined) {
+      settings.serviceTier = currentServiceTier;
+    } else {
+      settings.serviceTier = serviceTierToggle?.inactiveValue ?? 'default';
+    }
+
+    const permissionPolicy = uiConfig.permissionModes ?? null;
+    if (!permissionPolicy) {
+      return;
+    }
+
+    const currentPermissionMode = normalizeStoredPermissionMode(permissionPolicy, settings.permissionMode, settings);
+    const derivedPermissionMode = normalizeToggleValue(
+      uiConfig.resolvePermissionMode?.(settings),
+      new Set(permissionPolicy.values),
+    );
+    const savedPermissionModeValue = normalizeStoredPermissionMode(
+      permissionPolicy,
+      savedPermissionMode?.[providerId],
+      settings,
+    );
+
+    const projectedPermissionMode = savedPermissionModeValue
+      ?? derivedPermissionMode
+      ?? (shouldPreferCurrentProjection || settings.settingsProvider === providerId ? currentPermissionMode : undefined)
+      ?? normalizeToggleValue(permissionPolicy.defaultValue, new Set(permissionPolicy.values))
+      ?? currentPermissionMode;
+
+    if (projectedPermissionMode !== undefined) {
+      settings.permissionMode = projectedPermissionMode;
+    }
+  }
+
+  static reconcileProviders(
+    settings: Record<string, unknown>,
+    conversations: Conversation[],
+    providerIds: ProviderId[],
+    options: ReconcileProviderSettingsOptions = {},
+  ): SettingsReconciliationResult {
+    let anyChanged = false;
+    const allInvalidated: Conversation[] = [];
+    const environmentChangedProviderIds: ProviderId[] = [];
+    const sessionInvalidationProviderIds: ProviderId[] = [];
+    const settingsProvider = getSettingsProviderId(settings);
+
+    for (const providerId of providerIds) {
+      const reconciler = ProviderRegistry.getSettingsReconciler(providerId);
+      const providerConversations = conversations.filter(c => c.providerId === providerId);
+      const reconciliationConversations = options.invalidateConversations === false
+        ? []
+        : providerConversations;
+      const targetSettings = providerId === settingsProvider
+        ? settings
+        : cloneProviderSettings(settings);
+
+      if (providerId !== settingsProvider) {
+        this.projectProviderState(targetSettings, providerId);
+      }
+
+      const { changed, invalidatedConversations } = reconciler.reconcileModelWithEnvironment(
+        targetSettings,
+        reconciliationConversations,
+      );
+
+      if (changed) {
+        anyChanged = true;
+        environmentChangedProviderIds.push(providerId);
+        if ((reconciler.environmentSessionPolicy ?? 'invalidate') === 'invalidate') {
+          sessionInvalidationProviderIds.push(providerId);
+        }
+        this.persistProjectedProviderState(targetSettings, providerId);
+        if (providerId !== settingsProvider) {
+          mergeProviderSettings(settings, targetSettings);
+        }
+      }
+      if (options.invalidateConversations !== false) {
+        allInvalidated.push(...invalidatedConversations);
+      }
+    }
+
+    if (this.reconcileTitleGenerationModelSelection(settings)) {
+      anyChanged = true;
+    }
+
+    return {
+      changed: anyChanged,
+      environmentChangedProviderIds,
+      sessionInvalidationProviderIds,
+      invalidatedConversations: allInvalidated,
+    };
+  }
+
+  static invalidateConversationSessions(
+    conversations: Conversation[],
+    providerIds: ProviderId[],
+  ): Conversation[] {
+    const invalidatedConversations: Conversation[] = [];
+    for (const providerId of new Set(providerIds)) {
+      const providerConversations = conversations.filter(c => c.providerId === providerId);
+      invalidatedConversations.push(
+        ...ProviderRegistry.getSettingsReconciler(providerId)
+          .invalidateConversationSessions(providerConversations),
+      );
+    }
+    return invalidatedConversations;
+  }
+
+  static normalizeAllModelVariants(settings: Record<string, unknown>): boolean {
+    let anyChanged = false;
+    const settingsProvider = getSettingsProviderId(settings);
+
+    for (const providerId of ProviderRegistry.getRegisteredProviderIds()) {
+      const reconciler = ProviderRegistry.getSettingsReconciler(providerId);
+      const targetSettings = providerId === settingsProvider
+        ? settings
+        : cloneProviderSettings(settings);
+
+      if (providerId !== settingsProvider) {
+        this.projectProviderState(targetSettings, providerId);
+      }
+
+      const changed = reconciler.normalizeModelVariantSettings?.(targetSettings);
+      if (changed) {
+        anyChanged = true;
+        this.persistProjectedProviderState(targetSettings, providerId);
+        if (providerId !== settingsProvider) {
+          mergeProviderSettings(settings, targetSettings);
+        }
+      }
+    }
+
+    if (this.reconcileTitleGenerationModelSelection(settings)) {
+      anyChanged = true;
+    }
+    return anyChanged;
+  }
+
+  /**
+   * Project the settings provider's saved values into the top-level
+   * model/effortLevel fields.
+   */
+  static projectActiveProviderState(settings: Record<string, unknown>): void {
+    this.projectProviderState(settings, getSettingsProviderId(settings));
+  }
+}

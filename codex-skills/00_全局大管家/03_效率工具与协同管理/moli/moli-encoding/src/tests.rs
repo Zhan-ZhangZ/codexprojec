@@ -1,0 +1,1417 @@
+use std::borrow::Cow;
+
+use encoding_rs::Encoding;
+
+use super::*;
+use moli_charset_parser::HTML_META_CHARSET_PRESCAN_LIMIT;
+
+fn gbk_bytes(input: &str) -> Vec<u8> {
+    encoding_rs::GBK.encode(input).0.into_owned()
+}
+
+fn test_legacy_encoding_detector(
+    bytes: &[u8],
+    url_hint: Option<&str>,
+) -> Option<&'static Encoding> {
+    (!bytes.is_empty() && url_hint == Some("https://legacy.example/"))
+        .then_some(encoding_rs::IBM866)
+}
+
+fn unexpected_legacy_encoding_detector(
+    _bytes: &[u8],
+    _url_hint: Option<&str>,
+) -> Option<&'static Encoding> {
+    panic!("declared encoding must take precedence over heuristic detection")
+}
+
+#[test]
+fn xml_document_ignores_html_meta_across_chunk_splits() {
+    for declaration in ["", "<?xml version='1.0' encoding='UTF-8'?>"] {
+        for meta in [
+            "<meta charset='windows-1252'/>",
+            "<meta http-equiv='content-type' content='text/html; charset=windows-1252'/>",
+        ] {
+            let source = format!("{declaration}<root>{meta}<value>café</value></root>");
+            assert_xml_document_decodes_across_chunk_splits(
+                &[],
+                source.as_bytes(),
+                &source,
+                "UTF-8",
+            );
+        }
+    }
+}
+
+fn assert_xml_document_decodes_across_chunk_splits(
+    headers: &[(String, Vec<u8>)],
+    bytes: &[u8],
+    source: &str,
+    encoding: &str,
+) {
+    for split in 0..=bytes.len() {
+        let mut decoder = DocumentStreamingDecoder::new_xml_document(headers);
+        let mut decoded = decoder.push(&bytes[..split]).concat();
+        decoded.push_str(&decoder.push(&bytes[split..]).concat());
+        decoded.push_str(&decoder.finish().unwrap_or_default());
+        assert_eq!(decoded, source, "{encoding}: split {split}");
+        assert_eq!(decoder.document_encoding_name(), encoding, "split {split}");
+    }
+    let mut decoder = DocumentStreamingDecoder::new_xml_document(headers);
+    let mut decoded = String::new();
+    for byte in bytes {
+        decoded.push_str(&decoder.push(std::slice::from_ref(byte)).concat());
+    }
+    decoded.push_str(&decoder.finish().unwrap_or_default());
+    assert_eq!(decoded, source, "{encoding}: single-byte chunks");
+    assert_eq!(decoder.document_encoding_name(), encoding);
+}
+
+#[test]
+fn xml_document_preserves_encoding_precedence_across_chunk_splits() {
+    let source = "<?xml version='1.0' encoding='windows-1252'?>\
+                  <root><meta charset='UTF-8'/><value>café</value></root>";
+    let legacy = encoding_rs::WINDOWS_1252.encode(source).0.into_owned();
+    assert_xml_document_decodes_across_chunk_splits(&[], &legacy, source, "windows-1252");
+
+    let headers = [(
+        "Content-Type".to_owned(),
+        b"application/xml; charset=utf-8".to_vec(),
+    )];
+    assert_xml_document_decodes_across_chunk_splits(&headers, source.as_bytes(), source, "UTF-8");
+
+    let headers = [(
+        "Content-Type".to_owned(),
+        b"application/xml; charset=windows-1252".to_vec(),
+    )];
+    let bom_body = [b"\xef\xbb\xbf".as_slice(), source.as_bytes()].concat();
+    assert_xml_document_decodes_across_chunk_splits(&headers, &bom_body, source, "UTF-8");
+
+    let source = "<?xml version='1.0' encoding='UTF-16'?>\
+                  <root><meta charset='windows-1252'/><value>café</value></root>";
+    for (bytes, bom, encoding) in [
+        (utf16le_bytes(source), [0xff, 0xfe], "UTF-16LE"),
+        (utf16be_bytes(source), [0xfe, 0xff], "UTF-16BE"),
+    ] {
+        assert_xml_document_decodes_across_chunk_splits(&[], &bytes, source, encoding);
+        let bom_body = [bom.as_slice(), &bytes].concat();
+        assert_xml_document_decodes_across_chunk_splits(&headers, &bom_body, source, encoding);
+    }
+}
+
+#[test]
+fn xml_document_ignores_encoding_attributes_in_processing_instructions() {
+    let source = "<?xml-stylesheet encoding='windows-1252'?>\
+                  <root><value>café</value></root>";
+    assert_xml_document_decodes_across_chunk_splits(&[], source.as_bytes(), source, "UTF-8");
+}
+
+#[test]
+fn xml_document_selects_encoding_at_the_end_of_its_declaration() {
+    let mut decoder = DocumentStreamingDecoder::new_xml_document(&[]);
+    let mut decoded = decoder
+        .push(b"<?xml version='1.0' encoding='windows-")
+        .concat();
+    assert_eq!(decoder.selected_encoding_name(), None);
+    decoded.push_str(&decoder.push(b"1252'?>").concat());
+    assert_eq!(decoder.selected_encoding_name(), Some("windows-1252"));
+    decoded.push_str(&decoder.push(b"<root>caf\xe9</root>").concat());
+    decoded.push_str(&decoder.finish().unwrap_or_default());
+    assert_eq!(
+        decoded,
+        "<?xml version='1.0' encoding='windows-1252'?><root>café</root>"
+    );
+}
+
+#[test]
+fn xml_document_finishes_empty_or_incomplete_declarations_with_utf8() {
+    for source in [
+        "",
+        "<",
+        "<?xml",
+        "<?xml version='1.0' encoding='windows-1252'",
+    ] {
+        assert_xml_document_decodes_across_chunk_splits(&[], source.as_bytes(), source, "UTF-8");
+    }
+}
+
+// Chromium a03603fe9af6230a12f1b2fb2c18a7d003a0d937:
+// third_party/blink/renderer/core/html/parser/text_resource_decoder_test.cc,
+// XMLDeclPieces. Also exercise the XML/Text policies with the same byte stream.
+#[test]
+fn chromium_xml_declaration_pieces_follow_the_document_policy() {
+    let source = b"<?xml encoding='utf-8'?>foo";
+    for (mut decoder, expected_encoding) in [
+        (DocumentStreamingDecoder::new(&[]), "UTF-8"),
+        (DocumentStreamingDecoder::new_xml_document(&[]), "UTF-8"),
+        (
+            DocumentStreamingDecoder::new_text_document(
+                &[],
+                "https://example.test/",
+                test_legacy_encoding_detector,
+                false,
+                None,
+            ),
+            "windows-1252",
+        ),
+    ] {
+        let mut decoded = String::new();
+        for byte in source {
+            decoded.push_str(&decoder.push(std::slice::from_ref(byte)).concat());
+        }
+        decoded.push_str(&decoder.finish().unwrap_or_default());
+        assert_eq!(decoded.as_bytes(), source);
+        assert_eq!(decoder.document_encoding_name(), expected_encoding);
+    }
+}
+
+// Chromium text_resource_decoder_test.cc, BrokenBOMs (revision above).
+#[test]
+fn chromium_plain_text_broken_boms_are_flushed_with_the_default_encoding() {
+    for (bytes, expected) in [
+        (b"\xef\xbb".as_slice(), "ï»"),
+        (b"\xff", "ÿ"),
+        (b"\xfe", "þ"),
+    ] {
+        let mut decoder = DocumentStreamingDecoder::new_text_document(
+            &[],
+            "https://example.test/",
+            test_legacy_encoding_detector,
+            false,
+            None,
+        );
+        for byte in bytes {
+            assert!(decoder.push(std::slice::from_ref(byte)).is_empty());
+        }
+        assert_eq!(decoder.finish().as_deref(), Some(expected));
+        assert_eq!(decoder.document_encoding_name(), "windows-1252");
+    }
+}
+
+// Adapt Chromium fast/encoding/bom-in-content{,-utf16}.html to the XML policy.
+#[test]
+fn chromium_bom_in_content_is_preserved_by_xml_decoding() {
+    let source = "<?xml version='1.0'?><root>\u{feff}</root>";
+    for (bytes, bom, encoding) in [
+        (
+            source.as_bytes().to_vec(),
+            b"\xef\xbb\xbf".as_slice(),
+            "UTF-8",
+        ),
+        (utf16le_bytes(source), b"\xff\xfe", "UTF-16LE"),
+        (utf16be_bytes(source), b"\xfe\xff", "UTF-16BE"),
+    ] {
+        let bytes = [bom, &bytes].concat();
+        assert_xml_document_decodes_across_chunk_splits(&[], &bytes, source, encoding);
+    }
+}
+
+#[test]
+fn json_text_document_defaults_to_utf8_across_every_chunk_split() {
+    let input = "{\"name\":\"Gülçek\"}";
+    for split in 0..=input.len() {
+        let mut decoder = DocumentStreamingDecoder::new_text_document(
+            &[],
+            "https://example.test/",
+            unexpected_legacy_encoding_detector,
+            true,
+            Some("GBK"),
+        );
+        let mut output = decoder.push(&input.as_bytes()[..split]).join("");
+        output.push_str(&decoder.push(&input.as_bytes()[split..]).join(""));
+        output.push_str(&decoder.finish().unwrap_or_default());
+        assert_eq!(output, input, "split {split}");
+        assert_eq!(decoder.selected_encoding_name(), Some("UTF-8"));
+    }
+}
+
+#[test]
+fn plain_text_document_honors_transport_charset() {
+    let headers = [(
+        "Content-Type".to_owned(),
+        b"text/plain; charset=gbk".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new_text_document(
+        &headers,
+        "https://example.test/",
+        unexpected_legacy_encoding_detector,
+        false,
+        Some("UTF-8"),
+    );
+    let mut output = decoder.push(&gbk_bytes("<b>家居</b>")).join("");
+    output.push_str(&decoder.finish().unwrap_or_default());
+    assert_eq!(output, "<b>家居</b>");
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+}
+
+#[test]
+fn text_document_bom_precedes_transport_charset() {
+    let headers = [(
+        "Content-Type".to_owned(),
+        b"text/plain; charset=gbk".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new_text_document(
+        &headers,
+        "https://example.test/",
+        unexpected_legacy_encoding_detector,
+        false,
+        Some("windows-1251"),
+    );
+    assert_eq!(decoder.document_encoding_name(), "GBK");
+    assert_eq!(decoder.selected_encoding_name(), None);
+    assert!(decoder.push(&[0xef]).is_empty());
+    assert!(decoder.push(&[0xbb]).is_empty());
+    let mut tail = vec![0xbf];
+    tail.extend_from_slice("Gülçek".as_bytes());
+    let mut output = decoder.push(&tail).join("");
+    output.push_str(&decoder.finish().unwrap_or_default());
+    assert_eq!(output, "Gülçek");
+    assert_eq!(decoder.selected_encoding_name(), Some("UTF-8"));
+    assert_eq!(decoder.document_encoding_name(), "UTF-8");
+}
+
+#[test]
+fn plain_text_document_retains_legacy_detection_without_a_charset() {
+    let mut decoder = DocumentStreamingDecoder::new_text_document(
+        &[],
+        "https://legacy.example/",
+        test_legacy_encoding_detector,
+        false,
+        None,
+    );
+    let mut output = decoder.push(&[0x80]).join("");
+    output.push_str(&decoder.finish().unwrap_or_default());
+    assert_eq!(output, "А");
+    assert_eq!(decoder.selected_encoding_name(), Some("IBM866"));
+}
+
+#[test]
+fn plain_text_document_inherits_encoding_before_detection_across_chunk_splits() {
+    for (input, encoding) in [
+        ("plain ASCII", encoding_rs::UTF_8),
+        ("<meta charset=gbk>吴姓－姓氏渊源", encoding_rs::UTF_8),
+        ("<?xml encoding='utf-8'?>家居", encoding_rs::GBK),
+    ] {
+        let bytes = encoding.encode(input).0;
+        for split in 0..=bytes.len() {
+            let mut decoder = DocumentStreamingDecoder::new_text_document(
+                &[],
+                "https://example.test/",
+                unexpected_legacy_encoding_detector,
+                false,
+                Some(encoding.name()),
+            );
+            assert_eq!(decoder.document_encoding_name(), encoding.name());
+            let mut output = decoder.push(&bytes[..split]).concat();
+            output.push_str(&decoder.push(&bytes[split..]).concat());
+            output.push_str(&decoder.finish().unwrap_or_default());
+            assert_eq!(output, input, "{} split {split}", encoding.name());
+            assert_eq!(decoder.selected_encoding_name(), Some(encoding.name()));
+        }
+    }
+}
+
+#[test]
+fn invalid_inherited_text_encoding_does_not_disable_detection() {
+    let mut decoder = DocumentStreamingDecoder::new_text_document(
+        &[],
+        "https://legacy.example/",
+        test_legacy_encoding_detector,
+        false,
+        Some("not-an-encoding"),
+    );
+    let mut output = decoder.push(&[0x80]).concat();
+    output.push_str(&decoder.finish().unwrap_or_default());
+    assert_eq!(output, "А");
+    assert_eq!(decoder.selected_encoding_name(), Some("IBM866"));
+}
+
+#[test]
+fn plain_text_document_ignores_literal_encoding_declarations() {
+    for prefix in [
+        "<meta charset=utf-8>",
+        "<?xml version='1.0' encoding='utf-8'?>",
+    ] {
+        let mut input = prefix.as_bytes().to_vec();
+        input.push(0xe9);
+        let mut decoder = DocumentStreamingDecoder::new_text_document(
+            &[],
+            "https://example.test/",
+            test_legacy_encoding_detector,
+            false,
+            None,
+        );
+        let mut output = decoder.push(&input).join("");
+        output.push_str(&decoder.finish().unwrap_or_default());
+        assert_eq!(output, format!("{prefix}é"));
+        assert_eq!(decoder.selected_encoding_name(), Some("windows-1252"));
+    }
+}
+
+#[test]
+fn content_type_charset_is_selected() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=gbk".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert_eq!(decoder.push(&gbk_bytes("太平洋")), vec!["太平洋"]);
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+}
+
+#[test]
+fn meta_charset_is_selected_without_header_charset() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let mut input = b"<!doctype html><meta charset=\"gbk\"><p>".to_vec();
+    input.extend_from_slice(&gbk_bytes("家居"));
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert_eq!(
+        decoder.push(&input),
+        vec!["<!doctype html><meta charset=\"gbk\"><p>家居"]
+    );
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+}
+
+#[test]
+fn meta_charset_can_be_split_across_chunks() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert_eq!(
+        decoder.push(b"<!doctype html><meta char"),
+        vec!["<!doctype html><meta char"]
+    );
+    let mut tail = b"set=\"gbk\"><p>".to_vec();
+    tail.extend_from_slice(&gbk_bytes("装修"));
+
+    assert_eq!(decoder.push(&tail), vec!["set=\"gbk\"><p>装修"]);
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+}
+
+#[test]
+fn ascii_prefix_streams_while_charset_sniffing_continues() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert_eq!(
+        decoder.push(b"<!doctype html><script src=\"/gate.js\"></script>"),
+        vec!["<!doctype html><script src=\"/gate.js\"></script>"]
+    );
+    assert_eq!(decoder.selected_encoding_name(), None);
+    assert_eq!(decoder.finish(), None);
+    assert_eq!(decoder.selected_encoding_name(), Some("windows-1252"));
+}
+
+#[test]
+fn later_meta_charset_decodes_unemitted_non_ascii_after_ascii_prefix() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+    let mut tail = b"<meta charset=\"gbk\"><p>".to_vec();
+    tail.extend_from_slice(&gbk_bytes("家居"));
+
+    assert_eq!(decoder.push(b"<!doctype html>"), vec!["<!doctype html>"]);
+    assert_eq!(decoder.push(&tail), vec!["<meta charset=\"gbk\"><p>家居"]);
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+}
+
+#[test]
+fn meta_charset_after_1024_bytes_still_in_head_is_selected() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let mut input = vec![b' '; HTML_META_CHARSET_PRESCAN_LIMIT];
+    input.extend_from_slice(b"<meta charset=\"gbk\"><p>");
+    input.extend_from_slice(&gbk_bytes("家居"));
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    let decoded = decoder.push(&input).join("");
+
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+    assert!(decoded.contains("家居"));
+}
+
+#[test]
+fn meta_charset_crossing_1024_byte_boundary_is_selected_while_in_head() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let partial_meta = b"<meta char";
+    let mut input = vec![b' '; HTML_META_CHARSET_PRESCAN_LIMIT - partial_meta.len()];
+    input.extend_from_slice(partial_meta);
+    input.extend_from_slice(b"set=\"gbk\"><p>");
+    input.extend_from_slice(&gbk_bytes("家居"));
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    let decoded = decoder.push(&input).join("");
+
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+    assert!(decoded.contains("家居"));
+}
+
+#[test]
+fn meta_charset_after_1024_bytes_after_head_is_ignored() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let mut input = b"<body>".to_vec();
+    input.extend(vec![b' '; HTML_META_CHARSET_PRESCAN_LIMIT - input.len()]);
+    input.extend_from_slice(b"<meta charset=\"gbk\"><p>");
+    input.extend_from_slice(&gbk_bytes("家居"));
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    let decoded = decoder.push(&input).join("");
+
+    assert_eq!(decoder.selected_encoding_name(), Some("windows-1252"));
+    assert!(!decoded.contains("家居"));
+}
+
+#[test]
+fn meta_charset_starting_before_1024_bytes_after_head_is_selected() {
+    let headers: Vec<(String, Vec<u8>)> = vec![("Content-Type".to_owned(), b"text/html".to_vec())];
+    let mut input = b"</head>".to_vec();
+    input.extend(vec![
+        b' ';
+        HTML_META_CHARSET_PRESCAN_LIMIT - 1 - input.len()
+    ]);
+    input.extend_from_slice(b"<meta charset=\"gbk\"><p>");
+    input.extend_from_slice(&gbk_bytes("家居"));
+    let mut decoder = DocumentStreamingDecoder::new_with_fallback(&headers, Some("windows-1252"));
+
+    let decoded = decoder.push(&input).join("");
+
+    assert_eq!(decoder.selected_encoding_name(), Some("GBK"));
+    assert!(decoded.contains("家居"));
+}
+
+#[test]
+fn meta_charset_prescan_matches_real_meta_start_tags_only() {
+    use moli_charset_parser::sniff_html_meta_charset;
+
+    assert_eq!(
+        sniff_html_meta_charset(br#"<metadata charset="gbk"><meta charset="utf-8">"#)
+            .map(Encoding::name),
+        Some("UTF-8")
+    );
+    assert_eq!(
+        sniff_html_meta_charset(br#"<metaverse charset="gbk"><p>ok</p>"#),
+        None
+    );
+}
+
+#[test]
+fn meta_charset_prescan_ignores_script_text_and_requires_pragma_for_content() {
+    use moli_charset_parser::sniff_html_meta_charset;
+
+    assert_eq!(
+        sniff_html_meta_charset(
+            br#"<script>document.write('<meta charset="gbk">')</script><meta charset="utf-8">"#
+        )
+        .map(Encoding::name),
+        Some("UTF-8")
+    );
+    assert_eq!(
+        sniff_html_meta_charset(br#"<meta content="text/html; charset=gbk">"#),
+        None
+    );
+    assert_eq!(
+        sniff_html_meta_charset(
+            br#"<meta http-equiv="content-type" content="text/html; charset=gbk">"#
+        ),
+        Some(encoding_rs::GBK)
+    );
+}
+
+#[test]
+fn gbk_multibyte_can_be_split_across_chunks() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=gbk".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert!(decoder.push(&[0xCC]).is_empty());
+    assert_eq!(decoder.push(&[0xAB]), vec!["太"]);
+}
+
+#[test]
+fn bom_wins_over_header_charset() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=gbk".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert_eq!(decoder.push(&[0xEF]), Vec::<String>::new());
+    assert_eq!(decoder.push(&[0xBB]), Vec::<String>::new());
+    assert_eq!(decoder.push(&[0xBF, b'o', b'k']), vec!["ok"]);
+    assert_eq!(decoder.selected_encoding_name(), Some("UTF-8"));
+}
+
+#[test]
+fn unknown_charset_falls_back_to_html_default_on_finish() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=x-unknown".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert_eq!(decoder.push(b"<p>ok"), vec!["<p>ok"]);
+    assert_eq!(decoder.finish(), None);
+    assert_eq!(decoder.selected_encoding_name(), Some("windows-1252"));
+}
+
+#[test]
+fn unlabelled_html_document_without_detector_uses_html_default() {
+    let (text, encoding) = decode_html_document(b"\x80\x80 Hello", &[]);
+
+    assert_eq!(encoding, "windows-1252");
+    assert_eq!(text, "\u{20ac}\u{20ac} Hello");
+}
+
+#[test]
+fn injected_legacy_content_detector_receives_url_hint() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=x-unknown".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new_with_legacy_encoding_detector(
+        &headers,
+        "https://legacy.example/",
+        test_legacy_encoding_detector,
+    );
+    let mut text = decoder.push(b"\x80\x80 Hello").join("");
+    if let Some(tail) = decoder.finish() {
+        text.push_str(&tail);
+    }
+
+    let encoding = decoder
+        .selected_encoding_name()
+        .expect("finishing must select an encoding");
+    assert_eq!(encoding, "IBM866");
+    assert_eq!(text, "\u{410}\u{410} Hello");
+}
+
+#[test]
+fn declared_encodings_precede_injected_legacy_detector() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=gbk".to_vec(),
+    )];
+    let mut header_decoder = DocumentStreamingDecoder::new_with_legacy_encoding_detector(
+        &headers,
+        "https://legacy.example/",
+        unexpected_legacy_encoding_detector,
+    );
+    assert_eq!(header_decoder.push(&gbk_bytes("太平洋")), vec!["太平洋"]);
+
+    let mut meta_decoder = DocumentStreamingDecoder::new_with_legacy_encoding_detector(
+        &[],
+        "https://legacy.example/",
+        unexpected_legacy_encoding_detector,
+    );
+    let mut input = b"<meta charset=\"gbk\">".to_vec();
+    input.extend_from_slice(&gbk_bytes("太平洋"));
+    assert_eq!(
+        meta_decoder.push(&input),
+        vec!["<meta charset=\"gbk\">太平洋"]
+    );
+}
+
+#[test]
+fn explicit_fallback_keeps_core_decoder_deterministic() {
+    let (text, encoding) =
+        decode_html_document_with_fallback(b"\x80\x80 Hello", &[], Some("windows-1252"));
+
+    assert_eq!(encoding, "windows-1252");
+    assert_eq!(text, "\u{20ac}\u{20ac} Hello");
+}
+
+#[test]
+fn no_label_html_document_can_inherit_parent_fallback() {
+    let (text, encoding) = decode_html_document_with_fallback(&gbk_bytes("家居"), &[], Some("GBK"));
+
+    assert_eq!(encoding, "GBK");
+    assert_eq!(text, "家居");
+}
+
+#[test]
+fn utf32_little_endian_bom_is_treated_as_utf16le_bom() {
+    let (text, encoding) = decode_html_document(&[0xFF, 0xFE, 0x00, 0x00, b'<', 0x00], &[]);
+
+    assert_eq!(encoding, "UTF-16LE");
+    assert!(text.starts_with('\0'));
+}
+
+#[test]
+fn document_decoding_removes_only_one_bom() {
+    let (utf8_text, utf8_encoding) =
+        decode_html_document(&[0xEF, 0xBB, 0xBF, 0xEF, 0xBB, 0xBF], &[]);
+    let (utf16le_text, utf16le_encoding) = decode_html_document(&[0xFF, 0xFE, 0xFF, 0xFE], &[]);
+    let (utf16be_text, utf16be_encoding) = decode_html_document(&[0xFE, 0xFF, 0xFE, 0xFF], &[]);
+
+    assert_eq!(utf8_encoding, "UTF-8");
+    assert_eq!(utf8_text, "\u{feff}");
+    assert_eq!(utf16le_encoding, "UTF-16LE");
+    assert_eq!(utf16le_text, "\u{feff}");
+    assert_eq!(utf16be_encoding, "UTF-16BE");
+    assert_eq!(utf16be_text, "\u{feff}");
+}
+
+#[test]
+fn form_submission_uses_first_valid_accept_charset_label() {
+    let encoding = form_submission_encoding(Some("unknown iso-8859-1 gbk"), "GBK");
+
+    assert_eq!(encoding.name(), "windows-1252");
+}
+
+#[test]
+fn form_submission_falls_back_to_document_character_set() {
+    let encoding = form_submission_encoding(None, "gbk");
+
+    assert_eq!(encoding.name(), "GBK");
+}
+
+#[test]
+fn charset_sentinel_name_matches_ascii_case_insensitively() {
+    assert!(is_charset_sentinel_name("_charset_"));
+    assert!(is_charset_sentinel_name("_CHARSET_"));
+    assert!(is_charset_sentinel_name("_Charset_"));
+    assert!(!is_charset_sentinel_name("_charſet_"));
+}
+
+#[test]
+fn form_urlencoded_serializer_uses_selected_legacy_encoding() {
+    let encoded = form_urlencoded_serialize_pairs([("q", "家居")], encoding_rs::GBK);
+
+    assert_eq!(encoded, "q=%BC%D2%BE%D3");
+}
+
+#[test]
+fn form_urlencoded_serializer_uses_numeric_references_for_unmappable_text() {
+    let encoded = form_urlencoded_serialize_pairs([("emoji", "💩")], encoding_rs::WINDOWS_1252);
+
+    assert_eq!(encoded, "emoji=%26%23128169%3B");
+}
+
+#[test]
+fn form_urlencoded_serializer_handles_iso_2022_jp_stateful_unmappables() {
+    let encoded = form_urlencoded_serialize_pairs(
+        [("utf16", "ABC~¤•★星🌟星★•¤~XYZ")],
+        encoding_rs::ISO_2022_JP,
+    );
+
+    assert_eq!(
+        encoded,
+        "utf16=ABC%7E%26%23164%3B%26%238226%3B%1B%24B%21z%401%1B%28B%26%23127775%3B%1B%24B%401%21z%1B%28B%26%238226%3B%26%23164%3B%7EXYZ"
+    );
+}
+
+#[test]
+fn text_decoder_uses_legacy_charset_label_or_utf8() {
+    assert_eq!(
+        decode_text_for_legacy_web(&gbk_bytes("家居"), Some("gbk")),
+        "家居"
+    );
+    assert_eq!(
+        decode_text_for_legacy_web("plain".as_bytes(), None),
+        "plain"
+    );
+}
+
+#[test]
+fn html_document_decoder_returns_selected_encoding() {
+    let mut bytes = b"<!doctype html><meta charset=\"shift_jis\"><p>".to_vec();
+    bytes.extend_from_slice(&encoding_rs::SHIFT_JIS.encode("目次").0);
+
+    let (text, encoding) = decode_html_document(&bytes, &[]);
+
+    assert_eq!(encoding, "Shift_JIS");
+    assert!(text.contains("目次"), "text={text}");
+}
+
+#[test]
+fn classic_script_decoding_inherits_document_character_set() {
+    let script = r#"document.body.textContent = "目次";"#;
+    let bytes = encoding_rs::SHIFT_JIS.encode(script).0.into_owned();
+
+    assert_eq!(
+        decode_classic_script_source(
+            &bytes,
+            &[(
+                "Content-Type".to_owned(),
+                b"application/javascript".to_vec()
+            )],
+            None,
+            Some("shift_jis"),
+        ),
+        script
+    );
+}
+
+#[test]
+fn classic_script_header_charset_wins_over_document_character_set() {
+    let script = r#"document.body.textContent = "Привет";"#;
+    let bytes = encoding_rs::WINDOWS_1251.encode(script).0.into_owned();
+
+    assert_eq!(
+        decode_classic_script_source(
+            &bytes,
+            &[(
+                "Content-Type".to_owned(),
+                b"application/javascript; charset=windows-1251".to_vec(),
+            )],
+            None,
+            Some("shift_jis"),
+        ),
+        script
+    );
+}
+
+#[test]
+fn classic_script_charset_uses_the_extracted_mime_record() {
+    for (values, expected) in [
+        (
+            vec!["text/plain; charset=windows-1252", "text/javascript"],
+            "€",
+        ),
+        (
+            vec!["text/javascript; charset=windows-1252", "text/javascript"],
+            "â‚¬",
+        ),
+        (
+            vec![
+                "text/javascript; charset=windows-1252",
+                "invalid",
+                "text/javascript",
+            ],
+            "â‚¬",
+        ),
+        (
+            vec![
+                "text/javascript; charset=windows-1252",
+                "text/plain",
+                "text/javascript",
+            ],
+            "€",
+        ),
+        (
+            vec![
+                "text/javascript; charset=shift_jis",
+                "text/javascript; charset=windows-1252",
+            ],
+            "â‚¬",
+        ),
+        (
+            vec!["text/javascript; charset=bogus", "text/javascript"],
+            "€",
+        ),
+        (vec!["text/javascript; charset=\" windows-1252 \""], "â‚¬"),
+    ] {
+        for combined in [false, true] {
+            let headers: Vec<_> = if combined {
+                vec![("Content-Type".to_owned(), values.join(", ").into_bytes())]
+            } else {
+                values
+                    .iter()
+                    .map(|value| ("Content-Type".to_owned(), value.as_bytes().to_vec()))
+                    .collect()
+            };
+            assert_eq!(
+                decode_classic_script_source("€".as_bytes(), &headers, None, Some("utf-8")),
+                expected,
+                "combined={combined}: {values:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn classic_script_charset_attribute_is_fallback_before_document_character_set() {
+    let script = r#"document.body.textContent = "目次";"#;
+    let bytes = encoding_rs::SHIFT_JIS.encode(script).0.into_owned();
+
+    assert_eq!(
+        decode_classic_script_source(&bytes, &[], Some("shift_jis"), Some("gbk")),
+        script
+    );
+}
+
+#[test]
+fn classic_script_charset_uses_encoding_standard_label_preprocessing() {
+    let script = r#"document.body.textContent = "目次";"#;
+    let bytes = encoding_rs::SHIFT_JIS.encode(script).0.into_owned();
+
+    assert_eq!(
+        decode_classic_script_source(&bytes, &[], Some(" shift_jis "), Some("utf-8")),
+        script
+    );
+}
+
+#[test]
+fn classic_script_bom_wins_over_labels() {
+    let script = r#"document.body.textContent = "目次";"#;
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(script.as_bytes());
+
+    assert_eq!(
+        decode_classic_script_source(
+            &bytes,
+            &[(
+                "Content-Type".to_owned(),
+                b"application/javascript; charset=gbk".to_vec(),
+            )],
+            Some("shift_jis"),
+            Some("gbk"),
+        ),
+        script
+    );
+}
+
+#[test]
+fn utf8_decode_removes_only_a_utf8_bom() {
+    assert_eq!(decode_utf8(b"\xef\xbb\xbfdiv {}"), "div {}");
+    assert_eq!(decode_utf8(b"\xff\xfed\0i\0v\0"), "��d\0i\0v\0");
+}
+
+#[test]
+fn url_query_encoder_uses_selected_legacy_encoding() {
+    let encoded =
+        encode_url_query_for_legacy_web("/search?q=家居&safe=a+b%20c#frag", encoding_rs::GBK);
+
+    assert_eq!(encoded, "/search?q=%BC%D2%BE%D3&safe=a+b%20c#frag");
+}
+
+#[test]
+fn url_query_encoder_percent_encodes_unmappable_entity_fallback() {
+    let encoded = encode_url_query_for_legacy_web("/search?q=ChineseＧ", encoding_rs::WINDOWS_1252);
+
+    assert_eq!(encoded, "/search?q=Chinese%26%2365319%3B");
+}
+
+#[test]
+fn url_query_encoder_preserves_query_separators_between_components() {
+    let encoded = encode_url_query_for_legacy_web(
+        "/search?first=家居&second=💩;third=ok#frag",
+        encoding_rs::GBK,
+    );
+
+    assert_eq!(
+        encoded,
+        "/search?first=%BC%D2%BE%D3&second=%26%23128169%3B;third=ok#frag"
+    );
+}
+
+#[test]
+fn url_query_encoder_preserves_ampersand_from_encoded_bytes() {
+    let encoded = encode_url_query_for_legacy_web("/search?q=Γ", encoding_rs::ISO_2022_JP);
+
+    assert_eq!(encoded, "/search?q=%1B$B&%23%1B(B");
+}
+
+#[test]
+fn url_query_encoder_percent_encodes_iso_2022_jp_unmappables() {
+    let encoded =
+        encode_url_query_for_legacy_web("/search?q=Γ\x0E\x0F\x1Bx", encoding_rs::ISO_2022_JP);
+
+    assert_eq!(
+        encoded,
+        "/search?q=%1B$B&%23%1B(B%26%2365533%3B%26%2365533%3B%26%2365533%3Bx"
+    );
+}
+
+#[test]
+fn url_query_encoder_handles_iso_2022_jp_stateful_output() {
+    let encoded = encode_url_query_for_legacy_web("/search?q=¥‾s\\ﾐ佩", encoding_rs::ISO_2022_JP);
+
+    assert_eq!(encoded, "/search?q=%1B(J\\~s%1B(B\\%1B$B%_PP%1B(B");
+}
+
+#[test]
+fn url_query_encoder_leaves_utf8_and_queryless_inputs_borrowed() {
+    assert!(matches!(
+        encode_url_query_for_legacy_web("/search?q=家居", encoding_rs::UTF_8),
+        Cow::Borrowed(_)
+    ));
+    assert!(matches!(
+        encode_url_query_for_legacy_web("/search#家居", encoding_rs::GBK),
+        Cow::Borrowed(_)
+    ));
+    assert!(matches!(
+        encode_url_query_for_legacy_web("/search#frag?q=家居", encoding_rs::GBK),
+        Cow::Borrowed(_)
+    ));
+}
+
+#[test]
+fn meta_declared_utf16_document_decodes_as_utf8() {
+    let (text, encoding) = decode_html_document(
+        br#"<!DOCTYPE html><meta charset="utf-16"><p>Hello, world!</p>"#,
+        &[],
+    );
+
+    assert_eq!(encoding, "UTF-8");
+    assert!(text.contains("Hello, world!"), "decoded as {text:?}");
+}
+
+/// `encoding_rs` has no UTF-16 encoder — the Encoding Standard replaces it
+/// with UTF-8 for output — so UTF-16LE input has to be built by hand.
+fn utf16le_bytes(input: &str) -> Vec<u8> {
+    input
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect()
+}
+
+#[test]
+fn meta_declared_utf16_does_not_override_a_bom() {
+    let mut input = vec![0xFF, 0xFE];
+    input.extend_from_slice(&utf16le_bytes("<meta charset=\"utf-16\">hi"));
+
+    let (text, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "UTF-16LE");
+    assert!(text.ends_with("hi"), "decoded as {text:?}");
+}
+
+#[test]
+fn transport_utf16_still_wins_over_the_meta_rewrite() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=utf-16le".to_vec(),
+    )];
+    let input = utf16le_bytes("<meta charset=\"utf-16\">hi");
+
+    let (text, encoding) = decode_html_document(&input, &headers);
+
+    assert_eq!(encoding, "UTF-16LE");
+    assert!(text.ends_with("hi"), "decoded as {text:?}");
+}
+
+#[test]
+fn bom_less_utf16le_xml_declaration_is_detected() {
+    let input = utf16le_bytes(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html><head></head><body>hi</body></html>",
+    );
+
+    let (text, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "UTF-16LE");
+    assert!(text.contains("hi"), "decoded as {text:?}");
+}
+
+#[test]
+fn transport_charset_wins_over_utf16_xml_signature() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=windows-1252".to_vec(),
+    )];
+    let input = utf16le_bytes(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html><head></head><body>hi</body></html>",
+    );
+
+    let (_, encoding) = decode_html_document(&input, &headers);
+
+    assert_eq!(encoding, "windows-1252");
+}
+
+fn utf16be_bytes(input: &str) -> Vec<u8> {
+    input
+        .encode_utf16()
+        .flat_map(|unit| unit.to_be_bytes())
+        .collect()
+}
+
+fn assert_bom_less_utf16_xml_decodes_across_signature_splits(
+    input: &[u8],
+    expected_text: &str,
+    expected_encoding: &str,
+) {
+    for split in 1..6 {
+        let mut decoder = DocumentStreamingDecoder::new(&[]);
+        assert_eq!(
+            decoder.push(&input[..split]),
+            Vec::<String>::new(),
+            "split after signature byte {split} must remain buffered"
+        );
+
+        let mut decoded = decoder.push(&input[split..]).concat();
+        if let Some(tail) = decoder.finish() {
+            decoded.push_str(&tail);
+        }
+
+        assert_eq!(
+            decoder.selected_encoding_name(),
+            Some(expected_encoding),
+            "wrong encoding after signature byte {split} split"
+        );
+        assert_eq!(
+            decoded, expected_text,
+            "misdecoded document after signature byte {split} split"
+        );
+    }
+}
+
+#[test]
+fn bom_less_utf16le_xml_signature_survives_every_streaming_split() {
+    let source = "<?xml version=\"1.0\"?><html><head></head><body>little endian</body></html>";
+    let input = utf16le_bytes(source);
+
+    assert_bom_less_utf16_xml_decodes_across_signature_splits(&input, source, "UTF-16LE");
+}
+
+#[test]
+fn bom_less_utf16be_xml_signature_survives_every_streaming_split() {
+    let source = "<?xml version=\"1.0\"?><html><head></head><body>big endian</body></html>";
+    let input = utf16be_bytes(source);
+
+    assert_bom_less_utf16_xml_decodes_across_signature_splits(&input, source, "UTF-16BE");
+}
+
+#[test]
+fn diverged_utf16_xml_signature_prefix_resumes_ascii_streaming() {
+    let mut decoder = DocumentStreamingDecoder::new(&[]);
+
+    assert!(decoder.push(b"<").is_empty());
+    assert_eq!(
+        decoder.push(b"!doctype html><p>ordinary html"),
+        vec!["<!doctype html><p>ordinary html"]
+    );
+    assert_eq!(decoder.finish(), None);
+    assert_eq!(decoder.selected_encoding_name(), Some("windows-1252"));
+}
+
+#[test]
+fn transport_charset_does_not_wait_for_a_utf16_xml_signature_prefix() {
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=windows-1252".to_vec(),
+    )];
+    let mut decoder = DocumentStreamingDecoder::new(&headers);
+
+    assert_eq!(decoder.push(b"<"), vec!["<"]);
+    assert_eq!(decoder.selected_encoding_name(), Some("windows-1252"));
+}
+
+#[test]
+fn bom_less_utf16be_xml_declaration_is_detected() {
+    let input = utf16be_bytes(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html><head></head><body>hi</body></html>",
+    );
+
+    let (text, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "UTF-16BE");
+    assert!(text.contains("hi"), "decoded as {text:?}");
+}
+
+#[test]
+fn ascii_xml_declaration_selects_its_encoding_after_meta_prescan() {
+    let mut input = br#"<?xml version="1.0" encoding="windows-1251"?><p>"#.to_vec();
+    input.extend_from_slice(&encoding_rs::WINDOWS_1251.encode("ж").0);
+    let (text, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1251");
+    assert!(text.ends_with("ж"), "decoded as {text:?}");
+}
+
+#[test]
+fn ascii_xml_declaration_uses_the_compatibility_grammar() {
+    for declaration in [
+        b"<?xml encoding='cp1251'>".as_slice(),
+        b"<?xmlencoding=\"windows-1251\">",
+        b"<?xmla<encoding=\"windows-1251\">",
+        b"<?xml encoding\x01=\x00\"windows-1251\">",
+    ] {
+        assert_eq!(
+            decode_html_document(declaration, &[]).1,
+            "windows-1251",
+            "declaration={declaration:?}"
+        );
+    }
+}
+
+#[test]
+fn ascii_xml_declaration_rejects_near_misses() {
+    for declaration in [
+        b"<?XML encoding=\"windows-1251\">".as_slice(),
+        b"<?xml ENCODING=\"windows-1251\">",
+        b"<?xml encodingencoding=\"windows-1251\">",
+        b"<?xml encoding=encoding=\"windows-1251\">",
+        b"<?xml encoding=windows-1251>",
+        b"<?xml encoding=\" windows-1251\">",
+        b"<?xml>encoding=\"windows-1251\">",
+        b"<?xml encoding=\"windows-1251'>",
+    ] {
+        assert_eq!(
+            decode_html_document(declaration, &[]).1,
+            "windows-1252",
+            "declaration={declaration:?}"
+        );
+    }
+}
+
+#[test]
+fn meta_and_transport_encodings_precede_ascii_xml_declarations() {
+    let input = br#"<?xml encoding="windows-1251"?><meta charset="windows-1253">"#;
+    assert_eq!(decode_html_document(input, &[]).1, "windows-1253");
+
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=UTF-8".to_vec(),
+    )];
+    assert_eq!(decode_html_document(input, &headers).1, "UTF-8");
+}
+
+#[test]
+fn ascii_xml_declaration_rewrites_utf16_and_preserves_replacement() {
+    assert_eq!(
+        decode_html_document(br#"<?xml encoding="UTF-16">"#, &[]).1,
+        "UTF-8"
+    );
+    assert_eq!(
+        decode_html_document(br#"<?xml encoding="ISO-2022-KR">"#, &[]).1,
+        "replacement"
+    );
+}
+
+#[test]
+fn ascii_xml_declaration_can_finish_after_the_prescan_boundary() {
+    let mut input = br#"<?xml version="1.0" "#.to_vec();
+    input.resize(HTML_META_CHARSET_PRESCAN_LIMIT + 1, b' ');
+    input.extend_from_slice(br#"encoding="windows-1251"><p>"#);
+    input.extend_from_slice(&encoding_rs::WINDOWS_1251.encode("ж").0);
+
+    let (text, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1251");
+    assert!(text.ends_with("ж"), "decoded as {text:?}");
+}
+
+#[test]
+fn bom_less_utf16le_non_xml_not_detected() {
+    let input = utf16le_bytes("<?y>");
+
+    let (_, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1252");
+}
+
+#[test]
+fn bom_less_utf16le_uppercase_x_not_detected() {
+    let input = utf16le_bytes("<?X>");
+
+    let (_, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1252");
+}
+
+#[test]
+fn bom_less_utf16le_truncated_not_detected() {
+    let input: Vec<u8> = vec![0x3C, 0x00, 0x3F, 0x00];
+
+    let (text, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1252");
+    assert_eq!(text, "<\0?\0");
+}
+
+#[test]
+fn bom_less_utf16be_non_xml_not_detected() {
+    let input = utf16be_bytes("<?y>");
+
+    let (_, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1252");
+}
+
+#[test]
+fn bom_less_utf16be_uppercase_x_not_detected() {
+    let input = utf16be_bytes("<?X>");
+
+    let (_, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1252");
+}
+
+#[test]
+fn bom_less_utf16be_truncated_not_detected() {
+    let input: Vec<u8> = vec![0x00, 0x3C, 0x00, 0x3F];
+
+    let (text, encoding) = decode_html_document(&input, &[]);
+
+    assert_eq!(encoding, "windows-1252");
+    assert_eq!(text, "\0<\0?");
+}
+
+#[test]
+fn header_charset_stays_inside_another_parameters_quoted_string() {
+    assert_eq!(
+        charset_from_content_type("text/html; boundary=\"; charset=gbk\""),
+        None
+    );
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; boundary=\"; charset=gbk\"".to_vec(),
+    )];
+    assert_eq!(
+        decode_html_document(b"<p>hi</p>", &headers).1,
+        "windows-1252"
+    );
+}
+
+#[test]
+fn header_charset_is_not_displaced_by_an_escaped_quote() {
+    assert_eq!(
+        charset_from_content_type("text/html; name=\"a\\\"; charset=gbk\"; charset=utf-8")
+            .as_deref(),
+        Some("utf-8")
+    );
+}
+
+#[test]
+fn header_charset_removes_quoting_backslashes() {
+    assert_eq!(
+        charset_from_content_type("text/html; charset=\"utf\\-8\"").as_deref(),
+        Some("utf-8")
+    );
+    let headers: Vec<(String, Vec<u8>)> = vec![(
+        "Content-Type".to_owned(),
+        b"text/html; charset=\"utf\\-8\"".to_vec(),
+    )];
+    assert_eq!(decode_html_document(b"<p>hi</p>", &headers).1, "UTF-8");
+}
+
+#[test]
+fn header_charset_matches_chromium_network_tolerances() {
+    for header in [
+        "text/html; charset=utf-8",
+        "text/html;charset=utf-8",
+        "TEXT/HTML; CHARSET=UTF-8",
+        "text/html; charset=\"utf-8\"",
+        "text/html;charset=utf-8;",
+        "text/html; charset=\"utf-8",
+    ] {
+        assert_eq!(
+            charset_from_content_type(header)
+                .as_deref()
+                .and_then(encoding_for_response_charset)
+                .map(Encoding::name),
+            Some("UTF-8"),
+            "header={header}"
+        );
+    }
+    assert_eq!(charset_from_content_type("text/html"), None);
+    assert_eq!(charset_from_content_type("text/html; charset="), None);
+    assert_eq!(charset_from_content_type("charset=utf-8"), None);
+    assert_eq!(
+        charset_from_content_type("text/html; charset = utf-8"),
+        None
+    );
+    assert_eq!(
+        charset_from_content_type("text/html; charset='utf-8'").as_deref(),
+        Some("'utf-8'")
+    );
+    assert!(
+        charset_from_content_type("text/html; charset='utf-8'")
+            .as_deref()
+            .and_then(encoding_for_response_charset)
+            .is_none()
+    );
+    assert_eq!(
+        charset_from_content_type("text/html; charset=gbk; boundary=x").as_deref(),
+        Some("gbk")
+    );
+}
+
+#[test]
+fn header_charset_exact_lookup_rejects_non_http_whitespace() {
+    for whitespace in ['\u{000b}', '\u{000c}', '\r', '\n'] {
+        let expected_label = format!("{whitespace}gbk");
+        let headers: Vec<(String, Vec<u8>)> = vec![(
+            "Content-Type".to_owned(),
+            format!("text/html; charset={whitespace}gbk").into_bytes(),
+        )];
+
+        assert_eq!(
+            charset_from_headers(&headers).as_deref(),
+            Some(expected_label.as_str())
+        );
+        assert_eq!(encoding_from_response_headers(&headers), None);
+        assert_eq!(
+            decode_html_document(&gbk_bytes("太平洋"), &headers).1,
+            "windows-1252"
+        );
+    }
+}
+
+#[test]
+fn encoding_label_lookup_applies_encoding_standard_whitespace_preprocessing() {
+    assert_eq!(encoding_for_label("gbk"), Some(encoding_rs::GBK));
+    for label in [" gbk", "gbk ", "\tgbk", "gbk\n", "\u{000c}gbk", "gbk\r"] {
+        assert_eq!(
+            encoding_for_label(label),
+            Some(encoding_rs::GBK),
+            "label={label:?}"
+        );
+    }
+    assert_eq!(encoding_for_label("\u{000b}gbk"), None);
+}
+
+#[test]
+fn response_charset_lookup_is_exact_after_http_lws_preprocessing() {
+    assert_eq!(encoding_for_response_charset("gbk"), Some(encoding_rs::GBK));
+    for label in [
+        " gbk",
+        "gbk ",
+        "\tgbk",
+        "gbk\n",
+        "\u{000b}gbk",
+        "gbk\u{000c}",
+    ] {
+        assert_eq!(
+            encoding_for_response_charset(label),
+            None,
+            "label={label:?}"
+        );
+    }
+}
+
+#[test]
+fn header_charset_preserves_chromium_empty_parameter_precedence() {
+    assert_eq!(
+        charset_from_content_type("text/html; charset=; charset=gbk").as_deref(),
+        Some("gbk")
+    );
+    assert_eq!(
+        charset_from_content_type("text/html; charset=\"\"; charset=gbk"),
+        None
+    );
+}
+
+#[test]
+fn header_charset_does_not_reopen_quotes_after_a_value_started() {
+    assert_eq!(
+        charset_from_content_type("text/html; x=a=\"unterminated; charset=gbk").as_deref(),
+        Some("gbk")
+    );
+    assert_eq!(
+        charset_from_content_type("text/html; x=\"ok\"junk=\"unterminated; charset=gbk").as_deref(),
+        Some("gbk")
+    );
+}
+
+#[test]
+fn header_charset_recovers_after_a_stray_quote() {
+    // WPT MIME case: the `"` does not open a parameter value, so the following
+    // `;` still separates parameters and the real charset is found.
+    assert_eq!(
+        charset_from_content_type("text/html;\";charset=gbk").as_deref(),
+        Some("gbk")
+    );
+}
+
+#[test]
+fn header_charset_keeps_an_escaped_quote_as_data() {
+    // The quoted value is `utf-8"`, which is not a valid label. Trimming the
+    // data quote would manufacture a valid one.
+    let label = charset_from_content_type("text/html; charset=\"utf-8\\\"\"")
+        .expect("a parameter value is present");
+
+    assert_eq!(label, "utf-8\"");
+    assert!(encoding_for_label(&label).is_none());
+}

@@ -1,0 +1,38 @@
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes attention-title-pulse {
+  0%,
+  100% {
+    color: var(--text-normal);
+  }
+
+  50% {
+    color: var(--text-muted);
+  }
+}
+
+@keyframes mcp-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgb(124 58 237 / 40%));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 8px rgb(124 58 237 / 90%));
+  }
+}
+
+@keyframes claudian-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

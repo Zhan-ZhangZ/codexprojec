@@ -1,0 +1,1400 @@
+use super::*;
+use crate::context_bootstrap::events::EventInit;
+use crate::context_bootstrap::file_api::is_branded_data_transfer_object;
+use crate::context_bootstrap::navigation_activation::install_navigation_transition;
+use crate::context_bootstrap::navigation_events::navigation_scroll_event_is_active;
+use crate::context_bootstrap::navigation_handler_callbacks::{
+    NAVIGATE_EVENT_ADDED_HANDLERS_SLOT, NAVIGATE_EVENT_DEFERRED_HANDLERS_SLOT,
+    NAVIGATE_EVENT_PRECOMMIT_HANDLERS_SLOT, navigation_handler_array_is_empty,
+    push_navigation_handler, run_navigation_handler_array,
+};
+use crate::context_bootstrap::navigation_window::{
+    child_browsing_context_handle_for_runtime_owner, runtime_window_is_global, runtime_window_owner,
+};
+use crate::context_bootstrap::web_storage::StorageReference;
+use crate::native_bridge::element::scroll_to_url_fragment_or_top;
+use crate::native_bridge::throw_dom_exception;
+use crate::util::context_host_ptr_from_global_bridge;
+use crate::util::{get_private_value, set_private_value};
+use crate::web_api_interfaces;
+use crate::webidl;
+use moli_webapi_declare::WebApiObject;
+use url::Url;
+
+const NAVIGATE_EVENT_SYNTHETIC_SLOT: &str = "__lmNavigateEventSynthetic";
+const NAVIGATE_EVENT_INTERCEPTED_SLOT: &str = "__lmNavigateEventIntercepted";
+const NAVIGATION_DESTINATION_STATE_SLOT: &str = "__lmNavigationDestinationState";
+const NAVIGATE_EVENT_PRECOMMIT_SEEN_SLOT: &str = "__lmNavigateEventPrecommitSeen";
+const NAVIGATE_EVENT_REDIRECTED_SLOT: &str = "__lmNavigateEventRedirected";
+const NAVIGATE_EVENT_REDIRECT_HISTORY_SLOT: &str = "__lmNavigateEventRedirectHistory";
+const NAVIGATE_EVENT_FOCUS_RESET_SLOT: &str = "__lmNavigateEventFocusReset";
+const NAVIGATE_EVENT_SCROLL_CALLED_SLOT: &str = "__lmNavigateEventScrollCalled";
+const NAVIGATE_EVENT_SCROLL_AFTER_TRANSITION_SLOT: &str = "__lmNavigateEventScrollAfterTransition";
+const NAVIGATE_EVENT_PRECOMMIT_TRANSITION_NAVIGATION_SLOT: &str =
+    "__lmNavigateEventPrecommitTransitionNavigation";
+const NAVIGATE_EVENT_PRECOMMIT_TRANSITION_FROM_SLOT: &str =
+    "__lmNavigateEventPrecommitTransitionFrom";
+const NAVIGATE_EVENT_PRECOMMIT_TRANSITION_DESTINATION_SLOT: &str =
+    "__lmNavigateEventPrecommitTransitionDestination";
+const NAVIGATE_EVENT_PRECOMMIT_TRANSITION_TYPE_SLOT: &str =
+    "__lmNavigateEventPrecommitTransitionType";
+const NAVIGATE_EVENT_PRECOMMIT_TRANSITION_RESOLVER_SLOT: &str =
+    "__lmNavigateEventPrecommitTransitionResolver";
+const PRECOMMIT_CONTROLLER_EVENT_SLOT: &str = "__lmPrecommitControllerEvent";
+const PRECOMMIT_CONTROLLER_BACKING_SLOT: &str = "__moliPrecommitControllerBacking";
+const PRECOMMIT_CONTROLLER_ACTIVE_SLOT: &str = "__lmPrecommitControllerActive";
+
+#[derive(Clone, Copy, Default, webidl::WebIdlEnum)]
+#[webidl(name = "NavigationFocusReset", rename_all = "kebab-case")]
+enum NavigationFocusReset {
+    #[default]
+    AfterTransition,
+    Manual,
+}
+
+#[derive(Clone, Copy, Default, webidl::WebIdlEnum)]
+#[webidl(name = "NavigationScrollBehavior", rename_all = "kebab-case")]
+enum NavigationScrollBehavior {
+    #[default]
+    AfterTransition,
+    Manual,
+}
+
+/// The four members are declared in Web IDL lexicographic order. Conversion
+/// completes before `intercept()` mutates the NavigateEvent, so a getter or
+/// callback conversion failure cannot leave a partially intercepted event.
+#[derive(Default, webidl::WebIdlDictionary)]
+#[webidl(prefix = "NavigateEvent.intercept")]
+struct NavigationInterceptOptionsMembers {
+    #[webidl(name = "focusReset", converter = "enum")]
+    focus_reset: Option<NavigationFocusReset>,
+    #[webidl(converter = "callback_function")]
+    handler: Option<webidl::WebIdlCallbackFunction>,
+    #[webidl(name = "precommitHandler", converter = "callback_function")]
+    precommit_handler: Option<webidl::WebIdlCallbackFunction>,
+    #[webidl(converter = "enum")]
+    scroll: Option<NavigationScrollBehavior>,
+}
+
+#[derive(WebApiObject)]
+#[webapi(prototype = "Object", interface = web_api_interfaces::NavigationPrecommitController)]
+struct PrecommitControllerDeclaration<'scope> {
+    #[webapi(slot = PRECOMMIT_CONTROLLER_EVENT_SLOT)]
+    event: v8::Local<'scope, v8::Object>,
+    #[webapi(slot = PRECOMMIT_CONTROLLER_ACTIVE_SLOT)]
+    active: bool,
+    #[webapi(
+        method,
+        length = 1,
+        enumerable,
+        callback = precommit_controller_add_handler_callback,
+        data = object
+    )]
+    add_handler: (),
+    #[webapi(
+        method,
+        length = 1,
+        enumerable,
+        callback = precommit_controller_redirect_callback,
+        data = object
+    )]
+    redirect: (),
+}
+
+#[derive(Default, WebApiObject)]
+#[webapi(interface = web_api_interfaces::NavigateEvent)]
+struct NavigateEventMethodsDeclaration {
+    #[webapi(
+        method,
+        length = 0,
+        enumerable,
+        callback = navigate_event_intercept_callback,
+        data = object
+    )]
+    intercept: (),
+    #[webapi(
+        method,
+        length = 0,
+        enumerable,
+        callback = navigate_event_defer_page_swap_callback,
+        data = object
+    )]
+    defer_page_swap: (),
+    #[webapi(
+        method,
+        length = 0,
+        enumerable,
+        callback = navigate_event_scroll_callback,
+        data = object
+    )]
+    scroll: (),
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct DragEventInitDeclaration<'scope> {
+    data_transfer: v8::Local<'scope, v8::Value>,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct ClipboardEventInitDeclaration<'scope> {
+    clipboard_data: v8::Local<'scope, v8::Value>,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct CapturedMouseEventInitDeclaration {
+    surface_x: i32,
+    surface_y: i32,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct InputEventInitDeclaration<'scope> {
+    data: v8::Local<'scope, v8::Value>,
+    input_type: v8::Local<'scope, v8::String>,
+    is_composing: bool,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct CommandEventInitDeclaration<'scope> {
+    source: v8::Local<'scope, v8::Value>,
+    command: String,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct InterestEventInitDeclaration<'scope> {
+    source: v8::Local<'scope, v8::Value>,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain)]
+struct ToggleEventStateDeclaration<'scope> {
+    #[webapi(data_property = "oldState", readonly, dont_delete)]
+    old_state: String,
+    #[webapi(data_property = "newState", readonly, dont_delete)]
+    new_state: String,
+    #[webapi(data_property, readonly, dont_delete)]
+    source: v8::Local<'scope, v8::Value>,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct PopStateEventInitDeclaration<'scope> {
+    state: v8::Local<'scope, v8::Value>,
+    #[webapi(data_property = "hasUAVisualTransition")]
+    has_ua_visual_transition: bool,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct HashChangeEventInitDeclaration {
+    #[webapi(data_property = "oldURL")]
+    old_url: String,
+    #[webapi(data_property = "newURL")]
+    new_url: String,
+}
+
+/// Members are declared in Web IDL lexicographic order.
+#[derive(Default, webidl::WebIdlDictionary)]
+#[webidl(prefix = "HashChangeEventInit")]
+struct HashChangeEventInitMembers {
+    #[webidl(name = "newURL", default = "", converter = "usv_string")]
+    new_url: String,
+    #[webidl(name = "oldURL", default = "", converter = "usv_string")]
+    old_url: String,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct PageTransitionEventOwnInitDeclaration {
+    persisted: bool,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct PromiseRejectionEventInitDeclaration<'scope> {
+    promise: v8::Local<'scope, v8::Value>,
+    reason: v8::Local<'scope, v8::Value>,
+}
+
+#[derive(webidl::WebIdlDictionary)]
+#[webidl(prefix = "PromiseRejectionEventInit")]
+struct PromiseRejectionEventInitMembers<'s> {
+    #[webidl(required)]
+    promise: v8::Local<'s, v8::Promise>,
+    #[webidl(converter = "raw")]
+    reason: Option<v8::Local<'s, v8::Value>>,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct NavigationCurrentEntryChangeEventInitDeclaration<'scope> {
+    from: v8::Local<'scope, v8::Value>,
+    navigation_type: v8::Local<'scope, v8::Value>,
+}
+
+#[derive(WebApiObject)]
+#[webapi(plain, data_properties, enumerable)]
+struct NavigateEventInitDeclaration<'scope> {
+    navigation_type: v8::Local<'scope, v8::String>,
+    destination: v8::Local<'scope, v8::Value>,
+    can_intercept: bool,
+    user_initiated: bool,
+    hash_change: bool,
+    signal: v8::Local<'scope, v8::Value>,
+    form_data: v8::Local<'scope, v8::Value>,
+    download_request: v8::Local<'scope, v8::Value>,
+    info: v8::Local<'scope, v8::Value>,
+    #[webapi(data_property = "hasUAVisualTransition")]
+    has_ua_visual_transition: bool,
+    source_element: v8::Local<'scope, v8::Value>,
+}
+
+#[derive(webidl::WebIdlDictionary)]
+#[webidl(prefix = "ToggleEventInit")]
+struct ToggleEventInitMembers<'s> {
+    #[webidl(default = "")]
+    old_state: String,
+    #[webidl(default = "")]
+    new_state: String,
+    #[webidl(converter = "raw")]
+    source: Option<v8::Local<'s, v8::Value>>,
+}
+
+#[derive(Default, webidl::WebIdlDictionary)]
+#[webidl(prefix = "StorageEventInit")]
+pub(super) struct StorageEventInitMembers<'s> {
+    #[webidl(inherit)]
+    base: EventInit,
+    #[webidl(nullable, converter = "raw")]
+    key: Option<webidl::DomString16>,
+    #[webidl(name = "newValue", nullable, converter = "raw")]
+    new_value: Option<webidl::DomString16>,
+    #[webidl(name = "oldValue", nullable, converter = "raw")]
+    old_value: Option<webidl::DomString16>,
+    #[webidl(name = "storageArea", converter = "raw", nullable)]
+    storage_area: Option<StorageReference<'s>>,
+    #[webidl(default = "", converter = "usv_string")]
+    url: String,
+}
+
+impl StorageEventInitMembers<'_> {
+    pub(super) fn event_flags(&self) -> (bool, bool, bool) {
+        (self.base.bubbles, self.base.cancelable, self.base.composed)
+    }
+}
+
+pub(super) fn parse_storage_event_init<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: &v8::FunctionCallbackArguments<'s>,
+) -> Option<StorageEventInitMembers<'s>> {
+    let parsed = webidl::dictionary_arg(args, 1, webidl::Context::argument("StorageEvent", 2))
+        .and_then(|object| match object {
+            Some(object) => webidl::parse_dictionary_object(scope, object),
+            None => Ok(StorageEventInitMembers::default()),
+        });
+    match parsed {
+        Ok(init) => Some(init),
+        Err(error) => {
+            webidl::throw_error(scope, &error);
+            None
+        }
+    }
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_drag_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    if !pointer::initialize_mouse_event(scope, event, init) {
+        return false;
+    }
+    let data_transfer = match init {
+        None => v8::null(scope).into(),
+        Some(init) => match webidl::property_result(
+            scope,
+            init,
+            "dataTransfer",
+            webidl::Context::member("DragEventInit", "dataTransfer"),
+        ) {
+            Err(error) => {
+                webidl::throw_error(scope, &error);
+                return false;
+            }
+            Ok(None) => v8::null(scope).into(),
+            Ok(Some(value)) if value.is_null_or_undefined() => v8::null(scope).into(),
+            Ok(Some(value)) => {
+                let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
+                    throw_type_error(
+                        scope,
+                        "Failed to construct 'DragEvent': member dataTransfer is not of type DataTransfer.",
+                    );
+                    return false;
+                };
+                if !is_branded_data_transfer_object(scope, object) {
+                    throw_type_error(
+                        scope,
+                        "Failed to construct 'DragEvent': member dataTransfer is not of type DataTransfer.",
+                    );
+                    return false;
+                }
+                value
+            }
+        },
+    };
+    DragEventInitDeclaration::new(data_transfer)
+        .initialize(scope, event)
+        .expect("DragEvent init declaration should initialize");
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_clipboard_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    let clipboard_data =
+        init_value_property(scope, init, "clipboardData").unwrap_or_else(|| v8::null(scope).into());
+    ClipboardEventInitDeclaration::new(clipboard_data)
+        .initialize(scope, event)
+        .expect("ClipboardEvent init declaration should initialize");
+}
+
+fn captured_mouse_coordinate<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    init: Option<v8::Local<'s, v8::Object>>,
+    name: &'static str,
+) -> Option<i32> {
+    let Some(init) = init else {
+        return Some(-1);
+    };
+    let context = webidl::Context::member("CapturedMouseEventInit", name);
+    let value = match webidl::property_result(scope, init, name, context) {
+        Ok(Some(value)) if !value.is_undefined() => value,
+        Ok(_) => return Some(-1),
+        Err(error) => {
+            webidl::throw_error(scope, &error);
+            return None;
+        }
+    };
+    let value = match webidl::convert::<webidl::EnforceRangeLong>(scope, value, context) {
+        Ok(value) => i32::from(value),
+        Err(error) if error.is_pending_exception() => return None,
+        Err(error) => {
+            crate::util::throw_range_error(scope, &error.to_string());
+            return None;
+        }
+    };
+    if value < -1 {
+        crate::util::throw_range_error(
+            scope,
+            "CapturedMouseEvent coordinates must be -1 or non-negative.",
+        );
+        return None;
+    }
+    Some(value)
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_captured_mouse_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let Some(surface_x) = captured_mouse_coordinate(scope, init, "surfaceX") else {
+        return false;
+    };
+    let Some(surface_y) = captured_mouse_coordinate(scope, init, "surfaceY") else {
+        return false;
+    };
+    if (surface_x == -1) != (surface_y == -1) {
+        crate::util::throw_range_error(
+            scope,
+            "CapturedMouseEvent coordinates must both be -1 or both be non-negative.",
+        );
+        return false;
+    }
+    CapturedMouseEventInitDeclaration::new(surface_x, surface_y)
+        .initialize(scope, event)
+        .expect("CapturedMouseEvent init declaration should initialize");
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_storage_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    parsed: StorageEventInitMembers<'s>,
+) {
+    crate::context_bootstrap::events::define_storage_event_properties_utf16(
+        scope,
+        event,
+        parsed.key.as_ref().map(|value| value.0.as_slice()),
+        parsed.old_value.as_ref().map(|value| value.0.as_slice()),
+        parsed.new_value.as_ref().map(|value| value.0.as_slice()),
+        &parsed.url,
+        parsed.storage_area.map(|value| value.0.into()),
+    );
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_input_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    basic::initialize_ui_event(scope, event, init);
+    let data = init_value_property(scope, init, "data").unwrap_or_else(|| v8::null(scope).into());
+    let input_type = init_string_property(scope, init, "inputType", "");
+    let input_type_value = v8_string(scope, &input_type).expect("input event inputType");
+    let is_composing = init_bool_property(scope, init, "isComposing", false);
+    InputEventInitDeclaration::new(data, input_type_value, is_composing)
+        .initialize(scope, event)
+        .expect("InputEvent init declaration should initialize");
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_pop_state_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    let state = init_value_property(scope, init, "state").unwrap_or_else(|| v8::null(scope).into());
+    PopStateEventInitDeclaration::new(state, false)
+        .initialize(scope, event)
+        .expect("PopStateEvent init declaration should initialize");
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_hash_change_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let parsed = match init {
+        Some(init) => {
+            match webidl::parse_dictionary_object::<HashChangeEventInitMembers>(scope, init) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    webidl::throw_error(scope, &error);
+                    return false;
+                }
+            }
+        }
+        None => HashChangeEventInitMembers::default(),
+    };
+    HashChangeEventInitDeclaration::new(parsed.old_url, parsed.new_url)
+        .initialize(scope, event)
+        .expect("HashChangeEvent init declaration should initialize");
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_page_transition_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    let persisted = init_bool_property(scope, init, "persisted", false);
+    PageTransitionEventOwnInitDeclaration::new(persisted)
+        .initialize(scope, event)
+        .expect("PageTransitionEvent init declaration should initialize");
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_toggle_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let parsed = match init {
+        Some(init) => {
+            match webidl::parse_dictionary_object::<ToggleEventInitMembers>(scope, init) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    webidl::throw_error(scope, &error);
+                    return false;
+                }
+            }
+        }
+        None => ToggleEventInitMembers {
+            old_state: String::new(),
+            new_state: String::new(),
+            source: None,
+        },
+    };
+    let source = parsed.source.unwrap_or_else(|| v8::null(scope).into());
+    let _ = ToggleEventStateDeclaration::new(parsed.old_state, parsed.new_state, source)
+        .initialize(scope, event);
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_promise_rejection_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let parsed = match init {
+        Some(init) => {
+            match webidl::parse_dictionary_object::<PromiseRejectionEventInitMembers>(scope, init) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    webidl::throw_error(scope, &error);
+                    return false;
+                }
+            }
+        }
+        None => {
+            let error = webidl::WebIdlError::missing_required(webidl::Context::member(
+                "PromiseRejectionEventInit",
+                "promise",
+            ));
+            webidl::throw_error(scope, &error);
+            return false;
+        }
+    };
+    let reason = parsed.reason.unwrap_or_else(|| v8::undefined(scope).into());
+    PromiseRejectionEventInitDeclaration::new(parsed.promise.into(), reason)
+        .initialize(scope, event)
+        .expect("PromiseRejectionEvent init declaration should initialize");
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_navigation_current_entry_change_event<
+    's,
+>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let Some(init) = init else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'NavigationCurrentEntryChangeEvent': NavigationCurrentEntryChangeEventInit.from is required.",
+        );
+        return false;
+    };
+    let Some(from) = init_value_property(scope, Some(init), "from") else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'NavigationCurrentEntryChangeEvent': NavigationCurrentEntryChangeEventInit.from is required.",
+        );
+        return false;
+    };
+    let navigation_type = init_value_property(scope, Some(init), "navigationType")
+        .unwrap_or_else(|| v8::null(scope).into());
+    NavigationCurrentEntryChangeEventInitDeclaration::new(from, navigation_type)
+        .initialize(scope, event)
+        .expect("NavigationCurrentEntryChangeEvent init declaration should initialize");
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_navigate_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let Some(init) = init else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'NavigateEvent': NavigateEventInit.destination is required.",
+        );
+        return false;
+    };
+    let Some(destination) = init_value_property(scope, Some(init), "destination") else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'NavigateEvent': NavigateEventInit.destination is required.",
+        );
+        return false;
+    };
+    let Some(signal) = init_value_property(scope, Some(init), "signal") else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'NavigateEvent': NavigateEventInit.signal is required.",
+        );
+        return false;
+    };
+
+    let navigation_type = init_string_property(scope, Some(init), "navigationType", "push");
+    let can_intercept = init_bool_property(scope, Some(init), "canIntercept", false);
+    let user_initiated = init_bool_property(scope, Some(init), "userInitiated", false);
+    let hash_change = init_bool_property(scope, Some(init), "hashChange", false);
+    let has_ua_visual_transition =
+        init_bool_property(scope, Some(init), "hasUAVisualTransition", false);
+    let form_data = init_value_property(scope, Some(init), "formData")
+        .unwrap_or_else(|| v8::null(scope).into());
+    let download_request = init_value_property(scope, Some(init), "downloadRequest")
+        .unwrap_or_else(|| v8::null(scope).into());
+    let info = init
+        .get(scope, v8str(scope, "info").into())
+        .unwrap_or_else(|| v8::undefined(scope).into());
+    let source_element = init_value_property(scope, Some(init), "sourceElement")
+        .unwrap_or_else(|| v8::null(scope).into());
+
+    let navigation_type = v8_string(scope, &navigation_type).expect("NavigateEvent navigationType");
+    NavigateEventInitDeclaration::new(
+        navigation_type,
+        destination,
+        can_intercept,
+        user_initiated,
+        hash_change,
+        signal,
+        form_data,
+        download_request,
+        info,
+        has_ua_visual_transition,
+        source_element,
+    )
+    .initialize(scope, event)
+    .expect("NavigateEvent init declaration should initialize");
+    define_navigate_event_internal_flag(scope, event, true);
+
+    true
+}
+
+fn define_navigate_event_internal_flag(
+    scope: &mut v8::PinScope<'_, '_>,
+    event: v8::Local<'_, v8::Object>,
+    synthetic: bool,
+) {
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        NAVIGATE_EVENT_SYNTHETIC_SLOT,
+        v8::Boolean::new(scope, synthetic).into(),
+    );
+}
+
+fn navigate_event_private_value<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    slot: &'static str,
+) -> Option<v8::Local<'s, v8::Value>> {
+    crate::context_bootstrap::event_private_value(scope, event, slot)
+        .filter(|value| !value.is_undefined())
+}
+
+fn navigate_event_private_bool<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    slot: &'static str,
+    default: bool,
+) -> bool {
+    navigate_event_private_value(scope, event, slot)
+        .map(|value| value.is_true())
+        .unwrap_or(default)
+}
+
+fn set_navigate_event_private_bool<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    slot: &'static str,
+    value: bool,
+) {
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        slot,
+        v8::Boolean::new(scope, value).into(),
+    );
+}
+
+fn navigate_event_can_use_navigation_api<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+) -> bool {
+    let synthetic = navigate_event_private_bool(scope, event, NAVIGATE_EVENT_SYNTHETIC_SLOT, true);
+    let can_intercept =
+        crate::context_bootstrap::event_bool_attribute(scope, event, "canIntercept");
+    !synthetic && can_intercept
+}
+
+fn navigate_event_throw_synthetic_security_error(scope: &mut v8::PinScope<'_, '_>) {
+    throw_dom_exception(
+        scope,
+        "SecurityError",
+        18,
+        "This NavigateEvent was not created by an ongoing navigation.",
+    );
+}
+
+fn navigate_event_throw_invalid_state(scope: &mut v8::PinScope<'_, '_>) {
+    throw_dom_exception(
+        scope,
+        "InvalidStateError",
+        11,
+        "This NavigateEvent is no longer dispatching or its navigation target is detached.",
+    );
+}
+
+fn navigate_event_is_dispatching<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+) -> bool {
+    event_is_dispatching(scope, event)
+}
+
+fn navigate_event_target_is_connected(
+    scope: &mut v8::PinScope<'_, '_>,
+    event: v8::Local<'_, v8::Object>,
+) -> bool {
+    let Some(target) = crate::context_bootstrap::event_backing(scope, event)
+        .get(scope, v8str(scope, "target").into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+    else {
+        return true;
+    };
+    let owner = runtime_window_owner(scope, target);
+    if runtime_window_is_global(scope, owner) {
+        return true;
+    }
+    let Some(child_handle) = child_browsing_context_handle_for_runtime_owner(scope, owner) else {
+        return true;
+    };
+    let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return true;
+    };
+    unsafe { &*host_ptr }.dom_host().is_connected(child_handle)
+}
+
+fn navigate_event_can_intercept_now<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+) -> bool {
+    if !navigate_event_is_dispatching(scope, event) {
+        return false;
+    }
+    if crate::context_bootstrap::event_bool_attribute(scope, event, "defaultPrevented") {
+        return false;
+    }
+    navigate_event_target_is_connected(scope, event)
+        || navigate_event_private_bool(scope, event, NAVIGATE_EVENT_INTERCEPTED_SLOT, false)
+}
+
+fn navigate_event_intercept_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    _rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok(event) = v8::Local::<v8::Object>::try_from(args.data()) else {
+        navigate_event_throw_synthetic_security_error(scope);
+        return;
+    };
+    let view = event;
+    let event = crate::context_bootstrap::events::event_backing(scope, view);
+    let options = match webidl::parse_dictionary::<NavigationInterceptOptionsMembers>(
+        scope,
+        args.get(0),
+        webidl::Context::argument("NavigateEvent.intercept", 1),
+    ) {
+        Ok(options) => options.unwrap_or_default(),
+        Err(error) => {
+            webidl::throw_error(scope, &error);
+            return;
+        }
+    };
+    if !navigate_event_can_use_navigation_api(scope, event) {
+        navigate_event_throw_synthetic_security_error(scope);
+        return;
+    }
+    if !navigate_event_can_intercept_now(scope, event) {
+        navigate_event_throw_invalid_state(scope);
+        return;
+    }
+    if options.precommit_handler.is_some()
+        && !crate::context_bootstrap::event_bool_attribute(scope, event, "cancelable")
+    {
+        navigate_event_throw_invalid_state(scope);
+        return;
+    }
+    set_navigate_event_private_bool(scope, event, NAVIGATE_EVENT_INTERCEPTED_SLOT, true);
+    if let Some(focus_reset) = options.focus_reset {
+        set_navigate_event_private_bool(
+            scope,
+            event,
+            NAVIGATE_EVENT_FOCUS_RESET_SLOT,
+            matches!(focus_reset, NavigationFocusReset::AfterTransition),
+        );
+    }
+    if let Some(scroll) = options.scroll {
+        set_navigate_event_private_bool(
+            scope,
+            event,
+            NAVIGATE_EVENT_SCROLL_AFTER_TRANSITION_SLOT,
+            matches!(scroll, NavigationScrollBehavior::AfterTransition),
+        );
+    }
+    if let Some(precommit_handler) = options.precommit_handler {
+        set_navigate_event_private_bool(scope, event, NAVIGATE_EVENT_PRECOMMIT_SEEN_SLOT, true);
+        if push_navigation_handler(
+            scope,
+            view,
+            NAVIGATE_EVENT_PRECOMMIT_HANDLERS_SLOT,
+            precommit_handler,
+        )
+        .is_err()
+        {
+            return;
+        }
+    }
+    if let Some(handler) = options.handler {
+        // This is the final intercept step. A failed residence write leaves a
+        // JavaScript exception pending as this callback returns.
+        let _residence =
+            push_navigation_handler(scope, view, NAVIGATE_EVENT_DEFERRED_HANDLERS_SLOT, handler);
+    }
+}
+
+/// Runs precommit handlers only after the complete `navigate` event dispatch.
+///
+/// The controller stays active for the synchronous callback invocations and is
+/// retired before any returned Promise reactions run. The navigation
+/// transaction, not this helper, owns waiting and commit.
+pub(in crate::context_bootstrap) fn run_navigate_event_precommit_handlers<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+) -> (
+    Option<v8::Local<'s, v8::Value>>,
+    Option<v8::Local<'s, v8::Value>>,
+) {
+    if navigation_handler_array_is_empty(scope, event, NAVIGATE_EVENT_PRECOMMIT_HANDLERS_SLOT) {
+        return (None, None);
+    }
+    install_navigate_event_precommit_transition(scope, event);
+    let controller = create_precommit_controller(scope, event);
+    let arguments = [controller.into()];
+    let result = run_navigation_handler_array(
+        scope,
+        event,
+        NAVIGATE_EVENT_PRECOMMIT_HANDLERS_SLOT,
+        &arguments,
+    );
+    set_precommit_controller_active(scope, controller, false);
+    result
+}
+
+fn install_navigate_event_precommit_transition<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+) {
+    if crate::context_bootstrap::event_private_value(
+        scope,
+        event,
+        NAVIGATE_EVENT_PRECOMMIT_TRANSITION_RESOLVER_SLOT,
+    )
+    .is_some_and(|value| !value.is_undefined())
+    {
+        return;
+    }
+    let Some(navigation) = crate::context_bootstrap::event_private_value(
+        scope,
+        event,
+        NAVIGATE_EVENT_PRECOMMIT_TRANSITION_NAVIGATION_SLOT,
+    )
+    .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok()) else {
+        return;
+    };
+    let Some(from) = crate::context_bootstrap::event_private_value(
+        scope,
+        event,
+        NAVIGATE_EVENT_PRECOMMIT_TRANSITION_FROM_SLOT,
+    )
+    .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok()) else {
+        return;
+    };
+    let destination = crate::context_bootstrap::event_private_value(
+        scope,
+        event,
+        NAVIGATE_EVENT_PRECOMMIT_TRANSITION_DESTINATION_SLOT,
+    )
+    .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok());
+    let navigation_type = crate::context_bootstrap::event_private_value(
+        scope,
+        event,
+        NAVIGATE_EVENT_PRECOMMIT_TRANSITION_TYPE_SLOT,
+    )
+    .and_then(|value| value.to_string(scope))
+    .map(|value| value.to_rust_string_lossy(scope))
+    .unwrap_or_else(|| "push".to_owned());
+    let navigation_type = match navigation_type.as_str() {
+        "replace" => "replace",
+        "reload" => "reload",
+        "traverse" => "traverse",
+        _ => "push",
+    };
+    let Some(resolver) =
+        install_navigation_transition(scope, navigation, from, destination, navigation_type)
+    else {
+        return;
+    };
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        NAVIGATE_EVENT_PRECOMMIT_TRANSITION_RESOLVER_SLOT,
+        resolver.into(),
+    );
+}
+
+fn create_precommit_controller<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+) -> v8::Local<'s, v8::Object> {
+    PrecommitControllerDeclaration::new(event, true)
+        .bind(scope)
+        .expect("precommit controller declaration should bind")
+}
+
+fn set_precommit_controller_active<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    controller: v8::Local<'s, v8::Object>,
+    active: bool,
+) {
+    set_private_value(
+        scope,
+        controller,
+        PRECOMMIT_CONTROLLER_ACTIVE_SLOT,
+        v8::Boolean::new(scope, active).into(),
+    );
+}
+
+fn precommit_controller_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    data: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    let controller = v8::Local::<v8::Object>::try_from(data).ok()?;
+    let backing =
+        crate::util::get_private_object(scope, controller, PRECOMMIT_CONTROLLER_BACKING_SLOT)
+            .unwrap_or(controller);
+    if !get_private_value(scope, backing, PRECOMMIT_CONTROLLER_ACTIVE_SLOT)
+        .is_some_and(|value| value.is_true())
+    {
+        navigate_event_throw_invalid_state(scope);
+        return None;
+    }
+    let event = get_private_value(scope, controller, PRECOMMIT_CONTROLLER_EVENT_SLOT)
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())?;
+    if !navigate_event_target_is_connected(scope, event) {
+        navigate_event_throw_invalid_state(scope);
+        return None;
+    }
+    Some(event)
+}
+
+pub(in crate::context_bootstrap) fn navigation_precommit_controller_for_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    argument: v8::Local<'s, v8::Value>,
+    view: v8::Local<'s, v8::Object>,
+) -> v8::Local<'s, v8::Value> {
+    let Ok(controller) = v8::Local::<v8::Object>::try_from(argument) else {
+        return argument;
+    };
+    if get_private_value(scope, controller, PRECOMMIT_CONTROLLER_EVENT_SLOT).is_none() {
+        return argument;
+    }
+    let Some(context) = view.get_creation_context(scope) else {
+        return argument;
+    };
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let wrapper = create_precommit_controller(scope, view);
+    set_private_value(
+        scope,
+        wrapper,
+        PRECOMMIT_CONTROLLER_BACKING_SLOT,
+        controller.into(),
+    );
+    wrapper.into()
+}
+
+fn precommit_controller_add_handler_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    _rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let handler = match webidl::convert::<webidl::WebIdlCallbackFunction>(
+        scope,
+        args.get(0),
+        webidl::Context::argument("NavigationPrecommitController.addHandler", 1),
+    ) {
+        Ok(handler) => handler,
+        Err(error) => {
+            webidl::throw_error(scope, &error);
+            return;
+        }
+    };
+    let Some(event) = precommit_controller_event(scope, args.data()) else {
+        return;
+    };
+    // This is the final addHandler step. A failed residence write leaves a
+    // JavaScript exception pending as this callback returns.
+    let _residence =
+        push_navigation_handler(scope, event, NAVIGATE_EVENT_ADDED_HANDLERS_SLOT, handler);
+}
+
+fn precommit_controller_redirect_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    _rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Some(event) = precommit_controller_event(scope, args.data()) else {
+        return;
+    };
+    let navigation_type = crate::context_bootstrap::event_backing(scope, event)
+        .get(scope, v8str(scope, "navigationType").into())
+        .and_then(|value| value.to_string(scope))
+        .map(|value| value.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    if matches!(navigation_type.as_str(), "reload" | "traverse") {
+        navigate_event_throw_invalid_state(scope);
+        return;
+    }
+    let Some(destination) = crate::context_bootstrap::event_backing(scope, event)
+        .get(scope, v8str(scope, "destination").into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+    else {
+        navigate_event_throw_invalid_state(scope);
+        return;
+    };
+    let base = destination
+        .get(scope, v8str(scope, "url").into())
+        .and_then(|value| value.to_string(scope))
+        .map(|value| value.to_rust_string_lossy(scope))
+        .unwrap_or_default();
+    let Some(raw_url) = args.get(0).to_string(scope) else {
+        return;
+    };
+    let raw_url = raw_url.to_rust_string_lossy(scope);
+    let base_url = match Url::parse(&base) {
+        Ok(url) => url,
+        Err(_) => {
+            navigate_event_throw_invalid_state(scope);
+            return;
+        }
+    };
+    let redirected = match base_url.join(&raw_url) {
+        Ok(url) => url,
+        Err(_) => {
+            throw_dom_exception(
+                scope,
+                "SyntaxError",
+                12,
+                "Failed to execute 'redirect' on 'NavigationPrecommitController': Invalid URL.",
+            );
+            return;
+        }
+    };
+    if !moli_url::same_origin(&base_url, &redirected) {
+        throw_dom_exception(
+            scope,
+            "SecurityError",
+            18,
+            "Failed to execute 'redirect' on 'NavigationPrecommitController': Cannot redirect to a cross-origin URL.",
+        );
+        return;
+    }
+    let options_value = args.get(1);
+    if !options_value.is_null_or_undefined()
+        && let Some(options) = options_value.to_object(scope)
+        && !apply_precommit_redirect_options(scope, event, destination, options)
+    {
+        return;
+    }
+    define_non_enumerable_string_property(scope, destination, "url", redirected.as_str());
+    set_navigate_event_private_bool(scope, event, NAVIGATE_EVENT_REDIRECTED_SLOT, true);
+}
+
+fn apply_precommit_redirect_options<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    destination: v8::Local<'s, v8::Object>,
+    options: v8::Local<'s, v8::Object>,
+) -> bool {
+    if let Some(info) = options.get(scope, v8str(scope, "info").into())
+        && !info.is_undefined()
+    {
+        define_event_property(scope, event, "info", info);
+    }
+    if let Some(state) = options.get(scope, v8str(scope, "state").into())
+        && !state.is_undefined()
+    {
+        let Some(cloned) = structured_clone_value(scope, state) else {
+            return false;
+        };
+        set_private_value(
+            scope,
+            destination,
+            NAVIGATION_DESTINATION_STATE_SLOT,
+            cloned,
+        );
+    }
+    if let Some(history) = options
+        .get(scope, v8str(scope, "history").into())
+        .filter(|value| !value.is_undefined())
+        .and_then(|value| value.to_string(scope))
+        .map(|value| value.to_rust_string_lossy(scope))
+        .filter(|value| matches!(value.as_str(), "push" | "replace"))
+    {
+        crate::context_bootstrap::set_event_private_value(
+            scope,
+            event,
+            NAVIGATE_EVENT_REDIRECT_HISTORY_SLOT,
+            v8_string(scope, &history).unwrap().into(),
+        );
+    }
+    true
+}
+
+fn navigate_event_defer_page_swap_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    _rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok(event) = v8::Local::<v8::Object>::try_from(args.data()) else {
+        navigate_event_throw_synthetic_security_error(scope);
+        return;
+    };
+    if !navigate_event_can_use_navigation_api(scope, event) {
+        navigate_event_throw_synthetic_security_error(scope);
+        return;
+    }
+    if !navigate_event_can_intercept_now(scope, event) {
+        navigate_event_throw_invalid_state(scope);
+    }
+}
+
+fn navigate_event_scroll_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    _rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok(event) = v8::Local::<v8::Object>::try_from(args.data()) else {
+        navigate_event_throw_synthetic_security_error(scope);
+        return;
+    };
+    if !navigate_event_can_use_navigation_api(scope, event) {
+        navigate_event_throw_synthetic_security_error(scope);
+        return;
+    }
+    let intercepted =
+        navigate_event_private_bool(scope, event, NAVIGATE_EVENT_INTERCEPTED_SLOT, false);
+    let default_prevented =
+        crate::context_bootstrap::event_bool_attribute(scope, event, "defaultPrevented");
+    let already_scrolled =
+        navigate_event_private_bool(scope, event, NAVIGATE_EVENT_SCROLL_CALLED_SLOT, false);
+    let active = crate::context_bootstrap::event_backing(scope, event)
+        .get(scope, v8str(scope, "target").into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .is_some_and(|navigation| navigation_scroll_event_is_active(scope, navigation, event));
+    if !intercepted
+        || default_prevented
+        || already_scrolled
+        || !active
+        || navigate_event_is_dispatching(scope, event)
+    {
+        navigate_event_throw_invalid_state(scope);
+        return;
+    }
+    set_navigate_event_private_bool(scope, event, NAVIGATE_EVENT_SCROLL_CALLED_SLOT, true);
+    let Some(target_url) = crate::context_bootstrap::event_backing(scope, event)
+        .get(scope, v8str(scope, "destination").into())
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+        .and_then(|destination| destination.get(scope, v8str(scope, "url").into()))
+        .and_then(|value| value.to_string(scope))
+        .map(|value| value.to_rust_string_lossy(scope))
+    else {
+        return;
+    };
+    let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return;
+    };
+    if let Err(error) = scroll_to_url_fragment_or_top(scope, host_ptr, &target_url)
+        && let Some(message) = v8_string(
+            scope,
+            &format!("Layout failed while scrolling navigation: {error}"),
+        )
+    {
+        let exception = v8::Exception::error(scope, message);
+        scope.throw_exception(exception);
+    }
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_close_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    let was_clean = init_bool_property(scope, init, "wasClean", false);
+    let code = init_number_property(scope, init, "code", 0.0);
+    let reason = init_string_property(scope, init, "reason", "");
+    let reason_value = v8_string(scope, &reason).unwrap().into();
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        CLOSE_EVENT_WAS_CLEAN_SLOT,
+        v8::Boolean::new(scope, was_clean).into(),
+    );
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        CLOSE_EVENT_CODE_SLOT,
+        v8::Number::new(scope, code).into(),
+    );
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        CLOSE_EVENT_REASON_SLOT,
+        reason_value,
+    );
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_submit_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let agent_invoked = init_bool_property(scope, init, "agentInvoked", false);
+    let Some(submitter) = submit_event_submitter(scope, init) else {
+        return false;
+    };
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        SUBMIT_EVENT_SUBMITTER_SLOT,
+        submitter,
+    );
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        SUBMIT_EVENT_AGENT_INVOKED_SLOT,
+        v8::Boolean::new(scope, agent_invoked).into(),
+    );
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_form_data_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> bool {
+    let Some(init) = init else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'FormDataEvent': FormDataEventInit.formData is required.",
+        );
+        return false;
+    };
+    let Some(form_data) = init_value_property(scope, Some(init), "formData") else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'FormDataEvent': FormDataEventInit.formData is required.",
+        );
+        return false;
+    };
+    let Ok(form_data_object) = v8::Local::<v8::Object>::try_from(form_data) else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'FormDataEvent': formData must be a FormData object.",
+        );
+        return false;
+    };
+    if !crate::context_bootstrap::form_data_runtime::form_data_is_object(scope, form_data_object) {
+        throw_type_error(
+            scope,
+            "Failed to construct 'FormDataEvent': formData must be a FormData object.",
+        );
+        return false;
+    }
+    crate::context_bootstrap::set_event_private_value(
+        scope,
+        event,
+        FORM_DATA_EVENT_FORM_DATA_SLOT,
+        form_data,
+    );
+    true
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_command_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    let source =
+        init_value_property(scope, init, "source").unwrap_or_else(|| v8::null(scope).into());
+    let command = init_string_property(scope, init, "command", "");
+    let _ = CommandEventInitDeclaration::new(source, command).initialize(scope, event);
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_track_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    let track = init_value_property(scope, init, "track").unwrap_or_else(|| v8::null(scope).into());
+    crate::context_bootstrap::set_event_private_value(scope, event, TRACK_EVENT_TRACK_SLOT, track);
+}
+
+pub(in crate::context_bootstrap::events::subclasses) fn initialize_interest_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) {
+    let source =
+        init_value_property(scope, init, "source").unwrap_or_else(|| v8::null(scope).into());
+    let _ = InterestEventInitDeclaration::new(source).initialize(scope, event);
+}
+
+fn submit_event_submitter<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    init: Option<v8::Local<'s, v8::Object>>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let Some(value) = init_value_property(scope, init, "submitter") else {
+        return Some(v8::null(scope).into());
+    };
+    if value.is_null() {
+        return Some(v8::null(scope).into());
+    }
+    let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
+        throw_type_error(
+            scope,
+            "Failed to construct 'SubmitEvent': submitter must be an HTMLElement.",
+        );
+        return None;
+    };
+    if !submitter_is_html_element(scope, object) {
+        throw_type_error(
+            scope,
+            "Failed to construct 'SubmitEvent': submitter must be an HTMLElement.",
+        );
+        return None;
+    }
+    Some(value)
+}
+
+fn submitter_is_html_element(
+    scope: &mut v8::PinScope<'_, '_>,
+    object: v8::Local<'_, v8::Object>,
+) -> bool {
+    let Some(runtime_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return false;
+    };
+    let document_handle = unsafe { &*runtime_ptr }.dom_host().document_handle();
+    let Some(handle) = crate::native_bridge::node_or_foreign_arg_handle_allow_detached(
+        scope,
+        runtime_ptr,
+        Some(document_handle),
+        object.into(),
+    ) else {
+        return false;
+    };
+    unsafe { &*runtime_ptr }
+        .dom_host()
+        .node(handle)
+        .is_some_and(|node| node.is_element())
+}
+
+pub(in crate::context_bootstrap::events) fn initialize_navigate_event_methods<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+) {
+    NavigateEventMethodsDeclaration::default()
+        .initialize(scope, event)
+        .expect("NavigateEvent methods declaration should initialize");
+}

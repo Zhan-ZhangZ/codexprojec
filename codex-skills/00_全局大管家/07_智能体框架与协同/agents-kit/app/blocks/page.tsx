@@ -1,0 +1,153 @@
+import ComponentCodePreview from "@/components/app/component-code-preview"
+import { LayoutProse } from "@/components/app/layout-prose"
+import EmailLaunchDigest from "@/components/blocks/email-launch-digest"
+import MarketingFunnelCommandCenter from "@/components/blocks/marketing-funnel-command-center"
+import SocialTrendAgent from "@/components/blocks/social-trend-agent"
+import { Button } from "@/components/ui/button"
+import { getBaseUrl } from "@/lib/utils"
+import { generateMetadata } from "../docs/utils/metadata"
+
+export const metadata = generateMetadata(
+  "v0.1 Blocks",
+  "The original Agents Kit block collection, preserved for v0.1 compatibility."
+)
+
+export default function BlocksPage() {
+  const baseUrl = getBaseUrl()
+
+  return (
+    <div className="mb-12 flex flex-col items-start">
+      <div className="mb-10 flex flex-col gap-1 text-pretty">
+        <p className="text-primary text-3xl font-[450] tracking-tight">
+          v0.1 blocks
+        </p>
+        <p className="text-muted-foreground max-w-2xl text-lg font-normal">
+          The original block collection remains available for existing projects.
+        </p>
+      </div>
+      <LayoutProse className="flex w-full flex-col gap-12">
+        <div>
+          <h4>Marketing funnel command center</h4>
+          <ComponentCodePreview
+            component={<MarketingFunnelCommandCenter />}
+            filePath="components/blocks/marketing-funnel-command-center.tsx"
+            classNameContainer="mt-4"
+            classNameComponentContainer="p-0"
+          />
+        </div>
+        <div>
+          <h4>Email launch digest</h4>
+          <ComponentCodePreview
+            component={<EmailLaunchDigest />}
+            filePath="components/blocks/email-launch-digest.tsx"
+            classNameContainer="mt-4"
+            classNameComponentContainer="p-0"
+          />
+        </div>
+        <div>
+          <h4>Social trend agent</h4>
+          <ComponentCodePreview
+            component={<SocialTrendAgent />}
+            filePath="components/blocks/social-trend-agent.tsx"
+            classNameContainer="mt-4"
+            classNameComponentContainer="p-0"
+          />
+        </div>
+        <div>
+          <h4>Prompt input with actions</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/prompt-input-actions`}
+            filePath="components/blocks/prompt-input-actions.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Prompt input with suggestions</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/prompt-input-suggestions`}
+            filePath="components/blocks/prompt-input-suggestions.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Prompt input with autocomplete</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/prompt-autocomplete-highlight`}
+            filePath="components/blocks/prompt-autocomplete-highlight.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Basic full conversation</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/full-conversation`}
+            filePath="components/blocks/full-conversation.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Conversation with avatars</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/conversation-avatars`}
+            filePath="components/blocks/conversation-avatars.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Conversation with actions</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/conversation-actions`}
+            filePath="components/blocks/conversation-actions.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Conversation with scroll to bottom</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/conversation-scroll-bottom`}
+            filePath="components/blocks/conversation-scroll-bottom.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Conversation with prompt input</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/conversation-prompt-input`}
+            filePath="components/blocks/conversation-prompt-input.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Sidebar with chat history</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/sidebar-chat-history`}
+            filePath="components/blocks/sidebar-chat-history.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+        <div>
+          <h4>Full chat app</h4>
+          <ComponentCodePreview
+            url={`${baseUrl}/c/full-chat-app`}
+            filePath="components/blocks/full-chat-app.tsx"
+            classNameComponentContainer="p-0 aspect-video h-[650px] w-full overflow-y-auto"
+          />
+        </div>
+      </LayoutProse>
+      <div className="border-border mt-12 flex w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed p-6">
+        <p className="text-muted-foreground mb-0.5 text-sm">
+          Something missing?
+        </p>
+        <Button variant="outline" asChild size="sm">
+          <a
+            href="https://github.com/agents-ui/agents-kit/issues/new"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Suggest a new block
+          </a>
+        </Button>
+      </div>
+    </div>
+  )
+}

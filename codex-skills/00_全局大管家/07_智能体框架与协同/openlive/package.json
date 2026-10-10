@@ -1,0 +1,41 @@
+{
+  "name": "openlive",
+  "version": "0.3.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@11.27.1",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "predev": "node scripts/free-ports.mjs --sweep 3000 8787 47834 47833 9333",
+    "dev": "concurrently -k --kill-others -n web,agent -c cyan,magenta \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\"",
+    "stop": "node scripts/free-ports.mjs --sweep 47834 47833 9333 3000 8787",
+    "build": "pnpm -r --filter @openlive/web build",
+    "db:reset": "pnpm --filter @openlive/db reset",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "voice:regress": "pnpm --filter @openlive/voice-regress regress",
+    "voice:bakeoff": "pnpm --filter @openlive/voice-regress bakeoff",
+    "voice:capture": "pnpm --filter @openlive/voice-regress capture",
+    "voiceprint:eval": "pnpm --filter @openlive/voiceprint-eval eval",
+    "addressee:eval": "pnpm --filter @openlive/addressee-eval eval",
+    "addressee:train": "pnpm --filter @openlive/addressee-eval train",
+    "addressee:simulate": "pnpm --filter @openlive/addressee-eval simulate",
+    "converse:eval": "pnpm --filter @openlive/converse-eval eval",
+    "native:build": "pnpm -r --filter \"./native/*\" --if-present run build:if-stale",
+    "predesktop:dev": "pnpm native:build && node scripts/free-ports.mjs --sweep 47834 47833 9333 3000 8787",
+    "desktop:dev": "cross-env AGENT_PORT=47833 WEB_PORT=47834 concurrently -k --kill-others -n web,agent,app -c cyan,magenta,green \"pnpm --filter @openlive/web dev\" \"pnpm --filter @openlive/agent dev\" \"pnpm --filter @openlive/desktop start:dev\"",
+    "desktop:build": "pnpm --filter @openlive/desktop build",
+    "desktop:build:mac": "pnpm --filter @openlive/desktop build:mac",
+    "desktop:build:win": "pnpm --filter @openlive/desktop build:win",
+    "desktop:build:linux": "pnpm --filter @openlive/desktop build:linux"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}

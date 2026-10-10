@@ -1,0 +1,1786 @@
+import { createReadStream } from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
+
+import type * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import {
+  buildImageAttachmentFromBase64,
+  parseImageDataUri,
+} from '@/core/execution/imageAttachment';
+import { extractUserDisplayContent } from '@/core/prompt/promptContext';
+import {
+  extractCodexUserVisibleText,
+  joinCodexUserTextParts,
+} from '@/providers/codex/normalization/codexUserText';
+
+import { normalizeWebSearchResults } from '../../../core/tools/toolResultDetails';
+import type {
+  ChatMessage,
+  CitationGroup,
+  ContentBlock,
+  ImageAttachment,
+  SubagentInfo,
+  ToolCallInfo,
+} from '../../../core/types';
+import { createTurnStats, isTokenCount } from '../../../core/types';
+import {
+  normalizeCodexMemoryCitation,
+  stripCodexMemoryCitationMarkup,
+} from '../normalization/CodexMemoryCitation';
+import { getCodexQuestionAnswerKey, parseCodexQuestionReply } from '../normalization/codexQuestionNormalization';
+import { applyCodexSubagentActivity, normalizeCodexSubagentActivity } from '../normalization/codexSubagentActivity';
+import { buildCodexSubagentInfo } from '../normalization/codexSubagentNormalization';
+import {
+  appendCodexCommandOutput,
+  CODEX_ASYNC_QUESTION_RESULT,
+  CODEX_WEB_SEARCH_RESULT,
+  codexToolRequestsMatch,
+  decodeCodexExecEnvelopeCalls,
+  extractCodexExecCellId,
+  isCodexFailedToolStatus,
+  isCodexInternalToolCall,
+  isCodexSilentWriteStdinCall,
+  isCodexToolOutputError,
+  normalizeCodexMCPToolInput,
+  normalizeCodexMCPToolName,
+  normalizeCodexMCPToolState,
+  normalizeCodexToolCall,
+  normalizeCodexToolResult,
+  normalizeCodexWebSearchInput,
+  parseCodexArguments,
+  readCodexExecCellIdArgument,
+  stringifyCodexToolOutput
+} from '../normalization/codexToolNormalization';
+
+interface PersistedMessagePart {
+  image_url?: string | { url?: string };
+  type?: string;
+  text?: string;
+}
+
+interface PersistedMessagePayload {
+  type: 'message';
+  role?: string;
+  content?: PersistedMessagePart[];
+}
+
+interface PersistedReasoningPayload {
+  type: 'reasoning';
+  summary?: Array<{ type?: string; text?: string } | string>;
+  content?: Array<{ type?: string; text?: string } | string>;
+  text?: string;
+}
+
+interface PersistedToolCallPayload {
+  type: 'function_call' | 'custom_tool_call';
+  name?: string;
+  namespace?: string;
+  arguments?: string;
+  call_id?: string;
+  input?: string;
+}
+
+interface PersistedToolCallOutputPayload {
+  type: 'function_call_output' | 'custom_tool_call_output';
+  call_id?: string;
+  output?: string | unknown[];
+}
+
+interface PersistedWebSearchCallPayload {
+  type: 'web_search_call';
+  action?: {
+    type?: string;
+    query?: string;
+    queries?: string[];
+    url?: string;
+    pattern?: string;
+  };
+  status?: string;
+  call_id?: string;
+}
+
+interface PersistedMCPToolCallPayload {
+  type: 'mcp_tool_call';
+  server?: string;
+  tool?: string;
+  call_id?: string;
+  status?: string;
+  arguments?: string | Record<string, unknown>;
+  result?: { content?: Array<{ type?: string; text?: string }> } | null;
+  error?: string | null;
+  duration_ms?: number | null;
+}
+
+interface PersistedEventPayload {
+  item?: {
+    type?: string;
+    kind?: string;
+    id?: string;
+    delivery?: string;
+    questions?: unknown[];
+    query?: string;
+    action?: unknown;
+    results?: unknown;
+    command?: unknown;
+    cwd?: unknown;
+    parsed_cmd?: Array<{ cmd?: unknown }>;
+    aggregated_output?: unknown;
+    exit_code?: unknown;
+  };
+  type?: string;
+  text?: string;
+  message?: string;
+  memory_citation?: unknown;
+  memoryCitation?: unknown;
+}
+
+interface PersistedCompactionPayload {
+  type: 'compaction';
+  encrypted_content?: string;
+}
+
+interface ParsedSessionRecord {
+  timestamp: number;
+  type?: string;
+  payload?: PersistedPayload;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-bubble turn model
+// ---------------------------------------------------------------------------
+
+interface CodexAssistantBubble {
+  contentChunks: string[];
+  thinkingChunks: string[];
+  toolCalls: ToolCallInfo[];
+  toolIndexesById: Map<string, number>;
+  contentBlocks: ContentBlock[];
+  startedAt: number;
+  lastEventAt: number;
+  interrupted: boolean;
+}
+
+interface CodexTurnState {
+  id: string;
+  serverTurnId?: string;
+  startedAt: number;
+  completedAt?: number;
+  completed?: boolean;
+  outputTokens?: number;
+  durationMs?: number;
+  lastEventAt: number;
+  userTimestamp?: number;
+  userChunks: string[];
+  userImages: ImageAttachment[];
+  assistantBubbles: CodexAssistantBubble[];
+  activeBubbleIndex: number | null;
+}
+
+type PersistedPayload =
+  | PersistedMessagePayload
+  | PersistedReasoningPayload
+  | PersistedToolCallPayload
+  | PersistedToolCallOutputPayload
+  | PersistedWebSearchCallPayload
+  | PersistedMCPToolCallPayload
+  | PersistedCompactionPayload
+  | PersistedEventPayload
+  | undefined;
+
+// ---------------------------------------------------------------------------
+// Turn/bubble lifecycle helpers
+// ---------------------------------------------------------------------------
+
+function newBubble(timestamp: number): CodexAssistantBubble {
+  return {
+    contentChunks: [],
+    thinkingChunks: [],
+    toolCalls: [],
+    toolIndexesById: new Map(),
+    contentBlocks: [],
+    startedAt: timestamp,
+    lastEventAt: timestamp,
+    interrupted: false,
+  };
+}
+
+function newTurnState(id: string, timestamp: number): CodexTurnState {
+  return {
+    id,
+    startedAt: timestamp,
+    lastEventAt: timestamp,
+    userChunks: [],
+    userImages: [],
+    assistantBubbles: [],
+    activeBubbleIndex: null,
+  };
+}
+
+function createPersistedParseContext(): PersistedParseContext {
+  return {
+    turns: new Map(),
+    turnOrder: [],
+    currentTurnId: null,
+    toolCallToTurn: new Map(),
+    suppressedToolOutputIds: new Set(),
+    terminalSessionToCommandId: new Map(),
+    stdinCallToCommandId: new Map(),
+    execCellToCommandId: new Map(),
+    execEnvelopeToolCallIds: new Map(),
+    openExecCalls: new Map(),
+    withheldExecCellIds: new Set(),
+    observedNativeItemIds: new Set(),
+    withheldExecOutputCallIds: new Set(),
+    failedExecCallIds: new Set(),
+    waitCallToCommand: new Map(),
+    turnCounter: 0,
+  };
+}
+
+function ensureTurn(
+  turns: Map<string, CodexTurnState>,
+  turnOrder: string[],
+  preferredTurnId: string,
+  currentTurnId: string | null,
+  timestamp: number,
+): CodexTurnState {
+  const id = currentTurnId ?? preferredTurnId;
+  const existing = turns.get(id);
+  if (existing) {
+    if (timestamp > 0 && timestamp > existing.lastEventAt) {
+      existing.lastEventAt = timestamp;
+    }
+    return existing;
+  }
+
+  const turn = newTurnState(id, timestamp);
+  turns.set(id, turn);
+  turnOrder.push(id);
+  return turn;
+}
+
+function ensureAssistantBubble(turn: CodexTurnState, timestamp: number): CodexAssistantBubble {
+  if (turn.activeBubbleIndex !== null) {
+    const bubble = turn.assistantBubbles[turn.activeBubbleIndex];
+    if (timestamp > 0 && timestamp > bubble.lastEventAt) {
+      bubble.lastEventAt = timestamp;
+    }
+    return bubble;
+  }
+
+  const bubble = newBubble(timestamp);
+  turn.assistantBubbles.push(bubble);
+  turn.activeBubbleIndex = turn.assistantBubbles.length - 1;
+  return bubble;
+}
+
+function closeAssistantBubble(turn: CodexTurnState): void {
+  turn.activeBubbleIndex = null;
+}
+
+function pushToolInvocation(bubble: CodexAssistantBubble, toolCall: ToolCallInfo): void {
+  const existingIndex = bubble.toolIndexesById.get(toolCall.id);
+  if (existingIndex !== undefined) {
+    bubble.toolCalls[existingIndex] = toolCall;
+    return;
+  }
+
+  bubble.toolIndexesById.set(toolCall.id, bubble.toolCalls.length);
+  bubble.toolCalls.push(toolCall);
+  bubble.contentBlocks.push({ type: 'tool_use', toolId: toolCall.id });
+}
+
+function appendUniqueChunk(chunks: string[], value: string): void {
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  if (chunks[chunks.length - 1] === trimmed) return;
+  chunks.push(trimmed);
+}
+
+function appendOrderedTextChunk(
+  bubble: CodexAssistantBubble,
+  type: 'text' | 'thinking',
+  value: string,
+): void {
+  const trimmed = value.trim();
+  if (!trimmed) return;
+
+  const chunks = type === 'text' ? bubble.contentChunks : bubble.thinkingChunks;
+  const lastBlock = bubble.contentBlocks[bubble.contentBlocks.length - 1];
+  if (lastBlock?.type === type) {
+    if (chunks[chunks.length - 1] === trimmed) return;
+
+    chunks.push(trimmed);
+    lastBlock.content = `${lastBlock.content}\n\n${trimmed}`;
+    return;
+  }
+
+  chunks.push(trimmed);
+  bubble.contentBlocks.push({ type, content: trimmed });
+}
+
+function appendCitationBlock(bubble: CodexAssistantBubble, value: unknown): void {
+  const citations = normalizeCodexMemoryCitation(value);
+  if (!citations) return;
+
+  const lastBlock = bubble.contentBlocks[bubble.contentBlocks.length - 1];
+  if (
+    lastBlock?.type === 'citations'
+    && areCitationGroupsEqual(lastBlock.citations, citations)
+  ) {
+    return;
+  }
+  bubble.contentBlocks.push({ type: 'citations', citations });
+}
+
+function areCitationGroupsEqual(left: CitationGroup, right: CitationGroup): boolean {
+  return left.kind === right.kind
+    && left.entries.length === right.entries.length
+    && left.entries.every((entry, index) => {
+      const other = right.entries[index];
+      return entry.path === other.path
+        && entry.lineStart === other.lineStart
+        && entry.lineEnd === other.lineEnd
+        && entry.note === other.note;
+    });
+}
+
+function appendPersistedAssistantText(
+  bubble: CodexAssistantBubble,
+  value: string,
+): void {
+  const trimmed = value.trim();
+  if (!trimmed) return;
+
+  const lastBlock = bubble.contentBlocks[bubble.contentBlocks.length - 1];
+  const previousBlock = bubble.contentBlocks[bubble.contentBlocks.length - 2];
+  if (
+    lastBlock?.type === 'citations'
+    && previousBlock?.type === 'text'
+    && previousBlock.content.trim() === trimmed
+  ) {
+    return;
+  }
+  appendOrderedTextChunk(bubble, 'text', trimmed);
+}
+
+function appendUserChunk(turn: CodexTurnState, value: string, timestamp: number): void {
+  const chunkCountBefore = turn.userChunks.length;
+  appendUniqueChunk(turn.userChunks, value);
+
+  if (turn.userChunks.length > chunkCountBefore && !turn.userTimestamp && timestamp > 0) {
+    turn.userTimestamp = timestamp;
+  }
+}
+
+function appendUserImages(
+  turn: CodexTurnState,
+  content: PersistedMessagePart[] | undefined,
+  timestamp: number,
+): void {
+  const images = extractMessageImages(content, `codex-img-${turn.id}`, turn.userImages.length);
+  if (images.length === 0) {
+    return;
+  }
+
+  turn.userImages.push(...images);
+  if (!turn.userTimestamp && timestamp > 0) {
+    turn.userTimestamp = timestamp;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function parseTimestamp(value: unknown): number {
+  if (typeof value !== 'string') {
+    return 0;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseSessionRecord(line: string): ParsedSessionRecord | null {
+  let parsed: {
+    timestamp?: string;
+    type?: string;
+    payload?: PersistedPayload;
+  };
+
+  try {
+    parsed = JSON.parse(line) as typeof parsed;
+  } catch {
+    return null;
+  }
+
+  return {
+    timestamp: parseTimestamp(parsed.timestamp),
+    type: parsed.type,
+    payload: parsed.payload,
+  };
+}
+
+function extractMessageText(content: PersistedMessagePart[] | undefined): string {
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .map(part => (typeof part?.text === 'string' ? part.text : ''))
+    .join('');
+}
+
+function extractUserMessageText(content: PersistedMessagePart[] | undefined): string {
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return joinCodexUserTextParts(
+    content.map(part => (typeof part?.text === 'string' ? part.text : '')),
+  );
+}
+
+function extractMessageImages(
+  content: PersistedMessagePart[] | undefined,
+  idPrefix: string,
+  startIndex = 0,
+): ImageAttachment[] {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  const images: ImageAttachment[] = [];
+  for (const part of content) {
+    if (part?.type !== 'input_image') {
+      continue;
+    }
+
+    const imageUrl = typeof part.image_url === 'string'
+      ? part.image_url
+      : typeof part.image_url?.url === 'string'
+        ? part.image_url.url
+        : null;
+    const parsed = parseImageDataUri(imageUrl);
+    if (!parsed) {
+      continue;
+    }
+
+    const image = buildImageAttachmentFromBase64({
+      data: parsed.data,
+      id: `${idPrefix}-${startIndex + images.length}`,
+      mediaType: parsed.mediaType,
+      name: `image-${startIndex + images.length + 1}.${parsed.mediaType.split('/')[1]}`,
+    });
+    if (image) {
+      images.push(image);
+    }
+  }
+
+  return images;
+}
+
+function hasMessageImages(content: PersistedMessagePart[] | undefined): boolean {
+  if (!Array.isArray(content)) {
+    return false;
+  }
+
+  return content.some((part) => {
+    if (part?.type !== 'input_image') {
+      return false;
+    }
+    const imageUrl = typeof part.image_url === 'string'
+      ? part.image_url
+      : typeof part.image_url?.url === 'string'
+        ? part.image_url.url
+        : null;
+    return parseImageDataUri(imageUrl) !== null;
+  });
+}
+
+function joinTextParts(parts: Array<{ text?: string } | string>): string {
+  return parts
+    .map((part) => {
+      if (typeof part === 'string') return part;
+      return typeof part?.text === 'string' ? part.text : '';
+    })
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
+function extractReasoningText(payload: PersistedReasoningPayload | PersistedEventPayload): string {
+  if ('summary' in payload && Array.isArray(payload.summary) && payload.summary.length > 0) {
+    return joinTextParts(payload.summary);
+  }
+
+  if ('content' in payload && Array.isArray(payload.content) && payload.content.length > 0) {
+    return joinTextParts(payload.content);
+  }
+
+  return typeof payload.text === 'string' ? payload.text.trim() : '';
+}
+
+// ---------------------------------------------------------------------------
+// Persisted-format (response_item) processing — with bubble model
+// ---------------------------------------------------------------------------
+
+interface PersistedExecCall {
+  toolCallId: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+interface PersistedParseContext {
+  turns: Map<string, CodexTurnState>;
+  turnOrder: string[];
+  currentTurnId: string | null;
+  toolCallToTurn: Map<string, { turnId: string; bubbleIndex: number }>;
+  suppressedToolOutputIds: Set<string>;
+  terminalSessionToCommandId: Map<string, string>;
+  stdinCallToCommandId: Map<string, string>;
+  execCellToCommandId: Map<string, string>;
+  execEnvelopeToolCallIds: Map<string, string[]>;
+  /** Exec script calls of the current turn that native items may still complete. */
+  openExecCalls: Map<string, PersistedExecCall[]>;
+  /** Yielded cells of scripts whose combined output is withheld. */
+  withheldExecCellIds: Set<string>;
+  /** Native items already seen; a repeated item must not complete another call. */
+  observedNativeItemIds: Set<string>;
+  /** Default working directory of the current turn. */
+  workingDirectory?: string;
+  /** Exec scripts whose unsplit output also carries hidden internal calls' values. */
+  withheldExecOutputCallIds: Set<string>;
+  failedExecCallIds: Set<string>;
+  waitCallToCommand: Map<string, { commandCallId: string; cellId: string }>;
+  turnCounter: number;
+}
+
+function nextTurnId(ctx: PersistedParseContext): string {
+  ctx.turnCounter += 1;
+  return `turn-${ctx.turnCounter}`;
+}
+
+function processPersistedToolCall(
+  payload: PersistedToolCallPayload,
+  timestamp: number,
+  ctx: PersistedParseContext,
+): void {
+  const callId = payload.call_id;
+  if (!callId) return;
+  if (isCodexInternalToolCall(payload.name, payload.namespace)) {
+    ctx.suppressedToolOutputIds.add(callId);
+    return;
+  }
+
+  const rawArgs = payload.arguments ?? payload.input;
+  const parsedArgs = parseCodexArguments(rawArgs);
+  const execEnvelopeCalls = payload.name === 'exec'
+    ? decodeCodexExecEnvelopeCalls(parsedArgs)
+    : null;
+  // Script output is not attributed per call, so internal values cannot be separated from it.
+  if (execEnvelopeCalls?.some(call => isCodexInternalToolCall(call.rawName))) ctx.withheldExecOutputCallIds.add(callId);
+  if (execEnvelopeCalls?.every(call => isCodexInternalToolCall(call.rawName))) {
+    ctx.suppressedToolOutputIds.add(callId);
+    return;
+  }
+  // A failed script can stop before later calls or emit partial results. Its
+  // source and output do not establish which nested tools actually executed.
+  if (payload.name === 'exec' && ctx.failedExecCallIds.has(callId)) {
+    pushPersistedNormalizedToolCall(callId, { name: 'exec', input: parsedArgs }, timestamp, ctx);
+    return;
+  }
+  if (execEnvelopeCalls) {
+    // Native search items carry sources; native command items replace output withheld from the script.
+    const withheld = ctx.withheldExecOutputCallIds.has(callId);
+    ctx.openExecCalls.set(callId, execEnvelopeCalls.flatMap(({ name, input, rawInput }, index) => {
+      const toolCallId = execEnvelopeCalls.length > 1 ? `${callId}:${index + 1}` : callId;
+      if (name === 'WebSearch') return [{ toolCallId, name, input }];
+      if (name !== 'Bash' || !withheld) return [];
+      const requestedDirectory = rawInput.workdir ?? rawInput.cwd ?? rawInput.workingDirectory;
+      return [{ toolCallId, name, input: {
+        ...input,
+        workingDirectory: resolvePersistedWorkingDirectory(requestedDirectory, ctx.workingDirectory),
+      } }];
+    }));
+  }
+  if (execEnvelopeCalls && execEnvelopeCalls.length > 1) {
+    const toolCallIds = execEnvelopeCalls.map((call, index) => {
+      const nestedCallId = `${callId}:${index + 1}`;
+      if (isCodexInternalToolCall(call.rawName)) ctx.suppressedToolOutputIds.add(nestedCallId);
+      else processPersistedNormalizedToolCall(nestedCallId, call, timestamp, ctx);
+      return nestedCallId;
+    });
+    ctx.execEnvelopeToolCallIds.set(callId, toolCallIds);
+    return;
+  }
+
+  processPersistedNormalizedToolCall(callId, normalizeCodexToolCall(payload.name, parsedArgs), timestamp, ctx);
+}
+
+function processPersistedNormalizedToolCall(
+  callId: string,
+  normalized: { name: string; input: Record<string, unknown> },
+  timestamp: number,
+  ctx: PersistedParseContext,
+): void {
+  if (normalized.name === 'wait') {
+    const cellId = readCodexExecCellIdArgument(normalized.input);
+    if (cellId && ctx.withheldExecCellIds.delete(cellId)) {
+      ctx.withheldExecOutputCallIds.add(callId);
+      ctx.suppressedToolOutputIds.add(callId);
+      return;
+    }
+    const commandCallId = cellId ? ctx.execCellToCommandId.get(cellId) : undefined;
+    if (cellId && commandCallId) {
+      ctx.waitCallToCommand.set(callId, { commandCallId, cellId });
+      return;
+    }
+  }
+
+  if (isCodexSilentWriteStdinCall(normalized.name, normalized.input)) {
+    const terminalSessionId = readTerminalSessionIdArgument(normalized.input);
+    const parentCallId = terminalSessionId
+      ? ctx.terminalSessionToCommandId.get(terminalSessionId)
+      : undefined;
+    if (parentCallId) {
+      ctx.stdinCallToCommandId.set(callId, parentCallId);
+    }
+    ctx.suppressedToolOutputIds.add(callId);
+    return;
+  }
+
+  pushPersistedNormalizedToolCall(callId, normalized, timestamp, ctx);
+}
+
+function pushPersistedNormalizedToolCall(
+  callId: string,
+  normalized: { name: string; input: Record<string, unknown> },
+  timestamp: number,
+  ctx: PersistedParseContext,
+): void {
+  const turn = ensureTurn(
+    ctx.turns,
+    ctx.turnOrder,
+    nextTurnId(ctx),
+    ctx.currentTurnId,
+    timestamp,
+  );
+  const bubble = ensureAssistantBubble(turn, timestamp);
+
+  const toolCall: ToolCallInfo = {
+    id: callId,
+    name: normalized.name,
+    input: normalized.input,
+    status: 'running',
+  };
+
+  pushToolInvocation(bubble, toolCall);
+
+  ctx.toolCallToTurn.set(callId, {
+    turnId: turn.id,
+    bubbleIndex: turn.activeBubbleIndex!,
+  });
+}
+
+function processPersistedToolOutput(
+  payload: PersistedToolCallOutputPayload,
+  timestamp: number,
+  ctx: PersistedParseContext,
+): void {
+  const callId = payload.call_id;
+  if (!callId) return;
+
+  const withholdsOutput = ctx.withheldExecOutputCallIds.delete(callId);
+  // output can be a string or an array (e.g. view_image returns image objects)
+  const rawOutput = stringifyCodexToolOutput(payload.output);
+  // A yielded withheld script continues through `wait` calls that carry the same combined output.
+  const yieldedCellId = withholdsOutput ? extractCodexExecCellId(rawOutput) : undefined;
+  if (yieldedCellId) ctx.withheldExecCellIds.add(yieldedCellId);
+
+  const execEnvelopeToolCallIds = ctx.execEnvelopeToolCallIds.get(callId);
+  if (execEnvelopeToolCallIds) {
+    applyPersistedExecEnvelopeOutput(
+      execEnvelopeToolCallIds,
+      payload.output,
+      rawOutput,
+      ctx,
+      withholdsOutput,
+    );
+    ctx.execEnvelopeToolCallIds.delete(callId);
+    return;
+  }
+
+  const waitCall = ctx.waitCallToCommand.get(callId);
+  if (waitCall) {
+    const parentToolCall = findPersistedToolCallById(ctx, waitCall.commandCallId);
+    ctx.execCellToCommandId.delete(waitCall.cellId);
+    if (parentToolCall) {
+      applyPersistedToolOutput(parentToolCall, payload.output, rawOutput, ctx);
+    }
+    ctx.waitCallToCommand.delete(callId);
+    return;
+  }
+
+  const parentCommandId = ctx.stdinCallToCommandId.get(callId);
+  if (parentCommandId) {
+    const parentToolCall = findPersistedToolCallById(ctx, parentCommandId);
+    if (parentToolCall) {
+      applyPersistedToolOutput(parentToolCall, payload.output, rawOutput, ctx, {
+        allowImplicitCommandCompletion: false,
+      });
+    }
+    ctx.stdinCallToCommandId.delete(callId);
+    ctx.suppressedToolOutputIds.delete(callId);
+    return;
+  }
+
+  if (ctx.suppressedToolOutputIds.delete(callId)) {
+    return;
+  }
+
+  // Cross-turn resolution: look up where the tool call was originally pushed
+  const origin = ctx.toolCallToTurn.get(callId);
+  if (origin) {
+    const originTurn = ctx.turns.get(origin.turnId);
+    if (originTurn && origin.bubbleIndex < originTurn.assistantBubbles.length) {
+      const originBubble = originTurn.assistantBubbles[origin.bubbleIndex];
+      const existing = originBubble.toolCalls.find(tool => tool.id === callId);
+      if (existing) {
+        if (withholdsOutput) existing.status = isCodexToolOutputError(rawOutput) ? 'error' : 'completed';
+        else applyPersistedToolOutput(existing, payload.output, rawOutput, ctx);
+        return;
+      }
+    }
+  }
+
+  if (payload.type === 'custom_tool_call_output') {
+    return;
+  }
+
+  // Fallback: push orphan entry into current turn
+  const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+  const bubble = ensureAssistantBubble(turn, timestamp);
+  const normalizedResult = normalizeCodexToolResult('tool', rawOutput);
+
+  pushToolInvocation(bubble, {
+    id: callId,
+    name: 'tool',
+    input: {},
+    status: isCodexToolOutputError(rawOutput) ? 'error' : 'completed',
+    result: normalizedResult,
+  });
+}
+
+/** Claims the open script call a native item completes, when its request identifies exactly one. */
+function claimPersistedExecCall(
+  name: string,
+  nativeInputs: Record<string, unknown>[],
+  ctx: PersistedParseContext,
+): ToolCallInfo | null {
+  const matches = [...ctx.openExecCalls.values()].flatMap(calls => calls
+    .filter(call => call.name === name && nativeInputs.some(input => codexToolRequestsMatch(name, call.input, input)))
+    .map(call => ({ calls, call })));
+  if (matches.length !== 1) return null;
+  const [{ calls, call }] = matches;
+  calls.splice(calls.indexOf(call), 1);
+  return findPersistedToolCallById(ctx, call.toolCallId);
+}
+
+function resolvePersistedWorkingDirectory(directory: unknown, baseDirectory?: string): string | undefined {
+  if (typeof directory !== 'string' || !directory) return baseDirectory && path.resolve(baseDirectory);
+  const localDirectory = directory.startsWith('file:') ? fileURLToPath(directory) : directory;
+  return path.resolve(baseDirectory ?? '', localDirectory);
+}
+
+function applyPersistedNativeExecItem(item: NonNullable<PersistedEventPayload['item']>, ctx: PersistedParseContext): void {
+  if (item.id) {
+    if (ctx.observedNativeItemIds.has(item.id)) return;
+    ctx.observedNativeItemIds.add(item.id);
+  }
+  if (item.type === 'Extension' && item.kind === 'web.search') {
+    const input = normalizeCodexWebSearchInput({ query: item.query, action: item.action });
+    const toolCall = claimPersistedExecCall('WebSearch', [input], ctx);
+    const webSearchResults = normalizeWebSearchResults(item.results);
+    if (toolCall && webSearchResults) toolCall.webSearchResults = webSearchResults;
+    return;
+  }
+  const commands = [item.parsed_cmd?.[0]?.cmd, Array.isArray(item.command) ? item.command.at(-1) : item.command]
+    .filter((command): command is string => typeof command === 'string' && command.length > 0);
+  const workingDirectory = resolvePersistedWorkingDirectory(item.cwd);
+  const toolCall = claimPersistedExecCall('Bash', commands.map(command => ({ command, workingDirectory })), ctx);
+  if (!toolCall || typeof item.aggregated_output !== 'string') return;
+  toolCall.result = item.aggregated_output;
+  if (typeof item.exit_code === 'number') toolCall.status = item.exit_code === 0 ? 'completed' : 'error';
+}
+
+function findPersistedToolCallById(ctx: PersistedParseContext, callId: string): ToolCallInfo | null {
+  const origin = ctx.toolCallToTurn.get(callId);
+  if (!origin) {
+    return null;
+  }
+
+  const turn = ctx.turns.get(origin.turnId);
+  if (!turn || origin.bubbleIndex >= turn.assistantBubbles.length) {
+    return null;
+  }
+
+  return turn.assistantBubbles[origin.bubbleIndex].toolCalls.find(tool => tool.id === callId) ?? null;
+}
+
+function applyPersistedExecEnvelopeOutput(
+  toolCallIds: string[],
+  rawOutputValue: string | unknown[] | undefined,
+  rawOutputText: string,
+  ctx: PersistedParseContext,
+  withholdsOutput: boolean,
+): void {
+  // Output parts follow emission order, which need not match call order.
+  const outputParts = withholdsOutput ? null : splitPersistedExecEnvelopeOutput(rawOutputValue, toolCallIds.length);
+  if (outputParts) {
+    for (const [index, callId] of toolCallIds.entries()) {
+      processPersistedToolOutput({
+        type: 'custom_tool_call_output',
+        call_id: callId,
+        output: outputParts[index],
+      }, 0, ctx);
+    }
+    return;
+  }
+
+  const toolCalls = toolCallIds
+    .map(toolCallId => findPersistedToolCallById(ctx, toolCallId))
+    .filter((toolCall): toolCall is ToolCallInfo => toolCall !== null);
+
+  // Without one output item per nested call, preserve the aggregate result on
+  // the final card instead of inventing a per-command split.
+  const isError = isCodexToolOutputError(rawOutputText);
+  for (const toolCall of toolCalls) {
+    // Calls completed by their native item keep its status.
+    if (toolCall.status === 'running') toolCall.status = isError ? 'error' : 'completed';
+  }
+
+  const lastToolCall = toolCalls[toolCalls.length - 1];
+  if (lastToolCall && !withholdsOutput) {
+    lastToolCall.result = normalizeCodexToolResult(lastToolCall.name, rawOutputText);
+  }
+}
+
+function splitPersistedExecEnvelopeOutput(
+  rawOutputValue: string | unknown[] | undefined,
+  toolCallCount: number,
+): Array<string | unknown[]> | null {
+  if (!Array.isArray(rawOutputValue)) return null;
+
+  const outputParts: Array<string | unknown[]> = [];
+  for (const part of rawOutputValue) {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) return null;
+    const text = (part as Record<string, unknown>).text;
+    outputParts.push(typeof text === 'string' ? text : [part]);
+  }
+
+  // The outer exec transport prepends its own completion header before values
+  // emitted by each text(...) call in the envelope.
+  if (typeof outputParts[0] === 'string' && isPersistedExecEnvelopeHeader(outputParts[0])) {
+    outputParts.shift();
+  }
+
+  return outputParts.length === toolCallCount ? outputParts : null;
+}
+
+function isPersistedExecEnvelopeHeader(value: string): boolean {
+  return value.startsWith('Script ') && value.endsWith('Output:\n');
+}
+
+function readTerminalSessionIdArgument(input: Record<string, unknown>): string | undefined {
+  const value = input.session_id ?? input.sessionId;
+  if (typeof value === 'string' && value) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function readPersistedCommandToolResult(rawOutputText: string): {
+  output: string;
+  status: 'running' | 'completed' | 'unknown';
+  exitCode?: number;
+  terminalSessionId?: string;
+  execCellId?: string;
+} {
+  // Code-mode adds a script header before the command's JSON result.
+  const outputMarker = 'Output:\n';
+  const markerIndex = rawOutputText.startsWith('Script ') ? rawOutputText.indexOf(outputMarker) : -1;
+  let commandResultText = markerIndex >= 0
+    ? rawOutputText.slice(markerIndex + outputMarker.length)
+    : rawOutputText;
+  let metadata = parseCodexArguments(commandResultText);
+  // Promise.allSettled results retain the command metadata under value.
+  if (metadata.status === 'fulfilled' && metadata.value && typeof metadata.value === 'object'
+    && !Array.isArray(metadata.value) && typeof (metadata.value as Record<string, unknown>).output === 'string') {
+    metadata = metadata.value as Record<string, unknown>;
+    commandResultText = JSON.stringify(metadata);
+  }
+  const exitCodeMatch = commandResultText.match(/(?:Exit code:|Process exited with code)\s*(-?\d+)/i);
+  const exitCode = typeof metadata.exit_code === 'number' && Number.isInteger(metadata.exit_code)
+    ? metadata.exit_code
+    : exitCodeMatch ? Number(exitCodeMatch[1]) : undefined;
+  const runningMatch = commandResultText.match(/Process running with session ID\s*([^\n]+)/i);
+  const terminalSessionId = readTerminalSessionIdArgument(metadata) || runningMatch?.[1]?.trim();
+  const execCellId = extractCodexExecCellId(rawOutputText);
+
+  return {
+    output: normalizeCodexToolResult('Bash', commandResultText),
+    status: exitCode !== undefined ? 'completed' : terminalSessionId || execCellId ? 'running' : 'unknown',
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(terminalSessionId ? { terminalSessionId } : {}),
+    ...(execCellId ? { execCellId } : {}),
+  };
+}
+
+function applyPersistedToolOutput(
+  toolCall: ToolCallInfo,
+  rawOutputValue: string | unknown[] | undefined,
+  rawOutputText: string,
+  ctx: PersistedParseContext,
+  options: { allowImplicitCommandCompletion?: boolean } = {},
+): void {
+  if (toolCall.name === 'exec') {
+    toolCall.result = appendCodexCommandOutput(toolCall.result, normalizeCodexToolResult('exec', rawOutputText));
+    const cellId = extractCodexExecCellId(rawOutputText);
+    if (cellId) {
+      ctx.execCellToCommandId.set(cellId, toolCall.id);
+      toolCall.status = 'running';
+    } else {
+      toolCall.status = isCodexToolOutputError(rawOutputText) ? 'error' : 'completed';
+    }
+    return;
+  }
+
+  if (toolCall.name === 'Bash') {
+    const commandResult = readPersistedCommandToolResult(rawOutputText);
+    toolCall.result = appendCodexCommandOutput(toolCall.result, commandResult.output);
+    if (commandResult.terminalSessionId) {
+      ctx.terminalSessionToCommandId.set(commandResult.terminalSessionId, toolCall.id);
+    }
+    if (commandResult.execCellId) {
+      ctx.execCellToCommandId.set(commandResult.execCellId, toolCall.id);
+    }
+    if (commandResult.status === 'running') {
+      toolCall.status = 'running';
+      return;
+    }
+    if (commandResult.status === 'unknown' && options.allowImplicitCommandCompletion === false) {
+      return;
+    }
+    toolCall.status = commandResult.exitCode !== undefined
+      ? commandResult.exitCode === 0 ? 'completed' : 'error'
+      : isCodexToolOutputError(rawOutputText) ? 'error' : 'completed';
+    return;
+  }
+
+  toolCall.result = normalizePersistedToolOutput(toolCall, rawOutputValue, rawOutputText);
+  toolCall.status = isCodexToolOutputError(rawOutputText) ? 'error' : 'completed';
+}
+
+function normalizePersistedToolOutput(
+  toolCall: ToolCallInfo,
+  rawOutputValue: string | unknown[] | undefined,
+  rawOutputText: string,
+): string {
+  if (Array.isArray(rawOutputValue) && toolCall.name === 'Read') {
+    const filePath = toolCall.input.file_path;
+    if (typeof filePath === 'string' && filePath) {
+      return filePath;
+    }
+  }
+
+  return normalizeCodexToolResult(toolCall.name, rawOutputText);
+}
+
+function processPersistedWebSearchCall(
+  payload: PersistedWebSearchCallPayload,
+  timestamp: number,
+  lineIndex: number,
+  ctx: PersistedParseContext,
+): void {
+  const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+  const bubble = ensureAssistantBubble(turn, timestamp);
+
+  // Persisted web_search_call entries commonly omit call_id. Use transcript line index
+  // so live tailing and history reload reconstruct the same visible tool sequence.
+  const callId = payload.call_id || `tail-ws-${lineIndex}`;
+
+  if (bubble.toolIndexesById.has(callId)) return;
+
+  const input = normalizeCodexWebSearchInput({ action: payload.action });
+  const isError = isCodexFailedToolStatus(payload.status);
+  const isTerminal = isError || payload.status === 'completed';
+
+  const toolCall: ToolCallInfo = {
+    id: callId,
+    name: 'WebSearch',
+    input,
+    status: isTerminal ? (isError ? 'error' : 'completed') : 'running',
+    ...(isTerminal ? { result: CODEX_WEB_SEARCH_RESULT } : {}),
+  };
+
+  pushToolInvocation(bubble, toolCall);
+
+  ctx.toolCallToTurn.set(callId, {
+    turnId: turn.id,
+    bubbleIndex: turn.assistantBubbles.indexOf(bubble),
+  });
+}
+
+function processPersistedMCPToolCall(
+  payload: PersistedMCPToolCallPayload,
+  timestamp: number,
+  ctx: PersistedParseContext,
+): void {
+  const callId = payload.call_id;
+  if (!callId) return;
+
+  const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+  const bubble = ensureAssistantBubble(turn, timestamp);
+
+  if (bubble.toolIndexesById.has(callId)) return;
+
+  const normalizedInput = normalizeCodexMCPToolInput(payload.arguments);
+  const normalizedState = normalizeCodexMCPToolState(payload.status, payload.result, payload.error);
+
+  const toolCall: ToolCallInfo = {
+    id: callId,
+    name: normalizeCodexMCPToolName(payload.server, payload.tool),
+    input: normalizedInput,
+    status: normalizedState.status,
+    ...(normalizedState.result ? { result: normalizedState.result } : {}),
+  };
+
+  pushToolInvocation(bubble, toolCall);
+
+  ctx.toolCallToTurn.set(callId, {
+    turnId: turn.id,
+    bubbleIndex: turn.activeBubbleIndex!,
+  });
+}
+
+function applyQuestionReplies(text: string, ctx: PersistedParseContext): boolean {
+  const replies = parseCodexQuestionReply(text);
+  for (const reply of replies) {
+    const tool = findPersistedToolCallById(ctx, reply.callId);
+    const question: unknown = Array.isArray(tool?.input.questions) ? tool.input.questions[reply.index] : undefined;
+    if (tool?.input.replyMode === 'user-message' && question && typeof question === 'object' && 'question' in question && question.question === reply.question) {
+      tool.resolvedAnswers = { ...tool.resolvedAnswers, [getCodexQuestionAnswerKey('id' in question ? question.id : undefined, reply.index)]: reply.answer };
+    }
+  }
+  return replies.length > 0;
+}
+
+function processPersistedPayload(
+  payload: PersistedPayload,
+  timestamp: number,
+  lineIndex: number,
+  ctx: PersistedParseContext,
+): void {
+  if (!payload?.type) {
+    return;
+  }
+
+  switch (payload.type) {
+    case 'message': {
+      const messagePayload = payload as PersistedMessagePayload;
+
+      if (messagePayload.role === 'user') {
+        const text = extractUserMessageText(messagePayload.content);
+        const isQuestionReply = applyQuestionReplies(text, ctx);
+        const visibleText = extractCodexUserVisibleText(text);
+        const hasImages = hasMessageImages(messagePayload.content);
+        if (visibleText === null && !hasImages && !isQuestionReply) break;
+
+        // Close any active bubble in the current turn before starting user content
+        if (ctx.currentTurnId) {
+          const prevTurn = ctx.turns.get(ctx.currentTurnId);
+          if (prevTurn) closeAssistantBubble(prevTurn);
+        }
+
+        // User message opens a new turn
+        ctx.currentTurnId = null;
+        const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), null, timestamp);
+        ctx.currentTurnId = turn.id;
+        if (isQuestionReply || visibleText !== null) {
+          appendUserChunk(turn, isQuestionReply ? text : visibleText!, timestamp);
+        }
+        appendUserImages(turn, messagePayload.content, timestamp);
+      } else if (messagePayload.role === 'assistant') {
+        const text = stripCodexMemoryCitationMarkup(
+          extractMessageText(messagePayload.content),
+        );
+        const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+        const bubble = ensureAssistantBubble(turn, timestamp);
+        if (text) {
+          appendPersistedAssistantText(bubble, text);
+        }
+      }
+      break;
+    }
+
+    case 'reasoning': {
+      const reasoningPayload = payload as PersistedReasoningPayload;
+      const text = extractReasoningText(reasoningPayload);
+      if (!text) break;
+
+      const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+      const bubble = ensureAssistantBubble(turn, timestamp);
+      appendOrderedTextChunk(bubble, 'thinking', text);
+      break;
+    }
+
+    case 'function_call':
+    case 'custom_tool_call':
+      processPersistedToolCall(payload as PersistedToolCallPayload, timestamp, ctx);
+      break;
+
+    case 'function_call_output':
+    case 'custom_tool_call_output':
+      processPersistedToolOutput(payload as PersistedToolCallOutputPayload, timestamp, ctx);
+      break;
+
+    case 'web_search_call':
+      processPersistedWebSearchCall(payload as PersistedWebSearchCallPayload, timestamp, lineIndex, ctx);
+      break;
+
+    case 'mcp_tool_call':
+      processPersistedMCPToolCall(payload as PersistedMCPToolCallPayload, timestamp, ctx);
+      break;
+
+    case 'compaction':
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// event_msg processing
+// ---------------------------------------------------------------------------
+
+function extractServerTurnId(payload: PersistedEventPayload): string | undefined {
+  const turnId = (payload as Record<string, unknown>).turn_id;
+  return typeof turnId === 'string' ? turnId : undefined;
+}
+
+function processEventMsg(
+  payload: PersistedEventPayload,
+  timestamp: number,
+  ctx: PersistedParseContext,
+): void {
+  if (!payload?.type) return;
+
+  switch (payload.type) {
+    case 'item_completed': {
+      const activity = normalizeCodexSubagentActivity((payload as Record<string, unknown>).item);
+      if (activity?.kind === 'started' && !ctx.toolCallToTurn.has(activity.id)) {
+        pushPersistedNormalizedToolCall(activity.id, { name: 'spawn_agent', input: { task_name: activity.agentPath } }, timestamp, ctx);
+      }
+      const item = payload.item;
+      if ((item?.type === 'Extension' && item.kind === 'web.search') || item?.type === 'CommandExecution') {
+        applyPersistedNativeExecItem(item, ctx);
+        break;
+      }
+      if ((item?.type !== 'AgentMessage' && item?.type !== 'agentMessage')
+        || item.delivery !== 'async' || !item.id || !Array.isArray(item.questions)) break;
+      if (!findPersistedToolCallById(ctx, item.id)) {
+        processPersistedToolCall({ type: 'function_call', call_id: item.id, name: 'request_user_input_async', arguments: JSON.stringify({ questions: item.questions }) }, timestamp, ctx);
+      }
+      const tool = findPersistedToolCallById(ctx, item.id);
+      if (tool && tool.status === 'running') {
+        tool.status = 'completed';
+        tool.result = CODEX_ASYNC_QUESTION_RESULT;
+      }
+      break;
+    }
+
+    case 'task_started': {
+      // Native items complete their calls within the same turn.
+      ctx.openExecCalls.clear();
+      const serverTurnId = extractServerTurnId(payload);
+      const id = nextTurnId(ctx);
+      const turn = ensureTurn(ctx.turns, ctx.turnOrder, id, null, timestamp);
+      turn.startedAt = timestamp;
+      if (serverTurnId) turn.serverTurnId = serverTurnId;
+      ctx.currentTurnId = turn.id;
+      break;
+    }
+
+    case 'task_complete': {
+      if (ctx.currentTurnId) {
+        const turn = ctx.turns.get(ctx.currentTurnId);
+        if (turn) {
+          turn.completedAt = timestamp;
+          turn.completed = true;
+          const duration = (payload as Record<string, unknown>).duration_ms;
+          if (typeof duration === 'number') turn.durationMs = duration;
+          closeAssistantBubble(turn);
+          const serverTurnId = extractServerTurnId(payload);
+          if (serverTurnId && !turn.serverTurnId) turn.serverTurnId = serverTurnId;
+        }
+      }
+      ctx.currentTurnId = null;
+      break;
+    }
+
+    case 'turn_aborted': {
+      if (ctx.currentTurnId) {
+        const turn = ctx.turns.get(ctx.currentTurnId);
+        if (turn) {
+          const bubble = ensureAssistantBubble(turn, timestamp);
+          bubble.interrupted = true;
+          closeAssistantBubble(turn);
+          turn.completedAt = timestamp;
+        }
+      }
+      ctx.currentTurnId = null;
+      break;
+    }
+
+    case 'user_message': {
+      const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+      const msg = payload.message;
+      if (typeof msg === 'string') {
+        const isQuestionReply = applyQuestionReplies(msg, ctx);
+        const visibleText = extractCodexUserVisibleText(msg);
+        if (isQuestionReply || visibleText !== null) {
+          appendUserChunk(turn, isQuestionReply ? msg : visibleText!, timestamp);
+        }
+      }
+      break;
+    }
+
+    case 'agent_message': {
+      const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+      const bubble = ensureAssistantBubble(turn, timestamp);
+      const msg = payload.message;
+      if (typeof msg === 'string') {
+        appendPersistedAssistantText(
+          bubble,
+          stripCodexMemoryCitationMarkup(msg),
+        );
+      }
+      appendCitationBlock(
+        bubble,
+        payload.memory_citation ?? payload.memoryCitation,
+      );
+      break;
+    }
+
+    case 'agent_reasoning': {
+      const text = extractReasoningText(payload);
+      if (!text) break;
+
+      const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
+      const bubble = ensureAssistantBubble(turn, timestamp);
+      appendOrderedTextChunk(bubble, 'thinking', text);
+      break;
+    }
+
+    case 'context_compacted': {
+      const activeTurnId = ctx.currentTurnId;
+      if (activeTurnId) {
+        const activeTurn = ctx.turns.get(activeTurnId);
+        if (activeTurn) closeAssistantBubble(activeTurn);
+      }
+
+      // Auto-compaction can occur in the middle of a running turn. Keep the
+      // boundary in that turn so later records retain their turn ownership.
+      const turn = ensureTurn(
+        ctx.turns,
+        ctx.turnOrder,
+        nextTurnId(ctx),
+        activeTurnId,
+        timestamp,
+      );
+      const bubble = ensureAssistantBubble(turn, timestamp);
+      bubble.contentBlocks.push({ type: 'context_compacted' });
+      closeAssistantBubble(turn);
+      break;
+    }
+
+    default:
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Flush multi-bubble turns to ChatMessage[]
+// ---------------------------------------------------------------------------
+
+function flushBubbleTurnMessages(
+  turn: CodexTurnState,
+  msgIndex: number,
+): { messages: ChatMessage[]; nextMsgIndex: number } {
+  const messages: ChatMessage[] = [];
+
+  const rawUserText = turn.userChunks.join('\n');
+  const isQuestionReply = parseCodexQuestionReply(rawUserText).length > 0;
+  const visibleUserText = extractCodexUserVisibleText(rawUserText);
+  const userImages = turn.userImages.length > 0 ? turn.userImages : undefined;
+  if (visibleUserText || userImages || isQuestionReply) {
+    const extractedDisplay = visibleUserText ? extractUserDisplayContent(visibleUserText) : undefined;
+    const displayContent = extractedDisplay ?? (isQuestionReply ? visibleUserText ?? '' : undefined);
+    messages.push({
+      id: `codex-msg-${msgIndex}`,
+      role: 'user',
+      content: isQuestionReply ? rawUserText : visibleUserText ?? '',
+      ...(displayContent !== undefined ? { displayContent } : {}),
+      ...(userImages ? { images: userImages } : {}),
+      ...(turn.serverTurnId ? { userMessageId: turn.serverTurnId } : {}),
+      timestamp: turn.userTimestamp || turn.startedAt || Date.now(),
+    });
+    msgIndex += 1;
+  }
+
+  let lastAssistantTimestamp = 0;
+  const assistantMessages: ChatMessage[] = [];
+
+  for (const bubble of turn.assistantBubbles) {
+    const contentText = bubble.contentChunks.join('\n\n');
+    const thinkingText = bubble.thinkingChunks.join('\n\n');
+    const hasContent = contentText.trim().length > 0;
+    const hasThinking = thinkingText.trim().length > 0;
+    const hasToolCalls = bubble.toolCalls.length > 0;
+    const hasCitations = bubble.contentBlocks.some(block => block.type === 'citations');
+    const hasCompactBoundary = bubble.contentBlocks.some(b => b.type === 'context_compacted');
+
+    if (!hasContent && !hasThinking && !hasToolCalls && !hasCitations && !hasCompactBoundary) {
+      if (bubble.interrupted) {
+        messages.push({
+          id: `codex-msg-${msgIndex}`,
+          role: 'assistant',
+          content: '',
+          timestamp: bubble.startedAt || turn.startedAt || Date.now(),
+          isInterrupt: true,
+        });
+        msgIndex += 1;
+      }
+      continue;
+    }
+
+    const contentBlocks = bubble.contentBlocks;
+
+    const msg: ChatMessage = {
+      id: `codex-msg-${msgIndex}`,
+      role: 'assistant',
+      content: contentText.trim(),
+      timestamp: bubble.startedAt || turn.startedAt || Date.now(),
+      toolCalls: hasToolCalls ? bubble.toolCalls : undefined,
+      contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
+    };
+
+    if (bubble.interrupted) {
+      msg.isInterrupt = true;
+    }
+
+    if (bubble.lastEventAt > lastAssistantTimestamp) {
+      lastAssistantTimestamp = bubble.lastEventAt;
+    }
+
+    assistantMessages.push(msg);
+    messages.push(msg);
+    msgIndex += 1;
+  }
+
+  if (assistantMessages.length > 0 && turn.userTimestamp && lastAssistantTimestamp > turn.userTimestamp) {
+    const durationMs = lastAssistantTimestamp - turn.userTimestamp;
+    const lastMsg = assistantMessages[assistantMessages.length - 1];
+    lastMsg.durationSeconds = Math.round(durationMs / 1000);
+  }
+
+  if (turn.completed && assistantMessages.length > 0) {
+    const lastNonInterrupt = [...assistantMessages].reverse().find(m => !m.isInterrupt);
+    if (lastNonInterrupt) {
+      lastNonInterrupt.completedAt = turn.completedAt || undefined;
+      lastNonInterrupt.turnStats = createTurnStats(turn.outputTokens, turn.durationMs);
+      if (turn.serverTurnId) lastNonInterrupt.assistantMessageId = turn.serverTurnId;
+    }
+  }
+
+  return { messages, nextMsgIndex: msgIndex };
+}
+
+// ---------------------------------------------------------------------------
+// Session file discovery
+// ---------------------------------------------------------------------------
+
+const SAFE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+function getPathModuleForSessionPath(sessionPath: string): typeof path.posix {
+  return sessionPath.includes('\\') || /^[A-Za-z]:/.test(sessionPath)
+    ? path.win32
+    : path.posix;
+}
+
+export function deriveCodexSessionsRootFromSessionPath(
+  sessionFilePath: string | null | undefined,
+): string | null {
+  if (!sessionFilePath) {
+    return null;
+  }
+
+  const pathModule = getPathModuleForSessionPath(sessionFilePath);
+  let current = pathModule.dirname(pathModule.normalize(sessionFilePath));
+  let previous: string | null = null;
+
+  while (current && current !== previous) {
+    if (pathModule.basename(current).toLowerCase() === 'sessions') {
+      return current;
+    }
+    previous = current;
+    current = pathModule.dirname(current);
+  }
+
+  return null;
+}
+
+export async function findCodexSessionFileAsync(
+  threadId: string,
+  root: string = path.join(os.homedir(), '.codex', 'sessions'),
+  timeoutMs = 10_000,
+  dependencies: CodexSessionFileLookupDependencies = {},
+): Promise<string | null> {
+  if (!threadId || !SAFE_SESSION_ID_PATTERN.test(threadId)) {
+    return null;
+  }
+
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  const pathExists = dependencies.pathExists ?? defaultPathExists;
+  const readDirectory = dependencies.readDirectory
+    ?? ((value: string) => fsp.readdir(value, { withFileTypes: true }));
+  try {
+    if (!(await runBeforeDeadline(() => pathExists(root), deadline))) {
+      return null;
+    }
+    const directPath = path.join(root, `${threadId}.jsonl`);
+    if (await runBeforeDeadline(() => pathExists(directPath), deadline)) {
+      return directPath;
+    }
+  } catch {
+    return null;
+  }
+
+  const stack = [root];
+  while (stack.length > 0 && Date.now() <= deadline) {
+    const current = stack.pop();
+    if (!current) continue;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = await runBeforeDeadline(() => readDirectory(current), deadline);
+    } catch {
+      if (Date.now() >= deadline) {
+        return null;
+      }
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(`-${threadId}.jsonl`)) {
+        return fullPath;
+      }
+    }
+  }
+  return null;
+}
+
+export interface CodexSessionFileLookupDependencies {
+  pathExists?: (value: string) => Promise<boolean>;
+  readDirectory?: (value: string) => Promise<fs.Dirent[]>;
+}
+
+async function runBeforeDeadline<T>(
+  operation: () => Promise<T>,
+  deadline: number,
+): Promise<T> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw new Error('Codex history lookup deadline exceeded.');
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error('Codex history lookup deadline exceeded.'));
+    }, remainingMs);
+    operation().then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
+async function defaultPathExists(value: string): Promise<boolean> {
+  try {
+    await fsp.access(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function parseCodexSessionFileAsync(
+  filePath: string,
+  timeoutMs = 10_000,
+): Promise<ChatMessage[]> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const content = await fsp.readFile(filePath, { encoding: 'utf-8', signal: controller.signal });
+    return parseCodexSessionContent(content);
+  } catch {
+    return [];
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export interface CodexParsedTurn {
+  turnId: string | null;
+  messages: ChatMessage[];
+}
+
+export function parseCodexSessionContent(content: string): ChatMessage[] {
+  const turns = parseCodexSessionTurns(content);
+  return turns.flatMap(t => t.messages);
+}
+
+/** Shared checkpoint rules for in-memory and streaming model recovery. */
+class SessionModelReader {
+  model: string | null = null;
+  reached = false;
+  constructor(private readonly checkpoint?: string) {}
+
+  accept(line: string): void {
+    try {
+      const record = JSON.parse(line) as { type?: unknown; payload?: { model?: unknown; turn_id?: unknown } } | null;
+      if (record?.type !== 'turn_context') return;
+      const candidate = typeof record.payload?.model === 'string' ? record.payload.model.trim() : '';
+      if (candidate) this.model = candidate;
+      if (this.checkpoint && record.payload?.turn_id === this.checkpoint) this.reached = true;
+    } catch { /* Ignore malformed provider-native transcript records. */ }
+  }
+
+  result(): string | null { return this.checkpoint && !this.reached ? null : this.model; }
+}
+
+export function parseCodexSessionModel(content: string, resumeAtTurnId?: string): string | null {
+  const reader = new SessionModelReader(resumeAtTurnId);
+  for (const line of content.split(/\r?\n/)) {
+    reader.accept(line);
+    if (reader.reached) break;
+  }
+  return reader.result();
+}
+
+/** Stream model metadata; checkpoint recovery does not read the remainder of the file. */
+export async function readCodexSessionModel(file: string, resumeAtTurnId?: string): Promise<string | null> {
+  const input = createReadStream(file, { encoding: 'utf8' });
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  const timer = window.setTimeout(() => input.destroy(new Error('Codex model recovery timed out.')), 10_000);
+  const reader = new SessionModelReader(resumeAtTurnId);
+  try {
+    for await (const line of lines) {
+      reader.accept(line);
+      if (reader.reached) break;
+    }
+    return reader.result();
+  } finally {
+    window.clearTimeout(timer);
+    lines.close();
+    input.destroy();
+  }
+}
+
+export function parseCodexSessionRecords(content: string): ParsedSessionRecord[] {
+  return content
+    .split('\n')
+    .filter(line => line.trim())
+    .map(parseSessionRecord)
+    .filter((record): record is ParsedSessionRecord => record !== null);
+}
+
+export function parseCodexSessionTurns(content: string | ParsedSessionRecord[], throughTurnId?: string): CodexParsedTurn[] {
+  const records = typeof content === 'string' ? parseCodexSessionRecords(content) : content;
+  if (throughTurnId) {
+    let reached = false;
+    const nextTurn = records.findIndex(record => {
+      const payload = record.payload as Record<string, unknown> | undefined;
+      if (record.type !== 'event_msg' || payload?.type !== 'task_started') return false;
+      if (reached && payload.turn_id !== throughTurnId) return true;
+      if (payload.turn_id === throughTurnId) reached = true;
+      return false;
+    });
+    if (nextTurn >= 0) return parseModernSessionTurns(records.slice(0, nextTurn));
+  }
+  return parseModernSessionTurns(records);
+}
+
+// ---------------------------------------------------------------------------
+// Modern (response_item + event_msg) parser — bubble model
+// ---------------------------------------------------------------------------
+
+function parseModernSessionTurns(records: ParsedSessionRecord[]): CodexParsedTurn[] {
+  const ctx = createPersistedParseContext();
+  let threadId: string | undefined;
+  const turnOutputTokens = new Map<string, number | undefined>();
+  const rawCallIds = new Set<string>();
+  const compactedRecordsWithEvent = new Set<ParsedSessionRecord>();
+  let pendingCompactionRecord: ParsedSessionRecord | undefined;
+
+  // Index completed script failures before projecting their calls. Also pair
+  // older compaction records with their explicit marker without replaying context.
+  for (const record of records) {
+    const payload = record.payload;
+    if (record.type === 'response_item'
+      && (payload?.type === 'function_call' || payload?.type === 'custom_tool_call')) {
+      const call = payload as PersistedToolCallPayload;
+      if (call.call_id) rawCallIds.add(call.call_id);
+    }
+    if (record.type === 'response_item'
+      && (payload?.type === 'custom_tool_call_output' || payload?.type === 'function_call_output')) {
+      const output = payload as PersistedToolCallOutputPayload;
+      if (output.call_id && /^Script failed(?:\r?\n|$)/.test(stringifyCodexToolOutput(output.output))) {
+        ctx.failedExecCallIds.add(output.call_id);
+      }
+    }
+    if (record.type === 'compacted') {
+      pendingCompactionRecord = record;
+    } else if (record.type === 'event_msg' && payload?.type === 'context_compacted') {
+      if (pendingCompactionRecord) compactedRecordsWithEvent.add(pendingCompactionRecord);
+      pendingCompactionRecord = undefined;
+    } else if (record.type === 'response_item' || record.type === 'event_msg') {
+      // A later visible turn must not consume an earlier record-only boundary.
+      pendingCompactionRecord = undefined;
+    }
+  }
+
+  for (const [lineIndex, parsed] of records.entries()) {
+    const timestamp = parsed.timestamp;
+
+    const payload = parsed.payload as Record<string, unknown> | undefined;
+    if (parsed.type === 'session_meta') {
+      // A fork's own header precedes inherited parent metadata.
+      threadId ??= typeof payload?.id === 'string' ? payload.id : undefined;
+    }
+    if (parsed.type === 'turn_context' && typeof payload?.cwd === 'string') {
+      ctx.workingDirectory = payload.cwd;
+    }
+    if (parsed.type === 'token_usage_record' && threadId && payload?.thread_id === threadId) {
+      if (typeof payload.turn_id === 'string') {
+        const usage = payload.turn_token_usage as { output_tokens?: unknown } | undefined;
+        turnOutputTokens.set(payload.turn_id, isTokenCount(usage?.output_tokens) ? usage.output_tokens : undefined);
+      }
+      continue;
+    }
+
+    if (parsed.type === 'event_msg') {
+      const activity = payload?.type === 'item_completed' ? normalizeCodexSubagentActivity(payload.item) : undefined;
+      if (activity?.kind === 'interacted' && !rawCallIds.has(activity.id) && !ctx.toolCallToTurn.has(activity.id)) {
+        // Keep the interaction in its parent turn even when raw calls are missing.
+        pushPersistedNormalizedToolCall(activity.id, { name: 'send_input', input: { id: activity.agentThreadId } }, timestamp, ctx);
+        processPersistedToolOutput({ type: 'function_call_output', call_id: activity.id, output: '' }, timestamp, ctx);
+      }
+      processEventMsg(parsed.payload as PersistedEventPayload, timestamp, ctx);
+      continue;
+    }
+
+    if (parsed.type === 'compacted') {
+      // Newer transcripts can omit the companion context_compacted event.
+      // Restore only the boundary, never replacement_history or its summary.
+      if (!compactedRecordsWithEvent.has(parsed)) {
+        processEventMsg({ type: 'context_compacted' }, timestamp, ctx);
+      }
+      continue;
+    }
+
+    if (parsed.type === 'response_item') {
+      processPersistedPayload(parsed.payload, timestamp, lineIndex, ctx);
+    }
+  }
+
+  for (const turn of ctx.turns.values()) {
+    if (turn.serverTurnId) turn.outputTokens = turnOutputTokens.get(turn.serverTurnId);
+  }
+  const turns = flushBubbleTurnsGrouped(ctx.turns, ctx.turnOrder);
+  const tools = turns.flatMap(turn => turn.messages.flatMap(message => message.toolCalls ?? []));
+  const agents = new Map<string, ToolCallInfo>();
+  const pendingInteractions = new Map<string, { tool: ToolCallInfo; info: SubagentInfo }>();
+  for (const record of records) {
+    if (record.type !== 'event_msg') continue;
+    const payload = record.payload as Record<string, unknown>;
+    if (payload.type !== 'item_completed') continue;
+    const activity = normalizeCodexSubagentActivity(payload.item);
+    if (!activity) continue;
+    const interaction = tools.find(candidate => candidate.id === activity.id);
+    // Completion may arrive during a later parent turn that only messaged the child.
+    const interactionKey = JSON.stringify([activity.agentThreadId, payload.turn_id]);
+    const canonicalInteraction = activity.kind === 'interacted' && !rawCallIds.has(activity.id);
+    const startsWork = activity.kind === 'started' || (activity.kind === 'interacted'
+      && !canonicalInteraction && ['followup_task', 'resume_agent', 'send_input'].includes(interaction?.name ?? ''));
+    const previous = agents.get(activity.agentThreadId);
+    if (canonicalInteraction && interaction) {
+      // Idle messages do not start runs, and messages to a running child belong
+      // to that run. A later terminal activity confirms an idle child's follow-up.
+      if (previous?.subagent?.status !== 'running' && !pendingInteractions.has(interactionKey)) {
+        const info = applyCodexSubagentActivity(activity, buildCodexSubagentInfo(interaction), record.timestamp, true);
+        if (previous?.subagent) info.description = previous.subagent.description;
+        pendingInteractions.set(interactionKey, { tool: interaction, info });
+      }
+      continue;
+    }
+    const pending = pendingInteractions.get(interactionKey);
+    const completesPending = pending && (activity.kind === 'completed' || activity.kind === 'interrupted');
+    const tool = startsWork ? interaction : completesPending ? pending.tool : previous;
+    if (!tool) continue;
+    const initial = completesPending ? pending.info : tool.subagent ?? buildCodexSubagentInfo(tool);
+    if (startsWork && previous?.subagent) initial.description = previous.subagent.description;
+    tool.subagent = applyCodexSubagentActivity(activity, initial, record.timestamp, startsWork);
+    if (startsWork || completesPending) pendingInteractions.delete(interactionKey);
+    agents.set(activity.agentThreadId, tool);
+  }
+  return turns;
+}
+
+function flushBubbleTurnsGrouped(
+  turns: Map<string, CodexTurnState>,
+  turnOrder: string[],
+): CodexParsedTurn[] {
+  const result: CodexParsedTurn[] = [];
+  let messageOffset = 0;
+
+  for (const turnId of turnOrder) {
+    const turn = turns.get(turnId);
+    if (!turn) continue;
+    const { messages: turnMessages, nextMsgIndex } = flushBubbleTurnMessages(turn, messageOffset);
+    if (turnMessages.length === 0) continue;
+    messageOffset = nextMsgIndex;
+
+    result.push({
+      turnId: turn.serverTurnId ?? null,
+      messages: turnMessages,
+    });
+  }
+
+  return result;
+}

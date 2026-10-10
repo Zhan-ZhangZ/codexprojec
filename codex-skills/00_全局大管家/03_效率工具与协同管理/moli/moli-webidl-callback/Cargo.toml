@@ -1,0 +1,15 @@
+[package]
+license.workspace = true
+name = "moli-webidl-callback"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+moli-v8-util = { path = "../moli-v8-util" }
+v8 = "152.2.0"
+
+[dev-dependencies]
+moli-v8-test-util = { path = "../moli-v8-test-util" }
+
+[lints]
+workspace = true

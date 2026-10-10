@@ -1,0 +1,171 @@
+use super::shared::append_console_message;
+use super::*;
+use crate::{document_runtime::EventTargetHandle, native_bridge::JsContextHost};
+
+mod accessors;
+mod console;
+mod error;
+mod install;
+mod promise;
+
+pub(crate) const SECURE_GLOBAL_EVENT_HANDLER_PROPERTIES: &[&str] = &["onpointerrawupdate"];
+
+pub(crate) const SECURE_WINDOW_EVENT_HANDLER_PROPERTIES: &[&str] = &[
+    "ondevicemotion",
+    "ondeviceorientation",
+    "ondeviceorientationabsolute",
+];
+
+pub(crate) const WINDOW_EVENT_HANDLER_PROPERTIES: &[&str] = &[
+    "onabort",
+    "onafterprint",
+    "onanimationcancel",
+    "onanimationend",
+    "onanimationiteration",
+    "onanimationstart",
+    "onauxclick",
+    "onbeforeinput",
+    "onbeforematch",
+    "onbeforeprint",
+    "onbeforetoggle",
+    "onbeforeunload",
+    "onblur",
+    "oncancel",
+    "oncanplay",
+    "oncanplaythrough",
+    "onchange",
+    "onclick",
+    "onclose",
+    "oncommand",
+    "oncontextlost",
+    "oncontextmenu",
+    "oncontextrestored",
+    "oncopy",
+    "oncuechange",
+    "oncut",
+    "ondblclick",
+    "ondrag",
+    "ondragend",
+    "ondragenter",
+    "ondragleave",
+    "ondragover",
+    "ondragstart",
+    "ondrop",
+    "ondurationchange",
+    "onemptied",
+    "onended",
+    "onerror",
+    "onfocus",
+    "onformdata",
+    "ongamepadconnected",
+    "ongamepaddisconnected",
+    "ongotpointercapture",
+    "onhashchange",
+    "oninput",
+    "oninvalid",
+    "onkeydown",
+    "onkeypress",
+    "onkeyup",
+    "onlanguagechange",
+    "onload",
+    "onloadeddata",
+    "onloadedmetadata",
+    "onloadstart",
+    "onlostpointercapture",
+    "onmessage",
+    "onmessageerror",
+    "onmousedown",
+    "onmousemove",
+    "onmouseenter",
+    "onmouseleave",
+    "onmouseout",
+    "onmouseover",
+    "onmouseup",
+    "onmousewheel",
+    "onoffline",
+    "ononline",
+    "onpagehide",
+    "onpagereveal",
+    "onpageshow",
+    "onpageswap",
+    "onpaste",
+    "onpause",
+    "onplay",
+    "onplaying",
+    "onpointercancel",
+    "onpointerdown",
+    "onpointerenter",
+    "onpointerleave",
+    "onpointermove",
+    "onpointerout",
+    "onpointerover",
+    "onpointerup",
+    "onpopstate",
+    "onprogress",
+    "onratechange",
+    "onrejectionhandled",
+    "onreset",
+    "onresize",
+    "onscroll",
+    "onscrollend",
+    "onsecuritypolicyviolation",
+    "onseeked",
+    "onseeking",
+    "onselect",
+    "onselectionchange",
+    "onselectstart",
+    "onslotchange",
+    "onstalled",
+    "onstorage",
+    "onsubmit",
+    "onsuspend",
+    "ontimeupdate",
+    "ontoggle",
+    "ontouchcancel",
+    "ontouchend",
+    "ontouchmove",
+    "ontouchstart",
+    "ontransitioncancel",
+    "ontransitionend",
+    "ontransitionrun",
+    "ontransitionstart",
+    "onunhandledrejection",
+    "onunload",
+    "onvolumechange",
+    "onwaiting",
+    "onwebkitanimationend",
+    "onwebkitanimationiteration",
+    "onwebkitanimationstart",
+    "onwebkittransitionend",
+    "onwheel",
+];
+
+pub(crate) use accessors::{
+    set_window_body_onerror_handler_compiled, set_window_onerror_handler_value,
+    window_body_onerror_handler_is_compiled,
+};
+pub(super) use accessors::{
+    window_console_getter, window_event_getter, window_event_setter,
+    window_onerror_getter_function, window_onerror_setter_function,
+    window_onrejectionhandled_getter_function, window_onrejectionhandled_setter_function,
+    window_onunhandledrejection_getter_function, window_onunhandledrejection_setter_function,
+};
+pub(super) use console::{
+    console_assert_callback, console_debug_callback, console_error_callback,
+    console_group_callback, console_group_collapsed_callback, console_info_callback,
+    console_log_callback, console_noop_callback, console_profile_callback,
+    console_profile_end_callback, console_table_callback, console_trace_callback,
+    console_warn_callback,
+};
+pub(super) use error::window_report_error_callback;
+pub(crate) use error::{
+    dispatch_window_error_event_with_details, dispatch_window_report_error_message,
+};
+pub(crate) use install::event_handler_property_is_exposed;
+pub(super) use install::install_window_global_accessors;
+pub(crate) use promise::dispatch_window_promise_rejection_event;
+
+pub(in crate::context_bootstrap) use install::{
+    finalize_secure_global_event_handler_realm_bindings,
+    install_secure_window_event_handler_accessors,
+};

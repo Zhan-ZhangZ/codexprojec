@@ -1,0 +1,52 @@
+/* Context usage meter, in the toolbar right after the model picker */
+
+.claudian-context-meter {
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  /* With the icon's 4px inset in its 24px gauge, 6px separates it from the number. */
+  gap: 2px;
+  cursor: default;
+}
+
+.claudian-context-meter-gauge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.claudian-context-meter-gauge svg {
+  width: 16px;
+  height: 16px;
+}
+
+.claudian-meter-bg {
+  stroke: var(--background-modifier-border);
+}
+
+.claudian-meter-fill {
+  stroke: var(--claudian-brand);
+  transition: stroke-dashoffset 0.3s ease, stroke 0.3s ease;
+}
+
+.claudian-context-meter-percent {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 24px;
+
+  /* Room for longer numbers stays after the number, away from the icon. */
+  text-align: start;
+  transition: color 0.3s ease;
+}
+
+/* Warning state (> 80%) - pale red */
+.claudian-context-meter.warning .claudian-meter-fill {
+  stroke: #E57373;
+}
+
+.claudian-context-meter.warning .claudian-context-meter-percent {
+  color: #E57373;
+}

@@ -1,0 +1,95 @@
+use super::super::super::node::{
+    node_runtime_and_handle_from_args_or_detached, require_element_method_receiver,
+    throw_incompatible_method_receiver,
+};
+use super::{ClientRect, read_bounding_client_rect, read_client_rects};
+use crate::context_bootstrap::{build_dom_rect_list_object, build_dom_rect_object};
+use crate::util::v8_string;
+
+pub(crate) fn client_rect_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    rect: ClientRect,
+) -> Option<v8::Local<'s, v8::Object>> {
+    Some(build_dom_rect_object(
+        scope,
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+    ))
+}
+
+fn client_rect_list<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    rects: impl IntoIterator<Item = ClientRect>,
+) -> v8::Local<'s, v8::Object> {
+    let rects = rects
+        .into_iter()
+        .filter_map(|rect| client_rect_object(scope, rect))
+        .collect::<Vec<_>>();
+    build_dom_rect_list_object(scope, &rects)
+}
+
+fn throw_layout_error(scope: &mut v8::PinScope<'_, '_>, error: moli_layout::LayoutError) {
+    let Some(message) = v8_string(scope, &format!("Layout failed: {error}")) else {
+        return;
+    };
+    let exception = v8::Exception::error(scope, message);
+    scope.throw_exception(exception);
+}
+
+pub(in crate::native_bridge) fn node_get_bounding_client_rect_callback(
+    scope: &mut v8::PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok((runtime_ptr, handle)) = node_runtime_and_handle_from_args_or_detached(scope, &args)
+    else {
+        throw_incompatible_method_receiver(scope, "Element", "getBoundingClientRect");
+        rv.set_null();
+        return;
+    };
+    if !require_element_method_receiver(
+        scope,
+        unsafe { &*runtime_ptr },
+        handle,
+        "getBoundingClientRect",
+    ) {
+        return;
+    };
+    let rect = match read_bounding_client_rect(unsafe { &*runtime_ptr }, handle) {
+        Ok(rect) => rect,
+        Err(error) => {
+            throw_layout_error(scope, error);
+            rv.set_null();
+            return;
+        }
+    };
+    let value = client_rect_object(scope, rect)
+        .map(Into::into)
+        .unwrap_or_else(|| v8::null(scope).into());
+    rv.set(value);
+}
+
+pub(in crate::native_bridge) fn node_get_client_rects_callback(
+    scope: &mut v8::PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok((runtime_ptr, handle)) = node_runtime_and_handle_from_args_or_detached(scope, &args)
+    else {
+        throw_incompatible_method_receiver(scope, "Element", "getClientRects");
+        return;
+    };
+    if !require_element_method_receiver(scope, unsafe { &*runtime_ptr }, handle, "getClientRects") {
+        return;
+    };
+    let rects = match read_client_rects(unsafe { &*runtime_ptr }, handle) {
+        Ok(rects) => rects,
+        Err(error) => {
+            throw_layout_error(scope, error);
+            return;
+        }
+    };
+    rv.set(client_rect_list(scope, rects).into());
+}

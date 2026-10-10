@@ -1,0 +1,969 @@
+"use client";
+
+import { useCallback, useEffect, useRef } from "react";
+import { chatStore } from "@/lib/chatStore";
+import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { isAgentId, agentLabel } from "@openlive/shared";
+import { notifyDesktop } from "@/lib/platform";
+import { LiveClient, type AgentId, type AgentMeta } from "./liveClient";
+import { CameraCapture } from "./cameraCapture";
+import { AudioPlayer } from "./audioPlayback";
+import { VoiceEngine, type EnginePhase } from "./voiceEngine";
+import { labelJudgment } from "./addressee";
+import { loadModels, modelsCached, modelsMatchConfig } from "./models";
+import { kindMeta, toolActive } from "./toolMeta";
+import { classifyYesNo, buildElicitationAnswer, optionForVerdict } from "./modalAnswer";
+import { log } from "@/lib/log";
+import { useLiveStore, type TypedDraft } from "./liveStore";
+import { callFactProps, newCallFact, type CallEndedBy } from "./callFact";
+import { perf } from "./perf";
+import { speechFacts } from "./speechFacts";
+import { featureUsed } from "../featureUse";
+import { reportSetting } from "../settingChanges";
+import { telemetry } from "../telemetry";
+import { MIC_COPY } from "./micCopy";
+import { agentPrefsOf, chatPrefsOf, setAgentPrefs, setChatPrefs, useSessionPrefs } from "../prefs";
+import { captionWords, heardText, wordsHeard } from "@openlive/shared/speech/timing";
+
+const NO_BANDS = [0, 0, 0, 0, 0];
+
+function abToBase64(ab: ArrayBuffer): string {
+  const bytes = new Uint8Array(ab);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
+
+// Per-conversation agent bind, remembered in ui.json (lib/prefs.ts) so reopening
+// a conversation resumes the same agent. Sent to the server on connect + on change.
+function readBind(chatId: string): AgentId | null {
+  const v = chatPrefsOf(chatId).bind;
+  return v && isAgentId(v) ? v : null;
+}
+// Spoken-answer interpreters for permission (yes/no) + elicitation (form-fill).
+// Pure — extracted to ./modalAnswer so they're unit-tested (modalAnswer.test.ts).
+
+/** Set a conversation's agent bind (store + ui.json). The live session pushes
+ *  the change to the server via its boundAgent effect. Usable outside the call
+ *  (e.g. the top-bar selector) — takes effect on the next connect if idle. */
+export function setConversationBind(chatId: string, agentId: AgentId | null) {
+  useLiveStore.getState().set({ boundAgent: agentId });
+  setChatPrefs(chatId, { bind: agentId ?? "" });
+}
+
+const readCwd = (chatId: string): string => chatPrefsOf(chatId).cwd ?? "";
+/** Recently-used project folders (most-recent first), for the top-bar quick-switch. */
+export const recentFolders = (): string[] => useSessionPrefs.getState().recentFolders;
+function addRecentFolder(path: string) {
+  if (!path) return;
+  useSessionPrefs.setState({ recentFolders: [path, ...recentFolders().filter((p) => p !== path)].slice(0, 8) });
+}
+/** Set a conversation's project folder (store + ui.json + recents). The live
+ *  session pushes it to the server (restarting the agent there) via its effect. */
+export function setConversationFolder(chatId: string, cwd: string) {
+  useLiveStore.getState().set({ boundCwd: cwd });
+  setChatPrefs(chatId, { cwd });
+  addRecentFolder(cwd);
+}
+
+// Resuming one of an agent's OWN external sessions (from History): remember the ACP
+// session id so the initial bind loadSession-s it. Sent on connect only.
+const readResume = (chatId: string): string => chatPrefsOf(chatId).resume ?? "";
+export function setConversationResume(chatId: string, sessionId: string) {
+  setChatPrefs(chatId, { resume: sessionId });
+}
+
+// The live client of the ACTIVE session, so top-bar controls (rendered outside the
+// hook) can switch the agent's model/mode mid-call. Single session at a time.
+let activeLiveClient: LiveClient | null = null;
+
+// An agent only reveals its models/modes over ACP once it connects, so we cache the
+// last-seen set per agent — the pre-call pickers populate from this, and the choice
+// is remembered as a per-agent preference applied when the call connects.
+export function cachedAgentMeta(agentId: AgentId | null): AgentMeta | null {
+  if (!agentId) return null;
+  try {
+    const prefs = agentPrefsOf(agentId);
+    if (!prefs.meta) return null;
+    const meta = structuredClone(prefs.meta) as unknown as AgentMeta;
+    if (!Array.isArray(meta.options)) meta.options = []; // tolerate pre-config-options caches
+    if (!Array.isArray(meta.commands)) meta.commands = [];
+    // Mode + model have their OWN dedicated pickers; drop any config option in those
+    // categories so "Mode"/"Model" isn't rendered twice (agents report mode via both
+    // SessionModeState and a category:"mode" option — and older caches kept it).
+    meta.options = meta.options.filter((o) => o.category !== "mode" && o.category !== "model");
+    // Reflect the user's remembered model/mode/option preference (validated against
+    // the cached set) so the pre-call pickers show their last choice.
+    const mp = prefs.model;
+    if (mp && meta.models.some((m) => m.id === mp)) meta.currentModelId = mp;
+    const dp = prefs.mode;
+    if (dp && meta.modes.some((m) => m.id === dp)) meta.currentModeId = dp;
+    for (const o of meta.options) {
+      const p = prefs.opts?.[o.id];
+      if (p && o.values.some((v) => v.id === p)) o.currentId = p;
+    }
+    return meta;
+  } catch { return null; }
+}
+
+export function setConversationModel(modelId: string) {
+  const agent = useLiveStore.getState().boundAgent;
+  const shown = (useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent))?.currentModelId;
+  if (agent && modelId !== shown) reportSetting({ setting: "agent_model", value: "changed", subject: agent });
+  if (agent) setAgentPrefs(agent, { model: modelId });
+  activeLiveClient?.setModel(modelId);
+  const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
+  if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModelId: modelId } });
+}
+export function setConversationMode(modeId: string) {
+  const agent = useLiveStore.getState().boundAgent;
+  if (agent) setAgentPrefs(agent, { mode: modeId });
+  activeLiveClient?.setMode(modeId);
+  const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
+  if (m) useLiveStore.getState().set({ agentMeta: { ...m, currentModeId: modeId } });
+}
+export function setConversationOption(optionId: string, valueId: string) {
+  const agent = useLiveStore.getState().boundAgent;
+  if (agent) setAgentPrefs(agent, { opts: { [optionId]: valueId } });
+  activeLiveClient?.setOption(optionId, valueId);
+  const m = useLiveStore.getState().agentMeta ?? cachedAgentMeta(agent);
+  if (m) useLiveStore.getState().set({ agentMeta: { ...m, options: m.options.map((o) => (o.id === optionId ? { ...o, currentId: valueId } : o)) } });
+}
+
+// Orchestrates one live call. THICK CLIENT: the VoiceEngine runs VAD+STT+TTS
+// on-device; this hook wires it to the /live socket (final text + camera frames
+// + cancel), the camera, and the chat store, and owns a single leak-proof
+// teardown that every close path routes through.
+export function useLiveSession(chatId: string) {
+  const set = useLiveStore((s) => s.set);
+  const boundAgent = useLiveStore((s) => s.boundAgent);
+  const boundCwd = useLiveStore((s) => s.boundCwd);
+  const client = useRef<LiveClient | null>(null);
+  const engine = useRef<VoiceEngine | null>(null);
+  const player = useRef<AudioPlayer | null>(null);
+  const camRef = useRef<CameraCapture | null>(null);
+  const screenRef = useRef<CameraCapture | null>(null);
+  // Re-entrancy guards: a media toggle awaits getUserMedia/getDisplayMedia, and the
+  // on/off decision reads store state that only flips AFTER the await — so two quick
+  // taps both take the "on" branch and the first stream is orphaned (camera light
+  // stuck on). These block the second tap until the first settles.
+  const camBusy = useRef(false);
+  const screenBusy = useRef(false);
+  const assistantId = useRef<string | null>(null);
+  const permReminder = useRef<ReturnType<typeof setTimeout> | null>(null); // spoken "30s left" nudge
+  const turnStartedAt = useRef(0); // notify "finished" only for turns that took real time
+  const cwdHealTried = useRef(false); // one self-heal re-bind per session when the server lost the folder
+  const tornDown = useRef(false);
+  // What the call reports about itself when it ends (see callFact.ts).
+  const fact = useRef(newCallFact());
+  const onPageHide = useRef<() => void>(() => {});
+  const teardownRef = useRef<(endedBy?: CallEndedBy) => void>(() => {}); // for effects declared above teardown
+  // Word-by-word transcript reveal, synced to the VOICE (not the generated stream):
+  // `segText` = chunks of the CURRENT segment already voiced, `curChunk` = the one
+  // revealing now, `revealRaf` = its frame. Tool activity is shown LIVE on tool_start
+  // (see the onSse handler), not buffered.
+  const segText = useRef("");
+  const curChunk = useRef<string | null>(null);
+  const revealRaf = useRef<number | null>(null);
+  const revealAt = useRef<number[]>([]); // the revealing chunk's word onsets (ms), retimed as its audio comes in
+  const revealStart = useRef(0); // when the revealing chunk began to voice (performance.now())
+  const stopReveal = () => { if (revealRaf.current != null) { cancelAnimationFrame(revealRaf.current); revealRaf.current = null; } };
+  const resetTranscript = () => { stopReveal(); segText.current = ""; curChunk.current = null; };
+  // A tool/reasoning part "closes" the current spoken text segment. Snap the chunk
+  // that's revealing to its full text, then RESET the accumulator — otherwise the
+  // next segment's `base` (segText) still carries the pre-tool sentences, which
+  // liveText writes into a fresh text part after the tool, duplicating them in the
+  // Activity panel and exported Markdown. Reset-on-new-user-turn alone missed this.
+  const closeSpokenSegment = useCallback(() => {
+    if (curChunk.current == null && !segText.current) return;
+    const id = assistantId.current;
+    if (id && curChunk.current != null) {
+      const full = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
+      chatStore.liveText(chatId, id, full);
+    }
+    stopReveal();
+    segText.current = "";
+    curChunk.current = null;
+  }, [chatId]);
+
+  // A minimised or hidden desktop window freezes rAF, and a call keeps running
+  // there: snap the in-flight word reveal to its full chunk so the saved/visible
+  // transcript never stalls mid-word. Voice/TTS are timer-driven and unaffected
+  // (backgroundThrottling off).
+  useEffect(() => {
+    const onVis = () => {
+      if (!document.hidden || revealRaf.current == null) return;
+      stopReveal();
+      const id = assistantId.current;
+      if (id && curChunk.current != null) {
+        const full = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
+        chatStore.liveText(chatId, id, full);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [chatId]);
+
+  // Desktop: scope the agent's reveal/open file ops to the bound project folder
+  // (main process refuses paths outside it).
+  useEffect(() => {
+    (window as unknown as { openlive?: { setWorkspace?: (d: string) => void } }).openlive?.setWorkspace?.(boundCwd || "");
+  }, [boundCwd]);
+
+  // Desktop: the machine going to sleep mid-call would strand a zombie pipeline
+  // (mic held, VAD stalled, TTS half-drained). End the call cleanly instead and
+  // tell the user why — the conversation itself persists server-side, so Start
+  // picks it right back up.
+  useEffect(() => {
+    const api = (window as unknown as { openlive?: { onPower?: (cb: (s: string) => void) => void } }).openlive;
+    api?.onPower?.((state) => {
+      if (state !== "suspend") return;
+      if (!useLiveStore.getState().active) return;
+      teardownRef.current("sleep_or_lock");
+      set({ error: "Call paused while your machine slept or the screen locked. Press Start to pick it back up." });
+    });
+    // replace-on-subscribe in the preload: no unsubscribe needed
+  }, [set]);
+
+  // ── single teardown authority — releases EVERYTHING, always ───────────────
+  const teardown = useCallback((endedBy: CallEndedBy = "other") => {
+    if (tornDown.current) return;
+    tornDown.current = true;
+    // No Start, no call: leaving the lobby or a chat that never began reports nothing.
+    if (fact.current.startedAt) {
+      telemetry.fact("call_renderer", callFactProps(fact.current, endedBy, !!useLiveStore.getState().boundCwd, speechFacts(fact.current.mark)));
+      fact.current = newCallFact();
+    }
+    stopReveal();
+    if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
+    window.removeEventListener("pagehide", onPageHide.current);
+    if (activeLiveClient === client.current) activeLiveClient = null;
+    // Hanging up mid-reply is a barge-in the server must hear before the close, or it
+    // saves the whole generated reply instead of what was voiced.
+    const phase = engine.current?.currentPhase();
+    if (phase === "speaking" || phase === "thinking") client.current?.cancel(engine.current!.cutReply());
+    try { client.current?.close(); } catch { /* */ }
+    try { engine.current?.stop(); } catch { /* */ }              // destroys VAD + closes audio
+    try { player.current?.close(); } catch { /* */ }             // free the audio ctx (also if start() failed before the engine)
+    player.current = null;
+    try { camRef.current?.stop(); } catch { /* */ }              // camera light off
+    try { screenRef.current?.stop(); } catch { /* */ }             // stop screen share
+    if (assistantId.current) { chatStore.liveFinish(chatId, assistantId.current); assistantId.current = null; }
+    // The on-device voice worker is left running on purpose — kept warm for the
+    // tab's lifetime so reopening Live is instant (no re-download / shader recompile).
+    client.current = null; engine.current = null; camRef.current = null; screenRef.current = null;
+    // Keep `error` so the user sees why it ended; start() clears it next time.
+    set({ active: false, phase: "off", downloading: false, downloadPct: 0, cameraOn: false, screenOn: false, muted: false, pttActive: false, cameraStream: null, screenStream: null, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", warming: false, permission: null, agentMeta: null, agentConnecting: false, todos: [], usage: null, terminals: {}, elicitation: null, typedQueue: [] });
+  }, [chatId, set]);
+  teardownRef.current = teardown;
+
+  // The call is usable once Start has run and the link is up, whichever came last.
+  const markReady = useCallback(() => {
+    const f = fact.current;
+    if (f.startedAt && f.startMs === undefined && f.startResult === "ok") f.startMs = performance.now() - f.startedAt;
+  }, []);
+
+  // Open the live socket + register every handler, binding this conversation's agent
+  // the moment it connects. Shared by `prewarm` (pre-call: connect a bound agent to
+  // fetch its models/modes) and `start` (layers the voice engine onto the SAME
+  // connection — no second agent process). Returns the new or existing client.
+  const ensureClient = useCallback((): LiveClient => {
+    if (client.current) return client.current;
+    // A drop is the link going from open to reconnecting; every failed retry after it is the same outage.
+    let linkUp = false;
+    const c = new LiveClient({
+      // The engine may already be mid-turn (a turn spoken while connecting, or a reply
+      // still playing across a reconnect), and it reports only changes: take its phase.
+      onOpen: () => {
+        linkUp = true;
+        markReady();
+        // A reconnect gets a fresh server session: a reply that was streaming to the
+        // old one never finishes. A turn said while the link was down is still queued.
+        if (turnStartedAt.current && !client.current?.queued) {
+          turnStartedAt.current = 0;
+          engine.current?.endAgentTurn();
+          if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
+          toast("The connection dropped mid-answer. Just ask again.", "info");
+        }
+        set({ phase: engine.current?.currentPhase() ?? "idle", error: undefined, warming: true });
+        const st = useLiveStore.getState(); client.current?.bind(st.boundAgent, st.boundCwd, readResume(chatId) || undefined);
+      },
+      onReconnecting: () => {
+        if (linkUp) { linkUp = false; fact.current.linkDrops++; }
+        set({ phase: "reconnecting" });
+      },
+      onClose: () => teardown(),
+      onError: (m, code) => set({ error: m, errorCode: code, agentConnecting: false }),
+      // A timer or reminder went off: shown, and in a call said once the reply under way ends.
+      onReminder: (title, body) => {
+        toast(`${title}: ${body}`, "info");
+        engine.current?.announce(`${title}: ${body}`);
+      },
+      // A session/load recovered prior turns (persisted server-side) — refetch so the
+      // resumed transcript renders. preloadIfEmpty so a live turn the user started
+      // during the refetch isn't wiped by the replace.
+      onReloadHistory: () => { api.messages(chatId).then((m) => chatStore.preloadIfEmpty(chatId, m as never)).catch(() => {}); },
+      // A bound agent wants permission: speak the ask and show approve/deny chips.
+      // A spoken reminder fires ~30s before the server's auto-deny — a voice-first
+      // user may not be looking at the countdown.
+      onPermission: (reqId, question, options, expiresAt, toolCallId) => {
+        set({ permission: { reqId, question, options, expiresAt, toolCallId } });
+        engine.current?.ask(question);
+        // High-stakes while unfocused: an unanswered ask auto-denies in 2 minutes.
+        notifyDesktop("Permission needed", question);
+        if (permReminder.current) clearTimeout(permReminder.current);
+        const remindIn = (expiresAt ?? 0) - Date.now() - 30_000;
+        if (remindIn > 0) permReminder.current = setTimeout(() => {
+          if (useLiveStore.getState().permission?.reqId === reqId) engine.current?.say("Still waiting on that permission. I'll take it as a no in thirty seconds.");
+        }, remindIn);
+      },
+      // The server settled the ask (answered elsewhere, auto-denied, or the turn was
+      // cancelled) — drop the chip + reminder so a later utterance isn't swallowed as
+      // a yes/no answer to a request that's already gone.
+      onPermissionResolved: (reqId) => {
+        if (useLiveStore.getState().permission?.reqId !== reqId) return;
+        if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
+        set({ permission: null });
+      },
+      // An agent elicitation: speak the ask, open login URLs hands-free, and show
+      // the card (Done/Cancel for URLs, a real form for form mode).
+      onElicitation: (e) => {
+        set({ elicitation: e });
+        if (e.mode === "url" && e.url) {
+          engine.current?.ask(`${e.message} I opened your browser. Say done when you're finished, or cancel.`);
+          const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string> } }).openlive;
+          if (api?.bridge) void api.bridge("open_url", e.url);
+          else window.open(e.url, "_blank", "noopener");
+        } else {
+          engine.current?.ask(`${e.message} I put a short form on screen.`);
+        }
+        notifyDesktop("Input needed", e.message);
+      },
+      onElicitationResolved: (reqId) => {
+        if (useLiveStore.getState().elicitation?.reqId === reqId) set({ elicitation: null });
+      },
+      // The bound agent reported its selectable models/modes (or a switch landed).
+      onAgentMeta: (meta) => {
+        const agent = useLiveStore.getState().boundAgent;
+        if (agent) setAgentPrefs(agent, { meta: meta as unknown as Record<string, unknown> });
+        set({ agentMeta: meta, agentConnecting: false });
+        // Apply the remembered model/mode preference now the agent's set is known.
+        if (agent) {
+          const prefs = agentPrefsOf(agent);
+          const pm = prefs.model;
+          if (pm && pm !== meta.currentModelId && meta.models.some((m) => m.id === pm)) client.current?.setModel(pm);
+          const pd = prefs.mode;
+          if (pd && pd !== meta.currentModeId && meta.modes.some((m) => m.id === pd)) client.current?.setMode(pd);
+          for (const o of meta.options ?? []) {
+            const p = prefs.opts?.[o.id];
+            if (p && p !== o.currentId && o.values.some((v) => v.id === p)) client.current?.setOption(o.id, p);
+          }
+        }
+      },
+      // The server's authoritative bind result. The chips render optimistic client
+      // state — this reconciles them against what the session ACTUALLY bound, so a
+      // "workspace shown but agent never got it" mismatch can't ride silently.
+      onBoundState: (agentId, cwd, agentActive) => {
+        const st = useLiveStore.getState();
+        if (agentId !== st.boundAgent) return; // stale echo from a superseded bind
+        if (agentId && agentActive) { cwdHealTried.current = false; }
+        // Server has a folder the client doesn't (e.g. restored from a prior bind) —
+        // adopt it so the chip shows the truth.
+        if (cwd && cwd !== st.boundCwd) { setConversationFolder(chatId, cwd); return; }
+        // Client has a folder the server didn't apply (a dropped/raced bind):
+        // re-push once, then surface instead of looping.
+        if (agentId && st.boundCwd && !cwd) {
+          if (!cwdHealTried.current) { cwdHealTried.current = true; client.current?.bind(agentId, st.boundCwd); return; }
+          set({ error: `${agentLabel(agentId)} didn't get the project folder. Pick it again from the top bar.`, agentConnecting: false });
+        }
+      },
+      onSse: (e) => {
+        // Also clear agentConnecting — a server-sent agent-start failure would
+        // otherwise leave the lobby's "Connecting to <agent>…" selects stuck.
+        if (e.type === "error") {
+          set({ error: e.message, errorCode: e.code, agentConnecting: false });
+          // Ends the reply too when no done follows (an agent that failed to start).
+          engine.current?.endAgentTurn();
+          // Voice-first users hear the failure/recovery — speak the whole thing
+          // (capped), not just the first sentence, so a "…say that again." tail isn't lost.
+          if (e.message) engine.current?.say(e.message.slice(0, 200));
+          return;
+        }
+        // Warm-up done → drop the "Warming up…" spinner; the first turn is now hot.
+        if (e.type === "status") { if (e.text === "ready") set({ warming: false }); return; }
+        // Out-of-band spoken status/filler (long-work cues): voice it, never persist
+        // or reveal it in the transcript — it isn't part of the reply.
+        if (e.type === "say") { engine.current?.say(e.text); return; }
+        // Prose text drives the VOICE only; the chat transcript is filled word-by-word
+        // as each chunk is spoken (onAgentText), NOT from the generated stream (which
+        // races ahead) — so an interrupt leaves the panel showing only what was said.
+        if (e.type === "text_delta") { engine.current?.feedAgentDelta(e.text); return; }
+        // Reasoning streams into the transcript's work block (interleaved with tools).
+        if (e.type === "reasoning_delta") { closeSpokenSegment(); if (assistantId.current) chatStore.liveReason(chatId, assistantId.current, e.text); return; }
+        if (e.type === "done") {
+          set({ toolStatus: "" });
+          engine.current?.endAgentTurn();
+          // A long-running turn finished while you were in another app; quick
+          // answers don't notify. Main shows it only if unfocused.
+          if (turnStartedAt.current && Date.now() - turnStartedAt.current > 5000) {
+            notifyDesktop(agentLabel(useLiveStore.getState().boundAgent), "Finished and ready when you are.");
+          }
+          turnStartedAt.current = 0;
+          // Finish the spoken turn but KEEP assistantId pointing at it, so any
+          // trailing event still attaches. It rolls forward on the next user turn
+          // (handleUserText) and is finalized on teardown.
+          if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
+          return;
+        }
+        // Show tool activity LIVE — the moment it starts — so the user gets a real
+        // cue (transcript chip + the "Searching the web…" subtitle) WHILE it runs,
+        // not bundled in after the answer. toolStatus drives the in-call status line.
+        if (e.type === "tool_start") {
+          engine.current?.endAgentStep();
+          closeSpokenSegment(); // don't let the pre-tool text re-emit after the tool part
+          set({ toolStatus: toolActive(e.tool, e.summary) });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+        if (e.type === "tool_done") {
+          set({ toolStatus: "" });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+        // Rich ACP tool calls (coding agents): same live-cue treatment as
+        // tool_start/tool_done, but the full call state flows to the transcript.
+        if (e.type === "acp_tool_call") {
+          engine.current?.endAgentStep();
+          closeSpokenSegment();
+          set({ toolStatus: `${kindMeta(e.call.kind).active}: ${e.call.title}` });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+        if (e.type === "acp_tool_update") {
+          const s = e.delta.status;
+          if (s === "completed" || s === "failed" || s === "canceled" || s === "rejected") set({ toolStatus: "" });
+          if (assistantId.current) chatStore.liveEvent(chatId, assistantId.current, e);
+          return;
+        }
+        // Live terminal output from a client-hosted ACP terminal → per-terminal
+        // buffer in the live store (ToolCallCard renders it inside the call).
+        if (e.type === "term_output") { useLiveStore.getState().termAppend(e.terminalId, e.chunk, e.truncated); return; }
+        if (e.type === "term_exit") { useLiveStore.getState().termExit(e.terminalId, e.exitCode ?? null); return; }
+        // The agent's working plan (ACP plan updates / update_todos tool). Kept
+        // across turns — plans span them; the server sends [] on plan_removed,
+        // and teardown clears the store.
+        if (e.type === "todos") { set({ todos: e.items }); return; }
+        // Context/cost from the latest turn (ACP usage_update or the built-in
+        // brain's own accounting).
+        if (e.type === "usage") { set({ usage: { contextTokens: e.contextTokens, outputTokens: e.outputTokens, contextSize: e.contextSize, costUsd: e.costUsd } }); return; }
+      },
+      onNeedFrame: async (reqId) => {
+        const st = useLiveStore.getState();
+        const src = st.cameraOn ? camRef.current : st.screenOn ? screenRef.current : null;
+        if (!src) { client.current?.frameResponse(reqId); return; }
+        let jpeg: Awaited<ReturnType<typeof src.captureHiRes>>;
+        try { jpeg = await src.captureHiRes(); }
+        catch { client.current?.frameResponse(reqId, true); return; } // answer now, not at the server's timeout
+        client.current?.frameResponse(reqId);   // server arms for the look frame FIRST
+        if (jpeg) client.current?.sendFrame(jpeg);
+      },
+      // OS bridge (clipboard / open_url / the device), run through the Electron
+      // main process. On the web build there's no bridge, so we answer instantly
+      // (no dead air).
+      onToolBridge: async (reqId, op, arg) => {
+        const api = (window as unknown as { openlive?: { bridge?: (op: string, arg?: string) => Promise<string>; flow?: { device?: (fn: string, args: unknown) => Promise<{ ok: true; value: unknown } | { ok: false; error: string }> } } }).openlive;
+        try {
+          // One perception or control call into the addon, in the envelope the
+          // server's device port reads. The server answers the camera itself.
+          if (op === "flow_device") {
+            if (!api?.flow?.device) { client.current?.toolBridgeResult(reqId, JSON.stringify({ error: "That's only available in the OpenLive desktop app." })); return; }
+            const { fn, args } = JSON.parse(arg ?? "{}") as { fn?: string; args?: unknown };
+            const r = await api.flow.device(fn ?? "", args ?? {});
+            client.current?.toolBridgeResult(reqId, JSON.stringify(r.ok ? { value: r.value } : { error: r.error }));
+            return;
+          }
+          if (!api?.bridge) { client.current?.toolBridgeResult(reqId, "That's only available in the OpenLive desktop app."); return; }
+          client.current?.toolBridgeResult(reqId, await api.bridge(op, arg));
+        } catch (e: any) { client.current?.toolBridgeResult(reqId, `Couldn't do that: ${String(e?.message ?? e)}`); }
+      },
+    });
+    client.current = c;
+    activeLiveClient = c;
+    c.connect(chatId);
+    onPageHide.current = () => teardown("window_closed");
+    window.addEventListener("pagehide", onPageHide.current);
+    return c;
+  }, [chatId, set, teardown, closeSpokenSegment, markReady]);
+
+  // Pre-call: connect a bound agent (with a project folder) so it reports its
+  // models/modes into the lobby BEFORE the call starts. No-op for the built-in
+  // assistant (its models come from the provider API) or if already connected.
+  const prewarm = useCallback(() => {
+    const st = useLiveStore.getState();
+    if (!st.boundAgent || !st.boundCwd || client.current) return;
+    tornDown.current = false;
+    set({ agentConnecting: true, agentMeta: null, error: undefined });
+    try { ensureClient(); } catch (e: any) { set({ agentConnecting: false, error: `Couldn't connect to ${st.boundAgent}: ${String(e?.message ?? e)}` }); }
+  }, [set, ensureClient]);
+
+  const start = useCallback(async () => {
+    tornDown.current = false;
+    // Counts already made in the lobby (a camera left on) stay: they are part of this call.
+    fact.current.startedAt = performance.now();
+    fact.current.mark = perf.mark();
+    // NOTE: boundAgent/boundCwd/agentMeta are deliberately NOT touched here. The
+    // store is already synced per-conversation (the chatId effect below), and
+    // re-reading the saved picks at Start raced it: a pick saved under another chatId
+    // clobbered the store with "", the change-effect re-bound with no folder, and
+    // the agent silently fell back — folder chip full, session empty.
+    set({ error: undefined, phase: "connecting", active: true, downloadPct: 0, userCaption: "", userPartial: false, agentCaption: "", toolStatus: "", permission: null });
+    // Unlock audio NOW, synchronously inside the click gesture. iOS Safari blocks
+    // AudioContext playback that starts after an await, so priming here (before the
+    // model download) is what lets the agent's voice actually play on iPhone.
+    if (!player.current) player.current = new AudioPlayer();
+    player.current.resume();
+    try {
+      // 1. Models (download-on-demand, cached). Shows a progress bar the first time,
+      //    and reloads if the pipeline config changed (e.g. a new Whisper size) so the
+      //    warm worker doesn't keep serving the old weights.
+      if (!modelsMatchConfig()) { set({ phase: "loading" }); await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models })); }
+      if (tornDown.current) return;
+
+      // 2. Mic: the device chosen when the engine opens it (for the call
+      //    hands-free, for each hold in push to talk) + browser AEC (so the agent's
+      //    own voice is cancelled from the mic and can't self-trigger barge-in).
+      const openMic = () => {
+        const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        const micId = useLiveStore.getState().micId;
+        if (micId) audio.deviceId = { exact: micId };
+        return navigator.mediaDevices.getUserMedia({ audio });
+      };
+
+      // 3. Voice engine.
+      const eng = new VoiceEngine({
+        // Entering "listening" clears the previous answer's caption so the user
+        // sees themselves (or "Listening…") the moment they start talking.
+        onPhase: (p: EnginePhase) => set(p === "listening" ? { phase: p, agentCaption: "", toolStatus: "" } : { phase: p }),
+        onPartial: (text) => set({ userCaption: text, userPartial: true, warming: false }),
+        onUserText: (text, wordsAt, speaker, judged, aside) => void handleUserText(text, wordsAt, speaker, judged, aside),
+        onSideTalk: (text, speaker, judged) => chatStore.aside(chatId, text, speaker, judged),
+        // Mid-thought hold → "waiting for you… tap to send" affordance (null clears it).
+        onHold: (h) => set({ holdUntil: h?.until ?? null }),
+        // A chunk just STARTED voicing. Drive TWO things from it: the composer
+        // subtitle (rolling 3-4 word window — VoiceBar reads agentCaption) AND the
+        // chat transcript, which types this chunk word-by-word in lockstep with the
+        // audio so the panel shows exactly what's been said (honest on barge-in).
+        onAgentText: (sentence, wordsAt) => {
+          const startedAt = performance.now();
+          set({ agentCaption: sentence, agentCaptionAt: wordsAt, agentCaptionStart: startedAt });
+          revealAt.current = wordsAt;
+          revealStart.current = startedAt;
+          const id = assistantId.current;
+          // The previous chunk's audio has finished (this one is now playing) — commit
+          // it into the current segment.
+          if (curChunk.current) segText.current = segText.current ? `${segText.current} ${curChunk.current}` : curChunk.current;
+          curChunk.current = sentence;
+          stopReveal();
+          if (!id) return;
+          const words = captionWords(sentence);
+          const base = segText.current;
+          // Hidden or minimised window: rAF is frozen — write the whole chunk
+          // at once instead of animating it.
+          if (document.hidden) { chatStore.liveText(chatId, id, base ? `${base} ${sentence}` : sentence); return; }
+          let lastIdx = 0; // only write to the store when a NEW word is revealed —
+          // the rAF still paces the reveal, but the transcript re-renders at word
+          // rate (~3-6/s) instead of 60fps for the whole time the agent speaks.
+          const step = () => {
+            if (id !== assistantId.current) return; // turn moved on
+            const idx = Math.min(words.length, wordsHeard(revealAt.current, performance.now() - startedAt));
+            if (idx !== lastIdx) {
+              lastIdx = idx;
+              const revealed = sentence.slice(0, words[idx - 1]![1]);
+              chatStore.liveText(chatId, id, base ? `${base} ${revealed}` : revealed);
+            }
+            if (idx < words.length) revealRaf.current = requestAnimationFrame(step);
+            else revealRaf.current = null;
+          };
+          step();
+        },
+        // The chunk on screen, timed on its audio now that more of it is in.
+        onAgentTiming: (wordsAt) => { set({ agentCaptionAt: wordsAt }); revealAt.current = wordsAt; },
+        // Barge-in: cancel the server turn AND drop the stale caption immediately,
+        // so interrupting gives instant "I'm listening" feedback.
+        onBargeIn: (spoken) => {
+          fact.current.bargeIns++;
+          client.current?.cancel(spoken);
+          // Truncate the assistant node to what was actually spoken — the server
+          // persists the same cutoff, so the panel and the saved history agree.
+          // Stop the in-flight word reveal and snap the transcript to `spoken`
+          // (the engine's authoritative, sentence-granular cutoff).
+          stopReveal();
+          set({ toolStatus: "" });
+          // Reveal the chunk to the word voiced at the cut, as the engine cut `spoken`,
+          // and stop there.
+          if (curChunk.current) {
+            const said = heardText(curChunk.current, revealAt.current, performance.now() - revealStart.current);
+            segText.current = segText.current ? `${segText.current} ${said}` : said;
+            if (assistantId.current) chatStore.liveText(chatId, assistantId.current, segText.current);
+          }
+          curChunk.current = null;
+          // Clear any pending permission chip — the server cancels the ask on
+          // barge-in, so a lingering approve/deny would just no-op if tapped.
+          set({ agentCaption: "", userCaption: "", userPartial: false, permission: null });
+        },
+        // While a permission ask OR an elicitation is pending, the user's speech IS
+        // the answer — never a barge-in. Barging there cancelled the very ask being
+        // answered. handleUserText routes the utterance to whichever modal is open
+        // (yes/no for permission, form-fill for elicitation) — fully hands-free.
+        holdBargeIn: () => { const s = useLiveStore.getState(); return !!s.permission || !!s.elicitation; },
+        answersAsk: (text) => !!useLiveStore.getState().permission && !!classifyYesNo(text),
+        // The chosen mic can come back later; the call needs one now.
+        onMicLost: () => { fact.current.micLost++; toast(MIC_COPY.switched, "info"); void setMic(""); },
+      }, player.current ?? undefined);
+      engine.current = eng;
+      // How you talk is shared with Flow and Dictate: push to talk shuts the gate between holds.
+      eng.setGate(useLiveStore.getState().talk.mode === "ptt");
+      await eng.start(openMic);
+      if (tornDown.current) return;
+
+      // 4. Socket — reuse the pre-call agent connection if the lobby already opened
+      //    it (prewarm), otherwise open it now. The voice engine above drives turns
+      //    over whichever connection; a pre-connected agent means Start is instant.
+      if (!client.current) set({ phase: "connecting" });
+      const c = ensureClient();
+      fact.current.startResult = "ok";
+      if (c.ready) { set({ phase: eng.currentPhase(), warming: false, error: undefined }); markReady(); } // already connected in the lobby
+      await refreshDevices();
+    } catch (e: any) {
+      const denied = e?.name === "NotAllowedError" || e?.name === "SecurityError";
+      fact.current.startResult = denied ? "mic_denied" : "start_failed";
+      set({ error: denied ? `${MIC_COPY.noOpen}. ${MIC_COPY.noOpenDetail}` : `Couldn't start live mode: ${String(e?.message ?? e)}` });
+      teardown("start_failed");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, set, teardown, ensureClient, markReady]);
+
+  // Answer a bound agent's pending permission ask (chip tap or classified voice).
+  const answerPermission = useCallback((optionId: string) => {
+    const p = useLiveStore.getState().permission;
+    if (!p) return;
+    if (permReminder.current) { clearTimeout(permReminder.current); permReminder.current = null; }
+    client.current?.permissionResponse(p.reqId, optionId);
+    set({ permission: null });
+  }, [set]);
+
+  // Answer a pending elicitation (form submit / spoken or tapped Done / Cancel).
+  const answerElicitation = useCallback((action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => {
+    const e = useLiveStore.getState().elicitation;
+    if (!e) return;
+    client.current?.elicitationResponse(e.reqId, action, content);
+    set({ elicitation: null });
+  }, [set]);
+
+  // Route a spoken utterance to whichever modal (permission / elicitation) is open:
+  // classify yes/no for a permission, fill the form / match the option for an
+  // elicitation, or a spoken nudge when it's ambiguous. Returns true if it consumed
+  // the utterance.
+  const answerModalByVoice = useCallback((text: string): boolean => {
+    const modal = useLiveStore.getState();
+    if (!modal.permission && !modal.elicitation) return false;
+    set({ userCaption: "", userPartial: false });
+    const t = text.toLowerCase();
+    const pend = modal.permission;
+    if (pend) {
+      const yn = classifyYesNo(text);
+      log.debug("live", `permission voice answer: "${text}" → ${yn ?? "ambiguous"}`);
+      if (yn) {
+        fact.current.permByVoice++;
+        answerPermission(optionForVerdict(pend.options, yn));
+      } else {
+        engine.current?.say("Say yes to allow, or no to reject.");
+      }
+      return true;
+    }
+    const elicit = modal.elicitation!;
+    if (elicit.mode === "url") {
+      if (/\b(done|finished|all set|logged in|signed in|completed?)\b/.test(t)) answerElicitation("accept");
+      else if (/\b(cancel|stop|never mind|give up|forget it)\b/.test(t)) answerElicitation("cancel");
+      else engine.current?.say("Say done when you're finished, or cancel.");
+      return true;
+    }
+    // Form mode — HANDS-FREE: the spoken answer fills the form. Match a listed option
+    // if the schema has one (just say the choice), else drop the words into the first
+    // free-text field. Touch still works too.
+    if (/\b(cancel|stop|never mind|give up|forget it|decline)\b/.test(t)) { answerElicitation("decline"); return true; }
+    const content = buildElicitationAnswer(elicit.schema, text.trim());
+    if (content) answerElicitation("accept", content);
+    else engine.current?.say("Say your answer, or say cancel.");
+    return true;
+  }, [set, answerPermission, answerElicitation]);
+
+  // Publish the answer paths so the inline tool-card buttons and elicitation
+  // card (rendered deep in the transcript, no prop thread) share the exact same
+  // resolution as the overlay.
+  useEffect(() => {
+    useLiveStore.setState({ answerPermission, answerElicitation, interruptReply: () => engine.current?.dropReply() });
+    return () => { useLiveStore.setState({ answerPermission: undefined, answerElicitation: undefined, interruptReply: undefined }); };
+  }, [answerPermission, answerElicitation]);
+
+
+  // Reflect this conversation's saved agent + project folder in the store when it
+  // opens, so the pre-call pickers show the right values before the call starts.
+  useEffect(() => { set({ boundAgent: readBind(chatId), boundCwd: readCwd(chatId), agentMeta: null }); }, [chatId, set]);
+
+  // Push an agent OR folder change to the server whenever it flips during an active
+  // call (the initial bind is also sent on socket open). Idle changes persist locally.
+  useEffect(() => {
+    if (!client.current?.ready) return;
+    // A bound agent's models/modes are agent-specific — clear + re-fetch on a switch.
+    set({ agentMeta: null, agentConnecting: !!boundAgent && !!boundCwd });
+    client.current.bind(boundAgent, boundCwd);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boundAgent, boundCwd]);
+
+  // A completed user turn: attach the freshest camera frame, send the text, and
+  // reflect the exchange in the chat store (so it renders + persists like typing).
+  // `typed`: the images a typed turn carries (a typed turn never waits on a modal).
+  const handleUserText = useCallback(async (text: string, wordsAt: number[], speaker?: string, judged?: string, aside?: boolean, typed?: TypedDraft["images"]) => {
+    // While a permission ask or an elicitation is pending, EVERY utterance is the
+    // answer to that modal — NOTHING falls through to the agent as a prompt (a stray
+    // "mmm" mid-approval must never become a coding turn).
+    if (!typed && answerModalByVoice(text)) return;
+    // Attach the freshest frame from every active visual source (camera + screen
+    // can both be on), inline with the turn so the model sees exactly this moment.
+    const st0 = useLiveStore.getState();
+    const frames: { data: string; mime: string; source: "camera" | "screen" | "attachment" }[] = (typed ?? []).map((i) => ({ ...i, source: "attachment" }));
+    if (st0.cameraOn && camRef.current) { const j = await camRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "camera" }); }
+    if (st0.screenOn && screenRef.current) { const j = await screenRef.current.captureFreshest(); if (j) frames.push({ data: abToBase64(j), mime: "image/jpeg", source: "screen" }); }
+    // Ended while the frames were grabbed: no turn, or it opens a reply nothing ends.
+    if (tornDown.current) return;
+    if (typed) fact.current.typedTurns++;
+    telemetry.track("onboarding_step", { step: "first_call_turn" });
+    client.current?.userText(text, frames, wordsAt, speaker, aside, !!typed);
+    turnStartedAt.current = Date.now();
+    set({ userCaption: "", userPartial: false, agentCaption: "" });
+    if (assistantId.current) chatStore.liveFinish(chatId, assistantId.current);
+    resetTranscript(); // new turn → the word reveal starts fresh (don't carry prior spoken text)
+    assistantId.current = chatStore.liveUserTurn(chatId, text, wordsAt, speaker, judged, typed && { images: typed.map((i) => `data:${i.mime};base64,${i.data}`) });
+  }, [chatId, set, answerModalByVoice]);
+
+  // Typed messages wait their turn: sent once the reply is over and the user is
+  // not talking, a hold is not pending and no ask is open, one at a time. Typing
+  // never cuts the mic or the voice; the queued bubble's "Send now" does, on purpose.
+  useEffect(() => {
+    let sending = false;
+    const flush = (st: ReturnType<typeof useLiveStore.getState>) => {
+      const eng = engine.current;
+      const next = st.typedQueue[0];
+      if (sending || !next || !eng || !client.current || st.phase !== "idle" || eng.currentPhase() !== "idle"
+        || st.permission || st.elicitation || st.holdUntil || st.pttActive || !eng.openTurn()) return;
+      sending = true;
+      set({ typedQueue: useLiveStore.getState().typedQueue.filter((q) => q !== next) }); // openTurn just moved the store on
+      sending = false;
+      void handleUserText(next.text, [], undefined, undefined, false, next.images);
+    };
+    flush(useLiveStore.getState());
+    return useLiveStore.subscribe(flush);
+  }, [set, handleUserText]);
+
+  // Explicit, user-initiated model download (pre-call). Nothing downloads until
+  // the user agrees in the lobby's offer, and because the worker stays warm, this only happens once.
+  const download = useCallback(async () => {
+    if (modelsMatchConfig()) { set({ modelsDownloaded: true }); return; }
+    set({ downloading: true, modelsDownloaded: false, downloadPct: 0, error: undefined });
+    try {
+      await loadModels((p) => set({ downloadPct: p.pct, downloadLoaded: p.loaded, downloadTotal: p.total, downloadModels: p.models }), "lobby_button", true);
+      set({ modelsDownloaded: true, downloading: false });
+    } catch (e: any) {
+      set({ downloading: false, error: `Couldn't download the AI models: ${String(e?.message ?? e)}` });
+    }
+  }, [set]);
+
+  const refreshDevices = useCallback(async () => {
+    // Cached (from a prior session's Cache-API weights) counts as "downloaded" so
+    // the pre-call screen never re-asks after a refresh. If cached but the worker
+    // isn't warm in THIS page, silently pre-load it in the background so hitting
+    // start is instant — no visible progress bar (it reads from cache, fast).
+    // Never mid-call: a reload replaces the worker and fails the call's STT and TTS.
+    const cached = modelsCached();
+    set({ modelsDownloaded: cached || modelsMatchConfig() });
+    if (cached && !modelsMatchConfig() && !useLiveStore.getState().active) void loadModels(() => {}, "launch_warm").catch(() => {});
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      set({
+        mics: devs.filter((d) => d.kind === "audioinput").map((d, i) => ({ id: d.deviceId, label: d.label || `Microphone ${i + 1}` })),
+        cams: devs.filter((d) => d.kind === "videoinput").map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` })),
+      });
+    } catch { /* enumerate not available */ }
+  }, [set]);
+
+  // Unmounting the dock is what ends a call that no button ended: the chat was switched.
+  const stop = useCallback((endedBy: CallEndedBy = "switched_chat") => teardown(endedBy), [teardown]);
+
+  const toggleMute = useCallback(() => {
+    const next = !useLiveStore.getState().muted;
+    engine.current?.setMuted(next);
+    set({ muted: next });
+  }, [set]);
+
+  // Change the mic — live if a call is active (rebuild the stream + VAD), else it
+  // just applies on the next start. `id` "" = system default.
+  const setMic = useCallback(async (id: string) => {
+    set({ micId: id || undefined });
+    const eng = engine.current;
+    if (!useLiveStore.getState().active || !eng) return;
+    try {
+      await eng.reopen();
+    } catch (e) {
+      set({ error: (e as Error)?.name === "NotAllowedError" ? `${MIC_COPY.noOpen}. Allow it for OpenLive, then pick the mic again.` : "Couldn't switch microphone." });
+    }
+  }, [set]);
+
+  // Devices coming and going mid-call: refresh the pickers, and if the ACTIVE mic
+  // was unplugged, fall back to the system default so the call keeps listening.
+  useEffect(() => {
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    if (!md?.addEventListener) return;
+    const onChange = async () => {
+      await refreshDevices();
+      const st = useLiveStore.getState();
+      if (!st.active || !st.micId) return;
+      try {
+        const devs = await md.enumerateDevices();
+        if (!devs.some((d) => d.kind === "audioinput" && d.deviceId === st.micId)) {
+          toast(MIC_COPY.switched, "info");
+          await setMic("");
+        }
+      } catch { /* enumerate unavailable */ }
+    };
+    md.addEventListener("devicechange", onChange);
+    return () => md.removeEventListener("devicechange", onChange);
+  }, [refreshDevices, setMic]);
+
+  const setCam = useCallback(async (id: string) => {
+    set({ camId: id });
+    if (camRef.current && useLiveStore.getState().cameraOn) {
+      camRef.current.stop();
+      const c = new CameraCapture();
+      camRef.current = c;
+      try { await c.start(id); set({ cameraStream: c.getStream() ?? null }); }
+      catch { camRef.current = null; set({ error: "Couldn't switch camera.", cameraStream: null }); }
+    }
+  }, [set]);
+
+  const toggleCamera = useCallback(async () => {
+    if (camBusy.current) return; // a previous toggle is still resolving — ignore the double-tap
+    camBusy.current = true;
+    try {
+      const on = !useLiveStore.getState().cameraOn;
+      if (on) {
+        const camera = new CameraCapture();
+        camRef.current = camera;
+        try {
+          await camera.start(useLiveStore.getState().camId);
+          await refreshDevices();
+        } catch {
+          try { camera.stop(); } catch { /* */ }
+          camRef.current = null;
+          fact.current.cameraFailed++;
+          set({ error: "Camera access denied." });
+          return;
+        }
+        featureUsed("n_camera_on");
+        fact.current.camera = true;
+        client.current?.control("camera_on");
+        set({ cameraOn: true, cameraStream: camera.getStream() ?? null });
+      } else {
+        client.current?.control("camera_off");
+        camRef.current?.stop();
+        camRef.current = null;
+        set({ cameraOn: false, cameraStream: null });
+      }
+    } finally { camBusy.current = false; }
+  }, [set, refreshDevices]);
+
+  // Share a screen/window — independent of the camera (both can be on). The
+  // model sees the shared screen through the same inline-frame pipeline.
+  const toggleScreen = useCallback(async () => {
+    if (screenBusy.current) return; // ignore a double-tap while the previous toggle resolves
+    screenBusy.current = true;
+    try {
+      const on = !useLiveStore.getState().screenOn;
+      if (on) {
+        const cap = new CameraCapture();
+        screenRef.current = cap;
+        try {
+          await cap.startScreen(() => {
+            client.current?.control("screen_off");
+            try { screenRef.current?.stop(); } catch { /* */ }
+            screenRef.current = null;
+            set({ screenOn: false, screenStream: null });
+          });
+        } catch {
+          try { cap.stop(); } catch { /* */ }
+          screenRef.current = null;
+          fact.current.screenFailed++;
+          set({ error: "Screen share was cancelled." });
+          return;
+        }
+        featureUsed("n_screen_on");
+        fact.current.screen = true;
+        client.current?.control("screen_on");
+        set({ screenOn: true, screenStream: cap.getStream() ?? null });
+      } else {
+        client.current?.control("screen_off");
+        screenRef.current?.stop();
+        screenRef.current = null;
+        set({ screenOn: false, screenStream: null });
+      }
+    } finally { screenBusy.current = false; }
+  }, [set]);
+
+  const getLevels = useCallback(() => ({ mic: engine.current?.micLevel() ?? 0, agent: engine.current?.agentLevel() ?? 0 }), []);
+  // Per-frequency-band energy (0..1) of the live voice — drives the orb's real
+  // reactive spectrum while you or the agent talk.
+  const getBands = useCallback(() => ({ mic: engine.current?.micBands() ?? NO_BANDS, agent: engine.current?.agentBands() ?? NO_BANDS }), []);
+
+  // "Send now": commit a held mid-thought utterance instead of waiting out the hold.
+  const sendNow = useCallback(() => engine.current?.commitPending(), []);
+  // A sentence the side talk check dropped, tapped in the transcript: sent after all.
+  // Refused while the user talks: then it stays, back at the end.
+  const sendAside = useCallback((id: string) => {
+    const m = engine.current && chatStore.takeAside(chatId, id);
+    if (m) featureUsed("n_send_aside");
+    if (m && !engine.current!.sendAside(m.text, m.speaker, m.judged)) chatStore.aside(chatId, m.text, m.speaker, m.judged);
+  }, [chatId]);
+  // "Not for you" on a spoken turn: side talk in the judgment log, and the reply
+  // to it cut when it is the one under way. The turn stays in the history the
+  // agent keeps: taking it out would mean rewriting a saved conversation.
+  const notForYou = useCallback((id: string) => {
+    const r = chatStore.notForYou(chatId, id);
+    if (r) featureUsed("n_not_for_you");
+    if (r?.judged) labelJudgment(r.judged, "side");
+    if (r?.last) engine.current?.dropReply();
+  }, [chatId]);
+  // Push-to-talk: hold = accumulate speech with auto end-of-turn suspended; release = the turn.
+  // The microphone opens on the press and is taped from its first frame.
+  const pttDown = useCallback(() => {
+    const e = engine.current;
+    if (!e || useLiveStore.getState().pttActive) return;
+    e.beginPtt();
+    fact.current.ptt = true;
+    set({ pttActive: true });
+  }, [set]);
+  const pttUp = useCallback(() => { const e = engine.current; if (!e) return; set({ pttActive: false }); void e.endPtt(true); }, [set]);
+  // A tap or a key on top: the hold's words go nowhere.
+  const pttCancel = useCallback(() => { set({ pttActive: false }); engine.current?.dropPtt(); }, [set]);
+
+  // The talk mode changed mid-call (Settings or the tray): the gate follows at
+  // once, and a hold still down as push to talk goes ends as a release, its
+  // words kept, since its key is no longer watched.
+  useEffect(() => useLiveStore.subscribe((s, prev) => {
+    if (s.talk.mode === prev.talk.mode) return;
+    if (s.talk.mode !== "ptt" && s.pttActive) pttUp();
+    engine.current?.setGate(s.talk.mode === "ptt");
+  }), [pttUp]);
+
+  return { start, stop, prewarm, download, toggleMute, toggleCamera, toggleScreen, getLevels, getBands, refreshDevices, setMic, setCam, answerPermission, sendNow, sendAside, notForYou, pttDown, pttUp, pttCancel };
+}

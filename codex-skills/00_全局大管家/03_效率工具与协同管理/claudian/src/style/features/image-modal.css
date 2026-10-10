@@ -1,0 +1,59 @@
+/* Full-size Image Modal */
+.claudian-image-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 85%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  cursor: pointer;
+}
+
+.claudian-image-modal {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  cursor: default;
+}
+
+.claudian-image-modal img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 50%);
+}
+
+button.claudian-image-modal-close,
+button.claudian-image-modal-close:focus,
+button.claudian-image-modal-close:active {
+  appearance: none;
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background-secondary);
+  background-image: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 20px;
+  color: var(--text-muted);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+button.claudian-image-modal-close:hover {
+  border: 0;
+  background: var(--background-modifier-error);
+  background-image: none;
+  color: var(--text-on-accent);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 30%);
+}

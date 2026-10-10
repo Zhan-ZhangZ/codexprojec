@@ -1,0 +1,94 @@
+import { mkdirSync, realpathSync } from "node:fs";
+import { getSetting, setSetting, setChatAgentSession } from "@openlive/db";
+import { isAgentId } from "@openlive/shared";
+import { layout, resolveHome } from "@openlive/shared/home";
+import { AcpAgent, callPreamble, type AcpOpts } from "./acp-agent.js";
+import type { McpServerWire } from "./mcp-config.js";
+import { AgentSupervisor } from "./supervisor.js";
+import type { Agent, AgentId, AgentMeta, AskPermission, ReplayMessage } from "./types.js";
+
+export type { Agent, AgentCommand, AgentId, AgentMeta, AgentSession, AskPermission, PermissionAskOption, ReplayMessage } from "./types.js";
+export { PERMISSION_CANCELLED } from "./types.js";
+
+/** Callbacks a live session wires into a bound agent (streamed meta, recovered
+ *  transcript on resume, non-fatal notices, agent-side title). */
+export interface BoundHooks {
+  onMeta?: (meta: AgentMeta) => void;
+  onReplay?: (messages: ReplayMessage[]) => void;
+  /** Relay an elicitation (login URL / input form) to the user; resolves with
+   *  the user's action. `elicitationId` keys the agent's own completion signal;
+   *  `requestScoped` marks ACP's out-of-session scope (auth and setup). */
+  askElicitation?: (req: ElicitationAsk) => Promise<ElicitationAnswer>;
+  /** The agent says a URL elicitation finished on its own (OAuth landed) —
+   *  settle the pending ask as accepted. */
+  completeElicitation?: (elicitationId: string) => void;
+  /** The call's own tools, served to the agent, and their names for its preamble. */
+  mcp?: { wire: McpServerWire; tools: string[] };
+  /** A resumed session's transcript is wanted back (the chat is empty). */
+  replay?: boolean;
+  /** How the agent's session came up, each time it starts. */
+  onResumed?: AcpOpts["onResumed"];
+}
+export type ElicitationAsk = { mode: "url" | "form"; message: string; url?: string; schema?: unknown; elicitationId?: string; requestScoped?: boolean };
+export type ElicitationAnswer = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> };
+
+/** Which agent a conversation is bound to (null = the built-in provider brain). */
+export function boundAgent(chatId: string): AgentId | null {
+  const v = getSetting(`bind:${chatId}`);
+  return isAgentId(v) ? v : null;
+}
+export async function setBoundAgent(chatId: string, id: AgentId | null): Promise<void> {
+  await setSetting(`bind:${chatId}`, id ?? "");
+}
+
+/** The project folder a conversation's agent runs in: per-chat → global default.
+ *  No $HOME fallback — an unset folder means "not ready to start" (the agent needs a
+ *  real project so its session lands where `claude --resume` etc. can reopen it).
+ *  Canonicalized (symlinks resolved, e.g. macOS /tmp→/private/tmp) so the path we
+ *  store + group History by MATCHES the realpath agents record on disk — otherwise
+ *  the same project splits into two workspace nodes. */
+export function agentCwd(chatId: string): string {
+  const raw = getSetting(`agentCwd:${chatId}`)?.trim() || getSetting("agentCwd")?.trim() || "";
+  if (!raw) return "";
+  try { return realpathSync.native(raw); } catch { return raw; }
+}
+
+/** Build the bound agent wrapped in the reliability supervisor, or null when the
+ *  conversation runs on the built-in provider brain. Reads cwd/session fresh per
+ *  factory call so a supervisor restart (or a folder switch) picks up the latest.
+ *  `startMs` is generous: a first `npx` run may download the adapter. */
+export function createBoundAgent(chatId: string, askPermission: AskPermission, hooks: BoundHooks = {}): Agent | null {
+  const id = boundAgent(chatId);
+  if (!id) return null;
+  return new AgentSupervisor((ask) => new AcpAgent(id, ask, {
+    // Persist the agent's OWN session id BOTH as the resume key and ON the chat row,
+    // so History can dedup this chat against its on-disk agent session (and the id is
+    // exactly what `claude --resume` reopens).
+    // Fire-and-forget: onSession is a sync callback; the two writes go to
+    // different files so ordering doesn't matter, and a failed persist only
+    // costs resume-across-restart.
+    onSession: (sid) => {
+      setSetting(`acpSession:${chatId}`, sid).catch(() => {});
+      setChatAgentSession(chatId, sid).catch(() => {});
+    },
+    resumeSessionId: getSetting(`acpSession:${chatId}`)?.trim() || undefined,
+    cwd: agentCwd(chatId),
+    onMeta: hooks.onMeta,
+    onReplay: hooks.onReplay,
+    askElicitation: hooks.askElicitation,
+    completeElicitation: hooks.completeElicitation,
+    replay: hooks.replay,
+    onResumed: hooks.onResumed,
+    ...(hooks.mcp && { mcpServers: [hooks.mcp.wire], preamble: callPreamble(hooks.mcp.tools) }),
+  }), askPermission, { startMs: 60_000 }, "call");
+}
+
+/** Flow's own folder under the OpenLive home, made on first use: where a
+ *  Flow-driven coding agent starts and where Flow's new files land. Flow has no
+ *  chat to bind a project to, and should never need the person to pick one.
+ *  Canonicalized as `agentCwd` is. */
+export function flowAgentCwd(): string {
+  const dir = layout(resolveHome()).workspace;
+  mkdirSync(dir, { recursive: true });
+  try { return realpathSync.native(dir); } catch { return dir; }
+}

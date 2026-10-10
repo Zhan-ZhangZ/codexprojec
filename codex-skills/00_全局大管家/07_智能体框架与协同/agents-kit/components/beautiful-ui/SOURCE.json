@@ -1,0 +1,9 @@
+{
+  "name": "Beautiful UI",
+  "repository": "https://github.com/slev12397/beautiful-ui",
+  "revision": "ff0f74d62d8be9d89bcb735b3632e31a6ccf88dc",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 Shane Levine",
+  "families": 21,
+  "adaptation": "Original primitives and internal building blocks retain their APIs and interactions. The gallery uses Agents Kit fixtures; Beautiful UI theme utilities compile through the main Tailwind stylesheet. Shared semantic colors, readable tertiary text, neutral focus, and Inter/JetBrains Mono typography follow the Agents Kit design contract. Proprietary Iconists icons use Lucide equivalents. Existing root adapters remain available. Selection Actions uses a contained two-row toolbar on narrow hosts, while retaining the desktop floating toolbar."
+}

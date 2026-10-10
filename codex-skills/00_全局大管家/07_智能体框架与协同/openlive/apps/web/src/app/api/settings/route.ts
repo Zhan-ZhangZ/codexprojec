@@ -1,0 +1,93 @@
+import { timingSafeEqual } from "node:crypto";
+import { NextResponse } from "next/server";
+import { getAllSettings, getSetting, listProviders, setSetting } from "@openlive/db";
+import { isLoopbackUrl, normalizeOllamaUrl, resolveApiMode } from "@openlive/harness/registry";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// Provider + model are chosen live in Settings; nothing hardcoded. Live effort
+// defaults to "auto" (lowest the model supports → smoothest voice).
+const DEFAULTS = { liveEffort: "auto" };
+const KEYS = ["liveModel", "liveProviderId", "liveEffort", "ollamaBaseUrl", "visionProviderId", "visionModel", "agentCwd", "customInstructions", "narrateProgress", "chatHistory", "defaultAgent", "defaultAgentModel", "defaultAgentEffort"];
+// Per-agent config keys (acpCommand:<id> ACP override, agentHidden:<id>
+// visibility toggle) are also readable/writable.
+const PREFIXES = ["acpCommand:", "agentHidden:"];
+
+const isExposed = (k: string) => KEYS.includes(k) || PREFIXES.some((p) => k.startsWith(p));
+
+// The store holds per-chat state and the agent's own keys alongside UI settings
+// (secret ones live encrypted elsewhere). NEVER dump the whole blob to the
+// browser: return only the keys the settings UI legitimately reads.
+function exposedSettings() {
+  const all = getAllSettings();
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(all)) if (isExposed(k)) out[k] = v;
+  return out;
+}
+
+// An acpCommand override is spawned verbatim (services/agent/src/agents/acp-agent.ts).
+// Even though the settings route is loopback-only, an in-origin prompt-injected
+// HTML canvas could PUT here — so constrain the value to a plain argv with no shell
+// metacharacters, so it can never become `bash -c …` / `curl … | sh`. spawn() runs
+// without a shell, so a value that survives this can only launch a named program
+// with named args (npx/uvx/agent/opencode + package/version tokens).
+function isSafeAcpCommand(v: string): boolean {
+  if (v.length > 512) return false;
+  const tokens = v.trim().split(/\s+/);
+  if (!tokens.length || !tokens[0]) return false;
+  // Each token: program name, package spec, flag, version, or path — no shell
+  // metacharacters, quotes, whitespace-in-arg, or control chars.
+  return tokens.every((t) => /^[A-Za-z0-9@._:/+=\[\]~-]+$/.test(t));
+}
+
+// An Ollama address off this computer receives the screen content Flow and Chat
+// send it, and page script (that same canvas) can PUT here. So only the desktop
+// app's main process may store one, after a native dialog the person answered:
+// it sends a per-launch secret that lives in this server's env and never reaches
+// a page (apps/desktop/main.cjs, openlive:confirm-ollama-url). Without that
+// secret (a plain browser, dev), only this computer's own addresses save.
+function confirmedByPerson(req: Request): boolean {
+  const secret = Buffer.from(process.env.OPENLIVE_SETTINGS_SECRET?.trim() || "");
+  const sent = Buffer.from(req.headers.get("x-openlive-confirmed") || "");
+  return secret.length > 0 && sent.length === secret.length && timingSafeEqual(sent, secret);
+}
+
+export function GET() {
+  return NextResponse.json({ ...DEFAULTS, ...exposedSettings() });
+}
+
+export async function PUT(req: Request) {
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (!body || typeof body !== "object") return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 });
+  // A model picked under the default provider belongs to it. Saved alone, the
+  // turn ignores it and runs that provider's default model instead.
+  if (typeof body.liveModel === "string" && body.liveModel && typeof body.liveProviderId !== "string" && !getSetting("liveProviderId")) {
+    body.liveProviderId = resolveApiMode(getAllSettings(), listProviders()).provider.id;
+  }
+  for (const [k, v] of Object.entries(body)) {
+    if (typeof v !== "string" || !isExposed(k)) continue;
+    if (k.startsWith("acpCommand:") && v.trim() && !isSafeAcpCommand(v)) {
+      return NextResponse.json({ error: `Rejected unsafe command for ${k}` }, { status: 400 });
+    }
+    // Stored as the server root, so every caller appends its own path to one
+    // spelling of it. Empty goes back to the default address.
+    if (k === "ollamaBaseUrl" && v.trim()) {
+      const url = normalizeOllamaUrl(v);
+      if (!url) return NextResponse.json({ error: "Enter an http:// or https:// address, like http://localhost:11434." }, { status: 400 });
+      // Re-saving the address already stored exposes nothing new.
+      if (!isLoopbackUrl(url) && url !== normalizeOllamaUrl(getSetting(k) ?? "") && !confirmedByPerson(req)) {
+        return NextResponse.json({ error: "An address off this computer has to be confirmed in the OpenLive desktop app." }, { status: 403 });
+      }
+      await setSetting(k, url);
+      continue;
+    }
+    await setSetting(k, v);
+  }
+  return NextResponse.json({ ...DEFAULTS, ...exposedSettings() });
+}

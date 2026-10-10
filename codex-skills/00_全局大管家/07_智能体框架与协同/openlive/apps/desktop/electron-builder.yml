@@ -1,0 +1,195 @@
+appId: com.openlive.desktop
+productName: OpenLive
+copyright: Copyright © 2026 Yashwanth Reddy Katipally
+
+directories:
+  output: release
+  buildResources: build
+
+# Where `--publish` uploads and where auto-update metadata (latest.yml /
+# latest-mac.yml) points. electron-builder creates a *draft* GitHub Release named
+# v<version> and attaches the installers; you publish it from the Releases page.
+publish:
+  provider: github
+  owner: katipally
+  repo: openlive
+
+# Fails the build when the ol-input addon for the platform and arch being packed is missing.
+beforePack: scripts/check-native.cjs
+# Fails the build when the packaged web or agent server does not boot and answer 200.
+afterPack: scripts/smoke-servers.cjs
+
+# Only the shell code goes in the asar; the servers ride along as unpacked
+# resources (they're spawned as child Node processes).
+files:
+  - main.cjs
+  - preload.cjs
+  - flow-input.cjs
+  - flow-runtime.cjs
+  - look.cjs
+  - external-url.cjs
+  - orb-pointer.cjs
+  - orb-show.cjs
+  - tray-menu.cjs
+  - talk.cjs
+  - flow-cursor.cjs
+  - flow-cursor-preload.cjs
+  - flow-cursor.html
+  - splash.html
+  - telemetry-map.cjs
+  - window-state.cjs
+  - login-item.cjs
+  # Product-usage telemetry: every runtime file of telemetry/, not its tests. A file
+  # missing here is a "Cannot find module" at launch (packaging.test.ts checks).
+  - telemetry/aggregator.cjs
+  - telemetry/config.cjs
+  - telemetry/feedback.cjs
+  - telemetry/index.cjs
+  - telemetry/limits.cjs
+  - telemetry/queue.cjs
+  - telemetry/schema.json
+  - telemetry/sender.cjs
+  - telemetry/state.cjs
+  - telemetry/transport.cjs
+  - telemetry/username.cjs
+  - telemetry/validate.cjs
+  # Stamped at release by scripts/pack-telemetry.cjs. Without it (a local build) the
+  # pattern matches nothing and the app sends nothing.
+  - telemetry-config.json
+  # Packed INTO the asar so the menu-bar tray (main.cjs loads build/tray*.png via
+  # __dirname) has its image in installed builds — without this the tray was blank.
+  - build/tray*.png
+
+# electron-builder 26 drops a `from` dir's top-level node_modules no matter the
+# filter, so each server's node_modules is its own source.
+extraResources:
+  - from: dist/web
+    to: web
+  - from: dist/web/node_modules
+    to: web/node_modules
+  - from: dist/agent
+    to: agent
+  - from: dist/agent/node_modules
+    to: agent/node_modules
+  # The one paths module (packages/shared/src/home): main loads it from here,
+  # the servers carry their own bundled copy.
+  - from: ../../packages/shared/src/home
+    to: home
+    filter: ["*.mjs"]
+  # The ol-input native addon. Unpacked, not in the asar: Node can only dlopen
+  # a real file on disk.
+  - from: dist/ol-input
+    to: ol-input
+  # Apache-2.0 asks that the license and NOTICE travel with every binary.
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../NOTICE
+    to: NOTICE
+  - from: ../../THIRD_PARTY_NOTICES
+    to: THIRD_PARTY_NOTICES
+  # Written by scripts/pack-licenses.cjs, a step of `pack`: the libraries inside
+  # the installer, with their licenses.
+  - from: dist/THIRD_PARTY_LICENSES.txt
+    to: THIRD_PARTY_LICENSES.txt
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+mac:
+  category: public.app-category.productivity
+  # One universal DMG (Apple Silicon + Intel in a single file) so users don't have
+  # to know their chip — just "download for Mac". The zip is what auto-update pulls
+  # (electron-updater can't update from a .dmg); users never touch it.
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+  artifactName: ${productName}-${version}-mac.${ext}
+  # The agent bundle ships BOTH darwin sherpa-onnx platform packages (voice
+  # cloning; the addon picks by os.arch() at runtime), so those Mach-O files are
+  # identical across the two single-arch passes of the universal build. Declare
+  # them or electron-builder rejects the merge ("not covered by x64ArchFiles").
+  # The ol-input addon is already a universal (lipo'd) Mach-O, so it is identical
+  # across the passes too, as is the computer-use helper and onnxruntime-node's
+  # arm64-only binary (it ships none for Intel; pack-agent.cjs).
+  x64ArchFiles: "{**/sherpa-onnx-darwin-*/**,**/ol-input/*.node,**/onnxruntime-node/**,**/OpenLive Computer Use.app/**}"
+  # The computer-use helper: its own app bundle, so macOS grants Accessibility and
+  # Screen Recording to "OpenLive Computer Use" rather than to OpenLive. Signed
+  # with the app's identity like every other nested binary.
+  extraResources:
+    - from: "dist/computer-use/OpenLive Computer Use.app"
+      to: "OpenLive Computer Use.app"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  icon: build/icon.png
+  extendInfo:
+    NSMicrophoneUsageDescription: OpenLive listens to your microphone to hear you speak.
+    NSCameraUsageDescription: OpenLive uses your camera so the assistant can see what you show it.
+    NSScreenCaptureUsageDescription: OpenLive reads your screen only when you ask the assistant to look at it.
+    NSAppleEventsUsageDescription: OpenLive checks whether your sound is muted and can open Terminal to sign in to a coding agent.
+    # Electron 44 (Chromium) requires macOS 13+.
+    LSMinimumSystemVersion: "13.0"
+
+# Signing + notarization are fully env-driven, so nothing here needs toggling:
+#   - Signing: set CSC_LINK (base64 .p12 Developer ID Application cert) + CSC_KEY_PASSWORD.
+#   - Notarization: set APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
+# When those are absent (local dev), electron-builder skips both and produces an
+# unsigned .dmg. In CI they come from GitHub Secrets — see .github/workflows/release.yml.
+
+dmg:
+  # Shows as the mounted volume / installer window title, so it reads as an
+  # installer ("Install OpenLive") rather than another copy of the app.
+  title: Install OpenLive
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-${version}-windows.${ext}
+  # The computer-use helper, beside the app's resources. Electron main names it
+  # to the agent as OPENLIVE_CU_HELPER.
+  extraResources:
+    - from: dist/computer-use/openlive-cu.exe
+      to: openlive-cu.exe
+  # Unpadded: Windows and Linux draw no tile of their own, unlike macOS's grid.
+  # A multi-size .ico whose 16-64 entries are drawn at their own size, so the
+  # taskbar and title bar don't downscale the 1024 into a smear.
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+# ── Linux ─────────────────────────────────────────────────────────────────────
+# One AppImage (download → chmod +x → run) so users don't have to match a distro
+# package format. Unsigned, like every Linux AppImage. The linux-<arch> sherpa
+# package is shipped by pack-agent.cjs (its default branch). The icon set is
+# build/icons/NxN.png, the small sizes drawn at their own size like the .ico.
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: AudioVideo
+  # Otherwise it comes from the package name, @openlive/desktop, which
+  # electron-builder 26 refuses as a file name.
+  executableName: openlive
+  artifactName: ${productName}-${version}-linux.${ext}
+  icon: build/icons
+  # The computer-use helper, beside the app's resources, as on Windows. Inside
+  # the AppImage it runs from the mounted image; Electron main names it to the
+  # agent as OPENLIVE_CU_HELPER.
+  extraResources:
+    - from: dist/computer-use/openlive-cu
+      to: openlive-cu

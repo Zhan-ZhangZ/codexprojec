@@ -1,0 +1,234 @@
+import type { SseEvent, AgentIdWire, AgentMetaWire, ErrorClass, FlowContextWire, FlowEventWire } from "@openlive/shared";
+import { reconnectDelay, useLinkStatus, type LinkState } from "./linkStatus";
+import { loadPipelineConfig } from "./pipelineConfig";
+
+// Browser side of the /live WebSocket, straight to the agent. THIN protocol: we send final user text + camera frames + a cancel
+// signal, and receive the LLM's reply as chat SSE events. No audio on the wire —
+// the browser runs the voice models on-device.
+const TAG_FRAME_IN = 0x02;
+
+export type AgentId = AgentIdWire;
+export type AgentMeta = AgentMetaWire;
+// `kind` is the ACP option kind (allow_once/allow_always/reject_once/reject_always)
+// when the ask comes from a coding agent — drives styling + voice yes/no mapping.
+export type PermissionOption = { id: string; label: string; kind?: string };
+export type ElicitationWire = { reqId: string; mode: "url" | "form"; message: string; url?: string; schema?: unknown; expiresAt?: number };
+export type ToolBridgeOp = "clipboard_read" | "clipboard_write" | "open_url" | "flow_insert" | "flow_insert_end" | "flow_context" | "flow_device" | "flow_dictate";
+
+/** Where the live socket is. The desktop app hands over the agent's port, chosen
+ *  at launch; the web build uses its baked URL (dev), else its own host. */
+export function liveWsBase(): string {
+  const port = (window as { openlive?: { agentPort?: number } }).openlive?.agentPort;
+  if (port) return `ws://localhost:${port}`;
+  return process.env.NEXT_PUBLIC_LIVE_WS_URL || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+}
+
+export interface LiveHandlers {
+  onOpen?: () => void;
+  onClose?: () => void;
+  onReconnecting?: () => void;
+  onSse?: (e: SseEvent) => void;
+  onNeedFrame?: (reqId: string) => void;
+  onToolBridge?: (reqId: string, op: ToolBridgeOp, arg?: string) => void;
+  /** One event of a Flow turn. Only a Flow connection ever receives these. */
+  onFlow?: (event: FlowEventWire) => void;
+  onPermission?: (reqId: string, question: string, options: PermissionOption[], expiresAt?: number, toolCallId?: string) => void;
+  onPermissionResolved?: (reqId: string) => void;
+  onElicitation?: (e: ElicitationWire) => void;
+  onElicitationResolved?: (reqId: string) => void;
+  onAgentMeta?: (meta: AgentMeta) => void;
+  onReloadHistory?: () => void;
+  /** Authoritative bind echo: what agent + folder the server session is ACTUALLY
+   *  using, and whether the coding agent is running. */
+  onBoundState?: (agentId: AgentId | null, cwd: string, agentActive: boolean) => void;
+  onError?: (message: string, code?: ErrorClass) => void;
+  /** A timer or reminder went off, outside any turn. */
+  onReminder?: (title: string, body: string) => void;
+}
+
+/** The session language a turn carries, read as it is sent; English is left
+ *  out, so an English turn is what it was before languages existed. */
+const langField = () => {
+  const lang = loadPipelineConfig().language;
+  return lang === "en" ? {} : { lang };
+};
+
+// The client whose health this window's banner shows: the one connected last.
+let linkOwner: LiveClient | null = null;
+
+export class LiveClient {
+  private ws: WebSocket | null = null;
+  private chatId = "";
+  private closedByUser = false;
+  private attempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private healthyTimer: ReturnType<typeof setTimeout> | null = null;
+  private static MAX_RECONNECT = 4; // tries before the outage is reported; retrying never stops
+  private static HEALTHY_MS = 3000; // a connection must survive this long to "count"
+  private static MAX_QUEUE = 8;     // cap queued turns during an outage (drop oldest)
+  private queue: string[] = [];     // user turns spoken while the socket was down, flushed on reopen
+  // The latest user turn sent. The server echoes its number on the reply, so a
+  // cancelled turn's done or deltas that cross the wire after the next turn went
+  // out are dropped here instead of ending or voicing that next turn.
+  private turn = 0;
+  /** `flow: true` opens the same endpoint for Flow's own runtime: same schemas,
+   *  same permission protocol, its own connection because it is its own renderer. */
+  constructor(private h: LiveHandlers, private opts: { flow?: boolean } = {}) {}
+
+  connect(chatId: string) {
+    this.chatId = chatId;
+    this.closedByUser = false;
+    linkOwner = this;
+    window.addEventListener("online", this.retryNow);
+    this.publish("connecting");
+    this.open();
+  }
+
+  private publish(state: LinkState) {
+    if (linkOwner === this) useLinkStatus.setState({ state, attempt: this.attempts, retry: this.retryNow });
+  }
+
+  /** Cut a pending backoff short (the network came back, or "Retry now"). Only
+   *  between tries: a socket already opening is left to finish. */
+  retryNow = () => {
+    if (this.closedByUser || !this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.open();
+  };
+
+  private open() {
+    const base = liveWsBase();
+    // Desktop connects straight to the agent (no proxy to inject the auth header),
+    // so the per-launch token rides as a query param. Empty everywhere else.
+    const tok = (window as { openlive?: { agentToken?: string } }).openlive?.agentToken;
+    const auth = tok ? `&token=${encodeURIComponent(tok)}` : "";
+    // The language warms the prompt cache in it; absent for English, as on each turn.
+    const { lang } = langField();
+    // A call in the desktop app can reach the machine itself, as Flow does.
+    const device = !this.opts.flow && typeof (window as { openlive?: { flow?: { device?: unknown } } }).openlive?.flow?.device === "function";
+    const ws = new WebSocket(`${base}/live?chat=${encodeURIComponent(this.chatId)}${auth}${lang ? `&lang=${lang}` : ""}${this.opts.flow ? "&flow=1" : ""}${device ? "&device=1" : ""}`);
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => {
+      this.publish("open");
+      this.h.onOpen?.(); // sends the bind FIRST so a flushed turn lands on a bound agent
+      // Flush any user turns that were spoken during the reconnect window — otherwise
+      // the turn is silently lost (the UI shows a bubble + "Thinking…" that never
+      // resolves). Order preserved; frames rode along inline in each queued message.
+      if (this.queue.length && ws.readyState === WebSocket.OPEN) {
+        for (const s of this.queue.splice(0)) ws.send(s);
+      }
+      // Do NOT zero `attempts` here: the socket can open and then instantly flap
+      // closed, and resetting on every open made "Reconnecting…" loop forever. Only a connection that SURVIVES counts as recovered.
+      this.healthyTimer = setTimeout(() => { this.attempts = 0; }, LiveClient.HEALTHY_MS);
+    };
+    ws.onclose = (ev) => {
+      if (this.healthyTimer) { clearTimeout(this.healthyTimer); this.healthyTimer = null; }
+      if (this.closedByUser) { this.h.onClose?.(); return; }
+      // Unexpected drop → keep reconnecting, backing off to a cap, for as long as
+      // the page wants the connection. The server rehydrates the conversation from
+      // the DB, so the agent keeps its context across the drop.
+      this.attempts++;
+      if (this.attempts === LiveClient.MAX_RECONNECT) {
+        // The server closes with a reason (e.g. "agent HTTP 401"). Surface it once
+        // so the user learns why, instead of only a spinner.
+        const why = ev?.reason?.trim();
+        this.h.onError?.(why ? `Live disconnected: ${why}. Still trying.` : "Lost the connection to OpenLive. Still trying to reconnect.");
+      }
+      this.h.onReconnecting?.();
+      this.publish("reconnecting");
+      this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.open(); }, reconnectDelay(this.attempts - 1));
+    };
+    ws.onerror = () => { /* onclose follows; reconnect handles it */ };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return; // server sends no binary now
+      this.attempts = 0; // a real message proves the whole path works → reset budget
+      let m: any;
+      try { m = JSON.parse(ev.data); } catch { return; }
+      switch (m.t) {
+        case "sse": return this.current(m.turn) ? this.h.onSse?.(m.event) : undefined;
+        case "need_frame": return this.h.onNeedFrame?.(m.reqId);
+        // A cancelled turn's action is answered empty at once rather than run, so
+        // the server is not left waiting out its timeout.
+        case "tool_bridge": return this.current(m.turn) ? this.h.onToolBridge?.(m.reqId, m.op, m.arg) : this.toolBridgeResult(m.reqId, "");
+        case "permission": return this.current(m.turn) ? this.h.onPermission?.(m.reqId, m.question, m.options, m.expiresAt, m.toolCallId) : undefined;
+        case "permission_resolved": return this.h.onPermissionResolved?.(m.reqId);
+        case "elicitation": return this.current(m.turn) ? this.h.onElicitation?.(m) : undefined;
+        case "elicitation_resolved": return this.h.onElicitationResolved?.(m.reqId);
+        case "flow": return this.current(m.turn) ? this.h.onFlow?.(m.event) : undefined;
+        case "agent_meta": return this.h.onAgentMeta?.(m);
+        case "bound_state": return this.h.onBoundState?.(m.agentId, m.cwd, m.agentActive);
+        case "reload_history": return this.h.onReloadHistory?.();
+        case "error": return this.h.onError?.(m.message, m.code);
+        case "reminder": return this.h.onReminder?.(m.title, m.body);
+      }
+    };
+    this.ws = ws;
+  }
+
+  /** Events outside any turn (status, agent start errors) carry no number. */
+  private current(turn: unknown) { return turn === undefined || turn === this.turn; }
+  private sendJson(m: unknown) { if (this.ready) this.ws!.send(JSON.stringify(m)); }
+  /** A user turn is too important to drop: if the socket is mid-reconnect, queue it
+   *  and flush on reopen. Other messages (frames, control, cancel) are ephemeral. */
+  private sendUserTurn(m: unknown) {
+    const s = JSON.stringify(m);
+    if (this.ready) { this.ws!.send(s); return; }
+    if (this.closedByUser) return; // session over — don't hold onto it
+    this.queue.push(s);
+    if (this.queue.length > LiveClient.MAX_QUEUE) this.queue.shift();
+  }
+  userText(text: string, frames?: { data: string; mime: string; source: "camera" | "screen" | "attachment" }[], wordsAt?: number[], speaker?: string, aside?: boolean, typed?: boolean) {
+    this.sendUserTurn({ t: "user_text", text, ...(frames && frames.length ? { frames } : {}), ...langField(), turn: ++this.turn, wordsAt, speaker, ...(aside ? { aside } : {}), ...(typed ? { typed } : {}) });
+  }
+  cancel(spoken?: string) { this.sendJson({ t: "cancel", ...(spoken !== undefined ? { spoken } : {}) }); }
+  /** A completed Flow utterance, with the metadata captured as it was spoken. */
+  flowText(text: string, context?: FlowContextWire, wordsAt?: number[], speaker?: string, quiet?: boolean, aside?: boolean) { this.sendUserTurn({ t: "flow_text", text, ...(context ? { context } : {}), ...langField(), turn: ++this.turn, wordsAt, speaker, ...(quiet ? { quiet } : {}), ...(aside ? { aside } : {}) }); }
+  /** Barge-in on a Flow turn. `spoken` is what the voice actually got through;
+   *  `close` also refuses any ask still open, because Flow itself is going away. */
+  flowCancel(spoken?: string, close = false) { this.sendJson({ t: "flow_cancel", ...(spoken !== undefined ? { spoken } : {}), ...(close ? { close } : {}) }); }
+  /** Continue an archived Flow session on the next utterance. */
+  flowResume(sessionId: string) { this.sendJson({ t: "flow_resume", sessionId }); }
+  /** Start a fresh Flow session on the next utterance. */
+  flowNew() { this.sendJson({ t: "flow_new" }); }
+  control(action: "camera_on" | "camera_off" | "screen_on" | "screen_off" | "end") { this.sendJson({ t: "control", action }); }
+  frameResponse(reqId: string, failed?: boolean) { this.sendJson({ t: "frame_response", reqId, ...(failed ? { failed } : {}) }); }
+  toolBridgeResult(reqId: string, output: string) { this.sendJson({ t: "tool_bridge_result", reqId, output }); }
+  /** Bind this conversation to a coding agent (null = provider brain) + project folder.
+   *  cwd ALWAYS travels (empty string = no folder) — the old omit-when-empty shape let
+   *  a transiently-empty store silently strand the server on a stale/absent folder. */
+  bind(agentId: AgentId | null, cwd: string, resumeSessionId?: string) { this.sendJson({ t: "bind", agentId, cwd, ...(resumeSessionId ? { resumeSessionId } : {}) }); }
+  /** Answer an agent permission ask (chip tap or spoken yes/no). */
+  permissionResponse(reqId: string, optionId: string) { this.sendJson({ t: "permission_response", reqId, optionId }); }
+  /** Answer an agent elicitation (form submit / spoken "done" / cancel). */
+  elicitationResponse(reqId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) {
+    this.sendJson({ t: "elicitation_response", reqId, action, ...(content ? { content } : {}) });
+  }
+  /** Switch the bound agent's model / mode mid-session. */
+  setModel(modelId: string) { this.sendJson({ t: "set_model", modelId }); }
+  setMode(modeId: string) { this.sendJson({ t: "set_mode", modeId }); }
+  setOption(optionId: string, valueId: string) { this.sendJson({ t: "set_option", optionId, valueId }); }
+
+  sendFrame(jpeg: ArrayBuffer) {
+    if (!this.ready) return;
+    const out = new Uint8Array(jpeg.byteLength + 1);
+    out[0] = TAG_FRAME_IN;
+    out.set(new Uint8Array(jpeg), 1);
+    this.ws!.send(out.buffer);
+  }
+
+  get ready() { return this.ws?.readyState === WebSocket.OPEN; }
+  /** User turns held for the next open, which flushes them right after `onOpen`. */
+  get queued() { return this.queue.length; }
+  close() {
+    this.closedByUser = true;
+    window.removeEventListener("online", this.retryNow);
+    if (linkOwner === this) { linkOwner = null; useLinkStatus.setState({ state: "off", attempt: 0, retry: null }); }
+    this.queue.length = 0;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    if (this.healthyTimer) { clearTimeout(this.healthyTimer); this.healthyTimer = null; }
+    this.control("end");
+    try { this.ws?.close(); } catch { /* */ }
+    this.ws = null;
+  }
+}

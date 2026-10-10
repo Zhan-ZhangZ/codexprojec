@@ -1,0 +1,100 @@
+import AgentChatHistoryBasic from "./agent-chat-history-basic"
+import ComponentCodePreview from "@/components/app/component-code-preview"
+
+# Agent Chat History
+
+A comprehensive chat history component that displays conversation sessions with search, filtering, and management capabilities.
+
+## Features
+
+- **Session Management**: View and manage multiple chat sessions
+- **Search Functionality**: Search through conversations by title or content
+- **Filtering Options**: Filter by starred or archived sessions
+- **Message Preview**: View full conversation history for selected sessions
+- **Actions**: Star, archive, export, and delete sessions
+- **Token Tracking**: Display token usage per message
+- **Time Formatting**: Smart date/time display (Today, Yesterday, etc.)
+
+## Examples
+
+### Basic Chat History
+
+A complete chat history interface with sessions list and message preview.
+
+<ComponentCodePreview 
+  component={<AgentChatHistoryBasic />}
+  filePath="app/docs/agent-chat-history/agent-chat-history-basic.tsx"
+  classNameComponentContainer="p-8"
+/>
+
+## Installation
+
+<Tabs defaultValue="cli">
+
+<TabsList>
+  <TabsTrigger value="cli">CLI</TabsTrigger>
+  <TabsTrigger value="manual">Manual</TabsTrigger>
+</TabsList>
+
+<TabsContent value="cli">
+
+<CodeBlock
+  code={`npx shadcn@latest add "https://agents-ui.github.io/agents-kit/c/agent-chat-history.json"`}
+  language="bash"
+/>
+
+</TabsContent>
+
+<TabsContent value="manual">
+
+<Steps>
+
+<Step>Copy and paste the following code into your project.</Step>
+
+<CodeBlock filePath="components/agents-ui/agent-chat-history.tsx" language="tsx" />
+
+<Step>Update the import paths to match your project setup.</Step>
+
+</Steps>
+
+</TabsContent>
+
+</Tabs>
+
+## API Reference
+
+### AgentChatHistory
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| sessions | `ChatSession[]` | - | Array of chat sessions |
+| selectedSessionId | `string` | - | ID of the currently selected session |
+| onSelectSession | `(session: ChatSession) => void` | - | Callback when a session is selected |
+| onDeleteSession | `(sessionId: string) => void` | - | Callback to delete a session |
+| onStarSession | `(sessionId: string) => void` | - | Callback to star/unstar a session |
+| onArchiveSession | `(sessionId: string) => void` | - | Callback to archive a session |
+| onExportSession | `(sessionId: string) => void` | - | Callback to export a session |
+| className | `string` | - | Additional CSS classes |
+
+### ChatSession
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| id | `string` | Yes | Unique session identifier |
+| title | `string` | Yes | Session title |
+| messages | `ChatMessage[]` | Yes | Array of messages in the session |
+| createdAt | `Date` | Yes | Session creation date |
+| updatedAt | `Date` | Yes | Last update date |
+| starred | `boolean` | No | Whether session is starred |
+| archived | `boolean` | No | Whether session is archived |
+
+### ChatMessage
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| id | `string` | Yes | Unique message identifier |
+| role | `"user" \| "assistant"` | Yes | Message sender role |
+| content | `string` | Yes | Message content |
+| timestamp | `Date` | Yes | Message timestamp |
+| tokens | `number` | No | Token count for the message |
+| model | `string` | No | Model used (for assistant messages) |

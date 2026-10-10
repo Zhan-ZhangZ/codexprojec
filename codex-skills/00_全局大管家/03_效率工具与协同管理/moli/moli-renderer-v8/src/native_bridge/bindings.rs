@@ -1,0 +1,432 @@
+use crate::web_api_interfaces;
+use std::{collections::HashMap, ffi::c_void};
+
+use anyhow::{Result, anyhow};
+use moli_webapi_declare::WebApiObject;
+
+use super::super::context_bootstrap::bridge_descriptor::{
+    WrapperKind, node_bridge_descriptor, node_bridge_descriptors,
+};
+use super::{
+    BridgeHandle, JsContextHost, ReflectorId, collections, document, element, traversal, window,
+};
+
+mod native_template;
+mod node_template;
+
+use native_template::build_native_bridge_template;
+use node_template::build_node_wrapper_template;
+
+#[derive(WebApiObject)]
+#[webapi(plain)]
+struct NativeBridgeGlobalDeclaration<'scope> {
+    #[webapi(data_property = "__moliNativeBridge")]
+    bridge: v8::Local<'scope, v8::Object>,
+}
+
+pub(crate) struct NativeBridgeBindings {
+    isolate_ptr: v8::UnsafeRawIsolatePtr,
+    window_global_template: v8::Global<v8::ObjectTemplate>,
+    cross_origin_window_global_template: v8::Global<v8::ObjectTemplate>,
+    bridge_template: v8::Global<v8::ObjectTemplate>,
+    node_wrapper_templates: HashMap<&'static str, v8::Global<v8::ObjectTemplate>>,
+    window_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    collection_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    static_handle_node_list_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    live_collection_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    node_iterator_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    tree_walker_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    dom_token_list_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    dom_string_map_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    style_wrapper_template: v8::Global<v8::ObjectTemplate>,
+    named_node_map_wrapper_template: v8::Global<v8::ObjectTemplate>,
+}
+
+fn open_object_template<'a>(
+    isolate_ptr: &mut v8::UnsafeRawIsolatePtr,
+    template: &'a v8::Global<v8::ObjectTemplate>,
+) -> &'a v8::ObjectTemplate {
+    let isolate = unsafe { v8::Isolate::ref_from_raw_isolate_ptr_mut(isolate_ptr) };
+    // SAFETY: every template in NativeBridgeBindings belongs to this isolate,
+    // and these references are only exposed while its renderer thread owns and
+    // has entered the isolate. The returned reference cannot outlive `template`.
+    unsafe { template.open(isolate) }
+}
+
+fn wrapper_kind_for_handle(handle: &BridgeHandle) -> WrapperKind {
+    match handle {
+        BridgeHandle::Window => WrapperKind::Window,
+        BridgeHandle::ClassList(_, _) => WrapperKind::ClassList,
+        BridgeHandle::Dataset(_) => WrapperKind::Dataset,
+        BridgeHandle::Style(_) => WrapperKind::Style,
+        BridgeHandle::ComputedStyle(_, _) => WrapperKind::ComputedStyle,
+        BridgeHandle::Node(_) => WrapperKind::Node,
+    }
+}
+
+fn prototype_name_for_handle(host_ptr: *mut JsContextHost, handle: &BridgeHandle) -> &'static str {
+    match handle {
+        BridgeHandle::Window => "Window",
+        BridgeHandle::ClassList(_, _) => "DOMTokenList",
+        BridgeHandle::Dataset(_) => "DOMStringMap",
+        BridgeHandle::Style(_) | BridgeHandle::ComputedStyle(_, _) => "CSSStyleProperties",
+        BridgeHandle::Node(node_handle) => {
+            let runtime = unsafe { &*host_ptr };
+            if runtime.dom_host().is_shadow_root(*node_handle) {
+                "ShadowRoot"
+            } else {
+                runtime
+                    .dom_host()
+                    .node(*node_handle)
+                    .map(|node| match node.data() {
+                        crate::dom::native::NodeData::Document(document) => {
+                            if document.is_html_document() {
+                                "HTMLDocument"
+                            } else {
+                                "XMLDocument"
+                            }
+                        }
+                        _ if node
+                            .local_name()
+                            .is_some_and(crate::custom_elements::is_valid_custom_element_name)
+                            && runtime
+                                .custom_elements_for_node_handle(*node_handle)
+                                .is_some_and(|store| {
+                                    store.is_failed_construction_handle(*node_handle)
+                                }) =>
+                        {
+                            "HTMLUnknownElement"
+                        }
+                        _ => node.wrapper_prototype_name(),
+                    })
+                    .unwrap_or("Node")
+            }
+        }
+    }
+}
+
+impl NativeBridgeBindings {
+    pub(crate) fn build_peer_in_scope(&self, scope: &mut v8::PinScope<'_, '_>) -> Self {
+        let window_template = v8::Local::new(scope, &self.window_global_template);
+        let cross_origin_template =
+            v8::Local::new(scope, &self.cross_origin_window_global_template);
+        Self::build(
+            scope,
+            self.isolate_ptr,
+            window_template,
+            cross_origin_template,
+        )
+    }
+
+    pub(crate) fn build(
+        scope: &mut v8::PinScope<'_, '_, ()>,
+        isolate_ptr: v8::UnsafeRawIsolatePtr,
+        window_global_template: v8::Local<'_, v8::ObjectTemplate>,
+        cross_origin_window_global_template: v8::Local<'_, v8::ObjectTemplate>,
+    ) -> Self {
+        let mut node_wrapper_templates = HashMap::new();
+        for descriptor in node_bridge_descriptors() {
+            let template = build_node_wrapper_template(scope, descriptor);
+            node_wrapper_templates.insert(
+                descriptor.interface.name(),
+                v8::Global::new(scope, template),
+            );
+        }
+
+        let bridge_template = build_native_bridge_template(scope);
+        let window_wrapper_template = window::build_window_wrapper_template(scope);
+        let collection_wrapper_template = collections::build_collection_wrapper_template(scope);
+        let static_handle_node_list_wrapper_template =
+            collections::build_static_handle_node_list_wrapper_template(scope);
+        let live_collection_wrapper_template =
+            collections::build_live_collection_wrapper_template(scope);
+        let node_iterator_wrapper_template = traversal::build_node_iterator_wrapper_template(scope);
+        let tree_walker_wrapper_template = traversal::build_tree_walker_wrapper_template(scope);
+        let dom_token_list_wrapper_template = element::build_dom_token_list_wrapper_template(scope);
+        let dom_string_map_wrapper_template = element::build_dom_string_map_wrapper_template(scope);
+        let style_wrapper_template = element::build_style_wrapper_template(scope);
+        let named_node_map_wrapper_template =
+            document::build_named_node_map_wrapper_template(scope);
+
+        Self {
+            isolate_ptr,
+            window_global_template: v8::Global::new(scope, window_global_template),
+            cross_origin_window_global_template: v8::Global::new(
+                scope,
+                cross_origin_window_global_template,
+            ),
+            bridge_template: v8::Global::new(scope, bridge_template),
+            node_wrapper_templates,
+            window_wrapper_template: v8::Global::new(scope, window_wrapper_template),
+            collection_wrapper_template: v8::Global::new(scope, collection_wrapper_template),
+            static_handle_node_list_wrapper_template: v8::Global::new(
+                scope,
+                static_handle_node_list_wrapper_template,
+            ),
+            live_collection_wrapper_template: v8::Global::new(
+                scope,
+                live_collection_wrapper_template,
+            ),
+            node_iterator_wrapper_template: v8::Global::new(scope, node_iterator_wrapper_template),
+            tree_walker_wrapper_template: v8::Global::new(scope, tree_walker_wrapper_template),
+            dom_token_list_wrapper_template: v8::Global::new(
+                scope,
+                dom_token_list_wrapper_template,
+            ),
+            dom_string_map_wrapper_template: v8::Global::new(
+                scope,
+                dom_string_map_wrapper_template,
+            ),
+            style_wrapper_template: v8::Global::new(scope, style_wrapper_template),
+            named_node_map_wrapper_template: v8::Global::new(
+                scope,
+                named_node_map_wrapper_template,
+            ),
+        }
+    }
+
+    pub(crate) fn window_global_template<'s>(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+    ) -> v8::Local<'s, v8::ObjectTemplate> {
+        v8::Local::new(scope, &self.window_global_template)
+    }
+
+    /// Install the native bridge global object with two internal fields:
+    /// - field 0: `*mut JsContextHost` (for `runtime_ptr_from_object` compatibility)
+    /// - field 1: `*const RefCell<JsContextHost>` from the per-context bridge-ref token
+    pub(super) fn install_global<'s>(
+        &mut self,
+        scope: &mut v8::PinScope<'s, '_>,
+        global: v8::Local<'s, v8::Object>,
+        host_ptr: *mut JsContextHost,
+        rc_ptr: *mut c_void,
+    ) -> Result<()> {
+        let template = self.bridge_template();
+        let bridge = template
+            .new_instance(scope)
+            .ok_or_else(|| anyhow!("failed to create native bridge object"))?;
+        let host_external = v8::External::new(scope, host_ptr as *mut c_void);
+        let _ = bridge.set_internal_field(0, host_external.into());
+        // Field 1 stores the Rc pointer owned by the context's bridge-ref token.
+        let rc_external = v8::External::new(scope, rc_ptr);
+        let _ = bridge.set_internal_field(1, rc_external.into());
+
+        NativeBridgeGlobalDeclaration::new(bridge)
+            .initialize(scope, global)
+            .map_err(|error| anyhow!("failed to install native bridge global: {error}"))
+    }
+
+    pub(super) fn instantiate_wrapper<'s, 'i>(
+        &mut self,
+        scope: &mut v8::PinScope<'s, 'i>,
+        host_ptr: *mut JsContextHost,
+        handle: BridgeHandle,
+        reflector_id: ReflectorId,
+    ) -> v8::Local<'s, v8::Object> {
+        let prototype_name = prototype_name_for_handle(host_ptr, &handle);
+        let wrapper_kind = wrapper_kind_for_handle(&handle);
+        let template = match wrapper_kind {
+            WrapperKind::Window => self.window_wrapper_template(),
+            WrapperKind::ClassList => self.dom_token_list_wrapper_template(),
+            WrapperKind::Dataset => self.dom_string_map_wrapper_template(),
+            WrapperKind::Style | WrapperKind::ComputedStyle => self.style_wrapper_template(),
+            WrapperKind::Node => self
+                .node_wrapper_template(prototype_name)
+                .unwrap_or_else(|| {
+                    panic!("missing native wrapper template for `{prototype_name}`")
+                }),
+        };
+
+        let wrapper = template
+            .new_instance(scope)
+            .unwrap_or_else(|| panic!("failed to instantiate `{prototype_name}` wrapper"));
+        if matches!(wrapper_kind, WrapperKind::Window) {
+            // Window brand checks can cross realm boundaries, so the small
+            // number of Window wrappers retain their object-local host marker.
+            let host_external = v8::External::new(scope, host_ptr as *mut c_void);
+            assert!(
+                wrapper.set_internal_field(0, host_external.into()),
+                "Window wrapper must expose its runtime field"
+            );
+            assert!(
+                wrapper.set_internal_field(
+                    1,
+                    v8::Number::new(scope, reflector_id.raw() as f64).into(),
+                ),
+                "Window wrapper must expose its reflector identity field"
+            );
+        } else {
+            // The owning host is already installed in every live V8 context.
+            // High-cardinality DOM wrappers therefore keep only their identity.
+            assert!(
+                wrapper.set_internal_field(
+                    0,
+                    v8::Number::new(scope, reflector_id.raw() as f64).into(),
+                ),
+                "`{prototype_name}` wrapper must expose its reflector identity field"
+            );
+        }
+        web_api_interfaces::initialize(scope, wrapper, prototype_name)
+            .expect("native wrapper identity should initialize");
+        set_named_constructor_prototype(scope, wrapper, prototype_name);
+        if matches!(wrapper_kind, WrapperKind::Window) {
+            window::sync_window_wrapper_function_identity(scope, wrapper);
+        }
+        if matches!(wrapper_kind, WrapperKind::Node) {
+            let descriptor = node_bridge_descriptor(prototype_name).unwrap_or_else(|| {
+                panic!("missing native bridge descriptor for `{prototype_name}`")
+            });
+            element::install_specialized_instance_properties(
+                scope,
+                wrapper,
+                descriptor.runtime_install_groups,
+            );
+        }
+        wrapper
+    }
+
+    pub(super) fn instantiate_window_shell<'s, 'i>(
+        &mut self,
+        scope: &mut v8::PinScope<'s, 'i>,
+        host_ptr: *mut JsContextHost,
+    ) -> v8::Local<'s, v8::Object> {
+        let wrapper = self
+            .window_wrapper_template()
+            .new_instance(scope)
+            .expect("failed to instantiate synthetic Window wrapper");
+        let host_external = v8::External::new(scope, host_ptr as *mut c_void);
+        assert!(
+            wrapper.set_internal_field(0, host_external.into()),
+            "synthetic Window wrapper must expose its runtime field"
+        );
+        assert!(
+            wrapper.set_internal_field(1, v8::Number::new(scope, 0.0).into()),
+            "synthetic Window wrapper must expose its shell marker"
+        );
+        set_named_constructor_prototype(scope, wrapper, "Window");
+        wrapper
+    }
+
+    pub(super) fn instantiate_window_proxy_shell<'s, 'i>(
+        &mut self,
+        scope: &mut v8::PinScope<'s, 'i>,
+    ) -> (v8::Local<'s, v8::Object>, v8::Global<v8::Context>) {
+        // A cross-origin facade exposes a deliberately restricted Window
+        // surface. It must not inherit the same-origin [Global] own
+        // properties, especially non-configurable Window.location, before
+        // its cross-origin accessors are installed.
+        let global_template = v8::Local::new(scope, &self.cross_origin_window_global_template);
+        let parent_security_token = scope.get_current_context().get_security_token(scope);
+        let context = v8::Context::new(
+            scope,
+            v8::ContextOptions {
+                global_template: Some(global_template),
+                ..Default::default()
+            },
+        );
+        context.set_security_token(parent_security_token);
+        let global = context.global(scope);
+        (global, v8::Global::new(scope, context))
+    }
+
+    pub(super) fn attach_window_proxy_shell_to_facade<'s, 'i>(
+        &self,
+        scope: &mut v8::PinScope<'s, 'i, ()>,
+        window_proxy: v8::Local<'s, v8::Object>,
+    ) -> Option<v8::Local<'s, v8::Context>> {
+        let global_template = v8::Local::new(scope, &self.cross_origin_window_global_template);
+        let context = v8::Context::new(
+            scope,
+            v8::ContextOptions {
+                global_template: Some(global_template),
+                global_object: Some(window_proxy.into()),
+                ..Default::default()
+            },
+        );
+        context
+            .global(scope)
+            .strict_equals(window_proxy.into())
+            .then_some(context)
+    }
+
+    pub(super) fn collection_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.collection_wrapper_template)
+    }
+
+    pub(super) fn static_handle_node_list_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(
+            &mut self.isolate_ptr,
+            &self.static_handle_node_list_wrapper_template,
+        )
+    }
+
+    pub(super) fn live_collection_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(
+            &mut self.isolate_ptr,
+            &self.live_collection_wrapper_template,
+        )
+    }
+
+    pub(super) fn node_iterator_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.node_iterator_wrapper_template)
+    }
+
+    pub(super) fn tree_walker_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.tree_walker_wrapper_template)
+    }
+
+    fn bridge_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.bridge_template)
+    }
+
+    pub(super) fn node_wrapper_template(
+        &mut self,
+        prototype_name: &'static str,
+    ) -> Option<&v8::ObjectTemplate> {
+        let template = self.node_wrapper_templates.get(prototype_name)?;
+        Some(open_object_template(&mut self.isolate_ptr, template))
+    }
+
+    fn window_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.window_wrapper_template)
+    }
+
+    fn dom_token_list_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.dom_token_list_wrapper_template)
+    }
+
+    fn dom_string_map_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.dom_string_map_wrapper_template)
+    }
+
+    fn style_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.style_wrapper_template)
+    }
+
+    pub(super) fn named_node_map_wrapper_template(&mut self) -> &v8::ObjectTemplate {
+        open_object_template(&mut self.isolate_ptr, &self.named_node_map_wrapper_template)
+    }
+}
+
+pub(super) fn set_named_constructor_prototype(
+    scope: &mut v8::PinScope<'_, '_>,
+    wrapper: v8::Local<'_, v8::Object>,
+    constructor_name: &str,
+) {
+    // Wrapper identity is tied to the realm's trusted interface, not the
+    // author-visible global property. The latter is configurable and may have
+    // been replaced after lazy interface materialization.
+    let prototype =
+        crate::context_bootstrap::ensure_intrinsic_interface_prototype(scope, constructor_name)
+            .unwrap_or_else(|error| {
+                panic!("failed to materialize intrinsic `{constructor_name}` prototype: {error}")
+            });
+    let updated = wrapper
+        .set_prototype(scope, prototype.into())
+        .unwrap_or_else(|| panic!("failed to set `{constructor_name}` wrapper prototype"));
+    assert!(
+        updated,
+        "V8 rejected the intrinsic `{constructor_name}` wrapper prototype"
+    );
+}

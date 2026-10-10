@@ -1,0 +1,46 @@
+mod clipboard;
+mod collections;
+mod credentials;
+mod gamepad;
+mod geolocation;
+mod media_capabilities;
+mod media_devices;
+mod navigator;
+mod navigator_subobjects;
+mod screen;
+mod visual_viewport;
+mod window_state;
+
+pub(crate) use geolocation::notify_geolocation_override_changed;
+
+pub(in crate::context_bootstrap) use self::clipboard::clipboard_item_constructor_callback;
+pub(crate) use self::navigator::build_lightweight_popup_window_navigator_object;
+pub(super) use self::navigator::install_navigator_template_bindings;
+pub(crate) use self::navigator::install_worker_navigator_runtime_state;
+pub(in crate::context_bootstrap) use self::navigator::{
+    SERVICE_WORKER_OWNER_TOKEN_SLOT, STORAGE_BUCKET_MANAGER_CHILD_HANDLE_SLOT,
+    STORAGE_BUCKET_MANAGER_POPUP_ID_SLOT, STORAGE_MANAGER_CHILD_HANDLE_SLOT,
+    STORAGE_MANAGER_POPUP_ID_SLOT, build_storage_manager_worker_template,
+    current_protocol_user_gesture_activation,
+    install_storage_manager_constructor_template_bindings, navigator_identity_profile,
+    navigator_receiver_branded, service_worker_owner_token_value, set_navigator_identity_profile,
+};
+#[cfg(test)]
+pub(crate) use self::navigator::{
+    materialized_navigator_subobject_keys, navigator_storage_wrapper_diagnostics,
+};
+pub(in crate::context_bootstrap) use self::screen::{
+    build_window_screen, install_screen_template_bindings,
+};
+pub(in crate::context_bootstrap) use self::visual_viewport::{
+    build_window_visual_viewport, install_visual_viewport_template_bindings,
+};
+pub(crate) use self::window_state::{
+    bind_window_navigator_identity_seed, set_window_navigator_identity,
+};
+pub(super) use self::window_state::{
+    build_window_navigator_for_receiver, install_navigator_runtime_state,
+};
+
+pub(crate) use self::screen::dispatch_screen_orientation_change;
+pub(crate) use self::visual_viewport::dispatch_window_visual_viewport_resize;

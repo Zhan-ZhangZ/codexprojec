@@ -1,0 +1,82 @@
+import type { Component } from 'obsidian';
+
+import type { ProviderId } from '@/core/providers/types';
+import type { Conversation } from '@/core/types';
+import type { ChatFeatureHost } from '@/features/chat/ChatFeatureHost';
+import type { ForkContext } from '@/features/chat/conversation/forkSourceTypes';
+import type { ChatExecutionCoordinator } from '@/features/chat/execution/ChatExecutionCoordinator';
+import type { MessageRenderer } from '@/features/chat/rendering/MessageRenderer';
+import type { ChatState } from '@/features/chat/state/ChatState';
+import type { TabAttention, TabReviewOutcome } from '@/features/chat/state/types';
+import type { TabId, TabProviderCatalogContext } from '@/features/chat/tabs/ChatTab';
+import type { TabRuntimeResourceOwner } from '@/features/chat/tabs/TabLifecycle';
+import type { TabSessionState } from '@/features/chat/tabs/TabSession';
+import type { TabSession } from '@/features/chat/tabs/TabSession';
+import type { AssembledTabRuntime, ProviderCatalogInfo, ProviderCatalogResolver, TabControllers, TabDOMElements, TabProviderContext } from '@/features/chat/tabs/types';
+import type { VaultMentionDataProvider } from '@/shared/mention/VaultMentionDataProvider';
+
+export type TabRuntimeCleanup = () => void | Promise<void>;
+
+export interface TabRuntimeConstructionContext {
+  plugin: ChatFeatureHost;
+  containerEl: HTMLElement;
+  component: Component;
+  mentionDataProvider: VaultMentionDataProvider;
+  conversation?: Conversation;
+  tabId?: TabId;
+  initialState?: Readonly<TabSessionState>;
+  draftModel?: string | null;
+  providerId?: ProviderId | null;
+  lifecycleState?: Extract<AssembledTabRuntime['lifecycleState'], 'provisional' | 'open'>;
+  getProviderCatalogConfig: (
+    tab: TabProviderCatalogContext,
+  ) => ProviderCatalogInfo;
+  isRuntimeLive: (tab: AssembledTabRuntime) => boolean;
+  forkRequestCallback?: (forkContext: ForkContext) => Promise<void>;
+  openConversation?: (conversationId: string) => Promise<void>;
+  onStreamingChanged?: (tab: AssembledTabRuntime, isStreaming: boolean) => void;
+  onWorkChanged?: (tab: AssembledTabRuntime) => void;
+  onRewindingChanged?: (tab: AssembledTabRuntime, isRewinding: boolean) => void;
+  onAttentionChanged?: (tab: AssembledTabRuntime, attention: TabAttention) => void;
+  onConversationIdChanged?: (
+    tab: AssembledTabRuntime,
+    conversationId: string | null,
+  ) => void;
+  onDraftModelChanged?: (
+    tab: AssembledTabRuntime,
+    draftModel: string | null,
+  ) => void;
+  onProviderChanged?: (
+    tab: AssembledTabRuntime,
+    providerId: ProviderId,
+  ) => void | Promise<void>;
+  onCommandContextChanged?: (tab: AssembledTabRuntime) => void;
+  captureReviewableSettlement?: (
+    tab: AssembledTabRuntime,
+    outcome: TabReviewOutcome,
+  ) => () => void;
+  registerCleanup: (resource: string, cleanup: TabRuntimeCleanup) => void;
+  resourceOwner: TabRuntimeResourceOwner;
+}
+
+export interface PublishedTabRuntimeRef {
+  requirePublished(): AssembledTabRuntime;
+  current(): AssembledTabRuntime | null;
+  publish(runtime: AssembledTabRuntime): void;
+}
+
+export interface TabRuntimeShellBundle extends TabProviderContext {
+  readonly session: TabSession;
+  readonly id: TabId;
+  hydrationState: AssembledTabRuntime['hydrationState'];
+  readonly executionCoordinator: ChatExecutionCoordinator;
+  readonly providerCatalogResolver: ProviderCatalogResolver;
+  readonly captureReviewableSettlement: ((outcome: TabReviewOutcome) => () => void) | null;
+  readonly state: ChatState;
+  readonly dom: TabDOMElements;
+}
+
+export interface TabRuntimeControllerBundle {
+  readonly controllers: TabControllers;
+  readonly renderer: MessageRenderer;
+}

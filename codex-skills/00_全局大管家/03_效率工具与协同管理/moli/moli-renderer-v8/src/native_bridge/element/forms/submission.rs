@@ -1,0 +1,1395 @@
+use super::*;
+use crate::blob;
+use crate::native_bridge::context_host::ChildBrowsingContextNavigationRequest;
+use crate::native_bridge::element::activation::{
+    SpecialBrowsingContextTarget, browsing_context_window_for_dispatch_scope,
+    form_navigation_target_document, named_iframe_target_handle_for_navigation,
+};
+use crate::native_bridge::element::{
+    NodePublicEventDispatchOutcome, TextEditInputType, activate_default_submit_button_via_keyboard,
+    dispatch_beforeinput,
+};
+use crate::runtime::RendererInputDispatchOutcome;
+use crate::util::{v8_string, v8str};
+use moli_dom::forms::normalize_form_submission_newlines;
+use moli_encoding::{
+    encode_text_for_legacy_web, form_submission_encoding, form_urlencoded_serialize_pairs,
+    is_charset_sentinel_name,
+};
+use url::Url;
+
+/// Runs the control's Enter default action, including its beforeinput gate.
+/// None means this target is not eligible; cancellation is a handled branch
+/// and must never fall through to ordinary character insertion.
+pub(crate) fn perform_implicit_submission_from_control(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    control: DomHandle,
+    modifiers: u8,
+) -> Option<RendererInputDispatchOutcome> {
+    if !input_blocks_implicit_submission(unsafe { &*runtime_ptr }, control) {
+        return None;
+    }
+    if !dispatch_beforeinput(
+        scope,
+        runtime_ptr,
+        control,
+        TextEditInputType::InsertLineBreak,
+        None,
+    ) {
+        return Some(RendererInputDispatchOutcome::default());
+    }
+    // beforeinput can change the control type, form owner, or document.
+    let runtime = unsafe { &*runtime_ptr };
+    if !runtime.dom_host().is_connected(control)
+        || !input_blocks_implicit_submission(runtime, control)
+    {
+        return Some(RendererInputDispatchOutcome::default());
+    }
+    Some(perform_implicit_form_submission(
+        scope,
+        runtime_ptr,
+        control,
+        modifiers,
+    ))
+}
+
+fn input_blocks_implicit_submission(runtime: &JsContextHost, handle: DomHandle) -> bool {
+    runtime
+        .dom_host()
+        .node(handle)
+        .and_then(Node::as_element)
+        .is_some_and(|element| {
+            element.is_html_input()
+                && matches!(
+                    element.input_type(),
+                    InputType::Text
+                        | InputType::Search
+                        | InputType::Tel
+                        | InputType::Url
+                        | InputType::Email
+                        | InputType::Password
+                        | InputType::Date
+                        | InputType::Month
+                        | InputType::Week
+                        | InputType::Time
+                        | InputType::DatetimeLocal
+                        | InputType::Number
+                )
+        })
+}
+
+fn perform_implicit_form_submission(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    handle: DomHandle,
+    modifiers: u8,
+) -> RendererInputDispatchOutcome {
+    let runtime = unsafe { &*runtime_ptr };
+    let Some(form_handle) = form_associated_form_owner(runtime, handle) else {
+        return RendererInputDispatchOutcome {
+            handled: true,
+            ..Default::default()
+        };
+    };
+    // The form.elements collection excludes image inputs, but an image input
+    // is still a submit button for the implicit-submission default-button
+    // search. Use the complete form-data control traversal here.
+    let controls = form_data_control_elements(runtime, form_handle);
+    if let Some(default_button) = controls
+        .iter()
+        .copied()
+        .find(|candidate| is_valid_submit_button(runtime, *candidate))
+    {
+        return activate_default_submit_button_via_keyboard(
+            scope,
+            runtime_ptr,
+            default_button,
+            modifiers,
+        );
+    }
+    if controls
+        .iter()
+        .filter(|candidate| input_blocks_implicit_submission(runtime, **candidate))
+        .count()
+        > 1
+    {
+        return RendererInputDispatchOutcome {
+            handled: true,
+            ..Default::default()
+        };
+    }
+
+    let had_pending_top_level_navigation = runtime.has_pending_location_navigation();
+    let _ = submit_form_with_submit_event(scope, runtime_ptr, form_handle, None, true);
+    RendererInputDispatchOutcome {
+        handled: true,
+        triggered_top_level_navigation: !had_pending_top_level_navigation
+            && unsafe { &*runtime_ptr }.has_pending_location_navigation(),
+        pending_download: None,
+        pending_file_chooser: None,
+    }
+}
+
+const FORM_SUBMISSION_MULTIPART_BOUNDARY_PREFIX: &str = "----MoliFormBoundary";
+
+enum FormResetPlan {
+    InputValue {
+        handle: DomHandle,
+        value: String,
+    },
+    Checked {
+        handle: DomHandle,
+        checked: bool,
+    },
+    Select {
+        handle: DomHandle,
+        options: Vec<(DomHandle, bool)>,
+    },
+    Output {
+        handle: DomHandle,
+        value: String,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::native_bridge) enum FormAssociatedResetCallbackTiming {
+    Sync,
+    Microtask,
+}
+
+#[derive(webidl::WebIdlArgs)]
+#[webidl(prefix = "HTMLFormElement.requestSubmit")]
+struct FormRequestSubmitArgs<'s> {
+    #[webidl(converter = "raw")]
+    submitter: Option<v8::Local<'s, v8::Value>>,
+}
+
+fn wrap_handle_value<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    runtime_ptr: *mut JsContextHost,
+    handle: Option<DomHandle>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    crate::native_bridge::bridge::wrapped_handle_value(scope, runtime_ptr, handle?)
+}
+
+fn wrap_handle_object<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    runtime_ptr: *mut JsContextHost,
+    handle: DomHandle,
+) -> Option<v8::Local<'s, v8::Object>> {
+    crate::native_bridge::bridge::wrapped_handle_value(scope, runtime_ptr, handle)
+        .and_then(|value| v8::Local::<v8::Object>::try_from(value).ok())
+}
+
+pub(crate) fn submit_form_with_submit_event(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter_handle: Option<DomHandle>,
+    user_initiated: bool,
+) -> bool {
+    let form_can_dispatch_submit_event = {
+        let runtime = unsafe { &*runtime_ptr };
+        form_is_connected_or_in_detached_document(runtime, form_handle)
+    };
+    if !form_can_dispatch_submit_event {
+        return false;
+    }
+    if !unsafe { &mut *runtime_ptr }.begin_form_submission(form_handle) {
+        return false;
+    }
+    let result = submit_form_with_submit_event_inner(
+        scope,
+        runtime_ptr,
+        form_handle,
+        submitter_handle,
+        user_initiated,
+    );
+    unsafe { &mut *runtime_ptr }.end_form_submission(form_handle);
+    result
+}
+
+fn form_is_connected_or_in_detached_document(
+    runtime: &JsContextHost,
+    form_handle: DomHandle,
+) -> bool {
+    let dom_host = runtime.dom_host();
+    if dom_host.is_connected(form_handle) {
+        return true;
+    }
+    let Some(root) = dom_host.root_node_handle(form_handle) else {
+        return false;
+    };
+    dom_host.is_connected(root) || dom_host.node(root).is_some_and(Node::is_document)
+}
+
+fn submit_form_with_submit_event_inner(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter_handle: Option<DomHandle>,
+    user_initiated: bool,
+) -> bool {
+    let invocation = crate::context_bootstrap::web_mcp::begin_form_submit(
+        unsafe { &mut *runtime_ptr },
+        form_handle,
+    );
+    let skips_constraint_validation = {
+        let runtime = unsafe { &*runtime_ptr };
+        form_submission_skips_constraint_validation(runtime, form_handle, submitter_handle)
+    };
+    if !skips_constraint_validation
+        && !form_validate_for_submission(scope, runtime_ptr, form_handle)
+    {
+        if let Some(id) = invocation {
+            crate::context_bootstrap::web_mcp::form_submission_failed(scope, runtime_ptr, id);
+        }
+        return false;
+    }
+
+    let submitter_value = wrap_handle_value(scope, runtime_ptr, submitter_handle);
+    if let Some(event) = construct_submit_event(scope, submitter_value, true, true) {
+        if invocation.is_some() {
+            crate::context_bootstrap::mark_agent_submit_event(scope, event);
+        }
+        let allows_default =
+            dispatch_public_event(scope, runtime_ptr, form_handle, event).allows_default();
+        if let Some(id) = invocation {
+            crate::context_bootstrap::web_mcp::finish_form_submit(
+                scope,
+                runtime_ptr,
+                id,
+                event,
+                allows_default,
+            );
+        }
+        if !allows_default {
+            return false;
+        }
+        let accepted = submit_form_default_action(
+            scope,
+            runtime_ptr,
+            form_handle,
+            submitter_handle,
+            user_initiated,
+        );
+        crate::context_bootstrap::web_mcp::finish_form_navigation(
+            scope,
+            runtime_ptr,
+            form_handle,
+            accepted,
+        );
+        return accepted;
+    }
+    if let Some(id) = invocation {
+        crate::context_bootstrap::web_mcp::form_submission_failed(scope, runtime_ptr, id);
+    }
+    false
+}
+
+fn form_submission_skips_constraint_validation(
+    runtime: &JsContextHost,
+    form_handle: DomHandle,
+    submitter_handle: Option<DomHandle>,
+) -> bool {
+    element_has_attribute(runtime, form_handle, "novalidate")
+        || submitter_handle
+            .is_some_and(|submitter| element_has_attribute(runtime, submitter, "formnovalidate"))
+}
+
+pub(in crate::native_bridge) fn form_request_submit_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok((runtime_ptr, form_handle)) =
+        node_runtime_and_handle_from_args_or_detached(scope, &args)
+    else {
+        rv.set_undefined();
+        return;
+    };
+    let runtime = unsafe { &*runtime_ptr };
+    let Some(form_element) = runtime
+        .dom_host()
+        .node(form_handle)
+        .and_then(Node::as_element)
+    else {
+        rv.set_undefined();
+        return;
+    };
+    if !form_element.is_html_form() {
+        rv.set_undefined();
+        return;
+    }
+
+    let Some(parsed) = webidl::parse_args::<FormRequestSubmitArgs<'s>>(scope, &args) else {
+        return;
+    };
+
+    let mut submitter_handle = None;
+    if let Some(value) = parsed.submitter
+        && !value.is_null_or_undefined()
+    {
+        let document_handle = runtime
+            .dom_host()
+            .owner_document_handle(form_handle)
+            .or_else(|| Some(runtime.dom_host().document_handle()));
+        let Some(submitter) =
+            node_or_foreign_arg_handle_allow_detached(scope, runtime_ptr, document_handle, value)
+        else {
+            throw_type_error(scope, "requestSubmit submitter must be a submit button");
+            return;
+        };
+        if !is_valid_submit_button(runtime, submitter) {
+            throw_type_error(scope, "requestSubmit submitter must be a submit button");
+            return;
+        }
+        if form_associated_form_owner(runtime, submitter) != Some(form_handle) {
+            throw_dom_exception(
+                scope,
+                "NotFoundError",
+                8,
+                "The specified element is not owned by this form element.",
+            );
+            return;
+        }
+        submitter_handle = Some(submitter);
+    }
+
+    let _ = submit_form_with_submit_event(scope, runtime_ptr, form_handle, submitter_handle, false);
+    rv.set_undefined();
+}
+
+pub(in crate::native_bridge) fn form_reset_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok((runtime_ptr, form_handle)) =
+        node_runtime_and_handle_from_args_or_detached(scope, &args)
+    else {
+        rv.set_undefined();
+        return;
+    };
+    let runtime = unsafe { &*runtime_ptr };
+    if runtime
+        .dom_host()
+        .node(form_handle)
+        .and_then(Node::as_element)
+        .is_none_or(|element| !element.is_html_form())
+    {
+        rv.set_undefined();
+        return;
+    }
+
+    if dispatch_form_reset_event(scope, runtime_ptr, form_handle, args.this()).allows_default() {
+        crate::context_bootstrap::web_mcp::cancel_form_execution(scope, runtime_ptr, form_handle);
+        let _ = reset_form_default_action(
+            scope,
+            runtime_ptr,
+            form_handle,
+            FormAssociatedResetCallbackTiming::Sync,
+        );
+    }
+    rv.set_undefined();
+}
+
+fn dispatch_form_reset_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    receiver: v8::Local<'s, v8::Object>,
+) -> NodePublicEventDispatchOutcome {
+    let Some(context) = receiver.get_creation_context(scope) else {
+        return NodePublicEventDispatchOutcome {
+            default_prevented: true,
+            had_exception: false,
+        };
+    };
+    let scope = &mut v8::ContextScope::new(scope, context);
+    let Some(event) = construct_simple_event(scope, "reset", true, true, false) else {
+        return NodePublicEventDispatchOutcome {
+            default_prevented: true,
+            had_exception: false,
+        };
+    };
+    align_event_constructor_function_realm_with_target(scope, event, receiver);
+    dispatch_public_event(scope, runtime_ptr, form_handle, event)
+}
+
+fn align_event_constructor_function_realm_with_target<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    target: v8::Local<'s, v8::Object>,
+) {
+    let Some(target_constructor) = target
+        .get(scope, v8str(scope, "constructor").into())
+        .and_then(|constructor| constructor.to_object(scope))
+    else {
+        return;
+    };
+    align_event_constructor_function_realm_with_constructor(scope, event, target_constructor);
+}
+
+fn align_event_constructor_function_realm_with_constructor<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    event: v8::Local<'s, v8::Object>,
+    target_constructor: v8::Local<'s, v8::Object>,
+) {
+    let Some(event_prototype) = event.get_prototype(scope) else {
+        return;
+    };
+    let Some(function_body) = v8_string(scope, "") else {
+        return;
+    };
+    let Some(target_function_constructor) = target_constructor
+        .get(scope, v8str(scope, "constructor").into())
+        .and_then(|constructor| v8::Local::<v8::Function>::try_from(constructor).ok())
+    else {
+        return;
+    };
+    let Some(event_constructor_value) = target_function_constructor.call(
+        scope,
+        v8::undefined(scope).into(),
+        &[function_body.into()],
+    ) else {
+        return;
+    };
+    let Ok(event_constructor) = v8::Local::<v8::Function>::try_from(event_constructor_value) else {
+        return;
+    };
+    event_constructor.set_name(v8str(scope, "Event"));
+    let _ = event_constructor.set(scope, v8str(scope, "prototype").into(), event_prototype);
+    if !crate::context_bootstrap::event_backing(scope, event)
+        .define_own_property(
+            scope,
+            v8str(scope, "constructor").into(),
+            event_constructor.into(),
+            v8::PropertyAttribute::DONT_ENUM,
+        )
+        .unwrap_or(false)
+    {
+        let _ = crate::context_bootstrap::event_backing(scope, event).set(
+            scope,
+            v8str(scope, "constructor").into(),
+            event_constructor.into(),
+        );
+    }
+}
+
+pub(in crate::native_bridge) fn form_submit_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    args: v8::FunctionCallbackArguments<'s>,
+    mut rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    let Ok((runtime_ptr, form_handle)) =
+        node_runtime_and_handle_from_args_or_detached(scope, &args)
+    else {
+        rv.set_undefined();
+        return;
+    };
+    let runtime = unsafe { &*runtime_ptr };
+    if runtime
+        .dom_host()
+        .node(form_handle)
+        .and_then(Node::as_element)
+        .is_none_or(|element| !element.is_html_form())
+    {
+        rv.set_undefined();
+        return;
+    }
+
+    let accepted = submit_form_default_action(scope, runtime_ptr, form_handle, None, false);
+    crate::context_bootstrap::web_mcp::finish_form_navigation(
+        scope,
+        runtime_ptr,
+        form_handle,
+        accepted,
+    );
+    rv.set_undefined();
+}
+
+pub(in crate::native_bridge) fn reset_form_default_action(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    callback_timing: FormAssociatedResetCallbackTiming,
+) -> bool {
+    let plans = {
+        let runtime = unsafe { &*runtime_ptr };
+        form_control_elements(runtime, form_handle)
+            .into_iter()
+            .filter_map(|handle| build_form_reset_plan(runtime, handle))
+            .collect::<Vec<_>>()
+    };
+    let runtime = unsafe { &mut *runtime_ptr };
+    let mut did_change = false;
+    for plan in plans {
+        match plan {
+            FormResetPlan::InputValue { handle, value } => {
+                let previous_value = text_control_value(runtime, handle);
+                did_change |= runtime.set_input_value_with_dirty(handle, &value, false);
+                let next_value = text_control_value(runtime, handle);
+                if next_value != previous_value {
+                    let end = next_value.chars().count() as u32;
+                    did_change |= runtime.dom_host_mut().set_selection_range(handle, end, end);
+                }
+            }
+            FormResetPlan::Checked { handle, checked } => {
+                did_change |=
+                    runtime.set_checked_state_with_dirty(runtime_ptr, handle, checked, false);
+            }
+            FormResetPlan::Select { handle, options } => {
+                for (option, selected) in options {
+                    did_change |= runtime.set_selected_state_with_dirty(
+                        scope,
+                        runtime_ptr,
+                        option,
+                        selected,
+                        false,
+                    );
+                }
+                did_change |= runtime
+                    .dom_host_mut()
+                    .set_select_explicit_none_state(handle, false);
+            }
+            FormResetPlan::Output { handle, value } => {
+                did_change |= runtime.dom_host_mut().set_text_content(handle, &value);
+                did_change |= runtime
+                    .dom_host_mut()
+                    .set_output_default_value_state(handle, None);
+            }
+        }
+    }
+    match callback_timing {
+        FormAssociatedResetCallbackTiming::Sync => {
+            crate::custom_elements::dispatch_form_reset_callbacks_for_form(
+                scope,
+                runtime_ptr,
+                form_handle,
+            );
+        }
+        FormAssociatedResetCallbackTiming::Microtask => {
+            crate::custom_elements::enqueue_form_reset_callbacks_for_form(
+                scope,
+                runtime_ptr,
+                form_handle,
+            );
+        }
+    }
+    did_change
+}
+
+pub(in crate::native_bridge) fn submit_form_default_action(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+    user_initiated: bool,
+) -> bool {
+    let method = {
+        let runtime = unsafe { &*runtime_ptr };
+        resolve_form_submission_method(runtime, form_handle, submitter)
+    };
+    if method == "dialog" {
+        return submit_dialog_form(scope, runtime_ptr, form_handle, submitter);
+    }
+
+    let (target_name, action, source_document) = {
+        let runtime = unsafe { &*runtime_ptr };
+        let target_name = submitter
+            .and_then(|handle| element_attribute(runtime, handle, "formtarget"))
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                element_attribute(runtime, form_handle, "target").filter(|value| !value.is_empty())
+            });
+        let source_document = runtime.dom_host().owner_document_handle(form_handle);
+        (
+            target_name,
+            resolve_form_submission_action(runtime, form_handle, submitter),
+            source_document,
+        )
+    };
+    // A parsed/detached Document has no browsing context to navigate. Resolve
+    // that from the native document, independently of the form's wrapper kind.
+    if source_document
+        .is_none_or(|document| !unsafe { &*runtime_ptr }.document_has_browsing_context(document))
+    {
+        return false;
+    }
+    let source_popup = source_document.and_then(|document| {
+        unsafe { &*runtime_ptr }.lightweight_popup_id_for_document_handle(document)
+    });
+    let Some(request) =
+        build_form_submission_request(scope, runtime_ptr, form_handle, submitter, action)
+    else {
+        return false;
+    };
+
+    let special_target = target_name
+        .as_deref()
+        .and_then(SpecialBrowsingContextTarget::parse);
+    // A popup is its own top-level context: _parent and _top also refer to it,
+    // even when the submit method was borrowed from its opener's realm.
+    if let Some(popup_id) = source_popup
+        && (target_name.is_none()
+            || matches!(
+                special_target,
+                Some(
+                    SpecialBrowsingContextTarget::Current
+                        | SpecialBrowsingContextTarget::Parent
+                        | SpecialBrowsingContextTarget::Top
+                )
+            ))
+    {
+        return submit_form_to_popup_browsing_context(
+            scope,
+            runtime_ptr,
+            form_handle,
+            submitter,
+            popup_id,
+            request,
+            user_initiated,
+        );
+    }
+    match target_name.as_deref() {
+        Some(target_name) if special_target.is_none() => {
+            let target_handle = named_iframe_target_handle_for_navigation(
+                scope,
+                runtime_ptr,
+                target_name,
+                source_document,
+            );
+            if let Some(target_handle) = target_handle {
+                let runtime = unsafe { &mut *runtime_ptr };
+                if submitter.is_some() {
+                    runtime.cancel_pending_form_submission_child_navigations_for_form(form_handle);
+                } else {
+                    runtime.cancel_previous_pending_form_submission_child_navigation(
+                        form_handle,
+                        target_handle,
+                    );
+                }
+            }
+            match request {
+                FormSubmissionMethod::Get { resolved_url } => {
+                    let navigated = queue_deferred_named_iframe_target_navigation_from_document(
+                        scope,
+                        runtime_ptr,
+                        target_name,
+                        &resolved_url,
+                        source_document,
+                        None,
+                    );
+                    if let Some(target_handle) = navigated {
+                        unsafe { &mut *runtime_ptr }.mark_pending_form_submission_child_navigation(
+                            form_handle,
+                            target_handle,
+                        );
+                    }
+                    navigated.is_some()
+                }
+                FormSubmissionMethod::Post {
+                    resolved_url,
+                    body,
+                    content_type,
+                    form_data_entries,
+                } => {
+                    if !dispatch_named_iframe_form_navigation_event(
+                        scope,
+                        runtime_ptr,
+                        target_name,
+                        form_handle,
+                        submitter,
+                        source_document,
+                        resolved_url.as_str(),
+                        &form_data_entries,
+                    ) {
+                        return true;
+                    }
+                    let navigated = queue_deferred_named_iframe_target_request(
+                        scope,
+                        runtime_ptr,
+                        target_name,
+                        source_document,
+                        ChildBrowsingContextNavigationRequest {
+                            url: resolved_url,
+                            method: "POST".to_owned(),
+                            body: Some(body),
+                            request_headers: vec![(
+                                "Content-Type".to_owned(),
+                                content_type.to_owned(),
+                            )],
+                        },
+                    );
+                    if let Some(target_handle) = navigated {
+                        unsafe { &mut *runtime_ptr }.mark_pending_form_submission_child_navigation(
+                            form_handle,
+                            target_handle,
+                        );
+                    }
+                    navigated.is_some()
+                }
+            }
+        }
+        _ => match request {
+            FormSubmissionMethod::Get { resolved_url } => navigate_form_target_browsing_context(
+                scope,
+                runtime_ptr,
+                form_handle,
+                target_name.as_deref(),
+                &resolved_url,
+            ),
+            FormSubmissionMethod::Post {
+                resolved_url,
+                body,
+                content_type,
+                form_data_entries,
+            } => {
+                let target_document = source_document.and_then(|source| {
+                    form_navigation_target_document(
+                        unsafe { &*runtime_ptr },
+                        source,
+                        target_name.as_deref(),
+                    )
+                });
+                if let Some(target_document) = target_document
+                    && target_document != unsafe { &*runtime_ptr }.document_handle()
+                {
+                    return submit_post_form_to_child_browsing_context(
+                        scope,
+                        runtime_ptr,
+                        form_handle,
+                        submitter,
+                        target_document,
+                        resolved_url,
+                        body,
+                        content_type,
+                        &form_data_entries,
+                    );
+                }
+                submit_post_form_to_top_level_browsing_context(
+                    scope,
+                    runtime_ptr,
+                    form_handle,
+                    submitter,
+                    resolved_url,
+                    body,
+                    content_type,
+                    &form_data_entries,
+                    user_initiated,
+                )
+            }
+        },
+    }
+}
+
+fn submit_dialog_form(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+) -> bool {
+    let (dialog, result) = {
+        let runtime = unsafe { &*runtime_ptr };
+        let Some(dialog) = nearest_ancestor_dialog(runtime, form_handle) else {
+            return false;
+        };
+        let result = dialog_submission_result(runtime, submitter);
+        (dialog, result)
+    };
+    close_dialog_element(scope, runtime_ptr, dialog, result.as_deref())
+}
+
+fn nearest_ancestor_dialog(runtime: &JsContextHost, handle: DomHandle) -> Option<DomHandle> {
+    let mut current = runtime.dom_host().parent_node(handle);
+    while let Some(parent) = current {
+        if runtime.dom_host().is_html_element_named(parent, "dialog") {
+            return Some(parent);
+        }
+        current = runtime.dom_host().parent_node(parent);
+    }
+    None
+}
+
+fn dialog_submission_result(
+    runtime: &JsContextHost,
+    submitter: Option<DomHandle>,
+) -> Option<String> {
+    let Some(submitter) = submitter else {
+        return Some(String::new());
+    };
+    let element = runtime.dom_host().node(submitter)?.as_element()?;
+    if element.is_html_input() && element.input_type() == InputType::Image {
+        let (x, y) = runtime
+            .active_image_submitter_coordinate(submitter)
+            .unwrap_or((0, 0));
+        return Some(format!("{x},{y}"));
+    }
+    element.attribute("value").map(str::to_owned)
+}
+
+enum FormSubmissionMethod {
+    Get {
+        resolved_url: String,
+    },
+    Post {
+        resolved_url: Url,
+        body: Vec<u8>,
+        content_type: String,
+        form_data_entries: Vec<(String, v8::Global<v8::Value>)>,
+    },
+}
+
+fn submit_form_to_popup_browsing_context(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+    popup_id: u64,
+    submission: FormSubmissionMethod,
+    user_initiated: bool,
+) -> bool {
+    let source_document = unsafe { &*runtime_ptr }
+        .dom_host()
+        .owner_document_handle(form_handle);
+    if source_document.is_none_or(|document| {
+        unsafe { &*runtime_ptr }.lightweight_popup_id_for_document_handle(document)
+            != Some(popup_id)
+    }) {
+        return false;
+    }
+    let Some(window) = unsafe { &*runtime_ptr }.lightweight_popup_window(scope, popup_id) else {
+        return false;
+    };
+    let (request, form_data) = match submission {
+        FormSubmissionMethod::Get { resolved_url } => {
+            let Ok(url) = Url::parse(&resolved_url) else {
+                return false;
+            };
+            (moli_fetch::Request::get_with_url(url), None)
+        }
+        FormSubmissionMethod::Post {
+            resolved_url,
+            body,
+            content_type,
+            form_data_entries,
+        } => {
+            let Some(form_data) =
+                form_data_object_from_entries_for_window(scope, window, &form_data_entries)
+            else {
+                return false;
+            };
+            let Ok(request) = moli_fetch::Request::new_bytes(
+                "POST",
+                resolved_url.as_str(),
+                Some(body),
+                vec![("Content-Type".to_owned(), content_type)],
+            ) else {
+                return false;
+            };
+            (request, Some(form_data))
+        }
+    };
+    let source_element = wrap_handle_object(scope, runtime_ptr, submitter.unwrap_or(form_handle));
+    let navigation_type = if user_initiated { "push" } else { "replace" };
+    if !crate::context_bootstrap::dispatch_cross_document_navigation_navigate_event_for_window_with_type_and_form_data(
+        scope,
+        window,
+        request.url.as_str(),
+        navigation_type,
+        source_element,
+        user_initiated,
+        None,
+        form_data,
+    ) {
+        return true;
+    }
+    let runtime = unsafe { &mut *runtime_ptr };
+    // A navigate handler can close the popup or replace its document.
+    if source_document.is_none_or(|document| {
+        runtime.lightweight_popup_id_for_document_handle(document) != Some(popup_id)
+    }) {
+        return false;
+    }
+    runtime.navigate_lightweight_popup_window_with_request(
+        scope,
+        popup_id,
+        request,
+        if user_initiated {
+            crate::context_bootstrap::LocationNavigationKind::Assign
+        } else {
+            crate::context_bootstrap::LocationNavigationKind::Replace
+        },
+    )
+}
+
+fn dispatch_named_iframe_form_navigation_event(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    target_name: &str,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+    source_document: Option<DomHandle>,
+    resolved_url: &str,
+    form_data_entries: &[(String, v8::Global<v8::Value>)],
+) -> bool {
+    let runtime = unsafe { &mut *runtime_ptr };
+    let target_iframe = source_document
+        .and_then(|document| {
+            runtime.child_browsing_context_handle_by_name_for_navigation_from_document(
+                scope,
+                target_name,
+                document,
+            )
+        })
+        .or_else(|| {
+            runtime.child_browsing_context_handle_by_name_for_navigation(scope, target_name)
+        });
+    let Some(target_iframe) = target_iframe else {
+        return true;
+    };
+    let Some(window) = runtime.existing_child_browsing_context_window_wrapper(scope, target_iframe)
+    else {
+        return true;
+    };
+    let Some(form_data) =
+        form_data_object_from_entries_for_window(scope, window, form_data_entries)
+    else {
+        return true;
+    };
+    let source_handle = submitter.unwrap_or(form_handle);
+    let source_element = wrap_handle_object(scope, runtime_ptr, source_handle);
+    crate::context_bootstrap::dispatch_cross_document_navigation_navigate_event_for_window_with_form_data(
+        scope,
+        window,
+        resolved_url,
+        source_element,
+        false,
+        None,
+        Some(form_data),
+    )
+}
+
+fn submit_post_form_to_top_level_browsing_context(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+    resolved_url: Url,
+    body: Vec<u8>,
+    content_type: String,
+    form_data_entries: &[(String, v8::Global<v8::Value>)],
+    user_initiated: bool,
+) -> bool {
+    let Some(window) = browsing_context_window_for_dispatch_scope(
+        scope,
+        runtime_ptr,
+        crate::native_bridge::OwnerDispatchScope::Top,
+    ) else {
+        return false;
+    };
+    let Some(form_data) =
+        form_data_object_from_entries_for_window(scope, window, form_data_entries)
+    else {
+        return false;
+    };
+    let source_handle = submitter.unwrap_or(form_handle);
+    let source_element = wrap_handle_object(scope, runtime_ptr, source_handle);
+    let navigation_type = if user_initiated { "push" } else { "replace" };
+    if !crate::context_bootstrap::dispatch_top_level_form_navigation_event(
+        scope,
+        window,
+        resolved_url.as_str(),
+        navigation_type,
+        source_element,
+        user_initiated,
+        form_data,
+    ) {
+        return true;
+    }
+    unsafe { &mut *runtime_ptr }.record_pending_location_navigation_request(
+        resolved_url,
+        "POST".to_owned(),
+        Some(body),
+        vec![("Content-Type".to_owned(), content_type)],
+        None,
+        moli_fetch::BrowserNavigationRequestKind::Navigate,
+    );
+    crate::context_bootstrap::web_mcp::bind_root_navigation(
+        unsafe { &mut *runtime_ptr },
+        form_handle,
+    );
+    true
+}
+
+fn submit_post_form_to_child_browsing_context(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+    target_document: DomHandle,
+    resolved_url: Url,
+    body: Vec<u8>,
+    content_type: String,
+    form_data_entries: &[(String, v8::Global<v8::Value>)],
+) -> bool {
+    let Some(child_handle) = ({
+        let runtime = unsafe { &mut *runtime_ptr };
+        if target_document == runtime.document_handle() {
+            None
+        } else {
+            runtime.child_browsing_context_host_for_document_handle(target_document)
+        }
+    }) else {
+        return false;
+    };
+    if let Some(window) = unsafe { &mut *runtime_ptr }
+        .existing_child_browsing_context_window_wrapper(scope, child_handle)
+    {
+        let Some(form_data) =
+            form_data_object_from_entries_for_window(scope, window, form_data_entries)
+        else {
+            return false;
+        };
+        let source_handle = submitter.unwrap_or(form_handle);
+        let source_element = wrap_handle_object(scope, runtime_ptr, source_handle);
+        if !crate::context_bootstrap::dispatch_cross_document_navigation_navigate_event_for_window_with_form_data(
+            scope,
+            window,
+            resolved_url.as_str(),
+            source_element,
+            false,
+            None,
+            Some(form_data),
+        ) {
+            return true;
+        }
+    }
+    let runtime = unsafe { &mut *runtime_ptr };
+    let navigated = runtime.navigate_child_browsing_context_with_request(
+        scope,
+        child_handle,
+        ChildBrowsingContextNavigationRequest {
+            url: resolved_url,
+            method: "POST".to_owned(),
+            body: Some(body),
+            request_headers: vec![("Content-Type".to_owned(), content_type)],
+        },
+    );
+    if navigated {
+        crate::context_bootstrap::web_mcp::bind_child_navigation(
+            runtime,
+            form_handle,
+            child_handle,
+        );
+    }
+    navigated
+}
+
+fn build_form_submission_request(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+    action: String,
+) -> Option<FormSubmissionMethod> {
+    let (method, enctype, submission_encoding) = {
+        let runtime = unsafe { &*runtime_ptr };
+        let method = resolve_form_submission_method(runtime, form_handle, submitter);
+        let enctype = (method == "post")
+            .then(|| resolve_form_submission_enctype(runtime, form_handle, submitter));
+        let submission_encoding = selected_form_submission_encoding(runtime, form_handle);
+        (method, enctype, submission_encoding)
+    };
+    if method == "dialog" {
+        return None;
+    }
+
+    let entries = serialize_form_submission_entries(
+        scope,
+        runtime_ptr,
+        form_handle,
+        submitter,
+        submission_encoding,
+    );
+    let mut resolved_url = Url::parse(&action).ok()?;
+    // "Get action URL" discards the entry list after constructing it. These
+    // submissions neither rewrite the query nor attach a POST resource.
+    if matches!(resolved_url.scheme(), "ftp" | "javascript")
+        || (resolved_url.scheme() == "data" && method == "post")
+    {
+        return Some(FormSubmissionMethod::Get {
+            resolved_url: resolved_url.to_string(),
+        });
+    }
+    if method == "post" {
+        let encoded = serialize_submission_body(scope, &entries, enctype?, submission_encoding);
+        return Some(FormSubmissionMethod::Post {
+            resolved_url,
+            body: encoded.body,
+            content_type: encoded.content_type,
+            form_data_entries: entries,
+        });
+    }
+
+    resolved_url.set_query(None);
+    let entries =
+        normalize_form_submission_pairs(form_data_entries_to_string_pairs(scope, &entries));
+    let query = form_urlencoded_serialize_pairs(
+        entries
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+        submission_encoding,
+    );
+    resolved_url.set_query(Some(&query));
+    Some(FormSubmissionMethod::Get {
+        resolved_url: resolved_url.to_string(),
+    })
+}
+
+fn serialize_form_submission_entries(
+    scope: &mut v8::PinScope<'_, '_>,
+    runtime_ptr: *mut JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+    submission_encoding: &'static encoding_rs::Encoding,
+) -> Vec<(String, v8::Global<v8::Value>)> {
+    let Some(form) = wrap_handle_object(scope, runtime_ptr, form_handle) else {
+        return Vec::new();
+    };
+    let submitter = submitter.and_then(|handle| wrap_handle_object(scope, runtime_ptr, handle));
+    let mut entries =
+        construct_form_data_entries_for_form(scope, runtime_ptr, form_handle, form, submitter)
+            .unwrap_or_default();
+    rewrite_charset_entries_for_submission(scope, submission_encoding.name(), &mut entries);
+    entries
+}
+
+fn rewrite_charset_entries_for_submission(
+    scope: &mut v8::PinScope<'_, '_>,
+    encoding_name: &str,
+    entries: &mut [(String, v8::Global<v8::Value>)],
+) {
+    if !entries
+        .iter()
+        .any(|(name, _)| is_charset_sentinel_name(name))
+    {
+        return;
+    }
+    let Some(value) = v8_string(scope, encoding_name) else {
+        return;
+    };
+    let value: v8::Local<'_, v8::Value> = value.into();
+    for (name, entry_value) in entries {
+        if is_charset_sentinel_name(name) {
+            *entry_value = v8::Global::new(scope, value);
+        }
+    }
+}
+
+fn selected_form_submission_encoding(
+    runtime: &JsContextHost,
+    form_handle: DomHandle,
+) -> &'static encoding_rs::Encoding {
+    form_submission_encoding(
+        element_attribute(runtime, form_handle, "accept-charset").as_deref(),
+        runtime.document_character_set(),
+    )
+}
+
+fn resolve_form_submission_action(
+    runtime: &JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+) -> String {
+    submitter
+        .and_then(|handle| {
+            element_attribute(runtime, handle, "formaction")
+                .filter(|value| !value.is_empty())
+                .map(|_| resolve_url_like_attribute(runtime, handle, "formaction"))
+        })
+        .or_else(|| {
+            element_attribute(runtime, form_handle, "action")
+                .filter(|value| !value.is_empty())
+                .map(|_| resolve_url_like_attribute(runtime, form_handle, "action"))
+        })
+        .unwrap_or_else(|| form_owner_document_url(runtime, form_handle))
+}
+
+fn form_owner_document_url(runtime: &JsContextHost, form_handle: DomHandle) -> String {
+    runtime
+        .dom_host()
+        .node(form_handle)
+        .and_then(Node::owner_document)
+        .and_then(|document_handle| {
+            runtime
+                .dom_host()
+                .node(document_handle)
+                .and_then(Node::as_document)
+                .map(|document| document.url().to_string())
+        })
+        .unwrap_or_else(|| runtime.host_document().url().to_string())
+}
+
+fn resolve_form_submission_method(
+    runtime: &JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+) -> &'static str {
+    submitter
+        .and_then(|handle| element_attribute(runtime, handle, "formmethod"))
+        .or_else(|| element_attribute(runtime, form_handle, "method"))
+        .as_deref()
+        .map(normalized_form_method)
+        .unwrap_or("get")
+}
+
+fn resolve_form_submission_enctype(
+    runtime: &JsContextHost,
+    form_handle: DomHandle,
+    submitter: Option<DomHandle>,
+) -> &'static str {
+    submitter
+        .and_then(|handle| element_attribute(runtime, handle, "formenctype"))
+        .or_else(|| element_attribute(runtime, form_handle, "enctype"))
+        .as_deref()
+        .map(normalized_form_enctype)
+        .unwrap_or("application/x-www-form-urlencoded")
+}
+
+struct EncodedSubmissionBody {
+    body: Vec<u8>,
+    content_type: String,
+}
+
+fn serialize_submission_body(
+    scope: &mut v8::PinScope<'_, '_>,
+    entries: &[(String, v8::Global<v8::Value>)],
+    enctype: &str,
+    submission_encoding: &'static encoding_rs::Encoding,
+) -> EncodedSubmissionBody {
+    match enctype {
+        "multipart/form-data" => {
+            let entries = normalize_form_submission_entries(scope, entries);
+            let (body, content_type) = form_data_entries_multipart_body_with_prefix(
+                scope,
+                &entries,
+                FORM_SUBMISSION_MULTIPART_BOUNDARY_PREFIX,
+            );
+            EncodedSubmissionBody { body, content_type }
+        }
+        "text/plain" => {
+            let body =
+                normalize_form_submission_pairs(form_data_entries_to_string_pairs(scope, entries))
+                    .iter()
+                    .map(|(name, value)| format!("{name}={value}\r\n"))
+                    .collect::<Vec<_>>()
+                    .join("");
+            EncodedSubmissionBody {
+                body: encode_text_for_legacy_web(&body, submission_encoding).into_owned(),
+                content_type: "text/plain".to_owned(),
+            }
+        }
+        _ => EncodedSubmissionBody {
+            body: form_urlencoded_serialize_pairs(
+                normalize_form_submission_pairs(form_data_entries_to_string_pairs(scope, entries))
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str())),
+                submission_encoding,
+            )
+            .into_bytes(),
+            content_type: "application/x-www-form-urlencoded".to_owned(),
+        },
+    }
+}
+
+fn normalize_form_submission_pairs(entries: Vec<(String, String)>) -> Vec<(String, String)> {
+    entries
+        .into_iter()
+        .map(|(name, value)| {
+            (
+                normalize_form_submission_newlines(&name),
+                normalize_form_submission_newlines(&value),
+            )
+        })
+        .collect()
+}
+
+fn normalize_form_submission_entries(
+    scope: &mut v8::PinScope<'_, '_>,
+    entries: &[(String, v8::Global<v8::Value>)],
+) -> Vec<(String, v8::Global<v8::Value>)> {
+    entries
+        .iter()
+        .map(|(name, value)| {
+            let value = v8::Local::new(scope, value);
+            let value = if let Ok(object) = v8::Local::<v8::Object>::try_from(value)
+                && blob::blob_bytes_from_object(scope, object).is_some()
+            {
+                v8::Global::new(scope, value)
+            } else {
+                let normalized = value
+                    .to_string(scope)
+                    .map(|value| {
+                        normalize_form_submission_newlines(&value.to_rust_string_lossy(scope))
+                    })
+                    .unwrap_or_default();
+                let value: v8::Local<'_, v8::Value> = v8_string(scope, &normalized)
+                    .map(|value| value.into())
+                    .unwrap_or_else(|| v8::undefined(scope).into());
+                v8::Global::new(scope, value)
+            };
+            (normalize_form_submission_newlines(name), value)
+        })
+        .collect()
+}
+
+fn build_form_reset_plan(runtime: &JsContextHost, handle: DomHandle) -> Option<FormResetPlan> {
+    let element = runtime.dom_host().node(handle).and_then(Node::as_element)?;
+    match element.local_name() {
+        "input" => {
+            let input_type = element.input_type();
+            if input_type.is_checkable() {
+                Some(FormResetPlan::Checked {
+                    handle,
+                    checked: element.attribute("checked").is_some(),
+                })
+            } else {
+                Some(FormResetPlan::InputValue {
+                    handle,
+                    value: element.attribute("value").unwrap_or_default().to_owned(),
+                })
+            }
+        }
+        "textarea" => Some(FormResetPlan::InputValue {
+            handle,
+            value: node_direct_text_content(runtime, handle).unwrap_or_default(),
+        }),
+        "select" => Some(FormResetPlan::Select {
+            handle,
+            options: runtime
+                .dom_host()
+                .select_option_elements(handle)
+                .into_iter()
+                .map(|option| {
+                    let selected = runtime
+                        .dom_host()
+                        .node(option)
+                        .and_then(Node::as_element)
+                        .is_some_and(|element| element.attribute("selected").is_some());
+                    (option, selected)
+                })
+                .collect(),
+        }),
+        "output" => Some(FormResetPlan::Output {
+            handle,
+            value: element
+                .output_default_value()
+                .map(str::to_owned)
+                .unwrap_or_else(|| runtime.dom_host().text_content(handle).unwrap_or_default()),
+        }),
+        _ => None,
+    }
+}

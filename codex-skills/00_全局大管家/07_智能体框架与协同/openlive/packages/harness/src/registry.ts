@@ -1,0 +1,282 @@
+import { liveRecsFor } from "@openlive/shared"
+import { EFFORTS, type Effort, type ProviderInfo } from "./types"
+
+/**
+ * The built-in providers (15 at last count — see BUILTIN_PROVIDERS below).
+ * Three wire dialects cover all of them: Anthropic /messages (Claude, and
+ * MiniMax via its Anthropic-compat endpoint, with quirks), OpenAI Responses,
+ * and OpenAI Chat Completions. `catalogId` maps to the models.dev key.
+ */
+export interface BuiltinProvider extends ProviderInfo {
+  catalogId?: string
+}
+
+export const BUILTIN_PROVIDERS: BuiltinProvider[] = [
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    protocol: "anthropic",
+    baseURL: "https://api.anthropic.com/v1",
+    envKeys: ["ANTHROPIC_API_KEY"],
+    catalogId: "anthropic",
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    protocol: "openai",
+    baseURL: "https://api.openai.com/v1",
+    envKeys: ["OPENAI_API_KEY"],
+    catalogId: "openai",
+  },
+  {
+    id: "minimax",
+    name: "MiniMax",
+    protocol: "anthropic",
+    // Anthropic-compatible endpoint (full path .../anthropic/v1; the adapter
+    // appends /messages). MiniMax authenticates with a Bearer token and does
+    // NOT accept cache_control blocks or Anthropic's adaptive-thinking params
+    // (its M2.x reasoning is always-on) — hence the quirks. It does its own
+    // automatic prefix caching, so caching isn't lost.
+    baseURL: "https://api.minimax.io/anthropic/v1",
+    envKeys: ["MINIMAX_API_KEY"],
+    catalogId: "minimax",
+    quirks: { noCacheControl: true, noThinking: true, bearerAuth: true },
+  },
+  {
+    // Local Ollama. Speaks the OpenAI Responses API (/v1/responses, Ollama
+    // v0.13.3+), so the existing "openai" adapter works unchanged. Keyless — the
+    // OpenAI SDK requires a token but Ollama ignores it locally. Models come live
+    // from /v1/models (whatever you've `ollama pull`ed).
+    id: "ollama",
+    name: "Ollama (local)",
+    protocol: "openai",
+    baseURL: "http://localhost:11434/v1", // replaced by the `ollamaBaseUrl` setting, see withSettings
+    keyless: true,
+  },
+  {
+    // Ollama Cloud — same wire, hosted. Needs a real key (ollama.com/settings/keys),
+    // sent as Bearer by the openai adapter.
+    id: "ollama-cloud",
+    name: "Ollama Cloud",
+    protocol: "openai",
+    baseURL: "https://ollama.com/v1",
+    envKeys: ["OLLAMA_API_KEY"],
+  },
+  // --- Chat Completions providers (the universal /chat/completions dialect) ---
+  // All Bearer-auth, all list models live from /v1/models (except Perplexity,
+  // which has no /models — its snapshot below is the source of truth).
+  {
+    id: "groq",
+    name: "Groq",
+    protocol: "openai-chat",
+    baseURL: "https://api.groq.com/openai/v1",
+    envKeys: ["GROQ_API_KEY"],
+    catalogId: "groq",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    protocol: "openai-chat",
+    baseURL: "https://openrouter.ai/api/v1",
+    envKeys: ["OPENROUTER_API_KEY"],
+    catalogId: "openrouter",
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    protocol: "openai-chat",
+    baseURL: "https://api.deepseek.com/v1",
+    envKeys: ["DEEPSEEK_API_KEY"],
+    catalogId: "deepseek",
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    protocol: "openai-chat",
+    baseURL: "https://api.mistral.ai/v1",
+    envKeys: ["MISTRAL_API_KEY"],
+    catalogId: "mistral",
+  },
+  {
+    id: "xai",
+    name: "xAI (Grok)",
+    protocol: "openai-chat",
+    baseURL: "https://api.x.ai/v1",
+    envKeys: ["XAI_API_KEY"],
+    catalogId: "xai",
+  },
+  {
+    id: "google",
+    name: "Google Gemini",
+    protocol: "openai-chat",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+    envKeys: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    catalogId: "google",
+  },
+  {
+    id: "together",
+    name: "Together",
+    protocol: "openai-chat",
+    baseURL: "https://api.together.xyz/v1",
+    envKeys: ["TOGETHER_API_KEY"],
+    catalogId: "togetherai",
+  },
+  {
+    id: "fireworks",
+    name: "Fireworks",
+    protocol: "openai-chat",
+    baseURL: "https://api.fireworks.ai/inference/v1",
+    envKeys: ["FIREWORKS_API_KEY"],
+    catalogId: "fireworks-ai",
+  },
+  {
+    id: "cerebras",
+    name: "Cerebras",
+    protocol: "openai-chat",
+    baseURL: "https://api.cerebras.ai/v1",
+    envKeys: ["CEREBRAS_API_KEY"],
+    catalogId: "cerebras",
+  },
+  {
+    // No /models endpoint — snapshot is the picker's only source.
+    id: "perplexity",
+    name: "Perplexity",
+    protocol: "openai-chat",
+    baseURL: "https://api.perplexity.ai",
+    envKeys: ["PERPLEXITY_API_KEY"],
+    catalogId: "perplexity",
+  },
+]
+
+/** A sane default model id for a provider when the user hasn't picked one — the
+ *  first snapshot entry (curated "good default" per provider). Keeps the promise
+ *  that adding any single key and chatting Just Works with no model pick; without
+ *  it the model id is "" and every provider 400s. */
+export function defaultModel(providerId: string): string {
+  return MODEL_SNAPSHOT[providerId]?.[0] ?? ""
+}
+
+/** Small offline snapshot so the /model picker always has options (overridden by models.dev). */
+export const MODEL_SNAPSHOT: Record<string, string[]> = {
+  anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+  openai: ["gpt-5", "gpt-5-mini", "o3"],
+  // MiniMax-M3 (1M ctx, vision) and M2.5 (vision) support images over the
+  // Anthropic-compat endpoint; M2 is text-only.
+  minimax: ["MiniMax-M3", "MiniMax-M2.5", "MiniMax-M2.5-highspeed"],
+  // ponytail: guesses so the picker has a default before /v1/models loads. Local
+  // depends on what you've pulled; cloud ids carry the `-cloud` suffix. Live fetch
+  // corrects both the moment the server/key is reachable.
+  ollama: ["llama3.2", "qwen3", "gemma3"],
+  "ollama-cloud": ["gpt-oss:120b-cloud", "qwen3-coder:480b-cloud", "deepseek-v3.1:671b-cloud"],
+  // ponytail: one sane default each so chat works pre-live-fetch; the picker
+  // fills the real list from /v1/models. Ids drift — treat as seeds, not truth.
+  // Verified current against models.dev on 2026-07-11; first entry is the
+  // zero-click default (prefer fast + vision for voice+camera).
+  groq: ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"],
+  openrouter: ["google/gemini-2.5-flash", "anthropic/claude-sonnet-4.5"],
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-pro"], // -chat/-reasoner deprecated 2026-07-24
+  mistral: ["mistral-large-latest", "mistral-small-latest"],
+  xai: ["grok-4.5", "grok-4.3"], // grok-4 deprecated 2026-05-15
+  google: ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-pro"],
+  together: ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "Qwen/Qwen2.5-72B-Instruct-Turbo"],
+  fireworks: ["accounts/fireworks/models/llama-v3p3-70b-instruct", "accounts/fireworks/models/deepseek-v3"],
+  cerebras: ["gemma-4-31b", "zai-glm-4.7", "gpt-oss-120b"],
+  perplexity: ["sonar", "sonar-pro", "sonar-reasoning"],
+}
+
+/** Where a local Ollama listens unless the `ollamaBaseUrl` setting says otherwise. */
+export const DEFAULT_OLLAMA_URL = "http://localhost:11434"
+
+/**
+ * An Ollama address as the server root, or null when it is not an http(s) URL.
+ * A trailing slash and a pasted `/v1` or `/api` are tolerated, because those are
+ * the two paths people copy out of Ollama's own docs.
+ */
+export function normalizeOllamaUrl(input: string): string | null {
+  const raw = input.trim()
+  if (!raw) return null
+  let u: URL
+  try { u = new URL(raw) } catch { return null }
+  if ((u.protocol !== "http:" && u.protocol !== "https:") || !u.hostname) return null
+  if (u.search || u.hash || u.username || u.password) return null
+  const path = u.pathname.replace(/\/+$/, "").replace(/\/(v1|api)$/, "")
+  return `${u.protocol}//${u.host}${path}`
+}
+
+/**
+ * Whether an address stays on this computer: `localhost`, 127.0.0.0/8 or ::1.
+ * Decided on the host as the URL parser writes it, so
+ * `0x7f.1` and `2130706433` count as the 127.0.0.1 they reach. Anything else,
+ * even `*.localhost`, which Node may hand to DNS, is treated as off this computer.
+ */
+export function isLoopbackUrl(input: string): boolean {
+  let host: string
+  try { host = new URL(input.trim()).hostname } catch { return false }
+  return host === "[::1]" || host === "localhost" || /^127\.\d+\.\d+\.\d+$/.test(host)
+}
+
+/** The settings that change how a built-in provider is reached. */
+export interface ProviderSettings { ollamaBaseUrl?: string }
+
+/** A built-in provider as this install reaches it: local Ollama at the configured address. */
+export function withSettings<P extends ProviderInfo>(p: P, s: ProviderSettings): P {
+  if (p.id !== "ollama") return p
+  return { ...p, baseURL: `${normalizeOllamaUrl(s.ollamaBaseUrl ?? "") ?? DEFAULT_OLLAMA_URL}/v1` }
+}
+
+/** The address to name in an error: what the person typed, not the API path under it. */
+export const providerAddress = (p: ProviderInfo): string => p.baseURL.replace(/\/v1$/, "")
+
+/** What to say when the request never reached the server: where it was tried, so a wrong address is visible. */
+export const unreachableMessage = (p: ProviderInfo): string =>
+  `Could not reach ${p.name} at ${providerAddress(p)}.${p.keyless ? " Is it running?" : ""}`
+
+/** A key from the provider's declared env vars. Server-side only. */
+export function envKeyFor(p: ProviderInfo): string | null {
+  return p.envKeys?.map((k) => process.env[k]?.trim()).find(Boolean) || null
+}
+
+/** A provider row as the DB lists it, without its secret. */
+export interface StoredProvider { kind: string; hasKey: boolean; isDefault: boolean }
+
+export interface ApiModeSettings extends ProviderSettings {
+  liveProviderId?: string
+  liveModel?: string
+  liveEffort?: string
+}
+
+export interface ApiMode {
+  provider: BuiltinProvider
+  model: string
+  /** undefined is auto: the lowest the model takes. */
+  effort?: Effort
+  /** The chosen provider can run a turn: it is local, or it has a key. */
+  ready: boolean
+}
+
+/**
+ * The one answer to "what does API mode run on, and can it". Chat, Flow, the
+ * readiness checks and every settings summary call this, so none of them can
+ * disagree about it.
+ *
+ * The chosen provider is honoured even when it cannot run: a turn sent to a
+ * provider nobody picked, because the picked one had no key, answers in a voice
+ * the person did not choose and hides the thing they need to fix.
+ */
+export function resolveApiMode(s: ApiModeSettings, stored: StoredProvider[], envKey: (p: ProviderInfo) => boolean = () => false): ApiMode {
+  // A model is only ever picked together with its provider. One saved alone
+  // (by an older build) runs on the configured provider that offers it,
+  // when exactly one does; otherwise nobody can say whose it was.
+  const offering = s.liveProviderId || !s.liveModel ? [] : BUILTIN_PROVIDERS.filter((p) =>
+    (stored.some((r) => r.kind === p.id) || envKey(p)) && liveRecsFor(p.id).some((r) => r.model === s.liveModel))
+  const owner = s.liveProviderId || (offering.length === 1 ? offering[0]!.id : "")
+  const id = owner || stored.find((r) => r.isDefault)?.kind || stored[0]?.kind || BUILTIN_PROVIDERS[0]!.id
+  const known = BUILTIN_PROVIDERS.find((p) => p.id === id)
+  const provider = withSettings(known ?? BUILTIN_PROVIDERS[0]!, s)
+  const recs = liveRecsFor(provider.id)
+  const rec = recs.find((r) => r.default) ?? recs[0]
+  const model = (owner && s.liveModel) || rec?.model || defaultModel(provider.id)
+  const effort = EFFORTS.find((e) => e === s.liveEffort)
+  const ready = !!known && (!!provider.keyless || stored.some((r) => r.kind === provider.id && r.hasKey) || envKey(provider))
+  return { provider, model, effort, ready }
+}

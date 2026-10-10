@@ -1,0 +1,94 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { expandHomePath } from '@/utils/path';
+
+import { normalizeConfiguredCLIPath, parsePathEntries, stripSurroundingQuotes } from './cliPath';
+import { getEnhancedPath } from './env';
+
+export function isExistingFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function resolveConfiguredCLIPath(configuredPath: string | undefined): string | null {
+  try {
+    const expandedPath = normalizeConfiguredCLIPath(configuredPath);
+    if (!expandedPath) {
+      return null;
+    }
+    return isExistingFile(expandedPath) ? expandedPath : null;
+  } catch {
+    return null;
+  }
+}
+
+export function findCLIBinaryPath(
+  binaryName: string,
+  additionalPath?: string,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  const binaryNames = platform === 'win32'
+    ? [`${binaryName}.exe`, `${binaryName}.cmd`, binaryName]
+    : [binaryName];
+  const searchEntries = platform === process.platform
+    ? parsePathEntries(getEnhancedPath(additionalPath))
+    : parseCLIPathEntries(additionalPath, platform);
+
+  return findBinaryInDirectories(searchEntries, binaryNames);
+}
+
+export function findBinaryInDirectories(entries: string[], binaryNames: string[]): string | null {
+  for (const dir of entries) {
+    if (!dir) continue;
+
+    for (const candidateName of binaryNames) {
+      const candidate = path.join(dir, candidateName);
+      if (isExistingFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+export function parseCLIPathEntries(pathValue: string | undefined, platform: NodeJS.Platform): string[] {
+  if (platform === process.platform) {
+    return parsePathEntries(pathValue);
+  }
+  if (!pathValue) {
+    return [];
+  }
+
+  const delimiter = platform === 'win32' ? ';' : ':';
+  return pathValue
+    .split(delimiter)
+    .map(segment => stripSurroundingQuotes(segment.trim()))
+    .filter(segment => {
+      if (!segment) return false;
+      const upper = segment.toUpperCase();
+      return upper !== '$PATH' && upper !== '${PATH}' && upper !== '%PATH%';
+    })
+    .map(segment => translateMsysPathForPlatform(expandHomePath(segment), platform));
+}
+
+function translateMsysPathForPlatform(value: string, platform: NodeJS.Platform): string {
+  if (platform !== 'win32') {
+    return value;
+  }
+
+  const msysMatch = value.match(/^\/([a-zA-Z])(?:\/(.*))?$/);
+  if (!msysMatch) {
+    return value;
+  }
+
+  const driveLetter = msysMatch[1].toUpperCase();
+  const restOfPath = msysMatch[2] ?? '';
+  return restOfPath
+    ? `${driveLetter}:\\${restOfPath.replace(/\//g, '\\')}`
+    : `${driveLetter}:`;
+}

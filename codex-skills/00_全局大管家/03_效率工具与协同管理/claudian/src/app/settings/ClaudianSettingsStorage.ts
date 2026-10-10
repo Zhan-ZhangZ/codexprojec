@@ -1,0 +1,599 @@
+import { getInstallationKey, getLegacyDeviceSettingsKey } from '@/core/device/InstallationKey';
+
+import {
+  CLAUDIAN_SETTINGS_PATH,
+} from '../../core/bootstrap/storagePaths';
+import { normalizeLinkedContentPath } from '../../core/path/LinkedContentPath';
+import {
+  migrateHiddenCommands,
+} from '../../core/providers/commands/hiddenCommands';
+import { decodeProviderModelSelectionId, toProviderRuntimeModelId } from '../../core/providers/modelSelection';
+import {
+  getSharedEnvironmentVariables
+} from '../../core/providers/providerEnvironment';
+import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
+import type { VaultFileAdapter } from '../../core/storage/VaultFileAdapter';
+import {
+  CHAT_VIEW_PLACEMENTS,
+  type ChatViewPlacement,
+  type ClaudianSettings,
+  DUAL_PANE_SIDES,
+  type DualPaneSide,
+  type EnvironmentScope,
+  type EnvSnippet,
+  type ProviderConfigMap,
+  type SessionManagerOrganization,
+  type StoredChatModelSelection,
+  type ZenModePosition,
+} from '../../core/types/settings';
+import { DEFAULT_CLAUDIAN_SETTINGS } from './defaultSettings';
+
+export {
+  CLAUDIAN_SETTINGS_PATH
+};
+
+export type StoredClaudianSettings = ClaudianSettings;
+
+const RETIRED_SHARED_SETTING_FIELDS = [
+  'pinnedLinkedNotePaths',
+  'enableFilePane',
+  'persistentExternalContextPaths',
+  'hiddenProviderCommands',
+  'maxWarmAgentProcesses',
+] as const;
+
+function getProviderSettingsAdapters() {
+  return ProviderRegistry.getRegisteredProviderIds().map(providerId => ({
+    adapter: ProviderRegistry.getSettingsStorageAdapter(providerId),
+    providerId,
+  }));
+}
+
+function stripRetiredSharedFields(settings: Record<string, unknown>): Record<string, unknown> {
+  const cleaned = { ...settings };
+  for (const key of RETIRED_SHARED_SETTING_FIELDS) {
+    delete cleaned[key];
+  }
+  return cleaned;
+}
+
+function isChatViewPlacement(value: unknown): value is ChatViewPlacement {
+  return typeof value === 'string'
+    && (CHAT_VIEW_PLACEMENTS as readonly string[]).includes(value);
+}
+
+function normalizeEnableDualPane(value: unknown): boolean {
+  return typeof value === 'boolean'
+    ? value
+    : DEFAULT_CLAUDIAN_SETTINGS.enableDualPane;
+}
+
+function normalizeEnableZenMode(value: unknown): boolean {
+  return typeof value === 'boolean'
+    ? value
+    : DEFAULT_CLAUDIAN_SETTINGS.enableZenMode;
+}
+
+function normalizeZenModePosition(value: unknown): ZenModePosition | null {
+  if (!value || typeof value !== 'object') return null;
+  const { x, y } = value as Record<string, unknown>;
+  return typeof x === 'number' && Number.isFinite(x) && typeof y === 'number' && Number.isFinite(y)
+    ? { x, y }
+    : null;
+}
+
+function normalizeDualPaneSide(value: unknown): DualPaneSide {
+  return typeof value === 'string'
+    && (DUAL_PANE_SIDES as readonly string[]).includes(value)
+    ? value as DualPaneSide
+    : DEFAULT_CLAUDIAN_SETTINGS.dualPaneSide;
+}
+
+function normalizeRestoreTabsOnStartup(value: unknown): boolean {
+  return typeof value === 'boolean'
+    ? value
+    : DEFAULT_CLAUDIAN_SETTINGS.restoreTabsOnStartup;
+}
+
+function normalizeSessionManagerOrganization(
+  value: unknown,
+): SessionManagerOrganization {
+  if (value === 'linked-note') return 'linked-content';
+  return value === 'linked-content' || value === 'list'
+    ? value
+    : DEFAULT_CLAUDIAN_SETTINGS.sessionManagerOrganization ?? 'list';
+}
+
+function normalizePinnedLinkedContentPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const normalizedPaths: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of value) {
+    const path = normalizeLinkedContentPath(candidate);
+    if (path === null || seen.has(path)) continue;
+    seen.add(path);
+    normalizedPaths.push(path);
+  }
+  return normalizedPaths;
+}
+
+function shouldPersistChatViewNormalization(
+  stored: Record<string, unknown>,
+  enableZenMode: boolean,
+  enableDualPane: boolean,
+  dualPaneSide: DualPaneSide,
+  restoreTabsOnStartup: boolean,
+): boolean {
+  return 'enableFilePane' in stored || (
+    'enableZenMode' in stored
+    && stored.enableZenMode !== enableZenMode
+  ) || (
+    'enableDualPane' in stored
+    && stored.enableDualPane !== enableDualPane
+  ) || (
+    'dualPaneSide' in stored
+    && stored.dualPaneSide !== dualPaneSide
+  ) || (
+    'restoreTabsOnStartup' in stored
+    && stored.restoreTabsOnStartup !== restoreTabsOnStartup
+  );
+}
+
+function normalizeProviderConfigs(value: unknown): ProviderConfigMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const result: ProviderConfigMap = {};
+  for (const [providerId, config] of Object.entries(value as Record<string, unknown>)) {
+    if (config && typeof config === 'object' && !Array.isArray(config)) {
+      result[providerId] = { ...(config as Record<string, unknown>) };
+    }
+  }
+  return result;
+}
+
+function migrateCurrentDeviceProviderConfigKeys(
+  providerConfigs: ProviderConfigMap,
+): { changed: boolean; providerConfigs: ProviderConfigMap } {
+  const currentKey = getInstallationKey();
+  const legacyKey = getLegacyDeviceSettingsKey();
+  if (!legacyKey || legacyKey === currentKey) {
+    return { changed: false, providerConfigs };
+  }
+
+  let changed = false;
+  for (const { adapter, providerId } of getProviderSettingsAdapters()) {
+    const config = providerConfigs[providerId];
+    if (!config) continue;
+
+    for (const field of adapter.hostScopedFields ?? []) {
+      const value = config[field];
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const entries = value as Record<string, unknown>;
+      if (!Object.prototype.hasOwnProperty.call(entries, legacyKey)) continue;
+
+      const migrated = Object.fromEntries(Object.entries(entries));
+      if (!Object.prototype.hasOwnProperty.call(migrated, currentKey)) {
+        migrated[currentKey] = entries[legacyKey];
+      }
+      delete migrated[legacyKey];
+      config[field] = migrated;
+      changed = true;
+    }
+  }
+
+  return { changed, providerConfigs };
+}
+
+function normalizeLoadedProviderConfigs(settings: Record<string, unknown>): {
+  changed: boolean;
+  providerConfigs: ProviderConfigMap;
+} {
+  const providerConfigs = normalizeProviderConfigs(settings.providerConfigs);
+  let changed = false;
+
+  for (const { adapter, providerId } of getProviderSettingsAdapters()) {
+    const fields = adapter.runtimeOnlyFields ?? [];
+    const config = providerConfigs[providerId];
+    if (!config) {
+      continue;
+    }
+
+    const projected = adapter.projectPersistedConfig?.(settings);
+    if (projected) {
+      changed = JSON.stringify(projected) !== JSON.stringify(config) || changed;
+    }
+
+    for (const field of fields) {
+      if (field in config) {
+        delete config[field];
+        changed = true;
+      }
+    }
+  }
+
+  return { changed, providerConfigs };
+}
+
+function projectPersistableProviderConfigs(settings: Record<string, unknown>): ProviderConfigMap {
+  const providerConfigs = normalizeProviderConfigs(settings.providerConfigs);
+  for (const { adapter, providerId } of getProviderSettingsAdapters()) {
+    const config = providerConfigs[providerId];
+    if (!config) continue;
+    const persisted = adapter.projectPersistedConfig?.(settings) ?? config;
+    for (const field of adapter.runtimeOnlyFields ?? []) delete persisted[field];
+    providerConfigs[providerId] = persisted;
+  }
+  return providerConfigs;
+}
+
+/** Drop saved model-dependent projections when their model was explicitly deselected. */
+function pruneDeselectedProviderProjections(settings: Record<string, unknown>): Record<string, unknown> {
+  const cleaned = { ...settings };
+  const configs = normalizeProviderConfigs(settings.providerConfigs);
+  const contextLimitMatchers: Array<(model: string) => boolean> = [];
+  for (const providerId of ProviderRegistry.getRegisteredProviderIds()) {
+    const selected = configs[providerId]?.visibleModels;
+    if (!Array.isArray(selected)) continue;
+    const ui = ProviderRegistry.getModelPolicy(providerId);
+    const normalize = (id: string) => toProviderRuntimeModelId(providerId, ui.normalizeModelVariant(
+      ui.normalizeAvailableModelSelection?.(id, settings) ?? id,
+      settings,
+    ));
+    const normalizeContextModel = (id: string) => {
+      const normalized = normalize(id);
+      return normalized.toLowerCase();
+    };
+    const selectedContextModels = new Set(selected.filter((id): id is string => typeof id === 'string')
+      .map(normalizeContextModel));
+    contextLimitMatchers.push(model => {
+      const owner = decodeProviderModelSelectionId(model)?.providerId;
+      return (!owner || owner === providerId) && selectedContextModels.has(normalizeContextModel(model));
+    });
+    const savedModels = settings.savedProviderModel as Record<string, unknown> | undefined;
+    const model = savedModels?.[providerId];
+    if (typeof model !== 'string') continue;
+    if (selected.some(id => typeof id === 'string' && normalize(id) === normalize(model))) continue;
+    for (const key of ['savedProviderModel', 'savedProviderEffort', 'savedProviderServiceTier']) {
+      const values = cleaned[key];
+      if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+      const remaining = { ...values } as Record<string, unknown>;
+      delete remaining[providerId];
+      cleaned[key] = remaining;
+    }
+  }
+  const limits = settings.customContextLimits;
+  if (limits && typeof limits === 'object' && !Array.isArray(limits)) {
+    const entries = Object.entries(limits);
+    const selected = entries.filter(([model]) => contextLimitMatchers.some(matches => matches(model)));
+    if (selected.length !== entries.length) cleaned.customContextLimits = Object.fromEntries(selected);
+  }
+  return cleaned;
+}
+
+function hasHostScopedProviderConfigNormalization(
+  original: ProviderConfigMap,
+  normalized: unknown,
+): boolean {
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) {
+    return false;
+  }
+
+  const normalizedConfigs = normalized as ProviderConfigMap;
+  for (const { adapter, providerId } of getProviderSettingsAdapters()) {
+    const fields = adapter.hostScopedFields ?? [];
+    const originalConfig = original[providerId];
+    const normalizedConfig = normalizedConfigs[providerId];
+    if (!originalConfig || !normalizedConfig) {
+      continue;
+    }
+
+    for (const field of fields) {
+      if (
+        field in originalConfig
+        && JSON.stringify(originalConfig[field]) !== JSON.stringify(normalizedConfig[field])
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function isEnvironmentScope(value: unknown): value is EnvironmentScope {
+  return value === 'shared' || (typeof value === 'string' && value.startsWith('provider:'));
+}
+
+function normalizeContextLimits(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const result: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === 'number' && Number.isFinite(entry) && entry > 0) {
+      result[key] = entry;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeModelAliases(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, alias] of Object.entries(value)) {
+    if (typeof alias !== 'string') {
+      continue;
+    }
+
+    const modelId = key.trim();
+    const normalizedAlias = alias.trim();
+    if (modelId && normalizedAlias) {
+      result[modelId] = normalizedAlias;
+    }
+  }
+
+  return result;
+}
+
+function normalizeEnvSnippets(value: unknown): EnvSnippet[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const snippets: EnvSnippet[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+
+    const candidate = item as Record<string, unknown>;
+    if (
+      typeof candidate.id !== 'string'
+      || typeof candidate.name !== 'string'
+      || typeof candidate.description !== 'string'
+      || typeof candidate.envVars !== 'string'
+    ) {
+      continue;
+    }
+
+    const modelAliases = 'modelAliases' in candidate
+      ? normalizeModelAliases(candidate.modelAliases)
+      : undefined;
+
+    snippets.push({
+      id: candidate.id,
+      name: candidate.name,
+      description: candidate.description,
+      envVars: candidate.envVars,
+      scope: isEnvironmentScope(candidate.scope) ? candidate.scope : undefined,
+      contextLimits: normalizeContextLimits(candidate.contextLimits),
+      modelAliases,
+    });
+  }
+
+  return snippets;
+}
+
+function trimStoredString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeStoredChatModelSelection(
+  value: unknown,
+): StoredChatModelSelection | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const providerId = trimStoredString(candidate.providerId);
+  const model = trimStoredString(candidate.model);
+  if (
+    !providerId
+    || !model
+    || !ProviderRegistry.getRegisteredProviderIds().includes(providerId)
+  ) {
+    return null;
+  }
+
+  return { providerId, model };
+}
+
+function migrateLegacyChatModelSelection(
+  stored: Record<string, unknown>,
+): StoredChatModelSelection | null {
+  const registeredProviderIds = new Set(ProviderRegistry.getRegisteredProviderIds());
+  const storedProviderId = trimStoredString(stored.settingsProvider);
+  const providerId = registeredProviderIds.has(storedProviderId)
+    ? storedProviderId
+    : 'claude';
+  if (!registeredProviderIds.has(providerId)) {
+    return null;
+  }
+
+  const projectedModel = trimStoredString(stored.model);
+  const savedProviderModels = stored.savedProviderModel;
+  const savedModel = savedProviderModels
+    && typeof savedProviderModels === 'object'
+    && !Array.isArray(savedProviderModels)
+    ? trimStoredString((savedProviderModels as Record<string, unknown>)[providerId])
+    : '';
+  const model = projectedModel || savedModel;
+  return model ? { providerId, model } : null;
+}
+
+export class ClaudianSettingsStorage {
+  constructor(
+    private readonly adapter: VaultFileAdapter,
+    private readonly defaults: Readonly<ClaudianSettings>,
+  ) {}
+
+  async load(): Promise<StoredClaudianSettings> {
+    if (!await this.adapter.exists(CLAUDIAN_SETTINGS_PATH)) {
+      return this.#getDefaults();
+    }
+
+    const content = await this.adapter.read(CLAUDIAN_SETTINGS_PATH);
+    const stored = JSON.parse(content) as Record<string, unknown>;
+    const hasStoredChatModelSelection = Object.prototype.hasOwnProperty.call(
+      stored,
+      'lastSelectedChatModel',
+    );
+    const lastSelectedChatModel = hasStoredChatModelSelection
+      ? normalizeStoredChatModelSelection(stored.lastSelectedChatModel)
+      : migrateLegacyChatModelSelection(stored);
+    const didNormalizeChatModelSelection = !hasStoredChatModelSelection
+      || JSON.stringify(lastSelectedChatModel) !== JSON.stringify(stored.lastSelectedChatModel);
+    const hiddenCommands = migrateHiddenCommands(stored);
+    const envSnippets = normalizeEnvSnippets(stored.envSnippets);
+    const {
+      changed: didStripRuntimeProviderConfig,
+      providerConfigs: projectedProviderConfigs,
+    } = normalizeLoadedProviderConfigs(stored);
+    const {
+      changed: didMigrateCurrentDeviceProviderConfigs,
+      providerConfigs,
+    } = migrateCurrentDeviceProviderConfigKeys(projectedProviderConfigs);
+    const chatViewPlacement = isChatViewPlacement(stored.chatViewPlacement)
+      ? stored.chatViewPlacement
+      : DEFAULT_CLAUDIAN_SETTINGS.chatViewPlacement;
+    const enableZenMode = normalizeEnableZenMode(stored.enableZenMode);
+    const zenModePosition = normalizeZenModePosition(stored.zenModePosition);
+    const enableDualPane = normalizeEnableDualPane(stored.enableDualPane);
+    const dualPaneSide = normalizeDualPaneSide(stored.dualPaneSide);
+    const skillsSynced = stored.skillsSynced === true;
+    const restoreTabsOnStartup = normalizeRestoreTabsOnStartup(
+      stored.restoreTabsOnStartup,
+    );
+    const hasCanonicalPinnedPaths = Object.prototype.hasOwnProperty.call(
+      stored,
+      'pinnedLinkedContentPaths',
+    );
+    const pinnedLinkedContentPaths = normalizePinnedLinkedContentPaths(
+      hasCanonicalPinnedPaths
+        ? stored.pinnedLinkedContentPaths
+        : stored.pinnedLinkedNotePaths,
+    );
+    const sessionManagerOrganization = normalizeSessionManagerOrganization(
+      stored.sessionManagerOrganization,
+    );
+    const normalizedProviderSettings = {
+      ...stored,
+      hiddenCommands,
+      providerConfigs,
+    };
+    const storedSharedSettings = stripRetiredSharedFields({
+      ...normalizedProviderSettings,
+    });
+
+    const normalizedSettings = {
+      ...storedSharedSettings,
+      sharedEnvironmentVariables: getSharedEnvironmentVariables(normalizedProviderSettings),
+      envSnippets,
+      hiddenCommands,
+      providerConfigs,
+      chatViewPlacement,
+      enableZenMode,
+      zenModePosition,
+      enableDualPane,
+      dualPaneSide,
+      restoreTabsOnStartup,
+      skillsSynced,
+      sessionManagerOrganization,
+      pinnedLinkedContentPaths,
+      lastSelectedChatModel,
+    };
+
+    const merged = {
+      ...this.#getDefaults(),
+      ...normalizedSettings,
+    };
+
+    let didNormalizeProviderSettings = false;
+    for (const { adapter } of getProviderSettingsAdapters()) {
+      didNormalizeProviderSettings = adapter.normalizeStored(
+        merged,
+        normalizedProviderSettings,
+      ) || didNormalizeProviderSettings;
+    }
+    const pruned = pruneDeselectedProviderProjections(merged);
+    const didPruneDeselectedModels = pruned.savedProviderModel !== merged.savedProviderModel
+      || pruned.customContextLimits !== merged.customContextLimits;
+    Object.assign(merged, pruned);
+    const didNormalizeHostScopedProviderConfigs = hasHostScopedProviderConfigNormalization(
+      providerConfigs,
+      merged.providerConfigs,
+    );
+
+    if (
+      'persistentExternalContextPaths' in stored
+      || ('chatViewPlacement' in stored && stored.chatViewPlacement !== chatViewPlacement)
+      || shouldPersistChatViewNormalization(
+        stored,
+        enableZenMode,
+        enableDualPane,
+        dualPaneSide,
+        restoreTabsOnStartup,
+      )
+
+      || (
+        'sessionManagerOrganization' in stored
+        && stored.sessionManagerOrganization !== sessionManagerOrganization
+      )
+      || 'pinnedLinkedNotePaths' in stored
+      || (
+        'pinnedLinkedContentPaths' in stored
+        && JSON.stringify(stored.pinnedLinkedContentPaths)
+          !== JSON.stringify(pinnedLinkedContentPaths)
+      )
+      || JSON.stringify(envSnippets) !== JSON.stringify(stored.envSnippets ?? [])
+      || 'hiddenProviderCommands' in stored
+      || (
+        'hiddenCommands' in stored
+        && JSON.stringify(hiddenCommands) !== JSON.stringify(stored.hiddenCommands)
+      )
+      || didNormalizeProviderSettings
+      || didStripRuntimeProviderConfig
+      || didMigrateCurrentDeviceProviderConfigs
+      || didNormalizeHostScopedProviderConfigs
+      || didNormalizeChatModelSelection
+      || didPruneDeselectedModels
+    ) {
+      await this.save(merged);
+    }
+
+    return merged;
+  }
+
+  async save(settings: StoredClaudianSettings): Promise<void> {
+    const providerConfigs = projectPersistableProviderConfigs(settings);
+    const content = JSON.stringify(
+      stripRetiredSharedFields(pruneDeselectedProviderProjections({
+        ...settings,
+        providerConfigs,
+        sessionManagerOrganization: normalizeSessionManagerOrganization(
+          settings.sessionManagerOrganization,
+        ),
+        pinnedLinkedContentPaths: normalizePinnedLinkedContentPaths(
+          settings.pinnedLinkedContentPaths,
+        ),
+      })),
+      null,
+      2,
+    );
+    await this.adapter.write(CLAUDIAN_SETTINGS_PATH, content);
+  }
+
+  #getDefaults(): StoredClaudianSettings {
+    return structuredClone(this.defaults);
+  }
+
+}
