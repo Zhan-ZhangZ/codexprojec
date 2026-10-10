@@ -1,0 +1,18 @@
+title = "asm gitleaks config"
+
+# Extend the default gitleaks ruleset.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures containing fake credentials used to exercise ASM's security auditor / verifier, plus known-safe public URLs."
+paths = [
+  '''^src/verifier\.test\.ts$''',
+  '''^src/security-auditor\.test\.ts$''',
+  '''^src/installer\.test\.ts$''',
+  '''^website-src/src/components/Header\.jsx$''',
+]
+regexes = [
+  '''^sk-[a-z0-9]{10,11}$''',
+  '''https://api\.github\.com/''',
+]

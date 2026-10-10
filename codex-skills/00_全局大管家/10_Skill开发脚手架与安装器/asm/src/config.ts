@@ -1,0 +1,372 @@
+import { readFile, writeFile, mkdir, copyFile } from "fs/promises";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+import { homedir } from "os";
+import { debug } from "./logger";
+import type {
+  AppConfig,
+  ProviderConfig,
+  SkillIndexResources,
+} from "./utils/types";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/**
+ * User-state root (`config.json`, skill-index, bundles, lock, library).
+ * `ASM_CONFIG_DIR` overrides the default `~/.config/agent-skill-manager`
+ * so in-process tests can point at a temp dir. Unset in production.
+ */
+export function getConfigDir(): string {
+  const override = process.env.ASM_CONFIG_DIR;
+  if (override) return override;
+  return join(homedir(), ".config", "agent-skill-manager");
+}
+
+const DEFAULT_PROVIDERS: ProviderConfig[] = [
+  // ── Priority providers (ordered by user preference, #617) ──
+  {
+    name: "agents",
+    label: "Agents",
+    global: "~/.agents/skills",
+    project: ".agents/skills",
+    enabled: true,
+  },
+  {
+    name: "claude",
+    label: "Claude Code",
+    global: "~/.claude/skills",
+    project: ".claude/skills",
+    enabled: true,
+  },
+  {
+    name: "pi",
+    label: "Pi",
+    global: "~/.pi/skills",
+    project: ".pi/skills",
+    enabled: true,
+  },
+  {
+    name: "opencode",
+    label: "OpenCode",
+    global: "~/.config/opencode/skills",
+    project: ".opencode/skills",
+    enabled: true,
+  },
+  {
+    name: "codex",
+    label: "Codex",
+    global: "~/.codex/skills",
+    project: ".codex/skills",
+    enabled: true,
+  },
+  {
+    name: "omp",
+    label: "Oh My Pi",
+    global: "~/.omp/agent/skills",
+    project: ".omp/skills",
+    enabled: true,
+  },
+  {
+    name: "grok",
+    label: "Grok CLI",
+    global: "~/.grok/skills",
+    project: ".grok/skills",
+    enabled: true,
+  },
+  // ── Additional providers ──
+  {
+    name: "hermes",
+    label: "Hermes",
+    global: "~/.hermes/skills",
+    project: ".hermes/skills",
+    enabled: true,
+  },
+  {
+    name: "openclaw",
+    label: "OpenClaw",
+    global: "~/.openclaw/skills",
+    project: ".openclaw/skills",
+    enabled: true,
+  },
+  {
+    name: "cursor",
+    label: "Cursor",
+    global: "~/.cursor/rules",
+    project: ".cursor/rules",
+    enabled: true,
+  },
+  {
+    name: "copilot",
+    label: "GitHub Copilot",
+    global: "~/.github/instructions",
+    project: ".github/instructions",
+    enabled: true,
+  },
+  {
+    name: "windsurf",
+    label: "Windsurf",
+    global: "~/.windsurf/rules",
+    project: ".windsurf/rules",
+    enabled: true,
+  },
+  {
+    name: "antigravity",
+    label: "Google Antigravity",
+    global: "~/.antigravity/skills",
+    project: ".antigravity/skills",
+    enabled: true,
+  },
+  {
+    name: "gemini",
+    label: "Gemini CLI",
+    global: "~/.gemini/skills",
+    project: ".gemini/skills",
+    enabled: true,
+  },
+  // ── Remaining providers ──
+  {
+    name: "cline",
+    label: "Cline",
+    global: "~/Documents/Cline/Rules",
+    project: ".clinerules",
+    enabled: true,
+  },
+  {
+    name: "roocode",
+    label: "Roo Code",
+    global: "~/.roo/rules",
+    project: ".roo/rules",
+    enabled: true,
+  },
+  {
+    name: "continue",
+    label: "Continue",
+    global: "~/.continue/rules",
+    project: ".continue/rules",
+    enabled: true,
+  },
+  {
+    name: "aider",
+    label: "Aider",
+    global: "~/.aider/skills",
+    project: ".aider/skills",
+    enabled: true,
+  },
+  {
+    name: "zed",
+    label: "Zed",
+    global: "~/.config/zed/prompt_overrides",
+    project: ".zed/rules",
+    enabled: true,
+  },
+  {
+    name: "augment",
+    label: "Augment",
+    global: "~/.augment/rules",
+    project: ".augment/rules",
+    enabled: true,
+  },
+  {
+    name: "amp",
+    label: "Amp",
+    global: "~/.amp/skills",
+    project: ".amp/skills",
+    enabled: true,
+  },
+];
+
+export function getDefaultConfig(): AppConfig {
+  return {
+    version: 1,
+    providers: DEFAULT_PROVIDERS.map((p) => ({ ...p })),
+    customPaths: [],
+    preferences: {
+      defaultScope: "both",
+      defaultSort: "name",
+    },
+  };
+}
+
+export function getConfigPath(): string {
+  return join(getConfigDir(), "config.json");
+}
+
+export function getLockPath(): string {
+  return join(getConfigDir(), ".skill-lock.json");
+}
+
+/**
+ * Returns the path to the skill-state file that records which skills asm has
+ * disabled (survives across sessions). See `src/skill-state.ts`.
+ */
+export function getSkillStatePath(): string {
+  return join(getConfigDir(), "skill-state.json");
+}
+
+/** Local tag additions/removals for installed skills. */
+export function getSkillTagsPath(): string {
+  return join(getConfigDir(), "skill-tags.json");
+}
+
+export function getIndexDir(): string {
+  return join(getConfigDir(), "skill-index");
+}
+
+export function getLibraryDir(): string {
+  return join(getConfigDir(), "library");
+}
+
+export function getLibrarySkillsDir(): string {
+  return join(getLibraryDir(), "skills");
+}
+
+export function getLibraryLockPath(): string {
+  return join(getLibraryDir(), "library-lock.json");
+}
+
+export function getDependencyLeasesDir(): string {
+  return join(getConfigDir(), "dependency-leases");
+}
+
+/** Durable `get --path` copies, isolated from caller-session dependency leases. */
+export function getGetBorrowsDir(): string {
+  return join(getConfigDir(), "get-borrows");
+}
+
+export function getBundledIndexDir(): string {
+  // In built dist/: __dirname is dist/, data/ is at ../data/
+  // In dev (src/): __dirname is src/, data/ is at ../data/
+  return resolve(__dirname, "..", "data", "skill-index");
+}
+
+export function getSkillIndexResourcesPath(): string {
+  return resolve(__dirname, "..", "data", "skill-index-resources.json");
+}
+
+export async function loadSkillIndexResources(): Promise<SkillIndexResources> {
+  const resourcesPath = getSkillIndexResourcesPath();
+  const raw = await readFile(resourcesPath, "utf-8");
+  return JSON.parse(raw) as SkillIndexResources;
+}
+
+export function resolveProviderPath(pathTemplate: string): string {
+  if (pathTemplate.startsWith("~/")) {
+    return join(homedir(), pathTemplate.slice(2));
+  }
+  if (pathTemplate.startsWith("/")) {
+    return pathTemplate;
+  }
+  // Relative path — resolve from cwd (project-level)
+  return resolve(pathTemplate);
+}
+
+function mergeWithDefaults(config: Partial<AppConfig>): AppConfig {
+  const defaults = getDefaultConfig();
+  const providers = config.providers || [];
+
+  // Insert any new default providers in their canonical priority position,
+  // anchored to the nearest preceding default that the user already has.
+  // This keeps user-added providers in place while honoring DEFAULT_PROVIDERS
+  // ordering for newly-introduced built-ins.
+  const existingNames = new Set(providers.map((p) => p.name));
+  for (let i = 0; i < defaults.providers.length; i++) {
+    const defaultProvider = defaults.providers[i];
+    if (existingNames.has(defaultProvider.name)) continue;
+
+    let insertAt = providers.length;
+    for (let j = i - 1; j >= 0; j--) {
+      const anchorName = defaults.providers[j].name;
+      const anchorIdx = providers.findIndex((p) => p.name === anchorName);
+      if (anchorIdx !== -1) {
+        insertAt = anchorIdx + 1;
+        break;
+      }
+    }
+    providers.splice(insertAt, 0, { ...defaultProvider });
+    existingNames.add(defaultProvider.name);
+  }
+
+  // Canonicalize order so DEFAULT_PROVIDERS ordering wins for built-ins (#617).
+  // Reordering the defaults must reach users who already have a saved config,
+  // not just fresh installs. A user-added provider sorts just after the
+  // built-in that preceded it at this point, which is after the new defaults
+  // the insertion loop above already slotted in ahead of it.
+  const defaultRank = new Map(
+    defaults.providers.map((p, i) => [p.name, i] as const),
+  );
+  const sortKey = new Map<ProviderConfig, number>();
+  let lastRank = -1;
+  for (const p of providers) {
+    const rank = defaultRank.get(p.name);
+    if (rank === undefined) {
+      sortKey.set(p, lastRank + 0.5);
+    } else {
+      lastRank = rank;
+      sortKey.set(p, rank);
+    }
+  }
+  // Stable sort keeps consecutive user-added providers in their saved order.
+  providers.sort((a, b) => sortKey.get(a)! - sortKey.get(b)!);
+
+  return {
+    version: config.version ?? defaults.version,
+    providers,
+    customPaths: config.customPaths ?? [],
+    preferences: {
+      defaultScope:
+        config.preferences?.defaultScope ?? defaults.preferences.defaultScope,
+      defaultSort:
+        config.preferences?.defaultSort ?? defaults.preferences.defaultSort,
+      selectedTools: config.preferences?.selectedTools,
+    },
+  };
+}
+
+export async function loadConfig(): Promise<AppConfig> {
+  const configPath = getConfigPath();
+  debug(`config: checking ${configPath}`);
+
+  let raw: string;
+  try {
+    raw = await readFile(configPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException | null)?.code === "ENOENT") {
+      // Config doesn't exist — silently use defaults
+      debug("config: using defaults (file not found)");
+      const config = getDefaultConfig();
+      await saveConfig(config);
+      return config;
+    }
+    throw err;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    debug(`config: loaded from ${configPath}`);
+    return mergeWithDefaults(parsed);
+  } catch {
+    // Parse error — backup corrupted file before resetting
+    const backupPath = configPath + ".bak";
+    debug(`config: parse error, backing up to ${backupPath}`);
+    await copyFile(configPath, backupPath);
+    console.error(
+      `Warning: Config file was corrupted. Backup saved to ${backupPath}. Using defaults.`,
+    );
+    const config = getDefaultConfig();
+    await saveConfig(config);
+    return config;
+  }
+}
+
+export async function saveConfig(config: AppConfig): Promise<void> {
+  const configPath = getConfigPath();
+  await mkdir(getConfigDir(), { recursive: true });
+  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+}
+
+export async function saveSelectedTools(toolNames: string[]): Promise<void> {
+  const config = await loadConfig();
+  config.preferences.selectedTools = toolNames;
+  await saveConfig(config);
+}

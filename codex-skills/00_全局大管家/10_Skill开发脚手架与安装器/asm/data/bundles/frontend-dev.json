@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "name": "frontend-dev",
+  "description": "Essential skills for frontend development: UI design, UX review, QA testing, browsing, and code review.",
+  "author": "ASM",
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "tags": ["frontend", "design", "qa", "web"],
+  "skills": [
+    {
+      "name": "frontend-design",
+      "installUrl": "github:luongnv89/skills:skills/frontend-design",
+      "description": "Design and implement production-grade frontend components and UI pages"
+    },
+    {
+      "name": "dont-make-me-think",
+      "installUrl": "github:luongnv89/skills:skills/dont-make-me-think",
+      "description": "Review UI for usability issues using Don't Make Me Think principles"
+    },
+    {
+      "name": "browser-qa",
+      "installUrl": "github:affaan-m/everything-claude-code:skills/browser-qa",
+      "description": "Automate visual testing and UI interaction verification with browser automation"
+    },
+    {
+      "name": "e2e-testing",
+      "installUrl": "github:affaan-m/everything-claude-code:skills/e2e-testing",
+      "description": "Playwright E2E testing patterns, Page Object Model, and CI integration"
+    },
+    {
+      "name": "code-review",
+      "installUrl": "github:luongnv89/skills:skills/code-review",
+      "description": "Review code changes for bugs, security issues, and best practices"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "name": "cortex-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "build:cli": "npm run build --workspace=@cortex-docs/core && npm run build --workspace=@cortex-docs/codegen && npm run build --workspace=@cortex-docs/mcp-gen && npm run build --workspace=@cortex-docs/cli",
+    "dev": "turbo run dev --parallel",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:static": "playwright test --config=playwright.static.config.ts",
+    "lint": "eslint packages e2e/*.ts playwright*.config.ts",
+    "format": "prettier --write \"packages/**/*.{ts,tsx,js,mjs,json,md,yml,yaml}\" \"e2e/**/*.ts\" \"*.{ts,js,mjs,json,md,yml,yaml}\" \".github/**/*.{yml,yaml,md}\"",
+    "format:check": "prettier --check --no-error-on-unmatched-pattern \"packages/**/*.{ts,tsx,js,mjs,json,md,yml,yaml}\" \"e2e/**/*.ts\" \"*.{ts,js,mjs,json,md,yml,yaml}\" \".github/**/*.{yml,yaml,md}\"",
+    "clean": "turbo run clean",
+    "test:sdk": "docker build -t cortex-base -f Dockerfile . && docker compose -f e2e/docker/docker-compose.yml up --build --abort-on-container-exit --exit-code-from sdk-tests",
+    "test:sdk:ci": "docker compose -f e2e/docker/docker-compose.ci.yml up --abort-on-container-exit --exit-code-from sdk-tests",
+    "test:publish:e2e": "docker build -t cortex-base -f Dockerfile . && docker compose -f e2e/publish/docker-compose.yml down --volumes --remove-orphans && docker compose -f e2e/publish/docker-compose.yml up --build --abort-on-container-exit --exit-code-from publish-tests",
+    "test:publish:e2e:ci": "docker compose -f e2e/publish/docker-compose.ci.yml down --volumes --remove-orphans && docker compose -f e2e/publish/docker-compose.ci.yml up --abort-on-container-exit --exit-code-from publish-tests",
+    "pack:check": "node scripts/publish-cli.mjs 0.0.0 --dry-run && node scripts/publish-docs-mcp.mjs 0.0.0 --dry-run"
+  },
+  "devDependencies": {
+    "@apollo/server": "^5.5.1",
+    "@graphql-tools/schema": "^10.1.0",
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
+    "@playwright/test": "^1.62.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "@eslint/js": "^10.0.1",
+    "cors": "^2.8.6",
+    "eslint": "^10.9.1",
+    "express": "^5.2.1",
+    "graphql-ws": "^6.2.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.12",
+    "turbo": "^2.10.12",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.10",
+    "ws": "^8.21.3"
+  },
+  "packageManager": "npm@10.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

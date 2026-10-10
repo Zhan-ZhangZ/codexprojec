@@ -1,0 +1,252 @@
+import { licenseBucket, skillSource } from "./utils.js";
+
+/**
+ * Filter + search + sort pipeline. Ported 1:1 from `website/index.html`
+ * so parity is exact. Return value is a freshly ordered array of slim
+ * catalog rows.
+ *
+ * @param {object[]} skills Slim skill rows (from skills.min.json).
+ * @param {object} state Current filter/search/sort state.
+ * @param {string} state.searchQuery
+ * @param {Set<string>} state.activeCategories
+ * @param {string} state.activeRepo "all" or "owner/repo".
+ * @param {Record<string, Set<string>>} state.activeFacets
+ * @param {string} state.sort "stars" | "relevance" | "name" | "grade" | "tokens-asc" | "tokens-desc".
+ * @param {object | null} options Optional MiniSearch results.
+ * @param {Map<string, number> | null} options.scoreById Score per skill id.
+ */
+export function applyFilters(skills, state, options = {}) {
+  const scoreById = options.scoreById || null;
+  let results = skills;
+
+  if (state.activeCategories.size > 0) {
+    results = results.filter((s) => {
+      for (const c of s.categories)
+        if (state.activeCategories.has(c)) return true;
+      return false;
+    });
+  }
+
+  if (state.activeRepo && state.activeRepo !== "all") {
+    results = results.filter(
+      (s) => s.owner + "/" + s.repo === state.activeRepo,
+    );
+  }
+
+  if (state.activeFacets.license.size > 0) {
+    results = results.filter((s) =>
+      state.activeFacets.license.has(licenseBucket(s.license)),
+    );
+  }
+  if (state.activeFacets.grade.size > 0) {
+    results = results.filter(
+      (s) => s.evalSummary && state.activeFacets.grade.has(s.evalSummary.grade),
+    );
+  }
+  if (state.activeFacets.source.size > 0) {
+    results = results.filter((s) =>
+      state.activeFacets.source.has(skillSource(s)),
+    );
+  }
+  if (state.activeFacets.usesTools.size > 0) {
+    results = results.filter((s) => {
+      const yes =
+        s.hasTools === true || !!(s.allowedTools && s.allowedTools.length > 0);
+      return (
+        (yes && state.activeFacets.usesTools.has("yes")) ||
+        (!yes && state.activeFacets.usesTools.has("no"))
+      );
+    });
+  }
+  if (state.activeFacets.author.size > 0) {
+    results = results.filter(
+      (s) => s.owner && state.activeFacets.author.has(s.owner),
+    );
+  }
+  if (state.activeFacets.tags?.size > 0) {
+    results = results.filter((s) => {
+      const skillTags = new Set(
+        (Array.isArray(s.tags) ? s.tags : []).map((tag) =>
+          String(tag).toLowerCase(),
+        ),
+      );
+      return [...state.activeFacets.tags].every((tag) =>
+        skillTags.has(String(tag).toLowerCase()),
+      );
+    });
+  }
+
+  // Featured skills pin to the top of every sort mode (including search
+  // relevance). Returns -1/1 when featured differs, 0 otherwise so callers
+  // can fall through to the real comparator as a tiebreaker.
+  const featuredFirst = (a, b) => {
+    const af = a.featured === true ? 1 : 0;
+    const bf = b.featured === true ? 1 : 0;
+    return bf - af;
+  };
+
+  let scored = null;
+  if (state.searchQuery.trim() && scoreById) {
+    scored = results
+      .filter((s) => scoreById.has(s.id))
+      .map((s) => ({ skill: s, score: scoreById.get(s.id) }))
+      .sort((a, b) => {
+        const f = featuredFirst(a.skill, b.skill);
+        if (f !== 0) return f;
+        return b.score - a.score;
+      });
+    results = scored.map((r) => r.skill);
+  }
+
+  const sortMode = state.sort || defaultSort(state.searchQuery);
+
+  if (sortMode === "name") {
+    results = results.slice().sort((a, b) => {
+      const f = featuredFirst(a, b);
+      if (f !== 0) return f;
+      return a.name.localeCompare(b.name);
+    });
+  } else if (sortMode === "stars" || (sortMode === "relevance" && !scored)) {
+    // "Most popular": the source repo's GitHub stars, best eval score as
+    // the tiebreak so skills from the same repo still rank meaningfully,
+    // then name. Missing/zero stars sink to the bottom.
+    // Diversified by repo (issue #622): skills share their repo's star
+    // count, so a pure stars sort fills the top with one repo
+    // (e.g. obra/superpowers). Round-robin across repos keeps every skill
+    // discoverable (pure reorder, no filtering) while the top mixes repos.
+    results = results.slice().sort((a, b) => {
+      const f = featuredFirst(a, b);
+      if (f !== 0) return f;
+      const ast = typeof a.stars === "number" ? a.stars : 0;
+      const bst = typeof b.stars === "number" ? b.stars : 0;
+      if (ast !== bst) return bst - ast;
+      const as = a.evalSummary ? a.evalSummary.overallScore : -1;
+      const bs = b.evalSummary ? b.evalSummary.overallScore : -1;
+      if (as !== bs) return bs - as;
+      return a.name.localeCompare(b.name);
+    });
+    results = diversifyByRepo(results);
+  } else if (sortMode === "grade") {
+    const gradeRank = { A: 0, B: 1, C: 2, D: 3, F: 4 };
+    results = results.slice().sort((a, b) => {
+      const f = featuredFirst(a, b);
+      if (f !== 0) return f;
+      const ag = a.evalSummary ? (gradeRank[a.evalSummary.grade] ?? 99) : 99;
+      const bg = b.evalSummary ? (gradeRank[b.evalSummary.grade] ?? 99) : 99;
+      if (ag !== bg) return ag - bg;
+      const as = a.evalSummary ? a.evalSummary.overallScore : -1;
+      const bs = b.evalSummary ? b.evalSummary.overallScore : -1;
+      if (as !== bs) return bs - as;
+      return a.name.localeCompare(b.name);
+    });
+  } else if (sortMode === "tokens-asc") {
+    results = results.slice().sort((a, b) => {
+      const f = featuredFirst(a, b);
+      if (f !== 0) return f;
+      const at = typeof a.tokenCount === "number" ? a.tokenCount : Infinity;
+      const bt = typeof b.tokenCount === "number" ? b.tokenCount : Infinity;
+      if (at !== bt) return at - bt;
+      return a.name.localeCompare(b.name);
+    });
+  } else if (sortMode === "tokens-desc") {
+    results = results.slice().sort((a, b) => {
+      const f = featuredFirst(a, b);
+      if (f !== 0) return f;
+      const at = typeof a.tokenCount === "number" ? a.tokenCount : -1;
+      const bt = typeof b.tokenCount === "number" ? b.tokenCount : -1;
+      if (at !== bt) return bt - at;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Round-robin interleave of a popularity-sorted list across repos.
+ * Featured rows stay pinned on top in their existing order; the rest
+ * interleave one skill per repo per round, preserving within-repo order.
+ * Pure reorder — nothing is filtered, so every skill stays discoverable
+ * via pagination, search, or repo browsing (issue #622).
+ *
+ * @param {object[]} sorted Popularity-sorted rows (featured first).
+ * @returns {object[]}
+ */
+export function diversifyByRepo(sorted) {
+  let split = 0;
+  while (split < sorted.length && sorted[split].featured === true) split++;
+  const featured = sorted.slice(0, split);
+  const rest = sorted.slice(split);
+  if (rest.length < 2) return sorted.slice();
+  const groups = new Map();
+  const repoOrder = [];
+  for (const s of rest) {
+    const key = (s.owner || "") + "/" + (s.repo || "");
+    let g = groups.get(key);
+    if (!g) {
+      g = [];
+      groups.set(key, g);
+      repoOrder.push(key);
+    }
+    g.push(s);
+  }
+  if (repoOrder.length < 2) return sorted.slice();
+  const out = [];
+  for (let i = 0; ; i++) {
+    let pushed = false;
+    for (const key of repoOrder) {
+      const g = groups.get(key);
+      if (i < g.length) {
+        out.push(g[i]);
+        pushed = true;
+      }
+    }
+    if (!pushed) break;
+  }
+  return featured.concat(out);
+}
+
+/**
+ * Build the set of `owner/repo::name` keys that collide — i.e. the same
+ * skill name exists at more than one install path within a single repo
+ * (plugin-bundle layouts do this). Consumers use this to decide whether
+ * to surface the distinguishing sub-path on a list row so two otherwise
+ * identical-looking cards don't look like accidental duplicates
+ * (issue #241).
+ *
+ * @param {object[]} skills Slim skill rows.
+ * @returns {Set<string>}
+ */
+export function buildNameCollisionKeys(skills) {
+  const counts = new Map();
+  for (const s of skills) {
+    const key = s.owner + "/" + s.repo + "::" + s.name;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const collisions = new Set();
+  for (const [key, n] of counts) {
+    if (n > 1) collisions.add(key);
+  }
+  return collisions;
+}
+
+export function anyFilterActive(state) {
+  if (state.searchQuery && state.searchQuery.trim()) return true;
+  if (state.activeCategories.size > 0) return true;
+  if (state.activeRepo && state.activeRepo !== "all") return true;
+  for (const k of Object.keys(state.activeFacets)) {
+    if (state.activeFacets[k].size > 0) return true;
+  }
+  // Check sort state — when sort differs from the search-aware default,
+  // the "Clear all" button should appear (issue #526).
+  if (state.sort && state.sort !== defaultSort(state.searchQuery)) return true;
+  return false;
+}
+
+/**
+ * Default sort depends on whether search is active: no search → most
+ * popular (source-repo GitHub stars); search active → relevance scoring.
+ */
+export function defaultSort(searchQuery) {
+  return searchQuery && searchQuery.trim() ? "relevance" : "stars";
+}

@@ -1,0 +1,126 @@
+{
+  "name": "agent-skill-manager",
+  "version": "2.21.0",
+  "description": "Interactive TUI for managing installed skills for AI coding agents (Claude Code, Codex, OpenClaw, and more)",
+  "type": "module",
+  "bin": {
+    "agent-skill-manager": "dist/agent-skill-manager.js",
+    "asm": "dist/agent-skill-manager.js"
+  },
+  "scripts": {
+    "start": "tsx src/index.tsx",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src/",
+    "test:coverage": "vitest run --coverage src/",
+    "test:watch": "vitest src/",
+    "test:e2e": "vitest run tests/e2e/",
+    "test:e2e:node": "vitest run tests/e2e/node-e2e.test.ts",
+    "test:e2e:install": "vitest run tests/e2e/npm-install-e2e.test.ts",
+    "test:site": "vitest run website-src/",
+    "test:all": "vitest run src/ && vitest run website-src/ && npm run build && vitest run tests/e2e/",
+    "dev": "tsx src/index.tsx",
+    "dev:site": "vite --config website-src/vite.config.js",
+    "build": "tsx scripts/build.ts",
+    "build:site": "vite build --config website-src/vite.config.js",
+    "preindex": "tsx scripts/preindex.ts",
+    "refresh:repo-bundles": "tsx scripts/refresh-repo-bundles.ts",
+    "build:website": "tsx scripts/build-catalog.ts && npm run build:site",
+    "lint": "eslint src/",
+    "lint:site": "eslint --config website-src/eslint.config.js 'website-src/src/**/*.{js,jsx}'",
+    "prepublishOnly": "npm run build",
+    "postinstall": "node scripts/postinstall.cjs"
+  },
+  "files": [
+    "dist/",
+    "data/",
+    "scripts/postinstall.cjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "ink": "^7.1.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-window": "^2.2.7",
+    "yaml": "^2.8.3"
+  },
+  "overrides": {
+    "vite": "$vite",
+    "typescript-eslint": {
+      "typescript": "npm:@typescript/typescript6@^6.0.2"
+    },
+    "@typescript-eslint/eslint-plugin": {
+      "typescript": "npm:@typescript/typescript6@^6.0.2"
+    },
+    "@typescript-eslint/parser": {
+      "typescript": "npm:@typescript/typescript6@^6.0.2"
+    },
+    "@typescript-eslint/type-utils": {
+      "typescript": "npm:@typescript/typescript6@^6.0.2"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "typescript": "npm:@typescript/typescript6@^6.0.2"
+    },
+    "@typescript-eslint/utils": {
+      "typescript": "npm:@typescript/typescript6@^6.0.2"
+    }
+  },
+  "engines": {
+    "node": ">=22 <27",
+    "npm": ">=9"
+  },
+  "keywords": [
+    "agent-skill-manager",
+    "tui",
+    "cli",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "openclaw",
+    "skills"
+  ],
+  "author": "luongnv89",
+  "license": "MIT",
+  "homepage": "https://github.com/luongnv89/asm#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luongnv89/asm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/luongnv89/asm/issues"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@typescript/typescript6": "^6.0.2",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/ui": "^5.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "ink-testing-library": "^4.0.0",
+    "jsdom": "^30.0.1",
+    "lucide-react": "^1.41.0",
+    "minisearch": "7.2.0",
+    "prettier": "^3.8.1",
+    "react-router-dom": "^7.18.3",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.69.0",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  }
+}

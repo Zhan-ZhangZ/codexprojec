@@ -1994,5 +1994,83 @@
       "营销技能",
       "marketing skills"
     ]
+  },
+  {
+    "name": "jev-ultrafast",
+    "description": "超快浏览器智能体技能（browser-use × TypeSafe Jev，Agent Skills Hub typesafe-jev 场景实测首选）。动态索引动作空间：给定一个目标，Jev 选题选元素，小模型仅在 TYPE_TEXT 时生成文本；实测苏黎世→伦敦机票全程 7.1 秒。Leading Words: 浏览器智能体, 超快自动化, 动作空间索引, Jev, browser agent, typesafe",
+    "category": "07_智能体框架与协同",
+    "folder": "jev-ultrafast",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/jev-ultrafast",
+    "aliases": [
+      "Jev Ultrafast",
+      "超快浏览器智能体"
+    ]
+  },
+  {
+    "name": "google-workspace-mcp",
+    "description": "Google Workspace 全家桶 MCP 服务器（Agent Skills Hub mcp-for-google 场景实测首选，PyPI workspace-mcp）。覆盖 Gmail/Calendar/Docs/Sheets/Drive/Chat/Contacts/Slides/Tasks/Forms 全组件，OAuth 单次授权，FastMCP 实现，Docker 一键部署。Leading Words: Google Workspace MCP, Gmail日历文档, 谷歌全家桶接入, OAuth MCP, workspace mcp",
+    "category": "11_API与第三方应用集成",
+    "folder": "google-workspace-mcp",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/google-workspace-mcp",
+    "aliases": [
+      "Google Workspace MCP",
+      "workspace-mcp",
+      "谷歌全家桶MCP"
+    ]
+  },
+  {
+    "name": "Scrapling",
+    "description": "自适应网页抓取库（Agent Skills Hub web-scraping 场景实测首选）。undetectable 智能抓取 + 自愈 XPath（页面改版不失效）+ 元素行为模拟 + Stealth 会话；资深反反爬设计，适配 Playwright。Leading Words: 网页抓取, 自愈XPath, 反反爬, 自适应爬虫, scrapling, 智能采集",
+    "category": "03_效率工具与协同管理",
+    "folder": "Scrapling",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/Scrapling",
+    "aliases": [
+      "scrapling",
+      "自愈爬虫"
+    ]
+  },
+  {
+    "name": "cortex",
+    "description": "API 规范上下文服务器（Agent Skills Hub mcp-api 场景实测首选）。把 OpenAPI 等 API 规范与 Markdown 一份配置转成带类型的 SDK、交互式文档与 MCP 服务器，让编码智能体获得可执行的 API 上下文。Leading Words: API规范转SDK, OpenAPI上下文, MCP服务器生成, API文档交互, cortex",
+    "category": "11_API与第三方应用集成",
+    "folder": "cortex",
+    "relative_path": "./00_全局大管家/11_API与第三方应用集成/cortex",
+    "aliases": [
+      "Cortex",
+      "API规范SDK"
+    ]
+  },
+  {
+    "name": "asm",
+    "description": "Agent Skills 管理器 CLI（Agent Skills Hub skill-management-tools 场景实测首选）。安装/更新/卸载/审计 Agent Skills，内置 37M skill-index 离线索引与依赖分析，多注册源支持。Leading Words: 技能管理器, skills安装更新, 技能审计, 离线索引, asm, agent skills manager",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "asm",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/asm",
+    "aliases": [
+      "Agent Skills Manager",
+      "技能管理器"
+    ]
+  },
+  {
+    "name": "medusa",
+    "description": "AI 代码安全扫描器（Agent Skills Hub secret-detection 场景实测首选，Pantheon Security）。六大类 45M 规则语料：密钥泄漏/注入/恶意包/提示注入/过量权限/影子 API；支持源码、IaC、依赖与 MCP 服务器扫描，MCP/Docker/CLI 多形态。Leading Words: 密钥检测, AI安全扫描, 提示注入防护, 恶意包检测, medusa, security scanner",
+    "category": "02_DevOps与自动化",
+    "folder": "medusa",
+    "relative_path": "./00_全局大管家/02_DevOps与自动化/medusa",
+    "aliases": [
+      "Medusa Security",
+      "AI安全扫描"
+    ]
+  },
+  {
+    "name": "Skill-Seekers",
+    "description": "Agent Skills 发现与检索引擎（Agent Skills Hub mcp-for-github 场景实测首选，v3.9.0）。多语言智能体搜索 GitHub 技能与仓库，MCP 服务器形态接入，含 UI 与 Docker/K8s 部署方案。Leading Words: 技能检索, GitHub技能发现, skills搜索引擎, MCP检索服务, skill seekers",
+    "category": "10_Skill开发脚手架与安装器",
+    "folder": "Skill-Seekers",
+    "relative_path": "./00_全局大管家/10_Skill开发脚手架与安装器/Skill-Seekers",
+    "aliases": [
+      "Skill Seekers",
+      "技能发现"
+    ]
   }
 ]

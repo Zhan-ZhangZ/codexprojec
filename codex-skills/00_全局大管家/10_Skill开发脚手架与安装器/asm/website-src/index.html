@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Google tag (gtag.js) + GoatCounter (issue #645) -->
+    <script>
+      window.goatcounter = { no_onload: true };
+    </script>
+    <script
+      data-goatcounter="https://luongnv89.goatcounter.com/count"
+      async
+      src="//gc.zgo.at/count.js"
+    ></script>
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-33TXRCFMWM"
+    ></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+      // Virtual page views are sent from usePageTracking on each HashRouter nav.
+      gtag("config", "G-33TXRCFMWM", { send_page_view: false });
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>asm — One tool to manage every AI agent's skills</title>
+    <meta
+      name="description"
+      content="Install, search, audit, and organize agent skills across Claude Code, Codex, Cursor, and 16+ more — one TUI and CLI. Browse {{SKILL_COUNT}}+ skills online."
+    />
+    <link rel="canonical" href="https://luongnv.com/asm/" />
+    <meta
+      property="og:title"
+      content="asm — One tool to manage every AI agent's skills"
+    />
+    <meta
+      property="og:description"
+      content="Install, search, audit, and organize agent skills across Claude Code, Codex, Cursor, and 16+ more — one TUI, one CLI. Browse {{SKILL_COUNT}}+ skills online."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://luongnv.com/asm/" />
+    <meta
+      property="og:image"
+      content="https://luongnv.com/asm/assets/og-image.png"
+    />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="agent-skill-manager (asm) — one tool to manage every AI agent's skills"
+    />
+    <meta property="og:site_name" content="agent-skill-manager" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="asm — One tool to manage every AI agent's skills"
+    />
+    <meta
+      name="twitter:description"
+      content="Install, search, audit, and organize agent skills across Claude Code, Codex, Cursor, and 16+ more — one TUI, one CLI. Browse {{SKILL_COUNT}}+ skills online."
+    />
+    <meta
+      name="twitter:image"
+      content="https://luongnv.com/asm/assets/og-image.png"
+    />
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "@id": "https://luongnv.com/asm/#webapp",
+        "name": "agent-skill-manager (asm)",
+        "url": "https://luongnv.com/asm/",
+        "description": "agent-skill-manager (asm) is a single TUI and CLI to install, search, audit, and organize agent skills across Claude Code, Codex, Cursor, and 16+ other AI coding agents.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript",
+        "image": "https://luongnv.com/asm/assets/og-image.png",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "isAccessibleForFree": true,
+        "sameAs": [
+          "https://github.com/luongnv89/agent-skill-manager",
+          "https://www.npmjs.com/package/agent-skill-manager"
+        ],
+        "softwareHelp": "https://github.com/luongnv89/agent-skill-manager",
+        "author": {
+          "@type": "Person",
+          "name": "Luong NGUYEN",
+          "url": "https://luongnv.com/"
+        }
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply the stored theme before React paints so first render has no flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem("asm-theme");
+          var prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches;
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : prefersDark
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root">
+      <noscript>
+        <main
+          style="
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 3rem 1.5rem;
+            font-family: system-ui, sans-serif;
+            line-height: 1.6;
+          "
+        >
+          <h1>One tool to manage every AI agent's skills.</h1>
+          <p>
+            <strong>agent-skill-manager (asm)</strong> is an open-source TUI and
+            CLI to install, search, audit, and organize agent skills across
+            Claude Code, Codex, Cursor, Windsurf, and 15+ other AI coding
+            agents. The companion catalog indexes 3,800+ skills from 35
+            repositories across 16 categories.
+          </p>
+          <p>Install via npm:</p>
+          <pre><code>npm install -g agent-skill-manager</code></pre>
+          <h2>Explore</h2>
+          <ul>
+            <li>
+              <a href="https://luongnv.com/asm/#/skills"
+                >Browse the skill catalog</a
+              >
+            </li>
+            <li>
+              <a href="https://github.com/luongnv89/asm">Source on GitHub</a>
+            </li>
+            <li>
+              <a href="https://www.npmjs.com/package/agent-skill-manager"
+                >npm package</a
+              >
+            </li>
+          </ul>
+          <p>
+            This page requires JavaScript for the interactive catalog. The
+            content above is a static summary for clients without JavaScript.
+          </p>
+        </main>
+      </noscript>
+    </div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

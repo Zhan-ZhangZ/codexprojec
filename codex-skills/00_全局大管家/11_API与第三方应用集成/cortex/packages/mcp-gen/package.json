@@ -1,0 +1,56 @@
+{
+  "name": "@cortex-docs/mcp-gen",
+  "version": "0.1.6",
+  "description": "Model Context Protocol server generator for Cortex Docs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cortex-docs/cortex.git",
+    "directory": "packages/mcp-gen"
+  },
+  "homepage": "https://github.com/cortex-docs/cortex#readme",
+  "bugs": {
+    "url": "https://github.com/cortex-docs/cortex/issues"
+  },
+  "keywords": [
+    "cortex-docs",
+    "openapi",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc && mkdir -p dist/templates && cp -r templates/. dist/templates/",
+    "prepack": "npm run clean && npm run build",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@cortex-docs/core": "0.1.6",
+    "eta": "^4.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

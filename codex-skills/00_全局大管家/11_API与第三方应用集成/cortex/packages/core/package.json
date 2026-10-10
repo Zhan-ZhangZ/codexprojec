@@ -1,0 +1,71 @@
+{
+  "name": "@cortex-docs/core",
+  "version": "0.1.6",
+  "description": "Core specification parsing, configuration, and shared types for Cortex Docs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cortex-docs/cortex.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/cortex-docs/cortex#readme",
+  "bugs": {
+    "url": "https://github.com/cortex-docs/cortex/issues"
+  },
+  "keywords": [
+    "cortex-docs",
+    "openapi",
+    "sdk",
+    "code-generation"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./hosting": {
+      "types": "./dist/hosting.d.ts",
+      "default": "./dist/hosting.js"
+    },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "hosting": [
+        "dist/hosting.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepack": "npm run clean && npm run build",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "graphql": "^17.0.2",
+    "js-yaml": "^5.4.1",
+    "openapi-types": "^12.1.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

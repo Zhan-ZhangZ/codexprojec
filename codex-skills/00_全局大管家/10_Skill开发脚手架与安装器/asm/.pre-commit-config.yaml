@@ -1,0 +1,67 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      # ── Security ────────────────────────────────────────────────────────────
+      - id: security-check
+        name: local security hardening check
+        entry: python3 scripts/security_check.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # ── Commit stage ────────────────────────────────────────────────────────
+      - id: prettier
+        name: prettier
+        entry: npx prettier --write --ignore-unknown
+        language: system
+        types: [text]
+        files: \.(ts|tsx|js|jsx|json|css|scss|md)$
+        exclude: ^(node_modules/|dist/|package-lock\.json)
+        stages: [pre-commit]
+
+      - id: lint
+        name: lint
+        entry: npm run lint
+        language: system
+        files: ^(src/|eslint\.config\.js)
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: typecheck
+        name: typecheck
+        entry: npx tsc --noEmit
+        language: system
+        types: [ts, tsx]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # ── Push stage ──────────────────────────────────────────────────────────
+      - id: unit-tests
+        name: unit tests
+        entry: npx vitest run src/
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: build
+        name: build
+        entry: npm run build
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: e2e-node
+        name: e2e tests (node)
+        entry: npx vitest run tests/e2e/node-e2e.test.ts
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

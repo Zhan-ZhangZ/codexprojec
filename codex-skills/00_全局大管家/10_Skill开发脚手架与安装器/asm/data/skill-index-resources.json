@@ -1,0 +1,734 @@
+{
+  "updatedAt": "2026-10-01T07:09:41Z",
+  "repos": [
+    {
+      "source": "github:luongnv89/asm",
+      "url": "https://github.com/luongnv89/asm",
+      "owner": "luongnv89",
+      "repo": "asm",
+      "description": "Built-in ASM skills (skill-creator, find-me-skills, and more published to the catalog)",
+      "maintainer": "@luongnv89",
+      "enabled": true
+    },
+    {
+      "source": "github:anthropics/skills",
+      "url": "https://github.com/anthropics/skills",
+      "owner": "anthropics",
+      "repo": "skills",
+      "description": "Official Agent Skills from Anthropic",
+      "maintainer": "@anthropics",
+      "enabled": true
+    },
+    {
+      "source": "github:obra/superpowers",
+      "url": "https://github.com/obra/superpowers",
+      "owner": "obra",
+      "repo": "superpowers",
+      "description": "Agentic skills framework & development methodology",
+      "maintainer": "@obra",
+      "enabled": true
+    },
+    {
+      "source": "github:affaan-m/everything-claude-code",
+      "url": "https://github.com/affaan-m/everything-claude-code",
+      "owner": "affaan-m",
+      "repo": "everything-claude-code",
+      "description": "Performance optimization system for Claude Code, Codex, and beyond",
+      "maintainer": "@affaan-m",
+      "enabled": true
+    },
+    {
+      "source": "github:nextlevelbuilder/ui-ux-pro-max-skill",
+      "url": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "owner": "nextlevelbuilder",
+      "repo": "ui-ux-pro-max-skill",
+      "description": "Design intelligence for building professional UI/UX",
+      "maintainer": "@nextlevelbuilder",
+      "enabled": true
+    },
+    {
+      "source": "github:sickn33/antigravity-awesome-skills",
+      "url": "https://github.com/sickn33/antigravity-awesome-skills",
+      "owner": "sickn33",
+      "repo": "antigravity-awesome-skills",
+      "description": "1,000+ battle-tested skills for Claude Code, Cursor, and more",
+      "maintainer": "@sickn33",
+      "enabled": true
+    },
+    {
+      "source": "github:coreyhaines31/marketingskills",
+      "url": "https://github.com/coreyhaines31/marketingskills",
+      "owner": "coreyhaines31",
+      "repo": "marketingskills",
+      "description": "Marketing skills \u2014 CRO, copywriting, SEO, analytics, growth",
+      "maintainer": "@coreyhaines31",
+      "enabled": true
+    },
+    {
+      "source": "github:Leonxlnx/taste-skill",
+      "url": "https://github.com/Leonxlnx/taste-skill",
+      "owner": "Leonxlnx",
+      "repo": "taste-skill",
+      "description": "Gives your AI good taste \u2014 stops generic, boring output",
+      "maintainer": "@Leonxlnx",
+      "enabled": true
+    },
+    {
+      "source": "github:Affitor/affiliate-skills",
+      "url": "https://github.com/Affitor/affiliate-skills",
+      "owner": "Affitor",
+      "repo": "affiliate-skills",
+      "description": "Full affiliate marketing funnel: research to deploy",
+      "maintainer": "@Affitor",
+      "enabled": true
+    },
+    {
+      "source": "github:luongnv89/skills",
+      "url": "https://github.com/luongnv89/skills",
+      "owner": "luongnv89",
+      "repo": "skills",
+      "description": "Reusable skills to supercharge your AI agents",
+      "maintainer": "@luongnv89",
+      "enabled": true
+    },
+    {
+      "source": "github:luongnv89/idd",
+      "url": "https://github.com/luongnv89/idd",
+      "owner": "luongnv89",
+      "repo": "idd",
+      "description": "Turn GitHub Issues Into Structured, Agent-Ready Work Orders",
+      "maintainer": "@luongnv89",
+      "enabled": true
+    },
+    {
+      "source": "github:MiniMax-AI/skills",
+      "url": "https://github.com/MiniMax-AI/skills",
+      "owner": "MiniMax-AI",
+      "repo": "skills",
+      "description": "Agent skills from MiniMax AI",
+      "maintainer": "@MiniMax-AI",
+      "enabled": true
+    },
+    {
+      "source": "github:slavingia/skills",
+      "url": "https://github.com/slavingia/skills",
+      "owner": "slavingia",
+      "repo": "skills",
+      "description": "Claude Code skills based on The Minimalist Entrepreneur",
+      "maintainer": "@slavingia",
+      "enabled": true
+    },
+    {
+      "source": "github:kemiljk/fluid-design",
+      "url": "https://github.com/kemiljk/fluid-design",
+      "owner": "kemiljk",
+      "repo": "fluid-design",
+      "description": "10 principles for building fluid, physics-based interfaces",
+      "maintainer": "@kemiljk",
+      "enabled": true
+    },
+    {
+      "source": "github:Eronred/aso-skills",
+      "url": "https://github.com/Eronred/aso-skills",
+      "owner": "Eronred",
+      "repo": "aso-skills",
+      "description": "ASO and mobile app marketing skills for growth teams",
+      "maintainer": "@Eronred",
+      "enabled": true
+    },
+    {
+      "source": "github:twostraws/SwiftUI-Agent-Skill",
+      "url": "https://github.com/twostraws/SwiftUI-Agent-Skill",
+      "owner": "twostraws",
+      "repo": "SwiftUI-Agent-Skill",
+      "description": "SwiftUI best-practice review skill from Hacking with Swift",
+      "maintainer": "@twostraws",
+      "enabled": true
+    },
+    {
+      "source": "github:twostraws/Swift-Concurrency-Agent-Skill",
+      "url": "https://github.com/twostraws/Swift-Concurrency-Agent-Skill",
+      "owner": "twostraws",
+      "repo": "Swift-Concurrency-Agent-Skill",
+      "description": "Swift concurrency best-practice review skill from Hacking with Swift",
+      "maintainer": "@twostraws",
+      "enabled": true
+    },
+    {
+      "source": "github:twostraws/Swift-Testing-Agent-Skill",
+      "url": "https://github.com/twostraws/Swift-Testing-Agent-Skill",
+      "owner": "twostraws",
+      "repo": "Swift-Testing-Agent-Skill",
+      "description": "Swift Testing best-practice review skill from Hacking with Swift",
+      "maintainer": "@twostraws",
+      "enabled": true
+    },
+    {
+      "source": "github:twostraws/SwiftData-Agent-Skill",
+      "url": "https://github.com/twostraws/SwiftData-Agent-Skill",
+      "owner": "twostraws",
+      "repo": "SwiftData-Agent-Skill",
+      "description": "SwiftData best-practice review skill from Hacking with Swift",
+      "maintainer": "@twostraws",
+      "enabled": true
+    },
+    {
+      "source": "github:AvdLee/SwiftUI-Agent-Skill",
+      "url": "https://github.com/AvdLee/SwiftUI-Agent-Skill",
+      "owner": "AvdLee",
+      "repo": "SwiftUI-Agent-Skill",
+      "description": "SwiftUI development and code review skills from Antoine van der Lee",
+      "maintainer": "@AvdLee",
+      "enabled": true
+    },
+    {
+      "source": "github:AvdLee/Swift-Concurrency-Agent-Skill",
+      "url": "https://github.com/AvdLee/Swift-Concurrency-Agent-Skill",
+      "owner": "AvdLee",
+      "repo": "Swift-Concurrency-Agent-Skill",
+      "description": "Swift concurrency skill for async/await, actors, and Sendable patterns",
+      "maintainer": "@AvdLee",
+      "enabled": true
+    },
+    {
+      "source": "github:AvdLee/Swift-Testing-Agent-Skill",
+      "url": "https://github.com/AvdLee/Swift-Testing-Agent-Skill",
+      "owner": "AvdLee",
+      "repo": "Swift-Testing-Agent-Skill",
+      "description": "Swift Testing migration and best-practice skill",
+      "maintainer": "@AvdLee",
+      "enabled": true
+    },
+    {
+      "source": "github:AvdLee/Core-Data-Agent-Skill",
+      "url": "https://github.com/AvdLee/Core-Data-Agent-Skill",
+      "owner": "AvdLee",
+      "repo": "Core-Data-Agent-Skill",
+      "description": "Core Data development and migration skill for Apple apps",
+      "maintainer": "@AvdLee",
+      "enabled": true
+    },
+    {
+      "source": "github:AvdLee/Xcode-Build-Optimization-Agent-Skill",
+      "url": "https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill",
+      "owner": "AvdLee",
+      "repo": "Xcode-Build-Optimization-Agent-Skill",
+      "description": "Xcode build performance analysis and optimization skills",
+      "maintainer": "@AvdLee",
+      "enabled": true
+    },
+    {
+      "source": "github:Dimillian/Skills",
+      "url": "https://github.com/Dimillian/Skills",
+      "owner": "Dimillian",
+      "repo": "Skills",
+      "description": "iOS app development, release, and App Store workflow skills",
+      "maintainer": "@Dimillian",
+      "enabled": true
+    },
+    {
+      "source": "github:rudrankriyam/app-store-connect-cli-skills",
+      "url": "https://github.com/rudrankriyam/app-store-connect-cli-skills",
+      "owner": "rudrankriyam",
+      "repo": "app-store-connect-cli-skills",
+      "description": "App Store Connect CLI and automation skills",
+      "maintainer": "@rudrankriyam",
+      "enabled": true
+    },
+    {
+      "source": "github:ivan-magda/uikit-expert-skill",
+      "url": "https://github.com/ivan-magda/uikit-expert-skill",
+      "owner": "ivan-magda",
+      "repo": "uikit-expert-skill",
+      "description": "UIKit expert guidance for programmatic and storyboard-based iOS apps",
+      "maintainer": "@ivan-magda",
+      "enabled": true
+    },
+    {
+      "source": "github:mattpocock/skills",
+      "url": "https://github.com/mattpocock/skills",
+      "owner": "mattpocock",
+      "repo": "skills",
+      "description": "Personal skills directory from TypeScript educator Matt Pocock",
+      "maintainer": "@mattpocock",
+      "enabled": true
+    },
+    {
+      "source": "github:garrytan/gstack",
+      "url": "https://github.com/garrytan/gstack",
+      "owner": "garrytan",
+      "repo": "gstack",
+      "description": "Claude Code setup spanning exec, design, engineering, docs, QA, browser workflows, and agent operations",
+      "maintainer": "@garrytan",
+      "enabled": true
+    },
+    {
+      "source": "github:Egonex-AI/Understand-Anything",
+      "url": "https://github.com/Egonex-AI/Understand-Anything",
+      "owner": "Egonex-AI",
+      "repo": "Understand-Anything",
+      "description": "Turns a codebase into an interactive knowledge graph with explain, diff, dashboard, chat, and onboarding skills",
+      "maintainer": "@Egonex-AI",
+      "enabled": true
+    },
+    {
+      "source": "github:addyosmani/agent-skills",
+      "url": "https://github.com/addyosmani/agent-skills",
+      "owner": "addyosmani",
+      "repo": "agent-skills",
+      "description": "Production-grade engineering skills for coding agents",
+      "maintainer": "@addyosmani",
+      "enabled": true
+    },
+    {
+      "source": "github:santifer/career-ops",
+      "url": "https://github.com/santifer/career-ops",
+      "owner": "santifer",
+      "repo": "career-ops",
+      "description": "Job search command center built on Claude Code and cross-agent skill modes",
+      "maintainer": "@santifer",
+      "enabled": true
+    },
+    {
+      "source": "github:mvanhorn/last30days-skill",
+      "url": "https://github.com/mvanhorn/last30days-skill",
+      "owner": "mvanhorn",
+      "repo": "last30days-skill",
+      "description": "Researches recent trends across Reddit, X, YouTube, Hacker News, and the web",
+      "maintainer": "@mvanhorn",
+      "enabled": true
+    },
+    {
+      "source": "github:kepano/obsidian-skills",
+      "url": "https://github.com/kepano/obsidian-skills",
+      "owner": "kepano",
+      "repo": "obsidian-skills",
+      "description": "Agent skills for Obsidian \u2014 Markdown, Bases, JSON Canvas, and CLI",
+      "maintainer": "@kepano",
+      "enabled": true
+    },
+    {
+      "source": "github:Galaxy-Dawn/claude-scholar",
+      "url": "https://github.com/Galaxy-Dawn/claude-scholar",
+      "owner": "Galaxy-Dawn",
+      "repo": "claude-scholar",
+      "description": "Semi-automated research assistant for academic research",
+      "maintainer": "@Galaxy-Dawn",
+      "enabled": true
+    },
+    {
+      "source": "github:himself65/finance-skills",
+      "url": "https://github.com/himself65/finance-skills",
+      "owner": "himself65",
+      "repo": "finance-skills",
+      "description": "Finance-domain skills for AI agents",
+      "maintainer": "@himself65",
+      "enabled": true
+    },
+    {
+      "source": "github:Master-cai/Research-Paper-Writing-Skills",
+      "url": "https://github.com/Master-cai/Research-Paper-Writing-Skills",
+      "owner": "Master-cai",
+      "repo": "Research-Paper-Writing-Skills",
+      "description": "Skill package for ML/CV/NLP paper writing, curated from Prof. Peng Sida's open notes",
+      "maintainer": "@Master-cai",
+      "enabled": true
+    },
+    {
+      "source": "github:bytedance/deer-flow",
+      "url": "https://github.com/bytedance/deer-flow",
+      "owner": "bytedance",
+      "repo": "deer-flow",
+      "description": "Multi-agent orchestration framework with skill generation and deployment (integrates with DeerFlow platform API)",
+      "maintainer": "@bytedance",
+      "enabled": true
+    },
+    {
+      "source": "github:GPTomics/bioSkills",
+      "url": "https://github.com/GPTomics/bioSkills",
+      "owner": "GPTomics",
+      "repo": "bioSkills",
+      "description": "Bioinformatics and genomics analysis skills for Claude",
+      "maintainer": "@GPTomics",
+      "enabled": true
+    },
+    {
+      "source": "github:K-Dense-AI/claude-scientific-skills",
+      "url": "https://github.com/K-Dense-AI/claude-scientific-skills",
+      "owner": "K-Dense-AI",
+      "repo": "claude-scientific-skills",
+      "description": "Scientific computing and research skills for Claude agents",
+      "maintainer": "@K-Dense-AI",
+      "enabled": true
+    },
+    {
+      "source": "github:github/awesome-copilot",
+      "url": "https://github.com/github/awesome-copilot",
+      "owner": "github",
+      "repo": "awesome-copilot",
+      "description": "Curated collection of GitHub Copilot skills and patterns",
+      "maintainer": "@github",
+      "enabled": true
+    },
+    {
+      "source": "github:alirezarezvani/claude-skills",
+      "url": "https://github.com/alirezarezvani/claude-skills",
+      "owner": "alirezarezvani",
+      "repo": "claude-skills",
+      "description": "+192 Claude Code skills & agent plugins for Claude Code, Codex, Gemini CLI, Cursor, and 8 more coding agents \u2014 engineering, marketing, product, compliance, C-level advisory.",
+      "maintainer": "@alirezarezvani",
+      "enabled": true
+    },
+    {
+      "source": "github:Imbad0202/academic-research-skills",
+      "url": "https://github.com/Imbad0202/academic-research-skills",
+      "owner": "Imbad0202",
+      "repo": "academic-research-skills",
+      "description": "Academic and research-oriented workflow skills for students and researchers",
+      "maintainer": "@Imbad0202",
+      "enabled": true
+    },
+    {
+      "source": "github:heygen-com/hyperframes",
+      "url": "https://github.com/heygen-com/hyperframes",
+      "owner": "heygen-com",
+      "repo": "hyperframes",
+      "description": "Write HTML. Render video. Built for agents.",
+      "maintainer": "@heygen-com",
+      "enabled": true
+    },
+    {
+      "source": "github:google/skills",
+      "url": "https://github.com/google/skills",
+      "owner": "google",
+      "repo": "skills",
+      "description": "Agent Skills for Google products and technologies",
+      "maintainer": "@google",
+      "enabled": true
+    },
+    {
+      "source": "github:antonbabenko/terraform-skill",
+      "url": "https://github.com/antonbabenko/terraform-skill",
+      "owner": "antonbabenko",
+      "repo": "terraform-skill",
+      "description": "Terraform & OpenTofu Skill for AI Agents - testing, modules, CI/CD, and production patterns",
+      "maintainer": "@antonbabenko",
+      "enabled": true
+    },
+    {
+      "source": "github:Paramchoudhary/ResumeSkills",
+      "url": "https://github.com/Paramchoudhary/ResumeSkills",
+      "owner": "Paramchoudhary",
+      "repo": "ResumeSkills",
+      "description": "A collection of AI agent skills focused on resume optimization, job applications, and career development",
+      "maintainer": "@Paramchoudhary",
+      "enabled": true
+    },
+    {
+      "source": "github:warpdotdev/oz-skills",
+      "url": "https://github.com/warpdotdev/oz-skills",
+      "owner": "warpdotdev",
+      "repo": "oz-skills",
+      "description": "A curated collection of reusable Agent Skills for Warp AI agents and Oz",
+      "maintainer": "@warpdotdev",
+      "enabled": true
+    },
+    {
+      "source": "github:entireio/skills",
+      "url": "https://github.com/entireio/skills",
+      "owner": "entireio",
+      "repo": "skills",
+      "description": "Cross-agent skills that help coding agents use Entire context from Checkpoints, sessions, and git history to search past work, explain code, and hand off sessions.",
+      "maintainer": "@entireio",
+      "enabled": true
+    },
+    {
+      "source": "github:romainsimon/paperasse",
+      "url": "https://github.com/romainsimon/paperasse",
+      "owner": "romainsimon",
+      "repo": "paperasse",
+      "description": "\ud83c\uddeb\ud83c\uddf7  Skills pour agents IA sp\u00e9cialis\u00e9s dans la bureaucratie fran\u00e7aise : Comptable, Notaire, ...",
+      "maintainer": "@romainsimon",
+      "enabled": true
+    },
+    {
+      "source": "github:briiirussell/cybersecurity-skills",
+      "url": "https://github.com/briiirussell/cybersecurity-skills",
+      "owner": "briiirussell",
+      "repo": "cybersecurity-skills",
+      "description": "37 cybersecurity skills for AI agents \u2014 AppSec, audits, incident response, threat modeling, compliance, and more",
+      "maintainer": "@briiirussell",
+      "enabled": true
+    },
+    {
+      "source": "github:badlogic/pi-skills",
+      "url": "https://github.com/badlogic/pi-skills",
+      "owner": "badlogic",
+      "repo": "pi-skills",
+      "description": "Collection of agent skills compatible with pi-coding-agent, Claude Code, Codex CLI, Amp, and Droid",
+      "maintainer": "@badlogic",
+      "enabled": true
+    },
+    {
+      "source": "github:zarazhangrui/follow-builders",
+      "url": "https://github.com/zarazhangrui/follow-builders",
+      "owner": "zarazhangrui",
+      "repo": "follow-builders",
+      "description": "Follow Builders skill for discovering and following builders",
+      "maintainer": "@zarazhangrui",
+      "enabled": true
+    },
+    {
+      "source": "github:davidondrej/skills",
+      "url": "https://github.com/davidondrej/skills",
+      "owner": "davidondrej",
+      "repo": "skills",
+      "description": "access to david ondrej's personal agent skills",
+      "maintainer": "@davidondrej",
+      "enabled": true
+    },
+    {
+      "source": "github:emilkowalski/skills",
+      "url": "https://github.com/emilkowalski/skills",
+      "owner": "emilkowalski",
+      "repo": "skills",
+      "description": "Design-engineering skills \u2014 animations, Apple design patterns, and UI craft",
+      "maintainer": "@emilkowalski",
+      "enabled": true
+    },
+    {
+      "source": "github:ParthJadhav/app-store-screenshots",
+      "url": "https://github.com/ParthJadhav/app-store-screenshots",
+      "owner": "ParthJadhav",
+      "repo": "app-store-screenshots",
+      "description": "end to end app store screenshot creation using AI",
+      "maintainer": "@ParthJadhav",
+      "enabled": true
+    },
+    {
+      "source": "github:cloudai-x/threejs-skills",
+      "url": "https://github.com/cloudai-x/threejs-skills",
+      "owner": "cloudai-x",
+      "repo": "threejs-skills",
+      "description": "Three.js skills for AI agents \u2014 animation, geometry, lighting, shaders, materials, and more",
+      "maintainer": "@cloudai-x",
+      "enabled": true
+    },
+    {
+      "source": "github:oliver-zehentleitner/keep-the-why",
+      "url": "https://github.com/oliver-zehentleitner/keep-the-why",
+      "owner": "oliver-zehentleitner",
+      "repo": "keep-the-why",
+      "description": "Preserves the reasoning behind a codebase \u2014 architecture decisions, rejected alternatives, workarounds, incident learnings as versioned Markdown",
+      "maintainer": "@oliver-zehentleitner",
+      "enabled": true
+    },
+    {
+      "source": "github:antithesishq/antithesis-skills",
+      "url": "https://github.com/antithesishq/antithesis-skills",
+      "owner": "antithesishq",
+      "repo": "antithesis-skills",
+      "description": "AI Skills for Antithesis Users",
+      "maintainer": "@antithesishq",
+      "enabled": true
+    },
+    {
+      "source": "github:multica-ai/andrej-karpathy-skills",
+      "url": "https://github.com/multica-ai/andrej-karpathy-skills",
+      "owner": "multica-ai",
+      "repo": "andrej-karpathy-skills",
+      "description": "A single CLAUDE.md file to improve Claude Code behavior, derived from Andrej Karpathy's observations on LLM coding pitfalls.",
+      "maintainer": "@multica-ai",
+      "enabled": true
+    },
+    {
+      "source": "github:JuliusBrussee/caveman",
+      "url": "https://github.com/JuliusBrussee/caveman",
+      "owner": "JuliusBrussee",
+      "repo": "caveman",
+      "description": "\ud83e\udea8 why use many token when few token do trick \u2014 Claude Code skill that cuts 65% of tokens by talking like caveman",
+      "maintainer": "@JuliusBrussee",
+      "enabled": true
+    },
+    {
+      "source": "github:ComposioHQ/awesome-claude-skills",
+      "url": "https://github.com/ComposioHQ/awesome-claude-skills",
+      "owner": "ComposioHQ",
+      "repo": "awesome-claude-skills",
+      "description": "A curated list of awesome Claude Skills, resources, and tools for customizing Claude AI workflows",
+      "maintainer": "@ComposioHQ",
+      "enabled": true
+    },
+    {
+      "source": "github:ayghri/i-have-adhd",
+      "url": "https://github.com/ayghri/i-have-adhd",
+      "owner": "ayghri",
+      "repo": "i-have-adhd",
+      "description": "A skill to stop your coding agent from burying the answer. ADHD-friendly output.",
+      "maintainer": "@ayghri",
+      "enabled": true
+    },
+    {
+      "source": "github:pbakaus/impeccable",
+      "url": "https://github.com/pbakaus/impeccable",
+      "owner": "pbakaus",
+      "repo": "impeccable",
+      "description": "impeccable \u2014 anti-slop UI/UX skill for polished, non-templated interfaces.",
+      "maintainer": "@pbakaus",
+      "enabled": true
+    },
+    {
+      "source": "github:blader/humanizer",
+      "url": "https://github.com/blader/humanizer",
+      "owner": "blader",
+      "repo": "humanizer",
+      "description": "humanizer \u2014 removes AI-sounding patterns from generated text (anti-slop writing).",
+      "maintainer": "@blader",
+      "enabled": true
+    },
+    {
+      "source": "github:zarazhangrui/frontend-slides",
+      "url": "https://github.com/zarazhangrui/frontend-slides",
+      "owner": "zarazhangrui",
+      "repo": "frontend-slides",
+      "description": "frontend-slides \u2014 generate clean slide decks without templated look (anti-slop).",
+      "maintainer": "@zarazhangrui",
+      "enabled": true
+    },
+    {
+      "source": "github:google-labs-code/design.md",
+      "url": "https://github.com/google-labs-code/design.md",
+      "owner": "google-labs-code",
+      "repo": "design.md",
+      "description": "design.md \u2014 Google Labs design-system skill for agent-built interfaces (anti-slop).",
+      "maintainer": "@google-labs-code",
+      "enabled": true
+    },
+    {
+      "source": "github:Nutlope/hallmark",
+      "url": "https://github.com/Nutlope/hallmark",
+      "owner": "Nutlope",
+      "repo": "hallmark",
+      "description": "hallmark \u2014 anti-slop skill for distinctive, non-generic output.",
+      "maintainer": "@Nutlope",
+      "enabled": true
+    },
+    {
+      "source": "github:cathrynlavery/diagram-design",
+      "url": "https://github.com/cathrynlavery/diagram-design",
+      "owner": "cathrynlavery",
+      "repo": "diagram-design",
+      "description": "diagram-design \u2014 draws diagrams instead of explaining; clean visual output (anti-slop).",
+      "maintainer": "@cathrynlavery",
+      "enabled": true
+    },
+    {
+      "source": "github:hardikpandya/stop-slop",
+      "url": "https://github.com/hardikpandya/stop-slop",
+      "owner": "hardikpandya",
+      "repo": "stop-slop",
+      "description": "stop-slop \u2014 explicitly anti-AI-slop skill for human-sounding output.",
+      "maintainer": "@hardikpandya",
+      "enabled": true
+    },
+    {
+      "source": "github:tt-a1i/archify",
+      "url": "https://github.com/tt-a1i/archify",
+      "owner": "tt-a1i",
+      "repo": "archify",
+      "description": "archify \u2014 architecture diagramming skill for clean, non-templated visuals (anti-slop).",
+      "maintainer": "@tt-a1i",
+      "enabled": true
+    },
+    {
+      "source": "github:charlie947/answer-first",
+      "url": "https://github.com/charlie947/answer-first",
+      "owner": "charlie947",
+      "repo": "answer-first",
+      "description": "answer-first \u2014 Charlie Hills skill: answer on line one, next step at bottom (anti-slop output structure).",
+      "maintainer": "@charlie947",
+      "enabled": true
+    },
+    {
+      "source": "github:charlie947/voiceprint",
+      "url": "https://github.com/charlie947/voiceprint",
+      "owner": "charlie947",
+      "repo": "voiceprint",
+      "description": "voiceprint \u2014 Charlie Hills skill: preserve a consistent human voice (anti-slop writing).",
+      "maintainer": "@charlie947",
+      "enabled": true
+    },
+    {
+      "source": "github:DietrichGebert/ponytail",
+      "url": "https://github.com/DietrichGebert/ponytail",
+      "owner": "DietrichGebert",
+      "repo": "ponytail",
+      "description": "Makes your AI agent think like the laziest senior dev in the room. The best code is the code you never wrote.",
+      "maintainer": "@DietrichGebert",
+      "enabled": true
+    },
+    {
+      "source": "github:majidmanzarpour/threejs-game-skills",
+      "url": "https://github.com/majidmanzarpour/threejs-game-skills",
+      "owner": "majidmanzarpour",
+      "repo": "threejs-game-skills",
+      "description": "Three.js game development skills for AI agents \u2014 gameplay, AAA-style graphics, UI, QA, and asset generation",
+      "maintainer": "@majidmanzarpour",
+      "enabled": true
+    },
+    {
+      "source": "github:openai/skills",
+      "url": "https://github.com/openai/skills",
+      "owner": "openai",
+      "repo": "skills",
+      "description": "Skills Catalog for Codex",
+      "maintainer": "@openai",
+      "enabled": true
+    },
+    {
+      "source": "github:affaan-m/ECC",
+      "url": "https://github.com/affaan-m/ECC",
+      "owner": "affaan-m",
+      "repo": "ECC",
+      "description": "The agent harness performance optimization system. Skills, instincts, memory, security, and research-first development for Claude Code, Codex, Opencode, Cursor and beyond.",
+      "maintainer": "@affaan-m",
+      "enabled": true
+    },
+    {
+      "source": "github:typesafe-ai/skills",
+      "url": "https://github.com/typesafe-ai/skills",
+      "owner": "typesafe-ai",
+      "repo": "skills",
+      "description": "Agent skills for building with TypeSafe's System One API",
+      "maintainer": "@typesafe-ai",
+      "enabled": true
+    },
+    {
+      "source": "github:Tencent/BrowserSkill",
+      "url": "https://github.com/Tencent/BrowserSkill",
+      "owner": "Tencent",
+      "repo": "BrowserSkill",
+      "description": "Let AI agents use your real, logged-in browser without interrupting your work. CLI + extension for browser automation across any shell-capable AI agent.",
+      "maintainer": "@Tencent",
+      "enabled": true
+    },
+    {
+      "source": "github:anthropics/financial-services",
+      "url": "https://github.com/anthropics/financial-services",
+      "owner": "anthropics",
+      "repo": "financial-services",
+      "description": "Reference agents, skills, and data connectors for financial-services workflows — investment banking, equity research, private equity, and wealth management",
+      "maintainer": "@anthropics",
+      "enabled": true
+    },
+    {
+      "source": "github:google/mantis",
+      "url": "https://github.com/google/mantis",
+      "owner": "google",
+      "repo": "mantis",
+      "description": "A modular, stack-agnostic toolkit for AI coding agents to autonomously find, reproduce, and patch vulnerabilities.",
+      "maintainer": "@google",
+      "enabled": true
+    }
+  ]
+}

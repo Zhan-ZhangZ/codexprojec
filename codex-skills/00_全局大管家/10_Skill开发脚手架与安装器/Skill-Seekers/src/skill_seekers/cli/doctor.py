@@ -1,0 +1,391 @@
+"""
+skill-seekers doctor — Environment health check command.
+
+Runs 8 quick offline checks and prints a diagnostic summary,
+similar to `brew doctor` or `flutter doctor`.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from typing import Literal
+
+
+@dataclass
+class CheckResult:
+    """Result of a single health check."""
+
+    name: str
+    status: Literal["pass", "warn", "fail"]
+    detail: str
+    critical: bool = False
+    verbose_detail: str = ""
+
+
+# ── Core dependency import names (from pyproject.toml dependencies) ──────────
+CORE_DEPS = {
+    "requests": "requests",
+    "beautifulsoup4": "bs4",
+    "PyGithub": "github",
+    "GitPython": "git",
+    "httpx": "httpx",
+    "anthropic": "anthropic",
+    "PyMuPDF": "fitz",
+    "Pillow": "PIL",
+    "pydantic": "pydantic",
+    "pydantic-settings": "pydantic_settings",
+    "python-dotenv": "dotenv",
+    "jsonschema": "jsonschema",
+    "click": "click",
+    "Pygments": "pygments",
+}
+
+# ── Optional dependency import names ─────────────────────────────────────────
+OPTIONAL_DEPS = {
+    "mammoth": "mammoth",
+    "ebooklib": "ebooklib",
+    "yt-dlp": "yt_dlp",
+    "mcp": "mcp",
+    "google-generativeai": "google.generativeai",
+    "openai": "openai",
+    "chromadb": "chromadb",
+    "weaviate-client": "weaviate",
+    "nbformat": "nbformat",
+    "feedparser": "feedparser",
+}
+
+# ── API keys to check ────────────────────────────────────────────────────────
+API_KEYS = [
+    "ANTHROPIC_API_KEY",
+    "GITHUB_TOKEN",
+    "GOOGLE_API_KEY",
+    "OPENAI_API_KEY",
+    "MOONSHOT_API_KEY",
+]
+
+
+def _try_import(module_name: str) -> tuple[bool, str]:
+    """Try to import a module and return (success, version_or_error)."""
+    try:
+        mod = __import__(module_name.split(".")[0])
+        version = getattr(mod, "__version__", getattr(mod, "VERSION", "installed"))
+        return True, str(version)
+    except Exception as e:
+        return False, str(e)
+
+
+def check_python_version() -> CheckResult:
+    """Check 1: Python version >= 3.10."""
+    v = sys.version_info
+    version_str = f"{v.major}.{v.minor}.{v.micro}"
+    if v >= (3, 10):
+        return CheckResult("Python version", "pass", version_str, critical=True)
+    return CheckResult("Python version", "fail", f"{version_str} (requires 3.10+)", critical=True)
+
+
+def check_package_installed() -> CheckResult:
+    """Check 2: skill-seekers package importable with version."""
+    try:
+        from skill_seekers._version import __version__
+
+        return CheckResult("skill-seekers installed", "pass", f"v{__version__}", critical=True)
+    except ImportError:
+        return CheckResult(
+            "skill-seekers installed", "fail", "Cannot import skill_seekers", critical=True
+        )
+
+
+def check_git() -> CheckResult:
+    """Check 3: git available in PATH."""
+    git_path = shutil.which("git")
+    if not git_path:
+        return CheckResult("Git", "warn", "git not found in PATH")
+    try:
+        result = subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=5)
+        version = result.stdout.strip()
+        return CheckResult("Git", "pass", version, verbose_detail=f"Path: {git_path}")
+    except Exception as e:
+        return CheckResult("Git", "warn", f"git found but error: {e}")
+
+
+def check_core_deps() -> CheckResult:
+    """Check 4: Core dependencies importable."""
+    found = []
+    missing = []
+    details = []
+    for pkg_name, import_name in CORE_DEPS.items():
+        ok, info = _try_import(import_name)
+        if ok:
+            found.append(pkg_name)
+            details.append(f"  {pkg_name}: {info}")
+        else:
+            missing.append(pkg_name)
+            details.append(f"  {pkg_name}: MISSING")
+
+    if not missing:
+        return CheckResult(
+            "Core dependencies",
+            "pass",
+            f"All {len(found)} found",
+            critical=True,
+            verbose_detail="\n".join(details),
+        )
+    return CheckResult(
+        "Core dependencies",
+        "fail",
+        f"{len(missing)} missing: {', '.join(missing)}",
+        critical=True,
+        verbose_detail="\n".join(details),
+    )
+
+
+def check_optional_deps() -> CheckResult:
+    """Check 5: Optional dependencies status."""
+    found = []
+    missing = []
+    details = []
+    for pkg_name, import_name in OPTIONAL_DEPS.items():
+        ok, info = _try_import(import_name)
+        if ok:
+            found.append(pkg_name)
+            details.append(f"  {pkg_name}: {info}")
+        else:
+            missing.append(pkg_name)
+            details.append(f"  {pkg_name}: not installed")
+
+    total = len(OPTIONAL_DEPS)
+    if not missing:
+        return CheckResult(
+            "Optional dependencies",
+            "pass",
+            f"{total}/{total} installed",
+            verbose_detail="\n".join(details),
+        )
+    return CheckResult(
+        "Optional dependencies",
+        "warn",
+        f"{len(found)}/{total} installed (not installed: {', '.join(missing)})",
+        verbose_detail="\n".join(details),
+    )
+
+
+def check_api_keys() -> CheckResult:
+    """Check 6: API keys set in environment."""
+    set_keys = []
+    missing_keys = []
+    details = []
+    for key in API_KEYS:
+        val = os.environ.get(key)
+        if val:
+            set_keys.append(key)
+            masked = val[:4] + "..." + val[-4:] if len(val) > 12 else "***"
+            details.append(f"  {key}: {masked}")
+        else:
+            missing_keys.append(key)
+            details.append(f"  {key}: not set")
+
+    if not missing_keys:
+        return CheckResult(
+            "API keys",
+            "pass",
+            f"All {len(API_KEYS)} set",
+            verbose_detail="\n".join(details),
+        )
+    if set_keys:
+        # Name the keys that ARE set so a bare GITHUB_TOKEN (a rate-limit token,
+        # not an AI enhancement provider) isn't misread as a provider key being
+        # configured. Previously the summary only listed the missing keys, so
+        # "1 set" looked like enhancement was ready when only GITHUB_TOKEN was set.
+        return CheckResult(
+            "API keys",
+            "warn",
+            f"{len(set_keys)} set ({', '.join(set_keys)}); "
+            f"{len(missing_keys)} not set ({', '.join(missing_keys)})",
+            verbose_detail="\n".join(details),
+        )
+    return CheckResult(
+        "API keys",
+        "warn",
+        "None set (enhancement features will use LOCAL mode)",
+        verbose_detail="\n".join(details),
+    )
+
+
+def check_mcp_server() -> CheckResult:
+    """Check 7: MCP server module importable."""
+    try:
+        from skill_seekers.mcp import server_fastmcp  # noqa: F401
+
+        return CheckResult("MCP server", "pass", "Importable")
+    except ImportError as e:
+        return CheckResult("MCP server", "warn", f"Not available ({e})")
+    except Exception as e:
+        return CheckResult("MCP server", "warn", f"Import error: {e}")
+
+
+def check_output_directory() -> CheckResult:
+    """Check 8: Current directory is writable."""
+    cwd = os.getcwd()
+    if os.access(cwd, os.W_OK):
+        return CheckResult("Output directory", "pass", f"{cwd} (writable)", critical=True)
+    return CheckResult("Output directory", "fail", f"{cwd} (NOT writable)", critical=True)
+
+
+def run_all_checks() -> list[CheckResult]:
+    """Run all 8 health checks and return results."""
+    return [
+        check_python_version(),
+        check_package_installed(),
+        check_git(),
+        check_core_deps(),
+        check_optional_deps(),
+        check_api_keys(),
+        check_mcp_server(),
+        check_output_directory(),
+    ]
+
+
+STATUS_ICONS = {"pass": "\u2705", "warn": "\u26a0\ufe0f ", "fail": "\u274c"}
+
+
+def _installed_version() -> str:
+    try:
+        from skill_seekers._version import __version__
+
+        return __version__
+    except ImportError:
+        return "unknown"
+
+
+def summarize(results: list[CheckResult]) -> dict[str, int]:
+    """Pass/warn/fail tally shared by the human and JSON reports."""
+    return {
+        "passed": sum(1 for r in results if r.status == "pass"),
+        "warnings": sum(1 for r in results if r.status == "warn"),
+        "failed": sum(1 for r in results if r.status == "fail"),
+    }
+
+
+def _exit_code(summary: dict[str, int]) -> int:
+    """One definition of the doctor exit rule: any failed check fails the run."""
+    from skill_seekers.cli.exit_codes import EXIT_ERROR, EXIT_SUCCESS
+
+    return EXIT_ERROR if summary["failed"] else EXIT_SUCCESS
+
+
+def print_report(results: list[CheckResult], verbose: bool = False) -> int:
+    """Print formatted report and return exit code."""
+    print()
+    print("=" * 50)
+    print(f"  Skill Seekers Doctor (v{_installed_version()})")
+    print("=" * 50)
+    print()
+
+    for r in results:
+        icon = STATUS_ICONS[r.status]
+        print(f"  {icon} {r.name} — {r.detail}")
+        if verbose and r.verbose_detail:
+            for line in r.verbose_detail.split("\n"):
+                print(f"      {line}")
+
+    summary = summarize(results)
+    print()
+    print("-" * 50)
+    print(
+        f"  {summary['passed']} passed, {summary['warnings']} warnings, {summary['failed']} errors"
+    )
+
+    if summary["failed"] == 0:
+        if summary["warnings"] > 0:
+            print("  All critical checks passed with some warnings.")
+        else:
+            print("  All checks passed!")
+    else:
+        print("  Some critical checks failed. Fix errors above.")
+
+    print()
+    return _exit_code(summary)
+
+
+def print_json_report(results: list[CheckResult], verbose: bool = False) -> int:
+    """Print a stable JSON report and return the normal doctor exit code.
+
+    ``verbose_detail`` is only populated under ``--verbose``, exactly like the
+    human report: for the API-keys check it holds masked key fragments
+    (``sk-a...TAIL``), which must not land in a CI log by default.
+    """
+    summary = summarize(results)
+    checks = []
+    for r in results:
+        entry = asdict(r)
+        if not verbose:
+            entry["verbose_detail"] = ""
+        checks.append(entry)
+    payload = {
+        "version": _installed_version(),
+        "checks": checks,
+        "summary": summary,
+        "healthy": summary["failed"] == 0,
+        "exit_code": _exit_code(summary),
+    }
+    print(json.dumps(payload, indent=2))
+    return payload["exit_code"]
+
+
+class DoctorCommand:
+    """Entry point for `skill-seekers doctor`. Dispatched from `main.py` with
+    the already-parsed argparse namespace (no duplicate argparse here).
+    """
+
+    def __init__(self, args) -> None:
+        self.args = args
+
+    def execute(self) -> int:
+        verbose = bool(getattr(self.args, "verbose", False))
+        if not getattr(self.args, "json", False):
+            return print_report(run_all_checks(), verbose=verbose)
+
+        # --json: stdout is exactly one JSON document. Anything a dependency
+        # prints at import time is forwarded to stderr rather than dropped, and
+        # a crashing check becomes an error document instead of empty stdout.
+        captured = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(captured):
+                results = run_all_checks()
+        except Exception as exc:  # noqa: BLE001 — surface any check failure as JSON
+            from skill_seekers.cli.exit_codes import EXIT_ERROR
+
+            print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}, indent=2))
+            return EXIT_ERROR
+        finally:
+            noise = captured.getvalue()
+            if noise:
+                print(noise, end="", file=sys.stderr)
+        return print_json_report(results, verbose=verbose)
+
+
+def main(args=None) -> int:
+    """Standalone entry point (``skill-seekers-doctor`` / ``python -m skill_seekers.cli.doctor``).
+
+    Builds its parser from the central ``DoctorParser`` so the flag set has a
+    single definition, then runs the same ``DoctorCommand`` the unified CLI
+    dispatches to. This was dropped by mistake in the COMMAND_CLASSES migration
+    (#327), which left the published console script raising ImportError.
+    """
+    if args is None:
+        from skill_seekers.cli.parsers.doctor_parser import DoctorParser
+
+        parser = DoctorParser().build_standalone(prog="skill-seekers-doctor")
+        args = parser.parse_args()
+    return DoctorCommand(args).execute()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,131 @@
+[build-system]
+requires = ["setuptools>=61.0,<75.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "medusa-security"
+version = "2026.7.0"
+description = "AI-first security scanner - 79 analyzers, 40,000+ detection patterns for AI/ML, LLM agents, MCP & RAG. Zero-setup, false-positive-hardened. Scan any repo with medusa scan --git user/repo"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0-or-later"}
+authors = [
+    {name = "Pantheon Security", email = "support@pantheonsecurity.io"}
+]
+maintainers = [
+    {name = "Pantheon Security", email = "support@pantheonsecurity.io"}
+]
+keywords = [
+    "security",
+    "scanner",
+    "sast",
+    "ai-security",
+    "llm-security",
+    "mcp",
+    "agent-security",
+    "prompt-injection",
+    "rag-security",
+    "supply-chain",
+    "owasp",
+    "cve",
+    "cybersecurity",
+    "devsecops"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+"Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+]
+
+dependencies = [
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "tqdm>=4.60.0",
+    "requests>=2.28.0",
+    "urllib3>=2.6.0",
+    "pyyaml>=6.0.0",
+    "psutil>=5.9.0",
+    "defusedxml>=0.7.0",
+    "tomli-w>=1.0.0",
+    "toml>=0.10.2",
+    "pathspec>=0.11.0",
+]
+
+[project.optional-dependencies]
+linters = [
+    "bandit>=1.9.0",
+    "yamllint>=1.28.0",
+    "Blinter>=1.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+]
+
+[project.urls]
+Homepage = "https://medusa-security.dev"
+Documentation = "https://docs.medusa-security.dev"
+Repository = "https://github.com/Pantheon-Security/medusa"
+"Bug Tracker" = "https://github.com/Pantheon-Security/medusa/issues"
+Changelog = "https://github.com/Pantheon-Security/medusa/releases"
+
+[project.scripts]
+medusa = "medusa.cli:main"
+
+[tool.setuptools]
+license-files = []
+
+[tool.setuptools.packages.find]
+include = ["medusa*"]
+exclude = ["medusa.rules.runtime*", "medusa.api*"]
+
+[tool.setuptools.package-data]
+medusa = ["rules/**/*.yaml", "core/fp_patterns/*.yaml"]
+
+[tool.setuptools.exclude-package-data]
+medusa = [
+    "*_runtime.yaml",
+    "rules/runtime/*",
+    "rules/runtime/**",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=medusa --cov-report=html --cov-report=term"
+markers = [
+    "slow: marks tests as slow (full YAML rule loading); deselect with -m 'not slow'",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312', 'py313']
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

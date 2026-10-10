@@ -1,0 +1,24 @@
+# Include important files
+include README.md
+include LICENSE
+include pyproject.toml
+
+# Include data files
+recursive-include medusa *.lock
+recursive-include medusa *.json
+recursive-include medusa *.ps1
+
+# Include YAML rules (scanner rules - free tier)
+recursive-include medusa/rules *.yaml
+recursive-include medusa/rules *.py
+
+# EXCLUDE runtime rules (paid tier only)
+global-exclude *_runtime.yaml
+prune medusa/rules/runtime
+
+# Exclude .cmd files (antivirus false positives)
+global-exclude *.cmd
+
+# Exclude development files
+global-exclude *.pyc
+global-exclude __pycache__

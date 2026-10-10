@@ -1,0 +1,14 @@
+This file records a repository-level attribution notice. It is not a complete dependency inventory.
+
+The package manifests and `package-lock.json` contain the complete dependency inventory. Each installed package contains its own license notice.
+
+================================================================================
+@scalar/api-reference-react
+https://github.com/scalar/scalar
+License: MIT
+Copyright (c) Scalar
+
+Used in @cortex-docs/docs-ui for rendering OpenAPI specification references.
+================================================================================
+
+License texts for installed dependencies are available in their respective `node_modules/<package>/LICENSE` files.

@@ -1,0 +1,296 @@
+import { writeFile, mkdir, unlink, readFile, readdir } from "fs/promises";
+import { join } from "path";
+import {
+  parseSource,
+  discoverSkills,
+  cloneToTemp,
+  cleanupTemp,
+  checkGitAvailable,
+  assertNoParentSegments,
+} from "./installer";
+import { getIndexDir } from "./config";
+import { loadAllIndices } from "./skill-index";
+import { debug } from "./logger";
+import { dedupeSkillsByName } from "./skill-dedupe";
+import { verifySkill } from "./verifier";
+import {
+  discoverExplicitRepoBundles,
+  inferRepoBundles,
+  mergeRepoBundles,
+} from "./repo-bundles";
+import { estimateTokenCount } from "./utils/token-count";
+import { errorMessage } from "./utils/errors";
+import { evaluateSkillContent, runWithConcurrency } from "./evaluator";
+import { getEvalProviders } from "./eval/builtins";
+import { runProvider } from "./eval/runner";
+import { sortProviderReports, toSkillEvalSummary } from "./eval/summary";
+import type {
+  RepoIndex,
+  IndexedSkill,
+  ParsedSource,
+  SkillEvalSummary,
+} from "./utils/types";
+
+export interface IngestResult {
+  success: boolean;
+  repoIndex: RepoIndex | null;
+  error?: string;
+}
+
+const INGEST_SKILL_CONCURRENCY = 8;
+
+export async function ensureIndexDir(): Promise<string> {
+  const indexDir = getIndexDir();
+  await mkdir(indexDir, { recursive: true });
+  return indexDir;
+}
+
+export function buildSkillInstallUrl(
+  source: ParsedSource,
+  relPath: string,
+): string {
+  return `github:${source.owner}/${source.repo}${source.ref ? `#${source.ref}` : ""}${relPath ? `:${relPath}` : ""}`;
+}
+
+export async function ingestRepo(sourceInput: string): Promise<IngestResult> {
+  await checkGitAvailable();
+
+  let source: ParsedSource;
+  try {
+    source = parseSource(sourceInput);
+  } catch (err) {
+    return { success: false, repoIndex: null, error: errorMessage(err) };
+  }
+
+  if (source.isLocal) {
+    return {
+      success: false,
+      repoIndex: null,
+      error:
+        "Local paths are not supported for indexing. Use a GitHub source instead.",
+    };
+  }
+
+  try {
+    assertNoParentSegments(source, sourceInput);
+  } catch (err) {
+    return { success: false, repoIndex: null, error: errorMessage(err) };
+  }
+
+  debug(`ingester: cloning ${source.owner}/${source.repo}`);
+
+  let tempDir: string | null = null;
+  try {
+    tempDir = await cloneToTemp(source);
+    debug(`ingester: discovering skills in ${tempDir}`);
+
+    const discovered = await discoverSkills(tempDir);
+    debug(`ingester: found ${discovered.length} skills`);
+
+    // Dedupe by directory priority before verification. Issue #265: a
+    // higher-priority entry wins even if it would later fail verifySkill —
+    // priority is the canonical signal of "the maintainer's intended copy."
+    const { kept: deduped, decisions } = dedupeSkillsByName(discovered);
+    for (const decision of decisions) {
+      const droppedPaths = decision.dropped.map((d) => d.relPath).join(", ");
+      debug(
+        `ingester: dedupe "${decision.name}": kept ${decision.kept.relPath} (${decision.reason}); dropped ${droppedPaths}`,
+      );
+    }
+    if (decisions.length > 0) {
+      debug(
+        `ingester: deduped ${discovered.length} -> ${deduped.length} skills (${decisions.length} name collision${decisions.length === 1 ? "" : "s"})`,
+      );
+    }
+
+    const skillRoot = tempDir;
+    const skills = await runWithConcurrency(
+      deduped,
+      INGEST_SKILL_CONCURRENCY,
+      async (skill): Promise<IndexedSkill> => {
+        // Read SKILL.md content for verification
+        const skillMdPath = join(skillRoot, skill.relPath, "SKILL.md");
+        let skillMdContent = "";
+        try {
+          skillMdContent = await readFile(skillMdPath, "utf-8");
+        } catch {
+          // If we can't read SKILL.md, the skill won't pass verification
+          debug(`ingester: could not read SKILL.md at ${skillMdPath}`);
+        }
+
+        const verification = verifySkill(skill, skillMdContent);
+        if (!verification.verified) {
+          debug(
+            `ingester: ${skill.name} not verified: ${verification.reasons.join(", ")}`,
+          );
+        }
+
+        // Token count: prefer the value populated during discovery; recompute
+        // here as a safe fallback when discovery did not set it (e.g., older
+        // discovery code paths in tests).
+        const tokenCount =
+          typeof skill.tokenCount === "number"
+            ? skill.tokenCount
+            : skillMdContent
+              ? estimateTokenCount(skillMdContent)
+              : undefined;
+
+        // Eval summary — captured at index time so the website + TUI + CLI
+        // inspect surfaces can show "what would I be installing" before the
+        // user runs `asm install`. We intentionally drop findings/suggestions
+        // from the catalog payload to keep catalog.json small.
+        let evalSummary: SkillEvalSummary | undefined;
+        let evalSummaries: IndexedSkill["evalSummaries"] | undefined;
+        if (skillMdContent) {
+          let rootEntries: string[] | undefined;
+          try {
+            rootEntries = await readdir(join(skillRoot, skill.relPath));
+          } catch {
+            rootEntries = undefined;
+          }
+
+          try {
+            const report = await evaluateSkillContent({
+              content: skillMdContent,
+              skillPath: skill.relPath || skill.name,
+              skillMdPath,
+              rootEntries,
+            });
+            evalSummary = {
+              overallScore: report.overallScore,
+              grade: report.grade,
+              categories: report.categories.map((c) => ({
+                id: c.id,
+                name: c.name,
+                score: c.score,
+                max: c.max,
+              })),
+              evaluatedAt: report.evaluatedAt,
+              evaluatedVersion: skill.version || undefined,
+            };
+          } catch (err) {
+            // Eval is best-effort during indexing — never fail the whole
+            // ingest because one skill produced a malformed evaluator result.
+            debug(`ingester: eval failed for ${skill.name}: ${err}`);
+          }
+
+          try {
+            const ctx = {
+              skillPath: join(skillRoot, skill.relPath),
+              skillMdPath,
+            };
+            const providerResults = await Promise.all(
+              sortProviderReports(getEvalProviders()).map(async (provider) => {
+                const applicable = await provider.applicable(ctx, {});
+                if (!applicable.ok) return null;
+                return runProvider(provider, ctx);
+              }),
+            );
+            const summaries = providerResults
+              .filter(
+                (result): result is NonNullable<typeof result> =>
+                  result !== null,
+              )
+              .map((result) =>
+                toSkillEvalSummary(result, skill.version || undefined),
+              );
+            if (summaries.length > 0) {
+              evalSummaries = Object.fromEntries(
+                summaries
+                  .filter((summary) => summary.providerId)
+                  .map((summary) => [summary.providerId!, summary]),
+              );
+            }
+          } catch (err) {
+            debug(`ingester: provider eval failed for ${skill.name}: ${err}`);
+          }
+        }
+
+        return {
+          name: skill.name,
+          description: skill.description,
+          version: skill.version,
+          license: skill.license,
+          creator: skill.creator,
+          compatibility: skill.compatibility,
+          allowedTools: skill.allowedTools,
+          tags: skill.tags,
+          dependencies: skill.dependencies,
+          modelInvocable: skill.modelInvocable !== false,
+          userInvocable: skill.userInvocable !== false,
+          installUrl: buildSkillInstallUrl(source, skill.relPath),
+          relPath: skill.relPath,
+          verified: verification.verified,
+          tokenCount,
+          evalSummary,
+          evalSummaries,
+        };
+      },
+    );
+
+    const repoIndex: RepoIndex = {
+      repoUrl: source.cloneUrl,
+      owner: source.owner,
+      repo: source.repo,
+      updatedAt: new Date().toISOString(),
+      skillCount: skills.length,
+      skills,
+    };
+
+    repoIndex.bundles = mergeRepoBundles([
+      ...(await discoverExplicitRepoBundles(tempDir, repoIndex)),
+      ...inferRepoBundles(repoIndex),
+    ]);
+
+    const indexDir = await ensureIndexDir();
+    const outputFile = join(indexDir, `${source.owner}_${source.repo}.json`);
+    await writeFile(
+      outputFile,
+      JSON.stringify(repoIndex, null, 2) + "\n",
+      "utf-8",
+    );
+    debug(`ingester: wrote index to ${outputFile}`);
+
+    return { success: true, repoIndex };
+  } catch (err) {
+    return { success: false, repoIndex: null, error: errorMessage(err) };
+  } finally {
+    if (tempDir) {
+      await cleanupTemp(tempDir);
+    }
+  }
+}
+
+export async function listIndexedRepos(): Promise<
+  Array<{
+    owner: string;
+    repo: string;
+    skillCount: number;
+    updatedAt: string;
+  }>
+> {
+  const indices = await loadAllIndices();
+  return indices
+    .map((index) => ({
+      owner: index.owner,
+      repo: index.repo,
+      skillCount: index.skillCount,
+      updatedAt: index.updatedAt,
+    }))
+    .sort((a, b) => b.skillCount - a.skillCount);
+}
+
+export async function removeRepoIndex(
+  owner: string,
+  repo: string,
+): Promise<boolean> {
+  const indexDir = getIndexDir();
+  const filePath = join(indexDir, `${owner}_${repo}.json`);
+
+  try {
+    await unlink(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}

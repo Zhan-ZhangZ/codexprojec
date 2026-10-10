@@ -1,0 +1,1054 @@
+# ruff: noqa: E402
+# Startup warning filters must be installed before importing FastMCP/Authlib dependencies.
+import asyncio
+import gc
+import hashlib
+import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional
+from importlib import metadata
+from urllib.parse import urlparse, ParseResult
+
+from core.warning_filters import install_startup_warning_filters
+
+install_startup_warning_filters()
+
+from auth.auth_info_middleware import AuthInfoMiddleware
+from core.camel_case_middleware import CamelCaseArgumentsMiddleware
+from core.portable_schema_middleware import PortableSchemaMiddleware
+from auth.google_auth import (
+    check_client_secrets,
+    get_google_api_timeout,
+    handle_auth_callback,
+    start_auth_flow,
+)
+from auth.gateway_identity import get_verified_gateway_principal
+from auth.mcp_session_middleware import MCPSessionMiddleware
+from auth.oauth21_session_store import set_auth_provider
+from auth.oauth_config import (
+    is_oauth21_enabled,
+    is_external_oauth21_provider,
+    get_oauth_config,
+    is_trust_gateway_identity,
+)
+from auth.oauth_proxy_config import get_oauth_proxy_expiry_kwargs
+from auth.oauth_responses import (
+    create_error_response,
+    create_success_response,
+    create_server_error_response,
+)
+from auth.scopes import PROTOCOL_AUTH_SCOPES, SCOPES, get_current_scopes  # noqa
+from core.config import (
+    USER_GOOGLE_EMAIL,
+    get_transport_mode,
+    set_transport_mode as _set_transport_mode,
+    get_oauth_redirect_uri as get_oauth_redirect_uri_for_current_mode,
+)
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+import fastmcp
+from fastmcp import FastMCP
+from auth.google_oauth_provider import GoogleProvider
+from fastmcp.server.lifespan import lifespan
+from mcp.types import ToolAnnotations, Icon
+from starlette.applications import Starlette
+from starlette.datastructures import MutableHeaders
+from starlette.middleware import Middleware
+from starlette.requests import Request
+from starlette.types import ASGIApp, Scope, Receive, Send
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class WorkspaceGoogleProvider(GoogleProvider):
+    """GoogleProvider whose 401 challenge advertises every tool scope.
+
+    Protocol-level validation requires only the identity scopes (#733), but
+    fastmcp >= 4 copies the validated scopes into the ``WWW-Authenticate``
+    challenge, so a client honouring it would obtain a token no tool can use
+    (#1116). Challenge with the scopes clients may request instead.
+    """
+
+    def get_challenge_scopes(
+        self, required_scopes: Optional[List[str]] = None
+    ) -> List[str]:
+        if required_scopes is None:
+            return self.client_registration_options.valid_scopes
+        return required_scopes
+
+
+_auth_provider: Optional[GoogleProvider] = None
+_oauth_client_storage = None
+_legacy_callback_registered = False
+
+_READINESS_TIMEOUT_ENV = "WORKSPACE_MCP_READINESS_TIMEOUT_SECONDS"
+_DEFAULT_READINESS_TIMEOUT_SECONDS = 1.0
+_READINESS_PROBE_COLLECTION = "workspace-mcp-health"
+_READINESS_PROBE_KEY = "readiness-probe"
+
+session_middleware = Middleware(MCPSessionMiddleware)
+
+
+# Schemes whose origins are trusted by the scheme alone. The Origin header is a
+# browser-forbidden header, so a remote web page (the DNS-rebinding threat this
+# middleware defends against) cannot forge one of these — only the local IDE
+# runtime emits them. VS Code in particular assigns a fresh, unpredictable host
+# (a per-session GUID) to every webview, so its origin can never be enumerated in
+# an allowlist; the scheme itself is the trust boundary.
+TRUSTED_ORIGIN_SCHEMES = frozenset({"vscode-webview"})
+
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+# Default authority ports per scheme, used to compare an Origin against the Host
+# header that received the request (a same-origin check).
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+_ALLOW_NULL_ORIGIN_CONSENT_ENV = "WORKSPACE_MCP_ALLOW_NULL_ORIGIN_CONSENT"
+_SESSION_IDLE_TIMEOUT_ENV = "WORKSPACE_MCP_SESSION_IDLE_TIMEOUT"
+# Leave a minute beyond the usual one-hour Google access-token lifetime.
+_DEFAULT_SESSION_IDLE_TIMEOUT_SECONDS = 60 * 60 + 60
+_GOOGLE_API_WORKERS_ENV = "WORKSPACE_MCP_GOOGLE_API_WORKERS"
+
+
+def _parse_bool_env(value: str) -> bool:
+    """Parse environment variable string to boolean."""
+    return value.lower() in ("1", "true", "yes", "on")
+
+
+def _normalize_parsed(parsed: ParseResult) -> Optional[str]:
+    if not parsed.scheme:
+        return None
+    if not parsed.hostname:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    netloc = f"{host}:{port}" if port is not None else host
+    return f"{parsed.scheme}://{netloc}"
+
+
+def _normalize_origin(origin: str) -> Optional[str]:
+    return _normalize_parsed(urlparse(origin))
+
+
+def _get_allowed_http_origins() -> set[str]:
+    from auth.oauth_config import get_oauth_config
+
+    config = get_oauth_config()
+    origins = set()
+    for origin in config.get_allowed_origins():
+        normalized = _normalize_origin(origin)
+        if normalized:
+            origins.add(normalized)
+    if config.external_url:
+        normalized = _normalize_origin(config.external_url)
+        if normalized:
+            origins.add(normalized)
+    return origins
+
+
+def _is_origin_allowed(origin: str) -> bool:
+    parsed = urlparse(origin)
+    if parsed.scheme in TRUSTED_ORIGIN_SCHEMES:
+        return True
+    if parsed.hostname in _LOOPBACK_HOSTS:
+        return True
+    normalized = _normalize_parsed(parsed)
+    if not normalized:
+        return False
+    return normalized in _get_allowed_http_origins()
+
+
+def _is_same_origin_as_host(origin: str, host_header: Optional[str]) -> bool:
+    """Return True when the Origin's authority matches the request's Host header.
+
+    This lets the OAuth proxy consent page post back to whatever host served it
+    without that host being in the allowlist. It is honored only in OAuth 2.1 mode:
+    a DNS-rebinding page controls both Host and Origin, so a same-origin match proves
+    nothing on its own, and only OAuth 2.1 mode requires a bearer token the
+    rebinding page cannot obtain on every MCP request.
+    """
+    if not host_header:
+        return False
+    parsed = urlparse(origin)
+    if not parsed.hostname:
+        return False
+    host = urlparse(f"//{host_header}")
+    try:
+        origin_port = parsed.port or _DEFAULT_PORTS.get(parsed.scheme)
+        host_port = host.port or _DEFAULT_PORTS.get(parsed.scheme)
+    except ValueError:
+        return False
+    return (
+        parsed.hostname == host.hostname
+        and origin_port == host_port
+        and is_oauth21_enabled()
+    )
+
+
+def _is_null_origin_consent_compat_allowed(scope: Scope, origin: str) -> bool:
+    """Allow known opaque-origin consent POSTs only when explicitly enabled.
+
+    Some browser/MCP-client OAuth redirect chains end with Chrome sending
+    ``Origin: null`` on the consent form submission, which this middleware would
+    otherwise reject. The bypass is opt-in and scoped to that exact request shape;
+    the consent handler itself still enforces a double-submit CSRF check (the form
+    token must match the SameSite=Lax ``MCP_CONSENT_STATE`` cookie), so origin
+    validation is defense in depth here rather than the only guard.
+    """
+    if origin != "null":
+        return False
+    if scope.get("method") != "POST":
+        return False
+    if scope.get("path") != "/consent":
+        return False
+
+    return _parse_bool_env(os.getenv(_ALLOW_NULL_ORIGIN_CONSENT_ENV, "").strip())
+
+
+class OriginValidationMiddleware:
+    """Reject browser-originated HTTP requests from untrusted origins."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            raw_origin = headers.get(b"origin")
+            if raw_origin:
+                origin = raw_origin.decode("latin-1")
+                raw_host = headers.get(b"host")
+                host_header = raw_host.decode("latin-1") if raw_host else None
+                if not _is_origin_allowed(origin) and not _is_same_origin_as_host(
+                    origin, host_header
+                ):
+                    if _is_null_origin_consent_compat_allowed(scope, origin):
+                        logger.info(
+                            "Allowing OAuth consent POST with Origin: null because "
+                            "%s is enabled",
+                            _ALLOW_NULL_ORIGIN_CONSENT_ENV,
+                        )
+                        await self.app(scope, receive, send)
+                        return
+                    logger.warning("Rejected HTTP request from Origin: %s", origin)
+                    response = JSONResponse(
+                        {"error": "Origin not allowed"}, status_code=403
+                    )
+                    await response(scope, receive, send)
+                    return
+
+        await self.app(scope, receive, send)
+
+
+origin_validation_middleware = Middleware(OriginValidationMiddleware)
+
+
+class WellKnownCacheControlMiddleware:
+    """Force no-cache headers for OAuth well-known discovery endpoints."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        is_oauth_well_known = (
+            path == "/.well-known/oauth-authorization-server"
+            or path.startswith("/.well-known/oauth-authorization-server/")
+            or path == "/.well-known/oauth-protected-resource"
+            or path.startswith("/.well-known/oauth-protected-resource/")
+        )
+        if not is_oauth_well_known:
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_no_cache_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(raw=message.setdefault("headers", []))
+                headers["Cache-Control"] = "no-store, must-revalidate"
+                headers["ETag"] = f'"{_compute_scope_fingerprint()}"'
+            await send(message)
+
+        await self.app(scope, receive, send_with_no_cache_headers)
+
+
+well_known_cache_control_middleware = Middleware(WellKnownCacheControlMiddleware)
+
+
+def get_session_idle_timeout() -> Optional[int]:
+    """Parse WORKSPACE_MCP_SESSION_IDLE_TIMEOUT; 0 defers to FastMCP's setting.
+
+    Invalid values raise instead of falling back, so a misconfigured deployment
+    fails at startup.
+    """
+    raw = os.getenv(_SESSION_IDLE_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_SESSION_IDLE_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = -1
+    if value < 0:
+        raise ValueError(
+            f"{_SESSION_IDLE_TIMEOUT_ENV} must be a non-negative integer "
+            f"(seconds), got {raw!r}"
+        )
+    return value or None
+
+
+def _compute_scope_fingerprint() -> str:
+    """Compute a short hash of the current scope configuration for cache-busting."""
+    scopes_str = ",".join(sorted(get_current_scopes()))
+    return hashlib.sha256(scopes_str.encode()).hexdigest()[:12]
+
+
+def get_google_api_workers() -> Optional[int]:
+    """Parse WORKSPACE_MCP_GOOGLE_API_WORKERS; unset keeps asyncio's default.
+
+    Invalid values raise instead of falling back, so a misconfigured deployment
+    fails at startup.
+    """
+    raw = os.getenv(_GOOGLE_API_WORKERS_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise ValueError(
+            f"{_GOOGLE_API_WORKERS_ENV} must be a positive integer, got {raw!r}"
+        )
+    return value
+
+
+@lifespan
+async def _freeze_startup_heap(server: FastMCP):
+    """Exempt objects loaded at startup from garbage collection.
+
+    Each tool call ends with a full collection to free googleapiclient reference
+    cycles. Freezing the modules and tool registry first keeps that collection
+    under a millisecond instead of scanning the whole startup heap every call.
+    """
+    gc.collect()
+    gc.freeze()
+    yield None
+
+
+@lifespan
+async def _google_api_executor(server: FastMCP):
+    """Size the executor that runs blocking Google API calls, when configured.
+
+    Tools run Google HTTP requests through asyncio.to_thread, so this pool caps
+    how many requests one process has in flight across all users. The request
+    timeout is validated here too, so an invalid one fails startup.
+    """
+    get_google_api_timeout()
+    workers = get_google_api_workers()
+    if workers:
+        asyncio.get_running_loop().set_default_executor(
+            ThreadPoolExecutor(workers, thread_name_prefix="google-api")
+        )
+    yield None
+
+
+# Custom FastMCP that adds secure middleware stack for OAuth 2.1
+class SecureFastMCP(FastMCP):
+    def http_app(self, **kwargs) -> "Starlette":
+        """Override to add secure middleware stack for OAuth 2.1."""
+        # Bound memory retained by abandoned stateful sessions. Resolve an omitted
+        # or None stateless_http the same way FastMCP does.
+        stateless_http = kwargs.get("stateless_http")
+        if stateless_http is None:
+            stateless_http = fastmcp.settings.stateless_http
+        if not stateless_http and "session_idle_timeout" not in kwargs:
+            kwargs["session_idle_timeout"] = get_session_idle_timeout()
+        app = super().http_app(**kwargs)
+
+        # Add middleware in order (first added = outermost layer)
+        app.user_middleware.insert(0, well_known_cache_control_middleware)
+        app.user_middleware.insert(1, origin_validation_middleware)
+
+        # Session Management - extracts session info for MCP context
+        app.user_middleware.insert(2, session_middleware)
+
+        # Rebuild middleware stack
+        app.middleware_stack = app.build_middleware_stack()
+        logger.debug(
+            "Added middleware stack: WellKnownCacheControl, OriginValidation, "
+            "Session Management"
+        )
+        return app
+
+    async def list_tools(self, *, run_middleware: bool = True):
+        """Override to mark user_google_email as optional when USER_GOOGLE_EMAIL is set.
+
+        In single-user / self-hosted mode the env var provides the default email, so
+        callers (agents, MCP adapters) should not be required to supply it.  We patch
+        the JSON schema returned by list_tools to remove 'user_google_email' from the
+        ``required`` array and inject the env-var value as the ``default``.  The
+        runtime still resolves the email correctly via the service decorator.
+        """
+        tools = list(await super().list_tools(run_middleware=run_middleware))
+        if is_trust_gateway_identity():
+            patched = []
+            for tool in tools:
+                if tool.name != "start_google_auth":
+                    patched.append(tool)
+                    continue
+                schema = dict(tool.parameters)
+                required = [
+                    name
+                    for name in schema.get("required", [])
+                    if name != "user_google_email"
+                ]
+                properties = dict(schema.get("properties", {}))
+                properties.pop("user_google_email", None)
+                schema.update(required=required, properties=properties)
+                patched.append(tool.model_copy(update={"parameters": schema}))
+            return patched
+        if not USER_GOOGLE_EMAIL or is_oauth21_enabled():
+            return tools
+        patched = []
+        for tool in tools:
+            schema = dict(tool.parameters)
+            required = list(schema.get("required", []))
+            if "user_google_email" in required:
+                required = [r for r in required if r != "user_google_email"]
+                props = {k: dict(v) for k, v in schema.get("properties", {}).items()}
+                if "user_google_email" in props:
+                    props["user_google_email"]["default"] = USER_GOOGLE_EMAIL
+                schema = dict(schema, required=required, properties=props)
+                patched.append(tool.model_copy(update={"parameters": schema}))
+            else:
+                patched.append(tool)
+        return patched
+
+    async def call_tool(self, name: str, arguments: Optional[dict], *args, **kwargs):
+        """Inject user_google_email before pydantic validates the call arguments.
+
+        When USER_GOOGLE_EMAIL is configured and OAuth 2.1 is not active, callers
+        (agents, adapters) are allowed to omit user_google_email.  FastMCP validates
+        arguments against the function signature BEFORE calling the tool, so we must
+        inject the default BEFORE that validation step.
+        """
+        arguments = arguments or {}
+        if is_trust_gateway_identity():
+            # The verified gateway principal is authoritative for every tool, and the
+            # parameter is gone from tool signatures. Drop any caller-supplied email
+            # (older clients may have the pre-gateway schema cached) instead of letting
+            # it fail signature validation, and never inject USER_GOOGLE_EMAIL.
+            arguments = {
+                key: value
+                for key, value in arguments.items()
+                if key != "user_google_email"
+            }
+        elif (
+            not is_oauth21_enabled()
+            and USER_GOOGLE_EMAIL
+            and "user_google_email" not in arguments
+        ):
+            arguments = {**arguments, "user_google_email": USER_GOOGLE_EMAIL}
+        return await super().call_tool(name, arguments, *args, **kwargs)
+
+
+# Build server instructions with user email context for single-user mode.
+# Skipped in trusted-gateway mode: the verified principal supersedes the configured
+# default, and user_google_email is no longer a tool parameter clients can pass.
+_server_instructions = None
+if USER_GOOGLE_EMAIL and not is_trust_gateway_identity():
+    _server_instructions = f"""Connected Google account: {USER_GOOGLE_EMAIL}
+
+When using Google Workspace tools, always use `{USER_GOOGLE_EMAIL}` as the `user_google_email` parameter. Do not ask the user for their email address."""
+    logger.info(f"Server instructions configured for user: {USER_GOOGLE_EMAIL}")
+
+# Branding for the OAuth consent page: FastMCP's OAuth proxy renders the server's
+# name / icon / website on the consent screen (auth/oauth_config reads the env vars).
+_brand_config = get_oauth_config()
+_brand_icons = (
+    [Icon(src=_brand_config.brand_icon_url)] if _brand_config.brand_icon_url else None
+)
+
+server = SecureFastMCP(
+    name=_brand_config.brand_name or "google_workspace",
+    auth=None,
+    instructions=_server_instructions,
+    website_url=_brand_config.brand_website_url,
+    icons=_brand_icons,
+    lifespan=_freeze_startup_heap | _google_api_executor,
+)
+
+# Accept camelCase argument names (calendarId, timeMin, ...) from callers that
+# mirror the Google API field names, mapping them onto the snake_case tool
+# parameters. See https://github.com/taylorwilsdon/google_workspace_mcp/issues/918
+server.add_middleware(CamelCaseArgumentsMiddleware())
+
+# Add the AuthInfo middleware to inject authentication into FastMCP context
+auth_info_middleware = AuthInfoMiddleware()
+server.add_middleware(auth_info_middleware)
+
+# Advertise tool schemas without null unions or ``const``, which Gemini's
+# function-calling schema cannot represent. See
+# https://github.com/taylorwilsdon/google_workspace_mcp/issues/1099
+server.add_middleware(PortableSchemaMiddleware())
+
+
+def _parse_allowed_redirect_uris(value: Optional[str]) -> Optional[List[str]]:
+    """Parse a comma-separated list of OAuth client redirect URIs.
+
+    Returns a list of non-empty, trimmed URIs, or None when the input is
+    empty/None. Returning None preserves FastMCP's default behaviour of
+    accepting any client-supplied redirect URI during DCR — callers that
+    want to lock down registration must supply a non-empty list.
+
+    Patterns supported by FastMCP's matcher (see
+    ``fastmcp.server.auth.redirect_validation``) include ``*`` for port
+    and path globs (e.g. ``http://localhost:*/callback``) and ``*.example.com``
+    for subdomain wildcards.
+    """
+    if not value:
+        return None
+    uris = [u.strip() for u in value.split(",") if u.strip()]
+    return uris or None
+
+
+def set_transport_mode(mode: str):
+    """Sets the transport mode for the server."""
+    _set_transport_mode(mode)
+    # Debug level: the startup banner already shows the active transport.
+    logger.debug(f"Transport: {mode}")
+
+
+def _ensure_legacy_callback_route() -> None:
+    global _legacy_callback_registered
+    if _legacy_callback_registered:
+        return
+    server.custom_route("/oauth2callback", methods=["GET"])(legacy_oauth2_callback)
+    _legacy_callback_registered = True
+
+
+def configure_server_for_http():
+    """
+    Configures the authentication provider for HTTP transport.
+    This must be called BEFORE server.run().
+    """
+    global _auth_provider, _oauth_client_storage
+
+    transport_mode = get_transport_mode()
+
+    if transport_mode != "streamable-http":
+        return
+
+    # Use centralized OAuth configuration
+    from auth.oauth_config import get_oauth_config
+
+    config = get_oauth_config()
+
+    # Check if OAuth 2.1 is enabled via centralized config
+    oauth21_enabled = config.is_oauth21_enabled()
+
+    if oauth21_enabled:
+        if not config.is_configured():
+            raise RuntimeError(
+                "streamable-http transport requires GOOGLE_OAUTH_CLIENT_ID so OAuth 2.1 "
+                "protocol authentication can be configured."
+            )
+
+        if not config.client_secret and not config.is_external_oauth21_provider():
+            # MCP clients stay secretless, but this server performs the Google code
+            # exchange itself and Google requires a secret for it. Fail here instead
+            # of at the last step of the user's browser flow.
+            raise RuntimeError(
+                "OAuth 2.1 requires GOOGLE_OAUTH_CLIENT_SECRET: Google rejects the "
+                "authorization code exchange without a client secret (invalid_request: "
+                "client_secret is missing), even for public clients using PKCE. Set "
+                "GOOGLE_OAUTH_CLIENT_SECRET (or provide it via a client secrets file "
+                "through GOOGLE_CLIENT_SECRET_PATH), or set "
+                "EXTERNAL_OAUTH21_PROVIDER=true if another identity provider performs "
+                "the code exchange."
+            )
+
+        def validate_and_derive_jwt_key(
+            jwt_signing_key_override: str | None, client_secret: str | None
+        ) -> bytes:
+            """Validate JWT signing key override and derive the final JWT key."""
+            if jwt_signing_key_override:
+                if len(jwt_signing_key_override) < 12:
+                    logger.warning(
+                        "OAuth 2.1: FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY is less than 12 characters; "
+                        "use a longer secret to improve key derivation strength."
+                    )
+                return derive_jwt_key(
+                    low_entropy_material=jwt_signing_key_override,
+                    salt="fastmcp-jwt-signing-key",
+                )
+            if client_secret:
+                return derive_jwt_key(
+                    high_entropy_material=client_secret,
+                    salt="fastmcp-jwt-signing-key",
+                )
+            raise ValueError(
+                "Public client OAuth 2.1 requires FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY "
+                "when GOOGLE_OAUTH_CLIENT_SECRET is not set."
+            )
+
+        try:
+            # Import common dependencies for storage backends
+            from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+            from cryptography.fernet import Fernet
+            from fastmcp.server.auth.jwt_issuer import derive_jwt_key
+
+            provider_valid_scopes: List[str] = sorted(get_current_scopes())
+            provider_required_scopes: List[str] = sorted(PROTOCOL_AUTH_SCOPES)
+
+            client_storage = None
+            jwt_signing_key_override = (
+                os.getenv("FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY", "").strip()
+                or None
+            )
+            storage_backend = (
+                os.getenv("WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND", "")
+                .strip()
+                .lower()
+            )
+            valkey_host = os.getenv("WORKSPACE_MCP_OAUTH_PROXY_VALKEY_HOST", "").strip()
+
+            # Determine storage backend: valkey, disk, memory (default)
+            use_valkey = storage_backend == "valkey" or bool(valkey_host)
+            use_disk = storage_backend == "disk"
+
+            if use_valkey:
+                try:
+                    from core.valkey_storage import (
+                        ResilientValkeyStore,
+                        build_valkey_client_config,
+                        configure_glide_logging,
+                        describe_valkey_client_config,
+                    )
+
+                    configure_glide_logging()
+                    valkey_config = build_valkey_client_config()
+                    client_storage = ResilientValkeyStore(config=valkey_config)
+
+                    jwt_signing_key = validate_and_derive_jwt_key(
+                        jwt_signing_key_override, config.client_secret
+                    )
+
+                    storage_encryption_key = derive_jwt_key(
+                        high_entropy_material=jwt_signing_key.decode(),
+                        salt="fastmcp-storage-encryption-key",
+                    )
+
+                    client_storage = FernetEncryptionWrapper(
+                        key_value=client_storage,
+                        fernet=Fernet(key=storage_encryption_key),
+                    )
+                    logger.info(
+                        "OAuth 2.1: Using ResilientValkeyStore for FastMCP OAuth proxy client_storage (%s)",
+                        describe_valkey_client_config(valkey_config),
+                    )
+                    logger.info(
+                        "OAuth 2.1: Applied Fernet encryption wrapper to Valkey client_storage (key derived from FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY or GOOGLE_OAUTH_CLIENT_SECRET)."
+                    )
+                except ImportError as exc:
+                    logger.warning(
+                        "OAuth 2.1: Valkey client_storage requested but Valkey dependencies are not installed (%s). "
+                        "Install 'workspace-mcp[valkey]' (or 'py-key-value-aio[valkey]', which includes 'valkey-glide') "
+                        "or unset WORKSPACE_MCP_OAUTH_PROXY_STORAGE_BACKEND/WORKSPACE_MCP_OAUTH_PROXY_VALKEY_HOST.",
+                        exc,
+                    )
+                except ValueError as exc:
+                    logger.warning(
+                        "OAuth 2.1: Invalid Valkey configuration; falling back to default storage (%s).",
+                        exc,
+                    )
+            elif use_disk:
+                try:
+                    from core.storage import make_sanitized_file_store
+
+                    disk_directory = os.getenv(
+                        "WORKSPACE_MCP_OAUTH_PROXY_DISK_DIRECTORY", ""
+                    ).strip()
+                    if not disk_directory:
+                        # Default to FASTMCP_HOME/oauth-proxy or ~/.fastmcp/oauth-proxy
+                        fastmcp_home = os.getenv("FASTMCP_HOME", "").strip()
+                        if fastmcp_home:
+                            disk_directory = os.path.join(fastmcp_home, "oauth-proxy")
+                        else:
+                            disk_directory = os.path.expanduser(
+                                "~/.fastmcp/oauth-proxy"
+                            )
+
+                    client_storage = make_sanitized_file_store(disk_directory)
+
+                    jwt_signing_key = validate_and_derive_jwt_key(
+                        jwt_signing_key_override, config.client_secret
+                    )
+
+                    storage_encryption_key = derive_jwt_key(
+                        high_entropy_material=jwt_signing_key.decode(),
+                        salt="fastmcp-storage-encryption-key",
+                    )
+
+                    client_storage = FernetEncryptionWrapper(
+                        key_value=client_storage,
+                        fernet=Fernet(key=storage_encryption_key),
+                    )
+                    logger.info(
+                        "OAuth 2.1: Using FileTreeStore for FastMCP OAuth proxy client_storage (directory=%s)",
+                        disk_directory,
+                    )
+                except ImportError as exc:
+                    logger.warning(
+                        "OAuth 2.1: Disk storage requested but dependencies not available (%s). "
+                        "Falling back to default storage.",
+                        exc,
+                    )
+            elif storage_backend == "memory":
+                from key_value.aio.stores.memory import MemoryStore
+
+                client_storage = MemoryStore()
+                logger.info(
+                    "OAuth 2.1: Using MemoryStore for FastMCP OAuth proxy client_storage"
+                )
+            # else: client_storage remains None, FastMCP uses its default
+
+            # Ensure JWT signing key is always derived for all storage backends
+            if "jwt_signing_key" not in locals():
+                jwt_signing_key = validate_and_derive_jwt_key(
+                    jwt_signing_key_override, config.client_secret
+                )
+
+            expiry_kwargs = get_oauth_proxy_expiry_kwargs()
+
+            # Check if external OAuth provider is configured
+            if config.is_external_oauth21_provider():
+                # External OAuth mode: use custom provider that handles ya29.* access tokens
+                from auth.external_oauth_provider import (
+                    ExternalOAuthProvider,
+                    get_token_validation_workers,
+                    get_token_validation_cache_ttl,
+                )
+
+                provider = ExternalOAuthProvider(
+                    client_id=config.client_id,
+                    client_secret=config.client_secret,
+                    base_url=config.get_oauth_base_url(),
+                    redirect_path=config.redirect_path,
+                    required_scopes=provider_valid_scopes,
+                    resource_server_url=config.get_oauth_base_url(),
+                    jwt_signing_key=jwt_signing_key,
+                    token_validation_workers=get_token_validation_workers(),
+                    token_validation_cache_ttl=get_token_validation_cache_ttl(),
+                    **expiry_kwargs,
+                )
+                server.auth = provider
+                _oauth_client_storage = None
+
+                logger.info("OAuth 2.1 enabled with EXTERNAL provider mode")
+                logger.info(
+                    "Expecting Authorization bearer tokens in tool call headers"
+                )
+                logger.info(
+                    "Protected resource metadata points to Google's authorization server"
+                )
+            else:
+                # Standard OAuth 2.1 mode: use FastMCP's GoogleProvider
+                allowed_client_redirect_uris = _parse_allowed_redirect_uris(
+                    os.getenv("WORKSPACE_MCP_ALLOWED_CLIENT_REDIRECT_URIS")
+                )
+                if allowed_client_redirect_uris:
+                    logger.info(
+                        "OAuth 2.1: restricting DCR client redirect URIs to allowlist: %s",
+                        allowed_client_redirect_uris,
+                    )
+                provider = WorkspaceGoogleProvider(
+                    client_id=config.client_id,
+                    client_secret=config.client_secret,
+                    base_url=config.get_oauth_base_url(),
+                    redirect_path=config.redirect_path,
+                    required_scopes=provider_required_scopes,
+                    valid_scopes=provider_valid_scopes,
+                    client_storage=client_storage,
+                    jwt_signing_key=jwt_signing_key,
+                    allowed_client_redirect_uris=allowed_client_redirect_uris,
+                    **expiry_kwargs,
+                )
+                if provider.client_registration_options is not None:
+                    # Keep protocol-level auth limited to base identity scopes, but
+                    # allow dynamically registered MCP clients to request any scope
+                    # needed by enabled tools during subsequent authorization flows.
+                    provider.client_registration_options.default_scopes = (
+                        provider_valid_scopes
+                    )
+                # CIMD clients can bypass DCR defaults and fall back to FastMCP's
+                # internal scope string, so keep it aligned with valid scopes too.
+                cimd_default_scope = " ".join(provider_valid_scopes)
+                provider._default_scope_str = cimd_default_scope
+                cimd_manager = getattr(provider, "_cimd_manager", None)
+                if cimd_manager is not None:
+                    cimd_manager.default_scope = cimd_default_scope
+                # Enable protocol-level auth
+                server.auth = provider
+                _oauth_client_storage = client_storage
+
+            # Always set auth provider for token validation in middleware
+            set_auth_provider(provider)
+            _auth_provider = provider
+        except Exception as exc:
+            logger.error(
+                "Failed to initialize FastMCP GoogleProvider: %s", exc, exc_info=True
+            )
+            raise
+    else:
+        # Debug level: main.py surfaces the loopback default as a startup notice.
+        logger.debug(
+            "OAuth 2.0 legacy mode - streamable HTTP defaults to loopback unless "
+            "WORKSPACE_MCP_HOST is explicitly set."
+        )
+        server.auth = None
+        _auth_provider = None
+        _oauth_client_storage = None
+        set_auth_provider(None)
+        _ensure_legacy_callback_route()
+
+
+def get_auth_provider() -> Optional[GoogleProvider]:
+    """Gets the global authentication provider instance."""
+    return _auth_provider
+
+
+def close_auth_provider() -> None:
+    """Release resources owned by the configured authentication provider."""
+    global _auth_provider, _oauth_client_storage
+
+    provider = _auth_provider
+    _auth_provider = None
+    _oauth_client_storage = None
+    set_auth_provider(None)
+    if server.auth is provider:
+        server.auth = None
+
+    close = getattr(provider, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            logger.warning("Failed to close authentication provider", exc_info=True)
+
+
+@server.custom_route("/", methods=["GET"])
+@server.custom_route("/health", methods=["GET"])
+async def health_check(request: Request):
+    try:
+        version = metadata.version("workspace-mcp")
+    except metadata.PackageNotFoundError:
+        version = "dev"
+    return JSONResponse(
+        {
+            "status": "healthy",
+            "service": "workspace-mcp",
+            "version": version,
+            "transport": get_transport_mode(),
+        }
+    )
+
+
+def _readiness_timeout_seconds() -> float:
+    raw = os.getenv(_READINESS_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_READINESS_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 0.0
+    if not 0 < value < float("inf"):
+        logger.warning(
+            "%s=%r is not a positive number of seconds; using %ss",
+            _READINESS_TIMEOUT_ENV,
+            raw,
+            _DEFAULT_READINESS_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_READINESS_TIMEOUT_SECONDS
+    return value
+
+
+@server.custom_route("/health/ready", methods=["GET"])
+async def readiness_check(request: Request):
+    """Readiness probe: 503 while the OAuth proxy's storage backend is unreachable."""
+    storage = _oauth_client_storage
+    if storage is None:
+        return JSONResponse({"status": "ready", "storage": "default"})
+
+    timeout = _readiness_timeout_seconds()
+    try:
+        await asyncio.wait_for(
+            storage.get(
+                key=_READINESS_PROBE_KEY, collection=_READINESS_PROBE_COLLECTION
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        error = f"storage probe timed out after {timeout:g}s"
+        logger.warning("Readiness probe: OAuth storage %s", error)
+    except Exception as exc:
+        error = type(exc).__name__
+        logger.warning("Readiness probe: OAuth storage unavailable (%s)", error)
+    else:
+        return JSONResponse({"status": "ready", "storage": "ok"})
+
+    return JSONResponse(
+        {"status": "unavailable", "storage": "unavailable", "error": error},
+        status_code=503,
+    )
+
+
+@server.custom_route("/attachments/{file_id}", methods=["GET"])
+async def serve_attachment(request: Request):
+    """Serve a stored attachment file."""
+    from core.attachment_storage import get_attachment_storage
+
+    file_id = request.path_params["file_id"]
+    storage = get_attachment_storage()
+    metadata = storage.get_attachment_metadata(file_id)
+
+    if not metadata:
+        return JSONResponse(
+            {"error": "Attachment not found or expired"}, status_code=404
+        )
+
+    file_path = storage.get_attachment_path(file_id)
+    if not file_path:
+        return JSONResponse({"error": "Attachment file not found"}, status_code=404)
+
+    return FileResponse(
+        path=str(file_path),
+        filename=metadata["filename"],
+        media_type=metadata["mime_type"],
+    )
+
+
+async def legacy_oauth2_callback(request: Request) -> HTMLResponse:
+    state = request.query_params.get("state")
+    code = request.query_params.get("code")
+    error = request.query_params.get("error")
+
+    if error:
+        msg = (
+            f"Authentication failed: Google returned an error: {error}. State: {state}."
+        )
+        logger.error(msg)
+        return create_error_response(msg)
+
+    if not code:
+        msg = "Authentication failed: No authorization code received from Google."
+        logger.error(msg)
+        return create_error_response(msg)
+
+    try:
+        error_message = check_client_secrets()
+        if error_message:
+            return create_server_error_response(error_message)
+
+        logger.info("OAuth callback: Received authorization code.")
+
+        mcp_session_id = None
+        if hasattr(request, "state") and hasattr(request.state, "session_id"):
+            mcp_session_id = request.state.session_id
+
+        verified_user_id, credentials = await handle_auth_callback(
+            scopes=get_current_scopes(),
+            authorization_response=str(request.url),
+            redirect_uri=get_oauth_redirect_uri_for_current_mode(),
+            session_id=mcp_session_id,
+        )
+
+        logger.info(
+            f"OAuth callback: Successfully authenticated user: {verified_user_id}."
+        )
+
+        return create_success_response(verified_user_id)
+    except Exception as e:
+        logger.error(f"Error processing OAuth callback: {str(e)}", exc_info=True)
+        return create_server_error_response(str(e))
+
+
+@server.tool(
+    title="Start Google Auth",
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
+)
+async def start_google_auth(
+    service_name: str, user_google_email: str = USER_GOOGLE_EMAIL
+) -> str:
+    """
+    Manually initiate Google OAuth authentication flow.
+
+    NOTE: This is a legacy OAuth 2.0 tool and is disabled when OAuth 2.1 is enabled.
+    The authentication system automatically handles credential checks and prompts for
+    authentication when needed. Only use this tool if:
+    1. You need to re-authenticate with different credentials
+    2. You want to proactively authenticate before using other tools
+    3. The automatic authentication flow failed and you need to retry
+
+    In most cases, simply try calling the Google Workspace tool you need - it will
+    automatically handle authentication if required.
+    """
+    if is_oauth21_enabled():
+        if is_external_oauth21_provider():
+            return (
+                "start_google_auth is disabled when OAuth 2.1 is enabled. "
+                "Provide a valid OAuth 2.1 bearer token in the Authorization header "
+                "and retry the original tool."
+            )
+        return (
+            "start_google_auth is disabled when OAuth 2.1 is enabled. "
+            "Authenticate through your MCP client's OAuth 2.1 flow and retry the "
+            "original tool."
+        )
+
+    if is_trust_gateway_identity():
+        user_google_email = await get_verified_gateway_principal()
+
+    if not user_google_email:
+        raise ValueError("user_google_email must be provided.")
+
+    error_message = check_client_secrets()
+    if error_message:
+        return f"**Authentication Error:** {error_message}"
+
+    try:
+        # Only stdio legacy OAuth depends on the standalone callback server; the
+        # helper no-ops in other transports and binds the port lazily (#832).
+        from auth.oauth_callback_server import ensure_stdio_oauth_callback_available
+
+        success, error_msg = await asyncio.to_thread(
+            ensure_stdio_oauth_callback_available
+        )
+        if not success:
+            error_detail = f" ({error_msg})" if error_msg else ""
+            return f"**Error:** Cannot initiate OAuth flow - callback server unavailable{error_detail}"
+
+        auth_message = await start_auth_flow(
+            user_google_email=user_google_email,
+            service_name=service_name,
+            redirect_uri=get_oauth_redirect_uri_for_current_mode(),
+            principal_source=(
+                "gateway_assertion" if is_trust_gateway_identity() else None
+            ),
+        )
+        return auth_message
+    except Exception as e:
+        logger.error(f"Failed to start Google authentication flow: {e}", exc_info=True)
+        return f"**Error:** An unexpected error occurred: {e}"
