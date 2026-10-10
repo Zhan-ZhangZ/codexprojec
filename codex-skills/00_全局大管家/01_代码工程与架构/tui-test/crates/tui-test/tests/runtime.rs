@@ -1,0 +1,2359 @@
+#[cfg(unix)]
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use tui_test::{
+    global_registry, AutomaticRecording, AutomaticRecordingMode, ErrorKind, ExecutionContext,
+    FailureArtifactMode, FailureArtifactOptions, FailureReason, LocatorDirection,
+    LocatorExpectOptions, LocatorFilterOptions, LocatorQuery, MatchOccurrence, OccurrenceSource,
+    OpenOptions, Operation, OperationResult, RunOptions, Session, SessionRegistry, TextSelector,
+    TextStyle, Timeouts,
+};
+
+fn failure_report(error: &tui_test::TuiTestError) -> tui_test::FailureReport {
+    let path = error.artifact.as_ref().unwrap().manifest.as_ref().unwrap();
+    let manifest: tui_test::FailureArtifactManifest =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    manifest.details
+}
+
+fn report_session(name: &str) -> (Session, std::path::PathBuf) {
+    let name = format!("{name}-{}", std::process::id());
+    let directory = std::env::temp_dir().join(&name);
+    let session = Session::new(name).with_execution_context(ExecutionContext {
+        artifact: Some(FailureArtifactOptions {
+            directory: directory.clone(),
+            mode: FailureArtifactMode::Text,
+            include_recording: false,
+        }),
+        ..Default::default()
+    });
+    (session, directory)
+}
+
+fn run_options(program: &str, args: &[&str]) -> RunOptions {
+    let defaults = OpenOptions::default();
+    RunOptions {
+        backend: defaults.backend,
+        program: program.to_string(),
+        args: args.iter().map(|arg| (*arg).to_string()).collect(),
+        profile: defaults.profile,
+        cols: defaults.cols,
+        rows: defaults.rows,
+        cwd: defaults.cwd,
+        env: defaults.env,
+        wait_ready: Some(false),
+        restart: defaults.restart,
+        timeouts: defaults.timeouts,
+        recording: defaults.recording,
+    }
+}
+
+#[test]
+fn trace_retention_writes_complete_bundles_only_for_selected_outcomes() {
+    use tui_test::{TraceMode, TraceOptions};
+    let root = std::env::temp_dir().join(format!("tui-test-trace-modes-{}", std::process::id()));
+    for mode in [TraceMode::Off, TraceMode::On, TraceMode::OnFailure] {
+        for failed in [false, true] {
+            let directory = root.join(format!("{mode:?}-{failed}"));
+            let session = Session::new(format!("trace-{mode:?}-{failed}-{}", std::process::id()))
+                .with_execution_context(ExecutionContext {
+                    trace: Some(TraceOptions {
+                        mode,
+                        directory: directory.clone(),
+                    }),
+                    ..Default::default()
+                });
+            let options = if cfg!(windows) {
+                run_options(
+                    "powershell.exe",
+                    &[
+                        "-NoProfile",
+                        "-Command",
+                        "[Console]::Write('TRACE_READY'); Start-Sleep -Seconds 30",
+                    ],
+                )
+            } else {
+                run_options("sh", &["-c", "printf TRACE_READY; sleep 30"])
+            };
+            let opened = session.run(options).unwrap();
+            session
+                .get_by_text("TRACE_READY")
+                .wait_with_timeout(Some(5_000))
+                .unwrap();
+            if failed {
+                session
+                    .execute(Operation::WaitLocator {
+                        query: LocatorQuery::text("missing trace marker"),
+                        not: false,
+                        timeout_ms: Some(0),
+                    })
+                    .unwrap_err();
+            }
+            session.close().unwrap();
+            session.close().unwrap();
+            let retained = mode == TraceMode::On || (mode == TraceMode::OnFailure && failed);
+            if retained {
+                let bundles: Vec<_> = std::fs::read_dir(&directory)
+                    .unwrap()
+                    .map(|item| item.unwrap().path())
+                    .collect();
+                assert_eq!(bundles.len(), 1);
+                let bundle = &bundles[0];
+                for name in [
+                    "trace.json",
+                    "trace.md",
+                    "trace.html",
+                    "session.cast",
+                    "timeline.json",
+                ] {
+                    assert!(bundle.join(name).is_file(), "missing {name}: {bundle:?}");
+                }
+                let manifest: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(bundle.join("trace.json")).unwrap())
+                        .unwrap();
+                assert_eq!(
+                    manifest["outcome"],
+                    if failed { "failed" } else { "passed" }
+                );
+                assert_eq!(manifest["runtime"]["session_name"], session.name());
+                assert!(std::fs::read_to_string(bundle.join("session.cast"))
+                    .unwrap()
+                    .contains("TRACE_READY"));
+                let report = std::fs::read_to_string(bundle.join("trace.md")).unwrap();
+                assert!(report.contains("session.cast"));
+                let outcome = if failed { "failed" } else { "passed" };
+                assert!(report.contains(&format!("| Outcome | <code>{outcome}</code> |")));
+                assert!(report.contains(if failed {
+                    "## Failure screen"
+                } else {
+                    "## Final screen"
+                }));
+            } else {
+                assert!(!directory.exists());
+            }
+            if mode == TraceMode::Off {
+                assert!(opened.recording.is_empty());
+            } else if mode == TraceMode::OnFailure && !failed {
+                assert!(!std::path::Path::new(&opened.recording).exists());
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn trace_retention_uses_the_final_test_outcome() {
+    use tui_test::{TraceMode, TraceOptions};
+    let root = std::env::temp_dir().join(format!("tui-test-trace-outcome-{}", std::process::id()));
+    for (mode, failed, caught) in [
+        (TraceMode::OnFailure, false, 2),
+        (TraceMode::OnFailure, true, 0),
+        (TraceMode::On, false, 2),
+        (TraceMode::OnFailure, true, 2),
+    ] {
+        let directory = root.join(format!("{mode:?}-{failed}-{caught}"));
+        let session = Session::new(format!("trace-outcome-{mode:?}-{failed}-{caught}"))
+            .with_execution_context(ExecutionContext {
+                trace: Some(TraceOptions {
+                    mode,
+                    directory: directory.clone(),
+                }),
+                ..Default::default()
+            });
+        let options = if cfg!(windows) {
+            run_options(
+                "powershell.exe",
+                &[
+                    "-NoProfile",
+                    "-Command",
+                    "[Console]::Write('TRACE_READY'); Start-Sleep -Seconds 30",
+                ],
+            )
+        } else {
+            run_options("sh", &["-c", "printf TRACE_READY; sleep 30"])
+        };
+        session.run(options).unwrap();
+        session
+            .get_by_text("TRACE_READY")
+            .wait_with_timeout(Some(5_000))
+            .unwrap();
+        for _ in 0..caught {
+            session
+                .execute(Operation::WaitLocator {
+                    query: LocatorQuery::text("missing expected marker"),
+                    not: false,
+                    timeout_ms: Some(0),
+                })
+                .unwrap_err();
+        }
+        session.execute(Operation::FinishTrace { failed }).unwrap();
+        session.close().unwrap();
+        let bundles: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|item| item.unwrap().path())
+            .collect();
+        if mode == TraceMode::OnFailure && !failed {
+            assert!(bundles.is_empty());
+        } else {
+            assert_eq!(bundles.len(), if failed { caught.max(1) } else { 1 });
+            for bundle in bundles {
+                let manifest: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(bundle.join("trace.json")).unwrap())
+                        .unwrap();
+                assert_eq!(
+                    manifest["outcome"],
+                    if failed { "failed" } else { "passed" }
+                );
+                if caught == 0 || !failed {
+                    assert_eq!(
+                        manifest["reason"],
+                        if failed { "test_failed" } else { "completed" }
+                    );
+                }
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn enabled_traces_pin_input_return_screens() {
+    use tui_test::{KeyAction, TraceMode, TraceOptions};
+    let directory =
+        std::env::temp_dir().join(format!("tui-test-input-checkpoint-{}", std::process::id()));
+    let session = Session::new("input-checkpoint").with_execution_context(ExecutionContext {
+        trace: Some(TraceOptions {
+            mode: TraceMode::OnFailure,
+            directory: directory.clone(),
+        }),
+        ..Default::default()
+    });
+    let options = if cfg!(windows) {
+        run_options("powershell.exe", &["-NoProfile", "-Command", "[Console]::Write('INPUT_READY'); [void][Console]::ReadLine(); [Console]::Write('INPUT_DONE'); Start-Sleep -Seconds 30"])
+    } else {
+        run_options(
+            "sh",
+            &[
+                "-c",
+                "printf INPUT_READY; read line; printf '\\r\\nINPUT_DONE'; sleep 30",
+            ],
+        )
+    };
+    session.run(options).unwrap();
+    let started = Instant::now();
+    loop {
+        let OperationResult::Text(text) = session.execute(Operation::Text { full: false }).unwrap()
+        else {
+            panic!("expected text");
+        };
+        if text.contains("INPUT_READY") {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "input fixture did not start"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    session
+        .execute(Operation::Key {
+            keys: vec!["Left".into()],
+            action: KeyAction::Up,
+        })
+        .unwrap();
+    session
+        .execute(Operation::Submit {
+            data: Some("go".into()),
+        })
+        .unwrap();
+    session
+        .get_by_text("INPUT_DONE")
+        .wait_with_timeout(Some(5_000))
+        .unwrap();
+    let error = session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("missing checkpoint marker"),
+            not: false,
+            timeout_ms: Some(0),
+        })
+        .unwrap_err();
+    let details = failure_report(&error);
+    let input = details
+        .recent_operations
+        .iter()
+        .find(|op| op.name == "key")
+        .unwrap();
+    assert_ne!(
+        input.screen_at_return,
+        details.operation.failed_screen_sequence
+    );
+    assert!(details
+        .terminal
+        .as_ref()
+        .unwrap()
+        .screen_history
+        .checkpoints
+        .iter()
+        .any(|frame| frame.sequence == input.screen_at_return));
+    session.close().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn input_diagnostics_capture_written_bytes_key_phases_and_resolved_clicks() {
+    use tui_test::{
+        InputArguments, KeyAction, MouseAction, MouseOptions, MouseTarget, TextPosition,
+    };
+    let (session, directory) = report_session("input-diagnostics");
+    let options = if cfg!(windows) {
+        run_options(
+            "powershell.exe",
+            &[
+                "-NoProfile",
+                "-Command",
+                "[Console]::Write(\"Save`r`n\"); Start-Sleep -Seconds 30",
+            ],
+        )
+    } else {
+        run_options("sh", &["-c", "printf 'Save\\r\\n'; sleep 30"])
+    };
+    session.run(options).unwrap();
+    let result = (|| -> Result<(), tui_test::TuiTestError> {
+        session.get_by_text("Save").wait_with_timeout(Some(5_000))?;
+        session.execute(Operation::Mouse {
+            action: MouseAction::Click {
+                x: Some(8),
+                y: Some(3),
+                on_text: None,
+                options: MouseOptions::default(),
+                clicks: 1,
+            },
+        })?;
+        session.execute(Operation::Mouse {
+            action: MouseAction::Click {
+                x: None,
+                y: None,
+                on_text: Some("Save".into()),
+                options: MouseOptions::default(),
+                clicks: 1,
+            },
+        })?;
+        session.get_by_text("Save").click()?;
+        session.execute(Operation::Write {
+            data: "a\u{e9}\n".into(),
+        })?;
+        session.execute(Operation::Submit {
+            data: Some("deploy".into()),
+        })?;
+        for action in [KeyAction::Down, KeyAction::Up, KeyAction::Press] {
+            session.execute(Operation::Key {
+                keys: vec!["Left".into()],
+                action,
+            })?;
+        }
+        let error = session
+            .execute(Operation::WaitLocator {
+                query: LocatorQuery::text("missing input diagnostic marker"),
+                not: false,
+                timeout_ms: Some(0),
+            })
+            .unwrap_err();
+        let details = failure_report(&error);
+        let inputs: Vec<_> = details
+            .recent_operations
+            .iter()
+            .filter_map(|op| op.input.as_ref())
+            .collect();
+        assert_eq!(inputs.len(), 8);
+        assert_eq!(
+            inputs[0].mouse_position,
+            Some(TextPosition { column: 8, row: 3 })
+        );
+        assert_eq!(
+            inputs[1].mouse_position,
+            Some(TextPosition { column: 2, row: 0 })
+        );
+        assert_eq!(inputs[2].mouse_position, inputs[1].mouse_position);
+        assert!(matches!(
+            inputs[1].arguments,
+            InputArguments::MouseClick {
+                target: MouseTarget::Text { .. },
+                ..
+            }
+        ));
+        assert!(matches!(
+            inputs[2].arguments,
+            InputArguments::MouseClick {
+                target: MouseTarget::Locator,
+                ..
+            }
+        ));
+        assert_eq!(
+            inputs[1].sent_bytes.as_deref(),
+            Some(&b"\x1b[<0;3;1M\x1b[<0;3;1m"[..])
+        );
+        assert_eq!(inputs[3].sent_bytes.as_deref(), Some(&b"a\xc3\xa9\n"[..]));
+        assert_eq!(inputs[4].sent_bytes.as_deref(), Some(&b"deploy\r"[..]));
+        assert_eq!(inputs[5].sent_bytes.as_deref(), Some(&b"\x1b[D"[..]));
+        assert_eq!(inputs[6].sent_bytes.as_deref(), Some(&b""[..]));
+        assert_eq!(inputs[7].sent_bytes, inputs[5].sent_bytes);
+        Ok(())
+    })();
+    session.close().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+    result.unwrap();
+}
+
+#[test]
+fn locator_composition_is_owner_checked_and_immutable() {
+    let session = Session::new("same-name");
+    let other = Session::new("same-name");
+    let text = session.get_by_text("Docs");
+    let link = session.clone().get_by_link("test:link");
+    assert!(text.and(&link).is_ok());
+    assert!(text.or(&other.get_by_text("Docs")).is_err());
+    assert!(text
+        .filter(LocatorFilterOptions {
+            has: Some(other.get_by_link("test:link")),
+            has_not: None
+        })
+        .is_err());
+    assert!(text.filter(LocatorFilterOptions::default()).is_err());
+    let selected = text.and(&link).unwrap().first();
+    assert_eq!(selected.query().occurrence, MatchOccurrence::First);
+    assert_eq!(text.query().occurrence, MatchOccurrence::Any);
+    let registry = SessionRegistry::default();
+    let a = registry.session("a");
+    assert!(a.get_by_text("x").and(&a.clone().get_by_link("")).is_ok());
+    assert!(a
+        .get_by_text("x")
+        .and(&registry.session("b").get_by_link(""))
+        .is_err());
+}
+
+#[test]
+fn link_locator_expressions_drive_live_actions() {
+    let session = Session::new(format!("native-link-locator-{}", std::process::id()));
+    let options = if cfg!(windows) {
+        run_options("powershell.exe", &["-NoProfile", "-Command",
+            "[Console]::Write(([string][char]27+'[1mA'+[char]27+']8;;test:link'+[char]7+'B'+[char]27+'[22mC'+[char]27+']8;;'+[char]7)); Start-Sleep -Seconds 30"])
+    } else {
+        run_options(
+            "sh",
+            &[
+                "-c",
+                "printf '\\033[1mA\\033]8;;test:link\\007B\\033[22mC\\033]8;;\\007'; sleep 30",
+            ],
+        )
+    };
+    session.run(options).unwrap();
+    let result = (|| -> Result<(), tui_test::TuiTestError> {
+        let bold = session.get_by_style(TextStyle {
+            bold: Some(true),
+            ..Default::default()
+        });
+        let link = session.get_by_link("test:link");
+        let intersection = bold.and(&link)?;
+        intersection.wait_with_timeout(Some(5_000))?;
+        assert_eq!(intersection.location()?.text, "B");
+        assert_eq!(bold.or(&link)?.location()?.text, "ABC");
+        let parent = session.get_by_text("ABC");
+        assert_eq!(
+            parent
+                .filter(LocatorFilterOptions {
+                    has: Some(link),
+                    has_not: None
+                })?
+                .location()?
+                .text,
+            "ABC"
+        );
+        assert_eq!(parent.get_by_link("test:link").count()?, 0);
+        intersection.click()?;
+        intersection.highlight()?;
+        Ok(())
+    })();
+    session.close().unwrap();
+    result.unwrap();
+}
+
+fn wait_for_exit(session: &Session) {
+    session
+        .execute(Operation::WaitExit {
+            timeout_ms: Some(5_000),
+        })
+        .expect("wait for process exit");
+}
+
+fn process_exit_code(session: &Session) -> Option<i32> {
+    let OperationResult::State(state) = session.execute(Operation::State).expect("read state")
+    else {
+        panic!("unexpected state result");
+    };
+    state.exited
+}
+
+#[cfg(unix)]
+fn process_exit_signal(session: &Session) -> Option<String> {
+    let OperationResult::State(state) = session.execute(Operation::State).expect("read state")
+    else {
+        panic!("unexpected state result");
+    };
+    state.exit_signal
+}
+
+#[test]
+fn named_handles_share_a_process_local_terminal() {
+    let name = format!("native-runtime-{}", std::process::id());
+    let registry = global_registry();
+    let first = registry.session(name.clone());
+    let second = registry.session(name.clone());
+
+    first
+        .open(OpenOptions {
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::Always,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .expect("open terminal");
+    second
+        .execute(Operation::Submit {
+            data: Some("echo native-runtime".to_string()),
+        })
+        .expect("submit command");
+    first
+        .execute(Operation::WaitCommand {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for command");
+    second
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("native-runtime"),
+            not: false,
+            timeout_ms: Some(5_000),
+        })
+        .expect("find command output");
+    assert!(second
+        .recording()
+        .expect("read active recording")
+        .contains("native-runtime"));
+
+    assert!(registry.sessions().contains(&name));
+    first.close().expect("close terminal");
+    assert!(!registry.sessions().contains(&name));
+    assert!(second
+        .recording()
+        .expect("read recording")
+        .contains("native-runtime"));
+
+    second
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            ..OpenOptions::default()
+        })
+        .expect("open replacement");
+    first
+        .close()
+        .expect("close replacement through first handle");
+}
+
+#[test]
+fn automatic_recording_supports_disabled_and_custom_directory() {
+    let registry = SessionRegistry::default();
+    let root = std::env::temp_dir().join(format!("tui-test-recording-mode-{}", std::process::id()));
+
+    let disabled = registry.session("recording-disabled");
+    let opened = disabled
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::Disabled,
+                directory: Some(root.clone()),
+            },
+            ..OpenOptions::default()
+        })
+        .unwrap();
+    assert!(opened.recording.is_empty());
+    disabled.close().unwrap();
+    assert!(disabled.recording().is_err());
+    assert!(!root.exists());
+
+    let always = registry.session("recording-always");
+    let opened = always
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::Always,
+                directory: Some(root.clone()),
+            },
+            ..OpenOptions::default()
+        })
+        .unwrap();
+    let path = std::path::PathBuf::from(opened.recording);
+    assert!(path.starts_with(&root));
+    always.close().unwrap();
+    assert!(always.recording().is_ok());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn named_session_close_preserves_execution_context() {
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join(format!("close-context-{}", std::process::id()));
+    let registry = SessionRegistry::default();
+    let mut contexts = Vec::new();
+    for method in [
+        "handle_close",
+        "handle_execute",
+        "handle_execute_with_context",
+        "registry_execute",
+    ] {
+        let directory = root.join(method);
+        let session = registry.session(method);
+        session
+            .execute_with_context(
+                Operation::Open(OpenOptions {
+                    wait_ready: Some(false),
+                    recording: AutomaticRecording {
+                        directory: Some(directory.join("recordings")),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }),
+                ExecutionContext {
+                    trace: Some(tui_test::TraceOptions {
+                        mode: tui_test::TraceMode::On,
+                        directory: directory.join("traces"),
+                    }),
+                    diagnostic_context: [("opened".to_string(), method.to_string())].into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let context = ExecutionContext {
+            diagnostic_context: [("closed".to_string(), method.to_string())].into(),
+            ..Default::default()
+        };
+        match method {
+            "handle_close" => session.with_execution_context(context).close().unwrap(),
+            "handle_execute" => {
+                session
+                    .with_execution_context(context)
+                    .execute(Operation::Close)
+                    .unwrap();
+            }
+            "handle_execute_with_context" => {
+                session
+                    .execute_with_context(Operation::Close, context)
+                    .unwrap();
+            }
+            _ => {
+                registry
+                    .execute_with_context(method, Operation::Close, context)
+                    .unwrap();
+            }
+        }
+        assert!(registry.sessions().is_empty());
+        assert!(session.recording().is_ok());
+        let traces: Vec<_> = std::fs::read_dir(directory.join("traces"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(traces.len(), 1);
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(traces[0].join("trace.json")).unwrap()).unwrap();
+        contexts.push((method, manifest["context"].clone()));
+        session.close().unwrap();
+    }
+    std::fs::remove_dir_all(root).unwrap();
+    for (method, context) in contexts {
+        assert_eq!(context["opened"], method);
+        assert_eq!(context["closed"], method);
+    }
+}
+
+#[test]
+fn restart_preserves_recording_without_a_trace_override_and_honors_an_explicit_override() {
+    let registry = SessionRegistry::default();
+    let root = std::env::temp_dir().join(format!("tui-test-restart-policy-{}", std::process::id()));
+    let session = registry.session("restart-recording-policy");
+    let opened = session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::Always,
+                directory: Some(root.clone()),
+            },
+            ..Default::default()
+        })
+        .unwrap();
+    let OperationResult::Open(restarted) = session
+        .execute(Operation::Restart {
+            graceful_timeout_ms: 0,
+        })
+        .unwrap()
+    else {
+        panic!("restart must return the new session");
+    };
+    assert!(!opened.recording.is_empty());
+    assert!(!restarted.recording.is_empty());
+    assert!(std::path::Path::new(&restarted.recording).is_file());
+    let OperationResult::Open(disabled) = registry
+        .execute_with_context(
+            session.name(),
+            Operation::Restart {
+                graceful_timeout_ms: 0,
+            },
+            ExecutionContext {
+                trace: Some(tui_test::TraceOptions {
+                    mode: tui_test::TraceMode::Off,
+                    directory: root.join("traces"),
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    else {
+        panic!("restart must return the new session");
+    };
+    assert!(disabled.recording.is_empty());
+    session.close().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn on_failure_recording_is_kept_only_after_an_operation_failure() {
+    let registry = SessionRegistry::default();
+    let root =
+        std::env::temp_dir().join(format!("tui-test-recording-failure-{}", std::process::id()));
+
+    let success = registry.session("recording-success");
+    let opened = success
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::OnFailure,
+                directory: Some(root.clone()),
+            },
+            ..OpenOptions::default()
+        })
+        .unwrap();
+    let success_path = std::path::PathBuf::from(opened.recording);
+    success.close().unwrap();
+    assert!(!success_path.exists());
+
+    let failed = registry.session("recording-failed");
+    failed
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::OnFailure,
+                directory: Some(root.clone()),
+            },
+            ..OpenOptions::default()
+        })
+        .unwrap();
+    assert_eq!(
+        failed
+            .execute(Operation::WaitLocator {
+                query: LocatorQuery::text("never-present"),
+                not: false,
+                timeout_ms: Some(1),
+            })
+            .unwrap_err()
+            .kind,
+        ErrorKind::Assertion
+    );
+    failed.close().unwrap();
+    assert!(failed.recording().is_ok());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn failed_open_recording_is_readable_before_close() {
+    let registry = SessionRegistry::default();
+    let session = registry.session("recording-failed-open");
+    let root = std::env::temp_dir().join(format!("tui-test-failed-open-{}", std::process::id()));
+    let (program, args) = if cfg!(windows) {
+        (
+            "powershell",
+            vec![
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "Start-Sleep -Seconds 2",
+            ],
+        )
+    } else {
+        ("sh", vec!["-c", "sleep 2"])
+    };
+    let mut options = run_options(program, &args);
+    options.wait_ready = Some(true);
+    options.timeouts.ready = Some(50);
+    options.recording = AutomaticRecording {
+        mode: AutomaticRecordingMode::OnFailure,
+        directory: Some(root.clone()),
+    };
+
+    assert_eq!(session.run(options).unwrap_err().kind, ErrorKind::Assertion);
+    assert!(session.recording().unwrap().contains("\"version\":2"));
+    session.close().unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn failed_locator_writes_an_actionable_artifact_bundle() {
+    let registry = SessionRegistry::default();
+    let root = std::env::temp_dir().join(format!("tui-test-failure-bundle-{}", std::process::id()));
+    let mut context = ExecutionContext {
+        artifact: Some(FailureArtifactOptions {
+            directory: root.clone(),
+            mode: FailureArtifactMode::All,
+            include_recording: false,
+        }),
+        ..ExecutionContext::default()
+    };
+    context
+        .diagnostic_context
+        .insert("test".to_string(), "failed_locator_bundle".to_string());
+    let session = registry
+        .session("failed-locator-bundle")
+        .with_execution_context(context);
+    let (program, args) = if cfg!(windows) {
+        (
+            "powershell",
+            vec![
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "Write-Output ready; Start-Sleep -Seconds 2",
+            ],
+        )
+    } else {
+        ("sh", vec!["-c", "printf 'ready\\n'; sleep 2"])
+    };
+    let mut options = run_options(program, &args);
+    options.timeouts.text = Some(1234);
+    session.run(options).unwrap();
+
+    session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("ready"),
+            not: false,
+            timeout_ms: Some(5_000),
+        })
+        .unwrap();
+    session
+        .execute(Operation::Resize { cols: 81, rows: 31 })
+        .unwrap();
+
+    let error = session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("never-present"),
+            not: false,
+            timeout_ms: Some(20),
+        })
+        .unwrap_err();
+    let compact = error.details.as_ref().expect("structured failure details");
+    assert_eq!(compact.operation, "locator.wait");
+    assert!(serde_json::to_value(compact)
+        .unwrap()
+        .get("terminal")
+        .is_none());
+    let details = failure_report(&error);
+    assert_eq!(details.schema_version, 1);
+    assert_eq!(details.reason, FailureReason::LocatorNoMatch);
+    assert_eq!(
+        details.context.get("test").map(String::as_str),
+        Some("failed_locator_bundle")
+    );
+    assert!(details.locator.is_some());
+    assert!(details.terminal.is_some());
+    let runtime = details.runtime.as_ref().unwrap();
+    assert_eq!(
+        runtime.session_name.as_deref(),
+        Some("failed-locator-bundle")
+    );
+    assert_eq!(runtime.timeouts.unwrap().text, 1234);
+    assert_eq!(details.operation.timeout_ms, Some(20));
+
+    let artifact = error.artifact.as_ref().expect("failure artifact reference");
+    let manifest = artifact
+        .manifest
+        .as_ref()
+        .map(std::path::PathBuf::from)
+        .expect("failure manifest");
+    assert!(manifest.is_file());
+    assert!(artifact
+        .report
+        .as_ref()
+        .is_some_and(|path| std::path::Path::new(path).is_file()));
+    assert!(artifact
+        .screen_text
+        .as_ref()
+        .is_some_and(|path| std::path::Path::new(path).is_file()));
+    assert!(artifact
+        .screen_svg
+        .as_ref()
+        .is_some_and(|path| std::path::Path::new(path).is_file()));
+
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(manifest).unwrap()).unwrap();
+    assert_eq!(manifest["schema_version"], 1);
+    assert_eq!(manifest["operation"]["name"], "locator.wait");
+    assert_eq!(manifest["context"]["test"], "failed_locator_bundle");
+    assert!(manifest["terminal"]["screen_history"]["screens"]
+        .as_array()
+        .is_some_and(|screens| !screens.is_empty()));
+    let report = std::fs::read_to_string(artifact.report.as_ref().unwrap()).unwrap();
+    assert!(artifact.report.as_ref().unwrap().ends_with("failure.md"));
+    assert!(report.contains("## Assertion checkpoints"));
+    assert!(report.contains("## Locator evaluation"));
+    assert!(report.contains("## Terminal state"));
+    assert!(report.contains("<code>inspect&#95;locator&#95;stage</code>"));
+    let html = std::fs::read_to_string(artifact.report_html.as_ref().unwrap()).unwrap();
+    assert!(html.contains("<div id=\"workbench\"></div>"));
+    assert!(!html.contains("/* REPORT_JS */"));
+    assert!(!html.contains("/* REPORT_CSS */"));
+    let embedded: serde_json::Value = serde_json::from_str(
+        html.split_once("<script id=\"report-data\" type=\"application/json\">")
+            .unwrap()
+            .1
+            .split_once("</script>")
+            .unwrap()
+            .0,
+    )
+    .unwrap();
+    assert_eq!(embedded["details"]["operation"]["name"], "locator.wait");
+    let timeline: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(artifact.timeline.as_ref().unwrap()).unwrap())
+            .unwrap();
+    assert_eq!(embedded["timeline"], timeline);
+    assert_eq!(
+        timeline["failure_screen_sequence"],
+        details.operation.failed_screen_sequence
+    );
+    let frames = timeline["frames"].as_array().unwrap();
+    let checkpoint = details
+        .recent_operations
+        .iter()
+        .find(|op| op.name == "locator.wait" && op.result == "ok")
+        .unwrap();
+    assert!(checkpoint.is_assertion);
+    let Some(tui_test::OperationExpectation::Locator { query, outcome }) = &checkpoint.expectation
+    else {
+        panic!("passing assertion must retain its own expectation");
+    };
+    assert_eq!(query.selector.description(), "ready");
+    assert_eq!(*outcome, tui_test::LocatorExpectation::Visible);
+    assert!(report.contains("## Retained expectations"));
+    assert_eq!(manifest["sensitivity"]["contains_assertion_operands"], true);
+    assert!(frames
+        .iter()
+        .any(|frame| frame["sequence"] == checkpoint.screen_at_return));
+    let failure = frames
+        .iter()
+        .find(|frame| frame["sequence"] == details.operation.failed_screen_sequence)
+        .unwrap();
+    assert_eq!(
+        failure["svg"],
+        std::fs::read_to_string(artifact.screen_svg.as_ref().unwrap()).unwrap()
+    );
+    assert_eq!(failure["size"]["cols"], 81);
+    assert_eq!(failure["grid"].as_array().unwrap().len(), 31);
+    for file in manifest["files"].as_array().unwrap() {
+        use sha2::Digest;
+        assert_eq!(file["status"], "written");
+        let bytes = std::fs::read(
+            std::path::Path::new(&artifact.directory).join(file["path"].as_str().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(file["bytes"], bytes.len());
+        assert_eq!(
+            file["sha256"],
+            format!("sha256:{:x}", sha2::Sha256::digest(&bytes))
+        );
+    }
+    let screen = std::fs::read_to_string(artifact.screen_text.as_ref().unwrap()).unwrap();
+    assert!(!error.message.contains("Terminal content:"));
+    assert_eq!(
+        screen,
+        details
+            .terminal
+            .as_ref()
+            .unwrap()
+            .screen_history
+            .screens
+            .last()
+            .unwrap()
+            .text
+    );
+
+    session.close().unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn locator_location_reports_action_default_occurrence() {
+    let (session, directory) = report_session("location-diagnostics");
+    let (program, args) = if cfg!(windows) {
+        (
+            "powershell",
+            vec![
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "Write-Output ready; Start-Sleep -Seconds 2",
+            ],
+        )
+    } else {
+        ("sh", vec!["-c", "printf 'ready\\n'; sleep 2"])
+    };
+    session.run(run_options(program, &args)).unwrap();
+
+    let error = session.get_by_text("missing").location().unwrap_err();
+    assert_eq!(
+        error.details.as_ref().unwrap().operation,
+        "locator.location"
+    );
+    let details = failure_report(&error);
+    assert_eq!(details.operation.name, "locator.location");
+    let stage = &details.locator.expect("locator details").stages[0];
+    assert_eq!(stage.requested_occurrence, MatchOccurrence::Any);
+    assert_eq!(stage.effective_occurrence, MatchOccurrence::Unique);
+    assert_eq!(stage.occurrence_source, OccurrenceSource::ActionDefault);
+
+    session.close().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn composed_locator_failures_pin_the_operand_and_preserve_query_expectations() {
+    let (session, directory) = report_session("composition-diagnostics");
+    let (program, args) = if cfg!(windows) {
+        ("powershell", vec!["-NoLogo", "-NoProfile", "-Command",
+            "$e=[char]27; [Console]::Write(\"$e[1mA$e]8;;test:docs$([char]7)B$e[22mC$e]8;;$([char]7)\"); Start-Sleep -Seconds 30"])
+    } else {
+        (
+            "sh",
+            vec![
+                "-c",
+                "printf '\\033[1mA\\033]8;;test:docs\\007B\\033[22mC\\033]8;;\\007'; sleep 30",
+            ],
+        )
+    };
+    session.run(run_options(program, &args)).unwrap();
+    session
+        .get_by_text("ABC")
+        .wait_with_timeout(Some(5000))
+        .unwrap();
+    let text = session.get_by_text("ABC");
+    let linked = session.get_by_link("test:docs");
+    assert_eq!(text.and(&linked).unwrap().location().unwrap().text, "BC");
+    let mut ambiguous = LocatorQuery::text(" ");
+    ambiguous.occurrence = MatchOccurrence::Unique;
+    let query = ambiguous.or(LocatorQuery::text("ABC"));
+    let error = session
+        .execute(Operation::WaitLocator {
+            query: query.clone(),
+            not: true,
+            timeout_ms: Some(1),
+        })
+        .unwrap_err();
+    let details = failure_report(&error);
+    let locator = details.locator.unwrap();
+    assert_eq!(
+        locator.failure_reason,
+        Some(tui_test::LocatorFailureReason::Ambiguous)
+    );
+    let stage = &locator.stages[locator.failure_stage.unwrap()];
+    assert_eq!(stage.expression_path, "root.left");
+    assert!(locator.evaluation_error.unwrap().contains("root.left"));
+    let event = details.recent_operations.last().unwrap();
+    let Some(tui_test::OperationExpectation::Locator {
+        query: retained,
+        outcome,
+    }) = &event.expectation
+    else {
+        panic!("retained expression expected")
+    };
+    assert_eq!(retained.as_ref(), &query);
+    assert_eq!(*outcome, tui_test::LocatorExpectation::Hidden);
+    let error = text
+        .get_by_link("test:docs")
+        .expect_with(LocatorExpectOptions {
+            timeout_ms: Some(1),
+            not: false,
+        })
+        .unwrap_err();
+    let locator = error.details.unwrap().locator.unwrap();
+    assert_eq!(
+        locator.reason,
+        Some(tui_test::LocatorFailureReason::LinkFilterRemovedAll)
+    );
+    assert_eq!(locator.mismatches[0].grapheme, "A");
+    session.close().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn locator_style_failure_reports_expected_and_actual_cells() {
+    let session = Session::new(format!("style-diagnostics-{}", std::process::id()));
+    let (program, args) = if cfg!(windows) {
+        (
+            "powershell",
+            vec![
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "$e=[char]27; Write-Output \"$e[31mReady$e[0m\"; Start-Sleep -Seconds 2",
+            ],
+        )
+    } else {
+        (
+            "sh",
+            vec!["-c", "printf '\\033[31mReady\\033[0m\\n'; sleep 2"],
+        )
+    };
+    session.run(run_options(program, &args)).unwrap();
+    session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("Ready"),
+            not: false,
+            timeout_ms: Some(5_000),
+        })
+        .unwrap();
+    let mut query = LocatorQuery::text("Ready");
+    query.style.foreground = Some("#00ff00".to_string());
+    let error = session
+        .execute(Operation::WaitLocator {
+            query,
+            not: false,
+            timeout_ms: Some(100),
+        })
+        .unwrap_err();
+    let locator = error.details.unwrap().locator.unwrap();
+    assert_eq!(
+        locator.reason,
+        Some(tui_test::LocatorFailureReason::StyleFilterRemovedAll)
+    );
+    let mismatch = locator
+        .mismatches
+        .iter()
+        .find(|mismatch| mismatch.property == "foreground")
+        .expect("foreground mismatch");
+    assert_eq!(mismatch.expected, "#00ff00");
+    assert!(mismatch.resolved.is_some());
+    session.close().unwrap();
+}
+
+#[test]
+fn negated_locator_does_not_treat_an_ambiguous_anchor_as_absent() {
+    let session = Session::new(format!("anchor-negation-{}", std::process::id()));
+    let (program, args) = if cfg!(windows) {
+        (
+            "powershell",
+            vec![
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "Write-Output 'anchor anchor target'; Start-Sleep -Seconds 2",
+            ],
+        )
+    } else {
+        (
+            "sh",
+            vec!["-c", "printf 'anchor anchor target\\n'; sleep 2"],
+        )
+    };
+    session.run(run_options(program, &args)).unwrap();
+    session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("target"),
+            not: false,
+            timeout_ms: Some(5_000),
+        })
+        .unwrap();
+
+    let mut selector = TextSelector::new("target");
+    selector.scope.after = Some(tui_test::TextAnchor {
+        text: "anchor".to_string(),
+        regex: false,
+        occurrence: MatchOccurrence::Unique,
+    });
+    let error = session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text(selector),
+            not: true,
+            timeout_ms: Some(20),
+        })
+        .unwrap_err();
+    assert_eq!(
+        error.details.unwrap().locator.unwrap().reason,
+        Some(tui_test::LocatorFailureReason::AnchorAmbiguous)
+    );
+    session.close().unwrap();
+}
+
+#[test]
+fn artifact_write_failure_does_not_replace_the_assertion() {
+    let root = std::env::temp_dir().join(format!("tui-test-artifact-error-{}", std::process::id()));
+    std::fs::write(&root, "not a directory").unwrap();
+    let session = Session::new(format!("artifact-error-{}", std::process::id()))
+        .with_execution_context(ExecutionContext {
+            artifact: Some(FailureArtifactOptions {
+                directory: root.clone(),
+                mode: FailureArtifactMode::All,
+                include_recording: false,
+            }),
+            ..ExecutionContext::default()
+        });
+    let (program, args) = if cfg!(windows) {
+        (
+            "powershell",
+            vec![
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "Write-Output ready; Start-Sleep -Seconds 2",
+            ],
+        )
+    } else {
+        ("sh", vec!["-c", "printf 'ready\\n'; sleep 2"])
+    };
+    session.run(run_options(program, &args)).unwrap();
+    let error = session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("missing"),
+            not: false,
+            timeout_ms: Some(20),
+        })
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Assertion);
+    assert!(error.details.is_some());
+    let artifact = error.artifact.expect("artifact failure metadata");
+    assert_eq!(artifact.status, tui_test::FailureArtifactStatus::Failed);
+    assert!(!artifact.errors.is_empty());
+
+    session.close().unwrap();
+    let _ = std::fs::remove_file(root);
+}
+
+#[test]
+fn locator_failure_reports_session_exit_as_the_top_level_reason() {
+    let session = Session::new(format!("locator-exit-{}", std::process::id()));
+    #[cfg(windows)]
+    let options = run_options("cmd.exe", &["/C", "exit 7"]);
+    #[cfg(not(windows))]
+    let options = run_options("sh", &["-c", "exit 7"]);
+    session.run(options).unwrap();
+
+    let error = session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("missing"),
+            not: false,
+            timeout_ms: Some(5_000),
+        })
+        .unwrap_err();
+    let details = error.details.expect("session exit diagnostics");
+    assert_eq!(details.reason, FailureReason::SessionExited);
+    assert!(!details.summary.is_empty());
+    session.close().unwrap();
+}
+
+#[test]
+fn failure_bundle_copies_an_immutable_recording_prefix() {
+    let root =
+        std::env::temp_dir().join(format!("tui-test-recording-bundle-{}", std::process::id()));
+    let artifact_root = root.join("failures");
+    let recording_root = root.join("recordings");
+    let session = Session::new(format!("recording-bundle-{}", std::process::id()))
+        .with_execution_context(ExecutionContext {
+            artifact: Some(FailureArtifactOptions {
+                directory: artifact_root,
+                mode: FailureArtifactMode::All,
+                include_recording: true,
+            }),
+            ..ExecutionContext::default()
+        });
+    let (program, args) = if cfg!(windows) {
+        (
+            "powershell",
+            vec![
+                "-NoLogo",
+                "-NoProfile",
+                "-Command",
+                "Write-Output before; Start-Sleep -Milliseconds 500; Write-Output after; Start-Sleep -Seconds 2",
+            ],
+        )
+    } else {
+        (
+            "sh",
+            vec![
+                "-c",
+                "printf 'before\\n'; sleep 0.5; printf 'after\\n'; sleep 2",
+            ],
+        )
+    };
+    let mut options = run_options(program, &args);
+    options.recording = AutomaticRecording {
+        mode: AutomaticRecordingMode::OnFailure,
+        directory: Some(recording_root),
+    };
+    session.run(options).unwrap();
+    session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("before"),
+            not: false,
+            timeout_ms: Some(5_000),
+        })
+        .unwrap();
+
+    let error = session
+        .execute(Operation::WaitLocator {
+            query: LocatorQuery::text("never-present"),
+            not: false,
+            timeout_ms: Some(20),
+        })
+        .unwrap_err();
+    let details = failure_report(&error);
+    let artifact = error.artifact.expect("recording artifact");
+    let recording = artifact.recording.expect("copied recording path");
+    let copied = std::fs::read_to_string(recording).unwrap();
+    assert!(copied.contains("before"));
+    assert!(!copied.contains("after"));
+    assert_eq!(
+        details.recording.unwrap().status,
+        tui_test::RecordingStatus::Copied
+    );
+
+    std::thread::sleep(Duration::from_millis(800));
+    let live = session.recording().unwrap();
+    assert!(live.contains("after"));
+    session.close().unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn restart_discards_the_previous_recording_path() {
+    let registry = SessionRegistry::default();
+    let session = registry.session("recording-restart");
+    let root =
+        std::env::temp_dir().join(format!("tui-test-recording-restart-{}", std::process::id()));
+    let first = session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::Always,
+                directory: Some(root.join("first")),
+            },
+            ..OpenOptions::default()
+        })
+        .unwrap();
+    let first = std::path::PathBuf::from(first.recording);
+    assert!(first.is_file());
+
+    let second = session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            restart: true,
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::Always,
+                directory: Some(root.join("second")),
+            },
+            ..OpenOptions::default()
+        })
+        .unwrap();
+    assert!(!first.exists());
+    assert!(std::path::Path::new(&second.recording).is_file());
+    session.close().unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn failed_recorder_initialization_does_not_claim_a_stale_file() {
+    let session = Session::new("recording-stale-file");
+    let root =
+        std::env::temp_dir().join(format!("tui-test-recording-stale-{}", std::process::id()));
+    let first = session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::Always,
+                directory: Some(root.join("first")),
+            },
+            ..OpenOptions::default()
+        })
+        .unwrap();
+    session.close().unwrap();
+
+    let blocked = root.join("blocked");
+    std::fs::create_dir_all(&blocked).unwrap();
+    let stale = blocked.join(std::path::Path::new(&first.recording).file_name().unwrap());
+    std::fs::write(&stale, "stale").unwrap();
+    let original_permissions = std::fs::metadata(&stale).unwrap().permissions();
+    let mut read_only = original_permissions.clone();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&stale, read_only).unwrap();
+
+    assert!(session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            recording: AutomaticRecording {
+                mode: AutomaticRecordingMode::OnFailure,
+                directory: Some(blocked),
+            },
+            ..OpenOptions::default()
+        })
+        .is_err());
+    assert!(session.recording().is_err());
+    assert_eq!(std::fs::read_to_string(&stale).unwrap(), "stale");
+
+    std::fs::set_permissions(&stale, original_permissions).unwrap();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn failed_process_spawn_does_not_publish_a_recording() {
+    let session = Session::new("recording-failed-spawn");
+    let root = std::env::temp_dir().join(format!(
+        "tui-test-recording-failed-spawn-{}",
+        std::process::id()
+    ));
+    let mut options = run_options("tui-test-program-that-does-not-exist", &[]);
+    options.recording = AutomaticRecording {
+        mode: AutomaticRecordingMode::OnFailure,
+        directory: Some(root.clone()),
+    };
+
+    assert!(session.run(options).is_err());
+    assert!(session.recording().is_err());
+    assert!(std::fs::read_dir(&root)
+        .map(|entries| entries.flatten().next().is_none())
+        .unwrap_or(true));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn opening_a_live_named_session_reuses_it_unless_restart_is_requested() {
+    let registry = SessionRegistry::default();
+    let session = registry.session("native-reuse");
+
+    let first = session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            ..OpenOptions::default()
+        })
+        .expect("open first terminal");
+    let reused = session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            ..OpenOptions::default()
+        })
+        .expect("reuse live terminal");
+    assert_eq!(reused.shell_pid, first.shell_pid);
+
+    let restarted = session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            restart: true,
+            ..OpenOptions::default()
+        })
+        .expect("restart live terminal");
+    assert_ne!(restarted.shell_pid, first.shell_pid);
+    session.close().expect("close restarted terminal");
+}
+
+#[test]
+fn restart_without_spawn_metadata_is_a_specific_no_session_error() {
+    let session = Session::new("native-restart-without-metadata");
+    let error = session
+        .execute(Operation::Restart {
+            graceful_timeout_ms: 10,
+        })
+        .expect_err("restart must require metadata");
+    assert_eq!(error.kind, ErrorKind::NoSession);
+    assert!(error.message.contains("no restart metadata"));
+}
+
+#[test]
+fn named_restart_without_spawn_metadata_reports_the_specific_error() {
+    let registry = SessionRegistry::default();
+    let never_opened = registry.session("native-never-opened-restart");
+
+    let error = never_opened
+        .execute(Operation::Restart {
+            graceful_timeout_ms: 10,
+        })
+        .expect_err("restart must require metadata");
+    assert_eq!(error.kind, ErrorKind::NoSession);
+    assert!(error.message.contains("no restart metadata"));
+
+    let removed = registry.session("native-removed-restart");
+    removed
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            ..OpenOptions::default()
+        })
+        .expect("open terminal before removal");
+    removed.close().expect("remove named terminal");
+
+    let error = removed
+        .execute(Operation::Restart {
+            graceful_timeout_ms: 10,
+        })
+        .expect_err("restart after removal must require metadata");
+    assert_eq!(error.kind, ErrorKind::NoSession);
+    assert!(error.message.contains("no restart metadata"));
+}
+
+#[test]
+fn restarting_a_shell_changes_pid_and_restores_prompt_integration() {
+    let session = Session::new("native-shell-restart");
+    let first = session
+        .open(OpenOptions {
+            cols: 91,
+            rows: 27,
+            ..OpenOptions::default()
+        })
+        .expect("open shell");
+    assert!(first.ready);
+
+    let OperationResult::Open(restarted) = session
+        .execute(Operation::Restart {
+            graceful_timeout_ms: 0,
+        })
+        .expect("restart shell")
+    else {
+        panic!("unexpected restart result");
+    };
+    assert_ne!(restarted.shell_pid, first.shell_pid);
+    assert!(restarted.ready);
+
+    session
+        .execute(Operation::Submit {
+            data: Some("echo shell-restart-ready".to_string()),
+        })
+        .expect("submit after restart");
+    session
+        .execute(Operation::WaitCommand {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for command after restart");
+    // The command-complete marker arrives before the next prompt-ready marker.
+    session
+        .execute(Operation::WaitReady {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for prompt after restart");
+    assert!(matches!(
+        session.execute(Operation::State).expect("state after restart"),
+        OperationResult::State(state)
+            if state.cols == 91
+                && state.rows == 27
+                && state.ready
+                && state.text.contains("shell-restart-ready")
+    ));
+
+    session.close().expect("close restarted shell");
+}
+
+#[test]
+fn restart_replays_the_last_successful_spawn_after_reuse_and_failure() {
+    let session = Session::new("native-restart-spawn-history");
+    let first = session
+        .open(OpenOptions {
+            cols: 91,
+            rows: 27,
+            ..OpenOptions::default()
+        })
+        .expect("open original shell");
+    let reused = session
+        .run(run_options("tui-test-program-that-does-not-exist", &[]))
+        .expect("reuse the live shell");
+    assert_eq!(reused.shell_pid, first.shell_pid);
+    session
+        .execute(Operation::Resize { cols: 99, rows: 31 })
+        .expect("resize original shell");
+
+    let mut invalid = run_options("tui-test-program-that-does-not-exist", &[]);
+    invalid.restart = true;
+    assert_eq!(session.run(invalid).unwrap_err().kind, ErrorKind::Internal);
+
+    let OperationResult::Open(restarted) = session
+        .execute(Operation::Restart {
+            graceful_timeout_ms: 0,
+        })
+        .expect("restart the last successful spawn")
+    else {
+        panic!("unexpected restart result");
+    };
+    assert_ne!(restarted.shell_pid, first.shell_pid);
+    assert!(
+        restarted.ready,
+        "restart should restore the shell, not the failed program"
+    );
+    assert!(matches!(
+        session.execute(Operation::State).expect("restarted state"),
+        OperationResult::State(state) if state.cols == 99 && state.rows == 31
+    ));
+    session.close().expect("close restarted shell");
+}
+
+#[test]
+fn restarting_an_exited_program_skips_the_grace_period() {
+    let session = Session::new("native-restart-exited");
+    let options = if cfg!(windows) {
+        run_options("cmd", &["/d", "/c", "exit 7"])
+    } else {
+        run_options("sh", &["-c", "exit 7"])
+    };
+    let first = session.run(options).expect("run short-lived program");
+    wait_for_exit(&session);
+    assert_eq!(process_exit_code(&session), Some(7));
+
+    let start = Instant::now();
+    let OperationResult::Open(restarted) = session
+        .execute(Operation::Restart {
+            graceful_timeout_ms: 60_000,
+        })
+        .expect("restart exited program")
+    else {
+        panic!("unexpected restart result");
+    };
+    assert!(start.elapsed() < Duration::from_secs(10));
+    assert_ne!(restarted.shell_pid, first.shell_pid);
+    wait_for_exit(&session);
+    assert_eq!(process_exit_code(&session), Some(7));
+    session.close().expect("close exited program");
+}
+
+#[test]
+fn unrelated_session_state_does_not_wait_behind_another_session() {
+    let registry = Arc::new(SessionRegistry::default());
+    for name in ["waiting", "responsive"] {
+        registry
+            .session(name)
+            .open(OpenOptions {
+                wait_ready: Some(false),
+                timeouts: Timeouts::default(),
+                ..OpenOptions::default()
+            })
+            .expect("open terminal");
+    }
+
+    let waiting = Arc::clone(&registry);
+    let wait = std::thread::spawn(move || {
+        waiting.execute(
+            "waiting",
+            Operation::WaitLocator {
+                query: LocatorQuery::text("text-that-will-never-appear"),
+                not: false,
+                timeout_ms: Some(700),
+            },
+        )
+    });
+    std::thread::sleep(Duration::from_millis(100));
+
+    let start = Instant::now();
+    assert!(matches!(
+        registry.execute("responsive", Operation::State),
+        Ok(OperationResult::State(_))
+    ));
+    assert!(start.elapsed() < Duration::from_millis(400));
+    assert_eq!(wait.join().unwrap().unwrap_err().kind, ErrorKind::Assertion);
+
+    registry.close_all();
+}
+
+#[test]
+fn packed_screen_is_native_owned_utf8() {
+    let registry = SessionRegistry::default();
+    let session = registry.session("packed-screen");
+    session
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            ..OpenOptions::default()
+        })
+        .expect("open terminal");
+    let OperationResult::PackedScreen(screen) = session
+        .execute(Operation::PackedScreen { full: false })
+        .expect("capture packed screen")
+    else {
+        panic!("unexpected packed screen result");
+    };
+    let text = String::from_utf8(screen.utf8).expect("packed screen is UTF-8");
+    assert_eq!(text.split('\n').count(), screen.rows as usize);
+    session.close().expect("close terminal");
+}
+
+#[test]
+fn text_locators_are_lazy_reusable_queries() {
+    let session = Session::new(format!("native-locator-{}", std::process::id()));
+    session
+        .open(OpenOptions {
+            wait_ready: Some(true),
+            ..OpenOptions::default()
+        })
+        .expect("open terminal");
+
+    let locator = session.get_by_text(TextSelector::new("locator-target"));
+    assert_eq!(locator.count().expect("count initial matches"), 0);
+    assert!(!locator
+        .location()
+        .unwrap_err()
+        .message
+        .contains("Terminal content:"));
+    let command = if cfg!(windows) {
+        "Write-Output ('locator-'+'target locator-'+'target')"
+    } else {
+        "printf 'locator-%s locator-%s\\n' target target"
+    };
+    session
+        .execute(Operation::Submit {
+            data: Some(command.to_string()),
+        })
+        .expect("submit locator output");
+    locator
+        .wait_with_timeout(Some(5_000))
+        .expect("wait with the same locator");
+    assert_eq!(locator.count().expect("count current matches"), 2);
+    locator.expect().expect("expect any matching result");
+    locator.any().expect().expect("expect explicit any match");
+    locator.first().expect().expect("expect first match");
+    locator.last().expect().expect("expect last match");
+    locator.nth(1).expect().expect("expect second match");
+    assert!(locator
+        .unique()
+        .expect_with(LocatorExpectOptions {
+            timeout_ms: Some(20),
+            ..LocatorExpectOptions::default()
+        })
+        .is_err());
+    let hidden = LocatorExpectOptions {
+        not: true,
+        timeout_ms: Some(20),
+    };
+    session
+        .get_by_text("missing-locator-target")
+        .unique()
+        .expect_with(hidden)
+        .expect("expect an absent unique locator");
+    locator
+        .nth(2)
+        .expect_with(hidden)
+        .expect("expect an absent third match");
+    assert!(locator
+        .unique()
+        .expect_with(hidden)
+        .unwrap_err()
+        .message
+        .contains("found 2"));
+    assert!(locator.first().expect_with(hidden).is_err());
+    locator.first().expect().expect("expect one selected match");
+    let relative = locator
+        .first()
+        .get_by_text_relative(TextSelector::new("locator-target"), LocatorDirection::After);
+    assert_eq!(
+        relative.first().location().unwrap().start,
+        locator.nth(1).location().unwrap().start
+    );
+    let nested = session
+        .get_by_text("locator-target locator-target")
+        .get_by_text("locator-target")
+        .get_by_text("target");
+    assert_eq!(nested.count().expect("count nested matches"), 2);
+    nested.highlight().expect("highlight nested matches");
+    locator.highlight().expect("highlight all current matches");
+    assert_eq!(locator.all().expect("materialize locators").len(), 2);
+    assert_eq!(
+        locator
+            .nth(1)
+            .location()
+            .expect("resolve second match")
+            .start
+            .column,
+        locator
+            .last()
+            .location()
+            .expect("resolve last match")
+            .start
+            .column
+    );
+    assert_eq!(
+        &locator.unique().query().occurrence,
+        &MatchOccurrence::Unique
+    );
+    session.close().expect("close terminal");
+}
+
+#[test]
+fn text_locator_highlight_marks_the_current_grid() {
+    let session = Session::new(format!("native-highlight-{}", std::process::id()));
+    session
+        .open(OpenOptions {
+            wait_ready: Some(true),
+            ..OpenOptions::default()
+        })
+        .expect("open terminal");
+    session
+        .execute(Operation::Submit {
+            data: Some("echo highlight-target".to_string()),
+        })
+        .expect("submit highlighted output");
+
+    let locator = session.get_by_text("highlight-target").last();
+    locator
+        .wait_with_timeout(Some(5_000))
+        .expect("wait for highlighted text");
+    session
+        .execute(Operation::WaitIdle {
+            timeout_ms: Some(5_000),
+        })
+        .expect("wait for idle before highlighting");
+    let location = locator.location().expect("resolve highlighted location");
+    locator.highlight().expect("highlight locator");
+    session
+        .execute(Operation::WaitIdle {
+            timeout_ms: Some(10),
+        })
+        .expect("highlight must not reset terminal idle timing");
+    assert_eq!(
+        locator.location().expect("resolve locator after highlight"),
+        location
+    );
+    session.close().expect("close terminal");
+}
+
+#[test]
+fn text_and_style_locators_chain_against_the_live_grid() {
+    let session = Session::new(format!("native-style-locator-{}", std::process::id()));
+    session
+        .open(OpenOptions {
+            wait_ready: Some(true),
+            ..OpenOptions::default()
+        })
+        .expect("open terminal");
+    let command = if cfg!(windows) {
+        "[Console]::Write(('plain '+[char]27+'[1mBOLD'+[char]27+'[0m'+[Environment]::NewLine))"
+    } else {
+        "printf 'plain \\033[1mBOLD\\033[0m\\n'"
+    };
+    session
+        .execute(Operation::Submit {
+            data: Some(command.to_string()),
+        })
+        .expect("submit styled output");
+
+    let bold = TextStyle {
+        bold: Some(true),
+        ..TextStyle::default()
+    };
+    let styled_text = session
+        .get_by_style(bold.clone())
+        .get_by_text("BOLD")
+        .unique();
+    styled_text
+        .wait_with_timeout(Some(5_000))
+        .expect("wait for text inside bold run");
+    assert_eq!(styled_text.location().unwrap().text, "BOLD");
+
+    let text_style = session.get_by_text("BOLD").get_by_style(bold).unique();
+    assert_eq!(text_style.location().unwrap().text, "BOLD");
+    text_style.expect().expect("expect styled text");
+    text_style.highlight().expect("highlight styled text");
+    session.close().expect("close terminal");
+}
+
+#[test]
+fn close_all_interrupts_in_flight_waits() {
+    let registry = Arc::new(SessionRegistry::default());
+    registry
+        .session("interrupt-wait")
+        .open(OpenOptions {
+            wait_ready: Some(false),
+            ..OpenOptions::default()
+        })
+        .expect("open terminal");
+
+    let waiting = Arc::clone(&registry);
+    let wait = std::thread::spawn(move || {
+        waiting.execute(
+            "interrupt-wait",
+            Operation::WaitLocator {
+                query: LocatorQuery::text("never-appears"),
+                not: false,
+                timeout_ms: Some(30_000),
+            },
+        )
+    });
+    std::thread::sleep(Duration::from_millis(100));
+
+    let start = Instant::now();
+    registry.close_all();
+    assert!(start.elapsed() < Duration::from_secs(2));
+    assert_eq!(wait.join().unwrap().unwrap_err().kind, ErrorKind::Assertion);
+}
+
+#[test]
+fn bell_counts_waits_and_expectations_are_cumulative() {
+    let registry = SessionRegistry::default();
+    let session = registry.session("bells");
+    session.open(OpenOptions::default()).expect("open terminal");
+    session
+        .execute(Operation::Submit {
+            data: Some(two_bells_command()),
+        })
+        .expect("submit bell command");
+    session
+        .execute(Operation::ExpectBellCount {
+            count: 2,
+            timeout_ms: Some(5_000),
+        })
+        .expect("wait for two bells");
+    session
+        .execute(Operation::WaitCommand {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for bell command");
+
+    let OperationResult::State(state) = session.execute(Operation::State).expect("read state")
+    else {
+        panic!("unexpected state result");
+    };
+    assert_eq!(state.bell_count, 2);
+
+    let OperationResult::BellEvents(events) = session
+        .execute(Operation::GetBellEvents)
+        .expect("read bell events")
+    else {
+        panic!("unexpected bell events result");
+    };
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert!(events[1].elapsed_ms >= events[0].elapsed_ms);
+    for _ in 0..2 {
+        assert!(matches!(
+            session
+                .execute(Operation::GetBellCount)
+                .expect("read bell count"),
+            OperationResult::BellCount(2)
+        ));
+    }
+
+    session
+        .execute(Operation::Submit {
+            data: Some(delayed_bell_command()),
+        })
+        .expect("submit delayed bell");
+    session
+        .execute(Operation::WaitBell {
+            timeout_ms: Some(5_000),
+        })
+        .expect("wait for the next bell");
+    assert!(matches!(
+        session
+            .execute(Operation::GetBellCount)
+            .expect("read final bell count"),
+        OperationResult::BellCount(3)
+    ));
+
+    let OperationResult::State(state) =
+        session.execute(Operation::State).expect("read final state")
+    else {
+        panic!("unexpected final state result");
+    };
+    assert_eq!(state.bell_count, 3);
+
+    let OperationResult::BellEvents(events) = session
+        .execute(Operation::GetBellEvents)
+        .expect("read final bell events")
+    else {
+        panic!("unexpected final bell events result");
+    };
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    assert!(events[2].elapsed_ms >= events[1].elapsed_ms);
+
+    session.close().expect("close terminal");
+}
+
+#[test]
+fn clipboard_getter_and_change_wait_track_osc_52() {
+    let registry = SessionRegistry::default();
+    let session = registry.session("clipboard");
+    session.open(OpenOptions::default()).expect("open terminal");
+
+    assert!(matches!(
+        session
+            .execute(Operation::GetClipboard)
+            .expect("read initial clipboard"),
+        OperationResult::Clipboard(value) if value.is_empty()
+    ));
+    let timeout = session
+        .execute(Operation::WaitClipboard {
+            timeout_ms: Some(100),
+        })
+        .expect_err("unchanged clipboard should time out");
+    assert_eq!(timeout.kind, ErrorKind::Assertion);
+
+    session
+        .execute(Operation::Submit {
+            data: Some(clipboard_command("Y2hhbmdlZA==")),
+        })
+        .expect("submit clipboard change");
+    session
+        .execute(Operation::WaitCommand {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for clipboard command");
+    session
+        .execute(Operation::WaitClipboard {
+            timeout_ms: Some(5_000),
+        })
+        .expect("wait for clipboard change");
+    assert!(matches!(
+        session
+            .execute(Operation::GetClipboard)
+            .expect("read changed clipboard"),
+        OperationResult::Clipboard(value) if value == "changed"
+    ));
+
+    session
+        .execute(Operation::Submit {
+            data: Some(clipboard_command("cHJlZml4LXJlYWR5LTQy")),
+        })
+        .expect("submit literal clipboard value");
+    session
+        .execute(Operation::WaitCommand {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for literal clipboard command");
+    session
+        .execute(Operation::wait_clipboard_match("ready", Some(5_000)))
+        .expect("wait for literal clipboard match");
+
+    session
+        .execute(Operation::Submit {
+            data: Some(clipboard_command("YnVpbGQtMTIz")),
+        })
+        .expect("submit regex clipboard value");
+    session
+        .execute(Operation::WaitCommand {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for regex clipboard command");
+    session
+        .execute(Operation::wait_clipboard_match(
+            regex::Regex::new(r"^build-[0-9]+$").unwrap(),
+            Some(5_000),
+        ))
+        .expect("wait for regex clipboard match");
+
+    assert!(tui_test::ClipboardPattern::regex("[").is_err());
+
+    session.close().expect("close terminal");
+}
+
+#[cfg(feature = "xtermjs")]
+#[test]
+fn unsupported_clipboard_getter_returns_an_error() {
+    let registry = SessionRegistry::default();
+    let session = registry.session("clipboard-unsupported");
+    session
+        .open(OpenOptions {
+            backend: tui_test::Backend::Xtermjs,
+            wait_ready: Some(false),
+            ..OpenOptions::default()
+        })
+        .expect("open xterm.js terminal");
+
+    let error = session
+        .execute(Operation::GetClipboard)
+        .expect_err("xterm.js clipboard must be unsupported");
+    assert_eq!(error.kind, ErrorKind::Internal);
+    assert!(error.message.contains("unavailable"));
+
+    session.close().expect("close terminal");
+}
+
+fn two_bells_command() -> String {
+    if cfg!(windows) {
+        "[Console]::Out.Write([char]7); [Console]::Out.Write([char]7)".to_string()
+    } else {
+        "printf '\\a\\a'".to_string()
+    }
+}
+
+fn delayed_bell_command() -> String {
+    if cfg!(windows) {
+        "Start-Sleep -Milliseconds 300; [Console]::Out.Write([char]7)".to_string()
+    } else {
+        "sleep 0.3; printf '\\a'".to_string()
+    }
+}
+
+fn clipboard_command(base64: &str) -> String {
+    if cfg!(windows) {
+        format!(
+            "[Console]::Out.Write(([char]27).ToString() + ']52;c;{base64}' + \
+             ([char]7).ToString())"
+        )
+    } else {
+        format!("printf '\\033]52;c;{base64}\\a'")
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn pty_eof_waits_for_the_real_delayed_exit_status() {
+    let session = Session::new(format!("delayed-exit-{}", std::process::id()));
+    session
+        .run(run_options(
+            "sh",
+            &["-c", "exec 0<&- 1>&- 2>&-; sleep 0.4; exit 7"],
+        ))
+        .expect("run delayed exit");
+
+    let start = Instant::now();
+    wait_for_exit(&session);
+
+    assert!(
+        start.elapsed() >= Duration::from_millis(250),
+        "wait exit returned when the PTY reached EOF"
+    );
+    assert_eq!(process_exit_code(&session), Some(7));
+    session.close().expect("close delayed exit");
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn direct_zero_exit_status_is_preserved() {
+    let session = Session::new(format!("zero-exit-{}", std::process::id()));
+    #[cfg(unix)]
+    let options = run_options("sh", &["-c", "exit 0"]);
+    #[cfg(windows)]
+    let options = run_options("cmd.exe", &["/C", "exit 0"]);
+
+    session.run(options).expect("run zero exit");
+    wait_for_exit(&session);
+
+    assert_eq!(process_exit_code(&session), Some(0));
+    session.close().expect("close zero exit");
+}
+
+#[cfg(unix)]
+#[test]
+fn signal_derived_exit_status_is_preserved() {
+    let session = Session::new(format!("signal-exit-{}", std::process::id()));
+    session
+        .run(run_options("sh", &["-c", "kill -TERM $$"]))
+        .expect("run signal exit");
+
+    wait_for_exit(&session);
+
+    assert_eq!(process_exit_code(&session), Some(1));
+    assert!(process_exit_signal(&session).is_some());
+    session.close().expect("close signal exit");
+}
+
+#[cfg(unix)]
+#[test]
+fn killing_after_pty_eof_does_not_deadlock() {
+    let session = Session::new(format!("kill-after-eof-{}", std::process::id()));
+    session
+        .run(run_options("sh", &["-c", "exec 0<&- 1>&- 2>&-; sleep 5"]))
+        .expect("run process that closes its PTY");
+    std::thread::sleep(Duration::from_millis(300));
+
+    let killer = session.clone();
+    let (sent, received) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = killer
+            .execute(Operation::Signal {
+                name: "KILL".to_string(),
+            })
+            .map(|_| ())
+            .map_err(|error| error.message);
+        let _ = sent.send(result);
+    });
+
+    match received.recv_timeout(Duration::from_secs(2)) {
+        Ok(result) => result.expect("kill process after PTY EOF"),
+        Err(error) => {
+            std::mem::forget(session);
+            panic!("kill deadlocked after PTY EOF: {error}");
+        }
+    }
+    wait_for_exit(&session);
+    assert_eq!(process_exit_code(&session), Some(1));
+    session.close().expect("close killed process");
+}
+
+#[cfg(unix)]
+#[test]
+fn closing_after_pty_eof_does_not_deadlock() {
+    let session = Session::new(format!("close-after-eof-{}", std::process::id()));
+    session
+        .run(run_options("sh", &["-c", "exec 0<&- 1>&- 2>&-; sleep 5"]))
+        .expect("run process that closes its PTY");
+    std::thread::sleep(Duration::from_millis(300));
+
+    let closer = session.clone();
+    let (sent, received) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = closer.close().map_err(|error| error.message);
+        let _ = sent.send(result);
+    });
+
+    match received.recv_timeout(Duration::from_secs(2)) {
+        Ok(result) => result.expect("close process after PTY EOF"),
+        Err(error) => {
+            std::mem::forget(session);
+            panic!("close deadlocked after PTY EOF: {error}");
+        }
+    }
+}
+
+#[test]
+#[cfg(feature = "recording-raster")]
+fn session_records_and_exports_an_apng() {
+    let registry = SessionRegistry::default();
+    let session = registry.session(format!("recording-export-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "tui-test-recording-export-{}.png",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&path);
+
+    session.open(OpenOptions::default()).expect("open terminal");
+    session
+        .execute(Operation::StartRecording {
+            path: path.to_string_lossy().into_owned(),
+            format: None,
+            fps: Some(30),
+            speed: Some(1.0),
+            idle_time_limit: Some(5.0),
+            zoom: Some(0.5),
+            background: None,
+        })
+        .expect("start recording");
+    session
+        .execute(Operation::Submit {
+            data: Some("echo animated-recording".to_string()),
+        })
+        .expect("submit command");
+    session
+        .execute(Operation::WaitCommand {
+            timeout_ms: Some(30_000),
+        })
+        .expect("wait for command");
+    let OperationResult::Recording(recorded) = session
+        .execute(Operation::StopRecording)
+        .expect("stop recording")
+    else {
+        panic!("unexpected recording result");
+    };
+    assert_eq!(recorded, path.to_string_lossy());
+    let bytes = std::fs::read(&path).expect("read apng");
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    assert!(bytes.windows(4).any(|window| window == b"acTL"));
+    assert_eq!(u32::from_be_bytes(bytes[16..20].try_into().unwrap()), 878);
+    assert_eq!(u32::from_be_bytes(bytes[20..24].try_into().unwrap()), 730);
+
+    session.close().expect("close terminal");
+    std::fs::remove_file(path).expect("remove apng");
+}
+
+/// `expect colors` waits for a program to recolor the terminal, and matches
+/// every slot it was given as one state.
+#[cfg(unix)]
+#[test]
+fn expect_colors_waits_for_a_program_to_recolor_the_terminal() {
+    let session = Session::new(format!("expect-colors-{}", std::process::id()));
+    // Recolor after a pause, so the assertion has to poll rather than happen
+    // to read a value that was already there.
+    session
+        .run(run_options(
+            "sh",
+            &[
+                "-c",
+                "sleep 0.2; printf '\\033]11;#123456\\033\\\\\\033]4;3;#abcdef\\033\\\\'; sleep 5",
+            ],
+        ))
+        .expect("run recolor program");
+
+    session
+        .execute(Operation::ExpectColors {
+            foreground: None,
+            background: Some("#123456".to_string()),
+            cursor: None,
+            palette: vec![(3, "#abcdef".to_string())],
+            timeout_ms: Some(5_000),
+        })
+        .expect("background and palette entry are matched together");
+
+    let error = session
+        .execute(Operation::ExpectColors {
+            foreground: None,
+            background: Some("#ffffff".to_string()),
+            cursor: None,
+            palette: Vec::new(),
+            timeout_ms: Some(200),
+        })
+        .expect_err("a color the program never set cannot match");
+    assert_eq!(error.kind, ErrorKind::Assertion);
+    let message = error.to_string();
+    assert!(
+        message.contains("background #123456"),
+        "the failure names what the slot actually holds: {message}"
+    );
+    assert!(
+        !message.contains("foreground"),
+        "and says nothing about slots the caller never asked about: {message}"
+    );
+
+    let error = session
+        .execute(Operation::ExpectColors {
+            foreground: None,
+            background: None,
+            cursor: None,
+            palette: Vec::new(),
+            timeout_ms: Some(200),
+        })
+        .expect_err("naming no slot is a usage error");
+    assert_eq!(error.kind, ErrorKind::Usage);
+
+    let error = session
+        .execute(Operation::ExpectColors {
+            foreground: None,
+            background: Some("blue".to_string()),
+            cursor: None,
+            palette: Vec::new(),
+            timeout_ms: Some(200),
+        })
+        .expect_err("an unparseable color is a usage error, not a wait");
+    assert_eq!(error.kind, ErrorKind::Usage);
+    assert!(
+        !error.to_string().contains("default"),
+        "the advice must not offer a spelling this command rejects: {error}"
+    );
+
+    session.close().expect("close terminal");
+}

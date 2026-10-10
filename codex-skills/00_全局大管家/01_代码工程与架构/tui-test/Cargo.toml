@@ -1,0 +1,55 @@
+[workspace]
+members = [
+    "bindings/go/native",
+    "bindings/js",
+    "bindings/python/native",
+    "crates/tui-test",
+    "crates/tui-test-cli",
+]
+default-members = [
+    "crates/tui-test",
+    "crates/tui-test-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT"
+repository = "https://github.com/microsoft/tui-test"
+
+[workspace.dependencies]
+alacritty_terminal = "0.26.0"
+rio-vt = "0.5.3"
+anyhow = "1.0.102"
+base64 = "0.22.1"
+bitflags = "2.13.1"
+clap = { version = "4.6.1", features = ["derive"] }
+compact_str = "0.10.0"
+crossterm = "0.28"
+dialoguer = { version = "0.11", default-features = false }
+dirs = "6.0.0"
+flate2 = "1.1.9"
+fontdb = { version = "0.23.0", default-features = false, features = ["fs", "std"] }
+gif = "0.14.0"
+interprocess = "2.4.2"
+rquickjs = { version = "0.12.2", features = ["parallel"] }
+ghostty-vt = { package = "libghostty-vt", version = "0.2.1", git = "https://github.com/Uzaaft/libghostty-rs.git", rev = "a28e4ad00d6ba79b98b8cac651ed8976d8500903", default-features = false }
+png = "0.17.16"
+portable-pty = "0.9.0"
+regex = "1.12.4"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.10.9"
+toml = "0.9"
+tui-test = { package = "tui-test-rs", path = "crates/tui-test" }
+unicode-width = "0.2.2"
+vte = "0.15"
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std"] }
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
+windows-sys = "0.61.2"
+
+[profile.release]
+strip = true
+lto = true

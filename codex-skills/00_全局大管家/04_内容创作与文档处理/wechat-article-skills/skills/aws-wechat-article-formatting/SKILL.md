@@ -1,0 +1,168 @@
+---
+name: aws-wechat-article-formatting
+description: 公众号排版｜Markdown 转 HTML｜排版主题｜段落样式 — 公众号一键排版工具，Markdown 文稿转微信后台可粘贴 HTML，多主题、多字号、段落样式切换，所见即所得。面向公众号编辑、独立作者、排版岗。触发词：「排版」「版式」「美化」「格式化」「字号」「段落样式」「换个排版主题」「换个版式」「转 HTML」「弄好看点」「调整格式」。换预设包/品牌包/整套主题配色请走 aws-wechat-article-assets；需要多环节串联（写+审+排+配图+发）请走 aws-wechat-article-main。
+homepage: https://aiworkskills.cn
+url: https://github.com/aiworkskills/wechat-article-skills
+metadata:
+  openclaw:
+    requires:
+      env: []
+      bins:
+        - python3
+---
+
+# 排版
+
+**公众号一键排版** —— Markdown 转微信后台可粘贴 HTML，多主题、多字号、所见即所得。
+
+> **套件说明** · 本 skill 属 `aws-wechat-article-*` 一条龙套件（共 9 个 slug，入口 `aws-wechat-article-main`）。跨 skill 的相对引用依赖同一 `skills/` 目录，建议一并 `clawhub install` 全套。源码：<https://github.com/aiworkskills/wechat-article-skills>
+
+## 能力披露（Capabilities）
+
+本 skill 为**纯本地** Markdown → HTML 转换，零网络、零凭证。
+
+- **凭证**：无
+- **网络**：无
+- **文件读（仓库内）**：`.aws-article/config.yaml`、本篇 `article.yaml`、`article.md`、可选 `closing.md`、`.aws-article/presets/formatting/<名>.yaml`
+- **文件读（仓库外）**：`~/.aws-article/presets/formatting/`（跨项目共享的自定义主题；**只读预设文件，不读凭证**）
+- **文件写**：本篇 `article.html`
+- **shell**：仅 `{python} {baseDir}/scripts/format.py`
+
+**单独安装可直接使用**：`format.py` 零依赖、纯本地，无跨 skill 脚本调用。文档里指向 `../aws-wechat-article-main/references/*.md` 的链接在套件未装齐时会断，但排版功能本身可用。
+
+## 路由
+
+一键发文且未明确只要排版 → [aws-wechat-article-main](../aws-wechat-article-main/SKILL.md)。
+
+## 配置检查 ⛔
+
+任何操作前先按 **[首次引导 · 检测顺序](../aws-wechat-article-main/references/first-time-setup.md)** 执行，通过后才继续（或用户明确书面确认「本次不检查」）。单独启用本 skill 时同样。
+
+## 内置模版
+
+排版 = **模版**（骨架：标题装饰、导语、金句卡、图片处理、分隔、文末）× **配色**（一组主色/次色，派生色自动重算）。名字即用途，选之前先看「适合」：
+
+| 模版 | 适合 | 不适合 | 配色（第一个是默认） |
+|------|------|--------|---------|
+| `亲和` | 教程、职场、面向新手的解释性长文 | 严肃议题、极简冷硬的品牌 | 黛紫 / 松绿 / 靛蓝 |
+| `资讯` | 快讯、评测、行业观察 | 抒情散文、碎片化短段 | 墨绿 / 绛红 / 藏青 |
+| `书卷` | 人文、读书、历史、深度长文 | 工程文档、数据密集的评测 | 朱砂 / 黛蓝 / 苍绿 |
+| `杂志` | 品牌故事、人物访谈、生活方式 | 没有配图的稿子、信息型短文 | 石青 / 驼褐 / 铁锈 |
+
+**不传 `--theme` 时的内置默认是 `亲和`。**
+
+另外四套不随 skill 内置，在 aiworkskills.cn 选好模版和配色后随 `.aws` 预设包下发到 `.aws-article/presets/formatting/`（见 [assets skill](../aws-wechat-article-assets/SKILL.md)）：`活力`（产品发布、增长复盘）、`手账`（个人笔记、复盘）、`硬朗`（观点、宣言）、`技术`（工程实践、代码讲解）。网站上选的配色会烘进 YAML 顶层 `variables`，落地后不需要额外配置。
+
+**选之前先跑一次**，判据、色值、每套配色的口径都在输出里，别只按名字猜：
+
+```bash
+{python} {baseDir}/scripts/format.py --list-themes
+```
+
+**说不清就看**：`--preview` 把样张渲成并列对照页（每栏 375px，与真机同宽），用浏览器打开。
+
+```bash
+{python} {baseDir}/scripts/format.py --preview 亲和 -o preview.html   # 该模版的每套配色并列
+{python} {baseDir}/scripts/format.py --preview -o preview.html        # 所有模版的默认色并列
+```
+
+线上同一批预览：`https://aiworkskills.cn/format-previews/<骨架>/<配色序号>.html`，骨架名见 `--list-themes`。
+
+**换配色**：`--scheme <配色名>`，或本篇 `article.yaml` 写 `default_format_scheme: [松绿]`（单元素列表，由 main 的本篇预设落盘步骤写入）。
+
+## 图注只认显式写的 title ⛔
+
+```
+![信息图：画面指令给生图模型看](imgs/x.png "图注给读者看")
+```
+
+括号里路径之后引号中的才是图注。**alt 冒号后那段是画面指令，不会显示给读者。**
+
+早先的实现拿画面指令兼任图注，产出过这种东西：图上画着一个人站在 99.9 的牌子前望向远方，图注写「开发者站在巨型 99.9 分数牌前，视线越过分数望向复杂而开放的城市与工作现场」——把读者眼睛已经看见的复述一遍，零信息；图没生成出来时更会同一句话出现两次（破图 alt 一次、图注一次）。
+
+**没写 title 就不出图注**，这是有意的：绝大多数图不需要图注，错的图注比没有更糟。图注该补充画面之外的东西——数据出处、一句判断、反常识的细节。
+
+出不出图注还受合并配置的 `caption_style` 控制：`有图注` 全出、`无图注` 全不出、`关键图有` 只有信息位的图（信息图 / 实证）出。
+
+## 从标准 markdown 认形态（主路径）
+
+**写作侧只产出标准 markdown**，识别结构是排版层的事。让写手同时掌握标准 markdown 和一套私有语法就是耦合，而且那套语法只有本套件认得，稿子换个工具就废了。
+
+渲染器会认这些形态，作者不用写任何特殊语法：
+
+| 作者写的标准 markdown | 排版层做的事 |
+|---|---|
+| `**加粗**` | 上本模版的重点色或荧光底——正文里唯一的扫读落点 |
+| `- **标签**：说明` | 标签在视觉上提出来（真稿里 62% 的列表项是这个形状） |
+| `- [ ]` / `- [x]` | 换成该骨架的三态图标 |
+| `> 金句。 —— 出处` | 排成金句卡（正文位、带破折号出处的引用） |
+| `> 引文` | 前面补一个大引号 |
+| `![图](x.png "图注")` | 四角标 + 图注 |
+| `---` | 装饰分隔 |
+| `##` | 标题装饰（笔锋 / 折角块） |
+
+**只认形态，不推断语义。** 有序列表在 markdown 里只表示「枚举」不表示「顺序」，所以不会因为看见 `1. 2. 3.` 就渲染成「第一步 第二步」——那是替作者断言一个他没说的顺序。真稿实测：三组多项有序列表里只有一组真有先后。
+
+`:::` 组件语法排版侧仍然认，但**写手不再产出**——细则见 [branches.md「一」](references/branches.md)。
+
+## 工作流
+
+```
+排版进度：
+- [ ] 第0步：⛔ 配置检查
+- [ ] 第1步：确定模版与配色
+- [ ] 第2步：转换
+- [ ] 第3步：核对输出
+```
+
+### 第1步：确定模版与配色
+
+`--theme` 显式指定最优先；不传则读本篇 `article.yaml` 的 `default_format_preset`（单元素列表），再无则内置默认 **`亲和`**。完整解析顺序与配色的同套规则见 [branches.md「二」](references/branches.md)。
+
+### 第2步：转换
+
+在**仓库根**执行（路径按实际本篇目录调整）：
+
+```bash
+# 不传 --theme：读本篇 default_format_preset，否则 亲和
+{python} {baseDir}/scripts/format.py drafts/YYYYMMDD-slug/article.md -o drafts/YYYYMMDD-slug/article.html
+
+# 显式指定模版 / 配色（覆盖配置）
+{python} {baseDir}/scripts/format.py drafts/YYYYMMDD-slug/article.md --theme 资讯 --scheme 绛红 -o drafts/YYYYMMDD-slug/article.html
+
+# 自定义主色 / 字号
+{python} {baseDir}/scripts/format.py article.md --color '#C0392B'
+{python} {baseDir}/scripts/format.py article.md --font-size 15px
+```
+
+文末 `{embed:…}` 的合并规则见 [branches.md「四」](references/branches.md)——**占位符与配置对不上会直接失败**。
+
+### 第3步：核对输出
+
+- 正文**不含**文章标题（`article.md` 的首个 `#` 被跳过，标题在后台单独填）。
+- 配图标记还是 `placeholder` 时保留为 `<img>`，等 [images skill](../aws-wechat-article-images/SKILL.md) 替换——终审前必须全部换成真实路径。
+- 其余输出特性（`closing.md` 追加、预格式化范围、表格对齐）见 [branches.md「五」](references/branches.md)。
+
+## 选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `--theme <名称>` | 模版；省略则按本篇配置 → 内置 `亲和` | `亲和` |
+| `--scheme <配色名>` | 模版的配色（见 `--list-themes`）；省略则读本篇 `default_format_scheme`，再无则模版默认色 | 模版默认 |
+| `--color <hex>` | 自定义主色 | 主题默认 |
+| `--font-size <px>` | 正文字号（同时覆盖主题 p / li 里的字号） | 16px |
+| `-o <路径>` | 输出路径 | 同名 .html |
+| `--list-themes` | 列出模版：长相、适合/不适合、每套配色的色值与口径 | |
+| `--preview [模版名]` | 渲成并列对照页（给模版名则并列它的每套配色，不给则并列所有模版） | |
+| `--export-theme <名称>` | 以 YAML 导出主题，可作为自定义主题起点 | |
+| `--no-preformat` | 跳过 Markdown 预格式化 | |
+
+## 分支与细则
+
+`:::` 组件与查找顺序、主题解析完整顺序、自定义主题、`{embed:…}` 合并规则、输出细节、设计新版式前的微信 HTML 限制 → [references/branches.md](references/branches.md)。
+
+## 过程文件
+
+| 读取 | 产出 |
+|------|------|
+| `article.md`、`.aws-article/config.yaml` + 同目录 `article.yaml`（默认模版与 `embeds`）、`closing.md`（可选） | `article.html` |

@@ -1,0 +1,2208 @@
+//! Text/regex search over the terminal grid, including scoped and normalized
+//! selectors. Match offsets are mapped back to terminal cells.
+
+use regex::Regex;
+use std::cell::OnceCell;
+
+use crate::api::{
+    LocatorDirection, LocatorQuery, LocatorSelector, MatchOccurrence, StyleSelector, TextAnchor,
+    TextMatch, TextPosition, TextSelector, TextSpan, TextStyle, WhitespaceMode,
+};
+
+use super::cell::EmuCell;
+use crate::diagnostics::{
+    CellMismatch, CellStyleEvaluation, LocatorDiagnostics, LocatorFailureReason,
+};
+
+mod trace;
+use trace::{NodeStats, Trace};
+
+pub(crate) struct LocatorEvaluation {
+    pub matches: Vec<LocatedMatch>,
+    pub diagnostics: LocatorDiagnostics,
+}
+
+#[derive(Debug)]
+struct SelectionFailure {
+    reason: LocatorFailureReason,
+    count: usize,
+    message: String,
+}
+impl std::fmt::Display for SelectionFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for SelectionFailure {}
+
+#[derive(Debug)]
+struct EvaluationFailure {
+    stage: Option<usize>,
+    reason: LocatorFailureReason,
+    message: String,
+}
+impl std::fmt::Display for EvaluationFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for EvaluationFailure {}
+
+struct NodeOutcome {
+    matches: Vec<LocatedMatch>,
+    failure: Option<(Option<usize>, LocatorFailureReason)>,
+    candidate_count: usize,
+}
+
+pub(crate) fn evaluate_query<F>(
+    rows: &[Vec<EmuCell>],
+    query: &LocatorQuery,
+    require_one: bool,
+    style: &mut F,
+) -> anyhow::Result<LocatorEvaluation>
+where
+    F: FnMut(&EmuCell, &TextStyle, usize, usize, usize) -> CellStyleEvaluation,
+{
+    let mut trace = Trace {
+        enabled: true,
+        ..Trace::default()
+    };
+    let outcome = evaluate_node(
+        &QueryGrid::new(rows),
+        query,
+        None,
+        style,
+        &mut trace,
+        "root",
+        require_one,
+    );
+    let (matches, failure, final_candidate_count, error) = match outcome {
+        Ok(value) => (value.matches, value.failure, value.candidate_count, None),
+        Err(error) => {
+            let Some(failure) = error.downcast_ref::<EvaluationFailure>() else {
+                return Err(error);
+            };
+            let count = failure
+                .stage
+                .and_then(|i| trace.stages.get(i))
+                .map_or(0, |stage| stage.style_candidate_count);
+            let mut message = error.to_string();
+            trace.truncated |= trace::truncate(&mut message);
+            (
+                Vec::new(),
+                Some((failure.stage, failure.reason)),
+                count,
+                Some(message),
+            )
+        }
+    };
+    Ok(LocatorEvaluation {
+        diagnostics: LocatorDiagnostics {
+            search_scope: if query.uses_full_grid() {
+                "full_grid"
+            } else {
+                "viewport"
+            }
+            .into(),
+            viewport_origin_y: 0,
+            final_candidate_count,
+            selected: trace::sample(&matches),
+            stages: trace.stages,
+            stages_truncated: trace.truncated,
+            failure_stage: failure.and_then(|(stage, _)| stage),
+            failure_reason: failure.map(|(_, reason)| reason),
+            evaluation_error: error,
+        },
+        matches,
+    })
+}
+
+pub enum Pattern {
+    Text(String),
+    Regex(Regex),
+}
+
+impl Pattern {
+    pub fn new(text: &str, is_regex: bool) -> anyhow::Result<Self> {
+        if is_regex {
+            Ok(Pattern::Regex(Regex::new(text)?))
+        } else {
+            Ok(Pattern::Text(text.to_string()))
+        }
+    }
+
+    pub fn describe(&self) -> String {
+        match self {
+            Pattern::Text(text) => text.clone(),
+            Pattern::Regex(regex) => regex.as_str().to_string(),
+        }
+    }
+
+    pub fn matches(&self, haystack: &str) -> bool {
+        match self {
+            Pattern::Text(text) => haystack.contains(text.as_str()),
+            Pattern::Regex(regex) => regex.is_match(haystack),
+        }
+    }
+
+    fn ranges(&self, chars: &[char]) -> Vec<(usize, usize)> {
+        match self {
+            Pattern::Text(text) => {
+                let needle: Vec<char> = text.chars().collect();
+                text_ranges(chars, &needle)
+            }
+            Pattern::Regex(regex) => {
+                let block: String = chars.iter().collect();
+                let mut byte_offset = 0;
+                let mut char_offset = 0;
+                regex
+                    .find_iter(&block)
+                    .filter_map(|matched| {
+                        if matched.is_empty() {
+                            return None;
+                        }
+                        char_offset += block[byte_offset..matched.start()].chars().count();
+                        let start = char_offset;
+                        char_offset += matched.as_str().chars().count();
+                        byte_offset = matched.end();
+                        Some((start, char_offset))
+                    })
+                    .collect()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchedCell {
+    pub x: usize,
+    pub y: usize,
+    pub cell: EmuCell,
+}
+
+#[derive(Debug, Clone)]
+pub struct LocatedMatch {
+    pub value: TextMatch,
+    pub cells: Vec<MatchedCell>,
+    pub(crate) source_start: usize,
+    pub(crate) source_end: usize,
+}
+
+struct FlatGrid {
+    chars: Vec<char>,
+    sources: Vec<usize>,
+    source_ends: Vec<usize>,
+    width: usize,
+}
+
+impl FlatGrid {
+    fn within(&self, (start, end): (usize, usize)) -> (usize, usize) {
+        (
+            self.sources.partition_point(|source| *source < start),
+            self.source_ends.partition_point(|source| *source <= end),
+        )
+    }
+}
+
+struct QueryGrid<'a> {
+    rows: &'a [Vec<EmuCell>],
+    width: usize,
+    exact: OnceCell<FlatGrid>,
+    normalized: OnceCell<FlatGrid>,
+    #[cfg(test)]
+    flattenings: std::cell::Cell<usize>,
+    #[cfg(test)]
+    scanned_cells: std::cell::Cell<usize>,
+}
+
+impl<'a> QueryGrid<'a> {
+    fn new(rows: &'a [Vec<EmuCell>]) -> Self {
+        Self {
+            rows,
+            width: rows.iter().map(Vec::len).max().unwrap_or(0),
+            exact: OnceCell::new(),
+            normalized: OnceCell::new(),
+            #[cfg(test)]
+            flattenings: std::cell::Cell::new(0),
+            #[cfg(test)]
+            scanned_cells: std::cell::Cell::new(0),
+        }
+    }
+
+    fn flat(&self, whitespace: WhitespaceMode) -> &FlatGrid {
+        let cache = match whitespace {
+            WhitespaceMode::Exact => &self.exact,
+            WhitespaceMode::Normalize => &self.normalized,
+        };
+        cache.get_or_init(|| {
+            #[cfg(test)]
+            self.flattenings.set(self.flattenings.get() + 1);
+            flatten(self.rows, whitespace)
+        })
+    }
+}
+
+/// Locate the matches selected by `selector`.
+pub fn locate(rows: &[Vec<EmuCell>], selector: &TextSelector) -> anyhow::Result<Vec<LocatedMatch>> {
+    locate_text_within(&QueryGrid::new(rows), selector, None, None, None)
+}
+
+pub fn locate_query<F>(
+    rows: &[Vec<EmuCell>],
+    query: &LocatorQuery,
+    style_matches: &mut F,
+) -> anyhow::Result<Vec<LocatedMatch>>
+where
+    F: FnMut(&EmuCell, &TextStyle) -> bool,
+{
+    locate_query_within(&QueryGrid::new(rows), query, None, style_matches)
+}
+
+fn locate_query_within<F>(
+    grid: &QueryGrid<'_>,
+    query: &LocatorQuery,
+    enclosing: Option<&[(usize, usize)]>,
+    style_matches: &mut F,
+) -> anyhow::Result<Vec<LocatedMatch>>
+where
+    F: FnMut(&EmuCell, &TextStyle) -> bool,
+{
+    evaluate_node(
+        grid,
+        query,
+        enclosing,
+        &mut |cell, style, _, _, _| CellStyleEvaluation {
+            matched: style_matches(cell, style),
+            mismatches: Vec::new(),
+            mismatches_truncated: false,
+        },
+        &mut Trace::default(),
+        "root",
+        false,
+    )
+    .map(|outcome| outcome.matches)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_node<F>(
+    grid: &QueryGrid<'_>,
+    query: &LocatorQuery,
+    enclosing: Option<&[(usize, usize)]>,
+    style_evaluate: &mut F,
+    trace: &mut Trace,
+    path: &str,
+    require_one: bool,
+) -> anyhow::Result<NodeOutcome>
+where
+    F: FnMut(&EmuCell, &TextStyle, usize, usize, usize) -> CellStyleEvaluation,
+{
+    let mut stats = NodeStats {
+        capture_candidates: trace.enabled,
+        mismatch_limit: trace.mismatch_budget(path),
+        ..NodeStats::default()
+    };
+    let mut inherited_failure = None;
+    let outcome = (|| -> anyhow::Result<Vec<LocatedMatch>> {
+        let mut parents = match query.within.as_deref() {
+            Some(parent) => {
+                let parent = evaluate_node(
+                    grid,
+                    parent,
+                    enclosing,
+                    style_evaluate,
+                    trace,
+                    &format!("{path}.within"),
+                    false,
+                )?;
+                inherited_failure = parent.failure;
+                let mut parents = parent.matches;
+                if parents.is_empty() {
+                    stats.reason = Some(LocatorFailureReason::RelativeRegionNoMatch);
+                    return Ok(Vec::new());
+                }
+                parents.sort_by_key(|matched| matched.source_start);
+                Some(parents)
+            }
+            None => None,
+        };
+        stats.input = parents.as_ref().map_or(1, Vec::len);
+        let relative = parents.as_ref().map(|parents| {
+            relative_regions(
+                parents,
+                query.direction,
+                grid.width.saturating_mul(grid.rows.len()),
+            )
+        });
+        let allowed = match (relative, enclosing) {
+            (Some(relative), Some(enclosing)) => Some(
+                relative
+                    .iter()
+                    .flat_map(|region| intersect_ranges(std::slice::from_ref(region), enclosing))
+                    .collect(),
+            ),
+            (Some(relative), None) => Some(relative),
+            (None, Some(enclosing)) => Some(enclosing.to_vec()),
+            (None, None) => None,
+        };
+        let occurrence = if require_one && query.occurrence == MatchOccurrence::Any {
+            MatchOccurrence::Unique
+        } else {
+            query.occurrence.clone()
+        };
+        let select_early = query.style.is_empty();
+        let mut selected_early = false;
+        let mut matches = match &query.selector {
+            LocatorSelector::Text(selector) => {
+                selected_early = select_early;
+                locate_text_observed(
+                    grid,
+                    selector,
+                    allowed.as_deref(),
+                    select_early.then_some(&occurrence),
+                    enclosing,
+                    &mut stats,
+                )?
+            }
+            LocatorSelector::Style(selector)
+                if query.direction == LocatorDirection::Within && parents.is_some() =>
+            {
+                let mut matches = parents.take().expect("parent matches are present");
+                stats.raw = matches.len();
+                matches.retain(|matched| {
+                    evaluate_match_style(matched, &selector.style, style_evaluate, &mut stats)
+                });
+                if matches.is_empty() && stats.raw > 0 {
+                    stats.reason = Some(LocatorFailureReason::StyleFilterRemovedAll);
+                }
+                matches
+            }
+            LocatorSelector::Style(selector) => {
+                selected_early = select_early;
+                locate_style_observed(
+                    grid,
+                    selector,
+                    allowed.as_deref(),
+                    select_early.then_some(&occurrence),
+                    &mut |cell, style| style_evaluate(cell, style, 0, 0, 0).matched,
+                    &mut stats,
+                )?
+            }
+            LocatorSelector::Link(selector)
+                if query.direction == LocatorDirection::Within && parents.is_some() =>
+            {
+                let mut matches = parents.take().expect("parent matches are present");
+                stats.raw = matches.len();
+                matches.retain(|matched| {
+                    let mut matched_all = true;
+                    for cell in &matched.cells {
+                        if !matched_all && stats.mismatch_budget() == 0 {
+                            stats.mismatches_truncated = true;
+                            break;
+                        }
+                        if !cell_has_link(&cell.cell, &selector.uri) {
+                            matched_all = false;
+                            if stats.mismatch_budget() == 0 {
+                                stats.mismatches_truncated = true;
+                                break;
+                            }
+                            stats.mismatch(CellMismatch {
+                                location: TextPosition {
+                                    column: cell.x.min(u16::MAX as usize) as u16,
+                                    row: cell.y.min(u32::MAX as usize) as u32,
+                                },
+                                grapheme: cell.cell.ch.to_string(),
+                                property: "link".into(),
+                                operator: "equals".into(),
+                                expected: selector.uri.clone(),
+                                actual: cell.cell.uri().unwrap_or_default().into(),
+                                resolved: None,
+                                reason: "value_mismatch".into(),
+                            });
+                        }
+                    }
+                    matched_all
+                });
+                if matches.is_empty() && stats.raw > 0 {
+                    stats.reason = Some(LocatorFailureReason::LinkFilterRemovedAll);
+                }
+                matches
+            }
+            LocatorSelector::Link(selector) => {
+                let matches = locate_cells_within(grid, allowed.as_deref(), &mut |cell| {
+                    cell_has_link(cell, &selector.uri)
+                })?;
+                stats.raw = matches.len();
+                matches
+            }
+            LocatorSelector::And { left, right } | LocatorSelector::Or { left, right } => {
+                let left = evaluate_node(
+                    grid,
+                    left,
+                    allowed.as_deref(),
+                    style_evaluate,
+                    trace,
+                    &format!("{path}.left"),
+                    false,
+                )?
+                .matches;
+                let right = evaluate_node(
+                    grid,
+                    right,
+                    allowed.as_deref(),
+                    style_evaluate,
+                    trace,
+                    &format!("{path}.right"),
+                    false,
+                )?
+                .matches;
+                stats.input = left.len().saturating_add(right.len());
+                let left = coverage(&left, grid.width);
+                let right = coverage(&right, grid.width);
+                let ranges = if matches!(&query.selector, LocatorSelector::And { .. }) {
+                    intersect_ranges(&left, &right)
+                } else {
+                    normalize_ranges(left.into_iter().chain(right).collect())
+                };
+                let matches = materialize_runs(grid, &ranges);
+                stats.raw = matches.len();
+                if matches.is_empty() {
+                    stats.reason =
+                        Some(if matches!(&query.selector, LocatorSelector::And { .. }) {
+                            LocatorFailureReason::IntersectionEmpty
+                        } else {
+                            LocatorFailureReason::UnionEmpty
+                        });
+                }
+                matches
+            }
+            LocatorSelector::Filter {
+                input,
+                has,
+                has_not,
+            } => {
+                let candidates = evaluate_node(
+                    grid,
+                    input,
+                    allowed.as_deref(),
+                    style_evaluate,
+                    trace,
+                    &format!("{path}.input"),
+                    false,
+                )?
+                .matches;
+                stats.input = candidates.len();
+                stats.raw = candidates.len();
+                let mut retained = Vec::new();
+                for candidate in candidates {
+                    let scope = coverage(std::slice::from_ref(&candidate), grid.width);
+                    let positive = match has {
+                        Some(inner) => !evaluate_node(
+                            grid,
+                            inner,
+                            Some(&scope),
+                            style_evaluate,
+                            trace,
+                            &format!("{path}.has"),
+                            false,
+                        )?
+                        .matches
+                        .is_empty(),
+                        None => true,
+                    };
+                    let negative = match has_not {
+                        Some(inner) => evaluate_node(
+                            grid,
+                            inner,
+                            Some(&scope),
+                            style_evaluate,
+                            trace,
+                            &format!("{path}.has_not"),
+                            false,
+                        )?
+                        .matches
+                        .is_empty(),
+                        None => true,
+                    };
+                    if positive && negative {
+                        retained.push(candidate);
+                    }
+                }
+                if retained.is_empty() {
+                    stats.reason = Some(LocatorFailureReason::FilterRemovedAll);
+                }
+                retained
+            }
+        };
+        if !query.style.is_empty() {
+            let count = matches.len();
+            matches.retain(|matched| {
+                evaluate_match_style(matched, &query.style, style_evaluate, &mut stats)
+            });
+            if count > 0 && matches.is_empty() {
+                stats.reason = Some(LocatorFailureReason::StyleFilterRemovedAll);
+            }
+        }
+        stats.styled = if selected_early {
+            stats.raw
+        } else {
+            matches.len()
+        };
+        if selected_early {
+            Ok(matches)
+        } else {
+            if stats.samples_ambiguity(&occurrence, matches.len()) {
+                stats.candidate_count = matches.len();
+                stats.candidates = trace::sample(&matches);
+            }
+            select_items(matches, &occurrence, &query.selector.description())
+        }
+    })();
+    let mut child_error = None;
+    match &outcome {
+        Ok(matches) => {
+            stats.selected_count = matches.len();
+            stats.candidate_count = matches.len();
+            if trace.enabled {
+                stats.candidates = trace::sample(matches);
+            }
+            if matches.is_empty() && stats.reason.is_none() {
+                stats.reason = Some(
+                    if matches!(query.occurrence, MatchOccurrence::Nth(_)) && stats.styled > 0 {
+                        LocatorFailureReason::NthOutOfRange
+                    } else {
+                        LocatorFailureReason::NoMatch
+                    },
+                );
+            }
+        }
+        Err(error) => {
+            if let Some(failure) = error.downcast_ref::<SelectionFailure>() {
+                stats.reason = Some(failure.reason);
+                stats.styled = failure.count;
+            } else if let Some(failure) = error.downcast_ref::<EvaluationFailure>() {
+                child_error = Some((failure.stage, failure.reason));
+                stats.reason = Some(failure.reason);
+            }
+        }
+    }
+    let reason = stats.reason;
+    let count = stats.styled;
+    let stage = trace.record(query, path, require_one, stats);
+    match outcome {
+        Ok(matches) => Ok(NodeOutcome {
+            failure: if matches.is_empty() {
+                inherited_failure.or_else(|| reason.map(|reason| (stage, reason)))
+            } else {
+                None
+            },
+            matches,
+            candidate_count: count,
+        }),
+        Err(error) => {
+            let (stage, reason) =
+                child_error.unwrap_or((stage, reason.unwrap_or(LocatorFailureReason::NoMatch)));
+            let message = if child_error.is_some() {
+                error.to_string()
+            } else {
+                format!("{error} at {path}")
+            };
+            Err(EvaluationFailure {
+                stage,
+                reason,
+                message,
+            }
+            .into())
+        }
+    }
+}
+
+fn evaluate_match_style<F>(
+    matched: &LocatedMatch,
+    style: &TextStyle,
+    style_matches: &mut F,
+    stats: &mut NodeStats,
+) -> bool
+where
+    F: FnMut(&EmuCell, &TextStyle, usize, usize, usize) -> CellStyleEvaluation,
+{
+    let visible = |cell: &MatchedCell| {
+        !cell.cell.ch.is_empty() && !cell.cell.ch.chars().all(char::is_whitespace)
+    };
+    let has_visible = matched.cells.iter().any(&visible);
+    let mut all_matched = true;
+    for cell in matched
+        .cells
+        .iter()
+        .filter(|cell| !has_visible || visible(cell))
+    {
+        if !all_matched && stats.mismatch_budget() == 0 {
+            stats.mismatches_truncated = true;
+            break;
+        }
+        let result = style_matches(&cell.cell, style, cell.x, cell.y, stats.mismatch_budget());
+        all_matched &= result.matched;
+        stats.mismatches_truncated |= result.mismatches_truncated;
+        for mismatch in result.mismatches {
+            stats.mismatch(mismatch);
+        }
+    }
+    all_matched
+}
+
+fn cell_has_link(cell: &EmuCell, uri: &str) -> bool {
+    cell.uri().unwrap_or_default() == uri
+}
+
+fn normalize_ranges(mut ranges: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    ranges.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (start, end) in ranges.into_iter().filter(|(start, end)| start < end) {
+        if let Some(last) = merged.last_mut().filter(|last| start <= last.1) {
+            last.1 = last.1.max(end);
+        } else {
+            merged.push((start, end));
+        }
+    }
+    merged
+}
+
+fn intersect_ranges(left: &[(usize, usize)], right: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    let left = normalize_ranges(left.to_vec());
+    let right = normalize_ranges(right.to_vec());
+    let (mut i, mut j) = (0, 0);
+    let mut result = Vec::new();
+    while i < left.len() && j < right.len() {
+        let start = left[i].0.max(right[j].0);
+        let end = left[i].1.min(right[j].1);
+        if start < end {
+            result.push((start, end));
+        }
+        if left[i].1 <= right[j].1 {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    result
+}
+
+fn coverage(matches: &[LocatedMatch], width: usize) -> Vec<(usize, usize)> {
+    normalize_ranges(
+        matches
+            .iter()
+            .flat_map(|matched| {
+                matched.value.spans.iter().map(|span| {
+                    let row = span.row as usize * width;
+                    (row + span.start as usize, row + span.end as usize)
+                })
+            })
+            .collect(),
+    )
+}
+
+fn materialize_runs(grid: &QueryGrid<'_>, ranges: &[(usize, usize)]) -> Vec<LocatedMatch> {
+    let flat = grid.flat(WhitespaceMode::Exact);
+    if flat.width == 0 {
+        return Vec::new();
+    }
+    let mut matches = Vec::new();
+    for &(mut start, end) in ranges {
+        while start < end {
+            let row_end = end.min((start / flat.width + 1) * flat.width);
+            if let Some(matched) = materialize_cells(grid.rows, flat, (start, row_end)) {
+                matches.push(matched);
+            }
+            start = row_end;
+        }
+    }
+    matches
+}
+
+fn locate_cells_within<F>(
+    grid: &QueryGrid<'_>,
+    allowed: Option<&[(usize, usize)]>,
+    predicate: &mut F,
+) -> anyhow::Result<Vec<LocatedMatch>>
+where
+    F: FnMut(&EmuCell) -> bool,
+{
+    locate_style_within(
+        grid,
+        &StyleSelector::default(),
+        allowed,
+        None,
+        &mut |cell, _| predicate(cell),
+    )
+}
+
+fn relative_regions(
+    parents: &[LocatedMatch],
+    direction: LocatorDirection,
+    source_len: usize,
+) -> Vec<(usize, usize)> {
+    parents
+        .iter()
+        .enumerate()
+        .filter_map(|(index, parent)| {
+            let range = match direction {
+                LocatorDirection::Within => (parent.source_start, parent.source_end),
+                LocatorDirection::After => (
+                    parent.source_end,
+                    parents
+                        .get(index + 1)
+                        .map_or(source_len, |next| next.source_start),
+                ),
+                LocatorDirection::Before => (
+                    index
+                        .checked_sub(1)
+                        .and_then(|previous| parents.get(previous))
+                        .map_or(0, |previous| previous.source_end),
+                    parent.source_start,
+                ),
+            };
+            (range.0 <= range.1).then_some(range)
+        })
+        .collect()
+}
+
+fn locate_text_within(
+    grid: &QueryGrid<'_>,
+    selector: &TextSelector,
+    allowed: Option<&[(usize, usize)]>,
+    occurrence: Option<&MatchOccurrence>,
+    anchor_regions: Option<&[(usize, usize)]>,
+) -> anyhow::Result<Vec<LocatedMatch>> {
+    locate_text_observed(
+        grid,
+        selector,
+        allowed,
+        occurrence,
+        anchor_regions,
+        &mut NodeStats::default(),
+    )
+}
+
+fn locate_text_observed(
+    grid: &QueryGrid<'_>,
+    selector: &TextSelector,
+    allowed: Option<&[(usize, usize)]>,
+    occurrence: Option<&MatchOccurrence>,
+    anchor_regions: Option<&[(usize, usize)]>,
+    stats: &mut NodeStats,
+) -> anyhow::Result<Vec<LocatedMatch>> {
+    if grid.rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let flat = grid.flat(selector.whitespace);
+    let scoped = scope(grid.rows, flat, selector, anchor_regions, stats).map_err(|error| {
+        if let Some(failure) = error.downcast_ref::<SelectionFailure>() {
+            anyhow::Error::new(SelectionFailure {
+                reason: LocatorFailureReason::AnchorAmbiguous,
+                count: failure.count,
+                message: error.to_string(),
+            })
+        } else {
+            error
+        }
+    })?;
+    let Some((start, end)) = scoped else {
+        return Ok(Vec::new());
+    };
+    let pattern = selector_pattern(&selector.text, selector.regex, selector.whitespace)?;
+    let search_regions = match allowed {
+        Some(regions) => regions
+            .iter()
+            .map(|&(a, b)| {
+                let (a, b) = flat.within((a, b));
+                (start.max(a), end.min(b))
+            })
+            .collect(),
+        None => vec![(start, end)],
+    };
+    let mut ranges = Vec::new();
+    for (start, end) in search_regions {
+        if start < end {
+            ranges.extend(
+                pattern
+                    .ranges(&flat.chars[start..end])
+                    .into_iter()
+                    .map(|(a, b)| (a + start, b + start)),
+            );
+        }
+    }
+    ranges.sort_unstable();
+    ranges.dedup();
+    stats.raw = ranges.len();
+    let ranges = if let Some(occurrence) = occurrence {
+        stats.sample_ambiguous_ranges(grid.rows, flat, &ranges, occurrence);
+        select(ranges, occurrence, &pattern.describe())?
+    } else {
+        ranges
+    };
+    Ok(ranges
+        .into_iter()
+        .filter_map(|range| materialize(grid.rows, flat, range))
+        .collect())
+}
+
+fn locate_style_within<F>(
+    grid: &QueryGrid<'_>,
+    selector: &StyleSelector,
+    allowed: Option<&[(usize, usize)]>,
+    occurrence: Option<&MatchOccurrence>,
+    style_matches: &mut F,
+) -> anyhow::Result<Vec<LocatedMatch>>
+where
+    F: FnMut(&EmuCell, &TextStyle) -> bool,
+{
+    locate_style_observed(
+        grid,
+        selector,
+        allowed,
+        occurrence,
+        style_matches,
+        &mut NodeStats::default(),
+    )
+}
+
+fn locate_style_observed<F>(
+    grid: &QueryGrid<'_>,
+    selector: &StyleSelector,
+    allowed: Option<&[(usize, usize)]>,
+    occurrence: Option<&MatchOccurrence>,
+    style_matches: &mut F,
+    stats: &mut NodeStats,
+) -> anyhow::Result<Vec<LocatedMatch>>
+where
+    F: FnMut(&EmuCell, &TextStyle) -> bool,
+{
+    if grid.width == 0 {
+        return Ok(Vec::new());
+    }
+    let flat = grid.flat(WhitespaceMode::Exact);
+    let source_len = grid.width * grid.rows.len();
+    let scan_regions = allowed
+        .map(|regions| normalize_ranges(regions.to_vec()))
+        .unwrap_or_else(|| vec![(0, source_len)]);
+    let mut ranges = Vec::new();
+    for (mut position, end) in scan_regions {
+        let end = end.min(source_len);
+        while position < end {
+            let y = position / grid.width;
+            let row = &grid.rows[y];
+            let offset = y * grid.width;
+            let row_end = end.min(offset + grid.width);
+            let first = (position - offset).min(row.len());
+            let last = (row_end - offset).min(row.len());
+            let mut start = None;
+            let mut containing_regions = Vec::new();
+            for (x, cell) in row[first..last].iter().enumerate() {
+                #[cfg(test)]
+                grid.scanned_cells.set(grid.scanned_cells.get() + 1);
+                let position = offset + first + x;
+                let cell_regions = match allowed {
+                    Some(regions) => regions
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, (region_start, region_end))| {
+                            (position >= *region_start && position < *region_end).then_some(index)
+                        })
+                        .collect::<Vec<_>>(),
+                    None => vec![0],
+                };
+                if !cell_regions.is_empty() && style_matches(cell, &selector.style) {
+                    if start.is_none() {
+                        start = Some(position);
+                        containing_regions = cell_regions;
+                        continue;
+                    }
+                    containing_regions.retain(|region| cell_regions.contains(region));
+                    if containing_regions.is_empty() {
+                        ranges.push((
+                            start.replace(position).expect("style run already started"),
+                            position,
+                        ));
+                        containing_regions = cell_regions;
+                    }
+                } else if let Some(start) = start.take() {
+                    ranges.push((start, position));
+                    containing_regions.clear();
+                }
+            }
+            if let Some(start) = start {
+                ranges.push((start, offset + last));
+            }
+            position = row_end;
+        }
+    }
+    stats.raw = ranges.len();
+    let ranges = if let Some(occurrence) = occurrence {
+        if stats.samples_ambiguity(occurrence, ranges.len()) {
+            stats.candidate_count = ranges.len();
+            let matches = ranges
+                .iter()
+                .take(64)
+                .filter_map(|range| materialize_cells(grid.rows, flat, *range))
+                .collect::<Vec<_>>();
+            stats.candidates = trace::sample(&matches);
+        }
+        select(ranges, occurrence, "style")?
+    } else {
+        ranges
+    };
+    Ok(ranges
+        .into_iter()
+        .filter_map(|range| materialize_cells(grid.rows, flat, range))
+        .collect())
+}
+
+fn source_range(flat: &FlatGrid, (start, end): (usize, usize)) -> Option<(usize, usize)> {
+    if start >= end {
+        return None;
+    }
+    Some((*flat.sources.get(start)?, *flat.source_ends.get(end - 1)?))
+}
+
+/// Resolve the simple lookup used by coordinate-based mouse input.
+pub fn find(
+    rows: &[Vec<EmuCell>],
+    pattern: &Pattern,
+    strict: bool,
+) -> anyhow::Result<Option<Vec<MatchedCell>>> {
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let flat = flatten(rows, WhitespaceMode::Exact);
+    let occurrence = if strict {
+        MatchOccurrence::Unique
+    } else {
+        MatchOccurrence::First
+    };
+    let selected = select(
+        pattern.ranges(&flat.chars),
+        &occurrence,
+        &pattern.describe(),
+    )?;
+    Ok(selected
+        .into_iter()
+        .next()
+        .and_then(|range| materialize(rows, &flat, range))
+        .map(|matched| matched.cells))
+}
+
+fn selector_pattern(
+    text: &str,
+    regex: bool,
+    whitespace: WhitespaceMode,
+) -> anyhow::Result<Pattern> {
+    let text = if !regex && whitespace == WhitespaceMode::Normalize {
+        normalize(text)
+    } else {
+        text.to_string()
+    };
+    Pattern::new(&text, regex)
+}
+
+fn flatten(rows: &[Vec<EmuCell>], whitespace: WhitespaceMode) -> FlatGrid {
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let source = rows.iter().enumerate().flat_map(|(y, row)| {
+        (0..width).flat_map(move |x| {
+            let start = x + y * width;
+            let mut end = x + 1;
+            while row.get(end).is_some_and(|cell| cell.ch.is_empty()) {
+                end += 1;
+            }
+            // Every scalar in a grapheme maps to its complete physical cell
+            // span. Continuations have no text; missing cells are still blanks.
+            row.get(x)
+                .map_or(" ", |cell| cell.ch.as_str())
+                .chars()
+                .map(move |ch| ((start, end + y * width), ch))
+        })
+    });
+    let mut chars = Vec::new();
+    let mut sources = Vec::new();
+    let mut source_ends = Vec::new();
+    let mut pending_space = None;
+    for ((start, end), ch) in source {
+        if whitespace == WhitespaceMode::Normalize && ch.is_whitespace() {
+            if !chars.is_empty() && pending_space.is_none() {
+                pending_space = Some((start, end));
+            }
+            continue;
+        }
+        if let Some((start, end)) = pending_space.take() {
+            chars.push(' ');
+            sources.push(start);
+            source_ends.push(end);
+        }
+        chars.push(ch);
+        sources.push(start);
+        source_ends.push(end);
+    }
+    FlatGrid {
+        chars,
+        sources,
+        source_ends,
+        width,
+    }
+}
+
+fn normalize(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn scope(
+    rows: &[Vec<EmuCell>],
+    flat: &FlatGrid,
+    selector: &TextSelector,
+    allowed: Option<&[(usize, usize)]>,
+    stats: &mut NodeStats,
+) -> anyhow::Result<Option<(usize, usize)>> {
+    let start = match &selector.scope.after {
+        Some(anchor) => match anchor_range(
+            rows,
+            flat,
+            anchor,
+            selector.whitespace,
+            "after",
+            allowed,
+            stats,
+        )? {
+            Some((_, end)) => end,
+            None => {
+                stats.reason = Some(LocatorFailureReason::AnchorNotFound);
+                return Ok(None);
+            }
+        },
+        None => 0,
+    };
+    let end = match &selector.scope.before {
+        Some(anchor) => match anchor_range(
+            rows,
+            flat,
+            anchor,
+            selector.whitespace,
+            "before",
+            allowed,
+            stats,
+        )? {
+            Some((start, _)) => start,
+            None => {
+                stats.reason = Some(LocatorFailureReason::AnchorNotFound);
+                return Ok(None);
+            }
+        },
+        None => flat.chars.len(),
+    };
+    if start > end {
+        stats.reason = Some(LocatorFailureReason::RelativeRegionNoMatch);
+    }
+    Ok((start <= end).then_some((start, end)))
+}
+
+fn anchor_range(
+    rows: &[Vec<EmuCell>],
+    flat: &FlatGrid,
+    anchor: &TextAnchor,
+    whitespace: WhitespaceMode,
+    name: &str,
+    allowed: Option<&[(usize, usize)]>,
+    stats: &mut NodeStats,
+) -> anyhow::Result<Option<(usize, usize)>> {
+    let pattern = selector_pattern(&anchor.text, anchor.regex, whitespace)?;
+    let mut ranges = match allowed {
+        None => pattern.ranges(&flat.chars),
+        Some(regions) => regions
+            .iter()
+            .flat_map(|&(start, end)| {
+                let (start, end) = flat.within((start, end));
+                let end = end.max(start);
+                pattern
+                    .ranges(&flat.chars[start..end])
+                    .into_iter()
+                    .map(move |(a, b)| (start + a, start + b))
+            })
+            .collect(),
+    };
+    ranges.sort_unstable();
+    ranges.dedup();
+    if matches!(
+        anchor.occurrence,
+        MatchOccurrence::Any | MatchOccurrence::Unique
+    ) {
+        stats.sample_ambiguous_ranges(rows, flat, &ranges, &MatchOccurrence::Unique);
+    }
+    let ranges = select(
+        ranges,
+        &anchor.occurrence,
+        &format!("{name} anchor '{}'", pattern.describe()),
+    )?;
+    if ranges.len() > 1 {
+        return Err(SelectionFailure {
+            reason: LocatorFailureReason::AnchorAmbiguous,
+            count: ranges.len(),
+            message: format!("{name} anchor must select one match"),
+        }
+        .into());
+    }
+    Ok(ranges.into_iter().next())
+}
+
+fn select(
+    ranges: Vec<(usize, usize)>,
+    occurrence: &MatchOccurrence,
+    description: &str,
+) -> anyhow::Result<Vec<(usize, usize)>> {
+    select_items(ranges, occurrence, description)
+}
+
+fn select_items<T>(
+    items: Vec<T>,
+    occurrence: &MatchOccurrence,
+    description: &str,
+) -> anyhow::Result<Vec<T>> {
+    let count = items.len();
+    match occurrence {
+        MatchOccurrence::Any => Ok(items),
+        MatchOccurrence::Unique if count > 1 => Err(SelectionFailure {
+            reason: LocatorFailureReason::Ambiguous,
+            count,
+            message: format!("expected '{description}' to match once, but found {count} matches"),
+        }
+        .into()),
+        MatchOccurrence::Unique | MatchOccurrence::First => {
+            Ok(items.into_iter().next().into_iter().collect())
+        }
+        MatchOccurrence::Last => Ok(items.into_iter().last().into_iter().collect()),
+        MatchOccurrence::Nth(index) => Ok(items.into_iter().nth(*index).into_iter().collect()),
+    }
+}
+
+fn materialize(
+    rows: &[Vec<EmuCell>],
+    flat: &FlatGrid,
+    (start, end): (usize, usize),
+) -> Option<LocatedMatch> {
+    materialize_source(
+        rows,
+        flat.width,
+        source_range(flat, (start, end))?,
+        flat.chars[start..end].iter().collect(),
+    )
+}
+
+fn materialize_cells(
+    rows: &[Vec<EmuCell>],
+    flat: &FlatGrid,
+    (start, end): (usize, usize),
+) -> Option<LocatedMatch> {
+    let first = flat.sources.partition_point(|source| *source < start);
+    let last = flat.sources.partition_point(|source| *source < end);
+    materialize_source(
+        rows,
+        flat.width,
+        (start, end),
+        flat.chars[first..last].iter().collect(),
+    )
+}
+
+fn materialize_source(
+    rows: &[Vec<EmuCell>],
+    width: usize,
+    (source_start, source_end): (usize, usize),
+    text: String,
+) -> Option<LocatedMatch> {
+    let mut cells = Vec::new();
+    for position in source_start..source_end {
+        let y = position / width;
+        let x = position % width;
+        if let Some(cell) = rows.get(y).and_then(|row| row.get(x)) {
+            cells.push(MatchedCell {
+                x,
+                y,
+                cell: cell.clone(),
+            });
+        }
+    }
+    let first = cells.first()?;
+    let last = cells.last()?;
+    let mut spans = Vec::new();
+    for cell in &cells {
+        match spans.last_mut() {
+            Some(TextSpan { row, end, .. })
+                if *row as usize == cell.y && *end as usize == cell.x =>
+            {
+                *end = end.saturating_add(1);
+            }
+            _ => spans.push(TextSpan {
+                row: cell.y.min(u32::MAX as usize) as u32,
+                start: cell.x.min(u16::MAX as usize) as u16,
+                end: cell.x.saturating_add(1).min(u16::MAX as usize) as u16,
+            }),
+        }
+    }
+    Some(LocatedMatch {
+        value: TextMatch {
+            text,
+            start: TextPosition {
+                row: first.y.min(u32::MAX as usize) as u32,
+                column: first.x.min(u16::MAX as usize) as u16,
+            },
+            end: TextPosition {
+                row: last.y.min(u32::MAX as usize) as u32,
+                column: last.x.saturating_add(1).min(u16::MAX as usize) as u16,
+            },
+            spans,
+        },
+        cells,
+        source_start,
+        source_end,
+    })
+}
+
+fn text_ranges(haystack: &[char], needle: &[char]) -> Vec<(usize, usize)> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut index = 0;
+    while index + needle.len() <= haystack.len() {
+        if haystack[index..index + needle.len()] == *needle {
+            ranges.push((index, index + needle.len()));
+            index += needle.len();
+        } else {
+            index += 1;
+        }
+    }
+    ranges
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{TextScope, WhitespaceMode};
+    use crate::terminal::cell::Attrs;
+
+    fn grid(lines: &[&str]) -> Vec<Vec<EmuCell>> {
+        lines
+            .iter()
+            .map(|line| {
+                line.chars()
+                    .map(|ch| EmuCell {
+                        ch: ch.to_string().into(),
+                        ..EmuCell::blank()
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn locate_query_text(
+        rows: &[Vec<EmuCell>],
+        query: &LocatorQuery,
+    ) -> anyhow::Result<Vec<LocatedMatch>> {
+        locate_query(rows, query, &mut |cell, style| {
+            style
+                .bold
+                .is_none_or(|expected| expected == cell.has(Attrs::BOLD))
+        })
+    }
+
+    #[test]
+    fn normalizes_whitespace_and_preserves_locations() {
+        let mut selector = TextSelector::new("hello world");
+        selector.whitespace = WhitespaceMode::Normalize;
+        let found = locate(&grid(&["  hello", "    world  "]), &selector).unwrap();
+        assert_eq!(found[0].value.text, "hello world");
+        assert_eq!(found[0].value.start, TextPosition { row: 0, column: 2 });
+        assert_eq!(found[0].value.end, TextPosition { row: 1, column: 9 });
+    }
+
+    #[test]
+    fn regex_ranges_map_utf8_offsets_in_one_pass() {
+        let chars = "é界a".chars().collect::<Vec<_>>();
+        assert_eq!(
+            Pattern::new(".", true).unwrap().ranges(&chars),
+            vec![(0, 1), (1, 2), (2, 3)]
+        );
+    }
+
+    fn unicode_grid() -> Vec<Vec<EmuCell>> {
+        vec![["你", "", "好", "", "e\u{301}", "!", " ", " "]
+            .into_iter()
+            .map(|ch| EmuCell {
+                ch: ch.into(),
+                ..EmuCell::blank()
+            })
+            .collect()]
+    }
+
+    #[test]
+    fn unicode_text_and_regex_matches_keep_every_scalar_and_physical_column() {
+        let rows = unicode_grid();
+        for (text, regex, start, end) in [
+            ("你好e\u{301}!", false, 0, 6),
+            ("你好", false, 0, 4),
+            ("好e\u{301}", false, 2, 5),
+            ("e\u{301}", false, 4, 5),
+            ("\u{301}", false, 4, 5),
+            ("好e\\p{M}", true, 2, 5),
+            ("!", false, 5, 6),
+        ] {
+            let selector = TextSelector {
+                regex,
+                ..TextSelector::new(text)
+            };
+            let found = locate(&rows, &selector).unwrap();
+            assert_eq!(found.len(), 1, "{text}");
+            assert_eq!(found[0].value.start.column, start, "{text}");
+            assert_eq!(found[0].value.end.column, end, "{text}");
+            assert_eq!(found[0].cells.len(), usize::from(end - start), "{text}");
+            let clicked = find(&rows, &Pattern::new(text, regex).unwrap(), true)
+                .unwrap()
+                .unwrap();
+            assert_eq!(clicked.first().unwrap().x, usize::from(start), "{text}");
+            assert_eq!(clicked.last().unwrap().x + 1, usize::from(end), "{text}");
+        }
+        assert!(locate(&rows, &TextSelector::new("你 好"))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn unicode_scopes_normalization_and_composition_use_cell_ranges() {
+        let mut rows = unicode_grid();
+        rows.push(
+            [" ", "e\u{301}", " ", " ", "好", "", " ", " "]
+                .into_iter()
+                .map(|ch| EmuCell {
+                    ch: ch.into(),
+                    ..EmuCell::blank()
+                })
+                .collect(),
+        );
+        let normalized = TextSelector {
+            whitespace: WhitespaceMode::Normalize,
+            ..TextSelector::new("好e\u{301}! e\u{301} 好")
+        };
+        let found = locate(&rows, &normalized).unwrap();
+        assert_eq!(found[0].value.text, normalized.text);
+        assert_eq!(found[0].value.start, TextPosition { row: 0, column: 2 });
+        assert_eq!(found[0].value.end, TextPosition { row: 1, column: 6 });
+
+        let mut scoped = TextSelector::new("e\u{301}");
+        scoped.scope.after = Some(TextAnchor {
+            text: "你好".into(),
+            regex: false,
+            occurrence: MatchOccurrence::Unique,
+        });
+        scoped.scope.before = Some(TextAnchor {
+            text: "!".into(),
+            regex: false,
+            occurrence: MatchOccurrence::Unique,
+        });
+        assert_eq!(locate(&rows, &scoped).unwrap()[0].value.start.column, 4);
+
+        let parent = LocatorQuery::text("你好e\u{301}!");
+        let query = LocatorQuery {
+            within: Some(Box::new(parent.clone())),
+            ..LocatorQuery::text("好e\u{301}")
+        };
+        let found = locate_query_text(&rows, &query.and(LocatorQuery::link(""))).unwrap();
+        assert_eq!(found[0].value.text, "好e\u{301}");
+        assert_eq!(
+            found[0].value.spans[0],
+            TextSpan {
+                row: 0,
+                start: 2,
+                end: 5
+            }
+        );
+        let found = locate_query_text(&rows, &parent.or(LocatorQuery::text("absent"))).unwrap();
+        assert_eq!(found[0].value.text, "你好e\u{301}!");
+        assert_eq!(found[0].value.end.column, 6);
+        let after = LocatorQuery {
+            within: Some(Box::new(LocatorQuery::text("你好"))),
+            direction: LocatorDirection::After,
+            ..LocatorQuery::text("e\u{301}")
+        };
+        assert_eq!(
+            locate_query_text(&rows, &after).unwrap()[0]
+                .value
+                .start
+                .column,
+            4
+        );
+    }
+
+    #[test]
+    fn unicode_style_runs_do_not_confuse_scalar_offsets_with_columns() {
+        let mut rows = unicode_grid();
+        for cell in &mut rows[0][2..5] {
+            cell.attrs.insert(Attrs::BOLD);
+        }
+        let query = LocatorQuery::style(TextStyle {
+            bold: Some(true),
+            ..TextStyle::default()
+        });
+        let found = locate_query_text(&rows, &query).unwrap();
+        assert_eq!(found[0].value.text, "好e\u{301}");
+        assert_eq!(
+            found[0].value.spans[0],
+            TextSpan {
+                row: 0,
+                start: 2,
+                end: 5
+            }
+        );
+        let grid = QueryGrid::new(&rows);
+        for region in [(2, 3), (3, 4)] {
+            assert!(locate_text_within(
+                &grid,
+                &TextSelector::new("好"),
+                Some(&[region]),
+                None,
+                None,
+            )
+            .unwrap()
+            .is_empty());
+        }
+    }
+
+    #[test]
+    fn locations_preserve_rows_above_u16() {
+        let mut rows = vec![Vec::new(); u16::MAX as usize + 2];
+        rows[u16::MAX as usize + 1] = vec![EmuCell {
+            ch: "X".into(),
+            ..EmuCell::blank()
+        }];
+
+        let found = locate_query_text(&rows, &LocatorQuery::text("X")).unwrap();
+        assert_eq!(found[0].value.start.row, u16::MAX as u32 + 1);
+        assert_eq!(found[0].value.end.row, u16::MAX as u32 + 1);
+        assert_eq!(found[0].value.spans[0].row, u16::MAX as u32 + 1);
+    }
+
+    #[test]
+    fn scopes_a_match_after_an_anchor() {
+        let mut selector = TextSelector::new("Save");
+        selector.scope = TextScope {
+            after: Some(TextAnchor {
+                text: "Settings".into(),
+                regex: false,
+                occurrence: MatchOccurrence::Unique,
+            }),
+            before: None,
+        };
+        let found = locate(&grid(&["Save", "Settings", "Save"]), &selector).unwrap();
+        assert_eq!(found[0].value.start, TextPosition { row: 2, column: 0 });
+    }
+
+    #[test]
+    fn selects_any_last_and_nth_occurrences() {
+        let rows = grid(&["item item item"]);
+        let mut query = LocatorQuery::text("item");
+        assert_eq!(locate_query_text(&rows, &query).unwrap().len(), 3);
+        query.occurrence = MatchOccurrence::Last;
+        assert_eq!(
+            locate_query_text(&rows, &query).unwrap()[0]
+                .value
+                .start
+                .column,
+            10
+        );
+        query.occurrence = MatchOccurrence::Nth(1);
+        assert_eq!(
+            locate_query_text(&rows, &query).unwrap()[0]
+                .value
+                .start
+                .column,
+            5
+        );
+    }
+
+    #[test]
+    fn unique_reports_ambiguous_text() {
+        let mut query = LocatorQuery::text("same");
+        query.occurrence = MatchOccurrence::Unique;
+        let error = locate_query_text(&grid(&["same same"]), &query).unwrap_err();
+        assert!(error.to_string().contains("found 2"));
+    }
+
+    #[test]
+    fn selectors_find_all_occurrences_by_default() {
+        let found = locate(&grid(&["same same"]), &TextSelector::new("same")).unwrap();
+        assert_eq!(found.len(), 2);
+    }
+
+    #[test]
+    fn child_locators_match_only_inside_parent_regions() {
+        let mut parent = TextSelector::new("Settings Save");
+        parent.whitespace = WhitespaceMode::Normalize;
+        let child = LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("Save")),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(LocatorQuery::text(parent))),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+
+        let found =
+            locate_query_text(&grid(&["Settings", "  Save", "Save outside"]), &child).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].value.start, TextPosition { row: 1, column: 2 });
+    }
+
+    #[test]
+    fn child_locators_honor_parent_occurrence_selection() {
+        let rows = grid(&["panel: Save", "panel: Save"]);
+        let mut parent = LocatorQuery::text("panel: Save");
+        parent.occurrence = MatchOccurrence::Last;
+        let child = LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("Save")),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(parent)),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+
+        let found = locate_query_text(&rows, &child).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].value.start, TextPosition { row: 1, column: 7 });
+    }
+
+    #[test]
+    fn locator_regions_compose_across_multiple_levels() {
+        let outer = TextSelector::new("panel [Save]");
+        let middle = LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("[Save]")),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(LocatorQuery::text(outer))),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+        let inner = LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("Save")),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(middle)),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+
+        let found = locate_query_text(&grid(&["panel [Save]", "Save outside"]), &inner).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].value.start, TextPosition { row: 0, column: 7 });
+    }
+
+    #[test]
+    fn child_occurrences_are_selected_across_all_parent_regions() {
+        let rows = grid(&["[a]", "[a]"]);
+        let parent = TextSelector::new("[a]");
+        let query = |occurrence| LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("a")),
+            occurrence,
+            within: Some(Box::new(LocatorQuery::text(parent.clone()))),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+        assert_eq!(
+            locate_query_text(&rows, &query(MatchOccurrence::Any))
+                .unwrap()
+                .len(),
+            2
+        );
+
+        assert_eq!(
+            locate_query_text(&rows, &query(MatchOccurrence::Nth(1))).unwrap()[0]
+                .value
+                .start,
+            TextPosition { row: 1, column: 1 }
+        );
+        assert!(locate_query_text(&rows, &query(MatchOccurrence::Unique))
+            .unwrap_err()
+            .to_string()
+            .contains("found 2"));
+    }
+
+    #[test]
+    fn relative_directions_segment_multiple_parent_matches() {
+        let rows = grid(&["Section One", "Save 1", "Section Two", "Save 2"]);
+        let query = |parent, text, direction, occurrence| LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new(text)),
+            occurrence,
+            within: Some(Box::new(LocatorQuery::text(parent))),
+            direction,
+            style: Default::default(),
+        };
+
+        let after = locate_query_text(
+            &rows,
+            &query(
+                "Section",
+                "Save",
+                LocatorDirection::After,
+                MatchOccurrence::Any,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            after
+                .iter()
+                .map(|matched| matched.value.start.row)
+                .collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+
+        let before = locate_query_text(
+            &rows,
+            &query(
+                "Save",
+                "Section",
+                LocatorDirection::Before,
+                MatchOccurrence::Any,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            before
+                .iter()
+                .map(|matched| matched.value.start.row)
+                .collect::<Vec<_>>(),
+            vec![0, 2]
+        );
+
+        let second = locate_query_text(
+            &rows,
+            &query(
+                "Section",
+                "Save",
+                LocatorDirection::After,
+                MatchOccurrence::Nth(1),
+            ),
+        )
+        .unwrap();
+        assert_eq!(second[0].value.start.row, 3);
+    }
+
+    #[test]
+    fn relative_text_search_can_follow_a_style_locator() {
+        let mut rows = grid(&["RED status OK"]);
+        for cell in &mut rows[0][..3] {
+            cell.attrs.insert(Attrs::BOLD);
+        }
+        let query = LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("OK")),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(LocatorQuery::style(TextStyle {
+                bold: Some(true),
+                ..TextStyle::default()
+            }))),
+            direction: LocatorDirection::After,
+            style: Default::default(),
+        };
+
+        let found = locate_query_text(&rows, &query).unwrap();
+        assert_eq!(found[0].value.start, TextPosition { row: 0, column: 11 });
+    }
+
+    #[test]
+    fn child_matches_cannot_span_separate_parent_regions() {
+        let rows = grid(&["ab  ", "  ab"]);
+        let parent = TextSelector::new("ab");
+        let mut child = TextSelector::new("b a");
+        child.whitespace = WhitespaceMode::Normalize;
+        let query = LocatorQuery {
+            selector: LocatorSelector::Text(child),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(LocatorQuery::text(parent))),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+        assert!(locate_query_text(&rows, &query).unwrap().is_empty());
+    }
+
+    #[test]
+    fn text_and_style_stages_chain_in_both_directions() {
+        let mut rows = grid(&["plain BOLD end"]);
+        for cell in &mut rows[0][6..10] {
+            cell.attrs.insert(Attrs::BOLD);
+        }
+
+        let style = StyleSelector::from(TextStyle {
+            bold: Some(true),
+            ..TextStyle::default()
+        });
+        let styled_text = LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("OL")),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(LocatorQuery::style(style.clone()))),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+        let found = locate_query_text(&rows, &styled_text).unwrap();
+        assert_eq!(found[0].value.start.column, 7);
+
+        let text_style = LocatorQuery {
+            selector: LocatorSelector::Style(style),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(LocatorQuery::text("BOLD"))),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+        let found = locate_query_text(&rows, &text_style).unwrap();
+        assert_eq!(found[0].value.text, "BOLD");
+    }
+
+    #[test]
+    fn nested_style_filters_the_entire_parent_match() {
+        let mut rows = grid(&["Warning"]);
+        for cell in &mut rows[0][..4] {
+            cell.attrs.insert(Attrs::BOLD);
+        }
+        let query = LocatorQuery {
+            selector: LocatorSelector::Style(StyleSelector::from(TextStyle {
+                bold: Some(true),
+                ..TextStyle::default()
+            })),
+            occurrence: MatchOccurrence::Any,
+            within: Some(Box::new(LocatorQuery::text("Warning"))),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+
+        assert!(locate_query_text(&rows, &query).unwrap().is_empty());
+        for cell in &mut rows[0] {
+            cell.attrs.insert(Attrs::BOLD);
+        }
+        let found = locate_query_text(&rows, &query).unwrap();
+        assert_eq!(found[0].value.text, "Warning");
+    }
+
+    #[test]
+    fn style_runs_do_not_merge_adjacent_parent_matches() {
+        let mut rows = grid(&["XX"]);
+        for cell in &mut rows[0] {
+            cell.attrs.insert(Attrs::BOLD);
+        }
+        let parent = LocatorQuery::text("X");
+        let query = |occurrence| LocatorQuery {
+            selector: LocatorSelector::Style(StyleSelector {
+                style: TextStyle {
+                    bold: Some(true),
+                    ..TextStyle::default()
+                },
+                ..StyleSelector::default()
+            }),
+            occurrence,
+            within: Some(Box::new(parent.clone())),
+            direction: LocatorDirection::Within,
+            style: Default::default(),
+        };
+
+        let found = locate_query_text(&rows, &query(MatchOccurrence::Any)).unwrap();
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].value.text, "X");
+        assert_eq!(
+            locate_query_text(&rows, &query(MatchOccurrence::Nth(1))).unwrap()[0]
+                .value
+                .start
+                .column,
+            1
+        );
+        assert!(locate_query_text(&rows, &query(MatchOccurrence::Unique))
+            .unwrap_err()
+            .to_string()
+            .contains("found 2"));
+    }
+
+    #[test]
+    fn style_constraints_filter_before_unique_selection() {
+        let mut rows = grid(&["X X"]);
+        rows[0][2].attrs.insert(Attrs::BOLD);
+        let query = LocatorQuery {
+            selector: LocatorSelector::Text(TextSelector::new("X")),
+            occurrence: MatchOccurrence::Unique,
+            within: None,
+            direction: LocatorDirection::Within,
+            style: TextStyle {
+                bold: Some(true),
+                ..TextStyle::default()
+            },
+        };
+
+        let found = locate_query_text(&rows, &query).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].value.start.column, 2);
+    }
+
+    /// A blank inside a match is skipped for a color, which it cannot show,
+    /// but not for a link, which it can carry. `A B` whose space alone links
+    /// somewhere is not a run that links nowhere.
+    #[test]
+    fn a_link_constraint_covers_the_blanks_inside_a_match() {
+        let link = |uri: &str| {
+            Some(std::sync::Arc::new(crate::terminal::cell::Hyperlink {
+                id: None,
+                uri: uri.into(),
+            }))
+        };
+        let mut rows = grid(&["A B"]);
+        rows[0][1].hyperlink = link("https://example.com");
+
+        let locate = locate_query_text;
+        let with_link = |link: &str| LocatorQuery {
+            within: Some(Box::new(LocatorQuery::text("A B"))),
+            ..LocatorQuery::link(link)
+        };
+
+        assert!(
+            locate(&rows, &with_link("")).unwrap().is_empty(),
+            "the linked space means the run does not link nowhere"
+        );
+        assert!(
+            locate(&rows, &with_link("https://example.com"))
+                .unwrap()
+                .is_empty(),
+            "and the unlinked letters mean it is not all one link either"
+        );
+
+        for cell in &mut rows[0] {
+            cell.hyperlink = link("https://example.com");
+        }
+        assert_eq!(
+            locate(&rows, &with_link("https://example.com"))
+                .unwrap()
+                .len(),
+            1,
+            "every cell linked, blanks included, matches"
+        );
+    }
+
+    /// Asking about a link and an appearance together means the same as asking
+    /// about each alone.
+    ///
+    /// `A B` linked throughout, with the letters bold and the space not — the
+    /// usual shape, since a program has no reason to bold a space. The blank
+    /// is skipped for bold, which it cannot show, and checked for the link,
+    /// which it carries. Treating one policy as the match's own would fail the
+    /// combination while passing both halves.
+    #[test]
+    fn a_link_and_an_appearance_compose() {
+        let mut rows = grid(&["A B"]);
+        for cell in &mut rows[0] {
+            cell.hyperlink = Some(std::sync::Arc::new(crate::terminal::cell::Hyperlink {
+                id: None,
+                uri: "https://example.com".into(),
+            }));
+        }
+        rows[0][0].attrs.insert(Attrs::BOLD);
+        rows[0][2].attrs.insert(Attrs::BOLD);
+
+        let bold = LocatorQuery {
+            within: Some(Box::new(LocatorQuery::text("A B"))),
+            ..LocatorQuery::style(TextStyle {
+                bold: Some(true),
+                ..Default::default()
+            })
+        };
+        let linked = LocatorQuery {
+            within: Some(Box::new(LocatorQuery::text("A B"))),
+            ..LocatorQuery::link("https://example.com")
+        };
+        let both = LocatorQuery {
+            within: Some(Box::new(bold.clone())),
+            ..LocatorQuery::link("https://example.com")
+        };
+        for query in [bold, linked, both] {
+            assert_eq!(
+                locate_query_text(&rows, &query).unwrap()[0].value.text,
+                "A B"
+            );
+        }
+    }
+
+    fn linked_grid() -> Vec<Vec<EmuCell>> {
+        let mut rows = grid(&["ABC"]);
+        for cell in &mut rows[0][..2] {
+            cell.attrs.insert(Attrs::BOLD);
+        }
+        for cell in &mut rows[0][1..] {
+            cell.hyperlink = Some(std::sync::Arc::new(super::super::cell::Hyperlink {
+                id: None,
+                uri: "test:link".into(),
+            }));
+        }
+        rows
+    }
+
+    fn texts(rows: &[Vec<EmuCell>], query: &LocatorQuery) -> Vec<String> {
+        locate_query_text(rows, query)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.value.text)
+            .collect()
+    }
+
+    #[test]
+    fn cell_intersection_and_union_regroup_matches() {
+        let rows = linked_grid();
+        let bold = LocatorQuery::style(TextStyle {
+            bold: Some(true),
+            ..Default::default()
+        });
+        let link = LocatorQuery::link("test:link");
+        assert_eq!(texts(&rows, &bold.clone().and(link.clone())), ["B"]);
+        assert_eq!(texts(&rows, &link.clone().and(bold.clone())), ["B"]);
+        assert_eq!(texts(&rows, &bold.clone().or(link.clone())), ["ABC"]);
+        assert_eq!(texts(&rows, &link.clone().or(bold)), ["ABC"]);
+        assert_eq!(texts(&rows, &link.clone().or(link)), ["BC"]);
+        let query = LocatorQuery::text("A").or(LocatorQuery::text("C"));
+        assert_eq!(texts(&rows, &query), ["A", "C"]);
+        assert_eq!(
+            texts(
+                &grid(&["AB", "CD"]),
+                &LocatorQuery::text("ABCD").or(LocatorQuery::text("absent"))
+            ),
+            ["AB", "CD"]
+        );
+    }
+
+    #[test]
+    fn containment_preserves_parents_and_differs_from_coverage() {
+        let rows = linked_grid();
+        let parent = LocatorQuery::text("ABC");
+        let link = LocatorQuery::link("test:link");
+        assert_eq!(
+            texts(&rows, &parent.clone().filter(Some(link.clone()), None)),
+            ["ABC"]
+        );
+        assert!(texts(&rows, &parent.clone().filter(None, Some(link.clone()))).is_empty());
+        let whole = LocatorQuery {
+            within: Some(Box::new(parent.clone())),
+            ..link.clone()
+        };
+        assert!(texts(&rows, &whole).is_empty());
+        assert_eq!(texts(&rows, &parent.clone().and(link)), ["BC"]);
+        assert_eq!(
+            texts(
+                &rows,
+                &parent
+                    .clone()
+                    .filter(Some(parent.clone()), Some(LocatorQuery::text("absent")))
+            ),
+            ["ABC"]
+        );
+        assert!(texts(
+            &rows,
+            &parent.clone().filter(Some(parent.clone()), Some(parent))
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn filters_do_not_search_outside_the_candidate() {
+        let rows = grid(&["AAAB"]);
+        let parent = LocatorQuery::text("AAB");
+        assert_eq!(
+            texts(
+                &rows,
+                &parent.clone().filter(
+                    Some(LocatorQuery::text(TextSelector {
+                        text: "^AA".into(),
+                        regex: true,
+                        ..TextSelector::new("")
+                    })),
+                    None
+                )
+            ),
+            ["AAB"]
+        );
+        assert!(texts(
+            &rows,
+            &LocatorQuery::text("AAA").filter(Some(LocatorQuery::text("B")), None)
+        )
+        .is_empty());
+        let after = LocatorQuery {
+            within: Some(Box::new(LocatorQuery::text("AAA"))),
+            direction: LocatorDirection::After,
+            ..LocatorQuery::text("B")
+        };
+        assert!(texts(&rows, &LocatorQuery::text("AAA").filter(Some(after), None)).is_empty());
+    }
+
+    #[test]
+    fn composition_respects_selection_and_operand_errors() {
+        let rows = grid(&["ABA"]);
+        let a = LocatorQuery::text("A");
+        let b = LocatorQuery::text("B");
+        let mut union = a.clone().or(b.clone());
+        union.occurrence = MatchOccurrence::First;
+        assert_eq!(texts(&rows, &union), ["ABA"]);
+        let first = LocatorQuery {
+            occurrence: MatchOccurrence::First,
+            ..a.clone()
+        };
+        assert_eq!(texts(&rows, &first.or(b.clone())), ["AB"]);
+        let unique = LocatorQuery {
+            occurrence: MatchOccurrence::Unique,
+            ..a
+        };
+        assert!(locate_query_text(&rows, &unique.or(b)).is_err());
+    }
+
+    #[test]
+    fn set_algebra_agrees_with_small_cell_masks() {
+        let rows = grid(&["ABCD"]);
+        let query = |mask: u8| {
+            (0..4)
+                .filter(|i| mask & (1 << i) != 0)
+                .map(|i| LocatorQuery::text(char::from(b'A' + i).to_string()))
+                .reduce(LocatorQuery::or)
+                .unwrap_or_else(|| LocatorQuery::text("absent"))
+        };
+        for a in 0..16 {
+            for b in 0..16 {
+                for (actual, expected) in [
+                    (query(a).and(query(b)), a & b),
+                    (query(a).or(query(b)), a | b),
+                ] {
+                    let found = locate_query_text(&rows, &actual).unwrap();
+                    let mask = found
+                        .iter()
+                        .flat_map(|m| &m.cells)
+                        .fold(0u8, |mask, cell| mask | (1 << cell.x));
+                    assert_eq!(mask, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn normalized_candidates_keep_their_shape_until_composed() {
+        let rows = grid(&["A  B"]);
+        let normalized = LocatorQuery::text(TextSelector {
+            whitespace: WhitespaceMode::Normalize,
+            ..TextSelector::new("A B")
+        });
+        assert_eq!(
+            texts(
+                &rows,
+                &normalized
+                    .clone()
+                    .filter(Some(LocatorQuery::text("A  B")), None)
+            ),
+            ["A B"]
+        );
+        let composed = locate_query_text(&rows, &normalized.and(LocatorQuery::link(""))).unwrap();
+        assert_eq!(composed[0].value.text, "A  B");
+        assert_eq!(composed[0].value.spans[0].end, 4);
+    }
+
+    #[test]
+    fn containment_does_not_merge_adjacent_inner_parent_regions() {
+        let rows = grid(&["XX"]);
+        let inner = LocatorQuery {
+            within: Some(Box::new(LocatorQuery::text("X"))),
+            ..LocatorQuery::text("XX")
+        };
+        assert!(texts(&rows, &LocatorQuery::text("XX").filter(Some(inner), None)).is_empty());
+    }
+
+    #[test]
+    fn composition_preserves_physical_columns_and_missing_cells() {
+        let mut rows = grid(&["xyz", "q"]);
+        rows[0][0].ch = "\u{754c}".into();
+        rows[0][1].ch = "".into();
+        rows[0][2].ch = "e\u{301}".into();
+        let query = LocatorQuery::link("").or(LocatorQuery::text("absent"));
+        let found = locate_query_text(&rows, &query).unwrap();
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].value.spans[0].end, 3);
+        assert_eq!(found[1].value.spans[0].end, 1);
+        assert_eq!(found[0].cells[2].cell.ch, "e\u{301}");
+        assert_eq!(found[0].cells[1].cell.ch, "");
+    }
+
+    #[test]
+    fn filter_anchors_and_their_occurrences_are_candidate_local() {
+        for (text, scope) in [
+            (
+                "H:X",
+                TextScope {
+                    after: Some(TextAnchor {
+                        text: "H:".into(),
+                        regex: false,
+                        occurrence: MatchOccurrence::Unique,
+                    }),
+                    before: None,
+                },
+            ),
+            (
+                "X:H",
+                TextScope {
+                    before: Some(TextAnchor {
+                        text: ":H".into(),
+                        regex: false,
+                        occurrence: MatchOccurrence::Unique,
+                    }),
+                    after: None,
+                },
+            ),
+        ] {
+            let row = format!("{text} {text}");
+            let rows = grid(&[&row]);
+            let inner = LocatorQuery::text(TextSelector {
+                scope,
+                ..TextSelector::new("X")
+            });
+            assert!(
+                locate_query_text(&rows, &inner).is_err(),
+                "global anchors remain ambiguous"
+            );
+            assert_eq!(
+                texts(
+                    &rows,
+                    &LocatorQuery::text(text).filter(Some(inner.clone()), None)
+                ),
+                [text, text],
+            );
+            assert!(
+                texts(&rows, &LocatorQuery::text("X").filter(Some(inner), None)).is_empty(),
+                "an anchor outside the candidate cannot satisfy its predicate"
+            );
+        }
+    }
+
+    #[test]
+    fn filtering_reuses_flattened_snapshots_and_scans_only_candidate_cells() {
+        for count in [200, 400, 800] {
+            let mut rows = vec![vec![EmuCell::blank(); 80]; count];
+            for row in &mut rows {
+                row[0].ch = "A".into();
+            }
+            let grid = QueryGrid::new(&rows);
+            let query = LocatorQuery::text("A").filter(
+                Some(LocatorQuery::link("")),
+                Some(LocatorQuery::text(TextSelector {
+                    whitespace: WhitespaceMode::Normalize,
+                    ..TextSelector::new("absent")
+                })),
+            );
+            let started = std::time::Instant::now();
+            let matches = locate_query_within(&grid, &query, None, &mut |_, _| true).unwrap();
+            assert_eq!(matches.len(), count);
+            assert_eq!(
+                grid.flattenings.get(),
+                2,
+                "one flattening per whitespace mode"
+            );
+            assert_eq!(
+                grid.scanned_cells.get(),
+                count,
+                "no scans outside candidate cells"
+            );
+            eprintln!("{count} filtered rows: {:?}", started.elapsed());
+        }
+    }
+}

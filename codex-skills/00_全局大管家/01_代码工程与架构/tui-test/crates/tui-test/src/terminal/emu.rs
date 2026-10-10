@@ -1,0 +1,633 @@
+//! The terminal-emulator seam.
+//!
+//! tui-test drives a PTY and reads back a cell grid. [`Emulator`] is the
+//! entire contract between the two, so an emulator backend can be swapped
+//! without touching render, assert, monitor, or the daemon.
+//!
+//! Command/exit/cwd tracking is deliberately *not* part of this trait: it is
+//! derived from the raw PTY byte stream by [`crate::terminal::integration`],
+//! which is backend-independent. Keeping it out means every backend reports
+//! identical shell-integration behavior by construction rather than by
+//! reimplementation.
+
+use alacritty_terminal::vte::{Params, Parser, Perform};
+
+use crate::profile::{ColorSlot, Rgb};
+use crate::terminal::cell::{Color, EmuCell};
+
+/// The shape a terminal draws its cursor as, set with `DECSCUSR` (`CSI Ps SP q`).
+///
+/// The specification defines three, each in a blinking and a steady form. The
+/// blink is not represented: a screenshot is a single moment, and a blinking
+/// cursor is drawn in the half of that cycle where it is visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorShape {
+    #[default]
+    Block,
+    Underline,
+    Bar,
+}
+
+impl CursorShape {
+    /// The name this shape goes by on the wire.
+    pub const fn name(self) -> &'static str {
+        match self {
+            CursorShape::Block => "block",
+            CursorShape::Underline => "underline",
+            CursorShape::Bar => "bar",
+        }
+    }
+
+    /// Parse a wire name, or `None` when it is not a shape.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "block" => Some(CursorShape::Block),
+            "underline" => Some(CursorShape::Underline),
+            "bar" => Some(CursorShape::Bar),
+            _ => None,
+        }
+    }
+}
+
+bitflags::bitflags! {
+    /// Kitty keyboard protocol flags currently requested by the child.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct KeyboardMode: u8 {
+        const DISAMBIGUATE_ESC_CODES = 1;
+        const REPORT_EVENT_TYPES = 1 << 1;
+        const REPORT_ALTERNATE_KEYS = 1 << 2;
+        const REPORT_ALL_KEYS_AS_ESC = 1 << 3;
+        const REPORT_ASSOCIATED_TEXT = 1 << 4;
+    }
+}
+
+/// A terminal mode a test can ask about.
+///
+/// Deliberately a closed set rather than a mode number, because the point is
+/// that every backend answers the same question the same way. A variant earns
+/// its place only when all four backends can report it: alacritty and rio from
+/// their `Mode` bitflags, ghostty from `Terminal::mode`, and xterm.js from its
+/// `modes` object, whose fixed set is the binding constraint. Modes that only
+/// some backends track are left out rather than reported as `false`, which
+/// would be a wrong answer dressed as a real one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TerminalMode {
+    /// `DECCKM` (`CSI ?1 h`): cursor keys send `SS3` instead of `CSI`.
+    ApplicationCursorKeys,
+    /// `DECKPAM` (`ESC =`): the keypad sends application sequences.
+    ///
+    /// Driven by `DECKPAM`/`DECKPNM` rather than `CSI ?66 h`, which alacritty
+    /// and rio do not implement: the escape form is the one all four honor.
+    ApplicationKeypad,
+    /// `DECOM` (`CSI ?6 h`): the cursor is confined to the scroll region.
+    Origin,
+    /// `DECAWM` (`CSI ?7 h`): text wraps at the right margin.
+    Wraparound,
+    /// `IRM` (`CSI 4 h`): printed text shifts the rest of the line right.
+    Insert,
+    /// `CSI ?1004 h`: the child is told when the terminal gains or loses focus.
+    FocusEvents,
+    /// `CSI ?2004 h`: pasted text is wrapped in `ESC [200~` and `ESC [201~`.
+    BracketedPaste,
+    /// The alternate screen is showing.
+    ///
+    /// Reached by `CSI ?1049 h`, and also by the older `CSI ?47 h` and
+    /// `CSI ?1047 h` on the backends that honor them. This reports the screen
+    /// itself rather than any one of those, so it is true however a program
+    /// got there.
+    AlternateScreen,
+    /// `DECTCEM` (`CSI ?25 h`): the cursor is drawn.
+    ///
+    /// Not in xterm.js's `modes`, but every backend already had to answer it
+    /// for the renderer, so it is reported from the same place
+    /// [`Emulator::cursor_visible`] always was.
+    CursorVisible,
+}
+
+impl TerminalMode {
+    /// Every mode, so a caller can report the whole set without listing it.
+    pub const ALL: [TerminalMode; 9] = [
+        TerminalMode::ApplicationCursorKeys,
+        TerminalMode::ApplicationKeypad,
+        TerminalMode::Origin,
+        TerminalMode::Wraparound,
+        TerminalMode::Insert,
+        TerminalMode::FocusEvents,
+        TerminalMode::BracketedPaste,
+        TerminalMode::AlternateScreen,
+        TerminalMode::CursorVisible,
+    ];
+
+    /// The name this mode goes by on the wire.
+    pub const fn name(self) -> &'static str {
+        match self {
+            TerminalMode::ApplicationCursorKeys => "application_cursor_keys",
+            TerminalMode::ApplicationKeypad => "application_keypad",
+            TerminalMode::Origin => "origin",
+            TerminalMode::Wraparound => "wraparound",
+            TerminalMode::Insert => "insert",
+            TerminalMode::FocusEvents => "focus_events",
+            TerminalMode::BracketedPaste => "bracketed_paste",
+            TerminalMode::AlternateScreen => "alternate_screen",
+            TerminalMode::CursorVisible => "cursor_visible",
+        }
+    }
+
+    /// The sequence that turns this mode on, for tests and documentation.
+    ///
+    /// One sequence per mode, not every sequence that reaches it: the
+    /// alternate screen also answers to `CSI ?47 h` and `CSI ?1047 h`, and
+    /// `?1049` is named here because it is what a full-screen program sends
+    /// and the only one every backend honors.
+    pub const fn set_sequence(self) -> &'static [u8] {
+        match self {
+            TerminalMode::ApplicationCursorKeys => b"\x1b[?1h",
+            TerminalMode::ApplicationKeypad => b"\x1b=",
+            TerminalMode::Origin => b"\x1b[?6h",
+            TerminalMode::Wraparound => b"\x1b[?7h",
+            TerminalMode::Insert => b"\x1b[4h",
+            TerminalMode::FocusEvents => b"\x1b[?1004h",
+            TerminalMode::BracketedPaste => b"\x1b[?2004h",
+            TerminalMode::AlternateScreen => b"\x1b[?1049h",
+            TerminalMode::CursorVisible => b"\x1b[?25h",
+        }
+    }
+
+    /// The sequence that turns this mode off.
+    ///
+    /// The counterpart to [`Self::set_sequence`]. `CSI ?1049 l` leaves the
+    /// alternate screen whichever sequence entered it, since the three share
+    /// one screen.
+    pub const fn reset_sequence(self) -> &'static [u8] {
+        match self {
+            TerminalMode::ApplicationCursorKeys => b"\x1b[?1l",
+            TerminalMode::ApplicationKeypad => b"\x1b>",
+            TerminalMode::Origin => b"\x1b[?6l",
+            TerminalMode::Wraparound => b"\x1b[?7l",
+            TerminalMode::Insert => b"\x1b[4l",
+            TerminalMode::FocusEvents => b"\x1b[?1004l",
+            TerminalMode::BracketedPaste => b"\x1b[?2004l",
+            TerminalMode::AlternateScreen => b"\x1b[?1049l",
+            TerminalMode::CursorVisible => b"\x1b[?25l",
+        }
+    }
+
+    /// Whether the mode is on when a terminal has been told nothing.
+    ///
+    /// `DECAWM` and `DECTCEM` are the two that start on: a terminal that did
+    /// not wrap would lose every character past the right margin, and one
+    /// that hid its cursor would need telling before it showed one.
+    pub const fn default_enabled(self) -> bool {
+        matches!(self, TerminalMode::Wraparound | TerminalMode::CursorVisible)
+    }
+}
+
+/// Mouse tracking level currently requested by the child.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MouseMode {
+    #[default]
+    None,
+    Click,
+    Drag,
+    Motion,
+}
+
+impl MouseMode {
+    /// The name this tracking level goes by on the wire.
+    pub const fn name(self) -> &'static str {
+        match self {
+            MouseMode::None => "none",
+            MouseMode::Click => "click",
+            MouseMode::Drag => "drag",
+            MouseMode::Motion => "motion",
+        }
+    }
+}
+
+#[derive(Default)]
+struct MouseModeState {
+    tracking: MouseMode,
+    sgr: bool,
+}
+
+impl Perform for MouseModeState {
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        if ignore || intermediates != b"?" || !matches!(action, 'h' | 'l') {
+            return;
+        }
+        let enabled = action == 'h';
+        for mode in params.iter().filter_map(|param| param.first()).copied() {
+            match mode {
+                9 | 1000 if enabled => self.tracking = MouseMode::Click,
+                1002 if enabled => self.tracking = MouseMode::Drag,
+                1003 if enabled => self.tracking = MouseMode::Motion,
+                9 | 1000 if self.tracking == MouseMode::Click => self.tracking = MouseMode::None,
+                1002 if self.tracking == MouseMode::Drag => self.tracking = MouseMode::None,
+                1003 if self.tracking == MouseMode::Motion => self.tracking = MouseMode::None,
+                1006 if enabled => self.sgr = true,
+                1005 | 1015 | 1016 if enabled => self.sgr = false,
+                1006 => self.sgr = false,
+                _ => {}
+            }
+        }
+    }
+
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+        if !ignore && intermediates.is_empty() && byte == b'c' {
+            *self = Self::default();
+        }
+    }
+}
+
+pub(crate) struct MouseModeTracker {
+    parser: Parser,
+    state: MouseModeState,
+}
+
+impl MouseModeTracker {
+    pub(crate) fn new() -> Self {
+        Self {
+            parser: Parser::new(),
+            state: MouseModeState::default(),
+        }
+    }
+
+    pub(crate) fn process(&mut self, bytes: &[u8]) {
+        self.parser.advance(&mut self.state, bytes);
+    }
+
+    /// The tracking level the child asked for.
+    ///
+    /// Independent of how the child asked for the reports to be encoded:
+    /// `CSI ?1000 h` on its own is click tracking whether or not `CSI ?1006 h`
+    /// followed it, and saying otherwise would report "none" for a program
+    /// that is plainly reading clicks.
+    pub(crate) fn mode(&self) -> MouseMode {
+        self.state.tracking
+    }
+
+    /// The tracking level a viewer can relay, which is `None` unless the child
+    /// also asked for SGR encoding.
+    ///
+    /// The monitor mirrors the child's tracking onto the watching terminal and
+    /// forwards what comes back. It can only encode SGR, so relaying to a
+    /// child that asked for the legacy `CSI M` form would feed it reports it
+    /// cannot parse. That is a limit of the relay, not a statement about what
+    /// the child requested, which is why it is separate from `mode`.
+    pub(crate) fn relayable(&self) -> MouseMode {
+        if self.state.sgr {
+            self.state.tracking
+        } else {
+            MouseMode::None
+        }
+    }
+}
+
+/// Every color a terminal currently paints with.
+///
+/// Read as a unit so a backend that crosses a process or language boundary
+/// pays for one crossing rather than 259.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColorTable {
+    pub foreground: Rgb,
+    pub background: Rgb,
+    pub cursor: Rgb,
+    pub palette: [Rgb; 256],
+}
+
+/// Clipboard target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardType {
+    Clipboard,
+    Selection,
+}
+
+/// The session-local clipboard state shared with a backend's event listener.
+#[derive(Debug, Default)]
+pub(crate) struct Clipboard {
+    clipboard: String,
+    selection: String,
+    clipboard_revision: u64,
+    selection_revision: u64,
+}
+
+impl Clipboard {
+    pub(crate) fn get(&self, clipboard: ClipboardType) -> &str {
+        match clipboard {
+            ClipboardType::Clipboard => &self.clipboard,
+            ClipboardType::Selection => &self.selection,
+        }
+    }
+
+    pub(crate) fn set(&mut self, clipboard: ClipboardType, text: String) {
+        match clipboard {
+            ClipboardType::Clipboard if self.clipboard != text => {
+                self.clipboard = text;
+                self.clipboard_revision = self.clipboard_revision.wrapping_add(1);
+            }
+            ClipboardType::Selection if self.selection != text => {
+                self.selection = text;
+                self.selection_revision = self.selection_revision.wrapping_add(1);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn revision(&self, clipboard: ClipboardType) -> u64 {
+        match clipboard {
+            ClipboardType::Clipboard => self.clipboard_revision,
+            ClipboardType::Selection => self.selection_revision,
+        }
+    }
+}
+
+#[derive(Default)]
+struct ClipboardValidation {
+    fault: Option<String>,
+    unsupported: bool,
+}
+
+impl Perform for ClipboardValidation {
+    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+        if params.first().copied() != Some(b"52") {
+            return;
+        }
+        if self.unsupported {
+            if self.fault.is_none() {
+                self.fault = Some("clipboard access is unavailable".to_string());
+            }
+            return;
+        }
+        let selection = params.get(1).copied().unwrap_or_default();
+        if !matches!(selection, b"c" | b"p" | b"s") && self.fault.is_none() {
+            self.fault = Some(format!(
+                "clipboard selection {:?} is unavailable",
+                String::from_utf8_lossy(selection)
+            ));
+        }
+    }
+}
+
+/// Tracks unsupported OSC 52 destinations across arbitrary PTY read splits.
+pub(crate) struct ClipboardValidator {
+    parser: Parser,
+    state: ClipboardValidation,
+}
+
+impl ClipboardValidator {
+    pub(crate) fn new() -> Self {
+        Self {
+            parser: Parser::new(),
+            state: ClipboardValidation::default(),
+        }
+    }
+
+    #[cfg(feature = "xtermjs")]
+    pub(crate) fn unsupported() -> Self {
+        Self {
+            parser: Parser::new(),
+            state: ClipboardValidation {
+                unsupported: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    pub(crate) fn process(&mut self, bytes: &[u8]) {
+        self.parser.advance(&mut self.state, bytes);
+    }
+
+    pub(crate) fn fault(&self) -> Option<String> {
+        self.state.fault.clone()
+    }
+}
+
+/// A headless terminal emulator: bytes in, cell grid out.
+///
+/// Implementations must be `Send`; the daemon shares the emulator across its
+/// reader, request, and monitor threads behind a mutex. A backend whose native
+/// handle is `!Send` is expected to confine that handle to its own thread and
+/// implement this trait on a `Send` handle.
+pub trait Emulator: Send {
+    /// Feed PTY output bytes into the emulator.
+    fn process(&mut self, bytes: &[u8]);
+
+    /// A failure that left the grid no longer a faithful account of the bytes
+    /// fed to it, if one has happened.
+    ///
+    /// Backends that parse in-process cannot fail this way and never report
+    /// one. A backend driving a separate engine can, and the grid it hands
+    /// back afterwards is a guess rather than an answer, so callers surface
+    /// this instead of reading on.
+    fn fault(&self) -> Option<String> {
+        None
+    }
+
+    /// Drain bytes the emulator wants written back to the PTY (device
+    /// attribute replies, cursor position reports, and similar). The caller
+    /// forwards these to the PTY.
+    fn take_pending_writes(&mut self) -> Vec<u8>;
+
+    /// Read a clipboard value.
+    fn clipboard(&self, _clipboard: ClipboardType) -> anyhow::Result<String> {
+        anyhow::bail!("clipboard access is unavailable")
+    }
+
+    #[doc(hidden)]
+    fn clipboard_revision(&self, _clipboard: ClipboardType) -> anyhow::Result<u64> {
+        anyhow::bail!("clipboard access is unavailable")
+    }
+
+    /// Active Kitty keyboard protocol flags negotiated by the child.
+    fn keyboard_mode(&self) -> KeyboardMode {
+        KeyboardMode::empty()
+    }
+
+    /// Whether the child enabled bracketed paste mode.
+    /// Whether a terminal mode is currently set.
+    ///
+    /// Required rather than defaulted: a backend that silently answered
+    /// `false` for everything would look like a terminal where nothing is
+    /// ever enabled, and no test would catch it.
+    fn mode(&self, mode: TerminalMode) -> bool;
+
+    /// Encode one key event with the backend's own key encoder.
+    ///
+    /// `None` means the backend has no encoder, or has one that cannot express
+    /// this event, and the caller falls back to [`crate::input::keys`]. Only
+    /// ghostty ships an encoder: alacritty and rio keep theirs in their GUI
+    /// crates rather than their VT libraries, and the xterm.js headless bundle
+    /// omits `evaluateKeyboardEvent` entirely.
+    ///
+    /// Preferring the backend matters because encoding depends on more terminal
+    /// state than the shared encoder models, and a backend's own encoder reads
+    /// that state directly. Ghostty's, for one, applies keypad application
+    /// mode, `modifyOtherKeys`, and the alt-escape prefix, none of which are
+    /// visible through this trait.
+    ///
+    /// An empty `Vec` is a real answer, not an absence: some events encode to
+    /// nothing at all, such as a bare modifier press.
+    fn encode_key(&self, _press: &crate::input::keys::KeyPress) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Whether the cursor keys are in application mode (`DECCKM`, `CSI ?1h`).
+    ///
+    /// A child in this mode expects `SS3 A` from the up arrow rather than
+    /// `CSI A`, and readline, vim, and less all turn it on. It is part of this
+    /// trait for the same reason [`Emulator::keyboard_mode`] is: key encoding
+    /// is shared, so anything it has to branch on has to be readable here.
+    fn cursor_key_application(&self) -> bool {
+        false
+    }
+
+    fn resize(&mut self, cols: u16, rows: u16);
+
+    /// Current grid size as `(cols, rows)`.
+    fn size(&self) -> (u16, u16);
+
+    /// Cursor position as `(x, y)` (column, row), 0-based, clamped to screen.
+    ///
+    /// Always relative to the visible screen, never to the scrollback, so a
+    /// caller drawing over `full_rows` has to offset it by the history above.
+    fn cursor(&self) -> (u16, u16);
+
+    /// The window title a program set with `OSC 0` or `OSC 2`, or `None` when
+    /// none is set.
+    ///
+    /// A program clears the title by sending an empty one, so an empty string
+    /// is reported as `None` rather than as a title that happens to be blank.
+    /// Callers therefore never have to distinguish the two.
+    fn title(&self) -> Option<String>;
+
+    /// Whether the cursor is being drawn, which programs toggle with
+    /// `DECTCEM` (`CSI ?25 h` and `l`). Full-screen programs routinely hide it
+    /// while repainting, so a screenshot that ignored this would show a cursor
+    /// parked wherever the last write happened to leave it.
+    /// Whether the cursor is being drawn.
+    ///
+    /// Kept as a named method, unlike the other modes, because it belongs to
+    /// the cursor group beside [`Emulator::cursor`] and
+    /// [`Emulator::cursor_shape`]. `DECSCUSR` is a shape rather than a
+    /// boolean, so that group cannot collapse into [`Emulator::mode`]
+    /// anyway, and splitting it so that two thirds of the cursor is asked for
+    /// one way and the rest another would read worse than either.
+    ///
+    /// It is one defaulted line over the real answer, so there is still a
+    /// single implementation per backend.
+    fn cursor_visible(&self) -> bool {
+        self.mode(TerminalMode::CursorVisible)
+    }
+
+    /// The shape the cursor is currently drawn as.
+    fn cursor_shape(&self) -> CursorShape;
+
+    /// Visible screen as rows of cells. Always `rows` entries of `cols` cells.
+    fn viewable_rows(&self) -> Vec<Vec<EmuCell>>;
+
+    /// Scrollback history followed by the visible screen.
+    fn full_rows(&self) -> Vec<Vec<EmuCell>>;
+
+    /// The color a slot is currently showing.
+    ///
+    /// Programs move these with `OSC 4` (palette) and `OSC 10/11/12` (default
+    /// foreground, background, cursor), and put them back with `OSC 104` and
+    /// `OSC 110/111/112`. A slot nothing has overridden shows the color the
+    /// session's profile gives it, so a reset always has something to restore
+    /// and this always has an answer.
+    ///
+    /// Backends answer color *queries* themselves, through
+    /// [`Emulator::take_pending_writes`], because each one already parses the
+    /// sequence and knows which terminator the query used. This reports the
+    /// same colors, so a screenshot and `expect --fg/--bg` agree with what a
+    /// program was told.
+    ///
+    fn color(&self, slot: ColorSlot) -> Rgb;
+
+    /// Every color at once: the three defaults and all 256 palette entries.
+    ///
+    /// Reading them one slot at a time costs a boundary crossing per slot, and
+    /// there are 259. On the ghostty backend each one is a worker round trip,
+    /// which put a single read of the terminal's colors at milliseconds; a
+    /// backend that pays to cross overrides this and crosses once.
+    ///
+    /// The default asks one slot at a time, which is what a backend reading
+    /// its own memory should do.
+    fn colors(&self) -> ColorTable {
+        ColorTable {
+            foreground: self.color(ColorSlot::Foreground),
+            background: self.color(ColorSlot::Background),
+            cursor: self.color(ColorSlot::Cursor),
+            palette: std::array::from_fn(|index| self.color(ColorSlot::Indexed(index as u8))),
+        }
+    }
+
+    /// Resolve a cell's color, where `None` is the terminal default.
+    ///
+    /// The grid records which slot a cell chose, never a color, so this is
+    /// where a cell becomes something to paint or compare. Provided rather
+    /// than required so every backend resolves a cell identically.
+    fn resolve(&self, color: Option<Color>, is_fg: bool) -> Rgb {
+        match color {
+            None => self.color(if is_fg {
+                ColorSlot::Foreground
+            } else {
+                ColorSlot::Background
+            }),
+            Some(Color::Named(n)) => self.color(ColorSlot::Indexed(n.index())),
+            Some(Color::Idx(i)) => self.color(ColorSlot::Indexed(i)),
+            Some(Color::Rgb(r, g, b)) => Rgb::new(r, g, b),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracking_is_reported_whatever_the_encoding() {
+        let mut tracker = MouseModeTracker::new();
+        tracker.process(b"\x1b[?1000h");
+        assert_eq!(
+            tracker.mode(),
+            MouseMode::Click,
+            "?1000h alone is click tracking, in the legacy encoding"
+        );
+        tracker.process(b"\x1b[?1002h");
+        assert_eq!(tracker.mode(), MouseMode::Drag, "?1002h replaces ?1000h");
+        tracker.process(b"\x1b[?10");
+        tracker.process(b"03h");
+        assert_eq!(tracker.mode(), MouseMode::Motion, "split across writes");
+        tracker.process(b"\x1b[?1003l");
+        assert_eq!(tracker.mode(), MouseMode::None);
+        tracker.process(b"\x1b[?1000h\x1bc");
+        assert_eq!(tracker.mode(), MouseMode::None, "RIS clears tracking");
+    }
+
+    #[test]
+    fn only_sgr_encoded_tracking_can_be_relayed() {
+        let mut tracker = MouseModeTracker::new();
+        tracker.process(b"\x1b[?1000h");
+        assert_eq!(
+            tracker.relayable(),
+            MouseMode::None,
+            "the legacy encoding is not something the monitor can speak"
+        );
+        tracker.process(b"\x1b[?1006h");
+        assert_eq!(tracker.relayable(), MouseMode::Click);
+        tracker.process(b"\x1b[?1002h");
+        assert_eq!(tracker.relayable(), MouseMode::Drag);
+        tracker.process(b"\x1b[?1016h");
+        assert_eq!(
+            tracker.relayable(),
+            MouseMode::None,
+            "pixel coordinates are not the SGR cells the monitor sends"
+        );
+        assert_eq!(
+            tracker.mode(),
+            MouseMode::Drag,
+            "but the child is still tracking drags"
+        );
+    }
+}

@@ -1,0 +1,37 @@
+[package]
+name = "tui-test-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The tui-test command-line interface and per-session daemon"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "tui-test"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true, features = ["env"] }
+crossterm.workspace = true
+dialoguer.workspace = true
+dirs.workspace = true
+interprocess.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+vte.workspace = true
+tui-test = { workspace = true, features = [
+    "ghostty",
+    "rio",
+    "xtermjs",
+    "recording-font-jetbrains-mono-styles",
+] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Console", "Win32_System_Pipes"] }
+
+[dev-dependencies]
+png.workspace = true

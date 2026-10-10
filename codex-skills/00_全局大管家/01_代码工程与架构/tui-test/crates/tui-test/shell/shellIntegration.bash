@@ -1,0 +1,51 @@
+if [ -r ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+if [ -r /etc/profile ]; then
+    . /etc/profile
+fi
+if [ -r ~/.bash_profile ]; then
+    . ~/.bash_profile
+elif [ -r ~/.bash_login ]; then
+    . ~/.bash_login
+elif [ -r ~/.profile ]; then
+    . ~/.profile
+fi
+
+__su_osc() { builtin printf '\033]133;%s\007' "$1"; }
+__su_cwd() {
+    # Iterate over UTF-8 bytes, not characters, when percent-encoding the URI.
+    local LC_ALL=C p=$PWD encoded='' byte c hex i
+    for ((i = 0; i < ${#p}; i++)); do
+        c=${p:i:1}
+        case "$c" in
+            [a-zA-Z0-9/._~:-]) encoded+=$c ;;
+            *)
+                builtin printf -v byte '%d' "'$c"
+                builtin printf -v hex '%%%02X' "$((byte & 255))"
+                encoded+=$hex
+                ;;
+        esac
+    done
+    builtin printf '\033]7;file://%s%s\007' "${HOSTNAME:-}" "$encoded"
+}
+
+__su_preexec_invoke() {
+    [ -n "$COMP_LINE" ] && return
+    [ -z "$__su_preexec_armed" ] && return
+    __su_preexec_armed=
+    __su_osc "C"
+}
+trap '__su_preexec_invoke' DEBUG
+
+__su_precmd() {
+    local ec=$?
+    if [ -n "$__su_started" ]; then
+        __su_osc "D;$ec"
+    fi
+    __su_cwd
+    PS1='\[\e]133;A\a\]> \[\e]133;B\a\]'
+    __su_started=1
+    __su_preexec_armed=1
+}
+PROMPT_COMMAND=__su_precmd
