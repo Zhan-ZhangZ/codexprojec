@@ -1,0 +1,76 @@
+import type { RenderContext } from '../types/RenderContext';
+import type { Settings } from '../types/Settings';
+import type {
+    HideableState,
+    Widget,
+    WidgetEditorDisplay,
+    WidgetItem
+} from '../types/Widget';
+
+import { isHidden } from './shared/hideable';
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
+
+const LABEL = 'Session: ';
+
+const ZERO_HIDEABLE_STATE: HideableState = { key: 'zero', label: 'when under 1 minute' };
+
+function formatDurationFromMs(durationMs: number): string {
+    const totalMinutes = Math.floor(durationMs / (1000 * 60));
+
+    if (totalMinutes < 1) {
+        return '<1m';
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (hours === 0) {
+        return `${minutes}m`;
+    }
+    if (minutes === 0) {
+        return `${hours}hr`;
+    }
+
+    return `${hours}hr ${minutes}m`;
+}
+
+export class SessionClockWidget implements Widget {
+    getDefaultColor(): string { return 'yellow'; }
+    getDescription(): string { return 'Shows elapsed time since current session started'; }
+    getDisplayName(): string { return 'Session Clock'; }
+    getCategory(): string { return 'Session'; }
+    getLabelPrefix(): string { return LABEL; }
+    getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
+        return { displayText: this.getDisplayName() };
+    }
+
+    getHideableStates(): HideableState[] {
+        return [ZERO_HIDEABLE_STATE];
+    }
+
+    render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        if (context.isPreview) {
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), '2hr 15m');
+        }
+
+        const hideZero = isHidden(item, ZERO_HIDEABLE_STATE.key);
+
+        const durationMs = context.data?.cost?.total_duration_ms;
+        if (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0) {
+            if (durationMs < 60000 && hideZero) {
+                return null;
+            }
+            const formatted = formatDurationFromMs(durationMs);
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), formatted);
+        }
+
+        const duration = context.sessionDuration ?? '0m';
+        if ((duration === '0m' || duration === '<1m') && hideZero) {
+            return null;
+        }
+        return formatRawOrLabeledValue(item, this.getLabelPrefix(), duration);
+    }
+
+    supportsRawValue(): boolean { return true; }
+    supportsColors(item: WidgetItem): boolean { return true; }
+}

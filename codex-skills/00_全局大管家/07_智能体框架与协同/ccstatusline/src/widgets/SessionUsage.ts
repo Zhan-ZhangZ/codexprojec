@@ -1,0 +1,54 @@
+import type { RenderContext } from '../types/RenderContext';
+import type { Settings } from '../types/Settings';
+import type {
+    CustomKeybind,
+    HideableState,
+    Widget,
+    WidgetEditorDisplay,
+    WidgetItem
+} from '../types/Widget';
+
+import {
+    USAGE_NO_DATA_HIDEABLE_STATE,
+    getUsagePercentCustomKeybinds
+} from './shared/usage-display';
+import {
+    getUsagePercentWidgetDescription,
+    getUsagePercentWidgetDisplayName,
+    getUsagePercentWidgetEditorDisplay,
+    getUsagePercentWidgetLabel,
+    handleUsagePercentWidgetEditorAction,
+    renderUsagePercentWidgetValue
+} from './shared/usage-percent-widget';
+
+export class SessionUsageWidget implements Widget {
+    getDefaultColor(): string { return 'brightBlue'; }
+    getDescription(): string { return getUsagePercentWidgetDescription('session'); }
+    getDisplayName(): string { return getUsagePercentWidgetDisplayName('session'); }
+    getCategory(): string { return 'Usage'; }
+    getLabelPrefix(): string { return getUsagePercentWidgetLabel('session'); }
+
+    getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
+        return getUsagePercentWidgetEditorDisplay('session', item);
+    }
+
+    getHideableStates(): HideableState[] {
+        return [USAGE_NO_DATA_HIDEABLE_STATE];
+    }
+
+    handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
+        return handleUsagePercentWidgetEditorAction(action, item);
+    }
+
+    render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        return renderUsagePercentWidgetValue('session', item, context, settings);
+    }
+
+    getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {
+        return getUsagePercentCustomKeybinds(item);
+    }
+
+    supportsRawValue(): boolean { return true; }
+    supportsColors(item: WidgetItem): boolean { return true; }
+    supportsNumberFormat(): boolean { return true; }
+}
