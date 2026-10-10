@@ -1,0 +1,196 @@
+// Copyright 2023 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"fmt"
+
+	"github.com/casdoor/casdoor/i18n"
+	"github.com/casdoor/casdoor/util"
+	"github.com/xorm-io/core"
+)
+
+type Pricing struct {
+	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name        string `xorm:"varchar(100) notnull pk" json:"name"`
+	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
+	DisplayName string `xorm:"varchar(100)" json:"displayName"`
+	Description string `xorm:"mediumtext" json:"description"`
+
+	Plans         []string `xorm:"mediumtext" json:"plans"`
+	IsEnabled     bool     `json:"isEnabled"`
+	IsInviteOnly  bool     `json:"isInviteOnly"`
+	Users         []string `xorm:"mediumtext" json:"users"`
+	TrialDuration int      `json:"trialDuration"`
+	Application   string   `xorm:"varchar(100)" json:"application"`
+}
+
+func (pricing *Pricing) GetId() string {
+	return fmt.Sprintf("%s/%s", pricing.Owner, pricing.Name)
+}
+
+// IsUserAllowed reports whether the user may see and buy this pricing. An
+// invite-only pricing is limited to the users of Users, or to the whole owner
+// organization when that list is empty.
+func (pricing *Pricing) IsUserAllowed(user *User) bool {
+	if !pricing.IsInviteOnly {
+		return true
+	}
+	if user == nil || user.Owner != pricing.Owner {
+		return false
+	}
+	if len(pricing.Users) == 0 {
+		return true
+	}
+	return util.InSlice(pricing.Users, user.Name)
+}
+
+func (pricing *Pricing) HasPlan(planName string, lang string) (bool, error) {
+	planId := util.GetId(pricing.Owner, planName)
+	plan, err := GetPlan(planId)
+	if err != nil {
+		return false, err
+	}
+	if plan == nil {
+		return false, fmt.Errorf(i18n.Translate(lang, "auth:The plan: %s does not exist"), planId)
+	}
+
+	if util.InSlice(pricing.Plans, plan.Name) {
+		return true, nil
+	}
+	return false, nil
+}
+
+func GetPricingCount(owner, field, value string) (int64, error) {
+	session := GetSession(owner, -1, -1, field, value, "", "")
+	return session.Count(&Pricing{})
+}
+
+func GetPricings(owner string) ([]*Pricing, error) {
+	pricings := []*Pricing{}
+	err := ormer.Engine.Desc("created_time").Find(&pricings, &Pricing{Owner: owner})
+	if err != nil {
+		return pricings, err
+	}
+
+	return pricings, nil
+}
+
+func GetPaginatedPricings(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Pricing, error) {
+	pricings := []*Pricing{}
+	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
+	err := session.Find(&pricings)
+	if err != nil {
+		return pricings, err
+	}
+	return pricings, nil
+}
+
+func getPricing(owner, name string) (*Pricing, error) {
+	if owner == "" || name == "" {
+		return nil, nil
+	}
+
+	pricing := Pricing{Owner: owner, Name: name}
+	existed, err := ormer.Engine.Get(&pricing)
+	if err != nil {
+		return nil, err
+	}
+	if existed {
+		return &pricing, nil
+	} else {
+		return nil, nil
+	}
+}
+
+func GetPricing(id string) (*Pricing, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
+	return getPricing(owner, name)
+}
+
+func GetApplicationDefaultPricing(owner, appName string, user *User) (*Pricing, error) {
+	pricings := make([]*Pricing, 0, 1)
+	err := ormer.Engine.Asc("created_time").Find(&pricings, &Pricing{Owner: owner, Application: appName})
+	if err != nil {
+		return nil, err
+	}
+	for _, pricing := range pricings {
+		if pricing.IsEnabled && pricing.IsUserAllowed(user) {
+			return pricing, nil
+		}
+	}
+	return nil, nil
+}
+
+func UpdatePricing(id string, pricing *Pricing) (bool, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return false, err
+	}
+	if p, err := getPricing(owner, name); err != nil {
+		return false, err
+	} else if p == nil {
+		return false, nil
+	}
+
+	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(pricing)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func AddPricing(pricing *Pricing) (bool, error) {
+	affected, err := ormer.Engine.Insert(pricing)
+	if err != nil {
+		return false, err
+	}
+	return affected != 0, nil
+}
+
+func DeletePricing(pricing *Pricing) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{pricing.Owner, pricing.Name}).Delete(Pricing{})
+	if err != nil {
+		return false, err
+	}
+	return affected != 0, nil
+}
+
+func CheckPricingAndPlan(owner, pricingName, planName string, lang string) error {
+	pricingId := util.GetId(owner, pricingName)
+	pricing, err := GetPricing(pricingId)
+	if pricing == nil || err != nil {
+		if pricing == nil && err == nil {
+			err = fmt.Errorf(i18n.Translate(lang, "auth:The pricing: %s does not exist"), pricingName)
+		}
+		return err
+	}
+	if pricing.IsInviteOnly {
+		return fmt.Errorf(i18n.Translate(lang, "auth:The pricing: %s is invite-only, only invited users can use it"), pricingName)
+	}
+
+	ok, err := pricing.HasPlan(planName, lang)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf(i18n.Translate(lang, "auth:The pricing: %s does not have plan: %s"), pricingName, planName)
+	}
+	return nil
+}

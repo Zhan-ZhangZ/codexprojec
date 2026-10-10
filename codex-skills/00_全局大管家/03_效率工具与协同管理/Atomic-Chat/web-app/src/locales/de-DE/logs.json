@@ -1,0 +1,10 @@
+{
+  "noLogs": "Keine Logs verfügbar",
+  "filterAll": "Alle",
+  "sourceApp": "App",
+  "sourceCore": "Core",
+  "export": "Logs exportieren",
+  "exported": "Logs exportiert",
+  "showInFolder": "Im Ordner anzeigen",
+  "exportFailed": "Logs konnten nicht exportiert werden"
+}

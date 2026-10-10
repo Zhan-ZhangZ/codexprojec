@@ -1,0 +1,674 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"crypto/sha256"
+	"encoding/gob"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/i18n"
+	"github.com/casdoor/casdoor/util"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/xorm-io/core"
+)
+
+func InitDb() {
+	existed := initBuiltInOrganization()
+	if !existed {
+		initBuiltInPermission()
+		initBuiltInProvider()
+		initBuiltInUser()
+		initBuiltInApplication()
+		initBuiltInCert()
+		initBuiltInLdap()
+	}
+
+	existed = initBuiltInApiModel()
+	if !existed {
+		initBuiltInApiAdapter()
+		initBuiltInApiEnforcer()
+		initBuiltInUserModel()
+		initBuiltInUserAdapter()
+		initBuiltInUserEnforcer()
+	}
+
+	warnPublicBuiltInCert()
+	initWebAuthn()
+}
+
+func GetDefaultAccountItems() []*AccountItem {
+	return []*AccountItem{
+		{Name: "Organization", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "ID", Visible: true, ViewRule: "Public", ModifyRule: "Immutable"},
+		{Name: "Name", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Display name", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "First name", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Last name", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Avatar", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "User type", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Password", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Email", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Phone", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Country code", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Country/Region", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Location", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Address", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Addresses", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Affiliation", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Title", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "ID card type", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "ID card", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "ID card info", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Real name", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "ID verification", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Homepage", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Bio", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Tag", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Language", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Gender", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Birthday", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Education", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Balance", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Balance credit", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Balance currency", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Cart", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Transactions", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "UID number", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "Score", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Karma", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Ranking", Visible: true, ViewRule: "Public", ModifyRule: "Self"},
+		{Name: "Signup application", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Register type", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Register source", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Roles", Visible: true, ViewRule: "Public", ModifyRule: "Immutable"},
+		{Name: "Permissions", Visible: true, ViewRule: "Public", ModifyRule: "Immutable"},
+		{Name: "Groups", Visible: true, ViewRule: "Public", ModifyRule: "Admin"},
+		{Name: "Consents", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "3rd-party logins", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Properties", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "Is online", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "Is admin", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "Is forbidden", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "Is deleted", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "Multi-factor authentication", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "MFA items", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "WebAuthn credentials", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Last change password time", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "Managed accounts", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Face ID", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "MFA accounts", Visible: true, ViewRule: "Self", ModifyRule: "Self"},
+		{Name: "Need update password", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+		{Name: "IP whitelist", Visible: true, ViewRule: "Admin", ModifyRule: "Admin"},
+	}
+}
+
+func initBuiltInOrganization() bool {
+	organization, err := getOrganization("admin", "built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if organization != nil {
+		return true
+	}
+
+	organization = &Organization{
+		Owner:              "admin",
+		Name:               "built-in",
+		CreatedTime:        util.GetCurrentTime(),
+		DisplayName:        "Built-in Organization",
+		WebsiteUrl:         "https://example.com",
+		Favicon:            fmt.Sprintf("%s/img/casbin/favicon.ico", conf.GetConfigString("staticBaseUrl")),
+		PasswordType:       "bcrypt",
+		PasswordOptions:    []string{"AtLeast6"},
+		CountryCodes:       []string{"US", "ES", "FR", "DE", "GB", "CN", "JP", "KR", "VN", "ID", "SG", "IN"},
+		DefaultAvatar:      fmt.Sprintf("%s/img/casbin.svg", conf.GetConfigString("staticBaseUrl")),
+		DefaultTokenFormat: "JWT",
+		DefaultTokenFields: []string{},
+		UserTypes:          []string{},
+		Tags:               []string{},
+		Languages:          []string{"en", "es", "fr", "de", "ja", "zh", "vi", "pt", "tr", "pl", "uk"},
+		InitScore:          2000,
+		AccountItems:       GetDefaultAccountItems(),
+		EnableSoftDeletion: false,
+		IsProfilePublic:    false,
+		UseEmailAsUsername: false,
+		EnableTour:         true,
+		DcrPolicy:          "disabled",
+	}
+	_, err = AddOrganization(organization)
+	if err != nil {
+		panic(err)
+	}
+
+	return false
+}
+
+func initBuiltInUser() {
+	user, err := getUser("built-in", "admin")
+	if err != nil {
+		panic(err)
+	}
+	if user != nil {
+		return
+	}
+
+	user = &User{
+		Owner:             "built-in",
+		Name:              "admin",
+		CreatedTime:       util.GetCurrentTime(),
+		Id:                util.GenerateId(),
+		Type:              "normal-user",
+		Password:          getInitAdminPassword(),
+		DisplayName:       "Admin",
+		Avatar:            fmt.Sprintf("%s/img/casbin.svg", conf.GetConfigString("staticBaseUrl")),
+		Email:             "admin@example.com",
+		Phone:             "12345678910",
+		CountryCode:       "US",
+		Address:           []string{},
+		Affiliation:       "Example Inc.",
+		Tag:               "staff",
+		Score:             2000,
+		Ranking:           1,
+		IsAdmin:           true,
+		IsForbidden:       false,
+		IsDeleted:         false,
+		SignupApplication: "app-built-in",
+		RegisterType:      "Add User",
+		RegisterSource:    "built-in/admin",
+		CreatedIp:         "127.0.0.1",
+		Properties:        make(map[string]string),
+	}
+	_, err = AddUser(user, "en")
+	if err != nil {
+		panic(err)
+	}
+
+	if user.Password == "" {
+		fmt.Println("The password of built-in/admin is not set, open Casdoor in the browser to set it, or set initAdminPassword before the first start")
+	}
+}
+
+// getInitAdminPassword is the password of built-in/admin when it is created. Without initAdminPassword the
+// password is left empty and set on the welcome page, the demo site keeps the well-known "123".
+func getInitAdminPassword() string {
+	password := conf.GetConfigString("initAdminPassword")
+	if password == "" && (conf.IsDemoMode() || conf.IsDemoDatabase()) {
+		return "123"
+	}
+	return password
+}
+
+// IsInitAdminPending tells whether built-in/admin has never had a password and is waiting for one on the welcome page
+func IsInitAdminPending() (bool, error) {
+	user, err := getUser("built-in", "admin")
+	if err != nil {
+		return false, err
+	}
+
+	return user != nil && !user.IsDeleted && user.Password == "" && user.LastSigninTime == "", nil
+}
+
+// SetInitAdminPassword sets the first password of built-in/admin. It returns false if the password has been set
+// in the meantime, only the first request wins.
+func SetInitAdminPassword(password string, lang string) (bool, error) {
+	isPending, err := IsInitAdminPending()
+	if err != nil {
+		return false, err
+	}
+	if !isPending {
+		return false, nil
+	}
+
+	user, err := getUser("built-in", "admin")
+	if err != nil {
+		return false, err
+	}
+
+	organization, err := GetOrganizationByUser(user)
+	if err != nil {
+		return false, err
+	}
+	if organization == nil {
+		return false, errors.New(i18n.Translate(lang, "check:Organization does not exist"))
+	}
+
+	if password == "" {
+		return false, errors.New(i18n.Translate(lang, "check:Password cannot be empty"))
+	}
+	if strings.Contains(password, " ") {
+		return false, errors.New(i18n.Translate(lang, "user:New password cannot contain blank space."))
+	}
+	msg := CheckPasswordComplexityByOrg(organization, password, lang)
+	if msg != "" {
+		return false, errors.New(msg)
+	}
+
+	user.Password = password
+	user.UpdateUserPassword(organization)
+	user.LastChangePasswordTime = util.GetCurrentTime()
+	user.UpdatedTime = user.LastChangePasswordTime
+	err = user.UpdateUserHash()
+	if err != nil {
+		return false, err
+	}
+
+	affected, err := ormer.Engine.ID(core.PK{user.Owner, user.Name}).Where("password = ?", "").
+		Cols("password", "password_salt", "password_type", "last_change_password_time", "updated_time", "hash").Update(user)
+	if err != nil {
+		return false, err
+	}
+	return affected != 0, nil
+}
+
+func initBuiltInApplication() {
+	application, err := getApplication("admin", "app-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if application != nil {
+		return
+	}
+
+	application = &Application{
+		Owner:          "admin",
+		Name:           "app-built-in",
+		CreatedTime:    util.GetCurrentTime(),
+		DisplayName:    "Casdoor",
+		Category:       "Default",
+		Type:           "All",
+		Scopes:         []*ScopeItem{},
+		Logo:           fmt.Sprintf("%s/img/casdoor-logo_1185x256.png", conf.GetConfigString("staticBaseUrl")),
+		HomepageUrl:    "https://casdoor.org",
+		Organization:   "built-in",
+		Cert:           "cert-built-in",
+		EnablePassword: true,
+		EnableSignUp:   true,
+		Providers: []*ProviderItem{
+			{Name: "provider_captcha_default", CanSignUp: false, CanSignIn: false, CanUnlink: false, Prompted: false, SignupGroup: "", Rule: "None", Provider: nil},
+		},
+		SigninMethods: []*SigninMethod{
+			{Name: "Password", DisplayName: "Password", Rule: "All"},
+			{Name: "Verification code", DisplayName: "Verification code", Rule: "All"},
+			{Name: "WebAuthn", DisplayName: "WebAuthn", Rule: "None"},
+			{Name: "Face ID", DisplayName: "Face ID", Rule: "None"},
+		},
+		SignupItems: []*SignupItem{
+			{Name: "ID", Visible: false, Required: true, Prompted: false, Rule: "Random"},
+			{Name: "Username", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Display name", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Password", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Confirm password", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Email", Visible: true, Required: true, Prompted: false, Rule: "Normal"},
+			{Name: "Phone", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Agreement", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Languages", Visible: true, Required: false, Prompted: false, Rule: "None"},
+		},
+		Tags:          []string{},
+		RedirectUris:  []string{},
+		TokenFormat:   "JWT",
+		TokenFields:   []string{},
+		ExpireInHours: 168,
+		FormOffset:    2,
+
+		CookieExpireInHours: 720,
+	}
+	_, err = AddApplication(application, "en")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func initBuiltInCert() {
+	cert, err := getCert("admin", "cert-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if cert != nil {
+		return
+	}
+
+	// the Certificate and PrivateKey are left empty for AddCert() to generate a new key pair,
+	// the one used by the old versions is public in the repository
+	cert = &Cert{
+		Owner:           "admin",
+		Name:            "cert-built-in",
+		CreatedTime:     util.GetCurrentTime(),
+		DisplayName:     "Built-in Cert",
+		Scope:           "JWT",
+		Type:            "x509",
+		CryptoAlgorithm: "RS256",
+		BitSize:         4096,
+		ExpireInYears:   20,
+	}
+	_, err = AddCert(cert)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// the SHA-256 of the private key that the old versions created cert-built-in with, it was published in the repository
+const publicBuiltInPrivateKeySha256 = "69cb4de40b4ffd09564cdad858a60f4666f0a9aa1d88331c97a5438ccef69012"
+
+func warnPublicBuiltInCert() {
+	cert, err := getCert("admin", "cert-built-in")
+	if err != nil || cert == nil {
+		return
+	}
+
+	privateKey := strings.TrimSpace(strings.ReplaceAll(cert.PrivateKey, "\r", ""))
+	hash := sha256.Sum256([]byte(privateKey))
+	if hex.EncodeToString(hash[:]) == publicBuiltInPrivateKeySha256 {
+		fmt.Printf("WARNING: the cert: %s signs tokens with the private key published in the Casdoor repository, anyone can forge its tokens, please generate a new key pair for it\n", cert.GetId())
+	}
+}
+
+func initBuiltInLdap() {
+	ldap, err := GetLdap("ldap-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if ldap != nil {
+		return
+	}
+
+	ldap = &Ldap{
+		Id:         "ldap-built-in",
+		Owner:      "built-in",
+		ServerName: "BuildIn LDAP Server",
+		Host:       "example.com",
+		Port:       389,
+		Username:   "cn=buildin,dc=example,dc=com",
+		Password:   "",
+		BaseDn:     "ou=BuildIn,dc=example,dc=com",
+		AutoSync:   0,
+		LastSync:   "",
+	}
+	_, err = AddLdap(ldap)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func initBuiltInProvider() {
+	providers := []*Provider{
+		{
+			Owner:       "admin",
+			Name:        "provider_captcha_default",
+			CreatedTime: util.GetCurrentTime(),
+			DisplayName: "Captcha Default",
+			Category:    "Captcha",
+			Type:        "Default",
+		},
+		{
+			Owner:       "admin",
+			Name:        "provider_balance",
+			CreatedTime: util.GetCurrentTime(),
+			DisplayName: "Balance",
+			Category:    "Payment",
+			Type:        "Balance",
+		},
+		{
+			Owner:       "admin",
+			Name:        "provider_payment_dummy",
+			CreatedTime: util.GetCurrentTime(),
+			DisplayName: "Dummy Payment",
+			Category:    "Payment",
+			Type:        "Dummy",
+		},
+	}
+
+	for _, provider := range providers {
+		existingProvider, err := GetProvider(util.GetId("admin", provider.Name))
+		if err != nil {
+			panic(err)
+		}
+
+		if existingProvider != nil {
+			continue
+		}
+
+		_, err = AddProvider(provider)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func initWebAuthn() {
+	gob.Register(webauthn.SessionData{})
+}
+
+func initBuiltInUserModel() {
+	model, err := GetModel("built-in/user-model-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if model != nil {
+		return
+	}
+
+	model = &Model{
+		Owner:       "built-in",
+		Name:        "user-model-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		DisplayName: "Built-in Model",
+		ModelText: `[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[role_definition]
+g = _, _
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act`,
+	}
+	_, err = AddModel(model)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func initBuiltInApiModel() bool {
+	model, err := GetModel("built-in/api-model-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if model != nil {
+		return true
+	}
+
+	modelText := `[request_definition]
+r = subOwner, subName, method, urlPath, objOwner, objName
+
+[policy_definition]
+p = subOwner, subName, method, urlPath, objOwner, objName
+
+[role_definition]
+g = _, _
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = (r.subOwner == p.subOwner || p.subOwner == "*") && \
+    (r.subName == p.subName || p.subName == "*" || r.subName != "anonymous" && p.subName == "!anonymous") && \
+    (r.method == p.method || p.method == "*") && \
+    (keyMatch2(r.urlPath, p.urlPath) || p.urlPath == "*") && \
+    (r.objOwner == p.objOwner || p.objOwner == "*") && \
+    (r.objName == p.objName || p.objName == "*") || \
+    (r.subOwner == r.objOwner && r.subName == r.objName)`
+
+	model = &Model{
+		Owner:       "built-in",
+		Name:        "api-model-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		DisplayName: "API Model",
+		ModelText:   modelText,
+	}
+	_, err = AddModel(model)
+	if err != nil {
+		panic(err)
+	}
+	return false
+}
+
+func initBuiltInPermission() {
+	permission, err := GetPermission("built-in/permission-built-in")
+	if err != nil {
+		panic(err)
+	}
+	if permission != nil {
+		return
+	}
+
+	permission = &Permission{
+		Owner:        "built-in",
+		Name:         "permission-built-in",
+		CreatedTime:  util.GetCurrentTime(),
+		DisplayName:  "Built-in Permission",
+		Description:  "Built-in Permission",
+		Users:        []string{"built-in/*"},
+		Groups:       []string{},
+		Roles:        []string{},
+		Domains:      []string{},
+		Model:        "built-in/user-model-built-in",
+		Adapter:      "",
+		ResourceType: "Application",
+		Resources:    []string{"app-built-in"},
+		Actions:      []string{"Read", "Write", "Admin"},
+		Effect:       "Allow",
+		IsEnabled:    true,
+		Submitter:    "admin",
+		Approver:     "admin",
+		ApproveTime:  util.GetCurrentTime(),
+		State:        "Approved",
+	}
+	_, err = AddPermission(permission)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func initBuiltInUserAdapter() {
+	adapter, err := GetAdapter("built-in/user-adapter-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if adapter != nil {
+		return
+	}
+
+	adapter = &Adapter{
+		Owner:       "built-in",
+		Name:        "user-adapter-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		Table:       "casbin_user_rule",
+		UseSameDb:   true,
+	}
+	_, err = AddAdapter(adapter)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func initBuiltInApiAdapter() {
+	adapter, err := GetAdapter("built-in/api-adapter-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if adapter != nil {
+		return
+	}
+
+	adapter = &Adapter{
+		Owner:       "built-in",
+		Name:        "api-adapter-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		Table:       "casbin_api_rule",
+		UseSameDb:   true,
+	}
+	_, err = AddAdapter(adapter)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func initBuiltInUserEnforcer() {
+	enforcer, err := GetEnforcer("built-in/user-enforcer-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if enforcer != nil {
+		return
+	}
+
+	enforcer = &Enforcer{
+		Owner:       "built-in",
+		Name:        "user-enforcer-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		DisplayName: "User Enforcer",
+		Model:       "built-in/user-model-built-in",
+		Adapter:     "built-in/user-adapter-built-in",
+	}
+
+	_, err = AddEnforcer(enforcer)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func initBuiltInApiEnforcer() {
+	enforcer, err := GetEnforcer("built-in/api-enforcer-built-in")
+	if err != nil {
+		panic(err)
+	}
+
+	if enforcer != nil {
+		return
+	}
+
+	enforcer = &Enforcer{
+		Owner:       "built-in",
+		Name:        "api-enforcer-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		DisplayName: "API Enforcer",
+		Model:       "built-in/api-model-built-in",
+		Adapter:     "built-in/api-adapter-built-in",
+	}
+
+	_, err = AddEnforcer(enforcer)
+	if err != nil {
+		panic(err)
+	}
+}

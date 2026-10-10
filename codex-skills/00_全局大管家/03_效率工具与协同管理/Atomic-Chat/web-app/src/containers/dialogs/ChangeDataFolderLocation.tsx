@@ -1,0 +1,106 @@
+import { managedEngines } from '@/lib/managed-engines'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { IconFolder } from '@tabler/icons-react'
+import { useTranslation } from '@/i18n/react-i18next-compat'
+import {
+  selectEnvironment,
+  useManagedEnvironmentStore,
+} from '@/stores/managed-environment-store'
+
+interface ChangeDataFolderLocationProps {
+  children: React.ReactNode
+  currentPath: string
+  newPath: string
+  onConfirm: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export default function ChangeDataFolderLocation({
+  children,
+  currentPath,
+  newPath,
+  onConfirm,
+  open,
+  onOpenChange,
+}: ChangeDataFolderLocationProps) {
+  const { t } = useTranslation()
+  // Windows: the managed engines' models (TensorRT-LLM, vLLM: one shared store) live in Atomic
+  // Chat's WSL distribution, not in the data folder, and stay there (change
+  // `add-tensorrt-llm-windows`, spec "Перенос папки данных не перемещает модели в дистрибутиве").
+  const distribution = useManagedEnvironmentStore(
+    (state) => selectEnvironment(state)?.distribution ?? null
+  )
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <IconFolder size={20} />
+            {t('settings:dialogs.changeDataFolder.title')}
+          </DialogTitle>
+          <DialogDescription>
+            {t('settings:dialogs.changeDataFolder.description')}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <h4 className="text-sm font-medium mb-2">
+              {t('settings:dialogs.changeDataFolder.currentLocation')}
+            </h4>
+            <div className="bg-secondary border p-2 rounded-lg">
+              <code className="text-xs text-muted-foreground break-all">
+                {currentPath}
+              </code>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-medium mb-2">
+              {t('settings:dialogs.changeDataFolder.newLocation')}
+            </h4>
+            <div className="bg-secondary border p-2 rounded-lg">
+              <code className="text-xs break-all">{newPath}</code>
+            </div>
+          </div>
+
+          {distribution && (
+            <p className="text-sm text-muted-foreground break-words">
+              {t('settings:dialogs.changeDataFolder.managedModels', {
+                name: distribution.name,
+                engines: managedEngines()
+                  .map((engine) => engine.label)
+                  .join(', '),
+              })}
+            </p>
+          )}
+        </div>
+
+        <DialogFooter className="flex items-center gap-2">
+          <DialogClose asChild>
+            <Button variant="ghost" size="sm">
+              {t('settings:dialogs.changeDataFolder.cancel')}
+            </Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button size="sm" onClick={onConfirm}>
+              {t('settings:dialogs.changeDataFolder.changeLocation')}
+            </Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

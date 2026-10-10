@@ -1,0 +1,853 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/base64"
+	"fmt"
+	"hash"
+	"reflect"
+	"strings"
+	"time"
+
+	"github.com/casdoor/casdoor/util"
+	"github.com/golang-jwt/jwt/v5"
+)
+
+// OidcIdTokenClaims are the ID token claims that depend on how the user signed in and on the
+// authorization response, see https://openid.net/specs/openid-connect-core-1_0.html#IDToken
+type OidcIdTokenClaims struct {
+	AuthTime *jwt.NumericDate `json:"auth_time,omitempty"`
+	AtHash   string           `json:"at_hash,omitempty"`
+	CHash    string           `json:"c_hash,omitempty"`
+}
+
+type Claims struct {
+	*User
+	TokenType string `json:"tokenType,omitempty"`
+	Nonce     string `json:"nonce,omitempty"`
+	Tag       string `json:"tag"`
+	Scope     string `json:"scope,omitempty"`
+	// the `azp` (Authorized Party) claim. Optional. See https://openid.net/specs/openid-connect-core-1_0.html#IDToken
+	Azp      string `json:"azp,omitempty"`
+	Provider string `json:"provider,omitempty"`
+
+	SigninMethod string `json:"signinMethod,omitempty"`
+	OidcIdTokenClaims
+	jwt.RegisteredClaims
+}
+
+type UserShort struct {
+	Owner string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name  string `xorm:"varchar(100) notnull pk" json:"name"`
+
+	Id            string `xorm:"varchar(100) index" json:"id"`
+	DisplayName   string `xorm:"varchar(100)" json:"displayName"`
+	Avatar        string `xorm:"varchar(500)" json:"avatar"`
+	Email         string `xorm:"varchar(100) index" json:"email"`
+	EmailVerified bool   `json:"email_verified,omitempty"`
+	Phone         string `xorm:"varchar(100) index" json:"phone"`
+}
+
+type UserStandard struct {
+	Owner string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name  string `xorm:"varchar(100) notnull pk" json:"preferred_username,omitempty"`
+
+	Id            string `xorm:"varchar(100) index" json:"id"`
+	DisplayName   string `xorm:"varchar(100)" json:"name,omitempty"`
+	Avatar        string `xorm:"varchar(500)" json:"picture,omitempty"`
+	Email         string `xorm:"varchar(100) index" json:"email,omitempty"`
+	EmailVerified bool   `json:"email_verified,omitempty"`
+	Phone         string `xorm:"varchar(100) index" json:"phone,omitempty"`
+}
+
+type UserWithoutThirdIdp struct {
+	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name        string `xorm:"varchar(100) notnull pk" json:"name"`
+	CreatedTime string `xorm:"varchar(100) index" json:"createdTime"`
+	UpdatedTime string `xorm:"varchar(100)" json:"updatedTime"`
+	DeletedTime string `xorm:"varchar(100)" json:"deletedTime"`
+
+	Id                string   `xorm:"varchar(100) index" json:"id"`
+	Type              string   `xorm:"varchar(100)" json:"type"`
+	Password          string   `xorm:"varchar(150)" json:"password"`
+	PasswordSalt      string   `xorm:"varchar(100)" json:"passwordSalt"`
+	PasswordType      string   `xorm:"varchar(100)" json:"passwordType"`
+	DisplayName       string   `xorm:"varchar(100)" json:"displayName"`
+	FirstName         string   `xorm:"varchar(100)" json:"firstName"`
+	LastName          string   `xorm:"varchar(100)" json:"lastName"`
+	Avatar            string   `xorm:"varchar(500)" json:"avatar"`
+	AvatarType        string   `xorm:"varchar(100)" json:"avatarType"`
+	PermanentAvatar   string   `xorm:"varchar(500)" json:"permanentAvatar"`
+	Email             string   `xorm:"varchar(100) index" json:"email"`
+	EmailVerified     bool     `json:"email_verified"`
+	Phone             string   `xorm:"varchar(100) index" json:"phone"`
+	CountryCode       string   `xorm:"varchar(6)" json:"countryCode"`
+	Region            string   `xorm:"varchar(100)" json:"region"`
+	Location          string   `xorm:"varchar(100)" json:"location"`
+	Address           []string `json:"address,omitempty"`
+	Affiliation       string   `xorm:"varchar(100)" json:"affiliation"`
+	Title             string   `xorm:"varchar(100)" json:"title"`
+	IdCardType        string   `xorm:"varchar(100)" json:"idCardType"`
+	IdCard            string   `xorm:"varchar(100) index" json:"idCard"`
+	Homepage          string   `xorm:"varchar(100)" json:"homepage"`
+	Bio               string   `xorm:"varchar(100)" json:"bio"`
+	Tag               string   `xorm:"varchar(100)" json:"tag"`
+	Language          string   `xorm:"varchar(100)" json:"language"`
+	Gender            string   `xorm:"varchar(100)" json:"gender"`
+	Birthday          string   `xorm:"varchar(100)" json:"birthday"`
+	Education         string   `xorm:"varchar(100)" json:"education"`
+	Score             int      `json:"score"`
+	Karma             int      `json:"karma"`
+	Ranking           int      `json:"ranking"`
+	IsDefaultAvatar   bool     `json:"isDefaultAvatar"`
+	IsOnline          bool     `json:"isOnline"`
+	IsAdmin           bool     `json:"isAdmin"`
+	IsForbidden       bool     `json:"isForbidden"`
+	IsDeleted         bool     `json:"isDeleted"`
+	SignupApplication string   `xorm:"varchar(100)" json:"signupApplication"`
+	Hash              string   `xorm:"varchar(100)" json:"hash"`
+	PreHash           string   `xorm:"varchar(100)" json:"preHash"`
+	RegisterType      string   `xorm:"varchar(100)" json:"registerType"`
+	RegisterSource    string   `xorm:"varchar(100)" json:"registerSource"`
+
+	GitHub   string `xorm:"github varchar(100)" json:"github"`
+	Google   string `xorm:"varchar(100)" json:"google"`
+	QQ       string `xorm:"qq varchar(100)" json:"qq"`
+	WeChat   string `xorm:"wechat varchar(100)" json:"wechat"`
+	Facebook string `xorm:"facebook varchar(100)" json:"facebook"`
+	DingTalk string `xorm:"dingtalk varchar(100)" json:"dingtalk"`
+	Weibo    string `xorm:"weibo varchar(100)" json:"weibo"`
+	Gitee    string `xorm:"gitee varchar(100)" json:"gitee"`
+	LinkedIn string `xorm:"linkedin varchar(100)" json:"linkedin"`
+	Wecom    string `xorm:"wecom varchar(100)" json:"wecom"`
+	Lark     string `xorm:"lark varchar(100)" json:"lark"`
+	Gitlab   string `xorm:"gitlab varchar(100)" json:"gitlab"`
+
+	CreatedIp      string `xorm:"varchar(100)" json:"createdIp"`
+	LastSigninTime string `xorm:"varchar(100)" json:"lastSigninTime"`
+	LastSigninIp   string `xorm:"varchar(100)" json:"lastSigninIp"`
+
+	// WebauthnCredentials []webauthn.Credential `xorm:"webauthnCredentials blob" json:"webauthnCredentials"`
+	PreferredMfaType string   `xorm:"varchar(100)" json:"preferredMfaType"`
+	RecoveryCodes    []string `xorm:"varchar(1000)" json:"recoveryCodes"`
+	TotpSecret       string   `xorm:"varchar(100)" json:"totpSecret"`
+	MfaPhoneEnabled  bool     `json:"mfaPhoneEnabled"`
+	MfaEmailEnabled  bool     `json:"mfaEmailEnabled"`
+	// MultiFactorAuths    []*MfaProps           `xorm:"-" json:"multiFactorAuths,omitempty"`
+
+	Ldap       string            `xorm:"ldap varchar(100)" json:"ldap"`
+	Properties map[string]string `json:"properties"`
+
+	Roles       []*Role       `json:"roles"`
+	Permissions []*Permission `json:"permissions"`
+	Groups      []string      `xorm:"groups varchar(1000)" json:"groups"`
+
+	LastSigninWrongTime string `xorm:"varchar(100)" json:"lastSigninWrongTime"`
+	SigninWrongTimes    int    `json:"signinWrongTimes"`
+
+	ManagedAccounts []ManagedAccount `xorm:"managedAccounts blob" json:"managedAccounts"`
+}
+
+type ClaimsShort struct {
+	*UserShort
+	TokenType string `json:"tokenType,omitempty"`
+	Nonce     string `json:"nonce,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	Azp       string `json:"azp,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+
+	SigninMethod string `json:"signinMethod,omitempty"`
+	OidcIdTokenClaims
+	jwt.RegisteredClaims
+}
+
+type OIDCAddress struct {
+	Formatted     string `json:"formatted,omitempty"`
+	StreetAddress string `json:"street_address,omitempty"`
+	Locality      string `json:"locality,omitempty"`
+	Region        string `json:"region,omitempty"`
+	PostalCode    string `json:"postal_code,omitempty"`
+	Country       string `json:"country,omitempty"`
+}
+
+type ClaimsWithoutThirdIdp struct {
+	*UserWithoutThirdIdp
+	TokenType string `json:"tokenType,omitempty"`
+	Nonce     string `json:"nonce,omitempty"`
+	Tag       string `json:"tag"`
+	Scope     string `json:"scope,omitempty"`
+	Azp       string `json:"azp,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+
+	SigninMethod string `json:"signinMethod,omitempty"`
+	OidcIdTokenClaims
+	jwt.RegisteredClaims
+}
+
+func getShortUser(user *User) *UserShort {
+	res := &UserShort{
+		Owner: user.Owner,
+		Name:  user.Name,
+
+		Id:            user.Id,
+		DisplayName:   user.DisplayName,
+		Avatar:        user.Avatar,
+		Email:         user.Email,
+		EmailVerified: user.EmailVerified,
+		Phone:         user.Phone,
+	}
+	return res
+}
+
+func getStandardUser(user *User) *UserStandard {
+	res := &UserStandard{
+		Owner: user.Owner,
+		Name:  user.Name,
+
+		Id:            user.Id,
+		DisplayName:   user.DisplayName,
+		Avatar:        user.Avatar,
+		Email:         user.Email,
+		EmailVerified: user.EmailVerified,
+		Phone:         user.Phone,
+	}
+	return res
+}
+
+func getNonEmptyAddress(address []string) []string {
+	for _, line := range address {
+		if strings.TrimSpace(line) != "" {
+			return address
+		}
+	}
+	return nil
+}
+
+func getUserWithoutThirdIdp(user *User) *UserWithoutThirdIdp {
+	res := &UserWithoutThirdIdp{
+		Owner:       user.Owner,
+		Name:        user.Name,
+		CreatedTime: user.CreatedTime,
+		UpdatedTime: user.UpdatedTime,
+		DeletedTime: user.DeletedTime,
+
+		Id:                user.Id,
+		Type:              user.Type,
+		Password:          user.Password,
+		PasswordSalt:      user.PasswordSalt,
+		PasswordType:      user.PasswordType,
+		DisplayName:       user.DisplayName,
+		FirstName:         user.FirstName,
+		LastName:          user.LastName,
+		Avatar:            user.Avatar,
+		AvatarType:        user.AvatarType,
+		PermanentAvatar:   user.PermanentAvatar,
+		Email:             user.Email,
+		EmailVerified:     user.EmailVerified,
+		Phone:             user.Phone,
+		CountryCode:       user.CountryCode,
+		Region:            user.Region,
+		Location:          user.Location,
+		Address:           getNonEmptyAddress(user.Address),
+		Affiliation:       user.Affiliation,
+		Title:             user.Title,
+		IdCardType:        user.IdCardType,
+		IdCard:            user.IdCard,
+		Homepage:          user.Homepage,
+		Bio:               user.Bio,
+		Tag:               user.Tag,
+		Language:          user.Language,
+		Gender:            user.Gender,
+		Birthday:          user.Birthday,
+		Education:         user.Education,
+		Score:             user.Score,
+		Karma:             user.Karma,
+		Ranking:           user.Ranking,
+		IsDefaultAvatar:   user.IsDefaultAvatar,
+		IsOnline:          user.IsOnline,
+		IsAdmin:           user.IsAdmin,
+		IsForbidden:       user.IsForbidden,
+		IsDeleted:         user.IsDeleted,
+		SignupApplication: user.SignupApplication,
+		Hash:              user.Hash,
+		PreHash:           user.PreHash,
+		RegisterType:      user.RegisterType,
+		RegisterSource:    user.RegisterSource,
+
+		GitHub:   user.GitHub,
+		Google:   user.Google,
+		QQ:       user.QQ,
+		WeChat:   user.WeChat,
+		Facebook: user.Facebook,
+		DingTalk: user.DingTalk,
+		Weibo:    user.Weibo,
+		Gitee:    user.Gitee,
+		LinkedIn: user.LinkedIn,
+		Wecom:    user.Wecom,
+		Lark:     user.Lark,
+		Gitlab:   user.Gitlab,
+
+		CreatedIp:      user.CreatedIp,
+		LastSigninTime: user.LastSigninTime,
+		LastSigninIp:   user.LastSigninIp,
+
+		PreferredMfaType: user.PreferredMfaType,
+		RecoveryCodes:    user.RecoveryCodes,
+		TotpSecret:       user.TotpSecret,
+		MfaPhoneEnabled:  user.MfaPhoneEnabled,
+		MfaEmailEnabled:  user.MfaEmailEnabled,
+
+		Ldap:       user.Ldap,
+		Properties: user.Properties,
+
+		Roles:       user.Roles,
+		Permissions: user.Permissions,
+		Groups:      user.Groups,
+
+		LastSigninWrongTime: user.LastSigninWrongTime,
+		SigninWrongTimes:    user.SigninWrongTimes,
+
+		ManagedAccounts: user.ManagedAccounts,
+	}
+
+	return res
+}
+
+func getShortClaims(claims Claims) ClaimsShort {
+	res := ClaimsShort{
+		UserShort:         getShortUser(claims.User),
+		TokenType:         claims.TokenType,
+		Nonce:             claims.Nonce,
+		Scope:             claims.Scope,
+		RegisteredClaims:  claims.RegisteredClaims,
+		Azp:               claims.Azp,
+		SigninMethod:      claims.SigninMethod,
+		Provider:          claims.Provider,
+		OidcIdTokenClaims: claims.OidcIdTokenClaims,
+	}
+	return res
+}
+
+func getClaimsWithoutThirdIdp(claims Claims) ClaimsWithoutThirdIdp {
+	res := ClaimsWithoutThirdIdp{
+		UserWithoutThirdIdp: getUserWithoutThirdIdp(claims.User),
+		TokenType:           claims.TokenType,
+		Nonce:               claims.Nonce,
+		Tag:                 claims.Tag,
+		Scope:               claims.Scope,
+		RegisteredClaims:    claims.RegisteredClaims,
+		Azp:                 claims.Azp,
+		SigninMethod:        claims.SigninMethod,
+		Provider:            claims.Provider,
+		OidcIdTokenClaims:   claims.OidcIdTokenClaims,
+	}
+	return res
+}
+
+// getUserFieldValue gets the value of a user field by name, handling special cases like Roles and Permissions
+func getUserFieldValue(user *User, fieldName string) (interface{}, bool) {
+	if user == nil {
+		return nil, false
+	}
+
+	// Handle special fields that need conversion
+	switch fieldName {
+	case "Roles":
+		return getUserRoleNames(user), true
+	case "Permissions":
+		return getUserPermissionNames(user), true
+	case "permissionNames":
+		permissionNames := []string{}
+		for _, val := range user.Permissions {
+			permissionNames = append(permissionNames, val.Name)
+		}
+		return permissionNames, true
+	}
+
+	// Handle Properties fields (e.g., Properties.my_field)
+	if strings.HasPrefix(fieldName, "Properties.") {
+		parts := strings.Split(fieldName, ".")
+		if len(parts) == 2 {
+			propName := parts[1]
+			if user.Properties != nil {
+				if value, exists := user.Properties[propName]; exists {
+					return value, true
+				}
+			}
+		}
+		return nil, false
+	}
+
+	// Use reflection to get the field value
+	userValue := reflect.ValueOf(user).Elem()
+	userField := userValue.FieldByName(fieldName)
+	if userField.IsValid() {
+		return userField.Interface(), true
+	}
+
+	return nil, false
+}
+
+func getRefreshClaimsCustom(claims Claims, tokenField []string, tokenAttributes []*JwtItem, refreshExpireTime time.Time) jwt.MapClaims {
+	res := getClaimsCustom(claims, tokenField, tokenAttributes)
+	res["exp"] = jwt.NewNumericDate(refreshExpireTime)
+	// overwrite the "access-token" set by getClaimsCustom(), so that the refresh token
+	// can't be used as an access token
+	res["tokenType"] = "refresh-token"
+	return res
+}
+
+func getClaimsCustom(claims Claims, tokenField []string, tokenAttributes []*JwtItem) jwt.MapClaims {
+	res := make(jwt.MapClaims)
+
+	userValue := reflect.ValueOf(claims.User).Elem()
+
+	// Always include standard JWT registered claims
+	res["iss"] = claims.RegisteredClaims.Issuer
+	res["sub"] = claims.RegisteredClaims.Subject
+	res["aud"] = claims.RegisteredClaims.Audience
+	res["exp"] = claims.RegisteredClaims.ExpiresAt
+	res["nbf"] = claims.RegisteredClaims.NotBefore
+	res["iat"] = claims.RegisteredClaims.IssuedAt
+	res["jti"] = claims.RegisteredClaims.ID
+
+	// Always include tokenType (essential metadata)
+	res["tokenType"] = claims.TokenType
+
+	if claims.AuthTime != nil {
+		res["auth_time"] = claims.AuthTime
+	}
+	if claims.AtHash != "" {
+		res["at_hash"] = claims.AtHash
+	}
+	if claims.CHash != "" {
+		res["c_hash"] = claims.CHash
+	}
+
+	// Always include azp if present (authorized party)
+	if claims.Azp != "" {
+		res["azp"] = claims.Azp
+	}
+
+	// Always include nonce and scope as they are built-in OAuth/OIDC fields (even if empty)
+	res["nonce"] = claims.Nonce
+	res["scope"] = claims.Scope
+
+	// Create a map for quick lookup of selected token fields
+	selectedFields := make(map[string]bool)
+	for _, field := range tokenField {
+		selectedFields[field] = true
+	}
+
+	// Only include signinMethod and provider if they are explicitly selected in tokenFields
+	if selectedFields["signinMethod"] {
+		res["signinMethod"] = claims.SigninMethod
+	}
+	if selectedFields["provider"] {
+		res["provider"] = claims.Provider
+	}
+
+	for _, field := range tokenField {
+		if strings.HasPrefix(field, "Properties.") {
+			/*
+				Use selected properties fields as custom claims.
+				Converts `Properties.my_field` to custom claim with name `my_field`.
+			*/
+			parts := strings.Split(field, ".")
+			if len(parts) != 2 || parts[0] != "Properties" { // Either too many segments, or not properly scoped to `Properties`, so skip.
+				continue
+			}
+			base, fieldName := parts[0], parts[1]
+			mField := userValue.FieldByName(base)
+			if !mField.IsValid() { // Can't find `Properties` field, so skip.
+				continue
+			}
+			finalField := mField.MapIndex(reflect.ValueOf(fieldName))
+			if finalField.IsValid() { // // Provided field within `Properties` exists, add claim.
+				res[fieldName] = finalField.Interface()
+			}
+
+		} else if field == "permissionNames" {
+			permissionNames := []string{}
+			for _, val := range claims.User.Permissions {
+				permissionNames = append(permissionNames, val.Name)
+			}
+			res[util.SnakeToCamel(util.CamelToSnakeCase(field))] = permissionNames
+		} else { // Use selected user field as claims.
+			userField := userValue.FieldByName(field)
+			if userField.IsValid() {
+				newfield := util.SnakeToCamel(util.CamelToSnakeCase(field))
+				res[newfield] = userField.Interface()
+			}
+		}
+	}
+
+	for _, item := range tokenAttributes {
+		var value interface{}
+
+		// If Category is "Existing Field", get the actual field value from the user
+		if item.Category == "Existing Field" {
+			fieldValue, found := getUserFieldValue(claims.User, item.Value)
+			if !found {
+				continue
+			}
+			value = fieldValue
+		} else {
+			// Default behavior: use replaceAttributeValue for "Static Value" or empty category
+			valueList := replaceAttributeValue(claims.User, item.Value)
+			if len(valueList) == 0 {
+				continue
+			}
+
+			if item.Type == "String" {
+				value = valueList[0]
+			} else {
+				value = valueList
+			}
+		}
+
+		res[item.Name] = value
+	}
+
+	return res
+}
+
+func clearUserSecrets(user *User) {
+	user.Password = ""
+	user.PasswordSalt = ""
+	user.Hash = ""
+	user.PreHash = ""
+	user.TotpSecret = ""
+	user.RecoveryCodes = nil
+	user.FaceIds = nil
+
+	if user.ManagedAccounts != nil {
+		managedAccounts := make([]ManagedAccount, len(user.ManagedAccounts))
+		for i, account := range user.ManagedAccounts {
+			account.Password = ""
+			managedAccounts[i] = account
+		}
+		user.ManagedAccounts = managedAccounts
+	}
+
+	if user.MfaAccounts != nil {
+		mfaAccounts := make([]MfaAccount, len(user.MfaAccounts))
+		for i, account := range user.MfaAccounts {
+			account.SecretKey = ""
+			mfaAccounts[i] = account
+		}
+		user.MfaAccounts = mfaAccounts
+	}
+}
+
+func refineUser(user *User) *User {
+	clearUserSecrets(user)
+
+	if user.Address == nil {
+		user.Address = []string{}
+	}
+	if user.Properties == nil {
+		user.Properties = map[string]string{}
+	}
+	if user.Roles == nil {
+		user.Roles = []*Role{}
+	}
+	if user.Permissions == nil {
+		user.Permissions = []*Permission{}
+	}
+	if user.Groups == nil {
+		user.Groups = []string{}
+	}
+
+	return user
+}
+
+// jwtTokenOptions carries what the ID token has to say about the authorization request
+type jwtTokenOptions struct {
+	// AuthTime is when the user last entered credentials, 0 if unknown
+	AuthTime int64
+	// Code is the authorization code returned together with the ID token, for its c_hash
+	Code string
+	// WithAtHash adds the at_hash of the access token issued together with the ID token
+	WithAtHash bool
+}
+
+// getOidcHash returns the left-most half of the hash of value, base64url encoded, using the hash
+// algorithm of the JWS signing algorithm, as required for at_hash and c_hash
+func getOidcHash(value string, method jwt.SigningMethod) string {
+	var h hash.Hash
+	switch method.Alg() {
+	case "RS384", "ES384", "PS384":
+		h = sha512.New384()
+	case "RS512", "ES512", "PS512":
+		h = sha512.New()
+	default:
+		h = sha256.New()
+	}
+	h.Write([]byte(value))
+	sum := h.Sum(nil)
+	return base64.RawURLEncoding.EncodeToString(sum[:len(sum)/2])
+}
+
+func generateJwtToken(application *Application, user *User, provider string, signinMethod string, nonce string, scope string, resource string, host string) (string, string, string, string, error) {
+	return generateJwtTokenWithOptions(application, user, provider, signinMethod, nonce, scope, resource, host, jwtTokenOptions{})
+}
+
+func generateJwtTokenWithOptions(application *Application, user *User, provider string, signinMethod string, nonce string, scope string, resource string, host string, options jwtTokenOptions) (string, string, string, string, error) {
+	nowTime := time.Now()
+	expireTime := nowTime.Add(time.Duration(application.ExpireInHours * float64(time.Hour)))
+	refreshExpireTime := nowTime.Add(time.Duration(application.RefreshExpireInHours * float64(time.Hour)))
+	if application.RefreshExpireInHours == 0 {
+		refreshExpireTime = expireTime
+	}
+
+	// the claims are shaped from a copy, so that refineUser() below does not clear the
+	// password of the user object the caller keeps using
+	userCopy := *user
+	user = &userCopy
+
+	groups, err := user.GetGroupsForToken(application)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	user.Groups = groups
+	user = refineUser(user)
+
+	_, originBackend := getOriginFromHost(host)
+
+	name := util.GenerateId()
+	jti := util.GetId(application.Owner, name)
+
+	claims := Claims{
+		User:      user,
+		TokenType: "access-token",
+		Nonce:     nonce,
+		// FIXME: A workaround for custom claim by reusing `tag` in user info
+		Tag:          user.Tag,
+		Scope:        scope,
+		Azp:          application.ClientId,
+		Provider:     provider,
+		SigninMethod: signinMethod,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    originBackend,
+			Subject:   user.Id,
+			Audience:  []string{application.ClientId},
+			ExpiresAt: jwt.NewNumericDate(expireTime),
+			NotBefore: jwt.NewNumericDate(nowTime),
+			IssuedAt:  jwt.NewNumericDate(nowTime),
+			ID:        jti,
+		},
+	}
+
+	if options.AuthTime > 0 {
+		claims.AuthTime = jwt.NewNumericDate(time.Unix(options.AuthTime, 0))
+	}
+
+	if application.IsShared {
+		claims.Audience = []string{application.ClientId + "-org-" + user.Owner}
+	}
+
+	// the ID token is its own JWT so that it can't be replayed as the access token (RFC 8725 3.12),
+	// and its audience stays the client even when an RFC 8707 resource retargets the access token
+	idClaims := claims
+	idClaims.TokenType = "id-token"
+	idClaims.ID = util.GetId(application.Owner, util.GenerateId())
+
+	// RFC 8707: Use resource as audience when provided
+	if resource != "" {
+		claims.Audience = []string{resource}
+	}
+
+	var token *jwt.Token
+	var refreshToken *jwt.Token
+	// the ID token is created once the access token is signed, its at_hash depends on it
+	var newIdToken func() *jwt.Token
+
+	if application.TokenFormat == "" {
+		application.TokenFormat = "JWT"
+	}
+
+	var jwtMethod jwt.SigningMethod
+
+	if application.TokenSigningMethod == "RS256" {
+		jwtMethod = jwt.SigningMethodRS256
+	} else if application.TokenSigningMethod == "RS512" {
+		jwtMethod = jwt.SigningMethodRS512
+	} else if application.TokenSigningMethod == "ES256" {
+		jwtMethod = jwt.SigningMethodES256
+	} else if application.TokenSigningMethod == "ES512" {
+		jwtMethod = jwt.SigningMethodES512
+	} else if application.TokenSigningMethod == "ES384" {
+		jwtMethod = jwt.SigningMethodES384
+	} else {
+		jwtMethod = jwt.SigningMethodRS256
+	}
+
+	// the JWT token length in "JWT-Empty" mode will be very short, as User object only has two properties: owner and name
+	if application.TokenFormat == "JWT" {
+		claimsWithoutThirdIdp := getClaimsWithoutThirdIdp(claims)
+
+		token = jwt.NewWithClaims(jwtMethod, claimsWithoutThirdIdp)
+		newIdToken = func() *jwt.Token { return jwt.NewWithClaims(jwtMethod, getClaimsWithoutThirdIdp(idClaims)) }
+		claimsWithoutThirdIdp.ExpiresAt = jwt.NewNumericDate(refreshExpireTime)
+		claimsWithoutThirdIdp.TokenType = "refresh-token"
+		refreshToken = jwt.NewWithClaims(jwtMethod, claimsWithoutThirdIdp)
+	} else if application.TokenFormat == "JWT-Empty" {
+		claimsShort := getShortClaims(claims)
+
+		token = jwt.NewWithClaims(jwtMethod, claimsShort)
+		newIdToken = func() *jwt.Token { return jwt.NewWithClaims(jwtMethod, getShortClaims(idClaims)) }
+		claimsShort.ExpiresAt = jwt.NewNumericDate(refreshExpireTime)
+		claimsShort.TokenType = "refresh-token"
+		refreshToken = jwt.NewWithClaims(jwtMethod, claimsShort)
+	} else if application.TokenFormat == "JWT-Custom" {
+		claimsCustom := getClaimsCustom(claims, application.TokenFields, application.TokenAttributes)
+
+		token = jwt.NewWithClaims(jwtMethod, claimsCustom)
+		newIdToken = func() *jwt.Token {
+			return jwt.NewWithClaims(jwtMethod, getClaimsCustom(idClaims, application.TokenFields, application.TokenAttributes))
+		}
+		refreshToken = jwt.NewWithClaims(jwtMethod, getRefreshClaimsCustom(claims, application.TokenFields, application.TokenAttributes, refreshExpireTime))
+	} else if application.TokenFormat == "JWT-Standard" {
+		claimsStandard := getStandardClaims(claims)
+
+		token = jwt.NewWithClaims(jwtMethod, claimsStandard)
+		newIdToken = func() *jwt.Token { return jwt.NewWithClaims(jwtMethod, getStandardClaims(idClaims)) }
+		claimsStandard.ExpiresAt = jwt.NewNumericDate(refreshExpireTime)
+		claimsStandard.TokenType = "refresh-token"
+		refreshToken = jwt.NewWithClaims(jwtMethod, claimsStandard)
+	} else {
+		return "", "", "", "", fmt.Errorf("unknown application TokenFormat: %s", application.TokenFormat)
+	}
+
+	cert, err := getCertByApplication(application)
+	if err != nil {
+		return "", "", "", "", err
+	}
+
+	if cert == nil {
+		if application.Cert == "" {
+			return "", "", "", "", fmt.Errorf("The cert field of the application \"%s\" should not be empty", application.GetId())
+		} else {
+			return "", "", "", "", fmt.Errorf("The cert \"%s\" does not exist", application.Cert)
+		}
+	}
+
+	var (
+		tokenString        string
+		refreshTokenString string
+		idTokenString      string
+		key                interface{}
+	)
+
+	if strings.Contains(application.TokenSigningMethod, "RS") || application.TokenSigningMethod == "" {
+		// RSA private key
+		key, err = jwt.ParseRSAPrivateKeyFromPEM([]byte(cert.PrivateKey))
+	} else if strings.Contains(application.TokenSigningMethod, "ES") {
+		// ES private key
+		key, err = jwt.ParseECPrivateKeyFromPEM([]byte(cert.PrivateKey))
+	} else if strings.Contains(application.TokenSigningMethod, "Ed") {
+		// Ed private key
+		key, err = jwt.ParseEdPrivateKeyFromPEM([]byte(cert.PrivateKey))
+	}
+	if err != nil {
+		return "", "", "", "", err
+	}
+
+	token.Header["kid"] = cert.Name
+	tokenString, err = token.SignedString(key)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	refreshTokenString, err = refreshToken.SignedString(key)
+	if err != nil {
+		return "", "", "", "", err
+	}
+
+	if options.Code != "" {
+		idClaims.CHash = getOidcHash(options.Code, jwtMethod)
+	}
+	if options.WithAtHash {
+		idClaims.AtHash = getOidcHash(tokenString, jwtMethod)
+	}
+	idToken := newIdToken()
+	idToken.Header["kid"] = cert.Name
+	idTokenString, err = idToken.SignedString(key)
+
+	return tokenString, refreshTokenString, idTokenString, name, err
+}
+
+func ParseJwtTokenWithoutValidation(token string) (*jwt.Token, error) {
+	t, _, err := jwt.NewParser().ParseUnverified(token, &Claims{})
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func ParseJwtToken(token string, cert *Cert) (*Claims, error) {
+	t, err := jwt.ParseWithClaims(token, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		var (
+			certificate interface{}
+			err         error
+		)
+
+		if cert.Certificate == "" {
+			return nil, fmt.Errorf("the certificate field should not be empty for the cert: %v", cert)
+		}
+
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); ok {
+			// RSA certificate
+			certificate, err = jwt.ParseRSAPublicKeyFromPEM([]byte(cert.Certificate))
+		} else if _, ok := token.Method.(*jwt.SigningMethodECDSA); ok {
+			// ES certificate
+			certificate, err = jwt.ParseECPublicKeyFromPEM([]byte(cert.Certificate))
+		} else {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		return certificate, nil
+	})
+
+	if t != nil {
+		if claims, ok := t.Claims.(*Claims); ok && t.Valid {
+			// the embedded *User is nil when the token carries no user claims,
+			// e.g. the JWT-Custom format with no tokenFields selected
+			if claims.User == nil {
+				claims.User = &User{}
+			}
+			return claims, nil
+		}
+	}
+
+	return nil, err
+}
+
+func ParseJwtTokenByApplication(token string, application *Application) (*Claims, error) {
+	cert, err := getCertByApplication(application)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseJwtToken(token, cert)
+}

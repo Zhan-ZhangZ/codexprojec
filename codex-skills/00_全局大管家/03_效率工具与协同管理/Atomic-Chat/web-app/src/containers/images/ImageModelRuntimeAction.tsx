@@ -1,0 +1,212 @@
+import {
+  IconCircleCheck,
+  IconCircleX,
+  IconLoader2,
+  IconPlayerPlay,
+} from '@tabler/icons-react'
+import { toast } from 'sonner'
+
+import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { useImageArtifact } from '@/hooks/useImageArtifact'
+import { useSelectedArtifact } from '@/hooks/useVideoSetting'
+import { useTranslation } from '@/i18n/react-i18next-compat'
+import { cn } from '@/lib/utils'
+import type { DiffusionModality } from '@/services/diffusion/types'
+import { useImageGenerationStore } from '@/stores/image-generation-store'
+
+type RuntimePhase = 'idle' | 'starting' | 'ready' | 'stopping'
+
+type ImageModelRuntimeActionProps = {
+  artifactId: string
+  modelName: string
+  /** Whose selection Run records: the Images page's or the Video page's. */
+  modality?: DiffusionModality
+  appearance?: 'row' | 'indicator'
+  disabled?: boolean
+  className?: string
+}
+
+/**
+ * One stable start/stop slot for an installed image artifact. The list uses a
+ * fixed-width text action; the selected-model pill uses the same state machine
+ * in a compact status control. Async phases replace content inside the slot so
+ * neither parent can grow while the native renderer starts or stops.
+ */
+export function ImageModelRuntimeAction({
+  artifactId,
+  modelName,
+  modality = 'image',
+  appearance = 'row',
+  disabled = false,
+  className,
+}: ImageModelRuntimeActionProps) {
+  const { t } = useTranslation()
+  const artifact = useImageArtifact(artifactId)
+  const unloadModel = useImageGenerationStore((state) => state.unloadModel)
+  const generating = useImageGenerationStore((state) => state.generating)
+  const loadingArtifactId = useImageGenerationStore(
+    (state) => state.loadingArtifactId
+  )
+  const unloadingArtifactId = useImageGenerationStore(
+    (state) => state.unloadingArtifactId
+  )
+  const { setSelectedArtifactId } = useSelectedArtifact(modality)
+
+  const phase: RuntimePhase = artifact.unloading
+    ? 'stopping'
+    : artifact.loading
+      ? 'starting'
+      : artifact.loaded
+        ? 'ready'
+        : 'idle'
+  const anotherTransitionActive = Boolean(
+    (loadingArtifactId && loadingArtifactId !== artifactId) ||
+      (unloadingArtifactId && unloadingArtifactId !== artifactId)
+  )
+  const busy = phase === 'starting' || phase === 'stopping'
+  const actionDisabled =
+    disabled || generating || busy || anotherTransitionActive || !artifact.complete
+  // The Video page runs the same control over a video checkpoint.
+  const startingLabel =
+    modality === 'video'
+      ? t('videos:model.startingToast')
+      : t('images:model.startingToast')
+  const stoppingLabel =
+    modality === 'video'
+      ? t('videos:model.stoppingToast')
+      : t('images:model.stoppingToast')
+  const label =
+    phase === 'ready'
+      ? t('images:model.unload')
+      : phase === 'starting'
+        ? startingLabel
+        : phase === 'stopping'
+          ? stoppingLabel
+          : t('images:model.load')
+
+  const start = async () => {
+    if (actionDisabled || phase !== 'idle') return
+    setSelectedArtifactId(artifactId)
+    const toastId = `image-model-runtime-${artifactId}`
+    toast.loading(startingLabel, { id: toastId })
+    await artifact.load()
+    const loadedId =
+      useImageGenerationStore.getState().status?.model.loaded?.modelId
+    if (loadedId === artifactId) {
+      toast.success(t('images:model.startedToast', { name: modelName }), {
+        id: toastId,
+      })
+    } else {
+      toast.error(t('images:model.startFailed', { name: modelName }), {
+        id: toastId,
+      })
+    }
+  }
+
+  const stop = async () => {
+    if (actionDisabled || phase !== 'ready') return
+    const toastId = `image-model-runtime-${artifactId}`
+    toast.loading(stoppingLabel, { id: toastId })
+    await unloadModel()
+    const stillLoaded =
+      useImageGenerationStore.getState().status?.model.loaded?.modelId ===
+      artifactId
+    if (stillLoaded) {
+      toast.error(t('images:model.stopFailed', { name: modelName }), {
+        id: toastId,
+      })
+    } else {
+      toast.success(t('images:model.stoppedToast', { name: modelName }), {
+        id: toastId,
+      })
+    }
+  }
+
+  const activate = () => void (phase === 'ready' ? stop() : start())
+
+  if (appearance === 'indicator') {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={label}
+              data-testid="image-model-runtime-indicator"
+              data-phase={phase}
+              disabled={actionDisabled}
+              onClick={activate}
+              className={cn(
+                'group/image-runtime flex size-7 shrink-0 items-center justify-center rounded-full border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default',
+                // Start is the call to action, like Load in the list row; a
+                // running or switching model stays a quiet secondary status.
+                phase === 'idle'
+                  ? 'border-transparent bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'
+                  : 'bg-secondary/40 hover:bg-secondary/70',
+                className
+              )}
+            >
+              {busy ? (
+                <IconLoader2
+                  size={14}
+                  aria-hidden
+                  className="animate-spin text-muted-foreground"
+                />
+              ) : phase === 'ready' ? (
+                <>
+                  <IconCircleCheck
+                    size={15}
+                    stroke={1.8}
+                    aria-hidden
+                    className="text-emerald-600 group-hover/image-runtime:hidden group-focus-visible/image-runtime:hidden dark:text-emerald-400"
+                  />
+                  <IconCircleX
+                    size={15}
+                    stroke={1.8}
+                    aria-hidden
+                    className="hidden text-destructive group-hover/image-runtime:block group-focus-visible/image-runtime:block"
+                  />
+                </>
+              ) : (
+                <IconPlayerPlay size={14} stroke={1.8} aria-hidden />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-44 px-2.5 text-left text-pretty">
+            <p>{label}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
+
+  return (
+    <Button
+      size="sm"
+      variant={phase === 'ready' ? 'outline' : 'default'}
+      className={cn('h-7 w-16 shrink-0 justify-center px-0', className)}
+      aria-label={label}
+      title={label}
+      data-testid="image-model-runtime-action"
+      data-phase={phase}
+      disabled={actionDisabled}
+      onClick={activate}
+    >
+      {busy ? (
+        <IconLoader2 size={14} aria-hidden className="animate-spin" />
+      ) : phase === 'ready' ? (
+        t('images:model.unload')
+      ) : (
+        t('images:model.load')
+      )}
+    </Button>
+  )
+}
+
+export default ImageModelRuntimeAction

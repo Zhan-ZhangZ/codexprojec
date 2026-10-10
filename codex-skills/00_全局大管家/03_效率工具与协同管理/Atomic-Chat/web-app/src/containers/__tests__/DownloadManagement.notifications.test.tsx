@@ -1,0 +1,155 @@
+import { act, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DownloadEvent } from '@janhq/core'
+
+vi.mock('sonner', () => ({
+  toast: {
+    loading: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    dismiss: vi.fn(),
+  },
+}))
+vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
+vi.mock('@/i18n/react-i18next-compat', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}))
+vi.mock('@/hooks/useServiceHub', () => ({
+  useServiceHub: () => ({ models: () => ({ abortDownload: vi.fn() }) }),
+  getServiceHub: () => ({}),
+}))
+// One object for every render: the component mirrors it into state from an
+// effect keyed on its identity.
+const appUpdater = vi.hoisted(() => ({
+  updateState: {
+    isDownloading: false,
+    downloadProgress: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+  },
+}))
+vi.mock('@/hooks/useAppUpdater', () => ({ useAppUpdater: () => appUpdater }))
+vi.mock('@/containers/downloads/DownloadPanel', () => ({
+  DownloadPanel: () => null,
+}))
+vi.mock('@/lib/telemetry-queue', () => ({ queuedCapture: vi.fn() }))
+vi.mock('@/lib/sentry', () => ({ captureHandledError: vi.fn() }))
+// What reached the OS, in order. The focus and Settings gates live in
+// `notifyWhenAway` itself and are covered by its own test.
+const sent = vi.hoisted(() => [] as Array<[string, string]>)
+vi.mock('@/lib/notifications', () => ({
+  notifyWhenAway: (title: string, body: string) => {
+    sent.push([title, body])
+    return true
+  },
+}))
+
+import { useDownloadStore } from '@/hooks/useDownloadStore'
+import { DownloadManagement } from '../DownloadManegement'
+
+const MODEL = 'bartowski/Kimi-K3-Q4_K_M'
+const ENGINE = 'llamacpp-backend-b6500/macos-arm64'
+
+describe('DownloadManagement — desktop notification when a download finishes', () => {
+  const handlers = new Map<string, Set<(payload: unknown) => void>>()
+  const dispatch = (name: string, payload: unknown) =>
+    handlers.get(name)?.forEach((handler) => handler(payload))
+  const emit = (name: string, payload: unknown) =>
+    act(() => dispatch(name, payload))
+  const progress = (modelId: string, downloadType: string) =>
+    emit(DownloadEvent.onFileDownloadUpdate, {
+      modelId,
+      downloadType,
+      percent: 0.5,
+      size: { transferred: 50, total: 100 },
+    })
+
+  beforeEach(() => {
+    handlers.clear()
+    sent.length = 0
+    useDownloadStore.setState({
+      downloads: {},
+      localDownloadingModels: new Set(),
+    })
+    const core = ((
+      globalThis as unknown as { core?: Record<string, unknown> }
+    ).core ??= {})
+    core.events = {
+      on: (name: string, handler: (payload: unknown) => void) => {
+        if (!handlers.has(name)) handlers.set(name, new Set())
+        handlers.get(name)!.add(handler)
+      },
+      off: (name: string, handler: (payload: unknown) => void) => {
+        handlers.get(name)?.delete(handler)
+      },
+      emit: dispatch,
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as unknown as { core: Record<string, unknown> }).core
+      .events
+  })
+
+  it('announces a model once, even when both success events arrive', () => {
+    render(<DownloadManagement />)
+    progress(MODEL, 'Model')
+    emit(DownloadEvent.onFileDownloadSuccess, {
+      modelId: MODEL,
+      downloadType: 'Model',
+    })
+    emit(DownloadEvent.onFileDownloadAndVerificationSuccess, {
+      modelId: MODEL,
+      downloadType: 'Model',
+    })
+
+    expect(sent).toEqual([
+      [
+        'common:desktopNotification.modelReadyTitle',
+        'common:desktopNotification.modelReadyBody',
+      ],
+    ])
+    expect(useDownloadStore.getState().downloads).toEqual({})
+  })
+
+  it('announces an engine install', () => {
+    render(<DownloadManagement />)
+    progress(ENGINE, 'Backend')
+    emit(DownloadEvent.onFileDownloadAndVerificationSuccess, {
+      modelId: ENGINE,
+      downloadType: 'Backend',
+    })
+
+    expect(sent).toEqual([
+      [
+        'common:desktopNotification.engineReadyTitle',
+        'common:desktopNotification.chatEngineReadyBody',
+      ],
+    ])
+  })
+
+  it('announces a download that has not reported bytes yet', () => {
+    useDownloadStore.getState().addLocalDownloadingModel(MODEL)
+    render(<DownloadManagement />)
+    emit(DownloadEvent.onFileDownloadAndVerificationSuccess, {
+      modelId: MODEL,
+      downloadType: 'Model',
+    })
+
+    expect(sent).toHaveLength(1)
+    expect(useDownloadStore.getState().localDownloadingModels.has(MODEL)).toBe(
+      false
+    )
+  })
+
+  it('stays quiet for a success the panel never showed', () => {
+    render(<DownloadManagement />)
+    emit(DownloadEvent.onFileDownloadSuccess, {
+      modelId: MODEL,
+      downloadType: 'Model',
+    })
+
+    expect(sent).toEqual([])
+  })
+})

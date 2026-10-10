@@ -1,0 +1,109 @@
+{
+  "refreshModelsError": "El proveedor debe tener una URL base y una clave API configuradas para obtener modelos.",
+  "refreshModelsSuccess": "Se agregaron {{count}} modelo(s) nuevo(s) de {{provider}}.",
+  "noNewModels": "No se encontraron modelos nuevos. Todos los modelos disponibles ya están agregados.",
+  "refreshModelsFailed": "No se pudieron obtener modelos de {{provider}}. Por favor verifica tu clave API y URL base.",
+  "models": "Modelos",
+  "refreshing": "Actualizando...",
+  "refresh": "Actualizar",
+  "import": "Importar",
+  "importModelSuccess": "El modelo {{provider}} se ha importado correctamente.",
+  "importModelError": "Error al importar el modelo:",
+  "stop": "Detener",
+  "start": "Iniciar",
+  "noModelFound": "No se encontró ningún modelo",
+  "noModelFoundDesc": "Los modelos disponibles se mostrarán aquí. Si aún no tienes modelos, visita el Hub para descargar.",
+  "configuration": "Configuración",
+  "apiEndpoint": "Endpoint de API",
+  "testConnection": "Probar conexión",
+  "addModel": {
+    "title": "Agregar nuevo modelo",
+    "description": "Agregar un nuevo modelo al proveedor {{provider}}.",
+    "modelId": "ID del modelo",
+    "enterModelId": "Ingresa el ID del modelo",
+    "exploreModels": "Ver lista de modelos de {{provider}}",
+    "addModel": "Agregar modelo",
+    "modelExists": "El modelo ya existe",
+    "modelExistsDesc": "Por favor elige un ID de modelo diferente."
+  },
+  "deleteModel": {
+    "title": "Eliminar modelo: {{modelId}}",
+    "description": "¿Estás seguro de que deseas eliminar este modelo? Esta acción no se puede deshacer.",
+    "success": "El modelo {{modelId}} ha sido eliminado permanentemente.",
+    "cancel": "Cancelar",
+    "delete": "Eliminar"
+  },
+  "deleteProvider": {
+    "title": "Eliminar proveedor",
+    "description": "Eliminar este proveedor y todos sus modelos. Esta acción no se puede deshacer.",
+    "success": "El proveedor {{provider}} ha sido eliminado permanentemente.",
+    "confirmTitle": "Eliminar proveedor: {{provider}}",
+    "confirmDescription": "¿Estás seguro de que deseas eliminar este proveedor? Esta acción no se puede deshacer.",
+    "cancel": "Cancelar",
+    "delete": "Eliminar"
+  },
+  "editModel": {
+    "title": "Editar modelo: {{modelId}}",
+    "description": "Configura las capacidades del modelo activando las opciones a continuación.",
+    "capabilities": "Capacidades",
+    "tools": "Herramientas",
+    "vision": "Visión",
+    "proactive": "Proactivo (Experimental)",
+    "embeddings": "Embeddings",
+    "notAvailable": "Aún no disponible",
+    "warning": {
+      "title": "Proceder con precaución",
+      "description": "Modificar las capacidades del modelo puede afectar el rendimiento y la funcionalidad. Configuraciones incorrectas podrían causar comportamientos inesperados o errores."
+    }
+  },
+  "addProvider": "Agregar proveedor",
+  "addOpenAIProvider": "Agregar proveedor OpenAI",
+  "enterNameForProvider": "Ingresa un nombre para el proveedor",
+  "registry": {
+    "refresh": "Actualizar catálogo",
+    "refreshing": "Actualizando...",
+    "lastUpdated": "Última actualización: {{when}}",
+    "neverUpdated": "Aún no cargado",
+    "successDescription": "Catálogo de proveedores actualizado.",
+    "errorDescription": "No se pudo actualizar el catálogo. Usando caché o proveedores integrados."
+  },
+  "tensorrt": {
+    "checkAgain": "Comprobar de nuevo",
+    "notInstalledWindows": "TensorRT-LLM no está instalado. La instalación activa WSL si hace falta, crea la distribución WSL propia de Atomic Chat con Docker y NVIDIA Container Toolkit dentro y descarga la imagen del motor.",
+    "plan": {
+      "reboot": "Puede que Windows necesite reiniciarse después de activar WSL. Tras el reinicio, abre Atomic Chat: la instalación continuará sola.",
+      "wslDisk": "Disco: {{required}} para la distribución WSL de Atomic Chat en {{path}}; {{free}} libres allí.",
+      "wslDiskNoFree": "Disco: {{required}} para la distribución WSL de Atomic Chat en {{path}}.",
+      "wslDiskNoPath": "Disco: se necesitan {{required}} para la distribución WSL de Atomic Chat; {{free}} libres allí.",
+      "wslDiskUnknown": "Disco: {{required}} para la distribución WSL de Atomic Chat. No se informó la ubicación ni el espacio libre."
+    },
+    "hostStep": {
+      "uac": {
+        "waiting": "Esperando a que apruebes la solicitud de administrador de Windows (UAC) que activa WSL…",
+        "manual": "Windows no puede mostrar aquí una solicitud de administrador para Atomic Chat. Abre una terminal como administrador, ejecuta este comando, reinicia el equipo si lo pide y pulsa «Comprobar de nuevo»:",
+        "retry": "Pedir la aprobación de nuevo",
+        "running": "Windows is installing WSL. This takes several minutes and shows no window of its own; Atomic Chat continues by itself when it finishes."
+      },
+      "running": "Installing Docker and the NVIDIA Container Toolkit; this takes a few minutes, and the installation continues by itself."
+    },
+    "reboot": {
+      "title": "Reinicia el equipo",
+      "body": "WSL está activado y Windows necesita reiniciarse para terminar. Tras el reinicio, abre Atomic Chat: la instalación continuará sola, sin volver a pedir permiso."
+    },
+    "phaseWindows": {
+      "preparing-host": "Activando WSL",
+      "preparing-environment": "Configurando la distribución WSL de Atomic Chat y comprobando que ve tu GPU"
+    },
+    "bar": {
+      "hostStep": "Approve the system password prompt. After that, Docker and the NVIDIA Container Toolkit are installed; this can take a few minutes, and the installation continues by itself.",
+      "hostStepWindows": "Approve the Windows administrator prompt (UAC). After that, Windows downloads and installs WSL; this takes several minutes with no window of its own, and the installation continues by itself.",
+      "reboot": "WSL is turned on. Restart Windows to finish; after the restart, open Atomic Chat and the installation continues by itself.",
+      "relogin": "You were added to the docker group. Sign out and sign back in for it to take effect; then open Atomic Chat and the installation continues by itself.",
+      "restartNow": "Restart now",
+      "signOutNow": "Sign out now",
+      "later": "Later",
+      "details": "Details",
+      "actionFailed": "Could not do it from here ({{error}}). Do it yourself; the installation continues afterwards."
+    }
+  }
+}

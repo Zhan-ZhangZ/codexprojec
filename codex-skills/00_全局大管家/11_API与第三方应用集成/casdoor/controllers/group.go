@@ -1,0 +1,194 @@
+// Copyright 2023 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+
+package controllers
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/beego/beego/v2/core/utils/pagination"
+	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
+)
+
+// GetGroups
+// @Title GetGroups
+// @Tag Group API
+// @Description get groups
+// @Param   owner     query    string  true        "The owner of groups"
+// @Success 200 {array} object.Group The Response object
+// @router /get-groups [get]
+func (c *ApiController) GetGroups() {
+	owner := c.Ctx.Input.Query("owner")
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+	withTree := c.Ctx.Input.Query("withTree")
+
+	if limit == "" || page == "" {
+		groups, err := object.GetGroups(owner)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		err = object.ExtendGroupsWithUsers(groups)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		if withTree == "true" {
+			c.ResponseOk(object.ConvertToTreeData(groups, owner))
+			return
+		}
+
+		c.ResponseOk(groups)
+	} else {
+		limit := util.ParseInt(limit)
+		count, err := object.GetGroupCount(owner, field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		groups, err := object.GetPaginationGroups(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		groupsParentMap, err := object.GetGroupsParentMap(groups)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		groupIdsHaveChildren, err := object.GetGroupIdsHaveChildren(groups)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		for _, group := range groups {
+			group.HaveChildren = groupIdsHaveChildren[group.GetId()]
+
+			parent, ok := groupsParentMap[fmt.Sprintf("%s/%s", group.Owner, group.ParentId)]
+			if ok {
+				group.ParentName = parent.DisplayName
+			}
+		}
+
+		err = object.ExtendGroupsWithUsers(groups)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(groups, paginator.Nums())
+
+	}
+}
+
+// GetGroup
+// @Title GetGroup
+// @Tag Group API
+// @Description get group
+// @Param   id     query    string  true        "The id ( owner/name ) of the group"
+// @Success 200 {object} object.Group The Response object
+// @router /get-group [get]
+func (c *ApiController) GetGroup() {
+	id := c.Ctx.Input.Query("id")
+
+	group, err := object.GetGroup(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	err = object.ExtendGroupWithUsers(group)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(group)
+}
+
+// UpdateGroup
+// @Title UpdateGroup
+// @Tag Group API
+// @Description update group
+// @Param   id     query    string  true        "The id ( owner/name ) of the group"
+// @Param   body    body   object.Group  true        "The details of the group"
+// @Success 200 {object} controllers.Response The Response object
+// @router /update-group [post]
+func (c *ApiController) UpdateGroup() {
+	id := c.Ctx.Input.Query("id")
+
+	var group object.Group
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &group)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.UpdateGroup(id, &group, c.IsGlobalAdmin(), c.GetAcceptLanguage()))
+	c.ServeJSON()
+}
+
+// AddGroup
+// @Title AddGroup
+// @Tag Group API
+// @Description add group
+// @Param   body    body   object.Group  true      "The details of the group"
+// @Success 200 {object} controllers.Response The Response object
+// @router /add-group [post]
+func (c *ApiController) AddGroup() {
+	var group object.Group
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &group)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if !c.requireOrganizationPermission(group.Owner) {
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.AddGroup(&group))
+	c.ServeJSON()
+}
+
+// DeleteGroup
+// @Title DeleteGroup
+// @Tag Group API
+// @Description delete group
+// @Param   body    body   object.Group  true        "The details of the group"
+// @Success 200 {object} controllers.Response The Response object
+// @router /delete-group [post]
+func (c *ApiController) DeleteGroup() {
+	var group object.Group
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &group)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.DeleteGroup(&group))
+	c.ServeJSON()
+}

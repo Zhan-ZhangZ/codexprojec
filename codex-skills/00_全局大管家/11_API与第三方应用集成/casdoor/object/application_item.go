@@ -1,0 +1,284 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"reflect"
+
+	"github.com/casdoor/casdoor/form"
+)
+
+func (application *Application) GetProviderByCategory(category string) (*Provider, error) {
+	providers, err := GetProviders(application.Organization)
+	if err != nil {
+		return nil, err
+	}
+
+	m := map[string]*Provider{}
+	for _, provider := range providers {
+		if provider.Category != category {
+			continue
+		}
+
+		m[provider.Name] = provider
+	}
+
+	for _, providerItem := range application.Providers {
+		if provider, ok := m[providerItem.Name]; ok {
+			return provider, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func isProviderItemCountryCodeMatched(providerItem *ProviderItem, countryCode string) bool {
+	if len(providerItem.CountryCodes) == 0 {
+		return true
+	}
+
+	for _, countryCode2 := range providerItem.CountryCodes {
+		if countryCode2 == "" || countryCode2 == "All" || countryCode2 == "all" || countryCode2 == countryCode {
+			return true
+		}
+	}
+	return false
+}
+
+func (application *Application) GetProviderByCategoryAndRule(category string, method string, countryCode string) (*Provider, error) {
+	providers, err := GetProviders(application.Organization)
+	if err != nil {
+		return nil, err
+	}
+
+	m := map[string]*Provider{}
+	for _, provider := range providers {
+		if provider.Category != category {
+			continue
+		}
+
+		m[provider.Name] = provider
+	}
+
+	// a row whose rule names the method wins over a generic ("All") row, whatever order they are listed in
+	var fallback *Provider
+	for _, providerItem := range application.Providers {
+		if providerItem.Provider != nil && providerItem.Provider.Category == "SMS" {
+			if !isProviderItemCountryCodeMatched(providerItem, countryCode) {
+				continue
+			}
+		}
+
+		provider, ok := m[providerItem.Name]
+		if !ok {
+			continue
+		}
+
+		if providerItem.Rule == method {
+			return provider, nil
+		}
+
+		if fallback == nil && (providerItem.Rule == "" || providerItem.Rule == "All" || providerItem.Rule == "all" || providerItem.Rule == "None") {
+			fallback = provider
+		}
+	}
+
+	return fallback, nil
+}
+
+func (application *Application) GetEmailProvider(method string) (*Provider, error) {
+	return application.GetProviderByCategoryAndRule("Email", method, "All")
+}
+
+func (application *Application) GetSmsProvider(method string, countryCode string) (*Provider, error) {
+	return application.GetProviderByCategoryAndRule("SMS", method, countryCode)
+}
+
+func (application *Application) GetStorageProvider() (*Provider, error) {
+	return application.GetProviderByCategory("Storage")
+}
+
+func (application *Application) getSignupItem(itemName string) *SignupItem {
+	for _, signupItem := range application.SignupItems {
+		if signupItem.Name == itemName {
+			return signupItem
+		}
+	}
+	return nil
+}
+
+func (application *Application) IsSignupItemVisible(itemName string) bool {
+	signupItem := application.getSignupItem(itemName)
+	if signupItem == nil {
+		return false
+	}
+
+	return signupItem.Visible
+}
+
+// getSignupItemForField returns the signup item that renders the "Email" or "Phone"
+// field, which is the combined item when the application uses one.
+func (application *Application) getSignupItemForField(fieldName string) *SignupItem {
+	if signupItem := application.getSignupItem(fieldName); signupItem != nil {
+		return signupItem
+	}
+
+	if fieldName != "Email" && fieldName != "Phone" {
+		return nil
+	}
+
+	for _, itemName := range []string{"Email or Phone", "Phone or Email"} {
+		if signupItem := application.getSignupItem(itemName); signupItem != nil {
+			return signupItem
+		}
+	}
+
+	return nil
+}
+
+func (application *Application) IsSignupFieldVisible(fieldName string) bool {
+	signupItem := application.getSignupItemForField(fieldName)
+	if signupItem == nil {
+		return false
+	}
+
+	return signupItem.Visible
+}
+
+func (application *Application) GetSignupFieldRule(fieldName string) string {
+	signupItem := application.getSignupItemForField(fieldName)
+	if signupItem == nil {
+		return ""
+	}
+
+	return signupItem.Rule
+}
+
+func (application *Application) IsSignupItemRequired(itemName string) bool {
+	signupItem := application.getSignupItem(itemName)
+	if signupItem == nil {
+		return false
+	}
+
+	return signupItem.Required
+}
+
+func (si *SignupItem) isSignupItemPrompted() bool {
+	return si.Visible && si.Prompted
+}
+
+func (application *Application) GetSignupItemRule(itemName string) string {
+	signupItem := application.getSignupItem(itemName)
+	if signupItem == nil {
+		return ""
+	}
+
+	return signupItem.Rule
+}
+
+func (application *Application) getAllPromptedProviderItems() []*ProviderItem {
+	res := []*ProviderItem{}
+	for _, providerItem := range application.Providers {
+		if providerItem.isProviderPrompted() {
+			res = append(res, providerItem)
+		}
+	}
+	return res
+}
+
+func (application *Application) getAllPromptedSignupItems() []*SignupItem {
+	res := []*SignupItem{}
+	for _, signupItem := range application.SignupItems {
+		if signupItem.isSignupItemPrompted() {
+			res = append(res, signupItem)
+		}
+	}
+	return res
+}
+
+func (application *Application) isAffiliationPrompted() bool {
+	signupItem := application.getSignupItem("Affiliation")
+	if signupItem == nil {
+		return false
+	}
+
+	return signupItem.Prompted
+}
+
+func (application *Application) HasPromptPage() bool {
+	providerItems := application.getAllPromptedProviderItems()
+	if len(providerItems) != 0 {
+		return true
+	}
+
+	signupItems := application.getAllPromptedSignupItems()
+	if len(signupItems) != 0 {
+		return true
+	}
+
+	return application.isAffiliationPrompted()
+}
+
+// the auth form fields each signup item owns
+var signupItemFields = map[string][]string{
+	"Username":       {"Username"},
+	"Display name":   {"Name", "FirstName", "LastName"},
+	"First name":     {"FirstName"},
+	"Last name":      {"LastName"},
+	"Password":       {"Password"},
+	"Email":          {"Email", "EmailCode"},
+	"Email or Phone": {"Email", "EmailCode", "Phone", "CountryCode", "PhoneCode"},
+	"Phone or Email": {"Email", "EmailCode", "Phone", "CountryCode", "PhoneCode"},
+	"Phone":          {"Phone", "CountryCode", "PhoneCode"},
+	"Country/Region": {"Region"},
+	"ID card":        {"IdCard"},
+	"Affiliation":    {"Affiliation"},
+	"Bio":            {"Bio"},
+	"Tag":            {"Tag"},
+	"Education":      {"Education"},
+	"Gender":         {"Gender"},
+	"Languages":      {"Language"},
+}
+
+func (application *Application) ClearHiddenSignupFields(authForm *form.AuthForm) {
+	if application == nil || authForm == nil {
+		return
+	}
+
+	visibleFields := map[string]bool{}
+	for _, signupItem := range application.SignupItems {
+		if signupItem == nil || !signupItem.Visible {
+			continue
+		}
+
+		for _, field := range signupItemFields[signupItem.Name] {
+			visibleFields[field] = true
+		}
+	}
+
+	authFormValue := reflect.ValueOf(authForm).Elem()
+	for _, fields := range signupItemFields {
+		for _, field := range fields {
+			if visibleFields[field] {
+				continue
+			}
+
+			fieldValue := authFormValue.FieldByName(field)
+			if fieldValue.IsValid() && fieldValue.Kind() == reflect.String && fieldValue.CanSet() {
+				fieldValue.SetString("")
+			}
+		}
+	}
+}

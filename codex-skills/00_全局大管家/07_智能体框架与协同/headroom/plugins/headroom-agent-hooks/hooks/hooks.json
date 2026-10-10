@@ -1,0 +1,31 @@
+{
+  "description": "Headroom plugin hooks — ensure the local Headroom runtime is available for initialized agents.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] && launcher=\"${CLAUDE_PLUGIN_ROOT}/bin/headroom-hook.sh\" && [ -r \"$launcher\" ] && exec sh \"$launcher\"; exec headroom init hook ensure'",
+            "powershell": "headroom init hook ensure",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -n \"${CLAUDE_PLUGIN_ROOT:-}\" ] && launcher=\"${CLAUDE_PLUGIN_ROOT}/bin/headroom-hook.sh\" && [ -r \"$launcher\" ] && exec sh \"$launcher\"; exec headroom init hook ensure'",
+            "powershell": "headroom init hook ensure",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

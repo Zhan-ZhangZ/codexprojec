@@ -1,0 +1,593 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"math"
+	"math/big"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/i18n"
+	"github.com/casdoor/casdoor/util"
+	"github.com/xorm-io/core"
+)
+
+type VerifyResult struct {
+	Code int
+	Msg  string
+}
+
+type verifyCodeErrorInfo struct {
+	wrongTimes    int
+	lastWrongTime time.Time
+}
+
+var (
+	ResetLinkReg           *regexp.Regexp
+	verifyCodeErrorMap     = map[string]*verifyCodeErrorInfo{}
+	verifyCodeErrorMapLock sync.Mutex
+)
+
+const (
+	VerificationSuccess = iota
+	wrongCodeError
+	noRecordError
+	timeoutError
+)
+
+const (
+	VerifyTypePhone = "phone"
+	VerifyTypeEmail = "email"
+)
+
+func init() {
+	ResetLinkReg = regexp.MustCompile("(?s)<reset-link>(.*?)</reset-link>")
+}
+
+type VerificationRecord struct {
+	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
+	Name        string `xorm:"varchar(100) notnull pk" json:"name"`
+	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
+
+	RemoteAddr string `xorm:"varchar(100)" json:"remoteAddr"`
+	Type       string `xorm:"varchar(10)" json:"type"`
+	User       string `xorm:"varchar(100) notnull" json:"user"`
+	Provider   string `xorm:"varchar(100) notnull" json:"provider"`
+	Receiver   string `xorm:"varchar(100) index notnull" json:"receiver"`
+	Code       string `xorm:"varchar(10) notnull" json:"code"`
+	Time       int64  `xorm:"notnull" json:"time"`
+	IsUsed     bool   `xorm:"notnull" json:"isUsed"`
+}
+
+func IsAllowSend(user *User, remoteAddr, recordType string, application *Application, lang string) error {
+	userId := ""
+	if user != nil {
+		userId = user.GetId()
+	}
+
+	// the "user" condition has to be spelled out: as a struct field an empty user is
+	// dropped from the WHERE, and an anonymous send is then throttled by every other
+	// user's record coming from the same address
+	record := VerificationRecord{}
+	has, err := ormer.Engine.Where("remote_addr = ? and type = ?", remoteAddr, recordType).
+		And(fmt.Sprintf("%s = ?", quoteColumn("user")), userId).
+		Desc("created_time").Get(&record)
+	if err != nil {
+		return err
+	}
+
+	// Get timeout from application, or use default
+	resendTimeoutInSeconds := int64(60)
+	if application != nil && application.CodeResendTimeout > 0 {
+		resendTimeoutInSeconds = int64(application.CodeResendTimeout)
+	}
+
+	now := time.Now().Unix()
+	if has && now-record.Time < resendTimeoutInSeconds {
+		return fmt.Errorf(i18n.Translate(lang, "verification:you can only send one code in %ds"), resendTimeoutInSeconds)
+	}
+
+	return nil
+}
+
+func SendVerificationCodeToEmail(organization *Organization, user *User, provider *Provider, remoteAddr string, dest string, method string, host string, applicationName string, application *Application, lang string) error {
+	sender := organization.DisplayName
+	title := provider.Title
+
+	code := getRandomCode(6)
+	// if organization.MasterVerificationCode != "" {
+	//	code = organization.MasterVerificationCode
+	// }
+
+	// "You have requested a verification code at Casdoor. Here is your code: %s, please enter in 5 minutes."
+	content := strings.Replace(provider.Content, "%s", code, 1)
+
+	originFrontend, isOriginTrusted := getTrustedOriginFrontend(host)
+	if method == "forget" && isOriginTrusted {
+		query := url.Values{}
+		query.Add("code", code)
+		query.Add("username", user.Name)
+		query.Add("dest", util.GetMaskedEmail(dest))
+		forgetURL := originFrontend + "/forget/" + applicationName + "?" + query.Encode()
+
+		content = strings.Replace(content, "%link", forgetURL, -1)
+		content = strings.Replace(content, "<reset-link>", "", -1)
+		content = strings.Replace(content, "</reset-link>", "", -1)
+	} else {
+		matchContent := ResetLinkReg.Find([]byte(content))
+		content = strings.Replace(content, string(matchContent), "", -1)
+	}
+
+	userString := "Hi"
+	if user != nil {
+		userString = user.GetFriendlyName()
+	}
+	content = strings.Replace(content, "%{user.friendlyName}", userString, 1)
+
+	err := IsAllowSend(user, remoteAddr, provider.Category, application, lang)
+	if err != nil {
+		return err
+	}
+
+	err = SendEmail(provider, title, content, []string{dest}, sender)
+	if err != nil {
+		return err
+	}
+
+	err = AddToVerificationRecord(user, provider, organization, remoteAddr, provider.Category, dest, code)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SendVerificationCodeToPhone(organization *Organization, user *User, provider *Provider, remoteAddr string, dest string, application *Application, lang string) error {
+	err := IsAllowSend(user, remoteAddr, provider.Category, application, lang)
+	if err != nil {
+		return err
+	}
+
+	code := getRandomCode(6)
+	// if organization.MasterVerificationCode != "" {
+	//	code = organization.MasterVerificationCode
+	// }
+
+	err = SendSms(provider, code, dest)
+	if err != nil {
+		return err
+	}
+
+	err = AddToVerificationRecord(user, provider, organization, remoteAddr, provider.Category, dest, code)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func AddToVerificationRecord(user *User, provider *Provider, organization *Organization, remoteAddr, recordType, dest, code string) error {
+	var record VerificationRecord
+	record.RemoteAddr = remoteAddr
+	record.Type = recordType
+	if user != nil {
+		record.User = user.GetId()
+	}
+	record.Owner = organization.Name
+	record.Name = util.GenerateId()
+	record.CreatedTime = util.GetCurrentTime()
+
+	record.Provider = provider.Name
+	record.Receiver = dest
+	record.Code = code
+	record.Time = time.Now().Unix()
+	record.IsUsed = false
+
+	_, err := ormer.Engine.Insert(record)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func filterRecordIn24Hours(record *VerificationRecord) *VerificationRecord {
+	if record == nil {
+		return nil
+	}
+
+	now := time.Now().Unix()
+	if now-record.Time > 60*60*24 {
+		return nil
+	}
+
+	return record
+}
+
+func getVerificationRecord(dest string) (*VerificationRecord, error) {
+	if dest == "" {
+		return nil, nil
+	}
+
+	record := &VerificationRecord{}
+	record.Receiver = dest
+
+	has, err := ormer.Engine.Desc("time").Where("is_used = ?", false).Get(record)
+	if err != nil {
+		return nil, err
+	}
+
+	record = filterRecordIn24Hours(record)
+	if record == nil {
+		has = false
+	}
+
+	if !has {
+		record = &VerificationRecord{}
+		record.Receiver = dest
+
+		has, err = ormer.Engine.Desc("time").Get(record)
+		if err != nil {
+			return nil, err
+		}
+
+		record = filterRecordIn24Hours(record)
+		if record == nil {
+			has = false
+		}
+
+		if !has {
+			return nil, nil
+		}
+
+		return record, nil
+	}
+
+	return record, nil
+}
+
+func getUnusedVerificationRecord(dest string) (*VerificationRecord, error) {
+	if dest == "" {
+		return nil, nil
+	}
+
+	record := &VerificationRecord{}
+	record.Receiver = dest
+
+	has, err := ormer.Engine.Desc("time").Where("is_used = ?", false).Get(record)
+	if err != nil {
+		return nil, err
+	}
+
+	record = filterRecordIn24Hours(record)
+	if record == nil {
+		has = false
+	}
+
+	if !has {
+		return nil, nil
+	}
+
+	return record, nil
+}
+
+func CheckVerificationCode(dest string, code string, lang string) (*VerifyResult, error) {
+	record, err := getVerificationRecord(dest)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return &VerifyResult{noRecordError, i18n.Translate(lang, "verification:The verification code has not been sent yet!")}, nil
+	} else if record.IsUsed {
+		return &VerifyResult{noRecordError, i18n.Translate(lang, "verification:The verification code has already been used!")}, nil
+	}
+
+	timeoutInMinutes := conf.GetVerificationCodeTimeout()
+
+	now := time.Now().Unix()
+	if now-record.Time > timeoutInMinutes*60 {
+		return &VerifyResult{timeoutError, fmt.Sprintf(i18n.Translate(lang, "verification:You should verify your code in %d min!"), timeoutInMinutes)}, nil
+	}
+
+	if record.Code != code {
+		return &VerifyResult{wrongCodeError, i18n.Translate(lang, "verification:Wrong verification code!")}, nil
+	}
+
+	return &VerifyResult{VerificationSuccess, ""}, nil
+}
+
+func DisableVerificationCode(dest string) error {
+	record, err := getUnusedVerificationRecord(dest)
+	if err != nil {
+		return err
+	}
+	if record == nil {
+		return nil
+	}
+
+	record.IsUsed = true
+	_, err = ormer.Engine.ID(core.PK{record.Owner, record.Name}).AllCols().Update(record)
+	return err
+}
+
+func CheckSigninCode(user *User, dest, code, lang string) error {
+	// check the login error times
+	err := checkSigninErrorTimes(user, lang)
+	if err != nil {
+		return err
+	}
+
+	result, err := CheckVerificationCode(dest, code, lang)
+	if err != nil {
+		return err
+	}
+
+	switch result.Code {
+	case VerificationSuccess:
+		return resetUserSigninErrorTimes(user)
+	case wrongCodeError:
+		return recordSigninErrorInfo(user, lang)
+	default:
+		return errors.New(result.Msg)
+	}
+}
+
+// getVerifyCodeErrorKey builds the in-memory key for verify-code failed attempt tracking
+func getVerifyCodeErrorKey(user *User, dest string) string {
+	if user == nil {
+		return dest
+	}
+
+	return fmt.Sprintf("%s:%s", user.GetId(), dest)
+}
+
+func checkVerifyCodeErrorTimes(user *User, dest, lang string) error {
+	failedSigninLimit, failedSigninFrozenTime, err := GetFailedSigninConfigByUser(user)
+	if err != nil {
+		return err
+	}
+
+	key := getVerifyCodeErrorKey(user, dest)
+
+	verifyCodeErrorMapLock.Lock()
+	defer verifyCodeErrorMapLock.Unlock()
+
+	errorInfo, ok := verifyCodeErrorMap[key]
+	if !ok || errorInfo == nil {
+		return nil
+	}
+
+	if errorInfo.wrongTimes < failedSigninLimit {
+		return nil
+	}
+
+	minutes := failedSigninFrozenTime - int(time.Now().UTC().Sub(errorInfo.lastWrongTime).Minutes())
+	if minutes > 0 {
+		return fmt.Errorf(i18n.Translate(lang, "check:You have entered the wrong password or code too many times, please wait for %d minutes and try again"), minutes)
+	}
+
+	delete(verifyCodeErrorMap, key)
+	return nil
+}
+
+func recordVerifyCodeErrorInfo(user *User, dest, lang string) error {
+	failedSigninLimit, failedSigninFrozenTime, err := GetFailedSigninConfigByUser(user)
+	if err != nil {
+		return err
+	}
+
+	key := getVerifyCodeErrorKey(user, dest)
+
+	verifyCodeErrorMapLock.Lock()
+	defer verifyCodeErrorMapLock.Unlock()
+
+	errorInfo, ok := verifyCodeErrorMap[key]
+	if !ok || errorInfo == nil {
+		errorInfo = &verifyCodeErrorInfo{}
+		verifyCodeErrorMap[key] = errorInfo
+	}
+
+	if errorInfo.wrongTimes < failedSigninLimit {
+		errorInfo.wrongTimes++
+	}
+
+	if errorInfo.wrongTimes >= failedSigninLimit {
+		errorInfo.lastWrongTime = time.Now().UTC()
+	}
+
+	leftChances := failedSigninLimit - errorInfo.wrongTimes
+	if leftChances >= 0 {
+		return fmt.Errorf(i18n.Translate(lang, "check:password or code is incorrect, you have %s remaining chances"), strconv.Itoa(leftChances))
+	}
+
+	return fmt.Errorf(i18n.Translate(lang, "check:You have entered the wrong password or code too many times, please wait for %d minutes and try again"), failedSigninFrozenTime)
+}
+
+func resetVerifyCodeErrorTimes(user *User, dest string) {
+	key := getVerifyCodeErrorKey(user, dest)
+
+	verifyCodeErrorMapLock.Lock()
+	defer verifyCodeErrorMapLock.Unlock()
+
+	delete(verifyCodeErrorMap, key)
+}
+
+func CheckVerifyCodeWithLimit(user *User, dest, code, lang string) error {
+	if err := checkVerifyCodeErrorTimes(user, dest, lang); err != nil {
+		return err
+	}
+
+	result, err := CheckVerificationCode(dest, code, lang)
+	if err != nil {
+		return err
+	}
+
+	switch result.Code {
+	case VerificationSuccess:
+		resetVerifyCodeErrorTimes(user, dest)
+		return nil
+	case wrongCodeError:
+		return recordVerifyCodeErrorInfo(user, dest, lang)
+	default:
+		return errors.New(result.Msg)
+	}
+}
+
+func CheckFaceIdWithLimit(user *User, check func() error, lang string) error {
+	err := checkSigninErrorTimes(user, lang)
+	if err != nil {
+		return err
+	}
+
+	err = check()
+	if err != nil {
+		if recordErr := recordSigninErrorInfo(user, lang); recordErr != nil {
+			return fmt.Errorf("%s, %s", err.Error(), recordErr.Error())
+		}
+		return err
+	}
+
+	return resetUserSigninErrorTimes(user)
+}
+
+func CheckFaceId(user *User, faceId []float64, lang string) error {
+	if len(user.FaceIds) == 0 {
+		return errors.New(i18n.Translate(lang, "check:Face data does not exist, cannot log in"))
+	}
+
+	for _, userFaceId := range user.FaceIds {
+		if len(faceId) == 0 || len(userFaceId.FaceIdData) != len(faceId) {
+			continue
+		}
+		var sumOfSquares float64
+		for i := 0; i < len(userFaceId.FaceIdData); i++ {
+			diff := userFaceId.FaceIdData[i] - faceId[i]
+			sumOfSquares += diff * diff
+		}
+		if math.Sqrt(sumOfSquares) < 0.25 {
+			return nil
+		}
+	}
+
+	return errors.New(i18n.Translate(lang, "check:Face data mismatch"))
+}
+
+// IsUserVerifyDest checks that dest, the email or E.164 phone a code is checked against, is the
+// user's own: the user is looked up by name first, so it may not be the owner of the typed address
+func IsUserVerifyDest(user *User, dest string, countryCode string) bool {
+	if strings.Contains(dest, "@") {
+		return user.Email != "" && strings.EqualFold(user.Email, dest)
+	}
+
+	if user.CountryCode != "" {
+		countryCode = user.CountryCode
+	}
+	phone, _ := util.GetE164Number(user.Phone, countryCode)
+	return user.Phone != "" && phone == dest
+}
+
+func GetVerifyType(username string) (verificationCodeType string) {
+	if strings.Contains(username, "@") {
+		return VerifyTypeEmail
+	} else {
+		return VerifyTypePhone
+	}
+}
+
+// From Casnode/object/validateCode.go line 116
+var stdNums = []byte("0123456789")
+
+func getRandomCode(length int) string {
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(stdNums))))
+		if err != nil {
+			panic(err)
+		}
+		result[i] = stdNums[n.Int64()]
+	}
+	return string(result)
+}
+
+func GetVerificationCount(owner, field, value string) (int64, error) {
+	session := GetSession(owner, -1, -1, field, value, "", "")
+	return session.Count(&VerificationRecord{Owner: owner})
+}
+
+func GetVerifications(owner string) ([]*VerificationRecord, error) {
+	verifications := []*VerificationRecord{}
+	err := ormer.Engine.Desc("created_time").Find(&verifications, &VerificationRecord{Owner: owner})
+	if err != nil {
+		return nil, err
+	}
+
+	return verifications, nil
+}
+
+func GetUserVerifications(owner, user string) ([]*VerificationRecord, error) {
+	verifications := []*VerificationRecord{}
+	err := ormer.Engine.Desc("created_time").Find(&verifications, &VerificationRecord{Owner: owner, User: user})
+	if err != nil {
+		return nil, err
+	}
+
+	return verifications, nil
+}
+
+func GetPaginationVerifications(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*VerificationRecord, error) {
+	verifications := []*VerificationRecord{}
+	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
+	err := session.Find(&verifications, &VerificationRecord{Owner: owner})
+	if err != nil {
+		return nil, err
+	}
+
+	return verifications, nil
+}
+
+func getVerification(owner string, name string) (*VerificationRecord, error) {
+	if owner == "" || name == "" {
+		return nil, nil
+	}
+
+	verification := VerificationRecord{Owner: owner, Name: name}
+	existed, err := ormer.Engine.Get(&verification)
+	if err != nil {
+		return nil, err
+	}
+
+	if existed {
+		return &verification, nil
+	} else {
+		return nil, nil
+	}
+}
+
+func GetVerification(id string) (*VerificationRecord, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
+	return getVerification(owner, name)
+}

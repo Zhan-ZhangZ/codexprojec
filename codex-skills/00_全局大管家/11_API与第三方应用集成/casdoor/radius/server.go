@@ -1,0 +1,258 @@
+// Copyright 2023 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package radius
+
+import (
+	"fmt"
+	"log"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/radius/authenticator"
+	"github.com/casdoor/casdoor/util"
+	"layeh.com/radius"
+	"layeh.com/radius/rfc2865"
+	"layeh.com/radius/rfc2866"
+)
+
+var (
+	StateMap     = map[string]AccessStateContent{}
+	stateMapLock sync.Mutex
+)
+
+const StateExpiredTime = time.Second * 120
+
+type AccessStateContent struct {
+	ExpiredAt    time.Time
+	Organization string
+	Username     string
+}
+
+func addAccessState(organization string, username string) string {
+	state := util.GenerateId()
+
+	stateMapLock.Lock()
+	defer stateMapLock.Unlock()
+	StateMap[state] = AccessStateContent{
+		ExpiredAt:    time.Now().Add(StateExpiredTime),
+		Organization: organization,
+		Username:     username,
+	}
+	return state
+}
+
+func takeAccessState(state string, organization string, username string) bool {
+	stateMapLock.Lock()
+	defer stateMapLock.Unlock()
+
+	stateContent, ok := StateMap[state]
+	if !ok {
+		return false
+	}
+	delete(StateMap, state)
+
+	return stateContent.ExpiredAt.After(time.Now()) && stateContent.Organization == organization && stateContent.Username == username
+}
+
+func StartRadiusServer() {
+	secret := conf.GetConfigString("radiusSecret")
+	server := radius.PacketServer{
+		Addr:         "0.0.0.0:" + conf.GetConfigString("radiusServerPort"),
+		Handler:      radius.HandlerFunc(handlerRadius),
+		SecretSource: radius.StaticSecretSource([]byte(secret)),
+	}
+	log.Printf("Starting Radius server on %s", server.Addr)
+	if err := server.ListenAndServe(); err != nil {
+		log.Printf("StartRadiusServer() failed, err = %v", err)
+	}
+}
+
+func handlerRadius(w radius.ResponseWriter, r *radius.Request) {
+	switch r.Code {
+	case radius.CodeAccessRequest:
+		// RFC 2869: a request carrying a Message-Authenticator must be silently
+		// discarded if it is wrong, and its responses must carry one too.
+		if authenticator.Present(r.Packet) {
+			if err := authenticator.VerifyRequest(r.Packet); err != nil {
+				log.Printf("handlerRadius() dropped Access-Request: %v", err)
+				return
+			}
+			w = authenticator.NewResponseWriter(w)
+		}
+		handleAccessRequest(w, r)
+	case radius.CodeAccountingRequest:
+		handleAccountingRequest(w, r)
+	default:
+		log.Printf("radius message, code = %d", r.Code)
+	}
+}
+
+func getRadiusOrganization(organization string) string {
+	if organization != "" {
+		return organization
+	}
+
+	organization = conf.GetConfigString("radiusDefaultOrganization")
+	if organization == "" {
+		return "built-in"
+	}
+	return organization
+}
+
+func isRadiusEnabled(organization string) bool {
+	org, err := object.GetOrganization(util.GetId("admin", organization))
+	if err != nil {
+		log.Printf("isRadiusEnabled() failed to get organization: %s, err = %v", organization, err)
+		return false
+	}
+	if org == nil || !org.EnableRadius {
+		log.Printf("RADIUS is not enabled for organization: %s", organization)
+		return false
+	}
+	return true
+}
+
+func handleAccessRequest(w radius.ResponseWriter, r *radius.Request) {
+	username := rfc2865.UserName_GetString(r.Packet)
+	password := rfc2865.UserPassword_GetString(r.Packet)
+	organization := rfc2865.Class_GetString(r.Packet)
+	state := rfc2865.State_GetString(r.Packet)
+	log.Printf("handleAccessRequest() username=%v, org=%v", username, organization)
+
+	organization = getRadiusOrganization(organization)
+	if !isRadiusEnabled(organization) {
+		w.Write(r.Response(radius.CodeAccessReject))
+		return
+	}
+
+	if state != "" {
+		handleOtpResponse(w, r, organization, username, state, password)
+		return
+	}
+
+	user, err := object.CheckUserPassword(organization, username, password, "en")
+	if err != nil || object.CheckPasswordOnlySignin(user, "", "en") != nil {
+		w.Write(r.Response(radius.CodeAccessReject))
+		return
+	}
+
+	if user.IsMfaEnabled() {
+		responseState := addAccessState(organization, username)
+
+		err = rfc2865.State_Set(r.Packet, []byte(responseState))
+		if err != nil {
+			w.Write(r.Response(radius.CodeAccessReject))
+			return
+		}
+
+		err = rfc2865.ReplyMessage_Set(r.Packet, []byte("please enter OTP"))
+		if err != nil {
+			w.Write(r.Response(radius.CodeAccessReject))
+			return
+		}
+
+		r.Packet.Code = radius.CodeAccessChallenge
+		w.Write(r.Packet)
+		return
+	}
+
+	w.Write(r.Response(radius.CodeAccessAccept))
+}
+
+func handleOtpResponse(w radius.ResponseWriter, r *radius.Request, organization string, username string, state string, passcode string) {
+	if !takeAccessState(state, organization, username) {
+		w.Write(r.Response(radius.CodeAccessReject))
+		return
+	}
+
+	user, err := object.GetUser(util.GetId(organization, username))
+	if err != nil || user == nil || user.IsForbidden || user.IsDeleted {
+		w.Write(r.Response(radius.CodeAccessReject))
+		return
+	}
+
+	mfaProp := user.GetMfaProps(object.TotpType, false)
+	if !mfaProp.Enabled {
+		w.Write(r.Response(radius.CodeAccessReject))
+		return
+	}
+
+	mfaUtil := object.GetMfaUtil(mfaProp.MfaType, mfaProp)
+	if object.VerifyMfaWithLimit(user, func() error { return mfaUtil.Verify(passcode, "en") }, "en") != nil {
+		w.Write(r.Response(radius.CodeAccessReject))
+		return
+	}
+
+	w.Write(r.Response(radius.CodeAccessAccept))
+}
+
+func handleAccountingRequest(w radius.ResponseWriter, r *radius.Request) {
+	statusType := rfc2866.AcctStatusType_Get(r.Packet)
+	username := rfc2865.UserName_GetString(r.Packet)
+	organization := rfc2865.Class_GetString(r.Packet)
+
+	if strings.Contains(username, "/") {
+		var err error
+		organization, username, err = util.GetOwnerAndNameFromIdWithError(username)
+		if err != nil {
+			log.Printf("handleAccountingRequest() failed to parse username, err = %v", err)
+			w.Write(r.Response(radius.CodeAccessReject))
+			return
+		}
+	}
+
+	log.Printf("handleAccountingRequest() username=%v, org=%v, statusType=%v", username, organization, statusType)
+	if !isRadiusEnabled(getRadiusOrganization(organization)) {
+		return
+	}
+
+	w.Write(r.Response(radius.CodeAccountingResponse))
+	var err error
+	defer func() {
+		if err != nil {
+			log.Printf("handleAccountingRequest() failed, err = %v", err)
+		}
+	}()
+	switch statusType {
+	case rfc2866.AcctStatusType_Value_Start:
+		// Start an accounting session
+		ra := GetAccountingFromRequest(r)
+		err = object.AddRadiusAccounting(ra)
+	case rfc2866.AcctStatusType_Value_InterimUpdate, rfc2866.AcctStatusType_Value_Stop:
+		// Interim update to an accounting session | Stop an accounting session
+		var (
+			newRa = GetAccountingFromRequest(r)
+			oldRa *object.RadiusAccounting
+		)
+		oldRa, err = object.GetRadiusAccountingBySessionId(newRa.AcctSessionId)
+		if err != nil {
+			return
+		}
+		if oldRa == nil {
+			if err = object.AddRadiusAccounting(newRa); err != nil {
+				return
+			}
+		}
+		stop := statusType == rfc2866.AcctStatusType_Value_Stop
+		err = object.InterimUpdateRadiusAccounting(oldRa, newRa, stop)
+	case rfc2866.AcctStatusType_Value_AccountingOn, rfc2866.AcctStatusType_Value_AccountingOff:
+		// By default, no Accounting-On or Accounting-Off messages are sent (no acct-on-off).
+	default:
+		err = fmt.Errorf("unsupport statusType = %v", statusType)
+	}
+}

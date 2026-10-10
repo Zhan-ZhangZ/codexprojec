@@ -1,0 +1,296 @@
+// Copyright 2025 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"fmt"
+	"strings"
+
+	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/util"
+	"github.com/go-sql-driver/mysql"
+	"golang.org/x/crypto/ssh"
+)
+
+// DatabaseSyncerProvider implements SyncerProvider for database-based syncers
+type DatabaseSyncerProvider struct {
+	Syncer *Syncer
+}
+
+func (syncer *Syncer) isSshTunneled() bool {
+	return syncer.SshType != "" && (syncer.DatabaseType == "mysql" || syncer.DatabaseType == "postgres" || syncer.DatabaseType == "mssql")
+}
+
+func (syncer *Syncer) isDatabaseSyncer() bool {
+	switch GetSyncerProvider(syncer).(type) {
+	case *DatabaseSyncerProvider, *KeycloakSyncerProvider:
+		return true
+	}
+	return false
+}
+
+func CheckSyncerDatabaseHost(syncer *Syncer) error {
+	if !syncer.isDatabaseSyncer() || syncer.DatabaseType == "sqlite3" || syncer.DatabaseType == "sqlite" {
+		return nil
+	}
+	if syncer.isSshTunneled() {
+		if isTrustedDbHost(syncer.Organization, syncer.SshHost, syncer.SshPort) {
+			return nil
+		}
+		return util.CheckInternetHost(syncer.SshHost)
+	}
+	if isTrustedDbHost(syncer.Organization, syncer.Host, syncer.Port) {
+		return nil
+	}
+	return util.CheckInternetHost(syncer.Host)
+}
+
+func CheckSyncerDatabaseTarget(syncer *Syncer) error {
+	if !syncer.isDatabaseSyncer() {
+		return nil
+	}
+
+	for name, table := range map[string]string{"table": syncer.Table, "affiliation table": syncer.AffiliationTable} {
+		if table != "" && !isValidSyncerTable(table) {
+			return fmt.Errorf("the %s: %s of the syncer is not a valid table name", name, table)
+		}
+	}
+
+	if syncer.DatabaseType == "sqlite3" || syncer.DatabaseType == "sqlite" {
+		return nil
+	}
+	ownHost, ownPort, ok := getOwnDbAddress()
+	if !ok {
+		return nil
+	}
+	host := syncer.Host
+	if syncer.isSshTunneled() {
+		if !isSameDbServer(syncer.SshHost, 0, "localhost", 0) {
+			return nil
+		}
+	}
+	if !isCloudIntranet {
+		host = strings.ReplaceAll(host, "dbi.", "db.")
+		ownHost = strings.ReplaceAll(ownHost, "dbi.", "db.")
+	}
+	if !isSameDbServer(host, syncer.Port, ownHost, ownPort) {
+		return nil
+	}
+	if strings.EqualFold(syncer.Database, conf.GetConfigString("dbName")) {
+		return fmt.Errorf("the database: %s of the syncer is Casdoor's own database, which cannot be synced", syncer.Database)
+	}
+	if isTrustedDbHost(syncer.Organization, syncer.Host, syncer.Port) {
+		return nil
+	}
+	return fmt.Errorf("the host: %s:%d of the syncer is Casdoor's own database server, which cannot be synced", syncer.Host, syncer.Port)
+}
+
+func isValidSyncerTable(table string) bool {
+	parts := strings.Split(table, ".")
+	if len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		if !util.FilterSQLIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func checkTenantSyncerHost(syncer *Syncer) error {
+	if syncer.Organization == "built-in" {
+		return nil
+	}
+	return CheckSyncerDatabaseHost(syncer)
+}
+
+// InitAdapter initializes the database adapter
+func (p *DatabaseSyncerProvider) InitAdapter() error {
+	if p.Syncer.Ormer != nil {
+		return nil
+	}
+
+	err := checkDataSourceFields(map[string]string{"host": p.Syncer.Host, "user": p.Syncer.User, "database": p.Syncer.Database, "SSL mode": p.Syncer.SslMode})
+	if err != nil {
+		return err
+	}
+
+	err = CheckSyncerDatabaseTarget(p.Syncer)
+	if err != nil {
+		return err
+	}
+
+	err = checkTenantSyncerHost(p.Syncer)
+	if err != nil {
+		return err
+	}
+
+	var dataSourceName string
+	if p.Syncer.DatabaseType == "mssql" {
+		dataSourceName = getMssqlDataSourceName(p.Syncer.User, p.Syncer.Password, p.Syncer.Host, p.Syncer.Port, p.Syncer.Database)
+	} else if p.Syncer.DatabaseType == "postgres" {
+		sslMode := "disable"
+		if p.Syncer.SslMode != "" {
+			sslMode = p.Syncer.SslMode
+		}
+		dataSourceName = fmt.Sprintf("user=%s password=%s host=%s port=%d sslmode=%s dbname=%s", p.Syncer.User, quotePostgresDataSourceValue(p.Syncer.Password), p.Syncer.Host, p.Syncer.Port, sslMode, p.Syncer.Database)
+	} else {
+		dataSourceName = fmt.Sprintf("%s:%s@tcp(%s:%d)/", p.Syncer.User, p.Syncer.Password, p.Syncer.Host, p.Syncer.Port)
+	}
+
+	var db *sql.DB
+
+	if p.Syncer.isSshTunneled() {
+		var dial *ssh.Client
+		var sshHostKey string
+		if p.Syncer.SshType == "password" {
+			dial, sshHostKey, err = DialWithPassword(p.Syncer.SshUser, p.Syncer.SshPassword, p.Syncer.SshHost, p.Syncer.SshPort, p.Syncer.SshHostKey)
+		} else {
+			dial, sshHostKey, err = DialWithCert(p.Syncer.SshUser, p.Syncer.Owner+"/"+p.Syncer.Cert, p.Syncer.SshHost, p.Syncer.SshPort, p.Syncer.SshHostKey)
+		}
+		if err != nil {
+			return err
+		}
+
+		if strings.TrimSpace(p.Syncer.SshHostKey) == "" {
+			p.Syncer.SshHostKey = sshHostKey
+			err = updateSyncerSshHostKey(p.Syncer)
+			if err != nil {
+				dial.Close()
+				return err
+			}
+		}
+
+		// Store SSH client for proper cleanup
+		p.Syncer.SshClient = dial
+
+		if p.Syncer.DatabaseType == "mysql" {
+			dataSourceName = fmt.Sprintf("%s:%s@%s(%s:%d)/", p.Syncer.User, p.Syncer.Password, p.Syncer.Owner+p.Syncer.Name, p.Syncer.Host, p.Syncer.Port)
+			mysql.RegisterDialContext(p.Syncer.Owner+p.Syncer.Name, (&ViaSSHDialer{Client: dial, Context: nil}).MysqlDial)
+		} else if p.Syncer.DatabaseType == "postgres" || p.Syncer.DatabaseType == "mssql" {
+			db = sql.OpenDB(dsnConnector{dsn: dataSourceName, driver: &ViaSSHDialer{Client: dial, Context: nil, DatabaseType: p.Syncer.DatabaseType}})
+		}
+	}
+
+	if !isCloudIntranet {
+		dataSourceName = strings.ReplaceAll(dataSourceName, "dbi.", "db.")
+	}
+
+	if db != nil {
+		p.Syncer.Ormer, err = NewAdapterFromDb(p.Syncer.DatabaseType, dataSourceName, p.Syncer.Database, db)
+	} else {
+		p.Syncer.Ormer, err = NewAdapter(p.Syncer.DatabaseType, dataSourceName, p.Syncer.Database)
+	}
+
+	return err
+}
+
+// GetOriginalUsers retrieves all users from the database
+func (p *DatabaseSyncerProvider) GetOriginalUsers() ([]*OriginalUser, error) {
+	var results []map[string]sql.NullString
+	err := p.Syncer.Ormer.Engine.Table(p.Syncer.getTable()).Find(&results)
+	if err != nil {
+		return nil, err
+	}
+
+	// Memory leak problem handling
+	// https://github.com/casdoor/casdoor/issues/1256
+	users := p.Syncer.getOriginalUsersFromMap(results)
+	// Clear map contents to help garbage collection
+	for i := range results {
+		for k := range results[i] {
+			delete(results[i], k)
+		}
+	}
+	results = nil
+
+	return users, nil
+}
+
+// AddUser adds a new user to the database
+func (p *DatabaseSyncerProvider) AddUser(user *OriginalUser) (bool, error) {
+	m := p.Syncer.getMapFromOriginalUser(user)
+	affected, err := p.Syncer.Ormer.Engine.Table(p.Syncer.getTable()).Insert(m)
+	if err != nil {
+		return false, err
+	}
+	return affected != 0, nil
+}
+
+// UpdateUser updates an existing user in the database
+func (p *DatabaseSyncerProvider) UpdateUser(user *OriginalUser) (bool, error) {
+	key := p.Syncer.getTargetTablePrimaryKey()
+	if !util.FilterSQLIdentifier(key) {
+		return false, fmt.Errorf("object.UpdateUser: invalid primary key column name: %s", key)
+	}
+
+	m := p.Syncer.getMapFromOriginalUser(user)
+	pkValue := m[key]
+	delete(m, key)
+
+	affected, err := p.Syncer.Ormer.Engine.Table(p.Syncer.getTable()).Where(fmt.Sprintf("%s = ?", key), pkValue).Update(&m)
+	if err != nil {
+		return false, err
+	}
+	return affected != 0, nil
+}
+
+// TestConnection tests the database connection
+func (p *DatabaseSyncerProvider) TestConnection() error {
+	err := p.InitAdapter()
+	if err != nil {
+		return err
+	}
+
+	err = p.Syncer.Ormer.Engine.Ping()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Close closes the database connection and SSH tunnel
+func (p *DatabaseSyncerProvider) Close() error {
+	return p.Syncer.Close()
+}
+
+type dsnConnector struct {
+	dsn    string
+	driver driver.Driver
+}
+
+func (t dsnConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	return t.driver.Open(t.dsn)
+}
+
+func (t dsnConnector) Driver() driver.Driver {
+	return t.driver
+}
+
+// GetOriginalGroups retrieves all groups from Database (not implemented yet)
+func (p *DatabaseSyncerProvider) GetOriginalGroups() ([]*OriginalGroup, error) {
+	// TODO: Implement Database group sync
+	return []*OriginalGroup{}, nil
+}
+
+// GetOriginalUserGroups retrieves the group IDs that a user belongs to (not implemented yet)
+func (p *DatabaseSyncerProvider) GetOriginalUserGroups(userId string) ([]string, error) {
+	// TODO: Implement Database user group membership sync
+	return []string{}, nil
+}

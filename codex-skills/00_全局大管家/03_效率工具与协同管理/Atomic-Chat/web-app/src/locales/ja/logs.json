@@ -1,0 +1,10 @@
+{
+  "noLogs": "利用可能なログはありません",
+  "filterAll": "すべて",
+  "sourceApp": "アプリ",
+  "sourceCore": "コア",
+  "export": "ログをエクスポート",
+  "exported": "ログをエクスポートしました",
+  "showInFolder": "フォルダーで表示",
+  "exportFailed": "ログをエクスポートできませんでした"
+}

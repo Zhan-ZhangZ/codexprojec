@@ -1,0 +1,10 @@
+{
+  "noLogs": "Brak dzienników",
+  "filterAll": "Wszystkie",
+  "sourceApp": "Aplikacja",
+  "sourceCore": "Rdzeń",
+  "export": "Eksportuj dzienniki",
+  "exported": "Dzienniki wyeksportowane",
+  "showInFolder": "Pokaż w folderze",
+  "exportFailed": "Nie udało się wyeksportować dzienników"
+}

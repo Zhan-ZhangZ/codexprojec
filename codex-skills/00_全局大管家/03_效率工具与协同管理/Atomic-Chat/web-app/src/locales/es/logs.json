@@ -1,0 +1,10 @@
+{
+  "noLogs": "No hay registros disponibles",
+  "filterAll": "Todos",
+  "sourceApp": "App",
+  "sourceCore": "Núcleo",
+  "export": "Exportar registros",
+  "exported": "Registros exportados",
+  "showInFolder": "Mostrar en la carpeta",
+  "exportFailed": "No se pudieron exportar los registros"
+}

@@ -1,0 +1,10 @@
+{
+  "noLogs": "Không có nhật ký nào",
+  "filterAll": "Tất cả",
+  "sourceApp": "Ứng dụng",
+  "sourceCore": "Lõi",
+  "export": "Xuất nhật ký",
+  "exported": "Đã xuất nhật ký",
+  "showInFolder": "Hiển thị trong thư mục",
+  "exportFailed": "Không thể xuất nhật ký"
+}

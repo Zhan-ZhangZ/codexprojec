@@ -1,0 +1,58 @@
+{
+  "name": "headroom-openclaw",
+  "version": "0.40.0",
+  "description": "Headroom context compression plugin for OpenClaw — 70-90% token savings with zero LLM calls",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "hook-shim",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup && node prepare-dist.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit"
+  },
+  "dependencies": {
+    "headroom-ai": "^0.39.1"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "@types/node": "^26.1.1",
+    "tsup": "^8.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
+  "openclaw": {
+    "hooks": [
+      "./hook-shim"
+    ],
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "capabilities": {
+      "network": {
+        "allow": [
+          "http://*:*",
+          "https://*:*"
+        ]
+      }
+    }
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,861 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package object
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"regexp"
+	"strings"
+
+	"github.com/casdoor/casdoor/i18n"
+	"github.com/casdoor/casdoor/util"
+)
+
+func getProviderMap(owner string) (m map[string]*Provider, err error) {
+	providers, err := GetProviders(owner)
+	if err != nil {
+		return nil, err
+	}
+
+	m = map[string]*Provider{}
+	for _, provider := range providers {
+		m[provider.Name] = GetMaskedProvider(provider, true)
+	}
+
+	return m, err
+}
+
+func extendApplicationWithProviders(application *Application) (err error) {
+	m, err := getProviderMap(application.Organization)
+	if err != nil {
+		return err
+	}
+
+	for _, providerItem := range application.Providers {
+		if provider, ok := m[providerItem.Name]; ok {
+			providerItem.Provider = provider
+		}
+	}
+
+	return
+}
+
+func extendApplicationWithOrg(application *Application) (err error) {
+	organization, err := getOrganization(application.Owner, application.Organization)
+	application.OrganizationObj = organization
+	return
+}
+
+func extendApplicationWithSigninItems(application *Application) (err error) {
+	if len(application.SigninItems) == 0 {
+		signinItem := &SigninItem{
+			Name:        "Back button",
+			Visible:     true,
+			CustomCss:   ".back-button {\n      top: 65px;\n      left: 15px;\n      position: absolute;\n}\n.back-inner-button{}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Languages",
+			Visible:     true,
+			CustomCss:   ".login-languages {\n    top: 55px;\n    right: 5px;\n    position: absolute;\n}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Logo",
+			Visible:     true,
+			CustomCss:   ".login-logo-box {}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Signin methods",
+			Visible:     true,
+			CustomCss:   ".signin-methods {}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Username",
+			Visible:     true,
+			CustomCss:   ".login-username {}\n.login-username-input{}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Password",
+			Visible:     true,
+			CustomCss:   ".login-password {}\n.login-password-input{}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Verification code",
+			Visible:     true,
+			CustomCss:   ".verification-code {}\n.verification-code-input{}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Agreement",
+			Visible:     true,
+			CustomCss:   ".login-agreement {}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Forgot password?",
+			Visible:     true,
+			CustomCss:   ".login-forget-password {\n    display: inline-flex;\n    justify-content: space-between;\n    width: 320px;\n    margin-bottom: 25px;\n}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Login button",
+			Visible:     true,
+			CustomCss:   ".login-button-box {\n    margin-bottom: 5px;\n}\n.login-button {\n    width: 100%;\n}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Signup link",
+			Visible:     true,
+			CustomCss:   ".login-signup-link {\n    margin-bottom: 24px;\n    display: flex;\n    justify-content: end;\n}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+		signinItem = &SigninItem{
+			Name:        "Providers",
+			Visible:     true,
+			CustomCss:   ".provider-img {\n      width: 30px;\n      margin: 5px;\n}\n.provider-big-img {\n      margin-bottom: 10px;\n}",
+			Placeholder: "",
+			Rule:        "None",
+		}
+		application.SigninItems = append(application.SigninItems, signinItem)
+	}
+	for idx, item := range application.SigninItems {
+		if item.Label != "" && item.CustomCss == "" {
+			application.SigninItems[idx].CustomCss = item.Label
+			application.SigninItems[idx].Label = ""
+		}
+	}
+	return
+}
+
+func extendApplicationWithSigninMethods(application *Application) (err error) {
+	if len(application.SigninMethods) == 0 {
+		if application.EnablePassword {
+			signinMethod := &SigninMethod{Name: "Password", DisplayName: "Password", Rule: "All"}
+			application.SigninMethods = append(application.SigninMethods, signinMethod)
+		}
+		if application.EnableCodeSignin {
+			signinMethod := &SigninMethod{Name: "Verification code", DisplayName: "Verification code", Rule: "All"}
+			application.SigninMethods = append(application.SigninMethods, signinMethod)
+		}
+		if application.EnableWebAuthn {
+			signinMethod := &SigninMethod{Name: "WebAuthn", DisplayName: "WebAuthn", Rule: "None"}
+			application.SigninMethods = append(application.SigninMethods, signinMethod)
+		}
+
+		signinMethod := &SigninMethod{Name: "Face ID", DisplayName: "Face ID", Rule: "None"}
+		application.SigninMethods = append(application.SigninMethods, signinMethod)
+	}
+
+	// The "Hide password" rule used to be named "Hide-Password", normalize the legacy
+	// value so that the frontend and the backend agree on what is hidden
+	for _, signinMethod := range application.SigninMethods {
+		if signinMethod != nil && signinMethod.Rule == SigninMethodRuleHidePasswordLegacy {
+			signinMethod.Rule = SigninMethodRuleHidePassword
+		}
+	}
+
+	return
+}
+
+func extendApplicationWithSignupItems(application *Application) (err error) {
+	if len(application.SignupItems) == 0 {
+		application.SignupItems = []*SignupItem{
+			{Name: "ID", Visible: false, Required: true, Prompted: false, Rule: "Random"},
+			{Name: "Username", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Display name", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Password", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Confirm password", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Email", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Phone", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Agreement", Visible: true, Required: true, Prompted: false, Rule: "None"},
+			{Name: "Tag", Visible: false, Required: false, Prompted: false, Rule: "None"},
+			{Name: "Languages", Visible: true, Required: false, Prompted: false, Rule: "None"},
+		}
+	}
+	return
+}
+
+func isApplicationAdmin(user *User, application *Application) (bool, error) {
+	if user.IsGlobalAdmin() {
+		return true, nil
+	}
+	if !user.IsAdmin || user.Owner != application.Organization {
+		return false, nil
+	}
+
+	storedApplication := &Application{Owner: application.Owner, Name: application.Name}
+	existed, err := ormer.Engine.Cols("organization").Get(storedApplication)
+	if err != nil {
+		return false, err
+	}
+	return existed && storedApplication.Organization == user.Owner, nil
+}
+
+func GetMaskedApplication(application *Application, userId string) *Application {
+	if application == nil {
+		return nil
+	}
+
+	if application.TokenFields == nil {
+		application.TokenFields = []string{}
+	}
+
+	if application.FailedSigninLimit == 0 {
+		application.FailedSigninLimit = DefaultFailedSigninLimit
+	}
+	if application.FailedSigninFrozenTime == 0 {
+		application.FailedSigninFrozenTime = DefaultFailedSigninFrozenTime
+	}
+
+	isOrgUser := false
+	if userId != "" {
+		isGlobalAdmin, err := isUserIdGlobalAdmin(userId)
+		if err != nil {
+			panic(err)
+		}
+		if isGlobalAdmin {
+			return application
+		}
+
+		user, err := GetUserOrAppUser(userId)
+		if err != nil {
+			panic(err)
+		}
+		if user != nil {
+			isAdmin, err := isApplicationAdmin(user, application)
+			if err != nil {
+				panic(err)
+			}
+			if isAdmin {
+				return application
+			}
+
+			if user.Owner == application.Organization {
+				isOrgUser = true
+			}
+		}
+	}
+
+	application.ClientSecret = "***"
+	application.ClientCert = "***"
+	application.Cert = "***"
+	application.RegistrationAccessToken = "***"
+	application.IpWhitelist = "***"
+	application.BackchannelLogoutUri = "***"
+	application.EnablePassword = false
+	application.EnableSigninSession = false
+	application.EnableCodeSignin = false
+	application.EnableSamlCompress = false
+	application.EnableSamlC14n10 = false
+	application.EnableSamlPostBinding = false
+	application.DisableSamlAttributes = false
+	application.EnableWebAuthn = false
+	application.EnableLinkWithEmail = false
+	application.SamlReplyUrl = "***"
+	application.SamlSingleLogoutUrl = "***"
+
+	providerItems := []*ProviderItem{}
+	for _, providerItem := range application.Providers {
+		if providerItem.Provider == nil {
+			continue
+		}
+
+		category := providerItem.Provider.Category
+		if category == "OAuth" || category == "Captcha" || category == "SAML" || category == "Face ID" {
+			providerItems = append(providerItems, providerItem)
+		} else if category == "Email" || category == "SMS" {
+			// The login pages need to know whether an Email or SMS provider is available,
+			// e.g. the forget-password page hides the verification methods that have no
+			// provider. So keep the provider item, but only expose its category and rule
+			// and hide all the provider's own (sensitive) config.
+			providerItems = append(providerItems, &ProviderItem{
+				CountryCodes: providerItem.CountryCodes,
+				Rule:         providerItem.Rule,
+				Provider: &Provider{
+					Category: category,
+				},
+			})
+		} else if category == "MFA" || category == "Notification" {
+			// the MFA setup page needs the provider's ID, but not its config
+			providerItems = append(providerItems, &ProviderItem{
+				CountryCodes: providerItem.CountryCodes,
+				Rule:         providerItem.Rule,
+				Provider: &Provider{
+					Owner:    providerItem.Provider.Owner,
+					Name:     providerItem.Provider.Name,
+					Category: category,
+					Type:     providerItem.Provider.Type,
+				},
+			})
+		}
+	}
+	application.Providers = providerItems
+
+	application.GrantTypes = []string{}
+	application.RedirectUris = []string{}
+	application.TokenFormat = "***"
+	application.TokenFields = []string{}
+	application.TokenSigningMethod = "***"
+	application.TokenAttributes = []*JwtItem{}
+	application.FederatedCredentials = []*FederatedCredential{}
+	application.TokenGroupFormat = "***"
+	application.ExpireInHours = -1
+	application.RefreshExpireInHours = -1
+	application.CookieExpireInHours = -1
+	application.FailedSigninLimit = -1
+	application.FailedSigninFrozenTime = -1
+
+	// the reverse proxy fields expose the internal deployment topology
+	application.Domain = "***"
+	application.OtherDomains = []string{}
+	application.UpstreamHost = "***"
+	application.SslMode = "***"
+	application.SslCert = "***"
+
+	if application.OrganizationObj != nil {
+		application.OrganizationObj.MasterPassword = "***"
+		application.OrganizationObj.DefaultPassword = "***"
+		application.OrganizationObj.MasterVerificationCode = "***"
+		application.OrganizationObj.PasswordType = "***"
+		application.OrganizationObj.PasswordSalt = "***"
+		application.OrganizationObj.IpWhitelist = "***"
+		application.OrganizationObj.KerberosRealm = "***"
+		application.OrganizationObj.KerberosKdcHost = "***"
+		application.OrganizationObj.KerberosKeytab = "***"
+		application.OrganizationObj.KerberosServiceName = "***"
+		application.OrganizationObj.InitScore = -1
+		application.OrganizationObj.EnableSoftDeletion = false
+		application.OrganizationObj.OrgBalance = -1
+		application.OrganizationObj.UserBalance = -1
+		application.OrganizationObj.BalanceCredit = -1
+
+		if !isOrgUser {
+			application.OrganizationObj.MfaItems = nil
+			if !application.OrganizationObj.IsProfilePublic {
+				application.OrganizationObj.AccountItems = nil
+			}
+		}
+	}
+
+	return application
+}
+
+func GetMaskedApplications(applications []*Application, userId string) []*Application {
+	isGlobalAdmin, err := isUserIdGlobalAdmin(userId)
+	if err != nil {
+		panic(err)
+	}
+	if isGlobalAdmin {
+		return applications
+	}
+
+	for _, application := range applications {
+		application = GetMaskedApplication(application, userId)
+	}
+	return applications
+}
+
+func GetAllowedApplications(applications []*Application, userId string, lang string) ([]*Application, error) {
+	if userId == "" {
+		return nil, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
+	}
+
+	isGlobalAdmin, err := isUserIdGlobalAdmin(userId)
+	if err != nil {
+		return nil, err
+	}
+	if isGlobalAdmin {
+		return applications, nil
+	}
+
+	user, err := GetUserOrAppUser(userId)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, errors.New(i18n.Translate(lang, "auth:Unauthorized operation"))
+	}
+
+	if user.IsAdmin {
+		return applications, nil
+	}
+
+	res := []*Application{}
+	for _, application := range applications {
+		var allowed bool
+		allowed, err = CheckLoginPermission(userId, application)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			continue
+		}
+
+		// same tag rule as the login check in controllers/auth.go
+		if len(application.Tags) > 0 && !util.HasTagInSlice(application.Tags, user.Tag) {
+			continue
+		}
+
+		res = append(res, application)
+	}
+	return res, nil
+}
+
+func checkMultipleCaptchaProviders(application *Application, lang string) error {
+	// API clients may send the provider items without the providers themselves
+	m, err := getProviderMap(application.Organization)
+	if err != nil {
+		return err
+	}
+
+	var captchaProviders []string
+	for _, providerItem := range application.Providers {
+		provider := providerItem.Provider
+		if provider == nil {
+			provider = m[providerItem.Name]
+		}
+		if provider != nil && provider.Category == "Captcha" {
+			captchaProviders = append(captchaProviders, providerItem.Name)
+		}
+	}
+
+	if len(captchaProviders) > 1 {
+		return fmt.Errorf(i18n.Translate(lang, "general:Multiple captcha providers are not allowed in the same application: %s"), strings.Join(captchaProviders, ", "))
+	}
+
+	return nil
+}
+
+// KeepApplicationCustomHtml restores the custom HTML of application from oldApplication (nil
+// for a new application). The HTML runs as script on Casdoor's own origin, where it acts as
+// whoever opens the page, e.g., a global admin, so only a global admin may change it.
+func KeepApplicationCustomHtml(application *Application, oldApplication *Application) {
+	if oldApplication == nil {
+		oldApplication = &Application{}
+	}
+
+	application.HeaderHtml = oldApplication.HeaderHtml
+	application.PageHtml = oldApplication.PageHtml
+	application.FooterHtml = oldApplication.FooterHtml
+	application.FormSideHtml = oldApplication.FormSideHtml
+	application.SigninHtml = oldApplication.SigninHtml
+	application.SignupHtml = oldApplication.SignupHtml
+	application.FormCss = keepSafeCss(application.FormCss, oldApplication.FormCss)
+	application.FormCssMobile = keepSafeCss(application.FormCssMobile, oldApplication.FormCssMobile)
+
+	// a custom sign-in item renders its customCss as HTML
+	oldSigninCss := map[string]string{}
+	for _, item := range oldApplication.SigninItems {
+		if item != nil {
+			oldSigninCss[item.Name] = item.CustomCss
+		}
+	}
+	for _, item := range application.SigninItems {
+		if isCustomSigninItem(item) {
+			item.CustomCss = oldSigninCss[item.Name]
+		} else if item != nil {
+			item.CustomCss = keepSafeCss(item.CustomCss, oldSigninCss[item.Name])
+		}
+	}
+
+	// a custom sign-up item ("Text N") renders its label as HTML
+	oldSignupHtmls := map[string]string{}
+	oldSignupCss := map[string]string{}
+	for _, item := range oldApplication.SignupItems {
+		if isCustomSignupItem(item) {
+			oldSignupHtmls[item.Name] = item.Label
+		}
+		if item != nil {
+			oldSignupCss[item.Name] = item.CustomCss
+		}
+	}
+	for _, item := range application.SignupItems {
+		if isCustomSignupItem(item) {
+			item.Label = oldSignupHtmls[item.Name]
+		}
+		if item != nil {
+			item.CustomCss = keepSafeCss(item.CustomCss, oldSignupCss[item.Name])
+		}
+	}
+}
+
+var unsafeCssTokens = []string{"\\", "<", "url(", "@import", "@font-face", "image(", "image-set(", "cross-fade(", "element(", "src("}
+
+var reStyleTag = regexp.MustCompile(`(?i)</?style[^>]*>`)
+
+func isCssSafe(css string) bool {
+	lowerCss := strings.ToLower(reStyleTag.ReplaceAllString(css, ""))
+	for _, token := range unsafeCssTokens {
+		if strings.Contains(lowerCss, token) {
+			return false
+		}
+	}
+	return true
+}
+
+func keepSafeCss(css string, oldCss string) string {
+	if css == oldCss || isCssSafe(css) {
+		return css
+	}
+	return oldCss
+}
+
+func isCustomSigninItem(item *SigninItem) bool {
+	return item != nil && (item.IsCustom || strings.HasPrefix(item.Name, "Text "))
+}
+
+func isCustomSignupItem(item *SignupItem) bool {
+	return item != nil && strings.HasPrefix(item.Name, "Text ")
+}
+
+func (application *Application) GetId() string {
+	return fmt.Sprintf("%s/%s", application.Owner, application.Name)
+}
+
+func (application *Application) IsRedirectUriValid(redirectUri string) bool {
+	if isScriptUrl(redirectUri) {
+		return false
+	}
+
+	for _, targetUri := range application.RedirectUris {
+		if redirectUriMatchesPattern(redirectUri, targetUri) {
+			return true
+		}
+	}
+	return false
+}
+
+func redirectUriMatchesPattern(redirectUri, targetUri string) bool {
+	if targetUri == "" {
+		return false
+	}
+	if redirectUri == targetUri {
+		return true
+	}
+
+	redirectUriObj, err := url.Parse(redirectUri)
+	if err != nil || redirectUriObj.Host == "" {
+		return false
+	}
+
+	targetUriObj, err := url.Parse(targetUri)
+	if err == nil && targetUriObj.Host != "" {
+		return redirectUriMatchesTarget(redirectUriObj, targetUriObj)
+	}
+
+	withScheme, parseErr := url.Parse("https://" + targetUri)
+	if parseErr == nil && withScheme.Host != "" {
+		redirectHost := redirectUriObj.Hostname()
+		targetHost := withScheme.Hostname()
+		var hostMatches bool
+		if strings.HasPrefix(targetHost, ".") {
+			hostMatches = strings.HasSuffix(redirectHost, targetHost)
+		} else {
+			hostMatches = redirectHost == targetHost || strings.HasSuffix(redirectHost, "."+targetHost)
+		}
+		schemeOk := redirectUriObj.Scheme == "http" || redirectUriObj.Scheme == "https"
+		pathMatches := withScheme.Path == "" || withScheme.Path == "/" || redirectUriObj.Path == withScheme.Path
+		return schemeOk && hostMatches && pathMatches
+	}
+
+	anchoredPattern := "^(?:" + targetUri + ")$"
+	targetUriRegex, err := regexp.Compile(anchoredPattern)
+	return err == nil && targetUriRegex.MatchString(redirectUri)
+}
+
+func redirectUriMatchesTarget(redirectUri, targetUri *url.URL) bool {
+	if redirectUri.Scheme != targetUri.Scheme {
+		return false
+	}
+	if redirectUri.Port() != targetUri.Port() && !isSameLoopbackHost(redirectUri, targetUri) {
+		return false
+	}
+	redirectHost := redirectUri.Hostname()
+	targetHost := targetUri.Hostname()
+	if redirectHost != targetHost && !strings.HasSuffix(redirectHost, "."+targetHost) {
+		return false
+	}
+	if redirectUri.Path != targetUri.Path {
+		return false
+	}
+	return true
+}
+
+func (application *Application) IsPasswordEnabled() bool {
+	if len(application.SigninMethods) == 0 {
+		return application.EnablePassword
+	}
+
+	return application.HasSigninMethod("Password")
+}
+
+func (application *Application) IsPasswordWithLdapEnabled() bool {
+	if len(application.SigninMethods) == 0 {
+		return application.EnablePassword
+	} else {
+		for _, signinMethod := range application.SigninMethods {
+			if signinMethod.Name == "Password" && signinMethod.Rule == "All" {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func (application *Application) IsCodeSigninViaEmailEnabled() bool {
+	if len(application.SigninMethods) == 0 {
+		return application.EnableCodeSignin
+	} else {
+		for _, signinMethod := range application.SigninMethods {
+			if signinMethod.Name == "Verification code" && signinMethod.Rule != "Phone only" {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func (application *Application) IsCodeSigninViaSmsEnabled() bool {
+	if len(application.SigninMethods) == 0 {
+		return application.EnableCodeSignin
+	} else {
+		for _, signinMethod := range application.SigninMethods {
+			if signinMethod.Name == "Verification code" && signinMethod.Rule != "Email only" {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func (application *Application) IsMagicLinkEnabled() bool {
+	return application.HasSigninMethod("Magic link")
+}
+
+// IsMagicLinkSignupEnabled tells whether a link may also create the account, the
+// application has to allow the signup itself as well.
+func (application *Application) IsMagicLinkSignupEnabled() bool {
+	if !application.IsSelfSignupEnabled() {
+		return false
+	}
+
+	for _, signinMethod := range application.SigninMethods {
+		if signinMethod != nil && signinMethod.Name == "Magic link" && signinMethod.Rule == SigninMethodRuleMagicLinkSignup && !signinMethod.IsHidden() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsSelfSignupEnabled tells whether users may sign themselves up on the signup page, by a
+// magic link or by a verification code. "Disable self signup" leaves only the signups of
+// the application's providers (e.g. the first SSO login of a new employee) and of the
+// invitation codes an admin hands out
+func (application *Application) IsSelfSignupEnabled() bool {
+	return application.EnableSignUp && !application.DisableSelfSignup
+}
+
+func (application *Application) IsSignupAllowedFor(organization string) bool {
+	if organization == "built-in" {
+		return false
+	}
+	if application.IsShared {
+		return true
+	}
+	return organization == application.Organization
+}
+
+func (application *Application) IsLdapEnabled() bool {
+	return application.HasSigninMethod("LDAP")
+}
+
+func (application *Application) IsWebAuthnEnabled() bool {
+	return application.HasSigninMethod("WebAuthn")
+}
+
+func (application *Application) IsFaceIdEnabled() bool {
+	return application.HasSigninMethod("Face ID")
+}
+
+func (application *Application) IsOriginValid(origin string) bool {
+	originObj, err := url.Parse(origin)
+	if err != nil || originObj.Host == "" {
+		return false
+	}
+
+	for _, redirectUri := range application.RedirectUris {
+		targetObj, err := url.Parse(redirectUri)
+		if err != nil || targetObj.Host == "" {
+			continue
+		}
+		// CORS Origin headers only contain scheme+host+port, no path.
+		// So we only compare those parts, not the path.
+		if originObj.Scheme != targetObj.Scheme {
+			continue
+		}
+		originHost := originObj.Hostname()
+		targetHost := targetObj.Hostname()
+		if originHost != targetHost && !strings.HasSuffix(originHost, "."+targetHost) {
+			continue
+		}
+		if originObj.Port() != targetObj.Port() && !isSameLoopbackHost(originObj, targetObj) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isSameLoopbackHost(uri *url.URL, targetUri *url.URL) bool {
+	host := uri.Hostname()
+	if host != targetUri.Hostname() {
+		return false
+	}
+	return host == "localhost" || net.ParseIP(host).IsLoopback()
+}
+
+func IsOriginAllowed(origin string) (bool, error) {
+	applications, err := GetApplications("")
+	if err != nil {
+		return false, err
+	}
+
+	for _, application := range applications {
+		if !application.IsDynamicClient() && application.IsOriginValid(origin) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func getApplicationMap(organization string) (map[string]*Application, error) {
+	applicationMap := make(map[string]*Application)
+	applications, err := GetOrganizationApplications("admin", organization)
+	if err != nil {
+		return applicationMap, err
+	}
+
+	for _, application := range applications {
+		applicationMap[application.Name] = application
+	}
+
+	return applicationMap, nil
+}
+
+func ExtendManagedAccountsWithUser(user *User) (*User, error) {
+	if user.ManagedAccounts == nil || len(user.ManagedAccounts) == 0 {
+		return user, nil
+	}
+
+	applicationMap, err := getApplicationMap(user.Owner)
+	if err != nil {
+		return user, err
+	}
+
+	var managedAccounts []ManagedAccount
+	for _, managedAccount := range user.ManagedAccounts {
+		application := applicationMap[managedAccount.Application]
+		if application != nil {
+			managedAccount.SigninUrl = application.SigninUrl
+			managedAccounts = append(managedAccounts, managedAccount)
+		}
+	}
+	user.ManagedAccounts = managedAccounts
+
+	return user, nil
+}
+
+func applicationChangeTrigger(oldName string, newName string) error {
+	session := ormer.Engine.NewSession()
+	defer session.Close()
+
+	err := session.Begin()
+	if err != nil {
+		return err
+	}
+
+	organization := new(Organization)
+	organization.DefaultApplication = newName
+	_, err = session.Where("default_application=?", oldName).Update(organization)
+	if err != nil {
+		return err
+	}
+
+	user := new(User)
+	user.SignupApplication = newName
+	_, err = session.Where("signup_application=?", oldName).Update(user)
+	if err != nil {
+		return err
+	}
+
+	resource := new(Resource)
+	resource.Application = newName
+	_, err = session.Where("application=?", oldName).Update(resource)
+	if err != nil {
+		return err
+	}
+
+	var permissions []*Permission
+	err = ormer.Engine.Find(&permissions)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < len(permissions); i++ {
+		permissionResoureces := permissions[i].Resources
+		for j := 0; j < len(permissionResoureces); j++ {
+			if permissionResoureces[j] == oldName {
+				permissionResoureces[j] = newName
+			}
+		}
+		permissions[i].Resources = permissionResoureces
+		_, err = session.Where("owner=?", permissions[i].Owner).Where("name=?", permissions[i].Name).Update(permissions[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	return session.Commit()
+}

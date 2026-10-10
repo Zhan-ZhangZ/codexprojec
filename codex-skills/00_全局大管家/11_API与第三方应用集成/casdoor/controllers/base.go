@@ -1,0 +1,373 @@
+// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package controllers
+
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/beego/beego/v2/core/logs"
+	"github.com/beego/beego/v2/server/web"
+	"github.com/casdoor/casdoor/mcpself"
+	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
+)
+
+// ApiController
+// controller for handlers under /api uri
+type ApiController struct {
+	web.Controller
+}
+
+// RootController
+// controller for handlers directly under / (root)
+type RootController struct {
+	ApiController
+}
+
+type SessionData struct {
+	ExpireTime int64
+}
+
+func (c *ApiController) IsGlobalAdmin() bool {
+	isGlobalAdmin, _ := c.isGlobalAdmin()
+
+	return isGlobalAdmin
+}
+
+func (c *ApiController) IsAdmin() bool {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if !isGlobalAdmin && user == nil {
+		return false
+	}
+
+	return isGlobalAdmin || user.IsAdmin
+}
+
+// IsAdminOf checks that the current user administers user2: a global admin does, an
+// org admin only for the users of their own organization.
+func (c *ApiController) IsAdminOf(user2 *object.User) bool {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if isGlobalAdmin {
+		return true
+	}
+
+	return user != nil && user2 != nil && user.IsAdmin && user.Owner == user2.Owner
+}
+
+// IsAdminOfOrganization checks that the current user administers the organization: a
+// global admin does, an org admin only their own organization.
+func (c *ApiController) IsAdminOfOrganization(organization string) bool {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if isGlobalAdmin {
+		return true
+	}
+
+	return user != nil && user.IsAdmin && user.Owner == organization
+}
+
+func (c *ApiController) IsAdminOrSelf(user2 *object.User) bool {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if isGlobalAdmin {
+		return true
+	}
+
+	if user == nil || user2 == nil {
+		return false
+	}
+
+	return user.Owner == user2.Owner && (user.IsAdmin || user.Name == user2.Name)
+}
+
+// requireOrganizationPermission checks that the current user may create an object belonging
+// to the given organization. Global admins can use any organization, other admins are
+// restricted to their own one. It responds with an error and returns false when not allowed.
+func (c *ApiController) requireOrganizationPermission(organization string) bool {
+	isGlobalAdmin, user := c.isGlobalAdmin()
+	if isGlobalAdmin {
+		return true
+	}
+
+	if user == nil || user.Owner != organization {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return false
+	}
+
+	return true
+}
+
+func (c *ApiController) requireGlobalAdmin() bool {
+	if !c.IsGlobalAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return false
+	}
+	return true
+}
+
+func (c *ApiController) isGlobalAdmin() (bool, *object.User) {
+	username := c.GetSessionUsername()
+	if object.IsAppUser(username) {
+		// e.g., "app/app-casnode", an admin of the application's organization
+		appUser, err := object.GetAppUser(username)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return false, nil
+		}
+		return appUser.IsGlobalAdmin(), appUser
+	}
+
+	user := c.getCurrentUser()
+	if user == nil {
+		return false, nil
+	}
+
+	return user.IsGlobalAdmin(), user
+}
+
+func (c *ApiController) getCurrentUser() *object.User {
+	var user *object.User
+	var err error
+	userId := c.GetSessionUsername()
+	if userId == "" {
+		user = nil
+	} else {
+		user, err = object.GetUser(userId)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return nil
+		}
+	}
+	return user
+}
+
+// GetSessionUsername ...
+func (c *ApiController) GetSessionUsername() string {
+	// prefer username stored in Beego context by ApiFilter
+	if ctxUser := c.Ctx.Input.GetData("currentUserId"); ctxUser != nil {
+		if username, ok := ctxUser.(string); ok {
+			return username
+		}
+	}
+
+	// check if user session expired
+	sessionData := c.GetSessionData()
+
+	if sessionData != nil &&
+		sessionData.ExpireTime != 0 &&
+		sessionData.ExpireTime < time.Now().Unix() {
+		c.ClearUserSession()
+		return ""
+	}
+
+	user := c.GetSession("username")
+	if user == nil {
+		return ""
+	}
+
+	return user.(string)
+}
+
+// GetPaidUsername ...
+func (c *ApiController) GetPaidUsername() string {
+	// check if user session expired
+	sessionData := c.GetSessionData()
+
+	if sessionData != nil &&
+		sessionData.ExpireTime != 0 &&
+		sessionData.ExpireTime < time.Now().Unix() {
+		c.ClearUserSession()
+		return ""
+	}
+
+	user := c.GetSession("paidUsername")
+	if user == nil {
+		return ""
+	}
+
+	return user.(string)
+}
+
+func (c *ApiController) GetSessionToken() string {
+	accessToken := c.GetSession("accessToken")
+	if accessToken == nil {
+		return ""
+	}
+
+	return accessToken.(string)
+}
+
+func (c *ApiController) GetSessionApplication() *object.Application {
+	clientId := c.GetSession("aud")
+	if clientId == nil {
+		return nil
+	}
+	application, err := object.GetApplicationByClientId(clientId.(string))
+	if err != nil {
+		c.ResponseError(err.Error())
+		return nil
+	}
+
+	return application
+}
+
+func (c *ApiController) ClearUserSession() {
+	c.SetSessionUsername("")
+	c.SetSessionData(nil)
+	_ = c.SessionRegenerateID()
+}
+
+func (c *ApiController) ClearTokenSession() {
+	c.SetSessionToken("")
+}
+
+func (c *ApiController) GetSessionOidc() (string, string) {
+	sessionData := c.GetSessionData()
+	if sessionData != nil &&
+		sessionData.ExpireTime != 0 &&
+		sessionData.ExpireTime < time.Now().Unix() {
+		c.ClearUserSession()
+		return "", ""
+	}
+	scopeValue := c.GetSession("scope")
+	audValue := c.GetSession("aud")
+	var scope, aud string
+	var ok bool
+	if scope, ok = scopeValue.(string); !ok {
+		scope = ""
+	}
+	if aud, ok = audValue.(string); !ok {
+		aud = ""
+	}
+	return scope, aud
+}
+
+func (c *ApiController) renewSessionIdForUser(userId string) {
+	if sessionUser, _ := c.GetSession("username").(string); sessionUser == userId {
+		return
+	}
+
+	err := c.SessionRegenerateID()
+	if err != nil {
+		logs.Error("SessionRegenerateID failed, error: %s", err)
+	}
+}
+
+// SetSessionUsername ...
+func (c *ApiController) SetSessionUsername(user string) {
+	c.SetSession("username", user)
+	c.clearSessionOidc()
+}
+
+// clearSessionOidc drops the access token scope and token binding left by AutoSigninFilter, which would otherwise limit an interactive sign-in
+func (c *ApiController) clearSessionOidc() {
+	c.DelSession("scope")
+	c.DelSession("aud")
+	c.DelSession(object.SessionSigninTokenId)
+}
+
+func (c *ApiController) SetSessionToken(accessToken string) {
+	c.SetSession("accessToken", accessToken)
+}
+
+// GetSessionData ...
+func (c *ApiController) GetSessionData() *SessionData {
+	session := c.GetSession("SessionData")
+	if session == nil {
+		return nil
+	}
+
+	sessionData := &SessionData{}
+	err := util.JsonToStruct(session.(string), sessionData)
+	if err != nil {
+		logs.Error("GetSessionData failed, error: %s", err)
+		return nil
+	}
+
+	return sessionData
+}
+
+// SetSessionData ...
+func (c *ApiController) SetSessionData(s *SessionData) {
+	if s == nil {
+		c.DelSession("SessionData")
+		return
+	}
+
+	c.SetSession("SessionData", util.StructToJson(s))
+}
+
+func (c *ApiController) setMfaUserSession(userId string) {
+	c.SetSession(object.MfaSessionUserId, userId)
+}
+
+func (c *ApiController) getMfaUserSession() string {
+	userId := c.Ctx.Input.CruSession.Get(context.Background(), object.MfaSessionUserId)
+	if userId == nil {
+		return ""
+	}
+	return userId.(string)
+}
+
+func (c *ApiController) setExpireForSession(cookieExpireInHours int64) {
+	timestamp := time.Now().Unix()
+	if cookieExpireInHours == 0 {
+		cookieExpireInHours = 720
+	}
+	timestamp += 3600 * cookieExpireInHours
+	c.SetSessionData(&SessionData{
+		ExpireTime: timestamp,
+	})
+}
+
+func wrapActionResponse(affected bool, e ...error) *Response {
+	if len(e) != 0 && e[0] != nil {
+		return &Response{Status: "error", Msg: e[0].Error()}
+	} else if affected {
+		return &Response{Status: "ok", Msg: "", Data: "Affected"}
+	} else {
+		return &Response{Status: "ok", Msg: "", Data: "Unaffected"}
+	}
+}
+
+func wrapErrorResponse(err error) *Response {
+	if err == nil {
+		return &Response{Status: "ok", Msg: ""}
+	} else {
+		return &Response{Status: "error", Msg: err.Error()}
+	}
+}
+
+func (c *ApiController) Finish() {
+	if strings.HasPrefix(c.Ctx.Input.URL(), "/api") {
+		startTime := c.Ctx.Input.GetData("startTime")
+		if startTime != nil {
+			latency := time.Since(startTime.(time.Time)).Milliseconds()
+			object.ApiLatency.WithLabelValues(c.Ctx.Input.URL(), c.Ctx.Input.Method()).Observe(float64(latency))
+		}
+	}
+	c.Controller.Finish()
+}
+
+func (c *ApiController) McpResponseError(id interface{}, code int, message string, data interface{}) {
+	resp := mcpself.BuildMcpResponse(id, nil, &mcpself.McpError{
+		Code:    code,
+		Message: message,
+		Data:    data,
+	})
+	c.Ctx.Output.Header("Content-Type", "application/json")
+	c.Data["json"] = resp
+	c.ServeJSON()
+}

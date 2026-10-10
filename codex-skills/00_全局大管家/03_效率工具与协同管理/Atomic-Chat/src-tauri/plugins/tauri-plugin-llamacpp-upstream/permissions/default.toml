@@ -1,0 +1,25 @@
+[default]
+description = "Default permissions for the llamacpp plugin"
+permissions = [
+    # Backend capability probe
+    "allow-check-spec-type-support",
+
+    # GGUF commands
+    "allow-read-gguf-metadata",
+    "allow-is-model-supported",
+
+    # Backend management commands
+    "allow-map-old-backend-to-new",
+    "allow-get-local-installed-backends",
+    "allow-list-supported-backends",
+    "allow-determine-supported-backends",
+    "allow-get-supported-features",
+    "allow-find-latest-version-for-backend",
+    "allow-prioritize-backends",
+    "allow-check-backend-for-updates",
+    "allow-remove-old-backend-versions",
+    "allow-should-migrate-backend",
+    "allow-handle-setting-update",
+    "allow-install-bundled-backend",
+    "allow-fetch-manifest-http1"
+]

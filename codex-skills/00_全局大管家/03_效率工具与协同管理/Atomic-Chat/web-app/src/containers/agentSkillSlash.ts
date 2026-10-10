@@ -1,0 +1,104 @@
+import type { AgentSkill } from '@/services/agent/skills'
+
+export type AgentSkillSlashQuery = {
+  start: number
+  end: number
+  query: string
+}
+
+/**
+ * The "/" menu lists the same skills on both engines. A skill picked here is
+ * an explicit request, so chat mode takes it too — even a bundled one written
+ * for the agent's `os.*` tools — and injects its instructions into the system
+ * prompt (see `@/lib/chat-skill-injection`).
+ */
+export function filterAgentSkills(
+  skills: AgentSkill[],
+  query: string
+): AgentSkill[] {
+  const normalizedQuery = query.toLowerCase()
+  return skills
+    .filter((skill) => skill.enabled && skill.compatible && !skill.error)
+    .filter(
+      (skill) =>
+        !normalizedQuery ||
+        skill.name.toLowerCase().includes(normalizedQuery) ||
+        skill.description.toLowerCase().includes(normalizedQuery)
+    )
+}
+
+export function findAvailableAgentSkill(
+  skills: AgentSkill[],
+  name: string
+): AgentSkill | null {
+  return (
+    skills.find(
+      (skill) =>
+        skill.name === name &&
+        skill.enabled &&
+        skill.compatible &&
+        !skill.error &&
+        skill.unavailableReasons.length === 0
+    ) ?? null
+  )
+}
+
+export function moveAgentSkillActiveIndex(
+  current: number,
+  direction: 1 | -1,
+  count: number
+): number {
+  if (count <= 0) return 0
+  return (current + direction + count) % count
+}
+
+export function findAgentSkillSlashQuery(
+  value: string,
+  cursor: number | null
+): AgentSkillSlashQuery | null {
+  if (cursor === null) return null
+
+  const prefix = value.slice(0, cursor)
+  const match = /(?:^|\s)\/([^\s/]*)$/.exec(prefix)
+  if (!match) return null
+
+  const slashOffset = match[0].lastIndexOf('/')
+  return {
+    start: match.index + slashOffset,
+    end: cursor,
+    query: match[1].toLowerCase(),
+  }
+}
+
+export function replaceAgentSkillSlashQuery(
+  value: string,
+  query: AgentSkillSlashQuery,
+  skillName: string
+): { value: string; cursor: number } {
+  const invocation = `/${skillName}`
+  return {
+    value: `${value.slice(0, query.start)}${invocation}${value.slice(query.end)}`,
+    cursor: query.start + invocation.length,
+  }
+}
+
+export function containsAgentSkillInvocation(
+  value: string,
+  skillName: string
+): boolean {
+  const escapedName = skillName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|\\s)/${escapedName}(?=[\\s,.;:!?]|$)`).test(value)
+}
+
+export function prependAgentSkillInvocation(
+  value: string,
+  skillName: string
+): { value: string; cursor: number } {
+  if (containsAgentSkillInvocation(value, skillName)) {
+    return { value, cursor: value.length }
+  }
+
+  const invocation = `/${skillName}`
+  const nextValue = value ? `${invocation} ${value}` : invocation
+  return { value: nextValue, cursor: invocation.length }
+}

@@ -1,0 +1,105 @@
+import { memo } from 'react'
+import { IconAlertTriangle, IconX } from '@tabler/icons-react'
+
+import { Button } from '@/components/ui/button'
+import { useTranslation } from '@/i18n/react-i18next-compat'
+import {
+  describeDiffusionError,
+  errorActionLabelKey,
+  type DiffusionErrorAction,
+} from '@/lib/diffusion/errors'
+import type { DiffusionError } from '@/services/diffusion/types'
+
+type ImageErrorBannerProps = {
+  error: DiffusionError | null
+  onAction: (action: DiffusionErrorAction) => void
+  onDismiss: () => void
+  /** Label keys for actions that mean something else on this page. */
+  actionLabelKeys?: Partial<Record<DiffusionErrorAction, string>>
+  /** Title and body keys for codes that mean something else on this page (a clip, not a picture). */
+  copyKeys?: Partial<
+    Record<DiffusionError['code'], { titleKey: string; bodyKey: string }>
+  >
+  /** Values the copy may name: the frames, seconds and size of the clip that failed. */
+  copyValues?: Record<string, string | number>
+}
+
+/**
+ * The one place a native error is shown on the Images page.
+ *
+ * Routes through `describeDiffusionError`, so every code gets a title, a
+ * body and the action that actually fixes it — OOM offers a smaller size and
+ * a smaller quant, a missing engine offers Install — instead of a toast with
+ * the raw message. Technical details stay in logs; the main surface only
+ * explains the recovery.
+ */
+export const ImageErrorBanner = memo(function ImageErrorBanner({
+  error,
+  onAction,
+  onDismiss,
+  actionLabelKeys,
+  copyKeys,
+  copyValues,
+}: ImageErrorBannerProps) {
+  const { t } = useTranslation()
+  if (!error) return null
+  const described = describeDiffusionError(error.code)
+  const copy = copyKeys?.[error.code] ?? described
+  const labelKey = (action: DiffusionErrorAction) =>
+    actionLabelKeys?.[action] ?? errorActionLabelKey(action)
+
+  return (
+    <div
+      role="alert"
+      data-testid="image-error-banner"
+      className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3"
+    >
+      <IconAlertTriangle
+        size={18}
+        className="mt-0.5 shrink-0 text-destructive"
+      />
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="text-sm font-medium">{t(copy.titleKey, copyValues)}</p>
+        <p className="text-xs text-muted-foreground">
+          {t(copy.bodyKey, copyValues)}
+        </p>
+        {(described.action || described.secondaryAction) && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {described.action && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  onAction(described.action as DiffusionErrorAction)
+                }
+              >
+                {t(labelKey(described.action))}
+              </Button>
+            )}
+            {described.secondaryAction && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  onAction(described.secondaryAction as DiffusionErrorAction)
+                }
+              >
+                {t(labelKey(described.secondaryAction))}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label={t('common:close')}
+        onClick={onDismiss}
+      >
+        <IconX size={14} />
+      </Button>
+    </div>
+  )
+})
+
+export default ImageErrorBanner

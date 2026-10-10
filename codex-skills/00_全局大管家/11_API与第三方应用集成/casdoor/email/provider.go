@@ -1,0 +1,34 @@
+// Copyright 2023 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package email
+
+type EmailProvider interface {
+	Send(fromAddress string, fromName string, toAddress []string, subject string, content string) error
+}
+
+func GetEmailProvider(typ string, clientId string, clientSecret string, host string, port int, sslMode string, endpoint string, method string, httpHeaders map[string]string, bodyMapping map[string]string, contentType string, enableProxy bool) EmailProvider {
+	switch typ {
+	case "Azure ACS":
+		return NewAzureACSEmailProvider(clientSecret, host)
+	case "Custom HTTP Email":
+		return NewHttpEmailProvider(endpoint, method, httpHeaders, bodyMapping, contentType)
+	case "SendGrid":
+		return NewSendgridEmailProvider(clientSecret, host, endpoint)
+	case "Resend":
+		return NewResendEmailProvider(clientSecret)
+	default:
+		return NewSmtpEmailProvider(clientId, clientSecret, host, port, typ, sslMode, enableProxy)
+	}
+}

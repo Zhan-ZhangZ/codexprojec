@@ -1,0 +1,10 @@
+{
+  "noLogs": "Aucun journal disponible",
+  "filterAll": "Tous",
+  "sourceApp": "App",
+  "sourceCore": "Cœur",
+  "export": "Exporter les journaux",
+  "exported": "Journaux exportés",
+  "showInFolder": "Afficher dans le dossier",
+  "exportFailed": "Impossible d'exporter les journaux"
+}

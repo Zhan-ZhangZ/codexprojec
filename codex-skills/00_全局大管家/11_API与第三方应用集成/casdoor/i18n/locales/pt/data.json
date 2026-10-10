@@ -1,0 +1,269 @@
+{
+  "account": {
+    "Failed to add user": "Falha ao adicionar usuário",
+    "Get init score failed, error: %w": "Falha ao obter pontuação inicial, erro: %w",
+    "The application does not allow to sign up new account": "O aplicativo não permite a criação de novas contas"
+  },
+  "auth": {
+    "Challenge method should be S256": "O método de desafio deve ser S256",
+    "DeviceCode Invalid": "Código de dispositivo inválido",
+    "Failed to create user, user information is invalid: %s": "Falha ao criar usuário, as informações são inválidas: %s",
+    "Failed to login in: %s": "Falha ao fazer login em: %s",
+    "Invalid token": "Token inválido",
+    "Please sign in again": "Faça login novamente",
+    "Requested scope exceeds original device authorization scope": "O escopo solicitado excede o escopo da autorização de dispositivo original",
+    "State expected: %s, but got: %s": "Estado esperado: %s, mas recebido: %s",
+    "The account for provider: %s and username: %s (%s) does not exist and is not allowed to sign up as new account via %s, please use another way to sign up": "A conta do provedor: %s e nome de usuário: %s (%s) não existe e não é permitido criar nova conta via %s, por favor, use outra forma de cadastro",
+    "The account for provider: %s and username: %s (%s) does not exist and is not allowed to sign up as new account, please contact your IT support": "A conta do provedor: %s e nome de usuário: %s (%s) não existe e não é permitido criar nova conta, entre em contato com o suporte de TI",
+    "The account for provider: %s and username: %s (%s) is already linked to another account: %s (%s)": "A conta do provedor: %s e nome de usuário: %s (%s) já está vinculada a outra conta: %s (%s)",
+    "The application does not match the device authorization request": "A aplicação não corresponde à solicitação de autorização de dispositivo",
+    "The application: %s does not exist": "O aplicativo: %s não existe",
+    "The application: %s has disabled users to signin": "O aplicativo: %s desativou o login de usuários",
+    "The group: %s does not exist": "O grupo: %s não existe",
+    "The login method: login with LDAP is not enabled for the application": "O método de login com LDAP não está habilitado para o aplicativo",
+    "The login method: login with SMS is not enabled for the application": "O método de login com SMS não está habilitado para o aplicativo",
+    "The login method: login with WebAuthn is not enabled for the application": "O método de login: login com WebAuthn não está habilitado para o aplicativo",
+    "The login method: login with email is not enabled for the application": "O método de login com e-mail não está habilitado para o aplicativo",
+    "The login method: login with face is not enabled for the application": "O método de login com reconhecimento facial não está habilitado para o aplicativo",
+    "The login method: login with magic link is not enabled for the application": "O método de login: login com link mágico não está habilitado para o aplicativo",
+    "The login method: login with password is not enabled for the application": "O método de login com senha não está habilitado para o aplicativo",
+    "The order: %s does not exist": "O pedido: %s não existe",
+    "The organization: %s does not exist": "A organização: %s não existe",
+    "The organization: %s has disabled users to signin": "A organização: %s desativou o login de usuários",
+    "The plan: %s does not exist": "O plano: %s não existe",
+    "The pricing: %s does not exist": "O preço: %s não existe",
+    "The pricing: %s does not have plan: %s": "O preço: %s não tem o plano: %s",
+    "The pricing: %s is invite-only, only invited users can use it": "O preço: %s é somente por convite, apenas usuários convidados podem usá-lo",
+    "The provider: %s does not exist": "O provedor: %s não existe",
+    "The provider: %s is not enabled for the application": "O provedor: %s não está habilitado para o aplicativo",
+    "Unauthorized operation": "Operação não autorizada",
+    "Unknown authentication type (not password or provider), form = %s": "Tipo de autenticação desconhecido (não é senha ou provedor), formulário = %s",
+    "User's tag: %s is not listed in the application's tags": "A tag do usuário: %s não está listada nas tags do aplicativo",
+    "UserCode Expired": "Código de usuário expirado",
+    "UserCode Invalid": "Código de usuário inválido",
+    "paid-user %s does not have active or pending subscription and the application: %s does not have default pricing": "O usuário pago %s não possui assinatura ativa ou pendente e o aplicativo: %s não possui preço padrão",
+    "the application for user %s is not found": "o aplicativo para o usuário %s não foi encontrado",
+    "the organization: %s is not found": "a organização: %s não foi encontrada"
+  },
+  "cas": {
+    "Service %s and %s do not match": "O serviço %s e %s não correspondem"
+  },
+  "cert": {
+    "The cert name: %s is already used by another organization": "O nome do certificado: %s já é usado por outra organização"
+  },
+  "check": {
+    "%s does not meet the CIDR format requirements: %s": "%s não atende aos requisitos do formato CIDR: %s",
+    "Affiliation cannot be blank": "A afiliação não pode estar em branco",
+    "Application does not exist": "A aplicação não existe",
+    "CIDR for IP: %s should not be empty": "O CIDR para o IP: %s não pode estar vazio",
+    "Default code does not match the code's matching rules": "O código padrão não corresponde às regras de validação do código",
+    "DisplayName cannot be blank": "O nome de exibição não pode estar em branco",
+    "DisplayName is not valid real name": "O nome de exibição não é um nome real válido",
+    "Email already exists": "O e-mail já existe",
+    "Email cannot be empty": "O e-mail não pode estar vazio",
+    "Email is invalid": "E-mail inválido",
+    "Empty username.": "Nome de usuário vazio.",
+    "Face data does not exist, cannot log in": "Dados faciais não existem, não é possível fazer login",
+    "Face data mismatch": "Dados faciais não correspondem",
+    "Failed to parse client IP: %s": "Falha ao analisar o IP do cliente: %s",
+    "FirstName cannot be blank": "O primeiro nome não pode estar em branco",
+    "Guest users must upgrade their account by setting a username and password before they can sign in directly": "Usuários convidados devem atualizar suas contas definindo um nome de usuário e senha antes de poderem entrar diretamente",
+    "Invitation code cannot be blank": "O código de convite não pode estar em branco",
+    "Invitation code exhausted": "O código de convite foi esgotado",
+    "Invitation code expired": "O código de convite expirou",
+    "Invitation code is invalid": "Código de convite inválido",
+    "Invitation code suspended": "Código de convite suspenso",
+    "LastName cannot be blank": "O sobrenome não pode estar em branco",
+    "Multiple accounts with same uid, please check your ldap server": "Múltiplas contas com o mesmo uid, verifique seu servidor LDAP",
+    "Organization does not exist": "A organização não existe",
+    "Password cannot be empty": "A senha não pode estar vazia",
+    "Phone already exists": "O telefone já existe",
+    "Phone cannot be empty": "O telefone não pode estar vazio",
+    "Phone number is invalid": "Número de telefone inválido",
+    "Please register using the email corresponding to the invitation code": "Por favor, registre-se usando o e-mail correspondente ao código de convite",
+    "Please register using the phone  corresponding to the invitation code": "Por favor, registre-se usando o telefone correspondente ao código de convite",
+    "Please register using the username corresponding to the invitation code": "Por favor, registre-se usando o nome de usuário correspondente ao código de convite",
+    "Session outdated, please login again": "Sessão expirada, faça login novamente",
+    "The invitation code has already been used": "O código de convite já foi utilizado",
+    "The password must contain at least one special character": "A senha deve conter pelo menos um caractere especial",
+    "The password must contain at least one uppercase letter, one lowercase letter and one digit": "A senha deve conter pelo menos uma letra maiúscula, uma letra minúscula e um dígito",
+    "The password must have at least 6 characters": "A senha deve ter pelo menos 6 caracteres",
+    "The password must have at least 8 characters": "A senha deve ter pelo menos 8 caracteres",
+    "The password must not contain any repeated characters": "A senha não deve conter caracteres repetidos",
+    "The user has been deleted and cannot be used to sign in, please contact the administrator": "O usuário foi excluído e não pode ser usado para fazer login, entre em contato com o administrador",
+    "The user is forbidden to sign in, please contact the administrator": "O usuário está proibido de entrar, entre em contato com o administrador",
+    "The user: %s doesn't exist in LDAP server": "O usuário: %s não existe no servidor LDAP",
+    "The username may only contain alphanumeric characters, underlines or hyphens, cannot have consecutive hyphens or underlines, and cannot begin or end with a hyphen or underline.": "O nome de usuário pode conter apenas caracteres alfanuméricos, sublinhados ou hífens, não pode ter hífens ou sublinhados consecutivos e não pode começar ou terminar com hífen ou sublinhado.",
+    "The value \"%s\" for account field \"%s\" doesn't match the account item regex": "O valor \"%s\" para o campo de conta \"%s\" não corresponde à expressão regular definida",
+    "The value \"%s\" for signup field \"%s\" doesn't match the signup item regex of the application \"%s\"": "O valor \"%s\" para o campo de registro \"%s\" não corresponde à expressão regular definida na aplicação \"%s\"",
+    "Username already exists": "O nome de usuário já existe",
+    "Username cannot be an email address": "O nome de usuário não pode ser um endereço de e-mail",
+    "Username cannot contain white spaces": "O nome de usuário não pode conter espaços em branco",
+    "Username cannot start with a digit": "O nome de usuário não pode começar com um número",
+    "Username is too long (maximum is 255 characters).": "O nome de usuário é muito longo (máximo de 255 caracteres).",
+    "Username must have at least 2 characters": "O nome de usuário deve ter pelo menos 2 caracteres",
+    "Username supports email format. Also The username may only contain alphanumeric characters, underlines or hyphens, cannot have consecutive hyphens or underlines, and cannot begin or end with a hyphen or underline. Also pay attention to the email format.": "O nome de usuário suporta o formato de e-mail. Além disso, pode conter apenas caracteres alfanuméricos, sublinhados ou hífens, não pode ter hífens ou sublinhados consecutivos e não pode começar ou terminar com hífen ou sublinhado. Também preste atenção ao formato do e-mail.",
+    "You have entered the wrong password or code too many times, please wait for %d minutes and try again": "Você digitou a senha ou o código incorretos muitas vezes. Aguarde %d minutos e tente novamente",
+    "Your IP address: %s has been banned according to the configuration of: ": "Seu endereço IP: %s foi bloqueado de acordo com a configuração de: ",
+    "Your password has expired. Please reset your password by clicking \"Forgot password\"": "Sua senha expirou. Por favor, redefina-a clicando em \"Esqueci a senha\"",
+    "Your region is not allow to signup by phone": "Sua região não permite cadastro por telefone",
+    "password or code is incorrect": "Senha ou código incorreto",
+    "password or code is incorrect, you have %s remaining chances": "Senha ou código incorreto, você tem %s tentativas restantes",
+    "unsupported password type: %s": "Tipo de senha não suportado: %s"
+  },
+  "enforcer": {
+    "the adapter: %s is not found": "O adaptador: %s não foi encontrado"
+  },
+  "general": {
+    "Application cannot be empty": "A aplicação não pode estar vazia",
+    "Failed to import groups": "Falha ao importar grupos",
+    "Failed to import users": "Falha ao importar usuários",
+    "Granted scopes cannot be empty": "Os escopos concedidos não podem estar vazios",
+    "Insufficient balance: new balance %v would be below credit limit %v": "Saldo insuficiente: o novo saldo %v estaria abaixo do limite de crédito %v",
+    "Insufficient balance: new organization balance %v would be below credit limit %v": "Saldo insuficiente: o novo saldo da organização %v estaria abaixo do limite de crédito %v",
+    "Invalid application": "Aplicação inválida",
+    "Missing parameter": "Parâmetro ausente",
+    "Multiple captcha providers are not allowed in the same application: %s": "Não são permitidos vários provedores de captcha na mesma aplicação: %s",
+    "Only admin user can specify user": "Apenas um administrador pode especificar um usuário",
+    "Please login first": "Por favor, faça login primeiro",
+    "Please sign in first": "Faça login primeiro",
+    "The LDAP: %s does not exist": "O LDAP: %s não existe",
+    "The object does not exist": "O objeto não existe",
+    "The organization: %s should have one application at least": "A organização: %s deve ter pelo menos um aplicativo",
+    "The syncer: %s does not exist": "O sincronizador: %s não existe",
+    "The token: %s does not exist": "O token: %s não existe",
+    "The uploaded file contains no user": "O arquivo enviado não contém nenhum usuário",
+    "The uploaded file is empty": "O arquivo enviado está vazio",
+    "The user doesn't exist": "O usuário não existe",
+    "The user name in line %d is empty": "O nome de usuário na linha %d está vazio",
+    "The user: %s doesn't exist": "O usuário: %s não existe",
+    "The user: %s in line %d is duplicated with line %d": "O usuário: %s na linha %d está duplicado com a linha %d",
+    "The user: %s is not found": "O usuário: %s não foi encontrado",
+    "The users already exist: %s": "Os seguintes usuários já existem: %s",
+    "User is required for User category transaction": "Usuário é obrigatório para transação de categoria de usuário",
+    "User not found": "Usuário não encontrado",
+    "Wrong userId": "ID de usuário incorreto",
+    "don't support captchaProvider: ": "captchaProvider não suportado: ",
+    "this operation is not allowed in demo mode": "esta operação não é permitida no modo de demonstração",
+    "this operation requires administrator to perform": "esta operação requer privilégios de administrador"
+  },
+  "invitation": {
+    "Invitation %s does not exist": "O convite %s não existe"
+  },
+  "ldap": {
+    "Ldap server exist": "O servidor LDAP existe"
+  },
+  "link": {
+    "Please link first": "Por favor, vincule primeiro",
+    "Provider name is required for Custom Flexible providers": "O nome do provedor é obrigatório para provedores Custom Flexible",
+    "This application has no providers": "Este aplicativo não possui provedores",
+    "This application has no providers of type": "Este aplicativo não possui provedores do tipo especificado",
+    "This provider can't be unlinked": "Este provedor não pode ser desvinculado",
+    "You are not the global admin, you can't unlink other users": "Você não é o administrador global, não pode desvincular outros usuários",
+    "You can't unlink yourself, you are not a member of any application": "Você não pode se desvincular, pois não é membro de nenhum aplicativo"
+  },
+  "organization": {
+    "Only admin can modify the %s.": "Apenas o administrador pode modificar o %s.",
+    "The %s is immutable.": "O %s é imutável.",
+    "Unknown modify rule %s.": "Regra de modificação desconhecida: %s.",
+    "adding a new user to the 'built-in' organization is currently disabled. Please note: all users in the 'built-in' organization are global administrators in Casdoor. Refer to the docs: https://casdoor.org/docs/basic/core-concepts#how-does-casdoor-manage-itself. If you still wish to create a user for the 'built-in' organization, go to the organization's settings page and enable the 'Has privilege consent' option.": "A adição de novos usuários à organização 'built-in' está desativada. Observe que todos os usuários nessa organização são administradores globais no Casdoor. Consulte a documentação: https://casdoor.org/docs/basic/core-concepts#how-does-casdoor-manage-itself. Se ainda desejar criar um usuário, vá até a página de configurações da organização e habilite a opção 'Possui consentimento de privilégios'."
+  },
+  "permission": {
+    "The permission: \"%s\" doesn't exist": "A permissão: \"%s\" não existe"
+  },
+  "product": {
+    "Product list cannot be empty": "A lista de produtos não pode estar vazia"
+  },
+  "provider": {
+    "Failed to initialize ID Verification provider": "Falha ao inicializar provedor de verificação de ID",
+    "Invalid application id": "ID de aplicativo inválido",
+    "No ID Verification provider configured": "Nenhum provedor de verificação de ID configurado",
+    "Provider is not an ID Verification provider": "Provedor não é um provedor de verificação de ID",
+    "the provider: %s does not exist": "O provedor: %s não existe"
+  },
+  "resource": {
+    "User is nil for tag: avatar": "Usuário nulo para a tag: avatar",
+    "Username or fullFilePath is empty: username = %s, fullFilePath = %s": "Nome de usuário ou fullFilePath vazio: username = %s, fullFilePath = %s"
+  },
+  "saml": {
+    "Application %s not found": "Aplicativo %s não encontrado"
+  },
+  "saml_sp": {
+    "provider %s's category is not SAML": "A categoria do provedor %s não é SAML"
+  },
+  "service": {
+    "Empty parameters for emailForm: %v": "Parâmetros vazios para emailForm: %v",
+    "Invalid Email receivers: %s": "Destinatários de e-mail inválidos: %s",
+    "Invalid phone receivers: %s": "Destinatários de telefone inválidos: %s",
+    "Too many requests, please try again later": "Muitas solicitações, tente novamente mais tarde"
+  },
+  "session": {
+    "session id %s is the current session and cannot be deleted": "ID da sessão %s é a sessão atual e não pode ser excluída"
+  },
+  "storage": {
+    "The objectKey: %s is not allowed": "A chave de objeto: %s não é permitida",
+    "The provider type: %s is not supported": "O tipo de provedor: %s não é suportado"
+  },
+  "subscription": {
+    "Error": "Erro"
+  },
+  "ticket": {
+    "Ticket not found": "Ticket não encontrado"
+  },
+  "token": {
+    "Grant_type: %s is not supported in this application": "Grant_type: %s não é suportado neste aplicativo",
+    "Invalid application or wrong clientSecret": "Aplicativo inválido ou clientSecret incorreto",
+    "Invalid client_id": "client_id inválido",
+    "Invalid scope": "Escopo inválido",
+    "Redirect URI: %s doesn't exist in the allowed Redirect URI list": "O URI de redirecionamento: %s não existe na lista de URIs permitidos",
+    "The nonce parameter is required for this response type": "O parâmetro nonce é obrigatório para este tipo de resposta",
+    "Token not found, invalid accessToken": "Token não encontrado, accessToken inválido"
+  },
+  "user": {
+    "Display name cannot be empty": "O nome de exibição não pode estar vazio",
+    "ID card information and real name are required": "Informações do documento de identidade e nome verdadeiro são obrigatórios",
+    "Identity verification failed": "Falha na verificação de identidade",
+    "MFA email is enabled but email is empty": "MFA por e-mail está habilitado, mas o e-mail está vazio",
+    "MFA phone is enabled but phone number is empty": "MFA por telefone está habilitado, mas o número de telefone está vazio",
+    "New password cannot contain blank space.": "A nova senha não pode conter espaços em branco.",
+    "No application found for user": "Nenhum aplicativo encontrado para o usuário",
+    "Please use the set-password API to change the password": "Use a API set-password para alterar a senha",
+    "The new password must be different from your current password": "A nova senha deve ser diferente da senha atual",
+    "The new password must be different from your last %d passwords": "A nova senha deve ser diferente das suas últimas %d senhas",
+    "User is already verified": "Usuário já está verificado",
+    "the user's owner and name should not be empty": "O proprietário e o nome do usuário não devem estar vazios"
+  },
+  "util": {
+    "No application is found for userId: %s": "Nenhum aplicativo encontrado para o userId: %s",
+    "No provider for category: %s is found for application: %s": "Nenhum provedor da categoria: %s encontrado para o aplicativo: %s",
+    "The provider: %s is not found": "O provedor: %s não foi encontrado"
+  },
+  "verification": {
+    "Invalid captcha provider.": "Provedor de captcha inválido.",
+    "Phone number is invalid in your region %s": "Número de telefone inválido na sua região %s",
+    "Please open the magic link in the browser you requested it from": "Abra o link mágico no navegador em que o solicitou",
+    "The forgot password feature is disabled": "A funcionalidade de esqueci a senha está desabilitada",
+    "The magic link has already been used": "O link mágico já foi utilizado",
+    "The magic link has expired": "O link mágico expirou",
+    "The magic link is invalid": "O link mágico é inválido",
+    "The signup item: %s is required, so the magic link cannot sign up a new user": "O item de cadastro: %s é obrigatório, portanto o link mágico não pode cadastrar um novo usuário",
+    "The verification code has already been used!": "O código de verificação já foi utilizado!",
+    "The verification code has not been sent yet!": "O código de verificação ainda não foi enviado!",
+    "Turing test failed.": "O teste de Turing falhou.",
+    "Unable to get the email modify rule.": "Não foi possível obter a regra de modificação de e-mail.",
+    "Unable to get the phone modify rule.": "Não foi possível obter a regra de modificação de telefone.",
+    "Unknown type": "Tipo desconhecido",
+    "Wrong parameter": "Parâmetro incorreto",
+    "Wrong verification code!": "Código de verificação incorreto!",
+    "You should verify your code in %d min!": "Você deve verificar seu código em %d minuto(s)!",
+    "please add a SMS provider to the \"Providers\" list for the application: %s": "Adicione um provedor de SMS à lista \"Providers\" do aplicativo: %s",
+    "please add an Email provider to the \"Providers\" list for the application: %s": "Adicione um provedor de e-mail à lista \"Providers\" do aplicativo: %s",
+    "please set \"origin\" in conf/app.conf to send magic links": "Defina \"origin\" em conf/app.conf para enviar links mágicos",
+    "the user does not exist, please sign up first": "O usuário não existe, cadastre-se primeiro",
+    "you can only send one code in %ds": "você só pode enviar um código a cada %ds"
+  },
+  "webauthn": {
+    "Found no credentials for this user": "Nenhuma credencial encontrada para este usuário",
+    "Please call WebAuthnSigninBegin first": "Por favor, inicie com WebAuthnSigninBegin primeiro"
+  }
+}

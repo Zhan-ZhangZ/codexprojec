@@ -1,0 +1,10 @@
+{
+  "noLogs": "Nejsou k dispozici žádné záznamy",
+  "filterAll": "Vše",
+  "sourceApp": "Aplikace",
+  "sourceCore": "Jádro",
+  "export": "Exportovat záznamy",
+  "exported": "Záznamy exportovány",
+  "showInFolder": "Zobrazit ve složce",
+  "exportFailed": "Záznamy se nepodařilo exportovat"
+}

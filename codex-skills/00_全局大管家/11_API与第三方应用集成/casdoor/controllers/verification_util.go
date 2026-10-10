@@ -1,0 +1,74 @@
+// Copyright 2025 The Casdoor Authors. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package controllers
+
+import (
+	"fmt"
+
+	"github.com/casdoor/casdoor/captcha"
+	"github.com/casdoor/casdoor/form"
+	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
+)
+
+// verifyAuthFormCaptcha verifies the captcha with the type of the application's provider, a
+// client-chosen type with a client-supplied secret would let any test secret key pass
+func verifyAuthFormCaptcha(captchaProvider *object.Provider, authForm *form.AuthForm) (bool, error) {
+	if authForm.CaptchaType != captchaProvider.Type {
+		return false, nil
+	}
+
+	clientSecret := authForm.ClientSecret
+	if captchaProvider.Type != "Default" {
+		clientSecret = captchaProvider.ClientSecret
+	}
+	return captcha.VerifyCaptchaByCaptchaType(captchaProvider.Type, authForm.CaptchaToken, captchaProvider.ClientId, clientSecret, captchaProvider.ClientId2)
+}
+
+func (c *ApiController) checkOrgMasterVerificationCode(user *object.User, code string) (bool, error) {
+	organization, err := object.GetOrganizationByUser(user)
+	if err != nil {
+		return false, err
+	}
+	if organization == nil {
+		return false, fmt.Errorf("The organization: %s does not exist", user.Owner)
+	}
+
+	if organization.MasterVerificationCode != "" && organization.MasterVerificationCode == code {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (c *ApiController) checkVerifyCodeOrOrgMasterCode(user *object.User, dest string, code string) (bool, error) {
+	organization, err := object.GetOrganizationByUser(user)
+	if err != nil {
+		return false, err
+	}
+	if organization == nil {
+		return false, fmt.Errorf("The organization: %s does not exist", user.Owner)
+	}
+
+	clientIp := util.GetClientIpFromRequest(c.Ctx.Request)
+	return object.CheckVerifyCodeOrMasterCodeWithLimitAndIp(user, organization.MasterVerificationCode, clientIp, dest, code, c.GetAcceptLanguage())
+}
+
+func (c *ApiController) verifyMfaPasscode(user *object.User, mfaUtil object.MfaInterface, passcode string) error {
+	passed, err := c.checkOrgMasterVerificationCode(user, passcode)
+	if err != nil || passed {
+		return err
+	}
+	return mfaUtil.Verify(passcode, c.GetAcceptLanguage())
+}
