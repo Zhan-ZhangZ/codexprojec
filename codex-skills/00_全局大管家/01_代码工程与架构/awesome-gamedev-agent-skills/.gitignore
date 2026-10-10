@@ -1,0 +1,25 @@
+# Local / private files — not part of the published project
+/plan/
+*.local.md
+GAMEDEV-SKILLS-PLAN.md
+.kiro/
+docs/progress/
+docs/BUILD-LOG.md
+scripts/guard.py
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# Tooling / scratch
+__pycache__/
+_site/
+node_modules/
+dist/
+.cache/
+*.log
+.tmp/
+scratch/

@@ -2160,5 +2160,113 @@
       "Atomic Chat",
       "本地大模型客户端"
     ]
+  },
+  {
+    "name": "humanizer",
+    "description": "英语去 AI 痕迹改写技能（blader 出品 54k★，ASH anti-slop 榜 #2，实测 3/5 事实全保）。重写 AI 腔文本使其像作者本人所写而不改变含义：not-X-but-Y 对比、一行式收尾、套路开场、强制三连、滥用破折号、夸大断言、销售话术等模式目录。Leading Words: 去AI痕迹, 英文人性化改写, AI腔消除, humanizer, blader",
+    "category": "04_内容创作与文档处理",
+    "folder": "humanizer",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/humanizer",
+    "aliases": [
+      "Humanizer",
+      "去AI痕迹"
+    ]
+  },
+  {
+    "name": "Humanizer-zh",
+    "description": "humanizer 官方汉化版（ASH anti-slop 榜 #3，实测 3/5 事实全保）。编辑中文文章/评论/文档中的空话、重复与模板化表达，让文字更自然，保留事实、确定程度与作者声音。Leading Words: 中文去AI味, 汉化humanizer, 空话消除, 模板化表达清理",
+    "category": "04_内容创作与文档处理",
+    "folder": "Humanizer-zh",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/Humanizer-zh",
+    "aliases": [
+      "humanizer zh",
+      "中文humanizer"
+    ]
+  },
+  {
+    "name": "ccstatusline",
+    "description": "Claude Code 终端状态栏（ASH claude-code-hooks 榜 #3，sirmalloc 出品）。Remotion 渲染 powerline 风状态栏：token 用量/成本/会话/git/模型切换指示，高度可配置模板系统。Leading Words: Claude Code状态栏, powerline, token用量显示, remotion状态栏, ccstatusline",
+    "category": "07_智能体框架与协同",
+    "folder": "ccstatusline",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/ccstatusline",
+    "aliases": [
+      "CC Statusline",
+      "状态栏"
+    ]
+  },
+  {
+    "name": "awesome-claude-code-subagents",
+    "description": "Claude Code 子代理（subagents）精选库（ASH claude-code-hooks 榜 #2，VoltAgent 出品）。百余个开箱即用 subagent 定义：代码审查/测试/文档/DevOps/营销等领域专家代理。Leading Words: Claude子代理, subagent库, 专家代理集合, claude code agents",
+    "category": "07_智能体框架与协同",
+    "folder": "awesome-claude-code-subagents",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/awesome-claude-code-subagents",
+    "aliases": [
+      "Claude子代理库",
+      "awesome subagents"
+    ]
+  },
+  {
+    "name": "awesome-claude-skills",
+    "description": "Claude Skills 精选清单（ASH claude-code-skills 榜 #1，travisvn 出品）。分类收录社区 Claude 技能：编码/写作/数据/自动化等，附简介与链接。Leading Words: Claude技能清单, skills大全, awesome list, 技能导航",
+    "category": "07_智能体框架与协同",
+    "folder": "awesome-claude-skills",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/awesome-claude-skills",
+    "aliases": [
+      "Claude技能清单"
+    ]
+  },
+  {
+    "name": "awesome-gamedev-agent-skills",
+    "description": "游戏开发 Agent Skills 精选库（ASH claude-code-skills 榜 #3）。Unity/Unreal/Godot/Web 游戏开发技能集合：关卡设计/美术生成/代码脚手架/平衡性分析。Leading Words: 游戏开发技能, gamedev skills, Unity Unreal Godot, 游戏AI辅助",
+    "category": "01_代码工程与架构",
+    "folder": "awesome-gamedev-agent-skills",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/awesome-gamedev-agent-skills",
+    "aliases": [
+      "游戏开发技能库"
+    ]
+  },
+  {
+    "name": "linkedin-skills",
+    "description": "LinkedIn 内容创作技能集（ASH claude-code-skills 榜 #2）。帖子/文章/个人品牌/求职内容生成，含钩子库与传播优化。Leading Words: LinkedIn内容, 领英帖子, 个人品牌, 职场内容创作",
+    "category": "04_内容创作与文档处理",
+    "folder": "linkedin-skills",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/linkedin-skills",
+    "aliases": [
+      "LinkedIn技能",
+      "领英内容"
+    ]
+  },
+  {
+    "name": "Figma-Context-MCP",
+    "description": "Figma → 代码 MCP 服务器（ASH ai-design 榜 #2，GLips 出品）。把 Figma 设计稿转为 AI 友好的简化上下文（布局/样式/组件结构），供编码智能体直接消费。Leading Words: Figma转代码, 设计稿上下文, MCP设计接入, figma context",
+    "category": "05_多媒体与设计资产",
+    "folder": "Figma-Context-MCP",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/Figma-Context-MCP",
+    "aliases": [
+      "Figma上下文",
+      "figma mcp"
+    ]
+  },
+  {
+    "name": "open-design",
+    "description": "开源 AI 设计画布工具（nexu-io 出品，ASH ai-design 榜 #1，html-anything 同门）。文档层集成：README/QUICKSTART/TRANSLATIONS/docs 与插件注册表（spec/registry/community），产品本体（daemon/desktop/web 应用与官方插件二进制）见上游。Leading Words: AI设计画布, 开源设计工具, 设计插件系统, open design",
+    "category": "05_多媒体与设计资产",
+    "folder": "open-design",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/open-design",
+    "aliases": [
+      "OpenDesign",
+      "AI设计画布"
+    ]
+  },
+  {
+    "name": "stagehand",
+    "description": "浏览器自动化 SDK（ASH browser-automation 榜 #3，Browserbase 出品）。在 Playwright 之上提供 act/extract/observe 三原语，自然语言驱动页面操作与数据抽取。Leading Words: 浏览器自动化, act extract observe, 自然语言网页操作, stagehand SDK",
+    "category": "03_效率工具与协同管理",
+    "folder": "stagehand",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/stagehand",
+    "aliases": [
+      "Stagehand",
+      "浏览器SDK"
+    ]
   }
 ]
