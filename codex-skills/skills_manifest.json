@@ -295,7 +295,7 @@
   },
   {
     "name": "humanize-text",
-    "description": "[已冻结 2026-10-10：需双付费 key 且仅输出英文（DeepSeek+Niutrans，Agent Skills Hub 实测 Not run）；待新集成 sloptrim/slop-guard/anti-slop 同类技能后，因该技能效果不佳转清退；现有替代 stop-slop/unslop] AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除",
+    "description": "[已冻结 2026-10-10：需双付费 key 且仅输出英文；新集成 sloptrim/slop-guard/anti-slop 同类技能，该技能效果不佳，冻结后清退；替代 stop-slop/unslop] AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除",
     "category": "04_内容创作与文档处理",
     "folder": "humanize-text",
     "relative_path": "./00_全局大管家/04_内容创作与文档处理/humanize-text"
@@ -1847,6 +1847,65 @@
       "motion-graphics",
       "code-driven-animation",
       "chinese-content"
+    ]
+  },
+  {
+    "name": "sloptrim",
+    "description": "去 AI 味文本修剪与本地检测器（Agent Skills Hub 实测榜首 4.5/5）。内置 71 个已归档 AI 写作模式（62 个由 scripts/detect.py 纯 Python 标准库机器检测、9 个改写时语义判断），保留数字/人名/引用等事实，按内容类型静默选择四种人声风格画像重建文本而非掏空成壳；交付 CV、求职信、邮件、报告、 essay 前可作 pre-delivery 检查；Claude Code hooks 全套（guard/tracker/statusline）。Leading Words: 去AI味, 文本修剪, AI腔检测, 人味改写, 本地检测器, 模式目录, 风格画像",
+    "category": "04_内容创作与文档处理",
+    "folder": "sloptrim",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/sloptrim",
+    "aliases": [
+      "Sloptrim",
+      "去AI味修剪",
+      "AI腔检测器",
+      "71模式"
+    ],
+    "tags": [
+      "humanizer",
+      "anti-slop",
+      "detection",
+      "python-stdlib",
+      "writing"
+    ]
+  },
+  {
+    "name": "slop-guard",
+    "description": "规则型散文 AI 腔评分器（Slop Scoring，Agent Skills Hub 实测 4/5）。纯程序化 0-100 打分，无 LLM 裁判、无 API 调用：默认 24 条可配置规则、200+ 字面与结构启发式（破折号密度、名言式收尾、对比句式、套话词组、占位符、节奏失衡等），返回分数+档位标签+逐条违规上下文+具体修改建议；uvx slop-guard 一键起本地 MCP 服务（check_slop / check_slop_file），支持自定义规则 JSONL。Leading Words: AI腔评分, 散文linter, slop检测, 0-100打分, 规则引擎, MCP本地服务, 违规建议",
+    "category": "04_内容创作与文档处理",
+    "folder": "slop-guard",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/slop-guard",
+    "aliases": [
+      "Slop Guard",
+      "slop评分",
+      "AI腔评分器"
+    ],
+    "tags": [
+      "detector",
+      "anti-slop",
+      "linter",
+      "mcp",
+      "scoring"
+    ]
+  },
+  {
+    "name": "anti-slop",
+    "description": "反 AI 味多面规则系统（miqdadbadjuber 版，4.5k★，Agent Skills Hub 实测 4/5）：核心规则文件 + 6 个按关注点拆分的子技能——antislop 总纲（默认常载过滤）、antislop-code 代码、antislop-copywriting 文案、antislop-human 文风（含 contrast-check.py 对比检查脚本）、antislop-layoutmobile 移动端布局、antislop-ui 界面设计；另配 rules/antislop.md 规则单文件版与 cli/ 安装器，多平台插件入口（Claude/Codex/Cursor/Cline/Kimi 等）。Leading Words: 反AI味, AI腔规则, 代码去AI味, 文案去AI味, UI设计反平庸, 移动端布局检查, 规则过滤器",
+    "category": "04_内容创作与文档处理",
+    "folder": "anti-slop",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/anti-slop",
+    "aliases": [
+      "Anti Slop",
+      "antislop",
+      "反AI味规则系统"
+    ],
+    "tags": [
+      "anti-slop",
+      "rules",
+      "code",
+      "copywriting",
+      "ui",
+      "multi-skill"
     ]
   }
 ]
