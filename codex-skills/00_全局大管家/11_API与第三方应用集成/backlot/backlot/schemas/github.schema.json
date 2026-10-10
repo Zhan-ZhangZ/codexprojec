@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/brekkylab/backlot/schemas/github.schema.json",
+  "title": "BYO corpus record — github",
+  "description": "A GitHub issue, pull request, file, or the repository itself. Title -> title, content -> body markdown. `container` is the repo name.",
+  "type": "object",
+  "properties": {
+    "source_type": {
+      "const": "github"
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The retrieval payload served verbatim as the body."
+    },
+    "title": {
+      "type": "string",
+      "description": "Document title (email subject / file name / issue title / page title).",
+      "minLength": 1
+    },
+    "doc_id": {
+      "type": "string",
+      "description": "Stable id (default: dsid_<sha256(source_type+title+content)>)."
+    },
+    "repo": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "maxLength": 100,
+      "description": "The repo this document belongs to, as the API's bare `name` -- `gateway`, not `acme/gateway`. The owner is a path segment of its own, supplied from the org Backlot serves, and `full_name` is composed from the two; a value that carries the owner is served as `name` verbatim and appears in `full_name` twice. GitHub's own rule for a repository name is the constraint -- \"must not exceed 100 characters, and can only contain ASCII letters, digits, and the characters `.`, `-`, and `_`\" -- so a slash or a space is refused. The further limits GitHub enforces but does not publish (a name of `.` or `..`, a `.git` suffix) are not."
+    },
+    "group": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "ACL group owning the repo (default: slug(container)); null means the container owns no group, so nothing is group-scoped to it."
+    },
+    "author_email": {
+      "type": "string",
+      "format": "email",
+      "description": "Author / sender / owner."
+    },
+    "author_name": {
+      "type": "string",
+      "description": "The owner's display name as the corpus writes it, served as the document's owner (a name is not recoverable from an email address)."
+    },
+    "author_groups": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Groups the author belongs to."
+    },
+    "visibility": {
+      "enum": [
+        "public",
+        "group",
+        "private"
+      ],
+      "description": "public = org-wide, group = the container's group, private = author only."
+    },
+    "readers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Explicit reader principals. `user:<email>` / `group:<id>` / `org:<name>` state the type; unprefixed, an address is a user and anything else a group. Overrides visibility — and an EMPTY array means nobody may read the document (admin-only), not everybody."
+    },
+    "subtype": {
+      "enum": [
+        "issue",
+        "pull_request",
+        "file",
+        "repo"
+      ],
+      "description": "Issue vs PR vs file vs the repo itself (default: issue). A `repo` record states facts about the REPOSITORY rather than about a document in it — its refs and its default branch — so it carries no author, body or ACL of its own; the repo stays visible to a scoped caller exactly when one of its documents is, and to the admin as soon as the record itself exists."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "File path (required for subtype='file')."
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "subtype='file' only: which SNAPSHOT of `path` this row is — a commit sha, a branch, or any label the corpus chooses. A file is addressed by (repo, path), so several rows may state one path; `ref` is what tells two of them apart. Omitted, the row's `created` is the discriminator and the newest snapshot is the one served, so a corpus recording one edit per date needs no ref. State one when two snapshots share a `created`, or to name the change they came from."
+    },
+    "state": {
+      "enum": [
+        "open",
+        "closed"
+      ],
+      "description": "The issue/pull state GitHub reports. A merge is `merged_at`, not a third state."
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assignees": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Assignee logins/emails."
+    },
+    "merged_at": {
+      "type": "string",
+      "description": "PR merge time (RFC3339)."
+    },
+    "head": {
+      "type": "string",
+      "description": "PR head ref."
+    },
+    "base": {
+      "type": "string",
+      "description": "PR base ref."
+    },
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "[{author_email, state, body}]."
+    },
+    "reactions": {
+      "type": [
+        "array",
+        "object"
+      ],
+      "description": "Reaction counts."
+    },
+    "created": {
+      "type": [
+        "integer",
+        "number",
+        "string"
+      ],
+      "minLength": 1,
+      "description": "created_at (epoch seconds or ISO 8601)."
+    },
+    "updated": {
+      "type": [
+        "integer",
+        "number",
+        "string"
+      ],
+      "description": "updated_at (epoch seconds or ISO 8601). Default: created + 1h."
+    },
+    "closed_at": {
+      "type": [
+        "integer",
+        "number",
+        "string"
+      ],
+      "description": "When the issue/PR was closed (epoch seconds or ISO 8601). Default: derived from state."
+    },
+    "closed_by": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the user who closed the issue."
+    },
+    "merged_by": {
+      "type": "string",
+      "format": "email",
+      "description": "PR only: email of the user who merged it."
+    },
+    "milestone": {
+      "type": "string",
+      "description": "Milestone title (emitted as a milestone object)."
+    },
+    "requested_reviewers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "PR only: emails of requested reviewers."
+    },
+    "changed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "PR only: paths of the files this pull changed, as `path` values of this repo's subtype='file' docs. Omit it and the changeset is chosen deterministically instead, which is well-formed but unrelated to what the pull is about. The hunks themselves are always synthesized from the file's own snapshot. A path matching no such doc is dropped from the changeset — the import reports it and `--dry-run` names it, but loads the record as written, since a corpus may legitimately be a slice of the repo."
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "A comment on the document (served via the vendor's comment API).",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Comment text (alias: body)."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Comment text (alias: content)."
+          },
+          "author_email": {
+            "type": "string",
+            "format": "email"
+          },
+          "author_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Optional stable id (default: <doc_id>::c<n>)."
+          },
+          "created_ts": {
+            "type": [
+              "integer",
+              "number",
+              "string"
+            ],
+            "minLength": 1,
+            "description": "Optional creation time (epoch seconds or ISO string)."
+          },
+          "reactions": {
+            "type": [
+              "object",
+              "array"
+            ],
+            "description": "Reaction rollup ({\"+1\": n, heart: n, ...})."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "PR only: makes this a line-anchored REVIEW comment (GET /pulls/{n}/comments) on that file, rather than a conversation comment (GET /issues/{n}/comments). Real GitHub keeps the two resources apart; `path` is how a corpus says which one it means."
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Review comment only: the line in `path` it is anchored to. Omit for a file-level comment, as real GitHub allows."
+          },
+          "diff_hunk": {
+            "type": "string",
+            "description": "Review comment only: the hunk it is anchored to. Derived from the file's snapshot around `line` when omitted."
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "content"
+            ]
+          },
+          {
+            "required": [
+              "body"
+            ]
+          }
+        ],
+        "additionalProperties": false,
+        "required": [
+          "author_email",
+          "created_ts"
+        ]
+      }
+    },
+    "number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue/PR number as the corpus writes it. Stored and served verbatim. An omitted number is synthesized from the doc_id at serve time, and a provided one claims that number ahead of every synthesized one in the same repository — so a corpus need only write the numbers its documents actually cite. Ignored on subtype: file rows."
+    },
+    "default_branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "subtype='repo' only: the branch a repo object reports as `default_branch` and every ref falls back to. Defaults to `main`."
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "protected": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "description": "subtype='repo' only: the repo's branches, which REPLACE the set otherwise inferred from its pulls — a repo that states them is answering for itself, so an open pull heading a branch this omits does not add it back (real does the same for a pull whose branch was deleted under it). `protected` is per branch because `?protected=` selects on it; it defaults to false. The default branch is listed even when this omits it."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "subtype='repo' only: the repo's tags. A repo that states none serves `[]`, which is what real answers for a repo with no tags."
+    },
+    "head_repo": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+      "description": "PR only: the repo the head branch lives in, as the FULL `owner/name` — the one place a corpus writes an owner, because a fork's owner is what differs from `repo` and a bare name cannot express it. Stating it makes the pull a fork's: `head.repo.full_name` and `head.label` carry that owner, and the head ref is a branch of the fork rather than of this repo, so `/branches` does not list it. Omitted, the head is a branch of `repo`."
+    }
+  },
+  "required": [
+    "repo",
+    "source_type"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "subtype": {
+            "const": "file"
+          }
+        },
+        "required": [
+          "subtype"
+        ]
+      },
+      "then": {
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "subtype": {
+            "not": {
+              "enum": [
+                "file",
+                "repo"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "state"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "subtype": {
+            "not": {
+              "const": "repo"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "author_email",
+          "content",
+          "created",
+          "title"
+        ]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

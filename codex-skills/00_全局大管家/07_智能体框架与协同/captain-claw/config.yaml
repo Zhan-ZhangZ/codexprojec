@@ -1,0 +1,479 @@
+model:
+  provider: gemini
+  model: gemini-3-flash-preview
+  temperature: 0.7
+  max_tokens: 32000
+  api_key: ''
+  base_url: ''
+  tokens_per_minute: 0
+  allowed:
+  - id: gpt-5-mini
+    provider: openai
+    model: gpt-5-mini
+    base_url: ''
+    temperature: null
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: high
+    description: Good for everyday tasks, light coding, reasoning
+    model_type: llm
+  - id: gpt-5-nano
+    provider: openai
+    model: gpt-5-nano
+    base_url: ''
+    temperature: null
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: good for classification of data, making lists
+    model_type: llm
+  - id: gpt-5.3-codex
+    provider: openai
+    model: gpt-5.3-codex
+    base_url: ''
+    temperature: null
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: high
+    description: extremely good for coding and deep reasoning
+    model_type: llm
+  - id: claude-sonnet
+    provider: anthropic
+    model: claude-sonnet-4-6
+    base_url: ''
+    temperature: null
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: ''
+    model_type: llm
+  - id: gemini-flash
+    provider: gemini
+    model: gemini-3-flash-preview
+    base_url: ''
+    temperature: null
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: ''
+    model_type: llm
+  - id: claude-opus
+    provider: anthropic
+    model: claude-opus-4-6
+    base_url: ''
+    temperature: null
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: ''
+    model_type: llm
+  - id: claude-haiku
+    provider: anthropic
+    model: claude-haiku-4-5
+    base_url: ''
+    temperature: null
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: ''
+    model_type: llm
+  - id: gemini-flash-lite
+    provider: gemini
+    model: gemini-2.5-flash-lite
+    base_url: ''
+    temperature: 0
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: simple and fast model
+    model_type: llm
+  - id: gemini-pro
+    provider: gemini
+    model: gemini-2.5-pro
+    base_url: ''
+    temperature: 0
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: the best model, can handle really complex tasks, but it's expensive
+    model_type: llm
+  - id: image
+    provider: gemini
+    model: imagen-4.0-fast-generate-001
+    base_url: ''
+    temperature: 0
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: image generation
+    model_type: image
+  - id: gemini-ocr
+    provider: gemini
+    model: gemini-3-flash-preview
+    base_url: ''
+    temperature: 0
+    max_tokens: null
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: ''
+    model_type: ocr
+  - id: gemini-vision
+    provider: gemini
+    model: gemini-3-flash-preview
+    description: ''
+    model_type: vision
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    temperature: 0
+    base_url: ''
+  - id: vllm-nemotron
+    provider: openai
+    model: mlx-community/NVIDIA-Nemotron-3-Nano-30B-A3B-4bit
+    base_url: http://localhost:8000/v1
+    temperature: 0.7
+    max_tokens: 4096
+    tokens_per_minute: 0
+    max_context: 0
+    max_output_tokens: 0
+    reasoning_level: ''
+    description: local vLLM Nemotron 30B model
+    model_type: llm
+context:
+  max_tokens: 160000
+  compaction_threshold: 0.8
+  compaction_ratio: 0.4
+  chunked_processing:
+    #auto_threshold: 64000  # auto-enable for any model with context <= 64k
+    enabled: false
+    output_reserve_tokens: 4000
+    chunk_overlap_tokens: 200
+    max_chunks: 12
+    combine_strategy: summarize  # or "concatenate"
+memory:
+  enabled: true
+  path: ~/.captain-claw/memory.db
+  index_workspace: true
+  index_sessions: true
+  cross_session_retrieval: false
+  auto_sync_on_search: true
+  max_workspace_files: 400
+  max_file_bytes: 262144
+  chunk_chars: 1400
+  chunk_overlap_chars: 200
+  cache_ttl_seconds: 45
+  stale_after_seconds: 120
+  include_extensions:
+  - .txt
+  - .md
+  - .markdown
+  - .py
+  - .js
+  - .ts
+  - .tsx
+  - .jsx
+  - .json
+  - .yaml
+  - .yml
+  - .toml
+  - .sql
+  - .csv
+  - .sh
+  exclude_dirs:
+  - .git
+  - .hg
+  - .svn
+  - node_modules
+  - __pycache__
+  - .venv
+  - venv
+  embeddings:
+    provider: auto
+    model2vec_model: minishlab/potion-base-8M
+    litellm_model: text-embedding-3-small
+    litellm_api_key: ''
+    litellm_base_url: ''
+    ollama_model: nomic-embed-text
+    ollama_base_url: http://127.0.0.1:11434
+    request_timeout_seconds: 4
+    fallback_to_local_hash: true
+  search:
+    max_results: 6
+    candidate_limit: 80
+    min_score: 0.1
+    vector_weight: 0.65
+    text_weight: 0.35
+    temporal_decay_enabled: true
+    temporal_half_life_days: 21.0
+tools:
+  enabled:
+  - shell
+  - terminal
+  - read
+  - write
+  - glob
+  - web_fetch
+  - web_search
+  - pdf_extract
+  - docx_extract
+  - xlsx_extract
+  - pptx_extract
+  - pocket_tts
+  - image_gen
+  - image_ocr
+  - image_vision
+  - send_mail
+  - google_drive
+  - google_calendar
+  - google_mail
+  - todo
+  - contacts
+  - scripts
+  - apis
+  - direct_api
+  - typesense
+  - datastore
+  - termux
+  - personality
+  #- pinchtab  # parked — browser tool handles navigation better
+  pinchtab:
+    enabled: false
+    host: 127.0.0.1
+    port: 9867
+    token: ''
+    auto_start: true
+    binary_path: ''
+    headless: true
+    stealth_level: light
+    default_profile: ''
+    timeout_seconds: 60
+    max_tabs: 10
+    block_ads: false
+    block_images: false
+    allow_evaluate: false
+  read:
+    max_file_bytes: 200000
+  shell:
+    timeout: 120
+    blocked:
+    - rm -rf /
+    - mkfs
+    - ':(){:|:&};:'
+    allowed_commands: []
+    default_policy: ask
+    allow_patterns:
+    - python *
+    - pip install *
+    deny_patterns:
+    - rm -rf *
+    - sudo *
+  web_fetch:
+    max_chars: 200000
+  web_search:
+    provider: brave
+    api_key: ''
+    base_url: https://api.search.brave.com/res/v1/web/search
+    max_results: 10
+    timeout: 20
+    safesearch: moderate
+  pocket_tts:
+    max_chars: 4000
+    default_voice: ''
+    sample_rate: 24000
+    mp3_bitrate_kbps: 128
+    timeout_seconds: 600
+  send_mail:
+    provider: mailgun
+    from_address: ''
+    from_name: ''
+    mailgun_api_key: ''
+    mailgun_domain: ''
+    mailgun_base_url: https://api.mailgun.net/v3
+    sendgrid_api_key: ''
+    sendgrid_base_url: https://api.sendgrid.com/v3/mail/send
+    smtp_host: localhost
+    smtp_port: 587
+    smtp_username: ''
+    smtp_password: ''
+    smtp_use_tls: true
+    timeout: 60
+    max_attachment_bytes: 26214400
+  typesense:
+    host: localhost
+    port: 8108
+    protocol: http
+    api_key: 'xyz'
+    default_collection: captain_claw_deep_memory
+    timeout: 30
+    connection_timeout: 5
+  require_confirmation:
+  - shell
+  - write
+  plugin_dirs:
+  - skills/tools
+  duplicate_call_max: 1
+skills:
+  managed_dir: ~/.captain-claw/skills
+  allow_bundled: []
+  entries: {}
+  load:
+    extra_dirs: []
+    plugin_dirs: []
+    watch: true
+    watch_debounce_ms: 250
+  install:
+    prefer_brew: true
+    node_manager: npm
+  max_skills_in_prompt: 64
+  max_skills_prompt_chars: 16000
+  max_skill_file_bytes: 131072
+  max_candidates_per_root: 2048
+  max_skills_loaded_per_source: 256
+  search_source_url: https://raw.githubusercontent.com/VoltAgent/awesome-openclaw-skills/refs/heads/main/README.md
+  search_limit: 10
+  search_max_candidates: 5000
+  search_http_timeout_seconds: 20
+guards:
+  input:
+    enabled: false
+    level: ask_for_approval
+  output:
+    enabled: false
+    level: ask_for_approval
+  script_tool:
+    enabled: false
+    level: stop_suspicious
+session:
+  storage: sqlite
+  path: ~/.captain-claw/sessions.db
+  auto_save: true
+workspace:
+  path: ./workspace/
+ui:
+  theme: dark
+  show_tokens: true
+  streaming: true
+  colors: true
+  monitor_trace_llm: false
+  monitor_trace_pipeline: true
+  monitor_full_output: false
+execution_queue:
+  mode: collect
+  debounce_ms: 1000
+  cap: 20
+  drop: summarize
+logging:
+  level: INFO
+  format: console
+  llm_session_logging: false
+telegram:
+  enabled: false
+  bot_token: ''
+  api_base_url: https://api.telegram.org
+  poll_timeout_seconds: 25
+  pairing_ttl_minutes: 30
+slack:
+  enabled: false
+  bot_token: ''
+  app_token: ''
+  api_base_url: https://slack.com/api
+  poll_timeout_seconds: 25
+  pairing_ttl_minutes: 30
+discord:
+  enabled: false
+  bot_token: ''
+  application_id: 0
+  api_base_url: https://discord.com/api/v10
+  poll_timeout_seconds: 25
+  pairing_ttl_minutes: 30
+  require_mention_in_guild: true
+web:
+  enabled: true
+  host: 127.0.0.1
+  port: 23080
+  api_enabled: true
+  api_pool_max_agents: 50
+  api_pool_idle_seconds: 600.0
+google_oauth:
+  enabled: false
+  client_id: ''
+  client_secret: ''
+  project_id: ''
+  location: us-central1
+todo:
+  enabled: true
+  auto_capture: true
+  inject_on_session_load: true
+  max_items_in_prompt: 10
+  archive_after_days: 30
+addressbook:
+  enabled: true
+  auto_capture: true
+  inject_on_mention: true
+  max_items_in_prompt: 5
+scripts_memory:
+  enabled: true
+  auto_capture: true
+  inject_on_mention: true
+  max_items_in_prompt: 5
+apis_memory:
+  enabled: true
+  auto_capture: true
+  inject_on_mention: true
+  max_items_in_prompt: 5
+orchestrator:
+  max_parallel: 5
+  max_agents: 50
+  idle_evict_seconds: 300.0
+  worker_timeout_seconds: 300.0
+  timeout_grace_seconds: 150.0
+  worker_max_retries: 2
+scale:
+  scale_advisory_min_members: 3
+  lightweight_progress_min_members: 2
+  task_rephrase_enabled: true
+  task_rephrase_min_chars: 120
+  research_search_results: 10
+  research_max_chars_per_fetch: 25000
+  research_query_keywords: 10
+deep_memory:
+  enabled: false
+  host: localhost
+  port: 8108
+  protocol: http
+  api_key: 'xyz'
+  collection_name: captain_claw_deep_memory
+  embedding_dims: 0  # 0 = auto-detect from the embedding provider
+  auto_embed: true
+  min_score: 0.12
+datastore:
+  enabled: true
+  path: ~/.captain-claw/datastore.db
+  inject_table_list: true
+  max_rows_per_table: 100000
+  max_tables: 5000
+  max_query_rows: 500
+  max_export_rows: 50000

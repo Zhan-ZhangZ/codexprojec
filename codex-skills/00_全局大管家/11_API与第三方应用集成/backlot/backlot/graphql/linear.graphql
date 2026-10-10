@@ -1,0 +1,1021 @@
+# Linear's GraphQL API, as served by Backlot at `POST /linear/graphql`.
+#
+# PROVENANCE — this is not hand-drafted from the docs. The object types below were generated
+# from `@linear/sdk`'s OWN generated documents: the SDK ships one pre-built document per
+# operation, and `client.issues()` alone selects 171 field nodes across 11 fragments
+# (`reactionData`, `previousIdentifiers`, `slaBreachesAt`, `prioritySortOrder`, …). graphql-core
+# validates before executing, so a single missing field would reject the whole query and no
+# `@linear/sdk` call would work at all. Field types come from the SDK's own TypeScript
+# declarations, so `estimate` is `Float` and `dueDate` is `TimelessDate` exactly as upstream.
+#
+# The generated set covers the documents behind `issues` / `issue` / `team` / `teams` /
+# `team.issues` / `comments` / `issue.comments` / `issue.labels` / `users` / `viewer`, plus the
+# by-id roots (`user`, `workflowState`, `project`, `issueLabel`, `cycle`) that the SDK's LAZY
+# relation accessors hit — `await issue.state` fires a fresh `workflowState(id:)` query rather
+# than reading the value out of the issue it just fetched.
+#
+# WHAT IS REAL vs WHAT IS A STUB. Backlot has data behind issues, comments, teams, and the
+# `state` / `project` / `cycle` / `labels` / `creator` / `assignee` relations on an issue.
+# Everything else the SDK's fragments demand (`botActor`, `syncedWith`, `favorite`, the SLA
+# timestamps, the board/sort orders) resolves to null or an empty list: declared so real SDK
+# documents validate, not backed by a corpus. Fields are never silently faked — a null here means
+# "no such data here", which is a legal Linear response. Where Linear declares a field NON-null
+# (`Issue.sharedAccess`, `Release.stage`, `Release.pipeline`) it is non-null here too and the
+# resolver produces a value: an empty shared-access record, an id-only stage / pipeline.
+#
+# DRIFT. Linear does not version its API, and `@linear/sdk` v88's documents are where this file
+# started; the two had drifted in 47 places by 2026-09-01 (issue #101), every one a type this file
+# declared differently from what `api.linear.app` answers introspection with. Each is fixed below to
+# the vendor's shape as measured on 2026-09-03; `backlot diff --source linear` is what notices the
+# next one. Where a type is Backlot's own choice rather than the vendor's, the comment beside it
+# says so.
+#
+# OUT OF SCOPE (deliberate): mutations — there is no Mutation type, so introspection reports
+# `mutationType: null` rather than advertising writes that would fail. Also attachments,
+# webhooks, roadmaps/initiatives and `documents` as first-class queries.
+
+# --- custom scalars ---------------------------------------------------------------
+# Linear's own scalar names. graphql-core passes the output scalars through unchanged, which is
+# what we want: `DateTime` is an ISO-8601 string, `TimelessDate` a bare `YYYY-MM-DD`, and the JSON
+# scalars carry already-shaped objects.
+scalar DateTime
+scalar TimelessDate
+scalar JSON
+scalar JSONObject
+scalar UUID
+
+# The two INPUT scalars every date comparator takes. Linear's own description: "Represents a date
+# and time in ISO 8601 format. Accepts shortcuts like `2021` to represent midnight Fri Jan 01 2021.
+# Also accepts ISO 8601 durations strings which are added to the current date to create the
+# represented date (e.g '-P2W1D' represents the date that was two weeks and 1 day ago)". These two
+# are NOT pass-through: `linear_filters.SCALARS` binds that grammar onto them, so a malformed
+# operand is a validation error naming the scalar, which is what the real API answers.
+scalar DateTimeOrDuration
+scalar TimelessDateOrDuration
+
+# --- root -------------------------------------------------------------------------
+# Read-only: Linear's mutations are out of scope, so there is no Mutation type at all
+# (introspection therefore reports `mutationType: null`, which is honest — a declared-but-
+# unimplemented Mutation root would let a client's create call validate and then fail).
+type Query {
+  """One issue by its UUID **or** by its human identifier (`ENG-123`), as the real API accepts both."""
+  issue(id: String!): Issue!
+  issues(after: String, before: String, filter: IssueFilter, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy, sort: [IssueSortInput!]): IssueConnection!
+  """One team by its UUID **or** by its key (`ENG`)."""
+  team(id: String!): Team!
+  teams(after: String, before: String, filter: TeamFilter, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy): TeamConnection!
+  comments(after: String, before: String, filter: CommentFilter, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy): CommentConnection!
+  users(after: String, before: String, filter: UserFilter, first: Int, includeArchived: Boolean, includeDisabled: Boolean, last: Int, orderBy: PaginationOrderBy, sort: [UserSortInput!]): UserConnection!
+  """The authenticated user — how a client confirms which identity (and therefore which ACL scope) its credential resolved to."""
+  viewer: User!
+
+  # An `@linear/sdk` relation accessor (`await issue.state`, `await issue.assignee`) does NOT read
+  # the value out of the issue it already fetched — it fires a fresh query for that entity by id.
+  # These four roots are what make `issue.state` / `.assignee` / `.creator` / `.project` /
+  # `.cycle` / `.labels()` work instead of failing with "Cannot query field on type 'Query'".
+  user(id: String!): User!
+  workflowState(id: String!): WorkflowState!
+  project(id: String!): Project!
+  issueLabel(id: String!): IssueLabel!
+  cycle(id: String!): Cycle!
+  attachment(id: String!): Attachment!
+  issueRelation(id: String!): IssueRelation!
+  release(id: String!): Release!
+}
+
+# --- connections & entity types -----------------------------------------------------
+# PageInfo, the Issue/Comment/Team/User/IssueLabel connections, and the WorkflowState / Project /
+# Cycle / IssueLabel entity types all come from the generated block below: the SDK fetches an
+# issue's relations with SEPARATE queries (`workflowState(id:)`, `user(id:)`, `project(id:)`,
+# `issue_labels`), each selecting that type's own full fragment, so their real shapes are
+# available and there is nothing to hand-write.
+
+# --- id-only stubs ------------------------------------------------------------------
+# Every one of these appears in the SDK's generated fragments as `field { id }` and nowhere
+# else. They exist so those documents validate; Backlot has no data behind them, so the
+# owning field always resolves to null and the type is never actually reached.
+type AgentSession { id: ID! }
+type Document { id: ID! }
+type ExternalUser { id: ID! }
+type Favorite { id: ID! }
+type Initiative { id: ID! }
+type InitiativeUpdate { id: ID! }
+type IntegrationsSettings { id: ID! }
+type ProjectMilestone { id: ID! }
+type ProjectStatus { id: ID! }
+type ReleasePipeline { id: ID! }
+type ReleaseStage { id: ID! }
+type ProjectUpdate { id: ID! }
+type Template { id: ID! }
+type TriageResponsibility { id: ID! }
+
+union ExternalEntityInfoMetadata =
+    ExternalEntityInfoGithubMetadata
+  | ExternalEntityInfoJiraMetadata
+  | ExternalEntitySlackMetadata
+
+# --- pagination / sorting inputs -----------------------------------------------------
+enum PaginationOrderBy { createdAt updatedAt }
+enum PaginationSortOrder { Ascending Descending }
+enum PaginationNulls { first last }
+
+input TitleSort { nulls: PaginationNulls, order: PaginationSortOrder }
+input PrioritySort { nulls: PaginationNulls, order: PaginationSortOrder }
+input EstimateSort { nulls: PaginationNulls, order: PaginationSortOrder }
+input CreatedAtSort { nulls: PaginationNulls, order: PaginationSortOrder }
+input UpdatedAtSort { nulls: PaginationNulls, order: PaginationSortOrder }
+
+"""The issue sort keys Backlot can order by. Linear's own input is wider; anything it
+accepts and this does not is a validation error here rather than a silently ignored sort."""
+input IssueSortInput {
+  title: TitleSort
+  priority: PrioritySort
+  estimate: EstimateSort
+  createdAt: CreatedAtSort
+  updatedAt: UpdatedAtSort
+}
+
+"""The user sort keys Backlot can order by. Linear's `UserSortInput` carries `name` and
+`displayName` and nothing else — no `createdAt` / `updatedAt` (measured 2026-09-03: the real API
+answers `Field "createdAt" is not defined by type "UserSortInput"`)."""
+input UserSortInput { name: UserNameSort }
+"""Linear's own input for sorting users by name; `nulls` defaults to `last` exactly as upstream."""
+input UserNameSort { nulls: PaginationNulls = last, order: PaginationSortOrder }
+
+# --- filter inputs --------------------------------------------------------------------
+# Linear's filter inputs are enormous (every field crossed with every comparator). These
+# declare ONLY what Backlot genuinely evaluates, on purpose: an unsupported key then comes
+# back as a GraphQL validation error naming the field, instead of being accepted and quietly
+# ignored — which would hand a client a full, wrong result set.
+input IDComparator { eq: ID, neq: ID, in: [ID!], nin: [ID!] }
+"""Linear's comparator for `IssueFilter.id`: the same four operators as `IDComparator`, under the
+name the vendor uses there. The values are resolved as `issue(id:)` resolves them — a served UUID
+or a human identifier (`ENG-123`)."""
+input IssueIDComparator { eq: ID, neq: ID, in: [ID!], nin: [ID!] }
+"""Linear's comparator for `NullableProjectFilter.id`. Upstream it "accepts UUIDs and human-readable
+identifiers (e.g. "PROJ-123")"; a Backlot project has only the served UUID (the corpus names a
+project and gives it no identifier), so that is the one spelling that matches here. A value that
+matches nothing answers an empty page, not an error, which is what Linear answered for `"PROJ-1"`,
+`"not-a-uuid"` and an unknown UUID (measured 2026-09-03)."""
+input EntityIdentifierIDComparator { eq: ID, neq: ID, in: [ID!], nin: [ID!] }
+
+input StringComparator {
+  eq: String, neq: String, in: [String!], nin: [String!]
+  contains: String, containsIgnoreCase: String
+  startsWith: String, endsWith: String
+  eqIgnoreCase: String, neqIgnoreCase: String
+}
+
+input NullableStringComparator {
+  eq: String, neq: String, in: [String!], nin: [String!]
+  contains: String, containsIgnoreCase: String
+  startsWith: String, endsWith: String
+  eqIgnoreCase: String, neqIgnoreCase: String
+  null: Boolean
+}
+
+input NumberComparator {
+  eq: Float, neq: Float, lt: Float, lte: Float, gt: Float, gte: Float
+  in: [Float!], nin: [Float!]
+}
+
+input NullableNumberComparator {
+  eq: Float, neq: Float, lt: Float, lte: Float, gt: Float, gte: Float
+  in: [Float!], nin: [Float!]
+  null: Boolean
+}
+
+"""Linear's comparator for `IssueFilter.estimate`: a nullable number comparator that also nests
+plain ones under `and` / `or`."""
+input EstimateComparator {
+  eq: Float, neq: Float, lt: Float, lte: Float, gt: Float, gte: Float
+  in: [Float!], nin: [Float!]
+  null: Boolean
+  and: [NullableNumberComparator!]
+  or: [NullableNumberComparator!]
+}
+
+# Operands are `DateTimeOrDuration`, not `DateTime`: Linear takes `"-P2W1D"` and `"2021"` here as
+# well as a full timestamp (see the scalar above).
+input DateComparator {
+  eq: DateTimeOrDuration, neq: DateTimeOrDuration
+  lt: DateTimeOrDuration, lte: DateTimeOrDuration, gt: DateTimeOrDuration, gte: DateTimeOrDuration
+  in: [DateTimeOrDuration!], nin: [DateTimeOrDuration!]
+}
+
+input NullableDateComparator {
+  eq: DateTimeOrDuration, neq: DateTimeOrDuration
+  lt: DateTimeOrDuration, lte: DateTimeOrDuration, gt: DateTimeOrDuration, gte: DateTimeOrDuration
+  in: [DateTimeOrDuration!], nin: [DateTimeOrDuration!]
+  null: Boolean
+}
+
+"""Linear's comparator for a nullable `TimelessDate` field (`IssueFilter.dueDate`). Operands are
+`TimelessDateOrDuration` — the same grammar as `DateTimeOrDuration`, read down to the day."""
+input NullableTimelessDateComparator {
+  eq: TimelessDateOrDuration, neq: TimelessDateOrDuration
+  lt: TimelessDateOrDuration, lte: TimelessDateOrDuration
+  gt: TimelessDateOrDuration, gte: TimelessDateOrDuration
+  in: [TimelessDateOrDuration!], nin: [TimelessDateOrDuration!]
+  null: Boolean
+}
+
+"""Linear's comparator for `AttachmentFilter.sourceType`, declared in full: it is evaluated in
+memory over one issue's attachments (`linear_resolvers._match_string`), where every operator costs
+the same, and it has no `null` — a `sourceType` filter never asks for the absent ones."""
+input SourceTypeComparator {
+  eq: String, neq: String, in: [String!], nin: [String!]
+  eqIgnoreCase: String, neqIgnoreCase: String
+  startsWith: String, startsWithIgnoreCase: String, notStartsWith: String
+  endsWith: String, notEndsWith: String
+  contains: String, containsIgnoreCase: String, containsIgnoreCaseAndAccent: String
+  notContains: String, notContainsIgnoreCase: String
+}
+
+input WorkflowStateFilter {
+  # No `id`: a state id is derived from (team, name), so it cannot be pushed down as a predicate
+  # over the single `state` column. Filter by `name` or `type` instead.
+  name: StringComparator
+  type: StringComparator
+  and: [WorkflowStateFilter!]
+  or: [WorkflowStateFilter!]
+}
+
+input UserFilter {
+  id: IDComparator
+  name: StringComparator
+  displayName: StringComparator
+  email: StringComparator
+  and: [UserFilter!]
+  """The keys of one branch are alternatives: `{or: [{name: {eq: A}, email: {eq: B}}]}` is the user
+  named A and the user at B, where the same object outside an `or` is neither (measured 2026-09-07)."""
+  or: [UserFilter!]
+}
+
+input NullableUserFilter {
+  id: IDComparator
+  name: StringComparator
+  displayName: StringComparator
+  email: StringComparator
+  """`true` answers the issues without the relation and reads nothing else written beside it in
+  the same filter object, its `and` branches included; `false` does AND with the other keys
+  (measured 2026-09-04)."""
+  null: Boolean
+  and: [NullableUserFilter!]
+  """The keys of one branch are alternatives, as on every `or` here. A branch that says nothing about
+  the related row (`{}`, `{null: true}`) beside one that does adds the issues without the relation,
+  and every branch carrying `null: true` is the issues without it, comparators unread. A bare
+  `{null: false}` branch is that alternative in the object's own `or` unless every branch carries
+  `null: false`, and the object's `null: false` when the `or` sits in an `and` branch (measured
+  2026-09-04)."""
+  or: [NullableUserFilter!]
+}
+
+input TeamFilter {
+  id: IDComparator
+  key: StringComparator
+  name: StringComparator
+  and: [TeamFilter!]
+  """The keys of one branch are alternatives: `{or: [{name: {eq: "nosuch"}, key: {eq: K}}]}` is the
+  team keyed K, where the same object outside an `or` is no team (measured 2026-09-07)."""
+  or: [TeamFilter!]
+}
+
+input NullableProjectFilter {
+  id: EntityIdentifierIDComparator
+  name: StringComparator
+  """`true` answers the issues without the relation and reads nothing else written beside it in
+  the same filter object, its `and` branches included; `false` does AND with the other keys
+  (measured 2026-09-04)."""
+  null: Boolean
+  and: [NullableProjectFilter!]
+  """The keys of one branch are alternatives, as on every `or` here. A branch that says nothing about
+  the related row (`{}`, `{null: true}`) beside one that does adds the issues without the relation,
+  and every branch carrying `null: true` is the issues without it, comparators unread. A bare
+  `{null: false}` branch is that alternative in the object's own `or` unless every branch carries
+  `null: false`, and the object's `null: false` when the `or` sits in an `and` branch (measured
+  2026-09-04)."""
+  or: [NullableProjectFilter!]
+}
+
+input IssueLabelFilter {
+  name: StringComparator
+  and: [IssueLabelFilter!]
+  """The keys of one branch are alternatives: `{or: [{name: {eq: A}, and: [{name: {eq: B}}]}]}` is a
+  label named A or B, where the same object under `and` is a label named both (measured 2026-09-06).
+  The label collection's `or` is the exception — see `IssueLabelCollectionFilter.or`."""
+  or: [IssueLabelFilter!]
+}
+
+# The rules below are measured, not read off the docs: `linear_filters._labels_filter` carries the
+# key precedence with its cells, `linear_filters._labels_predicate` the two quantifiers.
+"""
+Linear's quantifiers over a collection are not the textbook ones: `every` with a positive predicate
+needs at least one label, and `some` with a negative one (`neq`, `nin`, …) also answers an issue with
+no labels. The keys do not AND together: `and` answers if present, else `or`, else the first present
+of `length`, `every`, `some`, `name`; only `null` ANDs, and only beside those four. `length` counts
+the labels; `null: true` matches nothing, since an issue's label collection is never null; a bare
+`name` reads as `some`.
+"""
+input IssueLabelCollectionFilter {
+  some: IssueLabelFilter
+  every: IssueLabelFilter
+  name: StringComparator
+  length: NumberComparator
+  null: Boolean
+  and: [IssueLabelCollectionFilter!]
+  """Each branch is one collection filter, read by the same precedence as the object itself (`and`,
+  `or`, `length`, `every`, `some`, `name`): `{or: [{length: {eq: 1}, some: {name: {eq: A}}}]}` is the
+  issues with one label, not those plus the issues carrying A (measured 2026-09-06)."""
+  or: [IssueLabelCollectionFilter!]
+}
+
+"""Attachment fields Backlot can evaluate. Linear's own input is wider; as everywhere else in
+this schema, only what is implemented is declared, so an unsupported key is a validation error
+rather than a filter that is dropped and answered with the full set."""
+input AttachmentFilter {
+  id: IDComparator
+  title: StringComparator
+  subtitle: NullableStringComparator
+  url: StringComparator
+  sourceType: SourceTypeComparator
+  and: [AttachmentFilter!]
+  """The keys of one branch are alternatives: `{or: [{title: {eq: A}, url: {eq: B}}]}` is the
+  attachment titled A and the one at B, where the same object outside an `or` is neither (measured
+  2026-09-07)."""
+  or: [AttachmentFilter!]
+}
+
+# No `slugId`: Linear's `ReleaseFilter` has no such field (measured 2026-09-03).
+input ReleaseFilter {
+  id: IDComparator
+  name: StringComparator
+  and: [ReleaseFilter!]
+  or: [ReleaseFilter!]
+}
+
+input CommentFilter {
+  id: IDComparator
+  body: StringComparator
+  createdAt: DateComparator
+  updatedAt: DateComparator
+  and: [CommentFilter!]
+  """The keys of one branch are alternatives: `{or: [{body: {eq: A}, id: {eq: B}}]}` is the comment
+  with body A and the comment with id B, where the same object outside an `or` is neither (measured
+  2026-09-06). The label collection's `or` is the exception — see `IssueLabelCollectionFilter.or`."""
+  or: [CommentFilter!]
+}
+
+# No `branchName`: Linear's `IssueFilter` has no such field (measured 2026-09-03 — the real API
+# answers `Field "branchName" is not defined by type "IssueFilter"`), so a predicate over it was one
+# no client written against Linear could send.
+input IssueFilter {
+  id: IssueIDComparator
+  title: StringComparator
+  description: NullableStringComparator
+  priority: NullableNumberComparator
+  estimate: EstimateComparator
+  dueDate: NullableTimelessDateComparator
+  createdAt: DateComparator
+  updatedAt: DateComparator
+  completedAt: NullableDateComparator
+  canceledAt: NullableDateComparator
+  state: WorkflowStateFilter
+  assignee: NullableUserFilter
+  # `NullableUserFilter`, as upstream: `creator: {null: …}` is a legal predicate there, and the
+  # column it reads (`author_email`) is NOT NULL in Backlot, so `null: true` matches nothing and
+  # `null: false` everything — the honest answer for a corpus whose every issue names its creator.
+  creator: NullableUserFilter
+  team: TeamFilter
+  project: NullableProjectFilter
+  labels: IssueLabelCollectionFilter
+  and: [IssueFilter!]
+  """The keys of one branch are alternatives: `{or: [{number: {eq: 1}, title: {eq: T}}]}` answered
+  the issue numbered 1 and the one titled T, where the same object under `and` answered none
+  (measured 2026-09-04 on api.linear.app; `number` is not declared here, the keys that are read the
+  same way)."""
+  or: [IssueFilter!]
+}
+
+# --- types generated from @linear/sdk's own documents (see PROVENANCE above) ----------
+# Two things the SDK's TypeScript could not express and were corrected against introspection:
+#   * `Int!` vs `Float!`. TypeScript has one `number`, so every count came out `Float!`. Linear
+#     types the eight counts below (`Issue.customerTicketCount`, `Team.issueCount`, …) `Int!`, and a
+#     real issue answers `customerTicketCount: 0`, not `0.0` (measured 2026-09-03).
+#   * Enums. Eleven fields are enums upstream and were served as bare `String`. Each enum below
+#     carries the vendor's FULL member list as introspection reports it (2026-09-03, unless the
+#     enum's own description dates it later), so a served value is checked against the same set
+#     the real API would check it against, and `backlot diff` compares the two lists member for
+#     member.
+
+"""Linear's `ExternalSyncService`: the service that syncs an external entity to Linear."""
+enum ExternalSyncService { jira github slack }
+
+"""Linear's `IntegrationService`: every integration an issue can carry as its
+`integrationSourceType`. The full list as introspected on 2026-09-15, in the vendor's own order and
+two members past the 2026-09-03 introspection the comment above dates: `origin` arrived between
+2026-09-03 and 2026-09-04, `datadog` between the scheduled fidelity runs of 2026-09-14 and
+2026-09-15. Backlot serves null for the field (a corpus does not say which integration created an
+issue), the members are here so a client switching on the enum sees the same member set."""
+enum IntegrationService {
+  airbyte datadog discord figma figmaPlugin front github gong githubEnterpriseServer githubCommit
+  githubImport githubPersonal githubCodeAccessPersonal gitlab origin googleCalendarPersonal
+  googleSheets
+  intercom jira jiraPersonal launchDarkly launchDarklyPersonal loom notion opsgenie pagerDuty
+  salesforce slack slackAsks asksWeb slackCustomViewNotifications slackOrgProjectUpdatesPost
+  slackOrgInitiativeUpdatesPost slackPersonal slackPost slackProjectPost slackProjectUpdatesPost
+  slackInitiativePost sentry zendesk email mcpServerPersonal mcpServer microsoftTeams
+  microsoftPersonal microsoftTeamsProjectPost
+}
+
+"""Issue update fields that are disallowed for users with only shared access."""
+enum IssueSharedAccessDisallowedField { projectId teamId cycleId projectMilestoneId }
+
+"""By which resolution is frequency defined."""
+enum FrequencyResolutionType { daily weekly }
+
+"""The health type when the project update is created."""
+enum ProjectUpdateHealthType { onTrack atRisk offTrack }
+
+"""By which resolution is a date defined."""
+enum DateResolutionType { month quarter halfYear year }
+
+"""The day of the week."""
+enum Day { Sunday Monday Tuesday Wednesday Thursday Friday Saturday }
+
+"""The generation status of a release note's body content."""
+enum ReleaseNoteGenerationStatus { pending completed }
+
+"""The visibility of a team. A team can be public, private, or restricted within an enclosing
+private-team boundary."""
+enum TeamVisibility { public restricted private }
+
+"""The selection mode of a label group; null for a regular label, per Linear's own description."""
+enum LabelGroupType { singleSelect multiSelect }
+
+type ActorBot {
+  avatarUrl: String
+  subType: String
+  id: ID
+  name: String
+  userDisplayName: String
+  type: String!
+}
+
+type AiPromptRules {
+  updatedAt: DateTime!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  updatedBy: User
+}
+
+type Attachment {
+  subtitle: String
+  title: String!
+  source: JSONObject
+  metadata: JSONObject!
+  url: String!
+  bodyData: String
+  updatedAt: DateTime!
+  # "unknown" when the corpus records no source, as Linear serves it (measured 2026-09-03).
+  sourceType: String
+  archivedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  groupBySource: Boolean!
+  creator: User
+  issue: Issue!
+  originalIssue: Issue
+  externalUserCreator: ExternalUser
+}
+
+type AttachmentConnection {
+  nodes: [Attachment!]!
+  pageInfo: PageInfo!
+}
+
+type Comment {
+  url: String!
+  reactionData: JSONObject!
+  resolvingCommentId: String
+  documentContentId: String
+  initiativeId: String
+  initiativeUpdateId: String
+  issueId: String
+  parentId: String
+  projectId: String
+  projectUpdateId: String
+  body: String!
+  updatedAt: DateTime!
+  quotedText: String
+  archivedAt: DateTime
+  createdAt: DateTime!
+  editedAt: DateTime
+  resolvedAt: DateTime
+  id: ID!
+  agentSession: AgentSession
+  reactions: [Reaction!]!
+  botActor: ActorBot
+  resolvingComment: Comment
+  documentContent: DocumentContent
+  syncedWith: [ExternalEntityInfo!]
+  externalThread: SyncedExternalThread
+  externalUser: ExternalUser
+  initiative: Initiative
+  initiativeUpdate: InitiativeUpdate
+  issue: Issue
+  parent: Comment
+  project: Project
+  projectUpdate: ProjectUpdate
+  resolvingUser: User
+  user: User
+}
+
+type CommentConnection {
+  nodes: [Comment!]!
+  pageInfo: PageInfo!
+}
+
+type Cycle {
+  number: Float!
+  completedAt: DateTime
+  name: String
+  description: String
+  endsAt: DateTime!
+  updatedAt: DateTime!
+  completedScopeHistory: [Float!]!
+  completedIssueCountHistory: [Float!]!
+  inProgressScopeHistory: [Float!]!
+  progress: Float!
+  startsAt: DateTime!
+  autoArchivedAt: DateTime
+  archivedAt: DateTime
+  createdAt: DateTime!
+  scopeHistory: [Float!]!
+  issueCountHistory: [Float!]!
+  id: ID!
+  isFuture: Boolean!
+  isActive: Boolean!
+  isPast: Boolean!
+  isPrevious: Boolean!
+  isNext: Boolean!
+  inheritedFrom: Cycle
+  team: Team!
+}
+
+type DocumentContent {
+  content: String
+  contentState: String
+  updatedAt: DateTime!
+  restoredAt: DateTime
+  archivedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  aiPromptRules: AiPromptRules
+  document: Document
+  initiative: Initiative
+  issue: Issue
+  projectMilestone: ProjectMilestone
+  project: Project
+  welcomeMessage: WelcomeMessage
+}
+
+type ExternalEntityInfo {
+  service: ExternalSyncService!
+  # `String!`, not `ID!`: upstream it is "the unique identifier of the entity in the EXTERNAL
+  # system (e.g., the Jira issue ID, GitHub issue node ID, or Slack message timestamp)".
+  id: String!
+  metadata: ExternalEntityInfoMetadata
+}
+
+type ExternalEntityInfoGithubMetadata {
+  number: Float
+  owner: String
+  repo: String
+}
+
+type ExternalEntityInfoJiraMetadata {
+  issueTypeId: String
+  projectId: String
+  issueKey: String
+}
+
+type ExternalEntitySlackMetadata {
+  messageUrl: String
+  channelId: String
+  channelName: String
+  isFromSlack: Boolean!
+}
+
+type Issue {
+  trashed: Boolean
+  reactionData: JSONObject!
+  labelIds: [String!]!
+  integrationSourceType: IntegrationService
+  url: String!
+  identifier: String!
+  priorityLabel: String!
+  previousIdentifiers: [String!]!
+  customerTicketCount: Int!
+  branchName: String!
+  dueDate: TimelessDate
+  estimate: Float
+  description: String
+  title: String!
+  number: Float!
+  updatedAt: DateTime!
+  boardOrder: Float!
+  sortOrder: Float!
+  prioritySortOrder: Float!
+  subIssueSortOrder: Float
+  priority: Float!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  startedTriageAt: DateTime
+  triagedAt: DateTime
+  addedToCycleAt: DateTime
+  addedToProjectAt: DateTime
+  addedToTeamAt: DateTime
+  autoArchivedAt: DateTime
+  autoClosedAt: DateTime
+  canceledAt: DateTime
+  completedAt: DateTime
+  startedAt: DateTime
+  slaStartedAt: DateTime
+  slaBreachesAt: DateTime
+  slaHighRiskAt: DateTime
+  slaMediumRiskAt: DateTime
+  snoozedUntilAt: DateTime
+  slaType: String
+  id: ID!
+  inheritsSharedAccess: Boolean!
+  reactions: [Reaction!]!
+  sharedAccess: IssueSharedAccess!
+  delegate: User
+  botActor: ActorBot
+  sourceComment: Comment
+  cycle: Cycle
+  syncedWith: [ExternalEntityInfo!]
+  externalUserCreator: ExternalUser
+  asksExternalUserRequester: ExternalUser
+  asksRequester: User
+  lastAppliedTemplate: Template
+  parent: Issue
+  projectMilestone: ProjectMilestone
+  project: Project
+  recurringIssueTemplate: Template
+  team: Team!
+  assignee: User
+  creator: User
+  snoozedBy: User
+  favorite: Favorite
+  state: WorkflowState!
+  labels(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy, filter: IssueLabelFilter): IssueLabelConnection!
+  comments(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy, filter: CommentFilter): CommentConnection!
+  relations(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy): IssueRelationConnection!
+  inverseRelations(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy): IssueRelationConnection!
+  children(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy, filter: IssueFilter): IssueConnection!
+  # No `url:` argument — Linear's `Issue.attachments` takes none (measured 2026-09-03: `Unknown
+  # argument "url" on field "Issue.attachments"`); narrow by url through `filter: {url: {eq: …}}`.
+  attachments(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy, filter: AttachmentFilter): AttachmentConnection!
+  releases(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy, filter: ReleaseFilter): ReleaseConnection!
+}
+
+type IssueConnection {
+  nodes: [Issue!]!
+  pageInfo: PageInfo!
+}
+
+type IssueLabel {
+  lastAppliedAt: DateTime
+  color: String!
+  description: String
+  name: String!
+  updatedAt: DateTime!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  isGroup: Boolean!
+  groupType: LabelGroupType
+  inheritedFrom: IssueLabel
+  parent: IssueLabel
+  team: Team
+  creator: User
+  retiredBy: User
+}
+
+type IssueLabelConnection {
+  nodes: [IssueLabel!]!
+  pageInfo: PageInfo!
+}
+
+type IssueRelation {
+  updatedAt: DateTime!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  type: String!
+  id: ID!
+  issue: Issue!
+  relatedIssue: Issue!
+}
+
+type IssueRelationConnection {
+  nodes: [IssueRelation!]!
+  pageInfo: PageInfo!
+}
+
+type IssueSharedAccess {
+  disallowedIssueFields: [IssueSharedAccessDisallowedField!]!
+  sharedWithCount: Int!
+  viewerHasOnlySharedAccess: Boolean!
+  isShared: Boolean!
+  sharedWithUsers: [User!]!
+}
+
+type PageInfo {
+  startCursor: String
+  endCursor: String
+  hasPreviousPage: Boolean!
+  hasNextPage: Boolean!
+}
+
+type Project {
+  trashed: Boolean
+  url: String!
+  microsoftTeamsChannelId: String
+  slackChannelId: String
+  labelIds: [String!]!
+  updateRemindersDay: Day
+  targetDate: TimelessDate
+  startDate: TimelessDate
+  updateReminderFrequency: Float
+  updateRemindersHour: Float
+  icon: String
+  updatedAt: DateTime!
+  updateReminderFrequencyInWeeks: Float
+  name: String!
+  completedScopeHistory: [Float!]!
+  completedIssueCountHistory: [Float!]!
+  inProgressScopeHistory: [Float!]!
+  health: ProjectUpdateHealthType
+  progress: Float!
+  scope: Float!
+  priorityLabel: String!
+  priority: Int!
+  resourceCount: Int!
+  color: String!
+  content: String
+  slugId: String!
+  targetDateResolution: DateResolutionType
+  startDateResolution: DateResolutionType
+  frequencyResolution: FrequencyResolutionType!
+  description: String!
+  prioritySortOrder: Float!
+  sortOrder: Float!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  healthUpdatedAt: DateTime
+  autoArchivedAt: DateTime
+  canceledAt: DateTime
+  completedAt: DateTime
+  startedAt: DateTime
+  projectUpdateRemindersPausedUntilAt: DateTime
+  issueCountHistory: [Float!]!
+  scopeHistory: [Float!]!
+  id: ID!
+  slackIssueComments: Boolean!
+  slackNewIssue: Boolean!
+  slackIssueStatuses: Boolean!
+  state: String!
+  integrationsSettings: IntegrationsSettings
+  documentContent: DocumentContent
+  status: ProjectStatus!
+  syncedWith: [ExternalEntityInfo!]
+  convertedFromIssue: Issue
+  lastAppliedTemplate: Template
+  lastUpdate: ProjectUpdate
+  creator: User
+  lead: User
+  favorite: Favorite
+}
+
+type Reaction {
+  updatedAt: DateTime!
+  emoji: String!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  comment: Comment
+  externalUser: ExternalUser
+  initiativeUpdate: InitiativeUpdate
+  issue: Issue
+  projectUpdate: ProjectUpdate
+  user: User
+}
+
+type Release {
+  trashed: Boolean
+  issueCount: Int!
+  commitSha: String
+  url: String!
+  currentProgress: JSONObject!
+  description: String
+  targetDate: TimelessDate
+  startDate: TimelessDate
+  progressHistory: JSONObject!
+  updatedAt: DateTime!
+  name: String!
+  slugId: String!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  startedAt: DateTime
+  autoArchivedAt: DateTime
+  canceledAt: DateTime
+  completedAt: DateTime
+  id: ID!
+  version: String
+  releaseNotes: [ReleaseNote!]!
+  # Non-null, as upstream: a release always sits in one stage of one pipeline. The resolver
+  # serves an id-only stub for each (see `linear_resolvers._release`).
+  stage: ReleaseStage!
+  pipeline: ReleasePipeline!
+  creator: User
+}
+
+type ReleaseConnection {
+  nodes: [Release!]!
+  pageInfo: PageInfo!
+}
+
+type ReleaseNote {
+  generationStatus: ReleaseNoteGenerationStatus
+  url: String!
+  updatedAt: DateTime!
+  releaseCount: Int!
+  slugId: String!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  title: String
+  documentContent: DocumentContent
+  firstRelease: Release
+  lastRelease: Release
+  pipeline: ReleasePipeline!
+}
+
+type SyncedExternalThread {
+  url: String
+  name: String
+  displayName: String
+  type: String!
+  subType: String
+  id: ID
+  isPersonalIntegrationRequired: Boolean!
+  isPersonalIntegrationConnected: Boolean!
+  isConnected: Boolean!
+}
+
+type Team {
+  cycleIssueAutoAssignCompleted: Boolean!
+  cycleLockToActive: Boolean!
+  cycleIssueAutoAssignStarted: Boolean!
+  cycleCalenderUrl: String!
+  upcomingCycleCount: Float!
+  autoArchivePeriod: Float!
+  autoClosePeriod: Float
+  securitySettings: JSONObject!
+  scimGroupName: String
+  autoCloseStateId: String
+  cycleCooldownTime: Float!
+  cycleStartDay: Float!
+  cycleDuration: Float!
+  icon: String
+  defaultTemplateForMembersId: String
+  defaultTemplateForNonMembersId: String
+  issueEstimationType: String!
+  updatedAt: DateTime!
+  displayName: String!
+  ledInitiativeCount: Int!
+  color: String
+  description: String
+  name: String!
+  key: String!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  retiredAt: DateTime
+  timezone: String!
+  issueCount: Int!
+  id: ID!
+  visibility: TeamVisibility!
+  defaultIssueEstimate: Float!
+  setIssueSortOrderOnStateChange: String!
+  allMembersCanJoin: Boolean
+  requirePriorityToLeaveTriage: Boolean!
+  autoCloseChildIssues: Boolean
+  autoCloseParentIssues: Boolean
+  scimManaged: Boolean!
+  private: Boolean!
+  inheritIssueEstimation: Boolean!
+  inheritWorkflowStatuses: Boolean!
+  cyclesEnabled: Boolean!
+  issueEstimationExtended: Boolean!
+  issueEstimationAllowZero: Boolean!
+  aiDiscussionSummariesEnabled: Boolean!
+  aiThreadSummariesEnabled: Boolean!
+  groupIssueHistory: Boolean!
+  slackIssueComments: Boolean!
+  slackNewIssue: Boolean!
+  slackIssueStatuses: Boolean!
+  triageEnabled: Boolean!
+  initiativesEnabled: Boolean!
+  inviteHash: String!
+  issueOrderingNoPriorityFirst: Boolean!
+  issueSortOrderDefaultToBottom: Boolean!
+  integrationsSettings: IntegrationsSettings
+  activeCycle: Cycle
+  triageResponsibility: TriageResponsibility
+  defaultTemplateForMembers: Template
+  defaultTemplateForNonMembers: Template
+  defaultProjectTemplate: Template
+  defaultIssueState: WorkflowState
+  parent: Team
+  mergeWorkflowState: WorkflowState
+  draftWorkflowState: WorkflowState
+  startWorkflowState: WorkflowState
+  mergeableWorkflowState: WorkflowState
+  reviewWorkflowState: WorkflowState
+  triageIssueState: WorkflowState
+  markedAsDuplicateWorkflowState: WorkflowState
+  issues(after: String, before: String, first: Int, includeArchived: Boolean, last: Int, orderBy: PaginationOrderBy, filter: IssueFilter, includeSubTeams: Boolean): IssueConnection!
+}
+
+type TeamConnection {
+  nodes: [Team!]!
+  pageInfo: PageInfo!
+}
+
+type User {
+  description: String
+  avatarUrl: String
+  createdIssueCount: Int!
+  avatarBackgroundColor: String!
+  statusUntilAt: DateTime
+  statusEmoji: String
+  initials: String!
+  updatedAt: DateTime!
+  lastSeen: DateTime
+  timezone: String
+  disableReason: String
+  statusLabel: String
+  archivedAt: DateTime
+  createdAt: DateTime!
+  id: ID!
+  gitHubUserId: String
+  displayName: String!
+  email: String!
+  name: String!
+  title: String
+  url: String!
+  active: Boolean!
+  isAssignable: Boolean!
+  guest: Boolean!
+  admin: Boolean!
+  owner: Boolean!
+  app: Boolean!
+  isMentionable: Boolean!
+  isMe: Boolean!
+  supportsAgentSessions: Boolean!
+  canAccessAnyPublicTeam: Boolean!
+  calendarHash: String
+  inviteHash: String!
+}
+
+type UserConnection {
+  nodes: [User!]!
+  pageInfo: PageInfo!
+}
+
+type WelcomeMessage {
+  updatedAt: DateTime!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  title: String
+  id: ID!
+  enabled: Boolean!
+  updatedBy: User
+}
+
+type WorkflowState {
+  description: String
+  updatedAt: DateTime!
+  position: Float!
+  color: String!
+  name: String!
+  archivedAt: DateTime
+  createdAt: DateTime!
+  type: String!
+  id: ID!
+  inheritedFrom: WorkflowState
+  team: Team!
+}

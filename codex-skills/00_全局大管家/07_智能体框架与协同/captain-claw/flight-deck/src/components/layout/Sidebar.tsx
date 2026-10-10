@@ -1,0 +1,347 @@
+import { useState, useMemo } from 'react'
+import {
+  Monitor,
+  Plus,
+  Radio,
+  ChevronLeft,
+  Settings,
+  Check,
+  MessageSquare,
+  MessagesSquare,
+  BarChart3,
+  Shield,
+  Wand2,
+  Users,
+  Plug,
+  CalendarDays,
+  Sparkles,
+  Dna,
+  Gamepad2,
+  Cloud,
+  FileText,
+  AlarmClock,
+  Workflow,
+  Brain,
+  Network,
+  Hammer,
+  Library,
+  Cpu,
+  FolderTree,
+  Database,
+  Mountain,
+  HardDrive,
+  Code2,
+  Globe,
+  Activity,
+  Bug,
+  IdCard,
+} from 'lucide-react'
+import { useUIStore } from '../../stores/uiStore'
+import { APP_VERSION, BUILD_DATE } from '../../version'
+import { useAgentStore } from '../../stores/agentStore'
+import { useAuthStore } from '../../stores/authStore'
+import { useConnectionStore } from '../../stores/connectionStore'
+import { useChatStore } from '../../stores/chatStore'
+import { useOnboardingStore } from '../../stores/onboardingStore'
+import { botportWS } from '../../services/ws'
+import { StatusBadge } from '../common/StatusBadge'
+import type { ViewMode } from '../../types'
+
+type NavItem = { id: ViewMode; icon: typeof Monitor; label: string; adminOnly?: boolean }
+
+const navSections: { title: string; items: NavItem[] }[] = [
+  {
+    title: 'Workspace',
+    items: [
+      { id: 'quick-chat', icon: MessagesSquare, label: 'Quick chat' },
+      { id: 'desktop', icon: Monitor, label: 'Agent Desktop' },
+    ],
+  },
+  {
+    title: 'Multi-Agent',
+    items: [
+      { id: 'council', icon: Users, label: 'Council' },
+      { id: 'basna', icon: Network, label: 'Basna' },
+      { id: 'bat', icon: Hammer, label: 'Bat' },
+      { id: 'code', icon: Code2, label: 'Code' },
+    ],
+  },
+  {
+    title: 'Files',
+    items: [
+      { id: 'vfs', icon: FolderTree, label: 'VFS' },
+      { id: 'deep-memory', icon: Database, label: 'Deep Memory' },
+      { id: 'hosting', icon: Globe, label: 'Hosting' },
+    ],
+  },
+  {
+    title: 'Build',
+    items: [
+      { id: 'spawner', icon: Plus, label: 'Spawn Agent' },
+      { id: 'forge', icon: Wand2, label: 'Agent Forge' },
+      { id: 'skills', icon: Sparkles, label: 'Skills' },
+      { id: 'library', icon: Library, label: 'Library' },
+    ],
+  },
+  {
+    title: 'Automation',
+    items: [
+      { id: 'flows', icon: Workflow, label: 'Flows' },
+      { id: 'autonomous-work', icon: Cpu, label: 'Autonomous Work' },
+      { id: 'scheduler', icon: AlarmClock, label: 'Scheduler' },
+    ],
+  },
+  {
+    title: 'Knowledge',
+    items: [
+      { id: 'observatory', icon: Brain, label: 'Observatory' },
+    ],
+  },
+  {
+    title: 'Experimental',
+    items: [
+      { id: 'dubina', icon: Mountain, label: 'Frontier Horizon' },
+      { id: 'prompt-builder', icon: FileText, label: 'Prompt Builder' },
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      { id: 'today', icon: CalendarDays, label: 'Today' },
+      { id: 'system', icon: Activity, label: 'Processes' },
+      { id: 'browser-llm', icon: Bug, label: 'Browser LLM' },
+      { id: 'agent-folders', icon: HardDrive, label: 'Agent Folders', adminOnly: true },
+      { id: 'profile', icon: IdCard, label: 'Profile' },
+      { id: 'connections', icon: Plug, label: 'Connections' },
+      { id: 'gpu-cloud', icon: Cloud, label: 'GPU Cloud' },
+      { id: 'operations', icon: BarChart3, label: 'Stats' },
+      { id: 'admin', icon: Shield, label: 'Admin', adminOnly: true },
+    ],
+  },
+  {
+    title: 'Life',
+    items: [
+      { id: 'beings', icon: Dna, label: 'Village' },
+    ],
+  },
+  {
+    title: 'Play',
+    items: [
+      { id: 'games', icon: Gamepad2, label: 'Games' },
+    ],
+  },
+]
+
+export function Sidebar() {
+  const { view, setView, sidebarOpen, toggleSidebar } = useUIStore()
+  const { instances, wsConnected, selectInstance, selectedInstanceId, fetchInstances, fetchStats, fetchConcerns } = useAgentStore()
+  const { authEnabled, user: authUser } = useAuthStore()
+  const { botportUrl, setBotportUrl } = useConnectionStore()
+  // Narrow, not `useChatStore()` — a whole-store read would re-render this
+  // always-mounted sidebar on every streaming event. The chat list only needs
+  // each session's id/name/connection, which change rarely; subscribe to a
+  // primitive signature and read the objects non-reactively when it fires.
+  const chatOpen = useChatStore((s) => s.chatOpen)
+  const switchChat = useChatStore((s) => s.switchChat)
+  const chatSessionsSig = useChatStore((s) => {
+    let sig = ''
+    for (const x of s.sessions.values()) sig += `${x.containerId} ${x.connected ? 1 : 0} ${x.containerName}\n`
+    return sig
+  })
+  const onboardingCompleted = useOnboardingStore((s) => s.completed)
+  const [showSettings, setShowSettings] = useState(false)
+  const [urlDraft, setUrlDraft] = useState(botportUrl)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const chatSessions = useMemo(() => Array.from(useChatStore.getState().sessions.values()), [chatSessionsSig])
+
+  const connectedInstances = instances.filter((i) => i.status === 'connected')
+
+  const applyConnection = () => {
+    setBotportUrl(urlDraft.trim())
+    // Reconnect WS and refetch data with new URL
+    botportWS.reconnect()
+    fetchInstances()
+    fetchStats()
+    fetchConcerns(true)
+    setShowSettings(false)
+  }
+
+  return (
+    <aside
+      className={`flex flex-col border-r border-zinc-800 bg-zinc-900/50 transition-all duration-200 ${
+        sidebarOpen ? 'w-[var(--fd-sidebar)]' : 'w-14'
+      }`}
+    >
+      {/* Header */}
+      <div className="flex h-14 items-center justify-between border-b border-zinc-800 px-3">
+        {sidebarOpen && (
+          <div className="flex items-center gap-2">
+            <Radio className={`h-4 w-4 ${wsConnected ? 'text-emerald-400' : 'text-zinc-600'}`} />
+            <div>
+              <span className="text-sm font-semibold tracking-tight">Flight Deck</span>
+              <div className="text-[9px] text-zinc-600 leading-none">v{APP_VERSION} &middot; {BUILD_DATE}</div>
+            </div>
+          </div>
+        )}
+        <div className="flex items-center gap-0.5">
+          {sidebarOpen && (
+            <button
+              onClick={() => { setUrlDraft(botportUrl); setShowSettings(!showSettings) }}
+              className={`rounded p-1 transition-colors ${
+                showSettings
+                  ? 'bg-zinc-800 text-zinc-200'
+                  : 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300'
+              }`}
+              title="Connection settings"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            onClick={toggleSidebar}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          >
+            <ChevronLeft className={`h-4 w-4 transition-transform ${sidebarOpen ? '' : 'rotate-180'}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Connection settings */}
+      {showSettings && sidebarOpen && (
+        <div className="border-b border-zinc-800 p-3">
+          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+            BotPort Address
+          </label>
+          <div className="flex gap-1.5">
+            <input
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              placeholder="http://localhost:23180"
+              onKeyDown={(e) => e.key === 'Enter' && applyConnection()}
+              className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:border-violet-500/50 focus:outline-none"
+            />
+            <button
+              onClick={applyConnection}
+              className="rounded-md bg-violet-600 px-2 py-1.5 text-xs text-white hover:bg-violet-500"
+              title="Apply"
+            >
+              <Check className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-zinc-600">
+            {botportUrl
+              ? <>Connected to <span className="font-mono text-zinc-500">{botportUrl}</span></>
+              : 'Empty = use Vite dev proxy (localhost)'}
+          </p>
+        </div>
+      )}
+
+      {/* Scrollable region: nav + agents + chats */}
+      <div className="flex flex-1 flex-col overflow-y-auto">
+      {/* Nav */}
+      <nav className="flex flex-col p-2">
+        {navSections.map((section, sectionIndex) => {
+          const items = section.items.filter((item) => {
+            if (item.adminOnly) return authEnabled && authUser?.role === 'admin'
+            return true
+          })
+          if (items.length === 0) return null
+          return (
+            <div key={section.title} className="flex flex-col gap-0.5">
+              {sidebarOpen ? (
+                <span className={`px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-600 ${sectionIndex === 0 ? 'pt-1' : 'pt-3'}`}>
+                  {section.title}
+                </span>
+              ) : (
+                sectionIndex > 0 && <span className="mx-2 my-1.5 border-t border-zinc-800/70" />
+              )}
+              {items.map(({ id, icon: Icon, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setView(id)}
+                  title={!sidebarOpen ? label : undefined}
+                  className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                    view === id
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                  }`}
+                >
+                  <span className="relative shrink-0">
+                    <Icon className="h-4 w-4" />
+                    {((id === 'forge' && !onboardingCompleted.forge) || (id === 'council' && !onboardingCompleted.council)) && (
+                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-violet-500 animate-pulse" />
+                    )}
+                  </span>
+                  {sidebarOpen && label}
+                </button>
+              ))}
+            </div>
+          )
+        })}
+      </nav>
+
+
+      {/* Connected agents */}
+      {sidebarOpen && (
+        <div className="flex flex-1 flex-col border-t border-zinc-800">
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Agents ({connectedInstances.length})
+            </span>
+          </div>
+          <div className="px-2 pb-2">
+            {connectedInstances.map((inst) => (
+              <button
+                key={inst.id}
+                onClick={() => selectInstance(inst.id)}
+                className={`mb-0.5 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                  selectedInstanceId === inst.id
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{inst.name || inst.id.slice(0, 8)}</div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <StatusBadge status={inst.status} />
+                    {inst.active_concerns > 0 && (
+                      <span className="text-xs text-zinc-500">{inst.active_concerns} tasks</span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))}
+            {connectedInstances.length === 0 && (
+              <p className="px-2.5 py-4 text-center text-xs text-zinc-600">
+                No agents connected
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Active chats */}
+      {sidebarOpen && chatSessions.length > 0 && !chatOpen && (
+        <div className="border-t border-zinc-800 p-2">
+          <div className="px-2 py-1">
+            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Chats ({chatSessions.length})
+            </span>
+          </div>
+          {chatSessions.map((s) => (
+            <button
+              key={s.containerId}
+              onClick={() => switchChat(s.containerId)}
+              className="mb-0.5 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+            >
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{s.containerName}</span>
+              <span className={`h-1.5 w-1.5 rounded-full ${s.connected ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+            </button>
+          ))}
+        </div>
+      )}
+      </div>
+    </aside>
+  )
+}

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Read Slack through the official slack_sdk. Self-contained: run it directly.
+
+pip install -e ".[official-sdk]"
+python examples/using-official-sdk/slack.py            # or: --url http://localhost:8000
+python examples/using-official-sdk/slack.py --url http://localhost:8000 --token <usr-token>
+"""
+
+import argparse
+
+from slack_sdk import WebClient
+
+from backlot import serve_or_connect
+
+CORPUS = [
+    {
+        "author_email": "ava@acme.com",
+        "created": "2026-02-05T17:00:00Z",
+        "source_type": "slack",
+        "channel": "eng",
+        "content": "Deploy freeze starts Friday 5pm.",
+    },
+    {
+        "author_email": "bob@acme.com",
+        "created": "2026-02-10T18:00:00Z",
+        "source_type": "slack",
+        "channel": "incidents",
+        "content": "Anyone seeing 502s from the gateway?",
+        "replies": [
+            {
+                "author_email": "ava@acme.com",
+                "created": "2026-02-10T18:00:40Z",
+                "content": "Looking now.",
+            },
+            {
+                "author_email": "bob@acme.com",
+                "created": "2026-02-10T18:06:00Z",
+                "content": "Rolled back — clearing up.",
+            },
+        ],
+    },
+]
+
+_p = argparse.ArgumentParser(
+    description="Read Slack through the official slack_sdk against Backlot."
+)
+_p.add_argument(
+    "--url", help="Backlot base URL to drive (default: spin up a local throwaway server)"
+)
+_p.add_argument(
+    "--token",
+    help="Backlot bearer token from GET /_meta/users "
+    "(default: the admin token, which sees everything)",
+)
+args = _p.parse_args()
+
+with serve_or_connect(CORPUS, url=args.url) as s:
+    if args.token:
+        print("authenticating with --token → responses are ACL-filtered to that user")
+    client = WebClient(token=args.token or s.token, base_url=f"{s.base_url}/slack/api/")
+
+    channels = client.conversations_list()["channels"]
+    if not channels:
+        print("no channels visible to this identity")
+    else:
+        channel = channels[0]
+        messages = client.conversations_history(channel=channel["id"], limit=10)["messages"]
+        print(f"{len(channels)} channels; #{channel['name']} has these recent messages:")
+        for m in messages:
+            print(f"  - {m['text'].splitlines()[0]}")

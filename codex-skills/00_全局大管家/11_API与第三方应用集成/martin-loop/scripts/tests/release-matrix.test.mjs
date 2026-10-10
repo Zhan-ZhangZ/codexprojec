@@ -1,0 +1,98 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  createReleaseMatrixEnvironment,
+  createReleaseMatrixPlan,
+  resolveReleaseMatrixLane,
+} from "../release-matrix.mjs";
+
+test("createReleaseMatrixPlan keeps install first in every platform lane", () => {
+  const plan = createReleaseMatrixPlan({ rootDir: "C:/repo" });
+
+  assert.equal(plan.rootDir, "C:/repo");
+  assert.equal(plan.lanes.length, 3);
+  for (const lane of plan.lanes) {
+    assert.equal(lane.steps[0]?.command.join(" "), "pnpm install --frozen-lockfile");
+  }
+});
+
+test("createReleaseMatrixPlan checks root package boundaries before the full test lane", () => {
+  const plan = createReleaseMatrixPlan({ rootDir: "C:/repo" });
+
+  for (const lane of plan.lanes) {
+    const commands = lane.steps.map((step) => step.command.join(" "));
+    const buildIndex = commands.indexOf("pnpm build");
+    const rootGuardIndex = commands.indexOf("pnpm release:root:guard");
+    const testIndex = commands.indexOf("pnpm test");
+
+    assert.ok(buildIndex >= 0, "release matrix should include the build step");
+    assert.ok(rootGuardIndex >= 0, "release matrix should include the root package guard");
+    assert.ok(testIndex >= 0, "release matrix should include the broader test lane");
+    assert.ok(
+      buildIndex < rootGuardIndex,
+      "root package guard should run after build output exists",
+    );
+    assert.ok(
+      rootGuardIndex < testIndex,
+      "root package guard should run before the broader test lane",
+    );
+  }
+});
+
+test("createReleaseMatrixPlan runs a packaged root artifact E2E before declaring the lane green", () => {
+  const plan = createReleaseMatrixPlan({ rootDir: "C:/repo" });
+
+  for (const lane of plan.lanes) {
+    const commands = lane.steps.map((step) => step.command.join(" "));
+
+    assert.ok(
+      commands.includes("node ./scripts/published-artifact-e2e.mjs --package-spec=pack"),
+      `${lane.id} lane should exercise the packed root artifact E2E`,
+    );
+    assert.equal(
+      commands.at(-1),
+      "node ./scripts/published-artifact-e2e.mjs --package-spec=pack",
+      `${lane.id} lane should finish on the packaged root artifact E2E`,
+    );
+  }
+});
+
+test("resolveReleaseMatrixLane selects the correct local platform lane", () => {
+  const plan = createReleaseMatrixPlan({ rootDir: "C:/repo" });
+
+  assert.equal(resolveReleaseMatrixLane(plan, "win32").id, "windows");
+  assert.equal(resolveReleaseMatrixLane(plan, "darwin").id, "macos");
+  assert.equal(resolveReleaseMatrixLane(plan, "linux").id, "linux");
+});
+
+test("createReleaseMatrixEnvironment forces non-interactive install defaults", () => {
+  const env = createReleaseMatrixEnvironment({
+    PATH: process.env.PATH ?? "",
+    CI: "",
+    npm_config_confirm_modules_purge: "",
+  });
+
+  assert.equal(env.CI, "true");
+  assert.equal(env.npm_config_confirm_modules_purge, "false");
+});
+
+test("createReleaseMatrixEnvironment preserves explicit non-empty values", () => {
+  const env = createReleaseMatrixEnvironment({
+    PATH: process.env.PATH ?? "",
+    CI: "already-set",
+    npm_config_confirm_modules_purge: "preserve-me",
+  });
+
+  assert.equal(env.CI, "already-set");
+  assert.equal(env.npm_config_confirm_modules_purge, "preserve-me");
+});
+
+test("createReleaseMatrixEnvironment honors mixed-case install env keys", () => {
+  const env = createReleaseMatrixEnvironment({
+    PATH: process.env.PATH ?? "",
+    NPM_CONFIG_CONFIRM_MODULES_PURGE: "mixed-case-value",
+  });
+
+  assert.equal(env.npm_config_confirm_modules_purge, "mixed-case-value");
+});

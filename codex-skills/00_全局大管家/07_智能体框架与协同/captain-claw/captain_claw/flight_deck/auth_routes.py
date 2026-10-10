@@ -1,0 +1,294 @@
+"""Authentication REST endpoints for Flight Deck."""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
+from pydantic import BaseModel, EmailStr
+
+from captain_claw.flight_deck.auth import (
+    REFRESH_COOKIE,
+    REFRESH_TOKEN_TTL,
+    _fd_auth_enabled,
+    create_access_token,
+    create_refresh_token,
+    get_current_user,
+    get_db,
+    hash_password,
+    hash_token,
+    verify_password,
+)
+
+router = APIRouter(prefix="/fd/auth", tags=["auth"])
+
+
+# ── Request / response models ───────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    role: str
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str | None = None
+    password: str | None = None
+    current_password: str | None = None
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+def _cookie_secure() -> bool:
+    """Whether the refresh cookie is marked Secure (HTTPS-only).
+
+    ``FD_COOKIE_SECURE`` wins when set. Otherwise default to Secure whenever the
+    deployment is locked down (i.e. reachable beyond the owner's machine, behind
+    a TLS proxy) — so a team deployment gets a Secure cookie automatically while
+    local http development keeps working.
+    """
+    v = os.environ.get("FD_COOKIE_SECURE", "").lower()
+    if v in ("true", "1", "yes"):
+        return True
+    if v in ("false", "0", "no"):
+        return False
+    return os.environ.get("FD_LOCKDOWN", "").lower() in ("true", "1", "yes")
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=refresh_token,
+        max_age=int(REFRESH_TOKEN_TTL.total_seconds()),
+        httponly=True,
+        samesite="lax",
+        path="/fd/auth",
+        secure=_cookie_secure(),
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(key=REFRESH_COOKIE, path="/fd/auth")
+
+
+# ── Endpoints ────────────────────────────────────────────────────────
+
+@router.post("/register", response_model=TokenResponse)
+async def register(body: RegisterRequest, response: Response):
+    # An auth-disabled deck (desktop build) has no accounts, but it does open
+    # its DB for connector settings. Registering there would let whoever
+    # reaches the port first plant the first — admin — account, which silently
+    # becomes real the day FD_AUTH_ENABLED is switched on.
+    if not _fd_auth_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Registration is disabled: this Flight Deck runs without accounts (FD_AUTH_ENABLED=false).",
+        )
+    db = get_db()
+    if not body.email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    existing = await db.get_user_by_email(body.email)
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    # First user becomes admin (bootstrap). Self-registration of ADDITIONAL
+    # users is closed by default for team deployments — an admin creates
+    # accounts from the Admin page. An operator can re-open it with
+    # FD_REGISTRATION_OPEN=1; FD_REGISTRATION_DISABLED=1 forces it closed.
+    user_count = await db.count_users()
+    if user_count > 0:
+        disabled = os.environ.get("FD_REGISTRATION_DISABLED", "").lower() in ("true", "1", "yes")
+        open_reg = os.environ.get("FD_REGISTRATION_OPEN", "").lower() in ("true", "1", "yes")
+        if disabled or not open_reg:
+            raise HTTPException(
+                status_code=403,
+                detail="Registration is closed. Ask an administrator to create your account.",
+            )
+
+    pw_hash = hash_password(body.password)
+    display = body.display_name or body.email.split("@")[0]
+
+    role = "admin" if user_count == 0 else "user"
+
+    user = await db.create_user(
+        email=body.email, password_hash=pw_hash,
+        display_name=display, role=role,
+    )
+
+    access_token = create_access_token(user["id"], role=role)
+    refresh_token = create_refresh_token()
+
+    expires_at = (datetime.now(timezone.utc) + REFRESH_TOKEN_TTL).isoformat()
+    await db.create_refresh_session(user["id"], hash_token(refresh_token), expires_at)
+    _set_refresh_cookie(response, refresh_token)
+
+    return TokenResponse(
+        access_token=access_token,
+        user={"id": user["id"], "email": user["email"],
+              "display_name": display, "role": role},
+    )
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(body: LoginRequest, response: Response):
+    db = get_db()
+    user = await db.get_user_by_email(body.email)
+    if not user or not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    access_token = create_access_token(user["id"], role=user["role"])
+    refresh_token = create_refresh_token()
+
+    expires_at = (datetime.now(timezone.utc) + REFRESH_TOKEN_TTL).isoformat()
+    await db.create_refresh_session(user["id"], hash_token(refresh_token), expires_at)
+    _set_refresh_cookie(response, refresh_token)
+
+    return TokenResponse(
+        access_token=access_token,
+        user={"id": user["id"], "email": user["email"],
+              "display_name": user["display_name"], "role": user["role"]},
+    )
+
+
+@router.post("/refresh")
+async def refresh(request: Request, response: Response):
+    refresh_token = request.cookies.get(REFRESH_COOKIE)
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No refresh token")
+
+    db = get_db()
+    token_hash = hash_token(refresh_token)
+
+    # Find the session matching this refresh token
+    # We need to search by hash since we don't store the session_id in the cookie
+    assert db._db is not None
+    async with db._db.execute(
+        "SELECT * FROM user_sessions WHERE refresh_token_hash = ?", (token_hash,)
+    ) as cur:
+        session = await cur.fetchone()
+
+    if not session:
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    session = dict(session)
+    now = datetime.now(timezone.utc)
+    expires = datetime.fromisoformat(session["expires_at"])
+    if now > expires:
+        await db.delete_refresh_session(session["id"])
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+
+    user = await db.get_user_by_id(session["user_id"])
+    if not user:
+        await db.delete_refresh_session(session["id"])
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=401, detail="User not found")
+
+    # Rotate: delete old session, create new tokens
+    await db.delete_refresh_session(session["id"])
+    new_access = create_access_token(user["id"], role=user["role"])
+    new_refresh = create_refresh_token()
+    new_expires = (now + REFRESH_TOKEN_TTL).isoformat()
+    await db.create_refresh_session(user["id"], hash_token(new_refresh), new_expires)
+    _set_refresh_cookie(response, new_refresh)
+
+    return {
+        "access_token": new_access,
+        "token_type": "bearer",
+        "user": {"id": user["id"], "email": user["email"],
+                 "display_name": user["display_name"], "role": user["role"]},
+    }
+
+
+@router.post("/logout")
+async def logout(request: Request, response: Response):
+    refresh_token = request.cookies.get(REFRESH_COOKIE)
+    if refresh_token:
+        db = get_db()
+        token_hash = hash_token(refresh_token)
+        assert db._db is not None
+        await db._db.execute(
+            "DELETE FROM user_sessions WHERE refresh_token_hash = ?", (token_hash,)
+        )
+        await db._db.commit()
+    _clear_refresh_cookie(response)
+    return {"ok": True}
+
+
+@router.get("/me")
+async def get_me(user: dict = Depends(get_current_user)):
+    return {
+        "id": user["id"], "email": user["email"],
+        "display_name": user["display_name"], "role": user["role"],
+    }
+
+
+async def _refresh_owner_profile(db, user_id: str) -> None:
+    """The owner profile names its owner: rewrite their agents' copies after a
+    display-name change. Best-effort — never fails the update."""
+    try:
+        from captain_claw.flight_deck import tenant_profile
+
+        await tenant_profile.refresh_agents(db, user_id)
+    except Exception:
+        pass
+    # …and the shared-context labels that name them (context packs).
+    try:
+        from captain_claw.flight_deck import context_packs
+
+        await context_packs.refresh_for_user(db, user_id)
+    except Exception:
+        pass
+
+
+@router.put("/me")
+async def update_me(body: UpdateProfileRequest, user: dict = Depends(get_current_user)):
+    db = get_db()
+    updates: dict = {}
+
+    if body.display_name is not None:
+        updates["display_name"] = body.display_name
+
+    if body.password is not None:
+        if not body.current_password:
+            raise HTTPException(status_code=400, detail="Current password required")
+        full_user = await db.get_user_by_email(user["email"])
+        if not full_user or not verify_password(body.current_password, full_user["password_hash"]):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        if len(body.password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        updates["password_hash"] = hash_password(body.password)
+
+    if updates:
+        await db.update_user(user["id"], **updates)
+        if "display_name" in updates and updates["display_name"] != (user.get("display_name") or ""):
+            await _refresh_owner_profile(db, str(user["id"]))
+
+    updated = await db.get_user_by_id(user["id"])
+    return {
+        "id": updated["id"], "email": updated["email"],
+        "display_name": updated["display_name"], "role": updated["role"],
+    }

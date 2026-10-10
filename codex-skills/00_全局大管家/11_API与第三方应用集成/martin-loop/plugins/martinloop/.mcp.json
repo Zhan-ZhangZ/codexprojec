@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "martin-loop": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@martinloop/mcp@0.8.2"
+      ]
+    }
+  }
+}

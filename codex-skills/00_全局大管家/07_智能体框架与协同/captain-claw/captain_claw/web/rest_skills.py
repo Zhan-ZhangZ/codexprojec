@@ -1,0 +1,765 @@
+"""REST handlers for skills browsing and installation."""
+
+from __future__ import annotations
+
+import platform
+import posixpath
+import shutil
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import yaml
+from aiohttp import web
+
+from captain_claw.logging import get_logger
+
+if TYPE_CHECKING:
+    from captain_claw.web_server import WebServer
+
+log = get_logger(__name__)
+
+# ── Blocked system paths ─────────────────────────────────────
+
+_BLOCKED_UNIX = {
+    "/bin", "/sbin", "/usr", "/etc", "/var", "/tmp", "/dev", "/proc",
+    "/sys", "/boot", "/lib", "/lib64", "/run", "/snap", "/lost+found",
+    "/System", "/Library", "/private",
+}
+_BLOCKED_WIN = {
+    "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
+    "C:\\ProgramData", "C:\\$Recycle.Bin", "C:\\Recovery",
+}
+
+
+def _is_drive_root(p: Path) -> bool:
+    """Return True if path is a filesystem root (/ or C:\\)."""
+    return p == p.anchor or str(p) in ("/", "\\")
+
+
+def _is_blocked_path(p: Path) -> bool:
+    """Return True if path is a drive root or a known system directory."""
+    resolved = p.resolve()
+    if _is_drive_root(resolved):
+        return True
+    s = str(resolved)
+    blocked = _BLOCKED_WIN if platform.system() == "Windows" else _BLOCKED_UNIX
+    for bp in blocked:
+        if s == bp or s.startswith(bp + ("/" if "/" in bp else "\\")):
+            return True
+    return False
+
+
+# ── Helpers ───────────────────────────────────────────────────
+
+def _resolve_skill_key(entry: Any) -> str:
+    """Return the config key for a skill entry."""
+    if entry.metadata and entry.metadata.skill_key:
+        return entry.metadata.skill_key
+    return entry.name
+
+
+def _get_enabled_state(cfg: Any, skill_key: str) -> bool | None:
+    """Return the explicit enabled state from config, or None if not set."""
+    entries = cfg.skills.entries or {}
+    for key, val in entries.items():
+        if key == skill_key or str(key).strip().lower() == skill_key.lower():
+            return val.enabled
+    return None
+
+
+def _save_config(config_path: Path, data: dict) -> None:
+    """Validate, write, and reload config."""
+    from captain_claw.config import Config, LOCAL_CONFIG_FILENAME, set_config
+
+    local_path = Path.cwd() / LOCAL_CONFIG_FILENAME
+    local_data = Config._read_yaml_data(local_path)
+    merged_data = Config._deep_merge(local_data, data) if local_data else data
+    Config(**merged_data)  # validate — raises on error
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+    set_config(Config.load())
+
+
+# ── Skills CRUD ───────────────────────────────────────────────
+
+async def list_skills(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/skills — list all workspace skill entries with rich metadata."""
+    from captain_claw.config import get_config
+    from captain_claw.skills import filter_skill_entries, load_workspace_skill_entries
+
+    cfg = get_config()
+    workspace = str(server.agent.workspace_base_path) if server.agent else "."
+
+    try:
+        entries = load_workspace_skill_entries(workspace, cfg)
+    except Exception as exc:
+        log.error("Failed to load skill entries", error=str(exc))
+        return web.json_response({"skills": [], "error": str(exc)})
+
+    try:
+        filtered = filter_skill_entries(entries, cfg)
+    except Exception:
+        filtered = entries
+
+    filtered_names = {e.name for e in filtered}
+
+    result = []
+    for entry in entries:
+        meta = entry.metadata
+        requires = meta.requires if meta else None
+        skill_key = _resolve_skill_key(entry)
+        enabled_state = _get_enabled_state(cfg, skill_key)
+        result.append({
+            "name": entry.name,
+            "description": entry.description,
+            "source": entry.source,
+            "file_path": entry.file_path,
+            "base_dir": entry.base_dir,
+            "emoji": meta.emoji if meta else None,
+            "homepage": meta.homepage if meta else None,
+            "user_invocable": entry.invocation.user_invocable,
+            "model_invocation": not entry.invocation.disable_model_invocation,
+            "active": entry.name in filtered_names,
+            "enabled": enabled_state,
+            "skill_key": skill_key,
+            "requires": {
+                "bins": requires.bins if requires else [],
+                "any_bins": requires.any_bins if requires else [],
+                "env": requires.env if requires else [],
+                "config": requires.config if requires else [],
+            },
+            "has_install": bool(meta and meta.install),
+        })
+
+    return web.json_response({"skills": result})
+
+
+async def install_skill(server: WebServer, request: web.Request) -> web.Response:
+    """POST /api/skills/install — install a skill from a GitHub URL."""
+    from captain_claw.config import get_config
+    from captain_claw.skills import install_skill_from_github_url
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    url = str(body.get("url", "")).strip()
+    if not url:
+        return web.json_response({"ok": False, "error": "Missing URL"}, status=400)
+
+    cfg = get_config()
+
+    try:
+        result = install_skill_from_github_url(url, cfg)
+    except Exception as exc:
+        log.error("Skill install failed", url=url, error=str(exc))
+        return web.json_response({"ok": False, "error": str(exc)}, status=500)
+
+    return web.json_response({
+        "ok": True,
+        "skill_name": result.skill_name,
+        "destination": result.destination,
+        "repo": result.repo,
+    })
+
+
+# ── Upload-based skill install ────────────────────────────────
+
+_UPLOAD_ALLOWED_EXTS = {".md", ".zip"}
+_UPLOAD_MAX_BYTES = 20 * 1024 * 1024  # 20 MB hard cap for skill uploads
+
+
+def _normalize_zip_member(raw: str) -> str | None:
+    cleaned = str(raw or "").replace("\\", "/")
+    if not cleaned:
+        return None
+    parts = [p for p in cleaned.split("/") if p and p != "."]
+    if not parts:
+        return None
+    normalized = posixpath.normpath("/".join(parts))
+    if not normalized or normalized in {".", ".."}:
+        return None
+    if normalized.startswith("../") or normalized.startswith("/"):
+        raise ValueError(f"Archive member escapes target directory: {raw}")
+    if any(part in {"..", ""} for part in normalized.split("/")):
+        raise ValueError(f"Archive member escapes target directory: {raw}")
+    return normalized
+
+
+def _extract_zip(archive_path: Path, target_dir: Path) -> None:
+    resolved = target_dir.resolve()
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        for member in archive.infolist():
+            rel = _normalize_zip_member(member.filename)
+            if not rel:
+                continue
+            dest = (resolved / rel).resolve()
+            dest.relative_to(resolved)
+            if member.is_dir():
+                dest.mkdir(parents=True, exist_ok=True)
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member, "r") as src, dest.open("wb") as out:
+                shutil.copyfileobj(src, out)
+
+
+def _find_skill_root_in(extract_dir: Path) -> Path | None:
+    """Locate the directory containing SKILL.md in an extracted archive."""
+    direct = extract_dir / "SKILL.md"
+    if direct.is_file():
+        return extract_dir
+    # Walk shallowly: prefer the shortest path containing SKILL.md.
+    candidates: list[Path] = []
+    for path in extract_dir.rglob("SKILL.md"):
+        if path.is_file():
+            candidates.append(path.parent)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: len(p.parts))
+    return candidates[0]
+
+
+async def install_skill_upload(server: WebServer, request: web.Request) -> web.Response:
+    """POST /api/skills/install-upload — install a skill from an uploaded .md or .zip."""
+    from captain_claw.config import get_config
+    from captain_claw.skills import (
+        SOURCE_MANAGED,
+        _load_skill_entry,
+        _sanitize_skill_install_dir_name,
+    )
+
+    try:
+        reader = await request.multipart()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Multipart body required"}, status=400)
+    if reader is None:
+        return web.json_response({"ok": False, "error": "Multipart body required"}, status=400)
+
+    file_field = None
+    while True:
+        field = await reader.next()
+        if field is None:
+            break
+        if field.name == "file":
+            file_field = field
+            break
+
+    if file_field is None:
+        return web.json_response({"ok": False, "error": "No file field in upload"}, status=400)
+
+    original_name = file_field.filename or "skill"
+    ext = Path(original_name).suffix.lower()
+    if ext not in _UPLOAD_ALLOWED_EXTS:
+        return web.json_response(
+            {"ok": False, "error": f"Unsupported file type '{ext}'. Allowed: .md, .zip"},
+            status=400,
+        )
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file_field.read_chunk(8192)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _UPLOAD_MAX_BYTES:
+            return web.json_response({"ok": False, "error": "File too large (max 20 MB)"}, status=413)
+        chunks.append(chunk)
+    file_bytes = b"".join(chunks)
+    if not file_bytes:
+        return web.json_response({"ok": False, "error": "Empty file"}, status=400)
+
+    cfg = get_config()
+    managed_dir = Path(cfg.skills.managed_dir).expanduser().resolve()
+    managed_dir.mkdir(parents=True, exist_ok=True)
+
+    base_name = Path(original_name).stem
+    install_name = _sanitize_skill_install_dir_name(base_name)
+    if not install_name:
+        return web.json_response({"ok": False, "error": "Invalid skill name"}, status=400)
+
+    destination = (managed_dir / install_name).resolve()
+    try:
+        destination.relative_to(managed_dir)
+    except Exception:
+        return web.json_response({"ok": False, "error": "Resolved destination is outside managed dir"}, status=400)
+    if destination.exists():
+        return web.json_response(
+            {"ok": False, "error": f"Skill folder already exists: {destination.name}"},
+            status=409,
+        )
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="captain-claw-skill-upload-") as temp_dir:
+            staging = Path(temp_dir).resolve()
+            if ext == ".md":
+                # Single file: write as SKILL.md inside a synthetic folder.
+                skill_root = staging / install_name
+                skill_root.mkdir(parents=True, exist_ok=True)
+                (skill_root / "SKILL.md").write_bytes(file_bytes)
+            else:
+                # Zip file: write to disk, extract, then locate SKILL.md.
+                archive_path = staging / "upload.zip"
+                archive_path.write_bytes(file_bytes)
+                extract_dir = staging / "extracted"
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    _extract_zip(archive_path, extract_dir)
+                except zipfile.BadZipFile:
+                    return web.json_response({"ok": False, "error": "Invalid zip file"}, status=400)
+                except ValueError as exc:
+                    return web.json_response({"ok": False, "error": str(exc)}, status=400)
+                skill_root = _find_skill_root_in(extract_dir)
+                if skill_root is None:
+                    return web.json_response(
+                        {"ok": False, "error": "Archive does not contain SKILL.md"},
+                        status=400,
+                    )
+
+            # Copy to managed dir.
+            shutil.copytree(skill_root, destination)
+            try:
+                entry = _load_skill_entry(destination / "SKILL.md", SOURCE_MANAGED, cfg)
+            except Exception:
+                entry = None
+            if entry is None:
+                shutil.rmtree(destination, ignore_errors=True)
+                return web.json_response(
+                    {"ok": False, "error": "Installed SKILL.md could not be parsed"},
+                    status=422,
+                )
+    except Exception as exc:
+        log.error("Skill upload install failed", filename=original_name, error=str(exc))
+        shutil.rmtree(destination, ignore_errors=True)
+        return web.json_response({"ok": False, "error": str(exc)}, status=500)
+
+    log.info("Skill installed from upload", filename=original_name, destination=str(destination))
+    return web.json_response({
+        "ok": True,
+        "skill_name": entry.name,
+        "destination": str(destination),
+        "source": "upload",
+        "kind": ext.lstrip("."),
+    })
+
+
+async def toggle_skill(server: WebServer, request: web.Request) -> web.Response:
+    """POST /api/skills/toggle — enable or disable a skill via config."""
+    from captain_claw.config import DEFAULT_CONFIG_PATH
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    skill_key = str(body.get("skill_key", "")).strip()
+    if not skill_key:
+        return web.json_response({"ok": False, "error": "Missing skill_key"}, status=400)
+
+    enabled = body.get("enabled")
+    if enabled is None:
+        return web.json_response({"ok": False, "error": "Missing enabled"}, status=400)
+    enabled = bool(enabled)
+
+    config_path = DEFAULT_CONFIG_PATH.expanduser()
+    if config_path.exists():
+        data: dict = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    else:
+        data = {}
+
+    skills_section = data.setdefault("skills", {})
+    entries_section = skills_section.setdefault("entries", {})
+    entry = entries_section.setdefault(skill_key, {})
+
+    if enabled:
+        entry.pop("enabled", None)
+        if not entry:
+            entries_section.pop(skill_key, None)
+        if not entries_section:
+            skills_section.pop("entries", None)
+    else:
+        entry["enabled"] = False
+
+    try:
+        _save_config(config_path, data)
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=422)
+
+    log.info("Skill toggled", skill_key=skill_key, enabled=enabled)
+    return web.json_response({"ok": True, "skill_key": skill_key, "enabled": enabled})
+
+
+# ── Directory browsing ────────────────────────────────────────
+
+async def browse_directory(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/browse?path=... — list subdirectories for folder selection."""
+    raw_path = request.query.get("path", "").strip()
+    if not raw_path:
+        raw_path = str(Path.home())
+
+    try:
+        target = Path(raw_path).expanduser().resolve()
+    except Exception:
+        return web.json_response({"error": "Invalid path"}, status=400)
+
+    if not target.exists():
+        return web.json_response({"error": "Path does not exist"}, status=404)
+    if not target.is_dir():
+        return web.json_response({"error": "Not a directory"}, status=400)
+
+    dirs = []
+    try:
+        for child in sorted(target.iterdir()):
+            if not child.is_dir():
+                continue
+            name = child.name
+            # Skip hidden directories.
+            if name.startswith("."):
+                continue
+            dirs.append(name)
+    except PermissionError:
+        return web.json_response({"error": "Permission denied"}, status=403)
+
+    blocked = _is_blocked_path(target)
+
+    return web.json_response({
+        "path": str(target),
+        "parent": str(target.parent) if not _is_drive_root(target) else None,
+        "dirs": dirs,
+        "blocked": blocked,
+    })
+
+
+# ── Read-folder management ────────────────────────────────────
+
+async def list_read_folders(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/read-folders — list configured extra readable directories."""
+    from captain_claw.config import get_config
+
+    cfg = get_config()
+    dirs = list(cfg.tools.read.extra_dirs)
+    resolved = []
+    for d in dirs:
+        p = Path(d).expanduser().resolve()
+        resolved.append({
+            "path": d,
+            "resolved": str(p),
+            "exists": p.exists(),
+        })
+    return web.json_response({"dirs": resolved})
+
+
+async def add_read_folder(server: WebServer, request: web.Request) -> web.Response:
+    """POST /api/read-folders — add a readable directory."""
+    from captain_claw.config import DEFAULT_CONFIG_PATH
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    raw = str(body.get("path", "")).strip()
+    if not raw:
+        return web.json_response({"ok": False, "error": "Missing path"}, status=400)
+
+    target = Path(raw).expanduser().resolve()
+
+    if _is_blocked_path(target):
+        return web.json_response(
+            {"ok": False, "error": "Cannot add root or system directories"},
+            status=400,
+        )
+    if not target.exists():
+        return web.json_response({"ok": False, "error": "Directory does not exist"}, status=400)
+    if not target.is_dir():
+        return web.json_response({"ok": False, "error": "Path is not a directory"}, status=400)
+
+    config_path = DEFAULT_CONFIG_PATH.expanduser()
+    if config_path.exists():
+        data: dict = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    else:
+        data = {}
+
+    read_section = data.setdefault("tools", {}).setdefault("read", {})
+    extra = read_section.setdefault("extra_dirs", [])
+
+    # Avoid duplicates (compare resolved paths).
+    existing_resolved = {str(Path(e).expanduser().resolve()) for e in extra}
+    if str(target) in existing_resolved:
+        return web.json_response({"ok": False, "error": "Directory already added"}, status=409)
+
+    extra.append(str(target))
+
+    try:
+        _save_config(config_path, data)
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=422)
+
+    log.info("Read folder added", path=str(target))
+    return web.json_response({"ok": True, "path": str(target)})
+
+
+async def remove_read_folder(server: WebServer, request: web.Request) -> web.Response:
+    """DELETE /api/read-folders — remove a readable directory."""
+    from captain_claw.config import DEFAULT_CONFIG_PATH
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    raw = str(body.get("path", "")).strip()
+    if not raw:
+        return web.json_response({"ok": False, "error": "Missing path"}, status=400)
+
+    target = Path(raw).expanduser().resolve()
+
+    config_path = DEFAULT_CONFIG_PATH.expanduser()
+    if config_path.exists():
+        data: dict = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    else:
+        data = {}
+
+    read_section = data.get("tools", {}).get("read", {})
+    extra = read_section.get("extra_dirs", [])
+    if not extra:
+        return web.json_response({"ok": False, "error": "No read folders configured"}, status=404)
+
+    new_extra = []
+    removed = False
+    for e in extra:
+        if str(Path(e).expanduser().resolve()) == str(target):
+            removed = True
+        else:
+            new_extra.append(e)
+
+    if not removed:
+        return web.json_response({"ok": False, "error": "Directory not found in list"}, status=404)
+
+    read_section["extra_dirs"] = new_extra
+    if not new_extra:
+        read_section.pop("extra_dirs", None)
+    if not read_section:
+        data.get("tools", {}).pop("read", None)
+
+    try:
+        _save_config(config_path, data)
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=422)
+
+    log.info("Read folder removed", path=str(target))
+    return web.json_response({"ok": True, "path": str(target)})
+
+
+# ── Drive enumeration (Windows) ─────────────────────────────
+
+async def list_drives(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/drives — list available drive letters (Windows only)."""
+    import string
+
+    os_name = platform.system()
+    if os_name != "Windows":
+        return web.json_response({"drives": [], "os": os_name})
+
+    drives = []
+    for letter in string.ascii_uppercase:
+        drive_path = Path(f"{letter}:\\")
+        if drive_path.exists():
+            drives.append(f"{letter}:")
+    return web.json_response({"drives": drives, "os": "Windows"})
+
+
+# ── Google Drive status ──────────────────────────────────────
+
+# Scopes that can see the user's existing folders. ``drive.file`` is a Drive
+# scope too, but it only reaches files this app created or the user opened
+# through a picker — the folder picker and the folder trees would read back
+# (near-)empty, so it does not count as "available" here.
+_GDRIVE_BROWSE_SCOPES = frozenset({
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.readonly",
+})
+
+
+async def gdrive_status(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/gdrive-status — can the Read Folders picker browse Google Drive?
+
+    True when this agent's Google connection (the owner's under Flight Deck)
+    has a token with a Drive scope that can list folders. An unreported scope
+    is given the benefit of the doubt, as the Drive client does (the API 403s
+    if it is truly missing). Any failure — no token, Flight Deck refusing,
+    Flight Deck unreachable — is just "not available".
+    """
+    from captain_claw.google_oauth_manager import GoogleOAuthManager
+    from captain_claw.session import get_session_manager
+
+    try:
+        tokens = await GoogleOAuthManager(get_session_manager()).get_tokens()
+    except Exception as exc:  # FlightDeckRefused, network, ...
+        log.debug("gdrive status: no Google identity", error=str(exc)[:120])
+        return web.json_response({"available": False})
+
+    available = False
+    if tokens and tokens.access_token:
+        granted = set((tokens.scope or "").split())
+        available = not granted or bool(granted & _GDRIVE_BROWSE_SCOPES)
+    return web.json_response({"available": available})
+
+
+# ── Google Drive folder management ───────────────────────────
+
+async def list_gdrive_folders(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/read-folders/gdrive — list configured GDrive folders."""
+    from captain_claw.config import get_config
+
+    cfg = get_config()
+    folders = [{"id": f.id, "name": f.name} for f in cfg.tools.read.gdrive_folders]
+    return web.json_response({"folders": folders})
+
+
+async def add_gdrive_folder(server: WebServer, request: web.Request) -> web.Response:
+    """POST /api/read-folders/gdrive — add a GDrive folder."""
+    from captain_claw.config import DEFAULT_CONFIG_PATH
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    folder_id = str(body.get("id", "")).strip()
+    folder_name = str(body.get("name", "")).strip()
+    if not folder_id or not folder_name:
+        return web.json_response({"ok": False, "error": "Missing id or name"}, status=400)
+
+    config_path = DEFAULT_CONFIG_PATH.expanduser()
+    if config_path.exists():
+        data: dict = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    else:
+        data = {}
+
+    read_section = data.setdefault("tools", {}).setdefault("read", {})
+    gdrive = read_section.setdefault("gdrive_folders", [])
+
+    # Avoid duplicates.
+    for existing in gdrive:
+        if existing.get("id") == folder_id:
+            return web.json_response({"ok": False, "error": "Folder already added"}, status=409)
+
+    gdrive.append({"id": folder_id, "name": folder_name})
+
+    try:
+        _save_config(config_path, data)
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=422)
+
+    log.info("GDrive folder added", folder_id=folder_id, name=folder_name)
+    return web.json_response({"ok": True, "id": folder_id, "name": folder_name})
+
+
+async def remove_gdrive_folder(server: WebServer, request: web.Request) -> web.Response:
+    """DELETE /api/read-folders/gdrive — remove a GDrive folder."""
+    from captain_claw.config import DEFAULT_CONFIG_PATH
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    folder_id = str(body.get("id", "")).strip()
+    if not folder_id:
+        return web.json_response({"ok": False, "error": "Missing id"}, status=400)
+
+    config_path = DEFAULT_CONFIG_PATH.expanduser()
+    if config_path.exists():
+        data: dict = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    else:
+        data = {}
+
+    read_section = data.get("tools", {}).get("read", {})
+    gdrive = read_section.get("gdrive_folders", [])
+    if not gdrive:
+        return web.json_response({"ok": False, "error": "No GDrive folders configured"}, status=404)
+
+    new_gdrive = [f for f in gdrive if f.get("id") != folder_id]
+    if len(new_gdrive) == len(gdrive):
+        return web.json_response({"ok": False, "error": "Folder not found in list"}, status=404)
+
+    read_section["gdrive_folders"] = new_gdrive
+    if not new_gdrive:
+        read_section.pop("gdrive_folders", None)
+
+    try:
+        _save_config(config_path, data)
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=422)
+
+    log.info("GDrive folder removed", folder_id=folder_id)
+    return web.json_response({"ok": True, "id": folder_id})
+
+
+async def browse_gdrive(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/read-folders/gdrive/browse?folder_id=... — browse GDrive subfolders."""
+    from captain_claw.file_tree_builder import browse_gdrive_folders
+
+    folder_id = request.query.get("folder_id", "root").strip() or "root"
+    result = await browse_gdrive_folders(folder_id)
+    if result.get("error"):
+        return web.json_response(result, status=502)
+    return web.json_response(result)
+
+
+# ── Folder trees ─────────────────────────────────────────────
+
+async def get_folder_trees(server: WebServer, request: web.Request) -> web.Response:
+    """GET /api/folder-trees — return file-tree listings for all configured folders."""
+    from captain_claw.config import get_config
+    from captain_claw.file_tree_builder import (
+        build_gdrive_tree,
+        build_local_tree,
+        get_cached_tree,
+        set_cached_tree,
+    )
+
+    cfg = get_config()
+    ttl = cfg.tools.read.file_tree_cache_ttl_seconds
+    max_entries = cfg.tools.read.file_tree_max_entries
+    max_depth = cfg.tools.read.file_tree_max_depth
+
+    trees: list[dict[str, Any]] = []
+
+    # Local folders.
+    for d in cfg.tools.read.extra_dirs:
+        cache_key = f"local:{d}"
+        cached = get_cached_tree(cache_key, ttl)
+        if cached:
+            trees.append({"type": "local", "path": d, "tree": cached})
+            continue
+        try:
+            tree_str, count = build_local_tree(d, max_entries=max_entries, max_depth=max_depth)
+            set_cached_tree(cache_key, tree_str, count)
+            trees.append({"type": "local", "path": d, "tree": tree_str})
+        except Exception as e:
+            trees.append({"type": "local", "path": d, "tree": f"[Error: {e}]"})
+
+    # GDrive folders.
+    for gf in cfg.tools.read.gdrive_folders:
+        cache_key = f"gdrive:{gf.id}"
+        cached = get_cached_tree(cache_key, ttl)
+        if cached:
+            trees.append({"type": "gdrive", "id": gf.id, "name": gf.name, "tree": cached})
+            continue
+        try:
+            tree_str, count = await build_gdrive_tree(
+                gf.id, gf.name, max_entries=max_entries, max_depth=max_depth,
+            )
+            set_cached_tree(cache_key, tree_str, count)
+            trees.append({"type": "gdrive", "id": gf.id, "name": gf.name, "tree": tree_str})
+        except Exception as e:
+            trees.append({"type": "gdrive", "id": gf.id, "name": gf.name, "tree": f"[Error: {e}]"})
+
+    return web.json_response({"trees": trees})

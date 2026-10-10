@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""Regenerate the machine-maintained blocks of docs/supported-sources.md and the agent skill.
+
+    python scripts/gen_docs.py            # rewrite both blocks
+    python scripts/gen_docs.py --check    # exit 1 if either is stale, or if SOURCES is out of step
+
+The skill's block is a routing table: one row per source, pointing at the schema its records are
+validated against and at the two docs sections that say what it serves and what its clients
+authenticate with. Generated for the same reason the docs table is — those links carry heading
+anchors, and a skill that sends an agent to the top of a 300-line page instead of to the answer
+fails silently.
+
+Why a mapping lives here instead of being derived: nothing in the app answers "which URL prefix
+belongs to which source_type". ``jira`` and ``confluence`` both sit under ``/atlassian``; one
+``google_drive`` spans ``/drive``, ``/docs``, ``/sheets`` and ``/slides``; and ``/batch``,
+``/oauth2``, ``/health`` and ``/_meta`` are not sources at all. ``backlot.openapi.SOURCE_PREFIXES``
+cannot stand in — it is scoped to the MCP bridge, so it merges Jira with Confluence under
+``atlassian`` and knows ``google_drive`` as ``gdrive``.
+
+Route introspection is out too: FastAPI wraps an included router in a ``_IncludedRouter`` exposing
+neither ``.path`` nor ``.routes``, so walking ``app.routes`` would depend on FastAPI internals.
+REST prefixes are checked against ``/openapi.json`` instead — which needs no running server, only
+``app.openapi()``.
+
+The two GraphQL sources register their single POST with ``include_in_schema=False``, so they are
+absent from the spec and cannot be checked that way. Proving those routes are mounted needs a
+served corpus, which a docs generator has no business building; ``tests/test_docs.py`` does it
+instead, against the paths this file wrote into the table.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+# Run as `python scripts/gen_docs.py`, sys.path[0] is scripts/, so an unguarded `import backlot`
+# resolves to the installed package: in a worktree with an editable install from the primary
+# checkout, another revision's routes and schemas would be rendered into this tree's files.
+sys.path.insert(0, str(REPO))
+
+from backlot.main import app
+from backlot.openapi import SOURCE_PREFIXES
+from backlot.validation import SERVICE_SCHEMAS
+
+SOURCES_DOC = REPO / "docs" / "supported-sources.md"
+AUTH_DOC = REPO / "docs" / "auth.md"
+SKILL_DOC = REPO / "skills" / "backlot" / "SKILL.md"
+
+# source_type -> (display name, URL prefixes). The only place this mapping exists.
+SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "confluence": ("Confluence", ("/atlassian/wiki/rest/api",)),
+    "fireflies": ("Fireflies", ("/fireflies/graphql",)),
+    "github": ("GitHub", ("/github",)),
+    "gmail": ("Gmail", ("/gmail/v1",)),
+    "google_drive": (
+        "Google Drive, Docs, Sheets, Slides",
+        ("/drive/v3", "/docs/v1", "/sheets/v4", "/slides/v1"),
+    ),
+    "hubspot": ("HubSpot", ("/hubspot",)),
+    "jira": ("Jira", ("/atlassian/rest/api",)),
+    "linear": ("Linear", ("/linear/graphql",)),
+    "notion": ("Notion", ("/notion/v1",)),
+    "s3": ("Amazon S3", ("/s3",)),
+    "slack": ("Slack", ("/slack/api",)),
+}
+
+# One POST each, include_in_schema=False, so they contribute no /openapi.json paths.
+GRAPHQL_ONLY = frozenset({"linear", "fireflies"})
+
+# source_type -> the docs/auth.md heading that covers it. Not derivable from SOURCES, because the
+# auth axis does not factor per source: Jira and Confluence share one Basic-auth section and the
+# Google surfaces share one, so the sources come to fewer headings than there are. validate() proves each
+# value still names a heading that is there, which is what stops a renamed section from rotting the
+# skill's links quietly.
+AUTH_SECTIONS: dict[str, str] = {
+    "confluence": "Jira and Confluence",
+    "fireflies": "Fireflies",
+    "github": "GitHub",
+    "gmail": "Gmail, Google Drive, Docs, Sheets, Slides",
+    "google_drive": "Gmail, Google Drive, Docs, Sheets, Slides",
+    "hubspot": "HubSpot",
+    "jira": "Jira and Confluence",
+    "linear": "Linear",
+    "notion": "Notion",
+    "s3": "Amazon S3",
+    "slack": "Slack",
+}
+
+_START = "<!-- generated:{name} start -->"
+_END = "<!-- generated:{name} end -->"
+
+
+def _first_sentence(text: str) -> str:
+    """The first sentence of a schema description.
+
+    Splits on a period followed by whitespace, so "A Fireflies.ai meeting transcript. `channel`
+    is…" yields the whole first sentence instead of breaking at ".ai".
+    """
+    return re.split(r"(?<=\.)\s", text.strip(), maxsplit=1)[0]
+
+
+def _anchor(heading: str) -> str:
+    """GitHub's heading slug: drop inline markup, then non-word characters, spaces to hyphens.
+
+    Markup comes off as PAIRED delimiters, not as characters. Stripping ``_`` character-wise would
+    also eat the underscores inside an identifier, which GitHub keeps because they are word
+    characters: `` `test_docs.py` `` has to slug to ``test_docspy``, not ``testdocspy``.
+    """
+    # Backreferenced, so a delimiter closes only with itself. Without `\1` the lazy body stops at
+    # the first delimiter CHARACTER, which for `` `test_docs.py` `` is the underscore.
+    text = re.sub(r"([`*_]{1,2})(.+?)\1", r"\2", heading).strip().lower()
+    return re.sub(r"\s", "-", re.sub(r"[^\w\s-]", "", text))
+
+
+def _slice_key(prefixes: tuple[str, ...]) -> str | None:
+    """The key `/_meta/openapi/<key>` wants for a source served under `prefixes`, or None.
+
+    That endpoint is keyed on ``openapi.SOURCE_PREFIXES``, which is the MCP bridge's namespace and
+    not ``source_type``: Jira and Confluence share ``atlassian`` and ``google_drive`` answers to
+    ``gdrive``. Derived by prefix overlap rather than restated, so the two namespaces cannot drift
+    apart in the skill's routing table.
+    """
+    keys = [
+        key
+        for key, bridge in SOURCE_PREFIXES.items()
+        if any(prefix.startswith(b) for prefix in prefixes for b in bridge)
+    ]
+    if len(keys) > 1:
+        raise SystemExit(f"prefixes {prefixes} match more than one MCP slice key: {sorted(keys)}")
+    return keys[0] if keys else None
+
+
+def _sections(doc: Path) -> dict[str, str]:
+    """`### Slack — \\`Bearer\\`` -> {"Slack": "slack--bearer"}, keyed on the half before the dash.
+
+    Both reference pages head a service's section with its name, an em dash, and the detail that
+    varies (its URL prefixes, its auth scheme). The name is the stable half and the only half a
+    mapping here can state; the anchor is read off the heading as it stands.
+    """
+    return {
+        heading.split("—", 1)[0].strip(): _anchor(heading)
+        for heading in re.findall(r"^###\s+(.*?)\s*$", doc.read_text(), re.M)
+    }
+
+
+def validate() -> list[str]:
+    """Ways SOURCES disagrees with the code, as human-readable lines."""
+    problems = []
+    for source_type in sorted(SERVICE_SCHEMAS):
+        if source_type not in SOURCES:
+            problems.append(f"{source_type!r} has a schema but no SOURCES entry — add one")
+    for source_type in sorted(SOURCES):
+        if source_type not in SERVICE_SCHEMAS:
+            problems.append(
+                f"{source_type!r} is in SOURCES but has no backlot/schemas/{source_type}.schema.json"
+            )
+
+    spec_paths = sorted(app.openapi()["paths"])
+    for source_type, (_, prefixes) in sorted(SOURCES.items()):
+        if source_type in GRAPHQL_ONLY:
+            continue
+        for prefix in prefixes:
+            if not any(path.startswith(prefix) for path in spec_paths):
+                problems.append(
+                    f"{source_type!r}: prefix {prefix!r} matches no path in /openapi.json"
+                )
+
+    for source_type in sorted(GRAPHQL_ONLY):
+        prefixes = SOURCES[source_type][1]
+        # These two are served as exactly one POST endpoint. More than one prefix, or one that is
+        # not the GraphQL path, means the entry was edited without reading the note above — and
+        # tests/test_docs.py POSTs whatever lands here, so a wrong path fails there loudly.
+        if len(prefixes) != 1 or not prefixes[0].endswith("/graphql"):
+            problems.append(
+                f"{source_type!r} is GraphQL-only, so it needs exactly one /graphql prefix; "
+                f"got {list(prefixes)}"
+            )
+
+    # The skill's routing table links into a heading in each reference page, so a name that heads
+    # no section there would be written as a link to the top of the page — which resolves, and
+    # answers nothing. Caught here rather than left to the reader.
+    detail = _sections(SOURCES_DOC)
+    auth = _sections(AUTH_DOC)
+    for source_type in sorted(SOURCES):
+        name = SOURCES[source_type][0]
+        if name not in detail:
+            problems.append(
+                f"{source_type!r}: {name!r} heads no section in {SOURCES_DOC.name} — the display "
+                "name in SOURCES has to match the heading there"
+            )
+        if source_type not in AUTH_SECTIONS:
+            problems.append(f"{source_type!r} has no AUTH_SECTIONS entry — add one")
+        elif AUTH_SECTIONS[source_type] not in auth:
+            problems.append(
+                f"{source_type!r}: AUTH_SECTIONS names {AUTH_SECTIONS[source_type]!r}, which heads "
+                f"no section in {AUTH_DOC.name}"
+            )
+    for source_type in sorted(set(AUTH_SECTIONS) - set(SOURCES)):
+        problems.append(f"{source_type!r} is in AUTH_SECTIONS but not in SOURCES")
+    return problems
+
+
+def render_sources() -> str:
+    spec_paths = sorted(app.openapi()["paths"])
+    rows = [
+        "| `source_type` | Service | URL prefix | Endpoints | Record schema | What one record is |",
+        "|---|---|---|---|---|---|",
+    ]
+    for source_type in sorted(SOURCES):
+        name, prefixes = SOURCES[source_type]
+        if source_type in GRAPHQL_ONLY:
+            endpoints = "GraphQL (one `POST`)"
+        else:
+            endpoints = str(
+                sum(1 for path in spec_paths if any(path.startswith(p) for p in prefixes))
+            )
+        prefix_cell = " ".join(f"`{p}`" for p in prefixes)
+        schema_link = f"[`{source_type}.schema.json`](../backlot/schemas/{source_type}.schema.json)"
+        summary = _first_sentence(SERVICE_SCHEMAS[source_type].get("description", ""))
+        rows.append(
+            f"| `{source_type}` | {name} | {prefix_cell} | {endpoints} | {schema_link} | {summary} |"
+        )
+    return "\n".join(rows)
+
+
+def render_skill_sources() -> str:
+    """The agent skill's routing table: schema to validate against, and where each answer lives.
+
+    Paths are relative to skills/backlot/, where SKILL.md sits — two levels below the repo root,
+    unlike the docs table's one.
+    """
+    detail, auth = _sections(SOURCES_DOC), _sections(AUTH_DOC)
+    rows = [
+        "| `source_type` | URL prefix | Record schema | What it serves | Auth | OpenAPI slice |",
+        "|---|---|---|---|---|---|",
+    ]
+    for source_type in sorted(SOURCES):
+        name, prefixes = SOURCES[source_type]
+        prefix_cell = " ".join(f"`{p}`" for p in prefixes)
+        schema = f"[`{source_type}.schema.json`](../../backlot/schemas/{source_type}.schema.json)"
+        serves = f"[{name}](../../docs/supported-sources.md#{detail[name]})"
+        section = AUTH_SECTIONS[source_type]
+        scheme = f"[{section}](../../docs/auth.md#{auth[section]})"
+        key = _slice_key(prefixes)
+        slice_cell = f"`{key}`" if key else "—"
+        rows.append(
+            f"| `{source_type}` | {prefix_cell} | {schema} | {serves} | {scheme} | {slice_cell} |"
+        )
+    return "\n".join(rows)
+
+
+def replace_block(text: str, name: str, body: str, doc: Path) -> str:
+    start, end = _START.format(name=name), _END.format(name=name)
+    pattern = re.compile(re.escape(start) + r".*?" + re.escape(end), re.DOTALL)
+    if not pattern.search(text):
+        raise SystemExit(f"no {name!r} marker pair in {doc}")
+    # A lambda, not a replacement string: the body is markdown full of backslashes and pipes that
+    # re.sub would otherwise read as group references.
+    return pattern.sub(lambda _: f"{start}\n{body}\n{end}", text)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Regenerate the docs' and skill's generated blocks."
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="exit 1 if stale or invalid; write nothing"
+    )
+    args = parser.parse_args()
+
+    if problems := validate():
+        print("SOURCES is out of step with the code:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+
+    blocks = (
+        (SOURCES_DOC, "sources", render_sources),
+        (SKILL_DOC, "skill-sources", render_skill_sources),
+    )
+    stale = []
+    for doc, name, render in blocks:
+        current = doc.read_text()
+        updated = replace_block(current, name, render(), doc)
+        if current == updated:
+            # Reported, not passed over in silence: SKILL.md tells its reader to run this command,
+            # and a command that prints nothing leaves them unable to tell it from a no-op.
+            if not args.check:
+                print(f"already current: {doc.relative_to(REPO)}")
+            continue
+        if args.check:
+            stale.append(doc.relative_to(REPO))
+            continue
+        doc.write_text(updated)
+        print(f"wrote {doc.relative_to(REPO)}")
+
+    if stale:
+        print(
+            f"stale, run `python scripts/gen_docs.py`: {', '.join(str(p) for p in stale)}",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

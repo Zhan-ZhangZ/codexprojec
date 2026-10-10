@@ -1,0 +1,944 @@
+import pytest
+
+from aletheore.query import (
+    QUERY_FUNCTIONS,
+    BranchNotFoundInEvidenceError,
+    ModuleNotFoundInEvidenceError,
+    SymbolNotFoundInEvidenceError,
+    find_blast_radius,
+    find_branch,
+    find_cluster,
+    find_code_evidence_for_dependency,
+    find_code_evidence_for_endpoint,
+    find_code_evidence_for_symbol,
+    find_database,
+    find_dead_code_evidence,
+    find_endpoints,
+    find_environment_variables,
+    find_hotspots,
+    find_imported_by,
+    find_imports,
+    find_infrastructure,
+    find_layer_violations,
+    find_licenses,
+    find_ownership,
+    find_secrets_for_file,
+    find_symbol_path,
+    find_symbol_source,
+    find_symbols,
+    find_vulnerabilities,
+)
+
+
+def make_evidence():
+    return {
+        "repository": {
+            "modules": [
+                {
+                    "path": "app/auth.py",
+                    "imports": ["app/config.py"],
+                    "imported_by": ["app/routes.py"],
+                    "symbols": {
+                        "functions": [{"name": "login", "start_line": 4, "end_line": 5}],
+                        "classes": [{"name": "AuthError", "start_line": 8, "end_line": 9}],
+                    },
+                },
+                {
+                    "path": "app/config.py",
+                    "imports": [],
+                    "imported_by": ["app/auth.py"],
+                    "symbols": {
+                        "functions": [{"name": "load", "start_line": 3, "end_line": 4}],
+                        "classes": [],
+                    },
+                },
+            ],
+            "api_endpoints": {
+                "checked": True,
+                "endpoints": [
+                    {
+                        "method": "GET",
+                        "path": "/users",
+                        "framework": "flask",
+                        "file": "app.py",
+                        "line": 1,
+                        "handler": "list_users",
+                        "unresolved": False,
+                    }
+                ],
+            },
+            "dead_code": {
+                "unreachable_modules": [{"path": "app/unused.py", "reason": "no imports"}],
+                "unused_dependencies": [],
+                "entry_points_detected": ["app/main.py"],
+            },
+            "database": {
+                "orm_frameworks": [
+                    {"name": "sqlalchemy", "evidence": "requirements.txt:sqlalchemy==2.0.0"}
+                ],
+                "migration_directories": [{"path": "migrations", "file_count": 3}],
+                "schema_files": [],
+            },
+            "infrastructure": {
+                "docker_compose_services": [
+                    {"file": "docker-compose.yml", "services": ["web", "db"]}
+                ],
+                "kubernetes_manifests": [],
+                "terraform_files": [],
+                "helm_charts": [],
+            },
+            "environment_variables": {
+                "declared": [{"name": "DATABASE_URL", "source": ".env.example"}],
+            },
+        },
+        "git": {
+            "branches": [
+                {
+                    "name": "main",
+                    "type": "local",
+                    "stale_days": 0,
+                    "ahead_of_main": 0,
+                    "behind_main": 0,
+                }
+            ],
+            "ownership": [
+                {"email": "a@example.com", "names": ["Alice"], "commit_count": 5, "percent": 1.0}
+            ],
+            "file_ownership": {
+                "app/auth.py": [
+                    {"email": "a@example.com", "names": ["Alice"], "commit_count": 3, "percent": 1.0}
+                ]
+            },
+            "hotspots": [
+                {
+                    "path": "app/auth.py",
+                    "churn_count": 3,
+                    "co_change_partners": [{"path": "app/config.py", "co_occurrences": 2}],
+                    "dependents_count": 1,
+                }
+            ],
+        },
+        "security": {
+            "secrets": {
+                "scanned_files": 2,
+                "findings": [
+                    {
+                        "path": "app/auth.py",
+                        "line": 3,
+                        "pattern": "aws_access_key_id",
+                        "match_preview": "AKIA****...WXYZ",
+                        "likely_placeholder": False,
+                    }
+                ],
+            },
+            "dependency_vulnerabilities": {"checked": True, "reason": None, "findings": []},
+            "dependency_licenses": {
+                "checked": True,
+                "reason": None,
+                "repo_license": {"category": "permissive", "detected_from": "LICENSE text match"},
+                "findings": [],
+            },
+        },
+        "architecture": {
+            "clusters": [
+                {"id": 0, "modules": ["app/auth.py", "app/config.py"], "internal_edges": 1}
+            ],
+            "layer_violations": {"convention_detected": False, "layers": [], "violations": []},
+        },
+    }
+
+
+def test_find_imports_returns_the_module_imports_list():
+    assert find_imports(make_evidence(), "app/auth.py") == ["app/config.py"]
+
+
+def test_find_imported_by_returns_the_module_imported_by_list():
+    assert find_imported_by(make_evidence(), "app/config.py") == ["app/auth.py"]
+
+
+def test_find_symbols_returns_the_module_symbols_dict():
+    assert find_symbols(make_evidence(), "app/auth.py") == {
+        "functions": [{"name": "login", "start_line": 4, "end_line": 5}],
+        "classes": [{"name": "AuthError", "start_line": 8, "end_line": 9}],
+    }
+
+
+def test_find_symbol_source_returns_exact_lines(tmp_path):
+    repo = tmp_path
+    (repo / "app").mkdir()
+    (repo / "app" / "auth.py").write_text(
+        "from app import config\n\n\ndef login():\n    return config.load()\n\n"
+    )
+
+    result = find_symbol_source(make_evidence(), repo, "app/auth.py", "login")
+
+    assert result["module"] == "app/auth.py"
+    assert result["symbol"] == "login"
+    assert result["start_line"] == 4
+    assert result["end_line"] == 5
+    assert result["source"] == "def login():\n    return config.load()"
+
+
+def test_find_symbol_source_indexes_by_real_newline_lines(tmp_path):
+    # Real gap found in a backward audit: this used content.splitlines()
+    # instead of content.split("\n"). Python's splitlines() also breaks on
+    # \v, \f, \x1c-\x1e, NEL, LS, and PS, none of which git or a real
+    # editor treat as a line boundary (only "\n" is) - entry["start_line"]/
+    # ["end_line"] are real, \n-based line numbers recorded when this file
+    # was parsed, so indexing them into a splitlines()-produced list
+    # silently returned the WRONG symbol body the moment one of those
+    # characters appeared anywhere earlier in the file. This is the
+    # backing implementation for both `aletheore symbol-source` and the
+    # aletheore_symbol_source MCP tool - a wrong result here is returned
+    # directly to whoever asked. Ten standalone form-feed characters, each
+    # its own splitlines() boundary, same real construction already used
+    # for this bug class in github-app's own regression tests.
+    repo = tmp_path
+    (repo / "app").mkdir()
+    (repo / "app" / "auth.py").write_text(
+        "x\n" + ("\x0c" * 10) + "\ndef login():\n    return 1\n"
+    )
+    evidence = {
+        "repository": {
+            "modules": [
+                {
+                    "path": "app/auth.py",
+                    "imports": [],
+                    "imported_by": [],
+                    "symbols": {
+                        "functions": [{"name": "login", "start_line": 3, "end_line": 4}],
+                        "classes": [],
+                    },
+                },
+            ],
+        },
+    }
+
+    result = find_symbol_source(evidence, repo, "app/auth.py", "login")
+
+    assert result["source"] == "def login():\n    return 1"
+
+
+def test_find_symbol_source_raises_when_symbol_missing(tmp_path):
+    with pytest.raises(SymbolNotFoundInEvidenceError, match="nonexistent"):
+        find_symbol_source(make_evidence(), tmp_path, "app/auth.py", "nonexistent")
+
+
+def test_find_symbol_source_raises_when_module_missing(tmp_path):
+    with pytest.raises(ModuleNotFoundInEvidenceError):
+        find_symbol_source(make_evidence(), tmp_path, "app/missing.py", "login")
+
+
+def test_find_imports_raises_for_unknown_path():
+    with pytest.raises(ModuleNotFoundInEvidenceError):
+        find_imports(make_evidence(), "app/does_not_exist.py")
+
+
+def test_find_branch_returns_the_branch_entry():
+    result = find_branch(make_evidence(), "main")
+    assert result["stale_days"] == 0
+
+
+def test_find_branch_raises_for_unknown_branch():
+    with pytest.raises(BranchNotFoundInEvidenceError):
+        find_branch(make_evidence(), "does-not-exist")
+
+
+def test_find_branch_raises_not_found_instead_of_crashing_when_git_unavailable():
+    """A repo with no commits yields git == {"available": False} and
+    nothing else (see air_schema.py). No branch can exist there, so this
+    is a normal not-found - not a raw KeyError on a missing "branches" key."""
+    evidence = {"git": {"available": False}}
+    with pytest.raises(BranchNotFoundInEvidenceError):
+        find_branch(evidence, "main")
+
+
+def test_find_ownership_returns_repository_ownership_without_target():
+    result = find_ownership(make_evidence(), None)
+    assert result == make_evidence()["git"]["ownership"]
+
+
+def test_find_ownership_returns_file_ownership_for_target():
+    assert find_ownership(make_evidence(), "app/auth.py") == make_evidence()["git"]["file_ownership"]["app/auth.py"]
+
+
+def test_find_ownership_does_not_fall_back_to_repository_ownership_for_unknown_target():
+    assert find_ownership(make_evidence(), "missing.py") == []
+
+
+def test_find_secrets_for_file_filters_by_path():
+    result = find_secrets_for_file(make_evidence(), "app/auth.py")
+    assert len(result) == 1
+    assert result[0]["pattern"] == "aws_access_key_id"
+
+    assert find_secrets_for_file(make_evidence(), "app/config.py") == []
+
+
+def test_find_vulnerabilities_returns_the_whole_block_ignoring_target():
+    result = find_vulnerabilities(make_evidence(), None)
+    assert result == make_evidence()["security"]["dependency_vulnerabilities"]
+
+
+def test_find_licenses_returns_the_whole_block_ignoring_target():
+    result = find_licenses(make_evidence(), None)
+    assert result == make_evidence()["security"]["dependency_licenses"]
+
+
+def test_find_endpoints_returns_the_whole_block_ignoring_target():
+    result = find_endpoints(make_evidence(), None)
+    assert result == make_evidence()["repository"]["api_endpoints"]
+
+
+def test_find_code_evidence_for_endpoint_returns_handler_location():
+    result = find_code_evidence_for_endpoint(make_evidence(), "GET /users")
+
+    assert result["kind"] == "endpoint"
+    assert result["file"] == "app.py"
+    assert result["line"] == 1
+    assert result["symbol"] == "list_users"
+
+
+def test_find_code_evidence_for_symbol_returns_source_location():
+    result = find_code_evidence_for_symbol(make_evidence(), "login")
+
+    assert result["kind"] == "symbol"
+    assert result["file"] == "app/auth.py"
+    assert result["line"] == 4
+    assert result["end_line"] == 5
+
+
+def test_find_code_evidence_for_dependency_returns_matching_module():
+    result = find_code_evidence_for_dependency(make_evidence(), "app/config.py")
+
+    assert result["kind"] == "dependency"
+    assert result["file"] == "app/auth.py"
+    assert result["dependency"] == "app/config.py"
+
+
+def test_find_code_evidence_for_symbol_resolves_owner_and_commit_when_repo_path_given(tmp_path):
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Alice"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "alice@example.com"], cwd=tmp_path, check=True)
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "auth.py").write_text("def login():\n    pass\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "add login"], cwd=tmp_path, check=True, capture_output=True
+    )
+    codeowners = tmp_path / "CODEOWNERS"
+    codeowners.write_text("app/auth.py @api-team\n")
+
+    result = find_code_evidence_for_symbol(make_evidence(), "login", tmp_path)
+
+    assert result["file"] == "app/auth.py"
+    assert result["owner"] == ["@api-team"]
+    assert result["commit"]["subject"] == "add login"
+
+
+def test_find_code_evidence_for_symbol_without_repo_path_leaves_owner_and_commit_unavailable():
+    result = find_code_evidence_for_symbol(make_evidence(), "login")
+
+    assert result["owner_status"] == "unavailable"
+    assert result["commit_status"] == "unavailable"
+
+
+def test_find_cluster_returns_the_cluster_containing_the_file():
+    result = find_cluster(make_evidence(), "app/config.py")
+    assert result["id"] == 0
+    assert "app/auth.py" in result["modules"]
+
+
+def test_find_cluster_raises_for_unknown_path():
+    with pytest.raises(ModuleNotFoundInEvidenceError):
+        find_cluster(make_evidence(), "app/does_not_exist.py")
+
+
+def test_find_layer_violations_returns_the_whole_block_ignoring_target():
+    result = find_layer_violations(make_evidence(), None)
+    assert result == make_evidence()["architecture"]["layer_violations"]
+
+
+def _blast_radius_evidence():
+    return {
+        "repository": {
+            "modules": [
+                {"path": "core/util.py", "imports": [], "imported_by": ["service/handler.py"]},
+                {
+                    "path": "service/handler.py",
+                    "imports": ["core/util.py"],
+                    "imported_by": ["api/routes.py"],
+                },
+                {
+                    "path": "api/routes.py",
+                    "imports": ["service/handler.py"],
+                    "imported_by": ["web/app.py"],
+                },
+                {"path": "web/app.py", "imports": ["api/routes.py"], "imported_by": []},
+                {"path": "unrelated/other.py", "imports": [], "imported_by": []},
+            ],
+        },
+        "architecture": {
+            "layer_violations": {
+                "convention_detected": True,
+                "layers": [],
+                "violations": [
+                    {"from": "service/handler.py", "to": "web/app.py", "reason": "inner imports outer"},
+                    {"from": "unrelated/other.py", "to": "unrelated/other.py", "reason": "irrelevant"},
+                ],
+            }
+        },
+    }
+
+
+def test_find_blast_radius_returns_direct_and_transitive_dependents(tmp_path):
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py")
+
+    assert result["target"] == "core/util.py"
+    assert result["direct_dependents"] == ["service/handler.py"]
+    assert set(result["transitive_dependents"]) == {"api/routes.py", "web/app.py"}
+    assert result["transitive_dependents_truncated"] is False
+
+
+def test_find_blast_radius_raises_for_unknown_target(tmp_path):
+    with pytest.raises(ModuleNotFoundInEvidenceError):
+        find_blast_radius(_blast_radius_evidence(), tmp_path, "does/not/exist.py")
+
+
+def test_find_blast_radius_filters_layer_violations_to_the_radius(tmp_path):
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py")
+
+    # Both endpoints of the kept violation are in util.py's blast radius
+    # (handler.py is direct, app.py is transitive); the unrelated.py
+    # self-violation touches nothing in the radius and must be excluded.
+    assert result["layer_violations"] == [
+        {"from": "service/handler.py", "to": "web/app.py", "reason": "inner imports outer"}
+    ]
+
+
+def test_find_blast_radius_truncates_transitive_dependents_past_the_cap(tmp_path, monkeypatch):
+    import aletheore.query as query_module
+
+    monkeypatch.setattr(query_module, "_BLAST_RADIUS_MAX_TRANSITIVE", 1)
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py")
+
+    assert len(result["transitive_dependents"]) == 1
+    assert result["transitive_dependents_truncated"] is True
+
+
+def test_find_blast_radius_truncates_direct_dependents_past_the_cap(tmp_path, monkeypatch):
+    # Real bug found via audit: direct_dependents (evidence's own raw
+    # imported_by list) was returned verbatim with no cap at all, unlike
+    # transitive_dependents just above and unlike flash_review.py's own
+    # sibling implementation this function's docstring says it mirrors -
+    # a genuinely central module (a shared utils.py) can have hundreds to
+    # thousands of direct importers on a real repo.
+    import aletheore.query as query_module
+
+    monkeypatch.setattr(query_module, "_BLAST_RADIUS_MAX_DIRECT", 1)
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py")
+
+    assert result["direct_dependents"] == ["service/handler.py"]
+    assert result["direct_dependents_truncated"] is False
+
+    monkeypatch.setattr(query_module, "_BLAST_RADIUS_MAX_DIRECT", 0)
+
+    truncated_result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py")
+
+    assert truncated_result["direct_dependents"] == []
+    assert truncated_result["direct_dependents_truncated"] is True
+
+
+def test_find_blast_radius_truncating_direct_dependents_does_not_shrink_transitive_reach(tmp_path, monkeypatch):
+    # The truncation above must be display-only: the BFS, confirmed_callers,
+    # and layer_violations filtering all still need the FULL direct_dependents
+    # list internally, or capping the displayed list would silently understate
+    # a real hub's true transitive reach and layer-violation exposure.
+    import aletheore.query as query_module
+
+    monkeypatch.setattr(query_module, "_BLAST_RADIUS_MAX_DIRECT", 0)
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py")
+
+    assert result["direct_dependents"] == []
+    assert set(result["transitive_dependents"]) == {"api/routes.py", "web/app.py"}
+    assert result["layer_violations"] == [
+        {"from": "service/handler.py", "to": "web/app.py", "reason": "inner imports outer"}
+    ]
+
+
+def test_find_blast_radius_omits_confirmed_callers_without_a_symbol(tmp_path):
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py")
+    assert "confirmed_callers" not in result
+    assert "symbol" not in result
+
+
+def test_find_blast_radius_confirms_callers_via_real_file_content(tmp_path):
+    """The high-confidence guarantee: a candidate only counts if the real
+    file content actually calls the symbol, not merely imports its module -
+    mirrors scan_worker/flash_review.py's build_blast_radius_context."""
+    (tmp_path / "service").mkdir()
+    (tmp_path / "service" / "handler.py").write_text(
+        "from core.util import parse_config\nresult = parse_config(raw)\n"
+    )
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py", symbol="parse_config")
+
+    assert result["symbol"] == "parse_config"
+    assert result["confirmed_callers"] == ["service/handler.py"]
+
+
+def test_find_blast_radius_excludes_a_dependent_that_only_imports_not_calls(tmp_path):
+    (tmp_path / "service").mkdir()
+    # Imports the module but never actually calls parse_config - a bare
+    # "imports the file" relationship must not count as confirmed.
+    (tmp_path / "service" / "handler.py").write_text(
+        "from core.util import parse_config\nother_function()\n"
+    )
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py", symbol="parse_config")
+
+    assert result["confirmed_callers"] == []
+
+
+def test_find_blast_radius_detects_a_same_file_caller(tmp_path):
+    """Real gap found via the Flask wsgi_app/Flask.__call__ case: a same-file
+    caller (e.g. one method of a class calling another) is invisible to
+    confirmed_callers, which only ever checks other files. same_file_caller
+    reports this separately."""
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "util.py").write_text(
+        "def parse_config(raw):\n    return raw\n\n\n"
+        "def load(raw):\n    return parse_config(raw)\n"
+    )
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py", symbol="parse_config")
+
+    assert result["same_file_caller"] is True
+
+
+def test_find_blast_radius_same_file_caller_false_when_only_the_definition_is_present(tmp_path):
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "util.py").write_text("def parse_config(raw):\n    return raw\n")
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py", symbol="parse_config")
+
+    assert result["same_file_caller"] is False
+
+
+def test_find_blast_radius_same_file_caller_detects_a_method_calling_a_sibling_method(tmp_path):
+    # Mirrors the real Flask case: Flask.__call__ calling Flask.wsgi_app,
+    # both defined in the same class in the same file.
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "util.py").write_text(
+        "class Flask:\n"
+        "    def wsgi_app(self, environ, start_response):\n"
+        "        pass\n\n"
+        "    def __call__(self, environ, start_response):\n"
+        "        return self.wsgi_app(environ, start_response)\n"
+    )
+
+    result = find_blast_radius(_blast_radius_evidence(), tmp_path, "core/util.py", symbol="wsgi_app")
+
+    assert result["same_file_caller"] is True
+
+
+def test_find_dead_code_evidence_returns_the_whole_block_ignoring_target():
+    assert find_dead_code_evidence(make_evidence(), None) == make_evidence()["repository"]["dead_code"]
+
+
+def test_find_database_returns_the_whole_block_ignoring_target():
+    assert find_database(make_evidence(), None) == make_evidence()["repository"]["database"]
+
+
+def test_find_infrastructure_returns_the_whole_block_ignoring_target():
+    assert find_infrastructure(make_evidence(), None) == make_evidence()["repository"][
+        "infrastructure"
+    ]
+
+
+def test_find_error_handling_returns_the_section_and_degrades_for_old_evidence():
+    from aletheore.query import find_error_handling
+
+    evidence = make_evidence()
+    assert find_error_handling(evidence, None)["checked"] is False  # fixture predates the section
+    evidence["repository"]["error_handling"] = {"checked": True, "error_types": []}
+    assert find_error_handling(evidence, None) == {"checked": True, "error_types": []}
+
+
+def test_find_environment_variables_returns_the_whole_block_ignoring_target():
+    result = find_environment_variables(make_evidence(), None)
+    assert result == make_evidence()["repository"]["environment_variables"]
+
+
+def test_find_hotspots_returns_git_hotspots_ignoring_target():
+    assert find_hotspots(make_evidence(), None) == make_evidence()["git"]["hotspots"]
+
+
+def test_query_functions_registry_has_all_kinds_with_correct_requires_target():
+    expected = {
+        "imports": True,
+        "imported-by": True,
+        "symbols": True,
+        "branch": True,
+        "ownership": False,
+        "secrets": True,
+        "vulnerabilities": False,
+        "licenses": False,
+        "static-analysis": False,
+        "endpoints": False,
+        "cluster": True,
+        "layer-violations": False,
+        "dead-code": False,
+        "hotspots": False,
+        "database": False,
+        "infrastructure": False,
+        "environment-variables": False,
+        "error-handling": False,
+        "evidence-for-endpoint": True,
+        "evidence-for-symbol": True,
+        "evidence-for-dependency": True,
+    }
+    assert set(QUERY_FUNCTIONS.keys()) == set(expected.keys())
+    for kind, requires_target in expected.items():
+        _func, actual_requires_target = QUERY_FUNCTIONS[kind]
+        assert actual_requires_target == requires_target, kind
+
+
+def test_list_modules_returns_every_module_path():
+    from aletheore.query import list_modules
+
+    evidence = {"repository": {"modules": [{"path": "a.py"}, {"path": "b.py"}]}}
+    assert list_modules(evidence) == ["a.py", "b.py"]
+
+
+def test_list_clusters_returns_id_and_module_count():
+    from aletheore.query import list_clusters
+
+    evidence = {
+        "architecture": {
+            "clusters": [
+                {"id": 0, "modules": ["a.py", "b.py"], "internal_edges": 1},
+                {"id": 1, "modules": ["c.py"], "internal_edges": 0},
+            ]
+        }
+    }
+    assert list_clusters(evidence) == [
+        {"id": 0, "module_count": 2},
+        {"id": 1, "module_count": 1},
+    ]
+
+
+def test_list_branches_returns_every_branch_name():
+    from aletheore.query import list_branches
+
+    evidence = {"git": {"branches": [{"name": "main"}, {"name": "dev"}]}}
+    assert list_branches(evidence) == ["main", "dev"]
+
+
+def test_find_repo_overview_summarizes_the_real_evidence_shape():
+    from aletheore.query import find_repo_overview
+
+    evidence = {
+        "repository": {
+            "languages": [{"name": "python", "file_count": 271, "loc": 65970}],
+            "frameworks": [{"name": "fastapi"}],
+            "monorepo": {"detected": False, "workspaces": []},
+            "dependency_graph": {"nodes": ["a.py", "b.py"], "edges": [["a.py", "b.py"]]},
+            "modules": [{"path": "a.py"}, {"path": "b.py"}],
+        },
+        "architecture": {
+            "clusters": [{"id": 0, "modules": ["a.py"], "internal_edges": 0}],
+            "cross_cluster_edges": [["a.py", "b.py"]],
+        },
+        "git": {
+            "repo_age_days": 400,
+            "total_commits": 1200,
+            "commit_cadence": {"weekly_counts": [10, 20], "trend": "increasing"},
+            "branches": [{"name": "main"}, {"name": "dev"}],
+        },
+    }
+
+    overview = find_repo_overview(evidence)
+
+    assert overview == {
+        "languages": [{"name": "python", "file_count": 271, "loc": 65970}],
+        "frameworks": [{"name": "fastapi"}],
+        "monorepo": {"detected": False, "workspaces": []},
+        "dependency_graph_summary": {"node_count": 2, "edge_count": 1},
+        "module_count": 2,
+        "cluster_count": 1,
+        "cross_cluster_edge_count": 1,
+        "git": {
+            "repo_age_days": 400,
+            "total_commits": 1200,
+            "commit_cadence": {"weekly_counts": [10, 20], "trend": "increasing"},
+            "branch_count": 2,
+        },
+    }
+
+
+def test_list_branches_returns_empty_list_when_git_unavailable():
+    """A repo with no commits yields git == {"available": False} and
+    nothing else (see air_schema.py). list_branches must not raise a
+    KeyError trying to index into a "branches" key that doesn't exist."""
+    from aletheore.query import list_branches
+
+    evidence = {"git": {"available": False}}
+    assert list_branches(evidence) == []
+
+
+def test_find_repo_overview_signals_unavailable_git_instead_of_crashing():
+    """Same no-commits repo shape as above. find_repo_overview must not
+    raise, and must honestly report git as unavailable rather than
+    defaulting numeric fields to 0 - which would be indistinguishable from
+    a repo that genuinely has zero commits."""
+    from aletheore.query import find_repo_overview
+
+    evidence = {
+        "repository": {
+            "languages": [{"name": "python", "file_count": 10, "loc": 500}],
+            "frameworks": [],
+            "monorepo": {"detected": False, "workspaces": []},
+            "dependency_graph": {"nodes": [], "edges": []},
+            "modules": [],
+        },
+        "architecture": {
+            "clusters": [],
+            "cross_cluster_edges": [],
+        },
+        "git": {"available": False},
+    }
+
+    overview = find_repo_overview(evidence)
+
+    assert overview["git"] == {"available": False}
+
+
+def test_list_modules_does_not_depend_on_git_and_is_unaffected_by_unavailable_git():
+    from aletheore.query import list_modules
+
+    evidence = {
+        "repository": {"modules": [{"path": "a.py"}]},
+        "git": {"available": False},
+    }
+    assert list_modules(evidence) == ["a.py"]
+
+
+def test_list_clusters_does_not_depend_on_git_and_is_unaffected_by_unavailable_git():
+    from aletheore.query import list_clusters
+
+    evidence = {
+        "architecture": {"clusters": [{"id": 0, "modules": ["a.py"], "internal_edges": 0}]},
+        "git": {"available": False},
+    }
+    assert list_clusters(evidence) == [{"id": 0, "module_count": 1}]
+
+
+def _symbol_path_evidence():
+    def module(path, imports, functions):
+        return {
+            "path": path,
+            "imports": imports,
+            "imported_by": [],
+            "symbols": {"functions": functions, "classes": []},
+        }
+
+    return {
+        "repository": {
+            "modules": [
+                module(
+                    "core/util.py",
+                    [],
+                    [
+                        {"name": "parse_config", "start_line": 1, "end_line": 2},
+                        {"name": "helper", "start_line": 4, "end_line": 5},
+                    ],
+                ),
+                module(
+                    "service/handler.py",
+                    ["core/util.py"],
+                    [{"name": "handle", "start_line": 2, "end_line": 3}],
+                ),
+                module(
+                    "api/routes.py",
+                    ["service/handler.py"],
+                    [{"name": "route_handler", "start_line": 2, "end_line": 3}],
+                ),
+                module("unrelated/other.py", [], [{"name": "standalone", "start_line": 1, "end_line": 2}]),
+            ],
+        },
+    }
+
+
+def _write_symbol_path_fixture_files(tmp_path):
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "util.py").write_text(
+        "def parse_config(raw):\n    return raw\n\ndef helper(raw):\n    return parse_config(raw)\n"
+    )
+    (tmp_path / "service").mkdir()
+    (tmp_path / "service" / "handler.py").write_text(
+        "from core.util import parse_config\ndef handle(raw):\n    return parse_config(raw)\n"
+    )
+    (tmp_path / "api").mkdir()
+    (tmp_path / "api" / "routes.py").write_text(
+        "from service.handler import handle\ndef route_handler(req):\n    return handle(req)\n"
+    )
+    (tmp_path / "unrelated").mkdir()
+    (tmp_path / "unrelated" / "other.py").write_text("def standalone():\n    pass\n")
+
+
+def test_find_symbol_path_confirms_a_same_file_call(tmp_path):
+    _write_symbol_path_fixture_files(tmp_path)
+
+    result = find_symbol_path(
+        _symbol_path_evidence(), tmp_path, "core/util.py", "helper", "core/util.py", "parse_config"
+    )
+
+    assert result["same_file"] is True
+    assert result["hops"] == ["core/util.py"]
+    assert result["confirmed"] is True
+
+
+def test_find_symbol_path_same_file_not_confirmed_when_no_call_exists(tmp_path):
+    _write_symbol_path_fixture_files(tmp_path)
+
+    # parse_config's own body never calls helper - the reverse direction
+    # of the confirmed case above.
+    result = find_symbol_path(
+        _symbol_path_evidence(), tmp_path, "core/util.py", "parse_config", "core/util.py", "helper"
+    )
+
+    assert result["same_file"] is True
+    assert result["confirmed"] is False
+
+
+def test_find_symbol_path_confirms_a_direct_one_hop_import(tmp_path):
+    _write_symbol_path_fixture_files(tmp_path)
+
+    result = find_symbol_path(
+        _symbol_path_evidence(),
+        tmp_path,
+        "service/handler.py",
+        "handle",
+        "core/util.py",
+        "parse_config",
+    )
+
+    assert result["same_file"] is False
+    assert result["hops"] == ["service/handler.py", "core/util.py"]
+    assert result["confirmed"] is True
+
+
+def test_find_symbol_path_one_hop_import_not_confirmed_without_a_real_call(tmp_path):
+    _write_symbol_path_fixture_files(tmp_path)
+
+    # handler.py imports core/util.py but handle() never calls helper -
+    # the import edge exists, the call doesn't.
+    result = find_symbol_path(
+        _symbol_path_evidence(), tmp_path, "service/handler.py", "handle", "core/util.py", "helper"
+    )
+
+    assert result["hops"] == ["service/handler.py", "core/util.py"]
+    assert result["confirmed"] is False
+
+
+def test_find_symbol_path_multi_hop_chain_is_never_confirmed(tmp_path):
+    """A 2-hop import chain proves core/util.py is reachable from
+    api/routes.py's imports, but this scanner has no per-hop symbol-usage
+    data to confirm route_handler's calls actually reach parse_config
+    through it - confirmed must stay False, not guess yes."""
+    _write_symbol_path_fixture_files(tmp_path)
+
+    result = find_symbol_path(
+        _symbol_path_evidence(),
+        tmp_path,
+        "api/routes.py",
+        "route_handler",
+        "core/util.py",
+        "parse_config",
+    )
+
+    assert result["hops"] == ["api/routes.py", "service/handler.py", "core/util.py"]
+    assert result["confirmed"] is False
+    assert "2 hops" in result["confirmation_basis"]
+
+
+def test_find_symbol_path_reports_no_path_when_genuinely_unreachable(tmp_path):
+    _write_symbol_path_fixture_files(tmp_path)
+
+    result = find_symbol_path(
+        _symbol_path_evidence(),
+        tmp_path,
+        "unrelated/other.py",
+        "standalone",
+        "core/util.py",
+        "parse_config",
+    )
+
+    assert result["hops"] is None
+    assert result["confirmed"] is False
+    assert "no import chain" in result["confirmation_basis"]
+    assert "bounded" not in result["confirmation_basis"]
+
+
+def test_find_symbol_path_reports_bounded_search_when_hop_cap_hit(tmp_path, monkeypatch):
+    import aletheore.query as query_module
+
+    monkeypatch.setattr(query_module, "_SYMBOL_PATH_MAX_HOPS", 1)
+    _write_symbol_path_fixture_files(tmp_path)
+
+    result = find_symbol_path(
+        _symbol_path_evidence(),
+        tmp_path,
+        "api/routes.py",
+        "route_handler",
+        "core/util.py",
+        "parse_config",
+    )
+
+    assert result["hops"] is None
+    assert "bounded" in result["confirmation_basis"]
+
+
+def test_find_symbol_path_reports_bounded_search_when_visited_cap_hit(tmp_path, monkeypatch):
+    import aletheore.query as query_module
+
+    monkeypatch.setattr(query_module, "_SYMBOL_PATH_MAX_VISITED", 1)
+    _write_symbol_path_fixture_files(tmp_path)
+
+    result = find_symbol_path(
+        _symbol_path_evidence(),
+        tmp_path,
+        "api/routes.py",
+        "route_handler",
+        "core/util.py",
+        "parse_config",
+    )
+
+    assert result["hops"] is None
+    assert "bounded" in result["confirmation_basis"]
+
+
+def test_find_symbol_path_raises_for_unknown_source_module(tmp_path):
+    with pytest.raises(ModuleNotFoundInEvidenceError):
+        find_symbol_path(
+            _symbol_path_evidence(), tmp_path, "does/not/exist.py", "x", "core/util.py", "parse_config"
+        )
+
+
+def test_find_symbol_path_raises_for_unknown_source_symbol(tmp_path):
+    with pytest.raises(SymbolNotFoundInEvidenceError):
+        find_symbol_path(
+            _symbol_path_evidence(), tmp_path, "core/util.py", "does_not_exist", "core/util.py", "parse_config"
+        )
+
+
+def test_find_symbol_path_raises_for_unknown_target_symbol(tmp_path):
+    with pytest.raises(SymbolNotFoundInEvidenceError):
+        find_symbol_path(
+            _symbol_path_evidence(), tmp_path, "core/util.py", "parse_config", "core/util.py", "does_not_exist"
+        )

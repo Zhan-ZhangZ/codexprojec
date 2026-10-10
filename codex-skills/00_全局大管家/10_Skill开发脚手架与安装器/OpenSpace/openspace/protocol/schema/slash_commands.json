@@ -1,0 +1,600 @@
+{
+  "manifest_schema_version": 1,
+  "categories": {
+    "session": "Session",
+    "navigation": "Navigation",
+    "tools": "Tools & Models",
+    "display": "Display & Settings",
+    "project": "Project"
+  },
+  "commands": [
+    {
+      "name": "help",
+      "handler": "local",
+      "description": "Show available commands.",
+      "summary": "Show available commands.",
+      "usage": "/help [command]",
+      "category": "navigation",
+      "aliases": ["h", "?"],
+      "args": [
+        {
+          "name": "command",
+          "required": false,
+          "description": "Command name for detailed help"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "clear",
+      "handler": "local",
+      "description": "Clear screen and message history.",
+      "summary": "Clear screen and message history.",
+      "usage": "/clear",
+      "category": "navigation",
+      "aliases": ["cls"],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "status",
+      "handler": "local",
+      "description": "Show session stats (tokens, cost, model, iterations).",
+      "summary": "Show session stats (tokens, cost, model, iterations).",
+      "usage": "/status",
+      "category": "session",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "compact",
+      "handler": "core",
+      "description": "Manually trigger context compaction.",
+      "summary": "Manually trigger context compaction.",
+      "usage": "/compact [instructions]",
+      "category": "session",
+      "aliases": [],
+      "args": [
+        {
+          "name": "instructions",
+          "required": false,
+          "description": "Optional compaction instructions"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "plan",
+      "handler": "core",
+      "description": "Enter plan mode for the next turn.",
+      "summary": "Enter plan mode for the next turn.",
+      "usage": "/plan",
+      "category": "session",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "summary",
+      "handler": "core",
+      "description": "Update session memory for the active session.",
+      "summary": "Update session memory for this session.",
+      "usage": "/summary",
+      "category": "session",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "history",
+      "handler": "local",
+      "description": "Show prompt command history.",
+      "summary": "Show prompt command history.",
+      "usage": "/history [count]",
+      "category": "session",
+      "aliases": [],
+      "args": [
+        {
+          "name": "count",
+          "required": false,
+          "description": "Number of entries to show"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "model",
+      "handler": "core",
+      "description": "View or switch the current model.",
+      "summary": "View or switch the current model.",
+      "usage": "/model [name]",
+      "category": "tools",
+      "aliases": ["m"],
+      "args": [
+        {
+          "name": "name",
+          "required": false,
+          "description": "Model name to switch to"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "effort",
+      "handler": "core",
+      "description": "View or set reasoning effort.",
+      "summary": "View or set reasoning effort.",
+      "usage": "/effort [low|medium|high|max|auto]",
+      "category": "tools",
+      "aliases": [],
+      "args": [
+        {
+          "name": "level",
+          "required": false,
+          "description": "low, medium, high, max, or auto"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "tools",
+      "handler": "core",
+      "description": "List available tools and their status.",
+      "summary": "List available tools and their status.",
+      "usage": "/tools [filter]",
+      "category": "tools",
+      "aliases": [],
+      "args": [
+        {
+          "name": "filter",
+          "required": false,
+          "description": "Filter tools by name"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "skills",
+      "handler": "core",
+      "description": "List available skills and review runtime overlay suggestions.",
+      "summary": "List skills or review runtime overlays.",
+      "usage": "/skills [filter] | /skills overlay review [skill_id] | /skills overlay approve|reject <skill_id> [field ...]",
+      "category": "tools",
+      "aliases": [],
+      "args": [
+        {
+          "name": "filter",
+          "required": false,
+          "description": "Filter skills, or use overlay review/approve/reject"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "save",
+      "handler": "core",
+      "description": "Persist the current session snapshot.",
+      "summary": "Persist the current session snapshot.",
+      "usage": "/save [name]",
+      "category": "session",
+      "aliases": [],
+      "args": [
+        {
+          "name": "name",
+          "required": false,
+          "description": "Optional session name"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "load",
+      "handler": "core",
+      "description": "Load a saved session by ID.",
+      "summary": "Load a saved session by ID.",
+      "usage": "/load <session>",
+      "category": "session",
+      "aliases": [],
+      "args": [
+        {
+          "name": "session",
+          "required": true,
+          "description": "Session name or ID to load"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "exit",
+      "handler": "local",
+      "description": "Exit the TUI.",
+      "summary": "Exit the TUI.",
+      "usage": "/exit",
+      "category": "navigation",
+      "aliases": ["q", "quit"],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "doctor",
+      "handler": "core",
+      "description": "Run diagnostic checks.",
+      "summary": "Run diagnostic checks.",
+      "usage": "/doctor",
+      "category": "tools",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "resume",
+      "handler": "core",
+      "description": "List sessions or restore a previous session.",
+      "summary": "List sessions or restore a previous session.",
+      "usage": "/resume [session-id]",
+      "category": "session",
+      "aliases": [],
+      "args": [
+        {
+          "name": "session-id",
+          "required": false,
+          "description": "Session ID to restore"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "cost",
+      "handler": "core",
+      "description": "Show the current accumulated cost.",
+      "summary": "Show the current accumulated cost.",
+      "usage": "/cost",
+      "category": "session",
+      "aliases": ["$$"],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "agent",
+      "handler": "local",
+      "description": "Send input to the viewed or specified background agent.",
+      "summary": "Send input to a background agent.",
+      "usage": "/agent [agent-id] <message>",
+      "category": "tools",
+      "aliases": [],
+      "args": [
+        {
+          "name": "agent-id",
+          "required": false,
+          "description": "Optional target agent id"
+        },
+        {
+          "name": "message",
+          "required": true,
+          "description": "Input to send"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "background",
+      "handler": "local",
+      "description": "Control or refresh the background runtime.",
+      "summary": "Control background runtime state.",
+      "usage": "/background [start|stop|pause|resume|focus] [title|agent-id]",
+      "category": "session",
+      "aliases": ["bg"],
+      "args": [
+        {
+          "name": "action",
+          "required": false,
+          "description": "start, stop, pause, resume, or focus"
+        },
+        {
+          "name": "value",
+          "required": false,
+          "description": "Optional title for start or agent id for focus"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "agents",
+      "handler": "local",
+      "description": "Toggle the agent runtime panel.",
+      "summary": "Open or close the agent runtime panel.",
+      "usage": "/agents",
+      "category": "tools",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "tasks",
+      "handler": "local",
+      "description": "Toggle the tasks panel.",
+      "summary": "Open or close the tasks panel.",
+      "usage": "/tasks",
+      "category": "session",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "mcp",
+      "handler": "local",
+      "description": "Toggle the MCP panel or reconnect a server.",
+      "summary": "Inspect MCP status or reconnect a server.",
+      "usage": "/mcp [reconnect <server>]",
+      "category": "tools",
+      "aliases": [],
+      "args": [
+        {
+          "name": "action",
+          "required": false,
+          "description": "Optional action such as reconnect"
+        },
+        {
+          "name": "server",
+          "required": false,
+          "description": "Server name to reconnect"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "permissions",
+      "handler": "core",
+      "description": "Show permission mode and rules.",
+      "summary": "Inspect permission mode and rules.",
+      "usage": "/permissions",
+      "category": "display",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "sandbox",
+      "handler": "core",
+      "description": "Inspect or update process sandbox settings.",
+      "summary": "Inspect or update sandbox settings.",
+      "usage": "/sandbox [status|doctor|enable|disable|toggle|exclude]",
+      "category": "display",
+      "aliases": [],
+      "args": [
+        {
+          "name": "action",
+          "required": false,
+          "description": "status, doctor, enable, disable, toggle, exclude, or unexclude"
+        },
+        {
+          "name": "value",
+          "required": false,
+          "description": "Optional mode, on/off value, or command pattern"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "copy",
+      "handler": "local",
+      "description": "Copy the latest message or full transcript to the clipboard.",
+      "summary": "Copy transcript text to the clipboard.",
+      "usage": "/copy [last|all]",
+      "category": "display",
+      "aliases": [],
+      "args": [
+        {
+          "name": "scope",
+          "required": false,
+          "description": "last or all"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "keybindings",
+      "handler": "local",
+      "description": "Show keybinding file location and load status.",
+      "summary": "Inspect keybinding configuration.",
+      "usage": "/keybindings",
+      "category": "display",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "vim",
+      "handler": "local",
+      "description": "Show or change the current Vim input mode.",
+      "summary": "Inspect or toggle Vim mode.",
+      "usage": "/vim [insert|normal|toggle]",
+      "category": "display",
+      "aliases": [],
+      "args": [
+        {
+          "name": "mode",
+          "required": false,
+          "description": "insert, normal, or toggle"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "config",
+      "handler": "core",
+      "description": "View or modify local TUI settings.",
+      "summary": "View or modify local TUI settings.",
+      "usage": "/config [key] [value]",
+      "category": "display",
+      "aliases": ["settings"],
+      "args": [
+        {
+          "name": "key",
+          "required": false,
+          "description": "Setting key"
+        },
+        {
+          "name": "value",
+          "required": false,
+          "description": "New value"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "theme",
+      "handler": "local",
+      "description": "Switch color theme.",
+      "summary": "Switch color theme.",
+      "usage": "/theme [name]",
+      "category": "display",
+      "aliases": [],
+      "args": [
+        {
+          "name": "name",
+          "required": false,
+          "description": "Theme name to apply"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "review",
+      "handler": "core",
+      "description": "Start a code review on staged changes.",
+      "summary": "Start a code review on staged changes.",
+      "usage": "/review [path]",
+      "category": "project",
+      "aliases": ["cr"],
+      "args": [
+        {
+          "name": "path",
+          "required": false,
+          "description": "Limit review to a specific path"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "diff",
+      "handler": "core",
+      "description": "Show diff of recent file changes.",
+      "summary": "Show diff of recent file changes.",
+      "usage": "/diff [path]",
+      "category": "project",
+      "aliases": [],
+      "args": [
+        {
+          "name": "path",
+          "required": false,
+          "description": "Path to diff"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "export",
+      "handler": "core",
+      "description": "Export conversation to file.",
+      "summary": "Export conversation to file.",
+      "usage": "/export [format] [path]",
+      "category": "session",
+      "aliases": [],
+      "args": [
+        {
+          "name": "format",
+          "required": false,
+          "description": "Output format (md, json, txt)"
+        },
+        {
+          "name": "path",
+          "required": false,
+          "description": "Output file path"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "init",
+      "handler": "core",
+      "description": "Initialize project description file.",
+      "summary": "Initialize project description file.",
+      "usage": "/init",
+      "category": "project",
+      "aliases": [],
+      "args": [],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "memory",
+      "handler": "core",
+      "description": "List or edit OpenSpace memory files.",
+      "summary": "List or edit memory files.",
+      "usage": "/memory [list|edit|read|logs]",
+      "category": "project",
+      "aliases": [],
+      "args": [
+        {
+          "name": "action",
+          "required": false,
+          "description": "list, edit, read, or logs"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    },
+    {
+      "name": "dream",
+      "handler": "core",
+      "description": "Manually consolidate auto-memory.",
+      "summary": "Manually consolidate memory.",
+      "usage": "/dream [--logs] [context]",
+      "category": "project",
+      "aliases": [],
+      "args": [
+        {
+          "name": "context",
+          "required": false,
+          "description": "Optional dream context or --logs"
+        }
+      ],
+      "tui_visible": true,
+      "implemented": true
+    }
+  ]
+}

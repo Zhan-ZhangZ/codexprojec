@@ -1,0 +1,1364 @@
+import json
+import urllib.error
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+from aletheore.vulnerabilities import check_vulnerabilities
+
+
+def make_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\nrequests>=2.0\n# comment\n")
+    (repo / "package.json").write_text(
+        json.dumps({"dependencies": {"left-pad": "^1.3.0"}, "devDependencies": {}})
+    )
+    return repo
+
+
+def _mock_response(payload: dict):
+    mock = MagicMock()
+    mock.read.return_value = json.dumps(payload).encode("utf-8")
+    mock.__enter__.return_value = mock
+    mock.__exit__.return_value = False
+    return mock
+
+
+def test_check_vulnerabilities_parses_pinned_pip_and_npm_versions(tmp_path):
+    repo = make_repo(tmp_path)
+    batch_response = _mock_response({"results": [{}, {}, {}]})
+
+    with patch("aletheore.vulnerabilities.urllib.request.urlopen", return_value=batch_response) as mock_urlopen:
+        result = check_vulnerabilities(repo)
+
+    assert result == {"checked": True, "reason": None, "findings": []}
+    sent_request = mock_urlopen.call_args[0][0]
+    sent_body = json.loads(sent_request.data)
+    queries = sent_body["queries"]
+    assert {"package": {"name": "fastapi", "ecosystem": "PyPI"}, "version": "0.100.0"} in queries
+    assert {"package": {"name": "left-pad", "ecosystem": "npm"}, "version": "1.3.0"} in queries
+    # Real bug this guards against regressing: requests>=2.0 (an unpinned,
+    # non-"==" specifier) used to be completely invisible to CVE scanning -
+    # the old requirements.txt parser required a literal "==" to consider a
+    # line at all. See _parse_pip_pins's own comment.
+    assert {"package": {"name": "requests", "ecosystem": "PyPI"}, "version": "2.0"} in queries
+
+
+def test_check_vulnerabilities_reports_a_real_finding(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+
+    batch_response = _mock_response({"results": [{"vulns": [{"id": "PYSEC-2024-38"}]}]})
+    detail_response = _mock_response(
+        {
+            "id": "PYSEC-2024-38",
+            "details": "ReDoS in multipart form parsing.",
+            "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"}],
+        }
+    )
+
+    with patch(
+        "aletheore.vulnerabilities.urllib.request.urlopen",
+        side_effect=[batch_response, detail_response],
+    ):
+        result = check_vulnerabilities(repo)
+
+    assert result["checked"] is True
+    assert len(result["findings"]) == 1
+    finding = result["findings"][0]
+    assert finding["package"] == "fastapi"
+    assert finding["advisory_id"] == "PYSEC-2024-38"
+    assert finding["severity"] == [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"}]
+
+
+def test_check_vulnerabilities_fetches_advisory_details_concurrently_not_serially(tmp_path):
+    # Same real-world shape as licenses.py's own concurrency fix: one
+    # blocking HTTP call per advisory, fully serial, on a repo with many
+    # findings. 10 advisories here, each with a simulated 0.1s round-trip:
+    # serial would take >= 1.0s; with real concurrency this must complete
+    # in a small fraction of that.
+    import time
+
+    from aletheore import vulnerabilities
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    requirements = "\n".join(f"pkg{i}==1.0.{i}" for i in range(10))
+    (repo / "requirements.txt").write_text(requirements + "\n")
+
+    batch_response = _mock_response(
+        {"results": [{"vulns": [{"id": f"PYSEC-2024-{i}"}]} for i in range(10)]}
+    )
+
+    def slow_urlopen(request, timeout=None, context=None):
+        if request.full_url == vulnerabilities.OSV_BATCH_URL:
+            return batch_response
+        time.sleep(0.1)
+        return _mock_response({"summary": "x", "severity": []})
+
+    with patch("aletheore.vulnerabilities.urllib.request.urlopen", side_effect=slow_urlopen):
+        start = time.monotonic()
+        result = check_vulnerabilities(repo, cache_path=tmp_path / "cache.json")
+        elapsed = time.monotonic() - start
+
+    assert result["checked"] is True
+    assert len(result["findings"]) == 10
+    assert elapsed < 1.0, f"took {elapsed:.2f}s - advisory detail fetches are not running concurrently"
+
+
+def test_check_vulnerabilities_degrades_gracefully_on_network_failure(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+
+    with patch(
+        "aletheore.vulnerabilities.urllib.request.urlopen",
+        side_effect=urllib.error.URLError("connection refused"),
+    ):
+        result = check_vulnerabilities(repo)
+
+    assert result["checked"] is False
+    assert "connection refused" in result["reason"]
+    assert result["findings"] == []
+
+
+def test_check_vulnerabilities_degrades_gracefully_when_a_manifest_read_fails(tmp_path):
+    # Real gap found via audit: none of the _parse_*_pins() functions guard
+    # their own read_text() against a manifest disappearing between its
+    # exists() check and the read (a real TOCTOU race on any OS) or against
+    # a path exceeding Windows' legacy MAX_PATH limit - an OSError there
+    # used to crash the whole scan instead of degrading just this section,
+    # the same way an OSV.dev network failure already degrades gracefully
+    # (test above).
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+
+    with patch(
+        "aletheore.vulnerabilities.Path.read_text",
+        side_effect=OSError("simulated: path too long"),
+    ):
+        result = check_vulnerabilities(repo)
+
+    assert result["checked"] is False
+    assert "path too long" in result["reason"]
+    assert result["findings"] == []
+
+
+def test_check_vulnerabilities_no_pins_short_circuits_without_network_call(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    with patch("aletheore.vulnerabilities.urllib.request.urlopen") as mock_urlopen:
+        result = check_vulnerabilities(repo)
+
+    mock_urlopen.assert_not_called()
+    assert result == {"checked": True, "reason": None, "findings": []}
+
+
+def test_check_vulnerabilities_second_scan_skips_network_call_entirely(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+
+    batch_response = _mock_response({"results": [{}]})
+    with patch(
+        "aletheore.vulnerabilities.urllib.request.urlopen", return_value=batch_response
+    ) as mock_urlopen:
+        first = check_vulnerabilities(repo)
+    assert mock_urlopen.call_count == 1
+
+    # Second scan of the same repo, same pin - the OSV.dev round-trip must
+    # not happen again within the cache's TTL, even if the mock would now
+    # error if called (proving it really isn't called, not just returning
+    # a stale-but-coincidentally-correct answer).
+    with patch(
+        "aletheore.vulnerabilities.urllib.request.urlopen",
+        side_effect=AssertionError("network must not be called on a cache hit"),
+    ) as mock_urlopen:
+        second = check_vulnerabilities(repo)
+
+    mock_urlopen.assert_not_called()
+    assert second == first
+
+
+def test_check_vulnerabilities_only_queries_the_uncached_subset(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+    (repo / "package.json").write_text(
+        json.dumps({"dependencies": {"left-pad": "^1.3.0"}})
+    )
+
+    # First scan caches both pins.
+    batch_response = _mock_response({"results": [{}, {}]})
+    with patch("aletheore.vulnerabilities.urllib.request.urlopen", return_value=batch_response):
+        check_vulnerabilities(repo)
+
+    # Second scan adds a brand-new dependency - only that one should reach
+    # OSV.dev, cached fastapi/left-pad must not be re-queried.
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\nrequests==2.31.0\n")
+    second_batch_response = _mock_response({"results": [{}]})
+    with patch(
+        "aletheore.vulnerabilities.urllib.request.urlopen", return_value=second_batch_response
+    ) as mock_urlopen:
+        check_vulnerabilities(repo)
+
+    sent_request = mock_urlopen.call_args[0][0]
+    sent_body = json.loads(sent_request.data)
+    queried_names = {q["package"]["name"] for q in sent_body["queries"]}
+    assert queried_names == {"requests"}
+
+
+def test_check_vulnerabilities_expired_cache_entry_is_requeried(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+
+    batch_response = _mock_response({"results": [{}]})
+    with patch("aletheore.vulnerabilities.urllib.request.urlopen", return_value=batch_response):
+        check_vulnerabilities(repo)
+
+    # Force every cache entry to look 25 hours old - past the 24h TTL.
+    import aletheore.vulnerabilities as vulnerabilities_module
+
+    cache_path = vulnerabilities_module.DEFAULT_VULNERABILITY_CACHE_PATH
+    cache = json.loads(cache_path.read_text())
+    for entry in cache.values():
+        entry["cached_at"] -= 25 * 60 * 60
+    cache_path.write_text(json.dumps(cache))
+
+    with patch(
+        "aletheore.vulnerabilities.urllib.request.urlopen", return_value=batch_response
+    ) as mock_urlopen:
+        check_vulnerabilities(repo)
+
+    mock_urlopen.assert_called_once()
+
+
+def test_parse_go_pins_reads_require_block(tmp_path):
+    from aletheore.vulnerabilities import _parse_go_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "go.mod").write_text(
+        "module example.com/thing\n\n"
+        "go 1.21\n\n"
+        "require (\n"
+        "\tgithub.com/gin-gonic/gin v1.9.0\n"
+        "\tgithub.com/pkg/errors v0.9.1 // indirect\n"
+        ")\n"
+    )
+
+    pins = _parse_go_pins(repo)
+
+    assert ("github.com/gin-gonic/gin", "v1.9.0", "Go") in pins
+    assert ("github.com/pkg/errors", "v0.9.1", "Go") in pins
+
+
+def test_parse_go_pins_reads_single_line_require(tmp_path):
+    from aletheore.vulnerabilities import _parse_go_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "go.mod").write_text(
+        "module example.com/thing\n\nrequire github.com/gin-gonic/gin v1.9.0\n"
+    )
+
+    pins = _parse_go_pins(repo)
+
+    assert pins == [("github.com/gin-gonic/gin", "v1.9.0", "Go")]
+
+
+def test_parse_go_pins_empty_when_no_go_mod(tmp_path):
+    from aletheore.vulnerabilities import _parse_go_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_go_pins(repo) == []
+
+
+def test_check_vulnerabilities_includes_go_pins(tmp_path):
+    from aletheore.vulnerabilities import check_vulnerabilities
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "go.mod").write_text("module x\n\nrequire github.com/gin-gonic/gin v1.9.0\n")
+
+    mock = MagicMock()
+    mock.read.return_value = b'{"results": [{}]}'
+    mock.__enter__.return_value = mock
+    mock.__exit__.return_value = False
+
+    with patch("aletheore.vulnerabilities.urllib.request.urlopen", return_value=mock) as mock_urlopen:
+        result = check_vulnerabilities(repo)
+
+    assert result == {"checked": True, "reason": None, "findings": []}
+    sent_body = json.loads(mock_urlopen.call_args[0][0].data)
+    assert {
+        "package": {"name": "github.com/gin-gonic/gin", "ecosystem": "Go"},
+        "version": "v1.9.0",
+    } in sent_body["queries"]
+
+
+def test_parse_cargo_pins_reads_package_tables(tmp_path):
+    from aletheore.vulnerabilities import _parse_cargo_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Cargo.lock").write_text(
+        '# This file is automatically @generated by Cargo.\n'
+        "version = 3\n\n"
+        "[[package]]\n"
+        'name = "serde"\n'
+        'version = "1.0.219"\n'
+        'source = "registry+https://github.com/rust-lang/crates.io-index"\n\n'
+        "[[package]]\n"
+        'name = "libc"\n'
+        'version = "0.2.169"\n'
+    )
+
+    pins = _parse_cargo_pins(repo)
+
+    assert ("serde", "1.0.219", "crates.io") in pins
+    assert ("libc", "0.2.169", "crates.io") in pins
+
+
+def test_parse_swift_package_resolved_pins_reads_real_v2_schema(tmp_path):
+    # Real content from vapor/penny-bot's committed Package.resolved (schema
+    # v3, current format at time of writing) - not a hand-invented shape.
+    from aletheore.vulnerabilities import _parse_swift_package_resolved_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Package.resolved").write_text(
+        """{
+          "originHash" : "abc123",
+          "pins" : [
+            {
+              "identity" : "async-http-client",
+              "kind" : "remoteSourceControl",
+              "location" : "https://github.com/swift-server/async-http-client.git",
+              "state" : {
+                "revision" : "9544287b9416c0bc71e58b9f3aead8dd14b16103",
+                "version" : "1.36.0"
+              }
+            },
+            {
+              "identity" : "discordbm",
+              "kind" : "remoteSourceControl",
+              "location" : "https://github.com/DiscordBM/DiscordBM.git",
+              "state" : {
+                "branch" : "main",
+                "revision" : "b01d40baf434cc968b113ff44c9eecd40bfb6e9e"
+              }
+            }
+          ],
+          "version" : 3
+        }"""
+    )
+
+    pins = _parse_swift_package_resolved_pins(repo)
+
+    assert ("github.com/swift-server/async-http-client", "1.36.0", "SwiftURL") in pins
+    # DiscordBM tracks a branch, not a released version - no SEMVER range
+    # could ever match it, so it's correctly excluded rather than guessed at.
+    assert len(pins) == 1
+
+
+def test_parse_swift_package_resolved_pins_empty_when_no_manifest(tmp_path):
+    from aletheore.vulnerabilities import _parse_swift_package_resolved_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_swift_package_resolved_pins(repo) == []
+
+
+def test_parse_cargo_pins_empty_when_no_cargo_lock(tmp_path):
+    from aletheore.vulnerabilities import _parse_cargo_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_cargo_pins(repo) == []
+
+
+def test_parse_maven_pins_reads_direct_dependencies(tmp_path):
+    from aletheore.vulnerabilities import _parse_maven_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pom.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+        "  <dependencies>\n"
+        "    <dependency>\n"
+        "      <groupId>org.springframework</groupId>\n"
+        "      <artifactId>spring-core</artifactId>\n"
+        "      <version>6.1.14</version>\n"
+        "    </dependency>\n"
+        "    <dependency>\n"
+        "      <groupId>com.example</groupId>\n"
+        "      <artifactId>interpolated</artifactId>\n"
+        "      <version>${some.property}</version>\n"
+        "    </dependency>\n"
+        "  </dependencies>\n"
+        "</project>\n"
+    )
+
+    pins = _parse_maven_pins(repo)
+
+    assert ("org.springframework:spring-core", "6.1.14", "Maven") in pins
+    assert not any(p[0] == "com.example:interpolated" for p in pins)
+
+
+def test_parse_maven_pins_reads_dependencies_from_a_pom_with_no_declared_namespace(tmp_path):
+    # Real bug found via audit: every lookup in _parse_maven_pom was
+    # namespace-prefixed against "http://maven.apache.org/POM/4.0.0", but
+    # Maven does not require a pom.xml to declare that xmlns on <project>
+    # for a build to work - a real, hand-written or legacy pom.xml commonly
+    # omits it, unlike the POMs Maven Central itself serves. Every m:-
+    # prefixed lookup silently matched nothing against such a file,
+    # returning [] - indistinguishable from "no dependencies" - for a repo
+    # whose real pom.xml declares real, potentially vulnerable dependencies.
+    from aletheore.vulnerabilities import _parse_maven_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pom.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<project>\n"
+        "  <dependencies>\n"
+        "    <dependency>\n"
+        "      <groupId>com.fasterxml.jackson.core</groupId>\n"
+        "      <artifactId>jackson-databind</artifactId>\n"
+        "      <version>2.9.8</version>\n"
+        "    </dependency>\n"
+        "  </dependencies>\n"
+        "</project>\n"
+    )
+
+    pins = _parse_maven_pins(repo)
+
+    assert ("com.fasterxml.jackson.core:jackson-databind", "2.9.8", "Maven") in pins
+
+
+def test_parse_maven_pins_ignores_a_foreign_namespaced_dependencies_element(tmp_path):
+    # Flash Review finding on PR #599: the original fix stripped every
+    # "{uri}" prefix, not just Maven's own POM namespace - a real pom.xml
+    # can embed a build plugin's own foreign-namespaced config block (e.g.
+    # <vendor:dependencies>), and stripping that too made it
+    # indistinguishable from a real Maven <dependencies> element, pulling
+    # in a fabricated dependency that isn't part of the project's real
+    # Maven dependency set.
+    from aletheore.vulnerabilities import _parse_maven_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pom.xml").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<project xmlns="http://maven.apache.org/POM/4.0.0" '
+        'xmlns:vendor="http://example.com/vendor-plugin">\n'
+        "  <dependencies>\n"
+        "    <dependency>\n"
+        "      <groupId>com.fasterxml.jackson.core</groupId>\n"
+        "      <artifactId>jackson-databind</artifactId>\n"
+        "      <version>2.9.8</version>\n"
+        "    </dependency>\n"
+        "  </dependencies>\n"
+        "  <build>\n"
+        "    <plugins>\n"
+        "      <plugin>\n"
+        "        <configuration>\n"
+        "          <vendor:dependencies>\n"
+        "            <vendor:dependency>fake:not-a-real-maven-dep:9.9.9</vendor:dependency>\n"
+        "          </vendor:dependencies>\n"
+        "        </configuration>\n"
+        "      </plugin>\n"
+        "    </plugins>\n"
+        "  </build>\n"
+        "</project>\n"
+    )
+
+    pins = _parse_maven_pins(repo)
+
+    assert pins == [("com.fasterxml.jackson.core:jackson-databind", "2.9.8", "Maven")]
+
+
+def test_parse_maven_pins_empty_when_no_pom(tmp_path):
+    from aletheore.vulnerabilities import _parse_maven_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_maven_pins(repo) == []
+
+
+def test_parse_gemfile_lock_pins_reads_gem_specs_only(tmp_path):
+    from aletheore.vulnerabilities import _parse_gemfile_lock_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Gemfile.lock").write_text(
+        "PATH\n"
+        "  remote: .\n"
+        "  specs:\n"
+        "    mygem (1.0.0)\n"
+        "      activesupport (= 8.0.0)\n\n"
+        "GEM\n"
+        "  remote: https://rubygems.org/\n"
+        "  specs:\n"
+        "    activesupport (8.0.0)\n"
+        "      base64\n"
+        "    nokogiri (1.16.7)\n"
+        "      mini_portile2 (~> 2.8.2)\n\n"
+        "PLATFORMS\n"
+        "  ruby\n"
+    )
+
+    pins = _parse_gemfile_lock_pins(repo)
+
+    assert ("activesupport", "8.0.0", "RubyGems") in pins
+    assert ("nokogiri", "1.16.7", "RubyGems") in pins
+    assert not any(p[0] == "mygem" for p in pins)
+    assert not any(p[0] == "base64" for p in pins)
+    assert not any(p[0] == "mini_portile2" for p in pins)
+
+
+def test_parse_gemfile_lock_pins_empty_when_no_gemfile_lock(tmp_path):
+    from aletheore.vulnerabilities import _parse_gemfile_lock_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_gemfile_lock_pins(repo) == []
+
+
+def test_parse_composer_pins_reads_packages_array(tmp_path):
+    from aletheore.vulnerabilities import _parse_composer_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "composer.lock").write_text(
+        json.dumps(
+            {
+                "packages": [
+                    {"name": "laravel/framework", "version": "v11.30.0"},
+                    {"name": "symfony/console", "version": "v7.1.6"},
+                ]
+            }
+        )
+    )
+
+    pins = _parse_composer_pins(repo)
+
+    assert ("laravel/framework", "11.30.0", "Packagist") in pins
+    assert ("symfony/console", "7.1.6", "Packagist") in pins
+
+
+def test_parse_composer_pins_empty_when_no_composer_lock(tmp_path):
+    from aletheore.vulnerabilities import _parse_composer_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_composer_pins(repo) == []
+
+
+def test_parse_nuget_pins_reads_resolved_versions(tmp_path):
+    from aletheore.vulnerabilities import _parse_nuget_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "packages.lock.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "dependencies": {
+                    "net8.0": {
+                        "Newtonsoft.Json": {"type": "Direct", "resolved": "13.0.3"},
+                        "Serilog": {"type": "Direct", "resolved": "4.0.1"},
+                    }
+                },
+            }
+        )
+    )
+
+    pins = _parse_nuget_pins(repo)
+
+    assert ("Newtonsoft.Json", "13.0.3", "NuGet") in pins
+    assert ("Serilog", "4.0.1", "NuGet") in pins
+
+
+def test_parse_nuget_pins_empty_when_no_lock_file(tmp_path):
+    from aletheore.vulnerabilities import _parse_nuget_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_nuget_pins(repo) == []
+
+
+def test_parse_pip_pins_reads_pep621_pyproject_dependencies(tmp_path):
+    from aletheore.vulnerabilities import _parse_pip_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        "[project]\n"
+        "dependencies = [\n"
+        '  "asgiref>=3.12.1",\n'
+        '  "sqlparse==0.5.0",\n'
+        "  \"tzdata; sys_platform == 'win32'\",\n"
+        "]\n"
+    )
+
+    pins = _parse_pip_pins(repo)
+
+    assert ("asgiref", "3.12.1", "PyPI") in pins
+    assert ("sqlparse", "0.5.0", "PyPI") in pins
+    # An unpinned, marker-qualified dependency is kept like any other
+    # unpinned dependency (queried by name only, see _query_batch) rather
+    # than dropped - this test used to assert the opposite, predating #230's
+    # explicit "keep unpinned declarations too" fix and left un-reconciled
+    # with it. Dropping it would make this exact conditional-platform
+    # dependency shape invisible to CVE scanning, license checking, and
+    # unused-dependency detection alike.
+    assert ("tzdata", "*", "PyPI") in pins
+
+
+def test_parse_pip_pins_reads_pep621_optional_dependencies(tmp_path):
+    # Real gap found via audit: [project.optional-dependencies] (PEP 621
+    # extras, e.g. a "test"/"dev" group) is a real, direct, first-party
+    # declared dependency set - not a transitive one - yet was never read
+    # at all. This function's own two real callers are CVE scanning and
+    # license checking: a genuinely vulnerable pinned package declared
+    # only under a dev/test extras group was invisible to CVE scanning
+    # entirely, regardless of how out of date or risky it actually was.
+    from aletheore.vulnerabilities import _parse_pip_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        "[project]\n"
+        'dependencies = ["requests>=2.0"]\n\n'
+        "[project.optional-dependencies]\n"
+        'test = ["pytest==6.0.0"]\n'
+        'dev = ["black==20.8b0"]\n'
+    )
+
+    pins = _parse_pip_pins(repo)
+
+    assert ("requests", "2.0", "PyPI") in pins
+    assert ("pytest", "6.0.0", "PyPI") in pins
+    assert ("black", "20.8b0", "PyPI") in pins
+
+
+def test_parse_pip_pins_reads_poetry_dependency_groups_and_legacy_dev_dependencies(tmp_path):
+    # Same gap, Poetry's own two forms of the same thing: [tool.poetry.
+    # group.<name>.dependencies] (1.2+) and [tool.poetry.dev-dependencies]
+    # (the older, pre-1.2 shape) - both real, direct dependency
+    # declarations, neither read at all before this fix.
+    from aletheore.vulnerabilities import _parse_pip_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        "[tool.poetry.dependencies]\n"
+        'python = "^3.12"\n'
+        'django = "^5.1.0"\n\n'
+        "[tool.poetry.group.dev.dependencies]\n"
+        'pytest = "6.0.0"\n\n'
+        "[tool.poetry.dev-dependencies]\n"
+        'black = "20.8b0"\n'
+    )
+
+    pins = _parse_pip_pins(repo)
+
+    assert ("django", "5.1.0", "PyPI") in pins
+    assert ("pytest", "6.0.0", "PyPI") in pins
+    assert ("black", "20.8b0", "PyPI") in pins
+    assert not any(pin[0] == "python" for pin in pins)
+
+
+def test_parse_pip_pins_keeps_compound_compatible_and_unpinned_pep508_dependencies(tmp_path):
+    from aletheore.vulnerabilities import _parse_pip_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        "[project]\n"
+        "dependencies = [\n"
+        '  "tree-sitter>=0.24.0,<0.25.0",\n'
+        '  "openai~=1.0.0",\n'
+        '  "rich",\n'
+        "]\n"
+    )
+
+    pins = _parse_pip_pins(repo)
+
+    assert ("tree-sitter", "0.24.0", "PyPI") in pins
+    assert ("openai", "1.0.0", "PyPI") in pins
+    assert ("rich", "*", "PyPI") in pins
+
+
+def test_parse_pip_pins_keeps_unpinned_and_non_exact_requirements_txt_dependencies(tmp_path):
+    # Regression: the requirements.txt branch used a separate, hand-rolled
+    # parser that required a literal "==" to even consider a line at all -
+    # silently dropping a bare "requests" AND a non-exact specifier like
+    # "requests>=2.0", not just the marker-qualified-unpinned shape #335
+    # fixed for pyproject.toml's PEP 508 parser. Confirmed as a real, silent
+    # false negative: a completely normal requirements.txt line was
+    # invisible to both CVE scanning and license checking (this function's
+    # only two callers). Now reuses _parse_pep508_dependency directly,
+    # rather than a second, independently drifting implementation of the
+    # same grammar - pip option lines (-e, -r, --index-url) are explicitly
+    # skipped rather than relying on the name regex to reject them, since
+    # "-" is itself a valid name character (needed for "typing-extensions"),
+    # so a leading "-e"/"-r" would otherwise still match as a bogus package.
+    from aletheore.vulnerabilities import _parse_pip_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text(
+        "fastapi==0.100.0\n"
+        "requests>=2.0\n"
+        "rich\n"
+        "# a full-line comment\n"
+        "typing_extensions; python_version < \"3.10\"\n"
+        "-e git+https://example.com/foo.git\n"
+        "-r other-requirements.txt\n"
+        "--index-url https://pypi.example.com\n"
+    )
+
+    pins = _parse_pip_pins(repo)
+
+    assert ("fastapi", "0.100.0", "PyPI") in pins
+    assert ("requests", "2.0", "PyPI") in pins
+    assert ("rich", "*", "PyPI") in pins
+    assert ("typing-extensions", "*", "PyPI") in pins
+    assert not any(name.startswith("-") for name, _, _ in pins)
+
+
+def test_parse_pep508_dependency_keeps_unpinned_marker_qualified_dependency():
+    # Regression: an unpinned dependency that also carries an environment
+    # marker (e.g. `typing_extensions; python_version < "3.10"` - an
+    # idiomatic and common PEP 508 shape) used to be silently dropped
+    # entirely, directly contradicting this function's own comment that
+    # unpinned declarations are kept rather than treated as absent. This
+    # made any marker-qualified unpinned dependency invisible to CVE
+    # scanning, license checking, and unused-dependency detection.
+    from aletheore.vulnerabilities import _parse_pep508_dependency
+
+    assert _parse_pep508_dependency("typing_extensions") == ("typing-extensions", "*", "PyPI")
+    assert _parse_pep508_dependency(
+        'typing_extensions; python_version < "3.10"'
+    ) == ("typing-extensions", "*", "PyPI")
+    assert _parse_pep508_dependency(
+        'requests>=2.0; python_version < "3.10"'
+    ) == ("requests", "2.0", "PyPI")
+
+
+def test_parse_pip_pins_reads_poetry_dependencies(tmp_path):
+    from aletheore.vulnerabilities import _parse_pip_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text(
+        "[tool.poetry.dependencies]\n"
+        'python = "^3.12"\n'
+        'django = "^5.1.0"\n'
+        'requests = { version = ">=2.32.0", optional = true }\n'
+    )
+
+    pins = _parse_pip_pins(repo)
+
+    assert ("django", "5.1.0", "PyPI") in pins
+    assert ("requests", "2.32.0", "PyPI") in pins
+    assert not any(pin[0] == "python" for pin in pins)
+
+
+def test_parse_pip_pins_is_additive_for_requirements_and_pyproject(tmp_path):
+    from aletheore.vulnerabilities import _parse_pip_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "requirements.txt").write_text("fastapi==0.100.0\n")
+    (repo / "pyproject.toml").write_text('[project]\ndependencies = ["asgiref>=3.12.1"]\n')
+
+    pins = _parse_pip_pins(repo)
+
+    assert ("fastapi", "0.100.0", "PyPI") in pins
+    assert ("asgiref", "3.12.1", "PyPI") in pins
+
+
+def test_parse_npm_pins_prefers_package_lock_resolved_versions(tmp_path):
+    from aletheore.vulnerabilities import _parse_npm_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "package.json").write_text(json.dumps({"dependencies": {"left-pad": "^1.0.0"}}))
+    (repo / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "packages": {
+                    "": {"dependencies": {"left-pad": "^1.0.0"}},
+                    "node_modules/left-pad": {"version": "1.3.0"},
+                }
+            }
+        )
+    )
+
+    assert _parse_npm_pins(repo) == [("left-pad", "1.3.0", "npm")]
+
+
+def test_parse_cargo_pins_falls_back_to_cargo_toml_when_no_lockfile(tmp_path):
+    from aletheore.vulnerabilities import _parse_cargo_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Cargo.toml").write_text(
+        "[dependencies]\n"
+        'serde = "1.0.219"\n'
+        'local-crate = { path = "../local" }\n'
+        "[dev-dependencies]\n"
+        'tokio = { version = "^1.43.0", features = ["rt"] }\n'
+    )
+
+    pins = _parse_cargo_pins(repo)
+
+    assert ("serde", "1.0.219", "crates.io") in pins
+    assert ("tokio", "1.43.0", "crates.io") in pins
+    assert not any(pin[0] == "local-crate" for pin in pins)
+
+
+def test_parse_cargo_pins_prefers_lockfile_over_cargo_toml(tmp_path):
+    from aletheore.vulnerabilities import _parse_cargo_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Cargo.toml").write_text('[dependencies]\nserde = "1.0.0"\n')
+    (repo / "Cargo.lock").write_text('[[package]]\nname = "serde"\nversion = "1.0.219"\n')
+
+    assert _parse_cargo_pins(repo) == [("serde", "1.0.219", "crates.io")]
+
+
+def test_parse_maven_pins_resolves_properties_and_dependency_management(tmp_path):
+    from aletheore.vulnerabilities import _parse_maven_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pom.xml").write_text(
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+        "<properties><junit.version>5.10.2</junit.version></properties>"
+        "<dependencyManagement><dependencies><dependency>"
+        "<groupId>com.example</groupId><artifactId>managed</artifactId><version>1.2.3</version>"
+        "</dependency></dependencies></dependencyManagement>"
+        "<dependencies>"
+        "<dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId>"
+        "<version>${junit.version}</version></dependency>"
+        "<dependency><groupId>com.example</groupId><artifactId>managed</artifactId></dependency>"
+        "</dependencies>"
+        "</project>"
+    )
+
+    pins = _parse_maven_pins(repo)
+
+    assert ("org.junit.jupiter:junit-jupiter", "5.10.2", "Maven") in pins
+    assert ("com.example:managed", "1.2.3", "Maven") in pins
+
+
+def test_parse_maven_pins_reads_child_modules_and_skips_profile_dependencies(tmp_path):
+    from aletheore.vulnerabilities import _parse_maven_pins
+
+    repo = tmp_path / "repo"
+    child = repo / "child"
+    child.mkdir(parents=True)
+    (repo / "pom.xml").write_text(
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+        "<modules><module>child</module></modules>"
+        "<profiles><profile><dependencies><dependency>"
+        "<groupId>com.example</groupId><artifactId>profile-only</artifactId><version>9.9.9</version>"
+        "</dependency></dependencies></profile></profiles>"
+        "</project>"
+    )
+    (child / "pom.xml").write_text(
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+        "<dependencies><dependency>"
+        "<groupId>com.example</groupId><artifactId>child-lib</artifactId><version>1.0.0</version>"
+        "</dependency></dependencies>"
+        "</project>"
+    )
+
+    pins = _parse_maven_pins(repo)
+
+    assert ("com.example:child-lib", "1.0.0", "Maven") in pins
+    assert not any(pin[0] == "com.example:profile-only" for pin in pins)
+
+
+def test_parse_gemfile_lock_pins_falls_back_to_gemspec_when_no_lockfile(tmp_path):
+    from aletheore.vulnerabilities import _parse_gemfile_lock_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "demo.gemspec").write_text(
+        'spec.add_dependency "rack", ">= 3.0.0"\n'
+        'spec.add_runtime_dependency "thor", "~> 1.3.0"\n'
+        'spec.add_dependency "activesupport", version\n'
+    )
+
+    pins = _parse_gemfile_lock_pins(repo)
+
+    assert ("rack", "3.0.0", "RubyGems") in pins
+    assert ("thor", "1.3.0", "RubyGems") in pins
+    assert not any(pin[0] == "activesupport" for pin in pins)
+
+
+def test_parse_gemfile_lock_pins_prefers_lockfile_over_gemspec(tmp_path):
+    from aletheore.vulnerabilities import _parse_gemfile_lock_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "demo.gemspec").write_text('spec.add_dependency "rack", "1.0.0"\n')
+    (repo / "Gemfile.lock").write_text("GEM\n  remote: https://rubygems.org/\n  specs:\n    rack (3.0.0)\n")
+
+    assert _parse_gemfile_lock_pins(repo) == [("rack", "3.0.0", "RubyGems")]
+
+
+def test_parse_composer_pins_falls_back_to_composer_json_when_no_lockfile(tmp_path):
+    from aletheore.vulnerabilities import _parse_composer_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "composer.json").write_text(
+        json.dumps({"require": {"php": "^8.3", "guzzlehttp/psr7": "^2.7.0"}})
+    )
+
+    assert _parse_composer_pins(repo) == [("guzzlehttp/psr7", "2.7.0", "Packagist")]
+
+
+def test_parse_composer_pins_prefers_lockfile_over_composer_json(tmp_path):
+    from aletheore.vulnerabilities import _parse_composer_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "composer.json").write_text(json.dumps({"require": {"guzzlehttp/psr7": "^2.0.0"}}))
+    (repo / "composer.lock").write_text(
+        json.dumps({"packages": [{"name": "guzzlehttp/psr7", "version": "2.7.1"}]})
+    )
+
+    assert _parse_composer_pins(repo) == [("guzzlehttp/psr7", "2.7.1", "Packagist")]
+
+
+def test_parse_nuget_pins_falls_back_to_csproj_package_references(tmp_path):
+    from aletheore.vulnerabilities import _parse_nuget_pins
+
+    repo = tmp_path / "repo"
+    app = repo / "src" / "App"
+    app.mkdir(parents=True)
+    (app / "App.csproj").write_text(
+        "<Project><ItemGroup>"
+        '<PackageReference Include="Serilog" Version="4.0.1" />'
+        "</ItemGroup></Project>"
+    )
+
+    assert _parse_nuget_pins(repo) == [("Serilog", "4.0.1", "NuGet")]
+
+
+def test_parse_nuget_pins_reads_central_package_management_versions(tmp_path):
+    from aletheore.vulnerabilities import _parse_nuget_pins
+
+    repo = tmp_path / "repo"
+    app = repo / "src" / "App"
+    app.mkdir(parents=True)
+    (repo / "Directory.Packages.props").write_text(
+        "<Project><ItemGroup>"
+        '<PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />'
+        "</ItemGroup></Project>"
+    )
+    (app / "App.csproj").write_text(
+        "<Project><ItemGroup>"
+        '<PackageReference Include="Newtonsoft.Json" />'
+        "</ItemGroup></Project>"
+    )
+
+    assert _parse_nuget_pins(repo) == [("Newtonsoft.Json", "13.0.3", "NuGet")]
+
+
+def test_parse_nuget_pins_prefers_lockfile_over_project_files(tmp_path):
+    from aletheore.vulnerabilities import _parse_nuget_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "App.csproj").write_text(
+        '<Project><ItemGroup><PackageReference Include="Serilog" Version="4.0.0" /></ItemGroup></Project>'
+    )
+    (repo / "packages.lock.json").write_text(
+        json.dumps({"dependencies": {"net8.0": {"Serilog": {"resolved": "4.0.1"}}}})
+    )
+
+    assert _parse_nuget_pins(repo) == [("Serilog", "4.0.1", "NuGet")]
+
+
+def test_cvss3_base_score_log4shell_is_10():
+    from aletheore.vulnerabilities import _cvss3_base_score
+
+    # CVE-2021-44228 (Log4Shell) - NVD-published base score 10.0
+    score = _cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H")
+    assert score == 10.0
+
+
+def test_cvss3_base_score_matches_a_known_critical_vector():
+    from aletheore.vulnerabilities import _cvss3_base_score
+
+    # A common unauthenticated-RCE vector shape - NVD publishes 9.8 for this.
+    score = _cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
+    assert score == 9.8
+
+
+def test_cvss3_base_score_low_impact_vector():
+    from aletheore.vulnerabilities import _cvss3_base_score
+
+    score = _cvss3_base_score("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H")
+    assert score == 7.5
+
+
+def test_cvss3_base_score_returns_none_for_missing_metrics():
+    from aletheore.vulnerabilities import _cvss3_base_score
+
+    assert _cvss3_base_score("CVSS:3.1/AV:N/AC:L") is None
+
+
+def test_cvss3_base_score_returns_none_for_unrecognized_metric_value():
+    from aletheore.vulnerabilities import _cvss3_base_score
+
+    assert _cvss3_base_score("CVSS:3.1/AV:X/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H") is None
+
+
+def test_normalize_severity_buckets_critical():
+    from aletheore.vulnerabilities import normalize_severity
+
+    result = normalize_severity(
+        [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"}]
+    )
+    assert result == "critical"
+
+
+def test_normalize_severity_buckets_high():
+    from aletheore.vulnerabilities import normalize_severity
+
+    result = normalize_severity(
+        [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"}]
+    )
+    assert result == "high"
+
+
+def test_normalize_severity_buckets_medium():
+    from aletheore.vulnerabilities import normalize_severity
+
+    # Computed base score 4.3 (medium range 4.0-6.9), verified via
+    # _cvss3_base_score directly before being used here.
+    result = normalize_severity(
+        [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"}]
+    )
+    assert result == "medium"
+
+
+def test_normalize_severity_ignores_non_cvss_v3_entries():
+    from aletheore.vulnerabilities import normalize_severity
+
+    assert normalize_severity([{"type": "CVSS_V4", "score": "CVSS:4.0/AV:N/..."}]) is None
+    assert normalize_severity([{"type": "Ubuntu", "score": "Medium"}]) is None
+
+
+def test_normalize_severity_returns_none_for_empty_list():
+    from aletheore.vulnerabilities import normalize_severity
+
+    assert normalize_severity([]) is None
+    assert normalize_severity(None) is None
+
+
+def test_filter_by_severity_no_threshold_returns_unchanged():
+    from aletheore.vulnerabilities import filter_by_severity
+
+    findings = [{"severity": []}, {"severity": [{"type": "CVSS_V3", "score": "bad"}]}]
+    assert filter_by_severity(findings, None) == findings
+
+
+def test_filter_by_severity_keeps_findings_at_or_above_threshold():
+    from aletheore.vulnerabilities import filter_by_severity
+
+    critical = {
+        "advisory_id": "critical-one",
+        "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"}],
+    }
+    low = {
+        "advisory_id": "low-one",
+        "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N"}],
+    }
+    result = filter_by_severity([critical, low], "high")
+    assert result == [critical]
+
+
+def test_filter_by_severity_always_keeps_findings_with_no_derivable_severity():
+    from aletheore.vulnerabilities import filter_by_severity
+
+    unknown = {"advisory_id": "no-cvss-data", "severity": []}
+    result = filter_by_severity([unknown], "critical")
+    assert result == [unknown]
+
+
+def test_parse_gradle_kts_pins_reads_direct_string_coordinate(tmp_path):
+    from aletheore.vulnerabilities import _parse_gradle_kts_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    build_file = repo / "build.gradle.kts"
+    build_file.write_text(
+        'dependencies {\n    implementation("com.squareup.retrofit2:retrofit:2.9.0")\n}\n'
+    )
+
+    pins = _parse_gradle_kts_pins(build_file, {})
+
+    assert pins == [("com.squareup.retrofit2:retrofit", "2.9.0", "Maven")]
+
+
+def test_parse_gradle_kts_pins_resolves_version_catalog_accessor(tmp_path):
+    from aletheore.vulnerabilities import _parse_gradle_kts_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    build_file = repo / "build.gradle.kts"
+    build_file.write_text(
+        "dependencies {\n    implementation(libs.androidx.annotation)\n}\n"
+    )
+    catalog = {"androidx-annotation": ("androidx.annotation", "annotation", "1.9.1")}
+
+    pins = _parse_gradle_kts_pins(build_file, catalog)
+
+    assert pins == [("androidx.annotation:annotation", "1.9.1", "Maven")]
+
+
+def test_parse_gradle_kts_pins_skips_catalog_entry_with_no_resolvable_version(tmp_path):
+    # A real libs.versions.toml shape: a BOM-managed entry with no version
+    # field of its own - not a bug to invent a version for, a real
+    # "cannot resolve without more context" case that must be skipped
+    # rather than silently producing a wrong pin.
+    from aletheore.vulnerabilities import _parse_gradle_kts_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    build_file = repo / "build.gradle.kts"
+    build_file.write_text("dependencies {\n    implementation(libs.compose.bom)\n}\n")
+    catalog = {"compose-bom": ("androidx.compose", "compose-bom", None)}
+
+    pins = _parse_gradle_kts_pins(build_file, catalog)
+
+    assert pins == []
+
+
+def test_parse_gradle_version_catalog_reads_libraries_and_resolves_version_ref(tmp_path):
+    from aletheore.vulnerabilities import _parse_gradle_version_catalog
+
+    repo = tmp_path / "repo"
+    (repo / "gradle").mkdir(parents=True)
+    (repo / "gradle" / "libs.versions.toml").write_text(
+        '[versions]\nannotation = "1.9.1"\n\n'
+        "[libraries]\n"
+        'androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }\n'
+    )
+
+    catalog = _parse_gradle_version_catalog(repo)
+
+    assert catalog["androidx-annotation"] == ("androidx.annotation", "annotation", "1.9.1")
+
+
+def test_parse_gradle_version_catalog_handles_bare_module_shape(tmp_path):
+    # The other real libs.versions.toml entry shape: a single "module"
+    # string ("group:artifact") instead of split group/name fields - both
+    # are real and seen in the wild, not a hypothetical.
+    from aletheore.vulnerabilities import _parse_gradle_version_catalog
+
+    repo = tmp_path / "repo"
+    (repo / "gradle").mkdir(parents=True)
+    (repo / "gradle" / "libs.versions.toml").write_text(
+        '[versions]\ncoreKtx = "1.15.0"\n\n'
+        "[libraries]\n"
+        'androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }\n'
+    )
+
+    catalog = _parse_gradle_version_catalog(repo)
+
+    assert catalog["androidx-core-ktx"] == ("androidx.core", "core-ktx", "1.15.0")
+
+
+def test_parse_gradle_groovy_pins_reads_direct_string_coordinate(tmp_path):
+    from aletheore.vulnerabilities import _parse_gradle_groovy_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    build_file = repo / "build.gradle"
+    build_file.write_text(
+        "dependencies {\n    implementation 'com.squareup.okhttp3:okhttp:4.12.0'\n}\n"
+    )
+
+    pins = _parse_gradle_groovy_pins(build_file)
+
+    assert pins == [("com.squareup.okhttp3:okhttp", "4.12.0", "Maven")]
+
+
+def test_parse_gradle_pins_covers_root_and_included_subprojects(tmp_path):
+    from aletheore.vulnerabilities import _parse_gradle_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "settings.gradle.kts").write_text('include(":app")\ninclude(":core:data")\n')
+    (repo / "build.gradle.kts").write_text(
+        'dependencies {\n    implementation("com.example:root-dep:1.0.0")\n}\n'
+    )
+    app_dir = repo / "app"
+    app_dir.mkdir()
+    (app_dir / "build.gradle.kts").write_text(
+        'dependencies {\n    implementation("com.example:app-dep:2.0.0")\n}\n'
+    )
+    nested_dir = repo / "core" / "data"
+    nested_dir.mkdir(parents=True)
+    (nested_dir / "build.gradle.kts").write_text(
+        'dependencies {\n    implementation("com.example:data-dep:3.0.0")\n}\n'
+    )
+
+    pins = _parse_gradle_pins(repo)
+
+    names = {p[0] for p in pins}
+    assert names == {"com.example:root-dep", "com.example:app-dep", "com.example:data-dep"}
+
+
+def test_parse_gradle_pins_empty_when_no_gradle_files(tmp_path):
+    from aletheore.vulnerabilities import _parse_gradle_pins
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert _parse_gradle_pins(repo) == []
+
+
+def test_check_vulnerabilities_includes_gradle_pins(tmp_path, monkeypatch):
+    from aletheore import vulnerabilities
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "build.gradle.kts").write_text(
+        'dependencies {\n    implementation("com.example:foo:1.0.0")\n}\n'
+    )
+
+    captured = {}
+
+    def fake_query_batch(pins, timeout):
+        captured["pins"] = pins
+        return [{"vulns": []} for _ in pins]
+
+    monkeypatch.setattr(vulnerabilities, "_query_batch", fake_query_batch)
+
+    vulnerabilities.check_vulnerabilities(repo, cache_path=tmp_path / "cache.json")
+
+    assert ("com.example:foo", "1.0.0", "Maven") in captured["pins"]
+
+
+def test_parse_npm_pins_extracts_real_name_for_nested_nonhoisted_dependency(tmp_path):
+    from aletheore.vulnerabilities import _parse_npm_pins
+
+    repo = tmp_path
+    (repo / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"name": "app"},
+                    "node_modules/lodash": {"version": "4.17.21"},
+                    "node_modules/some-plugin/node_modules/lodash": {"version": "4.17.4"},
+                    "node_modules/some-plugin/node_modules/@scope/pkg": {"version": "1.0.0"},
+                },
+            }
+        )
+    )
+    pins = _parse_npm_pins(repo)
+    assert ("lodash", "4.17.4", "npm") in pins
+    assert ("lodash", "4.17.21", "npm") in pins
+    assert ("@scope/pkg", "1.0.0", "npm") in pins
+    assert not any("node_modules" in name for name, _, _ in pins)
+
+
+def test_parse_npm_pins_reads_legacy_lockfile_version_1_tree(tmp_path):
+    from aletheore.vulnerabilities import _parse_npm_pins
+
+    (tmp_path / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "lockfileVersion": 1,
+                "dependencies": {
+                    "express": {
+                        "version": "4.17.1",
+                        "dependencies": {"qs": {"version": "6.7.0"}},
+                    },
+                    "lodash": {"version": "4.17.21"},
+                },
+            }
+        )
+    )
+    pins = _parse_npm_pins(tmp_path)
+    assert sorted(pins) == [
+        ("express", "4.17.1", "npm"),
+        ("lodash", "4.17.21", "npm"),
+        ("qs", "6.7.0", "npm"),
+    ]
+
+
+def test_parse_maven_pins_resolves_property_defined_via_another_property(tmp_path):
+    from aletheore.vulnerabilities import _parse_maven_pins
+
+    (tmp_path / "pom.xml").write_text(
+        '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+        "  <properties><a>4.0.0</a><b>${a}</b><x>${y}</x><y>${x}</y></properties>\n"
+        "  <dependencies>\n"
+        "    <dependency><groupId>g</groupId><artifactId>chained</artifactId>"
+        "<version>${b}</version></dependency>\n"
+        "    <dependency><groupId>g</groupId><artifactId>cyclic</artifactId>"
+        "<version>${x}</version></dependency>\n"
+        "  </dependencies>\n"
+        "</project>\n"
+    )
+
+    pins = _parse_maven_pins(tmp_path)
+
+    assert ("g:chained", "4.0.0", "Maven") in pins
+    assert not any(p[0] == "g:cyclic" for p in pins)
+
+
+def test_parse_composer_pins_includes_dev_dependencies(tmp_path):
+    from aletheore.vulnerabilities import _parse_composer_pins
+
+    (tmp_path / "composer.lock").write_text(
+        json.dumps(
+            {
+                "packages": [{"name": "a/prod", "version": "v1.0.0"}],
+                "packages-dev": [{"name": "a/dev", "version": "2.0.0"}],
+            }
+        )
+    )
+    assert sorted(_parse_composer_pins(tmp_path)) == [
+        ("a/dev", "2.0.0", "Packagist"),
+        ("a/prod", "1.0.0", "Packagist"),
+    ]
+
+
+def test_parse_composer_pins_json_fallback_includes_require_dev(tmp_path):
+    from aletheore.vulnerabilities import _parse_composer_pins
+
+    (tmp_path / "composer.json").write_text(
+        json.dumps({"require": {"php": "^8.1", "a/prod": "1.2.3"}, "require-dev": {"a/dev": "4.5.6"}})
+    )
+    names = {name for name, _, _ in _parse_composer_pins(tmp_path)}
+    assert names == {"a/prod", "a/dev"}

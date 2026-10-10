@@ -1,0 +1,342 @@
+"""Derive an MCP-ready OpenAPI spec from Backlot's own ``/openapi.json``.
+
+For vendor fidelity several routes accept **more than one HTTP method on a single route** — every
+Slack Web API method takes GET and POST (``api_route(methods=["GET","POST"])``), Jira's
+``search/jql`` likewise on both its ``/rest/api/2`` and ``/rest/api/3`` aliases, S3's object route
+GET and HEAD. FastAPI derives one operationId *per route* and reuses it for each method, so the raw
+``/openapi.json`` ends up with ~14 *duplicate* operationIds. An OpenAPI→MCP bridge keys its tools by
+operationId, so a raw spec would collide (one tool silently overwriting the other).
+
+This can't be fixed with FastAPI's operationId hooks (``operation_id=`` / ``generate_unique_id_function``):
+those run *per route* and return a single id for all of a route's methods — there is no per-method
+hook, so a GET+POST route is inherently one id. Splitting every such route into single-method routes
+would be invasive and still leave a redundant GET-tool + POST-tool pair. Instead this module keeps
+the fidelity-shaped routes as-is and, for MCP consumers, slices the spec to one source's paths,
+renames each operation to its route's own name (``search_messages``, not
+``search_messages_slack_api_search_messages_get`` — see :func:`tool_name`), and collapses the
+operations sharing a name to one (prefer GET, then fewest path params, then the lexicographically
+greatest path — so Jira's ``/rest/api/3`` alias survives over ``/rest/api/2``). Served at
+``GET /_meta/openapi/{source}`` so a bridge (``backlot.mcp``) consumes it directly — no client-side
+spec surgery. HEAD goes first, before anything is renamed (:func:`drop_head_operations`).
+"""
+
+from __future__ import annotations
+
+import re
+import warnings
+
+from backlot.errors import google as gerr
+
+# Building the app's /openapi.json (FastAPI) warns "Duplicate Operation ID" once per multi-method
+# route described above. Those duplicates are expected and are collapsed by build_mcp_spec, so the
+# warning is pure noise — silence just that message. Lives here (imported by backlot.main before any
+# spec is built) beside the rationale for the duplicates it concerns.
+warnings.filterwarnings("ignore", message="Duplicate Operation ID", category=UserWarning)
+
+# source -> the path prefix(es) whose operations that source's MCP server should expose.
+#
+# A source is named here for the MCP bridge, so one entry can span several vendor APIs: `gdrive`
+# is the Drive, Docs, Sheets and Slides roots, because one `google_drive` record is a file that
+# Drive lists and one of the three editors reads. Every served path outside `NOT_BRIDGED` has to
+# be under one of these, and every prefix has to select something — `test_openapi.py` asserts both
+# directions, because a source whose other prefix selects something still slices to a non-empty
+# spec, so a dead-prefix check alone cannot see a root that goes unbridged.
+SOURCE_PREFIXES: dict[str, list[str]] = {
+    "github": ["/github"],
+    "slack": ["/slack/api"],
+    "gmail": ["/gmail"],
+    "gdrive": ["/drive/v3", "/docs/v1", "/sheets/v4", "/slides/v1"],
+    "notion": ["/notion/v1"],
+    "atlassian": ["/atlassian"],
+    "hubspot": ["/hubspot"],
+    "s3": ["/s3"],
+}
+
+# Served paths no source's MCP server exposes, and why. Matched by prefix, so `/batch` covers
+# `/batch/{api}/{version}`.
+#
+# The escape hatch the coverage check named above is built around, in the shape
+# `fidelity.comparisons.UNCOMPARED` set: an entry is a reason a reviewer reads, not a silence.
+# Three are Backlot's own surface, which is not a vendor's and so has no place in a toolset built
+# to answer as one; `/batch` is a vendor's, and says its own reason.
+NOT_BRIDGED: dict[str, str] = {
+    "/health": "Backlot's own liveness endpoint, not a vendor's surface",
+    "/oauth2/token": (
+        "Backlot's own token exchange. `backlot.mcp` reads the whole credential set off "
+        "`/_meta/users` and puts it on every tool call, so an agent has nothing to exchange."
+    ),
+    "/_meta": (
+        "Backlot's own introspection — the corpus's principals and the per-source OpenAPI. This "
+        "table is what the second of those answers, so a tool built from it would be circular."
+    ),
+    "/batch": (
+        "Google's `multipart/mixed` batch transport, which carries operations rather than being "
+        "one: a part is an `application/http` sub-request with its own method and target, which "
+        "`routers.google.batch` dispatches back through this app. The route declares no request "
+        "body, so the only arguments a tool would get are the `api` and `version` query params it "
+        "shares with `/batch/{api}/{version}`, neither of which can carry a sub-request."
+    ),
+}
+
+_METHODS = ("get", "post", "put", "delete", "patch")
+_METHOD_RANK = {m: i for i, m in enumerate(_METHODS)}
+
+
+def unique_operation_id(route) -> str:
+    """A route's operationId — replaces FastAPI's default, which is not deterministic.
+
+    The default suffixes the id with ``list(route.methods)[0]``, and ``route.methods`` is a SET, so
+    every route declared with more than one method (each Slack method, Jira's ``search/jql`` on both
+    its v2 and v3 aliases, S3's object route) got a suffix that depended on ``PYTHONHASHSEED`` and
+    changed between restarts. That is not cosmetic here: an OpenAPI->MCP bridge keys its tools by
+    operationId (see :func:`build_mcp_spec`), so a bridge that caches tool names saw them move under
+    it whenever the server restarted.
+
+    The method is chosen by ``_METHOD_RANK`` — GET first, the same preference
+    :func:`dedupe_operations` applies — so the operation that survives the collapse is also the one
+    whose id names its own method. A method the rank does not know sorts after the known ones, by
+    name, so it is stable too.
+    """
+    ident = re.sub(r"\W", "_", f"{route.name}{route.path_format}")
+    method = min(
+        route.methods, key=lambda m: (_METHOD_RANK.get(m.lower(), len(_METHODS)), m.lower())
+    )
+    return f"{ident}_{method.lower()}"
+
+
+def tool_name(operation_id: str, path: str, method: str) -> str:
+    """The route's own name, back out of the id :func:`unique_operation_id` built from it.
+
+    A bridge exposes each operation as a tool named by its operationId, and a model reads that name
+    on every call: ``conversations_history`` says what the tool does where
+    ``conversations_history_slack_api_conversations_history_get`` says it twice and then names the
+    HTTP method. Length is the other reason: MCP clients cap a tool name at 64 characters, and once
+    ``backlot mcp`` prefixes every tool with its source (``atlassian_``) the suffixed form crosses
+    it and is truncated — which can make two tools collide.
+
+    An exact inverse rather than a heuristic: the suffix is ``re.sub(r"\\W", "_", path)`` and then a
+    method by construction, so anything not shaped that way is not an id this module produced, and
+    says so. The method in the id is the route's *ranked* one, not necessarily the entry's own:
+    FastAPI gives every method of a route the same id, so the POST half of a Slack GET+POST route
+    also ends in ``_get`` — which is why ``method`` is not consulted here."""
+    ident = re.escape(re.sub(r"\W", "_", path))
+    m = re.fullmatch(rf"(.+){ident}_({'|'.join(_METHODS)})", operation_id)
+    if not m:
+        raise ValueError(f"{operation_id!r} was not derived from {method.upper()} {path}")
+    return m.group(1)
+
+
+def qp(
+    name: str, typ: str = "string", required: bool = False, description: str | None = None
+) -> dict:
+    """One OpenAPI query parameter, for a router's ``openapi_extra``.
+
+    The routers read their query params off the raw request rather than through FastAPI signatures
+    (a vendor's parameter names are not always valid Python, and several are conditional), so each
+    one has to declare what it honours by hand. This is that declaration — and only for parameters
+    Backlot actually honours: advertising one it ignores makes a client ask for data that never
+    arrives, which is worse than not offering it.
+
+    ``description`` is worth spending on a parameter whose DEFAULT decides what comes back, because
+    the spec is the whole of what a generated client knows: the OpenAPI slice is what
+    ``backlot mcp`` hands an agent as a tool, with no vendor documentation behind it.
+    """
+    p = {"name": name, "in": "query", "required": required, "schema": {"type": typ}}
+    if description:
+        p["description"] = description
+    return p
+
+
+def github_page_parameters(spec: dict, parameters: dict[str, tuple[int, str]]) -> dict:
+    """``spec`` with ``parameters``, parameter name to the ``(default, description)`` real declares
+    for it, written onto every GitHub operation's query parameter of that name, in place: the
+    default into the parameter's schema and the description onto the parameter itself, which is
+    where real's own document carries each (``components/parameters``, `per-page` and `page`, a
+    `{type: integer, default: N}` schema under a described parameter). The description is the only
+    place real states `per_page`'s cap; the schema declares no `maximum`, and none is written here.
+
+    The GitHub handlers declare `page` and `per_page` as ``PageParam = None`` and have to: the
+    handler tells an unsent size from a sent one by that ``None`` (a `Link` header omits a size the
+    caller did not send), so the runtime default cannot be 30. FastAPI writes no ``default`` for a
+    query parameter whose default is ``None``, and neither ``json_schema_extra`` nor
+    ``WithJsonSchema`` gets one past it (both measured on 0.141.1 / pydantic 2.13); the two
+    parameters' descriptions differ, so ``Query(description=...)`` on the one shared annotation
+    cannot carry them either. So both are written here, after FastAPI has built the document, and
+    they come from the caller rather than from constants of this module's own: the router that
+    applies the numbers holds them (``backlot.routers.github.PAGE_PARAMETERS``, whose prose is built
+    from the same ``PER_PAGE_DEFAULT`` and ``PER_PAGE_MAX`` its routes apply), so the document cannot
+    declare one size while the route applies another. Six routers import this module for
+    :func:`qp`, which is why it does not import that one — the routers package, not `backlot` at
+    large: `backlot.errors` imports neither this module nor a router, so
+    :func:`google_system_parameters` takes it at module scope. Only GitHub: the other vendors'
+    declared defaults are not measured."""
+    for path, item in spec.get("paths", {}).items():
+        if path != "/github" and not path.startswith("/github/"):
+            continue
+        for method, op in item.items():
+            if method not in _METHODS:
+                continue
+            for param in op.get("parameters", []):
+                declared = parameters.get(param.get("name"))
+                if declared is not None and param.get("in") == "query":
+                    default, description = declared
+                    param["schema"]["default"] = default
+                    param["description"] = description
+    return spec
+
+
+def jira_search_placement(spec: dict) -> dict:
+    """``spec`` with `search/jql`'s parameters left on the GET and its body on the POST, in place.
+
+    The two methods take the same three parameters in different places — the query string on GET,
+    a `SearchAndReconcileRequestBean` body on POST — which is what both of Atlassian's documents
+    declare and what the live service reads: a `nextPageToken` in the query string of a POST is not
+    read, and `?maxResults=1` with a body that omits it is ignored (measured 2026-09-15).
+
+    Here, on the served document, because one route serves both methods and ``openapi_extra`` is
+    per route: the route declares both placements and this leaves each on its own method. The
+    `Allow` a `PUT` gets is the measured table's (``errors.atlassian.jira_allow``), keyed by the
+    path, so it names both methods however they are split across routes.
+    """
+    for path, item in spec.get("paths", {}).items():
+        if not path.endswith("/search/jql"):
+            continue
+        item.get("get", {}).pop("requestBody", None)
+        item.get("post", {}).pop("parameters", None)
+    return spec
+
+
+def google_system_parameters(spec: dict) -> dict:
+    """``spec`` with `$.xgafv` declared on every Google-family operation, in place.
+
+    Google declares its system parameters once per discovery document, at the top level, and every
+    method takes them; Backlot honours `$.xgafv` the same way — validated once for the router and
+    read once by the envelope — so it is declared once here rather than on each of the
+    twenty-one family routes, where a route added later would forget it and the fidelity diff would
+    report the gap again. The declaration is the document's own: ``V1 error format.``, an enum of
+    ``1`` and ``2``. The batch endpoint is not a family path and gets nothing.
+
+    `$.xgafv` alone, though real's document declares `callback` beside it and Backlot validates that
+    one for the router too (``errors.google.validate_system_parameters``). `callback` is honoured on
+    a Google error answered to a GET — a POST ignores it outright, as real's POSTs do, and a Drive
+    download neither wraps nor refuses through it but answers it with real's own 503
+    (``routers.google._system_parameters``) — and on a SUCCESS only under ``/sheets/v4``, which is
+    where :func:`qp` declares it. The two Sheets POST routes share that declaration and ignore the
+    parameter exactly as real's do, so it promises a caller no more there than the vendor's own
+    document does."""
+    for path, item in spec.get("paths", {}).items():
+        if gerr.family(path) is None:
+            continue
+        for method, op in item.items():
+            if method not in _METHODS:
+                continue
+            params = op.setdefault("parameters", [])
+            # FastAPI caches the document and hands the same dict back by identity, so a second
+            # call would append a second copy of the parameter.
+            if any(p.get("name") == gerr.XGAFV and p.get("in") == "query" for p in params):
+                continue
+            params.append(
+                {
+                    "name": gerr.XGAFV,
+                    "in": "query",
+                    "required": False,
+                    "description": "V1 error format.",
+                    "schema": {"type": "string", "enum": list(gerr.XGAFV_VALUES)},
+                }
+            )
+    return spec
+
+
+def slice_spec(spec: dict, prefixes: list[str]) -> dict:
+    """Copy ``spec`` keeping only paths under one of ``prefixes``."""
+    paths = {
+        p: item
+        for p, item in spec.get("paths", {}).items()
+        if any(p == pre or p.startswith(pre + "/") for pre in prefixes)
+    }
+    if not paths:
+        raise ValueError(f"no paths matched {prefixes} — is the router enriched/mounted?")
+    return {**spec, "paths": paths}
+
+
+def drop_head_operations(spec: dict) -> dict:
+    """Copy ``spec`` without its HEAD operations, and without any path left with no operation.
+
+    Two reasons, and S3 is the only source with HEAD routes to hit either. A HEAD answers with
+    headers alone, so the tool a bridge derives from one returns an empty body on every call —
+    measured. And ``head`` is not in ``_METHODS``, so a HEAD left here is renamed by neither pass:
+    S3's object route, GET and HEAD under one operationId, would ship as ``object_get`` beside an
+    un-renamed ``object_get_s3__bucket___key__get`` hitting the same route."""
+    paths = {}
+    for path, item in spec.get("paths", {}).items():
+        kept = {m: op for m, op in item.items() if m != "head"}
+        if any(m in _METHODS for m in kept):
+            paths[path] = kept
+    return {**spec, "paths": paths}
+
+
+def name_operations(spec: dict) -> dict:
+    """Copy ``spec`` with every operationId replaced by its route name (:func:`tool_name`).
+
+    Run before :func:`dedupe_operations`, so that operations which are one route under two paths
+    — Jira's v2 and v3 aliases — share an id and collapse, which the suffixed ids never let them."""
+    paths = {
+        path: {
+            method: (
+                {**op, "operationId": tool_name(op["operationId"], path, method)}
+                if method in _METHODS and isinstance(op, dict) and "operationId" in op
+                else op
+            )
+            for method, op in item.items()
+        }
+        for path, item in spec.get("paths", {}).items()
+    }
+    return {**spec, "paths": paths}
+
+
+def dedupe_operations(spec: dict) -> dict:
+    """Keep one operation per operationId (Backlot aliases the same op for fidelity).
+
+    Preference: GET before POST/…, then fewest path params, then lexicographically greatest path
+    (so ``/rest/api/3`` beats ``/rest/api/2``; ``/batch`` beats ``/batch/{api}/{version}``)."""
+    cand: dict[str, list[tuple[str, str]]] = {}
+    for path, item in spec.get("paths", {}).items():
+        for method, op in item.items():
+            if method in _METHODS and isinstance(op, dict) and "operationId" in op:
+                cand.setdefault(op["operationId"], []).append((path, method))
+    keep: set[tuple[str, str]] = set()
+    for entries in cand.values():
+        best_rank = min(_METHOD_RANK[m] for _, m in entries)
+        finalists = [(p, m) for p, m in entries if _METHOD_RANK[m] == best_rank]
+        fewest = min(p.count("{") for p, _ in finalists)
+        finalists = [(p, m) for p, m in finalists if p.count("{") == fewest]
+        keep.add(max(finalists, key=lambda pm: pm[0]))
+    new_paths: dict[str, dict] = {}
+    for path, item in spec.get("paths", {}).items():
+        kept = {k: v for k, v in item.items() if k not in _METHODS or (path, k) in keep}
+        if any(k in _METHODS for k in kept):
+            new_paths[path] = kept
+    return {**spec, "paths": new_paths}
+
+
+def _duplicate_operation_ids(spec: dict) -> list[str]:
+    seen: dict[str, int] = {}
+    for item in spec.get("paths", {}).values():
+        for method, op in item.items():
+            if method in _METHODS and isinstance(op, dict) and "operationId" in op:
+                seen[op["operationId"]] = seen.get(op["operationId"], 0) + 1
+    return sorted(k for k, n in seen.items() if n > 1)
+
+
+def build_mcp_spec(full_spec: dict, source: str) -> dict:
+    """The MCP-ready spec for ``source``: sliced to its paths, HEAD dropped, operations named for
+    their routes, fidelity aliases collapsed.
+
+    Raises ``KeyError`` for an unknown source and ``ValueError`` if any operationId collision
+    survives (an invariant — dedupe should always resolve them)."""
+    prefixes = SOURCE_PREFIXES[source]
+    spec = dedupe_operations(name_operations(drop_head_operations(slice_spec(full_spec, prefixes))))
+    dupes = _duplicate_operation_ids(spec)
+    if dupes:
+        raise ValueError(f"unresolved duplicate operationIds for {source!r}: {dupes}")
+    return spec

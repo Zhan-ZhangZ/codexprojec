@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Captain Claw</title>
+    <link rel="stylesheet" href="/static/home.css">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <script src="/static/version.js" defer></script>
+</head>
+<body>
+    <div class="home">
+        <div class="home-logo">
+            <img src="/static/ccicon.png" alt="Captain Claw" width="160" height="160">
+        </div>
+        <h1 class="home-title">Captain Claw <span id="versionBadge" style="font-size:14px;color:#666;font-weight:normal;"></span></h1>
+        <p class="home-subtitle">AI Agent with Claws</p>
+
+        <div class="home-cards">
+            <a href="/chat" class="home-card">
+                <div class="home-card-icon">💬</div>
+                <div class="home-card-title">Chat</div>
+                <div class="home-card-desc">Interactive conversation with the agent. Run commands, tools, and skills in a single session.</div>
+            </a>
+            <a href="/computer" class="home-card">
+                <div class="home-card-icon">🖥️</div>
+                <div class="home-card-title">Computer</div>
+                <div class="home-card-desc">Retro-themed workspace with themed visual rendering. Chat with the agent in classic computer styles.</div>
+            </a>
+            <a href="/personality" class="home-card">
+                <div class="home-card-icon">🤖</div>
+                <div class="home-card-title">Personality</div>
+                <div class="home-card-desc">Define the agent's identity and how it interacts with each user. Manage personas and profiles.</div>
+            </a>
+            <a href="/reflections" class="home-card">
+                <div class="home-card-icon">&#x1FA9E;</div>
+                <div class="home-card-title">Reflections</div>
+                <div class="home-card-desc">Self-improvement insights and performance analysis from periodic self-assessments.</div>
+            </a>
+            <a href="/sessions" class="home-card">
+                <div class="home-card-icon">&#x1F4CB;</div>
+                <div class="home-card-title">Sessions</div>
+                <div class="home-card-desc">Browse and manage all conversation sessions. View chat and monitor history, rename, and describe.</div>
+            </a>
+            <a href="/orchestrator" class="home-card">
+                <div class="home-card-icon">🎯</div>
+                <div class="home-card-title">Orchestrator</div>
+                <div class="home-card-desc">Decompose complex tasks into a parallel DAG of sessions. Monitor progress in real time.</div>
+            </a>
+            <a href="/instructions" class="home-card">
+                <div class="home-card-icon">📋</div>
+                <div class="home-card-title">Instructions</div>
+                <div class="home-card-desc">Browse, understand, and edit the instruction templates that shape the agent's behavior.</div>
+            </a>
+            <a href="/cron" class="home-card">
+                <div class="home-card-icon">⏰</div>
+                <div class="home-card-title">Cron</div>
+                <div class="home-card-desc">Schedule and monitor recurring tasks, scripts, and orchestrated workflows.</div>
+            </a>
+            <a href="/workflows" class="home-card">
+                <div class="home-card-icon">📊</div>
+                <div class="home-card-title">Workflows</div>
+                <div class="home-card-desc">Browse saved workflows and view their execution outputs with rendered Markdown.</div>
+            </a>
+            <a href="/loop-runner" class="home-card">
+                <div class="home-card-icon">🔄</div>
+                <div class="home-card-title">Loop Runner</div>
+                <div class="home-card-desc">Execute a workflow multiple times with different variable values per iteration.</div>
+            </a>
+            <a href="/memory" class="home-card">
+                <div class="home-card-icon">&#x1F9E0;</div>
+                <div class="home-card-title">Memory</div>
+                <div class="home-card-desc">Browse and manage shared memory: to-dos, contacts, scripts, and API registrations.</div>
+            </a>
+            <a href="/playbooks" class="home-card">
+                <div class="home-card-icon">&#x1F4D6;</div>
+                <div class="home-card-title">Playbooks</div>
+                <div class="home-card-desc">Manage do/don't orchestration patterns learned from past sessions. View, edit, and create playbooks.</div>
+            </a>
+            <a href="/playbook-wizard" class="home-card">
+                <div class="home-card-icon">&#x1FA84;</div>
+                <div class="home-card-title">Playbook Wizard</div>
+                <div class="home-card-desc">Create playbooks with an LLM-guided wizard. Describe your goal and get a structured playbook.</div>
+            </a>
+            <a href="/browser-workflows" class="home-card">
+                <div class="home-card-icon">&#x1F3AC;</div>
+                <div class="home-card-title">Browser Workflows</div>
+                <div class="home-card-desc">View and manage recorded browser interaction workflows. Teach the agent once, replay with different data.</div>
+            </a>
+<a href="/direct-api-calls" class="home-card">
+                <div class="home-card-icon">&#x1F310;</div>
+                <div class="home-card-title">Direct API Calls</div>
+                <div class="home-card-desc">Register, test, and execute HTTP API endpoints directly. Manage auth tokens captured from browser sessions.</div>
+            </a>
+            <a href="/deep-memory" class="home-card">
+                <div class="home-card-icon">&#x1F4C0;</div>
+                <div class="home-card-title">Deep Memory</div>
+                <div class="home-card-desc">Browse and search the Typesense-backed long-term memory. View indexed documents, chunks, and manage content.</div>
+            </a>
+            <a href="/semantic-memory" class="home-card">
+                <div class="home-card-icon">&#x1F9EC;</div>
+                <div class="home-card-title">Semantic Memory</div>
+                <div class="home-card-desc">Browse layered memory chunks with L1/L2/L3 views. Search, inspect documents, and review generated summaries.</div>
+            </a>
+            <a href="/datastore" class="home-card">
+                <div class="home-card-icon">&#x1F5C4;</div>
+                <div class="home-card-title">Datastore</div>
+                <div class="home-card-desc">Browse and manage structured data tables. View schemas, query rows, and edit records.</div>
+            </a>
+            <a href="/insights" class="home-card">
+                <div class="home-card-icon">&#x1F4A1;</div>
+                <div class="home-card-title">Insights</div>
+                <div class="home-card-desc">Browse persistent insights auto-extracted from conversations — facts, contacts, decisions, deadlines.</div>
+            </a>
+            <a href="/intuitions" class="home-card">
+                <div class="home-card-icon">&#x1F4AB;</div>
+                <div class="home-card-title">Nervous System</div>
+                <div class="home-card-desc">Browse autonomously discovered patterns, connections, and hypotheses formed during dream cycles across all memory layers.</div>
+            </a>
+            <a href="/briefings" class="home-card">
+                <div class="home-card-icon">&#x1F4E1;</div>
+                <div class="home-card-title">Sister Session</div>
+                <div class="home-card-desc">Proactive autonomous investigations. View briefings from background research, manage task queues, and set up recurring watches.</div>
+            </a>
+            <a href="/brain-graph" class="home-card">
+                <div class="home-card-icon">&#x1F578;</div>
+                <div class="home-card-title">Brain Graph</div>
+                <div class="home-card-desc">3D visualization of the cognitive topology — insights, intuitions, tasks, contacts, and their connections across sessions.</div>
+            </a>
+            <a href="/files" class="home-card">
+                <div class="home-card-icon">&#128193;</div>
+                <div class="home-card-title">Files</div>
+                <div class="home-card-desc">Browse files created by the agent and orchestrator. Preview text files and download any output.</div>
+            </a>
+            <a href="/skills" class="home-card">
+                <div class="home-card-icon">&#x26A1;</div>
+                <div class="home-card-title">Skills</div>
+                <div class="home-card-desc">Browse and manage installed skills. View requirements, sources, and install new skills from GitHub.</div>
+            </a>
+            <a href="/usage" class="home-card">
+                <div class="home-card-icon">&#x1F4C8;</div>
+                <div class="home-card-title">Usage</div>
+                <div class="home-card-desc">Track LLM token usage, costs, and performance. View per-call details with date filtering.</div>
+            </a>
+            <a href="/settings" class="home-card">
+                <div class="home-card-icon">&#x2699;&#xFE0F;</div>
+                <div class="home-card-title">Settings</div>
+                <div class="home-card-desc">Configure models, tools, integrations, and all system options through a visual editor.</div>
+            </a>
+        </div>
+
+        <div class="home-footer">
+            <a href="https://github.com/kstevica/captain-claw" target="_blank" rel="noopener noreferrer" class="home-github-link">
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                GitHub
+            </a>
+        </div>
+
+        <!-- Google OAuth -->
+        <div class="home-auth" id="google-auth" style="display:none;">
+            <a href="/auth/google/login" class="auth-card" id="google-card">
+                <div class="auth-icon" id="google-icon">
+                    <svg viewBox="0 0 24 24" width="22" height="22"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 0 0 1 12c0 1.77.42 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                </div>
+                <div class="auth-body">
+                    <div class="auth-title" id="google-title">Connect Google</div>
+                    <div class="auth-desc" id="google-desc">Sign in to access Google Drive and use Gemini models via Vertex AI.</div>
+                </div>
+                <div class="auth-status" id="google-status"></div>
+            </a>
+        </div>
+    </div>
+
+    <script>
+    // Redirect to onboarding if first launch
+    (async function() {
+        try {
+            var r = await fetch('/api/onboarding/status');
+            var d = await r.json();
+            if (d.needed) { window.location.href = '/onboarding'; return; }
+        } catch(e) {}
+    })();
+
+    (async function() {
+        var section = document.getElementById('google-auth');
+        var card = document.getElementById('google-card');
+        var title = document.getElementById('google-title');
+        var desc = document.getElementById('google-desc');
+        var status = document.getElementById('google-status');
+
+        try {
+            var resp = await fetch('/auth/google/status');
+            var data = await resp.json();
+        } catch(e) { return; }
+
+        section.style.display = '';
+
+        if (!data.enabled) {
+            // OAuth not configured — show a dimmed card with setup hint.
+            card.removeAttribute('href');
+            card.classList.add('not-configured');
+            title.textContent = 'Google Account';
+            desc.textContent = 'Not configured. Set google_oauth.enabled, client_id, and client_secret in config to connect.';
+            return;
+        }
+
+        if (data.connected && data.user) {
+            card.removeAttribute('href');
+            card.classList.add('connected');
+            title.textContent = 'Google Connected';
+            desc.textContent = 'Signed in as ' + (data.user.email || 'unknown');
+            status.innerHTML = '<button class="auth-disconnect" onclick="disconnectGoogle(event)">Disconnect</button>';
+        }
+    })();
+
+    async function disconnectGoogle(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        await fetch('/auth/google/logout', { method: 'POST' });
+        location.reload();
+    }
+
+    </script>
+</body>
+</html>

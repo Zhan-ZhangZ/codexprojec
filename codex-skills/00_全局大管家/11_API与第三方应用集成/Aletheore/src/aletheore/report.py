@@ -1,0 +1,112 @@
+from pathlib import Path
+
+from aletheore.adapters.base import AgentAdapter
+
+
+class NoAdapterAvailableError(Exception):
+    pass
+
+
+class AmbiguousAdapterError(Exception):
+    pass
+
+
+def select_adapter(
+    adapters: list[AgentAdapter], forced_name: str | None, interactive: bool
+) -> AgentAdapter:
+    available = [a for a in adapters if a.is_available()]
+
+    if forced_name is not None:
+        for adapter in available:
+            if adapter.name == forced_name:
+                return adapter
+        raise NoAdapterAvailableError(
+            f"requested adapter '{forced_name}' is not available on PATH"
+        )
+
+    if not available:
+        names = ", ".join(a.name for a in adapters)
+        raise NoAdapterAvailableError(
+            f"no supported agent CLI found on PATH (checked: {names})"
+        )
+
+    if interactive:
+        names = [a.name for a in available]
+        print("Available agent providers:")
+        for i, name in enumerate(names, start=1):
+            print(f"  {i}. {name}")
+        # Real bug found via audit: a non-numeric answer raised a raw
+        # ValueError from int(), and an out-of-range number raised a raw
+        # IndexError from the list access - neither is caught by this
+        # function's only caller (cli.py only catches NoAdapterAvailableError/
+        # AmbiguousAdapterError), so a mistyped answer crashed the whole
+        # command with an unhandled traceback instead of a clean re-prompt.
+        # interactive is only ever True when the caller already confirmed
+        # sys.stdin.isatty(), so a bounded re-prompt loop here is safe - it
+        # can't hang against a closed/non-tty stdin.
+        for _ in range(5):
+            choice = input(f"Which one? [1-{len(names)}]: ").strip()
+            try:
+                index = int(choice) - 1
+                if 0 <= index < len(available):
+                    return available[index]
+            except ValueError:
+                pass
+            print(f"Not a valid choice - enter a number from 1 to {len(names)}.")
+        raise NoAdapterAvailableError("no valid selection made after multiple attempts")
+
+    names = ", ".join(a.name for a in available)
+    raise AmbiguousAdapterError(
+        f"{len(available)} agent provider(s) available ({names}) and not running interactively; "
+        "pass --agent NAME to choose one"
+    )
+
+
+def build_instruction(manual_dir: str) -> str:
+    return (
+        f"Read every markdown file in the '{manual_dir}' directory and "
+        f"'.aletheore/air.toon' in the current directory (TOON-encoded - the same "
+        f"evidence as air.json, just more token-efficient to read; array headers "
+        f"declare field names once, each row below is comma-separated values in that "
+        f"order). Follow the manual's Part I operating instructions exactly, including "
+        f"its output contract, and write the resulting audit report to "
+        f"'.aletheore/audit-report.md'."
+    )
+
+
+RAW_OUTPUT_FALLBACK_NOTICE = (
+    "> **Note:** this report is the agent's raw output, not a report it wrote "
+    "to disk itself. It either has no file-write tool available or ignored "
+    "the instruction to write `.aletheore/audit-report.md` - the manual's "
+    "output contract (structure, required sections) was not necessarily "
+    "followed.\n\n---\n\n"
+)
+
+
+def run_reasoning_phase(adapter: AgentAdapter, repo_path: str, manual_dir: str) -> str:
+    # Every adapter (and the agent CLIs it launches) reads air.toon, which large
+    # repos only get on demand - see evidence.ensure_air_toon.
+    from aletheore.evidence import ensure_air_toon
+
+    ensure_air_toon(Path(repo_path))
+    instruction = build_instruction(manual_dir)
+    report_path = Path(repo_path) / ".aletheore" / "audit-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    before_mtime = report_path.stat().st_mtime if report_path.exists() else None
+
+    output = adapter.invoke(instruction, cwd=repo_path)
+
+    after_mtime = report_path.stat().st_mtime if report_path.exists() else None
+    agent_wrote_report = after_mtime is not None and after_mtime != before_mtime
+
+    if not agent_wrote_report:
+        # The agent didn't write the file itself during this invocation (no
+        # file-write tools, or it ignored the instruction) - fall back to
+        # whatever text it returned instead of leaving no report at all, but
+        # visibly mark it: silently presenting raw stdout as if it were a
+        # contract-compliant report hid exactly the kind of bypass this
+        # project's evidence-grounding premise exists to catch.
+        report_path.write_text(RAW_OUTPUT_FALLBACK_NOTICE + output, encoding="utf-8")
+
+    return str(report_path)

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Captain Claw — Orchestrator</title>
+    <link rel="stylesheet" href="/static/orchestrator.css">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+    <!-- Header -->
+    <header class="orch-header">
+        <div class="orch-header-left">
+            <a href="/" class="logo">
+                <img src="/static/logo.svg" width="20" height="20" alt="" style="vertical-align:middle;margin-right:5px;border-radius:4px;">Captain Claw
+            </a>
+            <span class="divider"></span>
+            <span class="orch-title">Orchestrator</span>
+            <span class="orch-workflow-name" id="orchWorkflowName"></span>
+        </div>
+        <div class="orch-header-right">
+            <span class="orch-status" id="orchStatus">
+                <span class="orch-status-dot idle" id="orchStatusDot"></span>
+                <span id="orchStatusText">idle</span>
+            </span>
+            <a href="/chat" class="back-link">&larr; Chat</a>
+        </div>
+    </header>
+
+    <!-- Layout -->
+    <div class="orch-layout">
+        <!-- Input section -->
+        <div class="orch-input-section">
+            <!-- Workflow toolbar (shown when graph exists) -->
+            <div class="orch-workflow-bar hidden" id="orchWorkflowBar">
+                <div class="orch-workflow-bar-left">
+                    <input type="text" class="orch-workflow-name-input" id="orchWorkflowNameInput" placeholder="Workflow name..." spellcheck="false">
+                    <button class="orch-workflow-btn" id="orchSaveWorkflowBtn">Save</button>
+                </div>
+                <div class="orch-workflow-bar-right">
+                    <button class="orch-stop-btn" id="orchStopBtn" title="Stop all running tasks" style="display:none;">&#x25A0; Stop</button>
+                    <button class="orch-execute-btn" id="orchExecuteBtn">Execute &#x25B6;</button>
+                </div>
+            </div>
+            <div class="orch-input-toolbar">
+                <select class="orch-workflow-select" id="orchLoadWorkflowSelect">
+                    <option value="">Load workflow...</option>
+                </select>
+                <select class="orch-workflow-model-select" id="orchWorkflowModelSelect" title="Model for all tasks">
+                    <option value="">Default model</option>
+                </select>
+                <label class="orch-auto-model-toggle" id="orchAutoModelToggle" title="Automatically select the best model for each task based on model descriptions">
+                    <input type="checkbox" id="orchAutoModelCheck">
+                    <span class="orch-auto-model-track"></span>
+                    <span class="orch-auto-model-label">Auto-select model</span>
+                </label>
+                <button class="orch-reset-btn" id="orchResetBtn" title="Reset orchestration">Reset</button>
+            </div>
+            <div class="orch-prompt-section" id="orchPromptSection">
+                <div class="orch-prompt-toggle" id="orchPromptToggle" title="Toggle prompt visibility">
+                    <span class="orch-prompt-toggle-icon" id="orchPromptToggleIcon">&#x25BE;</span>
+                    <span class="orch-prompt-toggle-label">Prompts</span>
+                    <span class="orch-prompt-toggle-preview" id="orchPromptPreview"></span>
+                </div>
+                <div class="orch-dual-pane" id="orchDualPane">
+                    <!-- Left: user prompt -->
+                    <div class="orch-pane orch-pane-left">
+                        <div class="orch-pane-header">
+                            <span class="orch-pane-label">Your prompt</span>
+                        </div>
+                        <textarea id="orchInput" rows="6" spellcheck="false" placeholder="Describe a complex task to decompose and run in parallel..."></textarea>
+                        <div class="orch-pane-footer">
+                            <button class="orch-prepare-btn" id="orchPrepareBtn">Prepare</button>
+                        </div>
+                    </div>
+                    <!-- Right: rephrased prompt -->
+                    <div class="orch-pane orch-pane-right" id="orchRephrase">
+                        <div class="orch-pane-header">
+                            <span class="orch-pane-label">Rephrased prompt <span class="orch-rephrase-hint">(editable)</span></span>
+                        </div>
+                        <textarea id="orchRephrased" rows="6" spellcheck="false" placeholder="Rephrased prompt will appear here after Prepare..."></textarea>
+                        <div class="orch-pane-footer">
+                            <button class="orch-rephrase-discard" id="orchDiscardBtn" title="Discard and go back">Discard</button>
+                            <button class="orch-run-btn" id="orchRunBtn">Decompose &#x25B6;</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Skills selector (below both panes) -->
+            <div class="orch-skills-bar" id="orchSkillsBar">
+                <span class="orch-skills-label">Skills:</span>
+                <div class="orch-skills-list" id="orchSkillsList">
+                    <span class="orch-skills-loading">loading...</span>
+                </div>
+            </div>
+            <!-- Spinner shown during rephrase -->
+            <div class="orch-rephrase-loading hidden" id="orchRephraseLoading">
+                <span class="spinner"></span> Rephrasing your request...
+            </div>
+            <!-- Decompose loading spinner -->
+            <div class="orch-rephrase-loading hidden" id="orchDecomposeLoading">
+                <span class="spinner"></span> Decomposing into tasks...
+            </div>
+        </div>
+
+        <!-- Main content -->
+        <div class="orch-content">
+            <!-- Graph + Detail column -->
+            <div class="orch-main-col">
+                <!-- Summary bar -->
+                <div class="orch-summary-bar" id="orchSummaryBar">
+                    <div class="orch-summary-item" id="summaryTotal">
+                        <span class="count">0</span> tasks
+                    </div>
+                    <div class="orch-summary-item completed" id="summaryCompleted">
+                        <span class="count">0</span> completed
+                    </div>
+                    <div class="orch-summary-item running" id="summaryRunning">
+                        <span class="count">0</span> running
+                    </div>
+                    <div class="orch-summary-item failed" id="summaryFailed">
+                        <span class="count">0</span> failed
+                    </div>
+                    <div class="orch-summary-item pending" id="summaryPending">
+                        <span class="count">0</span> pending
+                    </div>
+                    <div class="orch-summary-item paused" id="summaryPaused">
+                        <span class="count">0</span> paused
+                    </div>
+                    <div class="orch-summary-spacer"></div>
+                    <div class="orch-summary-item context" id="summaryContext">
+                        <span class="ctx-icon">&#x25C8;</span>
+                        <span class="ctx-value" id="summaryCtxIn">&mdash;</span>
+                        <span class="ctx-label">in</span>
+                        <span class="ctx-sep">/</span>
+                        <span class="ctx-value" id="summaryCtxOut">&mdash;</span>
+                        <span class="ctx-label">out</span>
+                        <span class="ctx-sep">/</span>
+                        <span class="ctx-value ctx-total" id="summaryCtxTotal">&mdash;</span>
+                        <span class="ctx-label">total</span>
+                    </div>
+                </div>
+
+                <!-- Graph area -->
+                <div class="orch-graph" id="orchGraph">
+                    <div class="orch-graph-empty" id="orchGraphEmpty">
+                        <div class="icon">&#x1F3AF;</div>
+                        <div class="text">Enter a request above and click <strong>Prepare</strong> to rephrase, then <strong>Decompose</strong></div>
+                    </div>
+                </div>
+
+                <!-- Detail panel (hidden by default) -->
+                <div class="orch-detail" id="orchDetail">
+                    <div class="orch-detail-header">
+                        <span class="orch-detail-title" id="detailTitle">Task Detail</span>
+                        <button class="orch-detail-close" id="detailClose">&times;</button>
+                    </div>
+                    <div class="orch-detail-body" id="detailBody"></div>
+                </div>
+            </div>
+
+            <!-- Event log column -->
+            <div class="orch-log-col">
+                <div class="orch-log-header">
+                    <span class="orch-log-title">Event Log</span>
+                    <button class="orch-log-clear" id="logClearBtn">Clear</button>
+                </div>
+                <div class="orch-log-messages" id="orchLogMessages">
+                    <div class="orch-log-empty" id="orchLogEmpty">Waiting for events...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/orchestrator.js"></script>
+</body>
+</html>

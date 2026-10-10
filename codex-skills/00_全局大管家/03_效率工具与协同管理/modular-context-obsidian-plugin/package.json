@@ -1,0 +1,20 @@
+{
+  "name": "modular-context-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo: Obsidian plugin + standalone Electron app sharing portable terminal/agent/UI modules",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:plugin": "npm --workspace packages/plugin run build",
+    "build:app": "npm --workspace packages/app run build",
+    "build:shared": "npm --workspace packages/shared run build",
+    "build:mcp-google": "npm --workspace packages/mcp-google run build",
+    "build": "npm run build:shared && npm run build:mcp-google && npm run build:plugin && npm run build:app",
+    "dev:app": "npm --workspace packages/app run dev"
+  },
+  "devDependencies": {
+    "7zip-bin": "^5.2.0"
+  }
+}

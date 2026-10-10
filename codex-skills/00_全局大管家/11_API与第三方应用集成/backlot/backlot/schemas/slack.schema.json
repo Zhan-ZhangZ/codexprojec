@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/brekkylab/backlot/schemas/slack.schema.json",
+  "title": "BYO corpus record — slack",
+  "description": "A Slack message. Title is optional (messages have no title). A record with `replies` becomes a thread root; each reply is served via conversations.replies and only the root shows in conversations.history.",
+  "type": "object",
+  "properties": {
+    "source_type": {
+      "const": "slack"
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The retrieval payload served verbatim as the body."
+    },
+    "doc_id": {
+      "type": "string",
+      "description": "Stable id (default: dsid_<sha256(source_type+title+content)>)."
+    },
+    "channel": {
+      "type": "string",
+      "pattern": "^(?:[a-z0-9_-]|[^\\u0000-\\u007f])+$",
+      "maxLength": 80,
+      "description": "The channel this document belongs to, named the way Slack names one. The ASCII half of the rule is documented -- `conversations.create` and `conversations.rename` both say \"Channel names may only contain lowercase letters, numbers, hyphens, and underscores, and must be 80 characters or less\", refusing the rest as `invalid_name_specials` (\"unallowed special characters or upper case characters\") or `invalid_name_maxlength`. The other half is not: Slack also holds non-Latin names, which no vendor page states and a live workspace demonstrates -- `conversations.list` there answers with `일반`, `랜덤` and `식사` -- so every character above U+007F is accepted rather than refused for a rule Slack does not enforce. What is refused is what Slack refuses: uppercase, whitespace and ASCII punctuation. The value is served verbatim as a conversation's `name` and `name_normalized`, so a name Slack would refuse is an object the real API cannot return, and a connector that feeds the name back into a call fails against Slack while passing here. The leading `#` is the one to watch: it is display sugar a client puts in front, never part of the name, and stored it also doubles into a `##incidents` topic."
+    },
+    "group": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "ACL group owning the channel (default: slug(container)); null means the container owns no group, so nothing is group-scoped to it."
+    },
+    "author_email": {
+      "type": "string",
+      "format": "email",
+      "description": "Author / sender / owner."
+    },
+    "author_name": {
+      "type": "string",
+      "description": "The author's display name, used for their principal entry (this API exposes no owner display name on the document itself)."
+    },
+    "author_groups": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Groups the author belongs to."
+    },
+    "visibility": {
+      "enum": [
+        "public",
+        "group",
+        "private"
+      ],
+      "description": "public = org-wide, group = the container's group, private = the thread's speakers (its author and everyone who replies), who are its members by having posted in it."
+    },
+    "readers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Explicit reader principals. `user:<email>` / `group:<id>` / `org:<name>` state the type; unprefixed, an address is a user and anything else a group. Overrides visibility — and an EMPTY array means nobody may read the document (admin-only), not everybody."
+    },
+    "subtype": {
+      "type": "string",
+      "description": "Slack message subtype (e.g. bot_message, channel_join)."
+    },
+    "reactions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "One reaction. Slack's own OpenAPI (`objs_reaction`) requires `name`, `users` and `count` together, and types each entry of `users` as a `defs_user_id` matching `^[UW][A-Z0-9]{2,}$` — a value a corpus author cannot know, since it is what `synth.slack_user_id` will make of an address. So the corpus writes the ADDRESS and the router renders the id, the same way `author_email` becomes a message's `user`. `count` is rendered from `users` too: real Slack may send a larger one, since it truncates `users` and says so on `reactions.get`, but Backlot serves every reactor a record names, so that length is the count. Stating it would add a second place to be wrong, so the item is closed and a record that states one, or misspells a key, is refused rather than read and dropped.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The emoji name, without colons: `eyes`, `+1`, `tada`."
+          },
+          "users": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "uniqueItems": true,
+            "description": "Who reacted, by address. A reaction nobody made is not one Slack returns, so the list may not be empty, and one address twice is one Slack refuses with `already_reacted` (reactions.add), so it may not repeat: the served `count` is this list's LENGTH, and a repeat would render one id while counting two."
+          }
+        },
+        "required": [
+          "name",
+          "users"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Reactions to this message, as `[{name, users: [<address>, …]}]`. `count` is derived from `users` rather than read, so the two can never disagree."
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "format": "email",
+            "description": "The file's owner, by address. Slack's own OpenAPI (`objs_file`) leaves `user` untyped, but a live `search.files` call against brekkylab.slack.com (2026-09-21) found every file this workspace serves carries a `defs_user_id`-shaped (`^[UW][A-Z0-9]{2,}$`) one anyway, so it is rendered the same way `edited.user` and `reactions.users` are: the corpus writes the address and the router mints the id."
+          }
+        },
+        "additionalProperties": true
+      },
+      "description": "File attachments (Slack files objects)."
+    },
+    "edited": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "type": "string",
+          "format": "email",
+          "description": "Who last edited it, by address. Real Slack's `edited.user` is a `defs_user_id` (`^[UW][A-Z0-9]{2,}$`) a corpus author cannot invent, so it is rendered the same way `reactions.users` is: the corpus writes the address and the router mints the id. It is this message's own author: `chat.update` answers anyone else `cant_update_message`, which the importer checks."
+        },
+        "ts": {
+          "type": "string",
+          "pattern": "^\\d{10}\\.\\d{6}$",
+          "description": "When it was last edited, as a Slack ts (`defs_ts`: `^\\d{10}\\.\\d{6}$` — every live `ts` this project has read is a quoted string in this shape, never a bare number). Stated rather than derived — an edit time is information the author holds, not a value the response can work out from something else — and checked at import to name a later SECOND than `created`, since the served `ts` takes its six-digit fraction from a hash and a corpus author cannot tell which fractions of the message's own second fall after it."
+        }
+      },
+      "required": [
+        "user",
+        "ts"
+      ],
+      "additionalProperties": false,
+      "description": "Present if the message was edited. Slack's message event reference: \"includes the user ID of the editor and the timestamp for when the edit occurred\"."
+    },
+    "created": {
+      "type": [
+        "integer",
+        "number",
+        "string"
+      ],
+      "minLength": 1,
+      "description": "Creation time (epoch seconds or ISO 8601). Sets the message ts."
+    },
+    "replies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "A threaded reply — a full message that inherits the root's channel and ACL. Carries the same fields a root message can (reactions, files, subtype, edited); its time is its own `created` when given, else one second after the message before it.",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "author_email": {
+            "type": "string",
+            "format": "email"
+          },
+          "author_name": {
+            "type": "string"
+          },
+          "doc_id": {
+            "type": "string",
+            "description": "Optional stable id for the reply."
+          },
+          "created": {
+            "type": [
+              "integer",
+              "number",
+              "string"
+            ],
+            "minLength": 1,
+            "description": "Reply time. Must be after the message before it: a Slack ts is identity as well as clock, so a thread's times are strictly increasing."
+          },
+          "title": {
+            "type": "string"
+          },
+          "subtype": {
+            "type": "string",
+            "description": "Slack message subtype."
+          },
+          "reactions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One reaction. Slack's own OpenAPI (`objs_reaction`) requires `name`, `users` and `count` together, and types each entry of `users` as a `defs_user_id` matching `^[UW][A-Z0-9]{2,}$` — a value a corpus author cannot know, since it is what `synth.slack_user_id` will make of an address. So the corpus writes the ADDRESS and the router renders the id, the same way `author_email` becomes a message's `user`. `count` is rendered from `users` too: real Slack may send a larger one, since it truncates `users` and says so on `reactions.get`, but Backlot serves every reactor a record names, so that length is the count. Stating it would add a second place to be wrong, so the item is closed and a record that states one, or misspells a key, is refused rather than read and dropped.",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The emoji name, without colons: `eyes`, `+1`, `tada`."
+                },
+                "users": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "uniqueItems": true,
+                  "description": "Who reacted, by address. A reaction nobody made is not one Slack returns, so the list may not be empty, and one address twice is one Slack refuses with `already_reacted` (reactions.add), so it may not repeat: the served `count` is this list's LENGTH, and a repeat would render one id while counting two."
+                }
+              },
+              "required": [
+                "name",
+                "users"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Reactions to this message, as `[{name, users: [<address>, …]}]`. `count` is derived from `users` rather than read, so the two can never disagree."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "The file's owner, by address. Slack's own OpenAPI (`objs_file`) leaves `user` untyped, but a live `search.files` call against brekkylab.slack.com (2026-09-21) found every file this workspace serves carries a `defs_user_id`-shaped (`^[UW][A-Z0-9]{2,}$`) one anyway, so it is rendered the same way `edited.user` and `reactions.users` are: the corpus writes the address and the router mints the id."
+                }
+              },
+              "additionalProperties": true
+            },
+            "description": "File attachments (Slack files objects)."
+          },
+          "edited": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "type": "string",
+                "format": "email",
+                "description": "Who last edited it, by address. Real Slack's `edited.user` is a `defs_user_id` (`^[UW][A-Z0-9]{2,}$`) a corpus author cannot invent, so it is rendered the same way `reactions.users` is: the corpus writes the address and the router mints the id. It is this message's own author: `chat.update` answers anyone else `cant_update_message`, which the importer checks."
+              },
+              "ts": {
+                "type": "string",
+                "pattern": "^\\d{10}\\.\\d{6}$",
+                "description": "When it was last edited, as a Slack ts (`defs_ts`: `^\\d{10}\\.\\d{6}$` — every live `ts` this project has read is a quoted string in this shape, never a bare number). Stated rather than derived — an edit time is information the author holds, not a value the response can work out from something else — and checked at import to name a later SECOND than this reply's own `created`, since the served `ts` takes its six-digit fraction from a hash and a corpus author cannot tell which fractions of the message's own second fall after it."
+              }
+            },
+            "required": [
+              "user",
+              "ts"
+            ],
+            "additionalProperties": false,
+            "description": "Present if the reply was edited. Slack's message event reference: \"includes the user ID of the editor and the timestamp for when the edit occurred\"."
+          }
+        },
+        "required": [
+          "author_email",
+          "content",
+          "created"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Threaded replies to this message."
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Who takes part in this conversation. Thread-level, so it belongs on the root message only."
+    }
+  },
+  "required": [
+    "author_email",
+    "channel",
+    "content",
+    "created",
+    "source_type"
+  ],
+  "additionalProperties": false
+}

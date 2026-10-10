@@ -1,0 +1,313 @@
+from pathlib import Path
+from typing import Callable
+
+import anthropic
+import toon
+from anthropic import Anthropic
+
+from aletheore.adapters.base import AdapterInvocationError, AgentAdapter
+from aletheore.adapters.openai_compatible import (
+    EVIDENCE_SCHEMA_MAP,
+    MAX_CONSECUTIVE_NO_TOOL_CALLS,
+    MAX_TOOL_ROUNDS,
+    NO_TOOL_CALL_NUDGE,
+    REQUIRED_SECTIONS,
+    SYSTEM_PROMPT_TEMPLATE,
+    WEAK_MODEL_HINT,
+    _call_with_retry,
+    _get_by_dot_path,
+    _read_manual_text,
+)
+from aletheore.credentials import DEFAULT_CREDENTIALS_PATH, get_api_key, has_api_key
+from aletheore.evidence_view import read_bounded
+from aletheore.toon_encoding import ToonEncodingError
+
+MAX_TOKENS = 8192
+
+# Same transient set as openai_compatible.py's _RETRYABLE_EXCEPTIONS, mirrored
+# for the Anthropic SDK's own exception hierarchy - see that module's comment
+# for why AuthenticationError is included (a real production run observed it
+# recover on retry with no config change in between).
+_RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
+    anthropic.AuthenticationError,
+    anthropic.RateLimitError,
+    anthropic.APIConnectionError,
+    anthropic.APITimeoutError,
+    anthropic.InternalServerError,
+)
+
+ANTHROPIC_TOOLS = [
+    {
+        "name": "read_evidence_section",
+        "description": (
+            "Read a specific section of the repository evidence by dot-path. "
+            "Array items use zero-based brackets; a slice of a list uses "
+            "[start:end], such as repository.modules[0:25]. Returns evidence wrapped in "
+            "an <evidence> tag, or an error message if the path does not exist. "
+            "A section too large to return whole comes back as an outline (each large "
+            "child named with its size and the path to read) or as the first page of a "
+            "list with the path for the next page. Prefer a specific, narrow path, and "
+            "only page through a large list when you need its items."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_report_section",
+        "description": "Write or replace one exact required report section.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "content": {"type": "string"},
+            },
+            "required": ["name", "content"],
+        },
+    },
+    {
+        "name": "finish_report",
+        "description": "Call only after every required section has been written.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+]
+
+
+class AnthropicAdapter(AgentAdapter):
+    name = "anthropic"
+    requires_consent = True
+
+    def __init__(
+        self,
+        model: str = "claude-sonnet-5",
+        credentials_path: Path | None = None,
+        on_usage: Callable[[int, int], None] | None = None,
+        before_llm_call: Callable[[], bool] | None = None,
+        allow_partial_report: bool = False,
+        on_call_failed: Callable[[], None] | None = None,
+    ) -> None:
+        self._model = model
+        self._credentials_path = credentials_path or DEFAULT_CREDENTIALS_PATH
+        self._on_usage = on_usage
+        self._before_llm_call = before_llm_call
+        self._allow_partial_report = allow_partial_report
+        self._on_call_failed = on_call_failed
+
+    def is_available(self) -> bool:
+        return has_api_key("ANTHROPIC_API_KEY", self.name, self._credentials_path)
+
+    def simple_completion(self, system_prompt: str, user_prompt: str, cwd: str) -> str:
+        self._ensure_budget_for_next_call()
+        api_key = get_api_key("ANTHROPIC_API_KEY", self.name, self._credentials_path)
+        if not api_key:
+            # The reservation above is real; nothing will true it up or
+            # release it once we raise before the try block below - same
+            # fix openai_compatible.py's adapter already has for the
+            # identical shape.
+            if self._on_call_failed is not None:
+                self._on_call_failed()
+            raise AdapterInvocationError("no API key available for anthropic")
+
+        client = Anthropic(api_key=api_key)
+        try:
+            response = _call_with_retry(
+                lambda: client.messages.create(
+                    model=self._model,
+                    max_tokens=MAX_TOKENS,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                ),
+                _RETRYABLE_EXCEPTIONS,
+            )
+        except Exception as exc:
+            # _ensure_budget_for_next_call above already reserved real
+            # budget for this attempt - a failed call still needs that
+            # reservation released, or a run of failures silently
+            # exhausts the budget against zero real usage.
+            if self._on_call_failed is not None:
+                self._on_call_failed()
+            raise AdapterInvocationError(
+                f"anthropic invocation failed: {type(exc).__name__}"
+            ) from exc
+        if response.usage is not None:
+            if self._on_usage is not None:
+                self._on_usage(response.usage.input_tokens, response.usage.output_tokens)
+        elif self._on_call_failed is not None:
+            # A response with no usage field would otherwise never true up
+            # or release the reservation above (nothing raised, so the
+            # except block never runs) - same real, observed gap
+            # openai_compatible.py's adapter closed for its own "200 with
+            # no usage" shape.
+            self._on_call_failed()
+        return "\n".join(block.text for block in response.content if block.type == "text")
+
+    def invoke(self, instruction: str, cwd: str) -> str:
+        api_key = get_api_key("ANTHROPIC_API_KEY", self.name, self._credentials_path)
+        if not api_key:
+            raise AdapterInvocationError("no API key available for anthropic")
+
+        client = Anthropic(api_key=api_key)
+        manual_dir = Path(__file__).resolve().parent.parent / "manual"
+        evidence_path = Path(cwd) / ".aletheore" / "air.toon"
+
+        try:
+            evidence = toon.decode(evidence_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise AdapterInvocationError(f"could not read evidence at {evidence_path}") from exc
+        except UnicodeDecodeError as exc:
+            # Same failure class as the ToonDecodeError case below (a
+            # malformed air.toon crashing with a raw traceback instead of a
+            # clean adapter error) - reachable if air.toon was ever written
+            # with a non-UTF-8 default encoding (e.g. by an older build on
+            # Windows, whose default text encoding isn't UTF-8) before this
+            # write path pinned encoding="utf-8" explicitly.
+            raise AdapterInvocationError(
+                f"could not decode evidence at {evidence_path}: {exc}"
+            ) from exc
+        except toon.ToonDecodeError as exc:
+            raise AdapterInvocationError(
+                f"could not decode evidence at {evidence_path}: {exc}"
+            ) from exc
+
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            evidence_schema_map=EVIDENCE_SCHEMA_MAP,
+            manual_text=_read_manual_text(manual_dir),
+        )
+        messages = [{"role": "user", "content": instruction}]
+        sections: dict[str, str] = {}
+        finished = False
+        consecutive_no_tool_calls = 0
+
+        for _round in range(MAX_TOOL_ROUNDS):
+            if not self._has_budget_for_next_call():
+                if self._allow_partial_report:
+                    return self._partial_report(sections)
+                raise AdapterInvocationError(
+                    "anthropic stopped before starting the next model call because "
+                    "the monthly LLM spend cap would be exceeded"
+                )
+            try:
+                response = _call_with_retry(
+                    lambda: client.messages.create(
+                        model=self._model,
+                        max_tokens=MAX_TOKENS,
+                        system=system_prompt,
+                        messages=messages,
+                        tools=ANTHROPIC_TOOLS,
+                        tool_choice={"type": "any"},
+                    ),
+                    _RETRYABLE_EXCEPTIONS,
+                )
+            except Exception as exc:
+                # _has_budget_for_next_call above already reserved real
+                # budget for this round - a failed call still needs that
+                # reservation released, same fix simple_completion's own
+                # except block has, once per round instead of once per
+                # call (mirrors openai_compatible.py's adapter).
+                if self._on_call_failed is not None:
+                    self._on_call_failed()
+                raise AdapterInvocationError(
+                    f"anthropic invocation failed: {type(exc).__name__}"
+                ) from exc
+            if response.usage is None and self._on_call_failed is not None:
+                # Same real, observed shape simple_completion's own comment
+                # documents: a response with no usage field, which the
+                # except block above never sees since nothing raised.
+                self._on_call_failed()
+
+            messages.append({"role": "assistant", "content": response.content})
+            tool_use_blocks = [block for block in response.content if block.type == "tool_use"]
+            if not tool_use_blocks:
+                consecutive_no_tool_calls += 1
+                if consecutive_no_tool_calls >= MAX_CONSECUTIVE_NO_TOOL_CALLS:
+                    raise AdapterInvocationError(
+                        f"anthropic stopped calling tools after "
+                        f"{consecutive_no_tool_calls} consecutive rounds without a tool "
+                        "call - the model likely cannot reliably follow this tool-calling "
+                        "format"
+                    )
+                messages.append({"role": "user", "content": NO_TOOL_CALL_NUDGE})
+                continue
+            consecutive_no_tool_calls = 0
+
+            tool_results = []
+            for block in tool_use_blocks:
+                if block.name == "read_evidence_section":
+                    result = self._read_evidence_tool(evidence, block.input)
+                elif block.name == "write_report_section":
+                    name = block.input.get("name", "")
+                    content = block.input.get("content", "")
+                    if name in REQUIRED_SECTIONS:
+                        sections[name] = content
+                        result = "ok"
+                    else:
+                        result = f"invalid section name: {name}"
+                elif block.name == "finish_report":
+                    missing = [s for s in REQUIRED_SECTIONS if s not in sections]
+                    if missing:
+                        raise AdapterInvocationError(
+                            "anthropic finished without writing required section(s): "
+                            f"{', '.join(missing)}{WEAK_MODEL_HINT}"
+                        )
+                    result = "ok"
+                    finished = True
+                else:
+                    result = f"unknown tool: {block.name}"
+
+                tool_results.append(
+                    {"type": "tool_result", "tool_use_id": block.id, "content": result}
+                )
+
+            messages.append({"role": "user", "content": tool_results})
+            if finished:
+                break
+        else:
+            raise AdapterInvocationError(
+                f"anthropic did not finish the report within {MAX_TOOL_ROUNDS} "
+                f"tool-call rounds{WEAK_MODEL_HINT}"
+            )
+
+        missing = [s for s in REQUIRED_SECTIONS if s not in sections]
+        if missing:
+            raise AdapterInvocationError(
+                "anthropic finished without writing required section(s): "
+                f"{', '.join(missing)}{WEAK_MODEL_HINT}"
+            )
+
+        return "\n\n".join(f"## {name}\n\n{sections[name]}" for name in REQUIRED_SECTIONS)
+
+    def _has_budget_for_next_call(self) -> bool:
+        return self._before_llm_call is None or self._before_llm_call()
+
+    def _ensure_budget_for_next_call(self) -> None:
+        if not self._has_budget_for_next_call():
+            raise AdapterInvocationError(
+                "anthropic stopped before starting the next model call because "
+                "the monthly LLM spend cap would be exceeded"
+            )
+
+    def _partial_report(self, sections: dict[str, str]) -> str:
+        lines = [
+            "> **Partial report:** Aletheore stopped before starting the next "
+            "LLM call because the monthly spend cap would be exceeded.",
+            "",
+            "---",
+        ]
+        for name in REQUIRED_SECTIONS:
+            if name in sections:
+                lines.extend(["", f"## {name}", "", sections[name]])
+        if not sections:
+            lines.extend(["", "_No report sections were generated before the budget stop._"])
+        return "\n".join(lines)
+
+    def _read_evidence_tool(self, evidence, args: dict) -> str:
+        path = args.get("path", "")
+        try:
+            encoded = read_bounded(evidence, path, _get_by_dot_path)
+        except ToonEncodingError as exc:
+            return f"could not encode section {path}: {exc}"
+        if encoded is None:
+            return f"no such path: {path}"
+        return f'<evidence path="{path}">\n{encoded}\n</evidence>'

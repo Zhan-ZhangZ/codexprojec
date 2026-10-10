@@ -1,0 +1,16 @@
+{
+  "source": "s3",
+  "endpoints": [
+    "https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/s3/2006-03-01/service-2.json"
+  ],
+  "measured": "2026-09-29",
+  "acknowledged": [
+    {
+      "kind": "silent_fallthrough",
+      "severity": "breaking",
+      "path": "CreateSession: GET /{bucket}?session",
+      "detail": "CreateSession is answered 200 <ListBucketResult>, which is what the same path answers with no operation selected: Backlot neither implements it nor refuses it, so a caller parses another operation's body",
+      "note": "Not a fallthrough Backlot chose: CreateSession exists for directory buckets only, and real S3 answers `GET /{bucket}?session` on a general purpose bucket with the ListBucketResult too, and `?session&versioning` as GetBucketVersioning with no conflict (measured in us-east-1 and ap-northeast-2), so the listing is the faithful answer and `session` is deliberately not a selector Backlot refuses."
+    }
+  ]
+}

@@ -1,0 +1,553 @@
+import re
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from aletheore.evidence_resolution import resolve_code_evidence
+
+
+class ModuleNotFoundInEvidenceError(Exception):
+    def __init__(self, file_path: str):
+        super().__init__(f"'{file_path}' is not present in evidence.repository.modules")
+        self.file_path = file_path
+
+
+class BranchNotFoundInEvidenceError(Exception):
+    def __init__(self, branch_name: str):
+        super().__init__(f"'{branch_name}' is not present in evidence.git.branches")
+        self.branch_name = branch_name
+
+
+class SymbolNotFoundInEvidenceError(Exception):
+    def __init__(self, module_path: str, symbol_name: str):
+        super().__init__(f"'{symbol_name}' is not present in {module_path}'s symbols")
+        self.module_path = module_path
+        self.symbol_name = symbol_name
+
+
+def _find_module(evidence: dict, file_path: str) -> dict:
+    for module in evidence["repository"]["modules"]:
+        if module["path"] == file_path:
+            return module
+    raise ModuleNotFoundInEvidenceError(file_path)
+
+
+def find_imports(evidence: dict, target: str | None) -> list[str]:
+    return _find_module(evidence, target)["imports"]
+
+
+def find_imported_by(evidence: dict, target: str | None) -> list[str]:
+    return _find_module(evidence, target)["imported_by"]
+
+
+def find_symbols(evidence: dict, target: str | None) -> dict:
+    return _find_module(evidence, target)["symbols"]
+
+
+def find_symbol_source(
+    evidence: dict, repo_path: Path, module_path: str, symbol_name: str
+) -> dict:
+    module = _find_module(evidence, module_path)
+    symbols = (
+        module["symbols"]["functions"]
+        + module["symbols"]["classes"]
+        + module["symbols"].get("constants", [])
+    )
+    entry = next((symbol for symbol in symbols if symbol["name"] == symbol_name), None)
+    if entry is None:
+        raise SymbolNotFoundInEvidenceError(module_path, symbol_name)
+
+    file_path = repo_path / module_path
+    # split("\n"), never splitlines() - same real bug class already found
+    # and fixed in the github-app side of this codebase (flash_review.py's
+    # _clickable_suggestion/_line_citation_content_matches, jobs.py's
+    # _fetch_symbol_source): splitlines() also breaks on \v, \f,
+    # \x1c-\x1e, NEL, LS, and PS, none of which git/a real editor treat as
+    # a line boundary (only "\n" is). entry["start_line"]/["end_line"] are
+    # real, \n-based line numbers recorded when this file was parsed -
+    # indexing them into a splitlines()-produced list silently returns the
+    # WRONG symbol body the moment one of those characters appears
+    # anywhere earlier in the file. This is the backing implementation for
+    # both `aletheore symbol-source` (cli.py) and the aletheore_symbol_
+    # source MCP tool (mcp_server.py) - a wrong result here is returned
+    # directly to whoever asked, not merely mis-cited.
+    lines = file_path.read_text(encoding="utf-8", errors="ignore").split("\n")
+    source = "\n".join(lines[entry["start_line"] - 1 : entry["end_line"]])
+
+    return {
+        "module": module_path,
+        "symbol": symbol_name,
+        "start_line": entry["start_line"],
+        "end_line": entry["end_line"],
+        "source": source,
+    }
+
+
+def find_branch(evidence: dict, target: str | None) -> dict:
+    # A repo with no commits yields git == {"available": False} - see
+    # air_schema.py's git section docstring and list_branches' matching
+    # guard. No branch named `target` can exist there, so this is a normal
+    # not-found rather than a special case: same exception as any other
+    # missing branch name, not a raw KeyError on a missing "branches" key.
+    git = evidence["git"]
+    if git.get("available") is False:
+        raise BranchNotFoundInEvidenceError(target)
+    for branch in git["branches"]:
+        if branch["name"] == target:
+            return branch
+    raise BranchNotFoundInEvidenceError(target)
+
+
+def find_ownership(evidence: dict, target: str | None) -> list[dict]:
+    if target:
+        return evidence["git"].get("file_ownership", {}).get(target, [])
+    return evidence["git"].get("ownership", [])
+
+
+def find_secrets_for_file(evidence: dict, target: str | None) -> list[dict]:
+    return [
+        finding
+        for finding in evidence["security"]["secrets"]["findings"]
+        if finding["path"] == target
+    ]
+
+
+def find_vulnerabilities(evidence: dict, target: str | None) -> dict:
+    return evidence["security"]["dependency_vulnerabilities"]
+
+
+def find_licenses(evidence: dict, target: str | None) -> dict:
+    return evidence["security"]["dependency_licenses"]
+
+
+def find_static_analysis(evidence: dict, target: str | None) -> dict:
+    return evidence["security"]["static_analysis"]
+
+
+def find_endpoints(evidence: dict, target: str | None) -> dict:
+    return evidence["repository"]["api_endpoints"]
+
+
+def find_code_evidence_for_endpoint(
+    evidence: dict, target: str | None, repo_path: Path | None = None
+) -> dict:
+    if not target or " " not in target.strip():
+        return resolve_code_evidence(evidence, repo_path, kind="endpoint")
+    method, path = target.strip().split(maxsplit=1)
+    return resolve_code_evidence(evidence, repo_path, kind="endpoint", method=method, path=path)
+
+
+def find_code_evidence_for_symbol(
+    evidence: dict, target: str | None, repo_path: Path | None = None
+) -> dict:
+    return resolve_code_evidence(evidence, repo_path, kind="symbol", symbol=target)
+
+
+def find_code_evidence_for_dependency(
+    evidence: dict, target: str | None, repo_path: Path | None = None
+) -> dict:
+    return resolve_code_evidence(evidence, repo_path, kind="dependency", dependency=target)
+
+
+def find_cluster(evidence: dict, target: str | None) -> dict:
+    for cluster in evidence["architecture"]["clusters"]:
+        if target in cluster["modules"]:
+            return cluster
+    raise ModuleNotFoundInEvidenceError(target)
+
+
+def find_layer_violations(evidence: dict, target: str | None) -> dict:
+    return evidence["architecture"]["layer_violations"]
+
+
+# Matches scan_worker/flash_review.py's build_blast_radius_context
+# constants (MAX_BLAST_RADIUS_CANDIDATES, MAX_BLAST_RADIUS_CALLERS_SHOWN) -
+# same design, adapted to read local files directly instead of fetching
+# over the GitHub API, so no batching/threading is needed here.
+_BLAST_RADIUS_CONFIRM_CANDIDATES = 40
+_BLAST_RADIUS_CONFIRMED_CALLERS_SHOWN = 10
+_BLAST_RADIUS_MAX_TRANSITIVE = 50
+# Real bug found via audit: direct_dependents (evidence's own raw
+# imported_by list) was returned verbatim with no cap at all - unlike
+# transitive_dependents just below (capped, with an honest truncated
+# flag) and unlike flash_review.py's own build_blast_radius_context,
+# which this function's docstring says it mirrors - that sibling caps
+# its candidate list at MAX_BLAST_RADIUS_CANDIDATES (40) right at the
+# start. A genuinely central module (a shared utils.py/models.py) can
+# have hundreds-to-thousands of direct importers on a real repo -
+# confirmed directly: a 500-file synthetic hub returned all 500 with no
+# truncation signal, the same unbounded-MCP/CLI-result failure mode
+# already hardened twice this session for aletheore_search and
+# aletheore_ast_pattern.
+_BLAST_RADIUS_MAX_DIRECT = 50
+
+
+def find_blast_radius(
+    evidence: dict, repo_path: Path, target: str, symbol: str | None = None
+) -> dict:
+    """Everything that would be affected by changing `target` - direct and
+    transitive dependents, and any existing layer violations already
+    touching one of them.
+
+    Direct dependents are evidence's own imported_by, unchanged. Transitive
+    dependents are a real BFS over that same imported_by edge set (not
+    just one hop), capped at _BLAST_RADIUS_MAX_TRANSITIVE with a truncated
+    flag rather than silently cut off - a highly-central module (a shared
+    utils file) can have far more transitive dependents than are useful to
+    return in one call, and the flag says so rather than pretending the
+    list is exhaustive.
+
+    With `symbol` given, also confirms which of the direct dependents
+    actually CALL it, not just import the file - mirrors
+    scan_worker/flash_review.py's build_blast_radius_context exactly: a
+    candidate only counts if its real file content contains the symbol
+    name in a call-shaped position (`name(`), the same deliberately
+    high-confidence-only design (a bare "imports the file" says nothing
+    about which of possibly many exported names is actually used).
+    Confirmed against real local content via repo_path, not evidence -
+    evidence has no per-call-site data to check against.
+
+    Also separately reports `same_file_caller`: whether `target`'s own
+    content calls `symbol` from somewhere other than its definition line -
+    a same-file/same-class caller (e.g. a class's __call__ invoking one of
+    its own other methods) is real and confirmed_callers alone can never
+    surface it, since that list only ever checks *other files* that import
+    target. Found via a real gap: aletheore_get_blast_radius on Flask's
+    wsgi_app returned confirmed_callers=[] (correctly - no other file calls
+    it by name) while the actual caller, Flask.__call__, sits one class
+    away in the same file. Excludes matches on `symbol`'s own def/class
+    line so the symbol's own definition never counts as calling itself.
+
+    layer_violations reports EXISTING violations (evidence's own
+    architecture.layer_violations) that already touch a module in this
+    blast radius - not a prospective simulation of what a signature change
+    would newly break, which would need real symbol-level call resolution
+    this scanner doesn't have.
+    """
+    module = _find_module(evidence, target)
+    direct_dependents = list(module.get("imported_by") or [])
+    by_path = {m["path"]: m for m in evidence["repository"]["modules"] if m.get("path")}
+
+    visited = {target, *direct_dependents}
+    transitive_dependents: list[str] = []
+    truncated = False
+    queue = list(direct_dependents)
+    while queue:
+        current = queue.pop(0)
+        for dependent in by_path.get(current, {}).get("imported_by") or []:
+            if dependent in visited:
+                continue
+            visited.add(dependent)
+            if len(transitive_dependents) >= _BLAST_RADIUS_MAX_TRANSITIVE:
+                truncated = True
+                continue
+            transitive_dependents.append(dependent)
+            queue.append(dependent)
+
+    result: dict[str, Any] = {
+        "target": target,
+        # Truncated for DISPLAY only - the BFS above, confirmed_callers
+        # below, and blast_radius_modules further down all still use the
+        # full, untruncated direct_dependents list, so a large hub's real
+        # transitive reach and layer-violation exposure are never
+        # understated just because its own direct-importer list is long.
+        "direct_dependents": direct_dependents[:_BLAST_RADIUS_MAX_DIRECT],
+        "direct_dependents_truncated": len(direct_dependents) > _BLAST_RADIUS_MAX_DIRECT,
+        "transitive_dependents": transitive_dependents,
+        "transitive_dependents_truncated": truncated,
+    }
+
+    if symbol:
+        call_pattern = re.compile(r"\b" + re.escape(symbol) + r"\s*\(")
+        confirmed_callers: list[str] = []
+        for candidate in direct_dependents[:_BLAST_RADIUS_CONFIRM_CANDIDATES]:
+            if len(confirmed_callers) >= _BLAST_RADIUS_CONFIRMED_CALLERS_SHOWN:
+                break
+            try:
+                content = (repo_path / candidate).read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if call_pattern.search(content):
+                confirmed_callers.append(candidate)
+
+        # target's own file necessarily contains symbol's def/class line,
+        # which would otherwise false-positive as a "self-call" - a
+        # dependent can never define symbol itself, so no such exclusion
+        # is needed in the loop above.
+        def_pattern = re.compile(r"^\s*(async\s+def|def|class)\s+" + re.escape(symbol) + r"\b")
+        same_file_caller = False
+        try:
+            target_content = (repo_path / target).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            target_content = ""
+        for line in target_content.splitlines():
+            if def_pattern.match(line):
+                continue
+            if call_pattern.search(line):
+                same_file_caller = True
+                break
+
+        result["symbol"] = symbol
+        result["confirmed_callers"] = confirmed_callers
+        result["same_file_caller"] = same_file_caller
+
+    blast_radius_modules = {target, *direct_dependents, *transitive_dependents}
+    violations = evidence.get("architecture", {}).get("layer_violations", {}).get("violations") or []
+    result["layer_violations"] = [
+        v for v in violations
+        if v.get("from") in blast_radius_modules or v.get("to") in blast_radius_modules
+    ]
+    return result
+
+
+# Bounds a BFS over the import graph the same way _BLAST_RADIUS_MAX_TRANSITIVE
+# bounds blast radius's - a real answer for most repos, an honest truncation
+# signal rather than a runaway scan or a silent wrong "no path" on a huge
+# monorepo's import graph.
+_SYMBOL_PATH_MAX_HOPS = 12
+_SYMBOL_PATH_MAX_VISITED = 5000
+
+
+def _has_symbol(module: dict, symbol_name: str) -> bool:
+    symbols = module["symbols"]
+    return any(
+        entry["name"] == symbol_name
+        for entry in symbols["functions"] + symbols["classes"] + symbols.get("constants", [])
+    )
+
+
+def _symbol_body_or_none(
+    evidence: dict, repo_path: Path, module_path: str, symbol_name: str
+) -> str | None:
+    try:
+        return find_symbol_source(evidence, repo_path, module_path, symbol_name)["source"]
+    except OSError:
+        return None
+
+
+def find_symbol_path(
+    evidence: dict,
+    repo_path: Path,
+    source: str,
+    source_symbol: str,
+    target: str,
+    target_symbol: str,
+) -> dict:
+    """Is there an evidence-backed path from `source_symbol` (in `source`) to
+    `target_symbol` (in `target`)? The file-level analog of a symbol call
+    graph, built from what this scanner actually has - the imports edge set
+    and real file content - not a full symbol-level call graph (this
+    scanner doesn't build per-call-site edges between arbitrary symbols).
+
+    Same file (`source == target`): high confidence. `source_symbol`'s own
+    body (the exact lines evidence records for it, not the whole file) is
+    checked directly for a call-shaped reference to `target_symbol` -
+    mirrors find_blast_radius's same_file_caller check, but scoped to the
+    one calling symbol asked about rather than "anywhere in the file".
+
+    Different files: a real BFS over the `imports` edge set (source's own
+    imports, transitively - the direction a caller's file must chase to
+    reach a callee's file) finds the shortest chain of modules from
+    `source` to `target`, capped at _SYMBOL_PATH_MAX_HOPS hops and
+    _SYMBOL_PATH_MAX_VISITED modules visited. Only a direct 1-hop chain
+    (source imports target directly) gets the same high-confidence
+    call-shape check as the same-file case; a longer chain proves an
+    import path exists but NOT that source_symbol's call chain actually
+    reaches target_symbol through it - this scanner has no per-hop
+    symbol-usage data to confirm that, and confirmed stays False rather
+    than guessing.
+    """
+    source_module = _find_module(evidence, source)
+    target_module = _find_module(evidence, target)
+    if not _has_symbol(source_module, source_symbol):
+        raise SymbolNotFoundInEvidenceError(source, source_symbol)
+    if not _has_symbol(target_module, target_symbol):
+        raise SymbolNotFoundInEvidenceError(target, target_symbol)
+
+    result: dict[str, Any] = {
+        "source": {"file": source, "symbol": source_symbol},
+        "target": {"file": target, "symbol": target_symbol},
+        "same_file": source == target,
+    }
+
+    call_pattern = re.compile(r"\b" + re.escape(target_symbol) + r"\s*\(")
+
+    def _confirm_direct_call() -> tuple[bool, str]:
+        body = _symbol_body_or_none(evidence, repo_path, source, source_symbol)
+        if body is None:
+            return False, f"could not read {source} to verify {source_symbol}'s body"
+        if call_pattern.search(body):
+            return True, f"{source_symbol}'s own body contains a call to {target_symbol}"
+        return False, f"{source_symbol}'s own body has no call-shaped reference to {target_symbol}"
+
+    if source == target:
+        confirmed, basis = _confirm_direct_call()
+        result["hops"] = [source]
+        result["hops_truncated"] = False
+        result["confirmed"] = confirmed
+        result["confirmation_basis"] = basis
+        return result
+
+    by_path = {m["path"]: m for m in evidence["repository"]["modules"] if m.get("path")}
+    visited = {source}
+    queue: list[list[str]] = [[source]]
+    chain: list[str] | None = None
+    # Tracks whether either cap actually fired during the search, decoupled
+    # from "the queue drained" - the queue drains naturally both when the
+    # graph is genuinely exhausted AND when a cap silently stops new nodes
+    # from ever being queued, and those two cases need different messages.
+    bounded = False
+    while queue and chain is None:
+        path = queue.pop(0)
+        if len(path) > _SYMBOL_PATH_MAX_HOPS:
+            bounded = True
+            continue
+        for nxt in by_path.get(path[-1], {}).get("imports") or []:
+            if nxt == target:
+                chain = [*path, nxt]
+                break
+            if nxt in visited:
+                continue
+            if len(visited) >= _SYMBOL_PATH_MAX_VISITED:
+                bounded = True
+                continue
+            visited.add(nxt)
+            queue.append([*path, nxt])
+
+    if chain is None:
+        result["hops"] = None
+        result["hops_truncated"] = False
+        result["confirmed"] = False
+        result["confirmation_basis"] = (
+            f"import graph search bounded at {_SYMBOL_PATH_MAX_HOPS} hops / "
+            f"{_SYMBOL_PATH_MAX_VISITED} modules before finding a chain - not a "
+            "definitive 'no path exists'"
+            if bounded
+            else f"no import chain from {source} to {target} in the reachable import graph"
+        )
+        return result
+
+    result["hops"] = chain
+    result["hops_truncated"] = False
+    if len(chain) == 2:
+        confirmed, basis = _confirm_direct_call()
+        result["confirmed"] = confirmed
+        result["confirmation_basis"] = f"direct import (1 hop): {basis}"
+    else:
+        result["confirmed"] = False
+        result["confirmation_basis"] = (
+            f"import chain found ({len(chain) - 1} hops) - proves {target} is reachable "
+            f"from {source}'s imports, but not that {source_symbol} specifically calls "
+            f"{target_symbol} through it; only a direct 1-hop import gets call-shape "
+            "confirmation"
+        )
+    return result
+
+
+def find_dead_code_evidence(evidence: dict, target: str | None) -> dict:
+    return evidence["repository"]["dead_code"]
+
+
+def find_database(evidence: dict, target: str | None) -> dict:
+    return evidence["repository"]["database"]
+
+
+def find_infrastructure(evidence: dict, target: str | None) -> dict:
+    return evidence["repository"]["infrastructure"]
+
+
+def find_error_handling(evidence: dict, target: str | None) -> dict:
+    # Evidence written before 0.8.0 has no such section; say so instead of raising.
+    return evidence["repository"].get(
+        "error_handling", {"checked": False, "reason": "this evidence predates error-handling data; rescan"}
+    )
+
+
+def find_environment_variables(evidence: dict, target: str | None) -> dict:
+    return evidence["repository"]["environment_variables"]
+
+
+def find_hotspots(evidence: dict, target: str | None) -> list[dict]:
+    return evidence["git"].get("hotspots", [])
+
+
+def list_modules(evidence: dict) -> list[str]:
+    return [module["path"] for module in evidence["repository"]["modules"]]
+
+
+def list_clusters(evidence: dict) -> list[dict]:
+    return [
+        {"id": cluster["id"], "module_count": len(cluster["modules"])}
+        for cluster in evidence["architecture"]["clusters"]
+    ]
+
+
+def list_branches(evidence: dict) -> list[str]:
+    # A repo with no commits yields git == {"available": False} - see
+    # air_schema.py's git section docstring. There are no branches to list
+    # in that case, but that's honestly indistinguishable from "no branches
+    # were found" via a plain list return; callers that need to tell those
+    # apart should use aletheore_overview's git.available instead.
+    git = evidence["git"]
+    if git.get("available") is False:
+        return []
+    return [branch["name"] for branch in git["branches"]]
+
+
+def find_repo_overview(evidence: dict) -> dict:
+    repo = evidence["repository"]
+    git = evidence["git"]
+    arch = evidence["architecture"]
+    dependency_graph = repo["dependency_graph"]
+    # A repo with no commits yields git == {"available": False} and nothing
+    # else (see air_schema.py). Only `available` is safe to read
+    # unconditionally there - signal that honestly instead of indexing into
+    # keys that don't exist or silently reporting zero commits, which would
+    # be indistinguishable from a repo that genuinely has zero commits.
+    if git.get("available") is False:
+        git_summary: dict = {"available": False}
+    else:
+        git_summary = {
+            "repo_age_days": git["repo_age_days"],
+            "total_commits": git["total_commits"],
+            "commit_cadence": git["commit_cadence"],
+            "branch_count": len(git["branches"]),
+        }
+    return {
+        "languages": repo["languages"],
+        "frameworks": repo["frameworks"],
+        "monorepo": repo["monorepo"],
+        "dependency_graph_summary": {
+            "node_count": len(dependency_graph["nodes"]),
+            "edge_count": len(dependency_graph["edges"]),
+        },
+        "module_count": len(repo["modules"]),
+        "cluster_count": len(arch["clusters"]),
+        "cross_cluster_edge_count": len(arch["cross_cluster_edges"]),
+        "git": git_summary,
+    }
+
+
+QUERY_FUNCTIONS: dict[str, tuple[Callable[[dict, str | None], Any], bool]] = {
+    "imports": (find_imports, True),
+    "imported-by": (find_imported_by, True),
+    "symbols": (find_symbols, True),
+    "branch": (find_branch, True),
+    "ownership": (find_ownership, False),
+    "secrets": (find_secrets_for_file, True),
+    "vulnerabilities": (find_vulnerabilities, False),
+    "licenses": (find_licenses, False),
+    "static-analysis": (find_static_analysis, False),
+    "endpoints": (find_endpoints, False),
+    "cluster": (find_cluster, True),
+    "layer-violations": (find_layer_violations, False),
+    "dead-code": (find_dead_code_evidence, False),
+    "hotspots": (find_hotspots, False),
+    "database": (find_database, False),
+    "infrastructure": (find_infrastructure, False),
+    "environment-variables": (find_environment_variables, False),
+    "error-handling": (find_error_handling, False),
+    "evidence-for-endpoint": (find_code_evidence_for_endpoint, True),
+    "evidence-for-symbol": (find_code_evidence_for_symbol, True),
+    "evidence-for-dependency": (find_code_evidence_for_dependency, True),
+}

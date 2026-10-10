@@ -1,0 +1,216 @@
+import json
+import logging
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import yaml
+
+from aletheore.static_analysis._exclusions import count_real_files, excluded_dir_names, filter_findings
+
+# Matches the real, live-verified invocation from tonight's evaluation
+# (docs/audits/deterministic_scanner_evaluation.md): `--config=auto` pulls
+# Semgrep's community registry (1074 rules loaded against a real Go repo,
+# no login required for the public ruleset) - confirmed working without any
+# API key. Our own custom rules (oauth-state-not-random.yaml and anything
+# added alongside it) load from the sibling semgrep_rules/ dir via a second
+# --config, which Semgrep merges rather than replaces.
+logger = logging.getLogger(__name__)
+
+_CUSTOM_RULES_DIR = Path(__file__).parent / "semgrep_rules"
+
+# Real bug found by an independent benchmark run the same night: a flat
+# 180s (this package's original default) was fast enough for this repo's
+# own ~3,331-file tree (12.8s, real-measured) but timed out on every real
+# full-scan pass against a genuinely monorepo-scale Go repo
+# (grafana/grafana) - the same "fast on a moderate repo, not fast on a
+# huge one" gap already found and fixed for Bearer. Scaled the same way,
+# generously over the one real rate this package has measured (~3.8ms/file
+# at 3331 files/12.8s) rather than a tight fit to it - Semgrep is on by
+# default (unlike Bearer/Joern), so under-scaling here silently degrades
+# every large-repo scan's coverage, not just an opt-in one's.
+SEMGREP_BASE_TIMEOUT_SECONDS = 60
+SEMGREP_PER_FILE_SECONDS = 0.05
+# 30 minutes is a real, meaningful cost for an on-by-default check on a
+# large enough repo - flagged in the integration scope doc as worth a
+# second look, not silently accepted as fine just because it's bounded.
+SEMGREP_MAX_TIMEOUT_SECONDS = 1800
+
+# Semgrep's own three-level severity (ERROR/WARNING/INFO) has no
+# blocker/critical split, so ERROR is mapped to "critical" rather than
+# "blocker" - "blocker" is reserved for a tool (SonarQube) that actually
+# distinguishes the two. This is the draft severity/type mapping the
+# integration scope doc flagged as a real judgment call worth a second
+# look, not a settled taxonomy - revisit if it misranks real findings once
+# results start flowing through PR review.
+_SEVERITY_MAP = {"ERROR": "critical", "WARNING": "major", "INFO": "minor"}
+
+# Semgrep rule metadata.category is a free-text field maintained per-rule by
+# rule authors, not a closed enum - this covers the values actually seen in
+# the registry's own rule set. Anything else (including a missing category)
+# falls back to "bug", the safest default for a rule flagging real code
+# behavior rather than a style/security concern specifically.
+_CATEGORY_TYPE_MAP = {
+    "security": "vulnerability",
+    "correctness": "bug",
+    "best-practice": "code_smell",
+    "maintainability": "code_smell",
+    "performance": "bug",
+    "portability": "bug",
+    "compatibility": "bug",
+}
+
+
+def _scaled_timeout(repo_path: Path) -> int:
+    file_count = count_real_files(repo_path)
+    return min(SEMGREP_MAX_TIMEOUT_SECONDS, int(SEMGREP_BASE_TIMEOUT_SECONDS + file_count * SEMGREP_PER_FILE_SECONDS))
+
+
+def _relative_path(raw_path: str, repo_path: Path) -> str:
+    # Real bug found on Windows CI: str(Path(...)) renders with the OS's
+    # native separator - a backslash-joined path on Windows - while every
+    # other path in this codebase's evidence (module paths via graph.py's
+    # _rel(), secrets.py's iter_all_files, mcp_server.py's _search_files)
+    # uses .as_posix() specifically so paths are comparable and joinable
+    # regardless of the scanning host's OS. A finding's path here gets
+    # compared against those forward-slash paths elsewhere (evidence
+    # lookups, MCP tool target matching) and sent as-is to the GitHub
+    # Checks API for PR annotations, which - like git itself - always uses
+    # forward slashes; a backslash path silently fails every one of those
+    # comparisons instead of raising anything.
+    try:
+        return Path(raw_path).resolve().relative_to(repo_path.resolve()).as_posix()
+    except ValueError:
+        return raw_path
+
+
+def _custom_rule_ids() -> set[str]:
+    ids: set[str] = set()
+    for yaml_file in _CUSTOM_RULES_DIR.glob("*.yaml"):
+        try:
+            data = yaml.safe_load(yaml_file.read_text())
+        except (yaml.YAMLError, OSError):
+            continue
+        for rule in (data or {}).get("rules", []):
+            rule_id = rule.get("id")
+            if rule_id:
+                ids.add(rule_id)
+    return ids
+
+
+def _clean_rule_id(check_id: str, custom_rule_ids: set[str]) -> str:
+    # Real bug found live: Semgrep namespaces a LOCAL (non-registry) rule's
+    # check_id by dot-joining the full path it was loaded from (confirmed:
+    # loading semgrep_rules/ by its absolute path produced
+    # "Users.arihantkaul.Documents.GitHub.Veridion.src.aletheore.static_
+    # analysis.semgrep_rules.oauth-state-not-random" - unusable in a PR
+    # comment). The rule's own short `id:` from its YAML always survives as
+    # check_id's final dot-segment regardless of path depth, so any
+    # check_id ending in one of our own known custom rule ids gets
+    # rewritten to just that id. Registry rule ids (already clean, already
+    # dotted on purpose, e.g. "go.lang.security.audit.xss.import-text-
+    # template...") are left exactly as Semgrep produced them.
+    last_segment = check_id.rsplit(".", 1)[-1]
+    return last_segment if last_segment in custom_rule_ids else check_id
+
+
+_DISABLE_ENV = "ALETHEORE_DISABLE_SEMGREP"
+_FALSE_VALUES = {"", "0", "false", "no", "off"}
+
+
+def _semgrep_disabled() -> bool:
+    return os.environ.get(_DISABLE_ENV, "").strip().lower() not in _FALSE_VALUES
+
+
+def check_semgrep(repo_path: Path, timeout: int | None = None) -> dict:
+    # An explicit, named reason instead of a scan that fails or runs for minutes: the hosted
+    # scan worker sets this (see scan_worker/jobs.py), and so can anyone on a machine where
+    # semgrep is too slow.
+    if _semgrep_disabled():
+        return {"checked": False, "reason": f"semgrep disabled ({_DISABLE_ENV} is set)", "findings": []}
+
+    binary = shutil.which("semgrep")
+    if binary is None:
+        return {"checked": False, "reason": "semgrep not installed", "findings": []}
+
+    if timeout is None:
+        timeout = _scaled_timeout(repo_path)
+
+    cmd = [binary, "--config=auto"]
+    # Our own rules ship as package data. If the directory is not there (an install that
+    # did not package it, which every pip-installed copy was from 2026-09-21 until the
+    # package data was fixed), passing it makes semgrep exit 7 ("invalid configuration")
+    # and the WHOLE scan fails, registry rules included. Skip only the custom rules.
+    if any(_CUSTOM_RULES_DIR.glob("*.yaml")):
+        cmd += ["--config", str(_CUSTOM_RULES_DIR)]
+    else:
+        logger.warning("semgrep custom rules not found at %s; running registry rules only", _CUSTOM_RULES_DIR)
+    cmd += ["--json", "--quiet", str(repo_path)]
+    # Real bug found live wiring this up: passing --metrics=off alongside
+    # --config=auto is a hard Semgrep error ("Cannot create auto config
+    # when metrics are off"), exit code 2, empty stdout - json.loads("{}")
+    # on the empty fallback would have silently reported "checked: True,
+    # zero findings" for what was actually a total scan failure. Not
+    # passing --metrics=off at all, matching tonight's real, working,
+    # live-verified invocation exactly - Semgrep's `auto` registry access
+    # is designed around metrics being on, not a knob this wrapper can
+    # override.
+    for name in excluded_dir_names(repo_path):
+        cmd.append(f"--exclude={name}")
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=repo_path)
+    except subprocess.TimeoutExpired:
+        return {"checked": False, "reason": f"semgrep timed out after {timeout}s", "findings": []}
+    except OSError as exc:
+        return {"checked": False, "reason": f"semgrep failed to run: {exc}", "findings": []}
+
+    # Semgrep's own exit codes: 0 = clean, 1 = findings present, >=2 = a
+    # real failure (bad config, parse error the JSON output never
+    # represents). Only 0/1 get treated as "ran successfully" - anything
+    # else must surface as checked:False rather than risk parsing
+    # leftover/partial stdout as if it were a complete, trustworthy result.
+    if result.returncode not in (0, 1):
+        return {
+            "checked": False,
+            "reason": f"semgrep exited {result.returncode}: {(result.stderr or result.stdout)[-500:]}",
+            "findings": [],
+        }
+
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return {
+            "checked": False,
+            "reason": f"semgrep produced unparseable output: {(result.stderr or '')[:300]}",
+            "findings": [],
+        }
+
+    custom_rule_ids = _custom_rule_ids()
+    findings = []
+    for item in payload.get("results", []):
+        # `or {}`, not a bare .get(key, {}) default: semgrep can emit an
+        # explicit `null` for a present key (not just omit it), and dict.get's
+        # default only ever applies when the key is absent - a real bug found
+        # via audit (2026-09-21), confirmed to raise AttributeError uncaught
+        # (item.get("extra", {}) returns None when "extra" is present as
+        # null, and None.get(...) then fails) with no guard anywhere between
+        # here and check_static_analysis's per-scanner loop, aborting the
+        # whole static-analysis pass on one malformed finding instead of
+        # just that finding.
+        extra = item.get("extra") or {}
+        severity = extra.get("severity", "INFO")
+        category = (extra.get("metadata") or {}).get("category", "")
+        findings.append(
+            {
+                "tool": "semgrep",
+                "rule_id": _clean_rule_id(item.get("check_id", ""), custom_rule_ids),
+                "severity": _SEVERITY_MAP.get(severity, "minor"),
+                "type": _CATEGORY_TYPE_MAP.get(category, "bug"),
+                "path": _relative_path(item.get("path", ""), repo_path),
+                "line": (item.get("start") or {}).get("line", 0),
+                "message": (extra.get("message") or "").strip(),
+            }
+        )
+    return {"checked": True, "reason": None, "findings": filter_findings(findings, repo_path)}

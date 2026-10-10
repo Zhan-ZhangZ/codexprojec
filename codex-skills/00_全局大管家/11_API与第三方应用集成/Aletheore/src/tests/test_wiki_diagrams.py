@@ -1,0 +1,154 @@
+from aletheore.wiki_diagrams import build_overview_diagram, build_subsystem_diagram
+
+
+def make_evidence() -> dict:
+    return {
+        "repository": {
+            "modules": [
+                {"path": "auth/login.py", "imports": ["auth/tokens.py", "db/session.py"]},
+                {"path": "auth/tokens.py", "imports": []},
+                {"path": "db/session.py", "imports": []},
+                {"path": "db/models.py", "imports": []},
+            ],
+            "dependency_graph": {
+                "nodes": ["auth/login.py", "auth/tokens.py", "db/session.py", "db/models.py"],
+                "edges": [
+                    ["auth/login.py", "auth/tokens.py"],
+                    ["auth/login.py", "db/session.py"],
+                ],
+            },
+        },
+        "architecture": {
+            "clusters": [
+                {"id": 0, "modules": ["auth/login.py", "auth/tokens.py"], "internal_edges": 1},
+                {"id": 1, "modules": ["db/session.py", "db/models.py"], "internal_edges": 0},
+            ]
+        },
+    }
+
+
+def test_build_overview_diagram_has_one_node_per_cluster():
+    diagram = build_overview_diagram(make_evidence())
+    assert diagram.startswith("flowchart TD")
+    assert 'C0["Cluster 0"]' in diagram
+    assert 'C1["Cluster 1"]' in diagram
+
+
+def test_build_overview_diagram_draws_inter_cluster_edge_not_intra_cluster():
+    diagram = build_overview_diagram(make_evidence())
+    # auth/login.py -> db/session.py crosses cluster 0 -> cluster 1
+    assert "C0 --> C1" in diagram
+    # auth/login.py -> auth/tokens.py is within cluster 0 - not drawn at this level
+    assert diagram.count("-->") == 1
+
+
+def test_build_overview_diagram_omits_clusters_with_no_cross_cluster_edges():
+    evidence = make_evidence()
+    evidence["architecture"]["clusters"].append({"id": 2, "modules": ["scripts/standalone.py"], "internal_edges": 0})
+    diagram = build_overview_diagram(evidence)
+    assert 'C2["Cluster 2"]' not in diagram
+    assert 'C0["Cluster 0"]' in diagram
+    assert 'C1["Cluster 1"]' in diagram
+
+
+def test_build_overview_diagram_uses_provided_names():
+    diagram = build_overview_diagram(make_evidence(), cluster_names={0: "Authentication", 1: "Database"})
+    assert 'C0["Authentication"]' in diagram
+    assert 'C1["Database"]' in diagram
+
+
+def test_build_overview_diagram_escapes_quotes_in_names():
+    diagram = build_overview_diagram(make_evidence(), cluster_names={0: 'The "Auth" layer', 1: "Database"})
+    assert '\\"' not in diagram  # no broken escaping
+    assert '"' in diagram
+    assert "The 'Auth' layer" in diagram
+
+
+def test_build_overview_diagram_neutralizes_embedded_newlines_in_names():
+    # Real bug found via audit: _mermaid_safe_label only neutralized
+    # quotes, never touching an embedded newline. Mermaid flowchart syntax
+    # is line-oriented - a node is C{id}["{label}"] on one line - so a
+    # multi-line cluster name (cluster names come straight from an LLM
+    # call with no server-side sanitization beyond a truthy .strip()
+    # check on the unstripped original string) could land a second line
+    # as its own new Mermaid statement, injecting an entirely unrelated
+    # extra node into the rendered diagram - confirmed directly: a name of
+    # 'Auth"]\n    C99["INJECTED' produced a real extra C99 node that
+    # doesn't correspond to anything in the dependency graph, undermining
+    # this module's own guarantee that "a diagram can never show a
+    # relationship that doesn't actually exist in the code."
+    diagram = build_overview_diagram(
+        make_evidence(), cluster_names={0: 'Auth"]\n    C99["INJECTED', 1: "Database"}
+    )
+    # C99 may still appear as harmless label TEXT on C0's own line - what
+    # matters is it's not a separate node statement of its own, on its own
+    # line, the way a real injected node would be.
+    stripped_lines = [line.strip() for line in diagram.splitlines() if line.strip()]
+    assert len(stripped_lines) == 4  # header + C0 + C1 + one edge, not 5
+    assert not any(line.startswith("C99[") for line in stripped_lines)
+    node0_lines = [line for line in stripped_lines if line.startswith("C0[")]
+    assert len(node0_lines) == 1
+    assert "C99" in node0_lines[0]  # survives as harmless text, not a new statement
+
+
+def test_build_overview_diagram_neutralizes_a_bare_carriage_return_in_names():
+    diagram = build_overview_diagram(make_evidence(), cluster_names={0: "Auth\rC99[\"INJECTED", 1: "Database"})
+    stripped_lines = [line.strip() for line in diagram.splitlines() if line.strip()]
+    assert len(stripped_lines) == 4
+    assert not any(line.startswith("C99[") for line in stripped_lines)
+
+
+def test_build_subsystem_diagram_has_one_node_per_member_file():
+    evidence = make_evidence()
+    cluster = evidence["architecture"]["clusters"][0]
+    diagram = build_subsystem_diagram(evidence, cluster)
+    assert 'N0["auth/login.py"]' in diagram
+    assert 'N1["auth/tokens.py"]' in diagram
+
+
+def test_build_subsystem_diagram_only_draws_edges_within_the_cluster():
+    evidence = make_evidence()
+    cluster = evidence["architecture"]["clusters"][0]
+    diagram = build_subsystem_diagram(evidence, cluster)
+    # login.py imports tokens.py (in-cluster, drawn) and db/session.py (out
+    # of cluster, must not be drawn or referenced at all)
+    assert "N0 --> N1" in diagram
+    assert "db/session.py" not in diagram
+
+
+def test_build_subsystem_diagram_handles_empty_cluster():
+    diagram = build_subsystem_diagram(make_evidence(), {"id": 5, "modules": []})
+    assert diagram == "flowchart TD"
+
+
+def test_build_subsystem_diagram_excludes_ambiguous_edges():
+    # A diagram is a stronger claim than a citable-but-uncertain evidence
+    # edge ("this file depends on that one," not "probably, among a few
+    # candidates") - an edge flagged "ambiguous" in import_confidence
+    # (currently only C# type-reference edges - see scanner/graph.py's
+    # _csharp_type_reference_targets) stays in the underlying evidence but
+    # must not be drawn.
+    evidence = make_evidence()
+    evidence["repository"]["modules"][0]["import_confidence"] = {"auth/tokens.py": "ambiguous"}
+    cluster = evidence["architecture"]["clusters"][0]
+    diagram = build_subsystem_diagram(evidence, cluster)
+    assert "N0 --> N1" not in diagram
+    assert diagram.count("-->") == 0
+
+
+def test_build_subsystem_diagram_draws_inferred_edges_normally():
+    # "inferred" (a source-root/prefix tiebreak among multiple real
+    # candidates, generally still correct) is a materially different kind
+    # of uncertainty from "ambiguous" - only the latter is excluded.
+    evidence = make_evidence()
+    evidence["repository"]["modules"][0]["import_confidence"] = {"auth/tokens.py": "inferred"}
+    cluster = evidence["architecture"]["clusters"][0]
+    diagram = build_subsystem_diagram(evidence, cluster)
+    assert "N0 --> N1" in diagram
+
+
+def test_build_overview_diagram_excludes_ambiguous_cross_cluster_edges():
+    evidence = make_evidence()
+    evidence["repository"]["modules"][0]["import_confidence"] = {"db/session.py": "ambiguous"}
+    diagram = build_overview_diagram(evidence)
+    assert "C0 --> C1" not in diagram

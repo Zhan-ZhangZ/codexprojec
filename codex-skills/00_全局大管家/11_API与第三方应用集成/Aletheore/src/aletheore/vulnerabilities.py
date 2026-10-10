@@ -1,0 +1,1136 @@
+import json
+import math
+import re
+import ssl
+import time
+import tomllib
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from pathlib import Path
+
+from xml.etree import ElementTree
+
+import certifi
+from tree_sitter import Node
+from aletheore.user_paths import user_home
+
+OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
+OSV_VULN_URL_TEMPLATE = "https://api.osv.dev/v1/vulns/{vuln_id}"
+DEFAULT_TIMEOUT_SECONDS = 10
+
+# Each advisory detail is its own blocking HTTP call, one per vuln found -
+# same shape as licenses.py's per-package registry lookup, which hit the
+# same 3+ minute serial wall on a repo with hundreds of pins. Bounded, not
+# unbounded, so a repo with many findings stays polite to OSV.dev.
+VULN_DETAIL_FETCH_CONCURRENCY = 20
+# Same reasoning as LICENSE_FETCH_WALL_CLOCK_TIMEOUT_SECONDS: bounds total
+# wait for one advisory fetch, not just a single blocking socket op, so one
+# slow-drip response can never hang the whole check.
+VULN_DETAIL_FETCH_WALL_CLOCK_TIMEOUT_SECONDS = 30
+
+# Unlike a package's license (effectively invariant once published), new
+# vulnerabilities get disclosed against already-published old versions all
+# the time - a long cache here risks silently missing a newly-disclosed CVE.
+# Short enough that a day of repeated scans (of this or any other repo) on
+# the same machine doesn't re-pay the same OSV.dev round-trip for every one,
+# without letting real staleness accumulate for long.
+DEFAULT_VULNERABILITY_CACHE_PATH = user_home() / ".cache" / "aletheore" / "vulnerability-cache.json"
+_VULNERABILITY_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+# Use certifi's CA bundle explicitly rather than the system default SSL context.
+# On macOS, Python installed from python.org commonly has no default CA bundle
+# configured (the "Install Certificates.command" step is easy to skip), which
+# would otherwise make every OSV.dev call fail with CERTIFICATE_VERIFY_FAILED
+# even though certifi itself is installed and correct - discovered by actually
+# running this against a real repo, not by inspection.
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
+
+def _clean_range_version(version: str) -> str | None:
+    cleaned = version.strip().lstrip("^~>=< ").strip()
+    match = re.match(r"^([0-9][A-Za-z0-9_.!+*-]*)", cleaned)
+    return match.group(1) if match else None
+
+
+def _parse_pep508_dependency(dependency: str) -> tuple[str, str, str] | None:
+    dependency = dependency.split(";", 1)[0].strip()
+    name_match = re.match(r"^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?", dependency)
+    if not name_match:
+        return None
+    name = name_match.group(1).lower().replace("_", "-")
+    specifiers = dependency[name_match.end():]
+    version_match = re.search(r"(?:==|>=|~=)\s*([0-9][^,\s]*)", specifiers)
+    # A lower bound is the most useful stable approximation for a range. Keep
+    # unpinned declarations too, marker-qualified or not: downstream checks
+    # can query the package as a whole instead of silently pretending the
+    # dependency was absent. A prior version of this function dropped
+    # unpinned dependencies that also carried an environment marker (e.g.
+    # `typing_extensions; python_version < "3.10"`, an idiomatic and common
+    # PEP 508 shape) - directly contradicting this comment for exactly that
+    # case, and making any marker-qualified unpinned dependency invisible to
+    # CVE scanning, license checking, and unused-dependency detection.
+    version = version_match.group(1) if version_match else "*"
+    return (name, version, "PyPI")
+
+
+def _parse_python_dependency_value(name: str, value: object) -> tuple[str, str, str] | None:
+    version = None
+    if isinstance(value, str):
+        version = value
+    elif isinstance(value, dict) and isinstance(value.get("version"), str):
+        version = value["version"]
+    if version is None:
+        return None
+    cleaned = _clean_range_version(version)
+    if cleaned is None:
+        return None
+    return (name.lower().replace("_", "-"), cleaned, "PyPI")
+
+
+def _parse_pip_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    requirements = repo_path / "requirements.txt"
+    pins = []
+    if requirements.exists():
+        for line in requirements.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            # Real bug this closes: the old hand-rolled parser here required a
+            # literal "==" to even consider a line, silently dropping every
+            # unpinned dependency (a bare "requests") AND every non-exact
+            # specifier ("requests>=2.0") - not just the marker-qualified-
+            # unpinned shape #335 fixed in _parse_pep508_dependency for
+            # pyproject.toml. Confirmed directly: "requests>=2.0" was
+            # invisible to both CVE scanning and license checking (this
+            # function's only two callers) despite being a completely normal
+            # requirements.txt line. Reusing _parse_pep508_dependency instead
+            # of a separate hand-rolled parser means this file gets the exact
+            # same "keep it, query the package as a whole" handling #335
+            # already established, rather than a second, independently
+            # drifting implementation of the same PEP 508 grammar.
+            #
+            # A pip option line (-e ..., -r other.txt, --index-url ...) needs
+            # its own explicit skip: "-" is itself inside the name regex's
+            # character class (it has to be, for a real name like
+            # "typing-extensions"), so a leading "-e"/"-r" would otherwise
+            # still match as a bogus package name instead of being rejected -
+            # confirmed directly, not assumed.
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            pin = _parse_pep508_dependency(line)
+            if pin:
+                pins.append(pin)
+
+    pyproject = repo_path / "pyproject.toml"
+    if not pyproject.exists():
+        return pins
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8", errors="ignore"))
+    except tomllib.TOMLDecodeError:
+        return pins
+
+    for dependency in data.get("project", {}).get("dependencies", []):
+        if not isinstance(dependency, str):
+            continue
+        pin = _parse_pep508_dependency(dependency)
+        if pin:
+            pins.append(pin)
+
+    # Real gap found via audit: [project.optional-dependencies] (PEP 621
+    # extras, e.g. a "test"/"dev" group) and Poetry's own
+    # [tool.poetry.group.<name>.dependencies] (1.2+) / [tool.poetry.
+    # dev-dependencies] (the older, pre-1.2 form of the same thing) are
+    # all real, direct, first-party declared dependencies - not
+    # transitive ones (see _parse_npm_direct_pins' own docstring on why
+    # transitive deps are deliberately excluded; that reasoning doesn't
+    # apply here) - yet none of them were read at all. This function's
+    # own two real callers are dependency-vulnerability scanning and
+    # license checking: a genuinely vulnerable pinned package declared
+    # only under a dev/test extras group (`pytest-xdist==1.0` with a
+    # real, published CVE) was invisible to CVE scanning entirely,
+    # regardless of how out of date or risky it actually was.
+    optional_deps = data.get("project", {}).get("optional-dependencies", {})
+    if isinstance(optional_deps, dict):
+        for group in optional_deps.values():
+            if not isinstance(group, list):
+                continue
+            for dependency in group:
+                if not isinstance(dependency, str):
+                    continue
+                pin = _parse_pep508_dependency(dependency)
+                if pin:
+                    pins.append(pin)
+
+    poetry_deps = data.get("tool", {}).get("poetry", {}).get("dependencies", {})
+    for name, value in poetry_deps.items():
+        if name.lower() == "python":
+            continue
+        pin = _parse_python_dependency_value(name, value)
+        if pin:
+            pins.append(pin)
+
+    poetry_dev_deps = data.get("tool", {}).get("poetry", {}).get("dev-dependencies", {})
+    for name, value in poetry_dev_deps.items():
+        if name.lower() == "python":
+            continue
+        pin = _parse_python_dependency_value(name, value)
+        if pin:
+            pins.append(pin)
+
+    poetry_groups = data.get("tool", {}).get("poetry", {}).get("group", {})
+    if isinstance(poetry_groups, dict):
+        for group_config in poetry_groups.values():
+            if not isinstance(group_config, dict):
+                continue
+            group_deps = group_config.get("dependencies", {})
+            if not isinstance(group_deps, dict):
+                continue
+            for name, value in group_deps.items():
+                if name.lower() == "python":
+                    continue
+                pin = _parse_python_dependency_value(name, value)
+                if pin:
+                    pins.append(pin)
+
+    return pins
+
+
+def _parse_npm_direct_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    # package.json only, deliberately never package-lock.json: this is used
+    # for checks that ask "is a *declared* dependency unused", where a lock
+    # file's full transitive tree would be wrong - a transitive package was
+    # never something your own code could import directly, so it would
+    # always look "unused" and drown every real finding in noise (confirmed
+    # on this repo: cspell's ~200 transitive packages, 0 of them actually
+    # unused - only cspell/markdownlint-cli2/prettier are real candidates).
+    package_json = repo_path / "package.json"
+    if not package_json.exists():
+        return []
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8", errors="ignore"))
+    except json.JSONDecodeError:
+        return []
+    deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
+    pins = []
+    for name, version in deps.items():
+        cleaned = _clean_range_version(version)
+        if cleaned:
+            pins.append((name, cleaned, "npm"))
+    return pins
+
+
+def _parse_npm_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    # package-lock.json preferred here: vulnerability scanning wants the
+    # full resolved transitive tree, since a vulnerable indirect dependency
+    # is still a real risk. See _parse_npm_direct_pins for the opposite
+    # need (dead-code's unused-dependency check).
+    package_lock = repo_path / "package-lock.json"
+    if package_lock.exists():
+        try:
+            lock_data = json.loads(package_lock.read_text(encoding="utf-8", errors="ignore"))
+        except json.JSONDecodeError:
+            lock_data = {}
+        pins = []
+        for path, details in lock_data.get("packages", {}).items():
+            if not path.startswith("node_modules/"):
+                continue
+            # A non-hoisted transitive dependency is keyed by its full nested
+            # path ("node_modules/a/node_modules/lodash"); the package name is
+            # only the segment after the LAST "node_modules/". Otherwise OSV
+            # is queried with a bogus name and the vulnerable copy is invisible.
+            name = path.rsplit("node_modules/", 1)[1]
+            version = details.get("version")
+            if name and version:
+                pins.append((name, version, "npm"))
+        if not pins:
+            # lockfileVersion 1 (npm < 7) has no "packages" map, only a nested
+            # "dependencies" tree of {name: {version, dependencies: {...}}}.
+            pins = _walk_npm_v1_dependencies(lock_data.get("dependencies"))
+        if pins:
+            return pins
+
+    return _parse_npm_direct_pins(repo_path)
+
+
+def _walk_npm_v1_dependencies(tree) -> list[tuple[str, str, str]]:
+    pins: list[tuple[str, str, str]] = []
+    if not isinstance(tree, dict):
+        return pins
+    for name, details in tree.items():
+        if not isinstance(details, dict):
+            continue
+        version = details.get("version")
+        if name and isinstance(version, str) and version:
+            pins.append((name, version, "npm"))
+        pins.extend(_walk_npm_v1_dependencies(details.get("dependencies")))
+    return pins
+
+
+def _parse_go_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    go_mod = repo_path / "go.mod"
+    if not go_mod.exists():
+        return []
+    pins = []
+    in_require_block = False
+    for line in go_mod.read_text(encoding="utf-8", errors="ignore").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("require ("):
+            in_require_block = True
+            continue
+        if in_require_block and stripped == ")":
+            in_require_block = False
+            continue
+        if in_require_block:
+            parts = stripped.split()
+        elif stripped.startswith("require "):
+            parts = stripped[len("require "):].split()
+        else:
+            continue
+        if len(parts) >= 2 and parts[1].startswith("v"):
+            pins.append((parts[0], parts[1], "Go"))
+    return pins
+
+
+def _parse_cargo_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    cargo_lock = repo_path / "Cargo.lock"
+    if cargo_lock.exists():
+        try:
+            data = tomllib.loads(cargo_lock.read_text(encoding="utf-8", errors="ignore"))
+        except tomllib.TOMLDecodeError:
+            data = {}
+        pins = [
+            (pkg["name"], pkg["version"], "crates.io")
+            for pkg in data.get("package", [])
+            if "name" in pkg and "version" in pkg
+        ]
+        if pins:
+            return pins
+
+    cargo_toml = repo_path / "Cargo.toml"
+    if not cargo_toml.exists():
+        return []
+    try:
+        data = tomllib.loads(cargo_toml.read_text(encoding="utf-8", errors="ignore"))
+    except tomllib.TOMLDecodeError:
+        return []
+    pins = []
+    for section in ("dependencies", "dev-dependencies"):
+        for name, value in data.get(section, {}).items():
+            version = None
+            if isinstance(value, str):
+                version = value
+            elif isinstance(value, dict) and isinstance(value.get("version"), str):
+                version = value["version"]
+            if version:
+                cleaned = _clean_range_version(version)
+                if cleaned:
+                    pins.append((name, cleaned, "crates.io"))
+    return pins
+
+
+def _maven_text(element: ElementTree.Element | None) -> str | None:
+    if element is None or element.text is None:
+        return None
+    text = element.text.strip()
+    return text or None
+
+
+def _maven_child(element: ElementTree.Element, tag: str) -> ElementTree.Element | None:
+    return element.find(tag)
+
+
+_MAVEN_POM_NAMESPACE_PREFIX = "{http://maven.apache.org/POM/4.0.0}"
+
+
+def _strip_xml_namespace_prefixes(root: ElementTree.Element) -> ElementTree.Element:
+    """Removes the `{uri}` prefix ElementTree attaches to every element's
+    tag when a document declares a default xmlns, so a plain, unprefixed
+    tag name (`dependencies/dependency`, not `m:dependencies/m:dependency`)
+    matches regardless of whether the source declared one.
+
+    Maven does not require a pom.xml to declare
+    xmlns="http://maven.apache.org/POM/4.0.0" on <project> for a build to
+    work, and a real, hand-written or legacy repo pom.xml commonly omits
+    it - unlike the POMs Maven Central itself serves (what
+    licenses.py's _fetch_maven_license reads), which always declare it.
+    Every m:-prefixed lookup below silently matched nothing against such a
+    file before this fix: _parse_maven_pins returned [] - indistinguishable
+    from "no dependencies" - for a repo whose real pom.xml declares
+    dependencies with real, potentially vulnerable versions, not a
+    partial result or an error.
+
+    Scoped to exactly the Maven POM namespace, not every `{uri}` prefix in
+    the document - a pom.xml can embed foreign-namespaced elements (e.g. a
+    build plugin's own `<vendor:dependencies>` config block), and
+    stripping those too would make them indistinguishable from real Maven
+    <dependencies>/<properties> elements, producing dependency or
+    vulnerability results from content Maven itself never treats as POM
+    metadata.
+    """
+    prefix_len = len(_MAVEN_POM_NAMESPACE_PREFIX)
+    for element in root.iter():
+        if isinstance(element.tag, str) and element.tag.startswith(_MAVEN_POM_NAMESPACE_PREFIX):
+            element.tag = element.tag[prefix_len:]
+    return root
+
+
+def _maven_resolve_property(version: str | None, properties: dict[str, str]) -> str | None:
+    if not version:
+        return None
+    value: str | None = version.strip()
+    # A property may itself be defined as another property (<b>${a}</b>);
+    # follow the chain, cycle-safe, instead of stopping after one hop.
+    seen: set[str] = set()
+    while value:
+        match = re.fullmatch(r"\$\{([^}]+)\}", value)
+        if not match:
+            return value
+        key = match.group(1)
+        if key in seen:
+            return None
+        seen.add(key)
+        value = properties.get(key)
+    return None
+
+
+def _swift_package_url_to_osv_name(location: str) -> str | None:
+    """OSV.dev's Swift ecosystem ("SwiftURL", confirmed empirically against
+    the live API - "SwiftPM" is not a valid ecosystem name there, despite
+    being the more obvious guess) identifies a package by its normalized
+    source URL, not a short name - e.g. "github.com/apple/swift-nio", not
+    "swift-nio". Strips the scheme and a trailing ".git", the only two
+    things Package.resolved's "location" field carries that OSV's own
+    package.name values never do (confirmed by querying a real published
+    advisory for apple/swift-nio and matching its exact "name" field).
+    """
+    url = location.strip()
+    url = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", url)
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[: -len(".git")]
+    return url or None
+
+
+def _parse_swift_package_resolved_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    resolved = repo_path / "Package.resolved"
+    if not resolved.exists():
+        return []
+    try:
+        data = json.loads(resolved.read_text(encoding="utf-8", errors="ignore"))
+    except json.JSONDecodeError:
+        return []
+    # Schema v1 (older toolchains) nests pins under "object"; v2+ (current)
+    # has them at the top level - confirmed against a real, current
+    # Package.resolved (vapor/penny-bot, schema v3).
+    raw_pins = data.get("pins")
+    if raw_pins is None:
+        raw_pins = data.get("object", {}).get("pins", [])
+    pins = []
+    for pin in raw_pins:
+        identity = pin.get("identity")
+        location = pin.get("location") or pin.get("repositoryURL")
+        state = pin.get("state") or {}
+        version = state.get("version")
+        # A branch/revision-pinned dependency (no released version, e.g.
+        # DiscordBM tracking "main" in penny-bot's own real Package.resolved)
+        # has nothing a CVE advisory's SEMVER range could ever match against
+        # - skipped rather than guessed at.
+        if not identity or not location or not version:
+            continue
+        osv_name = _swift_package_url_to_osv_name(location)
+        if osv_name:
+            pins.append((osv_name, version, "SwiftURL"))
+    return pins
+
+
+def _parse_maven_pom(pom: Path, seen: set[Path]) -> list[tuple[str, str, str]]:
+    if not pom.exists():
+        return []
+    pom = pom.resolve()
+    if pom in seen:
+        return []
+    seen.add(pom)
+    try:
+        root = ElementTree.fromstring(pom.read_text(encoding="utf-8", errors="ignore"))
+    except ElementTree.ParseError:
+        return []
+    root = _strip_xml_namespace_prefixes(root)
+    properties = {
+        child.tag: child.text.strip()
+        for child in root.findall("properties/*")
+        if child.text and child.text.strip()
+    }
+    managed_versions = {}
+    management = root.find("dependencyManagement/dependencies")
+    if management is not None:
+        for dep in management.findall("dependency"):
+            group = _maven_text(_maven_child(dep, "groupId"))
+            artifact = _maven_text(_maven_child(dep, "artifactId"))
+            version = _maven_resolve_property(
+                _maven_text(_maven_child(dep, "version")),
+                properties,
+            )
+            if group and artifact and version:
+                managed_versions[(group, artifact)] = version
+
+    pins = []
+    dependencies = root.find("dependencies")
+    if dependencies is not None:
+        for dep in dependencies.findall("dependency"):
+            group = _maven_text(_maven_child(dep, "groupId"))
+            artifact = _maven_text(_maven_child(dep, "artifactId"))
+            if not group or not artifact:
+                continue
+            version = _maven_resolve_property(
+                _maven_text(_maven_child(dep, "version")),
+                properties,
+            ) or managed_versions.get((group, artifact))
+            if version:
+                pins.append((f"{group}:{artifact}", version, "Maven"))
+
+    modules = root.find("modules")
+    if modules is not None:
+        for module in modules.findall("module"):
+            module_name = _maven_text(module)
+            if not module_name:
+                continue
+            pins.extend(_parse_maven_pom(pom.parent / module_name / "pom.xml", seen))
+    return pins
+
+
+def _parse_maven_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    return _parse_maven_pom(repo_path / "pom.xml", set())
+
+
+def _parse_gemspec_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    pins = []
+    for gemspec in sorted(repo_path.glob("*.gemspec")):
+        for line in gemspec.read_text(encoding="utf-8", errors="ignore").splitlines():
+            match = re.search(
+                r"\.add_(?:runtime_)?dependency\s+['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]",
+                line,
+            )
+            if not match:
+                continue
+            cleaned = _clean_range_version(match.group(2))
+            if cleaned:
+                pins.append((match.group(1), cleaned, "RubyGems"))
+    return pins
+
+
+def _parse_gemfile_lock_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    gemfile_lock = repo_path / "Gemfile.lock"
+    if not gemfile_lock.exists():
+        return _parse_gemspec_pins(repo_path)
+    pins = []
+    in_gem_section = False
+    in_gem_specs = False
+    for line in gemfile_lock.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if line == "GEM":
+            in_gem_section = True
+            in_gem_specs = False
+            continue
+        if line and not line.startswith(" "):
+            in_gem_section = False
+            in_gem_specs = False
+            continue
+        if in_gem_section and line == "  specs:":
+            in_gem_specs = True
+            continue
+        if not in_gem_specs:
+            continue
+        match = re.match(r"^ {4}(\S+) \(([^)]+)\)$", line)
+        if match:
+            pins.append((match.group(1), match.group(2), "RubyGems"))
+    return pins
+
+
+def _parse_composer_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    composer_lock = repo_path / "composer.lock"
+    if composer_lock.exists():
+        try:
+            data = json.loads(composer_lock.read_text(encoding="utf-8", errors="ignore"))
+        except json.JSONDecodeError:
+            data = {}
+        pins = [
+            (pkg["name"], pkg["version"].lstrip("v"), "Packagist")
+            # packages-dev holds the dev-only locked tree (phpunit & co.); a
+            # vulnerable dev dependency is still a real finding.
+            for pkg in [*data.get("packages", []), *data.get("packages-dev", [])]
+            if "name" in pkg and "version" in pkg
+        ]
+        if pins:
+            return pins
+
+    composer_json = repo_path / "composer.json"
+    if not composer_json.exists():
+        return []
+    try:
+        data = json.loads(composer_json.read_text(encoding="utf-8", errors="ignore"))
+    except json.JSONDecodeError:
+        return []
+    pins = []
+    for name, version in {**data.get("require", {}), **data.get("require-dev", {})}.items():
+        if name.lower() == "php":
+            continue
+        cleaned = _clean_range_version(version)
+        if cleaned:
+            pins.append((name, cleaned, "Packagist"))
+    return pins
+
+
+def _xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xml_children(element: ElementTree.Element, name: str) -> list[ElementTree.Element]:
+    return [child for child in list(element) if _xml_local_name(child.tag) == name]
+
+
+def _xml_descendants(element: ElementTree.Element, name: str) -> list[ElementTree.Element]:
+    return [child for child in element.iter() if _xml_local_name(child.tag) == name]
+
+
+def _parse_directory_package_versions(repo_path: Path) -> dict[str, str]:
+    props = repo_path / "Directory.Packages.props"
+    if not props.exists():
+        return {}
+    try:
+        root = ElementTree.fromstring(props.read_text(encoding="utf-8", errors="ignore"))
+    except ElementTree.ParseError:
+        return {}
+    versions = {}
+    for package in _xml_descendants(root, "PackageVersion"):
+        name = package.attrib.get("Include") or package.attrib.get("Update")
+        version = package.attrib.get("Version")
+        if name and version:
+            versions[name] = version
+    return versions
+
+
+def _parse_nuget_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    lock_file = repo_path / "packages.lock.json"
+    if lock_file.exists():
+        try:
+            data = json.loads(lock_file.read_text(encoding="utf-8", errors="ignore"))
+        except json.JSONDecodeError:
+            data = {}
+        pins = []
+        for framework_deps in data.get("dependencies", {}).values():
+            for name, details in framework_deps.items():
+                resolved = details.get("resolved")
+                if resolved:
+                    pins.append((name, resolved, "NuGet"))
+        if pins:
+            return pins
+
+    central_versions = _parse_directory_package_versions(repo_path)
+    pins = []
+    for project_file in sorted(repo_path.rglob("*.csproj")):
+        try:
+            root = ElementTree.fromstring(project_file.read_text(encoding="utf-8", errors="ignore"))
+        except ElementTree.ParseError:
+            continue
+        for package in _xml_descendants(root, "PackageReference"):
+            name = package.attrib.get("Include") or package.attrib.get("Update")
+            version = package.attrib.get("Version") or central_versions.get(name)
+            if name and version:
+                pins.append((name, version, "NuGet"))
+    return pins
+
+
+_GRADLE_DEPENDENCY_CONFIGURATIONS = {
+    "implementation", "api", "compileOnly", "runtimeOnly",
+    "testImplementation", "testApi", "testCompileOnly", "testRuntimeOnly",
+    "androidTestImplementation", "kapt", "ksp",
+}
+
+# Coordinates resolve through the same Maven Central repository Java's
+# pom.xml already targets - Gradle just has two different Kotlin/Groovy
+# syntaxes for declaring the same "group:artifact:version" triple. "Maven"
+# here is deliberate, not a typo for a Gradle-specific ecosystem string:
+# confirmed against OSV.dev's own ecosystem list, which has no separate
+# "Gradle" entry - Gradle dependencies ARE Maven coordinates.
+_GRADLE_ECOSYSTEM = "Maven"
+
+
+def _kotlin_navigation_segments(node: Node, source: bytes) -> list[str] | None:
+    """Flattens a (possibly nested) navigation_expression like
+    `libs.androidx.annotation` into ["libs", "androidx", "annotation"].
+    Returns None for anything that isn't a plain dotted-identifier chain
+    (a method call in the middle, an indexing expression, etc.) rather
+    than guessing - an unresolvable catalog reference should be skipped,
+    not silently mis-resolved.
+    """
+    if node.type == "identifier":
+        return [source[node.start_byte:node.end_byte].decode(errors="ignore")]
+    if node.type != "navigation_expression":
+        return None
+    children = [c for c in node.children if c.type != "."]
+    if len(children) != 2:
+        return None
+    left, right = children
+    left_segments = _kotlin_navigation_segments(left, source)
+    if left_segments is None or right.type != "identifier":
+        return None
+    return left_segments + [source[right.start_byte:right.end_byte].decode(errors="ignore")]
+
+
+def _parse_gradle_version_catalog(repo_path: Path) -> dict[str, tuple[str, str, str | None]]:
+    """Parses gradle/libs.versions.toml's [libraries] table into
+    {dotted-accessor-key: (group, artifact, version-or-None)}, matching
+    the real accessor Kotlin/Groovy code actually calls (e.g. TOML key
+    "androidx-annotation" -> code accessor libs.androidx.annotation) -
+    confirmed empirically against a real catalog (android/architecture-
+    samples), not assumed from the Gradle docs. Every [libraries] entry
+    key is hyphen-separated; the generated accessor dot-separates the
+    same segments, so the accessor's segments after "libs" rejoin with
+    "-" to become the lookup key back into this dict.
+    version is None when the entry gives a plain "version" field pointing
+    at something other than version.ref, or omits it (a BOM-managed
+    dependency) - such an entry is real but not usable as an OSV.dev pin
+    without a resolvable version, so callers must skip it rather than
+    invent one.
+    """
+    catalog_path = repo_path / "gradle" / "libs.versions.toml"
+    if not catalog_path.exists():
+        return {}
+    try:
+        data = tomllib.loads(catalog_path.read_text(encoding="utf-8", errors="ignore"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return {}
+    versions = data.get("versions", {}) or {}
+    libraries = data.get("libraries", {}) or {}
+    catalog: dict[str, tuple[str, str, str | None]] = {}
+    for key, entry in libraries.items():
+        if not isinstance(entry, dict):
+            continue
+        group = entry.get("group")
+        artifact = entry.get("name")
+        if not group or not artifact:
+            # The other real libs.versions.toml shape: a bare "module"
+            # string ("androidx.core:core-ktx") instead of split
+            # group/name fields - both are real, seen in the wild.
+            module = entry.get("module")
+            if isinstance(module, str) and ":" in module:
+                group, artifact = module.split(":", 1)
+            else:
+                continue
+        version_ref = entry.get("version")
+        if isinstance(version_ref, dict):
+            version = versions.get(version_ref.get("ref"))
+        elif isinstance(version_ref, str):
+            version = version_ref
+        else:
+            version = None
+        catalog[key.replace(".", "-")] = (group, artifact, version)
+    return catalog
+
+
+def _parse_gradle_kts_pins(
+    build_file: Path, catalog: dict[str, tuple[str, str, str | None]]
+) -> list[tuple[str, str, str]]:
+    """build.gradle.kts, parsed as real Kotlin source via tree_sitter_kotlin
+    (the same grammar graph.py uses) - AST-based, matching this codebase's
+    standard, not a regex over Kotlin source. Two real dependency-
+    declaration shapes exist and both are handled: a direct string literal
+    ("group:artifact:version"), and a version-catalog accessor
+    (libs.androidx.annotation) resolved against catalog. Confirmed via a
+    real repo (android/architecture-samples) that the catalog form is the
+    dominant one in modern Gradle projects, not a rare corner case - a
+    parser that only handled string literals would resolve close to zero
+    real dependencies there.
+    """
+    try:
+        from aletheore.scanner.graph import KOTLIN_LANGUAGE
+        from tree_sitter import Parser as _TSParser
+    except ImportError:
+        return []
+    try:
+        source = build_file.read_bytes()
+    except OSError:
+        return []
+    parser = _TSParser(KOTLIN_LANGUAGE)
+    tree = parser.parse(source)
+
+    pins: list[tuple[str, str, str]] = []
+
+    # Iterative, not recursive - same class of fix as graph.py's walk() and
+    # endpoints.py's extractors: a deeply nested build.gradle.kts (long
+    # chained/parenthesized expressions are valid Kotlin) can otherwise blow
+    # past Python's recursion limit and crash the whole scan.
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "call_expression":
+            # No field names on this grammar's call_expression at all
+            # (confirmed empirically: child_by_field_name("function") and
+            # ("arguments") both return None) - children are purely
+            # positional: identifier, then value_arguments (when the call
+            # has parenthesized args at all - a trailing-lambda-only call
+            # like `get { ... }` has no value_arguments child, correctly
+            # excluded here since dependency declarations always use
+            # parens).
+            func = node.children[0] if node.children and node.children[0].type == "identifier" else None
+            if func is not None:
+                name = source[func.start_byte:func.end_byte].decode(errors="ignore")
+                if name in _GRADLE_DEPENDENCY_CONFIGURATIONS:
+                    args = next((c for c in node.children if c.type == "value_arguments"), None)
+                    if args is not None:
+                        for arg in args.named_children:
+                            value = arg.named_children[0] if arg.type == "value_argument" and arg.named_children else arg
+                            if value.type == "string_literal":
+                                content = next((c for c in value.children if c.type == "string_content"), None)
+                                if content is not None:
+                                    text = source[content.start_byte:content.end_byte].decode(errors="ignore")
+                                    parts = text.split(":")
+                                    if len(parts) == 3:
+                                        pins.append((f"{parts[0]}:{parts[1]}", parts[2], _GRADLE_ECOSYSTEM))
+                            else:
+                                segments = _kotlin_navigation_segments(value, source)
+                                if segments and segments[0] == "libs" and len(segments) > 1:
+                                    key = "-".join(segments[1:])
+                                    resolved = catalog.get(key)
+                                    if resolved and resolved[2]:
+                                        group, artifact, version = resolved
+                                        pins.append((f"{group}:{artifact}", version, _GRADLE_ECOSYSTEM))
+        stack.extend(reversed(node.children))
+
+    return pins
+
+
+_GRADLE_GROOVY_STRING_DEP_RE = re.compile(
+    r"""\b(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testApi|
+    androidTestImplementation|kapt|ksp)\s*[( ]\s*['"]([^:'"]+):([^:'"]+):([^'"]+)['"]""",
+    re.VERBOSE,
+)
+
+
+def _parse_gradle_groovy_pins(build_file: Path) -> list[tuple[str, str, str]]:
+    """build.gradle (Groovy DSL) - deliberately regex-based, not a real
+    parse. There is no tree-sitter-groovy grammar among this project's
+    dependencies, and adding one would mean building full Groovy language
+    support (a much bigger task than parsing Gradle manifests) just to
+    read dependency declarations. This only catches the direct string-
+    literal coordinate shape, not version-catalog accessors (Groovy's
+    `libs.androidx.annotation` needs real parsing to distinguish from
+    surrounding code the way the .kts AST walk above does safely) - a
+    narrower, explicitly acknowledged heuristic, not full coverage.
+    """
+    try:
+        text = build_file.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    pins = []
+    for match in _GRADLE_GROOVY_STRING_DEP_RE.finditer(text):
+        group, artifact, version = match.groups()
+        pins.append((f"{group}:{artifact}", version, _GRADLE_ECOSYSTEM))
+    return pins
+
+
+def _gradle_included_subprojects(repo_path: Path) -> list[str]:
+    """Real subproject paths from settings.gradle(.kts)'s include(...)
+    calls, e.g. include(":app") -> "app", include(":core:data") ->
+    "core/data" - a plain regex over the settings file text is enough
+    here (unlike dependency declarations, an include(...) argument is
+    always a simple string literal in practice, never a catalog
+    reference), confirmed against a real multi-module repo (android/
+    architecture-samples, which includes :app and :shared-test).
+    """
+    subprojects = []
+    for name in ("settings.gradle.kts", "settings.gradle"):
+        settings_file = repo_path / name
+        if not settings_file.exists():
+            continue
+        text = settings_file.read_text(encoding="utf-8", errors="ignore")
+        for match in re.finditer(r"""include\s*\(\s*['"]([^'"]+)['"]""", text):
+            path = match.group(1).lstrip(":").replace(":", "/")
+            if path:
+                subprojects.append(path)
+    return subprojects
+
+
+def _parse_gradle_pins(repo_path: Path) -> list[tuple[str, str, str]]:
+    catalog = _parse_gradle_version_catalog(repo_path)
+    build_dirs = [repo_path] + [repo_path / sub for sub in _gradle_included_subprojects(repo_path)]
+    pins: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for build_dir in build_dirs:
+        for filename, is_kts in (("build.gradle.kts", True), ("build.gradle", False)):
+            build_file = build_dir / filename
+            if not build_file.exists():
+                continue
+            found = (
+                _parse_gradle_kts_pins(build_file, catalog)
+                if is_kts
+                else _parse_gradle_groovy_pins(build_file)
+            )
+            for pin in found:
+                if pin not in seen:
+                    seen.add(pin)
+                    pins.append(pin)
+    return pins
+
+
+def _query_batch(pins: list[tuple[str, str, str]], timeout: int) -> list[dict]:
+    queries = [
+        {
+            "package": {"name": name, "ecosystem": ecosystem},
+            **({} if version == "*" else {"version": version}),
+        }
+        for name, version, ecosystem in pins
+    ]
+    body = json.dumps({"queries": queries}).encode("utf-8")
+    request = urllib.request.Request(
+        OSV_BATCH_URL, data=body, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    with urllib.request.urlopen(request, timeout=timeout, context=_SSL_CONTEXT) as response:
+        return json.loads(response.read())["results"]
+
+
+def _fetch_vuln_detail(vuln_id: str, timeout: int) -> dict:
+    request = urllib.request.Request(OSV_VULN_URL_TEMPLATE.format(vuln_id=vuln_id))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=_SSL_CONTEXT) as response:
+            return json.loads(response.read())
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+        # One advisory's detail lookup failing isn't the same as the whole
+        # check being unreachable - same reasoning as _fetch_one_license in
+        # licenses.py. The caller still reports the finding, just without
+        # a summary/severity.
+        return {}
+
+
+def _vulnerability_cache_key(ecosystem: str, name: str, version: str) -> str:
+    return f"{ecosystem}|{name}|{version}"
+
+
+def _load_vulnerability_cache(cache_path: Path) -> dict[str, dict]:
+    try:
+        return json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+
+
+def _save_vulnerability_cache(cache_path: Path, cache: dict[str, dict]) -> None:
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache), encoding="utf-8")
+    except (OSError, UnicodeEncodeError):
+        # Best-effort: a failure to persist the cache must never fail the
+        # vulnerability check itself. OSV advisory text (summaries,
+        # descriptions) is arbitrary and not ASCII-only, so this needs the
+        # same explicit-encoding pin as the AIR evidence pair - and, since
+        # this cache's own comment already promises "must never fail",
+        # UnicodeEncodeError/UnicodeDecodeError need to be caught
+        # alongside OSError, not just implicitly avoided by pinning utf-8.
+        pass
+
+
+def check_vulnerabilities(
+    repo_path: Path,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    cache_path: Path | None = None,
+) -> dict:
+    # Resolved inside the function body so a test monkeypatching
+    # DEFAULT_VULNERABILITY_CACHE_PATH actually takes effect - see the
+    # matching comment in licenses.py's check_dependency_licenses.
+    if cache_path is None:
+        cache_path = DEFAULT_VULNERABILITY_CACHE_PATH
+    try:
+        pins = (
+            _parse_pip_pins(repo_path)
+            + _parse_npm_pins(repo_path)
+            + _parse_go_pins(repo_path)
+            + _parse_cargo_pins(repo_path)
+            + _parse_maven_pins(repo_path)
+            + _parse_gemfile_lock_pins(repo_path)
+            + _parse_composer_pins(repo_path)
+            + _parse_nuget_pins(repo_path)
+            + _parse_gradle_pins(repo_path)
+            + _parse_swift_package_resolved_pins(repo_path)
+        )
+    except OSError as exc:
+        # Same "degrade this one section, not the whole scan" shape as the
+        # OSV.dev-unreachable case below, extended to cover the manifest
+        # reads above it: none of the _parse_*_pins() functions guard their
+        # own read_text()/read_bytes() calls (a manifest's exists() check
+        # followed by a separate read is a real TOCTOU race on any OS, and
+        # on Windows a manifest path can also fail this way if it exceeds
+        # the legacy MAX_PATH limit), so a failure here used to crash the
+        # whole scan instead of just leaving vulnerability data unavailable.
+        return {
+            "checked": False,
+            "reason": f"could not read a dependency manifest: {exc}",
+            "findings": [],
+        }
+    if not pins:
+        return {"checked": True, "reason": None, "findings": []}
+
+    cache = _load_vulnerability_cache(cache_path)
+    now = time.time()
+
+    results: list[dict | None] = [None] * len(pins)
+    uncached_indices: list[int] = []
+    uncached_pins: list[tuple[str, str, str]] = []
+    for index, (name, version, ecosystem) in enumerate(pins):
+        key = _vulnerability_cache_key(ecosystem, name, version)
+        cached = cache.get(key)
+        if cached is not None and now - cached.get("cached_at", 0) < _VULNERABILITY_CACHE_TTL_SECONDS:
+            results[index] = cached["result"]
+        else:
+            uncached_indices.append(index)
+            uncached_pins.append((name, version, ecosystem))
+
+    if uncached_pins:
+        try:
+            fresh_results = _query_batch(uncached_pins, timeout)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return {
+                "checked": False,
+                "reason": f"OSV.dev unreachable or timed out: {exc}",
+                "findings": [],
+            }
+        for index, (name, version, ecosystem), result in zip(
+            uncached_indices, uncached_pins, fresh_results
+        ):
+            results[index] = result
+            cache[_vulnerability_cache_key(ecosystem, name, version)] = {
+                "result": result,
+                "cached_at": now,
+            }
+        _save_vulnerability_cache(cache_path, cache)
+
+    vuln_entries: list[tuple[str, str, str, dict]] = [
+        (name, version, ecosystem, vuln)
+        for (name, version, ecosystem), result in zip(pins, results)
+        for vuln in result.get("vulns", [])
+    ]
+    if not vuln_entries:
+        return {"checked": True, "reason": None, "findings": []}
+
+    # Each advisory detail is an independent blocking HTTP call - a thread
+    # pool overlaps their network wait instead of paying it serially, same
+    # fix as check_dependency_licenses' per-package lookups in licenses.py.
+    # Submitted individually (not executor.map, which blocks later results
+    # behind an earlier stuck one) with a per-future wall-clock timeout, for
+    # the same reasons as LICENSE_FETCH_WALL_CLOCK_TIMEOUT_SECONDS.
+    executor = ThreadPoolExecutor(max_workers=VULN_DETAIL_FETCH_CONCURRENCY)
+    try:
+        futures = [executor.submit(_fetch_vuln_detail, vuln["id"], timeout) for *_, vuln in vuln_entries]
+        details = []
+        for future in futures:
+            try:
+                details.append(future.result(timeout=VULN_DETAIL_FETCH_WALL_CLOCK_TIMEOUT_SECONDS))
+            except FutureTimeoutError:
+                details.append({})
+    finally:
+        executor.shutdown(wait=False)
+
+    findings = []
+    for (name, version, ecosystem, vuln), detail in zip(vuln_entries, details):
+        summary = detail.get("summary") or (detail.get("details") or "")[:200]
+        findings.append(
+            {
+                "ecosystem": ecosystem,
+                "package": name,
+                "installed_version": version,
+                "advisory_id": vuln["id"],
+                "summary": summary,
+                "severity": detail.get("severity", []),
+            }
+        )
+
+    return {"checked": True, "reason": None, "findings": findings}
+
+
+# CVSS v3.1 base-score metric weights (NVD/FIRST spec) - see
+# https://www.first.org/cvss/v3-1/specification-document#7-1-Base-Metrics-Equations
+_CVSS3_AV = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
+_CVSS3_AC = {"L": 0.77, "H": 0.44}
+_CVSS3_PR_UNCHANGED = {"N": 0.85, "L": 0.62, "H": 0.27}
+_CVSS3_PR_CHANGED = {"N": 0.85, "L": 0.68, "H": 0.5}
+_CVSS3_UI = {"N": 0.85, "R": 0.62}
+_CVSS3_CIA = {"H": 0.56, "L": 0.22, "N": 0.0}
+
+_SEVERITY_ORDER = ("critical", "high", "medium", "low")
+
+
+def _cvss3_base_score(vector: str) -> float | None:
+    """Parses a CVSS v3.x vector string (e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/
+    S:U/C:N/I:N/A:H") and computes the base score per the official formula.
+    Returns None if the vector is missing any required metric or uses a
+    value this parser doesn't recognize - callers treat that the same as
+    "no severity data," never as a guess."""
+    metrics: dict[str, str] = {}
+    for segment in vector.split("/"):
+        if ":" in segment and not segment.startswith("CVSS"):
+            key, _, value = segment.partition(":")
+            metrics[key] = value
+
+    try:
+        av = _CVSS3_AV[metrics["AV"]]
+        ac = _CVSS3_AC[metrics["AC"]]
+        ui = _CVSS3_UI[metrics["UI"]]
+        scope_changed = metrics["S"] == "C"
+        pr = (_CVSS3_PR_CHANGED if scope_changed else _CVSS3_PR_UNCHANGED)[metrics["PR"]]
+        c = _CVSS3_CIA[metrics["C"]]
+        i = _CVSS3_CIA[metrics["I"]]
+        a = _CVSS3_CIA[metrics["A"]]
+    except KeyError:
+        return None
+
+    exploitability = 8.22 * av * ac * pr * ui
+    iss = 1 - ((1 - c) * (1 - i) * (1 - a))
+    if scope_changed:
+        impact = 7.52 * (iss - 0.029) - 3.25 * (iss - 0.02) ** 15
+    else:
+        impact = 6.42 * iss
+
+    if impact <= 0:
+        return 0.0
+
+    raw = 1.08 * (impact + exploitability) if scope_changed else impact + exploitability
+    # CVSS "roundup": round to one decimal, always rounding up (not
+    # to-nearest) - e.g. 4.02 becomes 4.1, not 4.0.
+    return min(math.ceil(min(raw, 10.0) * 10) / 10, 10.0)
+
+
+def normalize_severity(osv_severity: list[dict]) -> str | None:
+    """osv_severity is OSV's raw severity list: [{"type": "CVSS_V3", "score":
+    "<vector string>"}, ...] (possibly also CVSS_V4 or other types this
+    doesn't parse). Finds the first CVSS_V3 entry, computes its base score,
+    and buckets it using the standard NVD qualitative rating scale. Returns
+    None - not a guessed severity - when there's no parseable CVSS_V3 entry,
+    so callers never treat "we don't know" as "this is low severity."""
+    for entry in osv_severity or []:
+        if entry.get("type") != "CVSS_V3":
+            continue
+        score = _cvss3_base_score(entry.get("score", ""))
+        if score is None:
+            continue
+        if score >= 9.0:
+            return "critical"
+        if score >= 7.0:
+            return "high"
+        if score >= 4.0:
+            return "medium"
+        return "low"
+    return None
+
+
+def filter_by_severity(findings: list[dict], threshold: str | None) -> list[dict]:
+    """threshold=None (no severity_threshold configured) returns findings
+    unchanged. Otherwise keeps findings whose normalize_severity() is at or
+    above threshold in the critical > high > medium > low ordering. A
+    finding with no derivable severity is always kept - absence of CVSS
+    data is not the same as low severity, and dropping it would silently
+    hide a real finding rather than just declining to prioritize it."""
+    if threshold is None:
+        return findings
+    threshold_index = _SEVERITY_ORDER.index(threshold)
+    kept = []
+    for finding in findings:
+        severity = normalize_severity(finding.get("severity", []))
+        if severity is None or _SEVERITY_ORDER.index(severity) <= threshold_index:
+            kept.append(finding)
+    return kept

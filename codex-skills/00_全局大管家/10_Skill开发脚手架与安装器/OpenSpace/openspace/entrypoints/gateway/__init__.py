@@ -1,0 +1,2 @@
+"""Communication gateway adapter package."""
+

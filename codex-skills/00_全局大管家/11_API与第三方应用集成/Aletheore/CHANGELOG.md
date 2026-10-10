@@ -1,0 +1,1613 @@
+# Changelog
+
+Notable changes to Aletheore, by release. The working code lives in `src/` — see
+[`src/README.md`](src/README.md) for the full command reference.
+
+## 0.9.26 - 2026-10-09
+
+**Fixed: semgrep never ran from a pip install (#1007)**
+
+The published wheel left out `static_analysis/semgrep_rules/*.yaml` and the Joern query file, because the
+package-data list in `pyproject.toml` did not name them. `check_semgrep` still passed that missing folder to
+semgrep with `--config`, so semgrep exited with an error and the whole semgrep step was reported as "did not
+run", including the registry rules. This affected every `pip install` of the CLI since the custom rules were
+added on 2026-09-21. Running from a source checkout was not affected.
+
+- The rules and the Joern query now ship in the wheel, and a test fails if any data file under
+  `src/aletheore` is missing from the package-data list.
+- If the rules folder is ever missing or empty, semgrep now runs with the registry rules alone and logs a
+  warning, instead of failing.
+- New switch: `ALETHEORE_DISABLE_SEMGREP=1` skips semgrep and reports it as disabled.
+
+**Hosted scans are unchanged.** Semgrep measured about 270 seconds on a large repository and its timeout
+scales up to 30 minutes, so the hosted worker keeps it off and now says "semgrep disabled" instead of reporting
+an error. Operators can opt in with `ALETHEORE_HOSTED_ENABLE_SEMGREP` set to `1`, `true`, `yes` or `on`; any
+other value logs a warning that it is not understood and leaves it off.
+
+## 0.9.25 - 2026-10-09
+
+**Fixed: a capped git history could be reported as complete (#1002)**
+
+Local scans keep a graph of git history in `.aletheore/graph.db`. Since 0.9.23 that graph stops at the latest
+50,000 commits by default, and later scans never fill in older commits. But `history_depth_limited` was worked
+out from the cap the current scan asked for, not from what the graph actually held. So after a capped scan, a
+later scan with the cap raised or removed (`ALETHEORE_GIT_HISTORY_DEPTH_CAP=0`) reported the history as complete
+while hotspots and ownership were still computed from the capped part. Reproduced on a 1,559-commit repository:
+a graph built with a cap of 100 reported `history_depth_limited: false` on the next uncapped scan while holding
+100 of the 1,559 commits.
+
+It now compares the number of commits the graph really holds against the repository's total, so the flag stays
+true until the graph is complete. To get full history after a capped scan, delete `.aletheore/graph.db` and scan
+again with the cap removed. Repositories that were never capped, including ones with merge commits and bot
+authors, report exactly what they did before.
+
+**Changed: the in-memory file-hash cache has a size limit (#1002)**
+
+The cache that remembers file hashes for the per-file result cache kept an entry for every path a process ever
+scanned. A long-running process such as `aletheore mcp`, scanning changing checkouts, now keeps the most recent
+200,000 entries and drops the oldest first. A repository under that size behaves as before, and a lookup that
+races with another scan can no longer crash it.
+
+## 0.9.24 - 2026-10-09
+
+**Fixed: a killed parse worker no longer loses the whole scan, or hides a secret (#998)**
+
+Large repositories are parsed by a pool of worker processes. If one of them was killed outright (the
+out-of-memory killer, `SIGKILL`, a segfault) the scan used to abort with `BrokenProcessPool` and throw away
+every result it had already collected. It now keeps what finished and retries only the unfinished files in a
+fresh pool with half as many workers, which recovers the usual memory-pressure kill with a real result for every
+file. If a single worker still keeps dying:
+
+- the module graph lists the affected files as unparseable, which the output already shows;
+- the secret scan and the error-handling scan stop with an error instead of carrying on.
+
+That last point is deliberate. A first version of this fix reported the unfinished files as having no findings.
+Those two stages cache their result per file, so a file whose worker died could be recorded as clean and stay
+clean on every later scan, with a real secret in it. A scan that cannot finish now says so instead.
+
+**Fixed: `find_secrets` with a relative repository path (#991)**
+
+`find_secrets(Path("."))` dropped the first characters of the first file's path, which corrupted that file's
+cache key and the `path` on its findings. It now resolves the path first. `aletheore scan` was not affected,
+since it already passes an absolute path; this matters to anyone calling `find_secrets` directly.
+
+**Also**
+
+- Removed an unused `import re` from `cli.py` (#995).
+
+## 0.9.23 - 2026-10-09
+
+**Crash reporting, on by default, easy to turn off (#961, #984)**
+
+When the CLI itself crashes with an unhandled exception, it now sends a crash report so bugs that only
+show up on some operating systems or Python versions can be found and fixed. This is the first time the
+CLI sends anything off the machine on its own, so, plainly:
+
+- **What is sent:** the exception details and stack trace, the Aletheore, OS and Python versions, and
+  recent log lines. Your home directory is replaced with `~`. Command-line arguments, the machine name,
+  local variables and request data are removed before anything leaves the process.
+- **When:** only on a crash. No usage events, no timing, no performance tracing, and no repository
+  contents are attached. An exception message can still name a file or path from the project you
+  were scanning, which is why it is easy to turn off.
+- **Turn it off:** `aletheore config crash-reporting off`, or set `ALETHEORE_CRASH_REPORTING=0` (also
+  `false`, `no`, `off`). `aletheore status` shows the current state, and `aletheore config
+  crash-reporting on` turns it back on.
+- **You are told:** a one-time notice on first run, and a line after every crash that was reported.
+  Both go to stderr, so piped or redirected output stays clean.
+
+**Faster scans on large repositories (#985, #922, #959)**
+
+`aletheore scan` finds the same things, in the same order, in much less time on big repos. Measured
+back to back on one machine with the same history caps on both sides:
+
+| Repository | Cold scan | Re-scan | `air.json` |
+| --- | --- | --- | --- |
+| Linux kernel | 738s to 306s | 740s to 149s | 1.32 GB to 467 MB |
+| vscode | 332s to 227s | 267s to 133s | 38% smaller |
+| django | 69s to 40s | 62s to 29s | 56% smaller |
+| thrift | about 50s to 25s | 38-53s to 12-17s | 50% smaller |
+| prometheus | 98s to 80s | 50s to 37s | 49% smaller |
+| spring-boot | 686s to 732s | 83s to 59s | 40% smaller |
+
+spring-boot's first scan is the one case that got slightly slower; every re-scan got faster.
+
+- **A per-file cache** (`.aletheore/file-cache.db`, keyed by content hash and code version) lets
+  unchanged files reuse their secrets, error-handling and line-count results. Whole-history git facts
+  are kept up to date incrementally in `.aletheore/git-meta.json`. Both are local-only: they are off in
+  the hosted worker and whenever `ALETHEORE_DISABLE_LOCAL_SCAN_CACHE` is set.
+- **Stages overlap**: git analysis, secrets history, vulnerability and license lookups now run alongside
+  the parse, error handling and working-tree secrets run across cores, and the default static analyzers
+  run side by side. Set `ALETHEORE_DISABLE_PARALLEL_PARSE` to keep everything sequential.
+- **Smaller evidence**: `air.json` is written as compact JSON and symbol entries leave out empty
+  fields (evidence 0.8.1, documented in `docs/AIR-SCHEMA.md`). Every reader checked gives the same
+  output from both shapes.
+
+**Changed: local scans now cap history by default (#985)**
+
+A local scan used to walk the entire git history. It now stops at the latest 50,000 commits for
+hotspots and ownership, and the latest 20,000 for the secrets-history sweep, the same caps the hosted
+scanner already used. The Linux kernel has about 1.46 million commits, so this is what makes a first
+scan finish. Evidence says so with `history_depth_limited` when a cap applied. **If you rely on finding
+a secret committed long ago in a very large repository, remove the cap:** set
+`ALETHEORE_GIT_HISTORY_DEPTH_CAP` and `ALETHEORE_SECRETS_HISTORY_DEPTH_CAP` to `0` or `none`.
+
+**Added: error-handling evidence (#911)**
+
+The scan now records how a codebase fails: the error types it defines, where they are raised or thrown,
+and what catches them, each with a `file:line`, for Python, C/C++, JavaScript/TypeScript, Java, C#, PHP,
+Kotlin, Ruby, Swift, Go and Rust (`repository.error_handling`, evidence 0.8.0, optional so older
+`air.json` stays valid). It is available as the `aletheore_error_handling` MCP tool (35 tools by
+default now) and as `aletheore query error-handling`.
+
+**Cheaper `audit` runs (#909)**
+
+A single read of a large evidence section could return about a million characters, and the model
+re-sent the whole conversation every round, so one audit used 4.5 to 4.9 million input tokens. Sections
+over 30,000 characters now come back as an outline or the first page of a list, with the exact path to
+read next, and nothing becomes unreachable. Measured on the same repository: input tokens 4.5-4.9M to
+0.8-0.9M, and about $0.50 to about $0.09 at list price per audit.
+
+**Fixed: scan correctness**
+
+- The C/C++ error-handling fallback rebuilt a set of every class once per file with a parse error. On
+  the kernel it was projected at about 4.8 hours; it is now linear (#985).
+- `history_depth_limited` was lost on warm and incremental scans, so a capped history looked complete
+  (#985). `.ts` and `.tsx` files shared one parser cache entry and could lose a handler's function name
+  or miscount throw sites (#985).
+- Dependency scanning: nested npm lockfile dependencies were invisible (#934), a legacy npm lockfile v1
+  was read as empty (#938), Maven property chains were resolved only one level deep (#939), and
+  Composer dev dependencies were never scanned (#940).
+- Git analysis: rewritten history no longer double-counts churn and ownership (#937), deleted files no
+  longer rank as hotspots (#950), shallow clones no longer report a wrong repository age (#951), a
+  renamed file keeps its history under its new name (#977), `stream_commit_touches` could deadlock when
+  git wrote a lot to stderr (#956), and an unbounded read of a huge `.rb` file during architecture
+  analysis is now bounded (#957).
+- Citation checking: `host:port` strings no longer break verification (#935), and a citation to a real
+  `.in`, `.test`, `.app` or `.dev` file is no longer dropped as a hostname (#979).
+- Long random numeric tokens were misclassified as placeholders by the secret scanner (#936), Rails
+  routes inside `namespace` and `scope` got the wrong URL path (#920), and unrelated CVEs were attached
+  as risk context to endpoints that could not be resolved (#944).
+- Regex search: the time budget no longer counts the worker's startup, and its ready signal can no
+  longer be starved by the regex it is about to run, which caused an intermittent `KeyError: 'matches'`
+  (#965, #970).
+- Two MCP tool error paths: the `changes` snapshot blamed the wrong snapshot, and an empty `path_glob`
+  crashed (#942). The OpenAI adapter leaked a spend reservation on a missing key and raised
+  `IndexError` on an empty `choices` list (#941, and the same latent gap closed in the Anthropic adapter
+  in #981).
+
+**Fixed: command-line robustness (#914)**
+
+A cross-platform audit of the CLI closed a long list of rough edges:
+
+- A bad `PATH`, a file given as `PATH`, or a directory given as evidence now gives a one-line error
+  instead of a traceback, across `scan`, `audit`, `init`, `watch`, `index`, `mcp`, `mcp-install`,
+  `dashboard`, `healthcheck`, `verify` and `diff`.
+- `dashboard` validates `--port`, binds exclusively on Windows and opens the browser only after the
+  server is up. `mcp-install` handles BOM and JSONC configs, `aletheore.exe`, the MSIX Claude Desktop
+  path and Windows symlinks, and warns that the files it writes hold machine-specific paths.
+- A closed stdin (CI, pipes) no longer crashes consent prompts, and login and managed audit handle
+  network errors (the managed-audit client timeout went from 5s to 60s).
+- Credentials use `getpass` for key entry, keep a `.bak` of an unparseable file, no longer fail at
+  import without a home directory, and honour `XDG_CONFIG_HOME`.
+- `watch` no longer sets inotify watches under `node_modules`, `.git` or virtual environments, and
+  says so clearly when the watch limit is hit.
+- The update check can be turned off with `ALETHEORE_NO_UPDATE_CHECK`, no longer reports an update to
+  a newer development build, and no longer crashes when run from source.
+
+**Also**
+
+- `aletheore verify` handles an unreadable or non-UTF-8 report file, evidence reads retry on a
+  transient Windows `PermissionError`, and the remaining MCP tools catch evidence and query errors
+  instead of crashing (#851, #852, #853, #847).
+- The local dashboard uses the Aletheore mark as its favicon (#916).
+- The `python-toon` requirement now allows `<0.3` (#926).
+
+## 0.9.22 - 2026-09-27
+
+**Python 3.13 and 3.14 are supported (#840)**
+
+`pip install aletheore` failed on Python 3.14 (the default `python3` from Homebrew on macOS) with a
+bare "No matching distribution found", because the package was capped below 3.14. The cap dated from
+a tree-sitter crash in `aletheore_ast_pattern` that turned out to be probabilistic and not specific
+to 3.14; running each batch of files in its own worker process contains it on every version, and the
+cap was never lifted afterwards. It is now `>=3.11,<3.15`. Verified on Python 3.14 with repeated
+searches over about 7,200 files, a real scan, and the whole test suite. CI now runs 3.11 to 3.14 on
+Linux, 3.12 and 3.14 on Windows, and 3.12 and 3.14 on macOS.
+
+**`aletheore mcp` keeps evidence current in the background (#841)**
+
+Evidence is a snapshot of the last scan, so an agent driving the server used to answer from a
+repository that had since changed. The server now re-scans a few seconds after source files stop
+changing, and says so on stderr when it starts. It is on by default. Turn it off with
+`aletheore mcp --no-watch` or `ALETHEORE_MCP_WATCH=0`.
+
+- It needs the `write` permission (the one `aletheore_scan` needs) and existing evidence; the first
+  `aletheore_scan` starts it otherwise.
+- The background re-scan skips the slow checks (dependency vulnerabilities and licenses, git history,
+  static analysis, architecture clustering, hotspots) and reuses the last full scan's values for them.
+  Run `aletheore scan` to refresh those too.
+- One re-scan runs at a time, after a 5 second quiet period. It does not start above 5,000 source
+  files, and only one watcher runs per repository even when several agent sessions are open.
+- On filesystems that cannot take file locks it still watches; evidence writes are atomic, so the
+  worst case is a duplicate re-scan.
+- Everything it prints goes to stderr, so stdout stays the MCP transport.
+
+**Fixed: `air.json` could be read half-written**
+
+Evidence was written by truncating the file and then filling it in, so a reader that opened it in
+between (an agent's tool call, the dashboard, a second process) saw a truncated file and a JSON error
+unrelated to the repository. It is now written to a temporary file and renamed into place. On Windows,
+where an open reader blocks the rename, it retries for about a second and then falls back to writing in
+place, so a scan never fails because of a reader.
+
+**Docs**
+
+The tool counts in the READMEs were out of date. `aletheore mcp` registers 34 tools by default, 30 with
+every effect class withheld, and 35 with everything permitted (36 with `--agent`).
+
+## 0.9.21 - 2026-09-26
+
+**Evidence schema 0.7.0: re-run `aletheore scan` after upgrading**
+
+`git.recently_updated` (files ranked by their most recent commit, repo-wide) is now part of the
+evidence, and every hotspot entry carries a `last_commit_at`. This is a schema addition, so
+`EVIDENCE_VERSION` moves from 0.6.0 to 0.7.0. An `air.json` written by an earlier release is
+refused with a clear "re-run `aletheore scan`" message rather than being read half-way; one
+re-scan refreshes it.
+
+**New MCP tool: `aletheore_symbol_path` (#837)**
+
+Answers "is there an evidence-backed path from symbol A to symbol B?". Within one file it checks
+the calling symbol's own body for a call to the target and reports a confirmed answer. Across
+files it finds the shortest chain of importing modules (bounded, and it says when it truncated).
+Only a direct one-hop chain is call-confirmed; a longer chain proves the files are connected, not
+that the two symbols are, and is reported as unconfirmed rather than guessed. The scanner does
+not build a full symbol-level call graph, and the tool does not pretend it does.
+
+**Fixed: same-file callers were invisible to blast radius (#835)**
+
+`aletheore_get_blast_radius` only looked for confirmed calls from other files that import the
+target, so a caller in the same file (for example a class's `__call__` invoking one of its own
+methods) never appeared. Same-file callers are now checked and reported.
+
+**Fixed: Windows scans and file I/O (#790, #794)**
+
+Evidence, config, history, license and report files are now always read and written as UTF-8.
+Before, a non-ASCII character in a scanned repository's own source could crash a scan on Windows
+with a `UnicodeEncodeError` after part of the evidence had been written. Saving credentials no
+longer crashes on Windows (`os.fchmod` does not exist there). A single file that cannot be read
+during a scan (permission denied, removed mid-scan, or a path over the legacy Windows limit) is now
+recorded as unparseable instead of aborting the whole scan, and the same applies to dependency
+manifests that vanish between the existence check and the read.
+
+**Fixed: static-analysis integrations (#786, #789)**
+
+PMD exit code 5 (a recoverable parse error together with real violations) was treated as a hard
+failure, which silently dropped every finding from the files PMD did parse. It is now handled like
+exit codes 0 and 4. The Trivy secret preview hash was computed from the finding's path, line and
+rule instead of the matched secret, so two different secrets flagged at the same spot produced
+identical previews; it now hashes the real matched value.
+
+**Fixed: `aletheore_search` line numbers (#785)**
+
+The MCP search tool split files with `splitlines()`, which also breaks on characters such as form
+feed. A file containing one shifted every later match, so the reported `file:line` was wrong. It
+now splits on real newlines only.
+
+**Docs**
+
+Documented the Windows 11 Smart App Control gotcha that blocks the `_lancedb` DLL and makes
+`aletheore mcp` fail with "DLL load failed" (#809). Turning Smart App Control off in Windows
+Security fixes it; nothing in this package is at fault.
+
+## 0.9.20 — 2026-09-23
+
+**Security fix: ReDoS in `.csproj` license detection (GHSA-66qv-fmhr-gpj8)**
+
+`aletheore scan` could be hung for minutes by a small, easily-crafted `.csproj`
+file with an unclosed `<PackageLicenseExpression>` tag - the regex used to
+extract the license expression had three overlapping quantifiers, causing
+cubic-time backtracking on a long run of whitespace with no closing tag.
+Reported responsibly via GitHub private vulnerability disclosure by
+**Filip Kulisiewicz ([@KulFilip](https://github.com/KulFilip))**, with a
+working proof-of-concept and a correct proposed fix. Fixed by removing the
+overlapping quantifiers and trimming the captured value once, after
+matching, instead of as part of the pattern - functionally identical
+matching behavior, no more pathological backtracking.
+
+## 0.9.19 — 2026-09-23
+
+**Deterministic static-analysis scanning (#750, #763, #772)**
+
+`aletheore scan` now runs Semgrep, gosec, Bandit, Trivy (secrets + misconfig), and PMD (Java)
+always-on, normalized into one new `security.static_analysis` evidence category regardless of
+which tool produced a finding. SonarQube is also wired in. Bearer and Joern (taint-flow analysis,
+including a real Go asymmetric-cache-trust query) ship as opt-in scanners behind explicit CLI
+flags rather than always-on: a controlled, twice-confirmed experiment found Bearer's accuracy
+degrades sharply when it only sees a diff-scoped subset of a repo (11 false-positive
+`os_command_injection` findings on this very codebase's own `jobs.py` that a full-repo scan
+correctly suppresses via context a partial checkout can't provide).
+
+**`aletheore diff` gains a `static_analysis` new/resolved category (#764)**
+
+`history.py`'s curated diff computation now tracks static-analysis findings the same way it
+already tracks secrets and vulnerabilities — identity keyed on `(tool, rule_id, path, line)`,
+with the same moved-but-unchanged-finding caveat every other category already carries.
+
+**Fixed: `splitlines()` vs `split("\n")` line-indexing bug (#739)**
+
+`query.py`/`search_index.py` line-indexing used `splitlines()`, which treats rare control
+characters (e.g. form feed) as line breaks that `split("\n")` doesn't — a real, if rare, off-by-N
+bug in `evidence-for-symbol`/`evidence-for-endpoint` results on files containing them.
+
+## 0.9.18 — 2026-09-13
+
+**MCP server now asks agents to report real gaps (#708)**
+
+The `aletheore` MCP server's own instructions (surfaced to every connecting agent in the MCP
+`initialize` handshake) now tell an agent that hits a genuine tool-side gap — a call failing
+unexpectedly, results clearly wrong or incomplete against the codebase's real state, a documented
+capability not working as described — to file a GitHub issue rather than only working around it
+silently. Scoped to exclude user error (a bad path, a skipped scan/index step), and asks for a
+duplicate check plus a concrete repro so a filed issue is actionable. Real usage across many users and
+agents is a far better bug-finding surface than one user occasionally relaying a problem by hand —
+this just gives that surface somewhere durable to land.
+
+## 0.9.16 — 2026-09-11
+
+Two changes to `aletheore dashboard`, the local web dashboard `aletheore dashboard` serves for a
+scanned repository.
+
+**New: dependency licenses, vulnerabilities, and API endpoints (#661)**
+
+The dashboard already collected license findings, vulnerability findings, and mapped API endpoints
+into `air.json` on every scan, but never rendered any of it — Security showed only a bare
+vulnerability count, and licenses/endpoints had no card at all. Adds three cards (Vulnerability
+Findings, Dependency Licenses, API Endpoints) following the dashboard's existing card pattern,
+verified against real scans across four ecosystems (Python, Ruby, Go, and a large multi-framework
+Rails+Ember codebase) rather than just the fixture shape. Two real bugs caught during review before
+shipping: `repository.api_endpoints` is `{checked, endpoints}`, not a bare list, and several
+frameworks (Django `include()`, Express `app.use()`, Rails `resources()`, Go subrouters)
+legitimately return a `null` method for router mounts, which the first draft would have rendered as
+the literal word "null" instead of labeling distinctly. A follow-up review also caught that the new
+endpoints card silently dropped the `checked`/`reason` distinction the sibling cards already had for
+a skipped scan (`--no-map-endpoints` and friends) — fixed for all three cards at once.
+
+**Fix: the dependency graph and cluster graph could not render on large repos (#662)**
+
+Both of the dashboard's force-directed layouts ran a synchronous O(n²) all-pairs repulsion loop —
+computationally infeasible on real large repos, not just slow. A 15,241-module repo is ~58 billion
+operations for the dependency graph alone, which would not finish in any practical time. Replaced
+with a Barnes-Hut quadtree approximation (O(n log n)), with iteration count and approximation
+precision unchanged for graphs at or below 1,500 nodes (the size the original hand-tuning was
+verified against — zero behavior change there) and scaled down above that threshold. The simulation
+now yields periodically and shows live "Laying out N nodes..." progress on large repos instead of
+an apparently frozen tab. A review caught a real, confirmed bug in the first version (the
+opening-angle approximation could aggregate a region that geometrically contained the very node
+being computed for, producing genuine self-repulsion) — fixed and re-verified with 500 randomized
+adversarial trials showing zero self-inclusion. Verified end-to-end against a real, full clone of
+a large open-source Ruby/Ember repository: both graphs now render completely in under two minutes
+with the tab fully responsive throughout, versus not finishing before.
+
+## 0.9.15 — 2026-09-10
+
+24 real bugs found and fixed via a continued backward audit of recently merged PRs - no new
+features this release, all correctness/security fixes across scanning, evidence resolution, the
+managed-audit pipeline, and the CLI itself.
+
+**Security and detection gaps:**
+
+- The secret scanner missed `SECRET_KEY`/`*_TOKEN` assignments entirely - one of the most common
+  real credential shapes (#595).
+- A Maven `pom.xml` with no declared `xmlns` was totally invisible to vulnerability scanning (#599).
+- The repo's own license went undetected for Rust, PHP, Ruby, C#, and Java (#598).
+- `aletheore_ast_pattern` ignored `.aletheore.json` exclusions, and `mcp-install` could follow a
+  symlink out of the repo (#603).
+
+**Dead-code and entry-point detection:**
+
+- Go/Rust/Java/C# compiled-language entry points were always flagged as dead code - unreachable to
+  the detector by construction (#594).
+- `find_blast_radius`'s `direct_dependents` was completely unbounded (#608).
+- JVM co-located test files (`FooTest.kt` beside `Foo.kt`) were invisible to `_is_test_path` (#600).
+
+**ORM, migrations, and framework parsing:**
+
+- Rails migration parser silently dropped `t.index`/`t.foreign_key` and misread `dir.down` as
+  forward-migration code (#593).
+- Gin route groups silently dropped their `.Group()` prefix, producing wrong but plausible-looking
+  endpoint paths (#597).
+- Nested/nonstandard build-tool Dockerfiles and Symfony's `.env.dist` convention were both invisible
+  to detection (#602).
+
+**Evidence resolution and git intelligence:**
+
+- Evidence resolution misattributed commits by whole-file recency and dropped risk findings on a
+  package-name mismatch (#601).
+- The git-intel field parser silently corrupted commits with a control character in the author
+  name (#617).
+- Snapshot rotation ordering and older-schema diffing each had a real bug (#614).
+- `build_history_summary` crashed the whole History tab on one older-schema snapshot (#631).
+- Runtime-event parsing could attribute one exception's message to a different exception's
+  file:line (#632).
+- An embedded newline in an LLM-proposed cluster name could inject a fake node into an AIRview
+  diagram (#627).
+- Docs export silently dropped orphan relations and produced colliding TOC anchors (#621).
+- Unvalidated `layer_markers` rank could silently miss violations or crash a scan (#622).
+- Regression Fence flagged additive signature changes as breaking when a new default was a
+  comma-containing string (#618).
+
+**Managed audits and the CLI:**
+
+- The CLI's `aletheore audit` command never surfaced the signed report's verification link, even
+  though every other managed-audit surface (the PR-comment path) already showed it (#637).
+- The managed-audit HTTP client leaked a connection pool on every call (#620).
+- `select_adapter` crashed on a mistyped interactive answer instead of reprompting (#629).
+- Concurrent CLI invocations could silently lose a saved API key (#613).
+
+**Product removal:** the public, unauthenticated "paste a repo" website demo was removed entirely
+(#605) - the free CLI already covers what it offered, and it was the only unauthenticated
+internet-facing attack surface in the system.
+
+## 0.9.14 — 2026-09-08
+
+Five real bugs found via a backward audit of recently merged PRs, all in the ORM-migration/schema
+and dead-code detection paths:
+
+- **`require.resolve('pkg')` was never recognized as a real import**, always flagging the package
+  as unused - a real, common shape for webpack aliasing and worker entry points (e.g. `new
+  Worker(require.resolve('./worker'))`). The import regex only matched the literal substring
+  `require(`, not `require.resolve(`.
+- **Module-namespaced Rails models were invisible to association clustering.** A model class
+  wrapped in one or more `module` blocks (`module Admin; class User < ApplicationRecord; ...; end;
+  end` - a common real Rails namespacing pattern) was silently treated as not a model at all,
+  contributing zero association edges. Found and fixed twice this pass: the first fix (searching
+  for the first class definition through nested modules) introduced its own real regression - if
+  that first class lacked a superclass, the whole file was given up on instead of trying the next
+  sibling class, the same way the original top-level-only loop already handled that case.
+- **A Django migration's unsupported-operation citation fabricated its receiver.** The catch-all
+  added to flag unmodeled Django operations (rather than silently drop them) hardcoded a
+  `migrations.` prefix regardless of the call's actual receiver - a custom `Operation` subclass
+  imported under its own module alias (common for `django.contrib.postgres.operations` and
+  hand-rolled subclasses) got an invented prefix in a statement whose whole purpose is to be a
+  real, grounded citation of what the migration file actually says.
+- **`RunSQL`/`op.execute`/`execute` with a non-literal SQL argument silently vanished** instead of
+  being flagged unsupported. All three are explicitly "modeled" raw-SQL escape hatches whose whole
+  point is to never silently disappear - a module-level constant, local variable, f-string, or
+  heredoc (all common, real styles for keeping migration files readable) instead of an inline
+  string literal made a real schema-changing migration structurally indistinguishable from a
+  no-op.
+- **A Django field's `db_column` override was ignored, fabricating a wrong column name.**
+  `db_column=...` is a common real Django idiom (legacy-database integration, gradual renames)
+  that overrides the actual database column name - the extractor always used the Python field
+  name instead, reporting a column that doesn't exist in the real database. Also fixed a narrower
+  truthiness bug in the same fix: `db_column or field_name` treated an explicit `db_column=""` as
+  if it had never been given at all.
+
+## 0.9.13 — 2026-09-07
+
+- **`aletheore index` no longer requires Ollama to be pre-installed and running for local
+  embeddings.** Previously, local embedding setup meant manually installing Ollama, starting its
+  server, and pulling the model before indexing would work at all - only the "server reachable but
+  model not pulled" case was already automatic. Two new gaps closed in `search_index.py`'s existing
+  exception-recovery chain: if the `ollama` binary isn't on `PATH`, an explicit y/N prompt offers to
+  run Ollama's own official installer (nothing is installed silently); if the binary is present but
+  the server isn't reachable, it's started detached so it outlives the current command (never
+  auto-stopped - restarting it on every command would cost real latency on a repeatedly-indexed
+  repo). Both chain straight into the existing auto-pull-model path if that's also needed. Windows
+  uses the correct process-detachment flags (`CREATE_NEW_PROCESS_GROUP`/`CREATE_NO_WINDOW`) rather
+  than the POSIX-only mechanism the initial pass used. Never runs against a remote `base_url` - a
+  new loopback check gates the whole recovery path, so an unreachable remote Ollama falls straight
+  through to the existing setup instructions instead of spawning a useless local server.
+- Loosened the `click` dependency requirement from `<8.5.0` to `<8.6.0`.
+
+## 0.9.12 — 2026-09-06
+
+- **Real database schema extraction, on every plan.** `schema_map.py` was rewritten on top of
+  `sqlglot` for multi-dialect SQL parsing, and a new `orm_migrations.py` module models
+  Django/Rails/Alembic migrations natively - tables, columns, and foreign-key relations are
+  extracted correctly instead of via a narrower regex-based pass. Previously gated behind a paid
+  plan; that gate is now removed, so `aletheore query database` and the schema/endpoint sections in
+  Docs export and AIRview work for everyone.
+- **Flash Review and AIRview can now cite real schema and endpoint facts, not just import-graph
+  structure** - a PR review or a generated architecture page can point at an actual table, column,
+  or foreign-key relation, grounded the same way every other citation in this codebase is (see
+  `citation_verifier.py`).
+- **Fixed a real clustering gap for Rails codebases.** `architecture.build_clusters` only ever saw
+  edges from literal import/`require` statements - Rails models relate to each other through
+  declarative `belongs_to`/`has_many` associations that never produce one, so a real 382-file
+  Discourse scan clustered as near-one-file-per-cluster despite obvious, real relationships between
+  models. New `model_associations.py` resolves these (including walking transitive
+  `ActiveRecord::Base` inheritance chains) into extra clustering edges, kept separate from the
+  import-graph edges reported as real dependencies.
+- **`aletheore mcp-install` gained Antigravity and Claude Desktop as targets**, on top of the
+  existing Claude Code / Cursor / VS Code / Kiro / Opencode / Codex CLI support. Claude Desktop's
+  config is architecturally different from every other target - a single file shared across every
+  project on the machine rather than one scoped per repo - so its entries are keyed by a hash of the
+  repo's full resolved path folded in alongside its name, not the trailing directory name alone
+  (found and fixed same-session: two different repos sharing a basename, e.g. two independently
+  cloned `backend` folders under different parents, would otherwise silently overwrite one another's
+  entry in the one shared file).
+- **`ast_pattern` batch isolation actually isolates now.** A prior fix only caught one failure mode
+  (a worker segfault); any other exception in a batch still discarded every earlier batch's already-
+  collected results, and a hung worker had no timeout at all. Both fixed.
+- **Six real bugs fixed, found the way this project's real-repo audits keep finding them - testing
+  against actual code, not just this project's own test fixtures:**
+  - Scoped npm packages (`@scope/name`) and dotted package names (`normalize.css`, `chart.js`) were
+    both always flagged as unused dependencies, due to two separate string-normalization mismatches
+    - the same severity class of bug as 0.9.11's `unused_dependencies` fix, on a JS/TS-specific code
+      shape that fix's own (Python-only) verification couldn't have caught.
+  - The local embedding truncation cap (`MAX_EMBEDDING_CHARS`) was never revisited after the default
+    local model switched to jina (8192-token context vs. the old model's 2048) - large real chunks
+    were still being truncated at a boundary sized for a model no longer in use.
+  - Three real license-detection gaps: BSD license bodies that never contain the literal word "bsd"
+    (so unambiguously-BSD packages like Flask and gorilla-mux came back "unknown"), `LICENSE.rst`
+    missing from the checked filename list, and Maven license lookup never following `<parent>` POM
+    references.
+  - Six real secrets-scanner gaps in placeholder detection: private-key-header suppression,
+    generic-credential-assignment false-matching bare property references, missing truncation-
+    marker/`"default"` placeholder recognition, and PEM boilerplate with no real key body.
+  - A Markdown table-rendering bug in Docs export: a literal backtick in a column name broke out of
+    its code span (backslash-escaping a backtick isn't valid inside a Markdown code span) - found by
+    Aletheore's own Flash Review reviewing the PR that introduced it, fixed with a properly
+    variable-length fence per the CommonMark spec.
+  - The `ast_pattern`/tree-sitter segfault documented in 0.9.11 as "3.14-only" was confirmed to also
+    reproduce on 3.12 at real scale (Django's ~2,930-file tree) - the docs and `requires-python`
+    guard were corrected; the underlying `<3.14` cap from 0.9.11 was never wrong, just its stated
+    reason.
+- **Performance**: real token-based batching for hosted embedding indexing; local embedding now
+  defaults to jina, matching the hosted model; `watch`'s incremental rebuild skips architecture
+  analysis and hotspots recomputation on each debounced change (a deliberate trade-off) while still
+  carrying the last full analysis forward rather than silently blanking it; prompt-cache hit-rate is
+  now surfaced for LLM writing calls.
+- **Fixed `watch`'s incremental rebuild also discarding real security findings**, not just the
+  architecture-analysis skip above - a correctness bug, not a trade-off.
+- **`aletheore_ast_pattern` (MCP tool and CLI) now caps its result count and doesn't crash on an
+  unreadable file.**
+
+## 0.9.11 — 2026-09-02
+
+- **Added structural code search: `aletheore query ast-pattern` and the
+  `aletheore_ast_pattern` MCP tool.** Find code by shape, not words - a
+  raw tree-sitter query against every file of one language, re-parsed
+  from disk (not from cached evidence, which never stores a full parse
+  tree). Works across all 13 already-supported languages for free,
+  since the matching mechanism doesn't depend on which grammar it's
+  handed. Capped `requires-python` at `<3.14`: `tree_sitter`'s
+  `Query`/`QueryCursor` (the first use of that API in this codebase)
+  segfaults reliably on Python 3.14 once enough real files/matches
+  accumulate for the cyclic garbage collector to touch the resulting
+  object graph - reproduced directly against this project's own
+  116-file source tree, confirmed absent on 3.12. Not fixable at the
+  Python level; every other feature is unaffected.
+- **Added `aletheore_get_blast_radius`, an MCP tool for coding agents**:
+  one call returns a file's full transitive dependent set (a real BFS,
+  not a single hop) plus, given a symbol name, which of its direct
+  dependents actually call that symbol - confirmed against real file
+  content, not just an import relationship.
+- **The semantic-search index no longer reconnects to disk on every
+  query.** `open_index()` previously reopened the LanceDB table on
+  every single call, including from a long-lived process like the MCP
+  server - now caches the opened handle per index path and refreshes
+  it in place. Also added a rank penalty for barrel/re-export files
+  (`packages/*/src/index.ts`-shaped files that import a large slice of
+  a repo while adding little of their own), so they no longer
+  outrank the real implementation they merely point at.
+- **Fixed a real recursion-depth risk in endpoint detection**:
+  Flask/FastAPI route extraction walked the parse tree recursively,
+  risking a `RecursionError` on a deeply nested real file; now
+  iterative, matching the scanner's own convention elsewhere.
+- **Fixed six more real bugs**, found the same way the language-support
+  fixes above were - re-verifying already-merged PRs against real
+  repositories and real behavior, not trusting their own tests:
+  - Kotlin local functions (declared inside another function's body)
+    were incorrectly reported as public - Kotlin can't even attach a
+    visibility modifier to one, so every local function fell through
+    to the "no modifier means public" default. Every other supported
+    language already excluded nested-in-function declarations from
+    this same check; Kotlin's own visibility check never got the
+    same guard when Kotlin support shipped.
+  - A Rust `use` statement's nested-wildcard form
+    (`use foo::{bar::*, Baz};`) was silently dropped from import
+    resolution - the existing fix for nested scoped/aliased `use`
+    groups was one tree-sitter node type short of complete.
+  - A Ruby constant declared inside a conditional or
+    `begin`/`rescue` block one or more levels below its enclosing
+    class/module body (a `RUBY_VERSION` guard, a defensive fallback)
+    was missed - exactly as idiomatic a class-body constant as the
+    unwrapped case.
+  - `requirements.txt` dependency lines without an exact `==` pin (a
+    bare `requests`, or `requests>=2.0`) were silently dropped from
+    both vulnerability scanning and license checking by a
+    hand-rolled parser that only recognized exact pins - now reuses
+    the project's own already-correct PEP 508 parser instead of a
+    second, independently drifting implementation of the same
+    grammar.
+  - A secret-detection check for a credential assigned via
+    bracket-subscript (`os.environ["API_KEY"] = "..."`,
+    `config["SECRET"] = "..."`) was missing - only the equally
+    common quoted-key form was covered.
+  - A dependency-license check's own abandoned-thread timeout fix
+    introduced a real race: a worker thread left running past the
+    wall-clock timeout could still write to a shared cache dict while
+    the main thread was serializing it, occasionally raising instead
+    of degrading gracefully as intended. A lock now guards both sides.
+  - An OpenAI-compatible adapter's reserved-token-budget release only
+    fired from an exception handler - a 200 response with no `usage`
+    field (a real shape from some gateways/proxies) hit neither the
+    success nor the failure path, leaving the reservation stuck
+    against zero real usage.
+
+## 0.9.10 — 2026-08-31
+
+- **Added Kotlin and Swift as fully supported scanner languages** (13
+  languages total, up from 11). `.kt`/`.kts` and Swift source now parse
+  into the same dependency graph, endpoint map, license scan, and
+  vulnerability scan as every other language.
+- **Fixed six real dead-code false-positive classes**, found by
+  re-validating the new languages against real repositories rather than
+  trusting the initial PRs' own tests: JVM test files and Android
+  manifest/Hilt-Dagger DI wiring weren't recognized as reachable entry
+  points; Swift files in the same build target implicitly see each
+  other with no import, and a `Package.swift` string-interpolation
+  pattern was silently truncating manifest parsing and merging distinct
+  targets into one; Kotlin top-level functions and top-level `val`/`var`
+  declarations were never resolved as import targets, only
+  classes/interfaces/objects; Kotlin files in the same package
+  implicitly see each other's declarations with no import, same as
+  Java.
+- **Capped dependency-license fetches to a real wall-clock timeout**, so
+  one slow registry lookup can no longer stall an entire scan.
+- **Deterministic symbol attribution for secrets findings** — CLI
+  secrets findings now cite the exact enclosing symbol via the same
+  evidence-resolution path used elsewhere, instead of leaving
+  attribution to best-effort heuristics.
+
+## 0.9.9 — 2026-08-29
+
+- **Strengthened the CLI's free-tier install nudge, and added a support
+  contact.** `scan`/`audit`'s prompt to install the GitHub App for free
+  PR reviews used to lead with a hedge ("globally rate-limited and
+  subject to availability") right at the call to action, and was styled
+  fully dim - easy to skim past at the exact moment a real run had just
+  demonstrated value. Reframed to lead with the value prop and a bold
+  install link; the honest rate-limit disclosure is kept, just moved to
+  a smaller trailing line rather than dropped. Also added a
+  `support@aletheore.com` line to the banner shown on every bare
+  `aletheore` invocation - previously the only in-CLI pointer for a bug
+  report or suggestion was the GitHub repo link.
+
+## 0.9.8 — 2026-08-28
+
+- **Bounded the Java/C# scanner pre-pass's peak memory** (audit finding
+  15). `java_pre_parsed`/`csharp_pre_parsed` used to hold every `.java`/
+  `.cs` file's parsed tree-sitter `Tree` simultaneously once the source-
+  root pre-pass finished, before the main loop had consumed any of them -
+  trees run roughly 37x their source size, and the hosted scan-worker
+  containers are capped at 1GB, so a large enough Java/C# repo could
+  OOM-crash the whole scan right there, before any partial result
+  exists to fall back to. Removed the cache entirely instead of shrinking
+  its retention window: each file's tree now falls out of scope at the
+  end of its own pre-pass iteration, and the main loop re-parses each
+  file from scratch. Trades doubled tree-sitter parse CPU for never
+  holding more than about one file's tree in memory at a time - measured
+  directly on a 600-file synthetic Java repo: peak boundary memory
+  dropped from ~406MB to ~3.3MB.
+- **Fixed 8 real scanner import/endpoint-resolution bugs**, each
+  independently reproduced against the real tree-sitter grammar before
+  fixing: Rust `pub use` re-exports extracted the literal word `"pub"`
+  instead of the real path; Rust nested `use` group items (`use
+  std::{fmt, io::{self, Write}}`) below the first brace level were
+  dropped; PHP grouped `use Foo\Bar\{ClassA, ClassB}` statements were
+  skipped entirely; PHP `use Foo\Bar as Baz` aliases produced a phantom
+  duplicate entry; Java `import static a.b.C.*` misparsed as a directory
+  import; TypeScript `import foo = require('./foo')` (import-equals)
+  silently produced zero imports; Django's `urlpatterns += [...]` routes
+  were never extracted (only plain `=` assignment was); and Python/JS/TS
+  files that imported themselves could defeat dead-code detection's
+  unreachable-file check, unlike the other 7 language branches which
+  already guarded against it.
+- **Fixed the endpoint cache reusing a stale composed path across an
+  incremental scan** when only a *different* file's `include_router(...,
+  prefix=...)` call changed, not the router-defining file itself - a
+  common FastAPI pattern (router defined in one file, mounted with a
+  prefix in another) that silently corrupted endpoint evidence on every
+  subsequent push/PR scan of the affected repo until the router file
+  changed for an unrelated reason.
+- **Fixed `OpenAICompatibleAdapter.invoke()`** (the tool-calling agent
+  loop `aletheore audit`'s reasoning phase uses) never passing
+  `extra_body` to the API, unlike `simple_completion()` - `gpt-5.6-luna`
+  rejects function tools unless `reasoning_effort` is explicitly
+  `"none"`, so any audit run routed to Luna crashed on its very first
+  LLM call.
+- **`aletheore_search`'s MCP result is now bounded by total character
+  size, not just match count.** `_SEARCH_MATCH_CAP` bounded how many
+  matches came back, but nothing bounded their combined size - 200
+  matches of long lines (a minified bundle, a generated file, a single
+  huge JSON line) could produce a result an MCP client rejects for
+  exceeding its own size limit. Two independent guards: a per-line
+  truncation and a total character budget that stops the search early
+  and flags `truncated: true`, reusing the existing truncation signal.
+- **Sharpened the MCP server's vocabulary guidance and documented two
+  tools' actual parameter shapes**, both verified with real A/B subagent
+  runs. `aletheore_search` (literal/regex) needed the same explicit
+  sequencing guidance the semantic tools already had - a paraphrased
+  query matches nothing at all there, not just "scores lower."
+  `aletheore_symbol_source` and `aletheore_find_evidence_for_endpoint`'s
+  docstrings never stated they take two separate arguments, not a single
+  combined string - agents were burning 3-4 calls guessing the shape.
+  Verified: a task that previously took 15-23 tool calls with 3
+  parameter errors dropped to 13 calls with zero.
+
+## 0.9.7 — 2026-08-28
+
+- **The Anthropic adapter now retries transient errors** (auth hiccups,
+  rate limits, connection drops, timeouts, 5xx) up to 3x with backoff,
+  same as the OpenAI-compatible adapter already did - previously a
+  transient error killed the whole `aletheore audit` run instantly instead
+  of quietly recovering. Found by a second Claude session auditing the
+  adapters for the same sibling-parity gap already found and fixed
+  elsewhere this project. CLI-only (`aletheore audit` with an Anthropic
+  key); no hosted-service exposure.
+- **Import edges now carry an optional confidence tag** when their
+  resolution wasn't a single deterministic outcome - `"inferred"` for a
+  source-root/namespace-prefix/PSR-4-prefix tiebreak among genuinely
+  multiple real candidates (Python, Java, PHP), `"ambiguous"` for a C#
+  type-reference edge kept despite more than one file declaring that type
+  name, which previously was **dropped silently** instead. Adapted from
+  researching a competitor's own graph schema, then adjusted for
+  Aletheore's token-cost constraints: omitted entirely for the common
+  exact-resolution case and for the six languages whose resolvers are
+  never ambiguous at all (js/ts, go, rust, ruby, c/cpp), so this costs
+  nothing in evidence-packet size for the large majority of edges.
+  Benchmarked against real, pinned per-language corpora - on the real
+  AutoMapper (C#) corpus, 738 type-reference edges that used to vanish
+  silently are now kept and honestly flagged. An ambiguous edge is
+  excluded from the static wiki diagrams (a diagram reads as fact, a
+  stronger claim than an uncertain edge should make) but shown dimmed
+  and dashed in the CLI's own interactive dependency graph, matching how
+  the competitor's own visualization handles lower-confidence edges.
+  Also fixed a real correctness bug found while wiring this up: Java's
+  multi-source-root tiebreak picked whichever root came first in raw
+  filesystem walk order (not stable across runs/platforms) instead of a
+  sorted, deterministic order like Python's roots already used.
+  AIR schema bumped 0.4.0 → 0.5.0 (see `docs/AIR-SCHEMA.md`).
+- **The MCP server now sends real getting-started guidance in the
+  connection handshake itself** (`instructions`, not a resource an agent
+  has to separately fetch) - covers the scan → index → search/answer
+  ordering, that scan/index report live progress rather than hanging
+  silently, and a benchmark-grounded note that phrasing a semantic
+  question in the codebase's own vocabulary measurably beats a
+  paraphrase (several corpora scored under 35% top-1 accuracy on
+  vocabulary-avoiding phrasing in Aletheore's own published benchmark,
+  recovering 20-47 points in the project's own terms).
+
+## 0.9.6 — 2026-08-27
+
+- **Parallel-parse worker count is now capped to the real available CPU
+  quota, not raw `os.cpu_count()`.** In a CPU-limited container (CI runner,
+  Docker `--cpus`, a Kubernetes pod), `os.cpu_count()` reports the host's
+  total core count, not what the container is actually allotted, so the
+  0.9.5 parallel-parse feature could over-spawn workers and thrash rather
+  than speed anything up. `_available_parallelism()` now takes the minimum
+  of `os.cpu_count()`, a cgroup v1/v2 CPU quota read, and
+  `os.sched_getaffinity(0)` where available, overridable via
+  `ALETHEORE_PARALLEL_PARSE_JOBS`. Verified against real Docker containers
+  across quota/affinity combinations, and against a real CI runner failure
+  this surfaced (a 4-affinity-core runner reporting 8 via `os.cpu_count()`).
+- **The hosted scan-worker can now opt out of parallel parsing entirely**
+  via `ALETHEORE_DISABLE_PARALLEL_PARSE`, set automatically on Aletheore's
+  own memory-constrained hosted infrastructure without changing the default
+  for local CLI users.
+- **`aletheore index`'s local embedding setup no longer dead-ends** when
+  Ollama is running but the embedding model isn't pulled yet. It now
+  auto-pulls the model and shows real setup steps instead of a bare
+  connection error.
+- **FastAPI endpoint mapping no longer misses `include_router` calls that
+  reference a router by module attribute** (`include_router(users.router,
+  prefix="/users")`), only bare identifiers before. Confirmed this
+  previously produced a real, reachable endpoint's path with its mount
+  prefix silently dropped.
+- **`git_intel`'s incrementally-synced `recent_commits` ordering was
+  inverted** for every caller that feeds commits in real `git log` order
+  (newest first): `fold()` iterated forward while building the list with
+  `insert(0, ...)`, so the truncation after a busy file's 10-commit cap
+  kept the oldest commits and dropped the genuinely recent ones. Anything
+  reading `recent_commits[0]` as "the latest commit" (hosted health-check
+  correlation, likely-owner inference) was pointing at stale data on
+  high-churn files. Fixed by reversing the iteration order; four affected
+  test fixtures (three built oldest-first, the mirror image of real git log
+  output, which had been masking the bug) corrected to match reality.
+
+## 0.9.5 — 2026-08-27
+
+- **`aletheore scan` is up to 4.5x faster on large repos** — real, measured,
+  not projected. Two separate fixes, discovered by profiling a real ~4-minute
+  scan of ERPNext (~1M LOC) rather than guessing where the time went:
+  - **Parsing is now parallelized** (`ProcessPoolExecutor`, one process per
+    core) — `build_module_graph`'s tree-sitter parsing held the GIL under
+    threading, so this needed real multiprocessing, with each worker
+    returning plain dicts/lists since `Tree`/`Node` objects aren't picklable.
+    Measured on ERPNext: parsing itself went from 10.47s to 7.18s (~30%
+    faster) — real, but a small piece of the total.
+  - **Dead-code detection's dotted-string reference check was the actual
+    bottleneck** — 77% of total scan wall-clock, invisible until profiled.
+    The old check compiled a fresh regex per unreachable-module candidate
+    and scanned every other file's full source for it —
+    O(candidates × files × avg file length). Replaced with a single-pass
+    dotted-string token index (O(total source size) to build, O(1) per
+    candidate lookup after) — same matching semantics, verified via parity
+    tests against a deliberately naive reimplementation of the original
+    algorithm, plus exact set-equality on real ERPNext output (not just
+    matching counts).
+  - Combined, real end-to-end effect on the same pinned ERPNext checkout:
+    **236.02s → 52.41s total wall-clock scan time**, confirmed by actually
+    running it before and after, not estimated.
+  - A pre-release audit of this same rewrite caught and fixed a real
+    correctness regression before it shipped: the new index treated the
+    full captured quoted-string token as always boundary-valid, but the
+    original per-candidate regex only accepted a `.` or a closing quote as
+    the terminating boundary — a quoted string like `"pkg.mod completed
+    successfully"` wrongly registered `pkg.mod` as referenced, which could
+    silently "rescue" a genuinely dead module from being reported. Fixed
+    (only the closing-quote case counts now); parity tests extended to
+    cover this exact shape.
+- **Secret scanner missed the single most common hardcoded-credential
+  shape: a quoted key in JSON/YAML/dict-literal config** —
+  `{"API_KEY": "sk-..."}`, `{'password': '...'}`, a docker-compose
+  `environment:` block, a `terraform.tfvars` value. The keyword's own
+  closing quote sat between it and the `:`/`=` separator, which the
+  pattern's boundary classes couldn't skip over — completely invisible,
+  not a partial miss. Same audit that caught the dead-code regression
+  above, found by systematically checking other boundary-condition regexes
+  in the codebase for the same class of gap. Fixed: left-boundary class now
+  includes quote characters, an optional quote is consumed after the
+  keyword, and `}`/`]` were added to the right-boundary lookahead alongside
+  the existing whitespace/end-of-line/`,#;)` set.
+
+## 0.9.4 — 2026-08-26
+
+- **Fixed three real secret-scanner false positives**, all the same root
+  shape: a value that should read as an obvious placeholder only got that
+  treatment when it also lived at a path containing
+  "test"/"example"/"fixture"/"mock" - contradicting the scanner's own
+  stated intent that marker words are recognized "independent of where the
+  file lives."
+  - AWS's own documented example key (`AKIAIOSFODNN7EXAMPLE`) wasn't
+    recognized outside a test-ish path - a student README pasting AWS's
+    setup-docs example key verbatim would have triggered a false "new
+    secret" PR comment.
+  - A hand-typed or padded-out fake value built from a repeated unit (e.g.
+    `abcdefghij1234567890` doubled) now gets caught by a new
+    zlib-compression-ratio check - real credential generators don't
+    produce repeated substrings, so a value that compresses well below its
+    own length is an unambiguous signal on its own. Threshold picked
+    empirically against 1,000 real random secrets.
+  - Stripe's own published test key
+    (`sk_test_4eC39HqLyjWDarjtT1zdp7dc`, from their docs) is now
+    recognized directly via a small, exact-match known-vendor-values set.
+
+## 0.9.3 — 2026-08-26
+
+- **Fixed a real, silent TOON encoding/decoding bug**: certain nested-list
+  shapes (a list value sitting alongside non-list siblings in the same
+  array) encoded cleanly but then failed to decode - `to_toon()` now
+  round-trip-verifies its own output before returning, so this class of
+  corruption raises `ToonEncodingError` at write time instead of silently
+  writing a broken `.aletheore/air.toon` that only fails later, confusingly,
+  when `audit` tries to read it. Every call site (`write_evidence`, the MCP
+  server, the managed-audit client, `query`'s TOON output, both coding-agent
+  adapters) now degrades cleanly on a TOON failure instead of crashing.
+  Also fixes a separate bug where `ToonDecodeError` isn't an `OSError`, so a
+  malformed evidence file crashed the coding-agent adapters with a raw
+  traceback instead of a clean error. Covered by a new seeded fuzz test
+  (3,000 random nested shapes) alongside the targeted regression tests.
+- Bumped the `anthropic` dependency floor to `>=0.40,<2.0`.
+
+## 0.9.2 — 2026-08-25
+
+- **`scan` and `audit` now point free-tier users at the GitHub App** after a
+  successful run - a single line noting that Aletheore also does free,
+  evidence-grounded PR reviews, with the install link. Only shown on
+  success, and lives in the top-level command bodies rather than the
+  shared scan helper, so it can't repeat on every cycle of `watch`'s
+  internal re-scanning.
+- **Corrected "during early access" framing on the pricing page.** Free AI
+  PR reviews are routed across multiple providers' free tiers rather than
+  depending on any single company's quota, so the real constraint is
+  rate limits under load, not a fixed expiration date - the copy
+  previously implied a countdown that isn't actually there.
+
+## 0.9.1 — 2026-08-24
+
+- **Three endpoint-mapping scoping bugs, all affecting the accuracy of "what's
+  reachable" for a security review.** A router variable named inside an
+  unrelated function (the idiomatic FastAPI name `router` reused in a
+  factory) could silently overwrite the real module-level router's prefix.
+  Two different files' routers both named `router` (also idiomatic) could
+  cross-contaminate each other's mount prefixes, producing phantom endpoint
+  entries. And a router mounted with `include_router(router)` (no explicit
+  `prefix=`) had its own unprefixed endpoint dropped entirely whenever that
+  same router also had a prefixed mount elsewhere - a real, reachable,
+  unauthenticated-by-default endpoint invisible to the map.
+- **Secret scanner missed dotted-attribute credential assignments** -
+  `self.PASSWORD = ...`, `cfg.API_KEY = ...` - one of the most common
+  hardcoded-credential shapes in object-oriented code, invisible because
+  `.` wasn't in the scanner's left-boundary character class.
+- **Schema mapper silently corrupted on ordinary SQL comments.** An inline
+  `-- comment` inside a `CREATE TABLE` column list fused the following real
+  column into a bogus one and dropped it with no trace; a stray `(` inside a
+  comment could merge two tables into one and drop the second entirely; a
+  `;` inside a `/* */` block comment ended a statement early.
+- **Three crash bugs fixed**: one invalid UTF-8 byte anywhere in a repo
+  aborted the entire scan; a chunk found by both retrievers in search's RRF
+  fusion could lose its score entirely and crash `aletheore_answer` with a
+  `TypeError`; AIRview's non-scanned-file wiki fallback called a function
+  never imported into that module, a guaranteed `NameError` on every use
+  that a bare `except` was silently swallowing.
+- **Architecture clustering no longer counts test files toward
+  subsystems.** A repo whose dependency graph is mostly test files (one
+  real corpus was 82% by node count) fragmented into hundreds of
+  near-singleton "subsystems" instead of a handful of meaningful ones -
+  same fix already applied to retrieval, now shared with clustering too.
+- **Local search index now detects an embedder swap even when vector
+  dimensions match.** Two different embedding models can both produce
+  768-dimension vectors from unrelated vector spaces; an index built under
+  one and searched under the other passed the existing dimension check
+  silently and returned coherent-looking but wrong rankings, with no error.
+- **Three retrieval-quality regressions fixed**: a `.NET`-suffix test-path
+  exclusion matched ordinary words ending in "tests" (`Contests`,
+  `Protests`); the "in C" language-detection pattern matched inside
+  `in C++`/`in C#` too; a Java/C# demotion rule kept demoting
+  interface-plus-abstract-class files even though its own stated intent was
+  "no concrete class alongside its interface."
+- **Fixed an unpinned, marker-qualified dependency (e.g.
+  `typing_extensions; python_version < "3.10"`) being silently dropped**
+  from CVE scanning, license checking, and unused-dependency detection - a
+  regression against an earlier fix's own stated intent.
+- **Fixed the module-overview chunk boundary** using the textually-first
+  symbol instead of the actually-first-by-line-number one - a class
+  declared before a repo's first function had its entire body swallowed
+  into the overview chunk, duplicating content already indexed separately.
+- **`aletheore audit --no-map-schema` was parsed but never forwarded** to
+  either call site, so it was completely inert despite being documented and
+  already working on `aletheore scan`.
+- **`aletheore login`'s whoami check no longer crashes on a malformed
+  response body** (captive portal, misconfigured proxy, CDN error page) -
+  it now degrades to "unknown" like every other failure mode instead of
+  raising an uncaught `JSONDecodeError`.
+- **The audit sponsor panel no longer claims nothing left the machine** on
+  a run that actually sent evidence to a third-party API (with consent) or
+  used an already-authenticated local adapter - it previously printed
+  unconditionally, contradicting the consent prompt shown moments earlier
+  in the same run.
+- **`aletheore healthcheck` no longer exits 0 with no summary when every
+  endpoint is unreachable** - a completely-down target looked identical to
+  a healthy one to any script or CI job checking the exit code.
+- **Bare `aletheore` invocation now surfaces an available update**,
+  matching what `aletheore status` already showed - silent when already up
+  to date or when the check fails, so nothing changes for anyone who
+  doesn't need to see it.
+- **`mcp-install` prints a copyable `claude mcp add` command for Claude
+  Code** targets, and no longer prints setup guidance for targets it didn't
+  actually configure (PyCharm/Codex notes shown regardless of `--target`).
+  `aletheore login` also now tells you when a saved token already exists
+  before replacing it, and `query --help`'s "one of the 23 query kinds"
+  count is computed dynamically instead of the stale hardcoded number
+  (there are 24, and counting).
+- **Perf: Java/C# pre-parsed trees no longer stay pinned in memory for the
+  whole scan.** Both languages need a whole-repo pre-pass before the main
+  loop can infer a source root; the cache holding those parses now releases
+  each entry as soon as the main loop consumes it, instead of holding all
+  of them until the entire scan (every file, every language) finishes.
+
+## 0.9.0 — 2026-08-21
+
+- **CLI now tells you when the first scan or index will be slower.** A first
+  run (no cached evidence yet) takes longer than an incremental one - the CLI
+  says so up front instead of leaving you wondering if it's stuck.
+- **Fixed dead-code false positives on RQ-style string-dispatched entry points
+  and pytest's `conftest.py`.** Code invoked via `queue.enqueue("module.func",
+  ...)` or reached only through pytest's filename-based auto-discovery was
+  invisible to static import analysis and got flagged as unreachable.
+- **`aletheore_ownership` (MCP) can now be scoped to a single file** -
+  previously repo-wide only, even though the underlying query already
+  supported a per-file target.
+- **Fixed a secrets-detection gap**: newer Google AI Studio API keys
+  (containing a literal `.`) were silently dropped instead of flagged,
+  because the value pattern's character class didn't include it.
+- **`aletheore_answer` (MCP) now correctly honors withheld external-
+  transmission consent** - it previously ignored the operator's decision on
+  this one tool and could send content to a hosted endpoint regardless.
+- **Fixed a rare embedding-batch duplication bug**: when a hosted embedding
+  call failed on the very first batch of a run, the local fallback could
+  double-embed that batch, silently misaligning the search index for an
+  unknown subset of chunks.
+
+## 0.8.13 — 2026-08-19
+
+- **License changed from Apache 2.0 to the [PolyForm Noncommercial License
+  1.0.0](LICENSE).** Aletheore remains free for personal, noncommercial use -
+  individual developers, research, hobby projects, evaluation. Using it for or
+  within a company or other organization (including as internal tooling at a
+  company you work for) is a commercial use and requires a separate commercial
+  license. This is not retroactive: anyone who obtained a copy under the prior
+  Apache 2.0 license (every release through 0.8.12, and any clone or fork made
+  before this change) keeps their Apache 2.0 rights for that copy. Only new
+  releases and new distributions from this point forward are under the new
+  terms. See the [Licensing](README.md#licensing) section of the README.
+- **Removed the CLI's anonymous usage ping.** Every completed scan used to send a single
+  fire-and-forget event (`scan` + a random per-machine ID, respecting `DO_NOT_TRACK`/
+  `ALETHEORE_TELEMETRY_DISABLED`) to a hosted endpoint - it carried no repo name, code, or account
+  info, but any HTTP request necessarily carries the caller's IP, and the endpoint itself was
+  unauthenticated (the CLI has no account to authenticate with), making it the single most exposed
+  write path in the hosted service. Removed end to end: nothing is sent, no flag needed. Adoption
+  is now tracked from public PyPI download stats instead.
+
+## 0.8.12 — 2026-08-15
+
+- **C# repositories had almost no dependency graph, because C# does not need
+  imports.** Measured on `AutoMapper/AutoMapper`: 512 `.cs` files, 11 of them
+  (2%) with any recorded dependency, 187 edges, and community detection
+  returning **474 clusters for 513 modules** — one per file, which makes the
+  generated wiki's subsystem pages meaningless and leaves `rank_files_by_importance`
+  with no in-degree signal. This was not a parsing bug: the `using` resolver is
+  correct, 507 of 512 files declare a namespace, and all 74 internal `using`
+  directives resolve. The cause is that **419 of 512 files contain no `using` at
+  all** — a type in the same namespace needs no import, and AutoMapper puts most
+  of its files in `namespace AutoMapper`. There was nothing to parse; the
+  dependency lives in the body, where a type is named. Edges are now also derived
+  from type references: a type declared in exactly one file in the repository and
+  named as a whole word in another. Deliberately conservative, because a false
+  edge invents a relationship the wiki then explains — ambiguous names contribute
+  nothing, names under four characters are ignored, a file's own types are
+  excluded, and edges are capped at 40 per file. Result on AutoMapper: **2% → 77%**
+  of files with dependencies, 187 → **2,140** edges, 0.36 → **4.18** edges per
+  module (flask is 3.80), clusters **474 → 120**, and the top of the importance
+  ranking becomes `MapperConfiguration.cs` and `Mapper.cs` — the actual core.
+  Scan cost is +1.6s on 513 files. Downstream on the comprehension benchmark:
+  subsystems 473 → 119, generation output tokens 2.56M → 1.15M (~55% cheaper),
+  and file-page selection improves from 59% to 40% test/spec files. The judged
+  comprehension score itself is flat (+0.04, p=0.88) — this ships for the graph,
+  the cost and the ranking, not for the score. No other language is affected:
+  the change is inside the C# branch of the extractor.
+
+## 0.8.11 — 2026-08-13
+
+- **A question naming a language was answered in a different one.** In a polyglot
+  repository the same concept is implemented once per language — `apache/thrift` defines
+  `TBinaryProtocol` in C++, Java, Python, Ruby, PHP, Go and C# — so "where is
+  TBinaryProtocol implemented in the C++ library" has one correct answer and six
+  near-identical wrong ones. `search_index` already accepted a `language` pre-filter that
+  resolves this, but nothing ever populated it, so the language named in the question
+  competed only as ordinary text. Measured on thrift: five of six cross-language failures
+  returned a different language's file entirely, C++ missing all three of its questions.
+  The language named in a query is now detected and passed to that filter — cross-language
+  top-3 60.0% → 73.3% and top-5 60.0% → **93.3%**, general-regime top-5 40.0% → 53.3%.
+  Detection is deliberately conservative, because a wrong pre-filter removes the correct
+  answer from the candidate pool rather than merely ranking it lower: an unambiguous name
+  (`golang`, `typescript`, `c++`) matches alone, while a name that is also ordinary English
+  or a prefix of another language (`go`, `c`, `java` inside `javascript`) needs a cue such
+  as "library" or "in Go", and a query naming two languages is declined. Across the 356
+  single-language benchmark questions it fires on two, both in `pallets/flask` naming
+  Python, and flask's results are byte-identical to three decimal places of MRR.
+
+## 0.8.10 — 2026-08-13
+
+- **A file mixing an interface with its own concrete implementation was demoted wholesale
+  on the strength of the interface alone.** `_is_declaration_only_file` flagged an entire
+  Java or C# file as pure contract if it contained an `interface` line anywhere, with no
+  check for whether real implementation sat alongside it — AutoMapper's `Mapper.cs` and
+  `Configuration/MapperConfiguration.cs` each pair a small interface with the actual
+  concrete class, and gson's `internal/bind/TypeAdapters.java` trips the same rule on one
+  interface nested 900 lines deep inside an otherwise fully-implemented registry class. Now
+  a file is declaration-only only if it has no concrete class alongside the interface, and,
+  separately, an embedded interface's own chunk carries the demotion on its own terms even
+  in a file the file-level check no longer flags — the two AutoMapper files above still
+  correctly demote their one interface-shaped chunk apiece. Measured on all 12 benchmark
+  corpora, both regimes, master ef3b137, re-scanned and re-indexed from scratch: 10 of 12
+  are byte-identical, both regimes — no PHP, Go, Rust, Python, Ruby, TypeScript, JavaScript,
+  C or C++ side effects. AutoMapper top-3 gains 6.7 points (13.3% → 20.0%) with top-5 fully
+  recovered to baseline (26.7% → 33.3%) and nothing else moved, while gson top-3 gives back
+  the same 6.7 points (73.3% → 66.7%) it had gained from the same underlying misclassification
+  bug — not a defect in this fix: `TypeAdapters.java` is a genuine registry of real
+  `TypeAdapter` implementations, not a misclassified interface, and now legitimately competes
+  with `TypeAdapter.java` on lexical/topical grounds the same way Slim's PHP siblings already
+  do. That's the open follow-up — a separate, already-scoped near-duplicate-crowding problem
+  with its own baseline, not a next step on this branch.
+
+## 0.8.9 — 2026-08-13
+
+- **.NET test projects were being indexed as implementation.** `_is_test_path` matched only
+  the exact lowercase segments `tests`, `test`, `spec`, `__tests__` and `testing`, so .NET's
+  universal conventions — `src/UnitTests/`, `AutoMapper.DI.Tests/`, `IntegrationTests/` —
+  were never excluded, and neither was any Java or C# project following the same naming.
+  Measured on `AutoMapper/AutoMapper`: every one of 15 location questions returned
+  `src/UnitTests/` files ahead of the implementation, for **0.0% top-1**. Matching is now
+  case-insensitive and also covers a segment ending in `tests` or `.test`, which lifts
+  AutoMapper to 6.7% top-1 and 33.3% top-5 with no change to any other corpus. Deliberately
+  matched on the plural: a `test` suffix would swallow ordinary words like `latest`.
+
+## 0.8.8 — 2026-08-13
+
+- **Java visibility ignored Java's own access modifiers.** `is_public` was computed as
+  `not _is_nested_in_function(node)` — a fair proxy for Python, which has no access
+  modifiers, but simply wrong for Java, which states visibility in a `modifiers` node.
+  `docs_reference.py` filters the generated API reference on that flag, so every `private`
+  and `protected` Java method was being published as public API. Now read from the
+  modifiers, with the absent-modifier case handled correctly: a member of an interface or
+  annotation type carries no `modifiers` node at all and is implicitly public by Java's
+  rules, so treating "no `public` keyword" as private would have hidden `google/gson`'s
+  `TypeAdapterFactory.create` — a worse error than the one being fixed. Measured on
+  `google/gson`: 69% of extracted symbols are public, where previously 100% were reported
+  as such. Retrieval is unchanged on all eight benchmark corpora — this fixes generated
+  documentation, not search.
+
+## 0.8.7 — 2026-08-13
+
+- **A FastAPI router mounted at more than one prefix silently lost one of its mount points.**
+  `include_router(router, prefix="/api")` in one place and `include_router(router,
+  prefix="/admin")` in another are both real, independently reachable mount points for every
+  route on that router — but `_extract_flask_fastapi_routes` chained the two prefixes onto a
+  single path instead of emitting one endpoint per mount, producing a single wrong compound
+  path (`/api/admin/...`) and dropping the other mount's endpoint entirely. Each mount prefix
+  now composes independently with the router's own constructor prefix into its own endpoint.
+  Caught by Aletheore's own Flash review, running on `gpt-5.6-luna`, on the PR that introduced
+  the surrounding prefix-composition logic (#230) — verified against the real code before
+  fixing, not taken on faith.
+
+## 0.8.6 — 2026-08-13
+
+- **Documentation, demos and benchmarks competed with the library for answer slots.** Asked
+  where something is implemented, retrieval returned the docs site that describes it or the
+  benchmark that times it. Measured across eight corpora: `colinhacks/zod` spent 28% of its
+  top-5 slots outside `packages/zod` and `google/gson` 21% outside `gson/src/main`
+  (`proto/`, `metrics/`, `extras/`), against 0-7% for single-module repositories. Files under
+  a documentation, example, demo or benchmark directory are now demoted — a rank penalty, not
+  an exclusion, so an `examples/` directory is still reachable when it is the only match, the
+  same treatment interfaces already get. `google/gson` top-1 33.3% → 40.0%, top-5 66.7% →
+  80.0%; `pallets/flask` top-1 68.8% → 71.9%. No corpus regressed on any metric; across all
+  137 questions top-1 44.5% → 46.0% and top-5 73.7% → 75.2%.
+
+- **Dependency, secret and endpoint scanning missed real findings** (#230, released here — it
+  carried no changelog entry of its own). `_parse_pep508_dependency` silently dropped any
+  dependency using a compound PEP 440 range (`>=X,<Y`), the `~=` operator, or no version at
+  all — on this repository's own `pyproject.toml`, 15 of 17 runtime dependencies were
+  invisible to CVE scanning, licence checking and unused-dependency detection alike, since
+  all three share that parser. `_extract_javascript` matched only ES `import`, so CommonJS
+  `require()`, re-export barrels and dynamic `import()` were invisible to the dependency
+  graph, producing false dead-code positives. `generic_credential_assignment` required a
+  quoted value, missing unquoted `.env`, docker-compose, shell-export and YAML assignments,
+  and scanned each line with `search()` rather than `finditer()`, so a second match on the
+  same line was dropped; ASIA session tokens and `github_pat_` fine-grained PATs are now
+  covered. `_extract_flask_fastapi_routes` never composed `APIRouter(prefix=...)` or
+  `include_router(..., prefix=...)` into the extracted path, so FastAPI's standard
+  multi-file layout produced systematically prefix-less routes with no signal anything was
+  missing.
+
+## 0.8.5 — 2026-08-13
+
+- **The `[file]` context was spent on every symbol, and mostly diluted them.** It exists to
+  break ties between near-identical chunks, but it was attached to every symbol in a file
+  whether or not that symbol had a tie to break — so the same sentence was repeated across
+  every chunk of the file, and each symbol's own text carried proportionally less weight.
+  It now goes only to symbols whose name is declared in more than one file, which is the
+  collision it was built for: `serde` declares `deserialize` in 57 files, `slimphp/Slim`
+  declares `__invoke` in four. Measured across four corpora and 77 questions, against 0.8.4:
+  `pallets/flask` top-1 65.6% → 68.8%, `serde-rs/serde` top-1 46.7% → 53.3%,
+  `gin-gonic/gin` top-3 93.3% → 100%, `slimphp/Slim` top-5 60.0% → 66.7%. No corpus
+  regressed on any metric; total top-1 across all 77 questions rose 57.1% → 59.7% and MRR
+  improved on all four.
+
+- **`aletheore --version` and `aletheore status` reported 0.7.2 on every 0.8.x release.**
+  Both read `importlib.metadata.version("aletheore")`, which comes from
+  `src/pyproject.toml`, and that file was never bumped past 0.7.2 while `__version__` moved
+  to 0.8.4 — so the metadata version and the declared version had drifted five releases
+  apart. It also meant no 0.8.x artefact could be published at all, since 0.7.2 was already
+  taken on PyPI, which is why `pip install aletheore==0.8.0` does not work today. Both are
+  now 0.8.5, and a test asserts they cannot drift again.
+
+## 0.8.4 — 2026-08-13
+
+- **A header-less file lost retrieval ties it should have won.** `slimphp/Slim`'s
+  `CallableResolver.php` — the correct answer to "how is a callable given as a string turned
+  into something invokable?" — goes straight from `declare(strict_types=1)` to `namespace` to
+  `use`, with no header comment at all, while its four lexical competitors (`__invoke` methods
+  in sibling files, matching "invokable" on "`__invoke`") all sit in files with a header
+  docblock. The `[file]` context feature meant to disambiguate near-identical chunks was
+  disambiguating backwards: every wrong answer got a hint, the right one got none. Fixed with a
+  fallback, used only when a file has no header comment of its own: the docstring of the class
+  or interface the file is named after (PHP/Java/C#/TypeScript's one-type-per-file convention).
+  Matched by name against the file's own stem, not "the first symbol in the file," so it can't
+  reintroduce the bug the file-header comment logic already guards against (stapling one
+  symbol's docstring onto every other symbol in the file).
+- Correction to 0.8.3's licence-banner fix: it was real and worth keeping (it was wasting
+  embedding budget on 372 chunks), but it was not the cause of PHP's stuck 26.7% top-1 -
+  uniform noise across every chunk mostly cancels in relative ranking. This `__invoke`
+  collision is the actual cause.
+
+## 0.8.3 — 2026-08-13
+
+- **Licence-banner text was leaking into `[file]` context, actively harming retrieval.**
+  `_LEGAL_NOISE` caught licence/copyright lines but not the project banner line that precedes
+  them (no legal keyword of its own), and `_file_header_comment` never stripped a trailing
+  comment terminator or a leftover bare doc tag. `slimphp/Slim`'s files all open with a banner
+  whose `"Slim Framework (https://slimframework.com)"` line survived the filter and whose
+  "@api */" line leaked both the tag and the comment closer. Measured: 372 of 455 chunks
+  carried a `[file]` context, but only 17 distinct strings across the whole repo - 121 chunks
+  shared the identical string, actively diluting every symbol's own body instead of
+  disambiguating it. Fixed in three layers: `_LEGAL_NOISE` widened to catch bare
+  `@author`/`@package`/`@link`/`@copyright`/`@api` tags and bare URL lines, plus a new
+  `_PROJECT_BANNER` regex for "name (https://...)" banners; a trailing comment terminator is
+  now stripped unconditionally from any C-style comment line; and, as the durable backstop,
+  `build_chunks` now tallies how often each distinct context string recurs across the repo and
+  drops any shared by more than `_BOILERPLATE_MIN_REPEAT_COUNT` files, whether or not any regex
+  anticipated its shape.
+
+## 0.8.2 — 2026-08-12
+
+- **TypeScript type and interface declarations were never extracted.** `_extract_javascript`
+  handled function/class declarations and assigned function expressions, but not
+  `type_alias_declaration` or `interface_declaration` - in TypeScript those ARE the public API
+  surface, especially for a type-centric library. `colinhacks/zod` has 972 `export type`/
+  `export interface` declarations in its core src; 39 files with zero other symbols contained
+  210 of them, entirely invisible to the index (`enumUtil.ts`, for example, is entirely type
+  declarations inside a namespace). Now extracted into `classes`, the same way Java's and C#'s
+  own `interface_declaration` already was - including declarations nested inside a
+  `namespace`/`module` body, which zod uses.
+- **Declaration-only files (interfaces, `.d.ts`, headers with only prototypes) were crowding
+  out implementations in retrieval.** A pure-contract file has rich doc-comments describing
+  behaviour with no implementation to dilute them, which makes it unusually attractive to an
+  embedder for "how does X work" - measured on `slimphp/Slim`: interfaces were 17 of 72 PHP
+  files (24%) and took 18 of 75 top-5 slots (24%), displacing the correct answer on 4 of 6
+  misses. Fixed as a demotion, not an exclusion - unlike a test path, an interface is
+  legitimately the answer to "where is the contract for X defined?" - via a rank penalty in
+  the retriever's reciprocal-rank fusion, detected by path convention (`Interfaces/`,
+  `Contracts/`) or per-language content (PHP `interface`, Java/C# `interface`, a Rust `trait`
+  with no default bodies, a C/C++ header with only prototypes, a TypeScript file with type/
+  interface declarations and no implementation). These two had to ship together: extracting
+  TypeScript types without demoting them would have made the crowding-out problem worse.
+
+## 0.8.1 — 2026-08-12
+
+- **Ruby constants were never extracted.** The 0.8.0 module-constants extraction required
+  file scope (`is_top_level`), but Ruby constants are idiomatically declared inside a module
+  or class body, not at file scope - a real repo scan (`sinatra/sinatra`) found 10 constants
+  indented inside module/class bodies and 0 at true top level, so scanning all 147 modules
+  yielded a single constant, from a test file. Now accepts a capitalised assignment nested
+  directly in a `class`/`module` body (`Sinatra::Base::DROP_BODY_RESPONSES`) in addition to
+  true top level; a capitalised assignment inside a `def` body stays excluded as a
+  method-local.
+
+## 0.8.0 — 2026-08-12
+
+Scanner coverage across every supported language, plus the retrieval and wiki work that
+depends on it. Measured, with the harness and raw results published at
+[Aletheore/aletheore-benchmarks](https://github.com/Aletheore/aletheore-benchmarks).
+
+**Three languages had no working dependency graph.** Everything downstream — clustering,
+subsystem naming, importance ranking, AIRview, layer violations — consumes that graph, so
+their output was structurally wrong while looking normal.
+
+- **CommonJS produced an empty graph.** Only ESM `import` was extracted, never `require()`.
+  `expressjs/express` scanned as 141 modules with 0 resolved imports, so community detection
+  emitted one cluster per file. Now 125/141 modules, 159 edges, 27 clusters.
+- **Rust failed two ways, silently.** `serde-rs/serde` scanned as 208 modules with 0 edges:
+  Cargo workspaces were unsupported (only `<repo>/src/lib.rs` was checked), and `mod foo;` —
+  how a crate declares its module tree — was not treated as an edge.
+- **C#** resolved nothing for flat projects whose namespace comes from `<RootNamespace>`
+  with no mirroring directories.
+- **JavaScript missed assigned function expressions.** Express defines its whole surface as
+  `app.use = function use(fn) {...}`; 102 of its 141 files had no symbols at all.
+- **Module-level constants are now extracted in all 11 languages**, not just Python. A file
+  can export a public API with no function or class — Flask's `signals.py` is ten
+  assignments exporting ten public signals, and was invisible to every consumer of the
+  evidence. `symbols.constants` is present on every module.
+
+**Retrieval.** Each symbol chunk now carries its file's header comment, which disambiguates
+near-identical symbols in trait-heavy code — serde defines `deserialize` in 57 different
+files. Rust top-5 went 60.0% → 73.3%, Python top-3 93.8% → 96.9%. Constants are indexed only
+for files that define nothing else, so declaration-only files become findable without
+diluting files that already have code.
+
+**Ranking.** File importance now counts symbol size and public-API surface, not just
+in-degree — entry points sit at the top of the import tree so almost nothing imports them,
+which had `requests`' `api.py` (its entire public API) ranked 17th behind `compat.py`, a
+compatibility shim. Symbols shown to a writing model are ordered public-first by source span
+rather than concatenated by kind and truncated, which had left Flask's `app.py` showing 15
+symbols, all functions, with the `Flask` class itself invisible.
+
+## 0.7.1 — 2026-08-07
+
+- Closed 3 known vulnerabilities (PYSEC-2026-3552/3553/3554) by bumping the `cryptography`
+  dependency.
+- Round-1 hardening from the internal audit report: local `aletheore audit` now runs the same
+  citation-verification path as the hosted managed audit (previously duplicated, now shared via
+  `aletheore.citation_verifier`); the git-history secret scan is now watchdog-bounded against
+  multi-minute hangs on large histories; a report is now clearly marked when it falls back to raw
+  agent output instead of silently presenting it as contract-compliant; a secret finding now
+  requires real value-shape evidence (entropy + placeholder markers), not just file path, before
+  being downgraded to a likely placeholder; production dependencies now have pinned upper bounds
+  and are split from test-only deps.
+- Enforced evidence schema-version compatibility on every CLI read path
+  (query/index/diff/healthcheck/verify), not just the MCP server — closing the gap left by the
+  same fix landing MCP-only in 0.7.0.
+- Fixed Flash Review discarding real findings about **deleted code**: a citation landing just past
+  a deletion-only hunk's collapsed boundary was rejected before its content could be checked,
+  silently turning a true positive into "No issues found."
+- Fixed Flash Review repeating the same zero-grounded-findings message twice in one comment.
+- Fixed `mcp-install` writing the bare command name `"aletheore"` into every coding-tool config
+  instead of an absolute path — silently broken whenever the launching tool's subprocess PATH
+  doesn't include wherever `aletheore` was actually installed (the common case for a
+  pip-installed-in-a-venv install launched by a GUI coding tool). Now resolves to the exact
+  install that ran `mcp-install`.
+- Three hosted-audit hardening fixes: a fail-closed collaborator permission check before running a
+  triggered audit, credential stripping on reused checkouts, and Docker socket isolation via a
+  narrow-purpose sidecar (verified live against production).
+- Reworked the AIRview diagram zoom into a real pan/zoom toolbar, and polished the hosted
+  dashboard, pricing, and developers pages.
+- Routine dependency updates: GitHub Actions runners, `rq`, `psycopg`, `tree-sitter`, `typer`,
+  `pytest`, `pytest-asyncio`, `cspell`, `prettier`, `markdownlint-cli2`.
+
+## 0.7.0 — 2026-07-31
+
+- Added **Regression Fencing**: flags a changed function signature when a real caller wasn't
+  updated in the same PR, distinguishing a genuinely breaking change from an additive,
+  backward-compatible one (e.g. a new required parameter vs. a new optional one with a default).
+  Posts a signed Check Run a repo can require in branch protection.
+- Systematic audit of the grounding system across Flash Review, AIRview, and the Managed Audit
+  report: citations in the Managed Audit report are now verified against real evidence before
+  signing (previously prompt-based only); every grounding rejection is now logged with its
+  file:line and reason instead of failing silently; AIRview no longer deletes an entire
+  subsystem over one unverified sentence (retries once, then keeps the deterministic diagram/file
+  list with just the prose withheld); Flash Review discloses when a PR was too large to fully
+  review instead of reporting "No issues found" identically either way; citations against files
+  with no extension (`Dockerfile`, `Makefile`) are now checked instead of silently ignored; a
+  citation at line 0 is now rejected.
+- Fixed Flash Review dropping correct findings about **deleted code**: a deletion-only diff hunk
+  collapses to just its context lines, so a finding about the removed code was rejected as
+  "outside the diff" before the content check could weigh in.
+- Fixed the AIRview diagram zoom overlay on genuinely large Mermaid graphs: it scaled via CSS
+  `transform: scale()`, which grows the painted appearance but not the scrollable layout size,
+  leaving large sections of a big diagram permanently unreachable by scroll.
+- Completed the AIR paid-tier feature set: real Microsoft Teams alert support (Slack's classic
+  webhook format was retired; now auto-detects and sends the current Adaptive Card format), a
+  "send test notification" button for the alert webhook, real per-seat Paddle billing, an
+  endpoint health history/trend view, and push-triggered incremental rescans.
+- Disabled forced `tool_choice` for the `deepseek` adapter — `deepseek-v4-pro` runs in thinking
+  mode by default, which rejects `tool_choice="required"`.
+- Fixed three CLI output bugs found dogfooding the actual install → first-run path: the no-args
+  banner and `init`'s config-key descriptions wrapped long text back to the terminal's left edge
+  instead of staying indented under their column; `scan`/`audit` completion messages could get a
+  real newline inserted mid-filename by the fixed-width result box, corrupting a copied path.
+
+## 0.6.1 — 2026-07-28
+
+- Fixed `aletheore_search_codebase`/`aletheore_answer` telling an MCP-connected agent to run
+  `aletheore index <path>` (a shell command it can't execute) when the semantic index hasn't been
+  built yet, instead of pointing it at the `aletheore_index` tool it actually has.
+
+## 0.6.0 — 2026-07-28
+
+- Gave the CLI its own on-disk incremental-scan cache (content-hash keyed) plus on-disk
+  license/vulnerability registry-lookup caches, so a repeat `scan`/`audit` on an unchanged repo
+  skips re-parsing and re-querying work it already did.
+- Hardened the module-graph builder against relative-import path escapes in Ruby, PHP, C/C++,
+  Java, and C# (a coincidentally-matching package/namespace and directory name could previously
+  crash the scan with an unhandled `ValueError`), fixed Java/C# files being parsed twice per
+  scan, and made repo walks skip symlinked files and directories instead of following them.
+- Verified LLM-claimed citation lines against real file content instead of just file existence,
+  closing a grounding gap in audit output.
+- Regenerated MCP tool docs from the actual server registry, gave each dynamic MCP query tool
+  its own description, routed the MCP managed-audit tool through the shared credential store,
+  added an `aletheore_index` tool to build the semantic search index on demand, and cached
+  parsed evidence in-process so repeated MCP queries against the same evidence file don't
+  re-read and re-parse it.
+- Added a durable, incrementally-updated code graph (files/symbols/edges/endpoints) backing the
+  hosted service, with a persistent-checkout + skip-unchanged-files fast path, anonymous CLI scan
+  usage telemetry, and Sentry-compatible runtime event ingestion for zero-hop debugging.
+- Added a DeepSeek adapter, parallelized dependency license checks instead of running them
+  serially, and fixed the GitHub Action workflow's git worktree/submodule exclusion and
+  first-commit-lookup performance.
+- Hardened the hosted GitHub App: automatic GitHub access-token refresh for long-lived sessions,
+  fixed several dashboard issues (401 reload loop, missing security findings, endpoint display,
+  AIRview/Live Wiki sections, Mermaid graph rendering), and added a monthly scanned-repos cap.
+- Gave the CLI real spinner animation (in place of a static arrow) on long-running phases and
+  wrapped scan/audit/managed-audit completion messages in a bordered panel, matching the
+  existing banner/sponsor panel style.
+
+## 0.5.0 — 2026-07-23
+
+- Launched the redesigned Aletheore marketing website with clearer positioning, pricing,
+  developer documentation, social links, sitemap coverage, and mobile navigation fixes.
+- Added the hosted GitHub App foundation and hardening: PR scan workers, managed audit
+  plumbing, health monitoring, public health APIs, deployment documentation, security
+  workflows, SBOM/image scanning, and operational runbooks.
+- Expanded evidence grounding across alerts, reviews, audits, and queries so product output
+  can resolve back toward concrete code evidence such as file, line, symbol, owner, commit,
+  dependency, and risk.
+- Added deeper repository intelligence, including API endpoint mapping, multi-language
+  endpoint support, database and infrastructure detection, threat-model perspective work,
+  dependency manifest fallbacks, embedding fallbacks, evidence packet caching, and
+  deterministic enrichment foundations.
+- Improved the developer experience around the CLI, MCP server, query commands, AIRview,
+  status/login flows, provider adapters, release checks, and prelaunch CI.
+
+## 0.4.0 — 2026-07-18
+
+- Extended dependency vulnerability/license checking to cover manifests as well as lockfiles,
+  so a project isn't silently reported as "0 findings" (indistinguishable from a clean scan)
+  when its dependencies are declared somewhere the lockfile-only parsers didn't read - verified
+  against real repos before and after: Django (no root `requirements.txt` - declares deps in
+  `pyproject.toml`), `spring-petclinic` (Spring Boot's BOM-inherited dependency versions),
+  `apache/dubbo` (57-module multi-module repo), `serde`/`guzzle` (popular libraries that ship no
+  lockfile at all), and Microsoft's `eShopOnWeb` (.NET Central Package Management). Python now
+  additionally parses `pyproject.toml` (PEP 621 and Poetry); npm prefers the resolved version
+  from `package-lock.json` over `package.json`'s declared range when a lockfile is present; Rust,
+  PHP, Ruby, and C# each fall back to their manifest (`Cargo.toml`, `composer.json`, `*.gemspec`,
+  `.csproj`/`Directory.Packages.props`) when no lockfile exists; Maven now resolves
+  `${property}`-style versions and same-file `dependencyManagement`-inherited versions, and
+  recurses into every module listed in a multi-module `pom.xml` - while also fixing a
+  over-counting bug where the old lookup incorrectly pulled in profile-only and
+  dependencyManagement-only entries as if they were the project's real active dependencies
+  (confirmed on `dubbo`: 6 real dependencies vs. 46 falsely matched).
+- Added vulnerability/license checking for six more ecosystems beyond Python and JavaScript: Go
+  (`go.mod`, via the official `pkg.go.dev` v1beta API), Rust (`Cargo.lock`, crates.io), Java
+  (`pom.xml`, Maven Central), Ruby (`Gemfile.lock`, RubyGems), PHP (`composer.lock`, Packagist),
+  and C# (`packages.lock.json`, NuGet) - live-verified against a real Kubernetes scan (206 Go
+  dependencies, 9 vulnerability findings, 40 license findings).
+- Added `aletheore status`: reports the installed version, whether a newer release is available
+  on PyPI, and current login state.
+- Added `aletheore login`: GitHub OAuth device-flow authentication (no client secret needed,
+  no browser redirect - a device code is shown, approved on github.com, and the CLI polls until
+  approved).
+- Added local semantic code search and retrieval-grounded Q&A: `aletheore index` builds a
+  LanceDB index over symbol-bounded code chunks using local Ollama embeddings
+  (`nomic-embed-text`), `aletheore query search-codebase` returns TOON-encoded semantic
+  matches, and `aletheore query answer` reuses the provider adapter infrastructure for cited
+  answers with a distance-based confidence gate. Extracted symbols now include exact
+  1-indexed `start_line`/`end_line` bounds across supported languages.
+- **Fixed `aletheore audit` hanging or running away when an API-based provider's model stopped
+  calling tools mid-report.** The tool-calling loop used to silently retry (up to all 20
+  rounds) whenever a model responded with plain text instead of a tool call - live-verified
+  against a real local Ollama run that burned 250s+ across 4 rounds without writing a single
+  section. Now caps consecutive no-tool-call rounds at 2, with a corrective nudge on the first
+  miss and a fast, clear failure on the second. Also forces `tool_choice` (`"required"` for
+  OpenAI-compatible providers, `{"type": "any"}` for the native Anthropic adapter) on providers
+  that support it, preventing the no-tool-call response from happening at all rather than just
+  reacting to it - made opt-in per-adapter after live-verifying that Ollama's own `/v1`
+  OpenAI-compat endpoint does not support this parameter (a direct request with it never
+  returned at all; the identical request without it returned normally in ~5s).
+- Expanded `aletheore audit` to full CLI + API coverage across every major provider: Claude
+  (`claude` CLI / `anthropic` API), OpenAI (`codex` CLI / `openai` API), Google (`gemini-cli`
+  CLI / `gemini` API), Mistral (`mistral-vibe` CLI / `mistral` API), and xAI (`grok-build` CLI
+  / `grok` API), alongside the existing `opencode` CLI and local, key-free `ollama`. Twelve
+  `--agent` values total. CLI-based adapters never touch Aletheore's own network code (the
+  vendor's own CLI manages its own auth and network calls), so they skip the consent prompt;
+  every API-key-based adapter still shows it every single time.
+- Added multi-provider support to `aletheore audit`: OpenCode, OpenAI, Mistral, xAI Grok,
+  Ollama (local), and Gemini alongside the existing Claude Code adapter. Interactive runs
+  always show a provider-selection menu, even with only one available; non-interactive runs
+  require `--agent` explicitly. Every run using an API-based provider shows a fresh consent
+  prompt naming the exact provider before any data leaves the machine - never remembered,
+  every single time. API keys are checked from each provider's standard environment variable
+  first, with an explicit prompt-and-choose-to-save-or-discard flow if missing. The API-based
+  providers can only ever read this repository's already-computed evidence, never raw source
+  files - a hard architectural boundary, not a setting.
+
+## 0.3.0 — 2026-07-16
+
+- Added live progress reporting to `scan`/`audit` — every major phase (module graph build,
+  git history, secrets, vulnerability/license checks, endpoint mapping) prints as it starts,
+  and dependency-license checking (a real, sequential, one-request-per-dependency network
+  call — the least visible part of a scan) reports per-dependency progress. On a real
+  terminal the per-dependency counter updates in place; piped to a log or CI, every message
+  prints on its own line instead, since `\r` only means "return to start of line" on an
+  actual TTY. `audit`'s wait on the coding-agent subprocess now shows an elapsed-time
+  indicator too, so a multi-minute run doesn't look identical to a hang.
+- Switched the MCP server's tool results and the file the `audit` command's coding-agent
+  adapter reads from JSON to [TOON](https://toonformat.dev) (Token-Oriented Object Notation)
+  - a lossless, more token-efficient re-encoding of the same data (~30-60% fewer tokens,
+    confirmed directly against Aletheore's own evidence shape). `.aletheore/evidence.json`
+    stays the canonical on-disk format (the dashboard and any external tooling still need
+    real JSON); a second `.aletheore/evidence.toon` file is written alongside it
+    specifically for the audit flow, and the manual's operating instructions now explain the
+    TOON syntax briefly for the agent reading it.
+- **Fixed a real, actively misleading bug in `aletheore dashboard`**: it printed "Dashboard
+  running" and opened a browser tab *before* actually trying to bind the port, so if the port
+  was already taken (e.g. a dashboard left running for a different repo), the browser silently
+  connected to that other, unrelated process instead — a reload looked like a working live
+  dashboard while actually showing a completely different repo's data. Now checks the port
+  first and fails with a clear message, without opening the browser, if it's already in use.
+- Migrated the CLI from `argparse` to [Typer](https://typer.tiangolo.com) + [Rich](https://rich.readthedocs.io):
+  every subcommand now gets a properly formatted, colored `--help` automatically (previously
+  only the top-level `--help` had any real formatting - every subcommand showed argparse's bare
+  default). The colorful `ALETHEORE` banner on a bare `aletheore` invocation is now a real Rich
+  panel. Every existing flag name and behavior is preserved exactly (`--no-check-vulnerabilities`,
+  `--base-url`, etc.); the only user-visible addition is that flags like `--no-check-licenses`
+  now also have an explicit positive counterpart (`--check-licenses`) for free, from Typer's
+  `--flag/--no-flag` pair syntax.
+
+## 0.2.1 — 2026-07-16
+
+- **Fixed `aletheore audit` being completely broken on every real `pip install`.** `manual/`
+  (the operating instructions the coding-agent adapter reads to write a grounded report) was
+  never included in the packaged wheel, and even if it had been, `MANUAL_DIR`'s path
+  computation (`parent.parent`) only resolved correctly in the dev repo's layout, not an
+  installed one. Fixed by moving `manual/` inside the `aletheore` package itself (next to
+  `static/`, which already worked correctly), fixing the path computation to match, and adding
+  it to `package-data`. Verified by downloading the actual broken `0.2.0` wheel and confirming
+  `manual/` was absent from it, then building and installing a real wheel with the fix and
+  running a full `aletheore audit` end-to-end against it.
+- Added a proper first-run CLI experience: running bare `aletheore` (or `aletheore --help`)
+  now shows a bordered banner explaining what the tool is and a one-line summary of every
+  command, instead of a bare `usage:` line with no context.
+
+## 0.2.0 — 2026-07-16
+
+- **Renamed the project from Veridion to Aletheore** (package, CLI command, MCP tool prefixes,
+  `.veridion/` → `.aletheore/` config convention, GitHub repo) and moved the repo from the
+  personal `ArihantK15` account into the new `Aletheore` GitHub organization. Everything below
+  this point reflects the new name; the `0.1.1` and `0.1.0` entries are left as a historical
+  record under the name that was actually live at the time, not rewritten.
+- Added `.github/workflows/tests.yml` — the test suite now actually runs in CI on every
+  push/PR, across Python 3.11 and 3.12. Previously nothing ran it automatically.
+- Added real PyPI packaging (full metadata in `prototype/pyproject.toml`) and
+  `.github/workflows/publish-pypi.yml`, which publishes via trusted publishing whenever a
+  GitHub Release is published. Not live yet — needs the PyPI-side trusted-publisher
+  registration first.
+- Added a secrets baseline: `.aletheore.json`'s new `accepted_secrets` key lets a known,
+  reviewed finding (e.g. a fake key in a test fixture) stop blocking `--fail-on-new-secrets`
+  permanently, without hiding it from evidence, queries, the dashboard, or the PR comment.
+- The module dependency graph now understands seven new languages beyond the original
+  Python/JavaScript/TypeScript: **Go**, **Rust**, **Java**, **Ruby**, **PHP**, **C/C++**, and
+  **C#** — each with its own import-resolution model (package-directory fan-out, `crate`/
+  `self`/`super` path walking, per-file source-root inference, `require`/`require_relative`,
+  PSR-4 autoloading, quoted `#include`, and namespace-directory fan-out with `RootNamespace`
+  handling, respectively), verified against real compiled/executed code in each language
+  (`cargo build`, `javac`, `ruby`, `php`, `clang++`, `dotnet run`) rather than hand-written
+  fixtures alone.
+- Added dependency license checking, alongside secrets/vulnerabilities: every pinned PyPI/npm
+  dependency's registry-declared license is categorized as permissive, copyleft-weak, or
+  copyleft-strong, with only non-permissive ones surfaced as findings. Also detects the repo's
+  own declared license. New `aletheore query licenses` / `aletheore_licenses` MCP tool (14
+  tools, up from 13), `--no-check-licenses` flag on `scan`/`audit`.
+- Added static API endpoint mapping for Flask, FastAPI-style decorators, Django, and Express
+  as a new `repository.api_endpoints` evidence block, with a `aletheore query endpoints` /
+  `aletheore_endpoints` MCP tool (15 deterministic/query tools, up from 14), a
+  `--no-map-endpoints` flag, and tracking of added/removed endpoints in `aletheore diff`.
+- Extended static API endpoint mapping to 8 more frameworks across 6 languages: Go (stdlib
+  `net/http`/`gorilla/mux`, and Gin), Rust (Axum), Java (Spring Boot), Ruby (Rails), PHP
+  (Laravel), and C# (both attribute-routed Controllers and Minimal API) - 10 frameworks total
+  now, up from 4. Endpoint entries gain a `note` field for same-file prefixes that aren't
+  composed into the recorded path (Spring Boot's class-level `@RequestMapping`, C#'s `[Route]`
+  template, Laravel's `Route::group` prefix), alongside the existing `unresolved` flag for
+  distinct mount/include-style indirection (Go's `.PathPrefix().Subrouter()`, Axum's `.nest`,
+  Rails' `resources`, C#'s `MapGroup`).
+- Added `aletheore healthcheck --base-url <url>` and a matching `aletheore_healthcheck` MCP tool:
+  a GET-only live check of an app's mapped endpoints against a running instance. Deliberately
+  kept outside the deterministic evidence/diff model, since it depends on live runtime state,
+  not just repo content. The full MCP surface is now 16 tools including healthcheck.
+
+## 0.1.1 — 2026-07-16
+
+- The `Veridion Diff` GitHub Action now posts its findings as a PR comment (updating the same
+  comment on later pushes) instead of only exposing a `diff-json` step output.
+- Added `fail-on-new-vulnerabilities` and `fail-on-new-layer-violations` inputs (and matching
+  `veridion diff` CLI flags), alongside the existing `fail-on-new-secrets`.
+- Dependency-vulnerability checking is now actually enabled in the Action's scan steps — it
+  was previously skipped via `--no-check-vulnerabilities`, which would have made the new
+  vulnerabilities fail-gate permanently dead.
+- Added inline Checks-API annotations for new secrets, landing on the exact changed line in
+  a PR's "Files changed" tab.
+- The Action now writes to the run's Step Summary on every run, not just `pull_request` events,
+  so a plain push still shows results somewhere.
+
+## 0.1.0 — 2026-07-16
+
+- First tagged release. Published as the `Veridion Diff` GitHub Action on the Marketplace: a
+  composite Action that scans a PR's base and head refs and diffs them — new/resolved secrets,
+  secrets found in git history, dependency vulnerabilities, layer-convention violations, and
+  aggregate deltas (module/edge/commit counts).
+- Everything the Action builds on already existed in the CLI before this release: `veridion
+  scan`/`audit`/`query`/`diff`, an MCP server (13 tools), and a local live dashboard.

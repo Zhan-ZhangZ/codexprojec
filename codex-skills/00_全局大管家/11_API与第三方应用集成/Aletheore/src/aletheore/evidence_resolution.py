@@ -1,0 +1,604 @@
+import fnmatch
+import re
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from aletheore.dead_code import _package_import_names
+
+CONFIDENCE_ORDER = {"unavailable": 0, "weak": 1, "inferred": 2, "exact": 3}
+CANONICAL_FIELDS = (
+    "kind",
+    "file",
+    "line",
+    "end_line",
+    "symbol",
+    "owner",
+    "commit",
+    "dependency",
+    "risk",
+    "suggestion",
+    "confidence",
+    "evidence_path",
+)
+
+
+def empty_resolution(kind: str = "unknown") -> dict:
+    return {
+        "kind": kind,
+        "file": None,
+        "line": None,
+        "end_line": None,
+        "symbol": None,
+        "owner": None,
+        "owner_status": "unavailable",
+        "commit": None,
+        "commit_status": "unavailable",
+        "dependency": None,
+        "dependency_status": "unavailable",
+        "risk": [],
+        "risk_status": "unavailable",
+        "suggestion": None,
+        "suggestion_status": "unavailable",
+        "confidence": "unavailable",
+        "evidence_path": None,
+        "evidence_status": "unavailable",
+    }
+
+
+def normalize_resolution(
+    *,
+    kind: str = "unknown",
+    file: str | None = None,
+    line: int | None = None,
+    end_line: int | None = None,
+    symbol: str | None = None,
+    owner: str | list[str] | None = None,
+    commit: dict | None = None,
+    dependency: str | list[str] | None = None,
+    risk: list[dict] | None = None,
+    suggestion: str | None = None,
+    confidence: str = "unavailable",
+    evidence_path: str | None = None,
+) -> dict:
+    result = empty_resolution(kind)
+    result.update(
+        {
+            "file": file,
+            "line": line,
+            "end_line": end_line,
+            "symbol": symbol,
+            "owner": owner,
+            "owner_status": "available" if owner else "unavailable",
+            "commit": commit,
+            "commit_status": "available" if commit else "unavailable",
+            "dependency": dependency,
+            "dependency_status": "available" if dependency else "unavailable",
+            "risk": risk or [],
+            "risk_status": "available" if risk else "unavailable",
+            "suggestion": suggestion,
+            "suggestion_status": "available" if suggestion else "unavailable",
+            "confidence": confidence if confidence in CONFIDENCE_ORDER else "unavailable",
+            "evidence_path": evidence_path,
+            "evidence_status": "available" if evidence_path else "unavailable",
+        }
+    )
+    return result
+
+
+def merge_resolution(base: dict, *attachments: dict) -> dict:
+    result = normalize_resolution(**{field: base.get(field) for field in CANONICAL_FIELDS})
+    for attachment in attachments:
+        for key, value in attachment.items():
+            if key == "kind":
+                continue
+            if key == "confidence":
+                if CONFIDENCE_ORDER.get(value, 0) > CONFIDENCE_ORDER.get(result[key], 0):
+                    result[key] = value
+                continue
+            if key == "risk":
+                if value:
+                    existing = result.get("risk") or []
+                    result["risk"] = existing + [item for item in value if item not in existing]
+                    result["risk_status"] = "available"
+                continue
+            if value not in (None, [], {}, "unavailable"):
+                result[key] = value
+                status_key = f"{key}_status"
+                if status_key in result:
+                    result[status_key] = "available"
+    return result
+
+
+def _normal_method(method: str | None) -> str:
+    return (method or "").upper()
+
+
+def _normal_path(path: str | None) -> str:
+    if not path:
+        return ""
+    return path if path.startswith("/") else f"/{path}"
+
+
+def resolve_endpoint(evidence: dict, method: str, path: str) -> dict:
+    endpoints = evidence.get("repository", {}).get("api_endpoints", {}).get("endpoints", [])
+    wanted_method = _normal_method(method)
+    wanted_path = _normal_path(path)
+    for index, endpoint in enumerate(endpoints):
+        endpoint_method = _normal_method(endpoint.get("method"))
+        method_matches = endpoint_method in {wanted_method, "ANY"} or wanted_method == endpoint_method
+        if method_matches and _normal_path(endpoint.get("path")) == wanted_path:
+            return normalize_resolution(
+                kind="endpoint",
+                file=endpoint.get("file"),
+                line=endpoint.get("line"),
+                symbol=endpoint.get("handler"),
+                confidence="exact",
+                evidence_path=f"repository.api_endpoints.endpoints[{index}]",
+            )
+    result = empty_resolution("endpoint")
+    result["method"] = wanted_method
+    result["path"] = wanted_path
+    return result
+
+
+def _codeowners_path(repo_path: Path) -> Path | None:
+    for rel in ("CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"):
+        path = repo_path / rel
+        if path.exists():
+            return path
+    return None
+
+
+def _parse_codeowners_line(line: str) -> tuple[str, list[str]] | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    parts = stripped.split()
+    if len(parts) < 2:
+        return None
+    return parts[0], parts[1:]
+
+
+def _glob_segments_match(pattern_segments: list[str], path_segments: list[str]) -> bool:
+    """True if pattern_segments matches path_segments exactly (both fully
+    consumed together) - unlike repo_config.py's sibling _segments_match,
+    which matches a PREFIX (a directory-shaped ignored_paths pattern
+    excludes everything beneath it), a CODEOWNERS pattern attributes one
+    specific file, so nothing is allowed to remain on either side once
+    matching finishes. "**" is the one construct allowed to cross a "/"
+    boundary (matches zero or more whole path segments); a plain "*"/"?"
+    stays scoped to one segment via fnmatch.
+
+    Real bug found via audit (same class already fixed in repo_config.py's
+    _segments_match, same session): a naive recursive "**" branch with no
+    memoization forks into len(path_segments)+1 calls at every "**"
+    segment, exponential in the number of "**" segments a pattern has. A
+    CODEOWNERS file (CODEOWNERS, .github/CODEOWNERS, or docs/CODEOWNERS)
+    lives inside the scanned repo itself - untrusted input by design, the
+    same threat model ignored_paths already has - so a crafted pattern is
+    a real, currently-live denial-of-service vector: confirmed directly,
+    a pattern with ten "**" segments against a 25-segment path took ~65s
+    before this fix. Memoized by (pattern index, path index), scoped to
+    this one call (not a module-level cache, so it can't grow across
+    unrelated calls), bounding the whole match to
+    O(len(pattern_segments) * len(path_segments)) states.
+    """
+    memo: dict[tuple[int, int], bool] = {}
+
+    def match(pi: int, ci: int) -> bool:
+        key = (pi, ci)
+        cached = memo.get(key)
+        if cached is not None:
+            return cached
+        if pi == len(pattern_segments):
+            result = ci == len(path_segments)
+        else:
+            head = pattern_segments[pi]
+            if head == "**":
+                result = any(
+                    match(pi + 1, ci + skip) for skip in range(len(path_segments) - ci + 1)
+                )
+            elif ci == len(path_segments):
+                result = False
+            else:
+                result = fnmatch.fnmatch(path_segments[ci], head) and match(pi + 1, ci + 1)
+        memo[key] = result
+        return result
+
+    return match(0, 0)
+
+
+_GLOB_BRACKET_RE = re.compile(r"[\[\]]")
+
+
+def _escape_unsupported_bracket_syntax(segment: str) -> str:
+    # GitHub's own docs list this as one of CODEOWNERS' explicit deviations
+    # from gitignore syntax: "[ ]" character-range/class syntax is not
+    # supported, so a pattern like "[Dd]ocs" names a literal file called
+    # "[Dd]ocs", not "Docs" or "docs". fnmatch.fnmatch doesn't know this and
+    # treats "[Dd]" as a character class regardless, over-matching relative
+    # to what GitHub itself would resolve for the same CODEOWNERS file.
+    # "[[]"/"[]]" are themselves valid fnmatch character classes containing
+    # only "[" or "]", which is how fnmatch spells "match this bracket
+    # literally" - the identical trick used to escape "[" in shell globs.
+    return _GLOB_BRACKET_RE.sub(lambda m: "[[]" if m.group() == "[" else "[]]", segment)
+
+
+def _codeowners_matches(pattern: str, file_path: str) -> bool:
+    # CODEOWNERS explicitly follows gitignore anchoring rules (GitHub's own
+    # docs): a "/" anywhere in the pattern except as a lone trailing
+    # character anchors it to the repo root; a bare name does not and can
+    # match at any depth. GitHub's own documented example makes this
+    # concrete: "apps/" (no leading slash) "owns any file in an apps
+    # directory anywhere in your repository", while "/docs/" (leading
+    # slash) is anchored to the repo root only. Stripping the leading "/"
+    # before checking threw this distinction away, silently treating every
+    # bare directory-name pattern ("apps/", "tests/") as if it had been
+    # written "/apps/" - matching only at the repo root and missing every
+    # nested directory of that name, the opposite of GitHub's documented
+    # behavior.
+    body = pattern[:-1] if pattern.endswith("/") else pattern
+    anchored = pattern.startswith("/") or "/" in body
+    normalized = pattern.lstrip("/")
+    if normalized.endswith("/"):
+        if anchored:
+            return file_path.startswith(normalized)
+        # A trailing "/" means "directory", never "a regular file at this
+        # path" - GitHub's own docs: "apps/" owns files *in* an apps
+        # directory, not a plain file literally named "apps". Flash Review
+        # finding: the `file_path == dir_name` clause this line used to
+        # carry matched exactly that non-existent case. Confirmed directly
+        # (_codeowners_matches("apps/", "apps") returned True before this
+        # fix, for a bare file named "apps" with no such directory
+        # involved at all).
+        dir_name = normalized.rstrip("/")
+        return file_path.startswith(f"{dir_name}/") or f"/{dir_name}/" in f"/{file_path}"
+    if "/" not in normalized:
+        return fnmatch.fnmatch(Path(file_path).name, _escape_unsupported_bracket_syntax(normalized))
+    # A single "*"/"?" in a gitignore-style (and thus CODEOWNERS-style,
+    # per GitHub's own docs) pattern matches within one path segment
+    # only - it does not cross a "/". fnmatch.fnmatch has no concept of
+    # path segments at all: it translates "*" to ".*", which happily
+    # matches straight through slashes. GitHub's own documented example
+    # makes the intended behavior concrete: "docs/*" matches
+    # "docs/getting-started.md" but explicitly NOT the further-nested
+    # "docs/build-app/troubleshooting.md" - confirmed directly that
+    # fnmatch.fnmatch("docs/build-app/troubleshooting.md", "docs/*")
+    # returns True, the opposite of the documented behavior. Matching
+    # segment-by-segment (with "**" as the one construct allowed to
+    # cross "/") fixes this without losing "*"'s existing behavior
+    # within a single segment.
+    return _glob_segments_match(
+        [_escape_unsupported_bracket_syntax(segment) for segment in normalized.split("/")],
+        file_path.split("/"),
+    )
+
+
+def resolve_owner(repo_path: Path, file_path: str) -> dict:
+    codeowners = _codeowners_path(repo_path)
+    if codeowners is None:
+        return empty_resolution("owner")
+
+    owners: list[str] | None = None
+    for raw_line in codeowners.read_text(encoding="utf-8", errors="ignore").splitlines():
+        parsed = _parse_codeowners_line(raw_line)
+        if parsed is None:
+            continue
+        pattern, candidate_owners = parsed
+        if _codeowners_matches(pattern, file_path):
+            owners = candidate_owners
+
+    if not owners:
+        return empty_resolution("owner")
+    return normalize_resolution(kind="owner", owner=owners, confidence="inferred")
+
+
+def resolve_recent_commit(repo_path: Path, file_path: str, line: int | None = None) -> dict:
+    """The commit that most recently touched file_path - the specific
+    LINE when one is given, via `git blame` (the real per-line
+    attribution signal), falling back to the whole file's own most
+    recent commit only when no line is given.
+
+    A prior version accepted `line` but silently discarded it (`del
+    line`), always answering with the whole file's most recent commit
+    regardless of which line a finding was actually attached to. On any
+    file with more than one contributor, a finding at a line nobody has
+    touched since it was first written still got attributed to whoever
+    most recently edited some OTHER, unrelated line in the same file -
+    confirmed directly against a real two-commit, two-author repo: a
+    finding at bar()'s own line, never touched after Alice's original
+    commit, was attributed to Bob purely because Bob's later, unrelated
+    commit happened to touch foo() elsewhere in the same file.
+
+    Falls back to the same whole-file lookup no `line` gets (rather than
+    reporting unavailable) whenever blame itself can't answer - a line
+    number past the file's real current length (stale evidence from
+    before the file shrank, or evidence describing a symbol slightly
+    differently than the file's exact current line count), an
+    uncommitted/working-tree-only line, or any other blame failure -
+    the same "a partial/degraded result beats none" preference this
+    codebase applies elsewhere (schema_map's partial-schema-over-failed-
+    scan, CI's fail-soft config loading), not silently swallowed.
+    """
+    sha_from_blame: str | None = None
+    if line is not None:
+        try:
+            blame_proc = subprocess.run(
+                ["git", "blame", "-L", f"{line},{line}", "--porcelain", "HEAD", "--", file_path],
+                cwd=repo_path,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=2,
+            )
+        except (OSError, subprocess.SubprocessError):
+            blame_proc = None
+        if blame_proc is not None and blame_proc.returncode == 0 and blame_proc.stdout:
+            # porcelain's first line is "<sha> <orig-line> <final-line> [<count>]".
+            candidate = blame_proc.stdout.split(None, 1)[0]
+            # git blame's own convention for a line that exists only in
+            # the uncommitted working tree (no real commit to report yet)
+            # is an all-zero SHA - not a bug to route around, a genuine
+            # "no commit for this exact line", falls through to the
+            # whole-file lookup below same as any other blame failure.
+            if candidate and set(candidate) != {"0"}:
+                sha_from_blame = candidate
+
+    log_args = ["git", "log", "-1", "--format=%H%x1f%an%x1f%aI%x1f%s"]
+    if sha_from_blame is not None:
+        log_args.append(sha_from_blame)
+    else:
+        log_args.extend(["--", file_path])
+    try:
+        proc = subprocess.run(
+            log_args,
+            cwd=repo_path,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return empty_resolution("commit")
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return empty_resolution("commit")
+
+    parts = proc.stdout.strip().split("\x1f", 3)
+    if len(parts) != 4:
+        return empty_resolution("commit")
+    sha, author, date, subject = parts
+    return normalize_resolution(
+        kind="commit",
+        commit={"sha": sha, "author": author, "date": date, "subject": subject},
+        confidence="weak",
+    )
+
+
+def attach_dependency_evidence(evidence: dict, resolution: dict) -> dict:
+    if resolution.get("kind") == "dependency" and resolution.get("dependency"):
+        return resolution
+    file_path = resolution.get("file")
+    if not file_path:
+        return resolution
+    modules = evidence.get("repository", {}).get("modules", [])
+    module = next((entry for entry in modules if entry.get("path") == file_path), None)
+    imports = module.get("imports", []) if module else []
+    if not imports:
+        return resolution
+    return merge_resolution(
+        resolution,
+        normalize_resolution(kind="dependency", dependency=list(imports), confidence="exact"),
+    )
+
+
+def _risk(category: str, severity: str, summary: str, evidence_path: str) -> dict:
+    return {
+        "category": category,
+        "severity": severity,
+        "summary": summary,
+        "evidence_path": evidence_path,
+    }
+
+
+def attach_risk_evidence(evidence: dict, resolution: dict, max_risks: int = 5) -> dict:
+    file_path = resolution.get("file")
+    raw_dependency = resolution.get("dependency")
+    # kind="dependency" lookups carry a bare string; set("yaml") would be
+    # {"y","a","m","l"} and never match any package.
+    if isinstance(raw_dependency, str):
+        dependencies = {raw_dependency}
+    else:
+        dependencies = set(raw_dependency or [])
+    risks: list[dict[str, Any]] = []
+    if file_path:
+        for index, finding in enumerate(
+            evidence.get("security", {}).get("secrets", {}).get("findings", [])
+        ):
+            if finding.get("path") == file_path:
+                risks.append(
+                    _risk(
+                        "secret",
+                        "high",
+                        f"{finding.get('pattern', 'secret')} at {file_path}:{finding.get('line')}",
+                        f"security.secrets.findings[{index}]",
+                    )
+                )
+
+        for index, violation in enumerate(
+            evidence.get("architecture", {})
+            .get("layer_violations", {})
+            .get("violations", [])
+        ):
+            if violation.get("from") == file_path or violation.get("to") == file_path:
+                risks.append(
+                    _risk(
+                        "architecture",
+                        "medium",
+                        violation.get("reason") or "architecture layer violation",
+                        f"architecture.layer_violations.violations[{index}]",
+                    )
+                )
+
+    for index, finding in enumerate(
+        evidence.get("security", {}).get("dependency_vulnerabilities", {}).get("findings", [])
+    ):
+        package = finding.get("package")
+        # dependencies holds import-time names (module["imports"]) - a
+        # finding's own "package" is the real registry name
+        # (dependency_vulnerabilities/dependency_licenses both come from
+        # PyPI/npm/etc lookups against the manifest-declared package name).
+        # These two diverge for a real, common set of packages (PyYAML vs
+        # yaml, beautifulsoup4 vs bs4, Pillow vs PIL) - a bare `package in
+        # dependencies` equality check silently dropped every real match
+        # whenever they differed, the exact same PyYAML/yaml divergence
+        # dead_code.py's own PACKAGE_IMPORT_ALIASES already exists to
+        # handle for its own, structurally identical unused-dependency
+        # check - reused here rather than re-solving the same problem.
+        # No known dependency means nothing to match against - not "attach
+        # every CVE in the repo" to a resolution that can't be tied to a file.
+        if package and _package_import_names(package) & dependencies:
+            risks.append(
+                _risk(
+                    "vulnerability",
+                    str(finding.get("severity", "unknown")).lower(),
+                    f"{package} {finding.get('advisory_id', 'vulnerability')}",
+                    f"security.dependency_vulnerabilities.findings[{index}]",
+                )
+            )
+
+    for index, finding in enumerate(
+        evidence.get("security", {}).get("dependency_licenses", {}).get("findings", [])
+    ):
+        package = finding.get("package")
+        if package and _package_import_names(package) & dependencies:
+            risks.append(
+                _risk(
+                    "license",
+                    str(finding.get("severity", "unknown")).lower(),
+                    f"{package} license {finding.get('license', 'unknown')}",
+                    f"security.dependency_licenses.findings[{index}]",
+                )
+            )
+
+    if not risks:
+        return resolution
+    return merge_resolution(
+        resolution,
+        normalize_resolution(kind="risk", risk=risks[:max_risks], confidence="inferred"),
+    )
+
+
+def resolve_code_evidence(
+    evidence: dict,
+    repo_path: Path | None = None,
+    *,
+    kind: str,
+    method: str | None = None,
+    path: str | None = None,
+    symbol: str | None = None,
+    dependency: str | None = None,
+) -> dict:
+    if kind == "endpoint" and method is not None and path is not None:
+        resolution = resolve_endpoint(evidence, method, path)
+    elif kind == "symbol" and symbol is not None:
+        resolution = _resolve_symbol(evidence, symbol)
+    elif kind == "dependency" and dependency is not None:
+        resolution = _resolve_dependency(evidence, dependency)
+    else:
+        resolution = empty_resolution(kind)
+
+    if repo_path is not None and resolution.get("file"):
+        resolution = merge_resolution(resolution, resolve_owner(repo_path, resolution["file"]))
+        resolution = merge_resolution(
+            resolution,
+            resolve_recent_commit(repo_path, resolution["file"], resolution.get("line")),
+        )
+    resolution = attach_dependency_evidence(evidence, resolution)
+    resolution = attach_risk_evidence(evidence, resolution)
+    return resolution
+
+
+def _resolve_symbol(evidence: dict, symbol: str) -> dict:
+    modules = evidence.get("repository", {}).get("modules", [])
+    for module_index, module in enumerate(modules):
+        symbols = module.get("symbols", {})
+        for group in ("functions", "classes", "constants"):
+            for symbol_index, entry in enumerate(symbols.get(group, [])):
+                if entry.get("name") == symbol:
+                    return normalize_resolution(
+                        kind="symbol",
+                        file=module.get("path"),
+                        line=entry.get("start_line"),
+                        end_line=entry.get("end_line"),
+                        symbol=symbol,
+                        confidence="exact",
+                        evidence_path=(
+                            f"repository.modules[{module_index}].symbols.{group}[{symbol_index}]"
+                        ),
+                    )
+    result = empty_resolution("symbol")
+    result["symbol"] = symbol
+    return result
+
+
+def _resolve_dependency(evidence: dict, dependency: str) -> dict:
+    matches = []
+    for module in evidence.get("repository", {}).get("modules", []):
+        if dependency in module.get("imports", []):
+            matches.append(module.get("path"))
+    if not matches:
+        result = empty_resolution("dependency")
+        result["dependency"] = dependency
+        return result
+    return normalize_resolution(
+        kind="dependency",
+        file=matches[0],
+        dependency=dependency,
+        confidence="exact",
+        evidence_path="repository.modules",
+    )
+
+
+def find_symbol_at_location(evidence: dict | None, file_path: str, line: int) -> str | None:
+    """The name of the function/class whose real body contains this
+    file:line, read from the same deterministic module graph every other
+    resolver in this file reads - never a model's own guess, so a finding
+    can never be mislabeled with a symbol name that doesn't actually
+    contain the cited line.
+
+    A citation can fall inside more than one candidate range at once (a
+    method's own range is a strict subset of its containing class's) -
+    when that happens, the narrowest (innermost) match wins, since the
+    method name is the more useful attribution for a line-level finding
+    than its enclosing class.
+
+    Returns None - never a guess - when the location isn't inside any
+    known symbol: module-level code, a file the scan pass never covered
+    (including a recognized-but-grammar-less language, e.g. .scala), or
+    missing evidence entirely. Callers must treat that as "no symbol to
+    report", not an error.
+    """
+    if not evidence:
+        return None
+    modules = evidence.get("repository", {}).get("modules", [])
+    module = next((m for m in modules if m.get("path") == file_path), None)
+    if module is None:
+        return None
+    symbols = module.get("symbols", {})
+    candidates: list[tuple[int, str]] = []
+    for entry in symbols.get("functions", []) + symbols.get("classes", []):
+        name = entry.get("name")
+        start, end = entry.get("start_line"), entry.get("end_line")
+        if not name or start is None or end is None:
+            continue
+        if start <= line <= end:
+            candidates.append((end - start, name))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]

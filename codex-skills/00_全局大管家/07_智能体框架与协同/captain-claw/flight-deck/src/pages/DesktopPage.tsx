@@ -1,0 +1,718 @@
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useAgentStore } from '../stores/agentStore'
+import { useContainerStore } from '../stores/containerStore'
+import { useLocalAgentStore } from '../stores/localAgentStore'
+import { useProcessStore } from '../stores/processStore'
+import { AgentCard } from '../components/agents/AgentCard'
+import { AgentDetail } from '../components/agents/AgentDetail'
+import { ContainerCard } from '../components/agents/ContainerCard'
+import { LocalAgentCard } from '../components/agents/LocalAgentCard'
+import { ProcessCard } from '../components/agents/ProcessCard'
+import { SharedAgentCard } from '../components/agents/SharedAgentCard'
+import { FileBrowser } from '../components/agents/FileBrowser'
+import { Radio, Plus, Server, LayoutGrid, Move, X, ChevronDown, Minimize2, Square, Play, Shuffle, Trash2, CheckCircle2, Users } from 'lucide-react'
+import { stopContainer as apiStopContainer, startContainer as apiStartContainer, stopProcess as apiStopProcess, startProcess as apiStartProcess, removeContainer as apiRemoveContainer, removeProcess as apiRemoveProcess } from '../services/docker'
+import type { AgentEndpoint } from '../services/fileTransfer'
+import { useGroupStore } from '../stores/groupStore'
+import { useDesktopPrefsStore } from '../stores/desktopPrefsStore'
+import { useOnboardingStore } from '../stores/onboardingStore'
+import { useUIStore } from '../stores/uiStore'
+import { useAuthStore } from '../stores/authStore'
+import { useSharedAgentStore } from '../stores/sharedAgentStore'
+import { SHARED_SECTION_ID } from '../utils/sharedAgent'
+import { GroupFilter } from '../components/common/AgentGroups'
+import { queueSave, registerHydrator } from '../services/settingsSync'
+import { useIsMobile } from '../hooks/useMediaQuery'
+
+// ── Unified agent item ──
+
+type UnifiedAgent =
+  | { kind: 'docker'; id: string; data: ReturnType<typeof useContainerStore.getState>['containers'][number] }
+  | { kind: 'local'; id: string; data: ReturnType<typeof useLocalAgentStore.getState>['agents'][number] }
+  | { kind: 'process'; id: string; data: ReturnType<typeof useProcessStore.getState>['processes'][number] }
+
+// ── Position persistence ──
+
+interface Position { x: number; y: number }
+
+const POS_KEY = 'fd:agent-positions'
+const LAYOUT_KEY = 'fd:agent-layout-mode'
+const CARD_W = 480
+const CARD_GAP = 24
+
+function _persist(key: string, value: string) {
+  localStorage.setItem(key, value)
+  if (useAuthStore.getState().authEnabled) queueSave(key, value)
+}
+
+function loadPositions(): Record<string, Position> {
+  try { return JSON.parse(localStorage.getItem(POS_KEY) || '{}') } catch { return {} }
+}
+function savePositions(pos: Record<string, Position>) {
+  _persist(POS_KEY, JSON.stringify(pos))
+}
+function loadLayoutMode(): 'grid' | 'free' {
+  return (localStorage.getItem(LAYOUT_KEY) as 'grid' | 'free') || 'grid'
+}
+function saveLayoutMode(mode: 'grid' | 'free') {
+  _persist(LAYOUT_KEY, mode)
+}
+
+// Hydrate from server settings on login — notify mounted component to re-read
+type DesktopHydrateListener = () => void
+const _hydrateListeners = new Set<DesktopHydrateListener>()
+
+registerHydrator((settings) => {
+  let changed = false
+  const posVal = settings[POS_KEY]
+  if (posVal) { localStorage.setItem(POS_KEY, posVal); changed = true }
+  const layoutVal = settings[LAYOUT_KEY]
+  if (layoutVal) { localStorage.setItem(LAYOUT_KEY, layoutVal); changed = true }
+  if (changed) {
+    for (const fn of _hydrateListeners) fn()
+  }
+})
+
+// Auto-layout: arrange cards in a grid pattern for initial positions
+function autoPosition(index: number, containerWidth: number): Position {
+  const cols = Math.max(1, Math.floor((containerWidth + CARD_GAP) / (CARD_W + CARD_GAP)))
+  const col = index % cols
+  const row = Math.floor(index / cols)
+  return { x: col * (CARD_W + CARD_GAP), y: row * 220 }
+}
+
+export function DesktopPage() {
+  const { instances, concerns, selectedInstanceId, selectInstance } = useAgentStore()
+  const { containers, fetchContainers, dockerAvailable, checkHealth } = useContainerStore()
+  const { agents: localAgents, addAgent, removeAgent, probeAll } = useLocalAgentStore()
+  const { processes, fetchProcesses } = useProcessStore()
+  // Agents other users shared with you — their own section, never part of
+  // the fleet below (groups, hide toggles and bulk actions are owner-only).
+  const sharingEnabled = useSharedAgentStore((s) => s.enabled)
+  const sharedAgents = useSharedAgentStore((s) => s.agents)
+  const fetchShared = useSharedAgentStore((s) => s.fetch)
+  const setView = useUIStore((s) => s.setView)
+  const selectedInstance = instances.find((i) => i.id === selectedInstanceId)
+  const onboarding = useOnboardingStore()
+  const [showAddAgent, setShowAddAgent] = useState(false)
+  const [showBulkMenu, setShowBulkMenu] = useState(false)
+  const bulkMenuRef = useRef<HTMLDivElement>(null)
+  const [browsingAgent, setBrowsingAgent] = useState<AgentEndpoint | null>(null)
+  const [positions, setPositions] = useState<Record<string, Position>>(loadPositions)
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'free'>(loadLayoutMode)
+  const [groupFilter, setGroupFilter] = useState<string | null>(null)
+
+  // Re-read from localStorage when server settings hydrate
+  useEffect(() => {
+    const onHydrate = () => {
+      setPositions(loadPositions())
+      setLayoutMode(loadLayoutMode())
+    }
+    _hydrateListeners.add(onHydrate)
+    return () => { _hydrateListeners.delete(onHydrate) }
+  }, [])
+  const groups = useGroupStore((s) => s.groups)
+  const hiddenAgentIds = useDesktopPrefsStore((s) => s.hiddenAgentIds)
+  const { isMobile, isTablet } = useIsMobile()
+  const compact = isMobile || isTablet
+  // Force grid mode on mobile/tablet
+  const effectiveLayout = compact ? 'grid' : layoutMode
+
+  // Drag state
+  const [dragId, setDragId] = useState<string | null>(null)
+  const dragStart = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Build list of all agents with web endpoints for file transfer
+  const allAgentEndpoints: AgentEndpoint[] = [
+    ...containers
+      .filter((c) => c.status === 'running' && c.web_port)
+      .map((c) => ({ id: c.id, name: c.agent_name || c.name, host: 'localhost', port: c.web_port!, auth: c.web_auth })),
+    ...processes
+      .filter((p) => p.status === 'running')
+      .map((p) => ({ id: `proc-${p.slug}`, name: p.name, host: 'localhost', port: p.web_port, auth: p.web_auth })),
+    ...localAgents
+      .filter((a) => a.status === 'online')
+      .map((a) => ({ id: a.id, name: a.name, host: a.host, port: a.port, auth: a.authToken })),
+  ]
+
+  // Reactively read auth state so the polling effect re-runs when the user
+  // logs in / out (otherwise we'd be stuck with the initial value).
+  const authEnabled = useAuthStore((s) => s.authEnabled)
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+
+  useEffect(() => {
+    // When auth is enabled but the user isn't logged in (e.g. on first
+    // mount before login, or after a session expiry), skip polling — every
+    // request would otherwise hit /fd/containers and /fd/processes with no
+    // Authorization header and spam the server log with 401s.
+    if (authEnabled === true && !isAuthenticated) return
+    checkHealth()
+    fetchContainers()
+    fetchProcesses()
+    fetchShared()
+    probeAll()
+    const interval = setInterval(() => { fetchContainers(); fetchProcesses(); fetchShared() }, 10000)
+    return () => clearInterval(interval)
+  }, [checkHealth, fetchContainers, fetchProcesses, fetchShared, probeAll, authEnabled, isAuthenticated])
+
+  // Close bulk menu on outside click
+  useEffect(() => {
+    if (!showBulkMenu) return
+    const handler = (e: MouseEvent) => {
+      if (bulkMenuRef.current && !bulkMenuRef.current.contains(e.target as Node)) setShowBulkMenu(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showBulkMenu])
+
+  // ── Bulk actions ──
+
+  // Build unified agent list (with optional group filter + per-agent hide)
+  const unifiedAgents: UnifiedAgent[] = useMemo(() => {
+    const all: UnifiedAgent[] = [
+      ...containers.map((c) => ({ kind: 'docker' as const, id: c.id, data: c })),
+      ...processes.map((p) => ({ kind: 'process' as const, id: `proc-${p.slug}`, data: p })),
+      ...localAgents.map((a) => ({ kind: 'local' as const, id: a.id, data: a })),
+    ]
+    // Agents the user toggled off from the Director are kept off the canvas.
+    const visible = all.filter((a) => !hiddenAgentIds.includes(a.id))
+    if (!groupFilter) return visible
+    const group = groups.find((g) => g.id === groupFilter)
+    if (!group) return visible
+    return visible.filter((a) => group.agentIds.includes(a.id))
+  }, [containers, processes, localAgents, groupFilter, groups, hiddenAgentIds])
+
+  // ── Bulk actions (scoped to currently filtered agents) ──
+
+  const _refresh = useCallback(() => { fetchContainers(); fetchProcesses() }, [fetchContainers, fetchProcesses])
+
+  // Get filtered agents by kind from unifiedAgents
+  const _scoped = useCallback(() => {
+    const ids = new Set(unifiedAgents.map(a => a.id))
+    const curContainers = useContainerStore.getState().containers.filter(c => ids.has(c.id))
+    const curProcesses = useProcessStore.getState().processes.filter(p => ids.has(`proc-${p.slug}`))
+    const curLocal = useLocalAgentStore.getState().agents.filter(a => ids.has(a.id))
+    return { curContainers, curProcesses, curLocal }
+  }, [unifiedAgents])
+
+  const _label = groupFilter ? ' filtered' : ''
+
+  const bulkMinimizeAll = useCallback(() => {
+    setShowBulkMenu(false)
+    const { curContainers, curProcesses, curLocal } = _scoped()
+
+    // Merge with existing view modes (don't overwrite unfiltered agents)
+    for (const [key, ids] of [
+      ['fd:container-view', curContainers.map(c => c.id)],
+      ['fd:process-view', curProcesses.map(p => p.slug)],
+      ['fd:local-agent-view', curLocal.map(a => a.id)],
+    ] as const) {
+      const existing: Record<string, string> = (() => { try { return JSON.parse(localStorage.getItem(key) || '{}') } catch { return {} } })()
+      for (const id of ids) existing[id] = 'icon'
+      const val = JSON.stringify(existing)
+      localStorage.setItem(key, val)
+      if (useAuthStore.getState().authEnabled) queueSave(key, val)
+    }
+    window.dispatchEvent(new CustomEvent('fd:bulk-view-change'))
+  }, [_scoped])
+
+  const bulkStopAll = useCallback(() => {
+    setShowBulkMenu(false)
+    const { curContainers, curProcesses } = _scoped()
+    const running = curContainers.filter(c => c.status === 'running')
+    const runningProcs = curProcesses.filter(p => p.status === 'running')
+    const total = running.length + runningProcs.length
+    if (total === 0) return
+    if (!confirm(`Stop ${total}${_label} running agent${total !== 1 ? 's' : ''}?`)) return
+    running.forEach(c => apiStopContainer(c.id).then(_refresh, _refresh))
+    runningProcs.forEach(p => apiStopProcess(p.slug).then(_refresh, _refresh))
+  }, [_scoped, _refresh, _label])
+
+  const bulkStartAll = useCallback(() => {
+    setShowBulkMenu(false)
+    const { curContainers, curProcesses } = _scoped()
+    const stopped = curContainers.filter(c => c.status !== 'running')
+    const stoppedProcs = curProcesses.filter(p => p.status !== 'running')
+    const total = stopped.length + stoppedProcs.length
+    if (total === 0) return
+    if (!confirm(`Start ${total}${_label} stopped agent${total !== 1 ? 's' : ''}?`)) return
+    stopped.forEach(c => apiStartContainer(c.id).then(_refresh, _refresh))
+    stoppedProcs.forEach(p => apiStartProcess(p.slug).then(_refresh, _refresh))
+  }, [_scoped, _refresh, _label])
+
+  const bulkInverseAll = useCallback(() => {
+    setShowBulkMenu(false)
+    const { curContainers, curProcesses } = _scoped()
+    const toStop = curContainers.filter(c => c.status === 'running')
+    const toStopProcs = curProcesses.filter(p => p.status === 'running')
+    const toStart = curContainers.filter(c => c.status !== 'running')
+    const toStartProcs = curProcesses.filter(p => p.status !== 'running')
+    const total = toStop.length + toStopProcs.length + toStart.length + toStartProcs.length
+    if (total === 0) return
+    if (!confirm(`Inverse${_label} agents? Will stop ${toStop.length + toStopProcs.length} and start ${toStart.length + toStartProcs.length}.`)) return
+    toStop.forEach(c => apiStopContainer(c.id).then(_refresh, _refresh))
+    toStopProcs.forEach(p => apiStopProcess(p.slug).then(_refresh, _refresh))
+    toStart.forEach(c => apiStartContainer(c.id).then(_refresh, _refresh))
+    toStartProcs.forEach(p => apiStartProcess(p.slug).then(_refresh, _refresh))
+  }, [_scoped, _refresh, _label])
+
+  const bulkRemoveAll = useCallback(() => {
+    setShowBulkMenu(false)
+    const { curContainers, curProcesses, curLocal } = _scoped()
+    const total = curContainers.length + curProcesses.length + curLocal.length
+    if (total === 0) return
+    if (!confirm(`Remove ${total}${_label} agent${total !== 1 ? 's' : ''}? This cannot be undone.`)) return
+    if (!confirm(`Are you sure? This will permanently remove ${total} agents.`)) return
+    curContainers.forEach(c => {
+      const p = c.status === 'running' ? apiStopContainer(c.id) : Promise.resolve()
+      p.then(() => apiRemoveContainer(c.id)).then(_refresh, _refresh)
+    })
+    curProcesses.forEach(p => {
+      const q = p.status === 'running' ? apiStopProcess(p.slug) : Promise.resolve()
+      q.then(() => apiRemoveProcess(p.slug)).then(_refresh, _refresh)
+    })
+    for (const a of curLocal) removeAgent(a.id)
+  }, [_scoped, _refresh, _label, removeAgent])
+
+  // Assign initial positions for new agents
+  useEffect(() => {
+    if (layoutMode !== 'free') return
+    const canvasW = canvasRef.current?.clientWidth ?? 960
+    let changed = false
+    const updated = { ...positions }
+    unifiedAgents.forEach((agent, i) => {
+      if (!updated[agent.id]) {
+        updated[agent.id] = autoPosition(i, canvasW)
+        changed = true
+      }
+    })
+    if (changed) {
+      savePositions(updated)
+      setPositions(updated)
+    }
+  }, [unifiedAgents, layoutMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Free drag handlers (pointer events for smooth dragging)
+  const handlePointerDown = useCallback((e: React.PointerEvent, id: string) => {
+    // Only start drag from the handle
+    if (layoutMode !== 'free') return
+    e.preventDefault()
+    e.stopPropagation()
+    const pos = positions[id] || { x: 0, y: 0 }
+    dragStart.current = { mouseX: e.clientX, mouseY: e.clientY, startX: pos.x, startY: pos.y }
+    setDragId(id)
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }, [layoutMode, positions])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragId || !dragStart.current) return
+    const dx = e.clientX - dragStart.current.mouseX
+    const dy = e.clientY - dragStart.current.mouseY
+    const newX = Math.max(0, dragStart.current.startX + dx)
+    const newY = Math.max(0, dragStart.current.startY + dy)
+    setPositions((prev) => ({ ...prev, [dragId]: { x: newX, y: newY } }))
+  }, [dragId])
+
+  const handlePointerUp = useCallback(() => {
+    if (dragId) {
+      savePositions({ ...positions, [dragId]: positions[dragId] })
+    }
+    setDragId(null)
+    dragStart.current = null
+  }, [dragId, positions])
+
+  const toggleLayout = () => {
+    const next = layoutMode === 'grid' ? 'free' : 'grid'
+    saveLayoutMode(next)
+    setLayoutMode(next)
+    // When switching to free, auto-position any agents without positions
+    if (next === 'free') {
+      const canvasW = canvasRef.current?.clientWidth ?? 960
+      const updated = { ...positions }
+      unifiedAgents.forEach((agent, i) => {
+        if (!updated[agent.id]) {
+          updated[agent.id] = autoPosition(i, canvasW)
+        }
+      })
+      savePositions(updated)
+      setPositions(updated)
+    }
+  }
+
+  const resetPositions = () => {
+    const canvasW = canvasRef.current?.clientWidth ?? 960
+    const updated: Record<string, Position> = {}
+    unifiedAgents.forEach((agent, i) => {
+      updated[agent.id] = autoPosition(i, canvasW)
+    })
+    savePositions(updated)
+    setPositions(updated)
+  }
+
+  const hasContent = instances.length > 0 || containers.length > 0 || processes.length > 0 || localAgents.length > 0
+  const showShared = sharingEnabled && sharedAgents.length > 0
+  const agentCount = containers.length + processes.length + localAgents.length
+
+  // Auto-complete desktop onboarding when agents exist
+  useEffect(() => {
+    if (hasContent && !onboarding.completed.desktop) onboarding.completeStep('desktop')
+  }, [hasContent]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Calculate canvas height for free mode
+  const canvasHeight = useMemo(() => {
+    if (layoutMode !== 'free') return 'auto'
+    let maxY = 400
+    for (const agent of unifiedAgents) {
+      const pos = positions[agent.id]
+      if (pos) maxY = Math.max(maxY, pos.y + 260)
+    }
+    return `${maxY}px`
+  }, [layoutMode, unifiedAgents, positions])
+
+  const renderAgentCard = (agent: UnifiedAgent, onDragStart?: (e: React.PointerEvent) => void, isDragging?: boolean) => {
+    if (agent.kind === 'docker') {
+      return (
+        <ContainerCard
+          container={agent.data}
+          onBrowseFiles={
+            agent.data.status === 'running' && agent.data.web_port
+              ? () => setBrowsingAgent({ id: agent.data.id, name: agent.data.agent_name || agent.data.name, host: 'localhost', port: agent.data.web_port!, auth: agent.data.web_auth })
+              : undefined
+          }
+          onDragStart={onDragStart}
+          isDragging={isDragging}
+        />
+      )
+    }
+    if (agent.kind === 'process') {
+      return (
+        <ProcessCard
+          process={agent.data}
+          onBrowseFiles={
+            agent.data.status === 'running'
+              ? () => setBrowsingAgent({ id: `proc-${agent.data.slug}`, name: agent.data.name, host: 'localhost', port: agent.data.web_port, auth: agent.data.web_auth })
+              : undefined
+          }
+          onDragStart={onDragStart}
+          isDragging={isDragging}
+        />
+      )
+    }
+    return (
+      <LocalAgentCard
+        agent={agent.data}
+        onBrowseFiles={
+          agent.data.status === 'online'
+            ? () => setBrowsingAgent({ id: agent.data.id, name: agent.data.name, host: agent.data.host, port: agent.data.port, auth: agent.data.authToken })
+            : undefined
+        }
+        onDragStart={onDragStart}
+        isDragging={isDragging}
+      />
+    )
+  }
+
+  // First-run empty state: with no agents, show a clean modal-style card that
+  // points the user to the Spawn Agent page. (Agents shared with you still
+  // get the page, so they can be opened.)
+  if (!hasContent && !showShared) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900/80 p-8 text-center shadow-xl shadow-black/30">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-violet-600/20 text-violet-400">
+            <Plus className="h-6 w-6" />
+          </div>
+          <h2 className="mb-1.5 text-lg font-semibold text-zinc-100">No agents yet</h2>
+          <p className="mb-6 text-sm text-zinc-400">
+            Spawn your first agent to start building your fleet — choose a provider,
+            model, and tools on the Spawn Agent page.
+          </p>
+          <button
+            onClick={() => setView('spawner')}
+            className="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-500"
+          >
+            Create an agent
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full">
+      <div className="flex-1 overflow-auto p-4 md:p-6">
+        <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-lg font-semibold">Agent Desktop</h1>
+            <p className="text-xs text-zinc-500 sm:text-sm">Monitor and control your personal assistants</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <GroupFilter selected={groupFilter} onChange={setGroupFilter} />
+            {!compact && layoutMode === 'free' && (
+              <button
+                onClick={resetPositions}
+                className="rounded-md px-2 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                title="Reset positions"
+              >
+                Reset
+              </button>
+            )}
+            {!compact && (
+              <button
+                onClick={toggleLayout}
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 border border-zinc-800"
+                title={layoutMode === 'grid' ? 'Switch to free layout' : 'Switch to grid layout'}
+              >
+                {layoutMode === 'grid' ? <Move className="h-3.5 w-3.5" /> : <LayoutGrid className="h-3.5 w-3.5" />}
+                {layoutMode === 'grid' ? 'Free Layout' : 'Grid Layout'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Shared with me — agents other deck users shared with you. Chat only.
+            Above your own fleet: it's short, and the bell's share notice
+            sends you here (scroll target), so it must not hide below a
+            long grid or a free-layout canvas. */}
+        {showShared && (
+          <div id={SHARED_SECTION_ID} className="mb-8 scroll-mt-4">
+            <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <Users className="h-3.5 w-3.5" />
+              Shared with me ({sharedAgents.length})
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-5">
+              {sharedAgents.map((a) => (
+                <SharedAgentCard key={a.agent_ref} agent={a} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* BotPort connected agents */}
+        {instances.length > 0 && (
+          <div className="mb-8">
+            <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <Radio className="h-3.5 w-3.5" />
+              BotPort Agents ({instances.length})
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-5">
+              {instances.map((inst) => (
+                <AgentCard key={inst.id} instance={inst} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Unified Agents (Docker + Local) */}
+        <div className="mb-8">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <Server className="h-3.5 w-3.5" />
+              Agents ({unifiedAgents.length} of {agentCount})
+            </div>
+            <div className="relative" ref={bulkMenuRef}>
+              <button
+                onClick={() => setShowBulkMenu(!showBulkMenu)}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              >
+                Actions
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              {showBulkMenu && (
+                <div className="absolute right-0 z-50 mt-1 w-52 rounded-md border border-zinc-700 bg-zinc-900 py-1 shadow-lg"
+                >
+                  <button onClick={bulkMinimizeAll}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700/50">
+                    <Minimize2 className="h-3.5 w-3.5" /> Minimize all agents
+                  </button>
+                  <button onClick={bulkStopAll}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700/50">
+                    <Square className="h-3.5 w-3.5" /> Stop all agents
+                  </button>
+                  <button onClick={bulkStartAll}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700/50">
+                    <Play className="h-3.5 w-3.5" /> Start all agents
+                  </button>
+                  <button onClick={bulkInverseAll}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700/50">
+                    <Shuffle className="h-3.5 w-3.5" /> Inverse started agents
+                  </button>
+                  <div className="my-1 border-t border-zinc-700/50" />
+                  <button onClick={() => { setShowBulkMenu(false); setView('spawner') }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700/50">
+                    <Plus className="h-3.5 w-3.5" /> Add Local Agent
+                  </button>
+                  <div className="my-1 border-t border-zinc-700/50" />
+                  <button onClick={bulkRemoveAll}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-400 hover:bg-zinc-700/50">
+                    <Trash2 className="h-3.5 w-3.5" /> Remove all agents
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {showAddAgent && (
+            <AddAgentForm
+              onAdd={(name, description, host, port, auth) => { addAgent(name, description, host, port, auth); setShowAddAgent(false) }}
+              onCancel={() => setShowAddAgent(false)}
+            />
+          )}
+
+          {agentCount > 0 ? (
+            effectiveLayout === 'grid' ? (
+              /* ── Grid layout ── */
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-5">
+                {unifiedAgents.map((agent) => (
+                  <div key={agent.id}>{renderAgentCard(agent)}</div>
+                ))}
+              </div>
+            ) : (
+              /* ── Free layout canvas ── */
+              <div
+                ref={canvasRef}
+                className="relative"
+                style={{ minHeight: canvasHeight }}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+              >
+                {unifiedAgents.map((agent) => {
+                  const pos = positions[agent.id] || { x: 0, y: 0 }
+                  const isDragging = dragId === agent.id
+                  return (
+                    <div
+                      key={agent.id}
+                      className={`absolute transition-shadow ${isDragging ? 'z-50 shadow-2xl shadow-violet-500/20' : 'z-10'}`}
+                      style={{
+                        left: pos.x,
+                        top: pos.y,
+                        width: CARD_W,
+                        transition: isDragging ? 'none' : 'box-shadow 0.2s',
+                      }}
+                    >
+                      {renderAgentCard(agent, (e: React.PointerEvent) => handlePointerDown(e, agent.id), isDragging)}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          ) : (
+            !showAddAgent && (
+              <p className="text-sm text-zinc-600">
+                {dockerAvailable
+                  ? 'No agents running. Spawn one from the Spawn Agent page, or click "Add Local Agent" to connect to an existing instance.'
+                  : 'No agents registered. Click "Add Local Agent" to connect to a Captain Claw instance.'}
+              </p>
+            )
+          )}
+        </div>
+
+        {/* Next steps banner for users who just spawned their first agent */}
+        {hasContent && !onboarding.completed.forge && !onboarding.isHintDismissed('desktop-next') && (
+          <div className="mb-4 flex items-center gap-3 rounded-lg border border-violet-500/20 bg-violet-500/5 px-4 py-3">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+            <span className="flex-1 text-xs text-zinc-300">
+              Agent running! Next: <button onClick={() => setView('forge')} className="font-medium text-violet-400 hover:underline">build a team with Agent Forge</button> or <button onClick={() => setView('council')} className="font-medium text-violet-400 hover:underline">run a Council session</button>.
+            </span>
+            <button onClick={() => onboarding.dismissHint('desktop-next')} className="rounded p-0.5 text-zinc-500 hover:text-zinc-300">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Detail panel */}
+      {selectedInstance && (
+        <AgentDetail
+          instance={selectedInstance}
+          concerns={concerns}
+          onClose={() => selectInstance(null)}
+        />
+      )}
+
+      {/* File browser modal */}
+      {browsingAgent && (
+        <FileBrowser
+          agent={browsingAgent}
+          allAgents={allAgentEndpoints}
+          onClose={() => setBrowsingAgent(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function AddAgentForm({ onAdd, onCancel }: {
+  onAdd: (name: string, description: string, host: string, port: number, auth: string) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [host, setHost] = useState('localhost')
+  const [port, setPort] = useState('23080')
+  const [auth, setAuth] = useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const p = parseInt(port, 10)
+    if (!name.trim() || !host.trim() || isNaN(p)) return
+    onAdd(name.trim(), description.trim(), host.trim(), p, auth.trim())
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Name</label>
+          <input
+            value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="My Agent"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500/50 focus:outline-none"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Description</label>
+          <input
+            value={description} onChange={(e) => setDescription(e.target.value)}
+            placeholder="What this agent does..."
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500/50 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Host</label>
+          <input
+            value={host} onChange={(e) => setHost(e.target.value)}
+            placeholder="localhost"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500/50 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Port</label>
+          <input
+            value={port} onChange={(e) => setPort(e.target.value)}
+            placeholder="24080" type="number"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500/50 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Auth Token (optional)</label>
+          <input
+            value={auth} onChange={(e) => setAuth(e.target.value)}
+            placeholder="secret"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500/50 focus:outline-none"
+          />
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button type="submit" className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500">
+          Add Agent
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200">
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}

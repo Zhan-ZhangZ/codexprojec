@@ -1,0 +1,394 @@
+import { useState, useEffect, useRef } from 'react'
+import { Database, Table2, ChevronRight, Loader2, AlertTriangle, RefreshCw, ChevronLeft, X, Download } from 'lucide-react'
+import { useAuthStore, refreshAccessToken } from '../../stores/authStore'
+import { CreatorBadge } from './CreatorBadge'
+import { CREATED_BY_COLUMN, type Creator } from '../../utils/sharedWorkspace'
+
+interface TableInfo {
+  name: string
+  columns: { name: string; type: string; position: number }[]
+  row_count: number
+  created_at: string
+  updated_at: string
+  /** Who created it (shared agents: a badge in the list). */
+  created_by?: Creator | null
+}
+
+interface QueryResult {
+  columns: string[]
+  /** A shared agent's rows also carry `_creator` (never one of `columns`). */
+  rows: Record<string, any>[]
+  total: number
+}
+
+async function fdFetch<T>(path: string): Promise<T> {
+  const { token, authEnabled } = useAuthStore.getState()
+  const headers: Record<string, string> = {}
+  if (authEnabled && token) headers['Authorization'] = `Bearer ${token}`
+
+  let res = await fetch(`/fd${path}`, { headers, credentials: 'include' })
+  if (res.status === 401 && authEnabled) {
+    const ok = await refreshAccessToken()
+    if (ok) {
+      const h2: Record<string, string> = {}
+      const t2 = useAuthStore.getState().token
+      if (t2) h2['Authorization'] = `Bearer ${t2}`
+      res = await fetch(`/fd${path}`, { headers: h2, credentials: 'include' })
+    }
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(body.detail || `${res.status}`)
+  }
+  return res.json()
+}
+
+interface DatastoreBrowserProps {
+  onClose: () => void
+  // Agent-hosted datastore (proxied to the agent's web port):
+  host?: string
+  port?: number
+  auth?: string
+  agentName?: string
+  // OR a VFS folder-bound shared datastore (vfs:<project>/.datastore):
+  vfsProject?: string
+  title?: string
+  // Deep-link straight to one table (from the run artifacts panel). Optional —
+  // omit to open on the table list, as every existing caller does.
+  initialTable?: string
+  // OR an agent shared with me, read-only, through Flight Deck's member
+  // routes: named by its agent_ref only (never a host, port or token).
+  sharedRef?: string
+  /** The shared agent's owner, for the "(owner)" badge. */
+  ownerName?: string
+}
+
+export function DatastoreBrowser({ host, port, auth, agentName, vfsProject, title, initialTable, sharedRef, ownerName = '', onClose }: DatastoreBrowserProps) {
+  const [tables, setTables] = useState<TableInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const [selectedTable, setSelectedTable] = useState<string | null>(null)
+  const [rows, setRows] = useState<QueryResult | null>(null)
+  const [rowsLoading, setRowsLoading] = useState(false)
+  const [page, setPage] = useState(0)
+  const pageSize = 50
+
+  // Route to a shared agent's member routes, the VFS folder-bound store or the
+  // agent-proxied store.
+  const isShared = !!sharedRef
+  const isVfs = !isShared && !!vfsProject
+  const base = isShared
+    ? '/shared-agents/datastore'
+    : isVfs
+      ? `/vfs/datastore/${encodeURIComponent(vfsProject as string)}`
+      : `/agent-datastore/${host}/${port}`
+  const tokenQs = isShared
+    ? '&ref=' + encodeURIComponent(sharedRef as string)
+    : !isVfs && auth ? `&token=${encodeURIComponent(auth)}` : ''
+  const heading = isVfs ? (title || (vfsProject as string)) : `Datastore — ${agentName}`
+
+  const fetchTables = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await fdFetch<TableInfo[]>(`${base}/tables?_=1${tokenQs}`)
+      setTables(data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchTables() }, [host, port, vfsProject, sharedRef])
+
+  // Jump straight to a requested table once, when deep-linked from elsewhere.
+  const _jumped = useRef(false)
+  useEffect(() => {
+    if (initialTable && !_jumped.current) { _jumped.current = true; openTable(initialTable) }
+  }, [initialTable])
+
+  const fetchRows = async (tableName: string, pageNum: number) => {
+    setRowsLoading(true)
+    setError('')
+    try {
+      const data = await fdFetch<QueryResult>(
+        `${base}/tables/${encodeURIComponent(tableName)}/rows?limit=${pageSize}&offset=${pageNum * pageSize}${tokenQs}`
+      )
+      setRows(data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRowsLoading(false)
+    }
+  }
+
+  const openTable = (name: string) => {
+    setSelectedTable(name)
+    setPage(0)
+    fetchRows(name, 0)
+  }
+
+  const changePage = (newPage: number) => {
+    if (!selectedTable) return
+    setPage(newPage)
+    fetchRows(selectedTable, newPage)
+  }
+
+  const [exportOpen, setExportOpen] = useState(false)
+
+  const exportTable = (format: string) => {
+    if (!selectedTable) return
+    const { token: storeToken, authEnabled } = useAuthStore.getState()
+    // The same query as the listing: the agent's token, or a shared agent's ref.
+    const url = `/fd${base}/tables/${encodeURIComponent(selectedTable)}/export?format=${format}${tokenQs}`
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedTable}.${format}`
+    // For authenticated requests we need to fetch as blob
+    if (authEnabled && storeToken) {
+      fetch(url, { headers: { Authorization: `Bearer ${storeToken}` }, credentials: 'include' })
+        .then(async (r) => {
+          // A refusal (e.g. a shared agent that needs a restart) is shown, not
+          // saved as the "export".
+          if (!r.ok) {
+            const body = await r.json().catch(() => ({}))
+            throw new Error((typeof body?.detail === 'string' && body.detail) || `Export failed: ${r.status}`)
+          }
+          return r.blob()
+        })
+        .then(blob => {
+          const blobUrl = URL.createObjectURL(blob)
+          a.href = blobUrl
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(blobUrl)
+        })
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+    } else {
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }
+    setExportOpen(false)
+  }
+
+  const selectedTableInfo = tables.find((t) => t.name === selectedTable)
+  const totalPages = rows ? Math.ceil(rows.total / pageSize) : 0
+  // Who added each row: always in a member's view; in the owner's only when a
+  // member added some of these rows, so tables without any look as before.
+  const rowColumns = rows ? rows.columns.filter((c) => c !== '_creator') : []
+  const showCreator = !!rows && (isShared || rows.rows.some((r) => r?._creator?.kind === 'member'))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div
+        className="flex flex-col rounded-xl border border-zinc-700/50 bg-zinc-900 shadow-2xl"
+        style={{ width: '80vw', height: '80vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Database className="h-4 w-4 text-emerald-400" />
+            <span className="text-sm font-medium text-zinc-200">
+              {heading}
+              {selectedTable && (
+                <span className="text-zinc-500"> / {selectedTable}</span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { if (selectedTable) fetchRows(selectedTable, page); else fetchTables() }} className="text-zinc-500 hover:text-zinc-300 transition-colors" title="Refresh">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {loading ? (
+            <div className="flex items-center justify-center flex-1">
+              <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
+              <span className="ml-2 text-sm text-zinc-500">Loading tables...</span>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center flex-1">
+              <AlertTriangle className="h-5 w-5 text-red-400 mr-2" />
+              <span className="text-sm text-red-400">{error}</span>
+            </div>
+          ) : !selectedTable ? (
+            /* ── Table List ── */
+            <div className="flex-1 overflow-auto">
+              {tables.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-zinc-500">
+                  <Database className="h-8 w-8 mb-2 opacity-40" />
+                  <p className="text-sm">No tables yet</p>
+                  <p className="text-xs mt-1">Tables will appear here when the agent creates them</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-zinc-800">
+                  {tables.map((table) => (
+                    <button
+                      key={table.name}
+                      onClick={() => openTable(table.name)}
+                      className="flex items-center gap-3 w-full px-5 py-3 text-left hover:bg-zinc-800/50 transition-colors"
+                    >
+                      <Table2 className="h-4 w-4 text-emerald-400/70 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 truncate text-sm font-medium text-zinc-200">{table.name}</span>
+                          <CreatorBadge mode={sharedRef ? 'member' : 'owner'} creator={table.created_by} ownerName={ownerName} />
+                        </div>
+                        <div className="text-[11px] text-zinc-500 mt-0.5">
+                          {table.columns.length} columns · {table.row_count} rows
+                          {table.columns.length > 0 && (
+                            <span className="ml-2 text-zinc-600">
+                              ({table.columns.map((c) => `${c.name}: ${c.type}`).join(', ')})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-zinc-600 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Table Rows View ── */
+            <>
+              {/* Back button + table info */}
+              <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800 bg-zinc-950/30 shrink-0">
+                <button
+                  onClick={() => { setSelectedTable(null); setRows(null); setError('') }}
+                  className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200"
+                >
+                  <ChevronLeft className="h-3 w-3" /> Tables
+                </button>
+                <span className="text-xs text-zinc-600">|</span>
+                <span className="text-xs font-medium text-zinc-300">{selectedTable}</span>
+                {selectedTableInfo && (
+                  <span className="text-[10px] text-zinc-500">
+                    {selectedTableInfo.row_count} rows · {selectedTableInfo.columns.length} columns
+                  </span>
+                )}
+                <div className="ml-auto flex items-center gap-2">
+                  {rowsLoading && <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />}
+                  <div className="relative">
+                    <button
+                      onClick={() => setExportOpen(!exportOpen)}
+                      className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+                    >
+                      <Download className="h-3 w-3" /> Export
+                    </button>
+                    {exportOpen && (
+                      <>
+                        <div className="fixed inset-0 z-20" onClick={() => setExportOpen(false)} />
+                        <div className="absolute right-0 top-full mt-1 z-30 rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl py-1 min-w-[120px]">
+                          {[
+                            { fmt: 'csv', label: 'CSV' },
+                            { fmt: 'json', label: 'JSON' },
+                            { fmt: 'xlsx', label: 'Excel (XLSX)' },
+                          ].map(({ fmt, label }) => (
+                            <button
+                              key={fmt}
+                              onClick={() => exportTable(fmt)}
+                              className="block w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Data table */}
+              <div className="flex-1 overflow-auto">
+                {rows && rowColumns.length > 0 && rows.rows.length > 0 ? (
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-zinc-900 z-10">
+                      <tr>
+                        {rowColumns.map((col) => (
+                          <th key={col} className="px-3 py-2 text-left font-medium text-zinc-400 border-b border-zinc-800 whitespace-nowrap">
+                            {col}
+                          </th>
+                        ))}
+                        {showCreator && (
+                          <th className="px-3 py-2 text-left font-medium text-zinc-400 border-b border-zinc-800 whitespace-nowrap">
+                            {CREATED_BY_COLUMN}
+                          </th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/50">
+                      {rows.rows.map((row, i) => (
+                        <tr key={i} className="hover:bg-zinc-800/30">
+                          {rowColumns.map((col) => {
+                            const cell = row[col]
+                            return (
+                              <td key={col} className="px-3 py-1.5 text-zinc-300 whitespace-nowrap max-w-[300px] truncate font-mono">
+                                {cell === null || cell === undefined ? <span className="text-zinc-600 italic">null</span> : String(cell)}
+                              </td>
+                            )
+                          })}
+                          {showCreator && (
+                            <td className="px-3 py-1.5 whitespace-nowrap">
+                              <CreatorBadge mode={isShared ? 'member' : 'owner'} creator={row._creator} ownerName={ownerName} />
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : rows && rows.rows.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+                    No rows in this table
+                  </div>
+                ) : !rowsLoading ? (
+                  <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+                    Loading...
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Pagination */}
+              {rows && totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-2 border-t border-zinc-800 bg-zinc-950/30 shrink-0">
+                  <span className="text-[11px] text-zinc-500">
+                    Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, rows.total)} of {rows.total}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => changePage(page - 1)}
+                      disabled={page === 0}
+                      className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
+                    >
+                      Prev
+                    </button>
+                    <span className="text-[11px] text-zinc-500 px-2">{page + 1} / {totalPages}</span>
+                    <button
+                      onClick={() => changePage(page + 1)}
+                      disabled={page >= totalPages - 1}
+                      className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-zinc-800 disabled:opacity-30"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

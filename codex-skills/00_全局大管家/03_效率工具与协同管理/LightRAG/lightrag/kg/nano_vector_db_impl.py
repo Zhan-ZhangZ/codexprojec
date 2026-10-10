@@ -1,0 +1,1759 @@
+import asyncio
+import base64
+import json
+import os
+import zlib
+from functools import partial
+from hashlib import md5
+from typing import Any, Awaitable, Callable, final
+from dataclasses import dataclass
+import numpy as np
+import time
+
+from lightrag.exceptions import CommitBookkeepingError
+from lightrag.file_atomic import atomic_write, reap_orphan_tmp_files
+from lightrag.utils import (
+    commit_in_storage_io,
+    compute_mdhash_id,
+    log_without_raising,
+    logger,
+    validate_workspace,
+)
+
+from lightrag.base import BaseVectorStorage
+from lightrag.constants import DEFAULT_QUERY_PRIORITY
+from nano_vectordb import NanoVectorDB
+from . import file_fingerprint
+from .vector_space import (
+    assert_vector_space_matches,
+    declared_model_name,
+    read_vector_space_marker,
+    vector_space_marker,
+)
+from .shared_storage import (
+    get_namespace_lock,
+    get_update_flag,
+    set_all_update_flags,
+)
+from .write_seq import WRITE_SEQ_FIELD, next_write_seq, row_is_strictly_newer
+
+
+@dataclass
+class _PendingNanoDoc:
+    """A buffered upsert waiting for deferred embedding and materialization.
+
+    ``record`` holds ``__id__`` / ``__created_at__`` / ``__write_seq__`` plus
+    the ``meta_fields`` (which always include ``content`` for the
+    entity/relation/chunk vdbs), so the content needed for deferred embedding
+    lives in the record itself — no separate copy is kept. ``vector`` starts as
+    ``None`` and is filled either during the lock-held flush or by a lazy
+    ``get_vectors_by_ids`` embedding; once set it is reused by the next flush
+    instead of re-calling the model. The compressed ``vector`` / raw
+    ``__vector__`` keys are added to ``record`` only at flush time, right
+    before ``client.upsert``.
+    """
+
+    record: dict[str, Any]
+    vector: np.ndarray | None = None
+
+
+@final
+@dataclass
+class NanoVectorDBStorage(BaseVectorStorage):
+    """File-backed vector storage built on the in-memory ``NanoVectorDB``.
+
+    One ``NanoVectorDB`` instance in process memory, serialized in full to
+    ``working_dir/[workspace/]vdb_<namespace>.json``. That file is the ONLY
+    cross-process synchronization surface.
+
+    **Full contract: ``docs/design/FileBackedSnapshotContract.md``** -- the
+    two-channel commit fence, the deferred-embedding and deferred-delete
+    protocols with their redo-log ordering rules, the accepted residues, and
+    why this backend replays where ``NetworkXStorage`` declines.
+
+    The three invariants this class is correct only while they hold: **single
+    writer per workspace** (the pipeline's ``busy`` reservation), **eventual
+    consistency is sufficient** for readers, and **NanoVectorDB calls are
+    synchronous** so they cannot be preempted on the event loop -- which is why
+    the methods do not hold ``_storage_lock`` around them.
+
+    Two behaviours a caller has to know:
+
+    * ``upsert`` does NOT embed. It buffers, and the model is called once per
+      id at flush time, so repeated upserts of one id embed once. Reads are
+      read-your-writes through the buffer; ``query`` and ``client_storage`` see
+      only materialized data, so unflushed rows are deliberately not queryable.
+    * A flush publishes every pending upsert buffered in this instance, not
+      only the caller's. Nothing is lost to that (a peer commit is reloaded and
+      the buffers replayed on top), but the timing is not the caller's to
+      choose.
+
+    Unlike the graph store this class never declines a stale write: the write
+    path is reload-then-replay, so both sides survive and there is nothing to
+    report as a failure. ``LightRAG._flush_storages``'s decline propagation has
+    no counterpart here.
+
+    Supported for small-scale testing and validation only.
+    """
+
+    def __post_init__(self):
+        # Reject path traversal before using workspace in a file path
+        validate_workspace(self.workspace)
+        self._validate_embedding_func()
+        # Initialize basic attributes
+        self._client = None
+        self._storage_lock = None
+        self.storage_updated = None
+
+        # Use global config value if specified, otherwise use default
+        kwargs = self.global_config.get("vector_db_storage_cls_kwargs", {})
+        cosine_threshold = kwargs.get("cosine_better_than_threshold")
+        if cosine_threshold is None:
+            raise ValueError(
+                "cosine_better_than_threshold must be specified in vector_db_storage_cls_kwargs"
+            )
+        self.cosine_better_than_threshold = cosine_threshold
+
+        working_dir = self.global_config["working_dir"]
+        if self.workspace:
+            # Include workspace in the file path for data isolation
+            workspace_dir = os.path.join(working_dir, self.workspace)
+            self.final_namespace = f"{self.workspace}_{self.namespace}"
+        else:
+            # Default behavior when workspace is empty
+            self.final_namespace = self.namespace
+            self.workspace = ""
+            workspace_dir = working_dir
+
+        os.makedirs(workspace_dir, exist_ok=True)
+        self._client_file_name = os.path.join(
+            workspace_dir, f"vdb_{self.namespace}.json"
+        )
+
+        self._max_batch_size = self.global_config["embedding_batch_num"]
+
+        # Sweep orphan tmp siblings left behind by hard kills mid-save before
+        # NanoVectorDB opens the target file.
+        reap_orphan_tmp_files(self._client_file_name, self.workspace or "_")
+
+        # ``(st_mtime_ns, st_size)`` of the JSON file this process last loaded
+        # or wrote -- the authoritative half of the cross-process fence (see
+        # *Cross-process sync protocol*). Sampled BEFORE the construction
+        # below, which reads the file; see ``kg.file_fingerprint`` for why the
+        # order matters.
+        fingerprint = self._stat_fingerprint()
+        self._loaded_fingerprint = None
+        # How many times the file channel caught a commit the flag channel
+        # never announced, so a deployment can tell whether the
+        # lost-notification window actually occurs.
+        # The on-disk state already counted as a lost notification. A load
+        # that raises leaves _loaded_fingerprint in place, so the same peer
+        # commit is re-detected by every later call; without this it would
+        # also be re-counted, without bound. See
+        # file_fingerprint.counts_as_a_new_lost_notification.
+        self._counted_peer_fingerprint = None
+        self._missed_notification_reloads = 0
+
+        # The client is NOT built here; see initialize(). ``NanoVectorDB``
+        # asserts on a dimension mismatch inside its own ``__init__``, so
+        # building it at construction made the refusal come from the
+        # CONSTRUCTOR -- lightrag-rebuild-vdb could not even create the object,
+        # let alone call drop() on it, and the operator had to delete the file
+        # by hand. ``_stat_fingerprint`` was sampled above, before the load,
+        # and is adopted in initialize() once the load has happened; see
+        # ``kg.file_fingerprint`` for why the order matters. ``self._client``
+        # is already None from the attribute block at the top.
+        self._construction_fingerprint = fingerprint
+        # Set by _build_client / drop(); see _build_client for the rule.
+        self._vector_space_certified = False
+
+        # Minimal pending area for deferred embedding: id -> _PendingNanoDoc.
+        # Holds only records not yet embedded+materialized into self._client;
+        # it never duplicates rows already written to the client. Flushed
+        # under _storage_lock by _flush_pending_locked().
+        self._pending_upserts: dict[str, _PendingNanoDoc] = {}
+        # Ids queued for removal, applied in one batched client.delete() by
+        # _flush_pending_locked (see *Deferred-delete protocol* in the
+        # contract doc). NanoVectorDB.delete() rebuilds the whole matrix per
+        # call, and the merge stage deletes once per relation, so deferring
+        # turns O(relations) full-matrix copies into one per flush.
+        self._pending_deletes: set[str] = set()
+        # Removals already applied to self._client but not yet on disk, kept
+        # as id -> _row_fingerprint(removed row) so a replay after a reload
+        # only removes that row again, never a newer one written meanwhile.
+        self._unsaved_deletes: dict[str, str] = {}
+        # True when self._client has materialized changes that have not been
+        # successfully saved to disk yet. This lets finalize retry a save even
+        # after a previous flush drained the pending buffer.
+        self._client_dirty = False
+        # Rows materialized into self._client whose save has not landed yet,
+        # kept as id -> the flushed _PendingNanoDoc (record + cached vector).
+        # The upsert mirror of _unsaved_deletes: a reload after a failed save
+        # replaces self._client with the on-disk snapshot, and the next flush
+        # replays these rows on top without re-embedding.
+        # Cleared only once a save lands.
+        self._unsaved_upserts: dict[str, _PendingNanoDoc] = {}
+
+    async def initialize(self):
+        """Build the client and refuse a foreign embedding space.
+
+        The client is built HERE and not in ``__post_init__``. ``NanoVectorDB``
+        asserts on a dimension mismatch inside its own ``__init__``, so
+        building it at construction made the refusal come from the CONSTRUCTOR:
+        ``lightrag-rebuild-vdb`` could not create the object, let alone call
+        ``drop()`` on it, and the operator had to delete the file by hand. The
+        object must survive its own refusal.
+
+        Order matters for the same reason -- the update flag and the storage
+        lock are taken FIRST, so a storage that refuses below is still able to
+        serve ``drop()``. See ``docs/design/VectorSpaceProvenance.md``.
+        """
+        # Get the update flag for cross-process update notification
+        self.storage_updated = await get_update_flag(
+            self.namespace, workspace=self.workspace
+        )
+        # Get the storage lock for use in other methods
+        self._storage_lock = get_namespace_lock(
+            self.namespace, workspace=self.workspace
+        )
+        self._client = self._build_client()
+        self._adopt_fingerprint(self._construction_fingerprint)
+
+    def _build_client(self) -> NanoVectorDB:
+        """Load the on-disk snapshot, refusing a foreign embedding space.
+
+        Two facts, both taken from the file itself:
+
+        * **Dimension** -- ``NanoVectorDB.__init__`` asserts on it. The assert
+          is caught and re-raised typed, because the tool answers this
+          condition by DROPPING the file and must be able to tell it apart
+          from a corrupt file or an unreadable disk. The stored dimension is
+          re-read from the file only on this failure path, where paying a
+          second parse costs nothing.
+        * **Model** -- from ``additional_data``, which ``NanoVectorDB.save()``
+          round-trips in the same JSON as the rows, so the marker is written by
+          the same atomic rename as the vectors it describes. It is not a row
+          in ``data`` and not a column in ``matrix``, so ``query()`` cannot
+          return it. The file name carries no model, so this marker is the only
+          record of one -- a same-dimension model swap reuses these very
+          vectors otherwise.
+
+        Absent evidence never refuses: a file written before the marker existed
+        records no model and still loads.
+        """
+        try:
+            client = NanoVectorDB(
+                self.embedding_func.embedding_dim,
+                storage_file=self._client_file_name,
+            )
+        except AssertionError as e:
+            assert_vector_space_matches(
+                backend=type(self).__name__,
+                container=self._client_file_name,
+                embedding_func=self.embedding_func,
+                stored_model=None,
+                stored_dim=self._read_stored_dimension(),
+            )
+            # The assert fired but the dimension we could read does not
+            # contradict us -- that is not this gate's condition, so it must
+            # not be reported as one.
+            raise e
+
+        stored_model = read_vector_space_marker(client.get_additional_data())[0]
+        assert_vector_space_matches(
+            backend=type(self).__name__,
+            container=self._client_file_name,
+            embedding_func=self.embedding_func,
+            stored_model=stored_model,
+            stored_dim=None,
+        )
+        # May a later save record THIS process's model over this snapshot?
+        # Only if the snapshot is ours to vouch for: empty (every row from here
+        # on is one we wrote) or already naming a model (which the check above
+        # just confirmed is ours). A NON-EMPTY snapshot with no model recorded
+        # is the pre-marker legacy case, and the absent-evidence rule let it
+        # through without establishing anything about its rows -- stamping it
+        # would record a model over another model's vectors and make the lie
+        # permanent, which is the very thing the attach path refuses to do.
+        # Certification for that case needs the adoption probe, one layer up.
+        # Certification needs BOTH sides named. A process with no configured
+        # model that certified a marked store would, on its next save, replace
+        # the marker with a dimension-only payload -- erasing provenance that
+        # was already established and reopening the same-dimension swap it was
+        # recorded to catch. Attach accepts such a process (absent evidence
+        # never refuses); writing the marker is a different, stronger claim.
+        self._vector_space_certified = len(client) == 0 or (
+            stored_model is not None
+            and declared_model_name(self.embedding_func) is not None
+        )
+        return client
+
+    def _read_stored_dimension(self) -> int | None:
+        """The ``embedding_dim`` recorded in the JSON file, or ``None``.
+
+        Failure path only. ``None`` means "could not say", which the verdict
+        treats as absent evidence rather than as a mismatch.
+        """
+        try:
+            with open(self._client_file_name, encoding="utf-8") as f:
+                stored = json.load(f)
+        except (OSError, ValueError):
+            return None
+        dim = stored.get("embedding_dim") if isinstance(stored, dict) else None
+        return dim if isinstance(dim, int) and not isinstance(dim, bool) else None
+
+    def _stat_fingerprint(self) -> file_fingerprint.Fingerprint | object:
+        """Sample the JSON file's identity. See ``kg.file_fingerprint``."""
+        return file_fingerprint.sample(
+            (self._client_file_name,), workspace=self.workspace
+        )
+
+    def _adopt_fingerprint(
+        self, fingerprint: file_fingerprint.Fingerprint | object
+    ) -> None:
+        """Record ``fingerprint`` as the file this process now holds."""
+        adopted = file_fingerprint.adopted(fingerprint)
+        self._loaded_fingerprint = adopted
+        # The dedupe marker's job ends here -- but ONLY if a concrete state
+        # was recorded. It exists to stop a detection being re-counted while
+        # the reload that should discharge it keeps failing, and a landed
+        # reload normally ends that: ``_loaded_fingerprint`` IS this state
+        # from here, so any later divergence is genuinely new. Keeping it
+        # past that point would suppress a state that RECURS -- a peer drop,
+        # a notified recreation, then a second drop whose notification is
+        # lost, all sharing the "absent" fingerprint, which is a real second
+        # loss and not the same-tick collision residue.
+        #
+        # ``adopted(UNREADABLE)`` is ``None``, which is not a state: it means
+        # "nothing recorded", and ``peer_commit_detected`` reports a change
+        # against it for ANY state. Clearing on that would forget which
+        # commit was already counted and count the same one again on the next
+        # call. The post-drop fingerprint is ``(None,)`` -- a real, concrete
+        # state -- so a drop still clears.
+        if adopted is not None:
+            self._counted_peer_fingerprint = None
+
+    def _record_fingerprint(self) -> None:
+        """Adopt the file currently on disk without reloading from it.
+
+        For the writer: after its own save the in-memory client already *is*
+        the file's content.
+        """
+        self._adopt_fingerprint(self._stat_fingerprint())
+
+    def _peer_commit_detected(self) -> bool:
+        """Whether the file on disk differs from the one this process loaded.
+
+        The fence's authoritative test — the one a failed notification cannot
+        disable. See ``kg.file_fingerprint``.
+        """
+        return file_fingerprint.peer_commit_detected(
+            (self._client_file_name,),
+            self._loaded_fingerprint,
+            workspace=self.workspace,
+        )
+
+    def _reload_client_from_disk_locked(self, *, for_write: bool = False) -> bool:
+        """Reload ``self._client`` if another process committed newer data.
+
+        Precondition: the caller must already hold ``_storage_lock``. This is
+        used by write paths as well as reads because deferred upserts mean a
+        stale writer must merge its pending buffer into the latest on-disk
+        snapshot, not save over it or return without flushing.
+
+        Two tests, per *Cross-process sync protocol*: this process's
+        ``storage_updated`` flag, read first, and the file's fingerprint
+        against what this process recorded. The second is what survives a lost
+        notification.
+        """
+        notified = bool(self.storage_updated.value)
+        if not notified and not self._peer_commit_detected():
+            return False
+
+        if notified:
+            log_message = (
+                f"[{self.workspace}] Process {os.getpid()} reloading {self.namespace} "
+                "due to update by another process"
+            )
+            if for_write:
+                logger.warning(log_message)
+            else:
+                logger.info(log_message)
+        # Sampled BEFORE the read, never after -- see ``kg.file_fingerprint``.
+        # Hoisted above the logging so the counting below can deduplicate on
+        # the very sample this reload will adopt, at no extra stat.
+        fingerprint = self._stat_fingerprint()
+
+        if not notified:
+            # The lost-notification case the file channel exists for. Always a
+            # warning, on the read path too: unlike a notified reload this one
+            # says a publication failed somewhere.
+            #
+            # Counted once per on-disk state, not once per detection: a load
+            # that raises below leaves _loaded_fingerprint in place, so this
+            # same commit is re-detected by every later call. See
+            # ``file_fingerprint.counts_as_a_new_lost_notification``.
+            if file_fingerprint.counts_as_a_new_lost_notification(
+                fingerprint, self._counted_peer_fingerprint
+            ):
+                self._counted_peer_fingerprint = file_fingerprint.adopted(fingerprint)
+                self._missed_notification_reloads += 1
+                logger.warning(
+                    f"[{self.workspace}] Process {os.getpid()} reloading "
+                    f"{self.namespace}: {self._client_file_name} is not the file "
+                    "this process loaded and no reload notification arrived for "
+                    "it, so a notification was lost. Recovering through the file "
+                    f"channel (occurrence #{self._missed_notification_reloads} in "
+                    "this process)."
+                )
+            else:
+                logger.debug(
+                    f"[{self.workspace}] The peer commit to "
+                    f"{self._client_file_name} is the one already counted, or "
+                    "its stat failed; this is a retry of a reload that did not "
+                    "land, not a second lost notification."
+                )
+        # Through the CHECKED loader, not a bare NanoVectorDB: a peer may have
+        # rebuilt this namespace under a different model of the same dimension,
+        # and adopting that snapshot would serve its vectors with this
+        # process's embedder. Refusing here is a runtime raise rather than a
+        # startup one, which is the intended shape -- a rolling embedding-model
+        # change is not supported, so the honest answer to finding one is to
+        # stop, not to serve. It also re-derives certification, which the
+        # previous snapshot's value must not outlive.
+        self._client = self._build_client()
+        self._adopt_fingerprint(fingerprint)
+        self.storage_updated.value = False
+        return True
+
+    async def _get_client(self):
+        """Return the live ``NanoVectorDB`` instance, reloading from disk if needed.
+
+        This is the **single entry point** every public method funnels
+        through to obtain ``self._client``. It is also the **only place
+        readers transition to a fresher on-disk snapshot**: when another
+        process has committed (via ``index_done_callback``) and flipped
+        this process's ``storage_updated`` flag, the next call here
+        rebuilds ``self._client`` by re-parsing the entire JSON file.
+        NanoVectorDB has no incremental sync API — the reload is
+        unconditionally a full file reload.
+
+        Under the *Concurrency invariants* single-writer rule (contract doc), the
+        reload branch never fires in the writer process: the writer
+        resets its own flag at the end of every ``index_done_callback``.
+        The branch exists for readers.
+
+        ``_storage_lock`` is held during the check-and-reload to (a)
+        serialize concurrent reload attempts by sibling coroutines in
+        the same process and (b) interlock with ``index_done_callback``
+        so a reader cannot observe a partially-saved file.
+        """
+        async with self._storage_lock:
+            self._reload_client_from_disk_locked()
+            return self._client
+
+    async def upsert(self, data: dict[str, dict[str, Any]]) -> None:
+        """Buffer vectors for deferred embedding; persistence is deferred too.
+
+        Embedding is **not** performed here. Each record is buffered in
+        ``self._pending_upserts`` with ``vector=None`` and the embedding model
+        is called once per id at flush time (``_flush_pending_locked`` during
+        ``index_done_callback`` / ``finalize``). This coalesces repeated
+        upserts of the same id and many small upsert calls into a single
+        embedding pass (see the contract doc, *Deferred-embedding protocol*).
+
+        Persistence:
+            Changes live only in this process's memory until the next
+            ``index_done_callback``. Cross-process readers will not see
+            them until that commit fires (see the contract doc,
+            *Cross-process sync protocol*). Until the flush, an upserted id
+            is observable only through the read-your-writes read paths, not
+            through ``query``.
+        """
+        # logger.debug(f"[{self.workspace}] Buffering {len(data)} to {self.namespace}")
+        if not data:
+            return
+
+        # One timestamp and one write-sequence token for the whole batch: both
+        # order *writes*, and the redo-log comparison only ever puts rows from
+        # two different writes side by side. The token breaks the whole-second
+        # ties __created_at__ leaves open (see write_seq).
+        current_time = int(time.time())
+        write_seq = next_write_seq()
+        pending = [
+            (
+                k,
+                {
+                    "__id__": k,
+                    "__created_at__": current_time,
+                    WRITE_SEQ_FIELD: write_seq,
+                    **{k1: v1 for k1, v1 in v.items() if k1 in self.meta_fields},
+                },
+            )
+            for k, v in data.items()
+        ]
+
+        # Buffer under the lock to interlock with the lock-held flush. A new
+        # _PendingNanoDoc(vector=None) overwrites any prior pending doc for the
+        # same id, discarding a temp vector a previous get_vectors_by_ids may
+        # have cached (content-version change -> must re-embed new content).
+        async with self._storage_lock:
+            for doc_id, record in pending:
+                # A fresh upsert supersedes a queued delete for the same id:
+                # client.upsert overwrites the row in place, so applying the
+                # delete first would be redundant work. Mirrors the
+                # PG/Qdrant buffers. The redo log is deliberately NOT touched
+                # here: this row may never materialize (an aborting batch
+                # drops it), and the fingerprint already keeps a replay off a
+                # row written under the same id.
+                self._pending_deletes.discard(doc_id)
+                self._pending_upserts[doc_id] = _PendingNanoDoc(record=record)
+
+    @staticmethod
+    def _row_fingerprint(dp: dict[str, Any]) -> str:
+        """Identify one *version* of a stored row.
+
+        The redo log has to name the exact row it removed so a replay after a
+        reload cannot hit a newer row another writer published under the same
+        (content-hash) id. The digest covers the whole stored record — id,
+        timestamp, ``__write_seq__``, content, the base64 vector, every meta
+        field — and is stable across a save/reload round-trip: sorted keys
+        make key order irrelevant, tuples and lists both render as JSON
+        arrays, and the default ``ensure_ascii`` keeps the output encodable
+        whatever the record holds.
+
+        ``__vector__`` never reaches here — ``NanoVectorDB.upsert`` strips it
+        into the matrix before the record is stored.
+        """
+        canonical = json.dumps(dp, sort_keys=True, default=str)
+        return md5(canonical.encode("utf-8")).hexdigest()
+
+    async def _flush_pending_locked(self) -> None:
+        """Embed pending docs and materialize them into ``self._client``.
+
+        Precondition: the caller **must already hold** ``_storage_lock``. The
+        lock is non-reentrant, so this helper never calls ``_get_client`` and
+        operates on ``self._client`` directly. Embedding runs inside the lock
+        on purpose (see the contract doc, *Deferred-embedding protocol*).
+
+        Failure handling: if embedding raises or the returned count does not
+        match, the exception propagates and both buffers are left intact so
+        the next flush retries; no upsert is written to ``self._client``.
+        """
+        if (
+            not self._pending_upserts
+            and not self._pending_deletes
+            and not self._unsaved_deletes
+            and not self._unsaved_upserts
+        ):
+            return
+
+        # One batched delete before the upserts materialize: one matrix copy
+        # per flush instead of one per relation, and a deleted-then-reinserted
+        # id keeps only the new row. The queue survives until a save persists
+        # the removal, so a failed save can replay it (see the contract
+        # doc); ids that matched nothing have nothing to persist.
+        if self._pending_deletes or self._unsaved_deletes:
+            queued = len(self._pending_deletes)
+            storage = getattr(self._client, "_NanoVectorDB__storage")
+            # A queued id removes whatever row is there; a replayed one only
+            # removes the row version it removed before, so anything written
+            # under that id since — by another writer or by us — survives.
+            matched: dict[str, str] = {}
+            for dp in storage["data"]:
+                doc_id = dp["__id__"]
+                if doc_id in self._pending_deletes:
+                    matched[doc_id] = self._row_fingerprint(dp)
+                elif doc_id in self._unsaved_deletes:
+                    fingerprint = self._row_fingerprint(dp)
+                    if fingerprint == self._unsaved_deletes[doc_id]:
+                        matched[doc_id] = fingerprint
+            if matched:
+                self._client.delete(list(matched))
+                self._client_dirty = True
+            self._unsaved_deletes.update(matched)
+            self._pending_deletes.clear()
+            logger.info(
+                f"[{self.workspace}] {self.namespace} flush: applied "
+                f"{len(matched)} deferred deletes ({queued} queued, "
+                f"{len(self._unsaved_deletes)} awaiting save)"
+            )
+
+        # Replay materialized-but-unsaved upserts (redo log). A prior flush
+        # moved these rows into self._client and the save then failed; a
+        # reload since (foreign commit) replaced self._client with a snapshot
+        # that lacks them. Re-upserting from the logged record + cached
+        # vector puts them back on top of whatever the other writer
+        # committed, without re-embedding. An id that is
+        # pending again is skipped — the newer buffered doc materializes
+        # below and supersedes the logged row; one whose stored row already
+        # fingerprints equal to the logged record (no reload happened, or an
+        # earlier retry replayed it) has nothing to redo.
+        #
+        # A row that fingerprints *differently* is not automatically stale:
+        # under the pipeline's dead-process recovery, the process that
+        # materialized this redo entry can be declared dead, superseded by a
+        # new writer that reprocesses the same document and commits a
+        # genuinely newer row under the same (content-hash) id, and then
+        # turn out not to have been dead after all and reach this replay.
+        # Overwriting that newer row with our stale one would revert a
+        # completed reprocess. Ordering runs through
+        # `_resident_supersedes_redo`, which the read paths use too:
+        # `__write_seq__` decides whenever both rows carry it, whole seconds
+        # only when one predates the token, so a resident row written after
+        # ours is left alone even when both landed inside the same second.
+        if self._unsaved_upserts:
+            storage = getattr(self._client, "_NanoVectorDB__storage")
+            present = {
+                dp["__id__"]: dp
+                for dp in storage["data"]
+                if dp["__id__"] in self._unsaved_upserts
+            }
+            replay_data = []
+            superseded: list[str] = []
+            for doc_id, pdoc in self._unsaved_upserts.items():
+                if doc_id in self._pending_upserts:
+                    continue
+                resident = present.get(doc_id)
+                if resident is not None:
+                    # Fingerprint BEFORE re-attaching __vector__: the digest
+                    # covers every record key, and the stored row never
+                    # carries __vector__ (client.upsert strips it into the
+                    # matrix).
+                    if self._row_fingerprint(resident) == self._row_fingerprint(
+                        pdoc.record
+                    ):
+                        continue
+                    if self._resident_supersedes_redo(resident, pdoc.record):
+                        superseded.append(doc_id)
+                        continue
+                record = pdoc.record
+                record["__vector__"] = pdoc.vector
+                replay_data.append(record)
+            # Evicted after the loop, never inside it (mutating the dict
+            # under iteration raises). A superseded entry must leave the log
+            # rather than linger: it would be rescanned by every later flush
+            # and, worse, keep poisoning the read paths, which serve the
+            # logged record for any id still present here.
+            for doc_id in superseded:
+                del self._unsaved_upserts[doc_id]
+            if replay_data:
+                self._client.upsert(datas=replay_data)
+                self._client_dirty = True
+                logger.info(
+                    f"[{self.workspace}] {self.namespace} flush: replayed "
+                    f"{len(replay_data)} unsaved upserts after a reload"
+                )
+            if superseded:
+                # No dirty flag: dropping a redo entry touches self._client
+                # not at all, so there is nothing new to persist.
+                logger.info(
+                    f"[{self.workspace}] {self.namespace} flush: {len(superseded)} "
+                    "unsaved upserts superseded by a strictly newer row "
+                    "committed under the same id, redo entries dropped"
+                )
+
+        if not self._pending_upserts:
+            return
+
+        # Snapshot for stable ordering between the embed list and the write.
+        pending_items = list(self._pending_upserts.items())
+        to_embed = [
+            (doc_id, pdoc) for doc_id, pdoc in pending_items if pdoc.vector is None
+        ]
+
+        if to_embed:
+            contents = [pdoc.record["content"] for _, pdoc in to_embed]
+            batches = [
+                contents[i : i + self._max_batch_size]
+                for i in range(0, len(contents), self._max_batch_size)
+            ]
+            logger.info(
+                f"[{self.workspace}] {self.namespace} flush: embedding "
+                f"{len(to_embed)} vectors in {len(batches)} batch(es) "
+                f"(batch_num={self._max_batch_size})"
+            )
+            try:
+                embeddings_list = await asyncio.gather(
+                    *[
+                        self.embedding_func(batch, context="document")
+                        for batch in batches
+                    ]
+                )
+            except Exception as e:
+                logger.error(
+                    f"[{self.workspace}] Error embedding pending vector ops "
+                    f"(upserts={len(to_embed)}): {e}"
+                )
+                raise
+            embeddings = np.concatenate(embeddings_list)
+            if len(embeddings) != len(to_embed):
+                # Explicit raise (not a log): a mismatch would mis-pair vectors
+                # with records. Keep pending intact so the next flush retries.
+                raise RuntimeError(
+                    f"[{self.workspace}] embedding is not 1-1 with pending data, "
+                    f"{len(embeddings)} != {len(to_embed)}"
+                )
+            for (_, pdoc), embedding in zip(to_embed, embeddings):
+                pdoc.vector = embedding
+
+        list_data = []
+        for _, pdoc in pending_items:
+            vector = pdoc.vector
+            # Compress vector using Float16 + zlib + Base64 for storage optimization
+            vector_f16 = vector.astype(np.float16)
+            compressed_vector = zlib.compress(vector_f16.tobytes())
+            encoded_vector = base64.b64encode(compressed_vector).decode("utf-8")
+            record = pdoc.record
+            record["vector"] = encoded_vector
+            record["__vector__"] = vector
+            list_data.append(record)
+
+        self._client.upsert(datas=list_data)
+        self._client_dirty = True
+
+        # The flushed entries move from the pending buffer into the redo log
+        # rather than being dropped: the rows are materialized but not durable
+        # yet, and clearing the only replayable copy here is exactly the loss
+        # reload-loses-them window. The caller clears the log once its save
+        # lands. Only entries we just flushed leave the pending buffer (an
+        # upsert that arrived after the snapshot would have re-set vector=None
+        # and must stay buffered; its redo entry is superseded next flush).
+        for doc_id, pdoc in pending_items:
+            self._unsaved_upserts[doc_id] = pdoc
+            if self._pending_upserts.get(doc_id) is pdoc:
+                del self._pending_upserts[doc_id]
+
+        # No reconciliation pass against `_unsaved_deletes` follows. A row we
+        # just wrote used to be able to fingerprint equal to one we removed
+        # (same id, same bytes, same whole second), which would have made the
+        # replay delete it — so the entry was dropped here. `__write_seq__`
+        # rules that out: every upsert stamps its own token, so a rewrite is a
+        # distinct row version and the entry names only the version it removed.
+        # Keeping it removes and hides nothing that exists, and it is still
+        # needed — a reload resurrecting the removed version is taken out again
+        # by the replay at the top of the next flush, rewrite preserved.
+
+    async def _save_to_disk_locked(
+        self, on_committed: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Atomically persist ``self._client`` and notify other processes.
+
+        Precondition: the caller must already hold ``_storage_lock``. Factored
+        out of ``index_done_callback`` so ``finalize`` reuses the exact same
+        save+notify sequence. ``NanoVectorDB.save()`` always writes to whatever
+        path is on the instance, so we temporarily redirect ``storage_file`` to
+        the per-writer tmp and let ``atomic_write`` own the rename; the original
+        path is restored on every path (success and exception).
+
+        Runs in the storage-IO pool rather than on the event loop. Two
+        consequences the caller must respect:
+
+        * The lock has to stay held for the whole call. ``_save_atomic`` swaps
+          ``self._client.storage_file`` to the tmp sibling for the duration of
+          the save, so a coroutine that got in during the write would observe
+          the client pointing at a path that is about to be renamed away.
+        * ``commit_in_storage_io`` therefore refuses to return before the worker
+          finishes, even when the caller is cancelled — matching the old
+          synchronous write, which could not be cancelled at all.
+
+        ``on_committed`` carries the post-write bookkeeping (retire the redo
+        logs, flag the other processes, clear the dirty bit) into that same
+        uncancellable region. It must not be inlined after this call: a cancel
+        delivered in between would leave the file published with the other
+        processes never told to reload it, and would strand the redo logs. It
+        runs only if the write succeeded — running it without a write would
+        retire redo entries for rows that were never persisted. Its own failure
+        is caught here as ``CommitBookkeepingError`` and logged: the file is
+        renamed into place by then, so raising would tell the caller the vectors
+        were never written.
+
+        Only PART of the stall goes away. ``NanoVectorDB.save()`` base64-encodes
+        the entire matrix through ``tobytes()`` and ``b64encode()``, two single C
+        calls that hold the GIL for their whole duration no matter which thread
+        they run on; a 400 MB matrix still stalls the loop for that stretch. The
+        ``json.dump`` that follows is the cooperative part. Fixing the encode
+        needs a chunked or binary format and is tracked separately.
+        """
+
+        def _save_atomic(tmp: str) -> None:
+            original = self._client.storage_file
+            # Stamp the embedding space into the same JSON object as the rows,
+            # so the marker is published by the same atomic rename and cannot
+            # drift from the vectors it describes -- but only over a snapshot
+            # this process can vouch for. See ``_build_client``.
+            if self._vector_space_certified:
+                self._client.store_additional_data(
+                    **vector_space_marker(self.embedding_func)
+                )
+            self._client.storage_file = tmp
+            try:
+                self._client.save()
+            finally:
+                self._client.storage_file = original
+
+        async def _committed() -> None:
+            # Adopt the file this process just wrote BEFORE the caller's
+            # bookkeeping, which publishes through the manager and can fail. A
+            # local stat, so it cannot fail with it -- and doing it first means
+            # a failed publication does not additionally leave this process
+            # treating its own save as a peer's, which would cost a full
+            # file reload on the next call for nothing.
+            #
+            # Here rather than in each caller's hook so no save path can forget
+            # it: ``finalize`` reuses this same method.
+            self._record_fingerprint()
+            await on_committed()
+
+        # No fingerprint handling on the FAILURE path, unlike
+        # ``FaissVectorDBStorage._save_faiss_index``: this is ONE
+        # ``atomic_write``, so a failed save leaves the previous file in place
+        # and its fingerprint unchanged, and the fence correctly sees no
+        # change. FAISS writes two files and can publish a mismatched pair, so
+        # it has to adopt them explicitly to keep the fence from reading its
+        # own partial write as a peer commit.
+        #
+        # And note the direction differs from ``NetworkXStorage``, which
+        # RELOADS after a failed save: it has no redo log, so its in-memory
+        # graph is untrustworthy and the file is the only authority. It does
+        # not force that reload by invalidating its fingerprint, though —
+        # the failed save left the file untouched, so the fingerprint stays
+        # correct and a process-local ``_recovery_reload_pending`` flag
+        # carries the fact. Here the in-memory client plus the redo logs ARE
+        # the authority to retry from, so the snapshot must be kept.
+
+        try:
+            await commit_in_storage_io(
+                partial(
+                    atomic_write,
+                    self._client_file_name,
+                    _save_atomic,
+                    self.workspace or "_",
+                ),
+                _committed,
+            )
+        except CommitBookkeepingError as e:
+            # The file is already renamed into place, so the rows ARE durable
+            # and the caller must not hear otherwise: `index_done_callback`'s
+            # contract is that a raise means the vectors were not written, which
+            # aborts the document batch in `_insert_done`.
+            #
+            # What did not complete is the publication — flagging the other
+            # processes and clearing this writer's dirty bit. The residue is a
+            # visibility lag that heals: `_client_dirty` stays True, so the next
+            # commit rewrites this snapshot and notifies again; an unreset
+            # `storage_updated` only makes this process reload the file it just
+            # wrote. The hook also keeps its redo logs when it fails here, so if
+            # an unnotified peer saves its older snapshot over these rows first,
+            # the next flush replays them back rather than losing them. The gap
+            # is the fence's own, and it takes BOTH halves missing: this failure
+            # silences the notification channel, and the file channel still
+            # closes it unless the replaced file happens to read as unchanged
+            # (the tick collision). The redo log does not close the gap; it
+            # makes it recoverable. See the contract doc, *Accepted residues*.
+            log_without_raising(
+                logger.error,
+                f"[{self.workspace}] Vector data for {self.namespace} was saved "
+                f"to {self._client_file_name}, but publishing that write failed: "
+                f"{e.__cause__}. An unknown remainder of the other processes "
+                "keeps reading the previous snapshot until the next commit "
+                "notifies them; this process may also reload the file it just "
+                "wrote.",
+            )
+
+    async def query(
+        self, query: str, top_k: int, query_embedding: list[float] = None
+    ) -> list[dict[str, Any]]:
+        """Similarity search over data already materialized into ``self._client``.
+
+        Buffered upserts **and** buffered deletes are not visible here — only
+        rows that a prior ``index_done_callback`` / ``finalize`` flushed are
+        considered, so a queued delete still surfaces until the flush applies
+        it. Use the read-your-writes paths (``get_by_id`` / ``get_by_ids`` /
+        ``get_vectors_by_ids``, which consult both buffers) or flush first.
+        Matches the contract documented for the other buffering backends.
+        """
+        # Use provided embedding or compute it
+        if query_embedding is not None:
+            embedding = query_embedding
+        else:
+            # Execute embedding outside of lock to avoid improve cocurrent
+            embedding = await self.embedding_func(
+                [query], context="query", _priority=DEFAULT_QUERY_PRIORITY
+            )  # higher priority for query
+            embedding = embedding[0]
+
+        client = await self._get_client()
+        results = client.query(
+            query=embedding,
+            top_k=top_k,
+            better_than_threshold=self.cosine_better_than_threshold,
+        )
+        results = [
+            {
+                **{k: v for k, v in dp.items() if k not in ("vector", WRITE_SEQ_FIELD)},
+                "id": dp["__id__"],
+                "distance": dp["__metrics__"],
+                "created_at": dp.get("__created_at__"),
+            }
+            for dp in results
+        ]
+        return results
+
+    @property
+    async def client_storage(self):
+        """Return a **live reference** to ``NanoVectorDB.__storage``.
+
+        The returned dict is the same object NanoVectorDB mutates in
+        place during ``upsert`` / ``delete``. Reading it outside
+        ``_storage_lock`` is safe today only because NanoVectorDB
+        mutations are fully synchronous (see the contract doc,
+        *Lock scope*). Callers must not retain this reference across an
+        ``await`` that might cross into ``_get_client`` again: a reload
+        will swap ``self._client`` for a fresh instance and leave the
+        held reference pointing at the old (now-stale) storage.
+        """
+        client = await self._get_client()
+        return getattr(client, "_NanoVectorDB__storage")
+
+    async def delete(self, ids: list[str]):
+        """Delete vectors with specified IDs.
+
+        Buffer semantics — deferred delete (see *Deferred-delete protocol*):
+            The ids are queued, not removed from ``self._client`` yet. The
+            batched removal runs at flush time, before pending upserts
+            materialize. Reads already report a queued id as absent, so the
+            deferral is invisible to callers.
+
+            The request is scoped to the **id**, not to the row version
+            present when it was made: the flush removes whatever row carries
+            the id, exactly as the eager call and the server-backed backends
+            do. If another writer rewrites the row inside the deferral window,
+            that rewrite is what gets removed. Skipping it instead would leave
+            purge with vectors it was told to delete — worse than the race it
+            would avoid, and only reachable by breaking the single-writer
+            invariant above. The redo log is version-scoped precisely because
+            it is not a request; see the protocol section.
+
+        Persistence:
+            Changes are in-memory only; cross-process visibility requires a
+            subsequent ``index_done_callback``. In ``lightrag.py`` this is
+            handled by ``_insert_done()`` at the end of the document batch.
+            Callers outside the pipeline must persist explicitly.
+
+        Args:
+            ids: List of vector IDs to be deleted
+        """
+        try:
+            # Cancelling the pending upsert and queueing the id are one
+            # critical section against a concurrent flush.
+            async with self._storage_lock:
+                for doc_id in ids:
+                    self._pending_upserts.pop(doc_id, None)
+                    # Evict the upsert redo entry too: this request removes
+                    # whatever row the id has, and a surviving entry would
+                    # replay — resurrect — that row at the next flush.
+                    self._unsaved_upserts.pop(doc_id, None)
+                    self._pending_deletes.add(doc_id)
+
+            logger.debug(
+                f"[{self.workspace}] Queued {len(ids)} deferred vector deletes for {self.namespace}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[{self.workspace}] Error while deleting vectors from {self.namespace}: {e}"
+            )
+
+    async def delete_entity(self, entity_name: str) -> None:
+        """Delete the vector associated with a single entity name.
+
+        Persistence:
+            Changes are in-memory only; cross-process visibility requires
+            a subsequent ``index_done_callback``. Callers outside the
+            pipeline must persist explicitly.
+
+        Buffer semantics — post-prune with caller short-circuit contract:
+            The materialized client delete runs first; the matching
+            pending upsert (if any) is popped **only after** it
+            succeeds. If the materialized delete raises, the pending
+            buffer stays intact and the exception is re-raised so the
+            caller can short-circuit before ``index_done_callback``
+            flushes a half-cleaned buffer.
+
+        **Not pipeline-gated** — see the contract doc
+        *Non-pipeline write paths*. The caller is responsible for
+        ensuring single-writer serialization.
+        """
+        try:
+            entity_id = compute_mdhash_id(entity_name, prefix="ent-")
+            logger.debug(
+                f"[{self.workspace}] Attempting to delete entity {entity_name} with ID {entity_id}"
+            )
+
+            async with self._storage_lock:
+                self._reload_client_from_disk_locked(for_write=True)
+
+                # Materialized side first so a failure leaves the
+                # pending buffer intact for the caller's retry path.
+                existing = self._client.get([entity_id])
+                if existing:
+                    self._client.delete([entity_id])
+                    # This removal is applied-but-unsaved like a flushed one,
+                    # so it goes in the redo log too (a queued request for the
+                    # same id is now redundant). Without it the same failed
+                    # save + reload resurrects the row.
+                    self._pending_deletes.discard(entity_id)
+                    self._unsaved_deletes[entity_id] = self._row_fingerprint(
+                        existing[0]
+                    )
+                    self._client_dirty = True
+                    deleted = True
+                else:
+                    deleted = False
+
+                # Materialized delete succeeded — safe to cancel any
+                # buffered upsert for this entity.
+                pending_cancelled = (
+                    self._pending_upserts.pop(entity_id, None) is not None
+                )
+                # Evict the upsert redo entry unconditionally (like the
+                # pending cancel): after a foreign reload the unsaved row is
+                # not in self._client — `existing` is empty — yet a surviving
+                # entry would replay it at the next flush.
+                self._unsaved_upserts.pop(entity_id, None)
+
+            if deleted or pending_cancelled:
+                logger.debug(
+                    f"[{self.workspace}] Successfully deleted entity {entity_name}"
+                )
+            else:
+                logger.debug(
+                    f"[{self.workspace}] Entity {entity_name} not found in storage"
+                )
+        except Exception as e:
+            logger.error(f"[{self.workspace}] Error deleting entity {entity_name}: {e}")
+            raise
+
+    async def delete_entity_relation(self, entity_name: str) -> None:
+        """Delete every relation vector incident to ``entity_name``.
+
+        Persistence:
+            Changes are in-memory only; cross-process visibility requires
+            a subsequent ``index_done_callback``. Callers outside the
+            pipeline must persist explicitly.
+
+        Buffer semantics — post-prune with caller short-circuit contract:
+            The materialized client delete runs first; matching pending
+            upserts are pruned **only after** it succeeds. If the
+            materialized delete raises, the pending buffer stays intact
+            and the exception is re-raised so the caller (e.g.
+            ``adelete_by_entity``) can short-circuit before
+            ``_persist_graph_updates`` triggers ``index_done_callback``
+            on a half-cleaned buffer.
+
+            Previously the buffer was pre-pruned and the outer
+            ``except`` swallowed exceptions into ``logger.error`` — that
+            combination silently dropped both buffered relation vectors
+            and the failure signal.
+
+        **Not pipeline-gated** — see the contract doc
+        *Non-pipeline write paths*. The caller is responsible for
+        ensuring single-writer serialization.
+        """
+        try:
+            async with self._storage_lock:
+                self._reload_client_from_disk_locked(for_write=True)
+
+                # Materialized side first so a failure leaves the
+                # pending buffer intact for the caller's retry path.
+                # Use .get() for src_id / tgt_id so rows from foreign
+                # namespaces without those keys silently don't match.
+                storage = getattr(self._client, "_NanoVectorDB__storage")
+                rows_to_delete = {
+                    dp["__id__"]: self._row_fingerprint(dp)
+                    for dp in storage["data"]
+                    if dp.get("src_id") == entity_name
+                    or dp.get("tgt_id") == entity_name
+                }
+                ids_to_delete = list(rows_to_delete)
+                if ids_to_delete:
+                    self._client.delete(ids_to_delete)
+                    # Applied-but-unsaved: record the removals in the redo log
+                    # (queued requests for the same ids are now redundant), or
+                    # a failed save plus a reload resurrects the rows.
+                    self._pending_deletes.difference_update(ids_to_delete)
+                    self._unsaved_deletes.update(rows_to_delete)
+                    self._client_dirty = True
+
+                # Materialized delete succeeded — safe to prune matching
+                # buffered upserts so a subsequent flush won't re-upsert
+                # the just-deleted relations.
+                pending_ids = [
+                    doc_id
+                    for doc_id, pdoc in self._pending_upserts.items()
+                    if pdoc.record.get("src_id") == entity_name
+                    or pdoc.record.get("tgt_id") == entity_name
+                ]
+                for doc_id in pending_ids:
+                    del self._pending_upserts[doc_id]
+                # Same predicate over the upsert redo log, and unconditional
+                # for the same reason: after a foreign reload the unsaved
+                # relation rows are not in the scan above, yet surviving
+                # entries would replay them at the next flush.
+                redo_ids = [
+                    doc_id
+                    for doc_id, pdoc in self._unsaved_upserts.items()
+                    if pdoc.record.get("src_id") == entity_name
+                    or pdoc.record.get("tgt_id") == entity_name
+                ]
+                for doc_id in redo_ids:
+                    del self._unsaved_upserts[doc_id]
+
+            total = len(pending_ids) + len(ids_to_delete)
+            if total:
+                logger.debug(
+                    f"[{self.workspace}] Deleted {total} relations for {entity_name}"
+                )
+            else:
+                logger.debug(
+                    f"[{self.workspace}] No relations found for entity {entity_name}"
+                )
+        except Exception as e:
+            logger.error(
+                f"[{self.workspace}] Error deleting relations for {entity_name}: {e}"
+            )
+            raise
+
+    async def drop_pending_index_ops(self) -> None:
+        """Discard buffered upserts on an aborting batch.
+
+        Only the pending buffer is dropped; records already materialized into
+        ``self._client`` by a prior ``_flush_pending_locked`` whose save step
+        then failed (``_client_dirty=True``) are intentionally NOT rolled back.
+
+        The pipeline treats each file as an atomic unit: an abort marks the
+        affected documents FAILED and the whole file is reprocessed on the
+        next run. Because upserts are keyed by deterministic ids (entity-name
+        / relation / chunk hashes), reprocessing overwrites those vectors
+        idempotently, so the final state is identical whether or not we roll
+        back here. This matches the server-backed backends (Milvus / OpenSearch
+        / Postgres / Mongo / Qdrant), which likewise keep a sibling flush's
+        already-committed partial data on abort rather than rolling it back;
+        and if the process crashes before the next save, these in-memory
+        writes are dropped anyway. Rolling back only FAISS/Nano would add an
+        inconsistent, non-load-bearing "FAILED == clean" guarantee, so it is
+        deliberately omitted.
+
+        Deletes split along that same line. ``_pending_deletes`` is buffered
+        work and is discarded; ``_unsaved_deletes`` is the redo log of
+        removals that already reached ``self._client``, so it is **kept** —
+        dropping it would neither restore the rows nor keep them gone, it
+        would only make the removal fragile again, which is the exact state
+        this log exists to end. The idempotent-reprocessing argument above is
+        also weaker here: an upsert is re-issued by any reprocess of the
+        document, while a delete is re-issued only if the reprocess reaches
+        the same merge.
+
+        ``_unsaved_upserts`` is kept for the same reason as its delete twin:
+        it names rows that already reached ``self._client`` (the class this
+        method intentionally does not roll back), and dropping it would only
+        reopen the reload-loses-them window for rows whose
+        fate is already sealed either way — reprocessing overwrites them
+        idempotently whether or not the replay preserved them.
+        """
+        if self._storage_lock is None:
+            self._pending_upserts.clear()
+            self._pending_deletes.clear()
+            return
+        async with self._storage_lock:
+            self._pending_upserts.clear()
+            self._pending_deletes.clear()
+
+    async def index_done_callback(self) -> bool:
+        """Flush deferred embeddings, commit to disk, and notify other processes.
+
+        This is the writer's **commit point** in the cross-process sync
+        protocol (see the contract doc). Effects, in order:
+            1. If another process committed first, reload the latest on-disk
+               snapshot while preserving this process's pending buffer.
+            2. ``_flush_pending_locked`` embeds every buffered upsert (once
+               per id) and materializes it into ``self._client``. A failure
+               here **raises** — pending is kept, nothing is written.
+            3. ``_save_to_disk_locked`` (``atomic_write``) lays a tmp file
+               beside the target and renames it into place — readers either
+               see the previous file in full or the new file in full, never a
+               torn write. A failure here **also raises**; ``_client_dirty``
+               stays ``True`` and the redo logs (``_unsaved_upserts`` /
+               ``_unsaved_deletes``) keep the flushed ops, so a later commit
+               or ``finalize`` can reload a foreign snapshot and replay them
+               on top.
+            4. ``set_all_update_flags`` flips every registered process's
+               ``storage_updated`` flag, then we immediately reset our own
+               flag to ``False`` so the writer does not self-reload on the
+               next call to ``_get_client``. A failure here does **not**
+               raise: step 3 already made the rows durable, so this is a
+               visibility lag, logged and healed by the next commit —
+               ``_save_to_disk_locked`` catches it. The redo logs are retired only
+               past this step, so rows an unnotified peer overwrites are
+               replayed back by the next flush.
+
+        Either failure surfaces loudly through ``_insert_done`` so the caller
+        can abort the document batch instead of silently losing vectors. The
+        bool return is kept for legacy callers but is effectively always
+        ``True`` on the success path.
+        """
+        async with self._storage_lock:
+            self._reload_client_from_disk_locked(for_write=True)
+
+            # Flush + save both raise on failure (embedding mismatch / save IO
+            # error). The exception propagates out of the lock so _insert_done
+            # aborts the batch; pending stays intact and _client_dirty stays
+            # True (if only the save failed) for a later retry.
+            await self._flush_pending_locked()
+
+            async def _committed() -> None:
+                await set_all_update_flags(self.namespace, workspace=self.workspace)
+                self.storage_updated.value = False
+                # Retired only PAST the publication, never before it. The rows
+                # are durable either way, but a publication that failed leaves
+                # an unnotified peer holding an older whole-file snapshot, and
+                # that peer can become the next writer and save it over these
+                # rows. Keeping the redo logs makes that recoverable: this
+                # process's next flush reloads the foreign snapshot and replays
+                # them on top (the redo-log path), so the rows
+                # come back instead of being lost silently. Retiring them first
+                # threw away the only copy. Replay is idempotent -- an
+                # unchanged file matches by fingerprint and writes nothing, and
+                # a genuinely newer row under the same id supersedes ours.
+                self._unsaved_deletes.clear()  # the removals are durable now
+                self._unsaved_upserts.clear()  # the rows are durable now
+                self._client_dirty = False
+
+            await self._save_to_disk_locked(_committed)
+            return True
+
+    @staticmethod
+    def _format_record(dp: dict[str, Any]) -> dict[str, Any]:
+        """Shape a stored/pending record into the public read result."""
+        return {
+            **{
+                k: v
+                for k, v in dp.items()
+                if k not in ("vector", "__vector__", WRITE_SEQ_FIELD)
+            },
+            "id": dp.get("__id__"),
+            "created_at": dp.get("__created_at__"),
+        }
+
+    def _matches_redo_entry(self, dp: dict[str, Any], fingerprint: str | None) -> bool:
+        """True when a materialized row is the one a redo entry removed.
+
+        ``fingerprint`` is the value snapshotted from ``_unsaved_deletes``
+        under the lock (``None`` when the id is not logged). A row that no
+        longer matches took the id's place after the removal, and the replay
+        deliberately preserves it — so the read paths must show it.
+        """
+        return fingerprint is not None and fingerprint == self._row_fingerprint(dp)
+
+    @staticmethod
+    def _resident_supersedes_redo(
+        resident: dict[str, Any] | None, redo_record: dict[str, Any]
+    ) -> bool:
+        """True when a materialized row wins over a pending upsert-redo entry.
+
+        The read paths must agree with what the next flush's replay will
+        actually do, or read-your-writes reports a row the replay is about to
+        decline to restore, so both go through this one rule: a resident row is
+        preferred only when it was written **strictly** after the logged one —
+        by the ``__write_seq__`` token when both rows carry one, falling back
+        to whole-second ``__created_at__`` when either predates it (see
+        ``write_seq``). An absent row, an older one, or a tie no token can
+        break — either side written before the token existed, or two processes
+        stamping inside one clock tick, since the bump that keeps tokens
+        distinct is process-local — all leave the logged record as the answer.
+        """
+        return row_is_strictly_newer(resident, redo_record)
+
+    async def get_by_id(self, id: str) -> dict[str, Any] | None:
+        """Get vector data by its ID (read-your-writes against the pending buffer).
+
+        Args:
+            id: The unique identifier of the vector
+
+        Returns:
+            The vector data if found, or None if not found
+        """
+        # Read-your-writes: a buffered upsert is visible before its flush; a
+        # queued delete makes the id read as absent; a logged one hides only
+        # the row version it removed (see *Deferred-delete protocol*).
+        async with self._storage_lock:
+            pending = self._pending_upserts.get(id)
+            if pending is not None:
+                return self._format_record(pending.record)
+            if id in self._pending_deletes:
+                return None
+            # Applied-but-unsaved row. A reload may have dropped it from
+            # self._client, in which case the next flush replays it and it is
+            # the row this id resolves to — but another writer may also have
+            # committed a strictly newer row under the same (content-hash) id,
+            # which the replay deliberately preserves. So this cannot answer
+            # on its own: consult the client and let the same ordering rule
+            # the replay uses pick the winner.
+            redo = self._unsaved_upserts.get(id)
+            logged = self._unsaved_deletes.get(id)
+
+        client = await self._get_client()
+        result = client.get([id])
+        resident = result[0] if result else None
+        if redo is not None:
+            if self._resident_supersedes_redo(resident, redo.record):
+                return self._format_record(resident)
+            return self._format_record(redo.record)
+        if resident is None or self._matches_redo_entry(resident, logged):
+            return None
+        return self._format_record(resident)
+
+    async def get_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        """Get multiple vector data by their IDs (read-your-writes), preserving order.
+
+        Args:
+            ids: List of unique identifiers
+
+        Returns:
+            List of vector data objects that were found
+        """
+        if not ids:
+            return []
+
+        # Read-your-writes: serve buffered upserts from the pending area and
+        # only query the materialized client for the remaining ids.
+        result_map: dict[str, dict[str, Any]] = {}
+        remaining: list[str] = []
+        logged: dict[str, str] = {}
+        redo_docs: dict[str, _PendingNanoDoc] = {}
+        async with self._storage_lock:
+            for requested_id in ids:
+                pending = self._pending_upserts.get(requested_id)
+                if pending is not None:
+                    result_map[str(requested_id)] = self._format_record(pending.record)
+                elif requested_id in self._pending_deletes:
+                    continue  # queued delete, no newer upsert -> absent
+                else:
+                    redo = self._unsaved_upserts.get(requested_id)
+                    if redo is not None:
+                        # Still queried against the client: the replay only
+                        # restores the logged row when no strictly newer row
+                        # was committed under the id meanwhile, so the client
+                        # is needed to apply the same ordering rule below.
+                        redo_docs[requested_id] = redo
+                        remaining.append(requested_id)
+                        continue
+                    # A logged id still goes to the client: only the removed
+                    # row version is hidden, not one written in its place.
+                    if requested_id in self._unsaved_deletes:
+                        logged[requested_id] = self._unsaved_deletes[requested_id]
+                    remaining.append(requested_id)
+
+        if remaining:
+            client = await self._get_client()
+            resident_map: dict[str, dict[str, Any]] = {}
+            for dp in client.get(remaining):
+                if not dp:
+                    continue
+                doc_id = dp.get("__id__")
+                if doc_id is not None:
+                    resident_map[str(doc_id)] = dp
+                if doc_id in redo_docs:
+                    continue  # resolved against the redo entry below
+                if self._matches_redo_entry(dp, logged.get(doc_id)):
+                    continue
+                record = self._format_record(dp)
+                key = record.get("id")
+                if key is not None:
+                    result_map[str(key)] = record
+            for requested_id, redo in redo_docs.items():
+                resident = resident_map.get(str(requested_id))
+                if self._resident_supersedes_redo(resident, redo.record):
+                    result_map[str(requested_id)] = self._format_record(resident)
+                else:
+                    result_map[str(requested_id)] = self._format_record(redo.record)
+
+        return [result_map.get(str(requested_id)) for requested_id in ids]
+
+    async def get_vectors_by_ids(self, ids: list[str]) -> dict[str, list[float]]:
+        """Get vectors by their IDs (read-your-writes), returning only ID and vector.
+
+        For buffered upserts the vector is computed lazily (and cached back onto
+        the pending doc so the next flush reuses it instead of re-embedding);
+        for materialized rows the stored compressed vector is decoded.
+
+        Args:
+            ids: List of unique identifiers
+
+        Returns:
+            Dictionary mapping IDs to their vector embeddings
+            Format: {id: [vector_values], ...}
+        """
+        if not ids:
+            return {}
+
+        vectors_dict: dict[str, list[float]] = {}
+        remaining: list[str] = []
+        logged: dict[str, str] = {}
+        redo_docs: dict[str, _PendingNanoDoc] = {}
+        async with self._storage_lock:
+            to_embed: list[tuple[str, _PendingNanoDoc]] = []
+            for requested_id in ids:
+                pending = self._pending_upserts.get(requested_id)
+                if pending is None:
+                    if requested_id in self._pending_deletes:
+                        continue  # queued delete, no newer upsert -> absent
+                    redo = self._unsaved_upserts.get(requested_id)
+                    if redo is not None:
+                        # Still queried against the client: the replay only
+                        # restores the logged row when no strictly newer row
+                        # was committed under the id meanwhile, so the client
+                        # is needed to apply the same ordering rule below.
+                        # The cached vector is always set once a doc reaches
+                        # the log, so the redo branch can always answer.
+                        redo_docs[requested_id] = redo
+                        remaining.append(requested_id)
+                        continue
+                    # A logged id still goes to the client: only the removed
+                    # row version is hidden, not one written in its place.
+                    if requested_id in self._unsaved_deletes:
+                        logged[requested_id] = self._unsaved_deletes[requested_id]
+                    remaining.append(requested_id)
+                elif pending.vector is not None:
+                    vectors_dict[requested_id] = pending.vector.astype(
+                        np.float32
+                    ).tolist()
+                else:
+                    to_embed.append((requested_id, pending))
+
+            if to_embed:
+                contents = [pdoc.record["content"] for _, pdoc in to_embed]
+                batches = [
+                    contents[i : i + self._max_batch_size]
+                    for i in range(0, len(contents), self._max_batch_size)
+                ]
+                embeddings_list = await asyncio.gather(
+                    *[
+                        self.embedding_func(batch, context="document")
+                        for batch in batches
+                    ]
+                )
+                embeddings = np.concatenate(embeddings_list)
+                if len(embeddings) != len(to_embed):
+                    raise RuntimeError(
+                        f"[{self.workspace}] embedding is not 1-1 with pending data, "
+                        f"{len(embeddings)} != {len(to_embed)}"
+                    )
+                for (requested_id, pdoc), embedding in zip(to_embed, embeddings):
+                    # Cache the vector back so the next flush reuses it.
+                    pdoc.vector = embedding
+                    vectors_dict[requested_id] = embedding.astype(np.float32).tolist()
+
+        if remaining:
+            client = await self._get_client()
+            resident_map: dict[str, dict[str, Any]] = {}
+            for result in client.get(remaining):
+                if not result:
+                    continue
+                doc_id = result.get("__id__")
+                if doc_id is not None:
+                    resident_map[str(doc_id)] = result
+                if doc_id in redo_docs:
+                    continue  # resolved against the redo entry below
+                if self._matches_redo_entry(result, logged.get(doc_id)):
+                    continue
+                if "vector" in result and "__id__" in result:
+                    # Decompress vector data (Base64 + zlib + Float16 compressed)
+                    decoded = base64.b64decode(result["vector"])
+                    decompressed = zlib.decompress(decoded)
+                    vector_f16 = np.frombuffer(decompressed, dtype=np.float16)
+                    vector_f32 = vector_f16.astype(np.float32).tolist()
+                    vectors_dict[result["__id__"]] = vector_f32
+            for requested_id, redo in redo_docs.items():
+                resident = resident_map.get(str(requested_id))
+                if (
+                    self._resident_supersedes_redo(resident, redo.record)
+                    and "vector" in resident
+                ):
+                    decoded = base64.b64decode(resident["vector"])
+                    decompressed = zlib.decompress(decoded)
+                    vector_f16 = np.frombuffer(decompressed, dtype=np.float16)
+                    vectors_dict[requested_id] = vector_f16.astype(np.float32).tolist()
+                else:
+                    vectors_dict[requested_id] = redo.vector.astype(np.float32).tolist()
+
+        return vectors_dict
+
+    async def drop(self) -> dict[str, str]:
+        """Drop all vector data from storage and reinitialize the client.
+
+        This method will:
+        1. Remove the vector database storage file if it exists
+        2. Reinitialize the vector database client
+        3. Update flags to notify other processes
+        4. Changes are persisted to disk immediately
+
+        Caller contract:
+            ``drop`` is destructive and **not** serialized by this storage
+            class. The caller must hold the pipeline ``busy`` reservation
+            (the ``/documents/clear`` endpoint does this) before invoking
+            it — running ``drop`` concurrently with an active document
+            pipeline will tear down storage out from under the writer and
+            silently lose data. See the contract doc,
+            *Non-pipeline write paths*.
+
+        Returns:
+            dict[str, str]: Operation status and message
+            - On success: {"status": "success", "message": "data dropped"}
+            - On destructive failure: {"status": "error", "message": "<error details>"}
+
+            The status reports the durable file removal only. No step after
+            that removal — notification, writer-flag reset, or the success log
+            — can turn the completed destruction into an error response. A peer
+            reload-notification failure is logged as partial
+            propagation and does not turn the completed destruction into an
+            error — ``/documents/clear`` uses this status to decide whether the
+            input files are safe to delete, so reporting a drop that already
+            happened as failed leaves those files ready to be re-ingested
+            against storage that no longer matches. The same holds for every
+            other step that follows the removal: each is guarded on its own, so
+            no step past the point of no return can return ``"error"``.
+            Success confirms durable deletion, not convergence of all worker
+            snapshots. A worker that missed the notification may later write its
+            stale vectors back. Stop workspace writes and restart affected
+            workers before resuming; if stale data has already been written,
+            clear again.
+            Accepted residue: if the in-memory reset itself fails, this process
+            keeps the dropped rows in ``self._client``. The writer reload flag
+            is then left SET rather than cleared, so the next ``_get_client``
+            rebuilds the snapshot from the removed file — the stale client is
+            never served.
+
+        Cancellation:
+            Before submission, cancellation leaves storage unchanged — the
+            buffers and both redo logs are discarded only after the file is
+            gone. Once deletion is submitted, the storage lock stays held until
+            deletion and its notification/reset/logging hook finish, then caller
+            cancellation propagates. Notification errors are still logged.
+        """
+
+        def _delete_file() -> None:
+            # delete _client_file_name
+            if os.path.exists(self._client_file_name):
+                os.remove(self._client_file_name)
+
+        async def _committed() -> None:
+            # Discard buffered (unflushed) upserts and queued deletes
+            # along with the data — and both redo logs: there is nothing
+            # left to replay onto.
+            self._pending_upserts.clear()
+            self._pending_deletes.clear()
+            self._unsaved_deletes.clear()
+            self._unsaved_upserts.clear()
+
+            # The rows are gone, so every row from here on is one this process
+            # wrote: the next save may record this instance's embedding space.
+            self._vector_space_certified = True
+
+            # Reset the in-memory snapshot to the post-drop state. Guarded like
+            # every other post-removal step — the file is already gone, so
+            # nothing here may report the completed destruction as failed.
+            # ``NanoVectorDB`` re-reads ``storage_file`` on construction, which
+            # is why this one is not merely a rebind.
+            snapshot_reset = False
+            try:
+                self._client = NanoVectorDB(
+                    self.embedding_func.embedding_dim,
+                    storage_file=self._client_file_name,
+                )
+                self._client_dirty = False
+                snapshot_reset = True
+            except Exception as snapshot_error:
+                log_without_raising(
+                    logger.error,
+                    f"[{self.workspace}] Dropped {self.namespace}"
+                    f"(file:{self._client_file_name}), but failed to reset the "
+                    "in-memory client; it still holds the dropped rows. The "
+                    "writer reload flag is left set below so the next read "
+                    f"rebuilds it from the removed file: {snapshot_error}",
+                )
+
+            # Mirror that decision on the file channel, and BEFORE the
+            # fallible manager writes below: a plain attribute assignment
+            # cannot fail with the manager, so the fence holds even when the
+            # flag write does not. Adopting the file's absence when the reset
+            # installed the post-drop client; invalidating (``None`` differs
+            # from any real file, present or absent) when it did not, so the
+            # next read rebuilds the stale client through this channel too.
+            if snapshot_reset:
+                self._record_fingerprint()
+            else:
+                self._loaded_fingerprint = None
+
+            # Keep publication under the storage lock. Once deletion starts,
+            # commit_in_storage_io defers caller cancellation through this hook
+            # so it cannot release readers before the notification attempt.
+            try:
+                await set_all_update_flags(self.namespace, workspace=self.workspace)
+            except Exception as notification_error:
+                # Notification can fail partway through the registered flags.
+                # A missed worker may later become the writer and save its
+                # stale matrix over the deleted file, resurrecting dropped
+                # vectors. A notification from that writer would spread the
+                # stale state, not repair it.
+                log_without_raising(
+                    logger.error,
+                    f"[{self.workspace}] Dropped {self.namespace}"
+                    f"(file:{self._client_file_name}), but failed while notifying "
+                    "all processes; some processes may not reload and may restore "
+                    "deleted data if they later write. Stop workspace writes and "
+                    f"restart all affected workers before resuming: "
+                    f"{notification_error}",
+                )
+            # Point the writer's own flag at the snapshot we actually hold: no
+            # self-reload when the reset above installed the post-drop client, a
+            # self-reload when it did not, so a stale client is rebuilt from the
+            # removed file instead of being served. Unlike the notification, a
+            # failure here is harmless in the common case: the file is gone and
+            # both redo logs are empty, so the reload it would trigger just
+            # re-reads an absent file into the empty client we already hold.
+            # Report it, and never let it misclassify the durable deletion as
+            # failed.
+            try:
+                self.storage_updated.value = not snapshot_reset
+            except Exception as reset_error:
+                log_without_raising(
+                    logger.error,
+                    f"[{self.workspace}] Dropped {self.namespace}"
+                    f"(file:{self._client_file_name}), but failed to set the "
+                    f"writer reload flag; a redundant reload of the now-empty "
+                    f"client may follow: {reset_error}",
+                )
+            # Log inside the cancellation-protected hook: the caller may receive
+            # CancelledError after it completes instead of a success response.
+            # Routed through log_without_raising like every other log call in
+            # this hook: a broken log sink cannot unmake the removal, so it
+            # must not surface as a failed drop. See that helper for why the
+            # failure is swallowed rather than re-reported.
+            log_without_raising(
+                logger.info,
+                f"[{self.workspace}] Process {os.getpid()} drop {self.namespace}(file:{self._client_file_name})",
+            )
+
+        try:
+            async with self._storage_lock:
+                await commit_in_storage_io(_delete_file, _committed)
+        except CommitBookkeepingError as e:
+            # The file is already gone; only the post-removal bookkeeping failed.
+            # Every step of `_committed` guards itself, so nothing raises this
+            # today -- it is the standing answer for a future step that forgets
+            # to, because "error" for a completed destruction is precisely the
+            # misreport those guards exist to prevent.
+            log_without_raising(
+                logger.error,
+                f"[{self.workspace}] Dropped {self.namespace}(file:"
+                f"{self._client_file_name}), but its post-removal bookkeeping "
+                f"failed: {e.__cause__}",
+            )
+        except Exception as e:
+            log_without_raising(
+                logger.error, f"[{self.workspace}] Error dropping {self.namespace}: {e}"
+            )
+            return {"status": "error", "message": str(e)}
+
+        return {"status": "success", "message": "data dropped"}
+
+    async def finalize(self):
+        """Flush any buffered upserts and persist before shutdown (safety net).
+
+        Normally ``index_done_callback`` has already drained the pending buffer
+        and synced to disk, but two paths land here with work to do:
+
+        - **Pending upserts only** (no prior ``index_done_callback``): flush
+          and save. We reload first so a stale process picks up other writers'
+          commits before merging its pending buffer in.
+        - **Unsaved materialized changes** (``_client_dirty=True``): an
+          earlier ``index_done_callback`` flushed into ``self._client`` but
+          its save raised. Reloading is safe *and* necessary here: the redo
+          logs replay both the removals (``_unsaved_deletes``) and the rows
+          (``_unsaved_upserts``) on top of the snapshot, whereas skipping the
+          reload would write our pre-commit snapshot over another writer's
+          durable rows.
+
+        ``_client_dirty`` can be ``True`` while all four buffers are empty —
+        e.g. a materialized-but-unsaved upsert whose id is then ``delete()``-d
+        (evicting its redo entry) inside a batch that itself aborts
+        (``drop_pending_index_ops`` discards the now-queued pending delete,
+        by design; see its docstring). Nothing here names that row for replay
+        any more, but that is exactly why the reload below must still run:
+        without it, this branch would save the stale in-memory snapshot
+        straight over whatever another writer committed in the meantime.
+
+        Flush / save failures propagate (same contract as
+        ``index_done_callback``); a partially flushed buffer is preserved for
+        a future retry.
+        """
+        async with self._storage_lock:
+            if (
+                not self._pending_upserts
+                and not self._pending_deletes
+                and not self._unsaved_deletes
+                and not self._unsaved_upserts
+                and not self._client_dirty
+            ):
+                return
+            if (
+                self._pending_upserts
+                or self._pending_deletes
+                or self._unsaved_deletes
+                or self._unsaved_upserts
+                or self._client_dirty
+            ):
+                # Reload so a stale process picks up other writers' commits
+                # before the flush merges the pending buffer in and replays
+                # the redo logs on top. Unsaved materialized changes are no
+                # longer a reason to skip this: both logs replay after the
+                # reload, whereas skipping used to save our pre-commit
+                # snapshot over the other writer's durable rows. This must
+                # fire even when all four buffers are empty (see the
+                # docstring note above) — a bare ``_client_dirty`` still
+                # means self._client may be stale relative to disk.
+                if self._reload_client_from_disk_locked(for_write=True):
+                    # The reload just replaced self._client with the fresh
+                    # on-disk snapshot, so any prior materialized change is
+                    # gone with it; nothing is dirty relative to this new
+                    # baseline until the flush below applies something on
+                    # top of it.
+                    self._client_dirty = False
+                await self._flush_pending_locked()
+            if not self._client_dirty:
+                # The flush changed nothing (e.g. every queued delete targeted
+                # an id that is not in the index). Saving here would rewrite
+                # the whole file and flag every other process for a full
+                # reload for no reason.
+                return
+
+            async def _committed() -> None:
+                await set_all_update_flags(self.namespace, workspace=self.workspace)
+                self.storage_updated.value = False
+                # Retired only PAST the publication, never before it. The rows
+                # are durable either way, but a publication that failed leaves
+                # an unnotified peer holding an older whole-file snapshot, and
+                # that peer can become the next writer and save it over these
+                # rows. Keeping the redo logs makes that recoverable: this
+                # process's next flush reloads the foreign snapshot and replays
+                # them on top (the redo-log path), so the rows
+                # come back instead of being lost silently. Retiring them first
+                # threw away the only copy. Replay is idempotent -- an
+                # unchanged file matches by fingerprint and writes nothing, and
+                # a genuinely newer row under the same id supersedes ours.
+                self._unsaved_deletes.clear()  # the removals are durable now
+                self._unsaved_upserts.clear()  # the rows are durable now
+                self._client_dirty = False
+
+            await self._save_to_disk_locked(_committed)

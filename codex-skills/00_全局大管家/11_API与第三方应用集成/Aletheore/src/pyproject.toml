@@ -1,0 +1,149 @@
+[project]
+name = "aletheore"
+version = "0.9.26"
+description = "Evidence-grounded repository audit CLI: deterministic scanner, MCP server, live dashboard, and a GitHub Action that posts PR diffs."
+readme = "README.md"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Arihant Kaul", email = "arihantkaul@outlook.com" }]
+# Upper bound is the next Python after the newest one CI runs (3.14). It used to be
+# <3.14 because tree_sitter's Query/QueryCursor (used only by aletheore_ast_pattern)
+# can segfault once enough real files accumulate in one process. That crash is
+# probabilistic and not specific to 3.14 (it was reproduced on 3.12 against Django's
+# tree), so the real fix was isolation, not a version cap: ast_pattern.py runs each
+# batch of files in its own worker process, and a crash there only truncates the
+# result. Re-verified on Python 3.14.7 with tree-sitter 0.26.0: four full traversals
+# of ~7,200 files, a real `aletheore scan`, and the whole src test suite, all clean.
+# See src/aletheore/ast_pattern.py's module docstring for the full history.
+requires-python = ">=3.11,<3.15"
+keywords = ["code-review", "static-analysis", "secrets-detection", "dependency-vulnerabilities", "mcp-server"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "tree-sitter>=0.25,<0.27",
+    "tree-sitter-python>=0.25,<0.26",
+    "tree-sitter-javascript>=0.25,<0.26",
+    "tree-sitter-typescript>=0.23,<0.24",
+    "tree-sitter-go>=0.25,<0.26",
+    "tree-sitter-rust>=0.24,<0.25",
+    "tree-sitter-java>=0.23,<0.24",
+    "tree-sitter-kotlin>=1.1,<1.2",
+    "tree-sitter-ruby>=0.23,<0.24",
+    "tree-sitter-php>=0.24,<0.25",
+    "tree-sitter-c>=0.24,<0.25",
+    "tree-sitter-cpp>=0.23,<0.24",
+    "tree-sitter-c-sharp>=0.23,<0.24",
+    "tree-sitter-swift>=0.7,<0.8",
+    "anthropic>=0.40,<2.0",
+    "certifi>=2024.0.0",
+    "httpx>=0.28.1,<1.0",
+    "lancedb>=0.15,<1.0",
+    "networkx>=3.0,<4.0",
+    # 2.0 renamed the server module: mcp.server.fastmcp.FastMCP became
+    # mcp.server.mcpserver.MCPServer, which is what aletheore/mcp_server.py
+    # imports. The old >=1.23 floor claimed to support the 1.x layout and
+    # never could - CI only passed because it always resolved to the latest
+    # release, while any environment holding an mcp 1.x pin got an
+    # ImportError at import time.
+    "mcp>=2.0,<3.0",
+    "openai>=2.0,<4.0",
+    "python-toon>=0.1.3,<0.3",
+    "pyyaml>=6.0,<7.0",
+    "typer>=0.24,<0.28",
+    # click only ever arrives transitively via typer, but pinned explicitly
+    # here because 8.5.0 has a real, verified regression: typer.Argument's
+    # own help= text (e.g. the query command's `kind` argument) stops
+    # rendering in --help output entirely, confirmed by bisecting a minimal
+    # typer app across versions - 8.4.2, 8.4.0, and 8.3.3 all render it
+    # correctly, only 8.5.0 doesn't. Real user-facing regression, not just
+    # a test artifact: anyone running `aletheore query --help` with an
+    # unpinned install got argument descriptions silently dropped.
+    "click<8.6.0",
+    "sentry-sdk>=2.18.0,<3.0",
+    # `aletheore watch` only. OS-level file events (FSEvents on macOS,
+    # inotify on Linux) rather than polling: measured on this repository,
+    # walking and stat-ing the tree costs 841 ms for 644 files, so a
+    # two-second poll would burn ~40% of a core continuously on a laptop
+    # already running an editor and a compiler.
+    "watchdog>=4.0,<7.0",
+    "rich>=13.0",
+    "tomli-w>=1.0,<2.0",
+    # Real client-side token counting for hosted-embedding batching (see
+    # search_index.py's HOSTED_EMBED_MAX_CHARS history) - a Rust-backed
+    # WordPiece tokenizer, not a network call: the matching tokenizer.json
+    # for jina-embeddings-v2-base-code ships as package data instead of
+    # being fetched from HuggingFace Hub at runtime, so indexing never
+    # gains a new network dependency.
+    "tokenizers>=0.20,<0.24",
+    # Replaces schema_map.py's hand-written Postgres DDL tokenizer, which
+    # silently dropped every table-level constraint except FOREIGN KEY - a
+    # composite PRIMARY KEY (the common shape for every join/junction
+    # table) came back with no column marked primary_key at all, with no
+    # unsupported entry to say why. sqlglot is MIT-licensed, has zero
+    # transitive dependencies of its own (a pure-Python wheel, not a
+    # compiled grammar needing per-platform wheels), and its AST cleanly
+    # discriminates every CREATE/ALTER/DROP action this module replays -
+    # confirmed directly against the composite-PK repro plus every ALTER
+    # TABLE form (ADD/DROP/RENAME COLUMN, RENAME TO, ADD/DROP CONSTRAINT)
+    # before adopting it. Malformed SQL never raises - a statement sqlglot
+    # can't parse falls back to a generic Command node, isolated to that
+    # one statement, not the whole file.
+    "sqlglot>=30.0,<31.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-cov>=5.0", "pytest-timeout>=2.3"]
+
+[project.urls]
+Homepage = "https://github.com/Aletheore/Aletheore"
+Repository = "https://github.com/Aletheore/Aletheore"
+Issues = "https://github.com/Aletheore/Aletheore/issues"
+
+[project.scripts]
+aletheore = "aletheore.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["aletheore*"]
+
+[tool.setuptools.package-data]
+# Every non-Python file the package reads at runtime must be listed here, or it is
+# silently left out of the wheel (tests/test_package_data.py checks this).
+aletheore = [
+    "static/*.png",
+    "manual/*.md",
+    "data/*.json",
+    "static_analysis/semgrep_rules/*.yaml",
+    "static_analysis/joern_queries/*.sc",
+]
+
+[tool.pytest.ini_options]
+addopts = ["-p", "no:randomly"]
+# Real incident: PR #792's pytest-windows job silently ate its entire 30-minute
+# job timeout with zero diagnostic output - pytest's own progress showed 44% and
+# then nothing until the job was killed, so the failure carried no information
+# about which test was actually stuck. This makes any single stuck test fail
+# fast (120s - generous next to every real test's sub-second runtime, confirmed
+# directly: no test in this suite legitimately sleeps or waits anywhere close to
+# that) with a named traceback instead of silently consuming the whole CI job.
+# "thread" method, not the default "signal": signal-based timeouts don't work
+# inside a test that itself uses subprocesses or multiprocessing (this suite has
+# both - ProcessPoolExecutor in test_graph_parallel.py, real git subprocess
+# calls in test_secrets.py/test_evidence_resolution.py), and signal-based
+# timeouts aren't available on Windows at all, which is exactly the platform
+# this exists to diagnose.
+timeout = 120
+timeout_method = "thread"

@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-24",
+  "package": {
+    "name": "@martinloop/mcp",
+    "version": "0.5.6",
+    "install": "npx -y @martinloop/mcp@latest"
+  },
+  "live": {
+    "officialMcpRegistry": {
+      "status": "live",
+      "name": "io.github.Keesan12/martin-loop"
+    },
+    "claudeMarketplace": {
+      "status": "live_in_repo",
+      "marketplace": "Keesan12/martin-loop",
+      "plugin": "martinloop",
+      "note": "Root .claude-plugin/marketplace.json points to ./plugins/martinloop, enabling direct Claude Code marketplace installation from the public GitHub repository."
+    },
+    "smithery": {
+      "status": "live",
+      "server": "vamahalin/martin-loop",
+      "serverPage": "https://smithery.ai/servers/vamahalin/martin-loop",
+      "mcpUrl": "https://martin-loop--vamahalin.run.tools",
+      "publishedReleaseId": "b340e4e6-5126-4710-8dd8-941ff9981d21",
+      "publishedBundleVersion": "0.5.3"
+    },
+    "glama": {
+      "status": "live",
+      "serverPage": "https://glama.ai/mcp/servers/Keesan12/martin-loop",
+      "evaluation": {
+        "serverCoherence": "A",
+        "toolDefinitionQuality": "B",
+        "maintenance": "A",
+        "permissiveLicense": "A",
+        "profileCompletion": "100%"
+      }
+    },
+    "mcpserversOrg": {
+      "status": "live",
+      "serverPage": "https://mcpservers.org/servers/keesan12/martin-loop",
+      "note": "Live mirror listing verified 2026-08-24; mirror copy may lag the canonical repository metadata."
+    },
+    "awesomeAiDevtools": {
+      "status": "live",
+      "repository": "jamesmurdza/awesome-ai-devtools",
+      "url": "https://github.com/jamesmurdza/awesome-ai-devtools"
+    },
+    "awesomeAgentOrchestrators": {
+      "status": "live",
+      "repository": "andyrewlee/awesome-agent-orchestrators",
+      "url": "https://github.com/andyrewlee/awesome-agent-orchestrators"
+    },
+    "awesomeAiAgents2026": {
+      "status": "live",
+      "repository": "ARUNAGIRINATHAN-K/awesome-ai-agents-2026",
+      "url": "https://github.com/ARUNAGIRINATHAN-K/awesome-ai-agents-2026"
+    },
+    "awesomeAiDevTools": {
+      "status": "live",
+      "repository": "PierrunoYT/awesome-ai-dev-tools",
+      "url": "https://github.com/PierrunoYT/awesome-ai-dev-tools"
+    },
+    "awesomeMcpServersDhanushNehru": {
+      "status": "live",
+      "repository": "DhanushNehru/awesome-mcp-servers",
+      "url": "https://github.com/DhanushNehru/awesome-mcp-servers"
+    },
+    "awesomeAiTools": {
+      "status": "live",
+      "repository": "pingan8787/awesome-ai-tools",
+      "url": "https://github.com/pingan8787/awesome-ai-tools"
+    }
+  },
+  "pending": {
+    "awesomeMcpServers": {
+      "status": "open_mergeable",
+      "url": "https://github.com/punkpeye/awesome-mcp-servers/pull/10851",
+      "note": "Maintainer's Glama-score condition is satisfied; latest follow-up posted 2026-08-24; awaiting maintainer merge."
+    },
+    "mcpSo": {
+      "status": "open",
+      "url": "https://github.com/chatmcp/mcpso/issues/3290",
+      "note": "Follow-up posted 2026-08-24 with package 0.5.6 and live registry/Smithery/Glama proof; no maintainer response yet."
+    },
+    "clineMarketplace": {
+      "status": "open",
+      "url": "https://github.com/cline/mcp-marketplace/issues/1627"
+    },
+    "acuvity": {
+      "status": "open",
+      "url": "https://github.com/acuvity/mcp-servers-registry/issues/11"
+    },
+    "luciferForge": {
+      "status": "open",
+      "url": "https://github.com/LuciferForge/mcp-directory/issues/7"
+    },
+    "awesomeAgentHarness": {
+      "status": "open_mergeable",
+      "url": "https://github.com/AutoJunjie/awesome-agent-harness/pull/28"
+    },
+    "awesomeCodeAgents": {
+      "status": "open_mergeable",
+      "url": "https://github.com/sorrycc/awesome-code-agents/pull/33"
+    },
+    "awesomeRalph": {
+      "status": "open_mergeable",
+      "url": "https://github.com/snwfdhmp/awesome-ralph/pull/26"
+    },
+    "awesomeAiCodingTools": {
+      "status": "open_mergeable",
+      "url": "https://github.com/ai-for-developers/awesome-ai-coding-tools/pull/387"
+    },
+    "mcpCentral": {
+      "status": "publication_automation_added",
+      "url": "https://mcpcentral.io",
+      "note": "Trusted MCP publishing workflow targets MCPCentral with GitHub OIDC; current 0.5.6 publication is not marked live until registry verification succeeds."
+    },
+    "vsCodeMcpGallery": {
+      "status": "downstream_pending_verification",
+      "note": "VS Code's built-in MCP marketplace is powered by the GitHub MCP Registry. MartinLoop is in the official registry, but its gallery visibility has not yet been independently verified."
+    },
+    "mcpIndex": {
+      "status": "downstream_pending_verification",
+      "url": "https://themcpindex.com/",
+      "note": "MCP Index states that official-registry servers sync automatically within a day; MartinLoop has not yet been independently verified in its search results."
+    },
+    "pulseMcp": {
+      "status": "submitted_by_email",
+      "url": "https://www.pulsemcp.com/servers",
+      "note": "Corporate-email listing/ingestion request sent from keesan@martinloop.com on 2026-08-24."
+    },
+    "mcpDirectory": {
+      "status": "submitted_by_email",
+      "url": "https://mcp.directory",
+      "note": "Corporate-email listing/claim request sent from keesan@martinloop.com on 2026-08-24."
+    },
+    "mcpServerFinder": {
+      "status": "submitted_by_email",
+      "url": "https://www.mcpserverfinder.com/servers",
+      "note": "Corporate-email listing request sent from keesan@martinloop.com on 2026-08-24."
+    },
+    "claudeRulesDirectory": {
+      "status": "submitted_by_email",
+      "note": "Free community listing request sent from keesan@martinloop.com on 2026-08-24."
+    },
+    "mcpServerHub": {
+      "status": "submitted_by_email",
+      "note": "Listing request sent from keesan@martinloop.com on 2026-08-24."
+    },
+    "skillsAndServers": {
+      "status": "submitted_by_email",
+      "url": "https://skillsandservers.com/",
+      "note": "Editorial submission sent from keesan@martinloop.com on 2026-08-24."
+    }
+  },
+  "manualTargets": {
+    "mcpMux": {
+      "status": "needs_fork_and_signed_pr",
+      "url": "https://github.com/mcpmux/mcp-servers"
+    },
+    "chatMcpMarket": {
+      "status": "needs_fork_and_pr",
+      "url": "https://github.com/chatmcpclient/mcp_server_market"
+    },
+    "mcpFind": {
+      "status": "needs_fork_and_pr",
+      "url": "https://github.com/MCPFind/mcp-find"
+    },
+    "composioAwesomeClaudePlugins": {
+      "status": "needs_fork_and_pr",
+      "url": "https://github.com/composio-community/awesome-claude-plugins"
+    },
+    "awesomeClaudeCode": {
+      "status": "human_web_form_required",
+      "url": "https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml",
+      "note": "Repository rules explicitly require a human-submitted web UI form and forbid CLI/API submissions."
+    },
+    "dockerMcpRegistry": {
+      "status": "needs_dockerfile_and_validated_pr",
+      "url": "https://github.com/docker/mcp-registry"
+    },
+    "findMcp": {
+      "status": "form_required",
+      "url": "https://findmcp.app/submit"
+    },
+    "mcpHub": {
+      "status": "form_required",
+      "url": "https://www.aimcp.info/en/submit"
+    },
+    "agenticWatch": {
+      "status": "form_required",
+      "url": "https://agenticwatch.dev/"
+    }
+  }
+}

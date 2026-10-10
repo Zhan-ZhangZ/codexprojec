@@ -1,0 +1,1002 @@
+"""HubSpot CRM v3 read surface (+ v4 associations), served under ``/hubspot``.
+
+The API is **polymorphic over ``{objectType}``** — one set of routes serves contacts, companies,
+deals, notes, and any custom object — so this router dispatches on a path variable rather than
+having a route per type, and the store keeps one table with the typed fields in a ``properties``
+JSON column (see ``backlot/store.py``).
+
+Paths and shapes follow what the official ``hubspot-api-client`` actually calls: **v3 for objects,
+v4 for associations**. HubSpot also publishes a newer date-versioned scheme
+(``/crm/objects/2026-03/…``); the SDK does not use it, so neither does Backlot.
+
+Read-only: ``search`` and ``batch/read`` are reads issued over POST and are served; create/update/
+delete are not.
+
+One contract deserves calling out because getting it wrong hangs clients rather than erroring: the
+official client's ``fetch_all`` loops until a page has **no** ``paging.next``, so the last page must
+omit it. :func:`_page` is the single place that decides this.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from functools import lru_cache
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
+
+from backlot import auth, store, synth
+from backlot.acl import Caller
+from backlot.openapi import qp
+from backlot.routers import json_body
+
+router = APIRouter(prefix="/hubspot", tags=["hubspot"])
+
+# `hubspot/utils/objects.py` in the official client pages at 100 (PAGE_MAX_SIZE); a larger `limit`
+# is clamped rather than rejected, matching how HubSpot itself caps a page.
+_PAGE_MAX = 100
+# The associations endpoint pages at 500 per request, like the vendor's.
+_ASSOC_PAGE_MAX = 500
+
+# Object types whose archived listing api.hubapi.com refused with a 400, measured 2026-10-08,
+# mapped to the objectTypeId and name that 400's message gives. The standard types the key had no
+# scope for, and custom objects (the key cannot read their schemas), were not measured and serve
+# the archived view here.
+_NO_ARCHIVED_PAGING = {
+    "meetings": "0-47 (MEETING_EVENT)",
+    "communications": "0-18 (COMMUNICATION)",
+    "deal_splits": "0-72 (DEAL_SPLIT)",
+    "quote_templates": "0-64 (QUOTE_TEMPLATE)",
+}
+
+
+# --- OpenAPI enrichment --------------------------------------------------
+# Query params are documented with openapi_extra (merges with path params, no signature change);
+# POST bodies are read via _json_body, so they are declared as a requestBody the same way.
+
+
+class _HLoose(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class HubspotObject(_HLoose):
+    id: str
+    properties: dict = {}
+
+
+class HubspotPage(_HLoose):
+    results: list[dict] = []
+
+
+# Only parameters Backlot actually honours are advertised: `propertiesWithHistory` and inline
+# `associations` expansion are not implemented, and declaring them would have clients ask for data
+# that silently never arrives (worse for `propertiesWithHistory`, which also makes the official
+# client drop its page size to 50).
+_P_LIST = [qp("limit", "integer"), qp("after"), qp("properties"), qp("archived", "boolean")]
+_P_READ = [qp("properties"), qp("archived", "boolean")]
+_P_ASSOC = [qp("limit", "integer"), qp("after")]
+
+_FILTER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "propertyName": {"type": "string"},
+        "operator": {"type": "string"},
+        "value": {"type": "string"},
+        "values": {"type": "array", "items": {"type": "string"}},
+        "highValue": {"type": "string"},
+    },
+}
+_B_SEARCH = {
+    "requestBody": {
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "filterGroups": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "filters": {"type": "array", "items": _FILTER_SCHEMA}
+                                },
+                            },
+                        },
+                        "sorts": {"type": "array", "items": {"type": "object"}},
+                        "query": {"type": "string"},
+                        "properties": {"type": "array", "items": {"type": "string"}},
+                        "limit": {"type": "integer"},
+                        "after": {"type": "string"},
+                    },
+                }
+            }
+        }
+    }
+}
+_B_BATCH = {
+    "requestBody": {
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "inputs": {
+                            "type": "array",
+                            "items": {"type": "object", "properties": {"id": {"type": "string"}}},
+                        },
+                        "properties": {"type": "array", "items": {"type": "string"}},
+                        "idProperty": {"type": "string"},
+                    },
+                }
+            }
+        }
+    }
+}
+
+
+# --------------------------------------------------------------------------- helpers
+
+
+def _error(status: int, message: str, category: str = "VALIDATION_ERROR") -> JSONResponse:
+    return JSONResponse(
+        status_code=status, content={"status": "error", "message": message, "category": category}
+    )
+
+
+def _existing_id(request: Request, record_id: str) -> str | None:
+    """``record_id`` if a record holds it, else None -- a PRIMARY KEY lookup (see
+    store.hubspot_by_id). All it does is confirm a row holds that id.
+
+    Unscoped by ACL on purpose: used only by _resolve_cursor, which needs the id to drive a
+    further, separately ACL-scoped query (list_hubspot_objects/hubspot_associations,
+    keyset-paginated past it) rather than to serve this row itself.
+
+    ``columns="id"``: this runs on every paged listing/association request's ``after``, and the row
+    it would otherwise pull in full is never used for anything but its existence."""
+    row = store.hubspot_by_id(auth.conn(request), record_id, columns="id")
+    return row["id"] if row is not None else None
+
+
+def _clamp(raw, default: int, cap: int) -> int:
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, cap))
+
+
+def _flag(raw) -> bool:
+    """`archived` is true when its value is `true` in any letter case, with nothing trimmed.
+    Measured against api.hubapi.com (2026-10-01, 2026-10-07, 2026-10-08): `true`, `TRUE` and `True`
+    serve the archived view (a 400 on the types in `_NO_ARCHIVED_PAGING`); `1`, `yes`, `abc`, an
+    empty value, and `true` with whitespace before or after it (a space, tab, newline, carriage
+    return or no-break space) serve the active one. The Python client `hubspot-api-client` 12.0.0
+    sends `True`/`False`, and the Node client `@hubspot/api-client` 14.0.1 sends `true`/`false`."""
+    return str(raw or "").lower() == "true"
+
+
+def _first_query(qp, name: str):
+    """The first value the query carries for ``name``, or ``None`` when it carries none.
+    Real reads a repeated `archived` on an object listing from its first value, where Starlette's
+    `QueryParams.get` returns the last. Measured against api.hubapi.com (2026-10-07, 2026-10-08):
+    `archived=true&archived=false` answers like `archived=true`, and `archived=false&archived=true`,
+    `archived=&archived=true` and `archived=yes&archived=true` like `archived=false`."""
+    values = qp.getlist(name)
+    return values[0] if values else None
+
+
+def _props(row) -> dict:
+    return store.jcol(row, "properties", {}) or {}
+
+
+def _record(row, keep: list[str] | None = None) -> dict:
+    """One CRM record in HubSpot's object shape. ``keep`` mirrors the ``properties`` query param:
+    a projection, not a different record."""
+    props = _props(row)
+    if keep:
+        props = {k: v for k, v in props.items() if k in keep}
+    out = {
+        # The stored column (assigned at import, see backlot.importer.byo), not a re-hash of
+        # HubSpot's id space is probed on a collision, so the row's own stored value
+        # with the value this very row was actually assigned and is looked up by.
+        "id": row["id"],
+        "properties": props,
+        "createdAt": synth.rfc3339_millis(row["created_ts"]),
+        "updatedAt": synth.rfc3339_millis(row["updated_ts"] or row["created_ts"]),
+        "archived": bool(row["archived"]),
+    }
+    return out
+
+
+def _page(rows, limit: int, keep: list[str] | None) -> dict:
+    """A paged listing. ``rows`` is limit+1 rows when a further page exists — the extra row is the
+    only evidence needed, and it is dropped from the response. ``paging.next`` is emitted ONLY
+    when it exists: the official client's fetch_all treats its absence as "done", so a server that
+    always emits it makes a real client loop forever."""
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    out: dict = {"results": [_record(r, keep) for r in rows]}
+    if has_more:
+        after = rows[-1]["id"]
+        out["paging"] = {"next": {"after": after, "link": f"?after={after}"}}
+    return out
+
+
+def _keep(raw) -> list[str] | None:
+    """`properties` arrives comma-separated on GET and as a list on POST."""
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [str(p) for p in raw]
+    return [p for p in str(raw).split(",") if p]
+
+
+# HubSpot's standard CRM objects exist in every portal whether or not any records do, so an empty
+# `deals` is an empty listing rather than an unknown type. Custom objects exist only where defined,
+# which for Backlot means present in the corpus.
+_STANDARD_OBJECT_TYPES = frozenset(
+    {
+        "contacts",
+        "companies",
+        "deals",
+        "tickets",
+        "line_items",
+        "products",
+        "quotes",
+        "notes",
+        "emails",
+        "meetings",
+        "calls",
+        "tasks",
+        "feedback_submissions",
+        # Standard objects beyond the CRM's original set -- commerce, sales and marketing types a
+        # portal answers for whether or not it holds any records. Each was asked of
+        # api.hubapi.com on 2026-08-24 with a scope-less key and answered 403 MISSING_SCOPES,
+        # the same as `deals`; `audit_logs`, `objects` and `tickets_pipelines` answered 400 and are
+        # therefore absent. This matters to a corpus that holds none of them: a type HubSpot
+        # resolves has to answer with an empty page, and answering 400 told the caller that a real
+        # type does not exist.
+        "orders",
+        "carts",
+        "subscriptions",
+        "commerce_payments",
+        "payments",
+        "invoices",
+        "quote_templates",
+        "discounts",
+        "fees",
+        "taxes",
+        "deal_splits",
+        "leads",
+        "appointments",
+        "courses",
+        "listings",
+        "services",
+        "users",
+        "goal_targets",
+        "marketing_events",
+        "campaigns",
+        "communications",
+        "postal_mail",
+        "partner_clients",
+    }
+)
+
+
+# A standard object answers to its singular as well as its plural: HubSpot resolves the path
+# segment through its object-type registry, so `/crm/v3/objects/deal` reaches the same records as
+# `/crm/v3/objects/deals`. Measured against api.hubapi.com on 2026-08-21: with a key that
+# authenticates but holds no CRM scopes, the type is resolved BEFORE the scope check, so a
+# recognized type — either spelling, and an objectTypeId like `0-3` — answers 403 MISSING_SCOPES
+# while an unrecognized word answers 400 `{"status": "error", "message": "Unable to infer object
+# type from: nonsuch"}`. Spelled out rather than pluralized by rule: `companies` is not `company`
+# plus an `s`, and a wrong guess would invent a type no portal has.
+_SINGULAR = {
+    "contact": "contacts",
+    "company": "companies",
+    "deal": "deals",
+    "ticket": "tickets",
+    "line_item": "line_items",
+    "product": "products",
+    "quote": "quotes",
+    "note": "notes",
+    "email": "emails",
+    "meeting": "meetings",
+    "call": "calls",
+    "task": "tasks",
+    "feedback_submission": "feedback_submissions",
+    # Measured the same way and on the same day as the plurals above. Only these singulars
+    # resolve: `appointment`, `course`, `listing` and `payment` answer 400 while their plurals
+    # answer 403, so the singular is not a spelling every standard type answers to.
+    "order": "orders",
+    "cart": "carts",
+    "subscription": "subscriptions",
+    "commerce_payment": "commerce_payments",
+    "invoice": "invoices",
+    "quote_template": "quote_templates",
+    "discount": "discounts",
+    "fee": "fees",
+    "tax": "taxes",
+    "deal_split": "deal_splits",
+    "lead": "leads",
+    "service": "services",
+    "user": "users",
+    "goal_target": "goal_targets",
+    "marketing_event": "marketing_events",
+    "campaign": "campaigns",
+    "communication": "communications",
+    "partner_client": "partner_clients",
+}
+_PLURAL = {plural: singular for singular, plural in _SINGULAR.items()}
+# The objectTypeId a standard object ALSO answers to: `/crm/v3/objects/0-3` is deals. These are the
+# thirteen pairings HubSpot publishes, each checked against api.hubapi.com on 2026-08-23 — every
+# one answers 403 MISSING_SCOPES exactly as its name does, while `0-6`, `0-9`, `0-12`, `0-41` and
+# `2-12345` answer 400 `Invalid object or event type id: <id>`, which is the message below.
+#
+# `0-<n>` is a much wider space than these thirteen: swept on 2026-08-24, every id from `0-1` to
+# `0-165` resolves apart from eleven gaps, and nothing above `0-165` does -- so most of the space is
+# internal types with no published name. Only the pairings above are mapped, because a name
+# Backlot cannot verify is a name it would be inventing; an unmapped id stays a 400 rather than
+# resolving to a guess.
+#
+# A custom object is a `2-<n>`, and its records are addressed here by the name the corpus gave it.
+# HubSpot's own alias for one is `p_<name>` (or the fully qualified `p<portalId>_<name>`), but both
+# forms answer 400 `Unable to infer object type from: <name>` on a portal that does not hold that
+# custom object, so this key cannot show what an EXISTING custom object answers to. Reaching one by
+# `p_<name>` is therefore unimplemented rather than decided against.
+_TYPE_IDS = {
+    "0-1": "contacts",
+    "0-2": "companies",
+    "0-3": "deals",
+    "0-5": "tickets",
+    "0-7": "products",
+    "0-8": "line_items",
+    "0-14": "quotes",
+    "0-19": "feedback_submissions",
+    "0-27": "tasks",
+    "0-46": "notes",
+    "0-47": "meetings",
+    "0-48": "calls",
+    "0-49": "emails",
+}
+# The shape of an objectTypeId, for telling "an id I do not know" apart from "not a type at all":
+# HubSpot answers those two with different messages.
+_TYPE_ID = re.compile(r"\d+-\d+")
+
+# Every spelling of a standard object -> the one Backlot calls canonical (the API's plural).
+_CANONICAL = {name: name for name in _STANDARD_OBJECT_TYPES}
+_CANONICAL.update(_SINGULAR)
+_CANONICAL.update(_TYPE_IDS)
+
+
+def _aliases(object_type: str) -> list[str]:
+    """Every spelling of this object type — plural, singular and objectTypeId — with the one the
+    caller asked for first, so a corpus that states two of them keeps the caller's own.
+
+    A type outside the standard set is its own only spelling: a custom object is whatever the corpus
+    called it."""
+    canonical = _CANONICAL.get(object_type)
+    if canonical is None:
+        return [object_type]
+    rest = [spelling for spelling in _CANONICAL if _CANONICAL[spelling] == canonical]
+    return [object_type] + [spelling for spelling in rest if spelling != object_type]
+
+
+def _resolve_type(request: Request, object_type: str) -> list[str] | None:
+    """Every stored spelling this object type's records may sit under, or None if HubSpot would not
+    recognize the type at all.
+
+    A corpus states an object type in whichever spelling it likes — ERB writes `notes`, a converted
+    dataset commonly writes `note` — and the records have to be reachable under the vendor's own
+    path either way. ALL the spellings, not the first one that exists: a portal has one `deals`
+    type, so a record `/objects/deal/{id}` serves cannot be one `/objects/deal` never lists, which
+    is what resolving to a single container did to a corpus that stated both.
+
+    Independent of the caller's ACL and of whether any record is visible: a standard type whose
+    every record the caller cannot read still exists, and still returns an empty page rather than
+    an error."""
+    conn = auth.conn(request)
+    names = _aliases(object_type)
+    if any(store.get_container(conn, "hubspot", name) is not None for name in names):
+        return names
+    canonical = _CANONICAL.get(object_type)
+    return [canonical] if canonical else None
+
+
+def _unknown_type(object_type: str) -> JSONResponse:
+    """The 400 HubSpot answers a path segment it cannot resolve to a type with — measured, envelope
+    included: `status` and `message`, and no `category`."""
+    message = (
+        f"Invalid object or event type id: {object_type}"
+        if _TYPE_ID.fullmatch(object_type)
+        else f"Unable to infer object type from: {object_type}"
+    )
+    return JSONResponse(status_code=400, content={"status": "error", "message": message})
+
+
+def _resolve_cursor(request: Request, after: str | None):
+    """(record id, error) for an ``after`` cursor. A cursor that names no record is an error rather
+    than a silent restart — a client resuming with a stale cursor would otherwise re-read the whole
+    object type as though it were the first page.
+
+    An existence oracle, called out rather than closed: `_existing_id` is unscoped by ACL, so an
+    `after` naming a record the caller cannot see resolves (400 only for an id that names NOTHING),
+    while the same id as a `GET .../objects/{type}/{id}` path segment is 404 either way. So a caller
+    who knows an id is restricted can still learn it EXISTS by passing it as `after` and getting a
+    200 instead of a 400. Closing it is a deliberate change of its own — give `_resolve_cursor` a
+    `visible_ids` narrowing, like every other reader here."""
+    if not after:
+        return None, None
+    rid = _existing_id(request, after)
+    if rid is None:
+        return None, _error(400, f"Invalid 'after' cursor: {after}")
+    return rid, None
+
+
+# --------------------------------------------------------------------------- search filters
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _values_of(prop):
+    """A property may hold a list (our custom CRM properties do); a filter matches if ANY element
+    matches, which is how HubSpot treats multi-value properties."""
+    if isinstance(prop, list):
+        return [str(x) for x in prop]
+    return [str(prop)]
+
+
+# A token is a run of alphanumerics; `_` separates, so "audit_logging" holds the token "audit".
+_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+# Same class as a lookaround pair, so a needle matches only on token boundaries — equivalent to
+# testing membership in the haystack's token set, without having to build that set.
+_TOK = r"[^\W_]"
+# A needle token may carry `*`, which real reads as any run of token characters, the empty run
+# included (measured 2026-10-03 and 2026-10-05 on a contact named `Maria`: `Mar*`, `*ari*`,
+# `*ria`, `Maria*`, `M*a` and `M**a` find it, `Mar` and `?aria` do not).
+_NEEDLE_RE = re.compile(r"(?:[^\W_]|\*)+", re.UNICODE)
+
+
+def _tokens(s: str) -> set[str]:
+    return set(_TOKEN_RE.findall(s.lower()))
+
+
+def _wildcard_match(needle: str, token: str) -> bool:
+    """Whether `token` matches `needle`, where `*` stands for any run of characters.
+
+    Greedy with a single backtrack point, so it is linear in practice and O(len(needle) *
+    len(token)) at worst. A regex built from the needle backtracks polynomially on a needle with
+    many `*`, and the needle comes from the request."""
+    n = t = 0
+    star = mark = -1
+    while t < len(token):
+        if n < len(needle) and needle[n] == "*":
+            star, mark = n, t
+            n += 1
+        elif n < len(needle) and needle[n] == token[t]:
+            n += 1
+            t += 1
+        elif star != -1:
+            mark += 1
+            n, t = star + 1, mark
+        else:
+            return False
+    return needle[n:].strip("*") == ""
+
+
+def _needle_matcher(needle: str):
+    if "*" not in needle:
+        return re.compile(f"(?<!{_TOK}){re.escape(needle)}(?!{_TOK})").search
+    return lambda hay: any(_wildcard_match(needle, t) for t in _TOKEN_RE.findall(hay))
+
+
+@lru_cache(maxsize=512)
+def _token_patterns(target: str) -> tuple:
+    """One matcher per token in the needle, each called with the lowercased haystack.
+
+    Scanning a large object type called this once per row with the same needle, and tokenizing the
+    whole haystack to test a couple of needle tokens: both are wasted. Compiling per needle (cached)
+    and searching the haystack lets a miss bail on the first absent token instead of building a full
+    token set for every row. A needle token with `*` does tokenize the haystack, to match token by
+    token. A token that is only `*` matches any token, so it asks only that the value has one:
+    `*` alone found the two contacts with a `jobtitle` and none of the three without (measured
+    2026-10-05)."""
+    needles = set(_NEEDLE_RE.findall(target.lower()))
+    return tuple(_needle_matcher(t) for t in needles)
+
+
+# The thirteen filter operators, in the order real's refusal lists them (the same order on
+# 2026-09-30 and 2026-10-06).
+_OPERATORS = (
+    "IN",
+    "NOT_HAS_PROPERTY",
+    "LT",
+    "EQ",
+    "GT",
+    "NOT_IN",
+    "GTE",
+    "CONTAINS_TOKEN",
+    "HAS_PROPERTY",
+    "LTE",
+    "NOT_CONTAINS_TOKEN",
+    "BETWEEN",
+    "NEQ",
+)
+# Real reads "0" to "12" as a position in its own list of the operators: "6" is refused as BETWEEN
+# without a `highValue`, while "13" and "01" are refused as no operator at all (measured
+# 2026-10-06). That list's order is not modelled, so such a filter is served and matches nothing.
+_OPERATOR_INDEXES = frozenset(str(i) for i in range(len(_OPERATORS)))
+# What Java's `String.trim` strips from both ends, which real does to an operator before reading
+# it: `EQ` after a space, a tab or a U+0001 still reads as `EQ`, after a U+00A0 or before a U+2003
+# it does not (measured 2026-10-06).
+_TRIM = "".join(map(chr, range(0x21)))
+_WS = re.compile(r"[ \t\n\r]*")
+
+
+def _operator(f: dict):
+    return (f.get("operator") or "EQ").strip(_TRIM)
+
+
+def _token_at(raw: bytes, path: tuple) -> tuple[int, int]:
+    """Where the value at `path` starts in the JSON body `raw`, as real reports a position: a
+    1-based line and a 1-based column counted in UTF-8 bytes, so `ééé` before the value moves it
+    six columns and a CRLF line ending none (measured 2026-10-06). A key the body repeats resolves
+    to its last occurrence, the one `json.loads` keeps."""
+    text = raw.decode(json.detect_encoding(raw), "surrogatepass")
+    decoder = json.JSONDecoder()
+    pos = _WS.match(text).end()
+    for step in path:
+        pos = _WS.match(text, pos + 1).end()
+        if isinstance(step, int):
+            for _ in range(step):
+                pos = _WS.match(text, decoder.raw_decode(text, pos)[1]).end()
+                pos = _WS.match(text, pos + 1).end()
+            continue
+        found = pos
+        while text[pos] != "}":
+            key, pos = decoder.raw_decode(text, pos)
+            pos = _WS.match(text, _WS.match(text, pos).end() + 1).end()
+            if key == step:
+                found = pos
+            pos = _WS.match(text, decoder.raw_decode(text, pos)[1]).end()
+            if text[pos] == ",":
+                pos = _WS.match(text, pos + 1).end()
+        pos = found
+    line_start = text.rfind("\n", 0, pos) + 1
+    column = len(text[line_start:pos].encode("utf-8", "surrogatepass")) + 1
+    return text.count("\n", 0, pos) + 1, column
+
+
+def _refuse_an_operator(raw: bytes, body: dict) -> JSONResponse | None:
+    """Real's 400 for the first filter, in body order, whose operator it cannot read, or None.
+
+    An operator that trims to nothing is named by its path in the body; one that trims to anything
+    but a name in `_OPERATORS` or an index into it is named by where it starts (`_token_at`). Real
+    reads the body in order and stops at the first operator of either kind, an unreadable one
+    included when the filter repeats `operator` with a readable one after it. It reads an integer
+    operator as an index too, answers a boolean, float, object or array operator with a different
+    400, and refuses a filter with no operator. This router models none of those cases."""
+    for i, group in enumerate(body.get("filterGroups") or []):
+        if not isinstance(group, dict):
+            continue
+        for j, f in enumerate(group.get("filters") or []):
+            if not isinstance(f, dict) or not isinstance(f.get("operator"), str):
+                continue
+            op = f["operator"].strip(_TRIM)
+            if op == "":
+                return _error(
+                    400,
+                    "Invalid input JSON: unable to deserialize field "
+                    f'"filterGroups[{i}].filters[{j}].operator". Invalid value: ',
+                )
+            if op not in _OPERATORS and op not in _OPERATOR_INDEXES:
+                line, column = _token_at(raw, ("filterGroups", i, "filters", j, "operator"))
+                return _error(
+                    400,
+                    f"Invalid input JSON on line {line}, column {column}: "
+                    f"Enum type must be one of: [{', '.join(_OPERATORS)}]",
+                )
+    return None
+
+
+def _match_one(prop, f: dict) -> bool:
+    op = _operator(f)
+    present = prop is not None
+    if op == "HAS_PROPERTY":
+        return present
+    if op == "NOT_HAS_PROPERTY":
+        return not present
+    if not present:
+        # Of the operators below, a record without the property matches only the three negative
+        # ones: real includes it under NEQ, NOT_IN and NOT_CONTAINS_TOKEN and leaves it out under
+        # EQ, IN, CONTAINS_TOKEN, BETWEEN, LT, LTE, GT and GTE, measured against api.hubapi.com on
+        # 2026-10-05 and 2026-10-06.
+        return op in ("NEQ", "NOT_IN", "NOT_CONTAINS_TOKEN")
+    target = f.get("value")
+    cands = _values_of(prop)
+
+    if op in ("EQ", "NEQ"):
+        hit = any(c == str(target) for c in cands)
+        return hit if op == "EQ" else not hit
+    if op in ("IN", "NOT_IN"):
+        wanted = {str(v) for v in (f.get("values") or [])}
+        hit = any(c in wanted for c in cands)
+        return hit if op == "IN" else not hit
+    if op in ("CONTAINS_TOKEN", "NOT_CONTAINS_TOKEN"):
+        pats = _token_patterns(str(target or ""))
+        hit = bool(pats) and any(all(match(c.lower()) for match in pats) for c in cands)
+        return hit if op == "CONTAINS_TOKEN" else not hit
+    if op == "BETWEEN":
+        # Numeric when all three parse as numbers, else lexicographic — the same fallback LT/GT
+        # use. Without it an ISO-8601 range returns nothing while `GT` on the same property works,
+        # which bites Backlot's own `hs_timestamp` values.
+        hi_raw = f.get("highValue")
+        lo_n, hi_n = _num(target), _num(hi_raw)
+        for c in cands:
+            c_n = _num(c)
+            if None not in (lo_n, hi_n, c_n):
+                if lo_n <= c_n <= hi_n:
+                    return True
+            elif str(target) <= c <= str(hi_raw):
+                return True
+        return False
+    if op in ("LT", "LTE", "GT", "GTE"):
+        # numeric when both sides parse as numbers, else a string comparison — HubSpot property
+        # types are not declared to Backlot, so the values decide.
+        t_num = _num(target)
+        for c in cands:
+            c_num = _num(c)
+            a, b = (c_num, t_num) if c_num is not None and t_num is not None else (c, str(target))
+            if (
+                (op == "LT" and a < b)
+                or (op == "LTE" and a <= b)
+                or (op == "GT" and a > b)
+                or (op == "GTE" and a >= b)
+            ):
+                return True
+        return False
+    return False
+
+
+def _sorted(rows, sorts):
+    """Apply `sorts` (first entry wins, as HubSpot documents). Numeric when every value on that
+    property parses as a number, else lexicographic — Backlot is not told property types."""
+    if not sorts:
+        return rows
+    spec = sorts[0] if isinstance(sorts, list) and sorts else None
+    if not isinstance(spec, dict) or not spec.get("propertyName"):
+        return rows
+    name = spec["propertyName"]
+    # Decorate once: the properties JSON is parsed per row here, and re-parsing it inside the sort
+    # key would double that over the whole match set (15k+ rows at the scale measured).
+    decorated = [(_props(r).get(name), r) for r in rows]
+    vals = [v for v, _ in decorated]
+    numeric = any(v is not None for v in vals) and all(
+        _num(v) is not None for v in vals if v is not None
+    )
+
+    def key(pair):
+        v = pair[0]
+        if v is None:  # absent sorts last in both directions
+            return (1, 0.0 if numeric else "")
+        return (0, _num(v) if numeric else str(v))
+
+    decorated.sort(key=key, reverse=str(spec.get("direction", "ASCENDING")).upper() == "DESCENDING")
+    return [r for _, r in decorated]
+
+
+def _ascii_scalar(v) -> str | None:
+    """A value usable in a substring pre-filter: stored `properties` JSON is written with
+    `json.dumps` defaults, so non-ASCII lands escaped as \\uXXXX and a raw needle would not be
+    found — which for a *necessary* condition would wrongly drop real matches."""
+    if not isinstance(v, str) or not v or not v.isascii():
+        return None
+    return v if '"' not in v and "\\" not in v else None
+
+
+def _sql_prefilter(body: dict):
+    """A SQL condition every match must satisfy, or None.
+
+    Only a single filter group qualifies: within one group the filters are AND-ed, so each one is
+    individually necessary. Across groups they are OR-ed and no single filter has to hold. Python
+    stays the authority on what actually matches — this only shrinks what Python has to look at.
+    """
+    groups = body.get("filterGroups") or []
+    if len(groups) != 1 or (body.get("query") or "").strip():
+        return None
+    frags, params = [], []
+    for f in groups[0].get("filters") or []:
+        if not isinstance(f, dict) or not f.get("propertyName"):
+            return None
+        name, op = f["propertyName"], _operator(f)
+        if not name.isascii() or not name.replace("_", "").isalnum():
+            return None  # keep the JSON path a literal we can trust
+        path = f"$.{name}"
+        if op == "HAS_PROPERTY":
+            frags.append("json_extract(properties, ?) IS NOT NULL")
+            params.append(path)
+        elif op in ("EQ", "IN", "CONTAINS_TOKEN"):
+            # The value (or every needle token) must appear somewhere in the properties text. True
+            # whether the property holds a scalar or a list, which is why this is a substring test
+            # rather than an equality one.
+            needles = [f.get("value")] if op != "IN" else list(f.get("values") or [])
+            if op == "CONTAINS_TOKEN":
+                needles = list(_tokens(str(f.get("value") or "")))
+            vals = [_ascii_scalar(v) for v in needles]
+            if not vals or any(v is None for v in vals):
+                return None
+            if op == "IN":
+                frags.append(
+                    "(" + " OR ".join(["instr(lower(properties), lower(?)) > 0"] * len(vals)) + ")"
+                )
+            else:
+                frags += ["instr(lower(properties), lower(?)) > 0"] * len(vals)
+            params += vals
+        # every other operator (NEQ/NOT_*/comparisons/BETWEEN) has no safe necessary condition here
+    return (" AND ".join(frags), params) if frags else None
+
+
+def _matches(row, body: dict) -> bool:
+    """``filterGroups`` are OR-ed; the ``filters`` inside one group are AND-ed. A free-text
+    ``query`` additionally has to hit the record's text."""
+    q = (body.get("query") or "").strip().lower()
+    if q and q not in f"{row['title']} {row['content']}".lower():
+        return False
+    groups = body.get("filterGroups") or []
+    if not groups:
+        return True
+    props = _props(row)
+    return any(
+        all(_match_one(props.get(f.get("propertyName")), f) for f in (g.get("filters") or []))
+        for g in groups
+    )
+
+
+def _bearer_credential(request: Request) -> str | None:
+    """The key from `Authorization: Bearer <key>`: the scheme in that case, one space, and a key
+    with no whitespace in it. Space or tab around the whole value is not part of it.
+
+    `auth.bearer_token` reads the scheme in any case and any run of whitespace after it, and takes
+    GitHub's `token <t>` as well. HubSpot does not: measured against api.hubapi.com on 2026-09-30
+    with a valid key, `bearer <key>`, `Bearer  <key>` (two spaces), `Bearer <key> x`,
+    `Basic Zm9vOmJhcg==` and the bare key were each answered with the INVALID_AUTHENTICATION 401
+    where `Bearer <key>` is served. On 2026-10-09 `BEARER <key>`, a tab after the scheme and
+    `token <key>` were the 401 too, and a space or tab before or after `Bearer <key>` was served.
+    """
+    scheme, _, key = (request.headers.get("authorization") or "").strip(" \t").partition(" ")
+    if scheme == "Bearer" and key and not any(c.isspace() for c in key):
+        return key
+    return None
+
+
+def _caller(request: Request) -> Caller | None:
+    return auth.acl(request).resolve(_bearer_credential(request))
+
+
+# --------------------------------------------------------------------------- routes
+
+
+@router.get(
+    "/crm/v3/objects/{object_type}",
+    response_model=HubspotPage,
+    openapi_extra={"parameters": _P_LIST},
+)
+async def list_objects(object_type: str, request: Request):
+    caller = _caller(request)
+    if caller is None:
+        return _error(401, "Authentication credentials not found.", "INVALID_AUTHENTICATION")
+    spellings = _resolve_type(request, object_type)
+    if spellings is None:
+        return _unknown_type(object_type)
+    qp = request.query_params
+    limit = _clamp(qp.get("limit"), 10, _PAGE_MAX)
+    after_doc, err = _resolve_cursor(request, qp.get("after"))
+    if err is not None:
+        return err
+    archived = _flag(_first_query(qp, "archived"))
+    type_label = _NO_ARCHIVED_PAGING.get(_CANONICAL.get(object_type, object_type))
+    if archived and type_label is not None:
+        return _error(
+            400,
+            f"Paging through deleted objects is not yet supported for object type {type_label}",
+        )
+    rows = store.list_hubspot_objects(
+        auth.conn(request),
+        spellings,
+        after_id=after_doc,
+        visible_ids=auth.visible_ids(request, caller),
+        limit=limit + 1,
+        archived=archived,
+    )
+    return _page(rows, limit, _keep(qp.get("properties")))
+
+
+@router.get(
+    "/crm/v3/objects/{object_type}/{record_id}",
+    response_model=HubspotObject,
+    openapi_extra={"parameters": _P_READ},
+)
+async def get_object(object_type: str, record_id: str, request: Request):
+    caller = _caller(request)
+    if caller is None:
+        return _error(401, "Authentication credentials not found.", "INVALID_AUTHENTICATION")
+    # One ACL-scoped query, not a resolve followed by a get_document refetch of the same row:
+    # `id` is the PRIMARY KEY, so the ACL clause can only narrow "found" to "not found", never
+    # redirect to a different row (see store.hubspot_by_id).
+    row = store.hubspot_by_id(auth.conn(request), record_id, auth.visible_ids(request, caller))
+    if row is None or row["object_type"] not in _aliases(object_type):
+        return _error(404, "resource not found", "OBJECT_NOT_FOUND")
+    return _record(row, _keep(request.query_params.get("properties")))
+
+
+@router.post(
+    "/crm/v3/objects/{object_type}/search", response_model=HubspotPage, openapi_extra=_B_SEARCH
+)
+async def search_objects(object_type: str, request: Request):
+    caller = _caller(request)
+    if caller is None:
+        return _error(401, "Authentication credentials not found.", "INVALID_AUTHENTICATION")
+    spellings = _resolve_type(request, object_type)
+    if spellings is None:
+        return _unknown_type(object_type)
+    body = await json_body(request)
+    # Before `after`: real refuses the operator first when the cursor is one it can parse but
+    # names no record (measured 2026-10-06).
+    refused = _refuse_an_operator(await request.body(), body)
+    if refused is not None:
+        return refused
+    limit = _clamp(body.get("limit"), 10, _PAGE_MAX)
+    visible = auth.visible_ids(request, caller)
+    conn = auth.conn(request)
+    after_doc, err = _resolve_cursor(request, body.get("after"))
+    if err is not None:
+        return err
+
+    # Filters may name ANY property, so they are evaluated over the JSON column rather than compiled
+    # to SQL; the object-type and ACL predicates stay in SQL. The whole object type is matched on
+    # every request, NOT just the rows past the cursor: `total` is a property of the query, so it
+    # must not shrink as the caller pages. `sorts` then orders the full match set, which is the only
+    # place a stable order can be established.
+    # Read only the columns the scan will actually use. `title`/`content` are needed solely to match
+    # a free-text `query`, and `content` is the widest column there is (a note's whole body), so
+    # pulling it for every row of a 69k-row object type dwarfs the filtering itself.
+    # `id` rides along as the row's identity, which is also what `after` pages on.
+    cols = "id, object_type, properties, archived, created_ts, updated_ts, owner_display" + (
+        ", title, content" if (body.get("query") or "").strip() else ""
+    )
+    pre = _sql_prefilter(body)
+    hits: list = []
+    cursor = None
+    while True:
+        batch = store.list_hubspot_objects(
+            conn,
+            spellings,
+            after_id=cursor,
+            visible_ids=visible,
+            limit=2000,
+            columns=cols,
+            prefilter=pre,
+        )
+        if not batch:
+            break
+        cursor = batch[-1]["id"]
+        hits += [r for r in batch if _matches(r, body)]
+    total = len(hits)
+    hits = _sorted(hits, body.get("sorts"))
+
+    if after_doc is not None:
+        ids = [r["id"] for r in hits]
+        if after_doc not in ids:
+            return _error(400, f"Invalid 'after' cursor: {body.get('after')}")
+        hits = hits[ids.index(after_doc) + 1 :]
+    out = _page(hits, limit, _keep(body.get("properties")))
+    out["total"] = total
+    return out
+
+
+@router.post(
+    "/crm/v3/objects/{object_type}/batch/read", response_model=HubspotPage, openapi_extra=_B_BATCH
+)
+async def batch_read(object_type: str, request: Request):
+    caller = _caller(request)
+    if caller is None:
+        return _error(401, "Authentication credentials not found.", "INVALID_AUTHENTICATION")
+    spellings = _resolve_type(request, object_type)
+    if spellings is None:
+        return _unknown_type(object_type)
+    body = await json_body(request)
+    conn, visible = auth.conn(request), auth.visible_ids(request, caller)
+    keep = _keep(body.get("properties"))
+    results, errors = [], []
+    for item in body.get("inputs") or []:
+        rid = str(item.get("id"))
+        # One ACL-scoped query, not a resolve followed by a get_document refetch of the same
+        # row -- see get_object's comment for why the collapse is safe.
+        row = store.hubspot_by_id(conn, rid, visible)
+        if row is None or row["object_type"] not in _aliases(object_type):
+            errors.append(
+                {
+                    "status": "error",
+                    "category": "OBJECT_NOT_FOUND",
+                    "message": f"Could not get some {object_type}. Some of the ids provided "
+                    f"were not found.",
+                    "context": {"id": [rid]},
+                }
+            )
+            continue
+        results.append(_record(row, keep))
+    # A partial batch is **207** with `numErrors` + `errors`, and `status` stays COMPLETE — its
+    # allowed values are PENDING/PROCESSING/CANCELED/COMPLETE, so inventing "PARTIAL" would make the
+    # official client deserialize into the no-errors model and drop the error detail on the floor.
+    out: dict = {"status": "COMPLETE", "results": results}
+    if not errors:
+        return out
+    out["numErrors"] = len(errors)
+    out["errors"] = errors
+    return JSONResponse(status_code=207, content=out)
+
+
+@router.get(
+    "/crm/v4/objects/{object_type}/{record_id}/associations/{to_object_type}",
+    response_model=HubspotPage,
+    openapi_extra={"parameters": _P_ASSOC},
+)
+async def list_associations(
+    object_type: str, record_id: str, to_object_type: str, request: Request
+):
+    caller = _caller(request)
+    if caller is None:
+        return _error(401, "Authentication credentials not found.", "INVALID_AUTHENTICATION")
+    conn, visible = auth.conn(request), auth.visible_ids(request, caller)
+    # One ACL-scoped query, not a resolve followed by a get_document refetch of the same row --
+    # see get_object's comment for why the collapse is safe.
+    row = store.hubspot_by_id(conn, record_id, visible)
+    if row is None or row["object_type"] not in _aliases(object_type):
+        return _error(404, "resource not found", "OBJECT_NOT_FOUND")
+    limit = _clamp(request.query_params.get("limit"), _ASSOC_PAGE_MAX, _ASSOC_PAGE_MAX)
+    after_to, err = _resolve_cursor(request, request.query_params.get("after"))
+    if err is not None:
+        return err
+    # limit+1 for the same reason listings do it: the extra row is the only evidence of a further
+    # page, and without paging here every association past the first page would be unreachable.
+    rows = store.hubspot_associations(
+        conn,
+        row["id"],
+        to_object_type,
+        after_to_id=after_to,
+        visible_ids=visible,
+        limit=limit + 1,
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    out: dict = {
+        "results": [
+            {
+                # The target's own served id, stored on the association row itself —
+                # there is no join and no re-hash, because the link names the target by the id
+                # the API reports it under. `int`, because real v4 sends this one as a NUMBER
+                # while the v3 `id` beside it is a string, and the official python client models
+                # it as an int — a typed SDK rejects the string the TEXT column holds.
+                "toObjectId": int(r["to_id"]),
+                "associationTypes": [
+                    {
+                        "category": r["assoc_category"],
+                        "typeId": r["assoc_type_id"],
+                        "label": r["label"],
+                    }
+                ],
+            }
+            for r in rows
+        ]
+    }
+    if has_more:
+        after = out["results"][-1]["toObjectId"]
+        out["paging"] = {"next": {"after": after, "link": f"?after={after}"}}
+    return out

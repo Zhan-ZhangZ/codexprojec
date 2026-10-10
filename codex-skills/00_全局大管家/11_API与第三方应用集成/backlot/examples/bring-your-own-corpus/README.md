@@ -1,0 +1,148 @@
+# Bring your own corpus
+
+Serve **any** document set through every emulated API — provide a JSONL where each line is one
+document, validate it, and load it:
+
+```bash
+backlot import mycorpus.jsonl              # validate + load -> data/
+backlot import mycorpus.jsonl --dry-run    # validate only, no DB writes
+backlot serve --port 8000
+```
+
+`run.py` here is a self-contained walkthrough — it validates `sample_corpus.jsonl`, starts a
+real server backed by it, and reads it back over HTTP (ACL enforced):
+
+```bash
+python examples/bring-your-own-corpus/run.py
+```
+
+`sample_corpus.jsonl` is **the field reference**: a runnable corpus for a fictional "Acme" that
+populates *every* field the schemas declare, at least once, across every source — so you can
+see that none of the response structure has to be synthesized. It can all be set from the corpus.
+
+That is not a claim, it is a test: `test_schema.py::test_example_corpus_populates_every_field_the_schemas_declare`
+derives the field list from `backlot/schemas/*.json`, so adding a field to a schema fails the suite
+until this file carries it. Coverage is the union over one source's records, because some fields are
+alternatives — a `visibility` record and a `readers` record, a transcript written as `sentences` and
+one written as `content`.
+
+Two other corpora in this repo look similar and answer different questions; see
+[**Which corpus is which**](../../backlot/schemas/README.md#which-corpus-is-which). The short
+version: read this one to learn the format, and run `backlot.serve()` if you just want a
+populated server to poke at.
+
+## Record format
+
+Every record states the facts its served document cannot exist without: `source_type`, `content`,
+the container it lives in, `author_email` (fireflies may spell it `host_email`) and `created` — plus
+whatever its own vendor always reports. A spreadsheet may state `sheets` instead of `content`, and
+then `content` is derived from the first sheet rather than written; see
+[docs/corpus.md](../../docs/corpus.md#spreadsheets). `title` is required for every source **except** Slack, whose
+messages have none, and HubSpot, whose notes have no name. A child row states its own author and its
+own second. Run `backlot import <corpus> --dry-run` and it names every record that leaves one out.
+
+```json
+{"source_type": "slack", "channel": "incidents", "author_email": "bob@acme.com", "created": "2026-02-10T18:00:00Z", "content": "Anyone seeing 502s from the gateway?", "replies": [{"content": "Looking now.", "author_email": "ava@acme.com", "created": "2026-02-10T18:00:40Z"}]}
+{"source_type": "gmail", "mailbox": "ceo", "title": "Q1 board deck draft", "content": "Draft narrative for the Q1 board meeting.", "author_email": "ceo@acme.com", "created": "2026-01-20T16:00:00Z", "to": "ava@acme.com", "readers": ["ceo@acme.com", "ava@acme.com"]}
+{"source_type": "github", "repo": "gateway", "subtype": "pull_request", "title": "Fix token-bucket refill off-by-one", "content": "Corrects the refill tick; adds a test.", "author_email": "bob@acme.com", "created": "2026-02-09T14:00:00Z", "state": "closed", "merged_at": "2026-02-10T12:00:00Z", "changed_paths": ["gateway/limiter.py"]}
+{"source_type": "jira", "project": "payments", "title": "SEV2: checkout latency spike", "content": "p95 checkout latency jumped to 2.1s.", "author_email": "bob@acme.com", "created": "2026-02-08T20:00:00Z", "status": "In Progress", "issuetype": "Incident", "reporter": "bob@acme.com", "assignee": "ava@acme.com", "visibility": "group"}
+{"source_type": "google_drive", "folder": "finance", "subtype": "spreadsheet", "title": "Q1 Revenue Model", "sheets": [{"title": "Monthly", "grid": [["month", "revenue", "profitable"], ["Jan", 120000, true]]}, {"title": "Assumptions", "grid": [["input", "value"], ["headcount", 42]]}], "author_email": "cfo@acme.com", "created": "2026-01-10T08:00:00Z", "updated": "2026-02-01T08:00:00Z", "visibility": "group"}
+{"source_type": "confluence", "space": "handbook", "title": "On-call Runbook", "content": "Respond to gateway 502s: check dashboards, roll back, page on-call.", "author_email": "ava@acme.com", "created": "2025-09-10T11:00:00Z", "labels": ["oncall", "runbook"]}
+{"source_type": "notion", "teamspace": "engineering", "subtype": "database", "title": "Eng Tasks", "content": "Engineering task tracker.", "doc_id": "nt-tasks-db", "author_email": "ava@acme.com", "created": "2026-01-10T09:00:00Z", "updated": "2026-01-10T09:00:00Z", "properties": {"Status": {"type": "select"}}}
+{"source_type": "hubspot", "object_type": "notes", "content": "Security review scheduled; wants EU data residency confirmed.", "author_email": "rep@acme.com", "created": "2026-03-05T14:00:00Z", "properties": {"hs_note_body": "Security review scheduled."}, "associations": [{"to": "hs-co-acme"}]}
+```
+
+See `sample_corpus.jsonl` for a fully-populated record of every source type.
+
+- `source_type` ∈ `slack | gmail | google_drive | github | jira | confluence | notion | s3 |
+  hubspot | linear | fireflies`.
+- The grouping unit is named per service — `channel` (slack), `mailbox` (gmail),
+  `folder` (google_drive), `repo` (github), `project` (jira), `space` (confluence),
+  `teamspace` (notion), `bucket` (s3), `object_type` (hubspot), `team` (linear),
+  `channel` (fireflies).
+- **ACL per doc:** `readers` (emails → users, other ids → groups) win; else `visibility`
+  `public | group | private` (default `public`). Group membership is derived from each author's
+  `author_groups` plus the grouping unit they wrote in.
+- Groups, users, and a per-user token for each are derived from the corpus and written to
+  `data/tokens.yaml` — the same token-scoped ACL then applies across every one of them and MCP.
+- **Org:** the org name + domain are inferred from the corpus's dominant author email domain
+  (a `@acme.com` corpus serves as org `acme`, so Slack `auth.test`, `/_meta/users`, and default
+  emails all say `acme` — not a hardcoded default). Override with `BACKLOT_ORG_NAME` /
+  `BACKLOT_ORG_DOMAIN`. The chosen values are persisted to `data/tokens.yaml`.
+- **Slack threads:** a slack record may carry a `replies` array. Each reply is a full message,
+  not just text: it states its own `content`, `author_email` and `created`, and may carry
+  `author_name`/`subtype`/`reactions`/`files`/`edited`. It becomes a thread — the record is the
+  root, each reply a threaded reply. Only the root appears in `conversations.history`; the full
+  thread comes back from `conversations.replies` (shared `thread_ts`, increasing `ts`,
+  `reply_count` on the root). A reply's `created` must be after the message before it: a Slack
+  `ts` is identity as well as clock, so two messages in one thread cannot share a second.
+- **Slack membership:** a channel's members are the people who have spoken in it, and posting in a
+  channel is being in it — so every speaker must be able to read the channel they spoke in.
+  `visibility: private` grants the thread's speakers, root and repliers alike; explicit `readers`
+  that leave a speaker out is refused at import rather than served as a workspace where the same
+  person is listed by `conversations.members` and told `channel_not_found` by `conversations.info`.
+- **Fireflies transcripts:** a fireflies record's child rows are `sentences`, not `replies`
+  — a transcript should read like a transcript, so `replies` on a `fireflies` record is
+  rejected rather than ignored. Each sentence states its `text` and its
+  `start_time` in **seconds**, and may carry `speaker_name` (null for an unattributed utterance),
+  `author_email` resolving the speaker to an identity, and `end_time`. It states no author of its
+  own accord: the vendor's `Sentence` carries no email, and an unnamed speaker is what diarization
+  produces. `duration` on the record is in **minutes** — Fireflies' own units. `content` and `sentences` are two views of the
+  same text: supply `sentences` and `content` is derived from them, or supply only `content`
+  (a plain `Speaker: text` body) and the sentences are parsed back out of it. A line that
+  names no speaker folds into the sentence above it. Either way the two round-trip exactly,
+  so full-text search and the per-sentence API can never disagree; a record with neither is
+  a load error, because one of the two IS the transcript.
+- **Gmail threads:** a gmail record may carry a `messages` array — the thread's later messages,
+  this record being the first. Each is a full message with its own `author_email`, `to`/`cc`,
+  `message_id` and `created`, sharing the root's thread id and ACL. It is a separate array from
+  slack's `replies` on purpose: a threaded reply and a further email in a thread are different
+  things, and only the latter has recipients and a Message-ID of its own. A message's `content`
+  may be empty — a header-only auto-ack is still a message, and dropping it would renumber the
+  rest of the thread.
+- **GitHub repositories:** a `subtype: "repo"` record states facts about the repository rather than about a document in it — `default_branch`, `branches` (each `{"name", "protected"}`) and `tags`. Stated `branches` are the repo's answer for itself: `GET /branches` serves exactly them, `?protected=` selects on the flag, and the pulls are not consulted. Without such a record the branch set is inferred from the pulls — the default branch, every pull's `base`, and an open pull's `head`. A closed pull's head is left out either way, since whether that branch survived the pull is not knowable from the pull. The record carries no author, body or ACL: the repo stays visible to a scoped caller exactly when one of its documents is, and to the admin as soon as the record itself exists — a repo stated with nothing in it is the one case those two answers differ.
+- **GitHub forks:** a `pull_request` from a fork states `head_repo` as the full `owner/name` — the one place a corpus writes an owner, since a fork's owner is what differs. Its `head.repo.full_name` and `head.label` carry that owner, and its head is a branch of the fork, so `/branches` does not list it.
+- **GitHub pull changesets:** a `pull_request` record may carry `changed_paths` — the `path` values
+  of `subtype: "file"` records in the same repo — and that becomes the pull's changed-file list
+  (`GET /pulls/{n}/files`, and the diff served for `Accept: application/vnd.github.diff`). Only
+  *which* files: the hunks are always derived from each file's own content, so the diff applies with
+  real `git` either way. Omit it and Backlot picks a few files deterministically instead — a
+  well-formed diff, but unrelated to what the pull is about. A path naming no file the caller can
+  read is skipped, so declaring one does not publish its name — and a path naming no file *at all*
+  is skipped the same way, since telling the two apart per caller is what would publish it. That
+  second case is usually a typo, so the import reports it and `--dry-run` names the line and the
+  path; it is not refused, because a corpus is often a slice of a repo that legitimately stops short
+  of a file its pulls touched.
+- **GitHub review comments:** a comment on a `pull_request` becomes a line-anchored **review**
+  comment (`GET /pulls/{n}/comments`) when it carries a `path`, with an optional `line` (omit it for
+  a file-level comment) and an optional `diff_hunk` (derived from the file otherwise). Without a
+  `path` it stays a conversation comment (`GET /issues/{n}/comments`). Real GitHub keeps the two
+  resources apart and reports them as separate counts (`comments` vs `review_comments`), so a
+  comment belongs to exactly one of them.
+- **Owner display name:** `author_name` is served as the document's owner, under each service's
+  own name for it — gmail uses `mailbox_owner` (a mailbox's owner is usually not the sender of a
+  given message in it) and fireflies `host_name` (the meeting's host).
+  It is stored rather than derived because a name does not survive an email address — "Tomás Rré"
+  slugs to `tomas.rre`, and there is no way back.
+- **Typed reader principals:** a `readers` entry may say what it is — `user:<email>`,
+  `group:<id>`, `org:<name>`. Unprefixed, an address is a user and anything else a group. Use the
+  typed form when a document is org-readable *and* names its owners; the shorthand cannot name the
+  org principal at all.
+- **`group: null`:** the container owns no ACL group. A real state, not a missing value — a Gmail
+  mailbox has no group scope, so inferring one from its name would invent a grantable principal.
+  An *absent* `group` still defaults to the container slug.
+- **Stating the roster:** pass `--roster roster.yaml` and `principals`/`group_members`/
+  `tokens.yaml` come from that file alone, instead of every `author_email` becoming a token-holding
+  user. That is how a corpus converted from an existing dataset carries the people it already knows
+  — including which of them are real accounts. See
+  [`schemas/README.md`](../../backlot/schemas/README.md).
+- **Timestamps:** every record accepts `created` (epoch seconds or ISO 8601) — it drives the
+  Slack `ts` / Gmail `Date`+`internalDate` / Google Drive `createdTime` / GitHub `created_at` / Jira
+  `created` / Confluence version time. Google Drive/GitHub/Jira/Confluence also accept `updated`
+  (default: `created` + 1h). Omit either and it's synthesized deterministically from the `doc_id`.
+- **Gmail recipients:** `to` sets the `To` header (default `<mailbox>@<org_domain>`).
+
+Per-service extras (`subtype`, `labels`, `reactions`, `comments`, `issuelinks`, …) are
+described by the per-service JSON Schemas — see [`schemas/README.md`](../../backlot/schemas/README.md).
+Each record is validated against its schema before loading, so typos and shape errors fail fast
+with a line number; the schemas double as the contract for LLM dataset generation.

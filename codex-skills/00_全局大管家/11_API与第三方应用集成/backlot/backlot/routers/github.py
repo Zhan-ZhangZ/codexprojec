@@ -1,0 +1,4114 @@
+"""GitHub REST API (read-only). Client base_url: ``http://<host>/github``.
+
+Each dataset ``github`` document is modelled as an issue in its repo (= container).
+Responses are bare JSON arrays with an RFC5988 ``Link`` header for pagination, as the
+real API does. Auth: ``Authorization: Bearer <token>`` (or ``token <token>``).
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import re
+import time
+from collections.abc import Callable
+from email.utils import formatdate
+from typing import NamedTuple
+from urllib.parse import quote, unquote_plus
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel, ConfigDict
+
+from backlot import auth, store, synth
+from backlot.acl import Caller
+from backlot.config import get_settings
+from backlot.pagination import (
+    PageParam,
+    clamp_page,
+    github_code_search_link_header,
+    github_code_search_query_refusal,
+    github_cursor_link_header,
+    github_cursor_offset,
+    github_link_header,
+    github_search_depth_refused,
+    github_search_last_page,
+)
+
+# Real GitHub caps a recursive tree at 100k entries / 7 MB and reports `truncated: true`. Module
+# level rather than settings, so a test can lower them: a corpus big enough to hit the real cap is
+# not a practical fixture, and a client's truncation-handling path is only reachable if Backlot
+# can set the flag at all.
+TREE_MAX_ENTRIES = 100_000
+TREE_MAX_BYTES = 7 * 1024 * 1024
+
+# Real's two page-size numbers, not the server's `default_page_size` / `max_page_size`: 30 when
+# `per_page` is not sent and 100 for any sent size at or above it, on every listing and search
+# measured (api.github.com, 2026-09-06: `psf/requests/issues?state=all`, `/tags`, `/pulls?state=all`
+# and `/search/issues?q=repo:psf/requests+timeout` each answer 30 unsent and 100 for `per_page=100`,
+# `101` and `500` alike). GitHub's OpenAPI description declares the shared `per-page` parameter
+# "The number of results per page (max 100)." with `default: 30`; the served spec declares the same
+# 30 and the same cap by reading these constants (`PAGE_PARAMETERS` below, written onto the
+# document by `backlot/main.py`), so moving one moves both. The settings stay the numbers of the
+# vendors whose own are not measured; a client sized to real's page must not get three times it
+# here and find out in production. Module level, like the tree caps, so a test can lower them: no
+# repository in the bundled corpus spans a page of 30.
+PER_PAGE_DEFAULT = 30
+PER_PAGE_MAX = 100
+
+# The two shared parameters as real's description declares them, `components/parameters` `per-page`
+# and `page` (github/rest-api-description, read 2026-09-09): each one's default and its description,
+# verbatim. The description is the only place real states the cap. Its schema is a bare
+# `{type: integer}` with no `maximum`, and real serves `per_page=101` at the cap rather than
+# refusing it, so a bound in the schema would have a generated client refuse what the server
+# accepts; the prose is where the number belongs. FastAPI cannot be told to write a default onto a
+# parameter whose runtime default is None, and the one `PageParam` annotation both parameters share
+# cannot carry two descriptions (see `backlot.openapi.github_page_parameters`), so `backlot/main.py`
+# writes both onto the served document from this mapping. The 100 in the prose is PER_PAGE_MAX and
+# the 30 is PER_PAGE_DEFAULT, so the document cannot state one number while the route applies
+# another; the `page` default is the 1 that `_clamp` starts a listing at.
+_PAGINATION_DOCS = (
+    'For more information, see "[Using pagination in the REST API]'
+    '(https://docs.github.com/rest/using-the-rest-api/using-pagination-in-the-rest-api)."'
+)
+PAGE_PARAMETERS: dict[str, tuple[int, str]] = {
+    "per_page": (
+        PER_PAGE_DEFAULT,
+        f"The number of results per page (max {PER_PAGE_MAX}). {_PAGINATION_DOCS}",
+    ),
+    "page": (1, f"The page number of the results to fetch. {_PAGINATION_DOCS}"),
+}
+
+
+def _require(request: Request) -> Caller:
+    """The caller, or real's 401 for the reason it failed.
+
+    Two reasons, two messages, as real has them: "Bad credentials" is for a credential that arrived
+    and did not resolve, and a request carrying none gets "Requires authentication" (measured
+    against api.github.com: a bad bearer at `/repos/{owner}/{repo}/collaborators`, no header at the same route
+    and at `/user`). A client that branches on which — retry versus re-authenticate — reads one
+    answer for both otherwise.
+
+    Header PRESENT but not a scheme this API takes is the second case, not the first: real ignores
+    an `Authorization` it cannot parse and serves the request anonymously (measured: `Basic …` and a
+    scheme-less value both answer 200 on a public repo), so the caller reaches an auth-required
+    route with no credential rather than with a rejected one. Backlot serves no document
+    anonymously, which is why that lands here as the missing-credential 401 rather than as a public
+    read (`/rate_limit`, which serves none, is the exception — see :func:`_validate_path_owner`).
+    """
+    if auth.bearer_token(request) is None:
+        raise HTTPException(status_code=401, detail="Requires authentication")
+    return auth.require_bearer(request, "Bad credentials")
+
+
+async def _validate_bad_credential(request: Request) -> None:
+    """401 a credential that arrived and did not resolve — ahead of the version check.
+
+    Real resolves a presented credential before it looks at ``X-GitHub-Api-Version``: a bad bearer
+    with an unsupported version pinned is "Bad credentials", not the version's 400 (measured against
+    api.github.com 2026-09-15 on ``/repos/{owner}/{repo}`` and ``/rate_limit``). A request carrying
+    no credential at all still meets the version check first, measured on ``/user/repos``, the one
+    served route real refuses an anonymous caller: an unsupported version there is the version's 400
+    and a supported one is "Requires authentication" (2026-09-17, three runs of each on cache-busted
+    URLs). So this only fires for a token that arrived and failed to resolve;
+    :func:`_validate_path_owner` answers the missing-credential case in its own place, after the
+    version check.
+    """
+    if auth.bearer_token(request) is not None:
+        auth.require_bearer(request, "Bad credentials")
+
+
+def _org(request: Request) -> str:
+    """The single org Backlot serves. ``tokens.yaml``'s ``org`` wins over the setting and lands
+    on the ACL (see ``backlot.main``), so read it from there when there is one."""
+    return getattr(getattr(request.app.state, "acl", None), "org_name", None) or (
+        get_settings().org_name
+    )
+
+
+# --- API version negotiation ----------------------------------------------------
+#
+# `X-GitHub-Api-Version` selects a PAYLOAD, not an encoding, and real GitHub currently supports two
+# values. On this surface they differ by three fields: `2026-03-10` dropped `assignee` from issues
+# and pulls (superseded by the `assignees` array) and `merge_commit_sha` from pulls.
+#
+# The behaviour to avoid is accepting the header and ignoring it. A client that pins a version then
+# reads fields from a different one with no way to tell it had no effect — which is worse than not
+# supporting the header at all, because the failure is silent and the client's own version handling
+# looks tested. So: an unsupported value is refused, the selected value is echoed on every response
+# (see `backlot.main`), and the builders take it as an argument rather than reading a global.
+
+# Most recent first, which is the order real's own error message lists them in.
+API_VERSIONS = ("2026-03-10", "2022-11-28")
+# What real serves an UNPINNED request — read off the API, not chosen here.
+DEFAULT_API_VERSION = "2022-11-28"
+API_VERSION_HEADER = "X-GitHub-Api-Version"
+SELECTED_VERSION_HEADER = "X-GitHub-Api-Version-Selected"
+# The one route served by a backend that does not read the version header at all.
+CODE_SEARCH_PATH = "/github/search/code"
+SEARCH_PREFIX = "/github/search/"
+# The search endpoints real counts against the `search` resource; `code` is `CODE_SEARCH_PATH`'s.
+SEARCH_ENDPOINTS = frozenset({"commits", "issues", "labels", "repositories", "topics", "users"})
+
+
+def honours_api_version(request: Request) -> bool:
+    """Whether real reads `X-GitHub-Api-Version` on this request.
+
+    Every GitHub route does but code search, whose backend is not the rest of the API's: on
+    `/search/code` a pinned `1999-01-01` or `garbage` is a 200 where every other route answers the
+    version 400, a pinned `2026-03-10` is a 200 too, and no response from it, 200, 400 or 422,
+    carries `X-GitHub-Api-Version-Selected` (measured 2026-09-06; `/search/issues` beside it 400s
+    the bad version and echoes the good one). So that route neither refuses a version nor echoes
+    one, and `backlot.main`'s echo asks this before adding the header.
+
+    `/rate_limit` reads it only from a request that carries an `Authorization` header: with none, a
+    pinned `2026-03-10` is still `resources` AND `rate` with no echo and a pinned `1999-01-01` is a
+    200 rather than the version's 400, where a token and an unparseable `Basic` alike get
+    `resources` alone with the echo and the 400. The route is the whole of the exception — that
+    same `1999-01-01` with no credential is a 400 on `/repos/psf/requests`, `/users/psf` and
+    `/user/repos` (measured against api.github.com 2026-09-21, on cache-busted urls).
+    """
+    if request.url.path == CODE_SEARCH_PATH:
+        return False
+    return request.url.path != RATE_LIMIT_PATH or "authorization" in request.headers
+
+
+def selected_api_version(request: Request) -> str | None:
+    """The version this request selected, or ``None`` if it pinned one that does not exist."""
+    pinned = request.headers.get(API_VERSION_HEADER)
+    if pinned is None:
+        return DEFAULT_API_VERSION
+    return pinned if pinned in API_VERSIONS else None
+
+
+def _unsupported_version_error(pinned: str) -> HTTPException:
+    """Real's own 400, wording included — a client that matches on the message needs the real text.
+
+    Composed from ``API_VERSIONS`` rather than pasted, so the sentence cannot fall out of step with
+    the list it describes. The "X (most recent) and Y" phrasing is real's for the two versions it
+    supports today; a third would need real's phrasing for three, not a guess at it.
+    """
+    newest, *rest = API_VERSIONS
+    supported = ", ".join(f'"{v}"' for v in rest)
+    exc = HTTPException(status_code=400, detail="Bad Request")
+    # The github envelope, carried on the exception the way backlot.errors.google carries its extra
+    # fields; backlot.errors.github renders it. `errors` is a STRING here, not the usual array.
+    exc.github_body = {
+        "message": "Bad Request",
+        "errors": (
+            f'The version you specified in the "X-GitHub-API-Version" request header, "{pinned}", '
+            f"is not a supported version. The following versions are currently supported: "
+            f'"{newest}" (most recent) and {supported}.'
+        ),
+        "documentation_url": "https://docs.github.com/rest",
+        "status": "400",
+    }
+    return exc
+
+
+def _version(request: Request) -> str:
+    """The API version to build this response for.
+
+    A request real does not read the header on is built for :data:`DEFAULT_API_VERSION` whatever it
+    pinned (see :func:`honours_api_version`). Where real does read it the value is never ``None``:
+    ``_validate_api_version`` is a router-wide dependency, so an unsupported version never reaches
+    a handler on those routes."""
+    if not honours_api_version(request):
+        return DEFAULT_API_VERSION
+    return selected_api_version(request) or DEFAULT_API_VERSION
+
+
+async def _validate_api_version(request: Request) -> None:
+    """400 a pinned version that does not exist — ahead of a missing credential and the owner check.
+
+    Ordering is real's, and it is verified rather than assumed: api.github.com 400s a bad version on
+    a repo that does not exist while sending no credentials at all. It matters to the caller — a
+    version typo reported as 401 sends them to their token, and as 404 to their path, when the header
+    is what is wrong. A credential that arrived and failed to resolve is checked earlier still (see
+    :func:`_validate_bad_credential`), so this only ever answers the
+    version's 400 to a caller with no credential or a good one. Declared after
+    ``_validate_bad_credential`` and before ``_validate_path_owner`` in the router's dependency list,
+    which is what puts it in that order.
+    """
+    if honours_api_version(request) and selected_api_version(request) is None:
+        # `None` is only reachable with the header present, so this read cannot miss.
+        raise _unsupported_version_error(request.headers[API_VERSION_HEADER])
+
+
+async def _validate_path_owner(request: Request) -> None:
+    """404 a request whose ``{owner}``/``{org}`` segment is not the org we serve, and hand the
+    handlers the org's OWN spelling of it rather than the caller's.
+
+    Real GitHub 404s a wrong owner; echoing whatever was asked for back into the response lets a
+    client's owner-handling bug pass against Backlot and fail in production. A router-wide
+    dependency rather than a call in each handler so a route added later cannot forget it — routes
+    with neither path param (``/search/issues``, ``/user/repos``) are unaffected. Credentials are
+    checked first, so a bad token still reports 401 rather than the owner's 404. `/rate_limit` is
+    the one route a caller with no credential is served, as real serves it (200 at the anonymous
+    limits, measured 2026-09-10); it names no owner and reads no document. A bad credential there
+    still 401s, ahead of this dependency (see :func:`_validate_bad_credential`).
+
+    The match is case-insensitive, as GitHub logins are, and real then answers in the canonical
+    spelling whatever case was asked for: `/repos/PSF/REQUESTS` answers `full_name: psf/requests`
+    with every url and template lowercase, `/orgs/PSF` answers `login: psf`, and an issue item's
+    `url` and `html_url` are lowercase too (measured 2026-09-03, 200 each — no redirect, so the
+    normalization is in the body). Canonicalizing the param here rather than at each url means the
+    ~30 handlers that interpolate it, and everything they derive from it, cannot disagree: this is
+    also what keeps `synth.github_user_id(org)` from minting one id per spelling. FastAPI solves
+    router dependencies before it reads the endpoint's own path params, so the handler signature
+    receives the value set here.
+
+    The canonical spelling reaches the pagination `Link` header too, by way of the id it hashes to:
+    real paginates by numeric repository id (`/repositories/1362490/issues`, measured on the same
+    day), and :func:`_page_base_url` hashes the settled spelling rather than the one the request
+    arrived with — this dependency's for the org, :func:`_canonical_path_repo`'s for the repo.
+    """
+    if request.url.path != RATE_LIMIT_PATH:
+        _require(request)
+    key = "owner" if "owner" in request.path_params else "org"
+    owner = request.path_params.get(key)
+    if owner is None:
+        return
+    canonical = _org(request)
+    if owner.lower() != canonical.lower():
+        raise HTTPException(status_code=404, detail="Not Found")
+    request.path_params[key] = canonical
+
+
+async def _canonical_path_repo(request: Request) -> None:
+    """Hand the handlers the corpus's spelling of ``{repo}``, whatever case it was asked for.
+
+    Real resolves the name case-insensitively and answers in its own spelling — `/repos/PSF/Requests`
+    is 200 with `name: requests` (measured 2026-09-03) — where a case-sensitive container lookup
+    404'd it. Canonicalized, not merely matched, for the reason :func:`_validate_path_owner` gives.
+
+    A NAME and nothing else: whether the caller may SEE the repo stays :func:`_require_repo`'s
+    answer, taken afterwards on this name, so a repo hidden from a scoped token is a 404 in every
+    spelling.
+    """
+    repo = request.path_params.get("repo")
+    if repo is None:
+        return
+    spelled = store.container_spelling(auth.conn(request), "github", repo)
+    if spelled is not None:
+        request.path_params["repo"] = spelled
+
+
+# --- rate limits ----------------------------------------------------------------
+#
+# Real puts five `x-ratelimit-*` headers on every response it gives, 200 and error alike, and
+# serves `GET /rate_limit`. Measured against api.github.com on 2026-09-09 and 2026-09-10,
+# unauthenticated with curl and authenticated with `gh api`: an anonymous caller has `limit: 60`
+# on `core` and `10` on `search`, a token `5000`, `30` and `10` on `core`, `search` and
+# `code_search`; the 404 for a repository that does not exist, the 401s, the blank-`q` 422 and the
+# version 400 each carry the five and count (`remaining` 46, 45, 44 across a GET, a HEAD and a 404
+# in a row); `reset` is epoch seconds and stayed put across every answer inside one window. The
+# docs page "Rate limits for the REST API" states the 60 and the 5,000 and the five headers'
+# meanings; the numbers below are the wire's. A spent window is refused — see
+# ``rate_limit_refusal`` — everything below only reports the count, see :class:`RateLimitWindows`.
+
+RATE_LIMIT_PATH = "/github/rate_limit"
+RATE_LIMIT_WINDOW = 3600
+#: The two search resources measure a minute, not `core`'s hour: three anonymous `/search/issues`
+#: in the same second answered `used` 1, 2, 3 against one `reset` 60 seconds out and the same
+#: request 65 seconds later answered `used: 1` against a fresh one, and `/search/code` under a
+#: token did the same at `limit: 10` (measured against api.github.com 2026-09-21).
+SEARCH_RATE_LIMIT_WINDOW = 60
+
+
+class _ResourceLimit(NamedTuple):
+    anonymous: int
+    authenticated: int
+    window: int
+
+
+#: resource -> the requests real allows a caller with no credential and one with a token, and the
+#: seconds its window runs for
+RATE_LIMITS: dict[str, _ResourceLimit] = {
+    "core": _ResourceLimit(60, 5000, RATE_LIMIT_WINDOW),
+    "search": _ResourceLimit(10, 30, SEARCH_RATE_LIMIT_WINDOW),
+    "code_search": _ResourceLimit(10, 10, SEARCH_RATE_LIMIT_WINDOW),
+}
+
+
+def rate_limit_window(resource: str, authenticated: bool) -> tuple[str, int]:
+    """The window a request for ``resource`` lands in, and that window's limit for this caller.
+
+    A caller with no credential has no `code_search` window of its own: an anonymous
+    `GET /rate_limit` reported it and `core` as one set of four numbers (`limit: 60, used: 29,
+    remaining: 31, reset: 1789960795`) and a single anonymous `GET /repos/psf/requests` moved both
+    from 29 to 30, so it is `core`'s window under both names (measured against api.github.com
+    2026-09-21).
+    """
+    counted = "core" if resource == "code_search" and not authenticated else resource
+    limits = RATE_LIMITS[counted]
+    return counted, (limits.authenticated if authenticated else limits.anonymous)
+
+
+def rate_limit_resource(path: str, status_code: int) -> str:
+    """The resource a request to ``path`` answered with ``status_code`` counts against.
+
+    `code_search` for code search, `search` for the other search endpoints and `core` for
+    everything else, including the 401 code search answers a caller with no credential: that
+    refusal is the gateway's, not the code search backend's, and counts against `core` (measured:
+    `limit: 60`, `resource: core` on it, where the same route authenticated answers `limit: 10`,
+    `resource: code_search`), the same split ``errors.github.json_media_type`` draws for the
+    charset.
+
+    A search endpoint's name carries its resource past the route: `/search/{name}/{rest}` counts
+    against `search` at `limit: 10` although no route serves it, where `/search/{name}/` with
+    nothing after the slash, a first segment real serves no endpoint for (`/search/nonexistent-zz`,
+    `/search/repositories.zz`) and `/search/code/{rest}` count against `core` at `limit: 60`
+    (measured against api.github.com 2026-09-21 with no credential, across `repositories`,
+    `issues`, `users`, `topics`, `commits` and `labels`)."""
+    if path == CODE_SEARCH_PATH:
+        return "core" if status_code == 401 else "code_search"
+    if path.startswith(SEARCH_PREFIX):
+        endpoint, slash, rest = path[len(SEARCH_PREFIX) :].partition("/")
+        if endpoint in SEARCH_ENDPOINTS and (not slash or rest):
+            return "search"
+    return "core"
+
+
+class RateLimitWindows:
+    """The requests counted so far, per credential and per resource, each in its resource's window.
+
+    A window opens at the first request counted or reported under a `(credential, resource)` and
+    closes its resource's length later — an hour for `core`, a minute for the two search resources
+    (:data:`SEARCH_RATE_LIMIT_WINDOW`); `reset` is its closing second, the same on every answer
+    inside it. The windows measured stayed put across the requests inside them and differed between
+    credentials and between resources (an anonymous caller's `core` and `search` resets 1552 seconds
+    apart), which is a window per pair opened by use rather than one shared clock. `remaining`
+    stops at 0 and the reported `used` is capped at `limit` — see :func:`rate_limit_refusal` and
+    :func:`_rate_limit_exceeded_message` for the measurement behind the 403 real answers once a
+    window is spent. One process, one set of windows: the server runs a single worker, and a
+    client run against several would see each one's count. ``clock`` is `time.time` unless a test
+    hands in another to move a window."""
+
+    def __init__(self, clock: Callable[[], float] = time.time):
+        self.clock = clock
+        self._windows: dict[tuple[str, str], list[int]] = {}
+
+    def _window(self, key: str, resource: str) -> list[int]:
+        now = int(self.clock())
+        window = self._windows.get((key, resource))
+        if window is None or now >= window[0] + RATE_LIMITS[resource].window:
+            window = self._windows[(key, resource)] = [now, 0]
+        return window
+
+    def count(self, key: str, resource: str, limit: int) -> dict[str, int]:
+        """The window after counting one more request in it."""
+        window = self._window(key, resource)
+        window[1] += 1
+        return self._status(window, resource, limit)
+
+    def status(self, key: str, resource: str, limit: int) -> dict[str, int]:
+        """The window as it stands, nothing counted."""
+        return self._status(self._window(key, resource), resource, limit)
+
+    @staticmethod
+    def _status(window: list[int], resource: str, limit: int) -> dict[str, int]:
+        start, used = window
+        return {
+            "limit": limit,
+            "used": min(used, limit),
+            "remaining": max(limit - used, 0),
+            "reset": start + RATE_LIMITS[resource].window,
+        }
+
+
+def _rate_limit_windows(app) -> RateLimitWindows:
+    """The app's windows, opened on first use so a request needs no lifespan step to be counted."""
+    windows = getattr(app.state, "github_rate_limits", None)
+    if windows is None:
+        windows = app.state.github_rate_limits = RateLimitWindows()
+    return windows
+
+
+def rate_limit_caller(request: Request) -> tuple[str, bool]:
+    """Whose requests these are for counting, and whether that is a credential.
+
+    The token when it resolves; the client's address otherwise, which is how real counts a caller
+    with no credential (the docs' 60 an hour "for unauthenticated requests", `limit: 60` on every
+    anonymous answer measured).
+
+    An `Authorization` real cannot parse is served rather than refused, and counted apart from the
+    bare-anonymous requests from the same address, in ONE window shared by every such value: on
+    `/repos/psf/requests`, alternating `Basic`, `Digest` and scheme-less values real had not seen
+    before ran one counter 10 through 15 at one `reset`, while the bare anonymous calls interleaved
+    with them read 23, 24, 25 at another, both at `limit: 60` (measured against api.github.com
+    2026-09-21).
+
+    A bearer that does not resolve is keyed with the address here but never counted — see
+    :func:`refused_a_credential`. Callers that draw real's line themselves check `request.headers`
+    for the
+    presence of `Authorization` directly instead of asking `auth.bearer_token`, which is `None` for
+    a scheme it does not parse — see `refuse_a_trailing_slash_on_github`."""
+    token = auth.bearer_token(request)
+    if token is not None and auth.resolve_bearer(request) is not None:
+        return f"token:{token}", True
+    host = request.client.host if request.client is not None else "anonymous"
+    if token is None and "authorization" in request.headers:
+        return f"unparseable:{host}", False
+    return f"host:{host}", False
+
+
+def refused_a_credential(request: Request) -> bool:
+    """Whether a credential arrived and did not resolve — real's "Bad credentials" 401.
+
+    `Bearer` and `token` alike are refused with none of the five `x-ratelimit-*` headers and no
+    version echo, on `/repos/psf/requests` and on `/rate_limit`, and the address's `core` window
+    read `used: 13` before three of them and after — where an anonymous 401 on `/user/repos`
+    carries all five, counts, and echoes (measured against api.github.com 2026-09-21). A path no
+    route matches is answered the same way for a wider set of callers, see
+    ``backlot.main._some_github_route_matches``.
+    """
+    return auth.bearer_token(request) is not None and auth.resolve_bearer(request) is None
+
+
+def rate_limit_headers(request: Request, status_code: int) -> dict[str, str]:
+    """The five `x-ratelimit-*` headers for a `/github` answer.
+
+    Counts the request against the window, except on :data:`RATE_LIMIT_PATH`, which reports its
+    window without counting: two `GET /rate_limit` in a row both answered `remaining: 5000`,
+    `used: 0`, each carrying the five with `resource: core`, and the description's own note says
+    the route does not count. `/rate_limit/` never reaches this — see
+    ``backlot.main.refuse_a_trailing_slash_on_github``."""
+    key, authenticated = rate_limit_caller(request)
+    resource = rate_limit_resource(request.url.path, status_code)
+    counted, limit = rate_limit_window(resource, authenticated)
+    windows = _rate_limit_windows(request.app)
+    read = windows.count if request.url.path != RATE_LIMIT_PATH else windows.status
+    window = read(key, counted, limit)
+    return {
+        "x-ratelimit-limit": str(window["limit"]),
+        "x-ratelimit-remaining": str(window["remaining"]),
+        "x-ratelimit-used": str(window["used"]),
+        "x-ratelimit-reset": str(window["reset"]),
+        "x-ratelimit-resource": resource,
+    }
+
+
+#: What real's docs anchor an ANONYMOUS caller's rate-limit-exceeded 403 to (the same page
+#: :data:`RATE_LIMITS`' numbers come from).
+RATE_LIMIT_EXCEEDED_DOCS = (
+    "https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting"
+)
+
+#: A token's own anchor for the same 403 — a different page from the anonymous caller's; see
+#: :func:`_rate_limit_exceeded_message` for the measurement.
+TOKEN_RATE_LIMIT_EXCEEDED_DOCS = (
+    "https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api"
+    "#rate-limiting"
+)
+
+
+def _rate_limit_exceeded_message(request: Request, authenticated: bool) -> str:
+    """Real's `message` on the spent-window 403.
+
+    A caller with no credential: this sentence, with the caller's own address, measured against
+    api.github.com 2026-09-17 (the 61st anonymous `core` request in the hour and three more after
+    it, `used: 60` pinned at `limit: 60` on each, `server: Varnish` where a served answer is
+    `server: github.com`).
+
+    A token: measured against api.github.com 2026-09-23, a `search` window (30 a minute) driven to
+    its cap. Real's sentence there is `API rate limit exceeded for user ID <id>. If you reach out
+    to GitHub Support for help, please include the request ID <x-github-request-id> and timestamp
+    <YYYY-MM-DD HH:MM:SS> UTC. For more on scraping GitHub and how it may affect your rights,
+    please review our Terms of Service (…)`. This returns real's sentence up to `user ID <id>.`;
+    the Support/Terms-of-Service sentence past it is not reproduced, because it names a request id
+    and a timestamp that come from `x-github-request-id` — a header Backlot sends on no `/github`
+    answer today (real sends it on every answer, 200 and refusal alike, and its own last field is
+    that answer's `Date` to the second). That header is #333's; the rest of this sentence belongs
+    there, not a synthesized or placeholder value here."""
+    if not authenticated:
+        host = request.client.host if request.client is not None else "anonymous"
+        return (
+            f"API rate limit exceeded for {host}. (But here's the good news: Authenticated "
+            "requests get a higher rate limit. Check out the documentation for more details.)"
+        )
+    caller = auth.resolve_bearer(request)
+    email = caller.email if caller is not None and caller.email is not None else "admin"
+    return f"API rate limit exceeded for user ID {synth.github_user_id(email)}."
+
+
+def rate_limit_refusal(request: Request) -> Response | None:
+    """Real's 403 for a `/github` request whose window is already spent, or ``None`` to let the
+    request reach its handler as usual.
+
+    A read of the window's current status, never a count — docs/supported-sources.md's GitHub
+    section has why the reported `used` holds at `limit` instead of climbing past it.
+    :data:`RATE_LIMIT_PATH` is never refused — real keeps answering it through exhaustion, which is
+    how a client reads its way out of a spent window. Its trailing-slash spelling never reaches
+    this — see ``backlot.main.refuse_a_trailing_slash_on_github``. Off entirely when
+    :attr:`backlot.config.Settings.github_enforce_rate_limits` is turned off.
+
+    Checked ahead of every router dependency and routing itself, for the requests
+    ``backlot.main.report_github_rate_limit`` gates: a bearer that does not resolve is not one of
+    them, and gets its own 401 with the window spent as with it fresh — docs/supported-sources.md's
+    GitHub section has the measurement and its dates. `server: Varnish` on an anonymous refusal,
+    where a served answer — the version 400 included — runs on `server: github.com`, is that
+    caller's mechanism: a tier in front of the one those dependencies run on. A token's own refusal
+    answers from `server: github.com` instead, so the tier split explains the anonymous order
+    rather than the order in general. The envelope differs by caller too (same doc section;
+    :data:`TOKEN_RATE_LIMIT_EXCEEDED_DOCS` is the token's own `documentation_url`)."""
+    if not get_settings().github_enforce_rate_limits:
+        return None
+    if request.url.path == RATE_LIMIT_PATH:
+        return None
+    key, authenticated = rate_limit_caller(request)
+    resource = rate_limit_resource(request.url.path, 401 if not authenticated else 200)
+    counted, limit = rate_limit_window(resource, authenticated)
+    windows = _rate_limit_windows(request.app)
+    status = windows.status(key, counted, limit)
+    if status["used"] < limit:
+        return None
+    headers = {
+        "x-ratelimit-limit": str(status["limit"]),
+        "x-ratelimit-remaining": str(status["remaining"]),
+        "x-ratelimit-used": str(status["used"]),
+        "x-ratelimit-reset": str(status["reset"]),
+        "x-ratelimit-resource": resource,
+    }
+    message = _rate_limit_exceeded_message(request, authenticated)
+    if authenticated:
+        body = {
+            "message": message,
+            "documentation_url": TOKEN_RATE_LIMIT_EXCEEDED_DOCS,
+            "status": "403",
+        }
+    else:
+        body = {"message": message, "documentation_url": RATE_LIMIT_EXCEEDED_DOCS}
+    return JSONResponse(body, status_code=403, headers=headers)
+
+
+router = APIRouter(
+    prefix="/github",
+    tags=["github"],
+    # Order is the answering order: real resolves a credential that arrived before it looks at the
+    # version or the path, an unsupported API version is a malformed request it refuses next — ahead
+    # of a MISSING credential and of the owner the path names — and the repo's spelling is resolved
+    # last, so never for a request that fails one of the three ahead of it. A path no route matches
+    # is 404 ahead of all three on real (measured 2026-09-17 on an unrouted path and on a
+    # nonexistent subresource), and a router-wide dependency does not run for one either.
+    dependencies=[
+        Depends(_validate_bad_credential),
+        Depends(_validate_api_version),
+        Depends(_validate_path_owner),
+        Depends(_canonical_path_repo),
+    ],
+)
+
+
+# --- media-type negotiation -----------------------------------------------------
+#
+# The `Accept` header selects a REPRESENTATION on GitHub, not just an encoding: a content endpoint
+# asked for `raw` answers the file's bytes, and a pull asked for `diff`/`patch` answers a diff. A
+# handler that ignores it returns a JSON envelope with a 200 and no way for the caller to tell,
+# which is silent corruption rather than a missing feature.
+
+
+def _accept_types(request: Request) -> list[str]:
+    return [t.split(";")[0].strip().lower() for t in request.headers.get("accept", "").split(",")]
+
+
+def _github_media(request: Request, name: str) -> bool:
+    """True if `Accept` asks for GitHub's ``<name>`` representation, in any of the spellings the
+    real API honours: ``application/vnd.github.<name>``, the legacy ``…github.v3.<name>``, and the
+    ``…github.<name>+json`` form."""
+    wanted = {
+        f"application/vnd.github.{v}{name}{suffix}"
+        for v in ("", "v3.")  # the legacy version segment GitHub's own docs used
+        for suffix in ("", "+json")
+    }
+    return any(t in wanted for t in _accept_types(request))
+
+
+def _raw_response(request: Request, content: str, media_type: str) -> Response | None:
+    """The raw body when the caller asked for it, else ``None`` so the handler falls through to its
+    JSON envelope."""
+    if not _github_media(request, "raw"):
+        return None
+    return Response(content=content.encode(), media_type=media_type)
+
+
+# Real GitHub answers git/blobs raw with text/plain and contents/readme with vnd.github.raw. Both
+# are the same bytes; the difference is GitHub's own, so it is reproduced rather than unified.
+_BLOB_RAW_TYPE = "text/plain; charset=utf-8"
+_CONTENT_RAW_TYPE = "application/vnd.github.raw; charset=utf-8"
+
+
+class _Loose(BaseModel):
+    """Documents the fields the bridge/agent rely on while ``extra='allow'`` lets the
+    builders' full (real-API-shaped) field set pass through unfiltered — the OpenAPI schema
+    gains structure with zero fidelity loss."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GitHubIssue(_Loose):
+    id: int
+    number: int
+    title: str | None = None
+    body: str | None = None
+    state: str
+    html_url: str
+    url: str
+
+
+class GitHubIssueSearch(_Loose):
+    total_count: int
+    incomplete_results: bool
+    items: list[GitHubIssue]
+    # After `items`, where real sends it; a response's members go out in the order declared here.
+    search_type: str
+
+
+class GitHubCodeHit(_Loose):
+    name: str
+    path: str
+    sha: str
+    url: str
+    git_url: str
+    html_url: str
+    repository: dict
+
+
+class GitHubCodeSearch(_Loose):
+    total_count: int
+    incomplete_results: bool
+    items: list[GitHubCodeHit]
+
+
+def _api_base(request: Request) -> str:
+    """Backlot's GitHub API root (…/github), used for resource `url` fields so SDK
+    clients (e.g. PyGithub) that lazily complete objects fetch back from Backlot."""
+    host = request.headers.get("host", "localhost")
+    return f"{request.url.scheme}://{host}/github"
+
+
+#: The id-keyed prefixes real's page urls use.
+_ID_PATHS = {"repositories", "organizations"}
+
+
+def _page_base_url(request: Request) -> str:
+    """The url a page LINK is built on, which names a repository and an organization by ID.
+
+    Real's page urls do, where the resource urls in the same response do not: `/collaborators` at
+    `per_page=1` links `/repositories/1287077005/collaborators?…` and an org's `/repos` links
+    `/organizations/130592615/repos?…`, while a comment in that body still carries
+    `url: …/repos/psf/requests/issues/comments/…` (measured on api.github.com on 2026-09-04). So
+    the two forms are not interchangeable and only the page urls carry the id; `/user/repos` and
+    `/search/…` keep their own paths, naming no owner to swap.
+
+    The form has to resolve, which is ``resolve_github_id_paths`` in :mod:`backlot.main`.
+
+    The id is the CORPUS's, not one minted from the spelling the request used: both segments
+    resolve in any case, so hashing the caller's spelling would name an id nothing holds and 404
+    the client that followed the url. Both spellings are already to hand — `_canonical_path_repo`
+    has put the corpus's in ``path_params`` and the org route only answers for the one org.
+    """
+    parts = request.url.path.strip("/").split("/")
+    path = request.url.path
+    if parts[1:2] == ["repos"] and len(parts) >= 4:
+        repo = request.path_params.get("repo") or parts[3]
+        path = "/".join(["/github/repositories", str(synth.github_user_id(repo)), *parts[4:]])
+    elif parts[1:2] == ["orgs"] and len(parts) >= 3:
+        # the one org served, which is the spelling `_validate_path_owner` accepted this path for
+        path = "/".join(
+            ["/github/organizations", str(synth.github_user_id(_org(request))), *parts[3:]]
+        )
+    host = request.headers.get("host", "localhost")
+    return f"{request.url.scheme}://{host}{path}"
+
+
+def canonical_id_path(conn, org: str, path: str) -> str | None:
+    """The login-keyed path an id-keyed one stands for, or ``None`` when the path is not one.
+
+    The inverse of :func:`_page_base_url`, so that the page urls Backlot emits can be followed.
+    Resolution is by id alone and says nothing about visibility — the route it lands on applies the
+    caller's ACL, so a repository this caller cannot read 404s exactly as it does by name.
+
+    An id that names NOTHING is still rewritten, with the id left where the name goes, so that this
+    path answers in the order the named one does: :func:`_validate_path_owner` puts credentials
+    ahead of existence, and resolving here first would let a caller with none tell an id the corpus
+    holds (401) from one it does not (404) — and since the id is ``github_user_id(name)``, confirm
+    a guessed name that way.
+
+    An id TWO repositories share names neither. `github_user_id` is `1000 + digest % 9_000_000` and
+    so not injective — `repo485` and `repo4107` both hash to 7755679 — and answering with whichever
+    name sorts first would walk a client onto another repository's page with nothing in the response
+    to say so. :func:`store.container_spelling` settles the ambiguous spelling the same way.
+    """
+    parts = path.strip("/").split("/", 3)
+    if len(parts) < 3 or parts[1] not in _ID_PATHS:
+        return None
+    tail = parts[3:]
+    # A trailing slash survives the rewrite. `/repositories/{id}/` is real's 404, the same as the
+    # `/repos/{owner}/{repo}/` it stands for, so dropping it with the rest of the stripping would
+    # answer the resource on a spelling real refuses.
+    slash = "/" if path.endswith("/") else ""
+    if parts[1] == "organizations":
+        named = org if str(synth.github_user_id(org)) == parts[2] else parts[2]
+        return "/".join(["/github/orgs", named, *tail]) + slash
+    hits = [
+        r["name"]
+        for r in store.list_containers(conn, "github")
+        if str(synth.github_user_id(r["name"])) == parts[2]
+    ]
+    named = hits[0] if len(hits) == 1 else parts[2]
+    return "/".join(["/github/repos", org, named, *tail]) + slash
+
+
+def _link_response(link: str | None, body: list) -> Response:
+    return JSONResponse(body, headers={"Link": link} if link else {})
+
+
+def _clamp(page: int | None, per_page: int | None) -> tuple[int, int]:
+    """The page and size a request pages by: `page` defaulted to 1, `per_page` to
+    :data:`PER_PAGE_DEFAULT` and capped at :data:`PER_PAGE_MAX`, real's numbers rather than the
+    server's settings."""
+    return clamp_page(page, per_page, PER_PAGE_DEFAULT, PER_PAGE_MAX)
+
+
+def _paged(
+    request: Request, rows_total: int, extra: dict, body: list, page: int, per_page: int
+) -> Response:
+    link = github_link_header(
+        _page_base_url(request),
+        extra,
+        page,
+        per_page,
+        rows_total,
+        per_page_param=request.query_params.get("per_page"),
+    )
+    return _link_response(link, body)
+
+
+def _paged_by_cursor(
+    request: Request,
+    rows_total: int,
+    extra: dict,
+    body: list,
+    page: int | None,
+    per_page: int,
+    offset: int,
+) -> Response:
+    """:func:`_paged` for the one listing real pages by cursor rather than by offset — see
+    :func:`backlot.pagination.github_cursor_link_header`."""
+    link = github_cursor_link_header(
+        _page_base_url(request), extra, page, per_page, rows_total, offset
+    )
+    return _link_response(link, body)
+
+
+def _echo(request: Request, **params) -> dict:
+    """The FILTERS a next-page url spells out: the ones the caller sent, in `_paged`'s shape.
+
+    Real echoes a listing's filter only when the request carried it — `/pulls?per_page=1` links
+    `per_page` and `page` alone where `?state=open&per_page=1` links `state=open` too, and an empty
+    `?protected=` is echoed as well (measured on psf/requests and fastapi/fastapi). A default the
+    handler applied is not one the caller asked for: echoing `state`'s `open` narrows the url a
+    paginator follows, dropping the rows a `state=all` walk asked for.
+
+    Filters only. `per_page` is `github_link_header`'s to write, and it applies the same rule to it:
+    the caller's own spelling of the size when they named one, and nothing at all when they did not.
+    """
+    return {k: v for k, v in params.items() if k in request.query_params}
+
+
+def _sent(request: Request, *names: str) -> dict:
+    """The caller's own spelling of each of ``names`` it sent, for :func:`_echo`."""
+    q = request.query_params
+    return {n: q[n] for n in names if n in q}
+
+
+def _enum_param(
+    default: str | None, description: str, values: tuple[str, ...], *, alias: str | None = None
+):
+    """A query parameter declared as real's description declares it: `{type: string, enum: […]}`
+    with the default real states, or none, under the route's own description.
+
+    Written into the schema by hand rather than as a `Literal`: a `Literal` has FastAPI refuse a
+    value outside it before the handler runs, and real refuses none of these parameters' values on
+    any of the routes measured (see :data:`_ISSUE_ORDERING` and its siblings, and
+    :func:`_invalid_issue_state` for the one parameter one route does refuse). ``alias`` is the
+    wire name when the Python name cannot be it (`type`)."""
+    return Query(
+        default, alias=alias, description=description, json_schema_extra={"enum": list(values)}
+    )
+
+
+# --- sort and direction -------------------------------------------------------------
+#
+# Four listings take `sort` and `direction` (a repository's issues and its pulls, an organization's
+# repositories and the token's own). GitHub's OpenAPI description declares each pair with an enum
+# and a default, states the pull and repository listings' direction default in prose ("`desc` when
+# sort is `created` or sort is not specified, otherwise `asc`"; "`asc` when using `full_name`,
+# otherwise `desc`"), and is not what the wire answers in several cells. The wire is what a client
+# meets, so each listing carries an `_Ordering` measured cell by cell against api.github.com on
+# 2026-09-09 and 2026-09-10, three rows a page, against `psf/requests`, the `psf` organization and
+# the token's own repositories; the cells the description gets right are not repeated below, the
+# ones it does not are. Every value outside an enum was absorbed and answered 200 on every route
+# measured; which order an absorbed value yields is the listing's own, and the last two fields of
+# each `_Ordering` state it.
+
+_DIRECTIONS = ("asc", "desc")
+
+
+class _Ordering(NamedTuple):
+    """How one listing reads `sort` and `direction`, as measured."""
+
+    #: real's enum, in real's order
+    sorts: tuple[str, ...]
+    #: real's declared default, which is also the key of the order a request with no `sort` and no
+    #: `direction` gets
+    default: str
+    #: whether that unsent order descends
+    unsent_descending: bool
+    #: the sorts that descend when sent with no `direction`; the rest ascend
+    descends_when_sent: frozenset[str]
+    #: what a `sort` outside the enum is read as: a sort name, applied with `direction` read as
+    #: usual, or "unsent" for the unsent order with `direction` ignored
+    unknown_sort: str
+    #: what a `direction` outside the enum yields, `sort` kept: "asc", "desc", or "unsent" for the
+    #: unsent order with `sort` dropped too
+    unknown_direction: str
+
+
+#: Issues: every sort descends unless told otherwise, so the unsent order is `sort=created`'s
+#: (7620, 7619, 7618; `sort=updated` 7620, 7619, 7610 by `updated_at`; `sort=comments` 2966, 5797,
+#: 1573; `direction=asc` 1, 2, 3; `sort=updated&direction=asc` 482, 2117, 1812 by `updated_at`
+#: ascending). `sort=bogus`, `sort=bogus&direction=asc`, `direction=bogus` and
+#: `sort=updated&direction=bogus` each answer the unsent order, so here an unknown value in either
+#: parameter drops the other. `comments` orders by the issue's conversation comments AND, for a
+#: pull seen through this listing, its review comments: 5797 (`comments: 105`, `review_comments:
+#: 25`) sits between 2966 (211) and 1573 (122), which no single member orders. Ties keep the
+#: unsent order whatever the direction: `sort=comments&direction=asc` answers 7620, 7619, 7618,
+#: three rows at 0 comments, newest first.
+_ISSUE_ORDERING = _Ordering(
+    sorts=("created", "updated", "comments"),
+    default="created",
+    unsent_descending=True,
+    descends_when_sent=frozenset({"created", "updated", "comments"}),
+    unknown_sort="unsent",
+    unknown_direction="unsent",
+)
+
+#: Pulls: newest first with no `sort` (7619, 7616, 7609), and OLDEST first the moment one is sent:
+#: `sort=created` 4, 8, 10, where the description says `desc` for exactly that case; `sort=updated`
+#: 519, 929, 1350 by `updated_at` ascending; `sort=popularity` 10, 15, 42, each at 0 comments, and
+#: `direction=desc` with it 5797, 3014, 2567, the same conversation-plus-review count the issue
+#: listing's `comments` orders by; `sort=long-running` 3335, 3443, 3900, closed pulls from 2016 in
+#: `created_at` order with `state=all`, and 5922, 6166, 6185 with `state=open`, pulls with no
+#: activity since 2021, so the filter the description attaches to it ("open for more than a month
+#: and have had activity within the past month") is not applied on the wire and is not applied
+#: here. `direction=asc` alone 4, 8, 10. `sort=bogus` 4, 8, 10 and `sort=bogus&direction=desc`
+#: 7619, 7616, 7609, so an unknown sort is read as `created` with the direction honoured;
+#: `direction=bogus` alone the unsent order and `sort=updated&direction=bogus` 7025, 7026, 6675,
+#: the `direction=desc` order, so an unknown direction is `desc` with the sort kept.
+_PULL_ORDERING = _Ordering(
+    sorts=("created", "updated", "popularity", "long-running"),
+    default="created",
+    unsent_descending=True,
+    descends_when_sent=frozenset(),
+    unknown_sort="created",
+    unknown_direction="desc",
+)
+
+#: An organization's repositories: OLDEST first with no `sort` (`requests`, `cachecontrol`,
+#: `pyperf`, created 2011, 2013, 2016, the `sort=created&direction=asc` order), newest first the
+#: moment `sort=created` is sent (`wiki`, `blog`, `organizer-toolkit`), as `direction=desc` alone
+#: is; `sort=updated` and `sort=pushed` descend (`black`, `requests`, `advisory-database` by
+#: `updated_at`; `advisory-database`, `cachecontrol`, `requests` by `pushed_at`); `sort=full_name`
+#: ascends (`.github`, `advisory-database`, `black`) and `direction=desc` reverses it (`wiki`,
+#: `webassembly`, `user-success-wg`). `sort=bogus` answers the `sort=created` order;
+#: `direction=bogus` alone the unsent order, `sort=pushed&direction=bogus` `bpo-django-gae2django`,
+#: `bpo-rietveld`, `packaging-wg`, the least recently pushed, and `sort=full_name&direction=bogus`
+#: `.github`, `advisory-database`, `black`, so an unknown direction is `asc` with the sort kept.
+_ORG_REPO_ORDERING = _Ordering(
+    sorts=("created", "updated", "pushed", "full_name"),
+    default="created",
+    unsent_descending=False,
+    descends_when_sent=frozenset({"created", "updated", "pushed"}),
+    unknown_sort="created",
+    unknown_direction="asc",
+)
+
+#: The token's own repositories: the description declares `default: full_name`, and with no `sort`
+#: real answers an order that is neither the names' nor `created_at`'s nor `pushed_at`'s (the first
+#: four created 2026-07, 2026-09, 2026-03, 2026-08 and pushed 09-02, 09-05, 08-15, 08-31), and
+#: `sort=full_name` the same first three, which are not in full-name order either; Backlot answers
+#: the declared default, name order, for both. `sort=created` newest first; `sort=bogus` the same;
+#: `sort=created&direction=bogus` newest first too. `direction=bogus` alone answers what
+#: `direction=desc` answers, the REVERSE of the unsent order, and a second unknown value answers
+#: the same, so an unknown direction is read as `desc` whether or not a sort was sent. That is this
+#: listing alone: the three above answer their unsent order for a bare unknown direction, which is
+#: why the cell is measured here rather than carried over. `type=bogus` and `visibility=bogus` keep
+#: every repository. The names are left out because this listing is one token's own: a reader
+#: cannot reach it with them, and the dates carry the claim on their own.
+_USER_REPO_ORDERING = _Ordering(
+    sorts=("created", "updated", "pushed", "full_name"),
+    default="full_name",
+    unsent_descending=False,
+    descends_when_sent=frozenset({"created", "updated", "pushed"}),
+    unknown_sort="created",
+    unknown_direction="desc",
+)
+
+
+def _order(request: Request, spec: _Ordering) -> tuple[str, bool]:
+    """The `(sort, descending)` a listing applies to the request, read off the query as sent.
+
+    Read off the query rather than off the declared parameters because sent and unsent differ on
+    the wire (a pull listing with `sort=created` is the reverse of one without), and FastAPI hands
+    the handler the default for both."""
+    q = request.query_params
+    sort, direction = q.get("sort"), q.get("direction")
+    unsent = (spec.default, spec.unsent_descending)
+    if direction is not None and direction not in _DIRECTIONS:
+        if spec.unknown_direction == "unsent":
+            return unsent
+        if sort is None:
+            key = spec.default
+        elif sort in spec.sorts:
+            key = sort
+        elif spec.unknown_sort == "unsent":
+            return unsent
+        else:
+            key = spec.unknown_sort
+        return key, spec.unknown_direction == "desc"
+    if sort is not None and sort not in spec.sorts:
+        if spec.unknown_sort == "unsent":
+            return unsent
+        sort = spec.unknown_sort
+    if sort is None:
+        if direction is None:
+            return unsent
+        return spec.default, direction == "desc"
+    if direction is not None:
+        return sort, direction == "desc"
+    return sort, sort in spec.descends_when_sent
+
+
+def _ordered(items: list, keys: dict[str, Callable], spec: _Ordering, sort: str, descending: bool):
+    """``items`` in the unsent order, then stably by the sort asked for: a tie under the sort keeps
+    the unsent order whatever the direction, as measured on the issue listing (see
+    :data:`_ISSUE_ORDERING`)."""
+    rows = sorted(items, key=keys[spec.default], reverse=spec.unsent_descending)
+    rows.sort(key=keys[sort], reverse=descending)
+    return rows
+
+
+def _created_ts(row) -> int:
+    return row["created_ts"] or synth.epoch(_seed(row))
+
+
+def _updated_ts(row) -> int:
+    return row["updated_ts"] or _created_ts(row) + 3600
+
+
+def _issue_sort_keys(conn, repo: str, sort: str, ids) -> dict[str, Callable]:
+    """The sort keys of the issue and pull listings, over the store's rows.
+
+    The timestamps are the ones the bodies serve (:func:`_shared_obj` reads the same two
+    functions), and the number breaks a tie the way real's monotonic ids do. `comments` and
+    `popularity` are one key: both order by the conversation and review comments added together,
+    which is the count real orders by (see :data:`_ISSUE_ORDERING`), read in one query for the
+    repository and only when asked for. `long-running` is `created` with no filter (see
+    :data:`_PULL_ORDERING`).
+
+    ``ids`` scopes that count to the comments the caller is served, so a row's position is the
+    position its own served numbers put it in (see :func:`store.github_comment_counts`)."""
+    counts = (
+        store.github_comment_counts(conn, repo, ids) if sort in ("comments", "popularity") else {}
+    )
+
+    def created(row):
+        return _created_ts(row), row["number"]
+
+    def updated(row):
+        return _updated_ts(row), row["number"]
+
+    def comments(row):
+        return counts.get(row["number"], 0)
+
+    return {
+        "created": created,
+        "updated": updated,
+        "comments": comments,
+        "popularity": comments,
+        "long-running": created,
+    }
+
+
+def _repo_timestamps(name: str) -> tuple[int, int, int]:
+    """A repository's `(created, updated, pushed)`, derived as :func:`_repo_obj` has always derived
+    them: the epoch of the name and two fixed offsets from it, so the three orders they give are
+    one order."""
+    ts = synth.epoch("repo:" + name)
+    return ts, ts + 3600, ts + 7200
+
+
+def _repo_sort_keys(owner: str) -> dict[str, Callable]:
+    """The sort keys of the two repository listings, over repository names."""
+    return {
+        "created": lambda name: (_repo_timestamps(name)[0], name),
+        "updated": lambda name: (_repo_timestamps(name)[1], name),
+        "pushed": lambda name: (_repo_timestamps(name)[2], name),
+        "full_name": lambda name: f"{owner}/{name}",
+    }
+
+
+#: `type` on an organization's repositories and `visibility` on the token's own, as the description
+#: declares them (`enum` in its order, `default: all`, read 2026-09-10). `type=forks` answers the
+#: forks alone (`matterbridge-configuration`, `httpbin`, `plausible-analytics` for `psf`, each
+#: `fork: true`), `type=member` answers `[]` for `psf`, `type=sources` and `type=bogus` every
+#: repository, measured the same days as the orders above.
+_ORG_REPO_TYPES = ("all", "public", "private", "forks", "sources", "member")
+_USER_REPO_VISIBILITIES = ("all", "public", "private")
+
+
+def _keeps_nothing(private: bool) -> bool:
+    """A filter that keeps no repository at all.
+
+    A named function rather than a lambda so :func:`_repo_page` can recognise it: this filter's
+    answer does not depend on `private`, so reading the ACL to compute one would be a query per
+    visible repository whose every row is then discarded.
+    """
+    return False
+
+
+def _repo_type_keeps(value: str | None) -> Callable[[bool], bool] | None:
+    """The filter `type=value` applies to a repository's `private` flag, or ``None`` for one that
+    keeps every repository.
+
+    `public` and `private` select on the one fact a corpus states about a repository's kind, the
+    ACL (see :func:`_repo_obj`). Every repository here is one the organization owns outright and
+    none is a fork, which the repository object says of each (`fork: false`), so `forks` and
+    `member` keep none and `sources` keeps every one; `all`, no value and a value outside the enum
+    keep every one too, as measured."""
+    if value in ("public", "private"):
+        return lambda private: private == (value == "private")
+    if value in ("forks", "member"):
+        return _keeps_nothing
+    return None
+
+
+def _repo_visibility_keeps(value: str | None) -> Callable[[bool], bool] | None:
+    """The filter `visibility=value` applies to a repository's `private` flag, or ``None`` for
+    `all`, no value and a value outside the enum, which keep every repository."""
+    if value in ("public", "private"):
+        return lambda private: private == (value == "private")
+    return None
+
+
+_GH_OP = re.compile(r'(\w+):("[^"]*"|\S+)')
+# The qualifiers each search endpoint honors. They differ because the resources do: an issue has a
+# state and an author, a file has a path and an extension. A key absent from the set stays as free
+# text, which is also what real does with a qualifier it does not know.
+_GH_ISSUE_QUALS = {"repo", "is", "state", "type", "label", "author", "in", "org", "user"}
+_GH_CODE_QUALS = {"repo", "path", "filename", "extension", "in"}
+
+
+def _parse_q(q: str, keys: set[str]) -> tuple[str, dict]:
+    """Split a GitHub search `q` into (free_text, qualifiers), honoring the keys in `keys`.
+    Everything else is free text, matched full-text."""
+    quals: dict[str, list[str]] = {}
+
+    def _take(m):
+        key = m.group(1).lower()
+        if key in keys:
+            quals.setdefault(key, []).append(m.group(2).strip('"'))
+            return " "
+        return m.group(0)
+
+    free = re.sub(r"\s+", " ", _GH_OP.sub(_take, q)).strip()
+    return free, quals
+
+
+def _issue_qual_match(row, quals: dict) -> bool:
+    for v in quals.get("is", []) + quals.get("type", []):
+        v = v.lower()
+        if v == "issue" and row["kind"] == "pull_request":
+            return False
+        if v == "pr" and row["kind"] != "pull_request":
+            return False
+        if v in ("open", "closed") and row["state"] != v:
+            return False
+        if v == "merged" and not row["merged_at"]:
+            return False
+    for v in quals.get("state", []):
+        if row["state"] != v.lower():
+            return False
+    for v in quals.get("label", []):
+        if v.lower() not in [x.lower() for x in store.jcol(row, "labels")]:
+            return False
+    for v in quals.get("author", []):
+        login = synth.github_login(row["author_email"]).lower()
+        if v.lower() != login and v.lower() not in (row["author_email"] or "").lower():
+            return False
+    return True
+
+
+def _search_paged(
+    request: Request,
+    response: Response,
+    q: str,
+    page: int,
+    per_page: int,
+    total: int,
+    *,
+    code: bool = False,
+) -> None:
+    """Carry the RFC5988 `Link` real sends on a search onto ``response``.
+
+    A search envelope reports `total_count`, so the header is not the only way to learn there is
+    more — it is how a client that FOLLOWS links pages without composing a URL of its own, which is
+    what :func:`_paged` already gives every listing on this router. Set on the injected response
+    rather than by returning a ``JSONResponse``, so the handler keeps its ``response_model`` and the
+    operation keeps the typed schema the MCP bridge reads.
+
+    ``code`` picks the builder, because the two search routes do not share one: `/search/issues`
+    pages by the listings' rules, down to carrying the caller's own spelling of the size, and
+    `/search/code` by its own, which carries the size applied (see
+    :func:`backlot.pagination.github_code_search_link_header`).
+    """
+    if code:
+        link = github_code_search_link_header(
+            _page_base_url(request), {"q": q}, page, per_page, total
+        )
+    else:
+        link = github_link_header(
+            _page_base_url(request),
+            {"q": q},
+            page,
+            per_page,
+            total,
+            per_page_param=request.query_params.get("per_page"),
+            max_page=github_search_last_page(per_page),
+        )
+    if link:
+        response.headers["Link"] = link
+
+
+@router.get("/search/issues", response_model=GitHubIssueSearch)
+async def search_issues(
+    request: Request,
+    response: Response,
+    q: str = Query("", description="Issues/PRs search query"),
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """Issues-and-PRs search (GitHub `GET /search/issues`): free text over title+body (FTS)
+    plus repo:/is:/state:/type:/label:/author: qualifiers, ACL-scoped to the caller.
+
+    A blank `q` is real's 422, the same envelope `/search/code` answers with. This used to be a
+    listing of everything the caller can see, which is the expensive kind of divergence: a client
+    that forgot its query got a plausible, ACL-scoped result set here and a hard 422 in production
+    (measured against api.github.com — `GET /search/issues` with no `q` is `Validation Failed`, field `q`,
+    code `missing`)."""
+    caller = _require(request)
+    if not q.strip():
+        raise _search_validation_failed("q")
+    conn = auth.conn(request)
+    ids = auth.visible_ids(request, caller)
+    free, quals = _parse_q(q, _GH_ISSUE_QUALS)
+    # _org, not the setting directly: the owner a `repo:` is compared against, and the one in the
+    # URLs these items carry, has to be the one the repo routes accept, or every link a client
+    # follows out of a search hit 404s
+    owner = _org(request)
+    # Any case, as real takes it: `repo:PSF/Requests is:issue` answers the same 4,173 as the
+    # lowercase spelling (measured 2026-09-04). A qualifier that resolves to NOTHING is refused
+    # rather than dropped — dropping it left `container` None, which widened this search to the
+    # whole corpus and answered a client that scoped its search with other repositories' issues.
+    named = _qual_repos(conn, quals, owner, ids)
+    if named is not None and not named:
+        raise _search_unsearchable_repo()
+    container = named[-1] if named else None
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    # A page that STARTS past the first 1000 results is refused, whatever the total: at real's
+    # default 30 a page, page 34 (results 991 to 1020) is served in full and page 35 refused, at
+    # 7 a page, page 143 (995 to 1001) is served and 144 refused, at 100 a page, 10 is served and
+    # 11 refused, and an 846-result search refuses page 11 at 100 a page just the same, after
+    # serving page 10 empty (measured 2026-09-06; the rule is `github_search_depth_refused`'s).
+    # After the blank-`q` and `repo:` 422s, which real answers first on this route; `/search/code`
+    # draws its line elsewhere, see there.
+    if github_search_depth_refused(page, per_page, code=False):
+        raise _search_beyond_first_results(code=False)
+    if free:
+        cand = store.search_documents(conn, free, "github", ids, limit=10_000, container=container)
+    else:
+        cand = store.list_documents(conn, "github", container, ids, limit=10_000)
+    matched = [r for r in cand if r["kind"] != "file" and _issue_qual_match(r, quals)]
+    ab = _api_base(request)
+    items = [
+        _issue_obj(conn, owner, r["repo"], r, ab, _version(request))
+        for r in matched[start : start + per_page]
+    ]
+    _search_paged(request, response, q, page, per_page, len(matched))
+    # Real answers `lexical` to a search that does not ask for `search_type=semantic` or `hybrid`,
+    # an empty one included (measured 2026-10-10). This route ignores `search_type` and always
+    # matches lexically.
+    return {
+        "total_count": len(matched),
+        "incomplete_results": False,
+        "items": items,
+        "search_type": "lexical",
+    }
+
+
+# --- code search ----------------------------------------------------------------
+
+
+def _code_path_match(path: str, value: str) -> bool:
+    """`path:` — the value's segments as a contiguous run of WHOLE segments of `path`, anchored at
+    the root when the value is (`path:/src`).
+
+    Whole segments rather than a substring: `path:pkg` names a directory, and answering it with
+    `mypkg/x.py` is the kind of hit that makes a result set untrustworthy. The run may reach the
+    filename, so `path:src/pkg/utils.py` matches the one file it spells out.
+
+    A bare `path:/` names the root itself and selects the files directly in it, which is real's own
+    reading — matching everything there would make the qualifier a no-op at its most specific.
+    """
+    want = [s.lower() for s in value.split("/") if s]
+    parts = [s.lower() for s in path.split("/")]
+    if not want:
+        return len(parts) == 1 if value.startswith("/") else True
+    starts = [0] if value.startswith("/") else range(len(parts) - len(want) + 1)
+    return any(parts[i : i + len(want)] == want for i in starts)
+
+
+def _code_filename_match(path: str, value: str) -> bool:
+    """`filename:` — the file's name, with or without its extension, so `filename:utils` and
+    `filename:utils.py` both find `src/pkg/utils.py`."""
+    name = path.rsplit("/", 1)[-1].lower()
+    return value.lower() in (name, name.rsplit(".", 1)[0])
+
+
+def _code_extension_match(path: str, value: str) -> bool:
+    """`extension:` — the path's last extension. A leading dot is accepted; real's own docs spell
+    the qualifier both ways."""
+    return path.lower().endswith("." + value.lower().lstrip("."))
+
+
+# A quoted run, or a bare run of non-space. Same quoting `_GH_OP` already honours on a qualifier's
+# value, applied to what is left over as free text.
+_GH_TERM = re.compile(r'"([^"]*)"|(\S+)')
+
+
+def _code_terms(free: str) -> list[str]:
+    """The free text as the terms a PATH and a `text_matches` fragment are searched for.
+
+    Quotes group a term rather than being part of it: `"svc/other"` is how a caller spells one
+    term containing a space, and hunting the path for a literal `"` finds nothing — so a quoted
+    query answered zero where its bare form answered a file. FTS never saw the problem, since
+    :func:`store._fts_match` tokenizes on word characters and drops the quotes on its own.
+
+    Deduplicated, because a term the query repeats is still one occurrence of it in the file and
+    reporting the same span twice would have a client highlight it twice.
+    """
+    terms = ((quoted or bare) for quoted, bare in _GH_TERM.findall(free))
+    return list(dict.fromkeys(t for t in terms if t))
+
+
+def _code_in_targets(quals: dict) -> set[str]:
+    """Where `in:` says the free text has to match. Real searches the content AND the path when the
+    qualifier is absent, and takes a comma-joined list (`in:file,path`).
+
+    A value naming neither falls back to both rather than to nothing: `in:` is a NARROWING, and one
+    the endpoint cannot honour is better answered too widely than with a silent zero.
+    """
+    named = {v.strip().lower() for val in quals.get("in", []) for v in val.split(",")}
+    return (named & {"file", "path"}) or {"file", "path"}
+
+
+def _qual_repos(conn, quals: dict, org: str, ids) -> list[str] | None:
+    """The corpus spellings a `repo:` qualifier names, in the order named, or ``None`` when the
+    query carries no `repo:` at all. EMPTY when every name it carried resolves to nothing.
+
+    Both search routes read the qualifier through here, because a name that resolves for one and
+    not the other is two answers to one question. Resolution is by spelling AND by visibility: a
+    repo the caller cannot see counts as unresolved, which is real's own answer — its 422 for an
+    unsearchable repository covers "does not exist" and "you cannot view it" in one message, so
+    neither answer confirms which.
+
+    An empty list is a restriction nothing satisfies, and that is the point: a `repo:` naming a
+    repo Backlot does not serve — or one under another owner, which `_validate_path_owner` 404s
+    everywhere else — has to be refused rather than quietly widening back to the whole corpus.
+    """
+    if "repo" not in quals:
+        return None
+    names = []
+    for v in quals["repo"]:
+        owner, _, name = v.rpartition("/")
+        if owner and owner.lower() != org.lower():
+            continue
+        # The corpus's spelling, from a qualifier in any case — as the owner half is already
+        # compared (see :func:`store.container_spelling` for what real answers).
+        spelled = store.container_spelling(conn, "github", name)
+        if spelled is None:
+            continue
+        # `_visible_repos`'s rule for the one name asked about rather than for every repo in the
+        # corpus: a repo with no document this caller can read is not visible to them.
+        if ids is not None and not store.has_visible_document(conn, "github", spelled, ids):
+            continue
+        names.append(spelled)
+    return names
+
+
+def _code_repos(conn, quals: dict, org: str, ids) -> set[str] | None:
+    """:func:`_qual_repos` as the set `search_code` filters on. Several repos OR, as on real."""
+    named = _qual_repos(conn, quals, org, ids)
+    return None if named is None else set(named)
+
+
+# Real's fragment is a couple of hundred characters of the file around the match.
+_TEXT_MATCH_CHARS = 200
+
+
+def _text_matches(content: str, object_url: str, terms: list[str]) -> list[dict]:
+    """Real's `text_matches`: one fragment of the file's content, with the indices of each search
+    term inside it (`indices` are into the FRAGMENT, not the file).
+
+    `property` is always `content` and `matches` may be EMPTY — real's own answer for a hit matched
+    on its path, read off api.github.com rather than assumed. The fragment spans whole lines, so a
+    code hit arrives readable.
+
+    `terms` comes from :func:`_code_terms` — quoting grouped, duplicates dropped.
+    """
+    lowered = content.lower()
+    found = [i for t in terms if (i := lowered.find(t.lower())) >= 0]
+    start = content.rfind("\n", 0, max(0, min(found, default=0) - 60)) + 1
+    end = content.find("\n", start + _TEXT_MATCH_CHARS)
+    fragment = content[start : end + 1 if end >= 0 else len(content)]
+    low = fragment.lower()
+    matches = []
+    for t in terms:
+        at = low.find(t.lower())
+        while at >= 0:
+            matches.append({"text": fragment[at : at + len(t)], "indices": [at, at + len(t)]})
+            at = low.find(t.lower(), at + 1)
+    matches.sort(key=lambda m: m["indices"])
+    return [
+        {
+            "object_url": object_url,
+            "object_type": "FileContent",
+            "property": "content",
+            "fragment": fragment,
+            "matches": matches,
+        }
+    ]
+
+
+def _code_hit(conn, owner: str, row, api_base: str) -> dict:
+    """One `/search/code` result — real's field set, which carries no body and no `_links`: a hit
+    LOCATES a file, and `url` is where its content is then fetched from.
+
+    Real's `url`/`git_url` name `/repositories/{id}/…` and pin `?ref=` to the commit it indexed.
+    Backlot serves no `/repositories/{id}` route, so the links take the `/repos/{owner}/{repo}/…`
+    form it does serve — a link the caller can follow beats one that matches real's spelling and
+    404s, which is the rule :func:`_repo_obj` states for its url templates. The snapshot pin is
+    kept, as the HEAD row's own `ref`, so following `url` returns the bytes that were searched.
+    """
+    repo, path, content = row["repo"], row["path"], row["content"]
+    sha = _blob_sha(content)
+    ref = row["ref"]
+    rev = quote(ref, safe="") if ref else "main"
+    return {
+        "name": path.rsplit("/", 1)[-1],
+        "path": path,
+        "sha": sha,
+        "url": f"{api_base}/repos/{owner}/{repo}/contents/{path}" + (f"?ref={rev}" if ref else ""),
+        "git_url": f"{api_base}/repos/{owner}/{repo}/git/blobs/{sha}",
+        "html_url": f"https://github.com/{owner}/{repo}/blob/{rev}/{path}",
+        "repository": _repo_obj(conn, owner, repo, api_base),
+        # Real reports a flat 1.0 for every hit: its index exposes no per-hit score and the ORDER
+        # carries the relevance. A bm25 value here would be a number real never sends.
+        "score": 1.0,
+    }
+
+
+def _search_validation_failed(field: str) -> HTTPException:
+    """Real's 422 for a search missing a required parameter, in its own envelope — here `errors` is
+    the usual array, unlike the version 400's string (see :func:`_unsupported_version_error`)."""
+    exc = HTTPException(status_code=422, detail="Validation Failed")
+    exc.github_body = {
+        "message": "Validation Failed",
+        "documentation_url": "https://docs.github.com/v3/search",
+        "errors": [{"resource": "Search", "field": field, "code": "missing"}],
+        "status": "422",
+    }
+    return exc
+
+
+def _search_unsearchable_repo() -> HTTPException:
+    """Real's 422 for a `repo:` qualifier that names no repository it can search.
+
+    Measured on api.github.com on 2026-09-04: `search/issues?q=repo:psf/ghost-zz-9876` and
+    `repo:someone-else-zz/requests` both answer this body, and so does a repository the token
+    cannot view — one message for all three, which is why :func:`_qual_repos` treats an invisible
+    repo as unresolved. `code` is `invalid` where the missing-parameter 422 says `missing`, the
+    error carries a `message` that one has none, and the `documentation_url` differs from it by a
+    trailing slash — real's, not a typo.
+    """
+    exc = HTTPException(status_code=422, detail="Validation Failed")
+    exc.github_body = {
+        "message": "Validation Failed",
+        "errors": [
+            {
+                "message": (
+                    "The listed users and repositories cannot be searched either because the "
+                    "resources do not exist or you do not have permission to view them."
+                ),
+                "resource": "Search",
+                "field": "q",
+                "code": "invalid",
+            }
+        ],
+        "documentation_url": "https://docs.github.com/v3/search/",
+        "status": "422",
+    }
+    return exc
+
+
+def _search_beyond_first_results(*, code: bool) -> HTTPException:
+    """Real's 422 for a search page past the first 1000 results, which is as deep as any search
+    goes whatever `total_count` says. The two search routes are served by two backends and the
+    envelope is each one's own (measured 2026-09-06): `/search/issues` and `/search/repositories`
+    answer `Only the first 1000 search results are available` with the bare `/v3/search/` anchor,
+    `/search/code` answers `Cannot access beyond the first 1000 results` with its own route's
+    anchor. Neither carries an `errors` array, unlike the two Validation Failed 422s above."""
+    if code:
+        message = "Cannot access beyond the first 1000 results"
+        docs = "https://docs.github.com/rest/search/search#search-code"
+    else:
+        message = "Only the first 1000 search results are available"
+        docs = "https://docs.github.com/v3/search/"
+    exc = HTTPException(status_code=422, detail=message)
+    exc.github_body = {"message": message, "documentation_url": docs, "status": "422"}
+    return exc
+
+
+@router.get("/search/code", response_model=GitHubCodeSearch)
+async def search_code(
+    request: Request,
+    response: Response,
+    q: str = Query(
+        "",
+        description=(
+            "Required. Free text matched against a file's body and its path, plus "
+            "repo:/path:/filename:/extension:/in:file/in:path qualifiers."
+        ),
+    ),
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """Code search (GitHub `GET /search/code`): free text over a file's body and its path, plus
+    repo:/path:/filename:/extension:/in: qualifiers, ACL-scoped to the caller.
+
+    ONE RESULT PER (repo, path) — the HEAD snapshot's. Real code search indexes the DEFAULT BRANCH
+    only, while Backlot stores a row per snapshot of a path (see ``store._file_head_clause``), so
+    without that restriction a path would answer once per revision it was ever recorded at and one
+    repo's history would crowd the rest of the corpus out of the result set. The cost is deliberate,
+    and it is real's cost too: a string surviving only in a SUPERSEDED snapshot is not findable
+    here. It stays reachable by path at `/contents/{path}?ref=` and by digest at `/git/blobs/{sha}`.
+
+    `Accept: application/vnd.github.text-match+json` adds `text_matches` — the part that makes a hit
+    useful rather than merely located.
+
+    A blank `q` is real's 422 rather than a listing: a code search with no term is a client bug
+    better reported than answered with a corpus dump. `/search/issues` above answers a blank `q`
+    the same way, and for the same measured reason.
+
+    A `page` / `per_page` that is not an unsigned 32-bit integer, or a `q`, `page` or `per_page`
+    given twice, is refused once the credential is, and in text/plain: of the ten GitHub surfaces
+    measured this is the one that does not absorb such a value (see
+    :func:`backlot.pagination.github_code_search_query_refusal` for the measured shape). The
+    `PageParam` validator has already absorbed it by the time this runs, so the raw query string is
+    what is read. The order is real's: an unauthenticated request with `per_page=abc` is the 401,
+    an authenticated one the 400, and the 400 precedes the blank-`q` 422 (measured 2026-09-06). The
+    401 is the router's before any handler runs, so what this function's order settles is only
+    that the parse is refused before the query is read.
+
+    Then the depth. Code search serves the first 1000 results and refuses a page that would REACH
+    past them, `page * per_page > 1000`: at 30 a page, page 33 (results 961 to 990) is served and
+    page 34 (991 to 1020) refused, at 7 a page, 142 is served and 143 refused, at 1 a page, 1000 is
+    served and 1001 refused, at 100 a page, 10 is served and 11 refused, and `per_page=101` is
+    refused at 11 too because it is served at 100. The total does not enter: a 44-result search
+    refuses page 34 at 30 a page after serving pages 3 to 33 empty. That is not `/search/issues`'s
+    line, which serves page 34 in full and refuses the page that STARTS past 1000 (both rules are
+    :func:`backlot.pagination.github_search_depth_refused`'s). The refusal comes after the blank-`q`
+    422 and before the `repo:` qualifier is read: `repo:psf/ghost-zz-9876` at page 11 of 100 is
+    this 422, not the qualifier's answer (all measured 2026-09-06).
+    """
+    caller = _require(request)
+    refusal = github_code_search_query_refusal(request.query_params)
+    if refusal is not None:
+        return PlainTextResponse(refusal, status_code=400)
+    if not q.strip():
+        raise _search_validation_failed("q")
+    page, per_page = _clamp(page, per_page)
+    if github_search_depth_refused(page, per_page, code=True):
+        raise _search_beyond_first_results(code=True)
+    conn = auth.conn(request)
+    ids = auth.visible_ids(request, caller)
+    free, quals = _parse_q(q, _GH_CODE_QUALS)
+    org = _org(request)
+    repos = _code_repos(conn, quals, org, ids)
+    # A `repo:` that resolved to nothing: no row can satisfy it, so there is nothing to read. Real
+    # answers this route 200 rather than `/search/issues`'s 422, and says so in `incomplete_results`
+    # — `search/code?q=repo:psf/ghost-zz-9876+def` is `total_count: 0` with the flag TRUE, where a
+    # name that resolves beside it makes it false again (measured 2026-09-04).
+    if repos is not None and not repos:
+        return {"total_count": 0, "incomplete_results": True, "items": []}
+    one = next(iter(repos)) if repos and len(repos) == 1 else None
+    targets = _code_in_targets(quals)
+    terms = _code_terms(free)
+
+    # Keyed by the address a file HAS, so the content search and the path search union rather than
+    # double-count a file both of them found. Insertion order is the result order: FTS relevance
+    # first, then the paths that matched on their name alone.
+    rows: dict = {}
+    if free and "file" in targets:
+        for r in store.search_repo_files(conn, free, ids, repo=one):
+            rows.setdefault((r["repo"], r["path"]), r)
+    if free and "path" in targets:
+        for r in store.search_repo_files(conn, None, ids, repo=one, path_like=terms):
+            rows.setdefault((r["repo"], r["path"]), r)
+    if not free:  # qualifier-only, which real also serves
+        for r in store.search_repo_files(conn, None, ids, repo=one):
+            rows.setdefault((r["repo"], r["path"]), r)
+
+    matched = [
+        r
+        for r in rows.values()
+        if (repos is None or r["repo"] in repos)
+        and all(_code_path_match(r["path"], v) for v in quals.get("path", []))
+        and all(_code_filename_match(r["path"], v) for v in quals.get("filename", []))
+        and all(_code_extension_match(r["path"], v) for v in quals.get("extension", []))
+    ]
+    start = (page - 1) * per_page
+    ab = _api_base(request)
+    want_matches = _github_media(request, "text-match")
+    items = []
+    for row in matched[start : start + per_page]:
+        hit = _code_hit(conn, org, row, ab)
+        if want_matches:
+            hit["text_matches"] = _text_matches(row["content"], hit["url"], terms)
+        items.append(hit)
+    _search_paged(request, response, q, page, per_page, len(matched), code=True)
+    return {"total_count": len(matched), "incomplete_results": False, "items": items}
+
+
+@router.get("/orgs/{org}")
+async def get_org(org: str, request: Request):
+    """The org, in its own spelling — `org` arrives canonical from :func:`_validate_path_owner`.
+
+    The two urls are built from that name rather than from the path the request came in on, which
+    is the only difference a mixed-case `/orgs/{org}` can still see.
+    """
+    _require(request)
+    ab = _api_base(request)
+    return {
+        "login": org,
+        "id": synth.github_user_id(org),
+        "type": "Organization",
+        "url": f"{ab}/orgs/{org}",
+        "repos_url": f"{ab}/orgs/{org}/repos",
+        "html_url": f"https://github.com/{org}",
+    }
+
+
+@router.get("/rate_limit")
+async def get_rate_limit(request: Request):
+    """The caller's rate limit status, as real's `GET /rate_limit` serves it: `resources.core`,
+    `.search` and `.code_search`, each `{limit, used, remaining, reset}`, read from the windows the
+    `x-ratelimit-*` headers report (:class:`RateLimitWindows`) without counting the read.
+
+    The three resources are the ones Backlot counts, of the fifteen real's authenticated answer
+    carries (`graphql`, `integration_manifest`, `scim`, …) and the five its anonymous one does.
+    They are listed in the order that answer lists them in, which is not the same order for the two
+    callers (:data:`_RESOURCE_ORDER`), and a caller with no credential reads `core`'s own window
+    under `code_search` as well (:func:`rate_limit_window`).
+
+    `rate`, `core` under a second name, is served to `2022-11-28` and not to `2026-03-10`, which
+    removed it (measured 2026-09-20: the body's keys are `resources`, `rate` under the one and
+    `resources` alone under the other) — and only for a request that carries an `Authorization`
+    header, since real reads the version header here for no other (:func:`honours_api_version`). A
+    caller with no credential is answered at the anonymous limits, as real answers one; a bearer
+    that does not resolve is real's 401 (measured — see :func:`_validate_bad_credential`, which
+    answers it router-wide before this handler runs).
+
+    Which window real's route reports is not the one its headers had just reported: a minute after
+    answers carrying `remaining: 4994`, `used: 6`, `reset: 1789020007`, the route answered
+    `remaining: 5000`, `used: 0`, `reset: 1789020728`, on 2026-09-10 as on 2026-09-09. The docs
+    page says the route is how a client checks "your current rate limit status", and a client asks
+    it to learn what the headers would say, so this reports the headers' window; the fresh window
+    real answered could only be reproduced by reporting a window nothing counts against.
+    """
+    key, authenticated = rate_limit_caller(request)
+    windows = _rate_limit_windows(request.app)
+    resources = {}
+    for resource in _RESOURCE_ORDER[authenticated]:
+        counted, limit = rate_limit_window(resource, authenticated)
+        resources[resource] = windows.status(key, counted, limit)
+    if _version(request) not in _HAS_RATE_ALIAS:
+        return {"resources": resources}
+    return {"resources": resources, "rate": resources["core"]}
+
+
+def _repo_visible(conn, repo: str, ids) -> bool:
+    """Whether the caller can see this repo at all. One with no visible document is not visible.
+
+    ``store.get_container`` alone answers "does this repo exist", which is a different question: a
+    repo every one of whose documents is hidden from a caller is one they must not be able to
+    confirm the existence of. Every repo route resolves it through here so the answer cannot drift
+    between them, and it is the same predicate :func:`_visible_repos` filters the listing by.
+
+    The ``ids is None`` short-circuit is load-bearing, not a fast path: a ``subtype: repo`` record
+    creates a container holding no document, and ``github.schema.json`` says the repo "stays visible
+    to a scoped caller exactly when one of its documents is, and to the admin as soon as the record
+    itself exists". :func:`store.has_visible_document` is False for such a repo under every ACL,
+    the admin's included, so the existence read is only ever asked for a scoped caller.
+    """
+    if store.get_container(conn, "github", repo) is None:
+        return False
+    return ids is None or store.has_visible_document(conn, "github", repo, ids)
+
+
+def _require_repo(conn, repo: str, ids) -> None:
+    """404 unless the caller can see the repo (see :func:`_repo_visible`)."""
+    if not _repo_visible(conn, repo, ids):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+def _visible_repos(conn, ids) -> list[str]:
+    """Repo names the caller can see at all — one with no visible document is not visible.
+
+    An existence read per repo rather than a count: the listing asks "anything visible here?" once
+    per repo in the corpus, and a count walks every visible document in each to total a number
+    nothing uses. The ``ids is None`` branch keeps the container-only repo for the admin, as
+    :func:`_repo_visible` explains.
+    """
+    repos = [r["name"] for r in store.list_containers(conn, "github")]
+    if ids is not None:
+        repos = [n for n in repos if store.has_visible_document(conn, "github", n, ids)]
+    return repos
+
+
+def _repo_page(
+    request,
+    conn,
+    owner: str,
+    ids,
+    page,
+    per_page,
+    *,
+    ordering: _Ordering,
+    keeps: Callable[[bool], bool] | None,
+    echoed: tuple[str, ...],
+) -> Response:
+    """One page of a repository listing: the visible repositories ``keeps`` keeps, in the order
+    ``ordering`` reads off the request, paged after both so a `Link` walk sees one sequence.
+
+    ``keeps`` is ``None`` when the request selects on nothing, so the ACL read that decides
+    `private` happens once per repository on the page, as before, and once per visible repository
+    only when a `type` or `visibility` value asks it of every one. :func:`_keeps_nothing` asks it
+    of none: its answer is the same for both flags, so the page is empty without a single read."""
+    repos = _visible_repos(conn, ids)
+    private: dict[str, bool] = {}
+    if keeps is _keeps_nothing:
+        repos = []
+    elif keeps is not None:
+        private = {n: not store.container_has_public(conn, "github", n) for n in repos}
+        repos = [n for n in repos if keeps(private[n])]
+    sort, descending = _order(request, ordering)
+    repos = _ordered(repos, _repo_sort_keys(owner), ordering, sort, descending)
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    ab = _api_base(request)
+    body = [
+        _repo_obj(conn, owner, n, ab, private=private.get(n))
+        for n in repos[start : start + per_page]
+    ]
+    return _paged(request, len(repos), _sent(request, *echoed), body, page, per_page)
+
+
+_REPO_SORT_DESCRIPTION = "The property to sort the results by."
+_REPO_DIRECTION_DESCRIPTION = (
+    "The order to sort by. Default: `asc` when using `full_name`, otherwise `desc`."
+)
+
+
+@router.get("/orgs/{org}/repos")
+async def list_repos(
+    org: str,
+    request: Request,
+    type_: str = _enum_param(
+        "all",
+        "Specifies the types of repositories you want returned.",
+        _ORG_REPO_TYPES,
+        alias="type",
+    ),
+    sort: str = _enum_param("created", _REPO_SORT_DESCRIPTION, _ORG_REPO_ORDERING.sorts),
+    direction: str = _enum_param(None, _REPO_DIRECTION_DESCRIPTION, _DIRECTIONS),
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The organization's repositories, filtered by `type` and ordered by `sort` and `direction`
+    as measured (:data:`_ORG_REPO_ORDERING`, :func:`_repo_type_keeps`). The three are declared for
+    the document and read off the query by :func:`_order`."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    return _repo_page(
+        request,
+        conn,
+        org,
+        auth.visible_ids(request, caller),
+        page,
+        per_page,
+        ordering=_ORG_REPO_ORDERING,
+        keeps=_repo_type_keeps(request.query_params.get("type")),
+        echoed=("type", "sort", "direction"),
+    )
+
+
+@router.get("/user/repos")
+async def list_user_repos(
+    request: Request,
+    visibility: str = _enum_param(
+        "all",
+        "Limit results to repositories with the specified visibility.",
+        _USER_REPO_VISIBILITIES,
+    ),
+    sort: str = _enum_param("full_name", _REPO_SORT_DESCRIPTION, _USER_REPO_ORDERING.sorts),
+    direction: str = _enum_param(None, _REPO_DIRECTION_DESCRIPTION, _DIRECTIONS),
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The repositories the CREDENTIAL can reach (real ``GET /user/repos``).
+
+    ``/orgs/{org}/repos`` answers a different question and is not a substitute: a real fine-grained
+    token may span several orgs or cover only personal repos, so an org listing is not the token's
+    view of the world. This is the endpoint a credential uses to discover its own reach, and
+    without it a client has to be configured with an explicit repo name per mount.
+
+    `visibility`, `sort` and `direction` select on facts a corpus states (the ACL, the name) or on
+    what Backlot derives (the timestamps), and are read as measured (:data:`_USER_REPO_ORDERING`,
+    :func:`_repo_visibility_keeps`). Real also takes ``type`` and ``affiliation``, which select on
+    what the caller is to each repository — its owner, a collaborator, a member of the owning
+    organization — and a corpus states no such fact: Backlot serves a single org whose repos are
+    all its own, so both are left out rather than declared and ignored (the rule
+    ``backlot.openapi.qp`` states), and the 422 real answers for ``type`` beside ``visibility`` is
+    not reachable here.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    return _repo_page(
+        request,
+        conn,
+        _org(request),
+        ids,
+        page,
+        per_page,
+        ordering=_USER_REPO_ORDERING,
+        keeps=_repo_visibility_keeps(request.query_params.get("visibility")),
+        echoed=("visibility", "sort", "direction"),
+    )
+
+
+@router.get("/repos/{owner}/{repo}")
+async def get_repo(owner: str, repo: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    return _repo_obj(conn, owner, repo, _api_base(request))
+
+
+#: The values `state` takes on the issue and pull listings, as GitHub's OpenAPI description declares
+#: them on both routes (`enum: [open, closed, all]`, `default: open`, read 2026-09-09), each with the
+#: description its route carries. Written into the schema by hand rather than as a `Literal`: a
+#: `Literal` has FastAPI refuse a value outside it before the handler runs, with one answer for both
+#: routes, and real's two routes answer differently (see :func:`_invalid_issue_state`).
+ISSUE_STATES = ("open", "closed", "all")
+_ISSUE_STATE_DESCRIPTION = "Indicates the state of the issues to return."
+_PULL_STATE_DESCRIPTION = "Either `open`, `closed`, or `all` to filter by state."
+
+
+def _state_param(description: str):
+    return _enum_param("open", description, ISSUE_STATES)
+
+
+_ISSUE_SORT_DESCRIPTION = "What to sort results by."
+_ISSUE_DIRECTION_DESCRIPTION = "The direction to sort the results by."
+_PULL_SORT_DESCRIPTION = (
+    "What to sort results by. `popularity` will sort by the number of comments. `long-running` "
+    "will sort by date created and will limit the results to pull requests that have been open "
+    "for more than a month and have had activity within the past month."
+)
+_PULL_DIRECTION_DESCRIPTION = (
+    "The direction of the sort. Default: `desc` when sort is `created` or sort is not specified, "
+    "otherwise `asc`."
+)
+
+
+def _invalid_issue_state(value: str) -> HTTPException:
+    """Real's 422 for a `state` the issue listing does not take.
+
+    Measured on api.github.com on 2026-09-09 against `psf/requests/issues`: `state=bogus`,
+    `state=OPEN` and `state=` (empty) each answer `Validation Failed` with one `errors` entry
+    carrying the value sent, `resource: Issue`, `field: state` and `code: invalid`, under a
+    `documentation_url` that is not the route's anchor in ``errors.github.ROUTE_DOCS``
+    (`/v3/issues/#list-issues`, where the 404 on this route names
+    `issues/issues#list-repository-issues`); the repository is checked first, so the same value on
+    a repository that does not exist is that 404. The pull listing does not refuse: `pulls?state=bogus`
+    and `?state=OPEN` answer the open set, the 87 rows `state=open` answers there, where `closed`
+    and `all` each answer a different, larger set (same day). So the pull listing applies `open`
+    for a value it does not know, and this exception is the issue listing's alone.
+    """
+    exc = HTTPException(status_code=422, detail="Validation Failed")
+    exc.github_body = {
+        "message": "Validation Failed",
+        "errors": [{"value": value, "resource": "Issue", "field": "state", "code": "invalid"}],
+        "documentation_url": "https://docs.github.com/v3/issues/#list-issues",
+        "status": "422",
+    }
+    return exc
+
+
+@router.get("/repos/{owner}/{repo}/issues", response_model=list[GitHubIssue])
+async def list_issues(
+    owner: str,
+    repo: str,
+    request: Request,
+    state: str = _state_param(_ISSUE_STATE_DESCRIPTION),
+    sort: str = _enum_param("created", _ISSUE_SORT_DESCRIPTION, _ISSUE_ORDERING.sorts),
+    direction: str = _enum_param("desc", _ISSUE_DIRECTION_DESCRIPTION, _DIRECTIONS),
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The repo's issues AND pulls, ordered by `sort` and `direction` as measured
+    (:data:`_ISSUE_ORDERING`) and cursor-paged the way real pages this one listing.
+
+    `after`/`before` are read off the query rather than declared: GitHub's published OpenAPI
+    declares neither for this operation, so a declared parameter would put in Backlot's contract —
+    and in the tool `backlot mcp` builds from it — an argument the vendor's spec does not have. The
+    live API both emits and honours them (see :func:`backlot.pagination.github_cursor_offset`).
+    `sort` and `direction` are declared, for the document, and read off the query too, by
+    :func:`_order`.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    if state not in ISSUE_STATES:
+        raise _invalid_issue_state(state)
+    state_filter = state if state != "all" else None
+    # kind='file' docs (source code, not issues/PRs) never appear here — fetch generously and
+    # filter+paginate in Python, mirroring list_pulls below.
+    all_rows = [
+        r
+        for r in store.list_documents(conn, "github", repo, ids, limit=10_000, state=state_filter)
+        if r["kind"] != "file"
+    ]
+    sort, descending = _order(request, _ISSUE_ORDERING)
+    all_rows = _ordered(
+        all_rows, _issue_sort_keys(conn, repo, sort, ids), _ISSUE_ORDERING, sort, descending
+    )
+    asserted = page  # kept: the page urls carry the number the caller claimed, or none at all
+    page, per_page = _clamp(page, per_page)
+    q = request.query_params
+    start = github_cursor_offset(page, per_page, q.get("after"), q.get("before"))
+    rows = all_rows[start : start + per_page]
+    # A cursor and no page of 2 or more asserted beside it is the one case real writes no page
+    # number, so `None` says exactly that (see `github_cursor_link_header`). Without a cursor the
+    # page is the caller's own position and real writes it.
+    cursored = "after" in q or "before" in q
+    if not cursored:
+        link_page = page
+    else:
+        link_page = asserted if asserted and asserted >= 2 else None
+    # like the real API, /issues returns issues AND PRs (PRs carry a pull_request marker)
+    ab = _api_base(request)
+    body = [_issue_obj(conn, owner, repo, r, ab, _version(request)) for r in rows]
+    return _paged_by_cursor(
+        request,
+        len(all_rows),
+        _echo(request, state=state, **_sent(request, "sort", "direction")),
+        body,
+        link_page,
+        per_page,
+        start,
+    )
+
+
+# --- a comment by its own id ----------------------------------------------------
+#
+# Both routes MUST be declared ahead of `…/issues/{number}/comments` and `…/pulls/{number}/comments`:
+# FastAPI matches in declaration order, and the literal `comments` would otherwise be parsed as the
+# `{number}` path param and rejected as a non-integer.
+
+
+def _comment_by_id(request, conn, repo: str, cid: int, ids, *, anchored: bool):
+    """Resolve a served comment id back to (comment, document), or raise 404.
+
+    404 rather than 403 for every failure — a comment the caller cannot read, one belonging to
+    another repo, and one of the other kind all have to be indistinguishable from a comment that
+    does not exist, or the response confirms what it is refusing to serve.
+    """
+    row = store.get_github_comment(conn, cid)
+    if row is None or (row["path"] is not None) != anchored:
+        raise HTTPException(status_code=404, detail="Not Found")
+    doc = store.get_document(conn, "github", row["repo"], row["number"], visible_ids=ids)
+    if doc is None or doc["repo"] != repo:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return row, doc
+
+
+@router.get("/repos/{owner}/{repo}/issues/comments/{comment_id}")
+async def get_issue_comment(owner: str, repo: str, comment_id: int, request: Request):
+    """One conversation comment, the resource its own `url` points at."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row, doc = _comment_by_id(request, conn, repo, comment_id, ids, anchored=False)
+    number = _issue_number(doc)
+    return _gh_comment(owner, repo, number, row, _api_base(request))
+
+
+@router.get("/repos/{owner}/{repo}/pulls/comments/{comment_id}")
+async def get_pull_review_comment(owner: str, repo: str, comment_id: int, request: Request):
+    """One line-anchored review comment. The file it is anchored to has to be readable by this
+    caller too — the collection drops such a comment, so serving it by id would be a way around
+    that."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row, doc = _comment_by_id(request, conn, repo, comment_id, ids, anchored=True)
+    src = _RepoFiles(conn, repo, ids)
+    f = src.get(row["path"])
+    if f is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    ab = _api_base(request)
+    number = _issue_number(doc)
+    patches = {
+        x["filename"]: x.get("patch") for x in _pr_files(conn, owner, repo, doc, ab, ids, src)
+    }
+    return _gh_review_comment(owner, repo, number, doc, row, f, patches, ab)
+
+
+@router.get("/repos/{owner}/{repo}/issues/{number}", response_model=GitHubIssue)
+async def get_issue(owner: str, repo: str, number: int, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve(conn, repo, number, ids)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return _issue_obj(conn, owner, repo, row, _api_base(request), _version(request))
+
+
+@router.get("/repos/{owner}/{repo}/issues/{number}/comments")
+async def issue_comments(
+    owner: str,
+    repo: str,
+    number: int,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve(conn, repo, number, ids)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    # anchored=False: a line-anchored review comment belongs to /pulls/{n}/comments, and serving it
+    # here too would duplicate it under a resource that means something else
+    rows = store.github_comments(conn, row["repo"], row["number"], anchored=False)
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    ab = _api_base(request)
+    body = [_gh_comment(owner, repo, number, c, ab) for c in rows[start : start + per_page]]
+    return _paged(request, len(rows), {}, body, page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/pulls")
+async def list_pulls(
+    owner: str,
+    repo: str,
+    request: Request,
+    state: str = _state_param(_PULL_STATE_DESCRIPTION),
+    sort: str = _enum_param("created", _PULL_SORT_DESCRIPTION, _PULL_ORDERING.sorts),
+    direction: str = _enum_param(None, _PULL_DIRECTION_DESCRIPTION, _DIRECTIONS),
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The repo's pulls, ordered by `sort` and `direction` as measured (:data:`_PULL_ORDERING`);
+    both are declared for the document and read off the query by :func:`_order`."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    # a value real does not know is served as `open`, the default (see `_invalid_issue_state`)
+    applied = state if state in ISSUE_STATES else "open"
+    state_filter = applied if applied != "all" else None
+    prs = [
+        r
+        for r in store.list_documents(conn, "github", repo, ids, limit=10_000, state=state_filter)
+        if r["kind"] == "pull_request"
+    ]
+    sort, descending = _order(request, _PULL_ORDERING)
+    prs = _ordered(prs, _issue_sort_keys(conn, repo, sort, ids), _PULL_ORDERING, sort, descending)
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    ab = _api_base(request)
+    # one _RepoFiles for the whole page: every PR's changeset reads through it (see _pr_files)
+    repo_files = _RepoFiles(conn, repo, ids)
+    body = [
+        _pr_obj(conn, owner, repo, r, ab, ids=ids, repo_files=repo_files, version=_version(request))
+        for r in prs[start : start + per_page]
+    ]
+    return _paged(
+        request,
+        len(prs),
+        _echo(request, state=state, **_sent(request, "sort", "direction")),
+        body,
+        page,
+        per_page,
+    )
+
+
+@router.get("/repos/{owner}/{repo}/pulls/{number}")
+async def get_pull(owner: str, repo: str, number: int, request: Request):
+    """The pull as JSON, or as its diff when `Accept` asks for one.
+
+    ``application/vnd.github.diff`` and ``…patch`` are representations of this resource, not
+    separate endpoints, so ignoring them meant a caller that piped the result to `git apply` or a
+    diff viewer got the pull's JSON with a 200 and no way to notice."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve(conn, repo, number, ids)
+    if row is None or row["kind"] != "pull_request":
+        raise HTTPException(status_code=404, detail="Not Found")
+    ab = _api_base(request)
+    wants_diff, wants_patch = _github_media(request, "diff"), _github_media(request, "patch")
+    if not (wants_diff or wants_patch):
+        return _pr_obj(conn, owner, repo, row, ab, ids=ids, version=_version(request))
+    files = _pr_files(conn, owner, repo, row, ab, ids)
+    obj = _pr_obj(conn, owner, repo, row, ab, ids=ids, files=files, version=_version(request))
+    diff = _pr_diff(files, obj["base"]["sha"])
+    if wants_patch:
+        return Response(
+            content=_pr_mbox(row, obj, diff).encode(),
+            media_type="application/vnd.github.patch; charset=utf-8",
+        )
+    return Response(content=diff.encode(), media_type="application/vnd.github.diff; charset=utf-8")
+
+
+@router.get("/repos/{owner}/{repo}/pulls/{number}/reviews")
+async def pull_reviews(
+    owner: str,
+    repo: str,
+    number: int,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve(conn, repo, number, ids)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    ab = _api_base(request)
+    number = _issue_number(row)
+    sha = hashlib.sha1(_seed(row).encode()).hexdigest()[:40]
+    reviews = store.jcol(row, "reviews")
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    out = []
+    # the enumeration counts from the review's place in the WHOLE listing, not in the page: `i`
+    # seeds the id and the timestamp, so a review's identity has to stay put whatever page it is on
+    for i, rv in enumerate(reviews[start : start + per_page], start=start + 1):
+        rid = synth.github_number(_seed(row) + str(i))
+        pr_url = f"{ab}/repos/{owner}/{repo}/pulls/{number}"
+        out.append(
+            {
+                "id": rid,
+                "node_id": synth.node_id("PullRequestReview", rid),
+                "user": _gh_user(rv.get("author_email", "reviewer@x"), ab),
+                "body": rv.get("body", ""),
+                "state": rv.get("state", "COMMENTED"),
+                "submitted_at": synth.rfc3339(synth.epoch(_seed(row)) + i * 60),
+                "commit_id": sha,
+                "author_association": "MEMBER",
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{number}#pullrequestreview-{rid}",
+                "pull_request_url": pr_url,
+                "_links": {
+                    "html": {
+                        "href": f"https://github.com/{owner}/{repo}/pull/{number}#pullrequestreview-{rid}"
+                    },
+                    "pull_request": {"href": pr_url},
+                },
+            }
+        )
+    return _paged(request, len(reviews), {}, out, page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/pulls/{number}/comments")
+async def pull_review_comments(
+    owner: str,
+    repo: str,
+    number: int,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """A pull's REVIEW comments — the line-anchored ones. A different resource from both
+    ``/issues/{n}/comments`` (the conversation) and ``/pulls/{n}/reviews`` (approve/request-changes
+    events): a corpus marks a comment as this one by giving it a ``path``.
+
+    A pull with none answers ``[]``, which is also what real GitHub does — and what this returned for
+    every pull before ``github_comments`` could hold the anchoring. A 404 (the behaviour before that)
+    aborts any client that renders a pull from its metadata, conversation, review comments and files.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve(conn, repo, number, ids)
+    if row is None or row["kind"] != "pull_request":
+        raise HTTPException(status_code=404, detail="Not Found")
+    src = _RepoFiles(conn, repo, ids)
+    resolved = _resolved_review_comments(conn, row, src)
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    window = resolved[start : start + per_page]
+    body = []
+    if window:  # the pull may have no review comments, or the page be past the ones it has
+        ab = _api_base(request)
+        # The same changeset this pull's diff serves, so a comment's `diff_hunk` and the diff agree.
+        patches = {
+            f["filename"]: f.get("patch") for f in _pr_files(conn, owner, repo, row, ab, ids, src)
+        }
+        body = [_gh_review_comment(owner, repo, number, row, c, f, patches, ab) for c, f in window]
+    return _paged(request, len(resolved), {}, body, page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/pulls/{number}/commits")
+async def pull_commits(
+    owner: str,
+    repo: str,
+    number: int,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The pull's commits — one, the head, which is what the pull object already claims.
+
+    Here because ``_links.commits``/``commits_url`` name it: a field whose whole purpose is to be
+    followed must lead somewhere, and a 404 at the end of an advertised link is a worse answer for
+    the caller than no link at all. Nothing is invented — the sha, the message and the author are the
+    pull's own, and Backlot keeps no history to draw a second commit from (see ``get_tree``).
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve(conn, repo, number, ids)
+    if row is None or row["kind"] != "pull_request":
+        raise HTTPException(status_code=404, detail="Not Found")
+    ab = _api_base(request)
+    sha = hashlib.sha1(_seed(row).encode()).hexdigest()
+    author = _gh_user(row["author_email"], ab)
+    created = synth.rfc3339(row["created_ts"] or synth.epoch(_seed(row)))
+    # `commit.author` is a GIT author — name/email/date — and not the GitHub user beside it. Real
+    # serves both because they are different things: one signed the commit, one has an account.
+    git_author = {"name": author["login"], "email": row["author_email"], "date": created}
+    tree_sha = _repo_tree_sha(repo)
+    commits = [
+        {
+            "sha": sha,
+            "node_id": synth.node_id("Commit", sha[:12]),
+            "commit": {
+                "author": git_author,
+                "committer": git_author,
+                "message": row["title"],
+                "tree": {"sha": tree_sha, "url": f"{ab}/repos/{owner}/{repo}/git/trees/{tree_sha}"},
+                "url": f"{ab}/repos/{owner}/{repo}/git/commits/{sha}",
+                "comment_count": 0,
+            },
+            "url": f"{ab}/repos/{owner}/{repo}/commits/{sha}",
+            "html_url": f"https://github.com/{owner}/{repo}/commit/{sha}",
+            "author": author,
+            "committer": author,
+            "parents": [],  # no history is kept, so the head has no parent to name
+        }
+    ]
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    return _paged(request, len(commits), {}, commits[start : start + per_page], page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/statuses/{sha:path}")
+async def commit_statuses(
+    owner: str,
+    repo: str,
+    sha: str,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """Statuses for a commit: always empty, and empty is the honest answer rather than a stub.
+
+    A corpus records no CI, and real GitHub answers `[]` for a sha nobody reported a status on — so
+    this is a shape a client will meet in production, not a Backlot-only degenerate case. It exists
+    because a pull's ``statuses_url`` and ``_links.statuses`` name it.
+
+    Empty is the answer for a ref that EXISTS. One that names nothing is a 404, as on real, where
+    `/statuses/main` answers `[]` and `/statuses/totally-made-up` 404s (measured on psf/requests) —
+    the same question :func:`_commit_ish` answers for `/commits` and `git/trees`. The ref is the
+    trailing path for the same reason it is there: `/statuses/bug/5671` resolves on real.
+
+    The page parameters change no body while the listing is empty; they are here because real accepts
+    them — `kubernetes/kubernetes` at `?per_page=1` answers one status with a `Link` (measured
+    2026-09-04) — and the contract is what `backlot mcp` hands an agent as a tool.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)  # a repo this caller cannot see must not answer for its shas
+    if _ref_as_sent(sha) not in _commit_ish(conn, owner, repo, ids):
+        raise HTTPException(status_code=404, detail="Not Found")
+    page, per_page = _clamp(page, per_page)
+    return _paged(request, 0, {}, [], page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/pulls/{number}/files")
+async def pull_files(
+    owner: str,
+    repo: str,
+    number: int,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The pull's changed-file list (``filename``/``status``/``additions``/``deletions``/``patch``),
+    paginated as the real API paginates it. See the changeset note below for where it comes from."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve(conn, repo, number, ids)
+    if row is None or row["kind"] != "pull_request":
+        raise HTTPException(status_code=404, detail="Not Found")
+    files = _json_file_objects(_pr_files(conn, owner, repo, row, _api_base(request), ids))
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    return _paged(request, len(files), {}, files[start : start + per_page], page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/git/ref/{ref:path}")
+async def get_git_ref(owner: str, repo: str, ref: str, request: Request):
+    """Resolve a ref (``heads/main``, ``heads/release/2026-03``, ``tags/v1``) to a commit.
+
+    The ref is the trailing PATH, which is the whole reason a client reaches for this instead of
+    ``/branches/{branch}``: a branch name containing a slash does not fit in one path segment, so
+    without this route such a branch cannot be pinned to a commit at all.
+
+    A ref that exists resolves to the repo's snapshot commit, since Backlot keeps no commit
+    history (see :func:`get_tree`). WHICH refs exist is knowable, and real 404s the rest:
+
+    - ``heads/{name}`` for a name :func:`_branch_names` holds. `heads/totally-made-up` is a 404 on
+      psf/requests, and answering it here made "which branches does this repo have" resolve one
+      way through ``/branches`` and another through this route.
+    - ``pull/{n}/head`` for a pull that exists, and ``pull/{n}/merge`` only while it is still
+      OPEN. Real drops the merge ref when the pull closes: on psf/requests, #7616 (merged) and
+      #7589 (closed, unmerged) answer 404 on ``…/merge`` and 200 on ``…/head``, where open #7586
+      answers 200 on both. A number that names no pull is a 404 either way (#999999 on
+      pydantic/pydantic). Restricting this route to branches would 404 a ref real resolves.
+    - ``tags/{name}`` for a tag the repo states. One it does not state has nothing to resolve to,
+      which is the same answer ``/tags`` gives for it.
+    - Nothing else — ``refs/heads/main``, the fully-qualified git spelling, included. Real takes
+      ``heads/main`` here and 404s the qualified form with the get-a-reference endpoint's own body
+      (measured on psf/requests), so it is a missing ref rather than a missing route. This used to
+      be stripped and accepted, which let a client sending the git spelling pass here and 404 in
+      production. The ref this route ANSWERS with is still fully qualified, as real's is.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    ref = _ref_as_sent(ref)
+    if not _ref_exists(conn, owner, repo, ref, ids):
+        raise HTTPException(status_code=404, detail="Not Found")
+    ab = _api_base(request)
+    sha = _repo_commit_sha(repo)
+    return {
+        "ref": f"refs/{ref}",
+        "node_id": synth.node_id("Ref", synth.github_number(f"{repo}:{ref}")),
+        "url": f"{ab}/repos/{owner}/{repo}/git/ref/{ref}",
+        "object": {
+            "type": "commit",
+            "sha": sha,
+            "url": f"{ab}/repos/{owner}/{repo}/git/commits/{sha}",
+        },
+    }
+
+
+def _ref_exists(conn, owner: str, repo: str, ref: str, ids) -> bool:
+    """Whether `ref` — already stripped of any `refs/` prefix — names something in this repo. The
+    namespaces are :func:`get_git_ref`'s; a pull's number is checked against the pulls the CALLER
+    can see, so a ref is not a way to learn a restricted pull exists."""
+    head, _, name = ref.partition("/")
+    if head == "heads":
+        return bool(name) and name in _branch_names(conn, owner, repo, ids)
+    if head == "tags":
+        return bool(name) and name in _repo_tags(conn, repo)
+    if head == "pull":
+        number, _, kind = name.partition("/")
+        if kind not in ("head", "merge") or not number.isdigit():
+            return False
+        row = store.github_by_number(conn, repo, int(number), ids)
+        if row is None or row["kind"] != "pull_request":
+            return False
+        # A merge ref is git's preview of the pull applied to its base, and it stops existing when
+        # there is nothing left to merge — so it is the pull's state, not its existence, that
+        # decides. `state` is COALESCEd because a corpus that states none means open.
+        open_pull = (row["state"] or "open") == "open" and not row["merged_at"]
+        return kind == "head" or open_pull
+    return False
+
+
+@router.get("/repos/{owner}/{repo}/git/trees/{ref:path}")
+async def get_tree(
+    owner: str, repo: str, ref: str, request: Request, recursive: str | None = Query(None)
+):
+    """The repo's file set as a git tree (real API shape). `recursive=` with any value, the empty
+    one, `0` and `false` included, returns every blob/tree entry; without it, or written bare as
+    `?recursive`, only the entries directly under root. Repeated, the last one decides. Measured on
+    api.github.com (2026-10-04): psf/requests answers 21 entries flat and 153 recursive.
+
+    `ref` selects WHICH tree, exactly as on real GitHub: a SUBTREE's own sha — the one a client
+    reads out of a parent listing's `tree` entry — answers that directory's entries, with paths
+    relative to it. That is how a client walks a repo one level at a time (fsspec's
+    `GithubFileSystem` does), and answering the root instead does not fail loudly: it reports the
+    root's entries under the child's name, so listing `src` yields `src/src` and `src/config` and a
+    recursive walk descends until it runs out of stack.
+
+    Everything else `ref` may be is a commit-ish resolving to the ROOT tree — a branch name, or a
+    sha this server hands out as a commit (see :func:`_commit_ish`). A ref that is none of those is
+    a 404, as on real, where both `totally-made-up` and a 40-hex sha naming no object answer 404
+    (measured on psf/requests). This route used to answer the root for any of them, which made a
+    name no branch listing held resolve to a tree.
+
+    A subtree sha resolves PER CALLER, because the entries it is matched against are already
+    `visible_ids`-scoped: a token that can see nothing inside a folder does not find that folder's
+    sha, and gets a 404 where a wider token gets the folder. No content crosses the ACL.
+
+    **A tree keeps no history**, so every other `ref` — a branch name, or a sha from /branches,
+    /commits or git/ref — resolves to the repo's CURRENT root. FILES themselves do have history: a
+    corpus may state several snapshots of one path, and `/contents/{path}?ref=` reaches them (see
+    :func:`get_contents`). What has no per-ref shape is the tree — there is no mapping from a ref to
+    the set of snapshots that were current at it — so this route answers HEAD for every ref, and a
+    path appears exactly once however many snapshots it holds. Two consequences a client author will
+    otherwise assume away:
+
+    - Pinning to a commit sha gives no immutability guarantee. A blob sha is content-addressed and
+      stable, but the tree a commit sha resolves to moves whenever the corpus changes, so caching a
+      snapshot against a commit sha caches a moving target.
+    - Because there is no before/after state, a pull's changeset is synthesized out of this same
+      snapshot rather than diffed from it (see :func:`_pr_files`) — which is also why a file the
+      changeset reports as `removed` is still present here.
+
+    The ref is the trailing PATH, as on `git/ref`: a branch name may contain a slash and real
+    resolves one here (`git/trees/bug/5671` on psf/requests answers that branch's tree).
+
+    `truncated` follows the real caps (:data:`TREE_MAX_ENTRIES` / :data:`TREE_MAX_BYTES`)."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    ref = _ref_as_sent(ref)
+    ab = _api_base(request)
+    rows = store.list_repo_files(conn, repo, ids)
+    entries = _tree_from_paths(owner, repo, rows, ab)
+    subtree = _subtree_path(repo, ref, entries)
+    if (
+        subtree is None
+        and ref != _repo_tree_sha(repo)
+        and ref not in _commit_ish(conn, owner, repo, ids)
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+    if subtree is not None:
+        prefix = subtree + "/"
+        entries = [
+            {**e, "path": e["path"][len(prefix) :]} for e in entries if e["path"].startswith(prefix)
+        ]
+    if recursive is None or _written_bare(request, "recursive"):
+        entries = [e for e in entries if "/" not in e["path"]]
+    entries, truncated = _cap_tree(entries)
+    tree_sha = _repo_tree_sha(repo) if subtree is None else _dir_sha(repo, subtree)
+    return {
+        "sha": tree_sha,
+        "url": f"{ab}/repos/{owner}/{repo}/git/trees/{tree_sha}",
+        "tree": entries,
+        "truncated": truncated,
+    }
+
+
+def _subtree_path(repo: str, ref: str, entries: list[dict]) -> str | None:
+    """The directory `ref` names, if `ref` is one of this repo's subtree shas — else None.
+
+    Reversed off the directory entries already built rather than stored: `_dir_sha` is a pure
+    function of (repo, path), so the shas handed out in a listing are exactly the ones recomputed
+    here. A repo with no directories can only ever answer None, which is the root.
+    """
+    for entry in entries:
+        if entry["type"] == "tree" and _dir_sha(repo, entry["path"]) == ref:
+            return entry["path"]
+    return None
+
+
+def _cap_tree(entries: list[dict]) -> tuple[list[dict], bool]:
+    """Apply the real API's tree caps, returning ``(entries, truncated)``.
+
+    Real GitHub caps a recursive tree at 100k entries / 7 MB and sets `truncated: true`; a server
+    reports `false` unconditionally means a client's truncation-handling path — the fallback where
+    it walks the tree one level at a time instead — is never exercised. The whole-list `dumps` is
+    the common case and runs once; the per-entry loop only runs for a tree that actually overflows.
+    """
+    if len(entries) > TREE_MAX_ENTRIES:
+        return entries[:TREE_MAX_ENTRIES], True
+    if len(json.dumps(entries)) <= TREE_MAX_BYTES:
+        return entries, False
+    kept, size = [], 2  # the enclosing brackets
+    for e in entries:
+        size += len(json.dumps(e)) + 1
+        if size > TREE_MAX_BYTES:
+            break
+        kept.append(e)
+    return kept, True
+
+
+async def _contents_response(
+    owner: str, repo: str, path: str, request: Request, ref: str | None = None
+):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    _require_ref(conn, owner, repo, ref, ids)
+    ab = _api_base(request)
+    path = path.strip("/")
+    if path:
+        row = store.get_repo_file(conn, repo, path, ids, ref=ref)
+        if row is not None:
+            return _raw_response(request, row["content"], _CONTENT_RAW_TYPE) or _file_obj(
+                owner, repo, row, ab, ref
+            )
+    rows = store.list_repo_files(conn, repo, ids)
+    entries = _tree_from_paths(owner, repo, rows, ab)
+    is_dir = path == "" or any(
+        e["path"] == path or e["path"].startswith(path + "/") for e in entries
+    )
+    if not is_dir:
+        raise HTTPException(status_code=404, detail="Not Found")
+    children = [e for e in entries if _dirname(e["path"]) == path]
+    return [_contents_child(owner, repo, e, ab) for e in children]
+
+
+def _require_ref(conn, owner: str, repo: str, ref: str | None, ids) -> None:
+    """404 unless `ref` names something on this repo, which real does for a ref it has no object
+    for (`?ref=totally-made-up` on psf/requests).
+
+    Wider than the branch listing by one set: a corpus NAMES the snapshots of a file it states
+    (`store.github_file_refs`), and those refs are how an older revision is addressable at all.
+    They are refs without being branches, so they resolve here and are absent from `/branches`.
+
+    An EMPTY value is an absent one — real answers `contents/README.md?ref=` with the file — the
+    same reading `list_branches` gives an empty `?protected=`.
+
+    The 404 carries real's own body, which is not the generic one every other ref route sends:
+    `No commit found for the ref {ref}`, against the contents documentation (measured). A client
+    matching on the message needs the real text, the reason :func:`_no_commit_for_sha` exists for
+    `/commits`.
+    """
+    if not ref or ref in _commit_ish(conn, owner, repo, ids):
+        return
+    if ref not in store.github_file_refs(conn, repo, ids):
+        exc = HTTPException(status_code=404, detail="Not Found")
+        exc.github_body = {
+            "message": f"No commit found for the ref {ref}",
+            "documentation_url": "https://docs.github.com/v3/repos/contents/",
+            "status": "404",
+        }
+        raise exc
+
+
+@router.get("/repos/{owner}/{repo}/contents")
+async def get_contents_root(owner: str, repo: str, request: Request, ref: str | None = Query(None)):
+    return await _contents_response(owner, repo, "", request, ref)
+
+
+@router.get("/repos/{owner}/{repo}/contents/{path:path}")
+async def get_contents(
+    owner: str, repo: str, path: str, request: Request, ref: str | None = Query(None)
+):
+    """`ref` selects a SNAPSHOT of the file when the corpus named one; see store.get_repo_file for
+    why an unnamed ref answers HEAD instead of 404. A directory listing ignores it — the tree has
+    no per-ref shape here (the no-history simplification in :func:`get_tree`).
+
+    A path ending in a slash is a 302 to the id-keyed spelling without it, which is real's own
+    answer. Measured 2026-09-22: `contents/backlot/`, `contents/README.md/` and
+    `contents/no-such-dir/` all answer `302` to
+    `https://api.github.com/repositories/{id}/contents/{path}`, so the redirect is reached before
+    the path resolves to anything; the `Location` carries no query, `?ref=main` included; and the
+    id-keyed spelling redirects to itself the same way.
+
+    What it does NOT precede is the repository: a repository that does not exist, an owner that
+    does not, and one the caller cannot see are each a 404 rather than a redirect (measured the
+    same day on three such paths), so the credential and the repository are resolved first and the
+    redirect answers only for a repository this caller can read.
+    """
+    if path.endswith("/"):
+        conn = auth.conn(request)
+        caller = _require(request)
+        _require_repo(conn, repo, auth.visible_ids(request, caller))
+        target = _redirect_to_the_slash_free_contents_path(request, repo, path)
+        # Real's redirect carries `text/html;charset=utf-8`, no space, and an empty body, measured
+        # on the four redirects the docstring lists.
+        return Response(
+            status_code=302,
+            headers={"Location": target, "Content-Type": "text/html;charset=utf-8"},
+        )
+    return await _contents_response(owner, repo, path, request, ref)
+
+
+# What the contents redirect's `Location` leaves unencoded, beside the letters, digits and `-._~`
+# that `quote` always leaves. Measured 2026-09-28 by sending each byte 0x01-0x7F percent-encoded in
+# `contents/x%XXy/` on python/cpython: these come back as the character, `%2F` included as a `/`,
+# and every other byte comes back as `%XX` in upper case (the controls, the space, the backtick
+# and `"#$%<>?@\^{|}`), as does UTF-8 (`%C3%A9`, and `%eb` sent is `%EB`). So real decodes the
+# path and encodes it again rather than echoing what was sent: `%28` sent is `(` in the `Location`.
+_CONTENTS_LOCATION_SAFE = "/!&'()*+,:;=[]"
+
+
+def _redirect_to_the_slash_free_contents_path(request: Request, repo: str, path: str) -> str:
+    """Where real points a `contents` path that ends in a slash: the id-keyed spelling of the same
+    path with ONE slash gone, absolute, and carrying no query.
+
+    One, not all of them: measured 2026-09-22, `contents/backlot//` points at `contents/backlot/`
+    and `contents///` at `contents//`, so a path carrying several takes a hop per slash and a
+    client following redirects walks them off one at a time.
+
+    `path` arrives decoded, so it is encoded again the way real encodes it
+    (``_CONTENTS_LOCATION_SAFE``): `contents/a%3Fb/` points at `contents/a%3Fb`, where the decoded
+    `a?b` would name the file `a` with a query.
+    """
+    rest = quote(path[:-1], safe=_CONTENTS_LOCATION_SAFE)
+    return f"{_api_base(request)}/repositories/{synth.github_user_id(repo)}/contents/{rest}"
+
+
+@router.get("/repos/{owner}/{repo}/git/blobs/{sha}")
+async def get_blob(owner: str, repo: str, sha: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    # Measured on psf/requests on 2026-10-03: a seven-character prefix, an upper-case sha and
+    # `zzzz` each answered this 422 with the route's own documentation_url, where a well-formed
+    # sha naming no blob is the 404 below. Upper case is refused here though `commits/{ref}`
+    # resolves it. A repository that does not exist is the 404 above, whatever the sha (measured
+    # 2026-10-05 with `zzzz` on a missing repository and on a missing owner).
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise HTTPException(
+            status_code=422,
+            detail="The sha parameter must be exactly 40 characters and contain only [0-9a-f].",
+        )
+    # every snapshot, not just HEAD: a blob sha is content-addressed, so a superseded snapshot
+    # keeps its own and stays fetchable at it (see store.iter_repo_file_snapshots). Streamed, so a
+    # match stops the scan rather than reading the repo's every file first.
+    row = next(
+        (
+            r
+            for r in store.iter_repo_file_snapshots(conn, repo, ids)
+            if _blob_sha(r["content"]) == sha
+        ),
+        None,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    content = row["content"]
+    ab = _api_base(request)
+    raw = _raw_response(request, content, _BLOB_RAW_TYPE)
+    if raw is not None:
+        return raw
+    return {
+        "sha": sha,
+        "node_id": synth.node_id("Blob", sha[:12]),
+        "size": len(content.encode()),
+        "encoding": "base64",
+        "content": base64.b64encode(content.encode()).decode(),
+        "url": f"{ab}/repos/{owner}/{repo}/git/blobs/{sha}",
+    }
+
+
+@router.get("/repos/{owner}/{repo}/branches")
+async def list_branches(
+    owner: str,
+    repo: str,
+    request: Request,
+    protected: str | None = Query(None),
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The repo's branches: the default branch, plus the refs its pulls advertise.
+
+    Which refs those are, and why, is :func:`_branch_names` — including the caller scoping, since
+    the listing is built from pulls and pulls are ACL-filtered.
+
+    A listed branch is real's SHORT branch, not the object :func:`get_branch` serves below: on
+    api.github.com an item's `commit` carries `sha` and `url` and stops there, where the
+    single-branch route nests the whole commit under the same key. Serving the longer object from
+    both would hand a client a field real GitHub never sends here.
+
+    `?protected=` selects, so it is honoured rather than ignored: a client that asked for the
+    protected branches and got an unprotected one back would read that branch as push-guarded. Real
+    has three answers — only protected branches for a true value, only unprotected ones for a false
+    value, and all of them when the parameter is omitted or empty. Which spellings real reads as
+    false is :func:`_truthy`, with the measurement.
+
+    All three answers are distinct for a repo whose `subtype: "repo"` record states which branches
+    are protected. For one that does not, every branch is unprotected and real's last two coincide
+    — a pull cannot imply protection, so an inferred listing has none (see :func:`_branch_rows`).
+
+    `?protected=` selects AHEAD of the page cut, so the `Link` counts the pages of the selection:
+    `?protected=false&per_page=1` on fastapi/fastapi (2026-10-05) answers one of the 24 unprotected
+    branches and reports `rel="last"` page 24, not the 25 of the whole listing.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    rows = _branch_rows(conn, owner, repo, ids)
+    if protected:  # an empty or absent value leaves the listing unfiltered
+        rows = [b for b in rows if b["protected"] is _truthy(protected)]
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    sha = _repo_commit_sha(repo)
+    url = f"{_api_base(request)}/repos/{owner}/{repo}/commits/{sha}"
+    body = [
+        {"name": b["name"], "commit": {"sha": sha, "url": url}, "protected": b["protected"]}
+        for b in rows[start : start + per_page]
+    ]
+    return _paged(request, len(rows), _echo(request, protected=protected), body, page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/tags")
+async def list_tags(
+    owner: str,
+    repo: str,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    """The tags a `subtype: "repo"` record stated, or `[]` for a repo that stated none.
+
+    Empty rather than absent for a repo with no tags. Real GitHub answers `[]` there —
+    octocat/Hello-World does — so this is a shape a client meets in production, where a 404 would
+    be one it only ever meets here. Same reasoning as `/statuses/{sha}`, empty because Backlot has
+    no CI.
+
+    The item is real's, measured on psf/requests: `name`, `commit: {sha, url}`, `zipball_url`,
+    `tarball_url` and `node_id`, with the archive urls spelling the ref out in full as
+    `refs/tags/{name}`. Every tag resolves to the repo's one snapshot commit, as every branch does
+    — Backlot keeps no commit history (see :func:`get_tree`), so a tag cannot point at a different
+    one.
+
+    Paged like the rest of the router, and real pages it too: `?per_page=2` there answers two tags
+    with a `rel="last"` counting all 161.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    _require_repo(conn, repo, auth.visible_ids(request, caller))
+    names = _repo_tags(conn, repo)
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    ab, sha = _api_base(request), _repo_commit_sha(repo)
+    body = [
+        {
+            "name": name,
+            "commit": {"sha": sha, "url": f"{ab}/repos/{owner}/{repo}/commits/{sha}"},
+            "zipball_url": f"{ab}/repos/{owner}/{repo}/zipball/refs/tags/{name}",
+            "tarball_url": f"{ab}/repos/{owner}/{repo}/tarball/refs/tags/{name}",
+            "node_id": synth.node_id("Ref", synth.github_number(f"{repo}:tags/{name}")),
+        }
+        for name in names[start : start + per_page]
+    ]
+    return _paged(request, len(names), {}, body, page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/branches/{branch:path}/protection")
+async def get_branch_protection(owner: str, repo: str, branch: str, request: Request):
+    """Where `protection_url` points: real's 404 for a caller without repo-admin rights.
+
+    Real gates this on those rights and answers everyone else `Not Found`, protected branch or not
+    (psf/requests `main` and `3.0`, 2026-09-03). The admin answers need what a corpus does not
+    state — `Branch not protected`, or a 200 carrying the classic configuration — so nothing here
+    resolves; the credential and the owner are still the router-wide dependencies'.
+
+    Declared above :func:`get_branch` so the trailing `/protection` beats a name that could
+    swallow it, which is real's precedence: `/branches/bug/5671/protection` on psf/requests, where
+    `bug/5671` IS a branch, answers this anchor and not get-a-branch's. A branch actually named
+    `…/protection` is therefore unreachable on both.
+    """
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@router.get("/repos/{owner}/{repo}/branches/{branch:path}")
+async def get_branch(owner: str, repo: str, branch: str, request: Request):
+    """One branch, if the listing holds it — 404 otherwise, as real answers for a name no branch
+    has (measured on psf/requests).
+
+    The name is the trailing PATH because a branch name may contain a slash and real serves it
+    whole: `/branches/bug/5671` on psf/requests answers that branch, where a single path segment
+    could only 404 it. A slash stays a slash in the urls below, unescaped, as real spells them.
+
+    Six members on every branch, protected or not — measured 2026-09-03 across 30 branches of 28
+    repos, none omitting one or carrying a seventh. `_links.html` is github.com, the host every
+    `html_url` here is already spelt against; `self` and `protection_url` are Backlot's own, built
+    from the branch this route resolved, like the `commit.url` beside them.
+
+    **`protection.enabled` is not `protected`.** It reports CLASSIC protection where `protected`
+    covers any mechanism, so real answers `protected: true` with `enabled: false` for a
+    ruleset-protected branch (fastapi/fastapi `master`, brekkylab/backlot `main`) and
+    `enabled: true` for a classic one (psf/requests `main`, 15 of the 22 protected branches
+    measured). A corpus states the one bit and no mechanism, and Backlot serves no rulesets route,
+    so it reads as classic — the other reading calls a branch protected with nothing served to say
+    why.
+
+    `required_status_checks` is real's empty block either way, measured on an unprotected branch
+    (psf/requests `3.0`) and a classic-protected one requiring no check (django/django `main`): a
+    corpus records no CI, which is also why `/statuses/{sha}` answers `[]`.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    branch = _ref_as_sent(branch)
+    found = next((b for b in _branch_rows(conn, owner, repo, ids) if b["name"] == branch), None)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    ab = _api_base(request)
+    commit_sha, tree_sha = _repo_commit_sha(repo), _repo_tree_sha(repo)
+    self_url = f"{ab}/repos/{owner}/{repo}/branches/{branch}"
+    return {
+        "name": branch,
+        "commit": {
+            "sha": commit_sha,
+            "commit": {"tree": {"sha": tree_sha}},
+            "url": f"{ab}/repos/{owner}/{repo}/commits/{commit_sha}",
+        },
+        "_links": {
+            "self": self_url,
+            "html": f"https://github.com/{owner}/{repo}/tree/{branch}",
+        },
+        "protected": found["protected"],
+        "protection": {
+            "enabled": found["protected"],
+            "required_status_checks": {
+                "enforcement_level": "off",
+                "contexts": [],
+                "checks": [],
+            },
+        },
+        "protection_url": f"{self_url}/protection",
+    }
+
+
+@router.get("/repos/{owner}/{repo}/commits/{sha:path}")
+async def get_commit(owner: str, repo: str, sha: str, request: Request):
+    """One commit, by sha or by a ref standing for one — real takes a branch name here and answers
+    that branch's head (`/commits/main` and `git/trees/main` report the same sha on psf/requests),
+    a slashed one included, which is why the ref is the trailing path.
+
+    A ref naming no commit is real's 422 rather than a 404 (see :func:`_no_commit_for_sha`). This
+    route used to echo any string back as a sha with a 200, so a client that pinned to a name it
+    had misspelled read a commit that does not exist.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    sha = _ref_as_sent(sha)
+    if sha not in _commit_ish(conn, owner, repo, ids):
+        raise _no_commit_for_sha(sha)
+    # A NAME resolves to the commit it stands for rather than being echoed back as one: real
+    # answers `/commits/main` with the branch's own sha, the value `/branches/main` reports under
+    # `commit.sha` (both `dae7ef63…` on psf/requests), and carries it in `url` and `node_id` too.
+    # Every ref of this repo stands for the one snapshot commit (see :func:`get_tree`), so a
+    # branch and a tag resolve alike; a pull's head or base sha arrives already 40-hex and is its
+    # own answer.
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        sha = _repo_commit_sha(repo)
+    ab = _api_base(request)
+    tree_sha = _repo_tree_sha(repo)
+    return {
+        "sha": sha,
+        "node_id": synth.node_id("Commit", sha[:12]),
+        "commit": {
+            "tree": {"sha": tree_sha, "url": f"{ab}/repos/{owner}/{repo}/git/trees/{tree_sha}"},
+            "message": f"Snapshot of {repo}",
+            "url": f"{ab}/repos/{owner}/{repo}/git/commits/{sha}",
+        },
+        "url": f"{ab}/repos/{owner}/{repo}/commits/{sha}",
+        "html_url": f"https://github.com/{owner}/{repo}/commit/{sha}",
+    }
+
+
+#: The names a README is looked up by, the first the corpus holds winning. Measured 2026-10-07:
+#: curl/curl holds `README` and `README.md` and is served `README.md`, octocat/Hello-World's
+#: `README` is served at `readme` and at `readme/`, and torvalds/linux's `fs/cramfs/README` at
+#: `readme/fs/cramfs`.
+_README_NAMES = ("README.md", "readme.md", "README")
+
+
+def _readme_row(conn, repo: str, directory: str, ids, ref: str | None):
+    """The first of :data:`_README_NAMES` the corpus holds in ``directory`` for this caller."""
+    for name in _README_NAMES:
+        row = store.get_repo_file(conn, repo, f"{directory}{name}", ids, ref=ref)
+        if row is not None:
+            return row
+    return None
+
+
+@router.get("/repos/{owner}/{repo}/readme/{dir:path}")
+async def get_readme_for_a_directory(
+    owner: str, repo: str, dir: str, request: Request, ref: str | None = Query(None)
+):
+    """The README of a directory, which real serves at its own route beside the root one.
+
+    Measured 2026-09-22: `readme/Doc` on python/cpython is that directory's README at 200, a
+    directory holding none is a 404 whose `documentation_url` names the directory anchor rather
+    than the root one, and `readme/` — the empty directory — is the repository's own README, which
+    is why a trailing slash answers 200 here where it is a refusal on the routes around it.
+
+    The empty directory is a directory like any other, so it is looked up here rather than handed
+    to :func:`get_readme`, whose 404 names the root anchor: measured 2026-09-28, `readme/` on a
+    repository holding no README (octocat/test-repo1) is the same directory-anchor 404.
+
+    Slashes, measured 2026-09-28 on github/gitignore and python/cpython: a path ending in up to two
+    still names the directory, and one ending in three does not. `readme//` and `readme/Doc//` are
+    still the README, `readme///` and `readme/Doc///` are the directory 404, and a doubled slash
+    before the directory (`readme//Doc`) is `Doc`'s README. The slash 404 comes after the
+    credential and after `?ref=` (`readme///?ref=nope` is the ref's own 404).
+
+    WHICH file it serves is where this and real part: real answers whatever the directory's README
+    is, `Doc/README.rst` on python/cpython among them, and this looks for :data:`_README_NAMES`, as
+    the root route does. A corpus stating `docs/README.rst` gets a 404 here and a 200 on real.
+    """
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    _require_ref(conn, owner, repo, ref, ids)
+    sent = f"/{dir}"
+    if len(sent) - len(sent.rstrip("/")) > 2:
+        raise HTTPException(status_code=404, detail="Not Found")
+    inside = dir.strip("/")
+    row = _readme_row(conn, repo, f"{inside}/" if inside else "", ids, ref)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return _raw_response(request, row["content"], _CONTENT_RAW_TYPE) or _file_obj(
+        owner, repo, row, _api_base(request), ref
+    )
+
+
+@router.get("/repos/{owner}/{repo}/readme")
+async def get_readme(owner: str, repo: str, request: Request, ref: str | None = Query(None)):
+    """The repository's README (:func:`_readme_row`), and where the corpus holds none the 404 real
+    gives octocat/test-repo1 in either media type (measured 2026-10-07).
+
+    `ref` selects a snapshot, as on `/contents` — real GitHub takes it here too, and both serve
+    the same underlying object (see :func:`_file_obj`), so a README the corpus snapshots would
+    otherwise be reachable at an older revision through one route and not the other."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    _require_ref(conn, owner, repo, ref, ids)
+    ab = _api_base(request)
+    row = _readme_row(conn, repo, "", ids, ref)
+    if row is not None:
+        return _raw_response(request, row["content"], _CONTENT_RAW_TYPE) or _file_obj(
+            owner, repo, row, ab, ref
+        )
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@router.get("/repos/{owner}/{repo}/collaborators")
+async def list_collaborators(
+    owner: str,
+    repo: str,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    emails = store.container_member_emails(conn, "github", repo)
+    if emails is None:
+        emails = store.all_user_emails(conn)
+    emails = sorted(emails)
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    ab = _api_base(request)
+    body = [
+        {
+            **_gh_user(e, ab),
+            "role_name": "read",
+            "permissions": {
+                "admin": False,
+                "maintain": False,
+                "push": False,
+                "triage": False,
+                "pull": True,
+            },
+        }
+        for e in emails[start : start + per_page]
+    ]
+    return _paged(request, len(emails), {}, body, page, per_page)
+
+
+@router.get("/orgs/{org}/teams")
+async def list_teams(
+    org: str, request: Request, page: PageParam = None, per_page: PageParam = None
+):
+    conn = auth.conn(request)
+    _require(request)
+    rows = conn.execute(
+        "SELECT id, display_name FROM principals WHERE type = 'group' ORDER BY id"
+    ).fetchall()
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    ab = _api_base(request)
+    body = [
+        {
+            "id": synth.github_user_id(r["id"]),
+            "node_id": synth.node_id("Team", synth.github_user_id(r["id"])),
+            "name": r["display_name"],
+            "slug": r["id"],
+            "description": f"{r['display_name']} team",
+            "privacy": "closed",
+            "permission": "pull",
+            "parent": None,
+            "url": f"{ab}/orgs/{org}/teams/{r['id']}",
+            "html_url": f"https://github.com/orgs/{org}/teams/{r['id']}",
+        }
+        for r in rows[start : start + per_page]
+    ]
+    return _paged(request, len(rows), {}, body, page, per_page)
+
+
+@router.get("/repos/{owner}/{repo}/teams")
+async def list_repo_teams(
+    owner: str,
+    repo: str,
+    request: Request,
+    page: PageParam = None,
+    per_page: PageParam = None,
+):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    _require_repo(conn, repo, ids)
+    c = store.get_container(conn, "github", repo)
+    teams = []
+    if c["group_id"]:
+        teams.append(
+            {
+                "id": synth.github_user_id(c["group_id"]),
+                "name": c["group_id"],
+                "slug": c["group_id"],
+                "permission": "pull",
+            }
+        )
+    page, per_page = _clamp(page, per_page)
+    start = (page - 1) * per_page
+    return _paged(request, len(teams), {}, teams[start : start + per_page], page, per_page)
+
+
+# --- repo file tree / contents / blobs ------------------------------------------
+
+
+# The refs a pull advertises when the corpus states neither. `_pr_obj` serves these and
+# `_branch_names` lists them: a corpus that names no branches must still not contradict itself.
+# The branch is `store`'s, because the importer checks an open pull's base against the same
+# fallback and a second copy of it here is a second answer.
+_DEFAULT_BRANCH = store.GITHUB_DEFAULT_BRANCH
+_UNSTATED_HEAD_REF = "feature"
+
+
+def _written_bare(request: Request, name: str) -> bool:
+    """Whether the last `name` in the query string has no `=`. Starlette reads `?name` and `?name=`
+    alike as the empty string, and :func:`get_tree` answers them differently. Keys are matched
+    percent-decoded, as Starlette and api.github.com both read them: on psf/requests (2026-10-05)
+    `?%72ecursive` answers the flat tree and `?%72ecursive=0` the recursive one."""
+    last = None
+    for pair in request.scope.get("query_string", b"").decode("latin-1").split("&"):
+        key, eq, _ = pair.partition("=")
+        if unquote_plus(key) == name:
+            last = eq
+    return last == ""
+
+
+def _truthy(v: str) -> bool:
+    """How :func:`list_branches` reads `?protected=`. Measured on fastapi/fastapi (25 branches, one
+    protected), 2026-10-05, unauthenticated with API version 2022-11-28 and a fresh nonce per
+    request: `0`, `f`, `F`, `false`, `FALSE`, `off`, `OFF` select the 24 unprotected branches.
+    `False`, `fAlSe`, `Off`, `oFF`, `0 `, ` false`, `f `, `false ` and ` off ` select the protected
+    one: do not fold case or strip. An empty or omitted value answers all 25, so the route leaves it
+    unfiltered.
+    """
+    return v not in ("0", "f", "F", "false", "FALSE", "off", "OFF")
+
+
+def _blob_sha(content: str) -> str:
+    return hashlib.sha1(content.encode()).hexdigest()
+
+
+def _repo_tree_sha(repo: str) -> str:
+    return hashlib.sha1(f"tree:{repo}".encode()).hexdigest()
+
+
+def _repo_commit_sha(repo: str) -> str:
+    return hashlib.sha1(f"commit:{repo}".encode()).hexdigest()
+
+
+def _default_branch(conn, repo: str) -> str:
+    """The branch a repo object reports and every unstated ref falls back to — the corpus's
+    `default_branch` if a `subtype: "repo"` record stated one, else `main`."""
+    meta = store.github_repo_meta(conn, repo)
+    return (meta["default_branch"] if meta else None) or _DEFAULT_BRANCH
+
+
+def _repo_tags(conn, repo: str) -> list[str]:
+    """The tags a `subtype: "repo"` record stated, in the order it stated them. `[]` for a repo
+    that stated none, which is also what a repo record's absence means: nothing in a corpus but
+    that record can imply a tag."""
+    meta = store.github_repo_meta(conn, repo)
+    return json.loads(meta["tags"]) if meta and meta["tags"] else []
+
+
+def _branch_rows(conn, owner: str, repo: str, ids, pulls=None) -> list[dict]:
+    """The repo's branches, each with its `protected` flag, ascending by name.
+
+    **Stated wins.** A `subtype: "repo"` record naming `branches` is the repo answering for itself,
+    and the pulls are not consulted — so an open pull heading a branch the record omits does not
+    add it back, exactly as real behaves for a pull whose branch was deleted under it. The default
+    branch is listed either way; a repo record that omits it from `branches` has still named it.
+
+    **Inferred otherwise**, from the pulls, measured on api.github.com (2026-09-03):
+
+    - An OPEN pull's same-repo head ref is a branch — 27 of 27 across seven repos. Omitting it told
+      a client that reads a pull and then resolves its head here that the branch was deleted or
+      lives in a fork, contradicting `head.repo.full_name` in the same pull.
+    - A MERGED pull's head ref is not — 0 of 54 across ten repos, GitHub's "automatically delete
+      head branches" at work. This is the one place the listing must not hold what a pull says.
+    - A CLOSED-but-unmerged pull's head ref is left out with it, and that one is a coin toss rather
+      than a rule: 6 of 28 such heads still exist. Neither answer is right often enough to be
+      right, which is what a repo record exists to settle — a corpus that knows says so, and this
+      inference stops guessing for it.
+    - A FORK's head ref is not either: it is a branch of the fork. `head_repo` is how a corpus says
+      so — a `head_repo` naming THIS repo is not a fork — and without it every pull looked
+      same-repo.
+    - A `base.ref` is a branch, always, whether or not it is the default branch (pydantic/pydantic
+      lists its non-default base `pure-annotation-schema-cache`). A base outlives the pull on it.
+
+    A pull the corpus states no refs for still advertises the fallbacks used here, so they are
+    listed for the same reason a stated ref is: the listing has to hold what the pulls say.
+
+    `protected` is false throughout an inferred listing — a pull cannot imply protection — which is
+    why `?protected=` only really selects for a repo that states its branches.
+
+    Scoped to `ids` when inferred: pulls are ACL-filtered, so the branches drawn from them are too.
+    Deliberate, and the same answer `/user/repos` already gives — a caller who cannot see the pull
+    is not told its branch exists — rather than a side effect of where the material happens to
+    live. A STATED listing is the same for every caller, because the record it comes from carries
+    no ACL of its own (see `store.github_repo_meta`).
+    """
+    meta = store.github_repo_meta(conn, repo)
+    default = (meta["default_branch"] if meta else None) or _DEFAULT_BRANCH
+    if meta is not None and meta["branches"] is not None:  # stated: the pulls are not read at all
+        protection = {b["name"]: bool(b.get("protected")) for b in json.loads(meta["branches"])}
+        protection.setdefault(default, False)
+        return [{"name": n, "protected": protection[n]} for n in sorted(protection)]
+    names = {default}
+    here = f"{owner}/{repo}"
+    for row in store.github_pull_refs(conn, repo, ids) if pulls is None else pulls:
+        names.add(row["base_ref"] or default)
+        # `head_repo` is compared, not merely tested for presence: a corpus may write this repo's
+        # own `owner/name` there, and reading that as a fork dropped a head the pull advertises —
+        # `_pr_obj` resolves the same field the same way, so the two cannot disagree.
+        if row["state"] == "open" and not row["merged_at"] and (row["head_repo"] or here) == here:
+            names.add(row["head_ref"] or _UNSTATED_HEAD_REF)
+    return [{"name": n, "protected": False} for n in sorted(names)]
+
+
+def _branch_names(conn, owner: str, repo: str, ids) -> list[str]:
+    return [b["name"] for b in _branch_rows(conn, owner, repo, ids)]
+
+
+def _commit_shas(repo: str, pulls) -> set[str]:
+    """Every sha this server hands the caller AS A COMMIT of `repo`.
+
+    The repo's one snapshot commit, plus the head and base shas each visible pull reports — those
+    are advertised in the pull object, in `/pulls/{n}/commits` and in the `commits_url` a client
+    follows, so a `/commits/{sha}` that rejected them would 422 a link this same server printed.
+
+    Takes the pull rows rather than reading them, so :func:`_commit_ish` can derive both halves of
+    its answer from one scan.
+    """
+    shas = {_repo_commit_sha(repo)}
+    for row in pulls:
+        head = hashlib.sha1(_seed(row).encode()).hexdigest()
+        shas.update((head, head[::-1]))  # the pull's head and its base, as `_pr_obj` derives them
+    return shas
+
+
+def _commit_ish(conn, owner: str, repo: str, ids) -> set[str]:
+    """What may stand in for a commit: a branch name, a TAG, or a commit sha — real GitHub's own
+    rule for the `{ref}` of `/commits`, `git/trees`, `/statuses` and `?ref=`.
+
+    A tag counts wherever a branch does, measured on psf/requests with `v2.34.2`: all four answer
+    200 for it. A tag that resolved on `/tags` and `git/ref/tags/{name}` alone was a ref a client
+    is offered and cannot then read at — `GithubFileSystem.refs` lists it and `fs.ls("", sha=…)`
+    raises on it.
+
+    One read of the repo's pulls, shared by every half: the branch names and the commit shas come
+    from the same rows, and fetching them separately ran that ACL-joined scan twice on every route
+    that asks whether a ref exists. The tags are a primary-key lookup on the repo's own row, not
+    that scan.
+    """
+    pulls = store.github_pull_refs(conn, repo, ids)
+    branches = _branch_rows(conn, owner, repo, ids, pulls=pulls)
+    names = {b["name"] for b in branches} | set(_repo_tags(conn, repo))
+    return names | _commit_shas(repo, pulls)
+
+
+def _ref_as_sent(ref: str) -> str:
+    """The ref the caller sent, with only a LEADING slash dropped.
+
+    A TRAILING one is part of the name real reads, and each route refuses the name it then fails to
+    find: measured 2026-09-22, `git/trees/main/` and `git/ref/heads/main/` are 404 `Not Found`,
+    `statuses/main/` a 404, `branches/main/` a 404 `Branch not found`, and `commits/main/` a 422
+    whose message echoes the slash.
+
+    The leading slash is dropped because a ref arriving as `//main` — a client joining a base and a
+    ref that both carry one — otherwise reaches the lookup with a name no corpus holds.
+    """
+    return ref.lstrip("/")
+
+
+def _no_commit_for_sha(sha: str) -> HTTPException:
+    """Real's answer for a `/commits/{ref}` naming nothing — a 422, not the 404 every other ref
+    route gives, and with the ref echoed in the message (measured on psf/requests for both a
+    made-up name and a 40-hex sha naming no commit)."""
+    exc = HTTPException(status_code=422, detail="Unprocessable Entity")
+    exc.github_body = {
+        "message": f"No commit found for SHA: {sha}",
+        "documentation_url": "https://docs.github.com/rest/commits/commits#get-a-commit",
+        "status": "422",
+    }
+    return exc
+
+
+def _dir_sha(repo: str, dirpath: str) -> str:
+    return hashlib.sha1(f"tree:{repo}:{dirpath}".encode()).hexdigest()
+
+
+def _dirname(path: str) -> str:
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
+def _tree_from_paths(owner: str, repo: str, files, api_base: str = "") -> list[dict]:
+    """Flat repo file rows -> full recursive git-tree entries: a blob per file plus an
+    inferred `tree` (directory) entry for every distinct path prefix. Deterministic and
+    sorted by path; callers needing only the top level filter out any path containing '/'."""
+    entries: dict[str, dict] = {}
+    dirs: set[str] = set()
+    for row in files:
+        path, content = row["path"], row["content"]
+        sha = _blob_sha(content)
+        entries[path] = {
+            "path": path,
+            "mode": "100644",
+            "type": "blob",
+            "sha": sha,
+            "size": len(content.encode()),
+            "url": f"{api_base}/repos/{owner}/{repo}/git/blobs/{sha}",
+        }
+        parts = path.split("/")[:-1]
+        for i in range(1, len(parts) + 1):
+            dirs.add("/".join(parts[:i]))
+    for d in dirs:
+        dsha = _dir_sha(repo, d)
+        entries[d] = {
+            "path": d,
+            "mode": "040000",
+            "type": "tree",
+            "sha": dsha,
+            "url": f"{api_base}/repos/{owner}/{repo}/git/trees/{dsha}",
+        }
+    return [entries[p] for p in sorted(entries)]
+
+
+def _file_obj(owner: str, repo: str, row, api_base: str = "", ref: str | None = None) -> dict:
+    """The Contents API's file-object shape (base64 body), used by both /contents/{path}
+    and /readme — real GitHub serves both from the same underlying object.
+
+    `ref` is carried into every link, as real GitHub does. Without it a `?ref=`-selected response
+    holds one snapshot's bytes while `url`/`_links.self` fetch HEAD, so a client re-reading the file
+    it was just handed gets different content under the same `path`. It is the SELECTED ref rather
+    than the row's own, so a ref that named no snapshot (and fell back to HEAD) does not invent a
+    revision the corpus never stated.
+    """
+    content = row["content"]
+    path = row["path"]
+    name = path.rsplit("/", 1)[-1]
+    sha = _blob_sha(content)
+    q = f"?ref={quote(ref, safe='')}" if ref else ""
+    rev = quote(ref, safe="") if ref else "main"
+    url = f"{api_base}/repos/{owner}/{repo}/contents/{path}{q}"
+    git_url = f"{api_base}/repos/{owner}/{repo}/git/blobs/{sha}"
+    html_url = f"https://github.com/{owner}/{repo}/blob/{rev}/{path}"
+    download_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{rev}/{path}"
+    return {
+        "type": "file",
+        "name": name,
+        "path": path,
+        "encoding": "base64",
+        "content": base64.b64encode(content.encode()).decode(),
+        "size": len(content.encode()),
+        "sha": sha,
+        "node_id": synth.node_id("Blob", sha[:12]),
+        "url": url,
+        "git_url": git_url,
+        "html_url": html_url,
+        "download_url": download_url,
+        "_links": {"self": url, "git": git_url, "html": html_url},
+    }
+
+
+def _contents_child(owner: str, repo: str, entry: dict, api_base: str = "") -> dict:
+    """One element of a directory listing (real Contents API array shape)."""
+    is_file = entry["type"] == "blob"
+    name = entry["path"].rsplit("/", 1)[-1]
+    self_url = f"{api_base}/repos/{owner}/{repo}/contents/{entry['path']}"
+    git_url = (
+        f"{api_base}/repos/{owner}/{repo}/git/blobs/{entry['sha']}"
+        if is_file
+        else f"{api_base}/repos/{owner}/{repo}/git/trees/{entry['sha']}"
+    )
+    html_url = (
+        f"https://github.com/{owner}/{repo}/{'blob' if is_file else 'tree'}/main/{entry['path']}"
+    )
+    return {
+        "name": name,
+        "path": entry["path"],
+        "sha": entry["sha"],
+        "size": entry.get("size", 0),
+        "url": self_url,
+        "html_url": html_url,
+        "git_url": git_url,
+        "download_url": (
+            f"https://raw.githubusercontent.com/{owner}/{repo}/main/{entry['path']}"
+            if is_file
+            else None
+        ),
+        "type": "file" if is_file else "dir",
+        "_links": {"self": self_url, "git": git_url, "html": html_url},
+    }
+
+
+# --- object builders ------------------------------------------------------------
+
+
+def _gh_user(email: str, api_base: str = "") -> dict:
+    """A full Simple User object (login/id/node_id/avatar/urls/type/site_admin)."""
+    login = synth.github_login(email)
+    uid = synth.github_user_id(email)
+    return {
+        "login": login,
+        "id": uid,
+        "node_id": synth.node_id("User", uid),
+        "avatar_url": synth.github_avatar(uid),
+        "gravatar_id": "",
+        "url": f"{api_base}/users/{login}",
+        "html_url": f"https://github.com/{login}",
+        "type": "User",
+        "site_admin": False,
+    }
+
+
+def _reactions(val, api_url: str = "") -> dict:
+    """Normalize a stored reactions blob into the real GitHub rollup shape (all 8 keys)."""
+    roll = {
+        "+1": 0,
+        "-1": 0,
+        "laugh": 0,
+        "hooray": 0,
+        "confused": 0,
+        "heart": 0,
+        "rocket": 0,
+        "eyes": 0,
+    }
+    if isinstance(val, dict):
+        for k, v in val.items():
+            if k in roll and isinstance(v, int):
+                roll[k] = v
+    total = sum(roll.values())
+    return {"url": f"{api_url}/reactions", "total_count": total, **roll}
+
+
+def _repo_obj(
+    conn, owner: str, name: str, api_base: str = "", *, private: bool | None = None
+) -> dict:
+    """A repository, carrying a URL template for each sub-resource Backlot serves.
+
+    ``private`` is the ACL fact the object reports (no org-wide grant on any of the repository's
+    documents), passed in by a listing that has already read it to filter on (see
+    :func:`_repo_page`); every other caller leaves it to be read here.
+
+    The templates are how an SDK completes a repository lazily — PyGithub expands them for the
+    example this repo ships — so without them the client assembles the URLs from parts, which is the
+    work hypermedia exists to remove. All of them derive from owner/repo; none needs stored data.
+
+    THE RULE IS "a template iff the resource". Real serves 42 of these and Backlot has routes for a
+    third, so the rest are absent rather than inviting a caller into a 404: a key set that lies about
+    what can be fetched is a worse deal than a short one, and short is something the caller can
+    detect and work around. Adding a route later means adding its template here. (`git_refs_url` is
+    absent for a subtler version of the same reason — Backlot serves `/git/ref/{ref}`, singular,
+    not real's plural `/git/refs{/sha}`.)
+
+    The git-protocol URLs are the exception: they name github.com rather than Backlot, so they
+    promise it nothing and cost nothing to state.
+    """
+    if private is None:
+        private = not store.container_has_public(conn, "github", name)
+    rid = synth.github_user_id(name)
+    created, updated, pushed = _repo_timestamps(name)
+    repo_url = f"{api_base}/repos/{owner}/{name}"
+    return {
+        "id": rid,
+        "node_id": synth.node_id("Repository", rid),
+        "name": name,
+        "full_name": f"{owner}/{name}",
+        "private": private,
+        "visibility": "private" if private else "public",
+        "owner": {**_gh_user(f"{owner}@org", api_base), "login": owner, "type": "Organization"},
+        "html_url": f"https://github.com/{owner}/{name}",
+        "url": repo_url,
+        "description": f"{name} service repository.",
+        "fork": False,
+        "archived": False,
+        "disabled": False,
+        "created_at": synth.rfc3339(created),
+        "updated_at": synth.rfc3339(updated),
+        "pushed_at": synth.rfc3339(pushed),
+        "default_branch": _default_branch(conn, name),
+        "issues_url": f"{repo_url}/issues{{/number}}",
+        "pulls_url": f"{repo_url}/pulls{{/number}}",
+        "issue_comment_url": f"{repo_url}/issues/comments{{/number}}",
+        "contents_url": f"{repo_url}/contents/{{+path}}",
+        "blobs_url": f"{repo_url}/git/blobs{{/sha}}",
+        "trees_url": f"{repo_url}/git/trees{{/sha}}",
+        "branches_url": f"{repo_url}/branches{{/branch}}",
+        "tags_url": f"{repo_url}/tags",
+        "commits_url": f"{repo_url}/commits{{/sha}}",
+        "statuses_url": f"{repo_url}/statuses/{{sha}}",
+        "collaborators_url": f"{repo_url}/collaborators{{/collaborator}}",
+        "teams_url": f"{repo_url}/teams",
+        "clone_url": f"https://github.com/{owner}/{name}.git",
+        "ssh_url": f"git@github.com:{owner}/{name}.git",
+        "git_url": f"git://github.com/{owner}/{name}.git",
+        "svn_url": f"https://github.com/{owner}/{name}",
+    }
+
+
+def _resolve(conn, repo: str, number: int, ids):
+    """One issue/PR by its served number, ACL-scoped — a PRIMARY KEY lookup (see
+    store.github_by_number).
+
+    A `kind='file'` row carries a number too (the table holds two resources and only one key can be
+    primary — see the schema), so this guard is load-bearing: a file has no title/body/state in the
+    issue sense and is addressed by (repo, path)."""
+    row = store.github_by_number(conn, repo, number, visible_ids=ids)
+    return row if row is not None and row["kind"] != "file" else None
+
+
+def _milestone(row, owner, repo, api_base):
+    title = row["milestone"]
+    if not title:
+        return None
+    num = synth.github_number(_seed(row) + ":ms") % 100
+    return {
+        "number": num,
+        "title": title,
+        "state": "open",
+        "url": f"{api_base}/repos/{owner}/{repo}/milestones/{num}",
+        "html_url": f"https://github.com/{owner}/{repo}/milestone/{num}",
+    }
+
+
+def _issue_number(row) -> int:
+    """The number this document answers to — its own stored `number`, assigned at import (see
+    backlot.importer.byo's `resolve_github_numbers`).
+
+    Deriving it here would disagree with that assignment whenever a row's plain hash was already
+    claimed by a record that stated it outright: this row would advertise a number that fetches
+    somebody else, and be reachable at nothing. Asserted rather than re-derived, because every
+    github row carries a number by the time it is served."""
+    assert row["number"] is not None, "github: a row reached the serializer with no number"
+    return row["number"]
+
+
+# Which versions still carry a field a later one removed. Stated as "who HAS it" rather than "who
+# dropped it" so that adding a third version has to answer the question instead of inheriting an
+# answer from whichever side the condition happened to be written on.
+_HAS_SINGULAR_ASSIGNEE = frozenset({"2022-11-28"})  # 2026-03-10: superseded by `assignees`
+_HAS_MERGE_COMMIT_SHA = frozenset({"2022-11-28"})  # 2026-03-10: removed from every pull body
+_HAS_RATE_ALIAS = frozenset({"2022-11-28"})  # 2026-03-10: `rate` removed from `/rate_limit`
+#: authenticated? -> the order `/rate_limit` lists `resources` in: real runs `core`, `search`, …,
+#: `code_search` for a token and `code_search`, `core`, …, `search` for a caller with no
+#: credential, so the two answers differ in order as well as in membership (measured against
+#: api.github.com 2026-09-21).
+_RESOURCE_ORDER = {
+    True: ("core", "search", "code_search"),
+    False: ("code_search", "core", "search"),
+}
+
+
+def _shared_obj(conn, owner: str, repo: str, row, api_base: str, version: str) -> dict:
+    """The fields real GitHub's issue body and its pull body BOTH carry.
+
+    Split out because a pull is not an issue with extra keys — real serves each its own field set,
+    and building the pull as ``_issue_obj`` plus additions leaked ten issue-only fields onto it,
+    ``pull_request`` included. That marker exists to tell a caller an ISSUE is really a pull, so a
+    pull carrying one points at itself and tells a client the opposite of the truth.
+
+    ``comments_url`` is shared and shared in VALUE too: a pull's conversation comments are the
+    issue's, and real points both objects at the same collection.
+    """
+    created, updated = _created_ts(row), _updated_ts(row)
+    number = _issue_number(row)
+    iid = synth.jira_numeric_id(_seed(row))  # a stable large numeric db id (≠ number)
+    is_pr = row["kind"] == "pull_request"
+    state = row["state"]
+    assignees = [_gh_user(a, api_base) for a in store.jcol(row, "assignees")]
+    issue_url = f"{api_base}/repos/{owner}/{repo}/issues/{number}"
+    obj = {
+        "id": iid,
+        "node_id": synth.node_id("Issue", iid),
+        "number": number,
+        "title": row["title"],
+        "body": row["content"],
+        "state": state,
+        "locked": False,
+        "active_lock_reason": None,
+        "user": _gh_user(row["author_email"], api_base),
+        "labels": [
+            {
+                "id": synth.github_number(_seed(row) + lbl),
+                "name": lbl,
+                "color": "ededed",
+                "default": False,
+                "description": None,
+            }
+            for lbl in store.jcol(row, "labels")
+        ],
+        "assignees": assignees,
+        "milestone": _milestone(row, owner, repo, api_base),
+        "comments": len(store.github_comments(conn, row["repo"], row["number"], anchored=False)),
+        "author_association": "MEMBER",
+        "created_at": synth.rfc3339(created),
+        "updated_at": synth.rfc3339(updated),
+        "closed_at": (
+            synth.rfc3339(row["closed_ts"])
+            if row["closed_ts"]
+            else synth.rfc3339(updated)
+            if state == "closed"
+            else None
+        ),
+        "comments_url": f"{issue_url}/comments",
+        "html_url": f"https://github.com/{owner}/{repo}/{'pull' if is_pr else 'issues'}/{number}",
+    }
+    if version in _HAS_SINGULAR_ASSIGNEE:
+        # Both objects carried it and both lost it in the same version, so the gate is here rather
+        # than repeated in each builder.
+        obj["assignee"] = assignees[0] if assignees else None
+    return obj
+
+
+def _issue_obj(
+    conn,
+    owner: str,
+    repo: str,
+    row,
+    api_base: str = "",
+    version: str = DEFAULT_API_VERSION,
+) -> dict:
+    """An issue. A pull seen through ``/issues`` is one of these too — plus the marker saying so."""
+    obj = _shared_obj(conn, owner, repo, row, api_base, version)
+    self_url = f"{api_base}/repos/{owner}/{repo}/issues/{obj['number']}"
+    obj.update(
+        {
+            "url": self_url,
+            "state_reason": ("completed" if obj["state"] == "closed" else None),
+            "reactions": _reactions(store.jcol(row, "reactions", {}), self_url),
+            "closed_by": _gh_user(row["closed_by"], api_base) if row["closed_by"] else None,
+            "repository_url": f"{api_base}/repos/{owner}/{repo}",
+            "labels_url": f"{self_url}/labels{{/name}}",
+            "events_url": f"{self_url}/events",
+            "timeline_url": f"{self_url}/timeline",
+        }
+    )
+    if row["kind"] == "pull_request":  # what connectors read to tell PRs apart in the stream
+        number = obj["number"]
+        obj["pull_request"] = {
+            "url": f"{api_base}/repos/{owner}/{repo}/pulls/{number}",
+            "html_url": f"https://github.com/{owner}/{repo}/pull/{number}",
+            "diff_url": f"https://github.com/{owner}/{repo}/pull/{number}.diff",
+            "patch_url": f"https://github.com/{owner}/{repo}/pull/{number}.patch",
+            "merged_at": row["merged_at"],
+        }
+    return obj
+
+
+def _pr_obj(
+    conn,
+    owner: str,
+    repo: str,
+    row,
+    api_base: str = "",
+    ids=None,
+    files=None,
+    repo_files=None,
+    version: str = DEFAULT_API_VERSION,
+) -> dict:
+    """A pull, in real GitHub's PULL shape — see ``_shared_obj`` for why that is not the issue's.
+
+    The hypermedia half (``_links`` and the ``*_url`` siblings) is the point of the field set: it is
+    how a caller reaches a pull's sub-resources without assembling URLs from parts, which is what
+    hypermedia is for. Every href here names a route Backlot serves, so following one gets an
+    answer rather than a 404 — ``review_comment`` excepted, which real serves as a template too.
+    """
+    obj = _shared_obj(conn, owner, repo, row, api_base, version)
+    sha = hashlib.sha1(_seed(row).encode()).hexdigest()
+    number = obj["number"]
+    repo_url = f"{api_base}/repos/{owner}/{repo}"
+    self_url = f"{repo_url}/pulls/{number}"
+    issue_url = f"{repo_url}/issues/{number}"
+    commits_url = f"{self_url}/commits"
+    review_comments_url = f"{self_url}/comments"
+    # A template, as real serves it: one comment id is not knowable from the pull alone.
+    review_comment_url = f"{repo_url}/pulls/comments{{/number}}"
+    # Real anchors this on the HEAD sha rather than templating it — the pull knows its own head.
+    statuses_url = f"{repo_url}/statuses/{sha}"
+    reviewers = [_gh_user(e, api_base) for e in store.jcol(row, "requested_reviewers")]
+    n_comments = obj["comments"]
+    # one _RepoFiles for both the changeset and the review-comment resolution below, so a file
+    # either of them touches is read once
+    src = repo_files if repo_files is not None else _RepoFiles(conn, repo, ids)
+    if files is None:
+        files = _pr_files(conn, owner, repo, row, api_base, ids, src)
+    # `head_repo` is a full `owner/name` precisely because a fork's owner is what differs; an
+    # unstated one means the head is a branch of this repo, under this owner.
+    head_repo = row["head_repo"] or f"{owner}/{repo}"
+    head_owner = head_repo.split("/", 1)[0]
+    base_branch = _default_branch(conn, repo)
+    obj.update(
+        {
+            # A PR's issue view and its pull view are two DISTINCT nodes on real GitHub, so this
+            # overrides the Issue-typed id _shared_obj built. /issues keeps the Issue one on purpose.
+            "node_id": synth.node_id("PullRequest", obj["id"]),
+            "draft": False,
+            "merged": bool(row["merged_at"]),
+            "merged_at": row["merged_at"],
+            "merged_by": _gh_user(row["merged_by"], api_base) if row["merged_by"] else None,
+            "mergeable": None,
+            "mergeable_state": "unknown",
+            "rebaseable": None,
+            "auto_merge": None,  # nothing in a corpus says a pull was queued to auto-merge
+            "maintainer_can_modify": False,
+            "requested_reviewers": reviewers,
+            "requested_teams": [],
+            # `head_repo` is the fork the head branch lives in, when the corpus states one. Real
+            # spells the difference in both fields: an outside pull on pydantic/pydantic reports
+            # `head.repo.full_name` `chenlichao/pydantic` and `head.label`
+            # `chenlichao:fix/…` — the FORK's owner, not the base repo's. The base is always this
+            # repo, so its label keeps this owner.
+            "head": {
+                "ref": row["head_ref"] or _UNSTATED_HEAD_REF,
+                "sha": sha,
+                "label": f"{head_owner}:{row['head_ref'] or _UNSTATED_HEAD_REF}",
+                "user": obj["user"],
+                "repo": {"full_name": head_repo},
+            },
+            "base": {
+                "ref": row["base_ref"] or base_branch,
+                "sha": sha[::-1],
+                "label": f"{owner}:{row['base_ref'] or base_branch}",
+                "user": obj["user"],
+                "repo": {"full_name": f"{owner}/{repo}"},
+            },
+            "commits": 1,
+            # Summed over the synthesized changeset rather than guessed from the body length, so
+            # these agree with what /pulls/{n}/files reports. They used to contradict it.
+            "additions": sum(f["additions"] for f in files),
+            "deletions": sum(f["deletions"] for f in files),
+            "changed_files": len(files),
+            # The anchored half of github_comments; `comments` above is the conversation half. Real
+            # GitHub reports the two separately, and one number covering both would contradict
+            # whichever list the caller then fetched. Resolved the same way /pulls/{n}/comments
+            # resolves it, so the count describes the list the caller actually gets.
+            "review_comments": len(_resolved_review_comments(conn, row, src)),
+            "comments": n_comments,
+            "url": self_url,
+            "diff_url": f"https://github.com/{owner}/{repo}/pull/{number}.diff",
+            "patch_url": f"https://github.com/{owner}/{repo}/pull/{number}.patch",
+            "issue_url": issue_url,
+            "commits_url": commits_url,
+            "review_comments_url": review_comments_url,
+            "review_comment_url": review_comment_url,
+            "statuses_url": statuses_url,
+            # The same eight targets, in the envelope a client walks instead of reading the flat
+            # fields. Real serves both; a caller following `_links` and a caller reading
+            # `review_comments_url` must land on the same resource, so they are built from one set of
+            # locals rather than assembled twice.
+            "_links": {
+                "self": {"href": self_url},
+                "html": {"href": obj["html_url"]},
+                "issue": {"href": issue_url},
+                "comments": {"href": obj["comments_url"]},
+                "review_comments": {"href": review_comments_url},
+                "review_comment": {"href": review_comment_url},
+                "commits": {"href": commits_url},
+                "statuses": {"href": statuses_url},
+            },
+        }
+    )
+    if version in _HAS_MERGE_COMMIT_SHA:
+        obj["merge_commit_sha"] = sha[:40] if row["merged_at"] else None
+    return obj
+
+
+# --- pull request changesets ----------------------------------------------------
+#
+# WHICH files a pull changed comes from its `changed_paths` when the corpus declared it. Nothing
+# records the HUNKS, so those are always synthesized — deterministically, seeded on the pull's
+# served key — but they invent no content: every line on either side is a line of that file's own
+# snapshot. A `modified` file's "before" state is the snapshot with one real block either taken out
+# or duplicated (see _patch_modified), so the hunk is a well-formed diff against real bytes in both
+# directions. Without `changed_paths` the file list is chosen deterministically too, which is
+# well-formed but unrelated to what the pull is about.
+#
+# What that buys, none of which was reachable before: a client's diff path, its handling of an
+# omitted `patch`, and — for a corpus that declares more paths than one page holds — its paging over
+# a changed-file list. A synthesized list caps at _MAX_CHANGED_FILES and will not fill a page.
+#
+# THE SNAPSHOT IS THE PULL'S HEAD. Every hunk here is expressed against that one convention, which
+# is what makes the diff actually apply: `git apply --reverse` walks the snapshot back to the base
+# (tests/test_github.py checks exactly that with real git). Two consequences:
+#   - A repo with no `file` docs has an EMPTY changeset, and the pull object's counts follow it to
+#     zero. There is no snapshot to diff, and naming a file the repo does not contain would
+#     contradict its own tree.
+#   - `status: "removed"` is NOT produced. A deleted file is absent from the head, but the snapshot
+#     is the only state Backlot has, so a file it names as removed would still be in the tree — and
+#     a diff mixing that with a `modified` hunk claims the snapshot is base and head at once, which
+#     no client can apply. Deletions come from the `dedup` flavour below instead.
+
+_MAX_CHANGED_FILES = 3  # only bounds a SYNTHESIZED changeset; `changed_paths` is taken in full
+_MAX_BLOCK_LINES = 3  # how many lines one hunk adds or removes
+_PATCH_CONTEXT = 3
+# Real GitHub omits `patch` from the JSON file object for a binary file or a diff too large to
+# inline. That is a limit on THAT representation only — the `.diff` media type still carries the
+# hunks — so it is applied where the JSON is built (see _json_file_objects), never when the hunk is.
+PATCH_MAX_BYTES = 1024 * 1024
+_CHANGE_STATUSES = ("modified", "added")
+
+
+class _RepoFiles:
+    """One repo's files for the life of one request: the path listing, fetched lazily, plus a memo
+    of the rows actually read.
+
+    Both halves matter on a list endpoint. A ``/pulls`` page builds a changeset per row and those
+    changesets overlap heavily — a synthesized one draws from the same pool, and a declared
+    ``changed_paths`` repeats across pulls — so without the memo the same file's content is read once
+    per pull. Lazy because a pull that declares its paths never needs the listing at all.
+    """
+
+    def __init__(self, conn, repo: str, ids):
+        self._conn, self._repo, self._ids = conn, repo, ids
+        self._paths: list[str] | None = None
+        self._rows: dict[str, object] = {}
+
+    @property
+    def paths(self) -> list[str]:
+        if self._paths is None:
+            self._paths = store.list_repo_file_paths(self._conn, self._repo, self._ids)
+        return self._paths
+
+    def get(self, path: str):
+        """The file row, or None when the caller cannot see it or the repo has no such file. The two
+        are deliberately indistinguishable to callers: a path the corpus named but this caller may
+        not read must behave exactly like one that was a typo, or the response reveals which."""
+        if path not in self._rows:
+            self._rows[path] = store.get_repo_file(self._conn, self._repo, path, self._ids)
+        return self._rows[path]
+
+
+def _pr_files(
+    conn, owner: str, repo: str, row, api_base: str = "", ids=None, repo_files=None
+) -> list[dict]:
+    """The pull's changed files in the real API's shape. See the changeset note above.
+
+    ``changed_paths`` on the pull wins when the corpus set it — in full and in its declared order,
+    uncapped, because the corpus is stating a fact rather than asking for a plausible one. Otherwise
+    up to :data:`_MAX_CHANGED_FILES` paths are chosen deterministically.
+
+    Either way only the chosen files are read, never the whole repo — pass ``repo_files`` to share
+    one :class:`_RepoFiles` across a page of pulls.
+    """
+    src = repo_files if repo_files is not None else _RepoFiles(conn, repo, ids)
+    seed = _seed(row)
+    declared = store.jcol(row, "changed_paths")
+    if declared:
+        # dict.fromkeys: declared order, minus repeats. A path named twice would put the same file
+        # in the diff twice, which `git apply` refuses outright.
+        chosen = list(dict.fromkeys(declared))
+        # A corpus naming a path says the pull CHANGED a file the repo already has, so every
+        # declared file is `modified` (bar the ones _changed_file has to downgrade for want of a
+        # hunk). Varying it would have Backlot claim the pull CREATED a file, which is more than
+        # the corpus said. A synthesized changeset still varies, so `added` stays exercisable.
+        statuses = dict.fromkeys(chosen, "modified")
+    else:
+        paths = src.paths
+        if not paths:
+            return []
+        n = 1 + synth.hnum(seed, salt="pr-nfiles") % min(_MAX_CHANGED_FILES, len(paths))
+        start = synth.hnum(seed, salt="pr-offset") % len(paths)
+        chosen = [paths[(start + i) % len(paths)] for i in range(n)]
+        # Seeded on (pull, path) rather than the file's position, so a file's status does not shift
+        # when an ACL-hidden sibling drops out of the list.
+        statuses = {
+            p: _CHANGE_STATUSES[synth.hnum(f"{seed}:{p}", salt="pr-status") % 2] for p in chosen
+        }
+    head_sha = hashlib.sha1(seed.encode()).hexdigest()
+    out = []
+    for path in chosen:
+        f = src.get(path)
+        if f is None:  # not visible to this caller, or no such file — see _RepoFiles.get
+            continue
+        out.append(_changed_file(seed, owner, repo, f, statuses[path], head_sha, api_base))
+    return out
+
+
+def _seed(row) -> str:
+    """A stable seed for the values GitHub derives rather than stores — a commit sha, a review id,
+     a milestone number. It was the corpus's own document id; it is the row's OWN identity now
+    , which is equally stable and is what the row is actually addressed by."""
+    return f"{row['repo']}#{row['number']}"
+
+
+def _changed_file(
+    seed: str, owner: str, repo: str, row, status: str, head_sha: str, api_base: str
+) -> dict:
+    content = row["content"] or ""
+    path = row["path"]
+    lines = content.splitlines(keepends=True)
+    # A final line with its own newline missing can be hunk CONTEXT (git's own `\ No newline`
+    # marker covers that) but never part of a chosen block: duplicating or inserting it mid-file
+    # would put the marker somewhere git rejects.
+    selectable = len(lines) if content.endswith("\n") else len(lines) - 1
+    if status == "modified" and selectable < 1:
+        status = "added"  # nothing to build a hunk out of; the whole file is the change
+    if not lines:
+        added, deleted, patch = 0, 0, None
+    elif status == "added":
+        added, deleted, patch = len(lines), 0, _patch_new_file(lines)
+    else:
+        added, deleted, patch = _patch_modified(f"{seed}:{path}", lines, selectable)
+    sha = _blob_sha(content)
+    obj = {
+        "sha": sha,
+        "filename": path,
+        "status": status,
+        "additions": added,
+        "deletions": deleted,
+        "changes": added + deleted,
+        "blob_url": f"https://github.com/{owner}/{repo}/blob/{head_sha}/{path}",
+        "raw_url": f"https://github.com/{owner}/{repo}/raw/{head_sha}/{path}",
+        "contents_url": f"{api_base}/repos/{owner}/{repo}/contents/{path}?ref={head_sha}",
+    }
+    if patch is not None:
+        obj["patch"] = patch
+    return obj
+
+
+def _patch_new_file(lines: list[str]) -> str:
+    """The hunk for a file the pull ADDED: the old side is empty, so there is no "before" to
+    reconstruct at all and every line is a real line of the snapshot."""
+    return f"@@ -0,0 +1,{len(lines)} @@\n" + "".join("+" + ln for ln in _nl_terminated(lines))
+
+
+def _patch_modified(seed: str, lines: list[str], selectable: int) -> tuple[int, int, str]:
+    """A hunk for a file the pull MODIFIED, in one of two flavours. Returns
+    ``(additions, deletions, patch)``.
+
+    Both express the change against the snapshot as the HEAD, and neither writes a line the file
+    does not already contain. A replacement would need "before" text that is nowhere in the corpus,
+    and inventing a line is the fabrication this module exists to avoid:
+
+    - ``insertion`` — the pull added a real block of the file; the base is the snapshot with that
+      block taken out. Pure additions.
+    - ``dedup`` — the pull removed a duplicated copy of a real block; the base is the snapshot with
+      that block appearing twice. Pure deletions, and a realistic change to have made.
+    """
+    k = 1 + synth.hnum(seed, salt="pr-block") % min(_MAX_BLOCK_LINES, max(1, selectable - 1))
+    at = synth.hnum(seed, salt="pr-at") % (selectable - k + 1)
+    pre = lines[max(0, at - _PATCH_CONTEXT) : at]
+    block = lines[at : at + k]
+    post = lines[at + k : at + k + _PATCH_CONTEXT]
+    start = max(0, at - _PATCH_CONTEXT) + 1  # the pre-context sits at the same offset on both sides
+    if synth.hnum(seed, salt="pr-flavour") % 2:
+        old_n, new_n = len(pre) + len(post), len(pre) + k + len(post)
+        body = [" " + ln for ln in pre] + ["+" + ln for ln in block]
+        added, deleted = k, 0
+    else:
+        old_n, new_n = len(pre) + 2 * k + len(post), len(pre) + k + len(post)
+        body = [" " + ln for ln in pre] + ["-" + ln for ln in block] + [" " + ln for ln in block]
+        added, deleted = 0, k
+    body += [" " + ln for ln in _nl_terminated(post)]
+    return added, deleted, f"@@ -{start},{old_n} +{start},{new_n} @@\n" + "".join(body)
+
+
+def _nl_terminated(lines: list[str]) -> list[str]:
+    """Each line newline-terminated, so a hunk's rows cannot run together. A final line with no
+    newline of its own gets git's own marker."""
+    out = []
+    for ln in lines:
+        out.append(ln if ln.endswith("\n") else ln + "\n\\ No newline at end of file\n")
+    return out
+
+
+def _json_file_objects(files: list[dict]) -> list[dict]:
+    """The file objects as the JSON endpoint serves them: `patch` dropped when it is too large to
+    inline, which is what real GitHub does for that field. See :data:`PATCH_MAX_BYTES` — the cap
+    belongs to this representation, so the diff built from the same list keeps its hunks."""
+    return [
+        {k: v for k, v in f.items() if k != "patch"}
+        if f.get("patch") and len(f["patch"].encode()) > PATCH_MAX_BYTES
+        else f
+        for f in files
+    ]
+
+
+def _pr_diff(files: list[dict], base_sha: str) -> str:
+    """The pull's unified diff (`Accept: application/vnd.github.diff`), git-apply-able.
+
+    A file with no hunk at all is left out rather than given a header: `diff --git` followed by
+    nothing is not an empty diff, it is what real git reports as "patch with only garbage", and it
+    would make the WHOLE diff unapplyable rather than that one file."""
+    out = []
+    for f in files:
+        if not f.get("patch"):
+            continue
+        a, b = f"a/{f['filename']}", f"b/{f['filename']}"
+        out.append(f"diff --git {a} {b}\n")
+        short = f["sha"][:7]
+        if f["status"] == "added":
+            out.append(f"new file mode 100644\nindex 0000000..{short}\n--- /dev/null\n+++ {b}\n")
+        else:  # `removed` is never synthesized — see the changeset note above
+            out.append(f"index {base_sha[:7]}..{short} 100644\n--- {a}\n+++ {b}\n")
+        out.append(f["patch"] if f["patch"].endswith("\n") else f["patch"] + "\n")
+    return "".join(out)
+
+
+def _pr_mbox(row, obj: dict, diff: str) -> str:
+    """The pull as a mail patch (`Accept: application/vnd.github.patch`). Real GitHub's `patch`
+    media type is a `git am`-able mbox, NOT the same bytes as `diff` — a client that pipes one to
+    the wrong tool has to be able to tell them apart here too."""
+    ts = row["created_ts"] or synth.epoch(_seed(row))
+    email_addr = row["author_email"] or "unknown@users.noreply.github.com"
+    login = synth.github_login(email_addr)
+    head = obj["head"]["sha"]
+    body = (row["content"] or "").rstrip("\n")
+    return (
+        f"From {head} Mon Sep 17 00:00:00 2001\n"
+        f"From: {login} <{email_addr}>\n"
+        f"Date: {formatdate(ts, usegmt=True)}\n"
+        f"Subject: [PATCH] {obj['title']}\n\n"
+        f"{body}\n---\n{diff}-- \n2.45.0\n"
+    )
+
+
+def _resolved_review_comments(conn, row, repo_files) -> list[tuple]:
+    """This pull's anchored comments paired with the file each one resolves to, dropping any whose
+    ``path`` names no file the caller can read.
+
+    One resolution, used by both the list endpoint and the ``review_comments`` count on the pull.
+    Counting the raw rows instead made the two contradict each other — a client paging until it had
+    ``review_comments`` items never finished — and leaked that a hidden file carries a comment.
+    """
+    out = []
+    for c in store.github_comments(conn, row["repo"], row["number"], anchored=True):
+        f = repo_files.get(c["path"])
+        if f is not None:  # else: hidden from this caller, or no such file — see _RepoFiles.get
+            out.append((c, f))
+    return out
+
+
+def _gh_review_comment(
+    owner: str, repo: str, number: int, pr_row, c, file_row, patches: dict, api_base: str = ""
+) -> dict:
+    """One line-anchored review comment, in the real API's shape.
+
+    ``diff_hunk`` prefers what the corpus supplied, then the hunk this pull's own diff carries for
+    that file, so the comment and the diff agree. It falls back to a context window from the
+    snapshot when the comment anchors to a file the changeset does not touch — real GitHub cannot
+    produce that, but there is no reason to drop the comment over it.
+    """
+    ts = c["created_ts"] or synth.epoch(c["id"])
+    email = c["author_email"] or "unknown@x"
+    cid = c["id"]
+    head = hashlib.sha1(_seed(pr_row).encode()).hexdigest()
+    self_url = f"{api_base}/repos/{owner}/{repo}/pulls/comments/{cid}"
+    pr_url = f"{api_base}/repos/{owner}/{repo}/pulls/{number}"
+    html_url = f"https://github.com/{owner}/{repo}/pull/{number}#discussion_r{cid}"
+    hunk = _comment_hunk(c, patches.get(c["path"]), file_row)
+    return {
+        "id": cid,
+        "node_id": synth.node_id("PullRequestReviewComment", cid),
+        "pull_request_review_id": synth.github_number(_seed(pr_row) + ":review"),
+        "path": c["path"],
+        "line": c["line"],
+        "original_line": c["line"],
+        "start_line": None,
+        "original_start_line": None,
+        "side": "RIGHT",
+        "start_side": None,
+        # no history here, so the commit a comment is "original" to is the pull's head
+        "commit_id": head,
+        "original_commit_id": head,
+        "diff_hunk": hunk,
+        "position": _hunk_position(hunk, c["line"]),
+        "original_position": _hunk_position(hunk, c["line"]),
+        # real GitHub's own discriminator for a comment on a whole file rather than one line
+        "subject_type": "line" if c["line"] else "file",
+        "body": c["body"],
+        "user": _gh_user(email, api_base),
+        "created_at": synth.rfc3339(ts),
+        "updated_at": synth.rfc3339(ts),
+        "author_association": "MEMBER",
+        "reactions": _reactions(store.jcol(c, "reactions", {}), self_url),
+        "url": self_url,
+        "pull_request_url": pr_url,
+        "html_url": html_url,
+        "_links": {
+            "self": {"href": self_url},
+            "html": {"href": html_url},
+            "pull_request": {"href": pr_url},
+        },
+    }
+
+
+_HUNK_HEADER = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def _hunk_position(hunk: str, line: int | None) -> int | None:
+    """``position`` is the row's offset INSIDE the diff hunk — 1-based, counting every row after the
+    ``@@`` header — not the line number in the file, which is what ``line`` reports. Real GitHub
+    returns both, and a client resolving a comment against a diff uses this one, so reporting
+    ``line`` for it would look right and point at the wrong row.
+
+    None when the comment has no line (a file-level comment) or the hunk does not cover it, which is
+    a state the real API has too."""
+    if not hunk or line is None:
+        return None
+    rows = hunk.split("\n")
+    m = _HUNK_HEADER.match(rows[0])
+    if m is None:
+        return None
+    cur = int(m.group(1))
+    for offset, row in enumerate(rows[1:], start=1):
+        # A removed row occupies no line on the new side, and `\ No newline at end of file` is a
+        # hunk row but not a line of the file at all — counting it lets a line past the end of the
+        # file resolve to the marker's own offset.
+        if not row or row[0] in "-\\":
+            continue
+        if cur == line:
+            return offset
+        cur += 1
+    return None
+
+
+def _comment_hunk(c, patch: str | None, file_row) -> str:
+    """The hunk a review comment is anchored to: what the corpus supplied, else this pull's own hunk
+    for that file, else a context window from the snapshot.
+
+    The middle rung is taken only when the pull's hunk actually COVERS the commented line — a pull
+    changes one part of a file and a comment may sit anywhere in it, so handing back a hunk the
+    comment's own `line` is nowhere inside would leave `position` null against a `diff_hunk` that
+    looks authoritative."""
+    if c["diff_hunk"]:
+        return c["diff_hunk"]
+    if patch and (c["line"] is None or _hunk_position(patch, c["line"]) is not None):
+        return patch
+    return _hunk_around(file_row, c["line"])
+
+
+def _hunk_around(file_row, line: int | None) -> str:
+    """A context-only hunk covering ``line`` of the file's snapshot — the fallback for a review
+    comment on a file this pull's changeset does not touch. All-context because nothing changed on
+    that file: inventing +/- rows to look more like a diff would claim an edit that is not in the
+    changeset the same pull serves."""
+    lines = (file_row["content"] or "").splitlines(keepends=True)
+    if not lines:
+        return ""
+    idx = max(0, min((line - 1) if line else 0, len(lines) - 1))
+    lo = max(0, idx - _PATCH_CONTEXT)
+    window = lines[lo : idx + _PATCH_CONTEXT + 1]
+    header = f"@@ -{lo + 1},{len(window)} +{lo + 1},{len(window)} @@"
+    return header + "\n" + "".join(" " + ln for ln in _nl_terminated(window))
+
+
+def _gh_comment(owner: str, repo: str, number: int, c, api_base: str = "") -> dict:
+    # `is not None`, and str(): a comment's id is an INTEGER, and 0 is a second a corpus can write,
+    # so under truthiness a comment dated 1970-01-01T00:00:00Z reaches `synth.epoch` — which hashes
+    # a STRING.
+    ts = c["created_ts"] if c["created_ts"] is not None else synth.epoch(str(c["id"]))
+    email = c["author_email"] or "unknown@x"
+    cid = c["id"]
+    self_url = f"{api_base}/repos/{owner}/{repo}/issues/comments/{cid}"
+    return {
+        "id": cid,
+        "node_id": synth.node_id("IssueComment", cid),
+        "body": c["body"],
+        "user": _gh_user(email, api_base),
+        "created_at": synth.rfc3339(ts),
+        "updated_at": synth.rfc3339(ts),
+        "author_association": "MEMBER",
+        "reactions": _reactions(store.jcol(c, "reactions", {}), self_url),
+        "url": self_url,
+        "issue_url": f"{api_base}/repos/{owner}/{repo}/issues/{number}",
+        "html_url": f"https://github.com/{owner}/{repo}/issues/{number}#issuecomment-{cid}",
+    }

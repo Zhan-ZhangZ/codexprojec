@@ -1,0 +1,237 @@
+name: "Aletheore"
+description: "Posts an evidence-grounded PR diff: secrets, vulnerabilities, layer violations, architecture deltas."
+author: "Aletheore"
+
+branding:
+  icon: "eye"
+  color: "gray-dark"
+
+inputs:
+  base-ref:
+    description: "Git ref/sha to treat as the base"
+    required: false
+    default: ${{ github.event.pull_request.base.sha }}
+  head-ref:
+    description: "Git ref/sha to treat as the head"
+    required: false
+    default: ${{ github.event.pull_request.head.sha }}
+  fail-on-new-secrets:
+    description: "Exit non-zero if a new real (non-placeholder) secret is found"
+    required: false
+    default: "false"
+  fail-on-new-vulnerabilities:
+    description: "Exit non-zero if a new dependency vulnerability is found"
+    required: false
+    default: "false"
+  fail-on-new-layer-violations:
+    description: "Exit non-zero if a new layer-convention violation is found"
+    required: false
+    default: "false"
+  full:
+    description: "Show the full raw diff instead of the curated summary"
+    required: false
+    default: "false"
+  post-pr-comment:
+    description: "Post the diff as a PR comment (requires pull-requests: write permission)"
+    required: false
+    default: "true"
+
+outputs:
+  diff-json:
+    description: "The JSON diff output"
+    value: ${{ steps.diff.outputs.diff-json }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout base
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        ref: ${{ inputs.base-ref }}
+        path: aletheore-base
+
+    - name: Checkout head
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        ref: ${{ inputs.head-ref }}
+        path: aletheore-head
+
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      with:
+        python-version: "3.12"
+
+    - name: Install Aletheore
+      shell: bash
+      run: pip install "${{ github.action_path }}/src"
+
+    - name: Scan base
+      shell: bash
+      # On a fork PR, aletheore-head is checked out from the PR author's own
+      # branch - they fully control any .aletheore/scan-cache.json committed
+      # there. Without this, a poisoned cache entry (matching content hash,
+      # fabricated parse result) would be trusted verbatim instead of
+      # re-parsed, letting a PR author suppress what the diff step reports
+      # for their own changed files - including what
+      # --fail-on-new-layer-violations gates on. Same fix already applied to
+      # the hosted scan-worker (jobs.py) and the public demo sandbox; see
+      # evidence.py's _DISABLE_LOCAL_SCAN_CACHE_ENV for the full reasoning.
+      # Applied to the base scan too, not just head - base is also an
+      # external checkout (the PR's target branch at the time of the
+      # workflow run), not this action's own trusted content.
+      env:
+        ALETHEORE_DISABLE_LOCAL_SCAN_CACHE: "1"
+      run: aletheore scan aletheore-base
+
+    - name: Scan head
+      shell: bash
+      env:
+        ALETHEORE_DISABLE_LOCAL_SCAN_CACHE: "1"
+      run: aletheore scan aletheore-head
+
+    - name: Diff
+      id: diff
+      shell: bash
+      env:
+        # Passed via env: and read as shell variables below rather than
+        # interpolated directly into the script (${{ inputs.full }} etc.
+        # inline in `run:`) - a workflow that sets these from something
+        # other than a literal "true"/"false" (a repo variable, an output
+        # of an earlier step) would otherwise have that value spliced
+        # verbatim into the script text before bash ever runs it.
+        ALETHEORE_FULL: ${{ inputs.full }}
+        ALETHEORE_FAIL_ON_NEW_SECRETS: ${{ inputs.fail-on-new-secrets }}
+        ALETHEORE_FAIL_ON_NEW_VULNERABILITIES: ${{ inputs.fail-on-new-vulnerabilities }}
+        ALETHEORE_FAIL_ON_NEW_LAYER_VIOLATIONS: ${{ inputs.fail-on-new-layer-violations }}
+      run: |
+        ARGS=""
+        if [ "$ALETHEORE_FULL" = "true" ]; then
+          ARGS="$ARGS --full"
+        fi
+        if [ "$ALETHEORE_FAIL_ON_NEW_SECRETS" = "true" ]; then
+          ARGS="$ARGS --fail-on-new-secrets"
+        fi
+        if [ "$ALETHEORE_FAIL_ON_NEW_VULNERABILITIES" = "true" ]; then
+          ARGS="$ARGS --fail-on-new-vulnerabilities"
+        fi
+        if [ "$ALETHEORE_FAIL_ON_NEW_LAYER_VIOLATIONS" = "true" ]; then
+          ARGS="$ARGS --fail-on-new-layer-violations"
+        fi
+
+        set +e
+        aletheore diff aletheore-base/.aletheore/air.json aletheore-head/.aletheore/air.json $ARGS > diff-output.json
+        DIFF_EXIT_CODE=$?
+        set -e
+
+        {
+          echo "diff-json<<ALETHEORE_EOF"
+          cat diff-output.json
+          echo "ALETHEORE_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        cat diff-output.json
+        exit $DIFF_EXIT_CODE
+
+    - name: Annotate new secrets
+      if: always()
+      shell: bash
+      run: |
+        if [ ! -f diff-output.json ]; then
+          echo "diff-output.json not found (an earlier step failed) - skipping annotations"
+          exit 0
+        fi
+
+        # Only current-tree secrets carry both a file path and a real line number - history
+        # secrets point at an old commit (no line in the current tree to point to), and
+        # vulnerabilities/layer violations are package- or file-level, not tied to any
+        # specific line at all. Faking a line number for those would misattribute the
+        # annotation, so only new secrets get inline annotations here; everything else stays
+        # in the PR comment above, where a file-level or package-level fact belongs.
+        python3 - <<'PYEOF'
+        import json
+
+        with open("diff-output.json") as f:
+            diff = json.load(f)
+
+        for finding in diff.get("secrets", {}).get("new", []):
+            if finding.get("likely_placeholder") or finding.get("accepted"):
+                continue
+            path = finding.get("path", "")
+            line = finding.get("line", 1)
+            pattern = finding.get("pattern", "secret")
+            message = f"New secret detected ({pattern}). Rotate it and remove it from source."
+            message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            path = (
+                path.replace("%", "%25")
+                .replace("\r", "%0D")
+                .replace("\n", "%0A")
+                .replace(",", "%2C")
+                .replace(":", "%3A")
+            )
+            print(f"::error file={path},line={line}::{message}")
+        PYEOF
+
+    - name: Format diff summary
+      if: always()
+      shell: bash
+      run: |
+        if [ ! -f diff-output.json ]; then
+          echo "diff-output.json not found (an earlier step failed) - skipping summary"
+          exit 0
+        fi
+
+        python3 - <<'PYEOF'
+        import json
+        import os
+
+        from aletheore.pr_comment import format_diff_comment
+
+        with open("diff-output.json") as f:
+            diff = json.load(f)
+
+        text = format_diff_comment(diff)
+
+        with open("aletheore-comment.md", "w") as f:
+            f.write(text)
+
+        # Visible for every run, not just pull_request events - a plain push has no PR to
+        # comment on, but the run's own Summary tab is always there.
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            with open(summary_path, "a") as f:
+                f.write(text + "\n")
+        PYEOF
+
+    - name: Post PR comment
+      if: always() && inputs.post-pr-comment == 'true' && github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+      with:
+        script: |
+          const fs = require('fs');
+          if (!fs.existsSync('aletheore-comment.md')) return;
+          const body = fs.readFileSync('aletheore-comment.md', 'utf8');
+          const marker = '<!-- aletheore-diff -->';
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.payload.pull_request.number,
+          });
+          const existing = comments.find((c) => c.body && c.body.includes(marker));
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+          }

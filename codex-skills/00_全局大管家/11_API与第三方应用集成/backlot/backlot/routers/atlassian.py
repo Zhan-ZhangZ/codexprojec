@@ -1,0 +1,3094 @@
+"""Atlassian Cloud APIs (read-only): Jira (``/rest/api/3``) and Confluence
+(``/wiki/rest/api``). Client base_url: ``http://<host>/atlassian``.
+
+Auth: HTTP Basic ``email:api_token`` (or Bearer). Jira issue descriptions are ADF;
+Confluence bodies are storage-format XHTML — matching the real APIs.
+
+Beside the routes, this module answers what the two products answer AROUND them: an `OPTIONS`, a
+path neither serves and a method neither declares (:func:`unmatched_path`), and the headers every
+answer carries (:func:`vendor_headers`, put on by ``backlot.main.report_atlassian_headers``).
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import hashlib
+import json
+import re
+import time
+from collections.abc import Callable
+from html import escape
+from pathlib import Path
+from urllib.parse import quote
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict
+from starlette.routing import Match
+
+from backlot import auth, store, synth
+from backlot.acl import Caller
+from backlot.config import get_settings
+from backlot.errors import atlassian as errors_atlassian
+from backlot.openapi import qp
+from backlot.pagination import (
+    confluence_page_links,
+    decode_cursor_or_none,
+    next_page_token,
+)
+
+router = APIRouter(prefix="/atlassian", tags=["atlassian"])
+
+
+# --- OpenAPI enrichment --------------------------------------------------
+# Parameters are documented with openapi_extra (no signature change); confluence params are
+# query-only. Response models use extra="allow" to
+# preserve every field. Error paths raise HTTPException (Atlassian-shaped), not filtered here.
+# Secondary metadata routes (roles / linktypes / labels / restrictions) are left untyped — the
+# bridge still exposes them as tools; they aren't retrieval surfaces.
+
+
+class _ALoose(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+# Every member `jira_server_info` answers, declared in the order Jira Cloud answers them: the
+# response is written in declaration order whatever order the handler's dict has. `serverTime`,
+# absent for the anonymous caller, falls back to `None`, which the routes'
+# `response_model_exclude_none` leaves out.
+class JiraServerInfo(_ALoose):
+    baseUrl: str
+    displayUrl: str
+    displayUrlServicedeskHelpCenter: str
+    displayUrlCSMHelpSeeker: str
+    displayUrlConfluence: str
+    version: str
+    versionNumbers: list[int]
+    deploymentType: str = "Cloud"
+    buildNumber: int
+    buildDate: str
+    serverTime: str | None = None
+    scmInfo: str
+    serverTitle: str
+    defaultLocale: dict
+    serverTimeZone: str
+
+
+class JiraSearchResult(_ALoose):
+    issues: list[dict] = []
+    isLast: bool = True
+
+
+class JiraIssue(_ALoose):
+    id: str
+    key: str
+
+
+class JiraComments(_ALoose):
+    comments: list[dict] = []
+    total: int = 0
+
+
+class JiraField(_ALoose):
+    id: str
+    name: str
+
+
+class ConfluenceResults(_ALoose):
+    results: list[dict] = []
+
+
+class ConfluencePage(_ALoose):
+    pass
+
+
+# The two take the same three parameters in different places: the GET form in the query string, the
+# POST form in a `SearchAndReconcileRequestBean` body. Both of Atlassian's documents split them this
+# way, down to the schema name, and the live service follows. Both placements are declared here and
+# separated per method after FastAPI has built the document, by
+# :func:`backlot.openapi.jira_search_placement`, because one ROUTE serves both methods.
+_X_JIRA_SEARCH = {
+    "parameters": [qp("jql"), qp("maxResults", "integer"), qp("nextPageToken")],
+    "requestBody": {
+        # Real refuses a POST carrying no body: the missing `Content-Type` is its 415, and the
+        # header with an empty body is `No content to map to Object due to end of input`.
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "jql": {"type": "string"},
+                        "maxResults": {"type": "integer"},
+                        "nextPageToken": {"type": "string"},
+                    },
+                }
+            }
+        },
+    },
+}
+_P_EXPAND = {"parameters": [qp("expand")]}
+# `expand` is NOT declared here. The endpoint takes one on real Jira, and `expand=renderedBody`
+# returns each comment's body as HTML, which Backlot does not produce — and `qp` exists only for
+# parameters Backlot honours, because advertising one it ignores makes a client ask for data that
+# never arrives. The gap stays where it is legible: `backlot diff --source jira` reports it, and
+# the baseline acknowledges it as "the vendor accepts it; Backlot does not".
+_P_JIRA_COMMENTS = {
+    "parameters": [qp("startAt", "integer"), qp("maxResults", "integer"), qp("orderBy")]
+}
+_P_CQL = {
+    "parameters": [
+        qp("cql", required=True),
+        qp("cursor"),
+        qp("limit", "integer"),
+        qp("start", "integer"),
+    ]
+}
+_P_CONTENT = {
+    "parameters": [
+        qp("expand"),
+        qp("spaceKey"),
+        qp("type"),
+        qp("title"),
+        qp("limit", "integer"),
+        qp("start", "integer"),
+    ]
+}
+_P_SPACE = {"parameters": [qp("expand"), qp("limit", "integer"), qp("start", "integer")]}
+# The four listings under `content/{id}`, which read the same pair with their own defaults and
+# caps. `child/page` is the one of them this router also reads an `expand` on.
+_P_CHILD_PAGE = {"parameters": [qp("expand"), qp("limit", "integer"), qp("start", "integer")]}
+_P_CONTENT_CHILD = {"parameters": [qp("limit", "integer"), qp("start", "integer")]}
+
+# The page a comment read serves. Measured against Jira Cloud (2026-09-09) on a real issue,
+# which settles what no document states: `maxResults` is CAPPED at 100 as well as defaulted
+# to it, and floors UP to 1 (0 and -1 both answer 1). `startAt` floors at 0, and one past the
+# end is echoed back unchanged with an empty page rather than refused.
+_JIRA_COMMENT_PAGE_MAX = 100
+_JIRA_ORDER_FIELD = "created"
+
+
+def _jira_order_desc(raw: str) -> bool:
+    """Whether ``orderBy`` asks for the reverse, or Jira's 400 for a field it does not order by.
+
+    Measured against Jira Cloud (2026-09-10). Exactly ONE leading sigil is stripped: `--created`
+    keeps a `-created` that is no field, and Jira's own message echoes `-created` rather than what
+    was sent. Whitespace around the sigil is ignored (`%20created`, `created%20`, `-%20created`
+    are each 200) and the field matches case-insensitively (`Created`, `CREATED`).
+
+    Whitespace matters because a literal `+` in a query string decodes to a space, so `+created` —
+    the ascending spelling Atlassian's own document writes — arrives here as `" created"`. Real
+    Jira answers 200 to it, so stripping is what matches rather than a special case for `+`.
+
+    An EMPTY value is refused, not read as absent: the field it leaves is the empty string, and
+    real Jira answers 400 to `?orderBy=`.
+    """
+    field = raw.strip()
+    desc = False
+    if field[:1] in ("+", "-"):
+        desc = field[0] == "-"
+        field = field[1:].strip()
+    if field.casefold() != _JIRA_ORDER_FIELD:
+        # Backlot's own sentence, not a transcription: Jira localises this one to the account's
+        # language, and the account it was measured against answers in Korean.
+        raise HTTPException(
+            status_code=400,
+            detail=f"The field to order by must be one of [{_JIRA_ORDER_FIELD}]. Instead: {field}",
+        )
+    return desc
+
+
+def _jira_caller(request: Request) -> Caller:
+    """The caller for a Jira read, anonymous when no credential resolved.
+
+    Jira does not refuse an unresolvable credential on the routes served here: it processes the
+    request as an anonymous caller, and says so in ``X-Seraph-LoginReason`` (added for every
+    ``/atlassian/rest`` answer in ``backlot.main``). Measured against ecosystem.atlassian.net and
+    brekkylab.atlassian.net on 2026-09-04 with a failed ``email:api_token`` pair, with an empty
+    password, with a value that is not base64, with an unknown scheme and with no header: each one
+    answers `project/search` 200, a bounded `search/jql` 200, and `issue/{key}` 404. Only
+    ``GET /rest/api/3/myself``, which Backlot does not serve, answers 401.
+    """
+    return auth.atlassian_caller(request)
+
+
+def _confluence_caller(request: Request) -> Caller:
+    """The caller for a Confluence read, refusing where Jira would go anonymous.
+
+    Confluence rejects the request outright, and which refusal depends on the credential rather
+    than on the route: a pair it read and rejected, and a request carrying none, are its 403; a
+    Basic value it could not read is a 401 naming the site's OAuth realm. Measured on both sites
+    on 2026-09-04, every route and every credential shape (see ``auth.basic_credential_kind``).
+    """
+    caller = auth.atlassian_caller(request)
+    if not caller.is_anonymous:
+        return caller
+    if auth.basic_credential_kind(request) == auth.BASIC_UNPARSEABLE:
+        realm = quote(f"{_site(request)}/wiki", safe="")
+        raise HTTPException(
+            status_code=401,
+            detail=errors_atlassian.CONFLUENCE_UNAUTHORIZED,
+            headers={"WWW-Authenticate": f'OAuth realm="{realm}"'},
+        )
+    raise HTTPException(status_code=403, detail=errors_atlassian.CONFLUENCE_FORBIDDEN)
+
+
+def _site(request: Request) -> str:
+    """The base of every ``self`` URL Jira/Confluence emit, from the REQUEST first.
+
+    Echoing the caller's own ``Host`` is what makes a returned URL usable: a client reaching
+    Backlot through a proxy, a container alias or a tunnel gets links back to the host it actually
+    called, not to one this process was configured with. Every SDK sends the header, so the
+    ``<org>.atlassian.net`` fallback is only for a hand-rolled HTTP/1.0 request — which is also why
+    there is no setting here to override it. The org half is already configurable
+    (``BACKLOT_ORG_NAME``).
+    """
+    s = get_settings()
+    host = request.headers.get("host") or f"{s.org_name}.atlassian.net"
+    return f"{request.url.scheme}://{host}"
+
+
+# ================================ Jira ==========================================
+
+
+def _adf(content: str) -> dict:
+    paras = [p for p in content.split("\n\n") if p.strip()] or [content]
+    return {
+        "type": "doc",
+        "version": 1,
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": p}]} for p in paras],
+    }
+
+
+def _project_key(conn, container: str) -> str:
+    """The project key a container serves and navigates by: the prefix its corpus-provided
+    issue keys carry (aliased at index build) when the corpus wrote any, else the
+    synthesized key. One spelling for the issue prefix, the project payload, JQL and the
+    picker — real Jira guarantees an issue key's prefix IS its project's key, and an agent
+    that reads PAY-7 out of a document will navigate by PAY."""
+    return store.jira_project_key(conn, container) or synth.jira_project_key(container)
+
+
+def _index_maps(request: Request) -> dict:
+    # A bare Request (unit tests build them without an app scope) has no app.state;
+    # absence of the maps just means "no aliases", never an error.
+    try:
+        return getattr(request.app.state, "index", None) or {}
+    except KeyError:
+        return {}
+
+
+def _jira_container_for_key(conn, token: str, request: Request | None = None) -> str | None:
+    """Resolve a JQL project token to its backing container. Matches the corpus-provided
+    key prefix (``PAY``), the synthesized project key (``PAY3F9A2C``, case-insensitive) or
+    the literal container name (e.g. ``payments``, case-insensitive) — real Jira project
+    pickers accept both key and name. Anything else is unresolvable -> None (callers must
+    treat this as "0 results", never silently fall back to the unfiltered corpus)."""
+    stored = store.jira_project_by_key(conn, token)
+    if stored is not None:
+        return stored
+    for r in store.list_containers(conn, "jira"):
+        if synth.jira_project_key(r["name"]) == token.upper() or r["name"].lower() == token.lower():
+            return r["name"]
+    return None
+
+
+def _resolve_jira_key(request: Request, conn, key: str, ids):
+    """One issue by its served key or its numeric id, ACL-scoped (see store.jira_by_key and
+    store.jira_by_numeric_id).
+
+    The key is matched whole, as it is stored. Resolving it in parts instead — split the key, map
+    the prefix to a project through `_jira_container_for_key`, look the suffix up scoped to it —
+    lets that function's three-way tolerance into the ISSUE-KEY namespace. The tolerance is a
+    deliberate and correct affordance for the JQL project TOKEN, where real Jira pickers accept a
+    key OR a name, but here it makes `payments-7` resolve to `PAY-7`'s issue and issue-key lookup
+    case-insensitive. Matching the stored key directly has no seam for either to enter."""
+    row = store.jira_by_key(conn, key, visible_ids=ids)
+    if row is None and key.isascii() and key.isdigit():
+        return store.jira_by_numeric_id(conn, key, visible_ids=ids)
+    return row
+
+
+@router.get(
+    "/rest/api/2/serverInfo",
+    response_model=JiraServerInfo,
+    response_model_exclude_none=True,
+)  # jira PyPI client probes this on connect
+@router.get(
+    "/rest/api/3/serverInfo",
+    response_model=JiraServerInfo,
+    response_model_exclude_none=True,
+)
+async def jira_server_info(request: Request):
+    """The members Jira Cloud answers, the same on v2 and v3 (measured 2026-10-03, 2026-10-05 and
+    2026-10-07).
+
+    A signed-in caller gets fifteen, in the order `JiraServerInfo` declares them. The anonymous
+    caller `_jira_caller` returns gets all of them but `serverTime`: measured with no
+    `Authorization` header, a failed `email:api_token` pair, an empty password, a Basic value that
+    is not base64 and an unknown scheme. `serverTime` is milliseconds and a `+HHMM` offset, the form
+    of `buildDate` (`synth.jira_datetime`). The offset is the tenant's own and not read from
+    `serverTimeZone`: the tenant measured wrote both members with `+0900` while `serverTimeZone`
+    answered `Etc/UTC`. This server writes `+0000`. The four display URLs are the site's URL,
+    `serverTitle` is `Jira`, and the version and build number are the ones that site served.
+    `scmInfo` is a synthesized 40-hex commit id, and `buildDate` a day before `serverTime`, since a
+    build precedes the server running it."""
+    site = _site(request)
+    ts = synth.epoch("serverInfo")
+    body = {
+        "baseUrl": site,
+        "displayUrl": site,
+        "displayUrlServicedeskHelpCenter": site,
+        "displayUrlCSMHelpSeeker": site,
+        "displayUrlConfluence": site,
+        "version": "1001.0.0-SNAPSHOT",
+        "versionNumbers": [1001, 0, 0],
+        "deploymentType": "Cloud",
+        "buildNumber": 100294,
+        "buildDate": synth.jira_datetime(ts - 86400),
+        "serverTime": synth.jira_datetime(ts),
+        "scmInfo": hashlib.sha1(b"serverInfo").hexdigest(),
+        "serverTitle": "Jira",
+        "defaultLocale": {"locale": "en_US"},
+        "serverTimeZone": "Etc/UTC",
+    }
+    if _jira_caller(request).is_anonymous:
+        del body["serverTime"]
+    return body
+
+
+def _reachable_projects(conn, ids) -> list:
+    """The projects the caller can reach, as container rows.
+
+    A project is listed when the caller can see an issue in it. Backlot's ACL grants per document
+    rather than per project, so there is nothing else to read "can browse this project" off.
+
+    Measured for the ANONYMOUS caller, on 2026-09-04: `project/search` answers 200 with an empty
+    `values` on a site whose projects are all private (brekkylab.atlassian.net) and with the
+    public ones on a site that has them (ecosystem.atlassian.net). The same rule is applied to a
+    scoped caller, which is NOT measured — real Jira lists a project by its browse permission, and
+    a project can carry one while showing the caller no issue, so a listing there can hold a
+    project this one drops. Measuring it needs two accounts and a per-project permission scheme on
+    a live site. What the rule does rule out is the unfiltered listing, which handed every project
+    to a caller who can open nothing in any of them.
+    """
+    rows = store.list_containers(conn, "jira")
+    if ids is None:
+        return rows
+    return [r for r in rows if store.has_visible_document(conn, "jira", r["name"], ids)]
+
+
+@router.get("/rest/api/3/project/search")
+async def jira_project_search(request: Request):
+    conn = auth.conn(request)
+    caller = _jira_caller(request)
+    ids = auth.visible_ids(request, caller)
+    values = []
+    for r in _reachable_projects(conn, ids):
+        key = _project_key(conn, r["name"])
+        values.append(
+            {
+                "id": str(synth.github_user_id(r["name"])),
+                "key": key,
+                "name": r["name"],
+                "projectTypeKey": "software",
+                "simplified": False,
+                "style": "classic",
+                "isPrivate": False,
+                "avatarUrls": synth.avatar_urls("proj:" + key),
+                "self": f"{_site(request)}/rest/api/3/project/{key}",
+            }
+        )
+    return {"values": values, "maxResults": 50, "startAt": 0, "total": len(values), "isLast": True}
+
+
+def _require_project(request: Request, conn, key: str) -> str:
+    """The container behind a project key the caller can reach, or Jira's own 404 for it.
+
+    A role read is where Jira keeps refusing a caller it will not show a project to, and which
+    refusal it gives is decided by the project rather than by the credential: anonymously, a key
+    naming a project the caller may see draws 401 ("You cannot edit the configuration of this
+    project.") and a key naming nothing draws the 404 below. Measured on
+    ecosystem.atlassian.net, whose `AA` is public, and brekkylab.atlassian.net, which has no such
+    key, on 2026-09-04. An unreachable project is reported as an absent one, the way
+    `issue/{key}` reports an issue the caller cannot see.
+    """
+    ids = auth.visible_ids(request, _jira_caller(request))
+    container = _jira_container_for_key(conn, key, request)
+    # The `ids is None` short-circuit mirrors `github._repo_visible`, where it is load-bearing: a
+    # `subtype: repo` record creates a container holding no document, and the admin keeps the repo
+    # as soon as that record exists. No Jira record can do that — `project` is required on every
+    # one of them and none omits the issue — so here it only keeps the two readers alike.
+    if container is not None and (
+        ids is None or store.has_visible_document(conn, "jira", container, ids)
+    ):
+        return container
+    raise HTTPException(status_code=404, detail=f"No project could be found with key '{key}'.")
+
+
+@router.get("/rest/api/3/project/{key}/role")
+async def jira_project_roles(key: str, request: Request):
+    _require_project(request, auth.conn(request), key)
+    return {"Users": f"{_site(request)}/rest/api/3/project/{key}/role/10002"}
+
+
+@router.get("/rest/api/3/project/{key}/role/{role_id}")
+async def jira_project_role(key: str, role_id: int, request: Request):
+    conn = auth.conn(request)
+    container = _require_project(request, conn, key)
+    actors = []
+    if container:
+        c = store.get_container(conn, "jira", container)
+        if c and c["group_id"]:
+            for m in store.group_members(conn, c["group_id"]):
+                actors.append(
+                    {
+                        "id": synth.github_user_id(m["email"]),
+                        "displayName": m["display_name"],
+                        "type": "atlassian-user-role-actor",
+                        "actorUser": {"accountId": synth.atlassian_account_id(m["email"])},
+                    }
+                )
+    return {"id": role_id, "name": "Users", "actors": actors}
+
+
+# The `SearchAndReconcileRequestBean` fields real's POST form accepts, measured 2026-09-18 against
+# Jira Cloud: `fields`, `fieldsByKeys`, `expand`, `properties` and `reconcileIssues` are all read
+# without a refusal, alongside the three Backlot itself acts on. Backlot implements
+# none of the five, the same gap `_P_EXPAND`'s comment notes for the comment read, but they must
+# stay off the unknown-property refusal below or that refusal would catch a client using them.
+_JIRA_SEARCH_BODY_KEYS = frozenset(
+    {
+        "jql",
+        "maxResults",
+        "nextPageToken",
+        "fields",
+        "fieldsByKeys",
+        "expand",
+        "properties",
+        "reconcileIssues",
+    }
+)
+# search/jql's own maxResults range on both methods; see errors_atlassian.max_results_out_of_range
+# for the measurement. Unlike a type-conversion failure, this range is not either parser's (Jackson
+# reads the body, Spring binds the query string) — it belongs to the operation itself, which is why
+# it applies identically to both placements.
+_JIRA_SEARCH_MAX_RESULTS_RANGE = (1, 5000)
+
+
+def _jira_max_results_was_sent(request: Request) -> bool:
+    """Whether the GET form's `maxResults` is one real would attempt to convert at all, mirroring
+    the cases :func:`_int_param` itself folds into "absent": no parameter, an empty value, or one
+    that is whitespace after Java's own whitespace stripping. `jira_search` uses this to keep
+    Backlot's own default — never something the caller sent — off the 1-5000 range check: a
+    deployment's `default_page_size` is not a value the vendor ever validated.
+    """
+    values = request.query_params.getlist("maxResults")
+    if not values or values[0] == "":
+        return False
+    return errors_atlassian.strip_java_whitespace(values[0]) != ""
+
+
+def _jira_search_max_results(value) -> int:
+    """A POST body's `maxResults`, once the caller has established the key is present, coerced the
+    way Jackson coerces it into the bean's int field. Presence, not this function, is what decides
+    whether the 1-5000 range in :data:`_JIRA_SEARCH_MAX_RESULTS_RANGE` applies at all — see
+    :func:`_jira_max_results_was_sent` for why the GET form needs its own version of that same
+    question.
+
+    A JSON `null` is NOT absence here as it is for `jql`'s own null handling in this endpoint:
+    Jackson reads a null int field as `0`, which then fails the range check like any other
+    out-of-bounds value (measured 2026-09-18, `{"maxResults": null}` draws the same refusal as
+    `{"maxResults": 0}`).
+
+    A digit string and a float are read fine — `"5"` as `5`, `1.5` truncated to `1` — where a
+    non-numeral string and a boolean are refused with the body-wide sentence a body Jackson cannot
+    deserialize at all gets (:data:`errors_atlassian.BODY_NOT_AN_OBJECT`): `bool` is checked before
+    `int`/`float` because Python's `int` is their common base class.
+
+    A number must also fit the bean's Java `int`. 2147483647 and -2147483648 bind and reach the
+    1-5000 range check, where 2147483648, -2147483649, 2147483647.5, -2147483648.5 and the infinite
+    float `1e400` reads as are the body-wide sentence (measured 2026-10-06, the fractions
+    2026-10-09). A float is compared with the bounds before it is truncated, since
+    `int(2147483647.5)` is in range.
+    """
+    if isinstance(value, bool):
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT)
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        n = value
+    elif isinstance(value, str):
+        try:
+            n = int(value)
+        except ValueError:
+            raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT) from None
+    else:
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT)
+    if not -(2**31) <= n <= 2**31 - 1:
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT)
+    return int(n)
+
+
+@router.api_route(
+    "/rest/api/2/search/jql",
+    methods=["GET", "POST"],  # atlassian-python-api uses v2
+    response_model=JiraSearchResult,
+    openapi_extra=_X_JIRA_SEARCH,
+)
+@router.api_route(
+    "/rest/api/3/search/jql",
+    methods=["GET", "POST"],
+    response_model=JiraSearchResult,
+    openapi_extra=_X_JIRA_SEARCH,
+)
+async def jira_search(request: Request):
+    conn = auth.conn(request)
+    caller = _jira_caller(request)
+    ids = auth.visible_ids(request, caller)
+    default_size = get_settings().default_page_size
+    if request.method == "POST":
+        body = await _jira_search_body(request)
+        if not _JIRA_SEARCH_BODY_KEYS.issuperset(body):
+            # The body deserializes into a fixed bean, and a property it does not declare is a
+            # failure, not surplus (measured 2026-09-18, `{"bogus": 1}` and `{"startAt": 0}` —
+            # `startAt` belongs to the older `search` operation, not this one). Same sentence a
+            # body Jackson cannot deserialize at all gets, below.
+            raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT)
+        raw_jql = body.get("jql")
+        raw_token = body.get("nextPageToken")
+        if isinstance(raw_jql, (list, dict)) or isinstance(raw_token, (list, dict)):
+            # Measured 2026-09-18 on both fields: a `jql` or `nextPageToken` shaped as a list or an
+            # object is the same refusal as an unknown field, where a scalar (a number, a bool)
+            # instead reaches its own handling below — the JQL parser for `jql`, which
+            # `_str_param`'s docstring already documents as lenient here, and the token decoder for
+            # `nextPageToken`.
+            raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT)
+        raw_fields = body.get("fields")
+        if raw_fields is not None and (
+            not isinstance(raw_fields, list)
+            or any(isinstance(field, (list, dict)) for field in raw_fields)
+        ):
+            # `fields` is declared by the request bean even though Backlot does not otherwise use
+            # it. Real Jira still binds its value: a list of scalars is served (`["id"]`, `[1]`,
+            # `[null]`, `[true]`), while an object, a bare string, a nested list or a list holding
+            # an object is a body-wide invalid-payload refusal (measured 2026-10-06; the lists of
+            # scalars and the bare string 2026-10-09).
+            raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT)
+        # A JSON null is the parameter unsent, not the string "None": real answers
+        # `{"jql": null}` with the same unbounded-JQL refusal it gives `{}` (measured 2026-09-16).
+        jql = "" if raw_jql is None else str(raw_jql)
+        max_results_sent = "maxResults" in body
+        limit = _jira_search_max_results(body["maxResults"]) if max_results_sent else default_size
+        token = raw_token
+    else:
+        jql = _str_param(request, "jql") or ""
+        max_results_sent = _jira_max_results_was_sent(request)
+        limit = _int_param(request, "maxResults", default_size)
+        token = _str_param(request, "nextPageToken")
+    # An undecodable token is refused before the project clause is resolved (measured
+    # 2026-09-16; see test_jira_search_refuses_a_page_token_it_cannot_decode).
+    offset = decode_cursor_or_none(None if token is None else str(token))
+    if offset is None:
+        raise errors_atlassian.bad_page_token()
+    if max_results_sent and not (
+        _JIRA_SEARCH_MAX_RESULTS_RANGE[0] <= limit <= _JIRA_SEARCH_MAX_RESULTS_RANGE[1]
+    ):
+        # Checked after the page token and before the unbounded-JQL refusal, both measured too
+        # (2026-09-18).
+        raise errors_atlassian.max_results_out_of_range()
+    # No `jql` at all is refused rather than answered as the unfiltered corpus (measured
+    # 2026-09-16; see test_jira_search_refuses_no_jql_at_all).
+    if not jql.strip():
+        raise errors_atlassian.unbounded_jql()
+    container = _project_from_jql(conn, jql, request)
+    if container is _JIRA_PROJECT_UNRESOLVED:
+        # a project= clause was present but didn't match any project: strict 0 matches, not
+        # the unfiltered corpus.
+        return {"issues": [], "isLast": True}
+    term = _text_from_jql(jql)
+    if term:  # text ~ / summary ~ / description ~ → full-text search (FTS), scoped to project
+        total = store.count_search(conn, term, "jira", ids, container=container)
+        rows = store.search_documents(
+            conn, term, "jira", ids, limit=limit, offset=offset, container=container
+        )
+    else:
+        total = store.count_documents(conn, "jira", container, ids)
+        rows = store.list_documents(conn, "jira", container, ids, limit=limit, offset=offset)
+    issues = [_jira_issue(conn, request, r, fields_only=True) for r in rows]
+    token = next_page_token(offset, len(rows), total)
+    return {
+        "issues": issues,
+        "isLast": token is None,
+        **({"nextPageToken": token} if token else {}),
+    }
+
+
+@router.get(
+    "/rest/api/2/issue/{key}",  # atlassian-python-api uses v2 for issue fetch
+    response_model=JiraIssue,
+    openapi_extra=_P_EXPAND,
+)
+@router.get("/rest/api/3/issue/{key}", response_model=JiraIssue, openapi_extra=_P_EXPAND)
+async def jira_get_issue(key: str, request: Request):
+    conn = auth.conn(request)
+    caller = _jira_caller(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve_jira_key(request, conn, key, ids)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Issue does not exist or you do not have permission to see it.",
+        )
+    return _jira_issue(conn, request, row, expand=_str_param(request, "expand", ""))
+
+
+@router.get(
+    "/rest/api/2/issue/{key}/comment",
+    response_model=JiraComments,
+    openapi_extra=_P_JIRA_COMMENTS,
+)
+@router.get(
+    "/rest/api/3/issue/{key}/comment",
+    response_model=JiraComments,
+    openapi_extra=_P_JIRA_COMMENTS,
+)
+async def jira_issue_comments(key: str, request: Request):
+    """One PAGE of an issue's comments.
+
+    `total` counts the whole collection while `startAt` and `maxResults` describe the slice, which
+    is what makes the envelope a page rather than a restatement of its own length.
+
+    Ordering is by `orderBy`, which real Jira accepts as `created` with an optional single leading
+    `+`/`-`, case-insensitively and ignoring whitespace — see :func:`_jira_order_desc` — and
+    answers 400 for anything else. Reproduced, because accepting one silently would serve corpus
+    order to a client that asked for something else with nothing in the response to say the sort
+    was dropped — and would pass here while failing against Jira. Its own message is localised to
+    the account's language, so the wording is not reproduced, only the refusal.
+    """
+    # BEFORE the issue is resolved. Measured 2026-09-10: a bad `orderBy` on a key that does
+    # not exist is 400 on real Jira where the same key without the parameter is 404, so the
+    # parameter is checked first. It separates nothing a caller could not already tell — the
+    # 400 is identical for a key that exists, one hidden from the caller, and one that never
+    # existed.
+    #
+    # An ABSENT `orderBy` is "not asked" and leaves the corpus's own order alone. What real Jira
+    # returns without one is not established: its REST intro says responses are "listed in
+    # ascending order by default", but that is a general statement its own operations contradict
+    # (project classification: "If not provided, values will not be sorted"), and the site
+    # available for measuring had no issue carrying a comment. Sorting on that would be picking a
+    # default, not reproducing one.
+    #
+    # The integers are read here too, and BEFORE `orderBy`, because the binder outranks both. All
+    # measured 2026-09-15: `?maxResults=abc` on a key that does not exist is the conversion 400
+    # where the same key alone is 404; `?maxResults=abc&orderBy=bogus` is the conversion 400 in
+    # either query order; and `?startAt=abc&maxResults=xyz` names `startAt` in either order, which
+    # is the handler signature's order rather than the URL's, so `startAt` is read first.
+    #
+    # `startAt` is the one parameter measured to take a Java LONG rather than an int.
+    start = max(0, _int_param(request, "startAt", 0, width=JAVA_LONG))
+    limit = min(
+        _JIRA_COMMENT_PAGE_MAX,
+        max(1, _int_param(request, "maxResults", _JIRA_COMMENT_PAGE_MAX)),
+    )
+    raw_order = _str_param(request, "orderBy")
+    desc = _jira_order_desc(raw_order) if raw_order is not None else None
+
+    conn = auth.conn(request)
+    caller = _jira_caller(request)
+    ids = auth.visible_ids(request, caller)
+    row = _resolve_jira_key(request, conn, key, ids)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Issue does not exist or you do not have permission to see it.",
+        )
+
+    cs = store.doc_comments(conn, "jira", row["key"])
+    if desc is not None:
+        # Sorted for BOTH directions, not only the descending one: `store.doc_comments` orders by
+        # `seq`, the comment's position in the corpus record, and a corpus is free to list
+        # comments in an order its own timestamps contradict. Passing those rows through for
+        # `created` would accept the parameter and apply nothing.
+        #
+        # The whole collection, before the slice below — sorting a page instead would answer
+        # correctly only while `startAt` is 0.
+        #
+        # `seq` breaks a tie, so two comments written in the same second keep a stable order
+        # instead of one that depends on the rows coming back the same way twice.
+        cs = sorted(cs, key=lambda c: (c["created_ts"], c["seq"]), reverse=desc)
+    site = _site(request)
+    return {
+        "startAt": start,
+        "maxResults": limit,
+        "total": len(cs),
+        "comments": [_jira_comment(c, site) for c in cs[start : start + limit]],
+    }
+
+
+@router.get("/rest/api/3/issueLinkType")
+async def jira_link_types(request: Request):
+    # No credential check: real Jira answers this to an anonymous caller (measured 2026-09-04).
+    return {
+        "issueLinkTypes": [
+            {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+            {"id": "10001", "name": "Relates", "inward": "relates to", "outward": "relates to"},
+            {
+                "id": "10002",
+                "name": "Duplicate",
+                "inward": "is duplicated by",
+                "outward": "duplicates",
+            },
+            {"id": "10003", "name": "Cloners", "inward": "is cloned by", "outward": "clones"},
+        ]
+    }
+
+
+# The standard system fields, used by clients (e.g. mcp-atlassian) for field/epic discovery.
+_JIRA_FIELDS = [
+    {
+        "id": "summary",
+        "key": "summary",
+        "name": "Summary",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "string", "system": "summary"},
+    },
+    {
+        "id": "description",
+        "key": "description",
+        "name": "Description",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "string", "system": "description"},
+    },
+    {
+        "id": "status",
+        "key": "status",
+        "name": "Status",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "status", "system": "status"},
+    },
+    {
+        "id": "issuetype",
+        "key": "issuetype",
+        "name": "Issue Type",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "issuetype", "system": "issuetype"},
+    },
+    {
+        "id": "priority",
+        "key": "priority",
+        "name": "Priority",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "priority", "system": "priority"},
+    },
+    {
+        "id": "labels",
+        "key": "labels",
+        "name": "Labels",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "array", "items": "string", "system": "labels"},
+    },
+    {
+        "id": "assignee",
+        "key": "assignee",
+        "name": "Assignee",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "user", "system": "assignee"},
+    },
+    {
+        "id": "reporter",
+        "key": "reporter",
+        "name": "Reporter",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "user", "system": "reporter"},
+    },
+    {
+        "id": "created",
+        "key": "created",
+        "name": "Created",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "datetime", "system": "created"},
+    },
+    {
+        "id": "updated",
+        "key": "updated",
+        "name": "Updated",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "datetime", "system": "updated"},
+    },
+    {
+        "id": "project",
+        "key": "project",
+        "name": "Project",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "project", "system": "project"},
+    },
+    {
+        "id": "comment",
+        "key": "comment",
+        "name": "Comment",
+        "custom": False,
+        "navigable": False,
+        "searchable": True,
+        "schema": {"type": "comments-page", "system": "comment"},
+    },
+    {
+        "id": "issuelinks",
+        "key": "issuelinks",
+        "name": "Linked Issues",
+        "custom": False,
+        "navigable": True,
+        "searchable": True,
+        "schema": {"type": "array", "items": "issuelinks", "system": "issuelinks"},
+    },
+    {
+        "id": "parent",
+        "key": "parent",
+        "name": "Parent",
+        "custom": False,
+        "navigable": True,
+        "searchable": False,
+        "schema": {"type": "issuelink", "system": "parent"},
+    },
+    {
+        "id": "subtasks",
+        "key": "subtasks",
+        "name": "Sub-Tasks",
+        "custom": False,
+        "navigable": True,
+        "searchable": False,
+        "schema": {"type": "array", "items": "issuelinks", "system": "subtasks"},
+    },
+]
+
+
+@router.get(
+    "/rest/api/2/field", response_model=list[JiraField]
+)  # atlassian-python-api / mcp-atlassian field discovery
+@router.get("/rest/api/3/field", response_model=list[JiraField])
+async def jira_fields(request: Request):
+    # No credential check: real Jira answers this to an anonymous caller (measured 2026-09-04).
+    return _JIRA_FIELDS
+
+
+# sentinel: the JQL carried a `project = X` clause that didn't resolve to any known project.
+# Distinct from `None` (no project clause at all -> no filter), so callers never silently
+# collapse "unresolvable" into "unfiltered" (the fidelity gap found & fixed for Confluence's
+# space= handling applies identically to Jira's project= handling).
+_JIRA_PROJECT_UNRESOLVED = object()
+
+
+def _project_from_jql(conn, jql: str, request: Request | None = None):
+    m = re.search(r"project\s*=\s*[\"']?([A-Za-z0-9_]+)", jql)
+    if not m:
+        return None
+    container = _jira_container_for_key(conn, m.group(1), request)
+    return container if container is not None else _JIRA_PROJECT_UNRESOLVED
+
+
+def _text_from_jql(jql: str) -> str | None:
+    """Extract the search term from a ``text ~``/``summary ~``/``description ~`` JQL clause
+    (the `~` "contains" operator). Returns None when the JQL carries no text predicate."""
+    m = (
+        re.search(r'\b(?:text|summary|description)\s*~\s*"([^"]+)"', jql)
+        or re.search(r"\b(?:text|summary|description)\s*~\s*'([^']+)'", jql)
+        or re.search(r"\b(?:text|summary|description)\s*~\s*([^\s()]+)", jql)
+    )
+    return m.group(1).strip() if m else None
+
+
+# Jira Cloud has exactly three status categories; a status name maps to one of them.
+_STATUS_CATEGORY = {
+    "to do": (2, "new", "blue-gray", "To Do"),
+    "open": (2, "new", "blue-gray", "To Do"),
+    "backlog": (2, "new", "blue-gray", "To Do"),
+    "selected for development": (2, "new", "blue-gray", "To Do"),
+    "reopened": (2, "new", "blue-gray", "To Do"),
+    "new": (2, "new", "blue-gray", "To Do"),
+    "in progress": (4, "indeterminate", "yellow", "In Progress"),
+    "in review": (4, "indeterminate", "yellow", "In Progress"),
+    "in development": (4, "indeterminate", "yellow", "In Progress"),
+    "blocked": (4, "indeterminate", "yellow", "In Progress"),
+    "done": (3, "done", "green", "Done"),
+    "closed": (3, "done", "green", "Done"),
+    "resolved": (3, "done", "green", "Done"),
+    "complete": (3, "done", "green", "Done"),
+}
+
+
+def _status_category(status: str) -> dict:
+    cid, key, color, name = _STATUS_CATEGORY.get(
+        (status or "").strip().lower(), (2, "new", "blue-gray", "To Do")
+    )
+    return {"id": cid, "key": key, "colorName": color, "name": name}
+
+
+def _jira_actor(email: str, site: str = "") -> dict:
+    email = email or "unknown"
+    display = email.split("@")[0].replace(".", " ").replace("_", " ").title()
+    aid = synth.atlassian_account_id(email)
+    return {
+        "accountId": aid,
+        "accountType": "atlassian",
+        "active": True,
+        "displayName": display,
+        "emailAddress": email,
+        "avatarUrls": synth.avatar_urls(aid),
+        "timeZone": "UTC",
+        "self": f"{site}/rest/api/3/user?accountId={aid}" if site else None,
+    }
+
+
+def _issue_key(request: Request, row) -> str:
+    """The key this issue answers to — its own stored `key` column, whole.
+
+    Nothing is composed here. The prefix and the suffix are joined at import by
+    `resolve_jira_keys`, at the one moment the project's prefix is settled for the whole corpus, so
+    a stated key and a derived one are the same kind of value by the time they reach here.
+
+    Asserted, not defensively re-derived: every jira row gets a key at import (`resolve_jira_keys`
+    raises rather than leave one NULL), so reaching this with a NULL one is a bug upstream. A silent
+    re-derive would serve a PROBED row's synthesized suffix instead of failing where the problem
+    is."""
+    assert row["key"] is not None, "jira: a row reached the serializer with no key"
+    return row["key"]
+
+
+def _jira_ref(request: Request, row, site: str = "") -> dict:
+    status = row["status"]
+    return {
+        "id": row["numeric_id"],
+        "key": _issue_key(request, row),
+        "self": f"{site}/rest/api/3/issue/{row['numeric_id']}" if site else None,
+        "fields": {
+            "summary": row["title"],
+            "status": {"name": status, "statusCategory": _status_category(status)},
+            "priority": {"name": row["priority"] or "Medium"},
+            "issuetype": {"name": row["issuetype"]},
+        },
+    }
+
+
+def _jira_comment(c, site: str = "") -> dict:
+    ts = c["created_ts"] if c["created_ts"] is not None else synth.epoch(str(c["id"]))
+    actor = _jira_actor(c["author_email"], site)
+    cid = synth.atlassian_comment_id(c["id"])
+    return {
+        "id": cid,
+        "self": f"{site}/rest/api/3/issue/comment/{cid}" if site else None,
+        "author": actor,
+        "body": _adf(c["body"]),
+        "updateAuthor": actor,
+        "created": synth.jira_datetime(ts),
+        "updated": synth.jira_datetime(ts),
+        "jsdPublic": True,
+    }
+
+
+def _issuetype(name: str, seed: str) -> dict:
+    name = name or "Task"
+    subtask = name.lower() in ("sub-task", "subtask")
+    return {
+        "id": str(synth.github_user_id("itype:" + name)),
+        "name": name,
+        "subtask": subtask,
+        "hierarchyLevel": -1 if subtask else 0,
+        "iconUrl": f"https://jira.example.com/issuetype/{name.lower().replace(' ', '-')}.png",
+    }
+
+
+def _jira_issue(conn, request: Request, row, expand: str = "", fields_only: bool = False) -> dict:
+    site = _site(request)
+    # `is not None`: an issue dated 1970-01-01T00:00:00Z stores 0 and must serve it.
+    created = row["created_ts"] if row["created_ts"] is not None else synth.epoch(row["key"])
+    updated = row["updated_ts"] if row["updated_ts"] is not None else created + 3600
+    pkey = _project_key(conn, row["project"])
+    reporter = _jira_actor(row["reporter_email"] or row["author_email"], site)
+    creator = _jira_actor(row["author_email"], site)
+    assignee = _jira_actor(row["assignee_email"], site) if row["assignee_email"] else None
+    status = row["status"]
+    resolution = (
+        None
+        if not row["resolution"]
+        else {
+            "id": str(synth.github_user_id("res:" + row["resolution"])),
+            "name": row["resolution"],
+            "description": "",
+        }
+    )
+    fields = {
+        "summary": row["title"],
+        "description": _adf(row["content"]),
+        "issuetype": _issuetype(row["issuetype"], row["key"]),
+        "project": {
+            "id": str(synth.github_user_id(row["project"])),
+            "key": pkey,
+            "name": row["project"],
+            "projectTypeKey": "software",
+            "simplified": False,
+            "self": f"{site}/rest/api/3/project/{pkey}",
+            "avatarUrls": synth.avatar_urls("proj:" + pkey),
+        },
+        "status": {
+            "id": str(synth.github_user_id("status:" + status)),
+            "name": status,
+            "statusCategory": _status_category(status),
+        },
+        "priority": {
+            "id": str(synth.github_user_id("prio:" + (row["priority"] or "Medium"))),
+            "name": row["priority"] or "Medium",
+            "iconUrl": f"{site}/images/icons/priorities/{(row['priority'] or 'medium').lower()}.svg",
+        },
+        "labels": store.jcol(row, "labels"),
+        "components": [
+            {
+                "id": str(synth.github_user_id("comp:" + c)),
+                "name": c,
+                "self": f"{site}/rest/api/3/component/{synth.github_user_id('comp:' + c)}",
+            }
+            for c in store.jcol(row, "components")
+        ],
+        "created": synth.jira_datetime(created),
+        "updated": synth.jira_datetime(updated),
+        "creator": creator,
+        "reporter": reporter,
+        "assignee": assignee,
+        "resolution": resolution,
+        "resolutiondate": synth.jira_datetime(row["resolution_ts"])
+        if row["resolution_ts"]
+        else None,
+        "duedate": row["duedate"],
+        "fixVersions": [
+            {"id": str(synth.github_user_id("ver:" + v)), "name": v, "released": False}
+            for v in store.jcol(row, "fix_versions")
+        ],
+        "versions": [],
+        "attachment": [],
+        "votes": {"votes": 0, "hasVoted": False},
+        "watches": {"watchCount": 0, "isWatching": False},
+        "timetracking": {},
+    }
+    if not fields_only:
+        cs = store.doc_comments(conn, "jira", row["key"])
+        fields["comment"] = {
+            "comments": [_jira_comment(c, site) for c in cs],
+            "maxResults": len(cs),
+            "total": len(cs),
+            "startAt": 0,
+        }
+        fields["issuelinks"] = store.jcol(row, "issuelinks")
+        subs = store.children(conn, "jira", row["key"])
+        fields["subtasks"] = [_jira_ref(request, s, site) for s in subs]
+        if row["parent_id"]:
+            prow = store.get_document(conn, "jira", row["parent_id"])
+            if prow:
+                fields["parent"] = _jira_ref(request, prow, site)
+    nid = row["numeric_id"]
+    issue = {
+        "id": str(nid),
+        "key": _issue_key(request, row),
+        "self": f"{site}/rest/api/3/issue/{nid}",
+        "fields": fields,
+    }
+    if not fields_only and "changelog" in (expand or ""):
+        hist = store.jcol(row, "changelog")
+        issue["changelog"] = {
+            "startAt": 0,
+            "maxResults": len(hist),
+            "total": len(hist),
+            "histories": hist,
+        }
+    return issue
+
+
+# ============================== Confluence ======================================
+
+
+def _storage(content: str) -> str:
+    """Confluence storage format — XHTML with a leading structured macro, as the real
+    editor emits (distinct from the rendered view below)."""
+    paras = [p for p in content.split("\n\n") if p.strip()] or [content]
+    return "".join(f"<p>{escape(p)}</p>" for p in paras)
+
+
+def _view(content: str) -> str:
+    """Rendered ``view`` HTML — differs from storage (wrapped, ids, no ac: macros), as the
+    real API returns a rendered representation, not the storage source."""
+    paras = [p for p in content.split("\n\n") if p.strip()] or [content]
+    body = "".join(f'<p class="auto-cursor-target">{escape(p)}</p>' for p in paras)
+    return f'<div class="contentLayout2"><div class="columnLayout single">{body}</div></div>'
+
+
+def _export_view(content: str) -> str:
+    """Rendered ``export_view`` HTML — the real API's export-oriented rendering (same content
+    as ``view``, without editor-only attributes like ``auto-cursor-target``)."""
+    paras = [p for p in content.split("\n\n") if p.strip()] or [content]
+    body = "".join(f"<p>{escape(p)}</p>" for p in paras)
+    return f'<div class="contentLayout2"><div class="columnLayout single">{body}</div></div>'
+
+
+def _space_container_for_key(conn, space_key: str) -> str | None:
+    """Resolve a Confluence ``spaceKey`` to its backing container name. Backlot models a space
+    by its corpus name, so both the synthesized key (``synth.confluence_space_key(name)``, the
+    hash-suffixed value ``/space`` advertises) and the literal container name (e.g. ``"handbook"``,
+    a legitimate natural key) resolve. Anything else is unresolvable -> ``None``, which no caller
+    reads as "no filter": the CQL search matches nothing and the content listing answers its 404."""
+    for r in store.list_containers(conn, "confluence"):
+        if space_key == synth.confluence_space_key(r["name"]) or space_key == r["name"]:
+            return r["name"]
+    return None
+
+
+def _content_space(conn, ids, space_key: str) -> str:
+    """The container `content?spaceKey=` filters by, or :func:`errors_atlassian.no_space_with_key`.
+
+    A space the caller reaches no page in is refused the same way as a key naming nothing, as
+    :func:`_require_space` refuses it on the space reads, so the listing does not confirm that the
+    space exists. Unmeasured for a scoped caller, see :func:`_reachable_spaces`. A repeated
+    `spaceKey` is one value with a comma in it (:func:`_str_param`), which no key holds."""
+    container = _space_container_for_key(conn, space_key)
+    if container is not None and (
+        ids is None or store.has_visible_document(conn, "confluence", container, ids)
+    ):
+        return container
+    raise errors_atlassian.no_space_with_key(space_key)
+
+
+def _reachable_spaces(conn, ids) -> list:
+    """The spaces the caller can reach, as container rows — `_reachable_projects` for Confluence.
+
+    A space is listed when the caller can read a page in it: the ACL grants per document, so there
+    is nothing else to read "can view this space" off. NOT measured — Confluence 403s an anonymous
+    request before resolving a space, and a scoped measurement needs two accounts and a space
+    permission scheme on a live site. Real Confluence lists by space permission, which can grant
+    `read` while showing the caller no page, so a real listing can hold a space this one drops.
+    """
+    rows = store.list_containers(conn, "confluence")
+    if ids is None:
+        return rows
+    return [r for r in rows if store.has_visible_document(conn, "confluence", r["name"], ids)]
+
+
+def _require_space(request: Request, conn, key: str) -> str:
+    """The container behind a space key the caller can reach — `_require_project` for Confluence.
+
+    Both space reads answer an unreachable key with the SAME ``404 {"message": "No space with the
+    given key exists"}`` a key naming nothing gets, so neither confirms the space exists — worth
+    withholding because ``?expand=permissions`` names a principal granted a space the caller cannot
+    open. Unmeasured for a scoped caller, see :func:`_reachable_spaces`.
+    """
+    ids = auth.visible_ids(request, _confluence_caller(request))
+    container = _space_container_for_key(conn, key)
+    # The `ids is None` short-circuit is load-bearing only on GitHub (see `_require_project`'s
+    # note): `confluence.schema.json` requires `space` on every record, so no space exists
+    # without a page, and here it keeps the readers of the two APIs alike.
+    if container is not None and (
+        ids is None or store.has_visible_document(conn, "confluence", container, ids)
+    ):
+        return container
+    raise HTTPException(status_code=404, detail="No space with the given key exists")
+
+
+# The thirteen keys real names under `_expandable` on a space, in real's own order. Measured on
+# brekkylab.atlassian.net, 2026-09-16, on a global space and two personal ones, which agreed: four
+# of the keys carry a path and nine are the empty string. `homepage` is one of the four there, and
+# is empty here — a corpus names no home page for a space, and a space without one is not something
+# the measurement could produce, so the empty string is this server's gap rather than a value real
+# was seen to send.
+def _space_expandable(key: str) -> dict:
+    return {
+        "settings": f"/rest/api/space/{key}/settings",
+        "metadata": "",
+        "identifiers": "",
+        "roles": "",
+        "icon": "",
+        "typeSettings": "",
+        "description": "",
+        "history": "",
+        "operations": "",
+        "lookAndFeel": f"/rest/api/settings/lookandfeel?spaceKey={key}",
+        "permissions": "",
+        "theme": f"/rest/api/space/{key}/theme",
+        "homepage": "",
+    }
+
+
+def _space_permissions(request: Request, conn, container: str) -> list[dict]:
+    """The space permission roster, as `?expand=permissions` answers it.
+
+    One entry per GRANT, which is real's unit: of the 120 entries on the space measured
+    (brekkylab.atlassian.net, 2026-09-17) 81 carry a subject and every one of those is a single
+    user, while the other 39 carry no `subjects` key at all. So the roster's length tracks grants
+    rather than membership, and `permissions[i].subjects.user.results[0]` names one principal. A
+    `group` or `org` grant is an entry with no `subjects` here for the same reason real leaves those
+    collapsed — no group subject appeared under this expansion on the space measured.
+
+    One operation, `read`/`space`, because it is the only one a corpus states: the ACL says who can
+    read a document and nothing at all about who may administer the space or delete a comment. Real
+    answered 26 operations there, five of them `read`/`space`; inventing the other 25 would put a
+    permission model on the wire that the corpus never licensed.
+
+    ``anonymousAccess`` is False whatever the grant, because no grant a corpus can write says "the
+    public": an org grant is every MEMBER and not every visitor (`store._expand_grants` returns
+    ``None`` for `principal_type == "org"`), and ``_confluence_caller`` refuses an anonymous caller
+    before a space is resolved at all. Real's was False on every entry measured.
+
+    The order is this function's own — real's was not measured — and it is sorted so that two reads
+    of the same space agree.
+    """
+    entries = []
+    for g in sorted(store.container_grants(conn, "confluence", container), key=tuple):
+        ptype, pid = g["principal_type"], g["principal_id"]
+        entry = {"id": synth.confluence_id(f"perm:{container}:read:{ptype}:{pid}")}
+        if ptype == "user":
+            entry["subjects"] = {
+                "user": {"results": [_conf_user(pid, _site(request))], "size": 1},
+                "_expandable": {"group": ""},
+            }
+        entry["operation"] = {"operation": "read", "targetType": "space"}
+        entry["anonymousAccess"] = False
+        entry["unlicensedAccess"] = False
+        entries.append(entry)
+    return entries
+
+
+def _space_description(container: str, subs: set[str]) -> dict:
+    """A space description, as the sub-properties in ``subs`` select it.
+
+    Measured on brekkylab.atlassian.net, 2026-09-17: the bare `expand=description` carries NO value,
+    only `{"_expandable": {"view": "", "plain": ""}}`. The value arrives for `description.plain` or
+    `description.view`, each leaving the other spelling in a nested `_expandable`, and asking for
+    both leaves no `_expandable` at all. A client that reads `description.plain.value` off the bare
+    spelling gets nothing from real, so serving it there would answer a body real does not send.
+
+    The two renderings differ only in `representation` here, because a corpus states one description
+    text and real's was empty on the space measured.
+    """
+    out = {
+        sub: {"value": f"{container} space", "representation": sub, "embeddedContent": []}
+        for sub in ("plain", "view")
+        if sub in subs
+    }
+    rest = {sub: "" for sub in ("view", "plain") if sub not in subs}
+    if rest:
+        out["_expandable"] = rest
+    return out
+
+
+def _space(request: Request, conn, container: str, expand: str, *, listed: bool) -> dict:
+    """One space, as both reads render it.
+
+    ``listed`` is the one difference real draws between them, and it is in `_links`: a space inside
+    the listing carries `webui` and `self` alone, where the single read carries `context`,
+    `collection` and `base` beside them. Measured 2026-09-16 on the same site, the same minute.
+
+    An expansion real serves is REMOVED from `_expandable` once it is served, which is how a client
+    tells an expansion it asked for and got from one it asked for and did not.
+    """
+    key = synth.confluence_space_key(container)
+    site = _site(request)
+    space = {
+        "id": synth.github_user_id(container),
+        "ari": (
+            f"ari:cloud:confluence:{synth.atlassian_cloud_id(get_settings().org_name)}"
+            f":space/{synth.github_user_id(container)}"
+        ),
+        "key": key,
+        "alias": key,
+        "name": container,
+        "type": "global",
+        "status": "current",
+        "_expandable": _space_expandable(key),
+    }
+    # A term names its property before the first dot and its sub-property after: real answers
+    # `expand=description.plain` and `expand=permissions.bogus` with the property expanded, and
+    # ignores a term naming no property (`descriptions`, `bogus`) rather than refusing it. Measured
+    # on brekkylab.atlassian.net, 2026-09-17, on `space/{key}`.
+    wanted: dict[str, set[str]] = {}
+    for term in (expand or "").split(","):
+        head, _, sub = term.strip().partition(".")
+        if head:
+            wanted.setdefault(head, set()).update([sub] if sub else [])
+    if "description" in wanted:
+        space["description"] = _space_description(container, wanted["description"])
+        space["_expandable"].pop("description", None)
+    if "permissions" in wanted:
+        space["permissions"] = _space_permissions(request, conn, container)
+        space["_expandable"].pop("permissions", None)
+    links = {"webui": f"/spaces/{key}", "self": f"{site}/wiki/rest/api/space/{key}"}
+    if not listed:
+        links = {
+            "context": "/wiki",
+            "self": links["self"],
+            "collection": "/rest/api/space",
+            "webui": links["webui"],
+            "base": f"{site}/wiki",
+        }
+    space["_links"] = links
+    return space
+
+
+@router.get("/wiki/rest/api/space", response_model=ConfluenceResults, openapi_extra=_P_SPACE)
+async def confluence_spaces(request: Request):
+    """Paged the way `content` is (`?limit`/`?start`, both through `_confluence_page_params`), and
+    answering the `_links` every paged listing answers (:func:`_confluence_envelope`). `expand` is
+    applied per space through :func:`_space` and carried into `next`/`prev`/`self` too.
+
+    `limit` is capped at 1000, as real caps it.
+    """
+    conn = auth.conn(request)
+    ids = auth.visible_ids(request, _confluence_caller(request))
+    limit, start = _confluence_page_params(request, cap=1000)
+    expand = _str_param(request, "expand", "") or ""
+    # store.list_containers orders by name; real's own order is none of name, key or id (measured
+    # 2026-09-17).
+    reachable = _reachable_spaces(conn, ids)
+    total = len(reachable)
+    results = [
+        _space(request, conn, r["name"], expand, listed=True)
+        for r in reachable[start : start + limit]
+    ]
+    links = _confluence_envelope(
+        request, "/rest/api/space", start=start, limit=limit, size=len(results), total=total
+    )
+    return {
+        "results": results,
+        "start": start,
+        "limit": limit,
+        "size": len(results),
+        "_links": links,
+    }
+
+
+@router.get("/wiki/rest/api/space/{key}/permission", include_in_schema=False)
+async def confluence_space_permission(key: str, request: Request):
+    """Real refuses a `GET` here, so Backlot refuses one too, and the roster is served where real
+    serves it: `space/{key}?expand=permissions`.
+
+    A route rather than nothing at all, because the path having no handler is a 404 and real's
+    answer is a 405 — the vendor's own document declares one operation here and it is a `POST`
+    (add a space permission), a write no source in Backlot serves. ``include_in_schema=False``
+    keeps the refusal off ``app.openapi()``, which is what `backlot diff` compares: the 405 is a
+    fact about the wire, and a `GET` operation on this path is a declaration the vendor's document
+    does not make.
+
+    The refusal covers the `POST` as well, where real gets past the method check: a `POST` here
+    answers 415 with Spring's `UNSUPPORTED_MEDIA_TYPE` naming the absent content type (measured
+    2026-09-17, on a key naming no space). That is the acknowledged `missing_operation` for this
+    path showing on the wire, as an unserved write does on any path Backlot routes for a read, and
+    answering the 415 would mean serving the first step of the write itself.
+
+    ``key`` is unused and declared because the path carries it: the refusal comes before any lookup
+    on real, where `GET space/NOSUCHSPACE/permission` answers the same 405 as a key that names a
+    space (measured 2026-09-16), so resolving one here would only be able to disagree.
+    """
+    raise errors_atlassian.method_not_allowed(request.url.path, request.method)
+
+
+@router.get("/wiki/rest/api/space/{key}", response_model=ConfluencePage, openapi_extra=_P_EXPAND)
+async def confluence_space_get(key: str, request: Request):
+    """Single-space fetch (atlassian-python-api's ``get_space`` / mcp-atlassian result enrichment).
+    404s (Atlassian-shaped) for a key naming no space the caller can reach (:func:`_require_space`)."""
+    conn = auth.conn(request)
+    container = _require_space(request, conn, key)
+    return _space(request, conn, container, _str_param(request, "expand", "") or "", listed=False)
+
+
+@router.get("/wiki/rest/api/search", response_model=ConfluenceResults, openapi_extra=_P_CQL)
+async def confluence_cql_search(request: Request):
+    """CQL search used by Confluence clients (e.g. mcp-atlassian). Four clauses are read: a `~`
+    operand is a keyword search over the ACL-visible corpus, and `space`, `type` and `label` filter
+    its matches, or the whole ACL-visible corpus when there is no `~`. Measured 2026-10-05 with no
+    `~`: real's `type=page` is every page on the site and `space=<KEY> and type=page` that space's
+    pages; its `space=<KEY>` also holds the space's attachments, comments and the space itself,
+    where this server answers the space's pages and blogposts. A CQL holding none of the four names
+    only fields this route does not read, and answers no row."""
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    ids = auth.visible_ids(request, caller)
+    # Not `_confluence_page_params`: see `_cql_page_param`.
+    limit = _cql_page_param(request, "limit", 25)
+    start = _cql_page_param(request, "start", 0)
+    if limit is None or start is None:
+        return Response(status_code=404)
+    # the first value, between the 404 and the negative check: see `errors_atlassian.cql_required`
+    cqls = request.query_params.getlist("cql")
+    if not cqls or not cqls[0]:
+        raise errors_atlassian.cql_required()
+    cql = cqls[0]
+    m = re.search(r'(?:text|title)\s*~\s*"?([^"~]+)"?', cql) or re.search(r'~\s*"?([^"~]+)"?', cql)
+    term = m.group(1).strip() if m else ""
+    # honor the common structured CQL clauses: space / type / label
+    ms = re.search(r'space(?:\.key)?\s*=\s*"?([A-Za-z0-9_-]+)"?', cql)
+    space_key = ms.group(1) if ms else None
+    space_unresolvable = False
+    container = None
+    if space_key:
+        container = _space_container_for_key(conn, space_key)
+        if container is None:
+            # unresolvable space=/space.key= clause: strict 0 matches, not the unfiltered corpus.
+            space_unresolvable = True
+    mt = re.search(r'type\s*=\s*"?(page|blogpost|comment)"?', cql)
+    want_type = mt.group(1) if mt else None
+    ml = re.search(r'label\s*(?:=|in)\s*"?([^")\s]+)"?', cql)
+    want_label = ml.group(1) if ml else None
+    _refuse_negative_page_params(limit, start)
+    # An empty `cursor` is none, and of a repeated one the first is read, measured 2026-10-04.
+    sent_cursor = (request.query_params.getlist("cursor") or [None])[0]
+    after = _cql_search_after(sent_cursor) if sent_cursor else None
+
+    # fetch the full ACL-visible match set, filter by the clauses, then paginate — so
+    # totalSize reflects the true match count (not just the returned page).
+    if term:
+        everything = store.search_documents(conn, term, "confluence", ids, limit=100_000, offset=0)
+    elif space_key or want_type or want_label:
+        everything = store.list_documents(
+            conn, "confluence", container=None, visible_ids=ids, limit=100_000, offset=0
+        )
+    else:
+        everything = []
+
+    def _match(r) -> bool:
+        if space_unresolvable:
+            return False
+        if container and r["space"] != container:
+            return False
+        if want_type and (r["subtype"] or "page") != want_type:
+            return False
+        if want_label and want_label not in store.jcol(r, "labels"):
+            return False
+        return True
+
+    matched = [r for r in everything if _match(r)]
+    total = len(matched)
+    position = _cql_position(matched, after[0]) if after else 0
+    rows = matched[position : position + limit]
+    reached = position + max(len(rows), 1)
+    if reached < total and start + max(len(rows), 1) > 2**31 - 1:
+        raise errors_atlassian.search_next_out_of_range()
+    results = []
+    for r in rows:
+        page = _confluence_page(conn, request, r, "version,space")
+        results.append(
+            {
+                "content": page,
+                "title": r["title"],
+                "excerpt": r["content"][:200],
+                "url": page["_links"]["webui"],
+                "entityType": "content",
+                "lastModified": synth.rfc3339_millis(
+                    _confluence_ts(r["updated_ts"], r["created_ts"], r["id"])
+                ),
+            }
+        )
+    links = _confluence_envelope(
+        request,
+        "/rest/api/search",
+        start=start,
+        limit=limit,
+        size=len(results),
+        total=total,
+        cursor=_cql_cursor(rows, matched, position),
+        sent_cursor=sent_cursor,
+        reached=reached,
+    )
+    return {
+        "results": results,
+        "start": start,
+        "limit": limit,
+        "size": len(results),
+        "totalSize": total,
+        "cqlQuery": cql,
+        "searchDuration": 5,
+        "_links": links,
+    }
+
+
+@router.get("/wiki/rest/api/content", response_model=ConfluenceResults, openapi_extra=_P_CONTENT)
+async def confluence_content_list(request: Request):
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    ids = auth.visible_ids(request, caller)
+    expand = _str_param(request, "expand", "") or ""
+    # The refusals in the order `_CONTENT_TYPES` records. An empty `type` is no type, and a
+    # repeated one is a single value with a comma in it, which names no type.
+    limit = _int_param(request, "limit", 25)
+    start = _int_param(request, "start", 0)
+    content_type = _str_param(request, "type") or "page"
+    answer = _CONTENT_TYPES.get(content_type)
+    if answer is not None and start > _CONTENT_START_BOUND:
+        raise errors_atlassian.start_too_large()
+    space_key = _str_param(request, "spaceKey")
+    container = _content_space(conn, ids, space_key) if space_key else None
+    if answer == "unfetchable":
+        raise errors_atlassian.content_finder_cannot_fetch(content_type)
+    _refuse_negative_page_params(limit, start)
+    limit = min(limit, 1000)
+    if answer == "not_custom":
+        raise errors_atlassian.not_a_custom_content_type(content_type)
+    if answer == "no_container":
+        raise errors_atlassian.attachment_without_container()
+    # Measured on a Confluence Cloud tenant on 2026-10-03 and 2026-10-05: `title` answered the page
+    # with that title whether spelled as stored, in lower case or in upper case, with or without
+    # `spaceKey`, with no `next` when asked for one page at a time. A title no page has answered
+    # `size: 0`, and so did the title's first word, the title with a space before or after it, a
+    # space alone, and a repeated `title` in either order (`_str_param` joins it with a comma); an
+    # empty `title` filters nothing.
+    title = _str_param(request, "title") or None
+    if answer is None:
+        # A type Confluence does not have: refused on its own, and beside a space or a title the
+        # filter that matches nothing.
+        if container is None and title is None:
+            raise errors_atlassian.unknown_content_type(content_type)
+        total, rows = 0, []
+    else:
+        subtype = content_type if _str_param(request, "type") else None
+        total = store.count_documents(
+            conn, "confluence", container, ids, title=title, subtype=subtype
+        )
+        rows = store.list_documents(
+            conn,
+            "confluence",
+            container,
+            ids,
+            limit=limit,
+            offset=start,
+            title=title,
+            subtype=subtype,
+        )
+    results = [_confluence_page(conn, request, r, expand) for r in rows]
+    links = _confluence_envelope(
+        request, "/rest/api/content", start=start, limit=limit, size=len(rows), total=total
+    )
+    return {"results": results, "start": start, "limit": limit, "size": len(rows), "_links": links}
+
+
+@router.get(
+    "/wiki/rest/api/content/{content_id}", response_model=ConfluencePage, openapi_extra=_P_EXPAND
+)
+async def confluence_content_get(content_id: int, request: Request):
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    ids = auth.visible_ids(request, caller)
+    row = store.confluence_by_id(conn, content_id, visible_ids=ids)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No content found with id")
+    return _confluence_page(conn, request, row, _str_param(request, "expand", "body.storage"))
+
+
+@router.get(
+    "/wiki/rest/api/content/{content_id}/child/page",
+    response_model=ConfluenceResults,
+    openapi_extra=_P_CHILD_PAGE,
+)
+async def confluence_child_pages(content_id: int, request: Request):
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    ids = auth.visible_ids(request, caller)
+    if store.get_document(conn, "confluence", content_id, visible_ids=ids) is None:
+        raise HTTPException(status_code=404, detail="No content found with id")
+    expand = _str_param(request, "expand", "") or ""
+    limit, start = _confluence_page_params(request)
+    kids = store.children(conn, "confluence", content_id, visible_ids=ids)
+    page = kids[start : start + limit]
+    results = [_confluence_page(conn, request, k, expand) for k in page]
+    return {
+        "results": results,
+        "start": start,
+        "limit": limit,
+        "size": len(results),
+        "_links": _confluence_envelope(
+            request,
+            f"/rest/api/content/{content_id}/child/page",
+            start=start,
+            limit=limit,
+            size=len(results),
+            total=len(kids),
+        ),
+    }
+
+
+@router.get("/wiki/rest/api/content/{content_id}/child/comment", openapi_extra=_P_CONTENT_CHILD)
+async def confluence_comments(content_id: int, request: Request):
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    ids = auth.visible_ids(request, caller)
+    if store.get_document(conn, "confluence", content_id, visible_ids=ids) is None:
+        raise HTTPException(status_code=404, detail="No content found with id")
+    limit, start = _confluence_page_params(request, cap=1000)
+    comments = store.doc_comments(conn, "confluence", content_id)
+    results = []
+    for c in comments[start : start + limit]:
+        ts = c["created_ts"] if c["created_ts"] is not None else synth.epoch(str(c["id"]))
+        author = c["author_email"] or "unknown"
+        cid = synth.atlassian_comment_id(c["id"])
+        results.append(
+            {
+                "id": cid,
+                "type": "comment",
+                "status": "current",
+                "title": f"Re: {content_id}",
+                "body": {
+                    "storage": {"value": _storage(c["body"]), "representation": "storage"},
+                    "view": {"value": _view(c["body"]), "representation": "view"},
+                },
+                "version": {
+                    "number": 1,
+                    "when": synth.rfc3339_millis(ts),
+                    "by": _conf_user(author, _site(request)),
+                    "minorEdit": False,
+                    "message": "",
+                },
+                "extensions": {"location": "footer"},
+                "_links": {"webui": f"/spaces/x/pages/{content_id}?focusedCommentId={cid}"},
+            }
+        )
+    return {
+        "results": results,
+        "start": start,
+        "limit": limit,
+        "size": len(results),
+        "_links": _confluence_envelope(
+            request,
+            f"/rest/api/content/{content_id}/child/comment",
+            start=start,
+            limit=limit,
+            size=len(results),
+            total=len(comments),
+        ),
+    }
+
+
+@router.get("/wiki/rest/api/content/{content_id}/child/attachment", openapi_extra=_P_CONTENT_CHILD)
+async def confluence_attachments(content_id: int, request: Request):
+    """A page's attachments, which is the empty page for every page: a corpus record states no
+    attachment, and this is the page real answers for a page holding none.
+
+    Measured 2026-10-10: `limit` and `start` are read before the page is looked up, so
+    `content/999999999/child/attachment?limit=abc` is the conversion 400 and `?limit=-1` the
+    negative one, not the unknown id's 404.
+    """
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    limit, start = _confluence_page_params(request, default=50)
+    ids = auth.visible_ids(request, caller)
+    if store.get_document(conn, "confluence", content_id, visible_ids=ids) is None:
+        raise HTTPException(status_code=404, detail="No content found with id")
+    return {
+        "results": [],
+        "start": start,
+        "limit": limit,
+        "size": 0,
+        "_links": _confluence_envelope(
+            request,
+            f"/rest/api/content/{content_id}/child/attachment",
+            start=start,
+            limit=limit,
+            size=0,
+            total=0,
+        ),
+    }
+
+
+@router.get("/wiki/rest/api/content/{content_id}/label", openapi_extra=_P_CONTENT_CHILD)
+async def confluence_labels(content_id: int, request: Request):
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    ids = auth.visible_ids(request, caller)
+    row = store.get_document(conn, "confluence", content_id, visible_ids=ids)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No content found with id")
+    limit, start = _confluence_page_params(request, default=200, cap=200, refuse_zero=True)
+    labels = store.jcol(row, "labels")
+    results = [
+        {"prefix": "global", "name": lbl, "id": str(synth.confluence_id(lbl)), "label": lbl}
+        for lbl in labels[start : start + limit]
+    ]
+    return {
+        "results": results,
+        "start": start,
+        "limit": limit,
+        "size": len(results),
+        "_links": _confluence_envelope(
+            request,
+            f"/rest/api/content/{content_id}/label",
+            start=start,
+            limit=limit,
+            size=len(results),
+            total=len(labels),
+        ),
+    }
+
+
+@router.get("/wiki/rest/api/content/{content_id}/restriction/byOperation")
+async def confluence_restrictions(content_id: int, request: Request):
+    conn = auth.conn(request)
+    caller = _confluence_caller(request)
+    ids = auth.visible_ids(request, caller)
+    if store.get_document(conn, "confluence", content_id, visible_ids=ids) is None:
+        raise HTTPException(status_code=404, detail="No content found with id")
+    emails = store.doc_member_emails(conn, "confluence", content_id)
+    users = [] if emails is None else [_conf_user(e, _site(request)) for e in sorted(emails)]
+
+    def _op(name):
+        return {
+            "operation": name,
+            "restrictions": {
+                "user": {"results": users, "start": 0, "limit": 200, "size": len(users)},
+                "group": {"results": [], "start": 0, "limit": 200, "size": 0},
+            },
+            "_expandable": {"content": f"/rest/api/content/{content_id}"},
+        }
+
+    return {"read": _op("read"), "update": _op("update")}
+
+
+def _conf_user(email: str, site: str) -> dict:
+    """The user object every Confluence read carries.
+
+    One helper for all of them because real sends ONE object: the space roster's subject, a page's
+    `version.by` and `history.createdBy`, and a comment's own two are the same thirteen keys in the
+    same order, measured on brekkylab.atlassian.net, 2026-09-17, on `space/{key}?expand=permissions`,
+    `content?expand=version` and `content/{id}/child/comment?expand=version,history`.
+
+    Four of the thirteen are constants on the site measured and a corpus states nothing that could
+    vary them: `isExternalCollaborator`, `isGuest`, `accountStatus` and `_expandable`. `locale` is
+    real's ACCOUNT language setting (`"ko"` there, and it is what the error messages follow), which
+    is a property of the reader rather than of the corpus, so it is one value here.
+
+    ``site`` is the caller's own base (:func:`_site`) because `_links.self` is an address a client
+    follows — the shape `github._gh_user` takes `_api_base(request)` for.
+    """
+    aid = synth.atlassian_account_id(email or "unknown")
+    name = (email or "unknown").split("@")[0]
+    return {
+        "type": "known",
+        "accountId": aid,
+        "accountType": "atlassian",
+        "email": email,
+        "publicName": name,
+        "profilePicture": {
+            "path": f"/wiki/aa-avatar/{aid}",
+            "width": 48,
+            "height": 48,
+            "isDefault": False,
+        },
+        "displayName": name.replace(".", " ").title(),
+        "isExternalCollaborator": False,
+        "isGuest": False,
+        "locale": "en",
+        "accountStatus": "active",
+        "_expandable": {"operations": "", "personalSpace": ""},
+        "_links": {"self": f"{site}/wiki/rest/api/user?accountId={aid}"},
+    }
+
+
+def _confluence_ts(updated_ts, created_ts, cid) -> int:
+    """A page's last-modified second: its own, else its creation second, else one seeded from its
+    id. One helper for the two places that need it, because the CQL result and the page body must
+    date the same page the same way — and because reaching for a jira column here (`key`) raised
+    IndexError on the search route while the page route was fine.
+
+    `is not None` at each step: 1970-01-01T00:00:00Z stores as 0, and a page that HAS a second
+    must serve it rather than a seeded one."""
+    if updated_ts is not None:
+        return updated_ts
+    if created_ts is not None:
+        return created_ts
+    return synth.epoch(str(cid))
+
+
+def _confluence_page(conn, request: Request, row, expand: str) -> dict:
+    created = row["created_ts"] if row["created_ts"] is not None else synth.epoch(str(row["id"]))
+    updated = row["updated_ts"] if row["updated_ts"] is not None else created
+    cid = row["id"]
+    key = synth.confluence_space_key(row["space"])
+    author = row["author_email"]
+    ctype = row["subtype"] or "page"  # page | blogpost
+    # version number: BYO override, else 2 if the page was updated after creation, else 1
+    vnum = row["version_number"] or (2 if row["updated_ts"] and row["updated_ts"] != created else 1)
+    webui = f"/spaces/{key}/{ctype}s/{cid}"
+    page = {
+        "id": str(cid),
+        "type": ctype,
+        "status": "current",
+        "title": row["title"],
+        "space": {
+            "id": synth.github_user_id(row["space"]),
+            "key": key,
+            "name": row["space"],
+            "type": "global",
+            "_links": {"webui": f"/spaces/{key}"},
+        },
+        "_links": {
+            "webui": webui,
+            "tinyui": f"/x/{cid}",
+            "editui": f"/pages/resumedraft.action?draftId={cid}",
+            "self": f"{_site(request)}/wiki/rest/api/content/{cid}",
+        },
+        "_expandable": {
+            "childTypes": "",
+            "container": f"/rest/api/space/{key}",
+            "metadata": "",
+            "operations": "",
+            "restrictions": "",
+            "history": f"/rest/api/content/{cid}/history",
+            "ancestors": "",
+            "body": "",
+            "version": "",
+            "descendants": "",
+        },
+    }
+    if "history" in expand or "version" in expand:
+        page["history"] = {
+            "latest": True,
+            "createdDate": synth.rfc3339_millis(created),
+            "createdBy": _conf_user(author, _site(request)),
+            "lastUpdated": {
+                "when": synth.rfc3339_millis(updated),
+                "by": _conf_user(author, _site(request)),
+                "number": vnum,
+            },
+        }
+    if "version" in expand:
+        page["version"] = {
+            "number": vnum,
+            "when": synth.rfc3339_millis(updated),
+            "by": _conf_user(author, _site(request)),
+            "minorEdit": bool(row["minor_edit"]),
+            "message": row["version_message"] or "",
+        }
+    if "body.storage" in expand:
+        page.setdefault("body", {})["storage"] = {
+            "value": _storage(row["content"]),
+            "representation": "storage",
+        }
+    if "body.view" in expand:
+        page.setdefault("body", {})["view"] = {
+            "value": _view(row["content"]),
+            "representation": "view",
+        }
+    if "body.export_view" in expand:
+        page.setdefault("body", {})["export_view"] = {
+            "value": _export_view(row["content"]),
+            "representation": "export_view",
+        }
+    if "body.atlas_doc_format" in expand:
+        import json as _json
+
+        page.setdefault("body", {})["atlas_doc_format"] = {
+            "value": _json.dumps(_adf(row["content"])),
+            "representation": "atlas_doc_format",
+        }
+    if "metadata.labels" in expand or "metadata" in expand:
+        labels = store.jcol(row, "labels")
+        page["metadata"] = {
+            "labels": {
+                "results": [
+                    {
+                        "prefix": "global",
+                        "name": lbl,
+                        "id": str(synth.confluence_id(lbl)),
+                        "label": lbl,
+                    }
+                    for lbl in labels
+                ],
+                "start": 0,
+                "limit": 200,
+                "size": len(labels),
+            }
+        }
+    if "ancestors" in expand:
+        ancestors, pid = [], row["parent_id"]
+        while pid:
+            prow = store.get_document(conn, "confluence", pid)
+            if prow is None:
+                break
+            pcid = prow["id"]
+            ancestors.insert(
+                0,
+                {
+                    "id": str(pcid),
+                    "type": prow["subtype"] or "page",
+                    "status": "current",
+                    "title": prow["title"],
+                    "_links": {"webui": f"/spaces/{key}/pages/{pcid}"},
+                },
+            )
+            pid = prow["parent_id"]
+        page["ancestors"] = ancestors
+    return page
+
+
+# What real converts a query parameter with. Measured on brekkylab.atlassian.net, 2026-09-14,
+# against Jira's comment read and Confluence's space listing, which agree on every case:
+#
+#   ?maxResults=          the default, as though unsent -- an empty value is not a failure
+#   ?maxResults=%2B3      3, so a leading sign is read (a RAW `+` decodes to a space and reaches
+#                         the binder as ` 3`, which reads 3 by the whitespace removal below)
+#   ?maxResults=%203%20   3, and ?maxResults=3%204 is 34 -- whitespace is REMOVED, not trimmed
+#   ?maxResults=<U+0663>  3, so the digits are Unicode's, not ASCII's
+#   ?maxResults=1_0       400 -- where Python's own int() reads 10
+#   ?maxResults=1.5       400
+#
+# Python's `int` agrees with all of it but three things — the underscore, the internal whitespace,
+# and the non-breaking spaces `strip_java_whitespace` exists for — so those three are handled here
+# and the rest is left to `int` rather than restated as a pattern that would then have to be kept
+# in step with it.
+#
+# The products part on TWO cases, both of them a value that cleans away to nothing:
+#
+#   - whitespace and nothing else. Jira reads it as absent and answers 200 with the default
+#     (`?maxResults=%20` and `?maxResults=%09` both); Confluence cleans it to the empty string and
+#     fails to convert THAT, reporting `For input string: ""`. A genuinely empty `?limit=` is the
+#     default on both, so it is the whitespace, not the emptiness, that separates them.
+#   - an empty FIRST value of a repeated parameter. Jira takes the default (`?startAt=&startAt=5`);
+#     Confluence refuses, naming `",5"`. See :func:`_int_param`.
+#
+# The WIDTH is per parameter, not per product, and measured one parameter at a time: Jira's
+# `startAt` takes a Java long (`2147483648` and `9223372036854775807` are both echoed back, and
+# only past a long is it refused), while its `maxResults` and both Confluence parameters are a Java
+# int. Reading one width off another is what put a 400 on `?startAt=-2147483649`, which real
+# answers 200.
+JAVA_INT = (-(2**31), 2**31 - 1)
+JAVA_LONG = (-(2**63), 2**63 - 1)
+
+
+def _int_param(
+    request: Request, name: str, default: int, *, width: tuple[int, int] = JAVA_INT
+) -> int:
+    """One query parameter as an int, refused the way real refuses it.
+
+    The FIRST value when the parameter repeats, not the last: `?startAt=3&startAt=5` is 3 on both
+    products, where Starlette's ``QueryParams.get`` returns 5. A client that appends to a URL
+    rather than replacing in it — a retry layer adding `startAt` to a URL that already carries one
+    is the ordinary way — was being served real's other page under a 200.
+
+    A value that converts to nothing is where the products part, and they part twice. A LONE empty
+    value is the default on both (`?limit=` and `?maxResults=` are each 200). A first value that is
+    empty or whitespace-only is the default on Jira (`?startAt=&startAt=5` and `?maxResults=%20`
+    are 200 with it) and, on Confluence, the default only when the parameter does not repeat:
+    `?limit=&limit=5` is a 400 naming `",5"`, the array with an empty element in front.
+    """
+    values = request.query_params.getlist(name)
+    if not values:
+        return default
+    confluence = errors_atlassian.is_confluence(request.url.path)
+    if values[0] == "" and (len(values) == 1 or not confluence):
+        return default
+    raw = values[0]
+    cleaned = errors_atlassian.strip_java_whitespace(raw)
+    if cleaned == "" and not confluence:
+        return default  # Jira alone reads a whitespace-only value as absent
+    try:
+        if "_" in cleaned:
+            raise ValueError(cleaned)
+        if any(ch.isspace() for ch in cleaned):
+            # Only the three non-breaking spaces survive the cleaning, and Java throws on one
+            # WHEREVER it sits, while Python's `int()` strips a leading or trailing one itself
+            # (`int('\xa03')` is 3). Without this, only the interior spelling was refused.
+            raise ValueError(cleaned)
+        n = int(cleaned)
+    except ValueError:
+        raise errors_atlassian.integer_conversion_failure(
+            _echoed_path(request), name, values
+        ) from None
+    if not width[0] <= n <= width[1]:
+        # Python's int is unbounded, so a page size computed from a timestamp or a byte count
+        # flowed into the query where real answered 400.
+        raise errors_atlassian.integer_conversion_failure(_echoed_path(request), name, values)
+    return n
+
+
+def _reject_json_constant(value: str):
+    """A `parse_constant` hook. Python's decoder reads `NaN`, `Infinity` and `-Infinity`, which real
+    refuses as malformed JSON (measured 2026-10-06, `-Infinity` 2026-10-09), so raising here sends
+    them to the parse error `_jira_search_body` answers a body it cannot parse with.
+    """
+    raise ValueError(value)
+
+
+class _JiraOversizedNumber:
+    """A number literal of more than 1000 digits, left unconverted for the body checks to refuse."""
+
+    def __init__(self, raw: str):
+        self.raw = raw
+
+
+def _jira_json_number(read, oversized: list[_JiraOversizedNumber]):
+    """A `parse_int` / `parse_float` hook that counts a literal's digits before `read` sees it, and
+    returns a literal past 1000 as a `_JiraOversizedNumber` it also appends to `oversized`.
+
+    Real counts every digit, the fraction's and the exponent's included, and reads a literal of up
+    to 1000. As `maxResults`, `1.` and 998 digits then `e1` is served, while `1.` and 999 then
+    `e1`, `0.` and 999 zeros then `1`, and 1000 digits then `.5` get `Failed to read request`, as
+    integers of 1001, 4300, 4301 and 5000 digits do (Jira Cloud, 2026-10-06 and 2026-10-09).
+    Counting here also keeps a literal past Python's own 4300-digit `int` limit away from `int()`.
+    Which refusal such a literal draws depends on where it sits; see :func:`_jira_search_body`.
+    """
+
+    def parse(raw: str):
+        if sum(ch.isdigit() for ch in raw) > 1000:
+            number = _JiraOversizedNumber(raw)
+            oversized.append(number)
+            return number
+        return read(raw)
+
+    return parse
+
+
+async def _jira_search_body(request: Request) -> dict:
+    """The `search/jql` request body, or the refusal real gives for one it will not read.
+
+    Measured 2026-09-15. The `Content-Type` is checked FIRST and on its own: a perfectly good JSON
+    body sent without the header is the same 415 as one sent with `text/plain`, so the header
+    decides before the bytes are looked at. The match is on the media type alone, case-insensitively
+    and ignoring parameters — `APPLICATION/JSON` and `application/json; charset=utf-8` are both
+    read, `*/*` and `application/xml` are not.
+
+    Then the body, which real sorts into three sentences (a number too long to read aside, below),
+    and the boundaries between them are not where a JSON parser would draw them:
+
+    - a body of zero length, and a literal `null`, are "no content"
+    - bytes that do not parse are a parse error — but a body that is only WHITESPACE is not, it is
+      the not-an-object sentence, which is why emptiness here means length and not `strip()`
+    - JSON that parses to anything but an object — `[]`, `5`, `"x"`, `true` — is not-an-object
+
+    Trailing bytes after a complete value are IGNORED rather than refused: `{"jql": …} junk` is
+    answered 200. That is what `raw_decode` reproduces and `json.loads` would not, reading the
+    first value and letting the rest go.
+
+    The leading bytes are the other side of that and are NOT ignored so freely. JSON's whitespace is
+    the four ASCII ones, so a non-breaking space in front of the object is the parse error, where
+    `str.lstrip()` would skip it and read the object behind it. Bytes that are not UTF-8 are the
+    not-an-object sentence, where `errors="replace"` would repair them into U+FFFD and parse.
+
+    Python's decoder is constrained in three places where it reads differently from real. `NaN` and
+    `Infinity` are the parse error (see :func:`_reject_json_constant`). A number literal past 1000
+    digits (see :func:`_jira_json_number`) is real's problem+json `Failed to read request` when it
+    is the body or the value of a member, and the not-an-object sentence when it sits inside a list
+    or an object. Both hold whichever member it is, an undeclared one included (measured on each
+    member `_JIRA_SEARCH_BODY_KEYS` declares, on `bogus`, and on a body of the number alone or in a
+    list, 2026-10-09 and 2026-10-10). Nesting deep enough to exhaust Python's reader is the
+    not-an-object sentence, the refusal real gives such a body at every depth measured.
+
+    Real reads the members in order and answers the first one it cannot read or bind, so
+    `{"bogus": 1, "jql": <1001 digits>}` is the not-an-object sentence there, and the other way
+    round it is `Failed to read request` (2026-10-10). This reader refuses an oversized literal
+    before it looks at any member, whatever the order.
+    """
+    content_type = request.headers.get("content-type")
+    if (content_type or "").split(";")[0].strip().lower() != "application/json":
+        raise errors_atlassian.unsupported_media_type(_echoed_path(request), content_type)
+    raw = await request.body()
+    if not raw:
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_EMPTY)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT) from None
+    oversized: list[_JiraOversizedNumber] = []
+    try:
+        parsed, _end = json.JSONDecoder(
+            parse_constant=_reject_json_constant,
+            parse_int=_jira_json_number(int, oversized),
+            parse_float=_jira_json_number(float, oversized),
+        ).raw_decode(text.lstrip(" \t\n\r"))
+    except RecursionError:
+        # Real refuses a `fields` nested 998 to 300000 deep as a payload it cannot bind (measured
+        # 2026-10-06), so the depth Python's reader gives out at must not change the answer.
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT) from None
+    except ValueError:
+        message = (
+            errors_atlassian.BODY_NOT_AN_OBJECT
+            if not raw.strip()
+            else errors_atlassian.BODY_UNPARSEABLE
+        )
+        raise errors_atlassian.body_not_read(message) from None
+    if parsed is None:
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_EMPTY)
+    members = parsed.values() if isinstance(parsed, dict) else [parsed]
+    if any(isinstance(value, _JiraOversizedNumber) for value in members):
+        raise errors_atlassian.failed_to_read_request(_echoed_path(request))
+    if oversized or not isinstance(parsed, dict):
+        raise errors_atlassian.body_not_read(errors_atlassian.BODY_NOT_AN_OBJECT)
+    return parsed
+
+
+def _str_param(request: Request, name: str, default: str | None = None) -> str | None:
+    """One query parameter as a string, comma-joined when it repeats.
+
+    Measured on three parameters across both products: Jira's `?orderBy=bogus&orderBy=created` is
+    refused naming `bogus,created` in either order, its repeated `jql` is refused with a parse error
+    at the character the comma lands on, and Confluence's `?spaceKey=NOPE1&spaceKey=NOPE2` is a 404
+    naming `NOPE1,NOPE2`. So a repeated string is one value with a comma in it, and reading the last
+    alone answers 200 to whichever ordering happens to put a valid spelling second.
+
+    The join is what is reproduced here, not every refusal that follows from it: a repeated `jql`
+    reaches `_project_from_jql`, which is lenient where real's JQL parser is not, so Backlot answers
+    200 to a joined query real refuses. That leniency is the parser's and predates this.
+    """
+    values = request.query_params.getlist(name)
+    return ",".join(values) if values else default
+
+
+def _confluence_page_params(
+    request: Request,
+    *,
+    default: int = 25,
+    cap: int | None = None,
+    refuse_zero: bool = False,
+) -> tuple[int, int]:
+    """Confluence's `limit` and `start`, which refuse a negative where Jira's clamp one.
+
+    Measured on the five routes that call it, `space` on 2026-09-14, `child/page`, `child/comment`
+    and `label` on 2026-09-23 and `child/attachment` on 2026-10-10: `?limit=-1` and `?start=-1` are
+    400. Unclamped, a listing would hand them to SQLite, which reads a negative LIMIT as no limit at
+    all and so would answer `?limit=-1` with the whole collection. `content` reads the pair itself,
+    since it puts refusals of its own between these (``_CONTENT_TYPES``).
+
+    Order is measured too, because both parameters can be wrong at once. Conversion comes first for
+    BOTH — `?limit=-1&start=abc` is the conversion failure about `abc`, not the negative about
+    `limit` — and among two negatives `start` is the one named: `?limit=-1&start=-1` reports
+    `start cannot be less than zero`.
+
+    The CQL search reads its own pair (:func:`_cql_page_param`), JAX-RS-bound rather than Spring's,
+    and shares :func:`_refuse_negative_page_params`, which is measured on that route too.
+
+    ``refuse_zero`` is `label`'s alone: it answers `?limit=0` with a 400 where every other listing
+    answers an empty page (:func:`backlot.errors.atlassian.zero_limit_not_allowed`). It is reached
+    after both refusals above, measured 2026-09-23: `?limit=0&start=abc` is the conversion failure
+    and `?limit=0&start=-1` the negative about `start`.
+
+    ``default`` and ``cap`` are per route, measured 2026-09-22 on a live site: `content`, `space`
+    and `child/comment` cap `limit` at 1000, `label` defaults to 200 and caps there, `child/page`
+    defaults to 25 and caps nowhere (`?limit=1001` is echoed), `child/attachment` defaults to 50
+    and caps nowhere, and the CQL search caps nowhere either. A value above the cap is answered
+    with the cap rather than refused, so a client asking for more than real serves gets real's page
+    size back.
+    """
+    limit = _int_param(request, "limit", default)
+    start = _int_param(request, "start", 0)
+    _refuse_negative_page_params(limit, start)
+    if refuse_zero and limit == 0:
+        raise errors_atlassian.zero_limit_not_allowed()
+    if cap is not None:
+        limit = min(limit, cap)
+    return limit, start
+
+
+# What Java's `String.trim()` removes: every character up to and including the space.
+_JAVA_TRIMMED = "".join(map(chr, range(0x21)))
+
+
+def _cql_page_param(request: Request, name: str, default: int) -> int | None:
+    """The CQL search's `limit` or `start`, read the way its JAX-RS binding reads an `int`, or
+    ``None`` where real answers the 404 with no body and no `content-type` a `@QueryParam` it
+    cannot convert gets.
+
+    Measured 2026-10-04 on a live site, with an `Accept` that takes JSON: the first of a repeated
+    parameter is the one read (`limit=5&limit=abc` is five, `limit=abc&limit=5` the 404); an empty
+    value or one `trim()` empties (a space, a tab, a newline, and on 2026-10-05 `%01` and `%1F`
+    alone) is the default; anything else is `Integer.valueOf` of the value as sent, so a sign and
+    leading zeros pass and a Unicode decimal digit counts (`٥` and `５` are five) unless it lies
+    past U+FFFF, which Java reads as two halves of a surrogate pair (`𝟓` is the 404), where a space
+    beside the digits, `1.5`, `1_0`, `0x10`, `1e3` and a value outside `int` are the 404 too. The
+    404 comes after the credential's refusal and before every other one the route makes. A NUL
+    never gets this far: Tomcat answers it with an HTML 400 page.
+    """
+    values = request.query_params.getlist(name)
+    if not values or not values[0].strip(_JAVA_TRIMMED):
+        return default
+    if not re.fullmatch(r"[+-]?\d+", values[0]) or max(map(ord, values[0])) > 0xFFFF:
+        return None
+    value = int(values[0])
+    return value if -(2**31) <= value < 2**31 else None
+
+
+def _cql_search_after(token: str) -> list | None:
+    """What a sent `cursor` says the page goes on after: a list holding the one sort value it
+    carries, ``None`` for a token that reads as no cursor, or real's refusal of a token it cannot
+    page by (:func:`backlot.errors.atlassian.search_cursor_refused`).
+
+    Measured 2026-10-04 and 2026-10-05: a token is `_t_` and `_h_` around two base64 parts, either
+    alphabet, each read as the first JSON value in it, leading whitespace skipped and whatever
+    follows ignored, and real's own hold the sort value in a list and then `[]`. The 400 answers a
+    token without `_t_` or `_h_`, a part that is not base64 or holds no JSON value, `NaN`,
+    `Infinity` or `-Infinity` in either part, an `_h_` that is not a list or holds `null`, a list or
+    an object, and a `_t_` that is neither a list nor `null` or holds two values. Past those, a
+    `_t_` of `null` is no cursor, and the 500 answers an empty list or a list or an object as the
+    value: `_t_` `[]` with `_h_` `[null]` is the 400 and with `_h_` `[1]` the 500. A string, a
+    number, `true`, `false` and `null` as the value are served (:func:`_cql_position`). Both
+    refusals come after the route's of `limit` and `start`: `?limit=abc&cursor=abc` is the 404 and
+    `?limit=-1&cursor=abc` the negative 400.
+    """
+    parts = re.fullmatch(r"_t_(.*)_h_(.*)", token, re.S)
+    first, then = (_cql_token_part(part) for part in parts.groups()) if parts else (_NO_JSON,) * 2
+    if (
+        not isinstance(then, list)
+        or any(each is None or isinstance(each, (list, dict)) for each in then)
+        or not (first is None or isinstance(first, list) and len(first) <= 1)
+    ):
+        raise errors_atlassian.search_cursor_refused()
+    if first is not None and (not first or isinstance(first[0], (list, dict))):
+        raise errors_atlassian.search_cursor_refused(failed=True)
+    return first
+
+
+# What `_cql_token_part` answers for a part holding no JSON value it reads.
+_NO_JSON = object()
+
+
+def _refuse_a_json_constant(name: str):
+    """Refuses the three constants Python's JSON reads and real's does not
+    (:func:`_cql_search_after`)."""
+    raise ValueError(name)
+
+
+def _cql_token_part(part: str):
+    """One part of a CQL search cursor read as :func:`_cql_search_after` says real reads it, or
+    ``_NO_JSON``, which a part nesting deeper than Python's JSON reader recurses gets as well."""
+    standard = part.replace("-", "+").replace("_", "/") + "=" * (-len(part) % 4)
+    decoder = json.JSONDecoder(parse_constant=_refuse_a_json_constant)
+    try:
+        raw = base64.b64decode(standard, validate=True)
+        return decoder.raw_decode(raw.decode("utf-8").lstrip(" \t\n\r"))[0]
+    except (ValueError, binascii.Error, RecursionError):
+        return _NO_JSON
+
+
+def _cql_position(matched: list, sort_value) -> int:
+    """Where in ``matched`` the CQL search's page starts, given the value a sent cursor carries
+    (:func:`_cql_search_after`): after the row whose id follows the tab a string value opens with,
+    after every row for `null`, and at the first match for any other value.
+
+    Measured 2026-10-04 on a nine-page site: `start` is echoed and advanced in the links but never
+    positions the page, so `?limit=1&start=100001` serves the first match, and a cursor naming the
+    second match serves the third onwards at any `start`. Real's own value is `"\\t<id> …"`, and it
+    serves the rows whose value sorts after the one sent, in the descending order of those values it
+    answers in, which puts a number, `true`, `false` and `null` where the summary above does. This
+    server's matches are in an order of its own, so a string naming none of them starts at the first
+    match, where real may answer an empty page or one from the middle (`"\\t3"` started at the sixth
+    of nine).
+    """
+    if sort_value is None:
+        return len(matched)
+    named = re.match(r"\t(\S+)", sort_value) if isinstance(sort_value, str) else None
+    for i, row in enumerate(matched if named else ()):
+        if str(row["id"]) == named.group(1):
+            return i + 1
+    return 0
+
+
+# The `start` past which `content` answers `start_too_large`. The same `start` is a 200 on the
+# neighbours: an empty page on `space` and on `child/page`, and on the CQL search the page `start`
+# does not position (:func:`_cql_position`).
+_CONTENT_START_BOUND = 100_000
+# The types `content?type=` knows, and what each answers. Measured on a Confluence Cloud site on
+# 2026-10-10, each type alone, beside a known space, an unknown one and a title, and beside a
+# `limit` or `start` below zero and a `start` past `_CONTENT_START_BOUND`, matched as sent (`Page`,
+# `Blogpost` and `COMMENT` are no type). After the conversion 400, a known type refuses a `start`
+# past the bound, where a type Confluence does not have never reads it; then an unknown space is the
+# 404; then `comment` and `folder` are `content_finder_cannot_fetch`'s 501; then a negative `limit`
+# or `start` is the 400; then `whiteboard`, `database` and `embed` are `not_a_custom_content_type`'s
+# 400 and `attachment` is `attachment_without_container`'s 500, beside a space or a title as alone.
+# A type not in this table is `unknown_content_type`'s 501 alone, and an empty page beside a known
+# space or a title, whatever `start` is.
+_CONTENT_TYPES = {
+    "page": "listed",
+    "blogpost": "listed",
+    "comment": "unfetchable",
+    "folder": "unfetchable",
+    "whiteboard": "not_custom",
+    "database": "not_custom",
+    "embed": "not_custom",
+    "attachment": "no_container",
+}
+
+
+def _cql_cursor(served: list, matched: list, position: int) -> str | None:
+    """The `cursor` real's CQL search carries on `next`: a token naming the last row the page
+    served, or on a page that served none the row it would have started with
+    (:func:`_cql_position`).
+
+    Measured 2026-09-23 on a nine-page site: the token names the second match at `limit=2` and the
+    fifth at `limit=5`, and moves with each `next` followed. Measured 2026-10-04, an empty page
+    names the first match when no cursor was sent, whatever `start` says, and the row after the sent
+    one's when one was: `?limit=0` with a cursor naming the second match names the third. Real's
+    token carries the row's sort value (:func:`_cql_search_after`); this builds one of its own from
+    the row's id, so a client sees a token shaped like real's, and real reads this one back as it
+    reads its own.
+    """
+    row = served[-1] if served else (matched[position] if position < len(matched) else None)
+    if row is None:
+        return None
+    payload = base64.b64encode(f'["\\t{row["id"]}"]'.encode()).decode("ascii")
+    return quote(f"_t_{payload}_h_W10=", safe="")
+
+
+def _confluence_carried(
+    request: Request, *, first: tuple[str, ...] = ("expand",), own: tuple[str, ...] = ()
+) -> tuple[str, str]:
+    """The request's other parameters, split into what leads `limit`/`start` in a page link and
+    what trails `start`.
+
+    Measured 2026-09-17 and 2026-09-22: `expand` leads `limit`/`start`, and on `prev` it leads the
+    marker as well. Where a name real does not read lands is a Java map's iteration order rather
+    than a rule — `bogus` after the marker, `zebra` ahead of it, `nonce` and `cql` after `start`,
+    each on its own request — so the names in ``first`` lead and everything else trails in the
+    order the caller sent it, which reproduces the `cql` and `nonce` cases and not the other two.
+
+    ``own`` names what the route writes into its links itself, so it is not carried as well.
+    """
+    lead, trail = [], []
+    for name, value in request.query_params.multi_items():
+        if name in ("limit", "start", "next", "prev", *own):
+            continue
+        (lead if name in first else trail).append(f"{name}={quote(str(value), safe='')}")
+    return ("&".join(lead) + "&" if lead else "", "&".join(trail))
+
+
+def _confluence_envelope(
+    request: Request,
+    route: str,
+    *,
+    start: int,
+    limit: int,
+    size: int,
+    total: int,
+    cursor: str | None = None,
+    sent_cursor: str | None = None,
+    reached: int | None = None,
+) -> dict:
+    """`_links` as every paged Confluence listing answers it: `base`, `context` and `self` on every
+    page, plus `next`/`prev` from :func:`backlot.pagination.confluence_page_links`.
+
+    Measured 2026-09-22 on `content`, `space`, the CQL `search`, `child/page`, `child/comment` and
+    `label`, and 2026-10-10 on `child/attachment`: all three keys ride every page, `context` is the
+    product's own prefix and `self` is the request's URL with `limit`, `start` and the two markers
+    removed and every other parameter kept — a cache-buster sent with the request comes back inside
+    `self`.
+
+    ``cursor``, ``sent_cursor`` and ``reached`` are the CQL search's: the token this page's `next`
+    carries, the one the request brought, and where among the matches the page ends, as
+    :func:`backlot.pagination.confluence_page_links` counts it. Measured 2026-09-23 following `next`
+    three hops at `limit=0`, `1` and `2`: the sent one is not carried the way other parameters are,
+    so `self` holds no cursor and `next` the new one alone, and `prev` is where it goes back out.
+    """
+    lead, trail = _confluence_carried(request, own=() if sent_cursor is None else ("cursor",))
+    query = "&".join(p for p in (lead.rstrip("&"), trail) if p)
+    links = {
+        "base": f"{_site(request)}/wiki",
+        "context": "/wiki",
+        "self": f"{_site(request)}/wiki{route}" + (f"?{query}" if query else ""),
+    }
+    sent = quote(sent_cursor, safe="") if sent_cursor else None
+    links.update(
+        confluence_page_links(route, start, limit, size, total, lead, trail, cursor, sent, reached)
+    )
+    return links
+
+
+def _refuse_negative_page_params(limit: int, start: int) -> None:
+    """Confluence's refusal of a negative page parameter, shared by every listing measured to give
+    it. `start` is checked first because it is the one real names when both are negative."""
+    for name, value in (("start", start), ("limit", limit)):
+        if value < 0:
+            raise errors_atlassian.negative_not_allowed(name)
+
+
+# ======================== what answers before, and around, a route ==========================
+
+#: Every method the catch-all below takes: the methods the application behind the real gateway ever
+#: sees (``errors.atlassian.SERVED_METHODS``) but `HEAD`, which
+#: ``backlot.main.answer_head_as_the_get_without_its_body`` turns into its GET before routing, so
+#: that none reaches a route. Every method outside `SERVED_METHODS` is left off because a layer in
+#: front of the application refuses it (see ``errors.atlassian.SERVED_METHODS``), so what answers
+#: one here is Starlette's 405, which ``errors.atlassian.method_not_allowed`` turns into that
+#: layer's answer.
+_UNMATCHED_METHODS = [m for m in errors_atlassian.SERVED_METHODS if m != "HEAD"]
+
+#: The Confluence resources whose unmatched sub-paths real answers with the product's HTML page
+#: rather than the API's 404, measured 2026-09-22. `space/MFS/nope`, `space/nope/deeper`,
+#: `content/65851/nope`, `content/65851/child/page/nope` and `content/nope/deeper` are the page;
+#: `search/nope`, `settings/nope`, `audit/nope` and a first segment no resource claims
+#: (`nopesuchroute`, `nope/deeper/still`) are the JAX-RS 404. The split is which Java service owns
+#: the prefix, not whether the resource exists — a space key no site has is the page too — so the
+#: two families Backlot serves are named here and everything else takes the API's own 404.
+_CONFLUENCE_HTML_RESOURCES = ("space", "content")
+
+unmatched_router = APIRouter(prefix="/atlassian", include_in_schema=False)
+
+_PACKAGE = Path(__file__).resolve().parent.parent
+
+
+def _operations(rows) -> tuple[tuple[str, re.Pattern[str]], ...]:
+    """(method, vendor-path pattern) for each `METHOD /path` row, each `{}` one path segment."""
+    operations = []
+    for row in rows:
+        method, path = row.split(" ", 1)
+        pattern = "[^/]+".join(re.escape(part) for part in path.split("{}"))
+        operations.append((method, re.compile(pattern)))
+    return tuple(operations)
+
+
+def _published_not_served(source: str) -> tuple[tuple[str, re.Pattern[str]], ...]:
+    """The operations the vendor publishes and no route here serves: the baseline's
+    ``missing_operation`` rows, read off the file the way ``backlot.routers.notion`` reads its own,
+    so an operation the vendor adds reaches :func:`unmatched_path` once the baseline acknowledges
+    it; a route added here wins over :func:`unmatched_path` whatever the file says."""
+    baseline = _PACKAGE / "fidelity" / "baseline" / f"{source}.json"
+    rows = json.loads(baseline.read_text())["acknowledged"]
+    return _operations(row["path"] for row in rows if row["kind"] == "missing_operation")
+
+
+_JIRA_PUBLISHED = _published_not_served("jira")
+_CONFLUENCE_PUBLISHED = _published_not_served("confluence")
+#: What real answers before each Jira operation of those runs; ``scripts/gen_jira_unserved.py``
+#: writes the file from Jira's documents and says how that was measured.
+_JIRA_UNSERVED = json.loads((_PACKAGE / "data" / "jira_unserved.json").read_text())["refused"]
+#: The Jira operations that will not run for a caller with no credential they resolve.
+_JIRA_REFUSED = _operations(_JIRA_UNSERVED)
+#: Of those, the ones that check the request's media type first, for any caller the gateway lets
+#: through: (method, pattern, the types taken, whether the body is optional).
+_JIRA_CONSUMES = tuple(
+    (method, pattern, tuple(entry["consumes"]), entry.get("body") == "optional")
+    for (method, pattern), entry in zip(_JIRA_REFUSED, _JIRA_UNSERVED.values(), strict=True)
+    if "consumes" in entry
+)
+
+#: The Confluence services whose refusal of a caller with no credential is
+#: ``errors.atlassian.CONFLUENCE_NOT_PERMITTED_BODY`` rather than the one every other operation
+#: gives. Measured 2026-09-30 with no credential on each of the 63 GETs the Confluence baseline
+#: lists as `missing_operation`: these nineteen answered that body, 42 the other, and two ran
+#: (:data:`_CONFLUENCE_RUN_ANONYMOUSLY`). No field of the vendor's document separates the two
+#: refusals, so the services are named.
+_CONFLUENCE_NOT_PERMITTED = _operations(
+    f"GET /wiki/rest/{path}"
+    for path in (
+        "api/audit",
+        "api/audit/export",
+        "api/audit/retention",
+        "api/audit/since",
+        "api/content-states",
+        "api/longtask",
+        "api/longtask/{}",
+        "api/relation/{}/from/{}/{}/to/{}",
+        "api/relation/{}/from/{}/{}/to/{}/{}",
+        "api/relation/{}/to/{}/{}/from/{}",
+        "api/search/user",
+        "api/settings/lookandfeel",
+        "api/template/blueprint",
+        "api/template/page",
+        "api/template/{}",
+        "api/user/watch/content/{}",
+        "api/user/watch/label/{}",
+        "api/user/watch/space/{}",
+        "atlassian-connect/1/app/module/dynamic",
+    )
+)
+_CONFLUENCE_CONNECT_MODULES = "/wiki/rest/atlassian-connect/1/app/module/dynamic"
+#: Confluence operations real serves that its document does not publish, so the baseline has no row
+#: for them: each refused a caller with no credential the way the published ones do, and answered
+#: 200 with one, on 2026-09-30.
+_CONFLUENCE_OUTSIDE_THE_DOCUMENT = _operations(
+    f"GET /wiki/rest/api/{path}"
+    for path in (
+        "content/{}/child",
+        "content/{}/history",
+        "content/{}/property",
+        "content/{}/version",
+        "space/{}/content",
+        "space/{}/property",
+    )
+)
+#: The two the same sweep found running with no credential: a 200 with `[]` and a 400 for an id
+#: that does not match the service's pattern.
+_CONFLUENCE_RUN_ANONYMOUSLY = _operations(
+    (
+        "GET /wiki/rest/api/contentbody/convert/async/bulk/tasks",
+        "GET /wiki/rest/api/contentbody/convert/async/{}",
+    )
+)
+
+
+def _is(operations, method: str | None, vendor_path: str) -> bool:
+    """Whether ``vendor_path`` is one of ``operations``, for ``method`` or, as None, any method."""
+    return any(
+        (method is None or verb == method) and pattern.fullmatch(vendor_path)
+        for verb, pattern in operations
+    )
+
+
+def _jira_unauthenticated(request: Request) -> Response:
+    """Jira's 401 for an operation that will not run for this caller, as real spells it (see
+    ``errors.atlassian.JIRA_UNAUTHENTICATED``); the realm is the site, percent-encoded."""
+    realm = quote(_site(request), safe="")
+    return Response(
+        errors_atlassian.JIRA_UNAUTHENTICATED,
+        status_code=401,
+        media_type=errors_atlassian.HTML_MEDIA_TYPE,
+        headers={"WWW-Authenticate": f'OAuth realm="{realm}"', "X-Frame-Options": "SAMEORIGIN"},
+    )
+
+
+def _jira_media_refusal(
+    request: Request, vendor_path: str
+) -> errors_atlassian.AtlassianError | None:
+    """The 415 an operation :data:`_JIRA_CONSUMES` names answers for a `Content-Type` it does not
+    take (``errors.atlassian.refuse_a_media_type``), or None."""
+    for method, pattern, consumes, body_optional in _JIRA_CONSUMES:
+        if method == request.method and pattern.fullmatch(vendor_path):
+            return errors_atlassian.refuse_a_media_type(
+                _echoed_path(request), request.headers, consumes, body_optional=body_optional
+            )
+    return None
+
+
+def _confluence_refusal(request: Request, vendor_path: str) -> Response | None:
+    """Confluence's refusal of a caller with no credential it resolves on an operation it
+    publishes and no route here serves, or None where the operation runs for that caller.
+
+    The refusal a served route gives (:func:`_confluence_caller`), in real's two members, on every
+    operation but the services named in :data:`_CONFLUENCE_NOT_PERMITTED`, and on writes too:
+    `DELETE` on a content id's label and `POST` on its copy, each naming nothing, answered it with
+    no credential on 2026-09-30. A caller whose credential resolves gets what an unserved path
+    gets, the gap the baseline row acknowledges.
+    """
+    if _is(_CONFLUENCE_RUN_ANONYMOUSLY, request.method, vendor_path):
+        return None
+    if not auth.atlassian_caller(request).is_anonymous:
+        return None
+    if _is(_CONFLUENCE_NOT_PERMITTED, request.method, vendor_path):
+        headers = {}
+        if vendor_path != _CONFLUENCE_CONNECT_MODULES:
+            headers = {
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Expires": "Thu, 01 Jan 1970 00:00:00 GMT",
+            }
+        return Response(
+            errors_atlassian.CONFLUENCE_NOT_PERMITTED_BODY,
+            status_code=403,
+            media_type="application/json",
+            headers=headers,
+        )
+    if auth.basic_credential_kind(request) == auth.BASIC_UNPARSEABLE:
+        _confluence_caller(request)  # its 401
+    return Response(
+        errors_atlassian.CONFLUENCE_FORBIDDEN_BODY, status_code=403, media_type="application/json"
+    )
+
+
+def _vendor_path(path: str) -> str:
+    return (
+        path[len(errors_atlassian.PREFIX) :] if path.startswith(errors_atlassian.PREFIX) else path
+    )
+
+
+def _echoed_path(request: Request) -> str:
+    """The path a refusal names, which is not always the one that was routed.
+
+    Real collapses an interior run of slashes in what it echoes and keeps a trailing one, where
+    routing ignores both (``backlot.main.normalise_the_slashes_in_an_atlassian_path``, which
+    stashes the collapsed spelling on the scope for this). Measured 2026-10-10 on Jira's 415,
+    conversion 400 and 405, each of which keeps the trailing slash in `instance`.
+    """
+    return request.scope.get("atlassian_echo_path", request.url.path)
+
+
+def _wants_json(request: Request) -> bool:
+    """Whether the caller asked for JSON by name, which is what picks Confluence's 404 shape."""
+    return "application/json" in (request.headers.get("accept") or "")
+
+
+def _confluence_serves_html(vendor_path: str) -> bool:
+    """Whether real answers this unmatched Confluence path with the product's page.
+
+    Anything under `/wiki` that is not under `/wiki/rest/api/` is the page (`/wiki/rest/nope`,
+    `/wiki/nope`, and `/wiki/rest/api` itself, where `/wiki/rest/api/` with the slash is the API's
+    404). Under the API mount it is the page only below one of :data:`_CONFLUENCE_HTML_RESOURCES`.
+    """
+    api = f"{errors_atlassian.WIKI[len(errors_atlassian.PREFIX) :]}/rest/api"
+    if not vendor_path.startswith(f"{api}/"):
+        return True
+    rest = vendor_path[len(api) + 1 :]
+    head, _, tail = rest.partition("/")
+    return bool(tail) and head in _CONFLUENCE_HTML_RESOURCES
+
+
+def _confluence_not_found(request: Request) -> Response:
+    """Confluence's answer for a path it serves nothing at: the page, or JAX-RS's own 404."""
+    vendor_path = _vendor_path(_echoed_path(request))
+    if _confluence_serves_html(vendor_path):
+        return Response(
+            errors_atlassian.HTML_NOT_FOUND,
+            status_code=404,
+            media_type=errors_atlassian.HTML_MEDIA_TYPE,
+        )
+    url = f"{_site(request)}{vendor_path}"
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+    media_type, body = errors_atlassian.jaxrs_not_found(url, as_json=_wants_json(request))
+    # JAX-RS's 404 says `no-transform` in both shapes and the page says nothing, measured 2026-09-30
+    # with a credential and without one
+    return Response(
+        body, status_code=404, media_type=media_type, headers={"Cache-Control": "no-transform"}
+    )
+
+
+def _options_answer(request: Request) -> Response:
+    """What an `OPTIONS` on a path one of the routes above serves answers.
+
+    The two products split again. Jira answers 200 with an empty `text/html` body, an empty
+    `Accept-Patch` and an `Allow` naming the VENDOR's methods for that route — `PUT` and `DELETE`
+    on an issue, `POST` on `field` — which Backlot serves none of: the header describes the
+    endpoint a client is asking about, so it is copied rather than derived from what this server
+    happens to implement (`errors.atlassian.jira_options_allow`). Confluence answers 404 in the
+    `errors` list its 405 uses, on every route measured but `search` (:func:`_search_options`), for
+    the `Accept` values ``errors.atlassian.CONFLUENCE_OPTIONS_NOT_FOUND`` names. Measured on
+    Atlassian Cloud over every route here, `child/attachment` on 2026-10-10 and the others on
+    2026-09-22.
+
+    Jira's 200 is for a caller whose credential resolves. Anyone else — no credential, the Basic
+    pair it rejects, an unknown scheme, and here an unreadable bearer too, which a `GET` draws the
+    Connect-token 403 with — gets Jira's 401 (:func:`_jira_unauthenticated`), measured
+    2026-09-30 on `serverInfo` and an issue with each of those four. Confluence's 404 does not
+    depend on the credential.
+    """
+    path = request.url.path
+    if errors_atlassian.is_confluence(path):
+        if _vendor_path(path) == errors_atlassian.CONFLUENCE_OPTIONS_BY_ACCEPT:
+            return _search_options(request)
+        return JSONResponse(status_code=404, content=errors_atlassian.CONFLUENCE_OPTIONS_NOT_FOUND)
+    if auth.atlassian_caller(request).is_anonymous:
+        return _jira_unauthenticated(request)
+    allow = errors_atlassian.jira_options_allow(path)
+    # present with nothing after the colon, on every Jira `OPTIONS` measured: empty is the value
+    headers = {"Accept-Patch": ""}
+    if allow is not None:
+        headers["Allow"] = allow
+    return Response(
+        b"", status_code=200, media_type=errors_atlassian.JIRA_OPTIONS_MEDIA_TYPE, headers=headers
+    )
+
+
+#: The WADL Jersey writes for `search`, with the site where real's names its own; read once.
+_SEARCH_WADL = (_PACKAGE / "data" / "confluence_search_options.wadl").read_text()
+
+
+def _search_options(request: Request) -> Response:
+    """Confluence's `search` answers an `OPTIONS` the way JAX-RS does, by what `Accept` asks for.
+
+    Measured 2026-09-30, the same with a credential and without one: `*/*` and `application/xml`
+    are 200 `application/xml` with the resource's WADL (3016 bytes on the site, the same bytes on
+    every one of six), a request with no `Accept` header at all is the same document as
+    `application/vnd.sun.wadl+xml`, and `application/json` and `text/html` are 204 with no body.
+    All name the three methods in `Allow`.
+    """
+    headers = {"Allow": errors_atlassian.CONFLUENCE_SEARCH_OPTIONS_ALLOW}
+    accept = request.headers.get("accept")
+    if accept is None:
+        media_type = "application/vnd.sun.wadl+xml"
+    elif "*/*" in accept or "application/xml" in accept:
+        media_type = "application/xml"
+    else:
+        return Response(status_code=204, headers=headers)
+    body = _SEARCH_WADL.replace("{site}", _site(request))
+    return Response(body, status_code=200, headers={**headers, "Content-Type": media_type})
+
+
+#: A stub for the Jira web app's own pages, which real serves at `/browse/…` as a client-side shell
+#: whose script tags name the deploy; the status and the media type are what this copies.
+_JIRA_WEB_PAGE = "<!DOCTYPE html><html><head><title>Jira</title></head><body></body></html>"
+
+
+def _site_surface(request: Request) -> Response:
+    """What the site answers outside both API mounts, measured on 2026-09-30.
+
+    The root is a 302: to `/login.jsp?os_destination=<the URL asked for>` for a caller with no
+    credential and to `/jira/for-you` for one whose credential resolves, the query carried along.
+    `/browse` is the Jira web app: 200, `text/html;charset=UTF-8` at `/browse` itself, a 55-byte
+    `text/html` shell at `/browse/`, and below it `text/html` for a caller with no credential and
+    `text/html; charset=utf-8` for one — a key that names nothing included. Everything else is
+    Jira's own not-found page (``errors.atlassian.JIRA_SITE_HTML_MEDIA_TYPE``), with a credential
+    and without one. What is not copied: a caller whose credential resolves is redirected from
+    `/browse` to a project it last looked at, which Backlot has no record of, so it gets the
+    anonymous page.
+    """
+    echoed = _vendor_path(_echoed_path(request))
+    site = _site(request)
+    query = f"?{request.url.query}" if request.url.query else ""
+    anonymous = auth.atlassian_caller(request).is_anonymous
+    if echoed == "/":
+        if anonymous:
+            destination = quote(f"{site}/{query}", safe="")
+            return Response(
+                status_code=302,
+                headers={"Location": f"{site}/login.jsp?os_destination={destination}"},
+            )
+        return Response(status_code=302, headers={"Location": f"{site}/jira/for-you{query}"})
+    if echoed == "/browse":
+        return Response(_JIRA_WEB_PAGE, media_type=errors_atlassian.HTML_MEDIA_TYPE)
+    if echoed.startswith("/browse/"):
+        if echoed == "/browse/" or anonymous:
+            media_type = "text/html"
+        else:
+            media_type = "text/html; charset=utf-8"
+        return Response(_JIRA_WEB_PAGE, headers={"Content-Type": media_type})
+    return Response(
+        errors_atlassian.HTML_NOT_FOUND,
+        status_code=404,
+        media_type=errors_atlassian.JIRA_SITE_HTML_MEDIA_TYPE,
+    )
+
+
+@unmatched_router.api_route("/{rest:path}", methods=_UNMATCHED_METHODS)
+async def unmatched_path(request: Request, rest: str) -> Response:
+    """What either product answers for a path no route above serves, and for a method they do not.
+
+    Mounted after `router`, so a request one of those routes answers never arrives here; what does
+    is a path with no route at all, or a method a route does not declare, which Starlette would
+    otherwise refuse before any vendor code ran.
+
+    A path with no route is Jira's RFC 7807 `No endpoint <METHOD> <path>.` (see
+    `errors.atlassian.no_endpoint`) or Confluence's own pair of shapes (see
+    :func:`_confluence_not_found`), and an `OPTIONS` on such a path is that same answer — measured
+    on both products 2026-09-22. A method a route does not declare is the 405 each product answers
+    (`errors.atlassian.method_not_allowed`, measured too), raised here because this route takes
+    every method on every path it owns and so receives that request; `OPTIONS` is the exception,
+    and :func:`_options_answer` is what real gives it.
+
+    Those are the answers where the vendor publishes nothing at the path. An operation it does
+    publish is looked at first, since real reaches it whether or not Backlot serves it: Jira checks
+    the request's media type where the operation does, for any caller the gateway lets through
+    (:func:`_jira_media_refusal`), then refuses a caller with no credential it resolves where the
+    operation will not run anonymously, and any `OPTIONS` on one (:func:`_jira_unauthenticated`),
+    and Confluence refuses such a caller on every one (:func:`_confluence_refusal`), each measured
+    2026-09-30. A caller the vendor would serve gets the answer above, which is the gap the
+    baseline's `missing_operation` row acknowledges. Outside both API mounts the site is its web app
+    (:func:`_site_surface`).
+    """
+    if _some_atlassian_route_matches(request):
+        if request.method == "OPTIONS":
+            return _options_answer(request)
+        raise errors_atlassian.method_not_allowed(_echoed_path(request), request.method)
+    path = request.url.path
+    vendor_path = _vendor_path(path)
+    anonymous = auth.atlassian_caller(request).is_anonymous
+    if errors_atlassian.is_confluence(path):
+        if request.method != "OPTIONS" and (
+            _is(_CONFLUENCE_PUBLISHED, request.method, vendor_path)
+            or _is(_CONFLUENCE_OUTSIDE_THE_DOCUMENT, request.method, vendor_path)
+        ):
+            refused = _confluence_refusal(request, vendor_path)
+            if refused is not None:
+                return refused
+        if (
+            anonymous
+            and vendor_path.startswith("/wiki/")
+            and not vendor_path.startswith("/wiki/rest")
+        ):
+            # the web app, not an API: a caller with no credential is sent to log in (`/wiki/nope`,
+            # measured 2026-09-30; with a credential it is the page below)
+            asked = quote(
+                f"{_vendor_path(_echoed_path(request))}{'?' + request.url.query if request.url.query else ''}",
+                safe="",
+            )
+            return Response(
+                status_code=302,
+                headers={
+                    "Location": f"{_site(request)}/login?application=confluence&dest-url={asked}"
+                },
+            )
+        return _confluence_not_found(request)
+    if errors_atlassian.serves_the_jira_api(path):
+        # An operation Jira publishes refuses this caller where it will not run anonymously, and so
+        # does any `OPTIONS` on one (see ``_JIRA_REFUSED``), after the media-type check; on a path
+        # Jira publishes nothing at, the URL is what answers.
+        refused = _jira_media_refusal(request, vendor_path)
+        if refused is not None:
+            raise refused
+        if anonymous and (
+            _is(_JIRA_REFUSED, request.method, vendor_path)
+            or (request.method == "OPTIONS" and _is(_JIRA_PUBLISHED, None, vendor_path))
+        ):
+            return _jira_unauthenticated(request)
+        raise errors_atlassian.no_endpoint(_echoed_path(request), request.method)
+    return _site_surface(request)
+
+
+def _some_atlassian_route_matches(request: Request) -> bool:
+    """Whether a route other than this catch-all matches the path, whatever its method.
+
+    Asked of :data:`router` rather than of the app, which is both narrower and the only way to ask
+    it: the catch-all matches every path under `/atlassian`, so scanning the app would always say
+    yes, and the app's list holds the included ROUTER rather than its routes, so the catch-all
+    cannot be filtered out of it by endpoint either.
+
+    `Match.PARTIAL` counts, which is the point: a path that matches a route whose methods do not
+    is exactly the request the 405 above answers.
+    """
+    return any(route.matches(request.scope)[0] is not Match.NONE for route in router.routes)
+
+
+def _a_route_answers(request: Request) -> bool:
+    """Whether a route above takes this request's method at its path, a `HEAD` read as its GET.
+
+    ``Match.FULL`` only: an `OPTIONS` or a method a route does not take is answered around the
+    route (see :func:`unmatched_path`), and a path no route matches by the catch-all.
+    """
+    method = "GET" if request.method == "HEAD" else request.method
+    scope = {**request.scope, "method": method}
+    return any(route.matches(scope)[0] is Match.FULL for route in router.routes)
+
+
+# ============================== the headers real puts on every answer ========================
+
+
+#: The two ids both products put on every answer, and Jira's third. Real mints a new value per
+#: response; these are derived from the request, the choice this repository makes for a synthesised
+#: id (as S3's two are, in `backlot.routers.s3.request_ids`), so that a corpus served twice answers
+#: the same id and a test can assert one. Measured on Atlassian Cloud 2026-09-22 over 78
+#: responses: `atl-request-id` is a UUID, `atl-traceid` is that same 32 hex WITHOUT the dashes, and
+#: Jira's `x-arequestid` is 32 hex of its own.
+def request_ids(request: Request) -> dict[str, str]:
+    """`atl-request-id` and `atl-traceid`, plus `x-arequestid` where the request is Jira's."""
+    seed = f"atl:{request.method} {request.url.path}?{request.url.query}"
+    request_id = synth._uuid_from(seed)
+    ids = {"atl-request-id": request_id, "atl-traceid": request_id.replace("-", "")}
+    if not errors_atlassian.is_confluence(request.url.path):
+        ids["x-arequestid"] = synth._digest("arequestid:" + seed)[:32]
+    return ids
+
+
+#: Jira's burst quota. Measured 2026-09-22 and 2026-09-30: `x-ratelimit-limit` is 350 on a `GET` of
+#: every route here but two, 400 on `issue/{key}` and 500 on `project/{key}/role/{id}`, and 200 on a
+#: `POST` to `search/jql`; the policy's `q` is 100, 150, 200 and 100 against those four limits,
+#: always with `w=1`. A `HEAD` and an `OPTIONS` read a quota of their own, `q` and
+#: `x-ratelimit-limit` both 1000000000000, on `serverInfo`, `field`, `search/jql`, `project/search`
+#: and an issue alike.
+_JIRA_BURST_POLICY = "jira-burst-based"
+_JIRA_BURST_WINDOW = 1
+_JIRA_BURST_DEFAULT = (100, 350)
+_JIRA_BURST_BUCKETS = (
+    ("GET", "/rest/api/{version}/issue/{key}", (150, 400)),
+    ("GET", "/rest/api/{version}/project/{key}/role/{id}", (200, 500)),
+    ("POST", "/rest/api/{version}/search/jql", (100, 200)),
+)
+_JIRA_BURST_PATTERNS = tuple(
+    (method, errors_atlassian.route_regex(t), bucket) for method, t, bucket in _JIRA_BURST_BUCKETS
+)
+_JIRA_UNMETERED = (1000000000000, 1000000000000)
+_JIRA_MOUNT = re.compile(r"/rest/api/[23]/")
+
+
+def _jira_burst_bucket(method: str, path: str) -> tuple[int, int]:
+    if method in ("HEAD", "OPTIONS"):
+        return _JIRA_UNMETERED
+    vendor_path = _vendor_path(path)
+    for verb, pattern, bucket in _JIRA_BURST_PATTERNS:
+        if verb == method and pattern.fullmatch(vendor_path):
+            return bucket
+    return _JIRA_BURST_DEFAULT
+
+
+def _route_template(request: Request) -> str:
+    """The template of the route at this request's path, either Jira mount read as one."""
+    for route in router.routes:
+        if route.matches(request.scope)[0] is not Match.NONE:
+            return _JIRA_MOUNT.sub("/rest/api/{version}/", route.path, count=1)
+    return request.url.path
+
+
+class JiraBurstWindows:
+    """What a caller has spent of a burst quota in the current second, per method and route.
+
+    A window counts one method on one route template, `{version}` read as either mount and a path
+    parameter as any value. Measured 2026-09-30 with five requests of each pair sent together:
+    `serverInfo` and `field` each read 349…345, where the `/2` and `/3` spellings of `serverInfo`
+    read 349…340 between them, and two issue keys read 399…390, as did an issue key beside one that
+    does not exist; a `HEAD` and an `OPTIONS` on `serverInfo` each counted their own, and three
+    `HEAD`s left the `GET` after them at 349. `remaining` stops at zero and nothing is refused: no
+    429 was measured, and a mock that invents one fails a suite for pacing it never asked for —
+    the same line ``backlot.routers.github.RateLimitWindows`` draws, whose shape this follows.
+    ``clock`` is `time.time` unless a test hands in another.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.time):
+        self.clock = clock
+        self._windows: dict[tuple[str, str, str], list[int]] = {}
+
+    def count(self, key: tuple[str, str, str], limit: int) -> int:
+        """`remaining` after counting one more request in ``key``'s window against ``limit``."""
+        now = int(self.clock())
+        window = self._windows.get(key)
+        if window is None or now >= window[0] + _JIRA_BURST_WINDOW:
+            window = self._windows[key] = [now, 0]
+        window[1] += 1
+        return max(limit - window[1], 0)
+
+
+def _burst_windows(app) -> JiraBurstWindows:
+    windows = getattr(app.state, "jira_burst_windows", None)
+    if windows is None:
+        windows = app.state.jira_burst_windows = JiraBurstWindows()
+    return windows
+
+
+def rate_limit_headers(request: Request, caller: Caller) -> dict[str, str]:
+    """Jira's four, for a caller whose credential resolved, counted in its window.
+
+    An anonymous request carries none of them, and neither does the 404 for a path Jira mounts no
+    endpoint at (both measured 2026-09-22) or a 405 (`POST serverInfo`, `PUT search/jql`,
+    `POST issue/{key}`, measured 2026-09-30), so this is asked only where real answers them.
+    """
+    q, limit = _jira_burst_bucket(request.method, request.url.path)
+    key = (caller.email or "anonymous", request.method, _route_template(request))
+    remaining = _burst_windows(request.app).count(key, limit)
+    return {
+        "ratelimit": f'"{_JIRA_BURST_POLICY}";r={remaining};t={_JIRA_BURST_WINDOW}',
+        "ratelimit-policy": f'"{_JIRA_BURST_POLICY}";q={q};w={_JIRA_BURST_WINDOW}',
+        "x-ratelimit-limit": str(limit),
+        "x-ratelimit-remaining": str(remaining),
+    }
+
+
+#: Confluence says its v1 REST API is deprecated, in three headers, on the answers the content and
+#: space services give — including their 404s. Measured 2026-09-22: `content`, `content/{id}`,
+#: `child/comment`, `child/page`, `label`, `space`, `space/{key}` and the 404s for an unknown space
+#: and an unknown content id all carry them, and so do `child/attachment`, its 400 and an unknown
+#: id's 404, measured 2026-10-10; `search`, `restriction/byOperation`, the 405 at
+#: `space/{key}/permission`, the 403 an anonymous request gets and an `OPTIONS` on `space`,
+#: `space/{key}`, an unknown space and `permission` carry none. Nor does an answer the catch-all
+#: gives, measured 2026-09-30 over twenty of them on ten paths: the JAX-RS 404 in both shapes and
+#: the product's HTML page, under `space/` and `content/` and outside the API mount. The dates are
+#: real's own, a removal date that has already passed.
+CONFLUENCE_DEPRECATION = {
+    "deprecation": "Wed, 1 Mar 2023 00:00:00 GMT",
+    "link": (
+        "<https://developer.atlassian.com/cloud/confluence/changelog/#CHANGE-864>; "
+        'rel="deprecation"'
+    ),
+    "warning": '299 - "Deprecated API, will be removed on Mon, 31 Mar 2025 00:00:00 GMT"',
+}
+_NO_DEPRECATION = ("/wiki/rest/api/search", "/wiki/rest/api/content/{id}/restriction/byOperation")
+_NO_DEPRECATION_PATTERNS = tuple(
+    errors_atlassian.route_regex(t)
+    for t in (*_NO_DEPRECATION, "/wiki/rest/api/space/{key}/permission")
+)
+
+
+def sends_deprecation(path: str, status_code: int) -> bool:
+    """Whether this Confluence answer carries the deprecation trio."""
+    if not errors_atlassian.is_confluence(path):
+        return False
+    if status_code in (401, 403):
+        return False
+    vendor_path = _vendor_path(path)
+    return not any(pattern.fullmatch(vendor_path) for pattern in _NO_DEPRECATION_PATTERNS)
+
+
+#: What the edge puts on every answer that passes it, a gateway's own refusal included, and on the
+#: CDN's 403, where its 405 and its 400 carry neither (``errors.atlassian.SERVED_METHODS`` has
+#: those): on all 78 of 2026-09-22, and on the Connect-token 403 and a `PATCH` measured 2026-09-30.
+_EDGE = {"x-content-type-options": "nosniff", "x-xss-protection": "1; mode=block"}
+
+
+def _gateway_headers(request: Request) -> dict[str, str]:
+    """What the gateway in front of either product puts on a refusal it gives itself: the two ids
+    both products carry and :data:`_EDGE`, without Jira's `x-arequestid`."""
+    ids = {k: v for k, v in request_ids(request).items() if k != "x-arequestid"}
+    return {**ids, **_EDGE}
+
+
+def vendor_headers(request: Request, status_code: int) -> dict[str, str]:
+    """Everything real puts on an `/atlassian` answer that is not the body's own.
+
+    Both products: the two ids and :data:`_EDGE`. Jira adds `x-arequestid`, `timing-allow-origin`
+    and a `cache-control`, its API's or the web app's page by page, and once a credential resolves
+    the caller's own account id, with the rate-limit four where a route answers or an `OPTIONS` asks
+    at its path. The gateway's own refusals (the Connect-token 403 and a `PATCH`) carry the two ids
+    and :data:`_EDGE` and nothing else; the CDN's carry :data:`_EDGE` on its 403 and nothing on its
+    405 or its 400. Confluence: the millisecond clock it stamps every answer with, the deprecation
+    trio where the v1 services send it, and the search's `cache-control` and `expires`. Measured on
+    Atlassian Cloud 2026-09-22 and 2026-09-30, the search's pair 2026-10-07; what is deliberately
+    not here is in `backlot.main.report_atlassian_headers`.
+    """
+    path = request.url.path
+    if request.method not in errors_atlassian.SERVED_METHODS:
+        # A method refused in front of the application never reaches what stamps the rest; the
+        # measurement is on ``errors.atlassian.SERVED_METHODS``.
+        if request.method in errors_atlassian.GATEWAY_REFUSED:
+            return _gateway_headers(request)
+        # the CDN's own: the edge's two on its 403, nothing on its 405 or its 400
+        return dict(_EDGE) if errors_atlassian.cdn_forbids(request.method) else {}
+    headers = {**request_ids(request), **_EDGE}
+    if errors_atlassian.is_confluence(path):
+        # The search's GET/HEAD 200, 400, 403 and 404 carry the pair; Tomcat's 401 does not.
+        if (
+            request.method in ("GET", "HEAD")
+            and status_code != 401
+            and _vendor_path(path) == "/wiki/rest/api/search"
+        ):
+            headers["cache-control"] = "no-cache, no-store, must-revalidate"
+            headers["expires"] = "Thu, 01 Jan 1970 00:00:00 GMT"
+        headers["x-confluence-request-time"] = str(int(time.time() * 1000))
+        # the notice rides on what a v1 service answers: a route's own answer, not one given
+        # around it
+        if sends_deprecation(path, status_code) and _a_route_answers(request):
+            headers.update(CONFLUENCE_DEPRECATION)
+        return headers
+    if status_code == 403 and auth.atlassian_bearer_unreadable(request):
+        # The Connect-token 403 is the gateway's
+        # (``backlot.main.refuse_a_bearer_jira_cannot_read``): real puts the two ids and
+        # :data:`_EDGE` on it and none of Jira's own, measured 2026-09-30 on fifteen of them.
+        return _gateway_headers(request)
+    headers["timing-allow-origin"] = "*"
+    if errors_atlassian.serves_the_jira_api(path):
+        headers["cache-control"] = "no-cache, no-store, no-transform"
+    else:
+        # The web app's own caching, measured 2026-09-30: `/browse` says
+        # `no-cache, no-store, must-revalidate`, `/browse/…` is a static shell served without Jira's
+        # request id or `timing-allow-origin` and says `no-store, max-age=0, stale-if-error=0`, and
+        # the root and the not-found page say nothing.
+        echoed = _vendor_path(_echoed_path(request))
+        if echoed == "/browse":
+            headers["cache-control"] = "no-cache, no-store, must-revalidate"
+        elif echoed.startswith("/browse/"):
+            headers["cache-control"] = "no-store, max-age=0, stale-if-error=0"
+            del headers["x-arequestid"], headers["timing-allow-origin"]
+    caller = auth.atlassian_caller(request)
+    if caller.is_anonymous:
+        return headers
+    # The admin/service token resolves to a caller with no address; `"unknown"` is what the rest
+    # of this module seeds an account id from for one (see :func:`_conf_user`).
+    headers["x-aaccountid"] = synth.atlassian_account_id(caller.email or "unknown")
+    # the quota rides on what a route answers, and on an `OPTIONS` at its path; a 405 carries none
+    if _a_route_answers(request) or (
+        request.method == "OPTIONS" and _some_atlassian_route_matches(request)
+    ):
+        headers.update(rate_limit_headers(request, caller))
+    return headers

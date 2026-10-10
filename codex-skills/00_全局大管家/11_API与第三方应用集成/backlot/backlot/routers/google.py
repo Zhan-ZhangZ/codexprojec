@@ -1,0 +1,4737 @@
+"""Google APIs (read-only): Gmail (``/gmail/v1``), Drive (``/drive/v3``), and the
+Workspace editor read APIs — Docs (``/docs/v1``), Sheets (``/sheets/v4``), Slides
+(``/slides/v1``) — for clients that read native docs structurally instead of via Drive export.
+
+Client base-URL override: point the Gmail client at ``http://<host>/gmail`` and the
+Drive client at ``http://<host>/drive`` (google-api-python-client ``api_endpoint``).
+All authenticate with ``Authorization: Bearer <token>``.
+"""
+
+from __future__ import annotations
+
+import base64
+import datetime
+import hashlib
+import json
+import quopri
+import re
+import string
+from contextvars import ContextVar
+from email.parser import BytesParser
+from email.utils import formataddr, getaddresses
+from http import HTTPStatus
+from typing import NamedTuple
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict
+from starlette.datastructures import QueryParams
+from starlette.routing import Match
+
+from backlot import auth, protojson, sheets_grid, store, synth
+from backlot.acl import Caller
+from backlot.config import get_settings
+from backlot.errors import google as gerr
+from backlot.openapi import qp
+from backlot.pagination import decode_cursor_or_none, next_page_token
+
+# `$.xgafv` is checked before any route runs, and `callback` too but on a Drive download inside a
+# batch — see `_system_parameters`. A router dependency runs only once a route has MATCHED, so a
+# family path with no route 404s here rather than refusing either value — which is why the check
+# records whether it looked at `callback` and `gerr.rendered` wraps nothing without it: an unrouted
+# path must not be answered by calling a name nothing refused. Nothing to match there — measured
+# 2026-09-16, real answers an unrouted family path from its front end, as HTML, 400 on Sheets, Docs
+# and Slides and 404 on Drive and Gmail, with or without either parameter, so no JSON envelope of
+# its own exists to compare against.
+
+
+def _system_parameters(request: Request) -> None:
+    """`gerr.validate_system_parameters`, with `callback` left alone on a Drive download: real
+    answers an uncallable name there with its own 503, and a batch part with a 302, rather than
+    refusing the name (see `gerr.refuse_download` and `_drive_batch_redirect`)."""
+    gerr.validate_system_parameters(request, callback=not _drive_download_request(request))
+
+
+router = APIRouter(tags=["google"], dependencies=[Depends(_system_parameters)])
+
+
+# --- OpenAPI enrichment --------------------------------------------------
+# Query params are read query-only (via request.query_params, a typed one through _typed_query).
+# Documenting them with openapi_extra keeps the handler bodies untouched and merges cleanly with
+# the auto-generated path params. Response models use extra="allow" so builders' full field set
+# passes through.
+
+
+class _GLoose(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class GmailMessageList(_GLoose):
+    messages: list[dict] = []
+    resultSizeEstimate: int = 0
+
+
+class GmailThreadList(_GLoose):
+    threads: list[dict] = []
+    resultSizeEstimate: int = 0
+
+
+class GmailMessage(_GLoose):
+    id: str
+
+
+class GmailThread(_GLoose):
+    id: str
+    messages: list[dict] = []
+
+
+class GmailAttachment(_GLoose):
+    size: int
+    data: str
+
+
+_P_GMAIL_LIST = [qp("maxResults", "integer"), qp("pageToken"), qp("q")]
+_P_GMAIL_FORMAT = [qp("format"), qp("metadataHeaders")]
+
+
+class DriveFileList(_GLoose):
+    kind: str = "drive#fileList"
+    files: list[dict] = []
+
+
+class DrivePermissionList(_GLoose):
+    kind: str = "drive#permissionList"
+    permissions: list[dict] = []
+
+
+# drive_files_get / .export return a raw Response on some branches — they get openapi_extra params
+# only (no JSON response_model, which would mis-serialize the raw body).
+_P_DRIVE_LIST = [qp("pageSize", "integer"), qp("pageToken"), qp("q"), qp("fields"), qp("orderBy")]
+_P_DRIVE_PERMISSIONS = [qp("pageSize", "integer"), qp("pageToken")]
+_P_DRIVE_ALT = [qp("alt"), qp("fields")]
+_P_DRIVE_EXPORT = [qp("mimeType", required=True)]
+_P_DRIVE_ABOUT = [qp("fields", required=True)]
+
+DRIVE_DOC_MIME = "application/vnd.google-apps.document"
+DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
+
+# --- Google-style multipart/mixed batch (google-api-python-client BatchHttpRequest) -------------
+# The client POSTs one multipart/mixed body to a single batch_uri; each part is an application/http
+# sub-request (which carries, or inherits from the outer request, its own Authorization). Google
+# runs each and returns a multipart/mixed of application/http sub-responses matched by Content-ID.
+# We emulate that by dispatching each sub-request in-process through this app (normal auth + routers)
+# and reassembling the response, echoing each Content-ID so the client can pair them.
+_BATCH_BOUNDARY = "erb_batch_boundary_9f2a7c"
+_BATCH_DROP_HEADERS = {"host", "content-length", "content-transfer-encoding", "connection"}
+
+
+class _BatchOuter(NamedTuple):
+    """The batch a sub-request came in."""
+
+    base: str  # the batch request's base URL
+    query: str  # the batch request's query string
+    lone: bool  # whether exactly one of its parts is not a Drive download (`_drive_download`)
+
+
+# The batch a sub-request came in, or ``None`` for a request sent on its own.
+# ``httpx.ASGITransport`` runs the app in the task that `batch` dispatches from, so the routes a
+# part reaches see what `batch` set.
+_BATCH_OUTER: ContextVar[_BatchOuter | None] = ContextVar("google_batch_outer", default=None)
+
+
+def _batch_part_downloads(method: str, target: str) -> bool:
+    """Whether a part's request line is a Drive download (`_drive_download`), asked of the route its
+    path matches before any part is sent. Asked of this module's `router`, which owns the Drive
+    routes: the app holds it wrapped, and the wrapper's match carries no endpoint."""
+    import httpx
+
+    url = httpx.URL(target)
+    scope = {"type": "http", "method": method, "path": url.path, "root_path": ""}
+    for route in router.routes:
+        match, child = route.matches(scope)
+        if match is Match.FULL:
+            return _drive_download(child.get("endpoint"), QueryParams(url.query))
+    return False
+
+
+def _batch_reason(code: int) -> str:
+    try:
+        return HTTPStatus(code).phrase
+    except ValueError:
+        return "Status"
+
+
+def _parse_batch_subrequest(payload: str):
+    """An application/http payload -> (method, target, headers, body)."""
+    head, sep, body = payload.partition("\r\n\r\n")
+    if not sep:
+        head, sep, body = payload.partition("\n\n")
+    lines = head.strip().splitlines()
+    first = (lines[0].split(" ") + ["", ""])[:3] if lines else ["", "", ""]
+    method, target = first[0], first[1]
+    headers = {}
+    for ln in lines[1:]:
+        if ":" in ln:
+            k, v = ln.split(":", 1)
+            if k.strip().lower() not in _BATCH_DROP_HEADERS:
+                headers[k.strip()] = v.strip()
+    return method, target, headers, body
+
+
+def _batch_sub_response(r, base: str) -> str:
+    """One part's answer as the `application/http` payload a batch carries, `base` being the batch
+    request's base URL. The download redirect (:func:`gerr.download_redirect`), the 302 whose
+    `Location` is under `base`'s `/download`, carries real's three headers, measured 2026-10-04 in
+    this order: `Content-Length: 0`, though its error body follows, `Content-Type` and `Location`.
+    Any other part carries `Content-Type` alone, so the `Location` of a redirect a route builds from
+    the host the parts are dispatched to, which nothing answers, is not passed on."""
+    location = r.headers.get("location", "")
+    redirect = r.status_code == 302 and location.startswith(f"{base}download/")
+    lines = [f"HTTP/1.1 {r.status_code} {_batch_reason(r.status_code)}"]
+    if redirect:
+        lines.append("Content-Length: 0")
+    lines.append(f"Content-Type: {r.headers.get('content-type', 'application/json')}")
+    if redirect:
+        lines.append(f"Location: {location}")
+    return "\r\n".join(lines) + f"\r\n\r\n{r.text}"
+
+
+@router.post("/batch")
+@router.post("/batch/{api}/{version}")
+async def batch(request: Request, api: str = "", version: str = "") -> Response:
+    raw = await request.body()
+    ctype = request.headers.get("content-type", "")
+    if "multipart/mixed" not in ctype:
+        return Response("expected multipart/mixed", status_code=400)
+    # the email parser needs the Content-Type (with the boundary) as a header to split the parts
+    parsed = BytesParser().parsebytes(b"Content-Type: " + ctype.encode() + b"\r\n\r\n" + raw)
+    if not parsed.is_multipart():
+        return Response("not multipart/mixed", status_code=400)
+
+    import httpx  # lazy: keep httpx out of app-import so a runtime image lacking it degrades only
+    #               /batch, not the whole server (it's a test-time dep, not baked into the image)
+
+    # Google applies the outer credential to any sub-request without its own; do the same so a batch
+    # authenticates whether the client set per-sub-request auth or only the outer request.
+    outer_auth = request.headers.get("authorization")
+    transport = httpx.ASGITransport(app=request.app, raise_app_exceptions=False)
+    out_parts: list[tuple[str, str]] = []
+    parts = [
+        (part.get("Content-ID", ""), *_parse_batch_subrequest(part.get_payload(decode=False)))
+        for part in parsed.get_payload()
+    ]
+    others = sum(
+        1
+        for _, method, target, _, _ in parts
+        if not (method and target and _batch_part_downloads(method, target))
+    )
+    outer = _BATCH_OUTER.set(_BatchOuter(str(request.base_url), request.url.query, others == 1))
+    try:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://backlot.batch"
+        ) as client:
+            for cid, method, target, sub_headers, sub_body in parts:
+                if outer_auth and not any(k.lower() == "authorization" for k in sub_headers):
+                    sub_headers["Authorization"] = outer_auth
+                if not method or not target:
+                    sub_resp = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\nmalformed sub-request"
+                else:
+                    r = await client.request(
+                        method,
+                        target,
+                        headers=sub_headers,
+                        content=sub_body.encode() if sub_body else None,
+                    )
+                    sub_resp = _batch_sub_response(r, str(request.base_url))
+                out_parts.append((cid, sub_resp))
+    finally:
+        _BATCH_OUTER.reset(outer)
+
+    body = ""
+    for cid, sub_resp in out_parts:
+        body += f"--{_BATCH_BOUNDARY}\r\nContent-Type: application/http\r\n"
+        if cid:
+            body += f"Content-ID: {cid}\r\n"
+        body += "\r\n" + sub_resp + "\r\n"
+    body += f"--{_BATCH_BOUNDARY}--\r\n"
+    return Response(content=body, media_type=f'multipart/mixed; boundary="{_BATCH_BOUNDARY}"')
+
+
+def _require(request: Request, *, download: bool = False) -> Caller:
+    """The caller, or the error real Google gives — NOT the shared ``auth.require_bearer``, because
+    Google's answer is not one status. Measured: a present-but-invalid bearer is 401 UNAUTHENTICATED
+    everywhere, while NO Authorization header at all is 403 PERMISSION_DENIED on a Drive or Sheets
+    GET (they accept API keys, so an anonymous GET is a caller with no established identity) and
+    401 on the OAuth-only Gmail/Docs/Slides and on a POST to any family.
+
+    ``download`` asks for a byte-stream read's answer instead: measured 2026-10-04 on
+    `files.export` and 2026-10-05 on `files.get?alt=media`, a missing credential there names the
+    missing API key (:func:`gerr.missing_api_key`) instead of the anonymous GET's unregistered
+    caller, and real puts it AFTER the download's own parameters — which is why the handlers
+    resolve a download late."""
+    caller = auth.resolve_bearer(request)
+    if caller is None:
+        if not request.headers.get("authorization"):
+            if download:
+                raise gerr.missing_api_key()
+            raise gerr.no_credentials(request.url.path, request.method)
+        raise gerr.bad_token()
+    return caller
+
+
+def _sends_a_bearer_token(request: Request) -> bool:
+    """Whether ``Authorization`` is `Bearer`, spelt exactly so, and a token: the one header a Drive
+    download treats as a credential ahead of its own refusals, on its own
+    (`_require_download_bearer`) and as a batch part (`_drive_batch_redirect`). Narrower than
+    ``auth.bearer_token``, which `_require` reads a credential with and which also takes `bearer`,
+    `BEARER` and `token`."""
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    return scheme == "Bearer" and bool(token.strip())
+
+
+def _require_download_bearer(request: Request) -> None:
+    """The 401 a Drive download answers ahead of its own refusals, for a `Bearer` token
+    (`_sends_a_bearer_token`) that does not resolve.
+
+    Measured 2026-10-07 and 2026-10-08 on `files.get?alt=media` and `files.export` beside
+    `callback=a b`: `Bearer nope` answers the 401, where `bearer nope`, `BEARER nope`,
+    `token nope`, a bare `Bearer`, `bearer`, `nope` and `Basic YWJjOmRlZg==` each answer the
+    callback's 503. Every other value is left to :func:`gerr.refuse_download`, and without a
+    `callback` is `_require`'s to answer."""
+    if _sends_a_bearer_token(request) and auth.resolve_bearer(request) is None:
+        raise gerr.bad_token()
+
+
+def _b64url(text: str) -> str:
+    return base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii")
+
+
+# ================================ Gmail =========================================
+
+
+def _mailbox_email(caller: Caller, user_id: str) -> str | None:
+    """Resolve the mailbox owner email; None means 'all mailboxes' (admin, 'me')."""
+    if user_id == "me":
+        return caller.email  # None for admin
+    return user_id if "@" in user_id else None
+
+
+def _mailbox_address(mailbox: str) -> str:
+    """A mailbox's own address, for the ``Delivered-To`` a receiving MTA would have added.
+    A corpus that states the mailbox AS an address already carries its domain."""
+    return mailbox if "@" in mailbox else f"{mailbox}@{get_settings().org_domain}"
+
+
+def _mailbox_container(conn, caller: Caller, user_id: str) -> str | None:
+    """Resolve the requested mailbox to the ``gmail_messages.mailbox`` value it is stored under.
+    None = all mailboxes (admin ``me``). A concrete address (``me`` for a user, or an explicit
+    email) resolves to the WHOLE mailbox — received and sent — rather than to the messages that
+    address happened to author; ``store.mailbox_for`` is what knows how the corpus spelled it."""
+    email = caller.email if user_id == "me" else (user_id if "@" in user_id else None)
+    return store.mailbox_for(conn, email) if email else None
+
+
+def _service_email(request: Request) -> str:
+    """The identity to report for an admin/service caller that has no single mailbox
+    (a bare service account / full-crawl token). Real Gmail always reports a concrete
+    address here — never the literal ``me`` path segment — so we use the service account's
+    email, falling back to a service address on the org domain."""
+    oauth = getattr(request.app.state, "oauth", None)
+    if oauth is not None and oauth.client_email:
+        return oauth.client_email
+    return f"service@{get_settings().org_domain}"
+
+
+def _mailbox_totals(conn, caller: Caller, user_id: str, ids) -> tuple[int, int]:
+    """``(messages, threads)`` in the requested mailbox. Two counts, because they are two numbers:
+    a thread of five messages is one thread, and reporting the message count as both made every
+    threaded mailbox claim more threads than it holds."""
+    mailbox = _mailbox_container(conn, caller, user_id)
+    return (
+        store.count_documents(conn, "gmail", container=mailbox, visible_ids=ids),
+        store.count_documents(conn, "gmail", container=mailbox, visible_ids=ids, roots_only=True),
+    )
+
+
+@router.get("/gmail/v1/users/{user_id}/profile")
+async def gmail_profile(user_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    # A concrete mailbox (``me`` -> caller.email, or an explicit address) if we have one;
+    # otherwise the admin/service identity — never echo the raw ``me`` path segment.
+    email = _mailbox_email(caller, user_id) or caller.email or _service_email(request)
+    ids = auth.visible_ids(request, caller)
+    messages, threads = _mailbox_totals(conn, caller, user_id, ids)
+    return {
+        "emailAddress": email,
+        "messagesTotal": messages,
+        "threadsTotal": threads,
+        "historyId": "1",
+    }
+
+
+# The label a message carries when the corpus states none — the one `messages.get` reports, so a
+# query for it has to agree with the message it comes back with.
+_GMAIL_DEFAULT_LABEL = "INBOX"
+
+# The system labels Gmail always exposes (users.labels.list), in the order real `labels.list`
+# returned them on one mailbox, twice, on 2026-10-01. Gmail documents no order, so this is
+# Backlot's choice, taken from that measurement.
+_SYSTEM_LABELS = [
+    "CHAT",
+    "SENT",
+    "INBOX",
+    "IMPORTANT",
+    "TRASH",
+    "DRAFT",
+    "SPAM",
+    "CATEGORY_FORUMS",
+    "CATEGORY_UPDATES",
+    "CATEGORY_PERSONAL",
+    "CATEGORY_PROMOTIONS",
+    "CATEGORY_SOCIAL",
+    "YELLOW_STAR",
+    "STARRED",
+    "UNREAD",
+]
+
+# Measured against gmail.googleapis.com on a Google Workspace account on 2026-09-30, and again on
+# 2026-10-02: these four labels and the five `CATEGORY_` ones carry `messageListVisibility: "hide"`
+# and `labelListVisibility: "labelHide"`, and the rest carry neither member. A personal account
+# measured on 2026-10-01 also served INBOX with `messageListVisibility: "hide"` and
+# `labelListVisibility: "labelShow"`; what makes the two differ was not measured.
+_HIDDEN_LABELS = {"IMPORTANT", "CHAT", "SPAM", "TRASH"}
+
+
+def _label_obj(lid: str, counts: tuple[int, int] | None = None) -> dict:
+    """One system label. `labels.list` serves no counts and `labels.get` serves all four, as
+    measured on 2026-09-30 — so `counts` is ``(messages, threads)`` on a get and None on a list."""
+    obj = {"id": lid, "name": lid, "type": "system"}
+    if lid in _HIDDEN_LABELS or lid.startswith("CATEGORY_"):
+        obj["messageListVisibility"] = "hide"
+        obj["labelListVisibility"] = "labelHide"
+    if counts is not None:
+        messages, threads = counts
+        obj |= {
+            "messagesTotal": messages,
+            "messagesUnread": 0,
+            "threadsTotal": threads,
+            "threadsUnread": 0,
+        }
+    return obj
+
+
+@router.get("/gmail/v1/users/{user_id}/labels")
+async def gmail_labels(user_id: str, request: Request):
+    _require(request)
+    return {"labels": [_label_obj(lid) for lid in _SYSTEM_LABELS]}
+
+
+@router.get("/gmail/v1/users/{user_id}/labels/{label_id}")
+async def gmail_label_get(user_id: str, label_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    if label_id not in _SYSTEM_LABELS:
+        raise gerr.not_found_entity()
+    ids = auth.visible_ids(request, caller)
+    messages, threads = _mailbox_totals(conn, caller, user_id, ids)
+    return _label_obj(label_id, (messages, threads) if label_id == _GMAIL_DEFAULT_LABEL else (0, 0))
+
+
+_GMAIL_OP = re.compile(r'(\w+):("[^"]*"|\S+)')
+# operators we honor; anything else stays as free text
+_GMAIL_KEYS = {
+    "from",
+    "to",
+    "subject",
+    "after",
+    "before",
+    "label",
+    "in",
+    "has",
+    "newer_than",
+    "older_than",
+}
+
+
+def _parse_gmail_q(q: str) -> tuple[str, dict]:
+    """Split a Gmail search `q` into (free_text, operators). Honors from:/to:/subject:/
+    after:/before:/newer_than:/older_than:/label:/in:/has: — the rest is free text matched
+    full-text."""
+    ops: dict[str, list[str]] = {}
+
+    def _take(m):
+        key = m.group(1).lower()
+        if key in _GMAIL_KEYS:
+            ops.setdefault(key, []).append(m.group(2).strip('"'))
+            return " "
+        return m.group(0)
+
+    free = re.sub(r"\s+", " ", _GMAIL_OP.sub(_take, q)).strip()
+    return free, ops
+
+
+def _gmail_date(v: str) -> int | None:
+    for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+        try:
+            return int(
+                datetime.datetime.strptime(v, fmt).replace(tzinfo=datetime.timezone.utc).timestamp()
+            )
+        except ValueError:
+            continue
+    try:
+        return int(v)  # epoch seconds
+    except ValueError:
+        return None
+
+
+# Gmail relative-age units for newer_than:/older_than:. Real Gmail counts calendar months/years,
+# which we can't reproduce without the query's wall-clock calendar; days-per-unit is a faithful-
+# enough approximation here (the operators are otherwise honored exactly).
+_GMAIL_REL_UNIT = {"d": 1, "m": 30, "y": 365}
+_GMAIL_REL = re.compile(r"(\d+)([dmy])")
+
+
+def _gmail_rel_secs(v: str) -> int | None:
+    """Seconds for a Gmail relative-age token like ``5d`` / ``2m`` / ``1y`` (newer_than:/older_than:).
+    None if it isn't a recognized relative token, so callers can ignore it rather than zero out."""
+    m = _GMAIL_REL.fullmatch(v.strip().lower())
+    return int(m.group(1)) * _GMAIL_REL_UNIT[m.group(2)] * 86400 if m else None
+
+
+def _resolve_relative_dates(ops: dict) -> dict:
+    """Fold Gmail's relative-age operators into the absolute after:/before: bounds the rest of the
+    pipeline already understands (SQL range push-down + `_gmail_op_match`), anchored to *now* — so
+    newer_than:5d becomes ``after`` (ts >= now-5d) and older_than:5d becomes ``before`` (ts < now-5d).
+    Returns ``ops`` unchanged when no relative operator is present."""
+    new_secs = [s for v in ops.get("newer_than", []) if (s := _gmail_rel_secs(v)) is not None]
+    old_secs = [s for v in ops.get("older_than", []) if (s := _gmail_rel_secs(v)) is not None]
+    if not new_secs and not old_secs:
+        return ops
+    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    ops = {k: list(vs) for k, vs in ops.items()}
+    ops.pop("newer_than", None)
+    ops.pop("older_than", None)
+    # as epoch-second strings: both the SQL push-down and _gmail_op_match parse these via _gmail_date
+    ops.setdefault("after", []).extend(str(now - s) for s in new_secs)
+    ops.setdefault("before", []).extend(str(now - s) for s in old_secs)
+    return ops
+
+
+def _gmail_op_match(row, ops: dict) -> bool:
+    for v in ops.get("from", []):
+        if v.lower() not in (row["author_email"] or "").lower():
+            return False
+    for v in ops.get("to", []):
+        if v.lower() not in (row["to_addr"] or "").lower():
+            return False
+    for v in ops.get("subject", []):
+        if v.lower() not in (row["title"] or "").lower():
+            return False
+    # `in:` and `label:` ask the same question of a message — Gmail's folders ARE labels — and both
+    # have to see the label a message is served under rather than only a stated one. `in:anywhere`
+    # is the exception: it widens the search to spam and trash, which Backlot holds none of, so
+    # it restricts nothing.
+    labels = [x.lower() for x in store.jcol(row, "label_ids")] or [_GMAIL_DEFAULT_LABEL.lower()]
+    for v in ops.get("label", []) + [x for x in ops.get("in", []) if x.lower() != "anywhere"]:
+        if v.lower() not in labels:
+            return False
+    if any(v.lower() == "attachment" for v in ops.get("has", [])) and not store.jcol(
+        row, "attachments"
+    ):
+        return False
+    ts = _gmail_ts(row)
+    for v in ops.get("after", []):
+        d = _gmail_date(v)
+        if d is not None and ts < d:
+            return False
+    for v in ops.get("before", []):
+        d = _gmail_date(v)
+        if d is not None and ts >= d:
+            return False
+    return True
+
+
+def _gmail_query(conn, mailbox, ids, q: str) -> list:
+    """Full ACL+mailbox-filtered match set for a Gmail `q` (FTS-ranked when free text is
+    present; otherwise the mailbox listing). The caller paginates the returned rows."""
+    free, ops = _parse_gmail_q(q)
+    ops = _resolve_relative_dates(ops)  # newer_than:/older_than: -> absolute after:/before: bounds
+    if free:
+        # Honor a fully "quoted" free-text term as a phrase (Gmail's quote semantics): match the
+        # tokens adjacently AND rank docs literally containing the phrase first, so a grep push-down
+        # for e.g. "upload.csv" surfaces the one doc that contains it instead of burying it under
+        # coincidental "upload csv" mentions. Unquoted free text stays an AND of terms.
+        phrase = len(free) >= 2 and free[0] == '"' and free[-1] == '"'
+        term = free[1:-1] if phrase else free
+        cand = store.search_documents(
+            conn, term, "gmail", ids, limit=10_000, offset=0, container=mailbox, phrase=phrase
+        )
+    else:
+        # No free text. If the query pins a date range (after:/before:), filter created_ts in SQL —
+        # a date-dir listing otherwise materialized the whole mailbox (~100k rows) then date-filtered
+        # in Python. after: -> ts >= d (inclusive lo), before: -> ts < d (exclusive hi), matching
+        # _gmail_op_match; the remaining ops still filter the (now small) candidate set below.
+        lo = max(
+            (d for v in ops.get("after", []) if (d := _gmail_date(v)) is not None), default=None
+        )
+        hi = min(
+            (d for v in ops.get("before", []) if (d := _gmail_date(v)) is not None), default=None
+        )
+        # list_gmail_in_range for BOTH the date-pinned and the open-ended case (lo=hi=None): its
+        # created_ts DESC, id order is the newest-first listing real Gmail returns — the plain
+        # list_documents path ordered by id (a hash), scattering the listing by date.
+        cand = store.list_gmail_in_range(conn, mailbox, lo, hi, ids, limit=100_000)
+    return [r for r in cand if _gmail_op_match(r, ops)]
+
+
+# --- Gmail ids ------------------------------------------------------------------------------
+# A gmail id is a 16-hex integer (`synth.gmail_message_id`) and it IS the row's primary key
+# (`gmail_messages.id`, assigned at import — see `backlot.importer.byo`), so resolution is a point
+# lookup rather than a map rebuilt on every boot. `thread_id` holds the thread's id, computed at
+# import the same way (see `gmail_messages` in `store.SCHEMA`), so a thread resolves through a
+# stored column too, with no re-derivation.
+
+_GMAIL_HEX = re.compile(r"[0-9a-fA-F]+\Z")
+
+
+def _gmail_check_shape(served_id: str) -> None:
+    """Raises if ``served_id`` isn't a parsable, in-range hex id — the check every gmail
+    id-resolving path but ``attachments.get`` must run BEFORE any lookup, so an unparsable id is
+    400 INVALID_ARGUMENT regardless of whether it would otherwise resolve.
+
+    Measured against the real API: 400 INVALID_ARGUMENT "Invalid id value" for a non-hex id or one
+    >= 2**63, 404 only for a well-formed id it does not hold. `7fffffffffffffff` is well-formed;
+    `8000000000000000` is not."""
+    if not _GMAIL_HEX.fullmatch(served_id) or int(served_id, 16) >= synth.GMAIL_ID_MAX:
+        raise gerr.invalid_id_value()
+
+
+def _gmail_resolve(served_id: str) -> str:
+    """Validate a served Gmail id's SHAPE and return its stored spelling
+    (`store.gmail_id_spelling`), the key `store.gmail_thread` matches against `thread_id`.
+
+    Kept as a named step rather than inlined because the shape check must run BEFORE any lookup:
+    an unparsable id is 400 INVALID_ARGUMENT whether or not it would have resolved. No
+    ``visible_ids``: the ACL read stays in the caller (`store.gmail_thread`), so an id naming a
+    thread the caller cannot see is not-found, never a different answer."""
+    _gmail_check_shape(served_id)
+    return store.gmail_id_spelling(served_id)
+
+
+def _gmail_doc(conn, ids, served_id: str):
+    """The visible row behind a served id, one query: shape validation first (400 before any
+    lookup), then a single ACL-scoped column lookup — not a resolve-then-refetch, which would cost
+    two full-row reads of the same wide table per call. Resolution and the ACL read still can't be
+    pulled apart: the query is scoped to `visible_ids` from the start, so a served_id that names a
+    document the caller cannot see comes back as no row, i.e. not-found, never a different answer
+    (one WHERE clause holds that invariant; it needs no second round trip)."""
+    _gmail_check_shape(served_id)
+    return store.gmail_by_id(conn, served_id, visible_ids=ids)
+
+
+def _by_thread(rows) -> list:
+    """One row per thread, first occurrence kept — so a thread listing reports a thread once,
+    whichever of its messages the search matched, in the order the match set arrived."""
+    seen, out = set(), []
+    for row in rows:
+        thread = _gmail_ids(row)[1]
+        if thread not in seen:
+            seen.add(thread)
+            out.append(row)
+    return out
+
+
+def _gmail_page(request: Request, listing: str) -> tuple[int, int]:
+    """The page size and offset `messages.list` and `threads.list` serve, refused in the order real
+    refuses them on each.
+
+    Measured on gmail.googleapis.com on 2026-10-07 with a Workspace user's `gmail.readonly` token,
+    one request per row; `threads.list` answered every row with the same status and error, on
+    2026-10-07 or 2026-10-08. The proto layer parses every repeat as a uint32 and names every repeat
+    it cannot read in one 400, as `Invalid value at 'max_results' (TYPE_UINT32), "<value>"`, the
+    value quoted as sent. `+2` and `02` are numbers. A leading `-` is refused even on `-0`, and so
+    are an empty value, `1.5`, the Arabic-Indic digit `٣` and a value past 2**32 - 1 (`4294967296`).
+    The method reads the last repeat (the pair is in `gerr.first_repeat`'s table): `0` (`+0`, `00`)
+    and anything from 2**31 up (`2147483648`, `+2147483648`, `4294967295`) are `Invalid maxResults`,
+    while `2147483647` is served; `0&3` is 3 and `3&0` is refused. Below 2**31 a value is capped at
+    500, not refused: on 2026-10-03, `501` and `1000` each answered 500 messages with a
+    `nextPageToken`, and the reference gives both methods "The maximum allowed value for this field
+    is 500". With no `maxResults`, the page is the default size capped at 500. A sent value is also
+    capped at the deployment's `max_page_size`.
+
+    The uint32 refusal comes first on both listings. After it `messages.list` refuses a `pageToken`
+    that does not parse (:func:`_gmail_page_token`) before a `maxResults` out of range, and
+    `threads.list` the range before the token: measured on 2026-10-09 with `maxResults` of `0` and
+    `2147483648` beside a token that does not parse, each request sent four times with the same
+    answer.
+    """
+    sizes = _typed_query(request, {"maxResults": _gmail_uint32})["maxResults"]
+    offset = _gmail_page_token(request) if listing == "messages" else None
+    if not sizes:
+        limit = min(get_settings().default_page_size, 500)
+    elif sizes[-1] == 0 or sizes[-1] >= 2**31:
+        raise gerr.invalid_max_results()
+    else:
+        limit = min(sizes[-1], 500, get_settings().max_page_size)
+    if offset is None:
+        offset = _gmail_page_token(request)
+    return limit, offset
+
+
+def _gmail_page_token(request: Request) -> int:
+    """The offset a Gmail `pageToken` names, read from its last repeat as real reads it. An empty
+    token is the first page, and one that does not decode is :func:`gerr.invalid_page_token`."""
+    offset = decode_cursor_or_none(request.query_params.get("pageToken"))
+    if offset is None:
+        raise gerr.invalid_page_token()
+    return offset
+
+
+# `maxResults` as Gmail's proto layer reads it: a uint32, where Drive's `pageSize` is an int32
+# (`_INT32`). The spellings and the bound are `_gmail_page`'s.
+_UINT32 = re.compile(r"\+?[0-9]+")
+
+
+def _gmail_uint32(raw: str) -> int:
+    if _UINT32.fullmatch(raw) and int(raw) < 2**32:
+        return int(raw)
+    raise gerr.invalid_field_value(
+        "max_results", f"Invalid value at 'max_results' (TYPE_UINT32), \"{raw}\""
+    )
+
+
+def _gmail_ids(row) -> tuple[str, str]:
+    """``(id, threadId)`` for a row. A message that is its own thread root reports the same value
+    twice, as real Gmail does.
+
+    Both halves are read straight off the row: `thread_id` is computed once at import (see
+    `gmail_messages` in `store.SCHEMA`), so `threadId` reads one stored value rather than
+    re-hashing the thread's key and hoping the two agree."""
+    return (row["id"], row["thread_id"] or row["id"])
+
+
+@router.get(
+    "/gmail/v1/users/{user_id}/messages",
+    response_model=GmailMessageList,
+    response_model_exclude_unset=True,
+    openapi_extra={"parameters": _P_GMAIL_LIST},
+)
+async def gmail_messages_list(user_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    mailbox = _mailbox_container(conn, caller, user_id)  # None = all mailboxes
+    limit, offset = _gmail_page(request, "messages")
+    q = request.query_params.get("q", "") or ""
+    if q.strip():  # search: filter the ACL-visible set by the query, then paginate
+        matched = _gmail_query(conn, mailbox, ids, q)
+        total = len(matched)
+        rows = matched[offset : offset + limit]
+    else:
+        # newest-first by internalDate (created_ts), like real Gmail — NOT id (hash) order, so a
+        # capped "newest N" crawl is deterministic by date, not random. Open-ended range = whole box.
+        total = store.count_documents(conn, "gmail", container=mailbox, visible_ids=ids)
+        rows = store.list_gmail_in_range(conn, mailbox, None, None, ids, limit=limit, offset=offset)
+    # threadId must agree with messages.get (a reply belongs to its root's thread)
+    messages = [dict(zip(("id", "threadId"), _gmail_ids(r))) for r in rows]
+    # A list with no match leaves `messages` out rather than sending `[]` — measured on 2026-09-30,
+    # so a client that reads `response["messages"]` meets the KeyError it meets there.
+    body = {"messages": messages} if messages else {}
+    body["resultSizeEstimate"] = total
+    token = next_page_token(offset, len(rows), total)
+    if token:
+        body["nextPageToken"] = token
+    return body
+
+
+@router.get(
+    "/gmail/v1/users/{user_id}/messages/{msg_id}",
+    response_model=GmailMessage,
+    openapi_extra={"parameters": _P_GMAIL_FORMAT},
+)
+async def gmail_messages_get(user_id: str, msg_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    row = _gmail_doc(conn, ids, msg_id)
+    if row is None:
+        raise gerr.not_found_entity()
+    return _gmail_message(
+        row,
+        request.query_params.get("format", "full"),
+        caller.email,
+        request.query_params.getlist("metadataHeaders"),
+    )
+
+
+def _byte_len(text: str) -> int:
+    """The length Gmail reports for `text`, in the UTF-8 bytes `_b64url` serves. Real counts bytes,
+    not characters: a part's `size` is its decoded `data`'s, on a text part, an attachment part and
+    `attachments.get` alike (measured on 2026-10-02), and a message's `sizeEstimate` is its decoded
+    `raw`'s, under `minimal`, `metadata` and `raw` and in `threads.get` (12 messages, measured on
+    2026-10-04)."""
+    return len(text.encode("utf-8"))
+
+
+@router.get(
+    "/gmail/v1/users/{user_id}/messages/{msg_id}/attachments/{att_id}",
+    response_model=GmailAttachment,
+)
+async def gmail_attachment(user_id: str, msg_id: str, att_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    # The path's message id plays no part in the answer, in real Gmail or here: an attachment id
+    # is served under the message it belongs to, under another message's id, under a well-formed
+    # id no message has and under a non-hex id alike, with the same bytes, measured against
+    # gmail.googleapis.com on 2026-10-01 and again on 2026-10-07. The message the path names is
+    # one point lookup, so it is tried first; only an attachment id it does not hold pays for
+    # scanning every attachment-bearing message the caller can see.
+    named = store.gmail_by_id(conn, msg_id, visible_ids=ids)
+    found = _attachment([] if named is None else [named], att_id) or _attachment(
+        store.gmail_rows_with_attachments(conn, visible_ids=ids), att_id
+    )
+    if found is None:
+        raise gerr.invalid_attachment_token()
+    message_id, i, att = found
+    body = _att_content(message_id, i, att)
+    # `{size, data}` alone: real names no `attachmentId` here, measured on 2026-09-30
+    return {"size": _byte_len(body), "data": _b64url(body)}
+
+
+def _attachment(rows, att_id: str) -> tuple[str, int, dict] | None:
+    """The message id, index and attachment among ``rows`` whose ``_att_id`` is ``att_id``."""
+    return next(
+        (
+            (row["id"], i, a)
+            for row in rows
+            for i, a in enumerate(store.jcol(row, "attachments"))
+            if _att_id(row["id"], i) == att_id
+        ),
+        None,
+    )
+
+
+@router.get(
+    "/gmail/v1/users/{user_id}/threads",
+    response_model=GmailThreadList,
+    response_model_exclude_unset=True,
+    openapi_extra={"parameters": _P_GMAIL_LIST},
+)
+async def gmail_threads_list(user_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    # The MAILBOX's threads, like messages.list and like real Gmail — not the threads the caller
+    # happens to have written in. Scoping by author served a mailbox owner none of the mail they
+    # received, and `q` was already scoping by container, so the two halves of this one listing
+    # disagreed about what a thread list is.
+    mailbox = _mailbox_container(conn, caller, user_id)
+    limit, offset = _gmail_page(request, "threads")
+    q = request.query_params.get("q", "") or ""
+    if q.strip():
+        # A search returns the THREADS its matches are in: Gmail lists a thread whose match is in a
+        # reply, and lists it once even when several of its messages match.
+        matched = _by_thread(_gmail_query(conn, mailbox, ids, q))
+        total = len(matched)
+        rows = matched[offset : offset + limit]
+    else:
+        total = store.count_documents(
+            conn, "gmail", container=mailbox, visible_ids=ids, roots_only=True
+        )
+        # newest-first by internalDate, the order messages.list already serves and the order a
+        # capped crawl of a mailbox has to be stable under.
+        rows = store.list_gmail_in_range(
+            conn, mailbox, None, None, ids, limit=limit, offset=offset, roots_only=True
+        )
+    threads = [{"id": _gmail_ids(r)[1], "snippet": _snippet(r), "historyId": "1"} for r in rows]
+    # A list with no match leaves `threads` out rather than sending `[]`, measured on 2026-09-30.
+    body = {"threads": threads} if threads else {}
+    body["resultSizeEstimate"] = total
+    token = next_page_token(offset, len(rows), total)
+    if token:
+        body["nextPageToken"] = token
+    return body
+
+
+@router.get(
+    "/gmail/v1/users/{user_id}/threads/{thread_id}",
+    response_model=GmailThread,
+    openapi_extra={"parameters": _P_GMAIL_FORMAT},
+)
+async def gmail_thread_get(user_id: str, thread_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    thread_key = _gmail_resolve(thread_id)
+    msgs = store.gmail_thread(conn, thread_key, visible_ids=ids)
+    if not msgs:
+        row = _gmail_doc(conn, ids, thread_id)
+        # Measured against gmail.googleapis.com on 2026-09-30 and 2026-10-01: `threads.get` on a
+        # reply's message id returns the same 404 body as a well-formed unknown id, while the
+        # thread's own id serves the thread. So the fallback serves a message only when it is its
+        # own thread root.
+        if row is None or _gmail_ids(row)[0] != _gmail_ids(row)[1]:
+            raise gerr.not_found_entity()
+        msgs = [row]
+    fmt = request.query_params.get("format", "full")
+    named = request.query_params.getlist("metadataHeaders")
+    # No `snippet`: real serves one on a `threads.list` entry and not on `threads.get`, with or
+    # without `format=minimal` — measured on 2026-09-30. An id in uppercase, with zeros in front, or
+    # both gets the answer the lowercase id without them gets, `id` included — measured on
+    # 2026-10-03 and 2026-10-05.
+    return {
+        "id": _gmail_ids(msgs[0])[1],
+        "historyId": "1",
+        "messages": [_gmail_message(m, fmt, caller.email, named) for m in msgs],
+    }
+
+
+def _att_id(message_id: str, i: int) -> str:
+    return "ANGjdJ" + synth.gmail_id(message_id, salt=f"att{i}")
+
+
+def _att_content(message_id: str, i: int, att: dict) -> str:
+    """The exact bytes ``attachments.get`` serves for attachment ``i``, and therefore what
+    ``messages.get`` reports as that part's ``body.size`` — real Gmail keeps the two equal so a
+    client can stat from metadata alone. The corpus-declared ``size`` cannot be honoured with
+    placeholder bytes, so the served content's length is the single source of truth."""
+    return att.get("content", f"attachment {_att_id(message_id, i)}")
+
+
+def _header(name: str, value: str) -> dict:
+    return {"name": name, "value": value}
+
+
+# RFC 2047 encoded-word budget is 75 octets. `=?UTF-8?B?` + `?=` leaves 63, and base64 length
+# must be a multiple of 4, so 60 chars / 45 UTF-8 bytes per word. RFC 2047 §5 keeps a multi-octet
+# character within one word, so a word ends at the last whole character inside those 45 bytes.
+# Adjacent words are separated by a space, which a decoder discards (RFC 2047 §6.2).
+_ENCODED_WORD_BYTES = 45
+
+
+def _encoded_words(text: str) -> str:
+    """`text` as UTF-8 `B` encoded-words, as many as `_ENCODED_WORD_BYTES` needs."""
+    chunks = [b""]
+    for char in text:
+        encoded = char.encode("utf-8")
+        if len(chunks[-1]) + len(encoded) > _ENCODED_WORD_BYTES:
+            chunks.append(b"")
+        chunks[-1] += encoded
+    return " ".join(f"=?UTF-8?B?{base64.b64encode(c).decode('ascii')}?=" for c in chunks)
+
+
+def _raw_mailbox(display: str, address: str) -> str:
+    """One mailbox of an address header, for `_raw_header_value`: only the display name is
+    encoded, since RFC 2047 §5 keeps encoded-words out of an addr-spec."""
+    if not display.isascii():
+        return f"{_encoded_words(display)} <{address}>"
+    if not address.isascii():
+        # `formataddr` refuses a non-ASCII address
+        return f"{display} <{address}>" if display else address
+    return formataddr((display, address))
+
+
+def _raw_header_value(name: str, value: str) -> str:
+    """One header's value as `format=raw` writes it. `payload.headers` under `full` and
+    `metadata` serve the value as it is.
+
+    Measured on 2026-10-05, on a message composed in the Gmail web client: real's `raw` is ASCII. It
+    writes the subject as a UTF-8 `B` encoded-word, a Hangul display name in `From` and `To` as one
+    encoded-word before the ASCII `<address>`, with no quotes, and the attachment's `name=` and
+    `filename=` as encoded-words inside their quotes. `Cc`, `Bcc` and `Reply-To` were not measured
+    and are written the way `To` is; any other header is encoded whole, as the subject is. A
+    non-ASCII address is written as it is (see `_raw_mailbox`), so it stays non-ASCII in `raw`.
+    """
+    if value.isascii():
+        return value
+    if name.lower() in {"content-type", "content-disposition"}:
+
+        def quoted(match: re.Match) -> str:
+            inner = match.group(1)
+            if inner.isascii():
+                return match.group(0)
+            return f'"{_encoded_words(inner)}"'
+
+        return re.sub(r'"([^"]*)"', quoted, value)
+    if name.lower() in {"from", "to", "cc", "bcc", "reply-to", "delivered-to"}:
+        mailboxes = getaddresses([value])
+        if all("@" in address for _, address in mailboxes):
+            return ", ".join(_raw_mailbox(display, address) for display, address in mailboxes)
+    return _encoded_words(value)
+
+
+def _raw_header_block(headers: list[dict]) -> str:
+    return "\r\n".join(f"{h['name']}: {_raw_header_value(h['name'], h['value'])}" for h in headers)
+
+
+def _text_node(mime: str, data: str, encoding: str | None) -> dict:
+    """A text leaf, sent in `encoding` (None: as it is, with no `Content-Transfer-Encoding`)."""
+    headers = [_header("Content-Type", f'{mime}; charset="UTF-8"')]
+    if encoding:
+        headers.append(_header("Content-Transfer-Encoding", encoding))
+    return {"mimeType": mime, "filename": "", "headers": headers, "data": data, "cte": encoding}
+
+
+# Gmail's web composer quoted-printables an ASCII text/html part once a line is longer than this. Its
+# own choice, not an API rule: `messages.send` stores and serves whatever the sender wrote. Measured
+# on 2026-10-02: lines of 80, 81 and 175 characters went with no `Content-Transfer-Encoding` and
+# lines of 325 and 425 went quoted-printable, so the limit lies somewhere in 175..324; that range is
+# all that was measured, and 250 is a pick inside it.
+_HTML_QP_LINE = 250
+
+
+def _mime_tree(row, html: str, attachments: list) -> list[dict]:
+    """The payload's parts, which `full` serves as JSON and `raw` as MIME, so the two describe one
+    message. As measured on 2026-09-30: with no attachment the payload is `multipart/alternative`
+    over the text and HTML parts; with one it is `multipart/mixed` over a `multipart/alternative`
+    part holding those two, then one part per attachment."""
+    # The part headers are what Gmail's web composer writes, which the API passes through. Measured
+    # on web-composed messages on 2026-09-30, 2026-10-01 and 2026-10-02: text/plain is base64 when
+    # its text is non-ASCII and carries no `Content-Transfer-Encoding` otherwise (the composer wraps
+    # ASCII text at 74 characters, so no sample had a long ASCII text/plain line); text/html is
+    # quoted-printable when it is non-ASCII or has a line longer than `_HTML_QP_LINE`, and carries
+    # no `Content-Transfer-Encoding` otherwise.
+    html_qp = not html.isascii() or any(len(line) > _HTML_QP_LINE for line in html.splitlines())
+    texts = [
+        _text_node("text/plain", row["content"], None if row["content"].isascii() else "base64"),
+        _text_node("text/html", html, "quoted-printable" if html_qp else None),
+    ]
+    if not attachments:
+        return texts
+    alt_boundary = f"a_{row['id'][:12]}"
+    nodes = [
+        {
+            "mimeType": "multipart/alternative",
+            "filename": "",
+            "headers": [
+                _header("Content-Type", f'multipart/alternative; boundary="{alt_boundary}"')
+            ],
+            "boundary": alt_boundary,
+            "parts": texts,
+        }
+    ]
+    for i, att in enumerate(attachments):
+        filename = att.get("filename", "attachment.bin")
+        mime = att.get("mime", "application/octet-stream")
+        # A text attachment names its charset: US-ASCII for ASCII content and UTF-8 otherwise, as an
+        # ASCII one (2026-10-01) and a Korean one (2026-09-30) were served. A binary type has none
+        # to name.
+        ascii_att = _att_content(row["id"], i, att).isascii()
+        charset = (
+            f'; charset="{"US-ASCII" if ascii_att else "UTF-8"}"'
+            if mime.startswith("text/")
+            else ""
+        )
+        # `f_` and nine lowercase alphanumerics, the one attachment measured on 2026-09-30
+        x_id = f"f_{synth.gmail_id(row['id'], salt=f'att{i}')[:9]}"
+        nodes.append(
+            {
+                "mimeType": mime,
+                "filename": filename,
+                "headers": [
+                    _header("Content-Type", f'{mime}{charset}; name="{filename}"'),
+                    _header("Content-Disposition", f'attachment; filename="{filename}"'),
+                    _header("Content-Transfer-Encoding", "base64"),
+                    _header("X-Attachment-Id", x_id),
+                    _header("Content-ID", f"<{x_id}>"),
+                ],
+                "attachment": (i, att),
+            }
+        )
+    return nodes
+
+
+def _json_part(node: dict, part_id: str, message_id: str) -> dict:
+    """One node of `_mime_tree` as a `full` payload part."""
+    part = {
+        "partId": part_id,
+        "mimeType": node["mimeType"],
+        "filename": node["filename"],
+        "headers": node["headers"],
+    }
+    if "parts" in node:
+        part["body"] = {"size": 0}
+        part["parts"] = [
+            _json_part(child, f"{part_id}.{j}", message_id) for j, child in enumerate(node["parts"])
+        ]
+    elif "attachment" in node:
+        i, att = node["attachment"]
+        # size = the exact byte length attachments.get serves (see _att_content), so a client can
+        # stat the attachment from this metadata without a second call — real Gmail's contract.
+        part["body"] = {
+            "attachmentId": _att_id(message_id, i),
+            "size": _byte_len(_att_content(message_id, i, att)),
+        }
+    else:
+        part["body"] = {"size": _byte_len(node["data"]), "data": _b64url(node["data"])}
+    return part
+
+
+def _mime_part(node: dict, message_id: str) -> str:
+    """One node of `_mime_tree` as a MIME entity, encoded as its own headers declare."""
+    head = _raw_header_block(node["headers"])
+    if "parts" in node:
+        body = _mime_multipart(node["parts"], node["boundary"], message_id)
+    elif "attachment" in node:
+        i, att = node["attachment"]
+        # same bytes attachments.get serves, so raw MIME and the attachment endpoint agree
+        body = base64.b64encode(_att_content(message_id, i, att).encode("utf-8")).decode("ascii")
+    elif node["cte"] == "quoted-printable":
+        body = quopri.encodestring(node["data"].encode("utf-8")).decode("ascii")
+    elif node["cte"] == "base64":
+        body = base64.encodebytes(node["data"].encode("utf-8")).decode("ascii")
+    else:
+        body = node["data"]
+    return f"{head}\r\n\r\n{body}"
+
+
+def _mime_multipart(nodes: list[dict], boundary: str, message_id: str) -> str:
+    parts = "".join(f"--{boundary}\r\n{_mime_part(n, message_id)}\r\n" for n in nodes)
+    return parts + f"--{boundary}--"
+
+
+def _snippet(row) -> str:
+    """The message's first 200 characters, with `<` and `>` as `&lt;` and `&gt;`: real's snippet of
+    a quoted `Name <address>` line reads `Name &lt;address&gt;`, measured on 2026-09-30. Only those
+    two were in the text measured, so `&` and quotes are sent as they are."""
+    return row["content"][:200].replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _gmail_ts(row) -> int:
+    """A message's unix ts. A real per-message created_ts (its parsed Date header) is used
+    verbatim; only when it's missing do we synthesize a thread base and spread replies an hour
+    apart so a thread still reads in order. Both the served Date and the after/before filter use
+    this, so they agree."""
+    # `is not None`: 1970-01-01T00:00:00Z stores as 0, and a message that HAS a second must serve
+    # it rather than a synthesized one.
+    if row["created_ts"] is not None:
+        return row["created_ts"]
+    return synth.epoch(row["thread_id"] or row["id"]) + (row["thread_seq"] or 0) * 3600
+
+
+def _gmail_message(
+    row, fmt: str, caller_email: str | None = None, metadata_headers: list[str] | None = None
+) -> dict:
+    """One message in the API's shape.
+
+    `caller_email` decides Bcc. Real Gmail keeps the Bcc header only on the sender's own copy — a
+    recipient's is stripped in transit — so a reader who is not the author must not learn who was
+    blind-copied. An admin/service caller has no email and is not the sender either.
+
+    `metadata_headers` is every `metadataHeaders` value sent, and narrows a `metadata` payload to
+    the headers it names.
+    """
+    ts = _gmail_ts(row)
+    author = row["author_email"]
+    display = author.split("@")[0].replace(".", " ").title()
+    msg_id = row["message_id"] or f"<{row['id']}@{get_settings().org_domain}>"
+    headers = [
+        {
+            "name": "Delivered-To",
+            "value": row["to_addr"] or _mailbox_address(row["mailbox"]),
+        },
+        {"name": "MIME-Version", "value": "1.0"},
+    ]
+    # `Subject` sits with `To`, not with the mandatory headers: RFC 5322 §3.6 gives both 0..1, and
+    # this corpus format says an empty subject IS the absence of one ("a message with no Subject
+    # header is legal"). Emitting `Subject: ""` served a header real Gmail would have left out.
+    # Placed here rather than appended with the others so the header order stays as it was.
+    if row["title"]:
+        headers.append({"name": "Subject", "value": row["title"]})
+    headers += [
+        {"name": "From", "value": f"{display} <{author}>"},
+        {"name": "Date", "value": synth.rfc2822(ts)},
+        {"name": "Message-ID", "value": msg_id},
+    ]
+    optional = [
+        # `To` among them: RFC 5322 allows a message with no destination field, and real Gmail
+        # returns the headers the message has. `Delivered-To` above keeps its default, since a
+        # receiving MTA really does add one.
+        ("To", "to_addr"),
+        ("Cc", "cc"),
+        ("Reply-To", "reply_to"),
+        ("In-Reply-To", "in_reply_to"),
+        ("References", "refs"),
+    ]
+    if caller_email and caller_email == author:
+        optional.insert(1, ("Bcc", "bcc"))
+    for hname, col in optional:
+        if row[col]:
+            headers.append({"name": hname, "value": row[col]})
+    attachments = store.jcol(row, "attachments")
+    top_mime = "multipart/mixed" if attachments else "multipart/alternative"
+    boundary = f"b_{row['id'][:12]}"
+    headers.append({"name": "Content-Type", "value": f'{top_mime}; boundary="{boundary}"'})
+
+    msg = {
+        "id": _gmail_ids(row)[0],
+        "threadId": _gmail_ids(row)[1],
+        "labelIds": store.jcol(row, "label_ids") or [_GMAIL_DEFAULT_LABEL],
+        "snippet": _snippet(row),
+        "historyId": "1",
+        "internalDate": str(ts * 1000),
+    }
+    html = row["body_html"] or f"<html><body><p>{row['content']}</p></body></html>"
+    nodes = _mime_tree(row, html, attachments)
+    mime_body = _mime_multipart(nodes, boundary, row["id"])
+    raw = _raw_header_block(headers) + "\r\n\r\n" + mime_body
+    msg["sizeEstimate"] = _byte_len(raw)
+    if fmt == "minimal":
+        return msg
+    if fmt == "metadata":
+        # `mimeType` and `headers` alone: real sends no `partId`, `filename` or `body` on a
+        # metadata payload, measured on 2026-09-30.
+        msg["payload"] = {"mimeType": top_mime}
+        if metadata_headers:
+            # Measured on 2026-10-03 and 2026-10-05, on `messages.get` and on each message of a
+            # `threads.get`: each value names one header, matched without regard to case and
+            # served under the message's own spelling and order. A comma or a space is part of the
+            # name, and a value no header has (or an empty one) matches nothing; when nothing is
+            # matched, `headers` is left out of the payload.
+            named = {n.lower() for n in metadata_headers}
+            headers = [h for h in headers if h["name"].lower() in named]
+        if headers:
+            msg["payload"]["headers"] = headers
+        return msg
+    if fmt == "raw":
+        # RFC 2822 message, base64url — a genuine boundary-delimited MIME body matching the
+        # declared multipart Content-Type above. It has to be real MIME: a plain-text body under a
+        # `multipart/...` header with no boundary makes Python's `email` parser raise
+        # StartBoundaryNotFoundDefect/MultipartInvariantViolationDefect, and readers built on it
+        # (llama-index's GmailReader) choke because `get_payload()` degrades to a bare
+        # string instead of a list of sub-messages). Built from the same parts `full` serves.
+        msg["raw"] = _b64url(raw)
+        return msg
+
+    msg["payload"] = {
+        "partId": "",
+        "mimeType": top_mime,
+        "filename": "",
+        "headers": headers,
+        "body": {"size": 0},
+        "parts": [_json_part(n, str(i), row["id"]) for i, n in enumerate(nodes)],
+    }
+    return msg
+
+
+# ================================ Drive =========================================
+
+# --- `q` ---------------------------------------------------------------------------------------
+# Drive's query language, parsed as the reference's grammar and evaluated term by term, so a clause
+# is either evaluated or refused — never dropped from the filter while the listing answers 200.
+# mirage sends two of its shapes: its folder listing resolves a file with `name='…'` and bounds a
+# sync with `modifiedTime >= '…'` and `modifiedTime < '…'`.
+#
+# The grammar is the reference's (developers.google.com/workspace/drive/api/guides/ref-search-terms):
+# a term is `<field> <operator> <value>` or `'<value>' in <collection>`, terms join with `and` and
+# `or`, `not` negates, and a string value is single-quoted with an apostrophe escaped as `\'` —
+# "Escape single quotes in queries with \'". Parentheses group. Whether `and` binds before `or` the
+# reference does not say; Backlot reads it as SQL does, `and` first.
+#
+# A term Backlot cannot evaluate is a 400 on `q`, never a silence. Two kinds: a term the reference
+# does not list (`bogusField = 'x'`), which real Drive refuses too — its wording is unmeasured, so
+# the bare `Invalid Value` of the parameter envelope stands — and a documented term Backlot holds no
+# fact for, refused with a message that says so, the way an unmodelled `orderBy` key is. Honouring
+# `starred = true` as "everything" would be the listing this section exists to stop.
+
+# Every term Backlot evaluates, with the operators the reference lists for it.
+_DRIVE_Q_OPERATORS: dict[str, frozenset[str]] = {
+    "name": frozenset({"contains", "=", "!="}),
+    "fullText": frozenset({"contains"}),
+    "mimeType": frozenset({"contains", "=", "!="}),
+    "modifiedTime": frozenset({"<=", "<", "=", "!=", ">", ">="}),
+    "createdTime": frozenset({"<=", "<", "=", "!=", ">", ">="}),
+    "trashed": frozenset({"=", "!="}),
+    "sharedWithMe": frozenset({"=", "!="}),
+}
+_DRIVE_Q_COLLECTIONS = frozenset({"parents", "owners"})
+_DRIVE_Q_BOOLEAN = frozenset({"trashed", "sharedWithMe"})
+# Documented on the reference, and nothing in a corpus record to evaluate them against.
+_DRIVE_Q_UNMODELLED = frozenset(
+    {"starred", "viewedByMeTime", "writers", "readers", "properties", "appProperties", "visibility"}
+)
+# `{` and `}` are tokens so that `properties has { key='x' and value='y' }`, the reference's own
+# spelling, reaches `term()` with the field read — the refusal then names `properties` instead of
+# the bare `Invalid Value` an unlexable character gets.
+_DRIVE_Q_TOKEN = re.compile(
+    r"\s*(?:(?P<paren>[()])|(?P<brace>[{}])|(?P<op>!=|<=|>=|=|<|>)|'(?P<str>(?:[^'\\]|\\.)*)'"
+    r"|(?P<word>[A-Za-z_][A-Za-z0-9_]*))"
+)
+# Nesting past this is refused. The parser is recursive, so an unbounded query answered 500 where
+# this section's contract is a 400: 320 parentheses, or 960 `not`s, exhausted the interpreter's
+# frame limit. Real Drive's own limit is unmeasured; no client writes a query 32 levels deep.
+_DRIVE_Q_MAX_DEPTH = 32
+
+
+class _QTerm(NamedTuple):
+    field: str
+    op: str
+    value: str
+
+
+class _QNot(NamedTuple):
+    inner: object
+
+
+class _QAnd(NamedTuple):
+    parts: tuple
+
+
+class _QOr(NamedTuple):
+    parts: tuple
+
+
+def _drive_q_refused(message: str | None = None) -> gerr.GoogleError:
+    return gerr.invalid_value("q", message)
+
+
+def _drive_q_tokens(q: str) -> list[tuple[str, str]]:
+    """``(kind, text)`` pairs; a quoted value arrives unescaped."""
+    out: list[tuple[str, str]] = []
+    pos = 0
+    while pos < len(q):
+        m = _DRIVE_Q_TOKEN.match(q, pos)
+        if m is None:
+            if q[pos:].strip():
+                raise _drive_q_refused()
+            break
+        pos = m.end()
+        kind = m.lastgroup or ""
+        text = m.group(kind)
+        out.append((kind, re.sub(r"\\(.)", r"\1", text) if kind == "str" else text))
+    return out
+
+
+def _drive_q_parse(q: str):
+    """The parsed query, or ``None`` for an empty one. A clause Backlot cannot evaluate is a 400.
+
+    A query that names no ``trashed`` term gets ``and trashed = false`` appended: real Drive leaves
+    trashed files out of a listing unless a clause asks for them, as the plain listing does through
+    ``exclude_trashed``."""
+    tokens = _drive_q_tokens(q)
+    if not tokens:
+        return None
+    pos = 0
+
+    def peek() -> tuple[str | None, str | None]:
+        return tokens[pos] if pos < len(tokens) else (None, None)
+
+    def take() -> tuple[str | None, str | None]:
+        nonlocal pos
+        tok = peek()
+        pos += 1
+        return tok
+
+    def is_word(text: str) -> bool:
+        kind, tok = peek()
+        return kind == "word" and (tok or "").lower() == text
+
+    def disjunction():
+        parts = [conjunction()]
+        while is_word("or"):
+            take()
+            parts.append(conjunction())
+        return parts[0] if len(parts) == 1 else _QOr(tuple(parts))
+
+    def conjunction():
+        parts = [unary()]
+        while is_word("and"):
+            take()
+            parts.append(unary())
+        return parts[0] if len(parts) == 1 else _QAnd(tuple(parts))
+
+    depth = 0
+
+    def unary():
+        nonlocal depth
+        depth += 1
+        if depth > _DRIVE_Q_MAX_DEPTH:
+            raise _drive_q_refused()
+        try:
+            if is_word("not"):
+                take()
+                return _QNot(unary())
+            if peek() == ("paren", "("):
+                take()
+                node = disjunction()
+                if take() != ("paren", ")"):
+                    raise _drive_q_refused()
+                return node
+            return term()
+        finally:
+            depth -= 1
+
+    def unmodelled(field: str) -> gerr.GoogleError:
+        evaluated = ", ".join(sorted(_DRIVE_Q_OPERATORS))
+        return _drive_q_refused(
+            f"'{field}' is not evaluated by Backlot: a corpus record carries nothing to answer it "
+            f"from. Terms it evaluates: {evaluated}, and 'x' in parents / owners."
+        )
+
+    def term():
+        kind, text = take()
+        if kind == "str":  # `'<value>' in <collection>`
+            if not is_word("in"):
+                raise _drive_q_refused()
+            take()
+            fkind, field = take()
+            if fkind != "word":
+                raise _drive_q_refused()
+            if field in _DRIVE_Q_UNMODELLED:
+                raise unmodelled(field)
+            if field not in _DRIVE_Q_COLLECTIONS:
+                raise _drive_q_refused()
+            return _QTerm(field, "in", text or "")
+        if kind != "word" or text is None:
+            raise _drive_q_refused()
+        field = text
+        if field in _DRIVE_Q_UNMODELLED:
+            raise unmodelled(field)
+        if field not in _DRIVE_Q_OPERATORS:
+            raise _drive_q_refused()
+        okind, op = peek()
+        if okind == "op":
+            take()
+        elif okind == "word" and (op or "").lower() in ("contains", "has", "in"):
+            take()
+            op = (op or "").lower()
+        elif field == "sharedWithMe":
+            # The bare `sharedWithMe` Drive also accepts, meaning true.
+            return _QTerm(field, "=", "true")
+        else:
+            raise _drive_q_refused()
+        if op not in _DRIVE_Q_OPERATORS[field]:
+            raise _drive_q_refused()
+        vkind, value = take()
+        if field in _DRIVE_Q_BOOLEAN:
+            if vkind != "word" or (value or "").lower() not in ("true", "false"):
+                raise _drive_q_refused()
+            return _QTerm(field, op or "", (value or "").lower())
+        if vkind != "str":
+            raise _drive_q_refused()
+        if field in ("modifiedTime", "createdTime") and _drive_q_time(value or "") is None:
+            # The reference wants RFC 3339 here. A value that is not one would otherwise compare
+            # as a string against the file's timestamp and answer something for every file; what
+            # real Drive answers for it is unmeasured, so this is a refusal rather than its wording.
+            raise _drive_q_refused()
+        return _QTerm(field, op or "", value or "")
+
+    node = disjunction()
+    if pos != len(tokens):
+        raise _drive_q_refused()
+    if not any(t.field == "trashed" for t in _drive_q_terms(node)):
+        node = _QAnd((node, _QTerm("trashed", "=", "false")))
+    return node
+
+
+def _drive_q_terms(node):
+    """Every term in the tree, whatever it sits under."""
+    if isinstance(node, _QTerm):
+        yield node
+    elif isinstance(node, _QNot):
+        yield from _drive_q_terms(node.inner)
+    elif isinstance(node, (_QAnd, _QOr)):
+        for part in node.parts:
+            yield from _drive_q_terms(part)
+
+
+def _drive_q_conjuncts(node) -> list[_QTerm]:
+    """The terms every match has to satisfy — those joined by `and` at the top, with nothing
+    under an `or` or a `not`. What the SQL paths may narrow the candidate set by."""
+    if isinstance(node, _QTerm):
+        return [node]
+    if isinstance(node, _QAnd):
+        return [t for part in node.parts for t in _drive_q_conjuncts(part)]
+    return []
+
+
+def _drive_q_is_conjunction(node) -> bool:
+    """Whether the whole tree is terms joined by `and`, so its conjuncts are the whole query."""
+    if isinstance(node, _QTerm):
+        return True
+    return isinstance(node, _QAnd) and all(_drive_q_is_conjunction(p) for p in node.parts)
+
+
+def _drive_q_time(value: str) -> datetime.datetime | None:
+    """An RFC 3339 value as a datetime, UTC when it names no zone; ``None`` if it is not one."""
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.timezone.utc)
+
+
+def _drive_q_compare(op: str, have: str, want: str) -> bool:
+    """A time term, compared as instants: `'2026-01-10T00:00:00'` equals `'…Z'`. The value was
+    checked at parse; a fact that is no timestamp (an object with the field unset) matches
+    nothing."""
+    left, right = _drive_q_time(have), _drive_q_time(want)
+    if left is None or right is None:
+        return False
+    if op == "<":
+        return left < right
+    if op == "<=":
+        return left <= right
+    if op == "=":
+        return left == right
+    if op == "!=":
+        return left != right
+    if op == ">":
+        return left > right
+    return left >= right
+
+
+def _drive_q_eval(node, f: dict, me: str | None, fulltext: dict[str, set[str]]) -> bool:
+    """Whether one file's facts satisfy the query. ``fulltext`` maps each `fullText contains`
+    value to the ids the index answered for it, so the term is a membership test here."""
+    if isinstance(node, _QNot):
+        return not _drive_q_eval(node.inner, f, me, fulltext)
+    if isinstance(node, _QAnd):
+        return all(_drive_q_eval(p, f, me, fulltext) for p in node.parts)
+    if isinstance(node, _QOr):
+        return any(_drive_q_eval(p, f, me, fulltext) for p in node.parts)
+    field, op, value = node
+    if field == "trashed":
+        return ((value == "true") == f["trashed"]) == (op == "=")
+    if field == "sharedWithMe":
+        # "Shared with me" = visible to the caller and not owned by them. Items shared with you
+        # carry no My Drive parent on real Drive, so this clause is the only way to enumerate
+        # that section.
+        shared = not _drive_owned_by(f["owner_email"], me)
+        return ((value == "true") == shared) == (op == "=")
+    if field == "name":
+        # Two comparisons, both measured 2026-09-14 against real Drive and each the one
+        # `store.list_drive_by_name` builds its candidate set with, so SQL and this agree. `=` and
+        # `!=` fold case for ASCII letters only (`'ÉLAN VITAL'` is `Élan Vital`, `'élan vital'` and
+        # `'strasse plan'` are not); `contains` folds as `store.drive_name_fold` says.
+        if op == "contains":
+            return store.drive_name_fold(value) in store.drive_name_fold(f["name"])
+        have, want = _ascii_lower(f["name"]), _ascii_lower(value)
+        return (have == want) == (op == "=")
+    if field == "mimeType":
+        return value in f["mime"] if op == "contains" else (f["mime"] == value) == (op == "=")
+    if field == "fullText":
+        return f["id"] in fulltext.get(value, ())
+    if field == "modifiedTime":
+        return _drive_q_compare(op, f["modified"], value)
+    if field == "createdTime":
+        return _drive_q_compare(op, f["created"], value)
+    if field == "parents":
+        return value in f["parents"]
+    if field == "owners":
+        # `me` is the reference's alias for the caller (`'me' in owners`), resolved through the
+        # identity `sharedWithMe` reads: the admin token is not a Drive user and owns nothing.
+        who = value.strip().lower()
+        if who == "me":
+            return bool(me) and me.lower() in f["owners"]
+        return who in f["owners"]
+    raise AssertionError(f"unevaluated q term {field!r}")  # every field the parser admits is above
+
+
+_ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+
+def _ascii_lower(text: str) -> str:
+    """Lower-case the ASCII letters and nothing else — SQLite's LIKE fold, and real Drive's `name =`."""
+    return text.translate(_ASCII_LOWER)
+
+
+def _drive_q_fulltext(conn, node, ids) -> dict[str, list]:
+    """The index's answer for each `fullText contains` value in the query, as rows in rank order.
+
+    Real Drive semantics: a quoted value (`fullText contains '"X Y"'`) is an exact phrase (tokens
+    adjacent); unquoted is separate terms. A grep push-down sends the quoted form for a literal
+    pattern, so the exact doc surfaces instead of being buried under coincidental docs that merely
+    contain the words scattered."""
+    out: dict[str, list] = {}
+    for term in _drive_q_terms(node):
+        if term.field != "fullText" or term.value in out:
+            continue
+        raw = term.value
+        phrase = len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"'
+        out[raw] = store.search_documents(
+            conn, raw[1:-1] if phrase else raw, "google_drive", ids, limit=10_000, phrase=phrase
+        )
+    return out
+
+
+def _drive_q_fulltext_ids(hits: dict[str, list]) -> dict[str, set[str]]:
+    return {value: {r["id"] for r in rows} for value, rows in hits.items()}
+
+
+def _drive_owned_by(owner_email: str | None, me: str | None) -> bool:
+    """Whether the caller owns this file. The admin/service token is not a Drive user (its
+    ``caller.email`` is None), so it owns nothing — for it, everything reads as shared."""
+    return bool(me) and (owner_email or "").lower() == me.lower()
+
+
+def _shared_with_me_time(owner_email: str | None, me: str | None, created: int) -> dict:
+    """``sharedWithMeTime`` as a ``**``-mergeable fragment. Real Drive sets it only on items shared
+    WITH the caller, so its presence is how a client tells a shared item from its own — the same
+    partition ``q: sharedWithMe`` filters on, which is why the two must agree.
+
+    Empty for an unknown caller (the admin token: nothing was shared with it) or an owned item. No
+    share event is recorded, so the creation time stands in; ``modifiedTime`` would reorder
+    ``orderBy=sharedWithMeTime`` every time the document was edited."""
+    if not me or _drive_owned_by(owner_email, me):
+        return {}
+    return {"sharedWithMeTime": synth.rfc3339(created)}
+
+
+def _drive_created(row) -> int:
+    """A file's creation second — its own, else one seeded from its id. `is not None`, because
+    1970-01-01T00:00:00Z stores as 0 and a file that HAS a second must serve it rather than a
+    seeded one (which would also make the `q` time filters disagree with the served body)."""
+    return row["created_ts"] if row["created_ts"] is not None else synth.epoch(row["id"])
+
+
+def _drive_modified(row) -> int:
+    """A file's last-modified second, an hour after creation when the corpus states none."""
+    return row["updated_ts"] if row["updated_ts"] is not None else _drive_created(row) + 3600
+
+
+def _drive_facts(row) -> dict:
+    """The values `q` clauses are evaluated against, taken from a stored row."""
+    modified = _drive_modified(row)
+    return {
+        "id": row["id"],
+        "trashed": bool(row["trashed"]),
+        "parents": store.jcol(row, "parents") or [synth.drive_folder_id(row["folder"])],
+        "mime": _drive_mime(row),
+        "name": row["title"] or "",
+        "modified": synth.rfc3339(modified),
+        "created": synth.rfc3339(_drive_created(row)),
+        "owner_email": row["author_email"],
+        # real Drive keys `in owners` on the owner's email; Backlot also accepts the owner
+        # display name, since that's the only owner identifier some callers have.
+        "owners": {(row["author_email"] or "").lower(), (row["owner_display"] or "").lower()},
+    }
+
+
+def _drive_obj_facts(obj: dict) -> dict:
+    """The same values taken from an already-built file object — the synthesized folders, which
+    exist only as objects, are matched through this so every clause treats them like a row."""
+    return {
+        "id": obj.get("id") or "",
+        "trashed": bool(obj.get("trashed")),
+        "parents": obj.get("parents") or [],
+        "mime": obj.get("mimeType") or "",
+        "name": obj.get("name") or "",
+        "modified": obj.get("modifiedTime") or "",
+        "created": obj.get("createdTime") or "",
+        "owner_email": (obj.get("owners") or [{}])[0].get("emailAddress"),
+        "owners": {(o.get("emailAddress") or "").lower() for o in (obj.get("owners") or [])},
+    }
+
+
+def _visible_drive_folders(conn, ids) -> list[str]:
+    """Folder names the caller can see a file in — the containers to surface as folders."""
+    folders = [r["name"] for r in store.list_containers(conn, "google_drive")]
+    if ids is None:  # admin sees every folder
+        return sorted(folders)
+    return sorted(f for f in folders if store.drive_folder_has_visible(conn, f, ids))
+
+
+def _drive_folder_obj(conn, name: str, me: str | None = None) -> dict:
+    """A Drive file object for a folder container. Its id matches what files in it report as
+    their parent (``synth.drive_folder_id``), and it hangs under ``root`` so a client that
+    navigates from My Drive root (e.g. mirage) can discover and descend into it.
+
+    Backlot models no folder owner, so a folder is never owned by the caller and carries
+    ``sharedWithMeTime`` like any other item the ``sharedWithMe`` filter returns — the folder stream
+    has to answer a clause the same way the row stream does."""
+    fid = synth.drive_folder_id(name)
+    ts = synth.epoch("folder:" + name)
+    return {
+        "kind": "drive#file",
+        "id": fid,
+        "name": name,
+        "mimeType": DRIVE_FOLDER_MIME,
+        "parents": ["root"],
+        "createdTime": synth.rfc3339(ts),
+        "modifiedTime": synth.rfc3339(ts),
+        **_shared_with_me_time(None, me, ts),
+        "trashed": False,
+        "explicitlyTrashed": False,
+        "starred": False,
+        "shared": True,
+        "ownedByMe": False,
+        "viewedByMe": False,
+        "version": "1",
+        "spaces": ["drive"],
+        "webViewLink": f"https://drive.google.com/drive/folders/{fid}",
+        "iconLink": "https://drive.google.com/icons/folder.png",
+        "capabilities": {
+            "canDownload": False,
+            "canListChildren": True,
+            "canComment": False,
+            "canEdit": False,
+            "canCopy": False,
+            "canShare": True,
+            "canRename": False,
+            "canTrash": False,
+            "canDelete": False,
+            "canReadRevisions": False,
+            "canAddChildren": False,
+            "canModifyContent": False,
+        },
+    }
+
+
+def _drive_folder_name_by_id(conn, file_id: str) -> str | None:
+    """Reverse a synthesized folder id back to its container name. Uses the small folder table
+    (no ACL/no per-row scan) — the caller's ACL is enforced when its files are then listed."""
+    for row in store.list_containers(conn, "google_drive"):
+        if synth.drive_folder_id(row["name"]) == file_id:
+            return row["name"]
+    return None
+
+
+# --- `fields` projection -------------------------------------------------------------------
+# Every field of the Drive v3 `files` resource per Google's reference — deliberately the whole
+# documented set, not just the keys Backlot synthesizes: real Drive accepts a documented field
+# it has no value for (and omits it from the response) while rejecting anything unknown with 400.
+# Validating against it is what makes a Backlot-backed test able to catch a typo'd or stale mask.
+_DRIVE_FILE_FIELDS = frozenset(
+    """
+    appProperties capabilities contentHints contentRestrictions copyRequiresWriterPermission
+    createdTime description driveId explicitlyTrashed exportLinks fileExtension folderColorRgb
+    fullFileExtension hasAugmentedPermissions hasThumbnail headRevisionId iconLink id
+    imageMediaMetadata inheritedPermissionsDisabled isAppAuthorized kind labelInfo
+    lastModifyingUser linkShareMetadata md5Checksum mimeType modifiedByMe modifiedByMeTime
+    modifiedTime name originalFilename ownedByMe owners parents permissionIds permissions
+    properties quotaBytesUsed resourceKey sha1Checksum sha256Checksum shared sharedWithMeTime
+    sharingUser shortcutDetails size spaces starred teamDriveId thumbnailLink thumbnailVersion
+    trashed trashedTime trashingUser version videoMediaMetadata viewedByMe viewedByMeTime
+    viewersCanCopyContent webContentLink webViewLink writersCanShare
+""".split()
+)
+_DRIVE_LIST_FIELDS = frozenset({"kind", "nextPageToken", "incompleteSearch", "files"})
+
+
+def _split_mask(mask: str) -> list[str]:
+    """Split a `fields` mask on its top-level commas, so a nested group stays whole
+    (``files(id,name),nextPageToken`` -> ``['files(id,name)', 'nextPageToken']``)."""
+    out, depth, cur = [], 0, ""
+    for ch in mask:
+        if ch == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+            continue
+        depth += (ch == "(") - (ch == ")")
+        depth = max(depth, 0)
+        cur += ch
+    out.append(cur)
+    return [t.strip() for t in out if t.strip()]
+
+
+def _mask_names(mask: str) -> set[str]:
+    """The leading key of each comma-separated entry: a nested mask (``capabilities/canEdit``,
+    ``owners(emailAddress)``) selects — and is validated as — its parent key."""
+    return {t.split("/")[0].split("(")[0].strip() for t in _split_mask(mask)}
+
+
+def _check_mask(names, allowed: frozenset) -> None:
+    """Reject an unknown field name the way real Drive does. Without this a bogus name simply
+    matched nothing and vanished, so the response was a 200 full of empty objects and no
+    Backlot-backed test could catch a mask that 400s in production."""
+    for n in sorted(names):
+        if n != "*" and n not in allowed:
+            raise gerr.invalid_parameter("fields", f"Invalid field selection {n}")
+
+
+def _drive_file_field_keys(fields: str | None) -> set[str] | None:
+    """File keys a ``files.list`` caller selected — so the response carries only those, not the
+    full ~30-field object. Google accepts both the group form (``files(id,name)``) and the path
+    form (``files/id``); both are honored. ``None`` = no projection (an absent mask, or one that
+    asks for everything with ``*``).
+
+    Top-level names are validated but not projected: Backlot always returns ``kind`` and
+    ``incompleteSearch``, because its typed response model (``DriveFileList``, which the OpenAPI
+    schema is built from) declares them."""
+    if not (fields or "").strip():
+        return None
+    top, keys = set(), set()
+    for tok in _split_mask(fields):
+        if tok == "*":
+            return None
+        group = re.fullmatch(r"files\s*\((.*)\)", tok, re.DOTALL)
+        if group:
+            top.add("files")
+            keys |= _mask_names(group.group(1))
+        elif tok.startswith("files/"):
+            top.add("files")
+            keys |= _mask_names(tok[len("files/") :])
+        else:
+            top.add(tok.split("/")[0].split("(")[0])
+    _check_mask(top, _DRIVE_LIST_FIELDS)
+    _check_mask(keys, _DRIVE_FILE_FIELDS)
+    return None if "*" in keys else (keys or None)
+
+
+def _drive_get_field_keys(fields: str | None) -> set[str] | None:
+    """The same projection for ``files.get``, whose mask names file fields directly
+    (``fields=id,name,size``). Applying it is what makes one file look the same whether a client
+    read it out of a listing or resolved it by id.
+
+    A mask that is empty or blank selects nothing, which is not the same as no mask: measured
+    2026-09-23, `fields=` and `fields=%20` answer ``{}`` where an absent `fields` answers the
+    default object. So an absent mask is ``None`` and a blank one the empty set."""
+    if fields is None:
+        return None
+    if not fields.strip():
+        return set()
+    keys = _mask_names(fields)
+    _check_mask(keys, _DRIVE_FILE_FIELDS)
+    return None if "*" in keys else (keys or None)
+
+
+def _drive_project(files: list[dict], keys: set[str] | None) -> list[dict]:
+    return files if keys is None else [{k: v for k, v in f.items() if k in keys} for f in files]
+
+
+def _drive_fill_shared(conn, files: list[dict], stored: set[str]) -> None:
+    """Resolve ``shared`` for one page of stored files, in one query. Objects not in ``stored`` are
+    the synthesized folders, left alone: their sharing comes from the files they hold, not from a
+    grant on the folder id.
+
+    ``stored`` is the SET of served file ids that came from a row. An ACL grant names a file by
+    that same id, so plain set membership is exact."""
+    have = store.docs_with_grants(
+        conn, "google_drive", [f["id"] for f in files if f["id"] in stored]
+    )
+    for f in files:
+        if f["id"] in stored:
+            f["shared"] = f["id"] in have
+
+
+# --- `orderBy` -----------------------------------------------------------------------------
+
+
+def _natural_key(name: str) -> list[tuple]:
+    """Drive's ``name_natural``: digit runs compare numerically, so ``v2`` sorts before ``v10``."""
+    return [
+        (0, int(t), "") if t.isdigit() else (1, 0, t.casefold())
+        for t in re.split(r"(\d+)", name)
+        if t
+    ]
+
+
+# Real Drive's documented `orderBy` keys -> the sort key each takes from the served file object
+# (sorting what the client actually sees, so folders and stored rows order together). Names sort
+# case-insensitively, the way Drive's collation presents them. `recency` is Drive's "most recent
+# by any signal"; Backlot models exactly one modification timestamp, which stands in for it.
+_DRIVE_ORDER_KEYS = {
+    "createdTime": lambda f: f.get("createdTime") or "",
+    "modifiedTime": lambda f: f.get("modifiedTime") or "",
+    "recency": lambda f: f.get("modifiedTime") or "",
+    "name": lambda f: (f.get("name") or "").casefold(),
+    "name_natural": lambda f: _natural_key(f.get("name") or ""),
+    "folder": lambda f: f.get("mimeType") != DRIVE_FOLDER_MIME,  # folders first
+    "starred": lambda f: bool(f.get("starred")),
+    "quotaBytesUsed": lambda f: int(f.get("quotaBytesUsed") or f.get("size") or 0),
+    # Sortable because Backlot DOES model the relation behind it — owner vs caller — even though it
+    # records no share event (see _shared_with_me_time). Absent for the admin/service token, where
+    # every key ties and the order falls back to the id, as it would on real Drive over nulls.
+    "sharedWithMeTime": lambda f: f.get("sharedWithMeTime") or "",
+}
+# Documented by Drive, but derived from per-caller signals Backlot does not model at all: nothing
+# here is ever viewed or modified *by* anyone in particular. Sorting by one of these could only be a
+# no-op, and a silently unapplied sort is the very failure this fix is about — so they 400, which
+# tells a consumer "verify this against real Drive" instead of quietly agreeing.
+_DRIVE_ORDER_UNMODELLED = ("viewedByMeTime", "modifiedByMeTime")
+
+
+def _drive_order_specs(order_by: str | None) -> list[tuple]:
+    """Parse ``orderBy`` — comma-separated keys, each optionally suffixed ``desc`` — into
+    ``(key, reverse)`` pairs. An unusable key is a 400, as on the real API — accepting one and not
+    applying it would let a client relying on server-side ordering pass here and misbehave against
+    the real thing. A key named twice is a 403."""
+    specs = []
+    seen: set[str] = set()
+    for tok in (order_by or "").split(","):
+        parts = tok.split()
+        if not parts:
+            continue
+        key = parts[0]
+        if len(parts) > 2 or (len(parts) == 2 and parts[1] != "desc"):
+            raise gerr.invalid_value("orderBy", f"Invalid sort key: {tok.strip()}")
+        if key not in _DRIVE_ORDER_KEYS and key not in _DRIVE_ORDER_UNMODELLED:
+            raise gerr.invalid_value("orderBy", f"Invalid sort key: {tok.strip()}")
+        # Real Drive (measured 2026-10-04) 403s a key named twice whatever either direction is, and
+        # reads `name_natural` as `name` but `recency` and `modifiedTime` as two keys — so this
+        # compares names, not the key functions. It reads left to right and answers the first
+        # problem it meets, so the repeat is checked only once the token passes the checks above.
+        name = "name" if key == "name_natural" else key
+        if name in seen:
+            raise gerr.duplicate_sort_keys()
+        seen.add(name)
+        specs.append((key, len(parts) == 2))
+    return specs
+
+
+def _drive_order_keyfns(specs: list[tuple]) -> list[tuple]:
+    """``(key function, reverse)`` pairs for the keys ``_drive_order_specs`` passed. A key Backlot
+    cannot sort by is refused here, after the 403 a `fullText` term gets."""
+    for key, _ in specs:
+        if key in _DRIVE_ORDER_UNMODELLED:
+            raise gerr.invalid_value(
+                "orderBy",
+                f"Sorting by '{key}' is not supported by Backlot (it models no per-caller "
+                f"view/share timestamps). Supported: {', '.join(sorted(_DRIVE_ORDER_KEYS))}.",
+            )
+    return [(_DRIVE_ORDER_KEYS[key], reverse) for key, reverse in specs]
+
+
+def _drive_sort(files: list[dict], specs: list[tuple]) -> list[dict]:
+    """Apply the keys last-first: Python's sort is stable, so the first key wins. The id pre-sort
+    makes ties deterministic, which is what keeps a sorted walk from repeating or skipping a row
+    across pages."""
+    files.sort(key=lambda f: f.get("id") or "")
+    for keyfn, reverse in reversed(specs):
+        files.sort(key=keyfn, reverse=reverse)
+    return files
+
+
+def _drive_starred_after_another_key(order_by: str | None) -> bool:
+    """Whether ``starred`` follows another key in an ``orderBy`` that ``_drive_order_specs`` passed,
+    the case `gerr.drive_internal_error` answers. An empty token is no key: `,starred` is served and
+    `name,,starred` is the 500."""
+    keys = [parts[0] for tok in (order_by or "").split(",") if (parts := tok.split())]
+    return "starred" in keys[1:]
+
+
+def _drive_q_plain_folder(query) -> bool:
+    """True when the query is just a folder scope (``'<id>' in parents``, and the ``trashed =
+    false`` every query carries) with no other clause — the shape a tree-walking client sends,
+    servable straight from SQL."""
+    return _drive_q_is_conjunction(query) and all(
+        t.field == "parents" or t == _QTerm("trashed", "=", "false")
+        for t in _drive_q_conjuncts(query)
+    )
+
+
+def _drive_q_excludes_folders(conjuncts: list[_QTerm]) -> bool:
+    """True when a term every match has to satisfy is a mimeType no folder can satisfy. Only an
+    optimization — ``_drive_q_eval`` would reject them anyway — but it skips building the folder
+    stream (and its per-folder ACL probes) for the common query that only wants files."""
+    for t in conjuncts:
+        if t.field != "mimeType":
+            continue
+        if t.op == "contains":
+            if t.value not in DRIVE_FOLDER_MIME:
+                return True
+        elif (t.op == "=") != (t.value == DRIVE_FOLDER_MIME):
+            return True
+    return False
+
+
+def _drive_folder_candidates(conn, ids, query, me: str | None, fulltext: dict) -> list[dict]:
+    """The caller's visible folders as file objects, filtered by the query through the same
+    evaluator stored rows go through — so ``mimeType='…folder'`` finds them, not only
+    ``'root' in parents``, and they honor the ``fields`` projection like any other row.
+
+    A ``fullText contains`` term matches no folder: a folder's only text is its name (Backlot's
+    index covers document content, not container names), so its id is never among the index's
+    answers."""
+    if _drive_q_excludes_folders(_drive_q_conjuncts(query)):
+        return []
+    return [
+        f
+        for f in (_drive_folder_obj(conn, n, me) for n in _visible_drive_folders(conn, ids))
+        if query is None or _drive_q_eval(query, _drive_obj_facts(f), me, fulltext)
+    ]
+
+
+def _drive_shared_with_me_scope(
+    conjuncts: list[_QTerm], me: str | None
+) -> tuple[str | None, str | None]:
+    """``sharedWithMe`` as an SQL owner filter — ``(author_email, not_author_email)``. Drive's
+    "Shared with me" is a first-class listing a client pages through, so the half of the corpus it
+    can never contain is excluded in SQL rather than materialized and dropped in Python."""
+    term = next((t for t in conjuncts if t.field == "sharedWithMe"), None)
+    if term is None or not me:
+        return None, None
+    return (None, me) if (term.value == "true") == (term.op == "=") else (me, None)
+
+
+def _drive_q_rows(conn, query, container: str | None, ids, me: str | None, hits: dict) -> list:
+    """Rows matching a non-trivial query: build the smallest candidate set SQL can produce from the
+    terms every match has to satisfy, then evaluate the whole query in Python.
+
+    ``hits`` is ``_drive_q_fulltext``'s answer for this query, so the index is asked once."""
+    conjuncts = _drive_q_conjuncts(query)
+    fulltext = next((t for t in conjuncts if t.field == "fullText"), None)
+    # `contains` or `=`: `list_drive_by_name` makes the comparison real Drive makes for each, the
+    # same one `_drive_q_eval` makes, so the candidate set is the answer for that term and the
+    # evaluator only applies the others. Nothing the evaluator accepts is outside it.
+    name = next((t for t in conjuncts if t.field == "name" and t.op in ("contains", "=")), None)
+    # `list_drive_by_name` answers non-trashed rows only, so it can be the candidate set only when
+    # every match is non-trashed — `trashed = false` a conjunct, not merely present: under a `not`
+    # it asks for the trash.
+    non_trashed = _QTerm("trashed", "=", "false") in conjuncts or (
+        _QTerm("trashed", "!=", "true") in conjuncts
+    )
+    if fulltext is not None:  # the index's candidates, in rank order, then the other terms
+        candidates = hits[fulltext.value]
+    elif name is not None and non_trashed:
+        # A name lookup (mirage resolves every gdrive file with `name='…'`) — SQL title LIKE
+        # instead of materializing the whole corpus (~25k rows, ~1.6s) to match in Python. The
+        # remaining terms still filter the (small) name-matched set below.
+        candidates = store.list_drive_by_name(
+            conn, name.value, container, ids, limit=100_000, exact=name.op == "="
+        )
+    else:  # scope to the folder and/or the owner (if any) to shrink the set before the filter
+        owner, not_owner = _drive_shared_with_me_scope(conjuncts, me)
+        candidates = store.list_documents(
+            conn,
+            "google_drive",
+            container=container,
+            visible_ids=ids,
+            limit=100_000,
+            author_email=owner,
+            not_author_email=not_owner,
+        )
+    ids_by_value = _drive_q_fulltext_ids(hits)
+    return [r for r in candidates if _drive_q_eval(query, _drive_facts(r), me, ids_by_value)]
+
+
+# --- about ---------------------------------------------------------------------------------
+
+# Every field of the Drive v3 `about` resource, for the same reason `_DRIVE_FILE_FIELDS` is the
+# whole documented set: real Drive accepts a documented name it has no value for and rejects an
+# unknown one with 400, so validating against it is what lets a test catch a typo'd mask.
+_DRIVE_ABOUT_FIELDS = frozenset(
+    """
+    appInstalled canCreateDrives canCreateTeamDrives driveThemes exportFormats folderColorPalette
+    importFormats kind maxImportSizes maxUploadSize storageQuota teamDriveThemes user
+""".split()
+)
+
+
+def _drive_about_field_keys(fields: str | None) -> set[str] | None:
+    """``about.get`` is the one Drive read whose ``fields`` mask is MANDATORY — the resource has no
+    default projection, and real Drive 400s without one. ``None`` = serve everything (``*``).
+
+    A mask that parses to no names at all (``fields=,``) 400s rather than falling through to "no
+    projection": on a resource where the mask is required, answering a request for nothing with
+    everything is the one outcome the caller certainly did not ask for."""
+    if not (fields or "").strip():
+        raise gerr.required("fields", "The 'fields' parameter is required for this method.")
+    keys = _mask_names(fields)
+    _check_mask(keys, _DRIVE_ABOUT_FIELDS)
+    if not keys:
+        raise gerr.invalid_parameter("fields", f"Invalid field selection {fields}")
+    return None if "*" in keys else keys
+
+
+# The conversion tables below describe the *API's* capabilities, not this account's, so they carry
+# Google's real values even though Backlot is read-only: a client that reads them to decide what
+# to ask for must branch the same way it would against real Drive.
+
+# What `files.export` can turn each native type into, in the order real `about.exportFormats`
+# lists them (measured 2026-09-23), and what `drive_files_export` accepts. Kept to the three
+# native types Backlot actually stores (`_NATIVE` minus the folder, which is not exportable
+# anywhere).
+_DRIVE_EXPORT_FORMATS = {
+    DRIVE_DOC_MIME: [
+        "application/rtf",
+        "application/vnd.oasis.opendocument.text",
+        "text/html",
+        "application/pdf",
+        "text/x-markdown",
+        "text/markdown",
+        "application/epub+zip",
+        "application/zip",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+    ],
+    "application/vnd.google-apps.spreadsheet": [
+        "application/x-vnd.oasis.opendocument.spreadsheet",
+        "text/tab-separated-values",
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+        "application/zip",
+        "application/vnd.oasis.opendocument.spreadsheet",
+    ],
+    "application/vnd.google-apps.presentation": [
+        "application/vnd.oasis.opendocument.presentation",
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "text/plain",
+    ],
+}
+
+# Source type -> the native types Drive can convert it into on upload. Google's map is longer;
+# this is the part that covers every format Backlot's own corpus contains (native docs, Office
+# files, PDFs, delimited text, images), so a client's lookup for a real file resolves.
+_DRIVE_IMPORT_FORMATS = {
+    "application/pdf": [DRIVE_DOC_MIME],
+    "application/rtf": [DRIVE_DOC_MIME],
+    "text/html": [DRIVE_DOC_MIME],
+    "text/plain": [DRIVE_DOC_MIME],
+    "application/vnd.oasis.opendocument.text": [DRIVE_DOC_MIME],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [DRIVE_DOC_MIME],
+    "application/msword": [DRIVE_DOC_MIME],
+    "image/jpeg": [DRIVE_DOC_MIME],
+    "image/png": [DRIVE_DOC_MIME],
+    "image/gif": [DRIVE_DOC_MIME],
+    "text/csv": ["application/vnd.google-apps.spreadsheet"],
+    "text/tab-separated-values": ["application/vnd.google-apps.spreadsheet"],
+    "application/vnd.ms-excel": ["application/vnd.google-apps.spreadsheet"],
+    "application/vnd.oasis.opendocument.spreadsheet": ["application/vnd.google-apps.spreadsheet"],
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
+        "application/vnd.google-apps.spreadsheet"
+    ],
+    "application/vnd.ms-powerpoint": ["application/vnd.google-apps.presentation"],
+    "application/vnd.oasis.opendocument.presentation": ["application/vnd.google-apps.presentation"],
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [
+        "application/vnd.google-apps.presentation"
+    ],
+}
+
+_DRIVE_MAX_IMPORT_SIZES = {
+    DRIVE_DOC_MIME: "10485760",
+    "application/vnd.google-apps.spreadsheet": "104857600",
+    "application/vnd.google-apps.presentation": "104857600",
+    "application/vnd.google-apps.drawing": "2097152",
+}
+_DRIVE_MAX_UPLOAD_SIZE = "5242880000000"
+
+# The colors `files.folderColorRgb` may be set to — a documented file field, so the palette a
+# client picks from has to be the real one.
+_DRIVE_FOLDER_COLORS = [
+    "#ac725e",
+    "#d06b64",
+    "#f83a22",
+    "#fa573c",
+    "#ff7537",
+    "#ffad46",
+    "#42d692",
+    "#16a765",
+    "#7bd148",
+    "#b3dc6c",
+    "#fbe983",
+    "#fad165",
+    "#92e1c0",
+    "#9fe1e7",
+    "#9fc6e7",
+    "#4986e7",
+    "#9a9cff",
+    "#b99aff",
+    "#c2c2c2",
+    "#cabdbf",
+    "#cca6ac",
+    "#f691b2",
+    "#cd74e6",
+    "#a47ae2",
+]
+
+# 2 TiB — a fixed plan size. The usage beside it is measured from the corpus, so the pair reads
+# like a real account rather than a made-up ratio.
+_DRIVE_STORAGE_LIMIT = 2 * 1024**4
+
+
+@router.get("/drive/v3/about", openapi_extra={"parameters": _P_DRIVE_ABOUT})
+async def drive_about(request: Request):
+    """Who the caller is and how much space they use — the first call most Drive clients make.
+
+    No ``response_model`` on purpose: real Drive returns strictly what the mask selected, down to
+    omitting ``kind``, and a typed model's defaults would put the unasked-for keys back."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    # 400s on an absent or unknown mask
+    keys = _drive_about_field_keys(gerr.first_repeat(request.query_params, "fields"))
+    ids = auth.visible_ids(request, caller)
+    # A caller with no mailbox of their own is the admin/service token; real Drive reports a
+    # concrete address here either way, as gmail.users.getProfile already does.
+    email = caller.email or _service_email(request)
+    used, trashed = store.drive_usage_bytes(conn, ids)
+    about = {
+        "kind": "drive#about",
+        "user": _drive_user(email) | {"me": True},  # `about.user` IS the caller
+        "storageQuota": {
+            "limit": str(_DRIVE_STORAGE_LIMIT),
+            # `usage` spans every Google service; Backlot stores nothing outside Drive, so the two
+            # are equal. Both include the trash, which is the subset `usageInDriveTrash` reports.
+            "usage": str(used),
+            "usageInDrive": str(used),
+            "usageInDriveTrash": str(trashed),
+        },
+        "importFormats": _DRIVE_IMPORT_FORMATS,
+        "exportFormats": _DRIVE_EXPORT_FORMATS,
+        "maxImportSizes": _DRIVE_MAX_IMPORT_SIZES,
+        "maxUploadSize": _DRIVE_MAX_UPLOAD_SIZE,
+        "appInstalled": False,
+        "folderColorPalette": _DRIVE_FOLDER_COLORS,
+        # The corpus is all My Drive and /drive/v3/drives is empty, so every shared-drive field
+        # says so rather than hinting at a capability that isn't there.
+        "canCreateDrives": False,
+        "canCreateTeamDrives": False,
+        "driveThemes": [],
+        "teamDriveThemes": [],
+    }
+    return _drive_project([about], keys)[0]
+
+
+@router.get("/drive/v3/drives")
+async def drive_shared_drives(request: Request):
+    """Shared (Team) Drives — Backlot's corpus lives entirely in My Drive, so this is empty.
+    Present so shared-drive-aware clients don't 404 while enumerating."""
+    _require(request)
+    _drive_page_size_in_range(
+        _drive_typed(request, "useDomainAdminAccess", page_size=True)["pageSize"], 100
+    )
+    _drive_listing_page_token(request)
+    # Every caller here is a member of one Workspace domain and none is its administrator: a
+    # member's 403, with a `q` sent and without one, on its own and in a batch, measured 2026-10-06.
+    # Real answers a domain administrator 200 and a consumer account 400 at `q`.
+    if _drive_true(request, "useDomainAdminAccess"):
+        raise gerr.domain_admin_privilege_required()
+    return {"kind": "drive#driveList", "drives": []}
+
+
+@router.get(
+    "/drive/v3/files", response_model=DriveFileList, openapi_extra={"parameters": _P_DRIVE_LIST}
+)
+async def drive_files_list(request: Request):
+    """A listing is the union of two streams — the stored files and the synthesized folders — put
+    through one matcher, one sort and one projection, so a query that should match a folder does
+    and every row comes back shaped the way the caller asked for."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    me = caller.email
+    # Each read off the first repeat, as real reads them -- see `gerr.first_repeat`. Refused in
+    # real's order, measured 2026-09-23 by sending two bad values at once: `pageSize` first, then
+    # `orderBy`, `q`, `pageToken` and `fields`, whichever order the query names them in. The 403 for
+    # an `orderBy` naming a key twice comes at the same point, measured 2026-10-05, the shared-drive
+    # 403 between `orderBy` and `q`, measured 2026-10-04, the 403 for an `orderBy` on a `q` with a
+    # `fullText` term between `q` and `pageToken`, measured 2026-10-05 and 2026-10-07, and the 500
+    # for `starred` after another key between `pageToken` and `fields`, measured 2026-10-04 and
+    # 2026-10-07.
+    params = request.query_params
+    typed = _drive_typed(
+        request,
+        "supportsAllDrives",
+        "supportsTeamDrives",
+        "includeItemsFromAllDrives",
+        "includeTeamDriveItems",
+        page_size=True,
+    )
+    limit = _drive_page_size(typed["pageSize"])
+    # 400 on an unusable key, 403 on a key named twice
+    order = _drive_order_specs(gerr.first_repeat(params, "orderBy"))
+    shared_items = _drive_true(request, "includeItemsFromAllDrives") or _drive_true(
+        request, "includeTeamDriveItems"
+    )
+    if shared_items and not (
+        _drive_true(request, "supportsAllDrives") or _drive_true(request, "supportsTeamDrives")
+    ):
+        raise gerr.supports_all_drives_required()
+    q = gerr.first_repeat(params, "q") or ""
+    query = _drive_q_parse(q)  # 400 on a clause Backlot cannot evaluate; None when there is no q
+    if order and query is not None and any(t.field == "fullText" for t in _drive_q_terms(query)):
+        raise gerr.sorting_not_supported_fulltext()
+    order = _drive_order_keyfns(order)
+    # Measured 2026-09-23: a token the API did not issue is 400 `Invalid Value`, where an empty one
+    # is the first page.
+    offset = decode_cursor_or_none(gerr.first_repeat(params, "pageToken"))
+    if offset is None:
+        raise gerr.invalid_value("pageToken")
+    if _drive_starred_after_another_key(gerr.first_repeat(params, "orderBy")):
+        raise gerr.drive_internal_error()
+    mask = gerr.first_repeat(params, "fields")
+    if mask is not None and not mask.strip():
+        # The blank mask `_drive_get_field_keys` describes; on a listing it drops `kind` and
+        # `files` too, so the typed response model is bypassed.
+        return JSONResponse({})
+    keys = _drive_file_field_keys(mask)  # 400 on an unknown field
+    conjuncts = _drive_q_conjuncts(query)
+    hits = _drive_q_fulltext(conn, query, ids)
+    # A parent every match has to be under; one under an `or` scopes nothing.
+    parent_ids = [t.value for t in conjuncts if t.field == "parents"]
+    # A folder-scoped parent resolves to one container name (for the SQL-scoped paths below).
+    scoped = [pid for pid in parent_ids if pid != "root"]
+    container = next((n for pid in scoped if (n := _drive_folder_name_by_id(conn, pid))), None)
+    # Backlot's folders all hang directly under the root, so a query scoped inside one can only
+    # match files — no folder stream to build.
+    folders = (
+        []
+        if scoped
+        else _drive_folder_candidates(conn, ids, query, me, _drive_q_fulltext_ids(hits))
+    )
+
+    # The row stream as (count, fetch) so the SQL paths stay SQL-paginated: a crawl costs one page
+    # of rows per request, not a full-corpus scan re-run for every page.
+    if "root" in parent_ids:
+        total_rows, fetch = 0, lambda o, n: []  # every stored file lives in a folder
+    elif container is not None and _drive_q_plain_folder(query):
+        # The common case: a client walking the tree wants just this folder's files.
+        total_rows = store.count_drive_folder(conn, container, ids)
+        fetch = lambda o, n: store.list_drive_folder(conn, container, ids, limit=n, offset=o)  # noqa: E731
+    elif query is not None:  # filter the visible set by the query, then paginate
+        matched = _drive_q_rows(conn, query, container, ids, me, hits)
+        total_rows, fetch = len(matched), lambda o, n: matched[o : o + n]  # noqa: E731
+    else:
+        # exclude_trashed: with no `q` at all there is no query to carry `trashed = false`, and
+        # real Drive leaves trashed files out of files.list unless `trashed = true` asks for them.
+        # The q-bearing paths already do this (the `trashed = false` _drive_q_parse appends,
+        # store.list_drive_folder's WHERE), so without it the DEFAULT listing was the one call that
+        # returned trash.
+        total_rows = store.count_documents(
+            conn, "google_drive", visible_ids=ids, exclude_trashed=True
+        )
+        fetch = lambda o, n: store.list_documents(  # noqa: E731
+            conn, "google_drive", visible_ids=ids, limit=n, offset=o, exclude_trashed=True
+        )
+
+    # The file ids that came from the row stream, as opposed to a synthesized folder -- see
+    # _drive_fill_shared, which marks only those.
+    stored: set[str] = set()
+
+    def objects(o: int, n: int, *, with_shared: bool = True) -> list[dict]:
+        rows = fetch(o, n) if n > 0 else []
+        stored.update(r["id"] for r in rows)
+        shared = (
+            store.docs_with_grants(conn, "google_drive", [r["id"] for r in rows])
+            if with_shared
+            else ()
+        )
+        return [_drive_file(conn, r, shared=r["id"] in shared, me=me) for r in rows]
+
+    total = total_rows + len(folders)
+    if order:
+        # A sort spans the whole result set, so it needs the whole set: paging in SQL would order
+        # each page in isolation. Materializing the corpus costs more than a paged listing, which
+        # is why it happens only when a sort is actually asked for — and `shared`, the one field
+        # that costs a query per page and that no sort key reads, is deferred to the page below.
+        files = _drive_sort(objects(0, total_rows, with_shared=False) + folders, order)[
+            offset : offset + limit
+        ]
+        _drive_fill_shared(conn, files, stored)
+    else:
+        # No sort: the stored rows first (SQL-paginated), the folder objects as the tail. Real
+        # Drive leaves the default order unspecified, and keeping folders last means a client that
+        # reads files[0] out of an unfiltered listing still gets a file.
+        files = objects(offset, min(limit, max(0, total_rows - offset)))
+        if len(files) < limit:
+            start = max(0, offset - total_rows)
+            files += folders[start : start + limit - len(files)]
+    body = {
+        "kind": "drive#fileList",
+        "incompleteSearch": False,
+        "files": _drive_project(files, keys),
+    }
+    token = next_page_token(offset, len(files), total)
+    if token:
+        body["nextPageToken"] = token
+    return body
+
+
+@router.get("/drive/v3/files/{file_id}", openapi_extra={"parameters": _P_DRIVE_ALT})
+async def drive_files_get(file_id: str, request: Request):
+    if _drive_batch_download(request):
+        _drive_batch_redirect(request)
+    # A byte-stream read answers in real's measured order: a `Bearer` that does not resolve is its
+    # 401 (2026-10-07), a `callback` is the 503 an uncallable name answers whatever the download
+    # would have done (2026-10-04, 2026-10-05), and the absent credential is named afterwards, once
+    # `_drive_typed` has had its say (2026-10-07) -- `gerr.refuse_download` and the late `_require`.
+    # The metadata read below keeps its own order: its credential first, then the typed parameters.
+    # Inside a batch the redirect above answers first, whatever the part carries.
+    download = _drive_download_request(request)
+    conn = auth.conn(request)
+    if download:
+        _require_download_bearer(request)
+        gerr.refuse_download(request)
+    else:
+        caller = _require(request)
+    _drive_typed(request, "acknowledgeAbuse", "supportsAllDrives", "supportsTeamDrives")
+    if download:
+        caller = _require(request, download=True)
+    # Measured 2026-10-04: before the lookup, so a file that does not exist is refused alike, and
+    # before `fields`. Inside a batch real checks a part's own flag only when the part is the
+    # batch's one part that is not a download, measured 2026-10-05 beside downloads, other reads and
+    # a second flagged part.
+    outer = _BATCH_OUTER.get()
+    if not download and _drive_true(request, "acknowledgeAbuse") and (outer is None or outer.lone):
+        raise gerr.abuse_acknowledgment_not_applicable()
+    ids = auth.visible_ids(request, caller)
+    row = store.gdrive_by_id(conn, file_id, visible_ids=ids)
+    if row is None:
+        name = _drive_folder_name_by_id(conn, file_id)  # folders aren't stored as rows
+        if name is not None:
+            keys = _drive_get_field_keys(gerr.first_repeat(request.query_params, "fields"))
+            return _drive_project([_drive_folder_obj(conn, name, caller.email)], keys)[0]
+        raise gerr.not_found_file(file_id)
+    # `gerr.alt_format`, not `.get`: measured 2026-09-17 against this same route, `alt=MEDIA` and
+    # `alt=Media` download the content just as `alt=media` does, and `alt=media&alt=json` downloads
+    # it where `alt=json&alt=media` answers the metadata — the first repeat decides, and
+    # ``QueryParams.get`` answers the last.
+    if gerr.alt_format(request.query_params) == "media":
+        # raw download — real API errors on native Docs-editors types (use export)
+        if _native(row) is not None:
+            raise gerr.not_downloadable()
+        mime = row["mime_type"] or "application/octet-stream"
+        return Response(row["content"].encode("utf-8"), media_type=mime)
+    # Same projection as files.list: a file resolved by id and the same file read out of a listing
+    # must come back identical, or caching/diffing behaves differently depending on which call
+    # produced the row.
+    keys = _drive_get_field_keys(gerr.first_repeat(request.query_params, "fields"))
+    return _drive_project([_drive_file(conn, row, me=caller.email)], keys)[0]
+
+
+@router.get("/drive/v3/files/{file_id}/export", openapi_extra={"parameters": _P_DRIVE_EXPORT})
+async def drive_files_export(file_id: str, request: Request):
+    """Measured 2026-09-23, the refusals come in this order: an absent `mimeType` ahead of the file
+    lookup (a file that does not exist is still `Required parameter: mimeType`), then the 404,
+    then a file that is not a Docs Editors one, then a format its type does not export to. That
+    last one is matched without regard to case -- `TEXT/CSV` exports -- and an empty `mimeType=`
+    is one of them rather than an absent parameter.
+
+    A byte-stream read layers real's three download refusals before those, measured 2026-10-04,
+    2026-10-05 and 2026-10-07: a `Bearer` that does not resolve is its 401, a `callback` is the 503
+    an uncallable name answers and the shape every later error takes, and a missing credential is
+    named only after `mimeType` (`gerr.missing_api_key`). An export asking for `alt=json` is none of
+    that -- it is an ordinary read, which `_drive_download` decides.
+
+    The export's `Content-Type` is the `mimeType` as sent and nothing more, measured 2026-09-30 on
+    eleven formats of a spreadsheet and a document under five `Accept` values each (none, `*/*`,
+    `application/json`, `text/html`, `application/xml`): `text/csv`, `TEXT/CSV`, `Text/Csv`,
+    `text/markdown` and `text/html` each came back as exactly that, with no `charset`. So the
+    header is set whole, where a ``media_type`` would have Starlette append `; charset=utf-8` to a
+    lower-case `text/` type."""
+    if _drive_batch_download(request):
+        _drive_batch_redirect(request)
+    download = _drive_download_request(request)
+    conn = auth.conn(request)
+    if download:
+        _require_download_bearer(request)
+        gerr.refuse_download(request)
+    else:
+        caller = _require(request)
+    requested = gerr.first_repeat(request.query_params, "mimeType")
+    if requested is None:
+        raise gerr.required("mimeType")
+    if download:
+        caller = _require(request, download=True)
+    ids = auth.visible_ids(request, caller)
+    row = store.gdrive_by_id(conn, file_id, visible_ids=ids)
+    if row is None:
+        raise gerr.not_found_file(file_id)
+    native = _native(row)
+    if native is None or native[2] is None:  # binary or folder — not exportable
+        raise gerr.not_exportable()
+    target = requested.casefold()
+    if target not in {f.casefold() for f in _DRIVE_EXPORT_FORMATS.get(native[0], ())}:
+        raise gerr.unsupported_conversion()
+    # honor the requested target format; CSV/TSV serve the cells, others prefix the title.
+    #
+    # CSV needs no branch for either kind of document: a document that STATES a grid has its
+    # `content` derived from the first sheet's CSV at import, and one that does not has the text it
+    # always had. TSV is a DIFFERENT serialisation of the same cells — measured, it has no quoting
+    # mechanism and collapses an embedded newline or tab to a single space — so a stated grid
+    # re-serialises for it. A prose document exports verbatim either way: its cells ARE its lines,
+    # so there is nothing to re-serialise.
+    if target == "text/tab-separated-values":
+        stored = store.gdrive_sheets_for(conn, file_id)
+        if stored:
+            grid = json.loads(stored[0]["grid"])
+            return Response(sheets_grid.to_tsv(grid), headers={"content-type": requested})
+    plain = target in ("text/csv", "text/tab-separated-values")
+    body = row["content"] if plain else f"{row['title']}\n\n{row['content']}"
+    return Response(body, headers={"content-type": requested})
+
+
+@router.get(
+    "/drive/v3/files/{file_id}/permissions",
+    response_model=DrivePermissionList,
+    openapi_extra={"parameters": _P_DRIVE_PERMISSIONS},
+)
+async def drive_files_permissions(file_id: str, request: Request):
+    conn = auth.conn(request)
+    caller = _require(request)
+    sizes = _drive_typed(
+        request, "supportsAllDrives", "supportsTeamDrives", "useDomainAdminAccess", page_size=True
+    )["pageSize"]
+    _drive_page_size_in_range(sizes, 100)
+    # Refused in real's order, measured by sending two bad values at once: the `pageToken`
+    # refusals, a repeated `pageSize`'s 500, the domain-administrator refusal and the file lookup
+    # below, and a token issued for another file last, in `_drive_permission_page`. The places of
+    # the 500 and of that last refusal were measured 2026-10-08.
+    token = _drive_permissions_page_token(request)
+    size = _drive_permissions_page_size(sizes)
+    # No caller here is a domain administrator: 404 for the file, even one the caller owns,
+    # measured 2026-10-04 on a consumer account and 2026-10-06 on a Workspace member.
+    if _drive_true(request, "useDomainAdminAccess"):
+        raise gerr.not_found_file(file_id)
+    ids = auth.visible_ids(request, caller)
+    row = store.gdrive_by_id(conn, file_id, visible_ids=ids)
+    if row is None:
+        # A folder id is a first-class file id on real Drive — files.get answers for one, so
+        # permissions.list has to as well. Folders aren't stored as rows, so their sharing comes
+        # from the grants on the files they hold.
+        name = _drive_folder_name_by_id(conn, file_id)
+        if name is None:
+            raise gerr.not_found_file(file_id)
+        permissions = _drive_permissions(conn, file_id, folder=name)
+    else:
+        permissions = _drive_permissions(conn, row["id"])
+    return _drive_permission_page(permissions, file_id, size, token)
+
+
+# --- Google Workspace editors read APIs (Docs / Sheets / Slides) ------------------
+#
+# Drive `files.export` renders a native doc to text, but editor-aware clients (e.g. mirage)
+# read the *structured* document straight from the Docs/Sheets/Slides APIs instead. These
+# endpoints serve the corpus content shaped into each API's read response, keyed on the same
+# Drive file id, and enforce the same ACL as Drive.
+
+# How the real Docs / Sheets / Slides APIs answer an id that is not their own kind of document.
+# MEASURED against docs.googleapis.com, sheets.googleapis.com and slides.googleapis.com with real
+# OAuth credentials, one call per case:
+#
+#   target passed to API X                  | response
+#   ----------------------------------------|-----------------------------------------------------
+#   a DIFFERENT native Workspace type       | 404 NOT_FOUND  "Requested entity was not found."
+#   an Office file of X's own family        | 400 FAILED_PRECONDITION  EDITOR_OFFICE
+#   any other non-native (pdf/txt/folder/…) | 400 INVALID_ARGUMENT  "Request contains an invalid…"
+#   an id that does not exist               | 404 NOT_FOUND  (identical to the first row)
+#
+# The first row is the counter-intuitive one, and it is why the earlier guess here was wrong: a Doc
+# id is not a malformed spreadsheet to the Sheets API, it is simply not an entity that API knows,
+# and the response is indistinguishable from an id that never existed.
+#
+# The Office row is narrower than the widely-cited bug reports (googlesheets4#275 and friends)
+# suggest — they only ever show the family that matches. Measured both ways: .xlsx -> Sheets and
+# .docx -> Docs give the Office message, while .xlsx -> Docs and .docx -> Sheets give the plain
+# invalid-argument one. `.pptx -> Slides` follows the confirmed pattern but was not itself
+# measured; no .pptx was available in the probed account.
+EDITOR_NOT_FOUND = "Requested entity was not found."
+EDITOR_INVALID_ARG = "Request contains an invalid argument."
+EDITOR_OFFICE = (
+    "This operation is not supported for this document. The document must not be an Office file."
+)
+
+# The binary subtypes (importer `_ATT_MIME` keys) each editor API considers its own family.
+_EDITOR_OFFICE_FAMILY = {
+    "document": {"doc", "docx"},
+    "spreadsheet": {"xls", "xlsx"},
+    "presentation": {"ppt", "pptx"},
+}
+_EDITOR_NATIVE = frozenset(_EDITOR_OFFICE_FAMILY)
+
+
+def _editor_doc(request: Request, file_id: str, *, expect: str):
+    """The Drive row behind an editor read, or the error real Google gives for a mismatch.
+
+    ``expect`` is the native subtype this API serves, and every caller names its own — otherwise
+    reading a Doc through the Sheets API answers 200 with prose sliced into a "grid", plausible
+    enough that a client trusts it rather than noticing the id was wrong.
+
+    Sheets and Docs resolve the stored type before visibility: a hidden file of their own type is
+    permission-denied, while a hidden file of another type gets that type's usual answer. Measured
+    on 2026-10-06, and for an Office file on 2026-10-09. Slides was not measured and resolves
+    visibility first."""
+    conn = auth.conn(request)
+    caller = _require(request)
+    ids = auth.visible_ids(request, caller)
+    type_before_acl = expect in {"document", "spreadsheet"}
+    # A native Doc/Sheet/Slides id is the SAME id space as Drive's own file id --
+    # real Google resolves docs.googleapis.com/etc. off the identical Drive file id, so this has
+    # to resolve the file's own id. Sheets and Docs need the unscoped row to distinguish a missing
+    # id from a stored file that this caller cannot see.
+    row = store.gdrive_by_id(conn, file_id, visible_ids=None if type_before_acl else ids)
+    if row is None:
+        # Folders are synthesized rather than stored, so they miss the lookup above. Real Google
+        # calls a folder an invalid argument, not a missing entity, so resolve it before giving up.
+        if _drive_folder_name_by_id(conn, file_id) is not None:
+            raise gerr.invalid_argument(EDITOR_INVALID_ARG)
+        raise gerr.not_found_entity()
+    # A row with no stored subtype is a document elsewhere in this module (`_native`), so it is one
+    # here too — the fallback stays in one place rather than being decided per route.
+    subtype = row["subtype"] or "document"
+    if subtype == expect:
+        if type_before_acl and store.gdrive_by_id(conn, file_id, visible_ids=ids) is None:
+            raise gerr.permission_denied()
+        return row
+    if subtype in _EDITOR_NATIVE:  # a different Workspace type: not this API's entity at all
+        raise gerr.not_found_entity()
+    if subtype in _EDITOR_OFFICE_FAMILY[expect]:
+        raise gerr.failed_precondition(EDITOR_OFFICE)
+    raise gerr.invalid_argument(EDITOR_INVALID_ARG)
+
+
+@router.get("/docs/v1/documents/{document_id}")
+async def docs_get(document_id: str, request: Request):
+    """The document as Docs structural elements: one ``paragraph`` per line of the stored text."""
+    row = _editor_doc(request, document_id, expect="document")
+    content = [{"sectionBreak": {"sectionStyle": {}}}]
+    for line in (row["content"] or "").split("\n"):
+        content.append(
+            {"paragraph": {"elements": [{"textRun": {"content": line + "\n", "textStyle": {}}}]}}
+        )
+    return {
+        "documentId": document_id,
+        "title": row["title"],
+        "revisionId": synth._digest(document_id)[:24],
+        "suggestionsViewMode": "SUGGESTIONS_INLINE",
+        "body": {"content": content},
+        "documentStyle": {},
+        "namedStyles": {"styles": []},
+    }
+
+
+def _sheets_grid(content: str | None) -> list[list[str]]:
+    """The stored text as a grid: one row per line, each row a SINGLE cell holding that line
+    verbatim. Joined back with ``\\n`` this reproduces the stored content byte-for-byte, which is
+    also what ``files.export`` serves — so the two cannot disagree.
+
+    NOT split on a delimiter. Measured over 1,875 real spreadsheet records, none is
+    delimiter-uniform CSV: 82.6% are prose, 17.4% prose wrapped around a PIPE-delimited table. So
+    comma-splitting manufactures columns out of sentence punctuation. A line break is the only
+    structure the stored text carries, so it is the only structure served — and choosing a column
+    delimiter is a corpus-owner's decision, which a caller can still make without first undoing a
+    guess made here.
+    """
+    return [[line] for line in (content or "").split("\n")]
+
+
+# --- the standard query parameters every Sheets read accepts ---------------------------------
+#
+# Measured on the live API, all on `values.get` unless noted:
+#
+#   fields           a partial-response mask; see `_gmask`
+#   prettyPrint      DEFAULT TRUE -- indented unless `false` or `0`; see `_sheets_respond`
+#   alt              `json` only; `media` is 400 "Unsupported alt type ... for non byte stream
+#                    request." and `zzz` 400 "Invalid value ... for query parameter 'alt'". `proto`
+#                    is a third answer real gives and this module does not -- see `_sheets_respond`
+#   callback         JSONP, on a GET: the body is wrapped, the type becomes text/javascript and the
+#                    status becomes 200 -- a name that is not a JavaScript one is refused ahead of
+#                    everything but `$.xgafv` and `alt` (`gerr.validate_system_parameters`), and an
+#                    empty value is no callback at all. Declared here rather than router-wide with
+#                    `$.xgafv`, because Sheets is where a SUCCESS is wrapped: the other four
+#                    families honour it on their errors only, which is less than a router-wide
+#                    declaration would promise. The two POST routes below share this list and so
+#                    declare it as well, which real's document does for every method -- and real
+#                    ignores it on a POST exactly as `gerr.jsonp_callback` does, so the declaration
+#                    promises a caller no more there than the vendor's own does.
+#   quotaUser        a rate-limit bucket label; any string, including empty, and no effect on the
+#                    response -- Backlot enforces no quota, so there is nothing for it to select
+#   upload_protocol  accepted and ignored on a read
+#
+# `key`, `access_token` and `oauth_token` are NOT here: each is an alternative way to authenticate,
+# and honouring one means a second credential path through `backlot.auth` rather than a parameter
+# this module can read. `uploadType` is not here either -- measured, the real API REFUSES it on a
+# read ("Cannot bind query parameter"), so the baseline's "the vendor accepts it" is not what the
+# vendor does.
+_P_SHEETS_STD = [
+    qp("fields"),
+    qp("prettyPrint", "boolean"),
+    qp("alt"),
+    qp("callback"),
+    qp("quotaUser"),
+    qp("upload_protocol"),
+]
+
+
+def _gmask_parse(mask: str) -> dict:
+    """A ``fields`` mask as a nested selection tree; ``{}`` at a leaf means "this whole subtree".
+
+    Measured grammar: ``.`` and ``/`` both descend, ``a(b,c)`` groups a sub-selection, ``,``
+    separates siblings, ``*`` selects everything, and a trailing comma is tolerated. A name is
+    matched case-sensitively and is not trimmed -- `` spreadsheetId`` with a leading space 400s."""
+    tree: dict = {}
+    # (node, key-so-far) as the parser descends into a group
+    stack, cur, token = [], tree, ""
+
+    def land(node, name):
+        if not name:
+            return node
+        head, _, rest = name.replace("/", ".").partition(".")
+        child = node.setdefault(head, {})
+        while rest:
+            head, _, rest = rest.partition(".")
+            child = child.setdefault(head, {})
+        return child
+
+    for ch in mask:
+        if ch == "(":
+            stack.append((cur, token))
+            cur, token = land(cur, token), ""
+        elif ch == ")":
+            if not stack:
+                raise gerr.bad_field_mask(mask)
+            land(cur, token)
+            cur, token = stack.pop()[0], ""
+        elif ch == ",":
+            land(cur, token)
+            token = ""
+        else:
+            token += ch
+    if stack:
+        raise gerr.bad_field_mask(mask)
+    land(cur, token)
+    return tree
+
+
+def _gmask_check(tree: dict, allowed: dict, path: str = "") -> None:
+    """Refuse a name the response has no field for, naming the full path as the real API does.
+
+    Validated against the fields Backlot CAN emit rather than against the whole Sheets schema:
+    a mask naming a real field this module does not model -- a cell's `userEnteredFormat`, say --
+    400s here where the real API answers 200. Stated rather than hidden; the alternative is to
+    accept any name at all, which is how a typo becomes a silently empty response."""
+    for name, sub in tree.items():
+        if name == "*":
+            continue
+        full = f"{path}.{name}" if path else name
+        if name not in allowed:
+            raise gerr.bad_field_mask(full)
+        if sub:
+            _gmask_check(sub, allowed[name], full)
+
+
+def _gmask_wants_grid(mask: str | None) -> bool:
+    """Whether a `fields` mask reaches the cells, which is what decides the grid when one is set.
+
+    The discovery document says of `includeGridData`, on both methods that take it: "This parameter
+    is ignored if a field mask was set in the request." Measured, that is narrower than it reads --
+    the mask has to reach `sheets.data`. `fields=sheets` and `fields=sheets.data...` build the
+    grid; `fields=*` and `fields=sheets.properties.title` do not, even though the first of those
+    selects everything."""
+    if not mask:
+        return False
+    tree = _gmask_parse(mask)
+    under = tree.get("sheets")
+    return under is not None and (not under or "data" in under)
+
+
+def _gmask_apply(tree: dict, value):
+    """Project ``value`` through a selection tree, mapping over a list rather than indexing it —
+    which is what lets ``sheets.properties.title`` reach into every sheet."""
+    if not tree or "*" in tree:
+        return value
+    if isinstance(value, list):
+        return [_gmask_apply(tree, v) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {}
+    for name, sub in tree.items():
+        if name in value:
+            out[name] = _gmask_apply(sub, value[name])
+    return out
+
+
+def _sheets_respond(request: Request, body: dict, allowed: dict) -> Response:
+    """One Sheets response, with the standard query parameters applied.
+
+    Order matters and is measured: `alt` decides whether the answer can be JSON at all, then
+    `fields` narrows the body, then `prettyPrint` decides the indentation, then `callback` wraps
+    what is left. An unparseable `callback` is refused ahead of all of them, in
+    ``gerr.validate_system_parameters`` — measured, that refusal beats a mistyped `fields` mask —
+    so by here the name is one the answer can be handed to.
+
+    The bytes themselves are ``gerr.respond``'s, which is also what every Google ERROR is rendered
+    through: a success and a failure on the same route come back through the same serializer on
+    real, so they do here."""
+    # `gerr.first_repeat`, not `.get`: real answers a repeated `alt` through the first one, and
+    # `gerr.jsonp_callback` reads the same parameter to decide the wrap -- so one request has to
+    # see one `alt` in both places.
+    alt = gerr.alt_format(request.query_params)
+    if alt and alt != "json":
+        # Measured on `media` and `zzz`: `media` gets its own sentence, everything else the
+        # generic one. NOT `proto`, which the discovery document also declares and which real
+        # answers with a protobuf body ("Proto over HTTP is not allowed for service …") under
+        # `application/x-protobuf` — a format this module does not serve, so it lands on the
+        # generic sentence here.
+        #
+        # The two sentences quote different spellings, measured 2026-09-17 on Sheets: `alt=MEDIA`
+        # answers `Unsupported alt type "media"` with the format lowercased, while `alt=ZZZ`
+        # answers `Invalid value "ZZZ"` through the spelling that arrived. So the generic one
+        # reads the parameter again rather than reusing the folded value.
+        raise gerr.invalid_argument(
+            f'Unsupported alt type "{alt}" for non byte stream request.'
+            if alt == "media"
+            else "Invalid value \"{}\" for query parameter 'alt'".format(
+                gerr.first_repeat(request.query_params, gerr.ALT)
+            )
+        )
+    mask = gerr.first_repeat(request.query_params, "fields")
+    if mask:
+        tree = _gmask_parse(mask)
+        _gmask_check(tree, allowed)
+        body = _gmask_apply(tree, body)
+    # Measured 2026-09-23, twenty spellings one request each: `false` and `0` turn it off and the
+    # other eighteen leave it indented, `FALSE`, `False`, `f`, `no`, `n`, `00` and a padded ` false`
+    # among them -- none is refused, where the other booleans refuse a value they cannot read. It
+    # is the success side alone that reads it: an error is indented whatever it says.
+    compact = gerr.first_repeat(request.query_params, "prettyPrint") in _PRETTY_PRINT_FALSE
+    return gerr.respond(body, compact=compact, callback=gerr.jsonp_callback(request))
+
+
+# What a `fields` mask may name, per response — the fields these routes actually build. A cell's
+# value objects are leaves: their members are the one-of `stringValue`/`numberValue`/`boolValue`,
+# which a mask reaches by naming the value itself.
+# Google's Color, whose members a mask may name. Spelled out rather than left a leaf: an empty
+# subtree would make `...rgbColor.red` a refusal where the real API answers it.
+_F_COLOR = {"red": {}, "green": {}, "blue": {}, "alpha": {}}
+_F_TEXT_FORMAT = {
+    "foregroundColor": _F_COLOR,
+    "fontFamily": {},
+    "fontSize": {},
+    "bold": {},
+    "italic": {},
+    "strikethrough": {},
+    "underline": {},
+    "foregroundColorStyle": {"rgbColor": _F_COLOR},
+}
+_F_CELL = {
+    "userEnteredValue": {"stringValue": {}, "numberValue": {}, "boolValue": {}},
+    "effectiveValue": {"stringValue": {}, "numberValue": {}, "boolValue": {}},
+    "formattedValue": {},
+    "effectiveFormat": {
+        "backgroundColor": _F_COLOR,
+        "padding": {"top": {}, "right": {}, "bottom": {}, "left": {}},
+        "horizontalAlignment": {},
+        "verticalAlignment": {},
+        "wrapStrategy": {},
+        "textFormat": _F_TEXT_FORMAT,
+        "hyperlinkDisplayType": {},
+        "backgroundColorStyle": {"rgbColor": _F_COLOR},
+    },
+}
+_F_GRID_DATA = {
+    "startRow": {},
+    "startColumn": {},
+    "rowData": {"values": _F_CELL},
+    "rowMetadata": {"pixelSize": {}},
+    "columnMetadata": {"pixelSize": {}},
+}
+_F_SPREADSHEET = {
+    "spreadsheetId": {},
+    "spreadsheetUrl": {},
+    "properties": {
+        "title": {},
+        "locale": {},
+        "autoRecalc": {},
+        "timeZone": {},
+        "defaultFormat": {
+            "backgroundColor": _F_COLOR,
+            "padding": {"top": {}, "right": {}, "bottom": {}, "left": {}},
+            "verticalAlignment": {},
+            "wrapStrategy": {},
+            "textFormat": _F_TEXT_FORMAT,
+            "backgroundColorStyle": {"rgbColor": _F_COLOR},
+        },
+        "spreadsheetTheme": {
+            "primaryFontFamily": {},
+            "themeColors": {"colorType": {}, "color": {"rgbColor": _F_COLOR}},
+        },
+    },
+    "sheets": {
+        "properties": {
+            "sheetId": {},
+            "title": {},
+            "index": {},
+            "sheetType": {},
+            "gridProperties": {"rowCount": {}, "columnCount": {}},
+        },
+        "data": _F_GRID_DATA,
+    },
+}
+_F_VALUE_RANGE = {"range": {}, "majorDimension": {}, "values": {}}
+_F_BATCH_BY_FILTER = {
+    "spreadsheetId": {},
+    "valueRanges": {
+        "valueRange": {"range": {}, "majorDimension": {}, "values": {}},
+        "dataFilters": {"a1Range": {}, "gridRange": {}},
+    },
+}
+_F_BATCH_VALUES = {"spreadsheetId": {}, "valueRanges": _F_VALUE_RANGE}
+
+_P_SHEETS_GET = [
+    qp("includeGridData", "boolean"),
+    qp("ranges"),
+    qp("excludeTablesInBandedRanges", "boolean"),
+    *_P_SHEETS_STD,
+]
+
+
+@router.get("/sheets/v4/spreadsheets/{spreadsheet_id}", openapi_extra={"parameters": _P_SHEETS_GET})
+async def sheets_get(spreadsheet_id: str, request: Request):
+    """The spreadsheet's structure, and its cells only if asked for.
+
+    ``data`` is withheld unless ``includeGridData=true`` — measured: a real workbook answers 4 KB by
+    default and 5.7 MB with the flag, and ``ranges`` alone does NOT unlock it. Volunteering the
+    whole grid would hand a reader cells the real API never would, so the document it assembles
+    would differ between the two backends. With the flag, ``ranges`` scopes the returned rows
+    (measured: 5.7 MB -> 11 KB for ``A1:B2``)."""
+    # The credential, then the typed values, then the lookup -- `_typed_query` records the order.
+    _require(request)
+    # A mask that reaches the cells decides the grid, and `includeGridData` is then ignored rather
+    # than consulted -- the vendor's own wording. Still parsed, so a bad value is still refused.
+    flags = _typed_query(
+        request,
+        {
+            "includeGridData": lambda raw: _sheets_bool_value(raw, "include_grid_data"),
+            "excludeTablesInBandedRanges": lambda raw: _sheets_bool_value(
+                raw, "exclude_tables_in_banded_ranges"
+            ),
+        },
+    )
+    grid = (flags["includeGridData"] or [False])[-1]
+    row, sheets = _workbook(request, spreadsheet_id)
+    mask = gerr.first_repeat(request.query_params, "fields")
+    if mask:
+        grid = _gmask_wants_grid(mask)
+    # `excludeTablesInBandedRanges` is validated above and then unused, deliberately: it drops the
+    # tables that sit inside a banded range, and a corpus states neither tables nor banded ranges,
+    # so there is nothing here to exclude. Leaving it unvalidated instead would accept the one
+    # thing a client can get wrong about it.
+    return _sheets_respond(
+        request,
+        _sheets_book(spreadsheet_id, row, sheets, request.query_params.getlist("ranges"), grid),
+        _F_SPREADSHEET,
+    )
+
+
+def _sheets_book(spreadsheet_id: str, row, sheets: list[_Sheet], specs: list, grid: bool):
+    """The `Spreadsheet` body both `spreadsheets.get` and `:getByDataFilter` answer with.
+
+    ``specs`` is what to serve — A1 ranges from `ranges` for one, and from the data filters for the
+    other A1 ranges and the empty grid ranges they may select (`_Empty`); empty means every sheet,
+    whole."""
+    # Each sheet paired with the cell parts to serve for it: `("", title)` is the whole grid, which
+    # is what a sheet nobody named gets. Resolved ONCE, here — a sheet is never re-derived from its
+    # own title further down, or one titled like a cell reference (`A1`, `AB`) would come back
+    # holding the first sheet's cells, or overflow the grid and fail the whole call.
+    wanted: list[tuple[_Sheet, list[tuple[str, str]]]] = [(sh, [("", sh.title)]) for sh in sheets]
+    if specs:
+        # A range filters the SHEETS ARRAY, not merely the cells: measured, a sheet none touches is
+        # absent from the response entirely, and a sheet several touch gets one `data` block each.
+        # That holds with or without `includeGridData` — without it the sheet list is still
+        # filtered and no block is served.
+        per_sheet: dict[int, list] = {}
+        for spec in specs:
+            if isinstance(spec, _Empty):
+                per_sheet.setdefault(spec.sheet.index, []).append(spec)
+                continue
+            sheet, body = _a1_sheet(spec, sheets)
+            per_sheet.setdefault(sheet.index, []).append((body, spec))
+        wanted = [(sh, per_sheet[sh.index]) for sh in sheets if sh.index in per_sheet]
+    out = []
+    for sh, parts in wanted:
+        entry = {
+            "properties": {
+                "sheetId": sh.sheet_id,
+                "title": sh.title,
+                "index": sh.index,
+                "sheetType": "GRID",
+                # the grid, not the data extent — see SHEETS_GRID_ROWS
+                "gridProperties": {"rowCount": sh.rows, "columnCount": sh.cols},
+            }
+        }
+        if grid:
+            entry["data"] = [
+                _sheets_empty_grid_data(part)
+                if isinstance(part, _Empty)
+                else _sheets_grid_data(sh, *part)
+                for part in parts
+            ]
+        out.append(entry)
+    return {
+        "spreadsheetId": spreadsheet_id,
+        "properties": {
+            "title": row["title"],
+            "locale": "en_US",
+            "autoRecalc": SHEETS_AUTO_RECALC,
+            "timeZone": SHEETS_TIME_ZONE,
+            "defaultFormat": SHEETS_DEFAULT_FORMAT,
+            "spreadsheetTheme": SHEETS_THEME,
+        },
+        "spreadsheetUrl": f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit",
+        "sheets": out,
+    }
+
+
+# --- Sheets `values` reads ------------------------------------------------------------------
+# `spreadsheets.get` serves the whole structured grid; a client that wants a slice reads
+# `values.get`, and one that wants several slices reads `values:batchGet`. Both resolve an A1
+# range against the same grid `sheets_get` builds, so the three calls cannot disagree about what
+# a cell holds.
+
+SHEETS_SHEET_TITLE = "Sheet1"  # Backlot shapes every spreadsheet as one sheet with this title
+
+# A real sheet's GRID is larger than its data — Sheets creates one at 1000x26 — and every range
+# behaviour below is defined against the grid rather than against the occupied cells. Measured on a
+# real spreadsheet holding 14 rows: `values/<title>` echoes `A1:Z1000`, `A:A` echoes `A1:A1000`.
+# So Backlot declares the same grid. This is API scaffolding, like the synthesized `sheetId` and
+# sheet title beside it — not invented cell data, which `_sheets_grid` still refuses to manufacture.
+SHEETS_GRID_ROWS = 1000
+SHEETS_GRID_COLS = 26
+
+# A cell's `effectiveFormat`, in the order real emits it. Measured: across every cell type a
+# corpus can state it varies in ONE field, `horizontalAlignment` -- a string sits left, a number
+# right, a boolean centred -- and the rest is the spreadsheet's default format, which nothing in a
+# corpus can change. So the whole object is derived rather than stored, the way `formattedValue`
+# is.
+#
+# `userEnteredFormat` is the other half of the pair and is NOT emitted. Measured, it carries only
+# what was explicitly set on that cell -- a strict subset of `effectiveFormat`, absent entirely
+# from a cell nobody formatted. Of 17 typed cells the only ones that had one were the percent,
+# date, datetime, time and scientific cells, each carrying a lone `numberFormat` that Sheets
+# INFERRED from what was typed. A corpus states no formatting and none of those value types, so no
+# cell it can describe has anything to put there -- not because the field resists derivation, but
+# because nothing a corpus says would trigger one.
+_CELL_FORMAT_ALIGN = {"str": "LEFT", "num": "RIGHT", "bool": "CENTER"}
+_CELL_FORMAT_REST = {
+    "verticalAlignment": "BOTTOM",
+    "wrapStrategy": "OVERFLOW_CELL",
+    "textFormat": {
+        "foregroundColor": {},
+        "fontFamily": "Arial",
+        "fontSize": 10,
+        "bold": False,
+        "italic": False,
+        "strikethrough": False,
+        "underline": False,
+        "foregroundColorStyle": {"rgbColor": {}},
+    },
+    "hyperlinkDisplayType": "PLAIN_TEXT",
+    "backgroundColorStyle": {"rgbColor": {"red": 1, "green": 1, "blue": 1}},
+}
+
+
+def _sheets_format(cell) -> dict:
+    """The `effectiveFormat` a cell of this type carries."""
+    if isinstance(cell, bool):
+        align = _CELL_FORMAT_ALIGN["bool"]
+    elif isinstance(cell, (int, float)):
+        align = _CELL_FORMAT_ALIGN["num"]
+    else:
+        align = _CELL_FORMAT_ALIGN["str"]
+    return {
+        "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+        "padding": {"top": 2, "right": 3, "bottom": 2, "left": 3},
+        "horizontalAlignment": align,
+        **_CELL_FORMAT_REST,
+    }
+
+
+# A track's default size in pixels, carried by every `rowMetadata`/`columnMetadata` entry a
+# `GridData` block holds. Measured on a real workbook: every row entry is `{"pixelSize": 21}` and
+# every column entry `{"pixelSize": 100}`. A corpus states no track size, so nothing varies.
+SHEETS_ROW_PIXELS = 21
+SHEETS_COL_PIXELS = 100
+
+# The spreadsheet-level format a freshly created workbook carries. Unlike a cell's
+# `effectiveFormat`, which the cell's own type decides, these two are SETTINGS: measured across six
+# real workbooks they came in three variants, differing where someone had applied a theme or the
+# document had been imported from .xlsx (Malgun Gothic, 11pt, MIDDLE alignment). A corpus states
+# none of that, so what is served is the variant a new spreadsheet has -- the same footing as
+# `locale`, `autoRecalc`, `timeZone` and the 1000x26 grid beside them.
+#
+# `foregroundColor: {}` and the TEXT theme colour's `rgbColor: {}` are black: proto3 drops a zero,
+# so an all-zero colour is the empty object rather than three zeroes.
+SHEETS_DEFAULT_FORMAT = {
+    "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+    "padding": {"top": 2, "right": 3, "bottom": 2, "left": 3},
+    "verticalAlignment": "BOTTOM",
+    "wrapStrategy": "OVERFLOW_CELL",
+    "textFormat": {
+        "foregroundColor": {},
+        # the CSS stack, where a CELL's textFormat resolves to the single family "Arial"
+        "fontFamily": "arial,sans,sans-serif",
+        "fontSize": 10,
+        "bold": False,
+        "italic": False,
+        "strikethrough": False,
+        "underline": False,
+        "foregroundColorStyle": {"rgbColor": {}},
+    },
+    "backgroundColorStyle": {"rgbColor": {"red": 1, "green": 1, "blue": 1}},
+}
+SHEETS_THEME = {
+    "primaryFontFamily": "Arial",
+    "themeColors": [
+        {"colorType": "TEXT", "color": {"rgbColor": {}}},
+        {"colorType": "BACKGROUND", "color": {"rgbColor": {"red": 1, "green": 1, "blue": 1}}},
+        {
+            "colorType": "ACCENT1",
+            "color": {"rgbColor": {"red": 0.25882354, "green": 0.52156866, "blue": 0.95686275}},
+        },
+        {
+            "colorType": "ACCENT2",
+            "color": {"rgbColor": {"red": 0.91764706, "green": 0.2627451, "blue": 0.20784314}},
+        },
+        {
+            "colorType": "ACCENT3",
+            "color": {"rgbColor": {"red": 0.9843137, "green": 0.7372549, "blue": 0.015686275}},
+        },
+        {
+            "colorType": "ACCENT4",
+            "color": {"rgbColor": {"red": 0.20392157, "green": 0.65882355, "blue": 0.3254902}},
+        },
+        {
+            "colorType": "ACCENT5",
+            "color": {"rgbColor": {"red": 1, "green": 0.42745098, "blue": 0.003921569}},
+        },
+        {
+            "colorType": "ACCENT6",
+            "color": {"rgbColor": {"red": 0.27450982, "green": 0.7411765, "blue": 0.7764706}},
+        },
+        {
+            "colorType": "LINK",
+            "color": {"rgbColor": {"red": 0.06666667, "green": 0.33333334, "blue": 0.8}},
+        },
+    ],
+}
+
+# `properties` fields real Sheets always carries beside `title` and `locale`. `ON_CHANGE` is the
+# recalculation setting a spreadsheet has unless someone changes it; `Etc/GMT` is the neutral zone,
+# and matches what a freshly created spreadsheet answered with.
+SHEETS_AUTO_RECALC = "ON_CHANGE"
+SHEETS_TIME_ZONE = "Etc/GMT"
+
+_SHEETS_ENUM = "type.googleapis.com/google.apps.sheets.v4"
+
+
+def _pj_enum(name: str, *values: str) -> protojson.Enum:
+    return protojson.Enum(f"{_SHEETS_ENUM}.{name}", values)
+
+
+# The three read enums, their names in the discovery document's order, which is each name's number:
+# measured 2026-10-04 over a formula cell and a date cell, `valueRenderOption=2` answers the formula
+# and `dateTimeRenderOption=1` the formatted date, and `majorDimension=2` answers by columns.
+_PJ_DIMENSION = _pj_enum("Dimension", "DIMENSION_UNSPECIFIED", "ROWS", "COLUMNS")
+_PJ_RENDER = _pj_enum("ValueRenderOption", "FORMATTED_VALUE", "UNFORMATTED_VALUE", "FORMULA")
+_PJ_DATETIME = _pj_enum("DateTimeRenderOption", "SERIAL_NUMBER", "FORMATTED_STRING")
+# One endpoint of an A1 range: a full cell (`B2`), a bare column (`B`) or a bare row (`2`). A bare
+# column or row is an endpoint only INSIDE a range — measured 2026-09-12, `Sheet1!B`, `Sheet1!2` and
+# a bang-less `Z` are all "Unable to parse range" while `A:A` and `1:1` answer — and row 0 is not
+# one at all (`A0`, `A1:A0` are unparseable too).
+_A1_END = re.compile(r"(?:(?P<col>[A-Za-z]{1,3})(?P<row>\d+)?|(?P<rowonly>\d+))\Z")
+# One endpoint in R1C1 notation, which the discovery document names beside A1 for `values.get`'s
+# `range` ("The A1 notation or R1C1 notation of the range to retrieve values from"), and which
+# the LlamaIndex `GoogleSheetsReader` sends for every sheet as `R1C1:R{rowCount}C{columnCount}`.
+#
+# The grammar below is measured, not read off a document: 217 requests against a real workbook on
+# 2026-09-12 (#174), every one pinned in `tests/test_google.py::MEASURED_R1C1`.
+#
+# * `R` and `C` each take an ABSOLUTE 1-based number (`R1C1`), a BRACKETED 0-based offset from A1
+#   (`R[1]C[1]` is B2, `R[0]C[0]` is A1 — the concepts guide's "relative to the current cell" has
+#   A1 as the current cell on a read), or no number at all (`R1C` is A1, `RC` is A1). Absolute 0
+#   and a negative or `+`-signed offset are unparseable; a leading zero is fine (`R01C01` is A1).
+# * either letter may be absent. Beside an R1C1 half a numbered `R2` is row 2 with the columns
+#   unbounded (`R1C1:R2` is A1:Z2) and `C[1]` alone is column B whole (`B1:B1000`); a bare `R`, `C`
+#   or `RC` is the cell A1.
+# * both halves of a range are read in ONE notation: `A1:R2C2` and `R1C1:B2` are unparseable. A
+#   token is read as A1 first (`R1` is the cell R1, `RC1` the cell RC1, `RC:RC` the columns RC),
+#   then as R1C1 (`RC` alone is A1, and so is `R1C1` even in a workbook with a sheet named `R1C1`),
+#   then — bang-less — as a sheet name (`A` is the sheet `A` when there is one).
+# * a reversed R1C1 range is swapped the way an A1 one is (`R3C3:R1C1` is A1:C3), except that on
+#   an axis where both halves carry a number OF THE SAME KIND — both absolute, or both offsets —
+#   start == end + 1 on the numbers AS WRITTEN is unparseable: `R2C2:R1C1`, `R1C2:R1C1`,
+#   `R[1]C[1]:R[0]C[0]` and `R2:R1C1` 400 while `R3C3:R1C1` and `R[2]C[2]:R[0]C[0]` answer. An
+#   axis that mixes the kinds swaps freely: `R[1]C[1]:R1C1`, `R[2]C[2]:R1C1` and `R1C1:R[0]C[0]`
+#   all answer. That reads as a half-open interval on the raw numbers coming out empty, checked
+#   before offsets are resolved; every reversed range sent is a row of `MEASURED_R1C1`.
+# * the echo is the A1 equivalent, and the grid rules are A1's: an end past the grid is clamped
+#   (`R1C1:R2000C50` is A1:Z1000, `1:1001` is A1:Z1000), a start past it is refused (`R[1000]C[0]`
+#   names `A1001`), and a refused whole column or row is named by its letters or numbers alone,
+#   one column or row collapsing as one cell does (`ZZ:ZZ` names `ZZ`, `AA:AB` names `AA:AB`,
+#   `C[26]` names `AA`, `R[1000]:R[1000]` names `1001`, `1001:1002` names `1001:1002`).
+# * whitespace is refused wherever it was tried — around the whole, around the bang, around the
+#   colon, inside a token, inside a quoted title, a tab as much as a space: ` A1`, `Sheet1! A1`,
+#   `A1: B2`, `R1 C1`, `R[ 1]C[1]`, `'Sheet1 '!A1` — all 36 forms sent — are unparseable. An EMPTY title
+#   before the bang is the first sheet (`!A1`, `''!A1`, `!R[1]C[1]`), a whitespace one is not.
+_R1C1_END = re.compile(
+    r"(?P<r>R(?:(?P<rabs>\d+)|\[(?P<rrel>\d+)\])?)?(?P<c>C(?:(?P<cabs>\d+)|\[(?P<crel>\d+)\])?)?\Z",
+    re.IGNORECASE,
+)
+
+
+class _End(NamedTuple):
+    """One side of a range, resolved: 0-based, ``None`` on an axis left unbounded. ``raw_row`` and
+    ``raw_col`` are the number as written and its kind — ``(2, "abs")`` for `R2`, ``(2, "rel")``
+    for `R[2]` — which is what real's reversed-range check reads; ``None`` where the axis carries no
+    number."""
+
+    row: int | None
+    col: int | None
+    raw_row: tuple[int, str] | None = None
+    raw_col: tuple[int, str] | None = None
+
+
+def _a1_end(part: str) -> _End | None:
+    """An A1 endpoint, or ``None`` when the string is not one."""
+    m = _A1_END.fullmatch(part)
+    if not m:
+        return None
+    if m.group("rowonly"):
+        n = int(m.group("rowonly"))
+        return _End(n - 1, None) if n else None
+    row = m.group("row")
+    if row is not None and int(row) == 0:
+        return None
+    return _End(int(row) - 1 if row else None, _a1_col(m.group("col")))
+
+
+def _r1c1_end(part: str) -> _End | None:
+    """An R1C1 endpoint, or ``None`` when the string is not one — the grammar above."""
+    m = _R1C1_END.fullmatch(part)
+    if not m or not (m.group("r") or m.group("c")):
+        return None
+
+    def numbered(letter: str) -> tuple[int, tuple[int, str]] | None:
+        """``(index, (raw, kind))`` for a letter that carries a number; ``None`` for one that does
+        not."""
+        absolute, relative = m.group(letter + "abs"), m.group(letter + "rel")
+        if absolute is not None:
+            n = int(absolute)
+            if n == 0:
+                raise ValueError(part)
+            return n - 1, (n, "abs")
+        if relative is not None:
+            n = int(relative)
+            return n, (n, "rel")
+        return None
+
+    try:
+        rnum, cnum = numbered("r"), numbered("c")
+    except ValueError:
+        return None
+
+    def index(letter: str, own, other) -> int | None:
+        if own is not None:
+            return own[0]
+        if m.group(letter):  # present without a number: offset 0
+            return 0
+        return None if other is not None else 0  # absent: unbounded beside a numbered letter
+
+    return _End(
+        index("r", rnum, cnum),
+        index("c", cnum, rnum),
+        rnum[1] if rnum else None,
+        cnum[1] if cnum else None,
+    )
+
+
+def _a1_classify(body: str) -> tuple[str, list[_End]] | None:
+    """Which notation a cell part is in, with its endpoints: ``("a1", ends)``, ``("r1c1", ends)``,
+    or ``None`` when it is neither. A1 first, then R1C1 — the order `_R1C1_END`'s comment states —
+    and a lone A1 token has to be a full cell (see `_A1_END`)."""
+    halves = body.split(":")
+    if len(halves) > 2:
+        return None
+    a1 = [_a1_end(h) for h in halves]
+    if all(a1) and (len(a1) == 2 or (a1[0].row is not None and a1[0].col is not None)):
+        return "a1", a1  # type: ignore[return-value]
+    r1c1 = [_r1c1_end(h) for h in halves]
+    if all(r1c1):
+        return "r1c1", r1c1  # type: ignore[return-value]
+    return None
+
+
+def _a1_col(letters: str) -> int:
+    """Column letters to a 0-based index, base-26 with no zero digit (``A``->0, ``Z``->25,
+    ``AA``->26)."""
+    n = 0
+    for ch in letters.upper():
+        n = n * 26 + (ord(ch) - 64)
+    return n - 1
+
+
+def _a1_enum_error(field: str, enum: protojson.Enum, value: str) -> str:
+    """Google's own wording for a bad read enum — it names the proto field and message type, e.g.
+    ``Invalid value at 'major_dimension' (…sheets.v4.Dimension), "DIAGONAL"``. Measured, because a
+    client that matches on the message needs the real one."""
+    return f"Invalid value at '{field}' ({enum.type_url}), \"{value}\""
+
+
+# The two values that turn `prettyPrint` off, matched exactly -- see `_sheets_respond`.
+_PRETTY_PRINT_FALSE = frozenset({"false", "0"})
+
+
+def _sheets_bool_value(raw: str | None, field: str) -> bool:
+    """One of the boolean query parameters, read as a JSON body's string is (``protojson.to_bool``).
+    Measured: `1`, `t`, `y` and `yes` mean true and `0`, `f`, `n` and `no` mean false, whatever the
+    case of their ASCII letters, while `on`/`off`, a padded `" true"`, `2`, `01` and `1.0` are
+    refused, as ``Invalid value at '<field>' (TYPE_BOOL), "<value>"``, naming the proto TYPE rather
+    than a message. An absent flag is false; an EMPTY one is not absent and 400s."""
+    if raw is None:
+        return False
+    try:
+        return protojson.to_bool(("string", raw))
+    except protojson.ConversionError:
+        raise gerr.invalid_field_value(
+            field, f"Invalid value at '{field}' (TYPE_BOOL), \"{raw}\""
+        ) from None
+
+
+def _a1_find(title: str, sheets: list[_Sheet]) -> _Sheet | None:
+    """The sheet a title names, or None.
+
+    Measured: lookup is CASE-INSENSITIVE (`data!B1:B3` answers from `Data`), quoting is optional
+    even for a title holding a space, a colon, brackets or a bang, and inside quotes a doubled
+    apostrophe is one apostrophe."""
+    if title[:1] == "'" and title[-1:] == "'":
+        title = title[1:-1].replace("''", "'")
+    fold = title.casefold()
+    return next((s for s in sheets if s.title.casefold() == fold), None)
+
+
+def _a1_looks_like_a_range(body: str) -> bool:
+    return _a1_classify(body) is not None
+
+
+def _a1_sheet(spec: str, sheets: list[_Sheet]) -> tuple[_Sheet, str]:
+    """``(sheet, body)`` — which sheet a spec addresses, and the cell part left over (``""`` for a
+    bare sheet name, meaning the whole grid).
+
+    Measured against a real multi-sheet workbook:
+
+    * the separator is the LAST bang, not the first — `has!bang!A1` addresses the sheet `has!bang`,
+      and splitting at the first would leave `bang!A1` as the cell part
+    * a spec with NO bang is parsed as a range FIRST and only then as a sheet name, so bare `A1` is
+      cell A1 of the first sheet even in a workbook that has a sheet named `A1`, while bare `Data`
+      is the sheet because four letters cannot be a cell reference. R1C1 before a sheet name too
+      (the order `_R1C1_END`'s comment states, with the sheets it was measured against)
+    * an unqualified range answers from the sheet at index 0
+    * a name no sheet has 400s with the same `Unable to parse range` message unparseable garbage
+      gets — resolving to an empty grid instead would be indistinguishable from an empty range
+    """
+    # Not stripped anywhere — the whitespace rule in `_R1C1_END`'s comment.
+    bare = spec
+    if "!" in bare:
+        title, _, body = bare.rpartition("!")
+        if title in ("", "''") and _a1_looks_like_a_range(body):
+            # An EMPTY title is the first sheet (the rule in `_R1C1_END`'s comment), and only
+            # before a range: `!Data` and a bare `!` are unparseable.
+            return sheets[0], body
+        found = _a1_find(title, sheets)
+        if found is not None and body:
+            return found, body
+        # A title that itself holds a bang, named bare: `has!bang` is the WHOLE sheet, so the
+        # split above leaves `has` (no such sheet) over `bang` (no such range). Measured.
+        # `Sheet1!` with nothing after it falls here too, and is malformed either way.
+        whole = _a1_find(bare, sheets)
+        if whole is None:
+            raise gerr.invalid_argument(f"Unable to parse range: {spec}")
+        return whole, ""
+    if _a1_looks_like_a_range(bare):
+        return sheets[0], bare
+    found = _a1_find(bare, sheets)
+    if found is None:
+        raise gerr.invalid_argument(f"Unable to parse range: {spec}")
+    return found, ""
+
+
+def _a1_range(spec: str, body: str, sheet: _Sheet) -> tuple[int, int, int, int]:
+    """Resolve the cell part of an A1 range to half-open ``(r0, c0, r1, c1)`` against this sheet.
+
+    Handles every form a client may send: ``A1:B2``, ``B2`` (one cell), ``A:B`` / ``1:3`` (whole
+    columns / rows), ``A2:B`` (one edge unbounded), ``R1C1:R2C2`` (either half in R1C1) and ``""``
+    (the whole sheet, which is what a bare sheet name resolves to). Everything resolves against the
+    GRID, so a range may be wider than the data — the caller trims.
+
+    Two boundary rules, measured against a real spreadsheet: the range's END may overflow and is
+    CLAMPED (``A1:AA5`` on a 26-column sheet returns ``A1:Z5``), its START may not.
+
+    ``spec`` is the whole requested range, because that — not the offending half — is what real
+    Sheets names back: `A1:` reports "Unable to parse range: A1:", never a bare "".
+    """
+    nrows, ncols = sheet.rows, sheet.cols
+    if not body:
+        return 0, 0, nrows, ncols
+    classified = _a1_classify(body)
+    if classified is None:
+        raise gerr.invalid_argument(f"Unable to parse range: {spec}")
+    notation, ends = classified
+    if len(ends) == 1:  # a single reference: one cell, one whole row, one column
+        (start,) = ends
+        r0f, c0f = (0 if start.row is None else start.row), (0 if start.col is None else start.col)
+        r1 = nrows if start.row is None else start.row + 1
+        c1 = ncols if start.col is None else start.col + 1
+    else:
+        start, end = ends
+        if notation == "r1c1":
+            # Real's reversed-range rule, on the numbers as written — see `_R1C1_END`.
+            for a, b in ((start.raw_row, end.raw_row), (start.raw_col, end.raw_col)):
+                if a is not None and b is not None and a[1] == b[1] and a[0] == b[0] + 1:
+                    raise gerr.invalid_argument(f"Unable to parse range: {spec}")
+        r0f = 0 if start.row is None else start.row
+        c0f = 0 if start.col is None else start.col
+        r1 = nrows if end.row is None else end.row + 1
+        c1 = ncols if end.col is None else end.col + 1
+        # Ranges are inclusive and may be written in either order (`B2:A1` == `A1:B2`), in R1C1
+        # as in A1 (`R3C3:R1C1` == `A1:C3`), once past the rule above.
+        if r1 < r0f + 1:
+            r0f, r1 = r1 - 1, r0f + 1
+        if c1 < c0f + 1:
+            c0f, c1 = c1 - 1, c0f + 1
+    if r0f >= nrows or c0f >= ncols or r0f < 0 or c0f < 0:
+        # The START is outside the grid — refused, with the range echoed back unclamped; whole
+        # columns by their letters alone and whole rows by their numbers alone (`_a1_axis_name`).
+        if all(e.row is None for e in ends):
+            named = _a1_axis_name(sheet, _a1_col_letters(c0f), _a1_col_letters(c1 - 1))
+        elif all(e.col is None for e in ends):
+            named = _a1_axis_name(sheet, str(r0f + 1), str(r1))
+        else:
+            named = _a1_name(sheet, r0f, c0f, r1, c1)
+        raise gerr.invalid_argument(
+            f"Range ({named}) exceeds grid limits. Max rows: {nrows}, max columns: {ncols}"
+        )
+    return r0f, c0f, min(r1, nrows), min(c1, ncols)
+
+
+# A title the echo may spell without quotes. Measured: `Data` echoes bare while `'Second Sheet'`,
+# `'2024'`, `'Bob''s Sheet'`, `'a:b'`, `'a[b]'`, `'has!bang'` and `'A1'` echo quoted. This pattern
+# (plus the A1-reference exclusion below) is INFERRED from that sample rather than measured: it
+# accounts for every title measured, but a title the sample does not cover could contradict it.
+_A1_PLAIN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def _a1_title(title: str) -> str:
+    """A sheet title as the echoed ``range`` spells it, quoted unless it is a plain identifier that
+    is not itself a cell reference. An embedded apostrophe doubles.
+
+    Measured 2026-09-12 on sheets so named: `R1C1` and `RC` echo quoted (`'RC'!A1`), as `A1` does,
+    while `A`, no reference on its own, echoes bare (`A!A1:Z1000`)."""
+    if _A1_PLAIN.fullmatch(title) and _a1_classify(title) is None:
+        return title
+    return "'" + title.replace("'", "''") + "'"
+
+
+def _a1_col_letters(i: int) -> str:
+    """A 0-based column index as A1 letters — the inverse of :func:`_a1_col`."""
+    s = ""
+    i += 1
+    while i:
+        i, rem = divmod(i - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
+def _a1_axis_name(sheet: _Sheet, start: str, end: str) -> str:
+    """Whole columns by their letters alone, or whole rows by their numbers alone, the way real
+    names them when refusing a range past the grid — the naming rule in `_R1C1_END`'s comment,
+    never ``ZZ1:ZZ1000`` or ``A1001:Z1001``."""
+    title = _a1_title(sheet.title)
+    return f"{title}!{start}" if start == end else f"{title}!{start}:{end}"
+
+
+def _a1_name(sheet: _Sheet, r0: int, c0: int, r1: int, c1: int) -> str:
+    """The resolved range in A1 form, which is what the response echoes.
+
+    A single cell echoes as a bare reference (``Sheet1!A1``), not as ``A1:A1`` — measured: real
+    Sheets collapses a 1x1 range even when the request spelled it out as ``A1:A1``."""
+    title = _a1_title(sheet.title)
+    start = f"{_a1_col_letters(c0)}{r0 + 1}"
+    if r1 - r0 == 1 and c1 - c0 == 1:
+        return f"{title}!{start}"
+    return f"{title}!{start}:{_a1_col_letters(c1 - 1)}{r1}"
+
+
+def _rstrip_empty(cells: list[str]) -> list[str]:
+    while cells and cells[-1] == "":
+        cells.pop()
+    return cells
+
+
+def _sheets_block(sheet: _Sheet, body: str, spec: str):
+    """``(r0, c0, r1, c1, cells)`` for the cell part ``body`` against ``sheet``: the range as
+    resolved against that sheet's grid, and the cells it covers as STORED — trimming happens in the
+    caller, which knows how it is rendering them. ``spec`` is only what an error echoes.
+
+    Takes an already-resolved sheet rather than re-parsing one out of a spec, so a caller that
+    knows which sheet it wants cannot have it reinterpreted: a title reading as a cell or column
+    reference (``A1``, ``AB``) would resolve against the FIRST sheet instead of itself.
+
+    The bounds are the RANGE's, not the data's: callers echo them, so they must not shrink to the
+    occupied cells."""
+    rows = sheet.grid
+    r0, c0, r1, c1 = _a1_range(spec, body, sheet)
+    block = [
+        [(rows[r][c] if c < len(rows[r]) else None) for c in range(c0, c1)]
+        for r in range(r0, min(r1, len(rows)))
+    ]
+    return r0, c0, r1, c1, block
+
+
+def _sheets_value(cell) -> dict:
+    """A cell's ``ExtendedValue``.
+
+    Measured: a string is ``stringValue``, a number ``numberValue``, a boolean ``boolValue``, and
+    an empty cell carries no value object at all.
+
+    ``bool`` is tested BEFORE the numeric branch because it is a subclass of ``int`` in Python —
+    unguarded, TRUE would serve as ``numberValue: 1``.
+
+    A real cell may also hold ``formulaValue`` (in ``userEnteredValue``) or ``errorValue`` (in
+    ``effectiveValue``). A corpus states neither, so neither is emitted."""
+    if cell is None or cell == "":
+        return {}
+    if isinstance(cell, bool):
+        return {"boolValue": cell}
+    if isinstance(cell, (int, float)):
+        return {"numberValue": cell}
+    return {"stringValue": cell}
+
+
+def _sheets_empty_grid_data(empty: _Empty) -> dict:
+    """The `GridData` block for an empty grid range: where it starts and the metadata of the axis
+    that is not empty, with no `rowData`. Measured 2026-10-04: an empty row range at row 1 is
+    ``{"startRow": 1, "columnMetadata": [26 entries]}``, an empty column range at column 1
+    ``{"startColumn": 1, "rowMetadata": [1000 entries]}``, and one empty on both axes the two
+    starts alone. The keys come in that order, the starts first, measured 2026-10-05."""
+    out: dict = {}
+    if empty.r0:
+        out["startRow"] = empty.r0
+    if empty.c0:
+        out["startColumn"] = empty.c0
+    rows = min(empty.r1, empty.sheet.rows) - empty.r0
+    cols = min(empty.c1, empty.sheet.cols) - empty.c0
+    if rows > 0:
+        out["rowMetadata"] = [{"pixelSize": SHEETS_ROW_PIXELS} for _ in range(rows)]
+    if cols > 0:
+        out["columnMetadata"] = [{"pixelSize": SHEETS_COL_PIXELS} for _ in range(cols)]
+    return out
+
+
+def _sheets_grid_data(sheet: _Sheet, body: str, spec: str) -> dict:
+    """One ``GridData`` block for ``spreadsheets.get?includeGridData=true``.
+
+    Measured: ``startRow``/``startColumn`` omitted when zero, proto3 dropping its defaults; and no
+    ``rowData`` key at all on an empty sheet, whose block is metadata alone.
+
+    Measured on 2026-10-05, through ``ranges`` and through an ``a1Range`` filter: a row's
+    ``values`` end at its last cell holding a value, an empty cell before that being ``{}``; a row
+    holding no value is ``{}`` itself; ``rowData`` ends at the last row holding a value; and the
+    keys come in the order ``startRow``, ``startColumn``, ``rowData``, ``rowMetadata``,
+    ``columnMetadata``.
+
+    ``userEnteredValue`` and ``effectiveValue`` are equal here and both absent from an empty cell.
+    Measured, they differ on real Sheets only for a FORMULA cell — the formula in the first, its
+    result in the second — and a corpus cannot state a formula, so there is nothing to differ over.
+
+    ``rowMetadata``/``columnMetadata`` cover the RANGE, one entry per row and column of it —
+    measured, 2 and 2 for ``Data!A1:B2`` against the same sheet whose unscoped block carries 1000
+    and 26. Every entry is identical (``pixelSize`` 21 for a row, 100 for a column), those being
+    the default track sizes; a corpus states no track size, so there is nothing to vary."""
+    r0, c0, r1x, c1, block = _sheets_block(sheet, body, spec)
+    width = c1 - c0
+    while block and all(sheets_grid.formatted(c) == "" for c in block[-1]):
+        block.pop()
+    out: dict = {}
+    if r0:
+        out["startRow"] = r0
+    if c0:
+        out["startColumn"] = c0
+    if block:
+        row_data = []
+        for row in block:
+            vals = [
+                (
+                    {
+                        "userEnteredValue": v,
+                        "effectiveValue": v,
+                        "formattedValue": sheets_grid.formatted(row[i]),
+                        "effectiveFormat": _sheets_format(row[i]),
+                    }
+                    if i < len(row) and (v := _sheets_value(row[i]))
+                    else {}
+                )
+                for i in range(width)
+            ]
+            while vals and not vals[-1]:
+                vals.pop()
+            row_data.append({"values": vals} if vals else {})
+        out["rowData"] = row_data
+    out["rowMetadata"] = [{"pixelSize": SHEETS_ROW_PIXELS} for _ in range(r1x - r0)]
+    out["columnMetadata"] = [{"pixelSize": SHEETS_COL_PIXELS} for _ in range(width)]
+    return out
+
+
+def _sheets_render(cell, render: str):
+    """One cell as ``values.get`` returns it under ``render``.
+
+    Measured: ``FORMATTED_VALUE`` gives the display string, while ``UNFORMATTED_VALUE`` and
+    ``FORMULA`` both give the raw typed value — a JSON number for a number, a JSON boolean for a
+    boolean. The two agree for every NON-FORMULA cell on the real API, and a corpus states no
+    formulas, so they agree here for every cell.
+
+    An empty cell is ``""`` under every option, measured — a JSON string even under
+    ``UNFORMATTED_VALUE``, never null."""
+    if cell is None:
+        return ""
+    return sheets_grid.formatted(cell) if render == "FORMATTED_VALUE" else cell
+
+
+def _sheets_value_range(spec: str, sheets: list[_Sheet], major: str, render: str) -> dict:
+    """One ``ValueRange``.
+
+    Trailing empty cells are dropped PER ROW rather than padded out to the requested bounds, so
+    rows come back ragged; an interior gap stays ``""``; trailing empty rows are dropped
+    altogether. Under ``COLUMNS`` the same rule applies per column, and a fully empty INTERIOR
+    column comes back as ``[]`` rather than being dropped. All measured.
+
+    A range holding nothing omits ``values`` entirely — a client tests for the key's presence, so
+    an empty list would claim the range exists and is blank."""
+    sheet, body = _a1_sheet(spec, sheets)
+    r0, c0, r1, c1, raw = _sheets_block(sheet, body, spec)
+    block = [[_sheets_render(c, render) for c in row] for row in raw]
+    out = {"range": _a1_name(sheet, r0, c0, r1, c1), "majorDimension": major}
+    if major == "COLUMNS":
+        width = max((len(r) for r in block), default=0)
+        block = [_rstrip_empty([(r[i] if i < len(r) else "") for r in block]) for i in range(width)]
+    else:
+        block = [_rstrip_empty(row) for row in block]
+    while block and not block[-1]:
+        block.pop()
+    if block:
+        out["values"] = block
+    return out
+
+
+class _Sheet(NamedTuple):
+    """One sheet of a workbook, however the corpus stated it."""
+
+    sheet_id: int
+    index: int
+    title: str
+    grid: list[list]
+
+    @property
+    def rows(self) -> int:
+        """The declared grid's height — never smaller than the data, and at least the default."""
+        return max(SHEETS_GRID_ROWS, len(self.grid))
+
+    @property
+    def cols(self) -> int:
+        return max(SHEETS_GRID_COLS, max((len(r) for r in self.grid), default=0))
+
+
+def _workbook(request: Request, spreadsheet_id: str) -> tuple:
+    """``(row, sheets)`` — the Drive row behind a spreadsheet and the sheets it serves.
+
+    A document that STATES a grid answers with its stored sheets; one that does not answers with a
+    SINGLE synthesized sheet holding ``_sheets_grid``'s line-per-cell reading. Prose is therefore
+    one more grid, which is what leaves a single serving path below and stops the five Sheets reads
+    disagreeing about a cell.
+
+    A prose sheet's cells are strings and STAY strings. Nothing here sniffs a line for a number or
+    a boolean: a cell's type is something a corpus states, never something this module infers.
+
+    Inside a batch there is no lookup: real's batch does not implement the Sheets reads. Measured
+    2026-10-04 on the five reads this module serves, and on the two POST reads' bodies 2026-10-06,
+    the answer is 501 after the credential, the typed query values and a POST read's body and before
+    the spreadsheet is looked up, so one that does not exist gets it as well."""
+    if _BATCH_OUTER.get() is not None:
+        raise gerr.unimplemented()
+    row = _editor_doc(request, spreadsheet_id, expect="spreadsheet")
+    stored = store.gdrive_sheets_for(auth.conn(request), spreadsheet_id)
+    if not stored:
+        return row, [_Sheet(0, 0, SHEETS_SHEET_TITLE, _sheets_grid(row["content"]))]
+    return row, [
+        _Sheet(s["sheet_id"], s["sheet_index"], s["title"], json.loads(s["grid"])) for s in stored
+    ]
+
+
+def _sheets_enum_value(raw: str, field: str, enum: protojson.Enum) -> str:
+    """One of the read enums from the query string, as its canonical name.
+
+    Read the way a JSON body's string is (``protojson.enum_from_string``), measured on the query
+    string too: a number names the value it is the number of and nothing past the enum's last, so on
+    `majorDimension` ``+2`` and ``02`` are `COLUMNS` while ``3``, ``-1``, ``2.0`` and a space-padded
+    `` 2`` are refused. The response echoes the canonical name whatever the request used,
+    `DIMENSION_UNSPECIFIED` as `ROWS` (:func:`_sheets_major`). Anything else 400s naming the proto
+    field and type and quoting the value as sent, and an EMPTY value is not an absent one — it 400s
+    rather than falling back to the default."""
+    try:
+        return enum.names[protojson.enum_from_string(raw, enum)]
+    except protojson.ConversionError:
+        raise gerr.invalid_field_value(field, _a1_enum_error(field, enum, raw)) from None
+
+
+def _sheets_options(request: Request) -> tuple[str, str]:
+    """Validate the read enums and return ``(majorDimension, valueRenderOption)``. Real Sheets 400s
+    on an unknown value; accepting one silently would hand back ROWS-shaped data to a client that
+    asked for columns, and a silently unapplied option is worse than a refusal.
+    """
+    enums = _typed_query(
+        request,
+        {
+            "majorDimension": lambda raw: _sheets_enum_value(raw, "major_dimension", _PJ_DIMENSION),
+            # Measured over typed cells: FORMATTED_VALUE gives the display string "12",
+            # UNFORMATTED_VALUE the JSON number 12, and FORMULA the same raw value as
+            # UNFORMATTED_VALUE for every cell that is not a formula. A spreadsheet whose cells are
+            # lines of stored text has only strings, so all three agree on one; a spreadsheet that
+            # STATES its grid does not.
+            "valueRenderOption": lambda raw: _sheets_enum_value(
+                raw, "value_render_option", _PJ_RENDER
+            ),
+            # Validated and then unused, deliberately. It selects between a date cell's serial
+            # number and its formatted string, and a corpus states no date cells — every cell is a
+            # string, a number, a boolean or empty — so the two renderings coincide here. Leaving
+            # it unvalidated instead would accept the one thing a client can get wrong about it.
+            "dateTimeRenderOption": lambda raw: _sheets_enum_value(
+                raw, "date_time_render_option", _PJ_DATETIME
+            ),
+        },
+    )
+    major = (enums["majorDimension"] or ["ROWS"])[-1]
+    render = (enums["valueRenderOption"] or ["FORMATTED_VALUE"])[-1]
+    return _sheets_major(major), render
+
+
+def _sheets_major(name: str) -> str:
+    """The dimension a read is answered by: `DIMENSION_UNSPECIFIED` answers by rows, and echoes
+    `ROWS`, measured 2026-10-04 in the query string and in a JSON body."""
+    return "COLUMNS" if name == "COLUMNS" else "ROWS"
+
+
+_P_SHEETS_VALUES = [
+    qp("majorDimension"),
+    qp("valueRenderOption"),
+    qp("dateTimeRenderOption"),
+    *_P_SHEETS_STD,
+]
+_P_SHEETS_BATCH = [qp("ranges"), *_P_SHEETS_VALUES]
+
+
+@router.get(
+    "/sheets/v4/spreadsheets/{spreadsheet_id}/values:batchGet",
+    openapi_extra={"parameters": _P_SHEETS_BATCH},
+)
+async def sheets_values_batch_get(spreadsheet_id: str, request: Request):
+    """Several ranges in one round trip. Declared before ``values/{range}`` for clarity only —
+    ``values:batchGet`` is a single path segment, so the two cannot collide.
+
+    One unusable range fails the whole call rather than yielding a short ``valueRanges`` list: a
+    partial batch leaves the caller unable to say which range it is missing.
+
+    With no ``ranges`` at all, nothing is selected and ``valueRanges`` is omitted. NOTE: that is
+    the natural reading of a parameter with no default, NOT a response diffed against real
+    Sheets — unlike the rest of this module's behaviour, it is unverified."""
+    _require(request)
+    major, render = _sheets_options(request)
+    _row, sheets = _workbook(request, spreadsheet_id)
+    ranges = request.query_params.getlist("ranges")
+    body = {"spreadsheetId": spreadsheet_id}
+    if ranges:
+        body["valueRanges"] = [_sheets_value_range(r, sheets, major, render) for r in ranges]
+    return _sheets_respond(request, body, _F_BATCH_VALUES)
+
+
+@router.get(
+    "/sheets/v4/spreadsheets/{spreadsheet_id}/values/{a1_range:path}",
+    openapi_extra={"parameters": _P_SHEETS_VALUES},
+)
+async def sheets_values_get(spreadsheet_id: str, a1_range: str, request: Request):
+    """One range of a spreadsheet, ACL-enforced through the same lookup as ``spreadsheets.get``."""
+    _require(request)
+    major, render = _sheets_options(request)
+    _row, sheets = _workbook(request, spreadsheet_id)
+    return _sheets_respond(
+        request, _sheets_value_range(a1_range, sheets, major, render), _F_VALUE_RANGE
+    )
+
+
+# --- the two reads issued over POST ------------------------------------------------------------
+#
+# A DataFilter selects the same cells an A1 range does, by range or by grid indices, or selects them
+# by developer metadata (`developerMetadataLookup`), which a corpus never carries, so a lookup
+# selects nothing (`_sheets_check_lookup`). Measured, the two endpoints disagree about an ABSENT
+# filter list: `values:batchGetByDataFilter` refuses it ("Must specify at least one dataFilter.")
+# while `spreadsheets:getByDataFilter` treats it as "every sheet".
+#
+# The request messages as `backlot.protojson` reads them: the Sheets v4 discovery document's fields,
+# in proto field order (the order real echoes a filter back in) rather than the order the document
+# lists them, with the wrapper fields measured 2026-10-04 by the `.value` real's refusal names.
+
+
+_PJ_LOCATION_TYPE = _pj_enum(
+    "DeveloperMetadataLocationType",
+    "DEVELOPER_METADATA_LOCATION_TYPE_UNSPECIFIED",
+    "ROW",
+    "COLUMN",
+    "SHEET",
+    "SPREADSHEET",
+)
+_PJ_MATCHING = _pj_enum(
+    "DeveloperMetadataLocationMatchingStrategy",
+    "DEVELOPER_METADATA_LOCATION_MATCHING_STRATEGY_UNSPECIFIED",
+    "EXACT_LOCATION",
+    "INTERSECTING_LOCATION",
+)
+_PJ_VISIBILITY = _pj_enum(
+    "DeveloperMetadataVisibility",
+    "DEVELOPER_METADATA_VISIBILITY_UNSPECIFIED",
+    "DOCUMENT",
+    "PROJECT",
+)
+_PJ_GRID_RANGE = protojson.Message(
+    f"{_SHEETS_ENUM}.GridRange",
+    (
+        protojson.Field("sheetId", "sheet_id", "int32"),
+        protojson.Field("startRowIndex", "start_row_index", "int32", wrapper=True),
+        protojson.Field("endRowIndex", "end_row_index", "int32", wrapper=True),
+        protojson.Field("startColumnIndex", "start_column_index", "int32", wrapper=True),
+        protojson.Field("endColumnIndex", "end_column_index", "int32", wrapper=True),
+    ),
+)
+_PJ_DIMENSION_RANGE = protojson.Message(
+    f"{_SHEETS_ENUM}.DimensionRange",
+    (
+        protojson.Field("sheetId", "sheet_id", "int32"),
+        protojson.Field("dimension", "dimension", "enum", enum=_PJ_DIMENSION),
+        protojson.Field("startIndex", "start_index", "int32", wrapper=True),
+        protojson.Field("endIndex", "end_index", "int32", wrapper=True),
+    ),
+)
+_PJ_METADATA_LOCATION = protojson.Message(
+    f"{_SHEETS_ENUM}.DeveloperMetadataLocation",
+    (
+        protojson.Field("locationType", "location_type", "enum", enum=_PJ_LOCATION_TYPE),
+        protojson.Field("spreadsheet", "spreadsheet", "bool", oneof="location"),
+        protojson.Field("sheetId", "sheet_id", "int32", oneof="location"),
+        protojson.Field(
+            "dimensionRange",
+            "dimension_range",
+            "message",
+            message=_PJ_DIMENSION_RANGE,
+            oneof="location",
+        ),
+    ),
+)
+_PJ_METADATA_LOOKUP = protojson.Message(
+    f"{_SHEETS_ENUM}.DeveloperMetadataLookup",
+    (
+        protojson.Field("locationType", "location_type", "enum", enum=_PJ_LOCATION_TYPE),
+        protojson.Field(
+            "metadataLocation", "metadata_location", "message", message=_PJ_METADATA_LOCATION
+        ),
+        protojson.Field(
+            "locationMatchingStrategy", "location_matching_strategy", "enum", enum=_PJ_MATCHING
+        ),
+        protojson.Field("metadataId", "metadata_id", "int32", wrapper=True),
+        protojson.Field("metadataKey", "metadata_key", "string", wrapper=True),
+        protojson.Field("metadataValue", "metadata_value", "string", wrapper=True),
+        protojson.Field("visibility", "visibility", "enum", enum=_PJ_VISIBILITY),
+    ),
+)
+_PJ_DATA_FILTER = protojson.Message(
+    f"{_SHEETS_ENUM}.DataFilter",
+    (
+        protojson.Field(
+            "developerMetadataLookup",
+            "developer_metadata_lookup",
+            "message",
+            message=_PJ_METADATA_LOOKUP,
+            oneof="filter",
+        ),
+        protojson.Field("a1Range", "a1_range", "string", oneof="filter"),
+        protojson.Field(
+            "gridRange", "grid_range", "message", message=_PJ_GRID_RANGE, oneof="filter"
+        ),
+    ),
+)
+_PJ_FILTERS = protojson.Field(
+    "dataFilters", "data_filters", "message", message=_PJ_DATA_FILTER, repeated=True
+)
+_PJ_BATCH_GET_BY_FILTER = protojson.Message(
+    f"{_SHEETS_ENUM}.BatchGetValuesByDataFilterRequest",
+    (
+        _PJ_FILTERS,
+        protojson.Field("majorDimension", "major_dimension", "enum", enum=_PJ_DIMENSION),
+        protojson.Field("valueRenderOption", "value_render_option", "enum", enum=_PJ_RENDER),
+        protojson.Field(
+            "dateTimeRenderOption", "date_time_render_option", "enum", enum=_PJ_DATETIME
+        ),
+    ),
+)
+_PJ_GET_BY_FILTER = protojson.Message(
+    f"{_SHEETS_ENUM}.GetSpreadsheetByDataFilterRequest",
+    (
+        _PJ_FILTERS,
+        protojson.Field("includeGridData", "include_grid_data", "bool"),
+        protojson.Field("excludeTablesInBandedRanges", "exclude_tables_in_banded_ranges", "bool"),
+        protojson.Field(
+            "commentsViewMode",
+            "comments_view_mode",
+            "enum",
+            enum=_pj_enum(
+                "CommentsViewMode",
+                "COMMENTS_VIEW_MODE_UNSPECIFIED",
+                "COMMENTS_VIEW_MODE_DEFAULT_FOR_CURRENT_ACCESS",
+                "COMMENTS_VIEW_MODE_OMITTED",
+                "COMMENTS_VIEW_MODE_INCLUDED",
+            ),
+        ),
+    ),
+)
+
+
+class _Empty(NamedTuple):
+    """A grid range that holds no cell, an end equal to its start on either axis. Real answers one
+    at 200, measured 2026-10-04: `#REF!` as the range on the values-level read, and on the
+    spreadsheet-level one a block with no rows or no columns."""
+
+    sheet: _Sheet
+    r0: int
+    c0: int
+    r1: int
+    c1: int
+
+
+def _int32(n: int) -> int:
+    """``n`` as a Java int would hold it. Real names the row after `startRowIndex` 2147483647 as
+    `-2147483648`, measured 2026-10-04."""
+    return (n + 2**31) % 2**32 - 2**31
+
+
+def _grid_range_name(sheet: _Sheet, grid: dict) -> str:
+    """A grid range as real names it when refusing one past the grid: only the edges the request
+    set, start and end each as column letters (none past `ZZZ`, column 18277) then a row number, one
+    of them alone when the two read the same, and an `(empty) ` in front when an axis was sent with
+    its end at its start (an end of 0 with no start does not count). Measured 2026-10-04 on every
+    combination of the indexes sent, with the start row or the start column past the grid, among
+    them (start row, end row, start column, end column, `-` for one not sent)::
+
+        1000, -, -, -       Sheet1!1001:
+        1000, -, 1, 3       Sheet1!B1001:C
+        -, -, 26, 27        Sheet1!AA
+        5, 5, 26, -         (empty) Sheet1!AA6:5
+        -, 0, 26, -         Sheet1!AA:0
+        -, -, 18278, -      Sheet1!
+        -, -, 26, 18279     Sheet1!AA:
+    """
+    sr, er = grid.get("start_row_index"), grid.get("end_row_index")
+    sc, ec = grid.get("start_column_index"), grid.get("end_column_index")
+
+    def letters(column: int | None) -> str:
+        return _a1_col_letters(column) if column is not None and column <= 18277 else ""
+
+    start = letters(sc) + (str(_int32(sr + 1)) if sr is not None else "")
+    end = letters(None if ec is None else ec - 1) + (str(er) if er is not None else "")
+    name = start if start == end else f"{start}:{end}"
+    empty = (sr is not None and er == sr) or (sc is not None and ec == sc)
+    return ("(empty) " if empty else "") + f"{_a1_title(sheet.title)}!{name}"
+
+
+def _sheets_grid_selection(grid: dict, sheets: list[_Sheet], sheet_word: str):
+    """A `gridRange`, checked as real checks it once the spreadsheet is found, as the A1 spec it
+    selects or an :class:`_Empty`.
+
+    In real's order, measured 2026-10-04 by sending two of them wrong together: the sheet
+    (`No grid with id` on the values-level read, `No sheet with id` on the other: ``sheet_word``),
+    then a negative index, then an end before its start (rows before columns), then a start past
+    the grid (:func:`_grid_range_name`), and only then an empty range. An end past the grid is
+    clamped, as an A1 range's is."""
+    sheet_id = grid.get("sheet_id", 0)
+    sheet = next((s for s in sheets if s.sheet_id == sheet_id), None)
+    if sheet is None:
+        raise gerr.invalid_argument(f"No {sheet_word} with id: {sheet_id}")
+    sr, er = grid.get("start_row_index"), grid.get("end_row_index")
+    sc, ec = grid.get("start_column_index"), grid.get("end_column_index")
+    if any(i is not None and i < 0 for i in (sr, er, sc, ec)):
+        raise gerr.invalid_argument("GridRange indexes must be >= 0")
+    for start, end, axis in ((sr, er, "Row"), (sc, ec, "Column")):
+        if start is not None and end is not None and end < start:
+            raise gerr.invalid_argument(
+                f"end{axis}Index[{end}] cannot be before start{axis}Index[{start}]"
+            )
+    r0, c0 = sr or 0, sc or 0
+    r1 = sheet.rows if er is None else er
+    c1 = sheet.cols if ec is None else ec
+    if r0 >= sheet.rows or c0 >= sheet.cols:
+        raise gerr.invalid_argument(
+            f"Range ({_grid_range_name(sheet, grid)}) exceeds grid limits. "
+            f"Max rows: {sheet.rows}, max columns: {sheet.cols}"
+        )
+    if r1 == r0 or c1 == c0:
+        return _Empty(sheet, r0, c0, r1, c1)
+    # An end past the grid is cut to it here rather than left to the A1 parser, which reads three
+    # column letters at most: `endColumnIndex: 20000` answers `A1:Z1000`, measured 2026-10-04.
+    return _a1_name(sheet, r0, c0, min(r1, sheet.rows), min(c1, sheet.cols))
+
+
+def _sheets_bounds(selection, sheets: list[_Sheet]) -> tuple[_Sheet, int, int, int, int]:
+    """The sheet and half-open ``(r0, c0, r1, c1)`` a filter's A1 spec or :class:`_Empty` covers,
+    an end past the grid cut to it."""
+    if isinstance(selection, _Empty):
+        e = selection
+        return e.sheet, e.r0, e.c0, min(e.r1, e.sheet.rows), min(e.c1, e.sheet.cols)
+    sheet, part = _a1_sheet(selection, sheets)
+    return (sheet, *_a1_range(selection, part, sheet))
+
+
+def _sheets_check_lookup(lookup: dict, sheets: list[_Sheet]) -> None:
+    """A `developerMetadataLookup`'s refusals. A corpus states no developer metadata, so a lookup
+    that passes them matches nothing — real's answer for one on a spreadsheet carrying none,
+    measured 2026-10-04 — and the caller serves it as such.
+
+    Real's checks, in the order it makes them, measured the same day over every combination of
+    six `locationType`s, eight locations and four `locationMatchingStrategy`s (a location with no
+    member, `{}`, counts as none)::
+
+        locationType SPREADSHEET, a location other than spreadsheet: true
+                                            Cannot limit by location type of SPREADSHEET for the
+                                            location <the location's member>
+        EXACT_LOCATION beside a locationType     The locationMatchingStrategy was specified as …
+        a strategy and no location               A locationMatchingStrategy was specified, but …
+        INTERSECTING_LOCATION, spreadsheet: true DeveloperMetadataLookup.spreadsheet is true, …
+        a locationType number not in the enum    500
+        the location (:func:`_sheets_check_dimension_range`, or a sheetId no sheet has)
+        ROW, COLUMN or SHEET with a spreadsheet location, a strategy or a visibility number not
+        in the enum                              500
+
+    The location's own `locationType` is read and ignored."""
+    location_type = lookup.get("location_type", 0)
+    strategy = lookup.get("location_matching_strategy", 0)
+    location = lookup.get("metadata_location") or {}
+    member = next(
+        (field for field in _PJ_METADATA_LOCATION.fields if field.name in location and field.oneof),
+        None,
+    )
+    whole_spreadsheet = (
+        member is not None and member.name == "spreadsheet" and location["spreadsheet"]
+    )
+    if location_type == 4 and member is not None and not whole_spreadsheet:
+        raise gerr.invalid_argument(
+            f"Cannot limit by location type of SPREADSHEET for the location {member.json_name}"
+        )
+    if strategy == 1 and location_type != 0:
+        raise gerr.invalid_argument(
+            "The locationMatchingStrategy was specified as EXACT_LOCATION, but a locationType was "
+            "also specified: lookups cannot limit by a location type when matching an exact "
+            "location."
+        )
+    if strategy != 0 and member is None:
+        raise gerr.invalid_argument(
+            "A locationMatchingStrategy was specified, but no metadataLocation was specified: "
+            "lookups must always specify a metadataLocation when specifying a "
+            "locationMatchingStrategy."
+        )
+    if strategy == 2 and whole_spreadsheet:
+        raise gerr.invalid_argument(
+            "DeveloperMetadataLookup.spreadsheet is true, but locationMatchingStrategy was "
+            "specified as INTERSECTING."
+        )
+    if not 0 <= location_type < len(_PJ_LOCATION_TYPE.names):
+        raise gerr.internal_error()
+    if member is not None and member.name == "sheet_id":
+        if all(s.sheet_id != location["sheet_id"] for s in sheets):
+            raise gerr.invalid_argument(f"No grid with id: {location['sheet_id']}")
+    if member is not None and member.name == "dimension_range":
+        _sheets_check_dimension_range(location["dimension_range"], sheets)
+    if location_type in (1, 2, 3) and member is not None and member.name == "spreadsheet":
+        raise gerr.internal_error()
+    if not 0 <= strategy < len(_PJ_MATCHING.names):
+        raise gerr.internal_error()
+    if not 0 <= lookup.get("visibility", 0) < len(_PJ_VISIBILITY.names):
+        raise gerr.internal_error()
+
+
+def _sheets_check_dimension_range(dimension_range: dict, sheets: list[_Sheet]) -> None:
+    """A lookup's `dimensionRange`, checked in the order real checks it (measured 2026-10-04 with
+    two members wrong at once): both indexes, exactly one row or column (`endIndex` one past
+    `startIndex`), both indexes non-negative, the sheet, a dimension, a dimension number the enum
+    does not declare (real's 500), and a start inside the grid."""
+    if "start_index" not in dimension_range or "end_index" not in dimension_range:
+        raise gerr.invalid_argument(
+            "DimensionRange must specify both a startIndex and an endIndex."
+        )
+    start, end = dimension_range["start_index"], dimension_range["end_index"]
+    # In Java int arithmetic: `startIndex: 2147483647, endIndex: -2147483648` passes this and is
+    # refused as negative, measured 2026-10-04.
+    if _int32(end - start) != 1:
+        raise gerr.invalid_argument("DimensionRange must represent a single row or column.")
+    if start < 0 or end < 0:
+        raise gerr.invalid_argument("DimensionRange indexes must be >= 0")
+    sheet_id = dimension_range.get("sheet_id", 0)
+    sheet = next((s for s in sheets if s.sheet_id == sheet_id), None)
+    if sheet is None:
+        raise gerr.invalid_argument(f"No grid with id: {sheet_id}")
+    dimension = dimension_range.get("dimension", 0)
+    if dimension == 0:
+        raise gerr.invalid_argument("No dimension specified")
+    if dimension not in (1, 2):
+        raise gerr.internal_error()
+    size, axis = (sheet.rows, "ROWS") if dimension == 1 else (sheet.cols, "COLUMNS")
+    if start >= size:
+        raise gerr.invalid_argument(
+            f"DimensionRange startIndex [{start}] is after the last {axis} index "
+            f"[{size - 1}] of the sheet [{sheet_id}]."
+        )
+
+
+def _sheets_selections(filters: list[dict], sheets: list[_Sheet], *, values_level: bool) -> list:
+    """What each filter selects, in the order sent: an A1 spec, an :class:`_Empty`, or ``None`` for
+    a developer metadata lookup (:func:`_sheets_check_lookup`).
+
+    Real checks the filters one at a time and answers the first that fails, measured 2026-10-04
+    with a failing filter on either side of another, a lookup's refusal and a range's alike. The
+    values-level read puts `Invalid dataFilter[N]: ` in front of the refusal and the
+    spreadsheet-level one does not. An `a1Range` is resolved here, past-grid check and all, so its
+    refusal is reported against the filter that carried it."""
+    selections = []
+    for i, f in enumerate(filters):
+        try:
+            if "a1_range" in f:
+                spec = f["a1_range"]
+                sheet, part = _a1_sheet(spec, sheets)
+                _a1_range(spec, part, sheet)
+                selections.append(spec)
+            elif "grid_range" in f:
+                word = "grid" if values_level else "sheet"
+                selections.append(_sheets_grid_selection(f["grid_range"], sheets, word))
+            elif "developer_metadata_lookup" in f:
+                _sheets_check_lookup(f["developer_metadata_lookup"], sheets)
+                selections.append(None)
+            else:
+                raise gerr.invalid_argument("dataFilter.filter must be specified.")
+        except gerr.GoogleError as exc:
+            if exc.status_code != 400 or not values_level:
+                raise
+            raise gerr.invalid_argument(f"Invalid dataFilter[{i}]: {exc.message}") from None
+    return selections
+
+
+def _sheets_filter_echo(f: dict) -> dict:
+    """A filter as the values-level read echoes it beside its answer: the proto real read, back in
+    JSON, so an accepted spelling comes back canonical — `"startRowIndex": "+1"` as `1` —
+    with a plain field at its default left out and a wrapper field kept: `sheetId: 0` is absent
+    and `startRowIndex: 0` present. Measured 2026-10-04."""
+    if "a1_range" in f:
+        return {"a1Range": f["a1_range"]}
+    grid = f["grid_range"]
+    return {
+        "gridRange": {
+            field.json_name: grid[field.name]
+            for field in _PJ_GRID_RANGE.fields
+            if field.name in grid and (field.wrapper or grid[field.name])
+        }
+    }
+
+
+@router.post(
+    "/sheets/v4/spreadsheets/{spreadsheet_id}/values:batchGetByDataFilter",
+    openapi_extra={"parameters": _P_SHEETS_STD},
+)
+async def sheets_values_batch_get_by_data_filter(spreadsheet_id: str, request: Request):
+    """``values:batchGet`` addressed by DataFilter rather than by A1 string.
+
+    A read, issued over POST because the filters do not fit in a query string. Each entry carries
+    the ``valueRange`` AND the filters that selected it — measured — so a caller that sent several
+    can tell which answer belongs to which.
+
+    In the order real answers, measured 2026-10-04 with two wrong at once: the credential, then the
+    body (``protojson.read``), then the spreadsheet's lookup, then a `valueRenderOption` number the
+    enum does not declare (a 400 of the service's own), then an empty filter list, then the filters
+    (:func:`_sheets_selections`), then a `majorDimension` number it does not declare (a 500). A
+    `dateTimeRenderOption` number it does not declare is ignored, as the option is."""
+    _require(request)
+    body = protojson.read(await request.body(), _PJ_BATCH_GET_BY_FILTER)
+    _row, sheets = _workbook(request, spreadsheet_id)
+    render = body.get("value_render_option", 0)
+    if not 0 <= render < len(_PJ_RENDER.names):
+        raise gerr.invalid_argument("Invalid valueRenderOption: UNRECOGNIZED")
+    filters = body.get("data_filters", [])
+    if not filters:
+        raise gerr.invalid_argument("Must specify at least one dataFilter.")
+    selections = _sheets_selections(filters, sheets, values_level=True)
+    major = body.get("major_dimension", 0)
+    if not 0 <= major < len(_PJ_DIMENSION.names):
+        raise gerr.internal_error()
+    major, render = _sheets_major(_PJ_DIMENSION.names[major]), _PJ_RENDER.names[render]
+
+    # NOT the order the filters arrived in. Measured: the answers come back sorted by where each
+    # range starts, column before row — `Data!A2` precedes `Data!B1`, `Data!B9` precedes
+    # `Data!B10`, a shorter range precedes the one that extends it, and a sheet earlier in the
+    # workbook comes first. Each entry still carries the filters that selected it, so a caller
+    # pairs by those rather than by position.
+    def where(i: int):
+        sheet, r0, c0, r1, c1 = _sheets_bounds(selections[i], sheets)
+        return (sheet.index, c0, r0, c1, r1)
+
+    def answer(selection) -> dict:
+        if isinstance(selection, _Empty):
+            return {"range": "#REF!", "majorDimension": major}
+        return _sheets_value_range(selection, sheets, major, render)
+
+    out: dict = {"spreadsheetId": spreadsheet_id}
+    # Filters whose answers name the same range share one entry, which lists them in the order
+    # sent, measured 2026-10-04: `Data!A1:A1` beside `Data!A1`, an `a1Range` beside the `gridRange`
+    # for its cells, two ranges equal once an end past the grid is cut, and two ranges with no
+    # cells in different places, rows or columns, both `#REF!`.
+    first: dict[str, int] = {}
+    entries: dict[str, dict] = {}
+    for i, selection in enumerate(selections):
+        if selection is None:
+            continue
+        value_range = answer(selection)
+        key = value_range["range"]
+        if key not in entries:
+            first[key] = i
+            entries[key] = {"valueRange": value_range, "dataFilters": []}
+        entries[key]["dataFilters"].append(_sheets_filter_echo(filters[i]))
+    if entries:
+        # A lookup selects nothing and leaves no entry; with nothing else, there is no
+        # `valueRanges` at all, measured 2026-10-04.
+        out["valueRanges"] = [entries[k] for k in sorted(entries, key=lambda k: where(first[k]))]
+    return _sheets_respond(request, out, _F_BATCH_BY_FILTER)
+
+
+@router.post(
+    "/sheets/v4/spreadsheets/{spreadsheet_id}:getByDataFilter",
+    openapi_extra={"parameters": _P_SHEETS_STD},
+)
+async def sheets_get_by_data_filter(spreadsheet_id: str, request: Request):
+    """``spreadsheets.get`` addressed by DataFilter. Same response, and the filters scope the
+    ``sheets`` array as ``ranges`` does but for cells two filters cover (below) — measured,
+    including that NO filter means every sheet rather than the refusal its values-level sibling
+    gives, and so does a list of developer metadata lookups alone, which select nothing (measured
+    2026-10-04). The credential, the body, the spreadsheet's lookup and the filters come in the
+    order its sibling's docstring gives."""
+    _require(request)
+    body = protojson.read(await request.body(), _PJ_GET_BY_FILTER)
+    row, sheets = _workbook(request, spreadsheet_id)
+    selections = _sheets_selections(body.get("data_filters", []), sheets, values_level=False)
+    # Filters that cover the same cells share one `data` block, placed where the first of them was
+    # sent, measured 2026-10-04 on the pairs with cells `sheets_values_batch_get_by_data_filter`
+    # lists and on one empty range sent twice. Two empty ranges in different places stay two
+    # blocks, and `spreadsheets.get` answers a `ranges` value sent twice with a block for each.
+    specs, seen = [], set()
+    for selection in selections:
+        if selection is None:
+            continue
+        sheet, *cells = _sheets_bounds(selection, sheets)
+        if (sheet.index, *cells) not in seen:
+            seen.add((sheet.index, *cells))
+            specs.append(selection)
+    grid = body.get("include_grid_data", False)
+    if mask := gerr.first_repeat(request.query_params, "fields"):
+        grid = _gmask_wants_grid(mask)
+    return _sheets_respond(
+        request, _sheets_book(spreadsheet_id, row, sheets, specs, grid), _F_SPREADSHEET
+    )
+
+
+@router.get("/slides/v1/presentations/{presentation_id}")
+async def slides_get(presentation_id: str, request: Request):
+    """The presentation as slides: one ``TEXT_BOX`` slide per blank-line-separated block of text."""
+    row = _editor_doc(request, presentation_id, expect="presentation")
+    chunks = [c for c in (row["content"] or "").split("\n\n") if c.strip()] or [
+        row["content"] or ""
+    ]
+    slides = []
+    for i, chunk in enumerate(chunks):
+        slides.append(
+            {
+                "objectId": f"p{i}",
+                "pageType": "SLIDE",
+                "pageElements": [
+                    {
+                        "objectId": f"p{i}_t",
+                        "shape": {
+                            "shapeType": "TEXT_BOX",
+                            "text": {
+                                "textElements": [
+                                    {"textRun": {"content": chunk + "\n", "style": {}}}
+                                ]
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+    return {
+        "presentationId": presentation_id,
+        "title": row["title"],
+        "pageSize": {
+            "width": {"magnitude": 9144000, "unit": "EMU"},
+            "height": {"magnitude": 6858000, "unit": "EMU"},
+        },
+        "slides": slides,
+    }
+
+
+# Google Workspace native types: subtype -> (mimeType, webView path segment, export content-type)
+_NATIVE = {
+    "document": ("application/vnd.google-apps.document", "document", "text/plain"),
+    "spreadsheet": ("application/vnd.google-apps.spreadsheet", "spreadsheets", "text/csv"),
+    "presentation": ("application/vnd.google-apps.presentation", "presentation", "text/plain"),
+    "folder": ("application/vnd.google-apps.folder", None, None),
+}
+
+
+def _native(row):
+    """Return the _NATIVE tuple for this doc, or None if it's a binary (non-native) file."""
+    return _NATIVE.get(row["subtype"] or "document")
+
+
+def _drive_user(email: str) -> dict:
+    return {
+        "kind": "drive#user",
+        "displayName": email.split("@")[0].replace(".", " ").title(),
+        "emailAddress": email,
+        "me": False,
+        "permissionId": str(synth.github_user_id(email)),
+        "photoLink": synth.github_avatar(synth.github_user_id(email)),
+    }
+
+
+def _drive_mime(row) -> str:
+    """The mimeType this row serves: a native Workspace type from its subtype, else its own
+    declared type (and only a type-less binary falls back to an opaque blob)."""
+    native = _native(row)
+    return native[0] if native else (row["mime_type"] or "application/octet-stream")
+
+
+def _drive_file(conn, row, shared: bool | None = None, me: str | None = None) -> dict:
+    """The served ``files`` resource for a stored row. ``me`` is the caller's email, which decides
+    the per-caller ``ownedByMe`` (None for the admin/service token, which owns nothing)."""
+    created = _drive_created(row)
+    modified = _drive_modified(row)
+    author = row["author_email"]
+    native = _native(row)
+    mime = _drive_mime(row)
+    if native is not None:
+        seg = native[1]
+        view = (
+            f"https://docs.google.com/{seg}/d/{row['id']}/edit"
+            if seg
+            else f"https://drive.google.com/drive/folders/{row['id']}"
+        )
+    else:  # binary file (PDF, image, office doc)
+        view = f"https://drive.google.com/file/d/{row['id']}/view"
+    is_folder = row["subtype"] == "folder"
+    # "shared" = visible to anyone besides the owner — true for org/group/multi-reader docs.
+    # In a list the caller passes it in (batch-computed); for a single get, look it up here.
+    if shared is None:
+        shared = bool(store.doc_grants(conn, "google_drive", row["id"]))
+    ext = row["title"].rsplit(".", 1)[-1] if (native is None and "." in row["title"]) else None
+    nbytes = len((row["content"] or "").encode("utf-8"))
+    f = {
+        "kind": "drive#file",
+        "id": row["id"],
+        "name": row["title"],
+        "mimeType": mime,
+        "parents": store.jcol(row, "parents") or [synth.drive_folder_id(row["folder"])],
+        "createdTime": synth.rfc3339(created),
+        "modifiedTime": synth.rfc3339(modified),
+        "owners": [_drive_user(author)],
+        "lastModifyingUser": _drive_user(author),
+        "trashed": bool(row["trashed"]),
+        "explicitlyTrashed": bool(row["trashed"]),
+        "starred": False,
+        "shared": bool(shared),
+        "viewedByMe": False,
+        "ownedByMe": _drive_owned_by(author, me),
+        **_shared_with_me_time(author, me, created),
+        "version": str(2 if row["updated_ts"] else 1),
+        "spaces": ["drive"],
+        "webViewLink": view,
+        "iconLink": f"https://drive.google.com/icons/{(row['subtype'] or 'document')}.png",
+        "capabilities": {
+            "canDownload": not is_folder,
+            "canListChildren": is_folder,
+            "canComment": not is_folder,
+            "canEdit": False,
+            "canCopy": not is_folder,
+            "canShare": True,
+            "canRename": False,
+            "canTrash": False,
+            "canDelete": False,
+            "canReadRevisions": not is_folder,
+            "canAddChildren": is_folder,
+            "canModifyContent": False,
+        },
+    }
+    # Per Google's reference, `size` "is populated for files with binary content stored in Google
+    # Drive AND for Docs Editors files; it is not populated for shortcuts or folders" — so a native
+    # Doc/Sheet/Slides carries it too. Checksums, a download link and the file-extension pair stay
+    # binary-only, which is also what real Drive does for the Docs-editors types.
+    if not is_folder:
+        f["size"] = str(nbytes)
+    if native is None:
+        f["md5Checksum"] = hashlib.md5(row["content"].encode()).hexdigest()
+        f["quotaBytesUsed"] = str(nbytes)
+        f["webContentLink"] = f"https://drive.google.com/uc?id={row['id']}&export=download"
+        if ext:
+            f["fileExtension"] = ext
+            f["fullFileExtension"] = ext
+    return f
+
+
+def _drive_permissions(conn, file_id: str, *, folder: str | None = None) -> list[dict]:
+    """Build from the doc's ACL grants (preserving user/group/org identity) + an owner. For a
+    synthesized folder, ``folder`` names the container and the grants come from its files (which is
+    what makes the folder visible in the first place); Backlot models no folder owner, so there is
+    no owner permission to add."""
+    grants = (
+        store.container_grants(conn, "google_drive", folder)
+        if folder
+        else store.doc_grants(conn, "google_drive", file_id)
+    )
+    domain = get_settings().org_domain
+    perms = []
+    for g in grants:
+        ptype, pid = g["principal_type"], g["principal_id"]
+        if ptype == "org":  # anyone-in-org / anyone-with-link
+            perms.append(
+                {
+                    "kind": "drive#permission",
+                    "id": "anyoneWithLink",
+                    "type": "anyone",
+                    "role": "reader",
+                    "allowFileDiscovery": True,
+                }
+            )
+        elif ptype == "group":
+            perms.append(
+                {
+                    "kind": "drive#permission",
+                    "id": str(synth.github_user_id(pid)),
+                    "type": "group",
+                    "role": "reader",
+                    "emailAddress": f"{pid}@{domain}",
+                    "displayName": pid,
+                }
+            )
+        else:  # user
+            perms.append(
+                {
+                    "kind": "drive#permission",
+                    "id": str(synth.github_user_id(pid)),
+                    "type": "user",
+                    "role": "reader",
+                    "emailAddress": pid,
+                    "displayName": pid.split("@")[0].replace(".", " ").title(),
+                }
+            )
+    # every file has an owner
+    row = store.get_document(conn, "google_drive", file_id)
+    if row is not None:
+        owner = row["author_email"]
+        perms.insert(
+            0,
+            {
+                "kind": "drive#permission",
+                "id": str(synth.github_user_id(owner)),
+                "type": "user",
+                "role": "owner",
+                "emailAddress": owner,
+                "displayName": owner.split("@")[0].replace(".", " ").title(),
+            },
+        )
+    return perms
+
+
+def _typed_query(request: Request, readers: dict) -> dict[str, list]:
+    """Every repeat of each typed query parameter in ``readers``, parsed and keyed by name, in the
+    order the query sent them.
+
+    Real parses every repeat of a typed parameter, not only the one it reads, and refuses all it
+    cannot parse in one 400 (:func:`gerr.invalid_field_values`). :func:`gerr.first_repeat` names
+    the parameters a bad value at either end was measured on, and the end each is READ from, which
+    is the caller's to pick.
+
+    The refusals are grouped by parameter, each parameter's in query order, and the groups come in
+    the order their parameters first appear. Measured 2026-09-23, eight identical requests each:
+    `majorDimension=NOPE1&valueRenderOption=NOPE2&majorDimension=NOPE3` kept the two
+    `major_dimension` refusals together and in that order every time, while which parameter came
+    first varied from one request to the next (`valueRenderOption=NOPE&majorDimension=NOPE`
+    answered each order four times), so first appearance is one of the orders real gives.
+
+    Its callers run it after the credential and before the lookup, measured 2026-09-30 on Drive
+    `files.get` and `permissions.list` and on Sheets `values.get`, `values:batchGet` and
+    `spreadsheets.get`: with no credential or a bad one, a bad value is answered with the
+    credential's refusal, and with a good one it is this 400 for an id that does not exist, where
+    the same request without the bad value is the 404. `permissions.list` checks its `pageSize`
+    range at the same point, as real does: `pageSize=0` on a missing file is the range refusal."""
+    parsed: dict[str, list] = {name: [] for name in readers}
+    refused: dict[str, list[tuple[str, str]]] = {}
+    for name, raw in request.query_params.multi_items():
+        if name not in readers:
+            continue
+        try:
+            parsed[name].append(readers[name](raw))
+        except gerr.GoogleError as exc:
+            violations = gerr.field_violations(exc)
+            if not violations:
+                raise
+            refused.setdefault(name, []).extend(violations)
+    if refused:
+        raise gerr.invalid_field_values([v for group in refused.values() for v in group])
+    return parsed
+
+
+# The typed booleans each Drive method Backlot serves declares, as the proto field its refusal
+# names. Each is parsed and the parsed value never read. Measured 2026-09-23 on each of them: the
+# Sheets boolean spellings (`_sheets_bool_value`), 30 of them swept on `supportsAllDrives`; and on
+# 2026-10-06 `yeſ`, `YEſ`, `falſe` and `FALſE`, each refused, since only ASCII letters are folded
+# (`protojson.to_bool`). Spelled `true`, four of them run a check of their own and two lift one --
+# see `_drive_true`. `files.export` and `about.get` declare none, and real ignores
+# `supportsAllDrives=NOPE` on both.
+_DRIVE_BOOLS = {
+    "supportsAllDrives": "supports_all_drives",
+    "supportsTeamDrives": "supports_team_drives",
+    "includeItemsFromAllDrives": "include_items_from_all_drives",
+    "includeTeamDriveItems": "include_team_drive_items",
+    "acknowledgeAbuse": "acknowledge_abuse",
+    "useDomainAdminAccess": "use_domain_admin_access",
+}
+
+
+def _drive_typed(request: Request, *bools: str, page_size: bool = False) -> dict[str, list]:
+    """`_typed_query` over the booleans a Drive method declares, and its `pageSize` if it has
+    one."""
+    readers = {
+        name: (lambda raw, field=_DRIVE_BOOLS[name]: _sheets_bool_value(raw, field))
+        for name in bools
+    }
+    if page_size:
+        readers["pageSize"] = _drive_int32
+    return _typed_query(request, readers)
+
+
+def _drive_true(request: Request, name: str) -> bool:
+    """Whether a Drive flag's first repeat is the word `true`, in any case.
+
+    Four flags run a check of their own when spelled `true`, and the check reads the spelling rather
+    than the boolean `_drive_typed` parses. Measured 2026-10-04 on `files.list`'s
+    `includeItemsFromAllDrives`: `true`, `TRUE` and `tRuE` run it, while `t`, `1`, `y` and `yes`,
+    which parse as true, do not; and `supportsAllDrives` lifts it at `true` and not at `t`, `1` or
+    `yes`. `true&false` runs it and `false&true` does not."""
+    return (gerr.first_repeat(request.query_params, name) or "").casefold() == "true"
+
+
+def _drive_download(endpoint, query) -> bool:
+    """Whether a request to `endpoint` with `query` is a Drive download: `files.get` with
+    `alt=media`, or `files.export` with no `alt`, an empty one or `alt=media`."""
+    alt = gerr.alt_format(query)
+    return (endpoint is drive_files_get and alt == "media") or (
+        endpoint is drive_files_export and alt in ("", "media")
+    )
+
+
+def _drive_download_request(request: Request) -> bool:
+    """Whether this request is a Drive download (`_drive_download`), read off the route it matched.
+
+    The one question ``_system_parameters`` and the two ``files.get``/``files.export`` handlers ask,
+    so a download sent on its own and one sent as a batch part are answered alike, and so a request
+    that merely LOOKS like one is not: measured 2026-10-07, an export asking for `alt=json` and a
+    file whose id is literally `export` are ordinary reads to real."""
+    return _drive_download(request.scope.get("endpoint"), request.query_params)
+
+
+def _drive_batch_download(request: Request) -> bool:
+    """Whether this request is a Drive download sent as a part of a batch. Read off the route the
+    request matched, so the router's dependency can ask before the route runs."""
+    return _BATCH_OUTER.get() is not None and _drive_download_request(request)
+
+
+_URL_ESCAPE = re.compile(r"%([0-9A-Fa-f]{2})")
+
+
+def _batch_escapes(text: str, decoded: str) -> str:
+    """`text` with each escape of an ASCII letter or digit, or of a character in `decoded`, decoded,
+    and each other escape kept with its hex in upper case. A `%` that two hex digits do not follow
+    stays as sent."""
+
+    def one(match: "re.Match[str]") -> str:
+        char = chr(int(match.group(1), 16))
+        if char.isascii() and (char.isalnum() or char in decoded):
+            return char
+        return "%" + match.group(1).upper()
+
+    return _URL_ESCAPE.sub(one, text)
+
+
+def _batch_query_pairs(query: str) -> list[tuple[str, str]]:
+    """A query string's pairs as real writes them into a batch redirect's `Location`. Measured
+    2026-10-04, in a name and a value alike: an empty pair is dropped, a name with no `=` gains one,
+    and an escape of an ASCII letter or digit is decoded, where any other escape keeps its byte and
+    has its hex written in upper case (`%7e` is `%7E`, `%2d` is `%2D`); `+` and `%20` stay as
+    sent."""
+    return [
+        (_batch_escapes(name, ""), _batch_escapes(value, ""))
+        for name, _, value in (pair.partition("=") for pair in query.split("&") if pair)
+    ]
+
+
+def _drive_batch_redirect(request: Request) -> None:
+    """A Drive download inside a batch, answered with real's redirect: a 302 to the same path under
+    `/download`.
+
+    Measured 2026-10-04 on `files.get` with `alt=media` and on `files.export`: the redirect comes
+    after `$.xgafv` and after a credential the part carries, a bad one being the 401, while a part
+    with no credential at all is redirected. Only `Bearer` and a token is a credential there:
+    measured 2026-10-05, `Basic YWJjOmRlZg==`, `bearer nope`, a bare `Bearer` and `nope` are each
+    redirected, though each is the 401 on a download sent on its own. The redirect comes ahead of
+    everything else measured beside it: a file that does not exist, `supportsAllDrives=NOPE`,
+    `fields=bogus`, an absent or empty `mimeType`, a Docs file read with `alt=media`, and a
+    `callback`, which neither wraps the redirect (`cb`) nor refuses it (`a b`).
+
+    `Location` is the request's path under `/download`, as sent but for its escapes: measured
+    2026-10-05 on `files/a%XXb` for each byte 0x20-0x7E, real decodes an escape of an ASCII letter,
+    digit, `-`, `.`, `_` or `~` and keeps any other with its hex in upper case, `%23`, `%2F` and
+    `%E2%82%AC` among them. Then come the request's query pairs, then each of the batch request's
+    whose name the request's pairs do not carry, in the batch's order, all as `_batch_query_pairs`
+    writes them. A name is matched as written there, so `fo%6F=` keeps the batch's `foo` out and
+    `Foo` does not, and a name the batch repeats is carried every time. The path and the query are
+    read from the request's raw bytes, not its decoded URL, in which `%23` would start a
+    fragment."""
+    if _sends_a_bearer_token(request):
+        _require(request)
+    outer = _BATCH_OUTER.get()
+    path = _batch_escapes(request.scope["raw_path"].decode("latin-1"), "-._~")
+    pairs = _batch_query_pairs(request.scope["query_string"].decode("latin-1"))
+    named = {name for name, _ in pairs}
+    pairs += [(name, value) for name, value in _batch_query_pairs(outer.query) if name not in named]
+    query = "&".join(f"{name}={value}" for name, value in pairs)
+    raise gerr.download_redirect(f"{outer.base}download{path}" + (f"?{query}" if query else ""))
+
+
+# An int32 as the Drive query parser takes one. Measured on `pageSize`, on `files.list` 2026-09-23
+# and on `permissions.list` and `drives.list` 2026-09-30: `+2` and `02` are 2 and `-0` is 0, while
+# a padded ` 2` or `2 `, `1_0`, `2.0`, `0x10`, `1e2`, an empty value and a value past 2**31 - 1 are
+# the `TYPE_INT32` refusal.
+_INT32 = re.compile(r"[+-]?[0-9]+")
+
+
+def _drive_int32(raw: str) -> int:
+    if _INT32.fullmatch(raw) and -(2**31) <= int(raw) < 2**31:
+        return int(raw)
+    raise gerr.invalid_field_value(
+        "page_size", f"Invalid value at 'page_size' (TYPE_INT32), \"{raw}\""
+    )
+
+
+def _drive_page_size_in_range(sizes: list[int], top: int) -> None:
+    """Refuse one `pageSize` outside 1 to ``top`` with real's range sentence, which names the value
+    as an int. Measured 2026-09-23, and on each of the three routes again 2026-09-30: ``top`` is
+    1000 on `files.list` and 100 on `permissions.list` and `drives.list`; `0`, `-1`, `-0` (named
+    `0`), ``top + 1`` and `2147483647` are refused alike; and two or more values get no range
+    sentence, the first of them deciding instead, in `_drive_page_size` on `files.list` and
+    `_drive_permissions_page_size` on `permissions.list`."""
+    if len(sizes) == 1 and not 1 <= sizes[0] <= top:
+        raise gerr.invalid_parameter(
+            "page_size",
+            f"Invalid value '{sizes[0]}'. Values must be within the range: [value: 1\n, value: "
+            f"{top}\n]",
+        )
+
+
+def _drive_permissions_token(file_id: str, offset: int) -> str:
+    """The `nextPageToken` `permissions.list` issues: the offset of the next page and the file it
+    pages, so that `_drive_permission_page` can refuse a token sent back to another file."""
+    return base64.urlsafe_b64encode(f"p:{offset}:{file_id}".encode()).decode()
+
+
+def _drive_permissions_page_token(request: Request) -> tuple[int, str] | None:
+    """The `pageToken` sent to `permissions.list`, as the offset and the file it was issued for, or
+    ``None`` when none was sent. Read from the first repeat. Measured against Drive v3 on 2026-10-04
+    and 2026-10-05, the empty, `bad`, `bzow`, `BOGUS` and `files.list`-token cells again on
+    2026-10-07 as a Workspace member, and `bzox` and the last two rows on 2026-10-08 on a consumer
+    account::
+
+        pageToken                         permissions.list          drives.list
+        --------------------------------|-------------------------|-------------------------
+        empty                           | 403 `pageTokenExpired`  | the first page
+        `bad`, `bzow`, `bzox`, `AAAA`   | 400 `Invalid Value`     | 400 `Invalid Value`
+        `BOGUS`, `0`, `a`, a space, a   | 500 `Unknown Error.`    | 400 `Invalid Value`
+        token `files.list` issued       |                         |
+        one issued for another file     | 403 `pageTokenExpired`  |
+        one issued for this file        | the next page           |
+
+    An issued token with a character added, changed or dropped was the 500, the 400, the 403 or the
+    next page by which character it was, measured 2026-10-08. A token here names the offset, from 1,
+    and the file (`_drive_permissions_token`), and only the exact spelling issued is read, so the
+    spellings the table lists against the 400 and the 500, and every altered token, are the 400
+    here: the 500, and an altered token's 403 and next page, are not modelled. A token naming
+    another file does decode, and its 403 comes after the file lookup, in `_drive_permission_page`.
+    `drives.list` issues none, and `_drive_listing_page_token` reads its column."""
+    token = gerr.first_repeat(request.query_params, "pageToken")
+    if token is None:
+        return None
+    if not token:
+        raise gerr.page_token_expired()
+    try:
+        _, offset, file_id = base64.urlsafe_b64decode(token).decode().split(":", 2)
+        issued = int(offset), file_id
+    except ValueError:
+        raise gerr.invalid_value("pageToken") from None
+    if issued[0] < 1 or _drive_permissions_token(file_id, issued[0]) != token:
+        raise gerr.invalid_value("pageToken")
+    return issued
+
+
+def _drive_permissions_page_size(sizes: list[int]) -> int | None:
+    """The `pageSize` `permissions.list` pages by, or ``None`` for the whole list. One value outside
+    1-100 is the range refusal `_drive_page_size_in_range` raises; two or more are read from the
+    first, and real answers :func:`gerr.unknown_error` when that one is outside 1-100. Measured
+    against Drive v3 on 2026-10-08 on a consumer account: `0&2`, `-0&2`, `-1&2`, `0&0`, `0&101`,
+    `101&2`, `101&101`, `2147483647&2`, `-2147483648&2` and `0&2&2` each answered the 500, where
+    `100&2` and `2&0&0` served two permissions and `1&0`, `+1&0`, `1&2` and `1&2&3` one and a
+    token."""
+    if not sizes:
+        return None
+    if not 1 <= sizes[0] <= 100:
+        raise gerr.unknown_error()
+    return sizes[0]
+
+
+def _drive_permission_page(
+    permissions: list[dict], file_id: str, size: int | None, token: tuple[int, str] | None
+) -> dict:
+    """One page of a file's permissions, in the unpaged list's order, and the token for the next.
+
+    Measured against Drive v3 on two-permission My Drive files on 2026-10-05, and on a file and a
+    folder on 2026-10-08: no `pageSize` serves the whole list and no `nextPageToken`; `pageSize=1`
+    the first permission and a token; that token, sent back with a `pageSize` of 1 or 2 or with
+    none, the other permission and no token; and a `pageSize` of 2, 3 or 100 both and no token. A
+    token issued for another file is 403 `pageTokenExpired` (`_drive_permissions_page_token`)."""
+    offset = 0
+    if token is not None:
+        offset, issued_for = token
+        if issued_for != file_id:
+            raise gerr.page_token_expired()
+    end = len(permissions) if size is None else offset + size
+    body = {"kind": "drive#permissionList", "permissions": permissions[offset:end]}
+    if end < len(permissions):
+        body["nextPageToken"] = _drive_permissions_token(file_id, end)
+    return body
+
+
+def _drive_listing_page_token(request: Request) -> None:
+    """Refuse a `pageToken` sent to `drives.list`, which is empty and issues no `nextPageToken`,
+    so every token is one it did not issue. Presence is the whole test: `decode_cursor_or_none`,
+    which `files.list` calls, reads `bzow` and that route's own tokens as offsets. Read from the
+    first repeat, after the typed and range refusals and ahead of the `useDomainAdminAccess=true`
+    refusal. What real answers is the `drives.list` column of the table
+    `_drive_permissions_page_token` records."""
+    token = gerr.first_repeat(request.query_params, "pageToken")
+    if token:
+        raise gerr.invalid_value("pageToken")
+
+
+def _drive_page_size(sizes: list[int]) -> int:
+    """The page size a `files.list` asks for, from the `pageSize` values `_drive_typed` parsed.
+
+    Measured 2026-09-23: two or more values are read from the first, one past 1000 answering 1000
+    files and one at or below 0 answering 500 (`0&2`, `0&0`, `-1&2` and `0&1001` all did, with
+    more than 500 files to list), where `2&0` is 2 and `3&0` is 3. Absent is the default of 100."""
+    _drive_page_size_in_range(sizes, 1000)
+    if not sizes:
+        return get_settings().default_page_size
+    first = sizes[0]
+    size = 1000 if first > 1000 else 500 if first < 1 else first
+    return min(size, get_settings().max_page_size)

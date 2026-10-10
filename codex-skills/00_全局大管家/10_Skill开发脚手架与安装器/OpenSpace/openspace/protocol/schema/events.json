@@ -1,0 +1,447 @@
+{
+  "manifest_schema_version": 1,
+  "unknown_event": {
+    "strategy": "warning_event",
+    "event": "notification",
+    "level": "warn",
+    "title": "Protocol warning"
+  },
+  "tui_to_core": [
+    "query",
+    "cancel",
+    "permission_response",
+    "tool_permission_response",
+    "prompt_response",
+    "slash_command",
+    "resume_session",
+    "settings_update",
+    "mcp_reconnect",
+    "elicitation_response",
+    "agent_input",
+    "background_control",
+    "tui_unavailable"
+  ],
+  "core_to_tui": [
+    "llm_start",
+    "llm_token",
+    "llm_complete",
+    "tool_start",
+    "tool_progress",
+    "tool_complete",
+    "tool_error",
+    "permission_request",
+    "tool_permission_ask",
+    "prompt_request",
+    "tool_permission_cancel",
+    "iteration_start",
+    "iteration_end",
+    "compact_start",
+    "compact_complete",
+    "token_warning",
+    "memory_selector",
+    "memory_saved",
+    "memory_logged",
+    "memory_extraction_start",
+    "memory_extraction_complete",
+    "memory_extraction_error",
+    "auto_dream_start",
+    "auto_dream_progress",
+    "auto_dream_complete",
+    "auto_dream_error",
+    "auto_dream_cancelled",
+    "task_start",
+    "task_progress",
+    "task_complete",
+    "task_error",
+    "skill_selected",
+    "session_list",
+    "session_restored",
+    "doctor_result",
+    "status_update",
+    "settings_update",
+    "mcp_status",
+    "elicitation_request",
+    "notification",
+    "command_result",
+    "agent_list",
+    "agent_event",
+    "agent_transcript",
+    "background_session_update",
+    "agent_start",
+    "agent_progress",
+    "agent_output",
+    "agent_error",
+    "agent_complete",
+    "agent_spawn",
+    "agent_task_update",
+    "agent_task_complete",
+    "team_update",
+    "todo_update",
+    "task_started",
+    "task_completed",
+    "task_failed",
+    "task_stopped",
+    "hook_start",
+    "hook_complete",
+    "hook_message",
+    "hook_non_blocking_error",
+    "stop_hook_summary",
+    "stop_hook_message",
+    "conversation_recovery",
+    "token_budget_continue",
+    "token_budget_completed",
+    "time_based_microcompact",
+    "nested_memory_consumed",
+    "dynamic_skills_consumed",
+    "skill_discovery_prefetch_consumed",
+    "cost_summary",
+    "side_query_start",
+    "side_query_complete",
+    "side_query_cancelled",
+    "side_query_error",
+    "llm_retry",
+    "memory_extraction_skipped",
+    "memory_extraction_coalesced",
+    "memory_extraction_trailing_start",
+    "session_memory_extraction_skipped",
+    "session_memory_extraction_complete",
+    "session_memory_extraction_error",
+    "session_memory_extraction_coalesced",
+    "session_memory_extraction_trailing_start",
+    "session_memory_compact",
+    "session_memory_compact_skipped",
+    "session_memory_compact_resumed_session",
+    "session_memory_checked",
+    "session_memory_updated",
+    "tool_cancelled",
+    "tool_deferred_intercepted",
+    "bash_tool_command_executed",
+    "tool_executing",
+    "tool_hook_stopped",
+    "tool_permission_denied",
+    "tool_pipeline_complete",
+    "tool_quality_recorded",
+    "tool_validation_error",
+    "task_finished_pre_persist",
+    "task_session_persisted",
+    "background_drain",
+    "memory_background_drain_timeout",
+    "background_housekeeping_drain_timeout",
+    "background_housekeeping_idle",
+    "background_housekeeping_cleanup_complete",
+    "background_housekeeping_recurring_cleanup",
+    "quality_signal_checkpoint_warning"
+  ],
+  "payload_types": {
+    "query": "QueryData",
+    "cancel": "CancelData",
+    "permission_response": "PermissionResponseData",
+    "tool_permission_response": "ToolPermissionResponseData",
+    "prompt_response": "PromptResponseData",
+    "slash_command": "SlashCommandData",
+    "resume_session": "ResumeSessionData",
+    "settings_update": "SettingsUpdateData",
+    "mcp_reconnect": "McpReconnectData",
+    "elicitation_response": "ElicitationResponseData",
+    "agent_input": "AgentInputData",
+    "background_control": "BackgroundControlData",
+    "tui_unavailable": "TuiUnavailableData",
+    "llm_start": "LLMStartData",
+    "llm_token": "LLMTokenData",
+    "llm_complete": "LLMCompleteData",
+    "tool_start": "ToolStartData",
+    "tool_progress": "ToolProgressData",
+    "tool_complete": "ToolCompleteData",
+    "tool_error": "ToolErrorData",
+    "permission_request": "PermissionRequestData",
+    "tool_permission_ask": "ToolPermissionAskData",
+    "prompt_request": "PromptRequestData",
+    "tool_permission_cancel": "ToolPermissionCancelData",
+    "iteration_start": "IterationData",
+    "iteration_end": "IterationData",
+    "compact_start": "CompactData",
+    "compact_complete": "CompactData",
+    "token_warning": "TokenWarningEventData",
+    "memory_selector": "MemorySelectorData",
+    "memory_saved": "MemorySavedEventData",
+    "memory_logged": "MemoryLoggedEventData",
+    "memory_extraction_start": "MemoryExtractionStartData",
+    "memory_extraction_complete": "MemoryExtractionCompleteData",
+    "memory_extraction_error": "MemoryExtractionErrorData",
+    "auto_dream_start": "AutoDreamEventData",
+    "auto_dream_progress": "AutoDreamEventData",
+    "auto_dream_complete": "AutoDreamEventData",
+    "auto_dream_error": "AutoDreamEventData",
+    "auto_dream_cancelled": "AutoDreamEventData",
+    "task_start": "TaskStartData",
+    "task_progress": "TaskProgressData",
+    "task_complete": "TaskCompleteData",
+    "task_error": "TaskErrorData",
+    "skill_selected": "SkillSelectedData",
+    "session_list": "SessionListData",
+    "session_restored": "SessionRestoredData",
+    "doctor_result": "DoctorResultData",
+    "status_update": "StatusUpdateData",
+    "mcp_status": "McpStatusData",
+    "elicitation_request": "ElicitationRequestData",
+    "notification": "NotificationData",
+    "command_result": "CommandResultData",
+    "agent_list": "AgentListData",
+    "agent_event": "AgentEventData",
+    "agent_transcript": "AgentTranscriptData",
+    "background_session_update": "BackgroundSessionUpdateData",
+    "agent_start": "RuntimeActivityData",
+    "agent_progress": "RuntimeActivityData",
+    "agent_output": "RuntimeActivityData",
+    "agent_error": "RuntimeActivityData",
+    "agent_complete": "RuntimeActivityData",
+    "agent_spawn": "AgentSpawnData",
+    "agent_task_update": "AgentTaskUpdateData",
+    "agent_task_complete": "AgentTaskUpdateData",
+    "team_update": "TeamUpdateData",
+    "todo_update": "TodoUpdateData",
+    "task_started": "AgentTaskUpdateData",
+    "task_completed": "AgentTaskUpdateData",
+    "task_failed": "AgentTaskUpdateData",
+    "task_stopped": "AgentTaskUpdateData",
+    "hook_start": "HookEventData",
+    "hook_complete": "HookEventData",
+    "hook_message": "RuntimeActivityData",
+    "hook_non_blocking_error": "RuntimeActivityData",
+    "stop_hook_summary": "RuntimeActivityData",
+    "stop_hook_message": "RuntimeActivityData",
+    "conversation_recovery": "RuntimeActivityData",
+    "token_budget_continue": "RuntimeActivityData",
+    "token_budget_completed": "RuntimeActivityData",
+    "time_based_microcompact": "RuntimeActivityData",
+    "nested_memory_consumed": "RuntimeActivityData",
+    "dynamic_skills_consumed": "RuntimeActivityData",
+    "skill_discovery_prefetch_consumed": "RuntimeActivityData",
+    "cost_summary": "RuntimeActivityData",
+    "side_query_start": "RuntimeActivityData",
+    "side_query_complete": "RuntimeActivityData",
+    "side_query_cancelled": "RuntimeActivityData",
+    "side_query_error": "RuntimeActivityData",
+    "llm_retry": "RuntimeActivityData",
+    "memory_extraction_skipped": "RuntimeActivityData",
+    "memory_extraction_coalesced": "RuntimeActivityData",
+    "memory_extraction_trailing_start": "RuntimeActivityData",
+    "session_memory_extraction_skipped": "RuntimeActivityData",
+    "session_memory_extraction_complete": "RuntimeActivityData",
+    "session_memory_extraction_error": "RuntimeActivityData",
+    "session_memory_extraction_coalesced": "RuntimeActivityData",
+    "session_memory_extraction_trailing_start": "RuntimeActivityData",
+    "session_memory_compact": "RuntimeActivityData",
+    "session_memory_compact_skipped": "RuntimeActivityData",
+    "session_memory_compact_resumed_session": "RuntimeActivityData",
+    "session_memory_checked": "RuntimeActivityData",
+    "session_memory_updated": "RuntimeActivityData",
+    "tool_cancelled": "RuntimeActivityData",
+    "tool_deferred_intercepted": "RuntimeActivityData",
+    "bash_tool_command_executed": "RuntimeActivityData",
+    "tool_executing": "RuntimeActivityData",
+    "tool_hook_stopped": "RuntimeActivityData",
+    "tool_permission_denied": "RuntimeActivityData",
+    "tool_pipeline_complete": "RuntimeActivityData",
+    "tool_quality_recorded": "RuntimeActivityData",
+    "tool_validation_error": "RuntimeActivityData",
+    "task_finished_pre_persist": "RuntimeActivityData",
+    "task_session_persisted": "RuntimeActivityData",
+    "background_drain": "RuntimeActivityData",
+    "memory_background_drain_timeout": "RuntimeActivityData",
+    "background_housekeeping_drain_timeout": "RuntimeActivityData",
+    "background_housekeeping_idle": "RuntimeActivityData",
+    "background_housekeeping_cleanup_complete": "RuntimeActivityData",
+    "background_housekeeping_recurring_cleanup": "RuntimeActivityData",
+    "quality_signal_checkpoint_warning": "RuntimeActivityData"
+  },
+  "payload_schemas": {
+    "permission_response": {
+      "type": "object",
+      "malformed_strategy": "fail_closed",
+      "required": {
+        "tool_use_id": "string",
+        "decision": {
+          "enum": ["allow", "deny", "allow_always"]
+        }
+      },
+      "optional": {
+        "pattern": "string"
+      }
+    },
+    "tool_permission_response": {
+      "type": "object",
+      "malformed_strategy": "fail_closed",
+      "required": {
+        "tool_use_id": "string"
+      },
+      "optional": {
+        "option_id": {
+          "enum": ["allow_once", "allow_always", "deny", "provide_input"]
+        },
+        "suggestion_index": ["integer", "null"],
+        "selected_suggestion": ["integer", "null"],
+        "edited_input": "object",
+        "updated_input": "object",
+        "message": "string"
+      }
+    },
+    "permission_request": {
+      "type": "object",
+      "malformed_strategy": "fail_closed",
+      "required": {
+        "tool_use_id": "string",
+        "tool_name": "string",
+        "tool_input": "object"
+      },
+      "optional": {
+        "risk_level": {
+          "enum": ["low", "medium", "high"]
+        },
+        "response_channel": {
+          "enum": ["permission_response", "tool_permission_response"]
+        },
+        "interaction": "string",
+        "questions": "array",
+        "metadata": "object"
+      }
+    },
+    "tool_permission_ask": {
+      "type": "object",
+      "malformed_strategy": "fail_closed",
+      "required": {
+        "tool_use_id": "string",
+        "tool_name": "string",
+        "tool_input": "object",
+        "options": "array"
+      },
+      "optional": {
+        "response_channel": {
+          "enum": ["tool_permission_response"]
+        },
+        "interaction": "string",
+        "requires_user_interaction": "boolean",
+        "questions": "array",
+        "metadata": "object"
+      }
+    },
+    "tool_permission_cancel": {
+      "type": "object",
+      "malformed_strategy": "fail_closed",
+      "required": {
+        "tool_use_id": "string"
+      },
+      "optional": {
+        "reason": "string"
+      }
+    },
+    "resume_session": {
+      "type": "object",
+      "malformed_strategy": "reject",
+      "required": {
+        "action": {
+          "enum": ["list", "restore", "fork", "rewind"]
+        }
+      },
+      "optional": {
+        "session_id": "string",
+        "messages": "array",
+        "page": "integer",
+        "page_size": "integer",
+        "all_projects": "boolean",
+        "show_all_projects": "boolean"
+      }
+    },
+    "session_restored": {
+      "type": "object",
+      "malformed_strategy": "reject",
+      "required": {
+        "session_id": "string",
+        "metadata": "object",
+        "runtime": "object",
+        "messages": "array"
+      },
+      "optional": {
+        "title": "string",
+        "mode": "string",
+        "cost": "number",
+        "agent": ["object", "null"],
+        "standalone_agent_context": ["object", "null"],
+        "worktree": ["object", "null"],
+        "file_history_snapshots": "array",
+        "content_replacements": "array"
+      }
+    },
+    "background_control": {
+      "type": "object",
+      "malformed_strategy": "reject",
+      "required": {
+        "action": {
+          "enum": [
+            "start",
+            "stop",
+            "pause",
+            "resume",
+            "focus",
+            "status",
+            "snapshot",
+            "background_all_foreground_tasks"
+          ]
+        }
+      },
+      "optional": {
+        "session_id": "string",
+        "task_id": "string",
+        "agent_id": "string",
+        "title": "string"
+      }
+    },
+    "background_session_update": {
+      "type": "object",
+      "malformed_strategy": "reject",
+      "required": {},
+      "optional": {
+        "session_id": "string",
+        "task_id": "string",
+        "status": "string",
+        "title": "string",
+        "run_index": "integer",
+        "metadata": "object"
+      }
+    },
+    "mcp_status": {
+      "type": "object",
+      "malformed_strategy": "reject",
+      "required": {
+        "server_name": "string",
+        "status": {
+          "enum": ["connected", "disconnected", "error"]
+        }
+      },
+      "optional": {
+        "error": "string",
+        "message": "string",
+        "tools": "array",
+        "commands": "array",
+        "resources": "object"
+      }
+    },
+    "mcp_reconnect": {
+      "type": "object",
+      "malformed_strategy": "reject",
+      "required": {
+        "server_name": "string"
+      },
+      "optional": {}
+    },
+    "settings_update": {
+      "type": "object",
+      "malformed_strategy": "reject",
+      "required": {
+        "key": "string",
+        "value": "any"
+      },
+      "optional": {}
+    }
+  }
+}

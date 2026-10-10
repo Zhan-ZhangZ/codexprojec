@@ -1,0 +1,490 @@
+from pathlib import Path
+
+from aletheore.scanner import graph as graph_module
+from aletheore.scanner.graph import (
+    PARALLEL_PARSE_MIN_FILES,
+    _available_parallelism,
+    _cgroup_v1_cpu_quota,
+    _cgroup_v2_cpu_quota,
+    _extract_module,
+    _parse_and_extract_one,
+    build_module_graph,
+)
+
+
+def _make_multi_file_python_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    app = repo / "app"
+    app.mkdir(parents=True)
+    (app / "__init__.py").write_text("")
+    (app / "config.py").write_text("SETTING = 1\n\n\ndef load():\n    return SETTING\n")
+    (app / "auth.py").write_text(
+        "from app.config import load\n\n\ndef check():\n    return load()\n"
+    )
+    (app / "main.py").write_text(
+        "from app import auth\nfrom app.config import SETTING\n\n\ndef run():\n    return auth.check() + SETTING\n"
+    )
+    return repo
+
+
+def _normalize(modules, dependency_graph):
+    # Order was never asserted anywhere in the existing suite (confirmed
+    # directly against test_graph*.py/test_evidence.py before this change) -
+    # this normalizes list order only, so the comparison is about content,
+    # not incidental completion/iteration order.
+    modules_sorted = sorted(modules, key=lambda m: m["path"])
+    for m in modules_sorted:
+        m["imports"] = sorted(m["imports"])
+        m["imported_by"] = sorted(m["imported_by"])
+    edges_sorted = sorted(dependency_graph["edges"])
+    return modules_sorted, {"nodes": dependency_graph["nodes"], "edges": edges_sorted}
+
+
+def test_parallel_and_sequential_paths_produce_identical_results(tmp_path, monkeypatch):
+    # The real regression guard: forces the same multi-file, multi-import
+    # repo through both code paths (parallel pool vs sequential fallback,
+    # via the PARALLEL_PARSE_MIN_FILES threshold) and asserts they agree,
+    # rather than trusting the two implementations stay in sync by
+    # inspection alone.
+    repo = _make_multi_file_python_repo(tmp_path)
+
+    monkeypatch.setattr(graph_module, "PARALLEL_PARSE_MIN_FILES", 0)
+    parallel_modules, parallel_graph, parallel_unparseable = build_module_graph(repo)
+
+    monkeypatch.setattr(graph_module, "PARALLEL_PARSE_MIN_FILES", 10_000)
+    sequential_modules, sequential_graph, sequential_unparseable = build_module_graph(repo)
+
+    parallel_modules, parallel_graph = _normalize(parallel_modules, parallel_graph)
+    sequential_modules, sequential_graph = _normalize(sequential_modules, sequential_graph)
+
+    assert parallel_modules == sequential_modules
+    assert parallel_graph == sequential_graph
+    assert parallel_unparseable == sequential_unparseable == []
+
+
+def test_small_repo_never_invokes_the_process_pool(tmp_path, monkeypatch):
+    repo = _make_multi_file_python_repo(tmp_path)
+
+    calls = []
+    monkeypatch.setattr(
+        graph_module,
+        "_parse_many_in_parallel",
+        lambda *a, **k: calls.append(True) or [],
+    )
+
+    modules, _graph, _unparseable = build_module_graph(repo)
+
+    assert calls == []
+    # Every file still got parsed via the sequential fallback - the pool
+    # being skipped isn't silently dropping work.
+    assert {m["path"] for m in modules} == {"app/__init__.py", "app/config.py", "app/auth.py", "app/main.py"}
+
+
+def test_a_single_available_core_never_invokes_the_process_pool(tmp_path, monkeypatch):
+    # Regression: a repo well over PARALLEL_PARSE_MIN_FILES still must not
+    # spawn a pool when _available_parallelism() says only one worker is
+    # actually usable (confirmed against this project's own hosted
+    # scan-worker containers: cpus: "1.0" in docker-compose.yml) - a pool
+    # sized at 1 pays the ~150ms creation cost plus a second process
+    # independently loading every tree-sitter grammar, for zero
+    # parallelism benefit over staying sequential.
+    monkeypatch.setattr(graph_module, "PARALLEL_PARSE_MIN_FILES", 0)
+    monkeypatch.setattr(graph_module, "_available_parallelism", lambda: 1)
+
+    repo = _make_multi_file_python_repo(tmp_path)
+
+    calls = []
+    monkeypatch.setattr(
+        graph_module,
+        "_parse_many_in_parallel",
+        lambda *a, **k: calls.append(True) or [],
+    )
+
+    modules, _graph, _unparseable = build_module_graph(repo)
+
+    assert calls == []
+    assert {m["path"] for m in modules} == {"app/__init__.py", "app/config.py", "app/auth.py", "app/main.py"}
+
+
+def test_disable_parallel_parse_env_var_forces_sequential_even_above_threshold(tmp_path, monkeypatch):
+    # The hosted scan-worker's containers are memory-constrained (observed
+    # OOM kills on huge repos) - spawning os.cpu_count() worker processes
+    # there could make things worse, not faster. This env var is how
+    # scan_worker/jobs.py's _run_scan opts the hosted subprocess out,
+    # without a CLI flag and without changing the default for local users.
+    repo = _make_multi_file_python_repo(tmp_path)
+    monkeypatch.setattr(graph_module, "PARALLEL_PARSE_MIN_FILES", 0)
+    monkeypatch.setenv("ALETHEORE_DISABLE_PARALLEL_PARSE", "1")
+
+    calls = []
+    monkeypatch.setattr(
+        graph_module,
+        "_parse_many_in_parallel",
+        lambda *a, **k: calls.append(True) or [],
+    )
+
+    modules, _graph, _unparseable = build_module_graph(repo)
+
+    assert calls == []
+    assert {m["path"] for m in modules} == {"app/__init__.py", "app/config.py", "app/auth.py", "app/main.py"}
+
+
+def test_parallel_parse_env_var_unset_does_not_disable_the_pool(tmp_path, monkeypatch):
+    repo = _make_multi_file_python_repo(tmp_path)
+    monkeypatch.setattr(graph_module, "PARALLEL_PARSE_MIN_FILES", 0)
+    monkeypatch.delenv("ALETHEORE_DISABLE_PARALLEL_PARSE", raising=False)
+
+    calls = []
+    real_parse_many = graph_module._parse_many_in_parallel
+
+    def _tracking(*a, **k):
+        calls.append(True)
+        return real_parse_many(*a, **k)
+
+    monkeypatch.setattr(graph_module, "_parse_many_in_parallel", _tracking)
+
+    build_module_graph(repo)
+
+    assert calls == [True]
+
+
+def test_parallel_parse_min_files_default_is_reasonable():
+    # Not asserting an exact number (the design doc calls this an
+    # implementation-time empirical choice, not a fixed contract) - just
+    # that it's a real, positive threshold, not accidentally 0 or negative
+    # (which would force every scan, however small, through the pool).
+    assert PARALLEL_PARSE_MIN_FILES > 0
+
+
+def test_worker_pool_round_trip_is_actually_picklable(tmp_path):
+    # The whole point of this feature: prove a real ProcessPoolExecutor
+    # round-trip works end to end (path in, module dict out) - not just
+    # that the code is structured plausibly. A mocked-out pool would never
+    # catch a real pickling failure (e.g. accidentally trying to pass a
+    # tree_sitter.Tree/Language across the process boundary).
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for i in range(5):
+        (repo / f"mod{i}.py").write_text(f"VALUE_{i} = {i}\n\n\ndef get_{i}():\n    return VALUE_{i}\n")
+
+    modules, failures = graph_module._parse_many_in_parallel(
+        paths=[repo / f"mod{i}.py" for i in range(5)],
+        repo_path=repo,
+        python_source_roots=[repo],
+        go_module_prefix=None,
+        has_rust_crate_root=False,
+        php_psr4_map={},
+    )
+
+    assert failures == []
+    assert {m["path"] for m in modules} == {f"mod{i}.py" for i in range(5)}
+    by_path = {m["path"]: m for m in modules}
+    for i in range(5):
+        funcs = {f["name"] for f in by_path[f"mod{i}.py"]["symbols"]["functions"]}
+        assert f"get_{i}" in funcs
+
+
+def test_worker_pool_reports_an_unreadable_file_as_a_failure_not_a_crash(tmp_path):
+    # Real gap found via audit: a per-file OSError inside a pool worker
+    # (permission denied, a mid-scan race with the file being removed, or a
+    # path exceeding Windows' legacy MAX_PATH limit) used to propagate
+    # through ProcessPoolExecutor.map() uncaught, crashing the whole scan
+    # on one unreadable file - unlike every other per-file failure class in
+    # this module (oversized file, missing grammar), which already
+    # degrades to an unparseable-files entry instead. Simulates the
+    # trigger with a real, cross-platform-reliable OSError (a deleted
+    # file) rather than relying on OS-specific permission semantics that
+    # behave differently on Windows.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    good_paths = []
+    for i in range(4):
+        path = repo / f"mod{i}.py"
+        path.write_text(f"VALUE_{i} = {i}\n\n\ndef get_{i}():\n    return VALUE_{i}\n")
+        good_paths.append(path)
+    missing_path = repo / "gone.py"
+    missing_path.write_text("x = 1\n")
+    missing_path.unlink()
+
+    modules, failures = graph_module._parse_many_in_parallel(
+        paths=[*good_paths, missing_path],
+        repo_path=repo,
+        python_source_roots=[repo],
+        go_module_prefix=None,
+        has_rust_crate_root=False,
+        php_psr4_map={},
+    )
+
+    assert {m["path"] for m in modules} == {f"mod{i}.py" for i in range(4)}
+    assert len(failures) == 1
+    assert failures[0]["path"] == "gone.py"
+    assert "could not read file" in failures[0]["reason"]
+
+
+def test_build_module_graph_sequential_path_reports_an_unreadable_file_not_a_crash(
+    tmp_path, monkeypatch
+):
+    # Same gap as the pool-worker test above, on the sequential fallback
+    # this small repo naturally takes (below PARALLEL_PARSE_MIN_FILES, no
+    # monkeypatching needed to force it): _parse_and_extract_one's OSError
+    # used to propagate straight out of build_module_graph's sequential
+    # loop, crashing the whole scan instead of degrading to an
+    # unparseable-files entry the way every other per-file failure class
+    # already does. The walk discovers auth.py normally (it exists on
+    # disk, unlike the deleted-file simulation above) - read_bytes() is
+    # what fails, simulating a real mid-scan TOCTOU race or a Windows
+    # MAX_PATH failure that only surfaces at open() time, not at listing
+    # time.
+    repo = _make_multi_file_python_repo(tmp_path)
+    auth_path = repo / "app" / "auth.py"
+    original_read_bytes = Path.read_bytes
+
+    def flaky_read_bytes(self, *args, **kwargs):
+        if self == auth_path:
+            raise OSError("simulated: could not read auth.py")
+        return original_read_bytes(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", flaky_read_bytes)
+
+    modules, _graph, unparseable = build_module_graph(repo)
+
+    assert {m["path"] for m in modules} == {"app/__init__.py", "app/config.py", "app/main.py"}
+    assert len(unparseable) == 1
+    assert unparseable[0]["path"] == "app/auth.py"
+    assert "could not read file" in unparseable[0]["reason"]
+
+
+def test_extract_module_dispatches_python_and_returns_expected_shape(tmp_path):
+    import tree_sitter_python as tspython
+    from tree_sitter import Language, Parser
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    path = repo / "a.py"
+    path.write_text("def foo():\n    pass\n")
+
+    parser = Parser()
+    parser.language = Language(tspython.language())
+    source = path.read_bytes()
+    tree = parser.parse(source)
+
+    module = _extract_module(path, repo, tree, source, "python", python_source_roots=[repo])
+
+    assert module["path"] == "a.py"
+    assert module["language"] == "python"
+    assert module["imports"] == []
+    assert module["imported_by"] == []
+    assert module["symbols"]["functions"][0]["name"] == "foo"
+
+
+def test_parse_and_extract_one_matches_extract_module(tmp_path):
+    from tree_sitter import Parser
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    path = repo / "a.py"
+    path.write_text("def foo():\n    pass\n")
+
+    result = _parse_and_extract_one(
+        path,
+        repo,
+        Parser(),
+        python_source_roots=[repo],
+        go_module_prefix=None,
+        has_rust_crate_root=False,
+        php_psr4_map={},
+    )
+
+    assert result["path"] == "a.py"
+    assert result["language"] == "python"
+    assert result["symbols"]["functions"][0]["name"] == "foo"
+
+
+def test_cgroup_v2_cpu_quota_parses_a_real_restriction(tmp_path):
+    cpu_max = tmp_path / "cpu.max"
+    cpu_max.write_text("200000 100000\n")
+    assert _cgroup_v2_cpu_quota(cpu_max) == 2
+
+
+def test_cgroup_v2_cpu_quota_rounds_a_fractional_quota_up(tmp_path):
+    # 1.5 effective cores - a real shape (`docker run --cpus=1.5`), confirmed
+    # directly. Rounds up rather than down: a container with 1.5 CPUs' worth
+    # of quota can still usefully run 2 workers some of the time, and
+    # truncating to 1 would waste half a core's worth of real parallelism.
+    cpu_max = tmp_path / "cpu.max"
+    cpu_max.write_text("150000 100000\n")
+    assert _cgroup_v2_cpu_quota(cpu_max) == 2
+
+
+def test_cgroup_v2_cpu_quota_returns_none_when_unrestricted(tmp_path):
+    cpu_max = tmp_path / "cpu.max"
+    cpu_max.write_text("max 100000\n")
+    assert _cgroup_v2_cpu_quota(cpu_max) is None
+
+
+def test_cgroup_v2_cpu_quota_returns_none_when_file_is_absent(tmp_path):
+    # Non-Linux (macOS, Windows) or a cgroup v1 host - both real, both
+    # must degrade to "no v2 signal", not raise.
+    assert _cgroup_v2_cpu_quota(tmp_path / "does-not-exist") is None
+
+
+def test_cgroup_v1_cpu_quota_parses_a_real_restriction(tmp_path):
+    quota_path = tmp_path / "cfs_quota_us"
+    period_path = tmp_path / "cfs_period_us"
+    quota_path.write_text("200000\n")
+    period_path.write_text("100000\n")
+    assert _cgroup_v1_cpu_quota(quota_path, period_path) == 2
+
+
+def test_cgroup_v1_cpu_quota_returns_none_when_unrestricted():
+    # cgroup v1's unrestricted marker is quota=-1, not a missing file.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        quota_path = Path(d) / "cfs_quota_us"
+        period_path = Path(d) / "cfs_period_us"
+        quota_path.write_text("-1\n")
+        period_path.write_text("100000\n")
+        assert _cgroup_v1_cpu_quota(quota_path, period_path) is None
+
+
+def test_available_parallelism_env_override_wins_over_everything(monkeypatch):
+    monkeypatch.setenv("ALETHEORE_PARALLEL_PARSE_JOBS", "3")
+    monkeypatch.setattr(graph_module, "_cgroup_v2_cpu_quota", lambda: 1)
+    monkeypatch.setattr(graph_module, "_cgroup_v1_cpu_quota", lambda: 1)
+    assert _available_parallelism() == 3
+
+
+def test_available_parallelism_ignores_a_malformed_env_override(monkeypatch):
+    monkeypatch.setenv("ALETHEORE_PARALLEL_PARSE_JOBS", "not-a-number")
+    monkeypatch.setattr(graph_module, "_cgroup_v2_cpu_quota", lambda: None)
+    monkeypatch.setattr(graph_module, "_cgroup_v1_cpu_quota", lambda: None)
+    monkeypatch.setattr(graph_module.os, "cpu_count", lambda: 8)
+    # Real bug caught in CI (GitHub Actions runner, not this local
+    # environment): the malformed override falls through to real
+    # auto-detection, which also takes os.sched_getaffinity into account
+    # when the platform has it (Linux does, macOS doesn't) - without
+    # mocking it too, this test's result depended on that CI runner's
+    # actual affinity mask (4, not 8) instead of being isolated to just
+    # the cpu_count() signal it claims to test. Same guard the two
+    # sibling auto-detection tests below already use.
+    if hasattr(graph_module.os, "sched_getaffinity"):
+        monkeypatch.setattr(graph_module.os, "sched_getaffinity", lambda pid: set(range(8)))
+    assert _available_parallelism() == 8
+
+
+def test_available_parallelism_takes_the_tightest_of_cpu_count_and_cgroup_quota(monkeypatch):
+    monkeypatch.delenv("ALETHEORE_PARALLEL_PARSE_JOBS", raising=False)
+    monkeypatch.setattr(graph_module.os, "cpu_count", lambda: 32)
+    monkeypatch.setattr(graph_module, "_cgroup_v2_cpu_quota", lambda: 2)
+    monkeypatch.setattr(graph_module, "_cgroup_v1_cpu_quota", lambda: None)
+    if hasattr(graph_module.os, "sched_getaffinity"):
+        monkeypatch.setattr(graph_module.os, "sched_getaffinity", lambda pid: set(range(32)))
+    assert _available_parallelism() == 2
+
+
+def test_available_parallelism_falls_back_to_cpu_count_when_unrestricted(monkeypatch):
+    monkeypatch.delenv("ALETHEORE_PARALLEL_PARSE_JOBS", raising=False)
+    monkeypatch.setattr(graph_module.os, "cpu_count", lambda: 8)
+    monkeypatch.setattr(graph_module, "_cgroup_v2_cpu_quota", lambda: None)
+    monkeypatch.setattr(graph_module, "_cgroup_v1_cpu_quota", lambda: None)
+    if hasattr(graph_module.os, "sched_getaffinity"):
+        monkeypatch.setattr(graph_module.os, "sched_getaffinity", lambda pid: set(range(8)))
+    assert _available_parallelism() == 8
+
+
+def test_available_parallelism_never_returns_less_than_one(monkeypatch):
+    monkeypatch.delenv("ALETHEORE_PARALLEL_PARSE_JOBS", raising=False)
+    monkeypatch.setattr(graph_module.os, "cpu_count", lambda: None)
+    monkeypatch.setattr(graph_module, "_cgroup_v2_cpu_quota", lambda: None)
+    monkeypatch.setattr(graph_module, "_cgroup_v1_cpu_quota", lambda: None)
+    assert _available_parallelism() >= 1
+
+
+def _fake_pool_factory(plan, workers_seen, items_seen):
+    """A stand-in for ProcessPoolExecutor. plan[i] is how many items the i-th pool
+    yields before raising BrokenProcessPool (None means it completes). Raising
+    from inside the map() generator mirrors the real thing: results yielded
+    before the worker died are already in the caller's list."""
+    from concurrent.futures.process import BrokenProcessPool
+
+    plan = list(plan)
+
+    class _FakePool:
+        def __init__(self, max_workers=None, **kwargs):
+            workers_seen.append(max_workers)
+            self._limit = plan.pop(0) if plan else None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def map(self, fn, items, **kwargs):
+            items = list(items)
+            items_seen.append(len(items))
+            for index, item in enumerate(items):
+                if self._limit is not None and index >= self._limit:
+                    raise BrokenProcessPool("simulated dead worker")
+                yield fn(item)
+
+    return _FakePool
+
+
+def test_map_in_pool_with_recovery_retries_only_the_remaining_items_with_fewer_workers(monkeypatch):
+    # A worker killed outright (OOM-killer, SIGKILL, segfault) raises
+    # BrokenProcessPool out of the whole map(). Already-yielded results are kept
+    # and only the rest is retried in a fresh pool with half the workers, so a
+    # memory-pressure kill recovers with a real result for every item.
+    workers, seen = [], []
+    monkeypatch.setattr(graph_module, "_available_parallelism", lambda: 4)
+    monkeypatch.setattr(graph_module, "ProcessPoolExecutor", _fake_pool_factory([2, None], workers, seen))
+
+    results, complete = graph_module._map_in_pool_with_recovery(lambda n: n * 10, list(range(6)))
+
+    assert complete is True
+    assert results == [0, 10, 20, 30, 40, 50]
+    assert workers == [4, 2]
+    assert seen == [6, 4]  # the retry got only the 4 items that had no result yet
+
+
+def test_map_in_pool_with_recovery_reports_incomplete_when_one_worker_keeps_dying(monkeypatch):
+    workers, seen = [], []
+    monkeypatch.setattr(graph_module, "_available_parallelism", lambda: 4)
+    monkeypatch.setattr(graph_module, "ProcessPoolExecutor", _fake_pool_factory([1, 0, 0, 0, 0], workers, seen))
+
+    results, complete = graph_module._map_in_pool_with_recovery(lambda n: n * 10, list(range(5)))
+
+    assert complete is False
+    assert results == [0]  # the in-order prefix that really completed, nothing invented
+    assert workers == [4, 2, 1]  # halves down to one worker, then gives up
+
+
+def test_parse_many_in_parallel_marks_files_unparseable_when_workers_keep_dying(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    paths = []
+    for i in range(4):
+        path = repo / f"mod{i}.py"
+        path.write_text(f"VALUE_{i} = {i}\n")
+        paths.append(path)
+
+    def fake_parse(path):
+        return True, {"path": path.name, "language": "python", "imports": [], "imported_by": [],
+                      "symbols": {"functions": [], "classes": [], "constants": []}}
+
+    workers, seen = [], []
+    monkeypatch.setattr(graph_module, "_worker_parse_and_extract_one", fake_parse)
+    monkeypatch.setattr(graph_module, "_available_parallelism", lambda: 2)
+    # first pool completes 2 files then dies; every later pool dies at once
+    monkeypatch.setattr(graph_module, "ProcessPoolExecutor", _fake_pool_factory([2, 0, 0], workers, seen))
+
+    modules, failures = graph_module._parse_many_in_parallel(
+        paths=paths, repo_path=repo, python_source_roots=[repo],
+        go_module_prefix=None, has_rust_crate_root=False, php_psr4_map={},
+    )
+
+    assert {m["path"] for m in modules} == {"mod0.py", "mod1.py"}
+    assert {f["path"] for f in failures} == {"mod2.py", "mod3.py"}
+    assert all("BrokenProcessPool" in f["reason"] for f in failures)

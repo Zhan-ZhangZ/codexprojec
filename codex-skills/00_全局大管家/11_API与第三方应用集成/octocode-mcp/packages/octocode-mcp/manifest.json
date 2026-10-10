@@ -1,0 +1,132 @@
+{
+  "dxt_version": "0.1",
+  "name": "octocode-mcp",
+  "display_name": "Octocode MCP Extension",
+  "version": "16.2.0",
+  "description": "Code research MCP server for GitHub, npm, local files, and LSP semantics",
+  "long_description": "MCP server with code research tools across GitHub, npm, local files, and LSP semantics. Agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
+  "author": {
+    "name": "Guy Bary",
+    "email": "bgauryy@octocodeai.com",
+    "url": "https://octocode.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode-mcp"
+  },
+  "homepage": "https://octocode.ai",
+  "documentation": "https://github.com/bgauryy/octocode-mcp#readme",
+  "support": "https://github.com/bgauryy/octocode-mcp/issues",
+  "icon": "assets/logo.png",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "mcp_octocode_ghSearchCode",
+      "description": "Search code across GitHub repositories"
+    },
+    {
+      "name": "mcp_octocode_ghGetFileContent",
+      "description": "Fetch file content from GitHub repositories"
+    },
+    {
+      "name": "mcp_octocode_ghSearchRepos",
+      "description": "Search GitHub repositories"
+    },
+    {
+      "name": "mcp_octocode_ghSearchPullRequests",
+      "description": "Search pull requests, or read one PR: files, patches, comments, reviews, commits"
+    },
+    {
+      "name": "mcp_octocode_ghSearchIssues",
+      "description": "Search issues, or read one issue: body and comments"
+    },
+    {
+      "name": "mcp_octocode_ghSearchCommits",
+      "description": "Walk a repository commit history for a path or range"
+    },
+    {
+      "name": "mcp_octocode_ghViewRepoStructure",
+      "description": "View GitHub repository structure"
+    },
+    {
+      "name": "mcp_octocode_ghCloneRepo",
+      "description": "Clone a GitHub repository or subtree for local analysis"
+    },
+    {
+      "name": "mcp_octocode_npmSearch",
+      "description": "Search npm packages and source repositories"
+    },
+    {
+      "name": "mcp_octocode_localSearchCode",
+      "description": "Search local code with ripgrep or structural AST patterns"
+    },
+    {
+      "name": "mcp_octocode_localViewStructure",
+      "description": "View local directory structure"
+    },
+    {
+      "name": "mcp_octocode_localFindFiles",
+      "description": "Find local files by name, path, metadata, and glob filters"
+    },
+    {
+      "name": "mcp_octocode_localGetFileContent",
+      "description": "Read local file content with minification and exact slices"
+    },
+    {
+      "name": "mcp_octocode_lspGetSemantics",
+      "description": "Run LSP semantic navigation over local files"
+    }
+  ],
+  "keywords": [
+    "github",
+    "npm",
+    "code-search",
+    "repository",
+    "package-manager",
+    "development",
+    "api",
+    "search",
+    "mcp",
+    "octocode"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  },
+  "user_config": {
+    "github_token": {
+      "type": "string",
+      "title": "GitHub Token",
+      "description": "Personal access token for GitHub API (optional, increases rate limits)",
+      "sensitive": true,
+      "required": false
+    },
+    "npm_registry": {
+      "type": "string",
+      "title": "NPM Registry",
+      "description": "NPM registry URL",
+      "default": "https://registry.npmjs.org",
+      "required": false
+    }
+  }
+}

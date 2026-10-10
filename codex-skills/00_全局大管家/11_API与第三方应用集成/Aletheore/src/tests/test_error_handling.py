@@ -1,0 +1,410 @@
+from pathlib import Path
+
+from aletheore.error_handling import MAX_HANDLERS, MAX_RAISE_SITES, map_error_handling
+
+
+def _write(root: Path, rel: str, text: str) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _names(items: list[dict], key: str = "name") -> set[str]:
+    return {item[key] for item in items}
+
+
+def test_python_error_types_follow_the_hierarchy_through_repo_classes(tmp_path):
+    _write(tmp_path, "pkg/errors.py", (
+        "class AppError(Exception):\n    pass\n\n"
+        "class ConfigError(AppError):\n    pass\n\n"
+        "class NotAnError:\n    pass\n"
+    ))
+    result = map_error_handling(tmp_path)
+    assert result["checked"] is True
+    by_name = {t["name"]: t for t in result["error_types"]}
+    assert set(by_name) == {"AppError", "ConfigError"}
+    assert by_name["ConfigError"]["bases"] == ["AppError"]
+    assert by_name["AppError"]["file"] == "pkg/errors.py"
+    assert by_name["AppError"]["line"] == 1
+
+
+def test_python_raise_sites_record_type_line_and_enclosing_function(tmp_path):
+    _write(tmp_path, "a.py", (
+        "def load(path):\n"
+        "    if not path:\n"
+        "        raise ValueError('empty')\n"
+        "    try:\n"
+        "        return open(path)\n"
+        "    except OSError:\n"
+        "        raise\n"
+        "def other():\n"
+        "    raise CustomError\n"
+    ))
+    sites = {(s["line"], s["error_type"], s["function"]) for s in map_error_handling(tmp_path)["raise_sites"]}
+    assert (3, "ValueError", "load") in sites
+    assert (7, "(re-raise)", "load") in sites
+    assert (9, "CustomError", "other") in sites
+
+
+def test_python_handlers_record_what_they_catch(tmp_path):
+    _write(tmp_path, "a.py", (
+        "def f():\n"
+        "    try:\n        pass\n"
+        "    except (KeyError, ValueError):\n        pass\n"
+        "    except OSError as exc:\n        pass\n"
+        "    except:\n        pass\n"
+    ))
+    handlers = {h["line"]: h["catches"] for h in map_error_handling(tmp_path)["handlers"]}
+    assert handlers[4] == ["KeyError", "ValueError"]
+    assert handlers[6] == ["OSError"]
+    assert handlers[8] == ["(any)"]
+
+
+def test_cpp_error_types_throw_sites_and_catch_handlers(tmp_path):
+    _write(tmp_path, "include/err.h", (
+        "class format_error : public std::runtime_error {};\n"
+        "struct plain {};\n"
+    ))
+    _write(tmp_path, "src/use.cc", (
+        "void g() {\n"
+        "  throw std::out_of_range(\"x\");\n"
+        "  FMT_THROW(format_error(\"bad\"));\n"
+        "  try {} catch (const format_error& e) {} catch (...) {}\n"
+        "}\n"
+    ))
+    result = map_error_handling(tmp_path)
+    assert _names(result["error_types"]) == {"format_error"}
+    sites = {(s["file"], s["line"], s["error_type"], s["function"]) for s in result["raise_sites"]}
+    assert ("src/use.cc", 2, "std::out_of_range", "g") in sites
+    assert ("src/use.cc", 3, "format_error", "g") in sites
+    all_catches = [c for h in result["handlers"] for c in h["catches"]]
+    assert "format_error" in all_catches and "..." in all_catches
+
+
+def test_by_error_type_counts_raised_and_caught_and_is_sorted_by_use(tmp_path):
+    _write(tmp_path, "a.py", (
+        "class AppError(Exception):\n    pass\n"
+        "def f():\n"
+        "    raise AppError()\n"
+        "def g():\n"
+        "    raise AppError()\n"
+        "def h():\n"
+        "    try:\n        pass\n    except AppError:\n        pass\n"
+        "    raise KeyError()\n"
+    ))
+    summary = map_error_handling(tmp_path)["by_error_type"]
+    top = summary[0]
+    assert (top["name"], top["raised"], top["caught"]) == ("AppError", 2, 1)
+    assert top["defined_in"] == "a.py"
+    assert {s["name"] for s in summary} == {"AppError", "KeyError"}
+
+
+def test_ignored_directories_and_other_languages_are_skipped(tmp_path):
+    _write(tmp_path, "node_modules/x/e.py", "def f():\n    raise ValueError()\n")
+    _write(tmp_path, "notes.md", "raise ValueError")
+    assert map_error_handling(tmp_path)["raise_sites"] == []
+
+
+def test_output_is_capped_and_says_so(tmp_path):
+    body = "".join(f"def f{i}():\n    raise ValueError()\n" for i in range(MAX_RAISE_SITES + 5))
+    _write(tmp_path, "many.py", body)
+    result = map_error_handling(tmp_path)
+    assert len(result["raise_sites"]) == MAX_RAISE_SITES
+    assert result["truncated"] is True
+    # the summary counts everything, not just what fit
+    assert result["by_error_type"][0]["raised"] == MAX_RAISE_SITES + 5
+
+
+def test_an_empty_repo_is_checked_and_empty(tmp_path):
+    result = map_error_handling(tmp_path)
+    assert result == {
+        "checked": True, "error_types": [], "raise_sites": [], "handlers": [],
+        "by_error_type": [], "truncated": False,
+    }
+
+
+def test_handler_cap_exists():
+    assert MAX_HANDLERS > 0
+
+
+def test_test_framework_throw_macros_are_not_throw_sites(tmp_path):
+    _write(tmp_path, "t.cc", "void t() { EXPECT_THROW(f(), std::runtime_error); FMT_THROW(my_error(\"x\")); }\n")
+    types = [s["error_type"] for s in map_error_handling(tmp_path)["raise_sites"]]
+    assert types == ["my_error"]
+
+
+def test_a_cpp_error_class_behind_an_attribute_macro_is_still_found(tmp_path):
+    _write(tmp_path, "base.h", (
+        "// class commented_out : public std::runtime_error {\n"
+        "class FMT_SO_VISIBILITY(\"default\") format_error : public std::runtime_error {\n"
+        " public:\n  using std::runtime_error::runtime_error;\n};\n"
+    ))
+    types = {t["name"]: t["line"] for t in map_error_handling(tmp_path)["error_types"]}
+    assert types == {"format_error": 2}
+
+
+def _scan(tmp_path, rel, text):
+    _write(tmp_path, rel, text)
+    return map_error_handling(tmp_path)
+
+
+def _sites(result):
+    return {(s["line"], s["error_type"], s["function"]) for s in result["raise_sites"]}
+
+
+def _catches(result):
+    return {h["line"]: h["catches"] for h in result["handlers"]}
+
+
+def test_javascript_errors(tmp_path):
+    r = _scan(tmp_path, "a.js", (
+        "class AppError extends Error {}\n"
+        "function load() {\n"
+        "  try { run(); } catch (e) { throw e; }\n"
+        "  throw new AppError('x');\n"
+        "}\n"
+    ))
+    assert _names(r["error_types"]) == {"AppError"}
+    assert (3, "(re-raise)", "load") in _sites(r)
+    assert (4, "AppError", "load") in _sites(r)
+    assert _catches(r)[3] == ["(any)"]
+
+
+def test_typescript_errors_and_typed_catch(tmp_path):
+    r = _scan(tmp_path, "a.ts", (
+        "class E2 extends AppError {}\nclass AppError extends Error {}\n"
+        "function f(): void {\n  try {} catch (e: MyError) {}\n  throw makeErr();\n}\n"
+    ))
+    assert _names(r["error_types"]) == {"E2", "AppError"}
+    assert _catches(r)[4] == ["MyError"]
+    assert (5, "makeErr", "f") in _sites(r)
+
+
+def test_java_errors(tmp_path):
+    r = _scan(tmp_path, "A.java", (
+        "class AppEx extends RuntimeException {}\n"
+        "class A {\n  void f() {\n    try {} catch (IOException | AppEx e) {}\n    throw new AppEx(\"x\");\n  }\n}\n"
+    ))
+    assert _names(r["error_types"]) == {"AppEx"}
+    assert _catches(r)[4] == ["IOException", "AppEx"]
+    assert (5, "AppEx", "f") in _sites(r)
+
+
+def test_csharp_errors(tmp_path):
+    r = _scan(tmp_path, "A.cs", (
+        "class AppEx : Exception {}\n"
+        "class A {\n  void F() {\n    try {} catch (IOException e) {} catch {}\n    throw new AppEx(\"x\");\n  }\n}\n"
+    ))
+    assert _names(r["error_types"]) == {"AppEx"}
+    assert _catches(r)[4] == ["IOException"] or "IOException" in [c for h in r["handlers"] for c in h["catches"]]
+    assert (5, "AppEx", "F") in _sites(r)
+    assert "(any)" in [c for h in r["handlers"] for c in h["catches"]]
+
+
+def test_php_errors(tmp_path):
+    r = _scan(tmp_path, "a.php", (
+        "<?php\nclass AppEx extends \\RuntimeException {}\n"
+        "function f() {\n  try {} catch (IOException | AppEx $e) {}\n  throw new AppEx('x');\n}\n"
+    ))
+    assert _names(r["error_types"]) == {"AppEx"}
+    assert _catches(r)[4] == ["IOException", "AppEx"]
+    assert (5, "AppEx", "f") in _sites(r)
+
+
+def test_kotlin_errors(tmp_path):
+    r = _scan(tmp_path, "a.kt", (
+        "class AppEx : RuntimeException()\n"
+        "fun f() {\n  try {} catch (e: IOException) {}\n  throw AppEx(\"x\")\n}\n"
+    ))
+    assert _names(r["error_types"]) == {"AppEx"}
+    assert "IOException" in [c for h in r["handlers"] for c in h["catches"]]
+    assert any(t == "AppEx" for _, t, _ in _sites(r))
+
+
+def test_ruby_errors(tmp_path):
+    r = _scan(tmp_path, "a.rb", (
+        "class AppError < StandardError; end\n"
+        "def f\n  raise AppError, 'x'\nrescue IOError, AppError => e\n  raise AppError.new('y')\nrescue\n  raise\nend\n"
+    ))
+    assert _names(r["error_types"]) == {"AppError"}
+    assert {t for _, t, _ in _sites(r)} >= {"AppError", "(re-raise)"}
+    catches = [c for h in r["handlers"] for c in h["catches"]]
+    assert "IOError" in catches and "AppError" in catches and "(any)" in catches
+
+
+def test_swift_errors(tmp_path):
+    r = _scan(tmp_path, "a.swift", (
+        "enum AppErr: Error { case bad }\n"
+        "func f() throws {\n  do { try g() } catch AppErr.bad { } catch { }\n  throw AppErr.bad\n}\n"
+    ))
+    assert _names(r["error_types"]) == {"AppErr"}
+    assert any(t == "AppErr" for _, t, _ in _sites(r))
+    catches = [c for h in r["handlers"] for c in h["catches"]]
+    assert "AppErr" in catches and "(any)" in catches
+
+
+def test_go_errors_are_values_sentinels_custom_types_and_panics(tmp_path):
+    r = _scan(tmp_path, "a.go", (
+        "package p\n"
+        "var ErrNotFound = errors.New(\"nf\")\n"
+        "type MyErr struct{}\n"
+        "func (e *MyErr) Error() string { return \"x\" }\n"
+        "func f() error {\n"
+        "  defer func() { recover() }()\n"
+        "  if errors.Is(err, ErrNotFound) { panic(\"boom\") }\n"
+        "  return fmt.Errorf(\"w: %w\", err)\n"
+        "}\n"
+    ))
+    assert _names(r["error_types"]) == {"ErrNotFound", "MyErr"}
+    types = {t for _, t, _ in _sites(r)}
+    assert "fmt.Errorf" in types and "(value)" in types  # the panic string
+    assert "errors.New" not in types  # the sentinel's own constructor is a definition, not a raise
+    catches = [c for h in r["handlers"] for c in h["catches"]]
+    assert "(any)" in catches and "ErrNotFound" in catches
+
+
+def test_go_errors_as_does_not_record_its_pointer_target_as_a_caught_type(tmp_path):
+    # Real gap: errors.As(err, &perr)'s second argument is a pointer
+    # destination, not a type or a sentinel - recording "perr" as a caught
+    # error type pollutes by_error_type's summary with a local variable
+    # name. errors.Is keeps recording its sentinel argument (ErrNotFound
+    # above), since that one is at least a plausible error identifier.
+    r = _scan(tmp_path, "a.go", (
+        "package p\n"
+        "func f() error {\n"
+        "  var perr *MyErr\n"
+        "  if errors.As(err, &perr) { return perr }\n"
+        "  return nil\n"
+        "}\n"
+    ))
+    catches = [c for h in r["handlers"] for c in h["catches"]]
+    assert "perr" not in catches
+    # _add_handler turns an empty catches list into ["(any)"], same as
+    # recover() above - an errors.As handler with no identifiable type.
+    assert catches == ["(any)"]
+
+
+def test_rust_errors(tmp_path):
+    r = _scan(tmp_path, "a.rs", (
+        "#[derive(Debug, thiserror::Error)]\nenum AppError { #[error(\"x\")] Bad }\n"
+        "struct E2;\nimpl std::error::Error for E2 {}\nstruct NotAnError;\n"
+        "fn f() -> Result<(), AppError> {\n  if x { return Err(AppError::Bad); }\n  panic!(\"no\");\n}\n"
+    ))
+    assert _names(r["error_types"]) == {"AppError", "E2"}
+    types = {t for _, t, _ in _sites(r)}
+    assert "AppError" in types and "panic!" in types
+
+
+def test_plain_c_files_are_skipped(tmp_path):
+    # C has no classes, throw or catch; walking every .c file found nothing
+    # and was most of this stage's cost on C-heavy repos like the kernel.
+    _write(tmp_path, "src/driver.c", "struct dev { int x; };\nint probe(void) { return 0; }\n")
+    result = map_error_handling(tmp_path)
+    assert result["error_types"] == [] and result["raise_sites"] == [] and result["handlers"] == []
+
+
+def test_parallel_and_sequential_paths_give_identical_output(tmp_path, monkeypatch):
+    import aletheore.error_handling as eh
+
+    for i in range(6):
+        _write(tmp_path, f"pkg/m{i}.py", (
+            f"class E{i}(Exception):\n    pass\n\n"
+            f"def f{i}():\n    try:\n        raise E{i}()\n    except E{i}:\n        pass\n"
+        ))
+        _write(tmp_path, f"cpp/m{i}.hpp", (
+            f"class Err{i} : public std::runtime_error {{}};\n"
+            f"void g{i}() {{ try {{ throw Err{i}(); }} catch (const Err{i}& e) {{}} }}\n"
+        ))
+    monkeypatch.setattr(eh, "PARALLEL_PARSE_MIN_FILES", 10**9)
+    sequential = map_error_handling(tmp_path)
+    monkeypatch.setattr(eh, "PARALLEL_PARSE_MIN_FILES", 1)
+    monkeypatch.setenv("ALETHEORE_PARALLEL_PARSE_JOBS", "2")
+    parallel = map_error_handling(tmp_path)
+    assert parallel == sequential
+    assert len(sequential["error_types"]) == 12
+
+
+def test_cpp_text_fallback_dedupes_within_a_file_only(tmp_path):
+    # A header the grammar can't fully parse still gets its error classes from
+    # the text fallback, and two files can each define a same-named class.
+    broken = "MACRO_THAT_BREAKS_PARSING(\nclass ParseError : public std::exception {};\n"
+    _write(tmp_path, "a/errors.h", broken)
+    _write(tmp_path, "b/errors.h", broken)
+    result = map_error_handling(tmp_path)
+    files = sorted(t["file"] for t in result["error_types"] if t["name"] == "ParseError")
+    assert files == ["a/errors.h", "b/errors.h"]
+
+
+def test_ts_and_tsx_each_parse_with_their_own_grammar(tmp_path):
+    # .ts and .tsx share the language name "typescript" but not the grammar. A
+    # parser cached by that name parsed whichever came second with the wrong
+    # grammar: JSX under the plain TypeScript grammar loses the arrow
+    # function's name (found on prometheus's web UI).
+    _write(tmp_path, "a.ts", "export function plain(): void {\n  try {} catch (e) {}\n}\n")
+    _write(tmp_path, "b.tsx", (
+        "const EndpointLink = () => {\n  try {\n    f();\n  } catch (err) {\n    g();\n  }\n"
+        "  return (\n    <>\n      {xs.map((x) => {\n        return <Badge key={x}>{x}</Badge>;\n"
+        "      })}\n    </>\n  );\n};\n"
+    ))
+    handlers = map_error_handling(tmp_path)["handlers"]
+    assert {(h["file"], h["function"]) for h in handlers} == {("a.ts", "plain"), ("b.tsx", "EndpointLink")}
+
+
+def _fake_pool_factory(plan, workers_seen, items_seen):
+    """A stand-in for ProcessPoolExecutor. plan[i] is how many items the i-th pool
+    yields before raising BrokenProcessPool (None means it completes). Raising
+    from inside the map() generator mirrors the real thing: results yielded
+    before the worker died are already in the caller's list."""
+    from concurrent.futures.process import BrokenProcessPool
+
+    plan = list(plan)
+
+    class _FakePool:
+        def __init__(self, max_workers=None, **kwargs):
+            workers_seen.append(max_workers)
+            self._limit = plan.pop(0) if plan else None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def map(self, fn, items, **kwargs):
+            items = list(items)
+            items_seen.append(len(items))
+            for index, item in enumerate(items):
+                if self._limit is not None and index >= self._limit:
+                    raise BrokenProcessPool("simulated dead worker")
+                yield fn(item)
+
+    return _FakePool
+
+
+def test_extract_many_recovers_real_results_when_a_worker_dies(monkeypatch):
+    import aletheore.error_handling as eh
+    import aletheore.scanner.graph as graph
+
+    monkeypatch.setattr(eh, "PARALLEL_PARSE_MIN_FILES", 0)
+    monkeypatch.setattr(graph, "_available_parallelism", lambda: 4)
+    monkeypatch.setattr(eh, "_extract_one", lambda job: ([{"file": job[1]}], [], []))
+    monkeypatch.setattr(graph, "ProcessPoolExecutor", _fake_pool_factory([1, None], [], []))
+
+    results = eh._extract_many([(Path(n), n) for n in ("a.py", "b.py", "c.py")])
+
+    assert [r[0][0]["file"] for r in results] == ["a.py", "b.py", "c.py"]
+
+
+def test_extract_many_fails_instead_of_caching_empty_extractions_for_unparsed_files(monkeypatch):
+    import pytest
+    from concurrent.futures.process import BrokenProcessPool
+    import aletheore.error_handling as eh
+    import aletheore.scanner.graph as graph
+
+    monkeypatch.setattr(eh, "PARALLEL_PARSE_MIN_FILES", 0)
+    monkeypatch.setattr(graph, "_available_parallelism", lambda: 2)
+    monkeypatch.setattr(eh, "_extract_one", lambda job: ([{"file": job[1]}], [], []))
+    monkeypatch.setattr(graph, "ProcessPoolExecutor", _fake_pool_factory([1, 0, 0], [], []))
+
+    with pytest.raises(BrokenProcessPool, match="2 of 3 files were not parsed"):
+        eh._extract_many([(Path(n), n) for n in ("a.py", "b.py", "c.py")])

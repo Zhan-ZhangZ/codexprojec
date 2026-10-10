@@ -1,0 +1,27 @@
+{
+  "name": "openspace-tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "copy:packaged": "node ../../scripts/copy-dist-to-packaged.mjs dist ../../openspace/packaged/tui --node-modules node_modules --package-json package.json",
+    "build:packaged": "npm run build && npm run copy:packaged",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "node --test dist/bridge/*.test.js dist/commands/*.test.js dist/keybindings/*.test.js dist/state/*.test.js dist/utils/*.test.js"
+  },
+  "dependencies": {
+    "ink": "^5.1.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.12",
+    "typescript": "^5.7.0"
+  }
+}
