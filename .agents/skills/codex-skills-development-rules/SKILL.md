@@ -43,3 +43,7 @@ Whenever you develop, update, or integrate skills in this project, you MUST stri
    👉 请阅读 `references/07_skill_updates.md`
    *(包含上游更新判定、身份复核、单技能分支规范 update/<技能>-<日期>、索引更新日期登记等要求)*
 
+8. **技能冻结与清退规范**
+   👉 请阅读 `references/08_retirement.md`
+   *(权限红线：冻结/清退由用户人工点名技能名触发，AI 不自行定案；含🧊冻结/🗑️清退两档流程、索引表留痕口径、不知情子代理三件套验证、体检候选清单；先例：humanize-text 2026-10-10 冻结)*
+

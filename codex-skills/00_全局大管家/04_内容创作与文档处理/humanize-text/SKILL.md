@@ -1,6 +1,6 @@
 ---
 name: humanize-text
-description: AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除
+description: "[已冻结 2026-10-10：需双付费 key 且仅输出英文（DeepSeek+Niutrans，Agent Skills Hub 实测 Not run）；待新集成 sloptrim/slop-guard/anti-slop 同类技能后，因该技能效果不佳转清退；现有替代 stop-slop/unslop] AI 文本去机甲化（Humanizer）与防溯源转换工具。自动重塑 AI 生成的内容，使其呈现人类自然行文韵律，绕过市面上各种反 AI 检测器。Leading Words: 文本去AI化, 绕过AI检测, 自然语言韵律重塑, 机器味消除"
 metadata:
   version: 1.5.2
   upstream: github.com/lynote-ai/humanize-text
