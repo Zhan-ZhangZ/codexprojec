@@ -1,0 +1,152 @@
+import type { CoreMessageMediaFromBlob, MediaBinaryLocation, MediaBinaryProvider, PhotoModels, StickerModels } from '@tg-search/core'
+
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { getMockEmptyDB } from '../mock'
+import { hydrateMediaBlobWithCore } from './core-media'
+
+const mockFindPhotoByQueryId = vi.fn()
+const mockFindStickerByQueryId = vi.fn()
+
+const mockPhotoModels = {
+  findPhotoByQueryId: mockFindPhotoByQueryId,
+} as unknown as PhotoModels
+const mockStickerModels = {
+  findStickerByQueryId: mockFindStickerByQueryId,
+} as unknown as StickerModels
+
+vi.mock('./core-db', () => {
+  return {
+    getDB: () => getMockEmptyDB(),
+  }
+})
+
+vi.mock('@guiiai/logg', () => {
+  return {
+    useLogger: () => ({
+      debug: vi.fn(),
+      warn: vi.fn(),
+      withError() {
+        return this
+      },
+    }),
+  }
+})
+
+describe('adapters/core-media - hydrateMediaBlobWithCore', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+
+    // Stub URL.createObjectURL so we can assert on the produced blob URL.
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-url')
+  })
+
+  it('hydrates photo blob via MediaBinaryProvider when image_path is present', async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const provider: MediaBinaryProvider = {
+      async save() {
+        throw new Error('not used in this test')
+      },
+      async load(location: MediaBinaryLocation) {
+        expect(location).toEqual({
+          kind: 'photo',
+          path: 'photo/file-1',
+        })
+        return bytes
+      },
+    }
+
+    mockFindPhotoByQueryId.mockResolvedValue({
+      orUndefined: () => ({
+        image_path: 'photo/file-1',
+        image_bytes: null,
+        image_mime_type: 'image/jpeg',
+        image_width: 640,
+        image_height: 480,
+      }),
+    })
+
+    const media: CoreMessageMediaFromBlob = {
+      type: 'photo',
+      platformId: 'file-1',
+      mimeType: 'image/jpeg',
+      queryId: 'photo-query',
+    }
+
+    await hydrateMediaBlobWithCore(media, mockPhotoModels, mockStickerModels, provider)
+
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(media.blobUrl).toBe('blob:test-url')
+    expect(media.width).toBe(640)
+    expect(media.height).toBe(480)
+  })
+
+  it('falls back to image_bytes when provider is unavailable', async () => {
+    const bytes = new Uint8Array([9, 9, 9, 9])
+
+    mockFindPhotoByQueryId.mockResolvedValue({
+      orUndefined: () => ({
+        image_path: null,
+        image_bytes: bytes,
+        image_mime_type: 'image/png',
+        image_width: 1280,
+        image_height: 720,
+      }),
+    })
+
+    const media: CoreMessageMediaFromBlob = {
+      type: 'photo',
+      platformId: 'file-2',
+      mimeType: 'image/png',
+      queryId: 'photo-query-2',
+    }
+
+    await hydrateMediaBlobWithCore(media, mockPhotoModels, mockStickerModels, undefined)
+
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(media.blobUrl).toBe('blob:test-url')
+    expect(media.width).toBe(1280)
+    expect(media.height).toBe(720)
+  })
+
+  it('hydrates sticker blob through provider when sticker_path is present', async () => {
+    const bytes = new Uint8Array([7, 8, 9])
+
+    const provider: MediaBinaryProvider = {
+      async save() {
+        throw new Error('not used in this test')
+      },
+      async load(location: MediaBinaryLocation) {
+        expect(location).toEqual({
+          kind: 'sticker',
+          path: 'sticker/file-3',
+        })
+        return bytes
+      },
+    }
+
+    mockFindStickerByQueryId.mockResolvedValue({
+      orUndefined: () => ({
+        sticker_path: 'sticker/file-3',
+        sticker_bytes: null,
+        sticker_mime_type: 'image/webp',
+        sticker_width: 512,
+        sticker_height: 512,
+      }),
+    })
+
+    const media: CoreMessageMediaFromBlob = {
+      type: 'sticker',
+      platformId: 'file-3',
+      mimeType: 'image/webp',
+      queryId: 'sticker-query',
+    }
+
+    await hydrateMediaBlobWithCore(media, mockPhotoModels, mockStickerModels, provider)
+
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1)
+    expect(media.blobUrl).toBe('blob:test-url')
+    expect(media.width).toBe(512)
+    expect(media.height).toBe(512)
+  })
+})

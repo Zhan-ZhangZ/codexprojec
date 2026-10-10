@@ -1,0 +1,1586 @@
+// The single doctor implementation. autonomy/loki cmd_doctor delegates here via
+// _loki_bun_delegate and keeps only a minimal "bun route unavailable" fallback.
+//
+// Behavioral parity targets:
+//   - Text mode: sectioned PASS/FAIL/WARN output, summary footer, exit 1 on
+//     any FAIL (warnings ok).
+//   - JSON mode: emit the structure documented in the migration inventory and
+//     produced by python3 in cmd_doctor_json. Exit 1 when summary.ok is false,
+//     matching text mode and the documented CI/init-container gate contract.
+//
+// Network probes (ChromaDB, MiroFish) use AbortSignal.timeout(2000) so a slow
+// probe never hangs the CLI. Secret env vars are checked for presence only --
+// the value is never read or echoed.
+import { accessSync, constants as fsConstants, existsSync, lstatSync, readFileSync, readlinkSync, realpathSync, statSync, statfsSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+import { REPO_ROOT } from "../util/paths.ts";
+import { commandExists, run } from "../util/shell.ts";
+import { findPython3, runInline } from "../util/python.ts";
+import { BOLD, CYAN, DIM, GREEN, NC, RED, YELLOW } from "../util/colors.ts";
+import { getVersion } from "../version.ts";
+import { detectProtocol } from "../cockpit/capability.ts";
+import { rasterAvailable } from "../cockpit/raster.ts";
+import { probeAdvisor } from "../runner/router/advisor_probe.ts";
+import { routerEnabled } from "../runner/router/flag.ts";
+
+// ---------- Types (mirror cmd_doctor_json shape) ------------------------------
+
+export type Severity = "required" | "recommended" | "optional";
+export type Status = "pass" | "fail" | "warn";
+
+export type ToolCheck = {
+  name: string;
+  command: string;
+  found: boolean;
+  version: string | null;
+  required: Severity;
+  min_version: string | null;
+  status: Status;
+  path: string | null;
+};
+
+export type DiskCheck = {
+  available_gb: number | null;
+  status: Status;
+};
+
+// v7.5.15: sentrux architectural-drift gate state exposed in --json output.
+// Sibling of checks/disk -- intentionally not counted in the summary tally
+// to keep summary numbers backwards-compatible with v7.5.14 consumers.
+export type AiProviderCheck = {
+  found: boolean;
+  status: Status;
+  required: string;
+  detail: string | null;
+};
+
+type SentruxCheck = {
+  found: boolean;
+  version: string | null;
+  status: Status;
+  required: "optional";
+};
+
+// Provider availability: install state of every provider in
+// providers/loader.sh SUPPORTED_PROVIDERS, plus the one auto_detect_provider
+// would choose. Produced by autonomy/provider-offer.sh (providers-json), the
+// SAME helper the bash route calls, so the two cannot drift. Not counted in the
+// summary tally: it is informational, and a missing optional provider must
+// never flip doctor exit code.
+export type ProviderAvailability = {
+  selected: string | null;
+  providers: { name: string; installed: boolean }[];
+};
+
+// v7.7.17: memory subsystem health surface. Mirrors the bash side
+// (autonomy/loki:cmd_doctor_json) which reports the latest entries from
+// .loki/memory/.errors.log (rotated by memory/error_log.py). Sibling of
+// checks/disk/sentrux; not counted in the summary tally to preserve
+// backwards-compatible numbers.
+export type MemoryHealth = {
+  errors_log_path: string | null;
+  recent_errors: string[];
+  recent_error_count: number;
+  status: Status;
+};
+
+export type DoctorJson = {
+  // v7.6.1 B-9 fix: surface the active loki version so tools parsing this
+  // JSON know which release produced the report. Mirrors the bash side
+  // (autonomy/loki:cmd_doctor_json) which now sets LOKI_VERSION env.
+  loki_mode_version: string;
+  checks: ToolCheck[];
+  // Which provider a build would actually auto-select, plus the install state
+  // of every supported provider. Null when providers/loader.sh is unavailable,
+  // matching the bash route, which omits the section rather than erroring.
+  provider_availability: ProviderAvailability | null;
+  disk: DiskCheck;
+  ai_provider: AiProviderCheck;
+  // Skill-link integrity, counted in the summary tally. See buildDoctorJson.
+  skills: SkillJson[];
+  sentrux: SentruxCheck;
+  memory: MemoryHealth;
+  model_catalog: CatalogFreshness;
+  summary: {
+    passed: number;
+    failed: number;
+    warnings: number;
+    ok: boolean;
+  };
+};
+
+// ---------- Tool check helpers ------------------------------------------------
+
+const VERSION_NUMBER_RE = /(\d+\.\d+(?:\.\d+)*)/;
+
+// Extract a version number using the same regex bash's python helper uses.
+function extractVersion(text: string): string | null {
+  const m = text.match(VERSION_NUMBER_RE);
+  return m ? m[1]! : null;
+}
+
+// Run `<cmd> --version` (timeout 5s) and pull the first version-shaped token
+// out of stdout/stderr. Mirrors get_version() in cmd_doctor_json.
+async function probeVersion(cmd: string): Promise<string | null> {
+  try {
+    const r = await run([cmd, "--version"], { timeoutMs: 5000 });
+    const text = (r.stdout || r.stderr || "").trim();
+    return extractVersion(text);
+  } catch {
+    return null;
+  }
+}
+
+function compareMajorMinor(version: string, min: string): number {
+  const cur = version.split(".").map((p) => parseInt(p, 10));
+  const want = min.split(".").map((p) => parseInt(p, 10));
+  while (cur.length < 2) cur.push(0);
+  while (want.length < 2) want.push(0);
+  for (let i = 0; i < 2; i++) {
+    const a = cur[i] ?? 0;
+    const b = want[i] ?? 0;
+    if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+    if (a !== b) return a - b;
+  }
+  return 0;
+}
+
+export async function checkTool(
+  name: string,
+  cmd: string,
+  required: Severity,
+  minVersion: string | null = null,
+): Promise<ToolCheck> {
+  const path = await commandExists(cmd);
+  const found = path !== null;
+  const version = found ? await probeVersion(cmd) : null;
+
+  let status: Status = "pass";
+  if (!found) {
+    status = required === "required" ? "fail" : "warn";
+  } else if (minVersion && version) {
+    if (compareMajorMinor(version, minVersion) < 0) {
+      status = required === "required" ? "fail" : "warn";
+    }
+  }
+
+  return {
+    name,
+    command: cmd,
+    found,
+    version,
+    required,
+    min_version: minVersion,
+    status,
+    path,
+  };
+}
+
+// ---------- Disk check --------------------------------------------------------
+
+// JSON form of disk check (bash cmd_doctor_json uses round(..., 1) -- 1 decimal).
+export function checkDisk(): DiskCheck {
+  let available_gb: number | null = null;
+  try {
+    const stats = statfsSync(homedir());
+    const bytes = Number(stats.bavail) * Number(stats.bsize);
+    available_gb = Math.round((bytes / (1024 ** 3)) * 10) / 10;
+  } catch {
+    available_gb = null;
+  }
+
+  let status: Status = "pass";
+  if (available_gb !== null) {
+    if (available_gb < 1) status = "fail";
+    else if (available_gb < 5) status = "warn";
+  }
+  return { available_gb, status };
+}
+
+// ---------- Network probes ----------------------------------------------------
+
+// HTTP GET with hard 2s timeout. Returns true only on 2xx response.
+export async function httpReachable(url: string, timeoutMs = 2000): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- Python integration probes -----------------------------------------
+
+// Returns true if `python3 -c "import <mod>"` exits 0. Uses runInline (which
+// honors the python detection priority in src/util/python.ts).
+//
+// v7.4.2 fix (BUG-23): the previous 5s timeout was tighter than a cold
+// sentence_transformers import (~3.3s) under parallel load, causing
+// probabilistic divergence vs bash (which has no timeout). ML imports get
+// 30s; non-ML imports keep 5s.
+export async function pythonImportOk(module: string, useMlPython = false): Promise<boolean> {
+  const source = `import ${module}`;
+  const timeoutMs = useMlPython ? 30000 : 5000;
+  if (!useMlPython) {
+    const r = await runInline(source, { timeoutMs });
+    return r.exitCode === 0;
+  }
+  // For numpy / sentence_transformers, prefer the ML python (3.12) since 3.14
+  // is not yet compatible with chromadb/sentence-transformers.
+  // findPython3() already prefers /opt/homebrew/bin/python3.12; runInline uses
+  // findPython3(), so this is the same behavior. Keep the flag for clarity.
+  const py = await findPython3();
+  if (!py) return false;
+  const r = await run([py, "-c", source], { timeoutMs });
+  return r.exitCode === 0;
+}
+
+// Mutable indirection so tests can swap the implementation (e.g. to record
+// invocation timestamps and assert the three Integration-section probes run
+// in parallel). Production callers use this exact reference, so a test stub
+// is observed inside runText() without touching the export shape.
+type PythonImportOk = (module: string, useMlPython?: boolean) => Promise<boolean>;
+const pyImpl = { fn: pythonImportOk as PythonImportOk };
+export function _setPythonImportOkForTest(fn: PythonImportOk | null): void {
+  pyImpl.fn = fn ?? pythonImportOk;
+}
+
+// ---------- Router advisor (ROUTER-1 R1-20) -----------------------------------
+
+// Version of the Claude Code binary bundled with the Agent SDK. The SDK
+// manifest records it; there is no other source in the tree.
+export function bundledClaudeCodeVersion(): string | null {
+  const rel = "node_modules/@anthropic-ai/claude-agent-sdk/manifest.json";
+  for (const base of [resolve(REPO_ROOT, "loki-ts"), REPO_ROOT]) {
+    try {
+      const v = JSON.parse(readFileSync(resolve(base, rel), "utf8"))?.version;
+      if (typeof v === "string" && v !== "") return v;
+    } catch {
+      // Not installed under this root; try the next one.
+    }
+  }
+  return null;
+}
+
+// Informational only: an unavailable advisor never flips the doctor exit code.
+export function advisorStatusLine(
+  env: Record<string, string | undefined>,
+  provider: string,
+  claudeCodeVersion: string,
+  runDir: string,
+): string {
+  const probe = probeAdvisor(env, provider, claudeCodeVersion, runDir);
+  return probe.available ? "advisor: available" : `advisor: unavailable (${probe.reason})`;
+}
+
+// ---------- Skills check ------------------------------------------------------
+
+type SkillEntry = { name: string; dir: string; id: string };
+
+const SKILL_ENTRIES: readonly SkillEntry[] = [
+  { name: "Claude Code", dir: ".claude/skills/loki-mode", id: "claude" },
+  { name: "Codex CLI", dir: ".codex/skills/loki-mode", id: "codex" },
+  { name: "Cline CLI", dir: ".cline/skills/loki-mode", id: "cline" },
+  { name: "Aider CLI", dir: ".aider/skills/loki-mode", id: "aider" },
+];
+
+type SkillStatus = {
+  name: string;
+  path: string;
+  status: Status;
+  detail: string;
+  // True only for a dangling link, on either severity arm. The text renderer
+  // uses it to print the Fix line for a broken link but not for an absent one.
+  dangling: boolean;
+};
+
+// The provider id a build would actually use. Read from provider-offer.sh --
+// the SAME helper the bash route calls -- rather than re-deriving the priority
+// list here, which is how the provider lists in this repo have drifted before.
+// Null when nothing resolves, which makes every dangling link non-blocking.
+export function readEffectiveProvider(): string | null {
+  const script = providerOfferScript();
+  if (!script) return null;
+  try {
+    const r = spawnSync("bash", [script, "effective-provider"], { env: { ...process.env }, encoding: "utf8" });
+    if (r.status !== 0 || !r.stdout) return null;
+    const id = r.stdout.trim();
+    return id === "" ? null : id;
+  } catch {
+    return null;
+  }
+}
+
+export function checkSkills(selected?: string | null): SkillStatus[] {
+  // Resolved once per call, not per entry: the accessor spawns bash.
+  const effective = selected === undefined ? readEffectiveProvider() : selected;
+  const home = homedir();
+  return SKILL_ENTRIES.map(({ name, dir, id }) => {
+    const sdir = resolve(home, dir);
+    // Match bash autonomy/loki:6410 behavior under `set -euo pipefail`:
+    // ${sdir/$HOME/~} does NOT substitute when set -e is active (bash quirk),
+    // so the full path is shown. Mirror that.
+    const shortPath = sdir;
+    const skillFile = resolve(sdir, "SKILL.md");
+
+    if (existsSync(skillFile)) {
+      return { name, path: shortPath, status: "pass" as const, detail: "", dangling: false };
+    }
+    // Detect broken symlink: lstat succeeds but stat target is missing.
+    try {
+      const info = lstatSync(sdir);
+      if (info.isSymbolicLink()) {
+        // Initialize before the try so the catch arm leaves `target` defined.
+        let target = "unknown";
+        try {
+          target = readlinkSync(sdir);
+        } catch {
+          // readlink can fail on race or permission error; keep "unknown".
+        }
+        return {
+          name,
+          path: shortPath,
+          // Only the provider a build would launch blocks (A-123); a stale link
+          // for any other provider is reported as a warning.
+          status: effective !== null && effective === id ? ("fail" as const) : ("warn" as const),
+          detail: `(broken symlink -> ${target})`,
+          dangling: true,
+        };
+      }
+    } catch {
+      // Path does not exist at all -- fall through to warn.
+    }
+    return {
+      name,
+      path: shortPath,
+      status: "warn" as const,
+      detail: "(not found - run 'loki setup-skill')",
+      dangling: false,
+    };
+  });
+}
+
+// JSON projection of a SkillStatus, byte-matching the bash cmd_doctor_json
+// `skills` entries. Kept next to checkSkills so text and JSON cannot drift.
+export type SkillJson = {
+  name: string;
+  path: string;
+  status: Status;
+  detail: string | null;
+  required: "required";
+};
+
+// Text mode renders `detail` with surrounding parens and a separate Fix line;
+// JSON carries the bare sentence with the fix inlined, matching bash.
+export function skillsForJson(): SkillJson[] {
+  return checkSkills().map((s) => ({
+    name: s.name,
+    // JSON may be persisted or forwarded by automation. Preserve the useful
+    // user-relative location without exposing a machine-specific home path.
+    path: s.path.startsWith(`${homedir()}/`) ? `~/${s.path.slice(homedir().length + 1)}` : s.path,
+    status: s.status,
+    detail:
+      s.status === "pass"
+        ? null
+        : s.dangling
+          // The text view can show the target interactively, but persisted JSON
+          // must not disclose an absolute run root or target-derived secret.
+          ? "broken symlink. Fix: loki setup-skill"
+          : "not found - run loki setup-skill",
+    required: "required" as const,
+  }));
+}
+
+// ---------- Tool list (single source of truth shared by text + JSON) ----------
+
+// Display name (text mode, with min-version suffix per bash autonomy/loki:6354)
+// vs JSON name (cmd_doctor_json bare name per bash :6580). They differ by design.
+type ToolSpec = {
+  displayName: string;
+  jsonName: string;
+  cmd: string;
+  required: Severity;
+  min?: string;
+};
+
+const TOOL_SPECS: readonly ToolSpec[] = [
+  { displayName: "Node.js (>= 18)", jsonName: "Node.js", cmd: "node", required: "required", min: "18.0" },
+  { displayName: "Python 3 (>= 3.8)", jsonName: "Python 3", cmd: "python3", required: "required", min: "3.8" },
+  { displayName: "jq", jsonName: "jq", cmd: "jq", required: "required" },
+  { displayName: "git", jsonName: "git", cmd: "git", required: "required" },
+  { displayName: "curl", jsonName: "curl", cmd: "curl", required: "required" },
+  { displayName: "bash (>= 4.0)", jsonName: "bash", cmd: "bash", required: "recommended", min: "4.0" },
+  // v7.4.9: Bun powers the routed commands (version, status, stats, doctor,
+  // provider show/list, memory list/index). Marked recommended -- if missing,
+  // bin/loki silently falls through to bash autonomy/loki, but users miss the
+  // ~3-5x speedup.
+  { displayName: "Bun (>= 1.3)", jsonName: "Bun", cmd: "bun", required: "recommended", min: "1.3" },
+  { displayName: "Claude CLI", jsonName: "Claude CLI", cmd: "claude", required: "optional" },
+  { displayName: "Codex CLI", jsonName: "Codex CLI", cmd: "codex", required: "optional" },
+  { displayName: "Cline CLI", jsonName: "Cline CLI", cmd: "cline", required: "optional" },
+  { displayName: "Aider CLI", jsonName: "Aider CLI", cmd: "aider", required: "optional" },
+  { displayName: "opencode CLI", jsonName: "opencode CLI", cmd: "opencode", required: "optional" },
+];
+
+// Internal record carries both names; callers pick which one to render.
+type ToolRow = ToolCheck & { displayName: string };
+
+async function runAllToolChecks(): Promise<ToolRow[]> {
+  return Promise.all(
+    TOOL_SPECS.map(async (spec) => {
+      const c = await checkTool(spec.jsonName, spec.cmd, spec.required, spec.min ?? null);
+      return { ...c, displayName: spec.displayName };
+    }),
+  );
+}
+
+// ---------- Provider availability bridge --------------------------------------
+
+// Both of these shell out to autonomy/provider-offer.sh rather than reading
+// providers/loader.sh from TypeScript. That is deliberate and load-bearing:
+// doctor stdout used to be compared byte for byte between two routes; bun is now
+// the only doctor, and the auto-selection priority order lives in ONE bash function. A TypeScript
+// reimplementation would be a second copy of that order, free to drift.
+//
+// Both fail closed and silently: a missing script, a spawn error, or any
+// non-zero status yields null / no output, and doctor carries on. That is the
+// same graceful skip the bash route performs when loader.sh cannot be sourced.
+function providerOfferScript(): string | null {
+  const p = resolve(REPO_ROOT, "autonomy/provider-offer.sh");
+  return existsSync(p) ? p : null;
+}
+
+export function readProviderAvailability(): ProviderAvailability | null {
+  const script = providerOfferScript();
+  if (!script) return null;
+  try {
+    const r = spawnSync("bash", [script, "providers-json"], { env: { ...process.env }, encoding: "utf8" });
+    if (r.status !== 0 || !r.stdout) return null;
+    const parsed = JSON.parse(r.stdout) as ProviderAvailability;
+    if (!parsed || !Array.isArray(parsed.providers)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+// Returns the rendered section, or "" to print nothing.
+//
+// NOTE the capture-and-re-emit, rather than stdio "inherit". The install-offer
+// call below can use "inherit" because it is gated on stdout being a TTY, so
+// the parity capture never reaches it. This section is ALWAYS on: when stdout
+// is a pipe, Bun buffers process.stdout.write while an inherited child writes
+// straight to fd 1, which would let this section overtake the lines printed
+// before it and break parity in a way that never reproduces on a terminal.
+export function renderProviderAvailability(): string {
+  const script = providerOfferScript();
+  if (!script) return "";
+  try {
+    const r = spawnSync("bash", [script, "providers"], { env: { ...process.env }, encoding: "utf8" });
+    if (r.status !== 0 || !r.stdout) return "";
+    return r.stdout;
+  } catch {
+    return "";
+  }
+}
+
+// ---------- JSON mode ---------------------------------------------------------
+
+// v7.5.15: probe the sentrux binary for the JSON output. Mirrors the bash
+// cmd_doctor_json sentrux block byte-for-byte (subject to the bun-parity
+// matrix's jq -S key-sort + disk float normalization). Always returns a
+// SentruxCheck record; the `found` field discriminates installed vs not.
+async function checkSentrux(): Promise<SentruxCheck> {
+  const path = await commandExists("sentrux");
+  const found = path !== null;
+  const version = found ? await probeVersion("sentrux") : null;
+  const status: Status = found ? "pass" : "warn";
+  return { found, version, status, required: "optional" };
+}
+
+// v7.7.17: read the memory subsystem error log surface for doctor --json.
+// Resolves the log path via LOKI_DIR env (set by loki invocations) with a
+// cwd-relative `.loki/memory/.errors.log` fallback. Never throws; returns
+// an empty list on any read failure (matches bash side behaviour).
+//
+// v7.7.17 council fix (Opus 2):
+//   (a) Tail-only read (last 64 KB) so an oversize log cannot OOM the
+//       doctor command. Mirrors memory/error_log.py read_recent_errors.
+//   (b) Path parity: emit RELATIVE path (join only, no resolve) to match
+//       the bash side's os.path.join output exactly. Bash uses relative;
+//       Bun was emitting absolute, breaking the parity matrix.
+async function checkMemoryHealth(): Promise<MemoryHealth> {
+  const { openSync, statSync, readSync, closeSync, existsSync } =
+    await import("node:fs");
+  const { join } = await import("node:path");
+  const TAIL_BYTES = 64 * 1024;
+  const lokiDir = process.env["LOKI_DIR"] ?? ".loki";
+  const logPath = join(lokiDir, "memory", ".errors.log");
+  let recent: string[] = [];
+  let exists = false;
+  try {
+    if (existsSync(logPath)) {
+      exists = true;
+      const size = statSync(logPath).size;
+      const offset = Math.max(0, size - TAIL_BYTES);
+      const len = size - offset;
+      const buf = Buffer.alloc(len);
+      const fd = openSync(logPath, "r");
+      try {
+        readSync(fd, buf, 0, len, offset);
+      } finally {
+        closeSync(fd);
+      }
+      const text = buf.toString("utf-8");
+      let lines = text.split("\n");
+      if (offset > 0 && lines.length > 0) {
+        lines = lines.slice(1); // drop possibly-partial first line
+      }
+      lines = lines.map((l) => l.trim()).filter((l) => l.length > 0);
+      recent = lines.slice(-5);
+    }
+  } catch {
+    recent = [];
+  }
+  return {
+    errors_log_path: exists ? logPath : null,
+    recent_errors: recent,
+    recent_error_count: recent.length,
+    status: recent.length === 0 ? "pass" : "warn",
+  };
+}
+
+// Days after which a hand-maintained catalog is called stale. The upstream
+// probe workflow runs weekly, so a catalog untouched for a quarter means the
+// probe PRs are going unread. Mirrored in autonomy/loki:cmd_doctor.
+const CATALOG_STALE_DAYS = 90;
+
+export interface CatalogFreshness {
+  status: "pass" | "warn";
+  updated: string | null;
+  age_days: number | null;
+  detail: string;
+}
+
+// Age of providers/model_catalog.json from its own "updated" field. Local read
+// only -- no network, ever. Honours LOKI_MODEL_CATALOG so tests (and operators
+// with a vendored catalog) can point it elsewhere, matching providers/models.sh.
+export function describeCatalogFreshness(): CatalogFreshness {
+  const path = process.env["LOKI_MODEL_CATALOG"] || resolve(REPO_ROOT, "providers/model_catalog.json");
+  let updated: string;
+  let ageDays: number;
+  try {
+    updated = JSON.parse(readFileSync(path, "utf-8"))["updated"];
+    // Parse as UTC midnight on both sides so the day count never shifts with
+    // the host timezone.
+    const then = Date.parse(`${updated}T00:00:00Z`);
+    const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
+    if (Number.isNaN(then)) throw new Error("bad date");
+    ageDays = Math.round((today - then) / 86_400_000);
+  } catch {
+    return {
+      status: "warn",
+      updated: null,
+      age_days: null,
+      detail: 'Catalog unreadable or missing an ISO "updated" date -- cannot determine age',
+    };
+  }
+  return ageDays > CATALOG_STALE_DAYS
+    ? {
+        status: "warn",
+        updated,
+        age_days: ageDays,
+        detail: `Last updated ${updated} (${ageDays} days ago) -- may be missing newer models`,
+      }
+    : { status: "pass", updated, age_days: ageDays, detail: `Last updated ${updated} (${ageDays} days ago)` };
+}
+
+export async function buildDoctorJson(): Promise<DoctorJson> {
+  const rows = await runAllToolChecks();
+  // Strip the displayName field for JSON output -- bash JSON has bare names.
+  const checks: ToolCheck[] = rows.map(({ displayName: _displayName, ...rest }) => rest);
+  const disk = checkDisk();
+  const sentrux = await checkSentrux();
+  const memory = await checkMemoryHealth();
+
+  const statuses: Status[] = checks.map((c) => c.status);
+  statuses.push(disk.status);
+
+  // AGGREGATE PROVIDER CHECK, mirroring autonomy/loki:cmd_doctor_json. Each
+  // provider CLI is individually optional -- Claude, Codex, Cline, Aider, or opencode
+  // -- so none can be marked required on its own. Having NONE is a blocker,
+  // and the text path on both routes reports it as one.
+  //
+  // Without this, --json reported zero failures and ok true on a host that
+  // cannot run a build, disagreeing with the same command's own exit code.
+  const anyProviderFound = ["claude", "codex", "cline", "aider", "opencode"].some(
+    (p) => checks.find((c) => c.command === p)?.found === true,
+  );
+  const aiProvider: AiProviderCheck = {
+    found: anyProviderFound,
+    status: anyProviderFound ? "pass" : "fail",
+    required: "required",
+    detail: anyProviderFound
+      ? null
+      : "No AI provider CLI. Fix: npm install -g @anthropic-ai/claude-code",
+  };
+  statuses.push(aiProvider.status);
+
+  // SKILL LINK INTEGRITY, mirroring autonomy/loki:cmd_doctor_json. The text
+  // path on both routes fails closed on a broken skill symlink, but --json
+  // omitted skills entirely -- so a host with a dangling ~/.claude/skills/
+  // loki-mode had text exit 1 while --json reported failed 0 and ok true.
+  // Counted per entry, exactly as the text path tallies them.
+  const skills = skillsForJson();
+  for (const s of skills) statuses.push(s.status);
+
+  return {
+    loki_mode_version: getVersion(),
+    checks,
+    provider_availability: readProviderAvailability(),
+    disk,
+    ai_provider: aiProvider,
+    skills,
+    sentrux,
+    memory,
+    // Advisory only: deliberately excluded from the passed/failed/warnings
+    // tally and from `ok`, so a stale catalog can never flip the exit code.
+    model_catalog: describeCatalogFreshness(),
+    summary: summarizeStatuses(statuses),
+  };
+}
+
+// ---------- Text mode rendering ----------------------------------------------
+
+// v7.104.2 parity with bash doctor: the durable login signal is `claude auth
+// status` (local, zero-network, ~0.2s, JSON with "loggedIn"), which recognizes
+// BOTH the file-based AND the native/macOS-Keychain login (the native install
+// writes NO ~/.claude/.credentials.json, so the file-only check above misses a
+// genuine Keychain login). Returns "yes" | "no" | "" (unknown: older CLI / no
+// parseable output -> caller reports UNKNOWN (warn), never a false
+// fail). Kept byte-faithful with autonomy/loki's inline `claude auth status`
+// parse so the bash and Bun doctor routes render the identical login line.
+function claudeAuthStatusLoggedIn(): "yes" | "no" | "" {
+  try {
+    const r = spawnSync("claude", ["auth", "status"], {
+      env: { ...process.env },
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    const out = (r.stdout || "").trim();
+    if (!out) return "";
+    const parsed = JSON.parse(out);
+    if (parsed?.loggedIn === true) return "yes";
+    if (parsed?.loggedIn === false) return "no";
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+export type ClaudeLoginResult = {
+  status: Status;
+  line: string;
+  fix: string | null;
+  blocker: string | null;
+};
+
+// Pure mapping from the `claude auth status` answer to one counted row. An
+// inconclusive probe ("") is UNKNOWN and always a warning, so a probe that
+// times out can neither flip the failure count nor be hidden from it.
+export function evaluateClaudeLogin(loggedIn: "yes" | "no" | ""): ClaudeLoginResult {
+  if (loggedIn === "yes") {
+    return { status: "pass", line: "Claude CLI is logged in (subscription/OAuth login)", fix: null, blocker: null };
+  }
+  if (loggedIn === "no") {
+    return {
+      status: "fail",
+      line: "Claude CLI is NOT logged in -- a build would stall instead of running",
+      fix: "Fix: claude login   (or set ANTHROPIC_API_KEY)",
+      blocker: "Claude CLI is not logged in. Fix: claude login (or set ANTHROPIC_API_KEY)",
+    };
+  }
+  return {
+    status: "warn",
+    line: "Claude login state UNKNOWN (claude auth status gave no answer); re-run to check",
+    fix: null,
+    blocker: null,
+  };
+}
+
+function badge(status: Status): string {
+  switch (status) {
+    case "pass":
+      return `${GREEN}PASS${NC}`;
+    case "fail":
+      return `${RED}FAIL${NC}`;
+    case "warn":
+      return `${YELLOW}WARN${NC}`;
+  }
+}
+
+function formatToolLine(c: ToolRow): string {
+  const ver = c.version ? ` (v${c.version})` : "";
+  // Text-mode label uses the bash-style display name (with `(>= MIN)` suffix).
+  const label = c.displayName;
+  if (!c.found) {
+    const note =
+      c.required === "required"
+        ? "not found"
+        : c.required === "recommended"
+          ? "not found (recommended)"
+          : "not found (optional)";
+    return `  ${badge(c.status)}  ${label} - ${note}`;
+  }
+  if (c.min_version && c.version && compareMajorMinor(c.version, c.min_version) < 0) {
+    const tag = c.required === "required" ? "requires" : "recommended";
+    return `  ${badge(c.status)}  ${label}${ver} - ${tag} >= ${c.min_version}`;
+  }
+  return `  ${badge(c.status)}  ${label}${ver}`;
+}
+
+// blockers carries WHY each required check failed, not just how many did.
+// The bash route has always named them; this route only counted, so its
+// trailer could say "some prerequisites are missing" without saying which --
+// the exact dead end a first-run user hits.
+export type Tally = {
+  results: Status[];
+  blockers: string[];
+  readonly pass: number;
+  readonly fail: number;
+  readonly warn: number;
+};
+
+// The ONE counting mechanism (FC-DOCTOR-COUNT): every summary, text or JSON,
+// is derived from a list of per-check statuses. No counter is kept apart from
+// the list, so a count cannot disagree with the rows that were recorded.
+export function summarizeStatuses(list: readonly Status[]): {
+  passed: number;
+  failed: number;
+  warnings: number;
+  ok: boolean;
+} {
+  let passed = 0;
+  let failed = 0;
+  let warnings = 0;
+  for (const s of list) {
+    if (s === "pass") passed++;
+    else if (s === "fail") failed++;
+    else warnings++;
+  }
+  return { passed, failed, warnings, ok: failed === 0 };
+}
+
+export function makeTally(): Tally {
+  const results: Status[] = [];
+  return {
+    results,
+    blockers: [],
+    get pass() {
+      return summarizeStatuses(results).passed;
+    },
+    get fail() {
+      return summarizeStatuses(results).failed;
+    },
+    get warn() {
+      return summarizeStatuses(results).warnings;
+    },
+  };
+}
+
+export function bump(t: Tally, s: Status): void {
+  t.results.push(s);
+}
+
+function printHelp(): void {
+  process.stdout.write(`${BOLD}loki doctor${NC} - Check system prerequisites\n\n`);
+  process.stdout.write(`Usage: loki doctor [--json] [--airgap]\n\n`);
+  process.stdout.write(`Options:\n`);
+  process.stdout.write(`  --json    Output machine-readable JSON\n`);
+  // --airgap never reaches this handler: bin/loki routes it to the bash audit.
+  process.stdout.write(`  --airgap  Audit network egress: model inference, telemetry and the\n`);
+  process.stdout.write(`            update check, REQUIRED or optional, and how to disable\n`);
+  process.stdout.write(`            each. Exits non-zero while a required egress remains.\n\n`);
+  process.stdout.write(`Checks: node, python3, jq, git, curl, bash version,\n`);
+  process.stdout.write(`        claude/codex CLIs, and disk space.\n`);
+}
+
+// Adoption signal: which CLASS of dependency stopped this first run. Mapped to a
+// bounded enum here (never the blocker text, so no path or version can leak) and
+// emitted through the shared bash helper (autonomy/telemetry.sh), which honors
+// every opt-out. Detached and best-effort: it must never delay or fail doctor.
+function emitFirstRunBlocked(blockers: string): void {
+  let key = "other";
+  if (blockers.includes("No AI provider CLI")) key = "no_provider";
+  else if (blockers.includes("Node.js is not installed") || blockers.includes("Node.js must be")) key = "node";
+  else if (blockers.includes("Python 3 is not installed") || blockers.includes("Python 3 must be")) key = "python3";
+  else if (blockers.includes("jq is not installed")) key = "jq";
+  else if (blockers.includes("git is not installed")) key = "git";
+  else if (blockers.includes("curl is not installed")) key = "curl";
+  else if (blockers.includes("Free up disk")) key = "disk";
+  else if (blockers.includes("broken symlink")) key = "skill_symlink";
+  try {
+    const script = resolve(REPO_ROOT, "autonomy", "telemetry.sh");
+    if (!existsSync(script)) return;
+    const child = spawn(
+      "bash",
+      ["-c", 'source "$1" >/dev/null 2>&1 && loki_emit_first_run_blocked "$2" >/dev/null 2>&1', "_", script, key],
+      { detached: true, stdio: "ignore", env: { ...process.env } },
+    );
+    child.unref();
+  } catch {
+    // telemetry is best-effort
+  }
+}
+
+async function runText(): Promise<number> {
+  process.stdout.write(`${BOLD}Loki Mode Doctor${NC}\n\n`);
+  process.stdout.write(`Checking system prerequisites...\n\n`);
+
+  const tally: Tally = makeTally();
+  const allChecks = await runAllToolChecks();
+  const byCmd = new Map(allChecks.map((c) => [c.command, c]));
+
+  // Required section
+  process.stdout.write(`${CYAN}Required:${NC}\n`);
+  for (const cmd of ["node", "python3", "jq", "git", "curl"]) {
+    const c = byCmd.get(cmd)!;
+    process.stdout.write(formatToolLine(c) + "\n");
+    bump(tally, c.status);
+    // Blocker wording mirrors the bash route's _doctor_block calls exactly
+    // (autonomy/loki:10864 and :10930) so the two trailers stay byte-identical
+    // under the bun-parity gate.
+    if (c.status === "fail") {
+      if (!c.found) {
+        tally.blockers.push(`${c.name} is not installed`);
+      } else if (c.min_version) {
+        tally.blockers.push(`${c.name} must be >= ${c.min_version}`);
+      }
+    }
+  }
+  process.stdout.write(`\n`);
+
+  // AI Providers
+  process.stdout.write(`${CYAN}AI Providers:${NC}\n`);
+  const providerCmds = ["claude", "codex", "cline", "aider", "opencode"];
+  // Per-provider install hint, byte-matching the bash route's
+  // doctor_provider_install_cmd (autonomy/loki:8128). The bash route writes this
+  // hint to STDERR (run.sh doctor_check_provider, `>&2`), so it must go to STDERR
+  // here too: the canonical bun-parity gate (.github/workflows/bun-parity.yml)
+  // captures STDOUT only (`>out 2>/dev/null`), so a stdout hint would appear on
+  // the Bun route but not bash and break parity. On stderr it is invisible to the
+  // stdout-only gate AND aligned under local-ci's 2>&1 capture. The user still
+  // sees the hint (stderr is shown on a real terminal).
+  const providerInstall: Record<string, string> = {
+    claude: "npm install -g @anthropic-ai/claude-code",
+    codex: "npm install -g @openai/codex",
+    cline: "npm install -g cline",
+    aider: "pip install aider-chat",
+    opencode: "npm install -g opencode-ai",
+  };
+  let anyProvider = false;
+  let sdkOnly = false;
+  for (const cmd of providerCmds) {
+    const c = byCmd.get(cmd)!;
+    process.stdout.write(formatToolLine(c) + "\n");
+    if (!c.found && providerInstall[cmd]) {
+      process.stderr.write(`         ${YELLOW}Install: ${providerInstall[cmd]}${NC}\n`);
+    }
+    bump(tally, c.status);
+    if (c.found) anyProvider = true;
+  }
+  if (!anyProvider) {
+    // The bundled Claude Agent SDK runs the main loop with no separate CLI, but
+    // only when genuinely usable (binary extracted + credentials + SDK loop
+    // active). Parity by construction: rather than reimplement that predicate in
+    // TypeScript (this provider block is already an independent reimplementation
+    // of the bash loop, and a second copy would drift), shell out to the SAME
+    // shared helper the bash doctor calls. Fails closed: a missing helper, a
+    // spawn error, or any non-zero status all keep today's blocker verbatim.
+    let sdkUsable = false;
+    const sdkOfferScript = resolve(REPO_ROOT, "autonomy/provider-offer.sh");
+    if (existsSync(sdkOfferScript)) {
+      const probe = spawnSync("bash", [sdkOfferScript, "detect-sdk"], { env: { ...process.env }, stdio: "ignore" });
+      sdkUsable = probe.status === 0;
+    }
+    if (sdkUsable) {
+      sdkOnly = true;
+      // Byte-mirrors the bash route. "No separate CLI needed" was true for
+      // `loki start` and false for demo/quick/quickstart, which stay on bash and
+      // require a binary on PATH -- so a green doctor was followed by exit 2.
+      process.stdout.write(
+        `  ${badge("pass")}  Bundled Claude Agent SDK is usable -- 'loki start' needs no separate CLI\n`,
+      );
+      process.stdout.write(
+        `         ${YELLOW}Note: loki demo/quick/quickstart still need a provider CLI on PATH${NC}\n`,
+      );
+      process.stdout.write(
+        `         ${YELLOW}      Install: npm install -g @anthropic-ai/claude-code${NC}\n`,
+      );
+      bump(tally, "pass");
+    } else {
+      process.stdout.write(
+        `  ${badge("fail")}  No AI provider CLI installed -- at least one is required\n`,
+      );
+      process.stdout.write(
+        `         ${YELLOW}Install: npm install -g @anthropic-ai/claude-code${NC}\n`,
+      );
+      bump(tally, "fail");
+      tally.blockers.push("No AI provider CLI. Fix: npm install -g @anthropic-ai/claude-code");
+      // v7.29.0: consent-gated install offer. Parity by construction: rather than
+      // re-implementing the prompt copy in TypeScript (which would drift from the
+      // bash route), invoke the single shared helper autonomy/provider-offer.sh
+      // via child_process with inherited stdio. The helper's "report" mode is a
+      // no-op on non-TTY/CI, so doctor's non-interactive and --json output stay
+      // byte-identical (this is the only path; --json never reaches runText).
+      // Guarded on stdout being a TTY so we never spawn bash in piped/CI doctor.
+      if (process.stdout.isTTY) {
+        const offerScript = resolve(REPO_ROOT, "autonomy/provider-offer.sh");
+        if (existsSync(offerScript)) {
+          spawnSync("bash", [offerScript, "report"], { env: { ...process.env }, stdio: "inherit" });
+        }
+      }
+    }
+  }
+  process.stdout.write(`\n`);
+
+  // A-123: an EXPLICIT LOKI_PROVIDER names the CLI a build will launch, so that
+  // CLI is required even when another provider is installed. Byte-mirrors the
+  // bash route in cmd_doctor. Bundled-SDK claude stays allowed.
+  const explicitProvider = process.env["LOKI_PROVIDER"] ?? "";
+  if (
+    explicitProvider !== "" &&
+    tally.fail === 0 &&
+    (await commandExists(explicitProvider)) === null &&
+    !(explicitProvider === "claude" && sdkOnly)
+  ) {
+    const install = providerInstall[explicitProvider] ?? `install ${explicitProvider}, or unset LOKI_PROVIDER`;
+    process.stdout.write(`  ${badge("fail")}  Selected provider '${explicitProvider}' CLI not found\n`);
+    bump(tally, "fail");
+    tally.blockers.push(`Selected provider ${explicitProvider} CLI not found. Fix: ${install}`);
+  }
+
+  // Provider Availability. Rendered by the shared bash helper so these bytes
+  // are the bash route bytes by construction. Empty string when loader.sh is
+  // unavailable, in which case nothing (not even the blank line) is printed --
+  // exactly what the bash route does.
+  const availability = renderProviderAvailability();
+  if (availability) {
+    process.stdout.write(availability);
+    process.stdout.write(`\n`);
+  }
+
+  // API Keys (presence only -- never echo values)
+  process.stdout.write(`${CYAN}API Keys:${NC}\n`);
+  const claudeFound = byCmd.get("claude")?.found ?? false;
+  const codexFound = byCmd.get("codex")?.found ?? false;
+  const env = process.env;
+  if (env["ANTHROPIC_API_KEY"]) {
+    process.stdout.write(`  ${badge("pass")}  ANTHROPIC_API_KEY is set\n`);
+    bump(tally, "pass");
+  } else if (claudeFound) {
+    // Parity with bash doctor (autonomy/loki), v7.104.2: prefer the CLI's own
+    // local auth-status (authoritative for both the file-based and the native/
+    // Keychain login), then fall back to the file-expiry check for older CLIs.
+    // This fixes the Bun route reporting "login EXPIRED" for a Keychain-logged-in
+    // user (native install writes no .credentials.json). Zero-network, no refresh
+    // attempt (that needs the network), mirroring run.sh's fail-fast preflight.
+    // FC-DOCTOR-COUNT: one retry on an inconclusive probe, then an explicit
+    // UNKNOWN. The outcome depends only on what the probe said, never on the
+    // clock (the old fallback failed whenever the cached access token happened
+    // to be past expiry while the probe flaked).
+    let loggedIn = claudeAuthStatusLoggedIn();
+    if (loggedIn === "") loggedIn = claudeAuthStatusLoggedIn();
+    const login = evaluateClaudeLogin(loggedIn);
+    process.stdout.write(`  ${badge(login.status)}  ${login.line}\n`);
+    if (login.fix) process.stdout.write(`         ${YELLOW}${login.fix}${NC}\n`);
+    if (login.blocker) tally.blockers.push(login.blocker);
+    bump(tally, login.status);
+  }
+  if (env["OPENAI_API_KEY"]) {
+    process.stdout.write(`  ${badge("pass")}  OPENAI_API_KEY is set\n`);
+    bump(tally, "pass");
+  } else if (codexFound) {
+    process.stdout.write(
+      `  ${DIM}  --  ${NC}  OPENAI_API_KEY not set (Codex CLI uses its own login)\n`,
+    );
+  }
+  // Phase I (v7.5.25): detect ANTHROPIC_BASE_URL alt-provider routing
+  // (OpenRouter, Ollama, LiteLLM, self-hosted). Claude Code reads this env
+  // var natively; Loki passes it through unchanged. Warn when the user sets
+  // an alt endpoint without LOKI_MODEL_OVERRIDE -- the default opus/sonnet/
+  // haiku aliases may not resolve on the alt-provider.
+  if (env["ANTHROPIC_BASE_URL"]) {
+    const url = env["ANTHROPIC_BASE_URL"];
+    process.stdout.write(`  ${badge("pass")}  ANTHROPIC_BASE_URL: ${url}\n`);
+    bump(tally, "pass");
+    if (!env["LOKI_MODEL_OVERRIDE"]) {
+      process.stdout.write(
+        `  ${badge("warn")}  LOKI_MODEL_OVERRIDE not set -- opus/sonnet/haiku aliases may not resolve on alt-provider\n`,
+      );
+      bump(tally, "warn");
+    } else {
+      process.stdout.write(
+        `  ${badge("pass")}  LOKI_MODEL_OVERRIDE: ${env["LOKI_MODEL_OVERRIDE"]}\n`,
+      );
+      bump(tally, "pass");
+    }
+  }
+  process.stdout.write(`\n`);
+
+  // Router: advisor availability and the bundled Claude Code version. Not
+  // tallied; the advisor is optional and falls back to plan-on-Opus. Printed
+  // only when the router flag is on: the router ships OFF and the default
+  // output must stay byte-identical to the bash route (bun-parity).
+  if (routerEnabled(process.env)) {
+    const provider = process.env["LOKI_PROVIDER"] || readEffectiveProvider() || "none";
+    const ccVersion = bundledClaudeCodeVersion();
+    const runDir = process.env["LOKI_DIR"] ?? ".loki";
+    process.stdout.write(`${CYAN}Router:${NC}\n`);
+    process.stdout.write(`  ${advisorStatusLine(process.env, provider, ccVersion ?? "", runDir)}\n`);
+    process.stdout.write(`  Bundled Claude Code: ${ccVersion ?? "unknown"}\n`);
+    process.stdout.write(`\n`);
+  }
+
+  // Skills
+  process.stdout.write(`${CYAN}Skills:${NC}\n`);
+  for (const s of checkSkills()) {
+    if (s.status === "pass") {
+      process.stdout.write(`  ${badge("pass")}  ${s.name}  ${DIM}${s.path}${NC}\n`);
+      bump(tally, "pass");
+    } else if (s.status === "fail") {
+      process.stdout.write(`  ${badge("fail")}  ${s.name}  ${DIM}${s.detail}${NC}\n`);
+      process.stdout.write(`         ${YELLOW}Fix: loki setup-skill${NC}\n`);
+      bump(tally, "fail");
+      tally.blockers.push(`${s.name} is a broken symlink. Fix: loki setup-skill`);
+    } else {
+      process.stdout.write(`  ${badge("warn")}  ${s.name}  ${DIM}${s.detail}${NC}\n`);
+      if (s.dangling) process.stdout.write(`         ${YELLOW}Fix: loki setup-skill${NC}\n`);
+      bump(tally, "warn");
+    }
+  }
+  process.stdout.write(`\n`);
+
+  // Integrations
+  process.stdout.write(`${CYAN}Integrations:${NC}\n`);
+  // v7.5.8: parallelize the three python module probes. Sequentially the
+  // numpy + sentence_transformers checks each have a 30s timeout (cold ML
+  // imports), so worst case was ~60-90s wall time. Promise.all keeps them
+  // bounded by the slowest single probe. Output order is preserved by
+  // awaiting the array up front.
+  const [mcpOk, numpyOk, stOk] = await Promise.all([
+    pyImpl.fn("mcp"),
+    pyImpl.fn("numpy", true),
+    pyImpl.fn("sentence_transformers", true),
+  ]);
+  if (mcpOk) {
+    process.stdout.write(`  ${badge("pass")}  MCP SDK (Python)\n`);
+    bump(tally, "pass");
+  } else {
+    process.stdout.write(`  ${badge("warn")}  MCP SDK - not installed (pip3 install mcp)\n`);
+    bump(tally, "warn");
+  }
+  if (numpyOk) {
+    process.stdout.write(`  ${badge("pass")}  numpy (vector search)\n`);
+    bump(tally, "pass");
+  } else {
+    process.stdout.write(`  ${badge("warn")}  numpy - not installed (pip3 install numpy)\n`);
+    bump(tally, "warn");
+  }
+  if (stOk) {
+    process.stdout.write(`  ${badge("pass")}  sentence-transformers (embeddings)\n`);
+    bump(tally, "pass");
+  } else {
+    process.stdout.write(
+      `  ${badge("warn")}  sentence-transformers - not installed (loki memory vectors setup)\n`,
+    );
+    bump(tally, "warn");
+  }
+  if (await httpReachable("http://localhost:8100/api/v2/heartbeat")) {
+    process.stdout.write(`  ${badge("pass")}  ChromaDB server (port 8100)\n`);
+    bump(tally, "pass");
+  } else {
+    process.stdout.write(
+      `  ${badge("warn")}  ChromaDB - not running (docker start loki-chroma)\n`,
+    );
+    bump(tally, "warn");
+  }
+  // v7.7.0: LSP servers check (mirrors autonomy/loki cmd_doctor). The
+  // mcp.lsp_proxy auto-detects these binaries; reporting here gives users
+  // visibility into which languages get agent-side symbol grounding.
+  {
+    const lspBins = [
+      "pyright-langserver",
+      "pylsp",
+      "typescript-language-server",
+      "gopls",
+      "rust-analyzer",
+      "jdtls",
+    ];
+    const found: string[] = [];
+    for (const bin of lspBins) {
+      if (await commandExists(bin)) {
+        found.push(bin);
+      }
+    }
+    if (found.length > 0) {
+      process.stdout.write(
+        `  ${badge("pass")}  LSP servers detected (${found.length}): ${found.join(", ")}\n`,
+      );
+      bump(tally, "pass");
+    } else {
+      process.stdout.write(
+        `  ${badge("warn")}  LSP servers - none on PATH (install for symbol grounding: npm i -g pyright typescript-language-server; brew install gopls)\n`,
+      );
+      bump(tally, "warn");
+    }
+  }
+  // MiroFish: only check if env var is set (we can't run docker inspect cheaply
+  // without spawning docker; bash also gates on env var or docker inspect).
+  const mfUrl = process.env["LOKI_MIROFISH_URL"];
+  if (mfUrl) {
+    if (await httpReachable(`${mfUrl}/health`)) {
+      process.stdout.write(`  ${badge("pass")}  MiroFish server (${mfUrl})\n`);
+      bump(tally, "pass");
+    } else {
+      process.stdout.write(
+        `  ${badge("warn")}  MiroFish - not running (loki start --mirofish-docker <image>)\n`,
+      );
+      bump(tally, "warn");
+    }
+  }
+  if (process.env["LOKI_OTEL_ENDPOINT"]) {
+    process.stdout.write(
+      `  ${badge("pass")}  OTEL endpoint: ${process.env["LOKI_OTEL_ENDPOINT"]}\n`,
+    );
+    bump(tally, "pass");
+  } else {
+    process.stdout.write(
+      `  ${badge("warn")}  OTEL - not configured (set LOKI_OTEL_ENDPOINT)\n`,
+    );
+    bump(tally, "warn");
+  }
+  // sentrux check (v7.5.14, optional architectural-drift gate). Mirrors the
+  // bash-route line at autonomy/loki:cmd_doctor so the bun-parity matrix
+  // diff stays empty.
+  if (await commandExists("sentrux")) {
+    let sentruxVer = "unknown";
+    try {
+      const r = await run(["sentrux", "--version"], { timeoutMs: 2000 });
+      const tok = r.stdout.split(/\s+/).filter(Boolean).pop();
+      if (tok) sentruxVer = tok.replace(/^v/, "");
+    } catch {
+      /* keep "unknown" */
+    }
+    process.stdout.write(
+      `  ${badge("pass")}  sentrux ${sentruxVer} (architectural drift gate: loki sentrux help)\n`,
+    );
+    bump(tally, "pass");
+  } else {
+    process.stdout.write(
+      `  ${badge("warn")}  sentrux - not installed (optional, brew install sentrux/tap/sentrux)\n`,
+    );
+    bump(tally, "warn");
+  }
+  // Receipt signing: Ed25519, auto-generated on first run. Byte-mirrors the
+  // bash-route lines in cmd_doctor. WARN only, and only when something needs
+  // the user's attention.
+  if ((process.env["LOKI_PROOF_GPG_KEY"] ?? "").trim() !== "") {
+    process.stdout.write(
+      `  ${badge("warn")}  Receipt signing: LOKI_PROOF_GPG_KEY is no longer supported and is ignored; use LOKI_RECEIPT_SIGNING_KEY or LOKI_RECEIPT_SIGNING_KEY_FILE (docs/SIGNED-RECEIPTS.md)\n`,
+    );
+    bump(tally, "warn");
+  }
+  if (spawnSync("python3", ["-c", "import cryptography"], { env: { ...process.env }, stdio: "ignore" }).status !== 0) {
+    process.stdout.write(
+      `  ${badge("warn")}  Receipt signing: python3 'cryptography' package missing, receipts will be UNSIGNED (pip install cryptography)\n`,
+    );
+    bump(tally, "warn");
+  }
+  process.stdout.write(`\n`);
+
+  // System
+  process.stdout.write(`${CYAN}System:${NC}\n`);
+  const bashCheck = byCmd.get("bash")!;
+  process.stdout.write(formatToolLine(bashCheck) + "\n");
+  bump(tally, bashCheck.status);
+
+  // v7.4.10 fix: Bun probe was added to TOOL_SPECS in v7.4.9 but never
+  // wired into the text-mode System section, so doctor text-mode dropped
+  // the Bun line + the summary count was off-by-one vs bash. JSON output
+  // already included Bun via the generic loop. Restore parity here.
+  const bunCheck = byCmd.get("bun");
+  if (bunCheck) {
+    process.stdout.write(formatToolLine(bunCheck) + "\n");
+    bump(tally, bunCheck.status);
+  }
+
+  const disk = checkDisk();
+  // Bash text uses `df -g` (integer GB, floored). JSON uses round(_, 1).
+  // checkDisk() returns the JSON-friendly float; floor it here for text-mode parity.
+  const diskTextGb = disk.available_gb === null ? null : Math.floor(disk.available_gb);
+  if (diskTextGb === null) {
+    process.stdout.write(`  ${badge("warn")}  Disk space: unable to determine\n`);
+    bump(tally, "warn");
+  } else if (disk.status === "fail") {
+    process.stdout.write(
+      `  ${badge("fail")}  Disk space: ${diskTextGb}GB available (need >= 1GB)\n`,
+    );
+    bump(tally, "fail");
+    tally.blockers.push(`Free up disk: ${diskTextGb}GB available, need >= 1GB`);
+  } else if (disk.status === "warn") {
+    process.stdout.write(
+      `  ${badge("warn")}  Disk space: ${diskTextGb}GB available (low)\n`,
+    );
+    bump(tally, "warn");
+  } else {
+    process.stdout.write(
+      `  ${badge("pass")}  Disk space: ${diskTextGb}GB available\n`,
+    );
+    bump(tally, "pass");
+  }
+  process.stdout.write(`\n`);
+
+  // v7.5.1 fix B23: report which runtime route the user's `loki` invocation
+  // is actually taking. Pre-v7.5.1 doctor only reported whether bun/bash were
+  // installed, not which path was active -- users couldn't tell if their flag
+  // overrides (LOKI_LEGACY_BASH=1, LOKI_TS_ENTRY=...) were taking effect.
+  //
+  // Informational only: this section does NOT contribute to the pass/fail/
+  // warn tally so the bun-parity matrix can normalize it to nothing without
+  // also having to reconcile the summary counts across routes.
+  process.stdout.write(`${CYAN}Runtime route:${NC}\n`);
+  const isBun = (process.versions as Record<string, string | undefined>)["bun"] !== undefined;
+  const argv0 = process.argv[0] ?? "(unknown)";
+  // With LOKI_LEGACY_BASH set the user's `loki` is the bash shim target, which
+  // delegates here, so the route they are on is bash even though this process is
+  // Bun. Report what they selected, not the delegate's engine.
+  const legacyBash = process.env["LOKI_LEGACY_BASH"] === "1" || process.env["LOKI_LEGACY_BASH"] === "true";
+  const runtimeLabel = legacyBash ? "Bash (autonomy/loki)" : `${isBun ? "Bun" : "Node"} (${argv0})`;
+  process.stdout.write(`  ${badge("pass")}  Active runtime: ${runtimeLabel}\n`);
+  if (legacyBash) {
+    process.stdout.write(`  ${badge("warn")}  LOKI_LEGACY_BASH set: shim routes every command to autonomy/loki (bash)\n`);
+  }
+  if (process.env["LOKI_TS_ENTRY"]) {
+    process.stdout.write(`  ${badge("pass")}  LOKI_TS_ENTRY override: ${process.env["LOKI_TS_ENTRY"]}\n`);
+  }
+  if (process.env["BUN_FROM_SOURCE"] === "1" || process.env["BUN_FROM_SOURCE"] === "true") {
+    process.stdout.write(`  ${badge("pass")}  BUN_FROM_SOURCE set: shim prefers loki-ts/src/ over dist/\n`);
+  }
+  // v7.5.2 fix #33: chromadb + sentence-transformers require Python 3.12; the
+  // generic "Python 3 (>= 3.8)" check above passes Python 3.13/3.14 and the
+  // operator only finds out via cryptic chromadb errors at runtime. Probe
+  // explicitly here.
+  //
+  // HONESTY (T1.2): 3.12 is needed only for the OPTIONAL vector-search /
+  // embedding path (chromadb + sentence-transformers). Core memory (episodic /
+  // semantic, file-based) and the rest of Loki run fine on Python 3.8+. So this
+  // is a WARN that names the real, narrow impact -- never a FAIL. It stays
+  // badge-only and does NOT touch the pass/fail/warn tally, so it can never flip
+  // doctor's exit code and block a working user (fail-open), and it keeps the
+  // summary counts identical across the bun and bash routes.
+  const py = await findPython3();
+  if (py !== null) {
+    const verRes = await run([py, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"], { timeoutMs: 5000 });
+    const ver = verRes.stdout.trim();
+    if (ver.startsWith("3.12")) {
+      process.stdout.write(`  ${badge("pass")}  Python 3.12 (chromadb / sentence-transformers): ${ver} at ${py}\n`);
+    } else if (ver) {
+      process.stdout.write(`  ${badge("warn")}  Python 3.12 recommended for memory vector search (chromadb / sentence-transformers); found ${ver} at ${py}. Core memory and the rest of Loki work without it. Install: brew install python@3.12 (macOS) or apt install python3.12 (Debian/Ubuntu).\n`);
+    } else {
+      process.stdout.write(`  ${badge("warn")}  Python 3 found at ${py} but version probe failed; memory vector search (chromadb / sentence-transformers) may not work. The rest of Loki is unaffected.\n`);
+    }
+  } else {
+    process.stdout.write(`  ${badge("warn")}  Python 3 not on PATH -- memory + MCP integrations disabled. The rest of Loki works without them.\n`);
+  }
+  process.stdout.write(`\n`);
+
+  // Model catalog freshness -- mirrors autonomy/loki:cmd_doctor byte for byte.
+  // The bun-parity matrix diffs this section (it is NOT stripped by the
+  // normalizer), so edit BOTH routes together.
+  //
+  // Reads ONLY the local file's "updated" field: zero network I/O, keeping
+  // doctor air-gapped-safe. Informational only -- never touches the tally, so a
+  // stale catalog can never change doctor's exit code.
+  process.stdout.write(`${CYAN}Model catalog:${NC}\n`);
+  const catalogAge = describeCatalogFreshness();
+  if (catalogAge.status === "pass") {
+    process.stdout.write(`  ${badge("pass")}  ${catalogAge.detail}\n`);
+  } else {
+    process.stdout.write(`  ${badge("warn")}  ${catalogAge.detail}\n`);
+    process.stdout.write(
+      `         ${YELLOW}Refresh: python3 tools/probe-model-catalog.py${NC} (reports new model IDs from provider docs; you verify and edit the catalog by hand -- never auto-applied)\n`,
+    );
+  }
+  process.stdout.write(`\n`);
+
+  // Cockpit capability: what `loki cockpit` will actually do in this terminal.
+  // Informational only (does not touch the tally). Uses the same detection code
+  // the renderer uses, so this report cannot drift from behavior. Ported from
+  // the removed bash doctor; this is now the only implementation.
+  process.stdout.write(`${CYAN}Cockpit:${NC}\n`);
+  const colorterm = process.env["COLORTERM"] ?? "";
+  if (colorterm === "truecolor" || colorterm === "24bit") {
+    process.stdout.write(`  ${badge("pass")}  Truecolor: yes (COLORTERM=${colorterm})\n`);
+  } else {
+    process.stdout.write(`  ${DIM}  --  ${NC}  Truecolor: not signalled (COLORTERM unset) -- colors may be approximate\n`);
+  }
+  {
+    const proto = detectProtocol();
+    const resvg = await rasterAvailable().catch(() => false);
+    const renderPath = proto !== "none" && resvg ? "image" : "text+dashboard";
+    process.stdout.write(`  ${badge("pass")}  Bun present -- cockpit renderer available\n`);
+    if (proto === "none") {
+      process.stdout.write(`  ${DIM}  --  ${NC}  Inline-image protocol: none (this terminal has no iTerm2/Kitty graphics)\n`);
+    } else {
+      process.stdout.write(`  ${badge("pass")}  Inline-image protocol: ${proto}\n`);
+    }
+    if (resvg) {
+      process.stdout.write(`  ${badge("pass")}  SVG rasterizer: ready (bundled wasm; renders the frame to an image)\n`);
+    } else {
+      process.stdout.write(`  ${DIM}  --  ${NC}  SVG rasterizer: unavailable (cockpit uses text+dashboard)\n`);
+    }
+    if (renderPath === "image") {
+      process.stdout.write(`  ${badge("pass")}  Render path: inline image ('loki cockpit' draws the frame in-terminal)\n`);
+    } else {
+      process.stdout.write(`  ${DIM}  --  ${NC}  Render path: text + browser dashboard ('loki cockpit' prints a summary; open 'loki dashboard')\n`);
+    }
+  }
+  process.stdout.write(`\n`);
+
+  // Install integrity. The bash route has checked this since v8.38.0; the Bun
+  // route -- the DEFAULT runtime -- did not, so the users most likely to hit
+  // the failure were the ones who could not see it.
+  //
+  // Why it matters: these four detectors ship via package.json `files[]`. When
+  // they were absent from the tarball, mutation-integrity failed closed on
+  // EVERY iteration for EVERY npm user, making first-pass completion
+  // impossible regardless of model output. Nothing in a git checkout can
+  // reproduce that -- which is exactly why doctor must assert it on the
+  // installed copy.
+  process.stdout.write(`${BOLD}Install integrity:${NC}\n`);
+  const detectors = [
+    "detect-test-mutations",
+    "detect-mock-problems",
+    "detect-semantic-test-problems",
+    "detect-invariant-violations",
+  ];
+  const missingDetectors: string[] = [];
+  for (const det of detectors) {
+    if (existsSync(resolve(REPO_ROOT, "tests", `${det}.sh`))) {
+      bump(tally, "pass");
+    } else {
+      missingDetectors.push(`${det}.sh`);
+    }
+  }
+  if (missingDetectors.length === 0) {
+    process.stdout.write(
+      `  ${GREEN}OK${NC}    Quality-gate detectors present (${detectors.length}/${detectors.length})\n`,
+    );
+  } else {
+    process.stdout.write(
+      `  ${badge("fail")}  Quality-gate detectors MISSING: ${missingDetectors.join(" ")}\n`,
+    );
+    bump(tally, "fail");
+    process.stdout.write(`${DIM}      These gates fail-closed, so every iteration will be blocked.${NC}\n`);
+    tally.blockers.push(
+      `Incomplete install: quality-gate detectors are missing. Reinstall: bun install -g loki-mode`,
+    );
+  }
+  process.stdout.write(`\n`);
+
+  // PATH shadowing: an older `loki` earlier on PATH defeats upgrading, because a
+  // reinstall updates the copy that is NOT winning. A blocker, not a warning.
+  // Paths are compared by realpath so two entries for one install do not count.
+  {
+    const resolveReal = (p: string): string => {
+      try {
+        return realpathSync(p);
+      } catch {
+        return p;
+      }
+    };
+    const isExec = (p: string): boolean => {
+      try {
+        accessSync(p, fsConstants.X_OK);
+        return statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    };
+    const pathDirs = (process.env["PATH"] ?? "").split(":").filter((d) => d !== "");
+    const firstOnPath = pathDirs.map((d) => `${d}/loki`).find(isExec);
+    if (firstOnPath !== undefined) {
+      const runningReal = resolveReal(firstOnPath);
+      const seen = new Set<string>();
+      const others: string[] = [];
+      for (const d of pathDirs) {
+        const cand = `${d}/loki`;
+        if (!isExec(cand)) continue;
+        const real = resolveReal(cand);
+        if (seen.has(real)) continue;
+        seen.add(real);
+        if (real === runningReal) continue;
+        const pj = resolve(real, "..", "..", "package.json");
+        let ver = "";
+        try {
+          ver = String((JSON.parse(readFileSync(pj, "utf8")) as { version?: unknown }).version ?? "");
+        } catch {
+          ver = "";
+        }
+        if (ver === "") continue;
+        others.push(`${ver} at ${d}/loki`);
+      }
+      if (others.length > 0) {
+        process.stdout.write(
+          `  ${badge("fail")}  Multiple loki installs on PATH; you are running ${getVersion() || "unknown"}\n`,
+        );
+        process.stdout.write(`  ${DIM}      Running: ${runningReal}${NC}\n`);
+        process.stdout.write(`  ${DIM}      Others:${NC}\n`);
+        for (const o of others) process.stdout.write(`  ${DIM}      ${o}${NC}\n`);
+        process.stdout.write(`  ${DIM}      Reinstalling updates a copy that is not winning on PATH.${NC}\n`);
+        bump(tally, "fail");
+        tally.blockers.push(
+          "Multiple loki installs on PATH. Run 'which -a loki', then remove or re-point every entry EARLIER than the one you want. Reinstalling alone will not fix this.",
+        );
+      } else {
+        process.stdout.write(`  ${GREEN}OK${NC}    Single loki install on PATH\n`);
+      }
+      process.stdout.write(`\n`);
+    }
+  }
+
+  // Summary
+  process.stdout.write(
+    `${BOLD}Summary:${NC} ${GREEN}${tally.pass} passed${NC}, ${RED}${tally.fail} failed${NC}, ${YELLOW}${tally.warn} warnings${NC}\n\n`,
+  );
+
+  if (tally.fail > 0) {
+    // Byte-identical to the bash route (autonomy/loki:11374-11379). This route
+    // used to print "Some required prerequisites are missing / Install missing
+    // dependencies", which names nothing and offers no way forward -- a
+    // first-run user with no provider CLI hit a dead end. The bash route has
+    // long named each blocker and pointed at `loki tour`, which needs no
+    // provider, no key and no spend; that is the one path that turns a failed
+    // first run into a result instead of an uninstall.
+    process.stdout.write(
+      `${RED}Blocking (${tally.fail}). Everything else above is optional.${NC}\n`,
+    );
+    // Leading blank line: bash accumulates blockers into a string that already
+    // begins with "\n" and prints it with printf '%b\n' (autonomy/loki:10851,
+    // :11375), so its output carries one. bun-parity compares byte for byte,
+    // so this cosmetic newline is load-bearing.
+    process.stdout.write(`\n`);
+    for (const b of tally.blockers) {
+      process.stdout.write(`  - ${b}\n`);
+    }
+    process.stdout.write(`\n`);
+    process.stdout.write(`Then re-run: loki doctor\n`);
+    process.stdout.write(
+      `Meanwhile 'loki tour' works right now -- no provider, no key, no spend.\n`,
+    );
+    emitFirstRunBlocked(tally.blockers.join("\n"));
+    // A-123: the LAST line is the one blocking reason, exactly.
+    process.stdout.write(`${tally.blockers[0]}\n`);
+    return 1;
+  }
+  if (tally.warn > 0) {
+    process.stdout.write(`${YELLOW}All required checks passed with some warnings.${NC}\n`);
+  } else {
+    process.stdout.write(`${GREEN}All checks passed. System is ready for Loki Mode.${NC}\n`);
+  }
+  // Setup verified (no required check failed): hand the user straight to a
+  // first build with a copy-paste command, so they never dead-end here. The
+  // fail branch returns above, so a failing setup is never told to build.
+  process.stdout.write(`\n`);
+  if (sdkOnly) {
+    // SDK-only host: quickstart and demo need a binary on PATH, so recommending
+    // them here would be a green doctor pointing at an exit 2.
+    process.stdout.write(`Next: loki start ./prd.md (runs on the bundled SDK, no CLI install needed)\n`);
+    process.stdout.write(`      For loki quickstart/demo: npm install -g @anthropic-ai/claude-code\n`);
+  } else {
+    process.stdout.write(
+      `Next: loki quickstart (guided first build from your idea, no PRD needed)\n`,
+    );
+    process.stdout.write(
+      `      or loki demo (builds a sample todo app end to end) or loki start ./prd.md\n`,
+    );
+  }
+  // A-123: the last stdout line. Byte-mirrors cmd_doctor. The key state is read
+  // WITHOUT creating a key (auto_generate=False).
+  const id = process.env["LOKI_PROVIDER"] || readEffectiveProvider() || "claude";
+  const modelRun = spawnSync(
+    "bash",
+    ["-c", 'source "$1" >/dev/null 2>&1; printf %s "${PROVIDER_MODEL_DEVELOPMENT:-}"', "_", resolve(REPO_ROOT, "providers", `${id}.sh`)],
+    { env: { ...process.env }, encoding: "utf8" },
+  );
+  const model = (modelRun.stdout ?? "").trim() || "default";
+  const keyRun = spawnSync(
+    "python3",
+    ["-E", "-c", READY_KEY_PY, resolve(REPO_ROOT, "autonomy")],
+    { env: { ...process.env }, encoding: "utf8" },
+  );
+  const key = (keyRun.stdout ?? "").trim();
+  const keyState = key.startsWith("kid ")
+    ? `receipts signed (${key})`
+    : key === "none"
+      ? "receipts will be signed on first run"
+      : key === "bad"
+        ? "receipts unsigned: signing key could not be loaded"
+        : "receipts unsigned: python3 cryptography package missing";
+  process.stdout.write(`Ready: ${id} (${model}), ${keyState}\n`);
+  return 0;
+}
+
+// Read-only signing-key probe for the Ready line. auto_generate=False: doctor
+// must never create a key. Same logic as the python block in cmd_doctor.
+const READY_KEY_PY = `
+import os, sys
+sys.path[:] = [p for p in sys.path if p not in ("", ".")]
+sys.path.insert(0, sys.argv[1])
+from receipt_jwt import load_signing_key, _CRYPTO_AVAILABLE, RECEIPT_SIGNER_BASENAME
+if not _CRYPTO_AVAILABLE:
+    print("nocrypto")
+else:
+    k, kid = load_signing_key(auto_generate=False)
+    if kid:
+        print("kid " + kid[:8])
+    elif os.environ.get("LOKI_RECEIPT_SIGNING_KEY", "").strip():
+        print("bad")
+    else:
+        # A-122: a missing key FILE is auto-generated on first use when its nearest
+        # existing ancestor directory is writable; an existing file that did not
+        # load (corrupt/unreadable) or an unwritable location is unusable.
+        f = os.environ.get("LOKI_RECEIPT_SIGNING_KEY_FILE", "").strip() or os.path.expanduser("~/.loki/keys/receipt-ed25519.pem")
+        d = os.path.dirname(os.path.abspath(f))
+        while not os.path.isdir(d) and os.path.dirname(d) != d:
+            d = os.path.dirname(d)
+        print("bad" if os.path.lexists(f) or not os.access(d, os.W_OK | os.X_OK) else "none")
+`;
+
+// ---------- Public entry point -----------------------------------------------
+
+export async function runDoctor(argv: readonly string[]): Promise<number> {
+  let json = false;
+  for (const arg of argv) {
+    if (arg === "--json") {
+      json = true;
+    } else if (arg === "--help" || arg === "-h") {
+      printHelp();
+      return 0;
+    } else {
+      process.stderr.write(`${RED}Unknown option: ${arg}${NC}\n`);
+      process.stderr.write(`Usage: loki doctor [--json] [--airgap]\n`);
+      return 1;
+    }
+  }
+
+  if (json) {
+    const result = await buildDoctorJson();
+    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    return result.summary.ok ? 0 : 1;
+  }
+  return runText();
+}

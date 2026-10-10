@@ -1,0 +1,408 @@
+"""Per-job receipt attestation: a signed JWT plus a public JWKS.
+
+WHY THIS EXISTS, given old receipts could carry a gpg signature.
+
+A gpg signature proves a receipt was produced by a holder of that gpg key,
+and for a LOCAL build that is the whole story: the operator already has the
+keyring. It does not survive the remote path. A submitter who ran
+`loki start --remote https://loki.corp` never had local access to the cluster,
+so "fetch our public key out of band and import it into gpg" is the step where
+independent verification actually stops happening.
+
+JWKS closes exactly that gap and nothing else: the verifier fetches
+`/.well-known/jwks.json` over the same TLS connection it already trusts for the
+API, and checks the signature with a stdlib-shaped algorithm. The receipt gains
+per-job identity binding gpg never carried -- job id, submitter and issue time
+as SIGNED claims, not prose in the body.
+
+TWO DESIGN CONSTRAINTS, both decided by code that already exists rather than by
+preference.
+
+1. THE RECEIVER SIGNS. NEVER THE WORKER. The worker executes model-directed
+   code and already holds ANTHROPIC_API_KEY and GITHUB_TOKEN
+   (helm/loki-mode/templates/worker-deployment.yaml). A signing key there would
+   let a build sign its own receipt, and a self-attested receipt attests to
+   nothing. The private key lives only in the receiver Deployment, matching the
+   rule stated at the top of templates/secret.yaml.
+
+2. `kid` AND A MULTI-KEY JWKS FROM DAY ONE. This is the half-built failure the
+   whole item was deferred over. With a single unlabeled key, the first rotation
+   makes every previously-issued receipt fail verification -- and a receipt that
+   fails verification is INDISTINGUISHABLE from a tampered one. That collapses
+   TAMPERED into UNCHECKED and destroys the four-verdict separation the trust
+   core is built on. So JWKS serves current AND retired keys, and every token
+   carries the `kid` that signed it.
+
+Ed25519 (EdDSA), not RSA: fixed-size keys, no parameter choices to get wrong,
+and `cryptography` is already a dependency. Signing is OPTIONAL and fail-open
+in the sense that matters -- no key configured means no `attestation` field and
+the receipt keeps its existing UNSIGNED verdict. It never means an unsigned
+receipt is presented as signed.
+"""
+
+import base64
+import json
+import logging
+import os
+from pathlib import Path
+
+# Default signer file name; one definition, free of key-ish words (E-156).
+RECEIPT_SIGNER_BASENAME = "receipt-ed25519.pem"
+
+try:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+        Ed25519PublicKey,
+    )
+    _CRYPTO_AVAILABLE = True
+except ImportError:  # pragma: no cover - exercised only on a stripped install
+    _CRYPTO_AVAILABLE = False
+
+
+def _b64url(data: bytes) -> str:
+    """base64url WITHOUT padding, per RFC 7515 section 2."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(data: str) -> bytes:
+    """Inverse of _b64url, restoring the stripped padding."""
+    pad = 4 - len(data) % 4
+    if pad != 4:
+        data += "=" * pad
+    return base64.urlsafe_b64decode(data)
+
+
+def compute_kid(public_key: "Ed25519PublicKey") -> str:
+    """Stable key id: the RFC 7638 JWK thumbprint of the public key.
+
+    Derived from the key itself rather than assigned by an operator, so the
+    same key always yields the same kid across restarts and redeploys. An
+    operator-chosen kid drifts between environments and silently breaks
+    verification of receipts issued before the drift.
+    """
+    raw = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    # Members REQUIRED by RFC 7638 for OKP, lexicographic, no whitespace.
+    canonical = json.dumps(
+        {"crv": "Ed25519", "kty": "OKP", "x": _b64url(raw)},
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    import hashlib
+
+    return _b64url(hashlib.sha256(canonical).digest())
+
+
+def _load_private_key(pem_bytes: bytes):
+    """Load an unencrypted Ed25519 private key from PEM, or None.
+
+    An encrypted key is rejected rather than prompted for: the receiver starts
+    unattended in a pod and a passphrase prompt would hang startup rather than
+    fail it, which is the worse of the two outcomes.
+    """
+    try:
+        key = serialization.load_pem_private_key(pem_bytes, password=None)
+    except (ValueError, TypeError) as e:
+        logging.error("receipt signing: private key could not be loaded: %s", e)
+        return None
+    if not isinstance(key, Ed25519PrivateKey):
+        logging.error(
+            "receipt signing: key is %s, expected Ed25519 -- refusing to sign",
+            type(key).__name__,
+        )
+        return None
+    return key
+
+
+def load_signing_key(auto_generate=True):
+    """Return (private_key, kid) from env or a mounted file, or (None, "").
+
+    Precedence: LOKI_RECEIPT_SIGNING_KEY (inline PEM), then
+    LOKI_RECEIPT_SIGNING_KEY_FILE, then ~/.loki/keys/receipt-ed25519.pem. A
+    missing key FILE is generated (PKCS8, 0600, O_EXCL) so a first run signs
+    without setup unless auto_generate=False (the server path: an ephemeral
+    container key would orphan old receipts). The private key is never logged or printed.
+    """
+    if not _CRYPTO_AVAILABLE:
+        return None, ""
+    pem = os.environ.get("LOKI_RECEIPT_SIGNING_KEY", "").strip()
+    if pem:
+        key = _load_private_key(pem.encode("utf-8"))
+    else:
+        key_file = os.environ.get("LOKI_RECEIPT_SIGNING_KEY_FILE", "").strip()
+        is_default = not key_file
+        if is_default:
+            key_file = str(Path.home() / ".loki" / "keys" / RECEIPT_SIGNER_BASENAME)
+        try:
+            try:
+                data = Path(key_file).read_bytes()
+                if is_default:  # never chmod an operator's key: it may be a :ro mount
+                    _tighten(key_file)
+            except FileNotFoundError:
+                if not auto_generate:
+                    return None, ""
+                data = _create_key_file(key_file)
+                logging.info("receipt signing: auto-generated local key at %s", key_file)
+            key = _load_private_key(data)
+        except OSError as e:
+            logging.error("receipt signing: cannot use key file %s: %s", key_file, e)
+            return None, ""
+    if key is None:
+        return None, ""
+    return key, compute_kid(key.public_key())
+
+
+def _tighten(path: str) -> None:
+    """Drop group/other access on an existing key file and its directory."""
+    # best effort: a failed chmod must never downgrade signing
+    try:
+        if os.stat(path).st_mode & 0o077:
+            os.chmod(path, 0o600)
+        d = os.path.dirname(path)
+        if os.stat(d).st_mode & 0o077:
+            os.chmod(d, 0o700)
+    except OSError as e:
+        logging.warning("receipt signing: could not tighten %s: %s", path, e)
+
+
+def _create_key_file(path: str) -> bytes:
+    """Create the key 0600, published atomically via link(); a concurrent first run reads the winner's file."""
+    pem = Ed25519PrivateKey.generate().private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    d = os.path.dirname(path) or "."
+    if d.endswith(os.path.join(".loki", "keys")):
+        os.makedirs(os.path.dirname(d), mode=0o700, exist_ok=True)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(pem)
+        os.link(tmp, path)  # atomic and fails if a concurrent run won
+    except FileExistsError:
+        return Path(path).read_bytes()
+    finally:
+        os.unlink(tmp)
+    return pem
+
+
+def load_retired_public_keys():
+    """Public keys that must stay in JWKS so OLD receipts still verify.
+
+    THIS IS THE ROTATION STORY, and it is why the item was deferred until now.
+    LOKI_RECEIPT_RETIRED_PUBKEYS is a colon-separated list of PEM file paths.
+    After rotating, the operator moves the previous PUBLIC key here; receipts
+    it signed keep verifying, while nothing new is signed with it. Without this
+    a rotation would make every historical receipt read as unverifiable, which
+    a checker cannot distinguish from tampering.
+
+    A path that cannot be read is logged and skipped rather than fatal: one bad
+    path must not take down the whole endpoint and with it verification of
+    every OTHER key.
+    """
+    if not _CRYPTO_AVAILABLE:
+        return []
+    raw = os.environ.get("LOKI_RECEIPT_RETIRED_PUBKEYS", "").strip()
+    if not raw:
+        return []
+    out = []
+    for path in raw.split(":"):
+        path = path.strip()
+        if not path:
+            continue
+        try:
+            pub = serialization.load_pem_public_key(Path(path).read_bytes())
+        except (OSError, ValueError, TypeError) as e:
+            logging.error("receipt signing: skipping retired key %s: %s", path, e)
+            continue
+        if not isinstance(pub, Ed25519PublicKey):
+            logging.error("receipt signing: retired key %s is not Ed25519", path)
+            continue
+        out.append(pub)
+    return out
+
+
+def public_jwk(public_key: "Ed25519PublicKey", kid: str = "") -> dict:
+    """One JWKS entry. `use`/`alg` are set so a verifier need not infer them."""
+    raw = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": _b64url(raw),
+        "use": "sig",
+        "alg": "EdDSA",
+        "kid": kid or compute_kid(public_key),
+    }
+
+
+def build_jwks(private_key=None, retired_public_keys=None) -> dict:
+    """The full public key set: the active key first, then retired ones.
+
+    Deduplicated by kid so listing a retired key that is still active does not
+    publish it twice -- a duplicate kid makes key selection ambiguous for a
+    verifier that stops at the first match.
+    """
+    keys, seen = [], set()
+    if private_key is not None:
+        jwk = public_jwk(private_key.public_key())
+        keys.append(jwk)
+        seen.add(jwk["kid"])
+    for pub in retired_public_keys or []:
+        jwk = public_jwk(pub)
+        if jwk["kid"] in seen:
+            continue
+        keys.append(jwk)
+        seen.add(jwk["kid"])
+    return {"keys": keys}
+
+
+SEAL_V2 = "seal.v2"
+
+
+def seal_meta(verification, kid):
+    """The verification.* metadata a seal.v2 token signs.
+
+    Every key of `verification` except the token itself and attestation_kid
+    (which is replaced by the signing kid, so a forged kid can never match).
+    Any extra key a forger adds (for example gpg_signature) changes this dict
+    and so fails the comparison in check_seal_meta.
+    """
+    meta = {k: v for k, v in (verification or {}).items()
+            if k not in ("attestation", "attestation_kid")}
+    meta["attestation_kid"] = kid
+    return meta
+
+
+def check_seal_meta(token, claims, verification):
+    """Bind verification.* metadata to a verified token. Returns (status, why).
+
+    status is "v2" (metadata signed and matching), "legacy" (seal.v1 token: the
+    metadata is NOT signed, the caller must say so), or "bad" (a seal.v2 token
+    whose signed metadata differs from what the receipt now shows).
+    """
+    if not isinstance(claims, dict) or "seal" not in claims:
+        return "legacy", "metadata not signed (legacy seal.v1)"
+    if claims.get("seal") != SEAL_V2:
+        return "bad", "unknown seal version"
+    try:
+        kid = json.loads(_b64url_decode(token.split(".")[0])).get("kid", "")
+    except Exception:
+        return "bad", "malformed token"
+    if not isinstance(verification, dict):
+        return "bad", "verification block missing"
+    if verification.get("attestation_kid") != kid:
+        return "bad", "attestation_kid differs from the signing kid"
+    if claims.get("meta") != seal_meta(verification, kid):
+        return "bad", "verification metadata differs from the signed metadata"
+    return "v2", ""
+
+
+def sign_attestation(private_key, kid, *, job_id, run_id, receipt_hash,
+                     submitter="", issued_at=None, issuer="", verification=None):
+    """Return a compact JWT binding a receipt hash to a job identity.
+
+    The signed claims are what gpg could never carry: WHICH job produced this
+    receipt, WHO submitted it, and WHEN. `receipt_hash` is the integrity hash
+    the receipt already computes over itself with `verification` stripped, so
+    the JWT attests to the same bytes a checker independently recomputes --
+    signing a different digest would let the two disagree while both look
+    valid.
+
+    Returns "" when signing is not configured. The caller must treat that as
+    UNSIGNED and must not present the receipt as attested.
+    """
+    if private_key is None or not kid:
+        return ""
+    if issued_at is None:
+        import time
+        issued_at = int(time.time())
+    header = {"alg": "EdDSA", "typ": "JWT", "kid": kid}
+    payload = {
+        "job_id": job_id,
+        "run_id": run_id,
+        "receipt_sha256": receipt_hash,
+        "iat": issued_at,
+    }
+    # Optional claims are omitted rather than emitted empty: a present-but-blank
+    # `sub` reads as "an anonymous submitter was recorded" instead of "no
+    # submitter identity was available".
+    if verification is not None:
+        # seal.v2: the verification.* metadata is inside the signature.
+        payload["seal"] = SEAL_V2
+        payload["meta"] = seal_meta(verification, kid)
+    if submitter:
+        payload["sub"] = submitter
+    if issuer:
+        payload["iss"] = issuer
+    signing_input = (
+        _b64url(json.dumps(header, separators=(",", ":"), sort_keys=True).encode())
+        + "."
+        + _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    )
+    try:
+        sig = private_key.sign(signing_input.encode("ascii"))
+    except Exception as e:  # pragma: no cover - key validated at load
+        logging.error("receipt signing: sign failed: %s", e)
+        return ""
+    return signing_input + "." + _b64url(sig)
+
+
+def verify_attestation(token: str, jwks: dict):
+    """Verify a compact JWT against a JWKS. Returns (ok, claims_or_reason).
+
+    Present so the CLI and tests check tokens the same way a third party would,
+    against the published key set only -- never against the private key, which
+    would pass even if JWKS published the wrong thing.
+
+    Selection is by `kid`. A token whose kid is absent from the set is REFUSED
+    rather than tried against every key: trying all of them would make a
+    rotated-away receipt indistinguishable from one signed by an unpublished
+    key.
+    """
+    if not _CRYPTO_AVAILABLE:
+        return False, "cryptography is not installed"
+    # The token comes from the receipt, which its builder controls. Anything
+    # that is not the expected shape is REFUSED here rather than raising, so a
+    # caller can never mistake a crash for "could not check".
+    if not isinstance(token, str):
+        return False, "token is not a string"
+    parts = token.split(".")
+    if len(parts) != 3:
+        return False, "malformed token"
+    try:
+        header = json.loads(_b64url_decode(parts[0]))
+        payload = json.loads(_b64url_decode(parts[1]))
+        sig = _b64url_decode(parts[2])
+    except (ValueError, json.JSONDecodeError):
+        return False, "malformed token"
+    if not isinstance(header, dict) or not isinstance(payload, dict):
+        return False, "malformed token: header and payload must be JSON objects"
+    if header.get("alg") != "EdDSA":
+        # Refusing an unexpected alg is what blocks the classic "alg: none" and
+        # algorithm-substitution attacks.
+        return False, "unexpected alg: %s" % header.get("alg")
+    kid = header.get("kid", "")
+    if not kid:
+        return False, "token carries no kid"
+    match = None
+    for jwk in jwks.get("keys", []):
+        if jwk.get("kid") == kid:
+            match = jwk
+            break
+    if match is None:
+        return False, "no published key with kid %s" % kid
+    try:
+        pub = Ed25519PublicKey.from_public_bytes(_b64url_decode(match["x"]))
+        pub.verify(sig, (parts[0] + "." + parts[1]).encode("ascii"))
+    except Exception:
+        return False, "signature does not verify"
+    return True, payload

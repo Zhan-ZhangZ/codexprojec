@@ -1,0 +1,400 @@
+/**
+ * Loki Mode TypeScript CLI dispatcher (Bun runtime).
+ *
+ * Phase 2 of the bash->Bun migration. Routes the commands listed in HELP
+ * (and the internal/help/version plumbing) to TypeScript ports; commands
+ * that are still bash-owned are routed by name in the bin/loki shim. Keep
+ * HELP in step with the dispatch() case labels (tests/commands/cli_help_routes.test.ts).
+ *
+ * See docs/architecture/ADR-001-runtime-migration.md and
+ * /Users/lokesh/.claude/plans/polished-waddling-stardust.md.
+ */
+import { runVersion } from "./commands/version.ts";
+import { runProvider } from "./commands/provider.ts";
+import { runMemory } from "./commands/memory.ts";
+import { installCrashHandlers } from "./runner/crash.ts";
+import { resolveSdkMode } from "./runner/sdk_mode.ts";
+
+const HELP = `Loki Mode (TypeScript port, Phase 2 of bash->Bun migration)
+
+Usage: loki <command> [args...]
+
+Bun-native commands:
+  version                Print Loki Mode version
+  status [--json]        Show current orchestrator status
+  stats [--json] [--efficiency]   Session statistics
+  provider show [name]   Show current provider
+  provider list          List available providers and install status
+  memory list            Cross-project learnings counts
+  memory lessons [--json] PR review lessons with their uses and outcomes
+  memory forget <prl-id> Delete one PR lesson and print its text
+  memory learn <o/r#PR>  Learn lessons from a merged PR's review comments
+  memory index [rebuild] Show or rebuild memory index
+  doctor [--json]        System prerequisites health check
+  rollback <subcmd>      Restore .loki/ state from a checkpoint
+                         (subcmds: list | show <id> | to <id> | latest)
+  undo <run-id> [--plan] Plan or apply (LOKI_UNDO=1) an undo of a run; verifies the receipt first
+  proof <subcmd>         Inspect/share proof-of-run artifacts
+                         (subcmds: list | show <id> | open <id> | share <id>)
+  wiki <subcmd>          Auto-generated, cited codebase wiki + Q&A
+                         (subcmds: generate | show [section] | ask "<question>")
+  queue <subcmd>         Overnight issue queue with a morning digest
+                         (subcmds: add <issue...> | list | run [--no-pr])
+  issues run [owner/repo] Triage every open issue and run the actionable ones; too-large ones become stacked PRs
+                         (flags: --label L --limit N --parallel K --draft --dry-run --yes --comment --no-split)
+  verify-pr <url|o/r#N>  Verify a PR against its linked issue in a sandbox (LOKI_VERIFY_PR=1)
+  answer [run] [--text]  Resume a BLOCKED run with an answer (--text, or the Control Plane answer file)
+  control <subcmd>       Control plane (on by default; LOKI_CONTROL=0 turns it off)
+                         (subcmds: serve [--port N] [--db PATH] | backfill [DIR] | status)
+  kpis [--json]          KPI snapshot (alias of: report kpis)
+  report kpis            Canonical KPI snapshot report
+  trust <subcmd>         Trust trajectory derived from proof-of-run history
+  crash <subcmd>         Inspect or submit scrubbed local crash reports
+  contract <spec.md>     Print the spec delivery contract and write .loki/contract.json
+  start [flags]          Run the RARV autonomous loop (Bun route, LOKI_SDK_LOOP)
+                         (--spec-first writes .loki/specs/<slug>.md and stops; --spec FILE runs against the edited spec)
+  plan <task> --spec     Write the acceptance criteria to .loki/specs/<slug>.md for you to edit
+  slack serve [--port N] [--host H]   Serve the Slack inbound handler (needs SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET)
+  engine10 <subcmd>      v10 engine router (run, status, verify, keys, dashboard, modernize)
+
+Unknown commands exit 2 with a suggestion; run 'loki help' for the full list.
+`;
+
+async function dispatch(argv: readonly string[]): Promise<number> {
+  // v8.1: resolve the one-switch SDK mode (LOKI_SDK_MODE=off|judges|full) into
+  // the per-site LOKI_SDK_* flags before any Bun SDK site reads them. Mirror of
+  // the bash resolver (run.sh sources autonomy/lib/sdk-mode.sh). No-op when the
+  // mode is unset; an explicit per-site flag always wins. See runner/sdk_mode.ts.
+  resolveSdkMode();
+  const cmd = argv[0];
+  const rest = argv.slice(1);
+
+  switch (cmd) {
+    case undefined:
+    case "help":
+    case "--help":
+    case "-h":
+      process.stdout.write(HELP);
+      return 0;
+
+    case "version":
+    case "--version":
+    case "-v":
+      return await runVersion();
+
+    case "provider":
+      return runProvider(rest);
+
+    case "memory":
+      return runMemory(rest);
+
+    case "status": {
+      // CLI-MODERN-2: `loki status` shows Loki 10 runs only; the legacy box is gone from this path.
+      const { runModernStatus } = await import("./commands/run_status.ts");
+      return runModernStatus(rest);
+    }
+
+    case "stats": {
+      const { runStats } = await import("./commands/stats.ts");
+      return runStats(rest);
+    }
+
+    case "doctor": {
+      const { runDoctor } = await import("./commands/doctor.ts");
+      return runDoctor(rest);
+    }
+
+    case "kpis": {
+      // Phase K MVP (v7.5.28): read-only KPI snapshot derived from
+      // existing .loki/ state. No new instrumentation.
+      //
+      // CLI consolidation (Phase B): `kpis` is now a deprecated alias of the
+      // canonical `report kpis`. Pass aliasOf so the one-line pointer fires on
+      // the Bun route (kpis is Bun-native; bin/loki routes both `kpis` and
+      // `report kpis` here). Suppressed under --json/-q/--quiet by the helper.
+      const { runKpis } = await import("./commands/kpis.ts");
+      return runKpis(rest, { aliasOf: "kpis" });
+    }
+
+    case "report": {
+      // CLI consolidation (Phase B): `report kpis` is the canonical reporting
+      // entry for the KPI snapshot. `report` is bash-routed for every other
+      // subcommand (session/metrics/cost/export/share/dogfood); bin/loki
+      // two-token-routes ONLY `report kpis` to Bun (mirroring `trust detail`,
+      // including its flag-anywhere scan), because kpis is Bun-only. So this Bun
+      // `report` arm is reached solely when `kpis` is the report subcommand; it
+      // emits NO deprecation pointer (it is the canonical form). `kpis` is
+      // matched as the FIRST non-flag token after `report` (so `report kpis
+      // --json` and `report --json kpis` both route here), NOT anywhere in the
+      // argv. A bare `kpis` token appearing as a POSITIONAL VALUE of a different
+      // report subcommand -- e.g. `report export json kpis`, where `kpis` is the
+      // export output filename -- must NOT be hijacked; it is delegated to bash,
+      // the owner of the report noun, exactly as on main (v7.31.0). Only the
+      // subcommand token is stripped before forwarding to runKpis; the flags are
+      // preserved.
+      const firstSub = rest.find((a) => !a.startsWith("-"));
+      if (firstSub === "kpis") {
+        const { runKpis } = await import("./commands/kpis.ts");
+        let dropped = false;
+        const kpisArgs = rest.filter((a) => {
+          if (!dropped && a === "kpis") {
+            dropped = true;
+            return false;
+          }
+          return true;
+        });
+        return runKpis(kpisArgs);
+      }
+      process.stderr.write(
+        `Unknown report subcommand: ${firstSub ?? "(none)"}. Available: kpis\n`,
+      );
+      return 2;
+    }
+
+    case "trust": {
+      // R4: visible trust trajectory. Read-only derivation from proof-of-run
+      // history (.loki/proofs/) showing whether the agent is earning autonomy
+      // on THIS repo over time (council pass-rate up, interventions down...).
+      // Complements `kpis` (single-run snapshot); does not duplicate it. The
+      // bin/loki shim allowlist includes "trust" so this is the live Bun route;
+      // bash cmd_trust is the no-bun fallback.
+      const { runTrust } = await import("./commands/trust.ts");
+      return runTrust(rest);
+    }
+
+    case "rollback": {
+      // v7.5.2: wire the checkpoint rollback API (was dead code per H4).
+      const { runRollback } = await import("./commands/rollback.ts");
+      return runRollback(rest);
+    }
+
+    case "undo": {
+      // UNDO-1/2: --plan is read-only; apply is behind LOKI_UNDO=1.
+      const { runUndo } = await import("./commands/undo.ts");
+      return runUndo(rest);
+    }
+
+    case "proof":
+    case "receipt": {
+      // R1 (SLICE B): inspect/share proof-of-run artifacts. The Bun port
+      // implements list/show/verify/open natively (share shells out to
+      // `gh gist create` after a redaction-preview confirmation). The bin/loki
+      // shim allowlist (line ~119) DOES include "proof", so when bun is
+      // installed a real `loki proof` invocation routes here -- this is the
+      // live route. The bash cmd_proof (autonomy/loki) is the fallback for
+      // no-bun systems kept at parity
+      // (see loki-ts/tests/commands/proof.test.ts). `loki receipt` is a friendly
+      // alias for `loki proof` (parity with the bash proof|receipt dispatch).
+      const { runProof } = await import("./commands/proof.ts");
+      return runProof(rest);
+    }
+
+    case "crash": {
+      // Crash Reporting Phase 0 (local-only, ZERO network egress): inspect and
+      // manually submit scrubbed crash reports written to .loki/crash/ by the
+      // capture hook (src/runner/crash.ts -> autonomy/lib/crash_capture.py).
+      // For a real `loki crash` invocation to route here in production, "crash"
+      // must be added to the bin/loki shim allowlist (cross-slice dependency,
+      // not part of this slice). Until then, exercise via `bun src/cli.ts crash`
+      // or LOKI route once the shim is updated.
+      const { runCrash } = await import("./commands/crash.ts");
+      return runCrash(rest);
+    }
+
+    case "wiki": {
+      // R5: auto-generated, cited per-project codebase wiki + Q&A (Loki's
+      // DeepWiki). Bun implements `show` natively (reads .loki/wiki/*.md);
+      // `generate` and `ask` delegate to the bash CLI -> Python core, which
+      // owns the codebase index, provider call, and citation grounding. The
+      // bin/loki shim allowlist includes "wiki", so this is the live route
+      // when bun is installed (see loki-ts/tests/commands/wiki.test.ts).
+      const { runWiki } = await import("./commands/wiki.ts");
+      return runWiki(rest);
+    }
+
+    case "contract": {
+      // D65-SPEC: spec to delivery contract (gated by LOKI_CONTRACT=1 inside main).
+      const { main: contractMain } = await import("./features/contract.ts");
+      return contractMain(rest);
+    }
+
+    case "control": {
+      // D56 control plane (on by default; LOKI_CONTROL=0 disables, handled inside runControl).
+      // bash cmd_control (autonomy/loki) is the no-bun fallback.
+      const { runControl } = await import("./commands/control.ts");
+      return runControl(rest);
+    }
+
+    case "internal": {
+      // v7.5.3: hidden internal subcommand surface used by autonomy/run.sh
+      // to drive Phase 1 hooks (findings persistence, override council,
+      // handoff doc) once per iteration. NOT user-facing -- absent from
+      // top-level help text.
+      //
+      // v7.5.5 (#204): bare `loki internal` and `--help` now print a
+      // discoverable subcommand listing instead of failing silently. The
+      // surface is still flagged "internal" so users know it is a runtime
+      // hook, not part of the supported public CLI.
+      const subcmd = rest[0];
+      const isHelp = !subcmd || subcmd === "--help" || subcmd === "-h" || subcmd === "help";
+      if (isHelp) {
+        // v7.5.6 (council R5 #1): list the Phase 1 env vars so operators
+        // have an on-CLI discovery path to the toggles that drive the
+        // RARV-C closure flow. References point at the canonical doc
+        // (CHANGELOG #204 + skills/healing.md) for the longer story.
+        const help = [
+          "loki internal -- runtime hooks driven by autonomy/run.sh",
+          "",
+          "Subcommands:",
+          "  phase1-hooks    Persist structured findings, run override council,",
+          "                  append learnings, and write the escalation handoff",
+          "                  doc once per iteration. Driven by run.sh; not",
+          "                  intended for direct invocation.",
+          "  sdk-judge       (v8) Run a one-shot schema-constrained judge via the",
+          "                  raw @anthropic-ai/sdk (pure HTTPS, no binary) and print",
+          "                  the parsed JSON. Fail-closed: non-zero + no stdout ->",
+          "                  the bash caller falls back to claude/text. Driven by",
+          "                  the SDK judge sites (LOKI_SDK_* flags).",
+          "  sdk-text        (v8) The free-form (no-schema) sibling of sdk-judge for",
+          "                  prose sites (grill, prd-enrich). Prints raw text; same",
+          "                  fail-closed contract.",
+          "",
+          "Phase 1 (RARV-C closure) env vars:",
+          "  LOKI_INJECT_FINDINGS=1   Persist structured reviewer findings to",
+          "                           .loki/state/findings-<iter>.json so the",
+          "                           next iteration can address them.",
+          "  LOKI_OVERRIDE_COUNCIL=1  Allow a 3-LLM override panel to lift a",
+          "                           BLOCK when counter-evidence is presented.",
+          "                           See LOKI_OVERRIDE_JUDGES (csv),",
+          "                           LOKI_OVERRIDE_PANEL_SIZE,",
+          "                           LOKI_OVERRIDE_REAL_JUDGE.",
+          "  LOKI_AUTO_LEARNINGS      Append failure rootcauses to",
+          "                           .loki/state/relevant-learnings.json so the",
+          "                           next iteration avoids repeats. DEFAULT ON;",
+          "                           set =0 to disable. Episodic-memory mirror is",
+          "                           opt-in via LOKI_AUTO_LEARNINGS_EPISODE=1.",
+          "  LOKI_HANDOFF_MD=1        Write a structured human handoff doc to",
+          "                           .loki/escalations/<ts>.md before PAUSE.",
+          "",
+          "All four are default-on as of v7.5.3. Set to 0 to disable.",
+          "Reference: CHANGELOG.md (search 'Phase 1') and skills/healing.md.",
+          "",
+          "These commands are wired into the autonomous loop and may change",
+          "without notice. Do not script against them.",
+          "",
+        ].join("\n");
+        process.stdout.write(`${help}\n`);
+        return 0;
+      }
+      if (subcmd === "phase1-hooks") {
+        const { runInternalPhase1Hooks } = await import("./commands/internal_phase1.ts");
+        return runInternalPhase1Hooks(rest.slice(1));
+      }
+      if (subcmd === "sdk-judge") {
+        // v8: bash->raw-SDK judge bridge. Reads a prompt + JSON schema, runs the
+        // pure-HTTPS @anthropic-ai/sdk judge, prints the parsed JSON. Fail-closed
+        // (non-zero + no stdout) so the bash caller falls back to claude/text.
+        const { runInternalSdkJudge } = await import("./commands/internal_sdk_judge.ts");
+        return runInternalSdkJudge(rest.slice(1));
+      }
+      if (subcmd === "sdk-text") {
+        // v8: free-form (no-schema) sibling for prose sites (grill, prd-enrich).
+        // Prints raw text; same fail-closed contract (non-zero + no stdout).
+        const { runInternalSdkText } = await import("./commands/internal_sdk_judge.ts");
+        return runInternalSdkText(rest.slice(1));
+      }
+      if (subcmd === "exec-manifest") {
+        const { runInternalExecManifest } = await import("./commands/internal_exec_manifest.ts");
+        return runInternalExecManifest(rest.slice(1));
+      }
+      process.stderr.write(`Unknown internal subcommand: ${subcmd}\n`);
+      process.stderr.write(`Run 'loki internal --help' for the supported list.\n`);
+      return 2;
+    }
+
+    case "start": {
+      // v8 Phase 4: the RARV autonomous loop on the Bun route. Reached from
+      // bin/loki only when LOKI_SDK_LOOP is truthy (the default route still runs
+      // the bash cmd_start). Parses the supported flag subset -> runAutonomous.
+      const { runStart } = await import("./commands/start.ts");
+      return runStart(rest);
+    }
+
+    case "slack": {
+      const { runSlackCli } = await import("./contrib/slack_inbound.ts");
+      return runSlackCli(rest);
+    }
+
+    case "queue": {
+      const { runQueue } = await import("./commands/queue.ts");
+      return runQueue(rest);
+    }
+
+    case "issues": {
+      const { runIssues } = await import("./commands/issues_run.ts");
+      (await import("./contrib/index.ts")).registerContrib();
+      return runIssues(rest);
+    }
+
+    case "verify-pr": {
+      // VPR-2: PR code runs only through the VPR-1 container sandbox; gated by LOKI_VERIFY_PR=1 inside runVerifyPr.
+      const { runVerifyPr } = await import("./commands/verify_pr.ts");
+      return runVerifyPr(rest);
+    }
+
+    case "answer": {
+      const { runAnswerCli } = await import("./features/blocked_answer.ts");
+      return runAnswerCli(rest);
+    }
+
+    case "completion": {
+      // Hidden plumbing (not in HELP): generated completions; installs run automatically.
+      const { runCompletion } = await import("./commands/completion.ts");
+      return runCompletion(rest);
+    }
+
+    case "__complete": {
+      const { runDynComplete } = await import("./commands/completion.ts");
+      return runDynComplete(rest);
+    }
+
+    case "engine10": {
+      const { runEngine10 } = await import("./engine10/cli.ts");
+      const { registryLoader } = await import("./engine10/registry.ts");
+      (await import("./contrib/index.ts")).registerContrib();
+      return runEngine10(rest, registryLoader);
+    }
+
+    default:
+      // Unknown command: print help and exit 2. Bash-owned commands are
+      // routed by name in bin/loki and never reach this dispatcher.
+      process.stderr.write(`Unknown command: ${cmd}\n`);
+      {
+        const { suggestCommand } = await import("./cli/registry.ts");
+        const hint = cmd === undefined ? undefined : suggestCommand(cmd);
+        if (hint) process.stderr.write(`Did you mean 'loki ${hint}'?\n`);
+      }
+      process.stderr.write(HELP);
+      return 2;
+  }
+}
+
+// Crash Reporting Phase 0: register uncaughtException / unhandledRejection
+// handlers before dispatch so a fatal error captures a scrubbed local report
+// (then preserves normal crash semantics: log + exit 1). Local-only, no egress.
+installCrashHandlers();
+
+// SIGINT handler -- propagate Ctrl-C to a clean exit so child processes
+// spawned via Bun.spawn (e.g. doctor's network probes) don't outlive us.
+// Standard convention: 128 + signal number.
+process.on("SIGINT", () => process.exit(130));
+process.on("SIGTERM", () => process.exit(143));
+
+// Conservative capture (plan section 9): a plain nonzero exit from a command
+// that returned a status cleanly (doctor failing a check, an unknown subcommand,
+// a usage error) is NOT a crash and must not write a crash report. Genuine
+// crashes are caught by the uncaughtException / unhandledRejection handlers
+// installed above, which capture + exit 1 themselves. So the terminal exit is
+// left unwrapped on purpose.
+const code = await dispatch(Bun.argv.slice(2));
+process.exit(code);

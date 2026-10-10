@@ -1,0 +1,1 @@
+ALTER TABLE "chat_messages" ALTER COLUMN "jieba_tokens" SET DEFAULT '[]'::jsonb;

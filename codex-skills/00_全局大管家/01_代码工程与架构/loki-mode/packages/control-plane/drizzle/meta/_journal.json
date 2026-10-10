@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1790870373167,
+      "tag": "0000_new_maelstrom",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790956800000,
+      "tag": "0001_group_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791046012148,
+      "tag": "0002_tiresome_fixer",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791049000000,
+      "tag": "0003_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791050000000,
+      "tag": "0004_cpe03_local_repos_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791051000000,
+      "tag": "0005_ask",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791052000000,
+      "tag": "0006_token_sessions",
+      "breakpoints": true
+    }
+  ]
+}

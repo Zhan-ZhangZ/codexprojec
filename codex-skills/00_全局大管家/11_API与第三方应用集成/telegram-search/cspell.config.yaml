@@ -1,0 +1,80 @@
+version: "0.2"
+ignorePaths: []
+dictionaryDefinitions: []
+dictionaries: []
+words:
+  - airi
+  - Attributify
+  - autocorrect
+  - bumpp
+  - bytea
+  - crossws
+  - culori
+  - deditor
+  - defu
+  - dotenvx
+  - Elysia
+  - elysiajs
+  - eslintcache
+  - Eventa
+  - formkit
+  - gramsearch
+  - groupultra
+  - guiiai
+  - hahaqwq
+  - healthcheck
+  - henrygd
+  - hnsw
+  - iconify
+  - jieba
+  - listhen
+  - Logg
+  - lucide
+  - luoling
+  - markstream
+  - megagroup
+  - Megagroups
+  - moeru
+  - mtproxy
+  - nprogress
+  - ofetch
+  - oklch
+  - ollama
+  - onnotice
+  - Opfs
+  - overscan
+  - pako
+  - pathe
+  - pglite
+  - pgvector
+  - pinia
+  - POSTHOG
+  - reconnections
+  - reka
+  - Retriable
+  - rolldown
+  - shadcn
+  - sonarjs
+  - sonner
+  - supergroup
+  - supergroups
+  - taze
+  - tiktoken
+  - trpc
+  - tsdown
+  - tsquery
+  - tsvector
+  - unbird
+  - unocss
+  - unplugin
+  - uuidv4
+  - valibot
+  - vectorlite
+  - virtua
+  - vite
+  - vitest
+  - vueuse
+  - xsai
+  - xsschema
+ignoreWords: []
+import: []

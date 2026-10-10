@@ -1,0 +1,87 @@
+import NProgress from 'nprogress'
+
+import { autoAnimatePlugin } from '@formkit/auto-animate/vue'
+import { initLogger, LoggerFormat } from '@guiiai/logg'
+import { VueQueryPlugin } from '@tanstack/vue-query'
+import { useAccountStore, useSessionStore } from '@tg-search/client'
+import { createPinia } from 'pinia'
+import { setupLayouts } from 'virtual:generated-layouts'
+import { createApp } from 'vue'
+import { createRouter, createWebHistory } from 'vue-router'
+import { routes as generatedRoutes } from 'vue-router/auto-routes'
+
+import App from './App.vue'
+
+import { LOG_LEVEL } from './constants'
+import { i18n } from './modules/i18n'
+import { initPosthog } from './modules/posthog'
+import { createPGliteDevtoolsPlugin } from './plugins/pglite-devtools'
+
+import '@unocss/reset/tailwind.css'
+import 'nprogress/nprogress.css'
+import 'uno.css'
+import 'markstream-vue/index.css'
+import 'vue-sonner/style.css'
+import './styles/main.css'
+
+initPosthog()
+initLogger(LOG_LEVEL, LoggerFormat.Pretty)
+
+const app = createApp(App)
+
+const pinia = createPinia()
+app.use(pinia)
+
+const sessionStore = useSessionStore()
+sessionStore.init()
+
+const routes = setupLayouts([
+  ...generatedRoutes.filter(_ => true),
+  {
+    path: '/search/:pathMatch(.*)*',
+    redirect: '/chats',
+  },
+])
+const router = createRouter({
+  routes,
+  history: createWebHistory(import.meta.env.BASE_URL),
+})
+
+// Configure NProgress
+NProgress.configure({ showSpinner: false })
+
+// Add router navigation guards for NProgress
+router.beforeEach((to) => {
+  NProgress.start()
+
+  const accountStore = useAccountStore()
+  const isLoginRoute = to.path === '/login'
+  const hasValidLogin = accountStore.isReady
+
+  if (!isLoginRoute && !hasValidLogin) {
+    return {
+      path: '/login',
+      query: { redirect: to.fullPath },
+    }
+  }
+  if (isLoginRoute && hasValidLogin) {
+    return '/'
+  }
+  return true
+})
+
+router.afterEach(() => {
+  NProgress.done()
+})
+
+router.onError(() => {
+  NProgress.done()
+})
+
+app.use(i18n)
+app.use(router)
+app.use(VueQueryPlugin)
+app.use(autoAnimatePlugin)
+app.use(createPGliteDevtoolsPlugin())
+
+app.mount('#app')

@@ -1,0 +1,13 @@
+name: ButtonStyle
+description: |
+  This object represents a button style (inline- or reply-keyboard).
+
+  Sources:
+    * https://core.telegram.org/bots/api#inlinekeyboardbutton
+    * https://core.telegram.org/bots/api#keyboardbutton
+    * https://core.telegram.org/bots/api#richmessagebutton
+
+parse:
+  entity: RichMessageButton
+  attribute: style
+  regexp: "'([a-z]+)'"

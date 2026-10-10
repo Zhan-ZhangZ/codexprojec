@@ -1,0 +1,773 @@
+#!/usr/bin/env bash
+#===============================================================================
+# Loki Mode - GitHub Issue Parser (v5.14.0)
+# Parses GitHub issues and extracts structured data for PRD generation
+#
+# Usage:
+#   ./autonomy/issue-parser.sh <issue-ref>
+#   ./autonomy/issue-parser.sh https://github.com/owner/repo/issues/123
+#   ./autonomy/issue-parser.sh owner/repo#123
+#   ./autonomy/issue-parser.sh 123                # Uses current repo
+#
+# Output:
+#   Structured YAML format suitable for PRD generation
+#
+# Integration:
+#   loki parse-issue <ref>    # CLI integration
+#   source issue-parser.sh && parse_github_issue "ref"  # Script integration
+#===============================================================================
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Logging functions (consistent with run.sh patterns)
+log_info() { echo -e "${GREEN}[INFO]${NC} $*" >&2; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+log_debug() { [[ "${LOKI_DEBUG:-}" == "true" ]] && echo -e "${CYAN}[DEBUG]${NC} $*" >&2 || true; }
+
+#===============================================================================
+# GitHub CLI Utilities
+#===============================================================================
+
+# Check if gh CLI is available and authenticated
+check_github_cli() {
+    if ! command -v gh &> /dev/null; then
+        log_error "gh CLI not found. Install with: brew install gh"
+        return 1
+    fi
+
+    if ! gh auth status &> /dev/null 2>&1; then
+        log_error "gh CLI not authenticated. Run: gh auth login"
+        return 1
+    fi
+
+    return 0
+}
+
+# Get current repo from git remote
+get_current_repo() {
+    local remote_url
+    remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+
+    if [ -z "$remote_url" ]; then
+        return 1
+    fi
+
+    # Extract owner/repo from various URL formats
+    # https://github.com/owner/repo.git
+    # git@github.com:owner/repo.git
+    # https://github.com/owner/repo
+    local repo
+    repo=$(echo "$remote_url" | sed -E 's|.*github\.com[:/]([^/]+/[^/]+)(\.git)?$|\1|' | sed 's/\.git$//')
+
+    if [[ "$repo" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
+        echo "$repo"
+        return 0
+    fi
+
+    return 1
+}
+
+#===============================================================================
+# Issue Reference Parser
+#===============================================================================
+
+# Parse issue reference to extract owner, repo, and issue number
+# Supports:
+#   - https://github.com/owner/repo/issues/123
+#   - owner/repo#123
+#   - #123 (uses current repo)
+#   - 123 (uses current repo)
+parse_issue_ref() {
+    local ref="$1"
+    local owner="" repo="" number=""
+
+    # URL format: https://github.com/owner/repo/issues/123
+    if [[ "$ref" =~ ^https?://github\.com/([^/]+)/([^/]+)/issues/([0-9]+) ]]; then
+        owner="${BASH_REMATCH[1]}"
+        repo="${BASH_REMATCH[2]}"
+        number="${BASH_REMATCH[3]}"
+    # owner/repo#123 format
+    elif [[ "$ref" =~ ^([^/]+)/([^#]+)#([0-9]+)$ ]]; then
+        owner="${BASH_REMATCH[1]}"
+        repo="${BASH_REMATCH[2]}"
+        number="${BASH_REMATCH[3]}"
+    # #123 format (current repo)
+    elif [[ "$ref" =~ ^#?([0-9]+)$ ]]; then
+        number="${BASH_REMATCH[1]}"
+        local current_repo
+        current_repo=$(get_current_repo)
+        if [ -z "$current_repo" ]; then
+            log_error "Could not determine current repo. Use owner/repo#number format."
+            return 1
+        fi
+        owner=$(echo "$current_repo" | cut -d'/' -f1)
+        repo=$(echo "$current_repo" | cut -d'/' -f2)
+    else
+        log_error "Invalid issue reference format: $ref"
+        log_error "Supported formats:"
+        log_error "  - https://github.com/owner/repo/issues/123"
+        log_error "  - owner/repo#123"
+        log_error "  - #123 (current repo)"
+        log_error "  - 123 (current repo)"
+        return 1
+    fi
+
+    echo "$owner/$repo#$number"
+}
+
+#===============================================================================
+# Issue Body Parsing
+#===============================================================================
+
+# Extract problem statement from issue body
+# Looks for: Problem, Description, Summary, Background sections
+extract_problem_statement() {
+    local body="$1"
+    local problem=""
+
+    # Try to find explicit problem/description section
+    # Match: ## Problem, ### Problem, **Problem**, Problem:
+    problem=$(echo "$body" | sed -n -E '/^#*[[:space:]]*\*{0,2}([Pp]roblem|[Dd]escription|[Ss]ummary|[Bb]ackground)/,/^(#|---)/p' | head -30 | tail -n +2)
+
+    # If no explicit section, use first paragraph
+    if [ -z "$problem" ]; then
+        problem=$(echo "$body" | sed '/^$/q' | head -10)
+    fi
+
+    # Clean up
+    problem=$(echo "$problem" | sed 's/^[#*[:space:]]*//' | head -20)
+
+    echo "$problem"
+}
+
+# Extract acceptance criteria from issue body
+# Looks for: checkboxes, Acceptance Criteria section, Requirements section
+extract_acceptance_criteria() {
+    local body="$1"
+    local criteria=""
+
+    # Look for Acceptance Criteria section
+    criteria=$(echo "$body" | sed -n -E '/^#*[[:space:]]*\*{0,2}([Aa]cceptance [Cc]riteria|[Rr]equirements|[Dd]efinition of [Dd]one)/,/^(#|---)/p' | head -30)
+
+    # If no section found, extract all checkboxes
+    if [ -z "$criteria" ]; then
+        criteria=$(echo "$body" | grep -E '^[[:space:]]*[-*][[:space:]]*\[[ xX]\]' | head -20)
+    fi
+
+    # If still nothing, look for numbered or bulleted lists after "should" or "must"
+    if [ -z "$criteria" ]; then
+        criteria=$(echo "$body" | grep -E '^[[:space:]]*[-*0-9.]+[[:space:]]+.*(should|must|needs to|required)' | head -20)
+    fi
+
+    echo "$criteria"
+}
+
+# Extract technical requirements from issue body
+# Looks for: Technical, Implementation, Architecture sections
+extract_technical_requirements() {
+    local body="$1"
+    local technical=""
+
+    # Look for Technical/Implementation section
+    technical=$(echo "$body" | sed -n -E '/^#*[[:space:]]*\*{0,2}([Tt]echnical|[Ii]mplementation|[Aa]rchitecture|[Tt]ech [Ss]pec)/,/^(#|---)/p' | head -40)
+
+    # If no section, look for code-related mentions
+    if [ -z "$technical" ]; then
+        technical=$(echo "$body" | grep -E '(API|database|endpoint|schema|model|component|service|function|class|module|package)' | head -15)
+    fi
+
+    echo "$technical"
+}
+
+# Extract referenced files/code from issue body
+extract_file_references() {
+    local body="$1"
+
+    # Extract file paths (common patterns)
+    local files
+    files=$(echo "$body" | grep -oE '([a-zA-Z0-9_/.-]+\.(ts|tsx|js|jsx|py|go|rs|java|rb|sh|yaml|yml|json|md|html|css|scss))|`[^`]+`' | sort -u | head -20)
+
+    # Also look for code blocks with file indicators
+    local code_files
+    code_files=$(echo "$body" | grep -B1 '```' | grep -oE '[a-zA-Z0-9_/.-]+\.[a-z]+' | sort -u)
+
+    echo "$files"
+    echo "$code_files"
+}
+
+# Extract labels and map to priority
+extract_priority_from_labels() {
+    local labels="$1"
+    local priority="normal"
+
+    if echo "$labels" | grep -qiE 'priority:critical|P0|critical|urgent'; then
+        priority="critical"
+    elif echo "$labels" | grep -qiE 'priority:high|P1|high'; then
+        priority="high"
+    elif echo "$labels" | grep -qiE 'priority:medium|P2|medium'; then
+        priority="medium"
+    elif echo "$labels" | grep -qiE 'priority:low|P3|low'; then
+        priority="low"
+    fi
+
+    echo "$priority"
+}
+
+# Extract issue type from labels
+extract_type_from_labels() {
+    local labels="$1"
+    local issue_type="task"
+
+    if echo "$labels" | grep -qiE 'bug|defect|fix'; then
+        issue_type="bug"
+    elif echo "$labels" | grep -qiE 'feature|enhancement|improvement'; then
+        issue_type="feature"
+    elif echo "$labels" | grep -qiE 'docs|documentation'; then
+        issue_type="documentation"
+    elif echo "$labels" | grep -qiE 'refactor|cleanup|tech-debt'; then
+        issue_type="refactor"
+    elif echo "$labels" | grep -qiE 'test|testing'; then
+        issue_type="testing"
+    fi
+
+    echo "$issue_type"
+}
+
+#===============================================================================
+# Main Parser Function
+#===============================================================================
+
+# Parse a GitHub issue and output structured data
+#===============================================================================
+# Golden path: issue context + early plan
+#===============================================================================
+
+# Split the extracted acceptance-criteria blob into one normalized item per
+# line. Keeps ONLY genuine list items (checkbox / bullet / numbered) so a
+# section heading or a stray prose line never becomes a fake "criterion".
+# Prints nothing when there is nothing to print -- an empty criteria list is a
+# truthful answer, and inventing one would poison every downstream coverage
+# claim.
+_gp_criteria_lines() {
+    printf '%s\n' "${1:-}" \
+        | grep -E '^[[:space:]]*([-*][[:space:]]+|[0-9]+[.)][[:space:]]+)' \
+        | sed -E 's/^[[:space:]]*[-*][[:space:]]*\[[ xX]\][[:space:]]*//; s/^[[:space:]]*[-*][[:space:]]+//; s/^[[:space:]]*[0-9]+[.)][[:space:]]+//' \
+        | grep -vE '^[[:space:]]*$' \
+        | grep -vE '^[[:space:]]*-{3,}[[:space:]]*$'
+}
+
+# write_journey_context <owner> <repo> <number> <title> <url> <acceptance>
+#                       <files> <type> <priority> [journey-start-epoch]
+#
+# Writes .loki/state/issue-context.json (feature 2: the exact acceptance context)
+# and .loki/state/journey-plan.json (feature 3: the early machine-readable
+# status/plan). Both are written from `gh` output BEFORE the first provider
+# call, so the early artifact is deterministic rather than latency-dependent.
+#
+# Never fails the caller: every write is best-effort and the function always
+# returns 0. Honors LOKI_DIR so a test can point it at a scratch directory.
+write_journey_context() {
+    local owner="$1" repo="$2" number="$3" title="$4" url="$5"
+    local acceptance="$6" files="$7" issue_type="$8" priority="$9"
+    local journey_started_epoch="${10:-}"
+
+    local state_dir="${LOKI_DIR:-.loki}/state"
+    mkdir -p "$state_dir" 2>/dev/null || return 0
+
+    local criteria
+    criteria=$(_gp_criteria_lines "$acceptance")
+
+    # jq builds both documents so quoting/escaping is handled once, correctly.
+    command -v jq >/dev/null 2>&1 || return 0
+
+    local ctx_tmp="$state_dir/.issue-context.$$.json"
+    if jq -n \
+        --arg owner "$owner" --arg repo "$repo" --arg number "$number" \
+        --arg title "$title" --arg url "$url" --arg criteria "$criteria" \
+        --arg files "$files" --arg type "$issue_type" --arg priority "$priority" \
+        --arg captured_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            schema_version: "1.0",
+            captured_at: $captured_at,
+            issue: {
+                owner: $owner, repo: $repo,
+                number: (try ($number | tonumber) catch null),
+                ref: ($owner + "/" + $repo + "#" + $number),
+                url: $url, title: $title,
+                type: $type, priority: $priority
+            },
+            acceptance_criteria: (
+                if ($criteria | length) == 0 then []
+                else ($criteria | split("\n") | map(select(length > 0)))
+                end
+            ),
+            file_references: (
+                if ($files | length) == 0 then []
+                else ($files | split("\n") | map(select(length > 0)))
+                end
+            )
+        }' > "$ctx_tmp" 2>/dev/null; then
+        mv -f "$ctx_tmp" "$state_dir/issue-context.json" 2>/dev/null || rm -f "$ctx_tmp"
+    else
+        rm -f "$ctx_tmp" 2>/dev/null || true
+    fi
+
+    # The early plan is a PLAN, not a result: it states what was understood and
+    # what will be attempted. It deliberately carries no outcome fields -- a
+    # status file that guessed at outcomes before any work happened would be the
+    # exact fake-green this repo's trust core forbids.
+    local plan_tmp="$state_dir/.journey-plan.$$.json"
+    if jq -n \
+        --arg ref "$owner/$repo#$number" --arg title "$title" --arg url "$url" \
+        --arg criteria "$criteria" \
+        --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            schema_version: "1.0",
+            command: "loki start",
+            mode: "issue",
+            stage: "planned",
+            generated_at: $generated_at,
+            issue: { ref: $ref, title: $title, url: $url },
+            acceptance_criteria: (
+                if ($criteria | length) == 0 then []
+                else ($criteria | split("\n") | map(select(length > 0)))
+                end
+            ),
+            provider_invoked: false,
+            next: "implement, verify, then review-ready result with evidence receipt"
+        }' > "$plan_tmp" 2>/dev/null; then
+        mv -f "$plan_tmp" "$state_dir/journey-plan.json" 2>/dev/null || rm -f "$plan_tmp"
+    else
+        rm -f "$plan_tmp" 2>/dev/null || true
+    fi
+
+    # The parsed, acceptance-bound plan is the first useful result: it tells the
+    # user what Loki understood and what it will attempt before provider latency
+    # begins. Measure it honestly from command entry when the caller supplied a
+    # valid epoch. This is explicitly a proposed plan, never represented as a
+    # verified patch. Later first-artifact evidence supersedes it in receipts.
+    case "$journey_started_epoch" in
+        ''|*[!0-9]*) ;;
+        *)
+            local now_epoch elapsed first_tmp
+            now_epoch="$(date +%s)"
+            elapsed=$((now_epoch >= journey_started_epoch ? now_epoch - journey_started_epoch : 0))
+            first_tmp="$state_dir/.first-useful-result.$$.json"
+            if jq -n --argjson seconds "$elapsed" \
+                --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{schema_version:"1.0", kind:"proposed_solution_plan",
+                  seconds_to_first_result:$seconds,
+                  under_60_seconds:($seconds < 60),
+                  verified_patch:false, generated_at:$generated_at,
+                  artifact:".loki/state/journey-plan.json"}' \
+                > "$first_tmp" 2>/dev/null; then
+                mv -f "$first_tmp" "$state_dir/first-useful-result.json" 2>/dev/null \
+                    || rm -f "$first_tmp"
+            else
+                rm -f "$first_tmp" 2>/dev/null || true
+            fi
+            ;;
+    esac
+
+    return 0
+}
+
+parse_github_issue() {
+    local issue_ref="$1"
+    local output_format="${2:-yaml}"  # yaml or json
+
+    # Validate gh CLI
+    if ! check_github_cli; then
+        return 1
+    fi
+
+    # Parse the reference
+    local parsed_ref
+    if ! parsed_ref=$(parse_issue_ref "$issue_ref"); then
+        return 1
+    fi
+
+    local owner repo number
+    owner=$(echo "$parsed_ref" | cut -d'/' -f1)
+    repo=$(echo "$parsed_ref" | cut -d'/' -f2 | cut -d'#' -f1)
+    number=$(echo "$parsed_ref" | cut -d'#' -f2)
+
+    log_info "Fetching issue: $owner/$repo#$number"
+
+    # Fetch issue data
+    local issue_data
+    if ! issue_data=$(gh issue view "$number" --repo "$owner/$repo" --json number,title,body,labels,assignees,milestone,state,url,createdAt,author 2>&1); then
+        log_error "Failed to fetch issue: $issue_data"
+        return 1
+    fi
+
+    # Parse JSON fields
+    local title body labels_json state url created_at author milestone_title
+    title=$(echo "$issue_data" | jq -r '.title // ""')
+    body=$(echo "$issue_data" | jq -r '.body // ""')
+    labels_json=$(echo "$issue_data" | jq -r '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+    state=$(echo "$issue_data" | jq -r '.state // "open"')
+    url=$(echo "$issue_data" | jq -r '.url // ""')
+    created_at=$(echo "$issue_data" | jq -r '.createdAt // ""')
+    author=$(echo "$issue_data" | jq -r '.author.login // ""')
+    milestone_title=$(echo "$issue_data" | jq -r '.milestone.title // ""' 2>/dev/null || echo "")
+
+    # Extract assignees
+    local assignees
+    assignees=$(echo "$issue_data" | jq -r '[.assignees[].login] | join(",")' 2>/dev/null || echo "")
+
+    # Parse body sections
+    local problem_statement acceptance_criteria technical_requirements file_references
+    problem_statement=$(extract_problem_statement "$body")
+    acceptance_criteria=$(extract_acceptance_criteria "$body")
+    technical_requirements=$(extract_technical_requirements "$body")
+    file_references=$(extract_file_references "$body")
+
+    # Determine priority and type from labels
+    local priority issue_type
+    priority=$(extract_priority_from_labels "$labels_json")
+    issue_type=$(extract_type_from_labels "$labels_json")
+
+    # Golden path (feature 2): persist the EXACT criteria we just extracted, plus
+    # the early machine-readable plan (feature 3), before any provider call. Both
+    # are derived from `gh` output only, so the early artifact does not depend on
+    # provider latency at all. Best-effort: a failure here must never break issue
+    # parsing, which is why it is guarded and ignores its own exit status.
+    write_journey_context "$owner" "$repo" "$number" "$title" "$url" \
+        "$acceptance_criteria" "$file_references" "$issue_type" "$priority" || true
+
+    # Output based on format
+    if [ "$output_format" = "json" ]; then
+        output_json "$owner" "$repo" "$number" "$title" "$body" "$problem_statement" \
+            "$acceptance_criteria" "$technical_requirements" "$file_references" \
+            "$labels_json" "$priority" "$issue_type" "$state" "$url" "$created_at" \
+            "$author" "$assignees" "$milestone_title"
+    else
+        output_yaml "$owner" "$repo" "$number" "$title" "$body" "$problem_statement" \
+            "$acceptance_criteria" "$technical_requirements" "$file_references" \
+            "$labels_json" "$priority" "$issue_type" "$state" "$url" "$created_at" \
+            "$author" "$assignees" "$milestone_title"
+    fi
+}
+
+#===============================================================================
+# Output Formatters
+#===============================================================================
+
+# Escape special characters for YAML multiline strings
+yaml_escape() {
+    local text="$1"
+    # Indent each line with 4 spaces for YAML block scalar
+    echo "$text" | sed 's/^/    /'
+}
+
+# Output structured data as YAML
+output_yaml() {
+    local owner="$1"
+    local repo="$2"
+    local number="$3"
+    local title="$4"
+    local body="$5"
+    local problem="$6"
+    local acceptance="$7"
+    local technical="$8"
+    local files="$9"
+    local labels="${10}"
+    local priority="${11}"
+    local issue_type="${12}"
+    local state="${13}"
+    local url="${14}"
+    local created_at="${15}"
+    local author="${16}"
+    local assignees="${17}"
+    local milestone="${18}"
+
+    cat <<EOF
+# Generated from GitHub Issue: $owner/$repo#$number
+# URL: $url
+# Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+source:
+  type: github_issue
+  owner: $owner
+  repo: $repo
+  number: $number
+  url: $url
+  state: $state
+  created_at: $created_at
+  author: $author
+  assignees: $assignees
+  milestone: $milestone
+
+metadata:
+  title: "$title"
+  type: $issue_type
+  priority: $priority
+  labels: [$labels]
+
+content:
+  title: |
+    $title
+
+  problem_statement: |
+$(yaml_escape "$problem")
+
+  acceptance_criteria: |
+$(yaml_escape "$acceptance")
+
+  technical_requirements: |
+$(yaml_escape "$technical")
+
+  referenced_files:
+$(echo "$files" | sort -u | grep -v '^$' | sed 's/^/    - /' || echo "    # none detected")
+
+  raw_body: |
+$(yaml_escape "$body")
+
+# PRD-ready format
+prd:
+  project_name: "GitHub Issue #$number: $title"
+  version: "1.0.0"
+
+  overview: |
+    Implementation task from GitHub issue $owner/$repo#$number.
+
+$(yaml_escape "$problem")
+
+  goals:
+$(echo "$acceptance" | grep -E '^[[:space:]]*[-*][[:space:]]*\[' | sed 's/^[[:space:]]*[-*][[:space:]]*\[.\]/    -/' | head -10 || echo "    - Complete implementation as described")
+
+  scope:
+    in_scope:
+      - Implement solution for issue #$number
+$(echo "$technical" | head -5 | sed 's/^/      - /' || true)
+    out_of_scope:
+      - Changes unrelated to this issue
+
+  success_criteria:
+$(echo "$acceptance" | grep -E '^[[:space:]]*[-*][[:space:]]*\[' | sed 's/^[[:space:]]*[-*][[:space:]]*\[.\]/    -/' | head -10 || echo "    - Issue requirements satisfied")
+    - All tests passing
+    - Code review approved
+
+EOF
+}
+
+# Output structured data as JSON
+output_json() {
+    local owner="$1"
+    local repo="$2"
+    local number="$3"
+    local title="$4"
+    local body="$5"
+    local problem="$6"
+    local acceptance="$7"
+    local technical="$8"
+    local files="$9"
+    local labels="${10}"
+    local priority="${11}"
+    local issue_type="${12}"
+    local state="${13}"
+    local url="${14}"
+    local created_at="${15}"
+    local author="${16}"
+    local assignees="${17}"
+    local milestone="${18}"
+
+    # Build JSON using jq for proper escaping
+    jq -n \
+        --arg owner "$owner" \
+        --arg repo "$repo" \
+        --arg number "$number" \
+        --arg title "$title" \
+        --arg body "$body" \
+        --arg problem "$problem" \
+        --arg acceptance "$acceptance" \
+        --arg technical "$technical" \
+        --arg files "$files" \
+        --arg labels "$labels" \
+        --arg priority "$priority" \
+        --arg type "$issue_type" \
+        --arg state "$state" \
+        --arg url "$url" \
+        --arg created_at "$created_at" \
+        --arg author "$author" \
+        --arg assignees "$assignees" \
+        --arg milestone "$milestone" \
+        '{
+            source: {
+                type: "github_issue",
+                owner: $owner,
+                repo: $repo,
+                number: ($number | tonumber),
+                url: $url,
+                state: $state,
+                created_at: $created_at,
+                author: $author,
+                assignees: ($assignees | split(",")),
+                milestone: $milestone
+            },
+            metadata: {
+                title: $title,
+                type: $type,
+                priority: $priority,
+                labels: ($labels | split(","))
+            },
+            content: {
+                title: $title,
+                problem_statement: $problem,
+                acceptance_criteria: $acceptance,
+                technical_requirements: $technical,
+                referenced_files: ($files | split("\n") | map(select(. != ""))),
+                raw_body: $body
+            },
+            prd: {
+                project_name: ("GitHub Issue #" + $number + ": " + $title),
+                version: "1.0.0",
+                overview: $problem,
+                type: $type,
+                priority: $priority
+            }
+        }'
+}
+
+#===============================================================================
+# CLI Interface
+#===============================================================================
+
+show_help() {
+    cat <<EOF
+${BOLD}Loki Mode - GitHub Issue Parser${NC}
+
+Parse GitHub issues and extract structured data for PRD generation.
+
+${CYAN}Usage:${NC}
+  $(basename "$0") <issue-ref> [options]
+
+${CYAN}Issue Reference Formats:${NC}
+  https://github.com/owner/repo/issues/123
+  owner/repo#123
+  #123                  (uses current repo)
+  123                   (uses current repo)
+
+${CYAN}Options:${NC}
+  --format yaml|json    Output format (default: yaml)
+  --output FILE         Write to file instead of stdout
+  --quiet               Suppress info messages
+  --help                Show this help
+
+${CYAN}Examples:${NC}
+  $(basename "$0") 123
+  $(basename "$0") owner/repo#456
+  $(basename "$0") https://github.com/owner/repo/issues/789 --format json
+  $(basename "$0") 123 --output issue-prd.yaml
+
+${CYAN}Integration:${NC}
+  # Use as library
+  source issue-parser.sh
+  parse_github_issue "owner/repo#123" yaml
+
+  # Pipe to PRD generator
+  $(basename "$0") 123 > .loki/issue-prd.yaml
+  loki start .loki/issue-prd.yaml
+
+EOF
+}
+
+main() {
+    local issue_ref=""
+    local format="yaml"
+    local output_file=""
+    local quiet="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --format)
+                format="${2:-yaml}"
+                shift 2
+                ;;
+            --format=*)
+                format="${1#*=}"
+                shift
+                ;;
+            --output|-o)
+                output_file="${2:-}"
+                shift 2
+                ;;
+            --output=*)
+                output_file="${1#*=}"
+                shift
+                ;;
+            --quiet|-q)
+                quiet="true"
+                shift
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                echo "Run '$(basename "$0") --help' for usage."
+                exit 1
+                ;;
+            *)
+                if [ -z "$issue_ref" ]; then
+                    issue_ref="$1"
+                else
+                    log_error "Multiple issue references not supported"
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [ -z "$issue_ref" ]; then
+        log_error "Issue reference required"
+        echo ""
+        show_help
+        exit 1
+    fi
+
+    # Validate format
+    if [[ "$format" != "yaml" && "$format" != "json" ]]; then
+        log_error "Invalid format: $format (use yaml or json)"
+        exit 1
+    fi
+
+    # Suppress info messages if quiet
+    if [ "$quiet" = "true" ]; then
+        log_info() { :; }
+    fi
+
+    # Parse the issue
+    local result
+    local exit_code=0
+    result=$(parse_github_issue "$issue_ref" "$format") || exit_code=$?
+
+    if [ $exit_code -ne 0 ]; then
+        exit $exit_code
+    fi
+
+    # Output result
+    if [ -n "$output_file" ]; then
+        echo "$result" > "$output_file"
+        log_info "Output written to: $output_file"
+    else
+        echo "$result"
+    fi
+}
+
+# Run main if executed directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

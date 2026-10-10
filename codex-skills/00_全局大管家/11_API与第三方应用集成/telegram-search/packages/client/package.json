@@ -1,0 +1,30 @@
+{
+  "name": "@tg-search/client",
+  "type": "module",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@moeru/eventa": "1.0.0",
+    "@tg-search/common": "workspace:*",
+    "@tg-search/core": "workspace:*",
+    "@tg-search/protocol": "workspace:*",
+    "@tg-search/server": "workspace:*",
+    "@vueuse/core": "^14.4.0",
+    "culori": "^4.0.2",
+    "defu": "^6.1.7",
+    "ofetch": "^1.5.1",
+    "pinia": "^3.0.4",
+    "uuid": "^13.0.2",
+    "vue": "^3.5.40",
+    "vue-sonner": "catalog:"
+  },
+  "devDependencies": {
+    "@types/culori": "^4.0.1"
+  }
+}

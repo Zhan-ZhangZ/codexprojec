@@ -1,0 +1,137 @@
+# Reviewed public telemetry ingestion key. PostHog project ingestion keys are
+# intentionally embedded in clients and do not grant administrative access.
+assets/welcome/welcome.html:generic-api-key:262
+autonomy/telemetry.sh:generic-api-key:56
+dashboard/telemetry.py:generic-api-key:28
+
+# Reviewed product/configuration prose; these values are feature flags and
+# iteration settings, not credentials.
+SKILL.md:generic-api-key:10
+docs/history/v8-config-plan.md:generic-api-key:368
+
+# Reviewed synthetic test and fixture values. Each is deliberately secret-shaped
+# so the corresponding scanner, redaction, policy, or lifecycle test is
+# non-vacuous. Exact fingerprints ensure a changed line is reviewed again.
+loki-ts/tests/runner/quality_gates.test.ts:aws-access-token:1213
+tests/fixtures/project-graph/acme/ui/.loki/state/project-graph.json:generic-api-key:2
+tests/crash/test_crash_redact.py:jwt:58
+tests/integrations/linear-client.test.js:generic-api-key:22
+tests/policies/types.test.js:generic-api-key:265
+tests/policies/types.test.js:generic-api-key:275
+tests/policies/types.test.js:github-pat:275
+tests/integrations/linear-config.test.js:generic-api-key:99
+tests/integrations/linear-config.test.js:generic-api-key:105
+tests/policies/engine.test.js:generic-api-key:287
+tests/test-memory-capture-wedge.sh:curl-auth-header:143
+tests/test-branch-lifecycle.sh:generic-api-key:570
+tests/test-branch-lifecycle.sh:generic-api-key:894
+tests/test-invariant-detector.sh:aws-access-token:37
+tests/test-invariant-detector.sh:aws-access-token:175
+tests/test-invariant-detector.sh:aws-access-token:179
+tests/test-invariant-detector.sh:aws-access-token:185
+tests/test-secret-gate-false-positives.sh:generic-api-key:58
+tests/test-secret-gate-false-positives.sh:generic-api-key:60
+tests/test-secret-gate-false-positives.sh:generic-api-key:61
+tests/test-secret-scan.sh:generic-api-key:145
+tests/test-secret-scan.sh:private-key:128
+tests/test-review-command.sh:generic-api-key:64
+tests/test-review-command.sh:generic-api-key:150
+tests/test-secure-scan.sh:private-key:104
+tests/test-secure-scan.sh:aws-access-token:124
+tests/test-secure-scan.sh:aws-access-token:140
+tests/test-secure-scan.sh:aws-access-token:376
+tests/test_proof_redaction.py:private-key:66
+
+# Reviewed historical findings. Commit-qualified fingerprints preserve full-
+# history coverage without suppressing a similar finding in another commit.
+# The first four are scanner/static-analysis test fixtures, the next three are
+# the same public PostHog ingestion key already reviewed above, and the final
+# two are removed SDK guardrail examples with deliberately secret-shaped data.
+814ca022112c37421438b6caa4504fb101b16b95:.github/workflows/security-audit.yml:aws-access-token:291
+7aef191c46db5750233257cb9a0df207e55d13e5:tests/test-branch-lifecycle.sh:generic-api-key:558
+7aef191c46db5750233257cb9a0df207e55d13e5:tests/test-branch-lifecycle.sh:generic-api-key:882
+7108c7a49ca3c5a808778bb82e1b4d4600ae972b:loki-ts/tests/runner/quality_gates.test.ts:aws-access-token:1094
+59f613f682392a570ffec8022d4de74952bdafc3:autonomy/telemetry.sh:generic-api-key:7
+59f613f682392a570ffec8022d4de74952bdafc3:bin/postinstall.js:generic-api-key:107
+59f613f682392a570ffec8022d4de74952bdafc3:dashboard/telemetry.py:generic-api-key:18
+8fcf54725743dc9d18aed64db7d3701c1eb8a4ef:the_app/sdk/examples/03_guardrails.py:generic-api-key:68
+8fcf54725743dc9d18aed64db7d3701c1eb8a4ef:the_app/sdk/tests/test_guardrails.py:generic-api-key:129
+# A synthetic secret-shaped fixture (const KEY="sk-Ab...") used to prove the
+# session-commit secret-scan abort path actually aborts on one. Not a real
+# credential; flagged by Security Audit on the v9.54.1 push (D15/D16/D17),
+# unrelated to that push's own content.
+d298ca60a17366ca3504262eaf60e107cd24b883:tests/test-branch-lifecycle.sh:generic-api-key:1392
+# Loki 10 engine test fixtures, flagged by Security Audit on the v9.79.0 and
+# v9.80.0 release SHAs. None is a real credential: a planted AWS-shaped string
+# the deep-verify secret scan must catch (deep.test.ts), and token canaries
+# marked CANARY and WITHHELD that prove credentials never reach a worker or a
+# push hook (test-engine10-push-gitlab.sh, rule_of_two.test.ts).
+854c93f9ec763861a7b5e8ee26c7bc7042eeb28a:loki-ts/tests/engine10/deep.test.ts:aws-access-token:132
+912509ced103effa63c3631889c0d7bc3ea43106:tests/test-engine10-push-gitlab.sh:gitlab-pat:20
+dbc2b6043698f815798f5898e3cb1eb289339592:loki-ts/tests/engine10/rule_of_two.test.ts:generic-api-key:122
+
+# Eval task pin, flagged by Security Audit on the v10.2.0 release SHA as a
+# sourcegraph-access-token. Not a credential: the value is repo.ref in
+# eval/loki10/tasks/pub-werkzeug-3271/task.json, the 40-hex upstream
+# pallets/werkzeug commit the task checks out (gh api
+# repos/pallets/werkzeug/commits/<ref> resolves it, dated 2026-09-13).
+82e39c2920606475164bf2a8140b582ba7e7e7ae:eval/loki10/tasks/pub-werkzeug-3271/task.json:sourcegraph-access-token:8
+# Same finding, `dir`-mode fingerprint (E-86 pre-push hook uses `gitleaks dir`, not `git log`).
+eval/loki10/tasks/pub-werkzeug-3271/task.json:sourcegraph-access-token:8
+# E-101 test fixtures (tests/test-eval-archive.sh at bbe83c7a): synthetic values
+# planted on purpose to prove redact_row() strips them from archived eval rows
+# (an AKIA-shaped id padded with ABCD..., "sk-ant-planted...", a "token" string).
+# None is a real credential; verified 2026-09-28 by reading the redacted lines.
+# Guard E-110 moves these fixtures to runtime-built values and makes pre-push scan
+# every pushed file, so no new fingerprint is needed after this commit.
+bbe83c7ad70132cfd77635eb019fd68db244ff13:tests/test-eval-archive.sh:generic-api-key:35
+bbe83c7ad70132cfd77635eb019fd68db244ff13:tests/test-eval-archive.sh:aws-access-token:75
+bbe83c7ad70132cfd77635eb019fd68db244ff13:tests/test-eval-archive.sh:aws-access-token:88
+fa26bfc091e477c020a4f07cb31b3c6636bf27ca:loki-ts/src/engine10/stages/seal.ts:generic-api-key:68
+fa26bfc091e477c020a4f07cb31b3c6636bf27ca:loki-ts/tests/engine10/seal.test.ts:generic-api-key:174
+a5ae6373adc952e9a8efd3999640769d5b18019c:loki-ts/dist/loki.js:generic-api-key:1244
+afeeb2172324f96c3da2b98708fa7a1e0648fadb:tests/conftest.py:generic-api-key:48
+1f4cf0d3a04bc29762581236c5dd5d12725f4499:loki-ts/dist/loki.js:generic-api-key:1264
+d20a8a3eb9952094b29a107df69e348dab43d951:loki-ts/dist/loki.js:generic-api-key:1264
+14c603a99ccc386b07d074b7e682c706eb667c59:loki-ts/dist/loki.js:generic-api-key:1264
+eb4e215561782f6bfbf5fd24e0458d21ab4c694a:loki-ts/dist/loki.js:generic-api-key:1270
+
+# E-159: `--diff-merges=first-parent` re-reports content a train merge merely carried in
+# from a branch, under the MERGE commit SHA. Each entry below is the exact merge-SHA
+# fingerprint of an already-baselined finding in the v10.5.13..v10.5.14 history (the
+# key FILE NAME receipt-ed25519.pem, synthetic fixture tokens); none is new content.
+61c4ceb216bd35dd053070bc9d4d799260facf56:tests/conftest.py:generic-api-key:48
+a83c6789885685f15424d0a93de7e09c2dec0ac4:loki-ts/dist/loki.js:generic-api-key:1271
+ff2f4719c34fa391ad1dd664c217d7337d6e5fac:loki-ts/dist/loki.js:generic-api-key:1264
+9e540e1e7ab8c3b75e2a1d703999ecb3ba2af607:loki-ts/src/engine10/stages/seal.ts:generic-api-key:68
+9e540e1e7ab8c3b75e2a1d703999ecb3ba2af607:loki-ts/tests/engine10/seal.test.ts:generic-api-key:174
+7eb91ad95a6d86772843574fd52228f46020c26b:loki-ts/dist/loki.js:generic-api-key:1263
+08b312714a001408ff8d95525a668c9df5b879a4:loki-ts/src/engine10/stages/seal.ts:generic-api-key:68
+08b312714a001408ff8d95525a668c9df5b879a4:loki-ts/tests/engine10/seal.test.ts:generic-api-key:174
+9e540e1e7ab8c3b75e2a1d703999ecb3ba2af607:loki-ts/dist/loki.js:generic-api-key:1244
+21df7d4a26b6bceff654c6686cd1beca47e3927f:tests/test-eval-archive.sh:generic-api-key:35
+21df7d4a26b6bceff654c6686cd1beca47e3927f:tests/test-eval-archive.sh:aws-access-token:75
+21df7d4a26b6bceff654c6686cd1beca47e3927f:tests/test-eval-archive.sh:aws-access-token:88
+# D51-B11 test fixture: ghp_FAKEtokenVALUE... is a synthetic token the test asserts never leaks into run output; not a credential.
+c09dfd1eb6f2f2cc1f81b2be0d7ddee717141d66:tests/workspace/80-comment.sh:github-pat:7
+# Reviewed fake fixture token (Sentry intake test asserts it is never printed); not a credential.
+00d12afea485ed91ff77ef0a2d8a91b408377bf3:tests/test-issue-providers.sh:generic-api-key:294
+# CPE-POLISH integrity.ts: generic-api-key matched env["LOKI_RECEIPT_SIGNING_KEY"] / _FILE env-var name lookups (public key derivation); no key material in source.
+449db8f56fce87ef05510b5ae8634ce6438a696d:packages/control-plane/src/server/integrity.ts:generic-api-key:46
+b4775bede0a04a021c89e366500ecae8ce1ae609:packages/control-plane/src/server/integrity.ts:generic-api-key:55
+# 10.11.2 full-history scan (Security Audit run 37168919918), reviewed 2026-10-04:
+# integrity.ts:55 is the default public PEM location (a file path under the loki keys directory), not key material.
+0eea5800ee41e01360207eb12c7fb9b7808eb62b:packages/control-plane/src/server/integrity.ts:generic-api-key:55
+39ea73011a04ddd3178b800198e6f25e90186dc7:packages/control-plane/src/server/integrity.ts:generic-api-key:55
+b5b1c30009d7a19ad37ae2856bacd93179a5f194:packages/control-plane/src/server/integrity.ts:generic-api-key:55
+# CONFIG-FILE-PLAN.md:362 is doc prose naming a config key, not a credential.
+acb76a1913ee5bb0f725832db3f192ea52a1ddb2:docs/CONFIG-FILE-PLAN.md:generic-api-key:362
+# Deleted legacy dashboard-ui maskToken test fixture: sk_live_ followed by the sequential alphabet (16 chars), a synthetic value, never a real Stripe key.
+f1aac14d33fe4bef7622848b24bb721e4800ad1d:dashboard-ui/tests/ui-components.test.js:stripe-access-token:322
+dcca5ebb5ca767b4b1358c66fc7d5d724f82251b:dashboard-ui/tests/ui-components.test.js:stripe-access-token:322
+# .gitleaksignore:123 is the comment above naming a public PEM file path; no key material.
+dd61901dc34ca13c107c7f9800171f6cec2efe45:.gitleaksignore:generic-api-key:123
+# FC-90 GH-KEYRING fixture: FAKE_GH is a planted fake gho_FAKEPLANTED canary, not a credential
+1513583f087412b1930e114e9209594ef31bbf12:loki-ts/tests/util/fc90_credential_env.test.ts:github-oauth:11
+# FC-90 GH-KEYRING fixture, same planted fake gho_FAKEPLANTED canary: gitleaks 8.30.0 (CI pin) attributes it to merge commit 5aaec69ff, not 1513583f0
+5aaec69ff1738ed1948cf986dd7ff7db46d6537a:loki-ts/tests/util/fc90_credential_env.test.ts:github-oauth:11

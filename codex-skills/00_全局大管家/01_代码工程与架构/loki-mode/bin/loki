@@ -1,0 +1,781 @@
+#!/usr/bin/env bash
+#===============================================================================
+# Loki Mode shim
+#
+# Routes commands ported in Phase 2 (bash->Bun migration) to the Bun CLI;
+# everything else falls through to autonomy/loki (bash).
+#
+# Set LOKI_LEGACY_BASH=1 to force bash for every command (rollback flag).
+# See docs/architecture/ADR-001-runtime-migration.md and
+# /Users/lokesh/.claude/plans/polished-waddling-stardust.md.
+#===============================================================================
+set -euo pipefail
+
+# Resolve script directory (handles symlinks like the bash CLI does).
+_resolve_path() {
+    local script="$1"
+    if command -v realpath &>/dev/null; then
+        realpath "$script" 2>/dev/null || echo "$script"
+    else
+        while [ -L "$script" ]; do
+            local dir
+            dir=$(dirname "$script")
+            script=$(readlink "$script")
+            [[ "$script" != /* ]] && script="$dir/$script"
+        done
+        echo "$script"
+    fi
+}
+
+SCRIPT_PATH=$(_resolve_path "$0")
+SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)
+BASH_CLI="$REPO_ROOT/autonomy/loki"
+
+# FC-38 (scoped): `loki start --attempts` never reaches the legacy bash loop. Every other
+# start, and every other command, keeps the plain bash fallback.
+_LOKI_START_ATTEMPTS=0
+if [ "${1:-}" = "start" ]; then
+    for _loki_a0 in "${@:2}"; do
+        case "$_loki_a0" in --attempts|--attempts=*) _LOKI_START_ATTEMPTS=1 ;; esac
+    done
+    unset _loki_a0
+fi
+_loki_bash_or_refuse() {
+    if [ "${1:-}" = "start" ] && [ "$_LOKI_START_ATTEMPTS" = "1" ]; then
+        echo "loki: 'loki start' runs only the Loki 10 engine, which needs the Bun entry (loki-ts). It cannot fall back to the removed legacy loop; reinstall loki-mode or fix LOKI_TS_ENTRY / BUN_FROM_SOURCE." >&2
+        exit 1
+    fi
+    exec "$BASH_CLI" "$@"
+}
+
+# T5-D2 (FC-38 sweep): quick, run, demo and tour have no attempts engine; --attempts there would
+# reach the legacy loop, so it is refused before any route split.
+case "${1:-}" in
+    quick|run|demo|tour)
+        for _loki_a1 in "${@:2}"; do
+            case "$_loki_a1" in
+                --attempts|--attempts=*)
+                    echo "loki: --attempts is only supported by 'loki start --attempts N --no-pr' (the Loki 10 engine). 'loki $1' would run the removed legacy loop; drop --attempts or use 'loki start --attempts N --no-pr'." >&2
+                    exit 2
+                    ;;
+            esac
+        done
+        unset _loki_a1
+        ;;
+esac
+
+# v8.1: resolve the one-switch SDK mode (LOKI_SDK_MODE=off|judges|full) into the
+# per-site LOKI_SDK_* flags HERE, in the outermost shim, BEFORE the `start`
+# routing fork below reads LOKI_SDK_LOOP. Without this, `LOKI_SDK_MODE=full loki
+# start` would run the judges on the SDK but silently keep the RARV loop on the
+# legacy bash binary, because the routing decision predates autonomy/loki's own
+# resolve. Same idempotent lib all three entrypoints source; exported flags reach
+# the child (bash or Bun). No-op when the mode is unset.
+if [ -f "$REPO_ROOT/autonomy/lib/sdk-mode.sh" ]; then
+    # shellcheck source=../autonomy/lib/sdk-mode.sh
+    source "$REPO_ROOT/autonomy/lib/sdk-mode.sh"
+    loki_sdk_resolve_mode
+fi
+
+# v7.89.0 telemetry TTY fix (council cH_r1): resolve interactivity EXACTLY ONCE
+# here, while this shim still owns the user's real TTY, and export it as an
+# explicit signal. The telemetry gates (telemetry.sh / crash.sh / dashboard
+# telemetry.py) must NOT re-probe `-t` later: the gate is evaluated inside
+# subshells that redirect FDs (the `) </dev/null >/dev/null 2>&1` gate-check
+# subshells below), and the backgrounded emit subshell also detaches its FDs, so
+# a fresh `-t` probe there always sees non-TTY and would auto-off a REAL
+# interactive user (killing on-by-default + the disclosure). Set the var only
+# when a terminal is actually present at this entry point; leave it UNSET
+# otherwise so an isolated unit test that bypasses this entry point falls back to
+# the gate's own `-t` probe (documented precedence in the *_auto_off helpers).
+if [ -t 1 ] || [ -t 0 ]; then
+    export LOKI_TTY_INTERACTIVE=1
+fi
+
+# Resolve which Bun entry to use:
+#   1. LOKI_TS_ENTRY=...   -- explicit override (custom builds, tests)
+#   2. BUN_FROM_SOURCE=1   -- prefer src/cli.ts (used by bench --compare-dist
+#                             and during Phase 3 development before dist ships)
+#   3. dist/loki.js exists -- production path (npm/Docker/Homebrew artifact)
+#   4. fall back to src    -- in-repo development before first build
+#
+# v7.4.2 fix (BUG-1): BUN_FROM_SOURCE=1 used to hard-fail on npm/Docker/brew
+# installs because src/ is excluded by .npmignore. Now we warn once and fall
+# back to dist if src/cli.ts is missing.
+if [ -n "${LOKI_TS_ENTRY:-}" ]; then
+    # v7.5.1 fix B18: validate that the explicit override actually exists.
+    # Pre-v7.5.1 a typo (LOKI_TS_ENTRY=/nonexistent) produced a raw Bun
+    # "Module not found" error with no hint about the env var. Now we warn
+    # to stderr and fall through to the bash CLI so the user can still
+    # invoke commands while they fix the path.
+    if [ ! -f "$LOKI_TS_ENTRY" ]; then
+        echo "ERROR: LOKI_TS_ENTRY=$LOKI_TS_ENTRY does not exist; falling through to bash CLI. Unset the variable or fix the path." >&2
+        _loki_bash_or_refuse "$@"
+    fi
+    BUN_CLI="$LOKI_TS_ENTRY"
+elif [ "${BUN_FROM_SOURCE:-0}" = "1" ] || [ "${BUN_FROM_SOURCE:-}" = "true" ]; then
+    if [ -f "$REPO_ROOT/loki-ts/src/cli.ts" ]; then
+        BUN_CLI="$REPO_ROOT/loki-ts/src/cli.ts"
+    elif [ -f "$REPO_ROOT/loki-ts/dist/loki.js" ]; then
+        echo "WARN: BUN_FROM_SOURCE set but loki-ts/src/cli.ts missing (typical for npm/Docker/brew installs); using dist/loki.js" >&2
+        BUN_CLI="$REPO_ROOT/loki-ts/dist/loki.js"
+    else
+        echo "ERROR: BUN_FROM_SOURCE set but neither src/cli.ts nor dist/loki.js found; falling through to bash" >&2
+        _loki_bash_or_refuse "$@"
+    fi
+elif [ -f "$REPO_ROOT/loki-ts/dist/loki.js" ]; then
+    BUN_CLI="$REPO_ROOT/loki-ts/dist/loki.js"
+    # Stale-dist freshness guard. dist/loki.js is gitignored (loki-ts/.gitignore)
+    # and rebuilt by package.json's prepack and the release Docker build, so on
+    # released channels (npm/Docker/brew) src/cli.ts is absent and this guard is
+    # a no-op -- dist is always current there. On a DEV machine / worktree the
+    # gitignored dist can predate the current dispatcher: e.g. a new shim->Bun
+    # route (`report kpis`) added in src that the old dist bundle does not know,
+    # which would make the canonical form fail with "Unknown command" while a
+    # deprecated alias the old dist still knows silently works -- the exact
+    # deprecation inversion the report-kpis route exists to prevent. So when src
+    # exists AND is newer than dist (`-nt`, available on bash 3.2), prefer the src
+    # form so dev runs never execute a stale dispatcher. Released channels have no
+    # src, so they keep using dist unchanged.
+    if [ -f "$REPO_ROOT/loki-ts/src/cli.ts" ] && [ "$REPO_ROOT/loki-ts/src/cli.ts" -nt "$REPO_ROOT/loki-ts/dist/loki.js" ]; then
+        BUN_CLI="$REPO_ROOT/loki-ts/src/cli.ts"
+    fi
+elif [ -f "$REPO_ROOT/loki-ts/src/cli.ts" ]; then
+    BUN_CLI="$REPO_ROOT/loki-ts/src/cli.ts"
+else
+    # Neither dist nor src available; fall through to bash silently.
+    _loki_bash_or_refuse "$@"
+fi
+
+# FC-30: an install artifact must not outlive the install that made it. If a provider
+# skill link Loki created is dangling or points at another Loki install, repoint it
+# to this one. A few lstat/readlink calls, no network, silent when already correct.
+if [ -f "$REPO_ROOT/autonomy/lib/skill-link-heal.sh" ]; then
+    # shellcheck source=../autonomy/lib/skill-link-heal.sh
+    source "$REPO_ROOT/autonomy/lib/skill-link-heal.sh" 2>/dev/null && loki_skill_link_heal "$REPO_ROOT" || true
+fi
+
+# Shell completions install themselves: once per VERSION, on the first interactive
+# run after an install or upgrade (stamp: ~/.loki/completions-version). Never needed
+# by the user; skipped under CI, LOKI_NO_COMPLETIONS=1 and non-TTY stdout. Failure
+# is silent and never blocks the command.
+if [ -t 1 ] && [ -z "${CI:-}" ] && [ "${LOKI_NO_COMPLETIONS:-}" != "1" ] \
+   && [ "${1:-}" != "completion" ] && [ "${1:-}" != "__complete" ] \
+   && [ "$(cat "${HOME}/.loki/completions-version" 2>/dev/null)" != "$(cat "$REPO_ROOT/VERSION" 2>/dev/null)" ] \
+   && command -v bun >/dev/null 2>&1; then
+    bun "$BUN_CLI" completion --auto </dev/null || true
+fi
+
+# v7.88.1 covert-path fix (council cF_r2 + cG_r2 sentinel edge): under on-by-default
+# diagnostics, NO telemetry may egress before the user has seen a disclosure once.
+# The cmd_start welcome only shows on `loki start`, so a first `loki version`/`doctor`
+# would otherwise egress covertly. _loki_disclose_telemetry_once prints a one-time
+# disclosure to the user's REAL stderr the first time collection is ACTUALLY enabled
+# at egress time. It is keyed on its OWN marker (~/.loki/.telemetry-disclosed), NOT
+# the .loki-first-run sentinel: the sentinel edge is that a first run in CI/auto-off
+# sets .loki-first-run while suppressing disclosure, which must NOT permanently
+# silence the disclosure on a later interactive (enabled) run. Every enabled egress
+# path (installed + cli_command) calls this first, so whichever fires first discloses.
+#
+# v7.89.0 (council cH_r1 AC4): the helper now lives in autonomy/telemetry.sh as
+# the SINGLE shared impl for both routes (the bash route in autonomy/loki calls
+# the same function before its foreground egress, so the copy never drifts).
+# Source it here at top level just for this helper -- telemetry.sh executes
+# nothing on source beyond defining functions and two host/key vars, so this is
+# side-effect-free for the shim. If the source fails for any reason, define a
+# local fallback so on-by-default disclosure is never silently skipped.
+if [ -f "$REPO_ROOT/autonomy/telemetry.sh" ]; then
+    # shellcheck source=../autonomy/telemetry.sh
+    source "$REPO_ROOT/autonomy/telemetry.sh" 2>/dev/null || true
+fi
+if ! declare -f _loki_disclose_telemetry_once >/dev/null 2>&1; then
+_loki_disclose_telemetry_once() {
+    local _marker="${HOME}/.loki/.telemetry-disclosed"
+    [ -f "$_marker" ] 2>/dev/null && return 0
+    printf '%s\n' \
+      "Loki Mode sends anonymous diagnostics (os, arch, version, error type only --" \
+      "never your code, prompts, paths, or keys) to help fix bugs. Off in enterprise/" \
+      "CI/air-gapped setups. Turn it off anytime: loki telemetry off  (docs/PRIVACY.md)" >&2
+    mkdir -p "${HOME}/.loki" 2>/dev/null || return 0
+    : > "$_marker" 2>/dev/null || true
+    return 0
+}
+fi
+
+# v7.4.13: one-shot first-run telemetry, MOVED from autonomy/loki main()
+# into the shim because the 8 ported commands (version, status, doctor,
+# stats, provider, memory) bypass main() entirely -- only unported
+# commands triggered the original hook. Now fires regardless of route.
+# Fire-and-forget; opt-out via LOKI_TELEMETRY_DISABLED=true or
+# DO_NOT_TRACK=1 (mirrors autonomy/telemetry.sh contract).
+if [ -z "${LOKI_TELEMETRY_DISABLED:-}" ] && [ "${DO_NOT_TRACK:-}" != "1" ] && [ ! -f "${HOME}/.loki-first-run" ] 2>/dev/null; then
+    touch "${HOME}/.loki-first-run" 2>/dev/null || true
+    if command -v curl &>/dev/null && [ -f "$REPO_ROOT/autonomy/telemetry.sh" ]; then
+        # Decide with the SAME gate the egress uses (_loki_telemetry_enabled), in a
+        # subshell so sourcing telemetry.sh cannot pollute the shim env.
+        # AC3: evaluate the GATE in the foreground (do NOT detach FDs here) so it
+        # inherits the real TTY / sees the exported LOKI_TTY_INTERACTIVE signal;
+        # only the network EMIT below is backgrounded with detached FDs. The
+        # sourced helper is silenced via 2>/dev/null and the gate writes nothing
+        # to stdout, so foreground evaluation adds no output.
+        if ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null \
+             && declare -f _loki_telemetry_enabled >/dev/null 2>&1 \
+             && _loki_telemetry_enabled ); then
+            # Disclosure BEFORE the installed egress -- see the shared
+            # _loki_disclose_telemetry_once helper below (keyed on its OWN
+            # disclosed-marker, NOT .loki-first-run, so a first run in CI that
+            # suppressed disclosure does not permanently silence it).
+            _loki_disclose_telemetry_once
+            # Fire-and-forget the installed event; detach all FDs (v7.8.3 broken-pipe fix).
+            ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null \
+              && loki_telemetry "installed" "first_command=$(_loki_known_command "${1:-}")" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
+            disown 2>/dev/null || true
+        fi
+    fi
+fi
+
+# v7.5.18: Guard against deprecated LOKI_PROVIDER=gemini before routing.
+# Fires for all commands (Bun-routed and bash-routed) so users get a clear
+# error regardless of which subcommand they invoke.
+if [ "${LOKI_PROVIDER:-}" = "gemini" ]; then
+    echo "Error: Provider 'gemini' is deprecated as of v7.5.18 and has been removed." >&2
+    echo "Active providers: claude, codex, cline, aider, opencode" >&2
+    echo "Unset LOKI_PROVIDER or use: LOKI_PROVIDER=claude" >&2
+    exit 1
+fi
+
+# First-run funnel, stage C: the activation ATTEMPT (first `loki start`).
+#
+# WHY HERE. This shim runs for BOTH routes before any exec, so one emit at this
+# point covers all four dispositions of a start: the Bun SDK fork, the
+# needs-bash divert, LOKI_LEGACY_BASH, and the no-Bun fallthrough. An emit down
+# in run.sh would be bash-route-only and would report installs climbing while
+# starts sat near zero under LOKI_SDK_MODE=full, which is exactly the blind spot
+# this is meant to close. Placed after the gemini guard (that path exits) and
+# before the LOKI_LEGACY_BASH check (which execs).
+#
+# `run` is the deprecated start alias and `quick` is grouped with them in the
+# bash config pre-pass, so all three count as an activation attempt.
+#
+# Gate: the strict EXISTING double gate, unchanged -- telemetry enabled AND
+# analytics explicitly opted in (_loki_analytics_enabled), default OFF even for
+# diagnostics-on users. No new consent knob, no new endpoint.
+#
+# Disclosure runs in the FOREGROUND first (the backgrounded emit has all three
+# FDs detached, so a disclosure printed in there would go to /dev/null and the
+# user would never see it), gated on the same analytics gate the egress uses so
+# we never disclose for an egress that will not happen. This mirrors the
+# cli_command sites below. No arguments are read, so nothing user-authored can
+# reach the payload.
+#
+# `quickstart` and `demo` are here because they are the two commands `loki
+# doctor` actually RECOMMENDS as a first build. Without them the funnel missed
+# every user who followed the product's own advice, which is precisely the
+# population whose drop-off this measures. Both are already in the
+# _loki_known_command allowlist, so `entry=` stays a bounded enum.
+case "${1:-}" in
+    start|run|quick|quickstart|demo)
+        if command -v curl &>/dev/null && [ -f "$REPO_ROOT/autonomy/telemetry.sh" ]; then
+            if ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null \
+                 && declare -f _loki_analytics_enabled >/dev/null 2>&1 && _loki_analytics_enabled \
+                 && [ ! -f "${HOME}/.loki/funnel-start-attempted" ] ); then
+                _loki_disclose_telemetry_once
+            fi
+            ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null \
+              && loki_emit_funnel_once "start-attempted" "first_start_attempted" \
+                   "entry=$(_loki_known_command "${1:-}")" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
+            disown 2>/dev/null || true
+        fi
+        ;;
+esac
+
+# Force-fall-through to bash when the rollback flag is set.
+if [ "${LOKI_LEGACY_BASH:-0}" = "1" ] || [ "${LOKI_LEGACY_BASH:-}" = "true" ]; then
+    _loki_bash_or_refuse "$@"
+fi
+
+# Loki 10 bun resolver: bun on PATH, then an npm-installed @oven/bun-* optional
+# dependency under REPO_ROOT (the per-platform packages ship the binary and have no
+# install scripts; node_modules/bun/bin/bun.exe is a legacy fallback). A candidate counts only if `--version` exits 0
+# within 2s. Prints the path, or nothing.
+_loki_bun_probe() {
+    local c="$1" t p w rc
+    t=$(command -v timeout || command -v gtimeout || true)
+    if [ -n "$t" ]; then "$t" -k 1 2 "$c" --version >/dev/null 2>&1; return $?; fi
+    "$c" --version >/dev/null 2>&1 &
+    p=$!
+    ( sleep 2; kill -9 "$p" 2>/dev/null ) >/dev/null 2>&1 &
+    w=$!
+    { wait "$p"; } 2>/dev/null; rc=$?
+    kill "$w" 2>/dev/null
+    return $rc
+}
+_loki_bun() {
+    local c
+    c=$(command -v bun 2>/dev/null || true)
+    if [ -n "$c" ] && _loki_bun_probe "$c"; then printf '%s\n' "$c"; return 0; fi
+    for c in "$REPO_ROOT"/node_modules/@oven/bun-*/bin/bun "$REPO_ROOT"/node_modules/@oven/bun-*/bin/bun.exe "$REPO_ROOT/node_modules/bun/bin/bun.exe"; do
+        [ -x "$c" ] && _loki_bun_probe "$c" && { printf '%s\n' "$c"; return 0; }
+    done
+    return 0
+}
+# Reason text for the fallback notice: missing, or failed to start, exit N.
+_loki_bun_why() {
+    local c rc
+    for c in "$REPO_ROOT"/node_modules/@oven/bun-*/bin/bun "$REPO_ROOT"/node_modules/@oven/bun-*/bin/bun.exe "$REPO_ROOT/node_modules/bun/bin/bun.exe"; do
+        [ -x "$c" ] || continue
+        _loki_bun_probe "$c"; rc=$?
+        echo "failed to start, exit $rc"; return 0
+    done
+    echo missing
+}
+
+# M-08 (docs/v10/MODERNIZE.md section 2): the NEW `loki modernize <repo> --to
+# <target>` form always reaches the Loki 10 (Bun) modernize CLI, regardless of
+# the default engine flip. Ahead of the v10 block below so
+# tonight's legacy default never blocks it; $1 is already "modernize" so "$@"
+# reproduces it as the router's own first argument without a shift.
+#
+# `loki modernize` is ALSO an existing legacy noun (autonomy/loki cmd_modernize,
+# `heal`/`migrate` subcommands, documented in README.md and
+# wiki/CLI-Reference.md): a plain catch-all here broke `loki heal`/`loki
+# migrate` forwarding parity and `modernize bogus`'s error-channel contract
+# (tests/cli/test-alias-forwarding.sh). --to is the one flag every valid
+# engine10 invocation requires (modernize/cli.ts: "missing --to" otherwise), so
+# it is the routing signal: only args containing --to go to engine10; bare
+# `modernize`, `--help`/`-h`/`help`, `heal`, `migrate`, and any other token
+# fall through unchanged to the existing dispatch below, which already sends
+# them to the legacy CLI today. (`--help`'s own content -- whether it should
+# also mention heal/migrate -- is modernize/cli.ts's USAGE text, outside this
+# arm's file set; left unchanged.)
+if [ "${1:-}" = "modernize" ]; then
+    for _loki_mod_a in "$@"; do
+        if [ "$_loki_mod_a" = "--to" ]; then
+            _lb=$(_loki_bun)
+            [ -n "$_lb" ] || { echo "Error: loki modernize needs bun." >&2; exit 1; }
+            exec "$_lb" "$BUN_CLI" engine10 "$@"
+        fi
+    done
+    unset _loki_mod_a
+fi
+
+# `loki legacy` was removed in 11.0.0 (LEGACY-ZERO W1-01): there is one engine.
+case "${1:-}" in
+    legacy)
+        echo "loki: 'loki legacy' was removed in Loki Mode 11.0.0. The previous engine and its engine-selection variable no longer exist; use the Loki 10 engine: loki \"<task>\", loki owner/repo#N, loki quick \"<task>\"." >&2
+        exit 2
+        ;;
+esac
+
+_loki_start_needs_bash() {
+    # $@ = the start args (already know $1 = start). Return 0 (divert to bash) if
+    # any bash-only orchestration flag or an issue-ref spec is present.
+    local a
+    local explicit_provider=""
+    local provider_value_next=0
+    for a in "$@"; do
+        if [ "$provider_value_next" = "1" ]; then
+            explicit_provider="$a"
+            provider_value_next=0
+            continue
+        fi
+        case "$a" in
+            --provider)
+                provider_value_next=1 ;;
+            --provider=*)
+                explicit_provider="${a#--provider=}" ;;
+            --parallel|--bg|--background|--github|--api|--sandbox \
+            |--fast|--repo-fast|--full|--repo-full \
+            |--bmad-project|--openspec \
+            |--mirofish|--mirofish-docker|--mirofish-rounds|--mirofish-timeout|--mirofish-bg \
+            |--issue|--dry-run|--no-start|--output|--worktree|-w|--pr|--ship|--detach|-d)
+                return 0 ;;
+            --isolation)
+                # value follows; only worktree/docker/sandbox divert (none stays Bun).
+                _loki_iso_next=1 ;;
+            worktree|wt|docker|sandbox)
+                [ "${_loki_iso_next:-0}" = "1" ] && { unset _loki_iso_next; return 0; }
+                _loki_iso_next=0 ;;
+            *)
+                # issue-ref positional: owner/repo#N, a tracker URL, or *#<digits>.
+                case "$a" in
+                    */*\#[0-9]*|http*://*/issues/*|http*://*/browse/*) return 0 ;;
+                esac
+                _loki_iso_next=0 ;;
+        esac
+    done
+    unset _loki_iso_next
+
+    # The Bun RARV loop has not ported the opencode invoker yet. Keep the
+    # released, autonomous shell adapter reachable when SDK mode is enabled
+    # instead of accepting the selection and then failing after intake. CLI
+    # selection wins over env, which wins over the project-level saved choice.
+    local effective_provider="$explicit_provider"
+    if [ -z "$effective_provider" ] && [ -n "${LOKI_PROVIDER:-}" ]; then
+        effective_provider="$LOKI_PROVIDER"
+    fi
+    if [ -z "$effective_provider" ] && [ -f "${PWD}/.loki/state/provider" ]; then
+        effective_provider="$(sed -n '1p' "${PWD}/.loki/state/provider" 2>/dev/null || true)"
+    fi
+    [ "$effective_provider" = "opencode" ] && return 0
+    return 1
+}
+_loki_attempts_refuse() {
+    if _loki_start_needs_bash "$@"; then
+        echo "loki: 'loki start --attempts' runs only the Loki 10 engine; an option or provider in this command (for example --parallel, --github, --sandbox, --issue, --dry-run, --detach, or opencode) was only honored by the removed legacy loop. Remove it, or use a task string, an issue ref or a PRD path." >&2
+        exit 2
+    fi
+    case "${LOKI_PROVIDER:-claude}" in
+        claude|codex|cline|aider) ;;
+        *) echo "loki: the Loki 10 engine does not support LOKI_PROVIDER=${LOKI_PROVIDER:-}; use claude, codex, cline or aider." >&2; exit 2 ;;
+    esac
+}
+
+# FC-37: --attempts is handled HERE, once, before any route split (engine10 positional task, Bun
+# loop, bash cmd_start). A flag accepted on one route must be honored or refused loudly on every
+# other. N=1 is stripped so every route sees today's argv byte-for-byte; N=2..5 runs on the Bun
+# start command (loki-ts/src/commands/start.ts), which spawns one engine10 run per worktree.
+if [ "${1:-}" = "start" ]; then
+    _loki_att_args=()
+    _loki_att_n=""
+    _loki_att_skip=0
+    for _loki_att_a in "${@:2}"; do
+        if [ "$_loki_att_skip" = "1" ]; then _loki_att_n="$_loki_att_a"; _loki_att_skip=0; continue; fi
+        case "$_loki_att_a" in
+            --attempts) _loki_att_skip=1 ;;
+            --attempts=*) _loki_att_n="${_loki_att_a#--attempts=}" ;;
+            *) _loki_att_args+=("$_loki_att_a") ;;
+        esac
+    done
+    if [ "$_loki_att_skip" = "1" ]; then
+        echo "loki: --attempts requires a value from 1 to 5." >&2
+        exit 2
+    fi
+    if [ -n "$_loki_att_n" ]; then
+        case "$_loki_att_n" in
+            1) set -- start ${_loki_att_args[@]+"${_loki_att_args[@]}"} ;;
+            [2-5])
+                _lb=$(_loki_bun)
+                [ -n "$_lb" ] || { echo "loki: --attempts $_loki_att_n needs bun (install from https://bun.sh); refusing to run a single attempt silently." >&2; exit 1; }
+                _loki_attempts_refuse "${@:2}"
+                exec "$_lb" "$BUN_CLI" "$@"
+                ;;
+            *) echo "loki: --attempts must be an integer from 1 to 5, got '$_loki_att_n'." >&2; exit 2 ;;
+        esac
+    fi
+    unset _loki_att_args _loki_att_n _loki_att_skip _loki_att_a
+fi
+
+# SPEC-FIRST-INTENT: `start --spec FILE` and `start --spec-first` are parsed by the Bun start command,
+# which forwards them to engine10; they never reach the positional-task route or the legacy loop.
+if [ "${1:-}" = "start" ]; then
+    for _loki_sp_a in "${@:2}"; do
+        case "$_loki_sp_a" in
+            --spec|--spec=*|--spec-first)
+                _lb=$(_loki_bun)
+                [ -n "$_lb" ] || { echo "loki: --spec needs bun (install from https://bun.sh)." >&2; exit 1; }
+                exec "$_lb" "$BUN_CLI" "$@"
+                ;;
+        esac
+    done
+    unset _loki_sp_a
+fi
+
+# Loki 10 engine (D29, the only engine from 11.0.0). Routes `loki "<task>"`,
+# `loki owner/repo#N`, `loki quick "<task>"`, `keys` and `verify --pubkey` to engine10.
+# shellcheck disable=SC2194
+case "v10" in
+    v10)
+        _e10=0
+        _e10_hard=0
+        _e10_args=("$@")
+        case "${1:-}" in
+            keys) _e10=1; _e10_hard=1 ;;
+            # SARIF-2: `export --sarif` has no bash implementation; it runs on bun only.
+            export)
+                for _sa in "$@"; do
+                    case "$_sa" in --sarif) _e10=1; _e10_hard=1; _e10_args=(export-sarif "${@:2}") ;; esac
+                done
+                unset _sa
+                ;;
+            status|verify|dashboard)
+                if [ "$1" = "verify" ]; then
+                    for _pk in "$@"; do
+                        case "$_pk" in --pubkey|--pubkey=*) _e10=1; _e10_hard=1 ;; esac
+                    done
+                    unset _pk
+                fi
+                # Bare `loki verify` follows the newest run: a v10 run newer than the newest
+                # legacy proof is verified by v10, so a FAILED default run is never VERIFIED.
+                # Only a bare call or a v10 run id (e10-*) goes there; any flag (--fast, --pr, --json, unknown) stays on legacy verify.
+                if [ "$1" = "verify" ] && [ "$_e10" = "0" ] && case "${2:-}" in ""|e10-*) true ;; *) false ;; esac; then
+                    _r10=""; _p10=""
+                    for _d in "${LOKI_DIR:-.loki}"/runs/e10-*/; do [ -d "$_d" ] && _r10="$_d"; done
+                    for _d in "${LOKI_DIR:-.loki}"/proofs/*/proof.json; do [ -f "$_d" ] && { [ -z "$_p10" ] || [ "$_d" -nt "$_p10" ]; } && _p10="$_d"; done
+                    if [ -n "$_r10" ] && { [ -z "$_p10" ] || [ "$_r10" -nt "$_p10" ]; }; then _e10=1; fi
+                    unset _r10 _p10 _d
+                fi
+                ;;
+            # SPEC-FIRST-INTENT: only `plan ... --spec` is a v10 command; every other plan call stays on the legacy CLI.
+            plan)
+                for _pa in "$@"; do
+                    [ "$_pa" = "--spec" ] && { _e10=1; _e10_hard=1; }
+                done
+                unset _pa
+                ;;
+            ""|-*) _e10=0 ;;
+            # quick: the lean small path, no PR (legacy quick never opened one). A flag-first
+            # call (--help, -v) stays on the legacy quick.
+            quick)
+                case "${2:-}" in
+                    ""|-*) _e10=0 ;;
+                    *) _e10=1; _e10_args=(--no-pr "${@:2}") ;;
+                esac
+                ;;
+            # D58: `loki start <issue ref|issue URL|"multi-word task">` takes the same v10 path as
+            # `loki <ref>`; any other start call (PRD file, flags first, one word) stays legacy.
+            start)
+                case "${2:-}" in
+                    */*\#[0-9]*|http*://*/issues/*|http*://*/browse/*|jira:*|linear:*|https://linear.app/*/issue/*|*" "*)
+                        _e10=1; _e10_args=("${@:2}")
+                        if [ "$_LOKI_START_ATTEMPTS" = "1" ]; then
+                            _e10_hard=1  # FC-38: --attempts never falls back to the legacy engine
+                            # FC-37: engine10 has no --budget; unmapped it would be glued onto the task text. Its per-run cap is --max-cost.
+                            _e10_args=(); _e10_bnext=0
+                            for _e10_a in "${@:2}"; do
+                                if [ "$_e10_bnext" = "1" ]; then _e10_args+=("$_e10_a"); _e10_bnext=0; continue; fi
+                                case "$_e10_a" in
+                                    --budget|--budget-limit) _e10_args+=(--max-cost); _e10_bnext=1 ;;
+                                    --budget=*|--budget-limit=*) _e10_args+=("--max-cost=${_e10_a#*=}") ;;
+                                    *) _e10_args+=("$_e10_a") ;;
+                                esac
+                            done
+                            unset _e10_a _e10_bnext
+                        fi
+                        ;;
+                    *) _e10=0 ;;
+                esac
+                ;;
+            # http*://*/issues/* also covers GitLab's /-/issues/ URLs.
+            */*\#[0-9]*|http*://*/issues/*|http*://*/browse/*|jira:*|linear:*|https://linear.app/*/issue/*) _e10=1 ;;
+            *" "*) _e10=1 ;;
+            # ponytail: a one-word argument stays on the legacy CLI. The telemetry
+            # allowlist is not a command registry (estimate, intent, outcomes are
+            # missing from it), so it cannot decide routing. Multi-word tasks and
+            # issue refs reach v10.
+            *) _e10=0 ;;
+        esac
+        # Default (unset) mode never breaks a host: no bun, or a provider engine10 has no
+        # invoker for, falls through to the legacy engine. Explicit v10 keeps its hard error.
+        if [ "$_e10" = "1" ] && [ "$_e10_hard" = "0" ]; then
+            case "${LOKI_PROVIDER:-claude}" in
+                claude|codex|cline|aider) ;;
+                *)
+                    _e10=0
+                    echo "loki: using the legacy engine (the Loki 10 engine does not support LOKI_PROVIDER=${LOKI_PROVIDER:-}; use claude, codex, cline or aider)." >&2
+                    ;;
+            esac
+            if [ "$_e10" = "1" ]; then
+                _lb=$(_loki_bun)
+                if [ -z "$_lb" ]; then
+                    _e10=0
+                    case "$(uname -s 2>/dev/null)" in
+                        Darwin) _os=darwin ;; Linux) _os=linux ;; MINGW*|MSYS*|CYGWIN*) _os=win32 ;; *) _os=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]') ;;
+                    esac
+                    case "$(uname -m 2>/dev/null)" in
+                        arm64|aarch64) _arch=aarch64 ;; x86_64|amd64) _arch=x64 ;; *) _arch=$(uname -m 2>/dev/null) ;;
+                    esac
+                    echo "loki: the Loki 10 engine cannot run on this machine: no working bun (none on PATH, and the bundled bun for ${_os}-${_arch} is $(_loki_bun_why)). Running the legacy engine instead. To fix: install bun from https://bun.sh, or reinstall loki-mode without --omit=optional." >&2
+                fi
+            fi
+        fi
+        if [ "$_e10" = "1" ]; then
+            _lb=$(_loki_bun)
+            [ -n "$_lb" ] || { echo "Error: the Loki 10 engine needs bun. Install bun from https://bun.sh." >&2; exit 1; }
+            exec "$_lb" "$BUN_CLI" engine10 "${_e10_args[@]}"
+        fi
+        unset _e10 _e10_args _e10_hard
+        ;;
+esac
+
+# Bun must be installed for the new path; if it isn't, fall through to bash
+# silently rather than fail. This keeps users on systems without Bun working.
+if ! command -v bun &>/dev/null; then
+    if [ "${1:-}" = "start" ] && [ "$_LOKI_START_ATTEMPTS" = "1" ]; then
+        echo "loki: 'loki start' runs the Loki 10 engine, which needs bun. Install bun from https://bun.sh. The legacy loop is not reachable from start." >&2
+        exit 1
+    fi
+    exec "$BASH_CLI" "$@"
+fi
+
+# v8 Phase 4: route `start` to the Bun RARV loop ONLY when LOKI_SDK_LOOP is on.
+# Default (unset) keeps `loki start` on the bash cmd_start, byte-identical. This
+# guard is AFTER the legacy check (LOKI_LEGACY_BASH=1 still force-overrides to
+# bash above) and AFTER the bun-presence check (a bun-less host already fell to
+# bash). Accepts 1|true to match the flag's documented =1 usage; bash cannot
+# cheaply reproduce truthy()'s yes/on spellings, so those are not honored here
+# (documented divergence, same as other bin/loki bool guards). v8.1: LOKI_SDK_LOOP
+# may also be set by the mode resolver above (LOKI_SDK_MODE=full -> LOOP=1), so
+# `LOKI_SDK_MODE=full loki start` now correctly routes the loop to Bun here.
+#
+# RUN-25 iter 2 (T3(c) pre-flight): the Bun runAutonomous loop handles the RARV
+# loop only. Orchestration flags that do pre-loop work the Bun loop does NOT do
+# (git-worktree parallel streams, GitHub/issue import, Docker sandbox, the API
+# server, backgrounding, alternate spec sources) must run on the bash route so the
+# user gets FULL behavior even with the loop flag on. Scan the start args for any
+# such flag (or an issue-ref positional) and, if present, DIVERT back to bash
+# instead of taking the Bun fork. This is the "pre-loop handled, not rejected"
+# guarantee that makes the eventual loop default-flip a no-regression. Runner
+# flags (--simple, --allow-haiku, --regen-prd, --skip-memory, provider knobs) are
+# handled by start.ts and do NOT divert. See artifacts/ITER1-FLAG-RECONCILE.md.
+# FC-38 (scoped to --attempts; plain start keeps the 11.3.0 routing below): no `start --attempts` reaches the legacy loop (bash cmd_start, run.sh, runAutonomous).
+# Issue refs and multi-word tasks were sent to engine10 above; every other start (PRD path, brief,
+# flags) goes to the Bun start command, which runs engine10 and seals a receipt. A flag only the
+# legacy route honored, or a provider engine10 cannot invoke, is refused loudly instead.
+if [ "${1:-}" = "start" ] && [ "$_LOKI_START_ATTEMPTS" = "1" ]; then
+    _loki_attempts_refuse "${@:2}"
+    exec bun "$BUN_CLI" "$@"
+fi
+if [ "${1:-}" = "start" ] && { [ "${LOKI_SDK_LOOP:-}" = "1" ] || [ "${LOKI_SDK_LOOP:-}" = "true" ]; }; then
+    if _loki_start_needs_bash "${@:2}"; then
+        exec "$BASH_CLI" "$@"
+    fi
+    exec bun "$BUN_CLI" "$@"
+fi
+
+# CLI consolidation (Phase A): `trust detail` is the grouped form of the
+# trust-metrics breakdown. The Bun `trust` handler only knows the trajectory
+# view (it rejects unknown args), and Phase A moves no handler logic, so the
+# `detail` subcommand lives only in bash (cmd_trust -> cmd_trust_metrics).
+# Force the bash route whenever `detail` appears as a trust arg (flag-anywhere:
+# `trust detail`, `trust --json detail`, `trust detail --json` all resolve
+# identically to the bash `trust-metrics` breakdown). Without this, only the
+# exact `trust detail` order routed to bash and `trust --json detail` hit the
+# Bun handler, which rejected `detail` to stderr while bash rejects to stdout --
+# divergent error channels for the same malformed input. Bare `trust` /
+# `trust --json` (no `detail`) stay on the Bun-native trajectory path above.
+if [ "${1:-}" = "trust" ]; then
+    for _trust_arg in "${@:2}"; do
+        if [ "$_trust_arg" = "detail" ]; then
+            exec "$BASH_CLI" "$@"
+        fi
+    done
+fi
+
+# `doctor --airgap` (egress audit) lives only in bash (_loki_airgap_audit).
+# The Bun doctor rejected the flag, so the default route had no audit at all.
+# Routed here, flag-anywhere, so the committed dist needs no rebuild and bash
+# stays the single implementation; bash main() fires the one cli_command event.
+if [ "${1:-}" = "doctor" ]; then
+    for _doctor_arg in "${@:2}"; do
+        if [ "$_doctor_arg" = "--airgap" ]; then
+            exec "$BASH_CLI" "$@"
+        fi
+    done
+    # FC-DUP: bun is the single doctor. A crashing or missing Bun route must not
+    # leave the user with a stack trace and no verdict, so preflight it here and
+    # fall to bash, whose cmd_doctor prints the minimal diagnostic and exits 1.
+    # Uses the _loki_bun resolver (PATH, then @oven/bun-*), not bare `command -v`.
+    _doctor_bun="$(_loki_bun)"
+    if [ -z "$_doctor_bun" ] || [ -z "${BUN_CLI:-}" ]; then
+        exec "$BASH_CLI" "$@"
+    fi
+    _doctor_t=$(command -v timeout || command -v gtimeout || true)
+    if [ -n "$_doctor_t" ]; then
+        "$_doctor_t" -k 1 5 "$_doctor_bun" "$BUN_CLI" version >/dev/null 2>&1 || exec "$BASH_CLI" "$@"
+    else
+        "$_doctor_bun" "$BUN_CLI" version >/dev/null 2>&1 || exec "$BASH_CLI" "$@"
+    fi
+fi
+
+# CLI consolidation (Phase B): `report kpis` is the canonical form of the
+# Bun-only KPI snapshot. The `report` noun is otherwise bash-owned (every other
+# subcommand -- session/metrics/cost/export/share/dogfood -- routes to bash
+# cmd_report), so it is NOT in the Bun allowlist below. But kpis has no bash
+# implementation (it reuses the canonical cost arithmetic in runner/budget.ts),
+# so the canonical `report kpis` must reach the Bun handler -- otherwise the
+# canonical form would print the honest "requires Bun" message on a Bun machine
+# while the deprecated `kpis` alias actually worked, inverting the deprecation.
+# Route `report kpis` to Bun when `kpis` is the report SUBCOMMAND, i.e. the FIRST
+# non-flag token after `report`. This satisfies `report kpis`, `report kpis
+# --json`, and `report --json kpis` (the flag-anywhere orderings the trust-detail
+# precedent established), while NOT hijacking `kpis` when it appears as a
+# positional VALUE of a different report subcommand. `report export json kpis`
+# (kpis = the export output filename) must keep working exactly as on main
+# (v7.31.0): exit 0, file `kpis` created. So we scan past leading flags, take the
+# first real token, and only route to Bun if it is literally `kpis`. Fire the
+# same cli_command telemetry the Bun case-arm below fires (command=report), so a
+# Bun-routed `report kpis` is not invisible to usage analytics (the v7.8.2 parity
+# the case-arm comment documents). Backgrounded, FD-detached, opt-out honored by
+# loki_telemetry itself.
+if [ "${1:-}" = "report" ]; then
+    _report_first_sub=""
+    for _report_arg in "${@:2}"; do
+        case "$_report_arg" in
+            -*) continue ;;
+            *) _report_first_sub="$_report_arg"; break ;;
+        esac
+    done
+    if [ "$_report_first_sub" = "kpis" ]; then
+        if command -v curl &>/dev/null && [ -f "$REPO_ROOT/autonomy/telemetry.sh" ]; then
+            # Disclose once before egress if collection is genuinely enabled
+            # (covers the case where a cli_command is the first ENABLED egress,
+            # e.g. first run was CI/auto-off so .loki-first-run is already set).
+            # AC3: foreground gate evaluation (no FD detach) so the exported
+            # LOKI_TTY_INTERACTIVE signal / real TTY drives the verdict.
+            if ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null \
+                 && declare -f _loki_telemetry_enabled >/dev/null 2>&1 && _loki_telemetry_enabled ); then
+                _loki_disclose_telemetry_once
+            fi
+            ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null && loki_telemetry "cli_command" "command=$(_loki_known_command "${1:-}")" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
+            disown 2>/dev/null || true
+        fi
+        exec bun "$BUN_CLI" "$@"
+    fi
+fi
+
+# Commands ported in Phase 2 -- route to Bun. Everything else goes to bash.
+# Two-token routes (provider show/list, memory list/index) match on the first
+# token only; the Bun dispatcher handles subcommand routing internally.
+case "${1:-}" in
+    version|--version|-v|status|stats|doctor|provider|memory|rollback|internal|kpis|trust|proof|receipt|wiki|crash|control|contract|slack|queue|issues|answer|undo|verify-pr|completion|__complete)
+        # v7.5.2: rollback added (wires loki-ts/src/commands/rollback.ts).
+        # v7.5.3: internal added for autonomy/run.sh phase1-hooks calls.
+        # v7.5.28: kpis added (Phase K MVP: read-only KPI snapshot).
+        # R4: trust added (visible trust trajectory; Bun route, bash fallback).
+        # crash added (Crash Reporting Phase 0: inspect/manually submit local
+        # scrubbed crash reports; Bun route, bash fallback).
+        #
+        # v7.8.2: emit the cli_command product-analytics event for Bun-routed
+        # commands. The bash CLI fires this from autonomy/loki main(), but the
+        # ported commands above bypass main() entirely, so Bun-routed
+        # invocations were invisible to usage analytics. Fire it here, before
+        # the exec, so it covers every Bun command exactly once (no
+        # double-count: the bash route still emits its own copy in main()).
+        # Fire-and-forget, backgrounded, opt-out honored by loki_telemetry
+        # itself (LOKI_TELEMETRY_DISABLED / DO_NOT_TRACK). The command token is
+        # the subcommand name only -- never args, flags, or paths.
+        if command -v curl &>/dev/null && [ -f "$REPO_ROOT/autonomy/telemetry.sh" ]; then
+            # Detach all three FDs (</dev/null >/dev/null 2>&1) so the
+            # backgrounded subshell does not inherit and hold this shim's
+            # stdout/stderr/stdin open. Without this, the lingering FD changed
+            # pipe-teardown timing and produced a macOS-only broken-pipe in the
+            # shim-route CLI test harness (v7.8.2 -> fixed v7.8.3).
+            # Disclose once before egress if collection is genuinely enabled
+            # (first ENABLED egress may be a cli_command, not installed).
+            # AC3: foreground gate evaluation (no FD detach) so the exported
+            # LOKI_TTY_INTERACTIVE signal / real TTY drives the verdict.
+            if ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null \
+                 && declare -f _loki_telemetry_enabled >/dev/null 2>&1 && _loki_telemetry_enabled ); then
+                _loki_disclose_telemetry_once
+            fi
+            ( SCRIPT_DIR="$REPO_ROOT/autonomy"; source "$SCRIPT_DIR/telemetry.sh" 2>/dev/null && loki_telemetry "cli_command" "command=$(_loki_known_command "${1:-}")" 2>/dev/null ) >/dev/null 2>&1 </dev/null &
+            disown 2>/dev/null || true
+        fi
+        exec bun "$BUN_CLI" "$@"
+        ;;
+    *)
+        exec "$BASH_CLI" "$@"
+        ;;
+esac
