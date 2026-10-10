@@ -1,0 +1,146 @@
+---
+title: "Modes & Languages"
+description: "Configure Claude-Mem behavior and language with the Mode System"
+---
+
+# Modes & Languages
+
+Claude-Mem uses a flexible **Mode System** to adapt its behavior, observation types, and output language. This allows you to switch between different workflows (like coding vs. email investigation) or languages without reinstalling the plugin.
+
+## What is a Mode?
+
+A "mode" is a configuration profile that defines:
+1.  **Observer Role**: How Claude should analyze your work (e.g., "Software Engineer" vs. "Forensic Analyst").
+2.  **Observation Types**: Valid categories for memory (e.g., "Bug Fix", "Feature" vs. "Person", "Organization").
+3.  **Concepts**: Semantic tags for indexing (e.g., "Pattern", "Trade-off").
+4.  **Language**: The language used for generating observations and summaries.
+
+## Configuration
+
+Set the active mode using the `CLAUDE_MEM_MODE` setting in `~/.claude-mem/settings.json`:
+
+```json
+{
+  "CLAUDE_MEM_MODE": "code--es"
+}
+```
+
+Or via environment variable:
+
+```bash
+export CLAUDE_MEM_MODE="code--fr"
+```
+
+The active mode is shown in the startup context injected into each new session, for example:
+
+```text
+Mode: Code Development (code)
+```
+
+## Creating a Custom Mode
+
+Run `/mode-creator` to design a domain-specific note system through an interactive interview. It helps choose observation types and concept tags, writes and validates the mode, installs it under `~/.claude-mem/modes/`, activates it, optionally configures Telegram alerts, restarts the worker, and verifies the active mode in startup context.
+
+Custom modes in the data directory are durable across plugin upgrades. The worker searches user modes before bundled modes, while inherited custom modes can still use a bundled parent such as `code`:
+
+```text
+~/.claude-mem/modes/code--architecture-practice.json
+```
+
+Avoid editing files inside the plugin cache because a plugin update can replace them.
+
+## Telegram alerts and session wrap-ups
+
+Telegram has two separate delivery paths. A session wrap-up sends the latest stored session summary once the Claude Code session ends. Per-observation alerts are real-time notifications for matching observation types or concepts; they are now disabled by default, even when Telegram itself is enabled.
+
+Configure the new settings as strings in `~/.claude-mem/settings.json`:
+
+- `CLAUDE_MEM_TELEGRAM_WRAPUPS_ENABLED` defaults to `"true"`, but no wrap-up can be sent until a route is configured.
+- `CLAUDE_MEM_TELEGRAM_OBSERVATION_ALERTS_ENABLED` defaults to `"false"`; set it to `"true"` only when you want the existing `CLAUDE_MEM_TELEGRAM_TRIGGER_TYPES` or `CLAUDE_MEM_TELEGRAM_TRIGGER_CONCEPTS` alerts to resume.
+- `CLAUDE_MEM_TELEGRAM_WRAPUP_ROUTES` defaults to `"{}"` and contains a JSON object keyed by project name.
+
+For example, use this route object as the value of `CLAUDE_MEM_TELEGRAM_WRAPUP_ROUTES`:
+
+```json
+{
+  "claude-mem": {
+    "chat_id": "-1001234567890",
+    "bot_token": "optional override",
+    "key": "optional route label"
+  }
+}
+```
+
+A route needs a `chat_id`; its `bot_token` can override `CLAUDE_MEM_TELEGRAM_BOT_TOKEN`, and `key` is an optional route label. `CLAUDE_MEM_TELEGRAM_ENABLED` remains the master switch for both paths. Route lookup first matches the project name exactly, then the parent name before the first `/` for worktrees. If neither route exists, claude-mem logs `No wrap-up route for project` and does not send anything—there is never a fallback to `CLAUDE_MEM_TELEGRAM_CHAT_ID` for a wrap-up.
+
+## Available Modes
+
+### Code Mode (Default)
+The standard mode for software development. Captures bug fixes, features, refactors, and architectural decisions.
+
+**ID:** `code`
+
+### Code Mode Variants
+
+Behavioral variants that change how the code mode operates:
+
+| Variant | Mode ID | Description |
+|---------|---------|-------------|
+| **Chill** | `code--chill` | Produces fewer observations. Only records things "painful to rediscover" - shipped features, architectural decisions, and non-obvious gotchas. Skips routine work and obvious changes. |
+
+### Multilingual Code Modes
+Inherits all behavior from Code Mode but instructs Claude to generate **all** memory artifacts (titles, narratives, facts, summaries) in the target language.
+
+| Language | Mode ID | Native Name |
+|----------|---------|-------------|
+| **Arabic** | `code--ar` | العربية |
+| **Bengali** | `code--bn` | বাংলা |
+| **Chinese** | `code--zh` | 中文 |
+| **Czech** | `code--cs` | Čeština |
+| **Danish** | `code--da` | Dansk |
+| **Dutch** | `code--nl` | Nederlands |
+| **Finnish** | `code--fi` | Suomi |
+| **French** | `code--fr` | Français |
+| **German** | `code--de` | Deutsch |
+| **Greek** | `code--el` | Ελληνικά |
+| **Hebrew** | `code--he` | עברית |
+| **Hindi** | `code--hi` | हिन्दी |
+| **Hungarian** | `code--hu` | Magyar |
+| **Indonesian** | `code--id` | Bahasa Indonesia |
+| **Urdu** | `code--ur` | اردو |
+| **Italian** | `code--it` | Italiano |
+| **Japanese** | `code--ja` | 日本語 |
+| **Korean** | `code--ko` | 한국어 |
+| **Norwegian** | `code--no` | Norsk |
+| **Polish** | `code--pl` | Polski |
+| **Portuguese (Brazil)** | `code--pt-br` | Português Brasileiro |
+| **Romanian** | `code--ro` | Română |
+| **Russian** | `code--ru` | Русский |
+| **Spanish** | `code--es` | Español |
+| **Swedish** | `code--sv` | Svenska |
+| **Thai** | `code--th` | ภาษาไทย |
+| **Turkish** | `code--tr` | Türkçe |
+| **Ukrainian** | `code--uk` | Українська |
+| **Vietnamese** | `code--vi` | Tiếng Việt |
+
+### Email Investigation Mode
+A specialized mode for analyzing email dumps (e.g., FOIA releases, corporate archives). Focuses on identifying entities, relationships, timeline events, and key topics.
+
+**ID:** `email-investigation`
+
+**Observation Types:**
+- `entity`: Person, organization, or email address
+- `relationship`: Connection between entities
+- `timeline-event`: Time-stamped event in communication sequence
+- `evidence`: Supporting documentation or proof
+- `anomaly`: Suspicious pattern or irregularity
+- `conclusion`: Investigative finding or determination
+
+## Mode Inheritance
+
+The system supports inheritance using the `--` separator. For example, `code--es` means:
+1.  Load `code` (Parent) configuration.
+2.  Load `code--es` (Child) configuration.
+3.  Merge Child into Parent (Child overrides).
+
+This allows for lightweight "remix" modes that only change specific aspects (like the language prompt) while keeping the core definitions intact.

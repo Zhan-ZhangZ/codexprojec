@@ -1,0 +1,182 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Claude-Mem",
+  "description": "Persistent memory compression system that preserves context across Claude Code sessions",
+  "theme": "mint",
+  "favicon": "/claude-mem-logomark.webp",
+  "logo": {
+    "light": "/claude-mem-logo-for-light-mode.webp",
+    "dark": "/claude-mem-logo-for-dark-mode.webp",
+    "href": "https://github.com/thedotmack/claude-mem"
+  },
+  "colors": {
+    "primary": "#3B82F6",
+    "light": "#EFF6FF",
+    "dark": "#1E40AF"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/thedotmack/claude-mem"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Install",
+      "href": "https://github.com/thedotmack/claude-mem#quick-start"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "icon": "rocket",
+        "pages": [
+          "introduction",
+          "installation",
+          "t3code-integration",
+          "usage/getting-started",
+          "usage/openrouter-provider",
+          "usage/gemini-provider",
+          "usage/openai-compatible-provider",
+          "usage/multi-key-rotation",
+          "usage/quota-fallback",
+          "usage/search-tools",
+          "usage/knowledge-agents",
+          "usage/claude-desktop",
+          "usage/private-tags",
+          "usage/auto-redaction",
+          "usage/export-import",
+          "usage/memory-ingest",
+          "usage/manual-recovery",
+          "usage/folder-context"
+        ]
+      },
+      {
+        "group": "Cursor Integration",
+        "icon": "wand-magic-sparkles",
+        "pages": [
+          "cursor/index",
+          "cursor/gemini-setup",
+          "cursor/openrouter-setup"
+        ]
+      },
+      {
+        "group": "Grok Bot Integration",
+        "icon": "robot",
+        "pages": [
+          "grok-bot/index"
+        ]
+      },
+      {
+        "group": "Antigravity CLI Integration",
+        "icon": "terminal",
+        "pages": [
+          "antigravity-cli/setup"
+        ]
+      },
+      {
+        "group": "Best Practices",
+        "icon": "lightbulb",
+        "pages": [
+          "context-engineering",
+          "progressive-disclosure",
+          "file-read-gate",
+          "smart-explore-benchmark"
+        ]
+      },
+      {
+        "group": "Configuration & Development",
+        "icon": "gear",
+        "pages": [
+          "configuration",
+          "configuration/litellm-gateway",
+          "configuration/custom-anthropic-backends",
+          "modes",
+          "telemetry",
+          "development",
+          "branches",
+          "troubleshooting",
+          "platform-integration",
+          "openclaw-integration",
+          "kimi-integration"
+        ]
+      },
+      {
+        "group": "Hosted Server",
+        "icon": "cloud",
+        "pages": [
+          "hosted-server",
+          "cloud-sync",
+          "cmem-pro-headless"
+        ]
+      },
+      {
+        "group": "Architecture",
+        "icon": "diagram-project",
+        "pages": [
+          "architecture/overview",
+          "architecture-evolution",
+          "hooks-architecture",
+          "architecture/hooks",
+          "architecture/worker-service",
+          "architecture/database",
+          "architecture/search-architecture",
+          "architecture/pm2-to-bun-migration"
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/thedotmack/claude-mem"
+    },
+    "links": [
+      {
+        "header": "Resources",
+        "items": [
+          {
+            "label": "Documentation",
+            "href": "https://github.com/thedotmack/claude-mem"
+          },
+          {
+            "label": "Issues",
+            "href": "https://github.com/thedotmack/claude-mem/issues"
+          }
+        ]
+      },
+      {
+        "header": "Legal",
+        "items": [
+          {
+            "label": "License (Apache-2.0)",
+            "href": "https://github.com/thedotmack/claude-mem/blob/main/LICENSE"
+          }
+        ]
+      }
+    ]
+  },
+  "seo": {
+    "indexing": "all",
+    "metatags": {
+      "og:type": "website",
+      "og:site_name": "Claude-Mem Documentation",
+      "og:description": "Persistent memory compression system that preserves context across Claude Code sessions"
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "cursor"
+    ]
+  },
+  "integrations": {
+    "telemetry": {
+      "enabled": false
+    }
+  }
+}

@@ -1,0 +1,204 @@
+import { logger } from '../../utils/logger.js';
+import type { FieldSpec, MatchRule, TranscriptSchema, WatchTarget } from './types.js';
+
+interface ResolveContext {
+  watch: WatchTarget;
+  schema: TranscriptSchema;
+  session?: Record<string, unknown>;
+}
+
+function parsePath(path: string): Array<string | number> {
+  const cleaned = path.trim().replace(/^\$\.?/, '');
+  if (!cleaned) return [];
+
+  const tokens: Array<string | number> = [];
+  const parts = cleaned.split('.');
+
+  for (const part of parts) {
+    const regex = /([^[\]]+)|\[(\d+)\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(part)) !== null) {
+      if (match[1]) {
+        tokens.push(match[1]);
+      } else if (match[2]) {
+        tokens.push(parseInt(match[2], 10));
+      }
+    }
+  }
+
+  return tokens;
+}
+
+export function getValueByPath(input: unknown, path: string): unknown {
+  if (!path) return undefined;
+  const tokens = parsePath(path);
+  let current: any = input;
+
+  for (const token of tokens) {
+    if (current === null || current === undefined) return undefined;
+    current = current[token as any];
+  }
+
+  return current;
+}
+
+function isEmptyValue(value: unknown): boolean {
+  return value === undefined || value === null || value === '';
+}
+
+function resolveFromContext(path: string, ctx: ResolveContext): unknown {
+  if (path.startsWith('$watch.')) {
+    const key = path.slice('$watch.'.length);
+    return (ctx.watch as any)[key];
+  }
+  if (path.startsWith('$schema.')) {
+    const key = path.slice('$schema.'.length);
+    return (ctx.schema as any)[key];
+  }
+  if (path.startsWith('$session.')) {
+    const key = path.slice('$session.'.length);
+    return ctx.session ? (ctx.session as any)[key] : undefined;
+  }
+  if (path === '$cwd') return ctx.watch.workspace;
+  if (path === '$project') return ctx.watch.project;
+  return undefined;
+}
+
+export function resolveFieldSpec(
+  spec: FieldSpec | undefined,
+  entry: unknown,
+  ctx: ResolveContext
+): unknown {
+  if (spec === undefined) return undefined;
+
+  if (typeof spec === 'string') {
+    const fromContext = resolveFromContext(spec, ctx);
+    if (fromContext !== undefined) return fromContext;
+    return getValueByPath(entry, spec);
+  }
+
+  if (spec.coalesce && Array.isArray(spec.coalesce)) {
+    for (const candidate of spec.coalesce) {
+      const value = resolveFieldSpec(candidate, entry, ctx);
+      if (!isEmptyValue(value)) return value;
+    }
+  }
+
+  if (spec.path) {
+    const fromContext = resolveFromContext(spec.path, ctx);
+    if (fromContext !== undefined) return fromContext;
+    const value = getValueByPath(entry, spec.path);
+    if (!isEmptyValue(value)) return value;
+  }
+
+  if (spec.value !== undefined) return spec.value;
+
+  if (spec.default !== undefined) return spec.default;
+
+  return undefined;
+}
+
+export function resolveFields(
+  fields: Record<string, FieldSpec> | undefined,
+  entry: unknown,
+  ctx: ResolveContext
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  if (!fields) return resolved;
+
+  for (const [key, spec] of Object.entries(fields)) {
+    resolved[key] = resolveFieldSpec(spec, entry, ctx);
+  }
+
+  return resolved;
+}
+
+export function matchesRule(
+  entry: unknown,
+  rule: MatchRule | undefined,
+  schema: TranscriptSchema
+): boolean {
+  if (!rule) return true;
+
+  // Every operator below is applied to the ONE value `rule.path` selects, so a
+  // single rule cannot constrain one field by another. `all`/`any` evaluate
+  // sub-rules that each carry their own path, which is what makes a rule like
+  // "role == user AND the content is not an injected preamble" expressible
+  // (#4211). Evaluated before the single-path operators so a nested rule is
+  // decided on its own terms, and so nesting composes.
+  // A malformed composite (an object where a list belongs) is a config typo, and
+  // silently ignoring it would turn a filter into a no-op - the exact failure a
+  // schema author is trying to prevent. Fail closed instead: the event does not
+  // match, so the typo is visible rather than quietly widening ingestion.
+  if (rule.all !== undefined) {
+    if (!Array.isArray(rule.all)) return false;
+    for (const subRule of rule.all) {
+      if (!matchesRule(entry, subRule, schema)) return false;
+    }
+  }
+
+  if (rule.any !== undefined) {
+    if (!Array.isArray(rule.any)) return false;
+    if (!rule.any.some(subRule => matchesRule(entry, subRule, schema))) return false;
+  }
+
+  const path = rule.path || schema.eventTypePath || 'type';
+  const value = path ? getValueByPath(entry, path) : undefined;
+  const isAbsent = value === undefined || value === null || value === '';
+
+  // Every operator present on the rule must pass (logical AND). This lets a
+  // single rule combine positive and negative conditions (e.g. match a tool
+  // event but exclude guardian/subagent sessions via `not_equals`/`not_in`).
+  if (rule.exists !== undefined) {
+    // exists:true → field must be present; exists:false → field must be absent.
+    if (rule.exists && isAbsent) return false;
+    if (!rule.exists && !isAbsent) return false;
+  }
+
+  if (rule.equals !== undefined) {
+    if (value !== rule.equals) return false;
+  }
+
+  if (rule.not_equals !== undefined) {
+    if (value === rule.not_equals) return false;
+  }
+
+  if (rule.in && Array.isArray(rule.in)) {
+    if (!rule.in.includes(value)) return false;
+  }
+
+  if (rule.not_in && Array.isArray(rule.not_in)) {
+    if (rule.not_in.includes(value)) return false;
+  }
+
+  if (rule.contains !== undefined) {
+    if (typeof value !== 'string' || !value.includes(rule.contains)) return false;
+  }
+
+  if (rule.not_contains !== undefined) {
+    if (typeof value === 'string' && value.includes(rule.not_contains)) return false;
+  }
+
+  // Literal prefix tests. `not_contains` cannot tell a host-injected preamble
+  // apart from a user who merely mentions the marker somewhere in their
+  // message, and rejecting the latter silently drops a real prompt (#4211).
+  if (rule.starts_with !== undefined) {
+    if (typeof value !== 'string' || !value.startsWith(rule.starts_with)) return false;
+  }
+
+  if (rule.not_starts_with !== undefined) {
+    if (typeof value === 'string' && value.startsWith(rule.not_starts_with)) return false;
+  }
+
+  if (rule.regex) {
+    try {
+      const regex = new RegExp(rule.regex);
+      if (!regex.test(String(value ?? ''))) return false;
+    } catch (error: unknown) {
+      logger.debug('WORKER', 'Invalid regex in match rule', { regex: rule.regex }, error instanceof Error ? error : undefined);
+      return false;
+    }
+  }
+
+  return true;
+}

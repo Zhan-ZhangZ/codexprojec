@@ -1907,5 +1907,92 @@
       "ui",
       "multi-skill"
     ]
+  },
+  {
+    "name": "claude-hud",
+    "description": "Claude Code 实时状态栏 HUD（Agent Skills Hub 场景实测首选）。TypeScript 编写，在终端 statusline 常驻显示会话/成本/token/git 上下文等信息，npm 一键安装，支持自定义组件与主题。Leading Words: Claude Code状态栏, statusline HUD, 会话成本监控, 终端仪表盘, claude hud",
+    "category": "07_智能体框架与协同",
+    "folder": "claude-hud",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-hud",
+    "aliases": [
+      "Claude Code HUD",
+      "状态栏"
+    ]
+  },
+  {
+    "name": "claude-mem",
+    "description": "Claude Code 记忆层（Agent Skills Hub 场景实测首选）。自动压缩并持久化每次会话到 SQLite，跨会话召回上下文；含 plugin 完整运行时、skills 子技能、Cursor/Cowork 集成与使用文档。Leading Words: Claude Code记忆, 会话持久化, 跨会话上下文, SQLite记忆层, claude mem",
+    "category": "07_智能体框架与协同",
+    "folder": "claude-mem",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-mem",
+    "aliases": [
+      "Claude Code 记忆",
+      "会话记忆"
+    ]
+  },
+  {
+    "name": "obsidian-skills",
+    "description": "Obsidian 官方 Agent Skills 套件（kepano 出品，Agent Skills Hub 场景实测首选）。6 个子技能：defuddle 网页正文提取、json-canvas 画布格式、knap 快照快照调度、obsidian-bases 多库管理、obsidian-cli 官方 CLI、obsidian-markdown 链接与元数据规范；Obsidian 插件市场可一键安装。Leading Words: Obsidian官方技能, 笔记库自动化, json canvas, obsidian cli, 双链笔记, 知识管理",
+    "category": "03_效率工具与协同管理",
+    "folder": "obsidian-skills",
+    "relative_path": "./00_全局大管家/03_效率工具与协同管理/obsidian-skills",
+    "aliases": [
+      "Obsidian 官方技能",
+      "obsidian"
+    ]
+  },
+  {
+    "name": "open-code-review",
+    "description": "阿里巴巴开源混合架构代码评审工具（Agent Skills Hub 场景实测首选，★45.5k）。确定性流水线 + LLM Agent 双层：精确规则先行、低噪声，SWR-Bench 实测领先；Go 单二进制 + GitHub Action + VSCode/IDEA 扩展，另含 open-code-review/open-code-review-delegate 两个 Agent 技能。Leading Words: 代码评审, PR review, AI审阅, 混合架构, SWR-Bench, 低噪声评审, open code review",
+    "category": "01_代码工程与架构",
+    "folder": "open-code-review",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/open-code-review",
+    "aliases": [
+      "OpenCodeReview",
+      "阿里代码评审"
+    ]
+  },
+  {
+    "name": "Mole",
+    "description": "tw93 出品的 AI 命令行编码智能体网关（Agent Skills Hub 场景实测首选）。任意 CLI AI 编码工具（Claude Code/Gemini CLI/Codex 等）经 Mole 获得：上下文一键引入、多会话项目管理、后台任务、fork 快捷键等增强；Go 单二进制，八语 README。Leading Words: AI编码网关, CLI智能体增强, 上下文引入, 多会话管理, mole",
+    "category": "01_代码工程与架构",
+    "folder": "Mole",
+    "relative_path": "./00_全局大管家/01_代码工程与架构/Mole",
+    "aliases": [
+      "mole",
+      "AI编码网关"
+    ]
+  },
+  {
+    "name": "claude-code-best-practice",
+    "description": "Claude Code 最佳实践知识库（Agent Skills Hub 场景实测首选）。覆盖 CLI 启动参数、commands、MCP、memory、subagents、agent-teams、开发工作流、编排工作流与 Boris 实战 tips 系列，按主题分层可检索。Leading Words: Claude Code最佳实践, 智能体工作流, 子代理编排, agent teams, 提示工程实战",
+    "category": "07_智能体框架与协同",
+    "folder": "claude-code-best-practice",
+    "relative_path": "./00_全局大管家/07_智能体框架与协同/claude-code-best-practice",
+    "aliases": [
+      "Claude Code 最佳实践"
+    ]
+  },
+  {
+    "name": "ian-xiaohei-illustrations",
+    "description": "Ian 小黑怪诞中文正文配图技能（Agent Skills Hub image-generation/codex-skills 双榜 Top2）。为中文文章/帖子/文档生成纯白手绘小黑 IP 插图，少量红橙蓝批注，简洁清爽而天马行空；支持配图建议、shot list、去标题改图。Leading Words: 小黑配图, 中文文章插图, 手绘IP, 正文配图, 怪诞插图, ian xiaohei",
+    "category": "05_多媒体与设计资产",
+    "folder": "ian-xiaohei-illustrations",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/ian-xiaohei-illustrations",
+    "aliases": [
+      "小黑配图",
+      "Ian插图"
+    ]
+  },
+  {
+    "name": "marketingskills",
+    "description": "AI Agent 营销技能集（Agent Skills Hub 场景实测首选，50 个子技能）。覆盖 A/B 测试、广告素材、AI-SEO、分析归因、冷邮件、社区营销、竞品画像、留存挽回等增长工程全链路；兼容 Agent Skills 规范（Claude Code/Codex/Cursor 等），含 tools 营销账号连接工作流。Leading Words: 营销技能集, 增长工程, 转化优化, AI SEO, 冷邮件, 营销自动化",
+    "category": "04_内容创作与文档处理",
+    "folder": "marketingskills",
+    "relative_path": "./00_全局大管家/04_内容创作与文档处理/marketingskills",
+    "aliases": [
+      "营销技能",
+      "marketing skills"
+    ]
   }
 ]

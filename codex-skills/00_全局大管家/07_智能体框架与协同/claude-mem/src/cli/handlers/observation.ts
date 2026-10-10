@@ -1,0 +1,122 @@
+// IO discipline (see src/shared/hook-io.ts): this handler is PURE. It returns a
+// HookResult and MUST NOT call process.stderr.write / process.stdout.write /
+// console.* / process.exit. logger.* calls are DIAGNOSTIC; thrown errors are
+// caught by hookCommand, logged, and answered with a no-op (never exit 2).
+import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
+import { spoolHookEvent } from '../spool-hook-event.js';
+import { logger } from '../../utils/logger.js';
+import { redactForLog } from '../../utils/redaction.js';
+import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
+import { shouldTrackProject } from '../../shared/should-track-project.js';
+import { shouldSkipAgentObservation } from '../../shared/should-skip-agent-observation.js';
+import { loadFromFileOnce } from '../../shared/hook-settings.js';
+import { normalizePlatformSource } from '../../shared/platform-source.js';
+import { resolveRuntimeContext, logServerFallback } from '../../services/hooks/runtime-selector.js';
+import { isServerClientError, type ServerRecordEventRequest } from '../../services/hooks/server-client.js';
+import { isRecursiveMemoryTool, isExplicitMemoryWrite } from '../../shared/memory-retrieval-tools.js';
+
+function spoolObservation(input: NormalizedHookInput, platformSource: string): HookResult {
+  spoolHookEvent('observation', {
+    contentSessionId: input.sessionId,
+    platformSource,
+    toolName: input.toolName!,
+    toolInput: input.toolInput,
+    toolResponse: input.toolResponse,
+    cwd: input.cwd,
+    agentId: input.agentId,
+    agentType: input.agentType,
+    toolUseId: input.toolUseId,
+  });
+  return { continue: true, suppressOutput: true };
+}
+
+export const observationHandler: EventHandler = {
+  async execute(input: NormalizedHookInput): Promise<HookResult> {
+    const { sessionId, cwd, toolName, toolInput, toolResponse } = input;
+    const platformSource = normalizePlatformSource(input.platform);
+
+    if (!toolName) {
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
+
+    if (isRecursiveMemoryTool(toolName)) {
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
+
+    // A Bash command line or URL can carry a secret; logs get the redacted form.
+    const toolStr = redactForLog(logger.formatTool(toolName, toolInput));
+
+    logger.dataIn('HOOK', `PostToolUse: ${toolStr}`, {});
+
+    if (!cwd) {
+      throw new Error(`Missing cwd in PostToolUse hook input for session ${sessionId}, tool ${toolName}`);
+    }
+
+    if (!shouldTrackProject(cwd)) {
+      logger.debug('HOOK', 'Project excluded from tracking, skipping observation', { cwd, toolName });
+      return { continue: true, suppressOutput: true };
+    }
+
+    // #2736 — drop subagent observations BEFORE any worker HTTP call or provider
+    // request. Placed ahead of the runtime branch so it covers both the worker
+    // and server runtimes. Saves the round-trip and the provider tokens, and
+    // prevents Dynamic Workflows fan-out from exhausting provider quota.
+    const skip = shouldSkipAgentObservation(input.agentId, input.agentType, loadFromFileOnce());
+    if (skip.skip) {
+      logger.debug('HOOK', `Skipping observation: ${skip.reason}`, {
+        toolName,
+        agentId: input.agentId,
+        agentType: input.agentType,
+      });
+      return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+    }
+
+    // Save echoes go through the worker spool so ingest can retain a write
+    // receipt, without generating a second observation of the explicit note.
+    if (isExplicitMemoryWrite(toolName)) {
+      return spoolObservation(input, platformSource);
+    }
+
+    const runtime = resolveRuntimeContext();
+    // Phase 1a (cmem-sdk rename): `runtime.runtime` is the canonical `'server'`
+    // value. `runtime-selector.selectRuntime()` continues to accept the legacy
+    // `'server-beta'` literal in settings.json and normalizes it to `'server'`.
+    if (runtime.runtime === 'server') {
+      const event: ServerRecordEventRequest = {
+        projectId: runtime.projectId,
+        contentSessionId: sessionId,
+        platformSource,
+        sourceType: 'hook',
+        eventType: 'tool_use',
+        occurredAtEpoch: Date.now(),
+        payload: {
+          tool_name: toolName,
+          tool_input: toolInput,
+          tool_response: toolResponse,
+          cwd,
+          agentId: input.agentId,
+          agentType: input.agentType,
+          platformSource,
+          tool_use_id: input.toolUseId,
+        },
+      };
+      try {
+        await runtime.client.recordEvent(event);
+        logger.debug('HOOK', 'Observation sent successfully via server', { toolName });
+        return { continue: true, suppressOutput: true };
+      } catch (error: unknown) {
+        if (isServerClientError(error) && error.isFallbackEligible()) {
+          logServerFallback(error.kind, { status: error.status, message: error.message, route: '/v1/events' });
+          // fall through to the worker spool
+        } else {
+          logger.error('HOOK', 'Server event failed (non-recoverable)', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
+        }
+      }
+    }
+
+    return spoolObservation(input, platformSource);
+  },
+};

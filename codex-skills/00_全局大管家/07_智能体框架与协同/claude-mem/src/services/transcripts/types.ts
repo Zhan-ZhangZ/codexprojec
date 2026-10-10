@@ -1,0 +1,101 @@
+export type FieldSpec =
+  | string
+  | {
+      path?: string;
+      value?: unknown;
+      coalesce?: FieldSpec[];
+      default?: unknown;
+    };
+
+export interface MatchRule {
+  path?: string;
+  equals?: unknown;
+  not_equals?: unknown;
+  in?: unknown[];
+  not_in?: unknown[];
+  contains?: string;
+  not_contains?: string;
+  /** Literal prefix test. Use this, not `not_contains`, to reject a host-injected preamble. */
+  starts_with?: string;
+  /** Rejects only when the value STARTS with this; a mention elsewhere still matches. */
+  not_starts_with?: string;
+  exists?: boolean;
+  regex?: string;
+  /**
+   * Every sub-rule must match. Each sub-rule carries its own `path`, which is
+   * the only way to constrain one field by another (e.g. `role == "user"` AND
+   * the text is not an injected preamble). Sub-rules may nest.
+   */
+  all?: MatchRule[];
+  /** At least one sub-rule must match. Each sub-rule carries its own `path`. */
+  any?: MatchRule[];
+}
+
+export type EventAction =
+  | 'session_init'
+  | 'session_context'
+  | 'user_message'
+  | 'assistant_message'
+  | 'tool_use'
+  | 'tool_result'
+  | 'observation'
+  | 'file_edit'
+  | 'session_end';
+
+export interface SchemaEvent {
+  name: string;
+  match?: MatchRule;
+  action: EventAction;
+  fields?: Record<string, FieldSpec>;
+}
+
+export interface TranscriptSchema {
+  name: string;
+  version?: string;
+  description?: string;
+  eventTypePath?: string;
+  sessionIdPath?: string;
+  cwdPath?: string;
+  projectPath?: string;
+  events: SchemaEvent[];
+}
+
+export interface WatchContextConfig {
+  mode: 'agents';
+  path?: string;
+  updateOn?: Array<'session_start' | 'session_end'>;
+}
+
+export interface WatchTarget {
+  name: string;
+  path: string;
+  schema: string | TranscriptSchema;
+  workspace?: string;
+  project?: string;
+  context?: WatchContextConfig;
+  startAtEnd?: boolean;
+  /**
+   * Set when native platform hooks already capture this watch's top-level
+   * sessions. The watcher then ingests ONLY sessions it can positively identify
+   * as subagent rollouts (see subagentSource), so top-level sessions stay owned
+   * by the hooks and nothing is captured twice.
+   */
+  subagentOnly?: boolean;
+  /**
+   * How to recognise a subagent session from a transcript entry: the session
+   * is a subagent once a line has a value at `path`. Codex writes it on a
+   * subagent rollout's first (session_meta) line as
+   * payload.source = {"subagent":{"thread_spawn":{…}}}; a top-level session's
+   * source is a plain string ("cli", "vscode"), so the path is absent there.
+   */
+  subagentSource?: { path: string };
+  /** Grok Bot (and similar) host agent id, carried from the watch path into ingest. */
+  agentId?: string;
+}
+
+export interface TranscriptWatchConfig {
+  version: 1;
+  schemas?: Record<string, TranscriptSchema>;
+  watches: WatchTarget[];
+  stateFile?: string;
+}

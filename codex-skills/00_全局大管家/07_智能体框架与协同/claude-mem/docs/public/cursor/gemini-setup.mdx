@@ -1,0 +1,86 @@
+---
+title: "Cursor + Gemini Setup"
+description: "Use Claude-Mem in Cursor with your Gemini API key"
+---
+
+# Cursor + Gemini Setup
+
+Use your Google Gemini key so memory notes run off-plan (they do not spend your Claude subscription). You do **not** clone the repo.
+
+## Install
+
+1. Get a key at [Google AI Studio](https://aistudio.google.com/apikey).
+2. Run:
+
+```bash
+npx claude-mem install
+```
+
+Pick **Cursor**, then pick **Gemini** as the memory provider and paste the key.
+
+<Warning>
+`npm install -g claude-mem` is the library only. Always install with `npx claude-mem install`.
+</Warning>
+
+### Settings by hand (optional)
+
+```bash
+mkdir -p ~/.claude-mem
+cat > ~/.claude-mem/settings.json << 'EOF'
+{
+  "CLAUDE_MEM_PROVIDER": "gemini",
+  "CLAUDE_MEM_GEMINI_API_KEY": "YOUR_GEMINI_API_KEY"
+}
+EOF
+```
+
+Then re-run `npx claude-mem install` so Cursor hooks and the worker are in place. Do not restart a healthy worker.
+
+## Restart Cursor
+
+Close and reopen Cursor so hooks load.
+
+## Verify
+
+Health: `curl -s "http://127.0.0.1:${CLAUDE_MEM_WORKER_PORT}/api/health"` (port also in `~/.claude-mem/.worker.port`). Open the worker URL from install to see notes.
+
+## Models
+
+| Model | Notes |
+|-------|-------|
+| `gemini-flash-latest` | **Default.** Current GA Flash |
+| `gemini-flash-lite-latest` | Current GA Flash-Lite |
+| `gemini-3.5-flash` | Pinned GA Flash |
+| `gemini-3.1-flash-lite` | Pinned GA Flash-Lite |
+
+To pin a model:
+
+```json
+{
+  "CLAUDE_MEM_PROVIDER": "gemini",
+  "CLAUDE_MEM_GEMINI_API_KEY": "your-key",
+  "CLAUDE_MEM_GEMINI_MODEL": "gemini-3.5-flash"
+}
+```
+
+Rate limits depend on the model and whether billing is on in Google Cloud. Claude-mem spaces requests when billing is off. To turn off that extra throttle after you enable Google billing:
+
+```json
+{
+  "CLAUDE_MEM_GEMINI_BILLING_ENABLED": true
+}
+```
+
+## Troubleshooting
+
+**Key not configured** — `cat ~/.claude-mem/settings.json` should show `CLAUDE_MEM_PROVIDER` `gemini` and your key.
+
+**HTTP 429** — wait, enable Google billing, or use [OpenRouter](/cursor/openrouter-setup).
+
+**Worker idle** — read `~/.claude-mem/logs/worker-YYYY-MM-DD.log`. Do not restart a healthy worker (the note queue is in memory).
+
+## Next steps
+
+- [Cursor Integration](/cursor) — default CMEM Pro install
+- [OpenRouter](/cursor/openrouter-setup)
+- [Configuration](/configuration)

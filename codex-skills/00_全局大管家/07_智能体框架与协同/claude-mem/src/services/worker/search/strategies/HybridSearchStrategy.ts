@@ -1,0 +1,135 @@
+
+import {
+  StrategySearchOptions,
+  SEARCH_CONSTANTS,
+  ObservationSearchResult,
+  SessionSummarySearchResult
+} from '../types.js';
+import { ChromaSync } from '../../../sync/ChromaSync.js';
+import { SessionStore } from '../../../sqlite/SessionStore.js';
+import { SessionSearch } from '../../../sqlite/SessionSearch.js';
+import { logger } from '../../../../utils/logger.js';
+import { normalizePlatformSource } from '../../../../shared/platform-source.js';
+import { buildProjectWhereFilter, projectReadKeysFor } from '../project-where-filter.js';
+
+export class HybridSearchStrategy {
+  constructor(
+    private chromaSync: ChromaSync,
+    private sessionStore: SessionStore,
+    private sessionSearch: SessionSearch
+  ) {}
+
+  async findByFile(
+    filePath: string,
+    options: StrategySearchOptions
+  ): Promise<{
+    observations: ObservationSearchResult[];
+    sessions: SessionSummarySearchResult[];
+    usedChroma: boolean;
+  }> {
+    const { limit = SEARCH_CONSTANTS.DEFAULT_LIMIT, offset, project, projects, platformSource, dateRange, orderBy, isFolder } = options;
+    // The keys SearchManager scopes by, resolved once: the SQLite lookup that
+    // decides which rows match the file, the Chroma ranking and the hydration
+    // all read the same projects.
+    const readKeys = projectReadKeysFor(this.sessionStore, project, projects);
+    const projectScope = readKeys.length > 0 ? { projects: readKeys } : {};
+    const filterOptions = { limit, offset, ...projectScope, platformSource, dateRange, orderBy, isFolder };
+
+    logger.debug('SEARCH', 'HybridSearchStrategy: findByFile', { filePath });
+
+    const metadataResults = this.sessionSearch.findByFile(filePath, filterOptions);
+    const sessions = metadataResults.sessions;
+
+    if (metadataResults.observations.length === 0) {
+      return { observations: [], sessions, usedChroma: false };
+    }
+
+    const ids = metadataResults.observations.map(obs => obs.id);
+
+    return await this.rankAndHydrateForFile(filePath, ids, metadataResults.observations, { limit, readKeys, platformSource, orderBy }, sessions);
+  }
+
+  private async rankAndHydrateForFile(
+    filePath: string,
+    metadataIds: number[],
+    fallbackObservations: ObservationSearchResult[],
+    options: { limit: number; readKeys: string[]; platformSource?: string; orderBy?: StrategySearchOptions['orderBy'] },
+    sessions: SessionSummarySearchResult[]
+  ): Promise<{ observations: ObservationSearchResult[]; sessions: SessionSummarySearchResult[]; usedChroma: boolean }> {
+    const chromaResults = await this.chromaSync.queryChroma(
+      filePath,
+      Math.min(metadataIds.length, SEARCH_CONSTANTS.CHROMA_BATCH_SIZE),
+      // Ranks only: the file matches came from SQLite, scoped by the same keys.
+      this.buildObservationWhereFilter(options.readKeys, options.platformSource)
+    );
+
+    const rankedIds = this.intersectWithRanking(metadataIds, chromaResults.ids);
+
+    if (rankedIds.length > 0) {
+      for (const id of metadataIds) {
+        if (!rankedIds.includes(id)) {
+          rankedIds.push(id);
+        }
+      }
+
+      const dateOrder = options.orderBy === 'date_asc' || options.orderBy === 'date_desc' ? options.orderBy : undefined;
+      const observations = this.sessionStore.getObservationsByIds(rankedIds, {
+        orderBy: dateOrder ?? 'relevance',
+        limit: options.limit,
+        ...(options.readKeys.length > 0 ? { projects: options.readKeys } : {}),
+        platformSource: options.platformSource
+      });
+      if (!dateOrder) {
+        observations.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id));
+      }
+
+      return { observations, sessions, usedChroma: true };
+    }
+
+    return {
+      observations: this.sortMetadataFallback(fallbackObservations, options.limit, options.orderBy),
+      sessions,
+      usedChroma: false
+    };
+  }
+
+  private sortMetadataFallback(
+    observations: ObservationSearchResult[],
+    limit: number,
+    orderBy: StrategySearchOptions['orderBy'] = 'date_desc'
+  ): ObservationSearchResult[] {
+    const sorted = [...observations].sort((a, b) => {
+      const epochDelta = a.created_at_epoch - b.created_at_epoch;
+      if (epochDelta !== 0) {
+        return orderBy === 'date_asc' ? epochDelta : -epochDelta;
+      }
+      const idDelta = a.id - b.id;
+      return orderBy === 'date_asc' ? idDelta : -idDelta;
+    });
+    return sorted.slice(0, limit);
+  }
+
+  private buildObservationWhereFilter(readKeys: string[], platformSource?: string): Record<string, any> {
+    const filters: Array<Record<string, any>> = [{ doc_type: 'observation' }];
+    if (readKeys.length > 0) {
+      filters.push(buildProjectWhereFilter(readKeys));
+    }
+    if (platformSource) {
+      filters.push({ platform_source: normalizePlatformSource(platformSource) });
+    }
+    return filters.length === 1 ? filters[0] : { $and: filters };
+  }
+
+  private intersectWithRanking(metadataIds: number[], chromaIds: number[]): number[] {
+    const metadataSet = new Set(metadataIds);
+    const rankedIds: number[] = [];
+
+    for (const chromaId of chromaIds) {
+      if (metadataSet.has(chromaId) && !rankedIds.includes(chromaId)) {
+        rankedIds.push(chromaId);
+      }
+    }
+
+    return rankedIds;
+  }
+}

@@ -1,0 +1,200 @@
+---
+title: "Architecture Overview"
+description: "System components and data flow in Claude-Mem"
+---
+
+# Architecture Overview
+
+## System Components
+
+Claude-Mem operates as a Claude Code plugin with the following core components:
+
+1. **Plugin Hooks** - Lifecycle events (Setup version-check + 5 lifecycle hooks: SessionStart, UserPromptSubmit, PreToolUse for `Read`, PostToolUse, Stop)
+2. **Worker Service** - Express HTTP API on a per-user port; processes observations via the Claude Agent SDK (or Gemini / OpenRouter)
+3. **Database Layer** - SQLite + FTS5 (and optional Chroma for semantic search)
+4. **Search Tools** - HTTP API + the `mem-search` skill / MCP server for progressive disclosure search
+5. **Viewer UI** - React-based real-time memory stream served by the worker
+
+## Technology Stack
+
+| Layer                  | Technology                                |
+|------------------------|-------------------------------------------|
+| **Language**           | TypeScript (ES2022, ESNext modules)       |
+| **Runtime**            | Node.js 20+ and Bun ≥ 1.0                 |
+| **Database**           | SQLite 3 with bun:sqlite driver           |
+| **Vector Store**       | Chroma (optional, for semantic search)    |
+| **HTTP Server**        | Express.js 5                              |
+| **Real-time**          | Server-Sent Events (SSE)                  |
+| **UI Framework**       | React + TypeScript                        |
+| **AI SDK**             | @anthropic-ai/claude-agent-sdk (or Gemini / OpenRouter) |
+| **Build Tool**         | esbuild (bundles TypeScript)              |
+| **Process Manager**    | Bun                                       |
+| **Testing**            | `bun test`                                 |
+
+## Data Flow
+
+### Memory Pipeline
+```
+Hook (stdin) → Database → Worker Service → SDK Processor → Database → Next Session Hook
+```
+
+1. **Input**: Claude Code sends tool execution data via stdin to hooks
+2. **Storage**: Hooks write observations to SQLite database
+3. **Processing**: Worker service reads observations, processes via SDK
+4. **Output**: Processed summaries written back to database
+5. **Retrieval**: Next session's context hook reads summaries from database
+
+### Search Pipeline
+```
+User Query → MCP Tools Invoked → HTTP API → SessionSearch Service → FTS5 Database → Search Results → Claude
+```
+
+1. **User Query**: User asks naturally: "What bugs did we fix?"
+2. **MCP Tools Invoked**: Claude recognizes intent and invokes MCP search tools
+3. **HTTP API**: MCP tools call HTTP endpoint (e.g., `/api/search/observations`)
+4. **SessionSearch**: Worker service queries FTS5 virtual tables
+5. **Format**: Results formatted and returned via MCP
+6. **Return**: Claude presents formatted results to user
+
+Uses 3-layer progressive disclosure: search → timeline → get_observations
+
+## Session Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 0. Setup Hook Fires (version-check.js)                          │
+│    Installs missing plugin dependencies (bun install), records  │
+│    .install-version once complete. Always exits 0.              │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Session Starts → Worker-start, then Context Hook             │
+│    Starts Bun worker if needed, injects context from previous   │
+│    sessions (configurable observation count)                    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. User Types Prompt → UserPromptSubmit Hook Fires              │
+│    Creates session in database, saves raw user prompt for FTS5  │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 3. Claude Uses Tools → PostToolUse Hook Fires (100+ times)      │
+│    Captures tool executions, sends to worker for AI compression │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 4. Worker Processes → Claude Agent SDK Analyzes                 │
+│    Extracts structured learnings via iterative AI processing    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 5. Claude Stops → Summary Hook Fires                            │
+│    Generates final summary with request, completions, learnings │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 6. Session Ends → Cleanup Hook Fires                            │
+│    Marks session complete (graceful, not DELETE), ready for     │
+│    next session context. Skips on /clear to preserve ongoing    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Directory Structure
+
+```
+claude-mem/
+├── src/
+│   ├── hooks/                  # TypeScript hook implementations (built via esbuild)
+│   ├── sdk/                    # Claude Agent SDK integration
+│   ├── services/
+│   │   ├── worker-service.ts   # Express HTTP + SSE service (worker entry point)
+│   │   ├── sync/ChromaSync.ts  # Optional Chroma vector index
+│   │   └── sqlite/             # SQLite + FTS5 storage layer
+│   ├── ui/viewer/              # React + TypeScript web viewer
+│   ├── shared/                 # Shared utilities (paths, settings defaults)
+│   └── utils/                  # Logging, platform, tag-stripping helpers
+│
+├── scripts/                    # Build + utility scripts
+│
+├── plugin/                     # Plugin distribution (synced to marketplace)
+│   ├── .claude-plugin/plugin.json
+│   ├── hooks/hooks.json        # Hook registration (Setup + 5 lifecycle hooks)
+│   ├── scripts/                # Built executables
+│   │   ├── version-check.js    # Setup phase: dependency check + install marker
+│   │   ├── bun-runner.js       # Resolves Bun and runs worker-service.cjs
+│   │   ├── worker-service.cjs  # Worker daemon + lifecycle hook dispatcher
+│   │   ├── worker-cli.js       # CLI shim
+│   │   ├── worker-wrapper.cjs  # Process wrapper
+│   │   ├── mcp-server.cjs      # MCP search server
+│   │   ├── statusline-counts.js
+│   │   └── context-generator.cjs
+│   ├── skills/                 # Agent skills (mem-search, make-plan, do, etc.)
+│   └── ui/viewer.html          # Self-contained React bundle
+│
+├── tests/                      # Test suite (`bun test`)
+├── docs/                       # Mintlify documentation
+└── openclaw/                   # OpenClaw integration plugin
+```
+
+## Component Details
+
+### 1. Plugin Hooks
+
+The plugin registers a Setup-phase `version-check.js` plus five lifecycle hooks. Each lifecycle event invokes `bun-runner.js` to spawn `worker-service.cjs` with a `hook claude-code <event>` argument; the worker process is the single dispatcher for all hook logic. Events:
+
+- **Setup** → `version-check.js` (installs missing plugin dependencies, then records the install marker)
+- **SessionStart** → start worker, then `hook claude-code context` (context injection)
+- **UserPromptSubmit** → `hook claude-code session-init`
+- **PreToolUse** (matcher `Read`) → `hook claude-code file-context`
+- **PostToolUse** (matcher `*`) → `hook claude-code observation`
+- **Stop** → `hook claude-code summarize` (summary generation)
+
+The runtime install (Bun, uv, `bun install`) is performed by `npx claude-mem install` / `npx claude-mem repair` with a visible installer spinner. For plugin-marketplace installs, the Setup hook runs `bun install` itself when the plugin's dependencies are missing, and writes the `.install-version` marker once they are complete.
+
+See [Plugin Hooks](/architecture/hooks) for detailed hook documentation.
+
+### 2. Worker Service
+Express.js HTTP server on a per-user port (default `37700 + (uid % 100)`, override via `CLAUDE_MEM_WORKER_PORT`) with:
+- Search HTTP API endpoints
+- Viewer UI HTTP/SSE endpoints
+- Async observation processing via the Claude Agent SDK (or Gemini / OpenRouter)
+- Real-time updates via Server-Sent Events
+- Auto-managed by Bun
+
+See [Worker Service](/architecture/worker-service) for HTTP API and endpoints.
+
+### 3. Database Layer
+SQLite3 with bun:sqlite driver featuring:
+- FTS5 virtual tables for full-text search
+- SessionStore for CRUD operations
+- SessionSearch for FTS5 queries
+- Location: `~/.claude-mem/claude-mem.db`
+
+See [Database Architecture](/architecture/database) for schema and FTS5 search.
+
+### 4. mem-search Skill (v5.4.0+)
+Skill-based search with progressive disclosure providing 10 search operations:
+- Search observations, sessions, prompts (full-text FTS5)
+- Filter by type, concept, file
+- Get recent context, timeline, timeline by query
+- API help documentation
+
+**Token Savings**: ~2,250 tokens per session vs MCP approach
+- Skill frontmatter: ~250 tokens (loaded at session start)
+- Full instructions: ~2,500 tokens (loaded on-demand when invoked)
+- HTTP API endpoints instead of MCP tools
+
+**Skill Enhancement (v5.5.0)**: Renamed from "search" to "mem-search" for better scope differentiation. Effectiveness increased from 67% to 100% with enhanced triggers and comprehensive documentation.
+
+See [Search Architecture](/architecture/search-architecture) for technical details and examples.
+
+### 5. Viewer UI
+React + TypeScript web interface served by the worker on its configured `CLAUDE_MEM_WORKER_PORT` featuring:
+- Real-time memory stream via Server-Sent Events
+- Infinite scroll pagination with automatic deduplication
+- Project filtering and settings persistence
+- GPU-accelerated animations
+- Self-contained HTML bundle (viewer.html)
+
+Built with esbuild into a single file deployment.
