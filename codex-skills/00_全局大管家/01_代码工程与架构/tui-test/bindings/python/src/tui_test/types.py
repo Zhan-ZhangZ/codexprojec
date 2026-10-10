@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+
+Color = Union[str, int]
+Backend = Literal["alacritty", "ghostty", "rio", "xtermjs"]
+MouseButton = Literal["left", "middle", "right"]
+#: ``"none"`` is a value, not an absence: an un-underlined cell reports it.
+UnderlineStyle = Literal["none", "single", "double", "curly", "dotted", "dashed"]
+RecordingFormat = Literal["apng", "gif", "mp4", "cast"]
+TraceMode = Literal["off", "on-failure", "on"]
+LocatorDirection = Literal["within", "after", "before"]
+
+
+class OpenResult(TypedDict):
+    shell_pid: Optional[int]
+    session: str
+    ready: bool
+    recording: str
+
+
+class Cursor(TypedDict):
+    x: int
+    y: int
+    visible: bool
+    shape: str
+    color: str
+
+
+@dataclass
+class Colors:
+    foreground: Optional[str] = None
+    background: Optional[str] = None
+    cursor: Optional[str] = None
+    black: Optional[str] = None
+    red: Optional[str] = None
+    green: Optional[str] = None
+    yellow: Optional[str] = None
+    blue: Optional[str] = None
+    magenta: Optional[str] = None
+    cyan: Optional[str] = None
+    white: Optional[str] = None
+    bright_black: Optional[str] = None
+    bright_red: Optional[str] = None
+    bright_green: Optional[str] = None
+    bright_yellow: Optional[str] = None
+    bright_blue: Optional[str] = None
+    bright_magenta: Optional[str] = None
+    bright_cyan: Optional[str] = None
+    bright_white: Optional[str] = None
+
+
+@dataclass
+class Profile:
+    scrollback: Optional[int] = None
+    colors: Optional[Colors] = None
+
+
+@dataclass
+class Timeouts:
+    text: Optional[int] = None
+    idle: Optional[int] = None
+    command: Optional[int] = None
+    exit: Optional[int] = None
+    ready: Optional[int] = None
+
+
+@dataclass
+class AutomaticRecording:
+    directory: Optional[str] = None
+
+@dataclass
+class TraceOptions:
+    mode: Optional[TraceMode] = None
+    directory: Optional[str] = None
+
+
+@dataclass
+class Cell:
+    x: int
+    y: int
+    #: The cell's grapheme; ``" "`` when blank, ``""`` for the second column
+    #: of a double-width character.
+    char: str
+    fg: Color
+    bg: Color
+    bold: bool
+    dim: bool
+    italic: bool
+    inverse: bool
+    invisible: bool
+    strike: bool
+    #: Always ``False`` from the alacritty and rio backends, which cannot report blink.
+    blink: bool
+    #: Shorthand for ``underline_style != "none"``.
+    underline: bool
+    underline_style: UnderlineStyle
+    #: ``"default"`` means the underline follows the text color. Tracked
+    #: independently of ``underline_style``, so a cell that set SGR 58 without
+    #: an underline still reports the color it would use.
+    underline_color: Color
+    #: The OSC 8 URI this cell links to; ``""`` when it links nowhere.
+    link: str = ""
+    #: The link's ``id=`` parameter; ``""`` when the sequence carried none.
+    #: Identifies a link across a wrap rather than describing where it points:
+    #: a program that wraps its own links tags each run with a shared ``id=``.
+    #:
+    #: Backend-dependent. Ghostty reports a link's URI and nothing else, so
+    #: this is always empty there and no locator matches on it.
+    link_id: str = ""
+
+
+@dataclass
+class BellEvent:
+    sequence: int
+    elapsed_ms: int
+
+
+@dataclass
+class TextStyle:
+    foreground: Optional[str] = None
+    background: Optional[str] = None
+    bold: Optional[bool] = None
+    dim: Optional[bool] = None
+    italic: Optional[bool] = None
+    underline_style: Optional[UnderlineStyle] = None
+    underline_color: Optional[str] = None
+    inverse: Optional[bool] = None
+    hidden: Optional[bool] = None
+    strikethrough: Optional[bool] = None
+    blink: Optional[bool] = None
+
+
+@dataclass
+class TextPosition:
+    row: int
+    column: int
+
+
+@dataclass
+class TextSpan:
+    row: int
+    start: int
+    end: int
+
+
+@dataclass
+class TextMatch:
+    text: str
+    start: TextPosition
+    end: TextPosition
+    spans: List[TextSpan]
+
+    @classmethod
+    def from_dict(cls, value: Dict[str, Any]) -> "TextMatch":
+        return cls(
+            text=value["text"],
+            start=TextPosition(**value["start"]),
+            end=TextPosition(**value["end"]),
+            spans=[TextSpan(**span) for span in value["spans"]],
+        )
+
+
+@dataclass
+class State:
+    cols: int
+    rows: int
+    cursor: Cursor
+    title: Optional[str]
+    cwd: Optional[str]
+    last_command: Optional[str]
+    last_exit: Optional[int]
+    exit_signal: Optional[str]
+    exited: Optional[int]
+    ready: bool
+    timeouts: Timeouts
+    text: str
+    session_shell: Optional[str]
+    bell_count: int = 0
+    modes: Dict[str, bool] = field(default_factory=dict)
+    mouse_mode: str = "none"
+    colors: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "State":
+        return cls(
+            cols=d.get("cols", 0),
+            rows=d.get("rows", 0),
+            cursor=d.get("cursor", {"x": 0, "y": 0}),
+            title=d.get("title"),
+            cwd=d.get("cwd"),
+            last_command=d.get("last_command"),
+            last_exit=d.get("last_exit"),
+            exit_signal=d.get("exit_signal"),
+            exited=d.get("exited"),
+            ready=d.get("ready", False),
+            bell_count=d.get("bell_count", 0),
+            modes=d.get("modes", {}),
+            mouse_mode=d.get("mouse_mode", "none"),
+            colors=d.get("colors", {}),
+            timeouts=Timeouts(**d["timeouts"]),
+            text=d.get("text", ""),
+            session_shell=d.get("session_shell"),
+        )

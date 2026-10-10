@@ -1,0 +1,17 @@
+{
+  "project": "wechat-article-skills",
+  "maintainer_voice": true,
+  "source_commit": "ea3f6c731c5801e4d28c2a7d057b3d7e57969b52",
+  "source_url": "https://github.com/aiworkskills/wechat-article-skills/commit/ea3f6c731c5801e4d28c2a7d057b3d7e57969b52",
+  "project_url": "https://github.com/aiworkskills/wechat-article-skills",
+  "facts": [
+    {"id":"F1","claim":"generate与batch默认保留图片API返回的完整数据，不再自动居中裁切。"},
+    {"id":"F2","claim":"--fit crop或提示词frontmatter中的fit: crop可以显式启用居中裁切；命令行优先。"},
+    {"id":"F3","claim":"保留完整图片不保证返回尺寸符合发布位要求。"},
+    {"id":"F4","claim":"保留模式不能修复API返回图片里已经存在的错字或缺字。"},
+    {"id":"F5","claim":"这项更新是脚本后处理策略的修改，不是新的图像模型。"},
+    {"id":"F6","claim":"改动已进入上述公开提交；下方平台稿是示例，不代表已在对应账号发布。"}
+  ],
+  "unknown": ["平台审核结果", "阅读与转化效果", "单次模型费用", "所有服务商对比例参数的遵循情况"],
+  "do_not_claim": ["零成本生图", "自动修复错字", "适配所有平台", "提升阅读量", "新模型上线", "所有渠道已发布"]
+}
