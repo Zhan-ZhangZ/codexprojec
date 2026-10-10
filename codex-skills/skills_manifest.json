@@ -1826,5 +1826,27 @@
       "negative-space",
       "typography"
     ]
+  },
+  {
+    "name": "huashu-art-motion",
+    "description": "艺术与视频动画：拆解复刻动画；代码画35种艺术风格并让画活；9种解说动画语法，8种可按口播参数渲片段；含口播整片参考代码及框景检查；人用AI生帧；可选已有录音、系统声音与语音复刻，按需配置。",
+    "category": "05_多媒体与设计资产",
+    "folder": "huashu-art-motion",
+    "relative_path": "./00_全局大管家/05_多媒体与设计资产/huashu-art-motion",
+    "aliases": [
+      "花叔艺术动画",
+      "huashu art motion",
+      "艺术风格动画",
+      "代码画动画",
+      "解说动画语法"
+    ],
+    "tags": [
+      "animation",
+      "video",
+      "art-styles",
+      "motion-graphics",
+      "code-driven-animation",
+      "chinese-content"
+    ]
   }
 ]
