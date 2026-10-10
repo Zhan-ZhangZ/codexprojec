@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: "sloptrim: a deterministic prose-quality detector and always-on writing contract"
+message: "If you use this software or its published measurements, please cite it. This is a pre-1.0 release; interfaces and score calibration may still change."
+type: software
+authors:
+  - family-names: Hadi
+    given-names: Seyed Ehsan
+repository-code: "https://github.com/seyedehsanhadi/sloptrim"
+license: Apache-2.0
+version: 0.9.4
+date-released: "2026-10-05"
+keywords:
+  - writing quality
+  - text analysis
+  - stylometry
+  - large language models
+  - research software
+abstract: >-
+  sloptrim is a deterministic local prose-pattern linter and writing contract.
+  It documents 71 patterns, automates 62 of them, and reports which patterns
+  occur without claiming who or what wrote the document. 50 can move the
+  score; 12 are reported as writing advice. The runtime uses standard-library
+  Python and Node.js and opens no network connection. On five public matched
+  Human Detectors arms with 30 human and 30 machine articles each, its score
+  achieved ROC-AUC 0.762 to 0.946. These are ranking results, not authorship or
+  per-document accuracy claims. The benchmark's pinned source, aggregate results,
+  confidence intervals, and offline reproduction harness ship with the repository.
